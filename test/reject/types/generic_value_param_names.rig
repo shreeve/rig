@@ -1,0 +1,41 @@
+# A generic type's value parameter needs a name of its own, as a type
+# parameter does: not a built-in type, a module-level declaration,
+# another parameter, or a method of the type, and no local or parameter
+# inside the type may reuse it.
+
+LIMIT =! 4
+
+struct A[T, Int: Int]
+  items: [2]T
+
+struct B[T, LIMIT: Int]
+  items: [2]T
+
+struct C[T, n: Int, n: Int]
+  items: [n]T
+
+struct D[T, n: Int]
+  items: [n]T
+
+  fun n() -> Int
+    1
+
+struct E[T, n: Int]
+  items: [n]T
+
+  fun get(n: Int) -> Int
+    n
+
+  fun twice() -> Int
+    n = 2
+    n
+
+sub main()
+  print(LIMIT)
+
+# error: 8:13: generic parameter `Int` has the name of a built-in type
+# error: 11:13: generic parameter `LIMIT` has the same name as the module-level declaration `LIMIT`
+# error: 14:21: duplicate generic parameter `n` on `C`
+# error: 17:13: generic parameter `n` has the same name as a method of the type
+# error: 26:11: parameter `n` has the name of the generic parameter `n`
+# error: 30:5: local `n` has the name of the generic parameter `n`

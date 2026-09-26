@@ -1,0 +1,19 @@
+# `module.NAME` as an array length names a public integer constant of
+# the module; anything else is reported for what it is.
+
+use lib
+
+sub main()
+  a: [lib.N]Int = [0; 3]
+  b: [lib.nope]Int = [0; 3]
+  c: [nolib.X]Int = [0; 3]
+  d: [lib.S]Int = [0; 3]
+  e: [lib.F]Int = [0; 3]
+  f: [lib.P]Int = [0; 4]
+  print(a, b, c, d, e, f)
+
+# error: 7:7: `lib.N` is not public; mark it `pub` in module `lib`
+# error: 8:7: no member `nope` in module `lib`
+# error: 9:7: use of unbound name `nolib`
+# error: 10:7: `lib.S` is a type; an array length is an integer
+# error: 11:7: an array length is an integer; `lib.F` is a `Float`

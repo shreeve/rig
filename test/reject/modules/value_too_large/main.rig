@@ -1,0 +1,9 @@
+# A type from another module is sized as it is declared there.
+
+use lib
+
+sub main()
+  a: [3]lib.Big? = [none, none, none]
+  print(a.len)
+
+# error: 6:6: `[3]lib.Big?` takes 12000003 bytes; a value takes at most 8388608 (8 MiB)

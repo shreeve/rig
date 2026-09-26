@@ -1,0 +1,36 @@
+# A compile-time integer parameter that a parameter's or the result's
+# type holds as an array length is inferred, as a type parameter is:
+# from the arguments, or from the type expected of the result.
+
+fun sum[n: Int](xs: [n]Int) -> Int
+  total = 0
+  for x in xs
+    total += x
+  total
+
+fun first[n: Int](xs: ?[n]Int) -> Int
+  xs[0]
+
+fun zeros[n: Int] -> [n]Int
+  [0; n]
+
+fun pair[n: Int](a: [n]Int, b: [n]Int) -> Int
+  sum(a) * sum(b)
+
+# A generic body passes its own parameter on, inferred or named.
+fun twice[n: Int](xs: [n]Int) -> Int
+  k =! n
+  ys: [k]Int = xs
+  sum(ys) + sum[k](xs) + sum[n](xs)
+
+sub main()
+  print(sum([1, 2, 3]))
+  a = [4, 5, 6, 7]
+  print(sum(a), first(?a), twice(a), pair([1, 2], [3, 4]))
+  b: [3]Int = zeros()
+  print(b)
+
+# expect:
+# 6
+# 22 4 66 21
+# [0, 0, 0]

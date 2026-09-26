@@ -1,0 +1,11 @@
+# A generic body that calls itself with a larger length would have no
+# last instance; arithmetic on a compile-time parameter is rejected, so
+# it cannot.
+
+fun grow[n: Int](xs: [n]Int) -> Int
+  grow([0; n + 1])
+
+sub main()
+  print(grow([1]))
+
+# error: 6:12: an array length `n + 1` does arithmetic on a compile-time parameter

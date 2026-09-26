@@ -329,27 +329,28 @@ const SymbolResolver = struct {
         var ids: std.ArrayListUnmanaged(SymbolId) = .empty;
         defer ids.deinit(self.ctx.allocator);
         for (params.items(), 0..) |p, i| {
-            if (p.isKind(.@":")) {
-                try self.ctx.errAt(p, "a generic type's parameters are types; a compile-time value parameter (`{s}: T`) is not supported on a type", .{sema.paramName(self.ctx.source, p) orelse "n"});
-                continue;
-            }
-            const pname = identAt(self.ctx.source, p) orelse continue;
+            const pnode = sema.paramNameNode(p) orelse continue;
+            const pname = identAt(self.ctx.source, pnode) orelse continue;
             const dup = for (params.items()[0..i]) |e| {
-                if (std.mem.eql(u8, identAt(self.ctx.source, e) orelse "", pname)) break true;
+                if (std.mem.eql(u8, sema.paramName(self.ctx.source, e) orelse "", pname)) break true;
             } else false;
             if (dup) {
-                try self.ctx.errAt(p, "duplicate generic parameter `{s}` on `{s}`", .{ pname, name });
+                try self.ctx.errAt(pnode, "duplicate generic parameter `{s}` on `{s}`", .{ pname, name });
                 continue;
             }
-            // Detached: reached through the type's `type_params`.
+            // Detached: reached through the type's `type_params`. A bare
+            // name is a type parameter; `n: Int` a compile-time value,
+            // whose type `resolveNominal` resolves.
+            const value = p.isKind(.@":");
             const pid = try self.ctx.addSymbol(.{
                 .name = pname,
-                .kind = .generic_param,
+                .kind = if (value) .param else .generic_param,
                 .ty = self.ctx.types.unknown_id,
-                .decl_pos = srcPos(p, 0),
-                .scope = self.scope,
+                .decl_pos = srcPos(pnode, 0),
+                .scope = if (value) sema.scope_invalid else self.scope,
+                .flags = .{ .comptime_known = value },
             });
-            try self.ctx.recordName(p, pid);
+            try self.ctx.recordName(pnode, pid);
             try ids.append(self.ctx.allocator, pid);
         }
         self.ctx.symbols.items[id].type_params = try self.ctx.arena.allocator().dupe(SymbolId, ids.items);
@@ -459,6 +460,8 @@ const SymbolResolver = struct {
     }
 
     fn walkFor(self: *SymbolResolver, node: Sexp) Error!void {
+        // `for x in !xs` writes `xs` through `x`.
+        if (ir.For.mode(node).tag == .write) try self.markWritten(ir.For.source(node));
         try self.walk(ir.For.source(node));
         {
             const prev = try self.enter(node, .block);
@@ -524,8 +527,51 @@ const SymbolResolver = struct {
 
 pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!void {
     if (!tree.isKind(.module)) return;
+    try foldModuleConsts(ctx, tree);
     var tr: TypeResolver = .{ .ctx = ctx, .scope = module_scope };
     for (ir.Module.decls(tree)) |decl| try tr.resolveDecl(decl);
+}
+
+/// Fold each integer module constant once, in declaration order, into
+/// `const_ints`, so any type in the module can name it. A constant's
+/// value names only earlier constants; one that does not fold, or does
+/// not fit its type, is left for the checker to report.
+fn foldModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
+    for (ir.Module.decls(tree)) |decl| {
+        if (!rig.isModuleConst(decl)) continue;
+        const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+        const target = ir.Set.target(set);
+        if (target != .src or rig.bindingKindOf(ir.Set.op(set)) != .fixed) continue;
+        const id = ctx.symbolOf(target) orelse continue;
+        const ty = ir.Set.type(set);
+        const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse continue;
+        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope };
+        const t = switch (sema.ctFoldBy(ctx, ir.Set.value(set), names)) {
+            .value => |t| t,
+            else => continue,
+        };
+        const int = declared orelse t.int orelse sema.IntInfo{};
+        if (t.int) |i| if (!std.meta.eql(i, int)) continue;
+        if (!sema.intInfoFits(int, t.v)) continue;
+        try ctx.const_ints.put(ctx.allocator, id, .{ .value = t.v, .int = int });
+    }
+}
+
+/// The integer type a constant's annotation names, through aliases;
+/// null for any other type.
+fn declaredIntType(ctx: *const SemContext, node: Sexp) ?sema.IntInfo {
+    var ty = node;
+    for (0..16) |_| {
+        const name = identAt(ctx.source, ty) orelse return null;
+        if (isIntTypeName(name)) {
+            const bits = sizedTypeBits(name) orelse 0;
+            return if (bits == 64 and name[0] == 'I') .{} else .{ .bits = bits, .signed = name[0] != 'U' };
+        }
+        const id = ctx.lookupInScopeOnly(sema.module_scope, name) orelse return null;
+        if (ctx.symbols.items[id].kind != .type_alias) return null;
+        ty = ctx.alias_targets.get(id) orelse return null;
+    }
+    return null;
 }
 
 /// The checks on declared types that need to know what every type holds
@@ -538,8 +584,9 @@ pub fn checkDeclarations(ctx: *SemContext) Error!void {
 
 /// A rule on a spelled type that depends on what other types hold.
 pub const DeferredCheck = union(enum) {
-    /// `[N]T`, with `T` spelled at `node`.
-    array: struct { node: Sexp, elem: TypeId },
+    /// `[N]T` spelled at `at`, with `T` spelled at `node`; `ty` is the
+    /// array type, when its size is still to be checked.
+    array: struct { node: Sexp, elem: TypeId, at: Sexp, ty: ?TypeId },
     /// `Vec[T]`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
@@ -553,6 +600,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
                 try ctx.errAt(c.node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try sema.formatType(ctx, c.elem)});
                 return;
             }
+            if (c.ty) |ty| if (!try sema.checkArrayBytes(ctx, ctx.startOf(c.at), ty)) return;
             // `[N]T` in a generic type: every instance must supply plain
             // data for the parameters the element holds.
             var held: std.ArrayListUnmanaged(SymbolId) = .empty;
@@ -567,10 +615,91 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
     }
 }
 
+/// The values of the constants a compile-time integer in a type names
+/// (`sema.ctFoldBy`): a constant binding, a module constant, and
+/// `module.NAME`, each with its type.
+pub const ConstNames = struct {
+    ctx: *const SemContext,
+    scope: ScopeId,
+    /// The generic type's parameters, which are not constants.
+    type_params: []const SymbolId = &.{},
+    /// In a module constant's declaration, its position: the module
+    /// constants declared from there on are not visible yet.
+    before: u32 = std.math.maxInt(u32),
+
+    pub fn name(self: ConstNames, e: Sexp) ?sema.TypedInt {
+        const text = identAt(self.ctx.source, e) orelse return null;
+        for (self.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, text)) return null;
+        const id = self.ctx.symbolOf(e) orelse self.ctx.lookupBefore(self.scope, text, e.src.pos) orelse return null;
+        const sym = self.ctx.symbols.items[id];
+        if (sym.kind != .local or !sym.flags.fixed or !self.visible(id)) return null;
+        const c = self.ctx.const_ints.get(id) orelse return null;
+        return .{ .v = c.value, .int = c.int };
+    }
+
+    pub fn member(self: ConstNames, e: Sexp) ?sema.TypedInt {
+        const obj = ir.Member.object(e);
+        const id = self.ctx.lookup(self.scope, identAt(self.ctx.source, obj) orelse return null) orelse return null;
+        if (self.ctx.symbols.items[id].kind != .module) return null;
+        const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
+        const fid = foreign.lookupInScopeOnly(sema.module_scope, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+        if (!foreign.symbols.items[fid].flags.is_public) return null;
+        const c = foreign.const_ints.get(fid) orelse return null;
+        return .{ .v = c.value, .int = c.int };
+    }
+
+    /// Whether symbol `id` is visible: a module constant declared at or
+    /// after `before` is not.
+    pub fn visible(self: ConstNames, id: SymbolId) bool {
+        const sym = self.ctx.symbols.items[id];
+        return !(sym.scope == sema.module_scope and sym.kind == .local and sym.decl_pos >= self.before);
+    }
+};
+
+/// "type" when a generic type's parameters are all types, and
+/// "compile-time" when some are values.
+pub fn argsNoun(ctx: *const SemContext, tparams: []const SymbolId) []const u8 {
+    for (tparams) |tp| if (ctx.symbols.items[tp].kind == .param) return "compile-time";
+    return "type";
+}
+
+/// A compile-time argument written as a value: an integer, or arithmetic.
+fn isValueSpelling(source: []const u8, node: Sexp) bool {
+    return switch (node) {
+        .src => sema.isIntLiteralText(identAt(source, node) orelse ""),
+        .list => switch (node.kind() orelse return false) {
+            .neg, .@"+", .@"-", .@"*", .@"/", .@"%" => true,
+            else => false,
+        },
+        else => false,
+    };
+}
+
+/// The type of a literal other than an integer: `Float`, `Bool`, or
+/// `String`.
+fn literalTypeName(text: []const u8) ?[]const u8 {
+    if (sema.isFloatLiteralText(text)) return "Float";
+    if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return "Bool";
+    if (text.len > 0 and (text[0] == '"' or text[0] == '\'')) return "String";
+    return null;
+}
+
+/// The article for a type's name: "an `Int`", "a `Float`".
+pub fn an(name: []const u8) []const u8 {
+    return if (name.len > 0 and std.mem.indexOfScalar(u8, "AEIO", name[0]) != null) "an" else "a";
+}
+
+/// `Int` or a sized integer type's name.
+fn isIntTypeName(name: []const u8) bool {
+    return std.mem.eql(u8, name, "Int") or (sizedTypeBits(name) != null and name[0] != 'F');
+}
+
 pub const TypeResolver = struct {
     ctx: *SemContext,
     scope: ScopeId,
     nominal: NominalContext = NominalContext.none,
+    /// In a module constant's declaration, its position (`ConstNames.before`).
+    const_before: u32 = std.math.maxInt(u32),
 
     fn resolveDecl(self: *TypeResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
@@ -615,26 +744,37 @@ pub const TypeResolver = struct {
         const prev_scope = self.scope;
         defer self.scope = prev_scope;
         if (self.ctx.scopeOf(node)) |s| self.scope = s;
-        const returns = rig.returnType(node);
-        const return_ty = if (returns == .nil) self.ctx.types.void_id else try self.resolveReturnType(returns);
 
-        var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
-        defer param_types.deinit(self.ctx.allocator);
+        // The compile-time parameters first: the other types may use
+        // them (`fun zeros[n: Int] -> [n]Int`).
         var ct_types: std.ArrayListUnmanaged(TypeId) = .empty;
         defer ct_types.deinit(self.ctx.allocator);
-        for ([_]Sexp{ sema.tparamsOf(node), params }, 0..) |group, g| for (group.items()) |p| {
-            const pty = if (g == 0) try self.resolveCtParam(p) else try self.resolveParamType(p);
-            try (if (g == 0) &ct_types else &param_types).append(self.ctx.allocator, pty);
-            if (p == .src and g == 0) continue;
+        var ct_syms: std.ArrayListUnmanaged(SymbolId) = .empty;
+        defer ct_syms.deinit(self.ctx.allocator);
+        for (sema.tparamsOf(node).items()) |p| {
+            const pty = try self.resolveCtParam(p);
+            try ct_types.append(self.ctx.allocator, pty);
+            const pid = self.ctx.symbolOf(sema.paramNameNode(p) orelse p) orelse sema.symbol_invalid;
+            try ct_syms.append(self.ctx.allocator, pid);
+            if (p != .src and pid != sema.symbol_invalid) self.ctx.symbols.items[pid].ty = pty;
+        }
+        const returns = rig.returnType(node);
+        const return_ty = if (returns == .nil) self.ctx.types.void_id else try self.resolveReturnType(returns);
+        var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
+        defer param_types.deinit(self.ctx.allocator);
+        for (params.items()) |p| {
+            const pty = try self.resolveParamType(p);
+            try param_types.append(self.ctx.allocator, pty);
             if (sema.paramNameNode(p)) |pn| {
                 if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
             }
-        };
+        }
         const fn_ty = try self.ctx.intern(.{ .function = .{
             .params = try self.ctx.dupeIds(param_types.items),
             .returns = return_ty,
             .is_sub = is_sub,
             .ct_params = try self.ctx.dupeIds(ct_types.items),
+            .ct_syms = try self.ctx.arena.allocator().dupe(SymbolId, ct_syms.items),
         } });
         try self.ctx.recordType(name, fn_ty);
         if (nominal_sym == sema.symbol_invalid) {
@@ -840,6 +980,7 @@ pub const TypeResolver = struct {
         var fields: std.ArrayListUnmanaged(Field) = .empty;
         defer fields.deinit(self.ctx.allocator);
         const sym_name = self.ctx.symbols.items[sym_id].name;
+        if (generic) try self.resolveValueParams(ir.get(node, .tparams));
 
         for (members) |m| {
             switch (m) {
@@ -928,6 +1069,26 @@ pub const TypeResolver = struct {
                 if (m.isKind(.drop_decl)) try self.enforceDropBody(ir.DropDecl.body(m));
             }
         }
+    }
+
+    /// The types of a generic type's compile-time value parameters
+    /// (`n: Int`), which are integers.
+    fn resolveValueParams(self: *TypeResolver, tparams: Sexp) Error!void {
+        for (tparams.items()) |p| {
+            if (!p.isKind(.@":")) continue;
+            const id = self.ctx.symbolOf(ir.get(p, .name)) orelse continue;
+            const type_node = ir.get(p, .type);
+            var ty = try self.resolveType(type_node);
+            if (!self.isPoison(ty) and self.ctx.types.get(ty) != .int) {
+                try self.ctx.errAt(type_node, "a compile-time value parameter of a type is an integer; `{s}` has the type `{s}`", .{ self.ctx.symbols.items[id].name, try sema.formatType(self.ctx, ty) });
+                ty = self.ctx.types.invalid_id;
+            }
+            self.ctx.symbols.items[id].ty = ty;
+        }
+    }
+
+    fn isPoison(self: *const TypeResolver, ty: TypeId) bool {
+        return ty == self.ctx.types.invalid_id or ty == self.ctx.types.unknown_id;
     }
 
     /// A generic parameter may not take a name that means something else
@@ -1198,6 +1359,10 @@ pub const TypeResolver = struct {
                     for (self.nominal.type_params) |tp| {
                         if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) {
                             try self.ctx.recordName(sexp, tp);
+                            if (self.ctx.symbols.items[tp].kind == .param) {
+                                try self.ctx.err(s.pos, "`{s}` is a compile-time value, not a type", .{name});
+                                return t.invalid_id;
+                            }
                             return self.ctx.intern(.{ .type_var = tp });
                         }
                     }
@@ -1264,15 +1429,17 @@ pub const TypeResolver = struct {
                         return self.ctx.intern(.{ .shared = inner });
                     },
                     .array_type => {
-                        const size = ir.ArrayType.size(sexp);
-                        const len = std.fmt.parseInt(u64, identAt(self.ctx.source, size) orelse "", 0) catch {
-                            try self.ctx.errAt(size, "array length must be an integer literal", .{});
-                            return t.invalid_id;
-                        };
+                        const len = try self.resolveCtInt(ir.ArrayType.size(sexp), .array_len);
                         const elem_node = ir.ArrayType.type(sexp);
                         const elem = try self.resolveType(elem_node);
-                        try self.checkWhenResolved(.{ .array = .{ .node = elem_node, .elem = elem } });
-                        return self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
+                        if (self.isPoison(len)) return t.invalid_id;
+                        const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
+                        // Once every type's contents are known, a type too
+                        // large is poison.
+                        const ready = self.ctx.contents_ready;
+                        if (ready and !try sema.checkArrayBytes(self.ctx, self.ctx.startOf(sexp), ty)) return t.invalid_id;
+                        try self.checkWhenResolved(.{ .array = .{ .node = elem_node, .elem = elem, .at = sexp, .ty = if (ready) null else ty } });
+                        return ty;
                     },
                     .fun_type => {
                         var ps: std.ArrayListUnmanaged(TypeId) = .empty;
@@ -1295,6 +1462,279 @@ pub const TypeResolver = struct {
             },
             else => return t.invalid_id,
         }
+    }
+
+    /// Where a compile-time integer in a type goes: an array length, or
+    /// a generic type's value parameter.
+    pub const CtIntUse = union(enum) {
+        array_len,
+        arg: struct { param: SymbolId, owner: []const u8, index: usize },
+    };
+
+    /// A compile-time integer in a type: an array length (`[n]T`) or a
+    /// generic type's value argument (`Ring[Int, 4]`). An integer, a
+    /// constant, or arithmetic on them is folded to a `ct_value`; a
+    /// compile-time integer parameter is its `ct_param`, and each value
+    /// it takes is checked (`Requirement.array_len`). Poison after a
+    /// diagnostic.
+    pub fn resolveCtInt(self: *TypeResolver, node: Sexp, use: CtIntUse) Error!TypeId {
+        const t = &self.ctx.types;
+        const what: []const u8 = if (use == .array_len) "an array length" else "a compile-time argument";
+        try self.recordCtNames(node);
+        if (use == .arg and self.namesType(node)) {
+            try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is a value of type `{s}`, not a type", .{ use.arg.index + 1, use.arg.owner, try sema.formatType(self.ctx, self.ctx.symbols.items[use.arg.param].ty) });
+            return t.invalid_id;
+        }
+        const folded = (try self.ctIntOf(node, what)) orelse return t.invalid_id;
+        const ct = folded.ty;
+        const param_ty = if (use == .arg) self.ctx.symbols.items[use.arg.param].ty else t.int_id;
+        // A value argument has its parameter's type, as in an expression.
+        if (use == .arg and folded.int != null and !self.isPoison(param_ty)) {
+            const ty = try self.ctx.intern(.{ .int = folded.int.? });
+            if (ty != param_ty) {
+                const got = try sema.formatType(self.ctx, ty);
+                const want = try sema.formatType(self.ctx, param_ty);
+                try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, try self.sourceText(node), an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
+                return t.invalid_id;
+            }
+        }
+        switch (self.ctx.types.get(ct)) {
+            .ct_value => |v| switch (use) {
+                .array_len => if (v.int < 0 or v.int > sema.max_array_len) {
+                    try self.ctx.errAt(node, "array length {d} is out of range: an array length runs from 0 to {d}", .{ v.int, sema.max_array_len });
+                    return t.invalid_id;
+                },
+                .arg => |a| if (!self.isPoison(param_ty) and !sema.intFits(self.ctx, param_ty, v.int)) {
+                    const ty = try sema.formatType(self.ctx, param_ty);
+                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{d}`, which `{s}`, {s} `{s}`, cannot hold", .{ a.index + 1, a.owner, v.int, self.ctx.symbols.items[a.param].name, an(ty), ty });
+                    return t.invalid_id;
+                },
+            },
+            .ct_param => |sym| {
+                const ty = self.ctx.symbols.items[sym].ty;
+                if (use == .arg and !self.isPoison(param_ty) and !self.isPoison(ty) and ty != param_ty) {
+                    const got = try sema.formatType(self.ctx, ty);
+                    const want = try sema.formatType(self.ctx, param_ty);
+                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, self.ctx.symbols.items[sym].name, an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
+                    return t.invalid_id;
+                }
+                if (use == .array_len) try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = sym, .req = .array_len, .pos = self.ctx.startOf(node), .op = "an array length" });
+            },
+            else => {},
+        }
+        return ct;
+    }
+
+    /// A compile-time integer: its `ct_value` or `ct_param`, and for a
+    /// value folded from typed constants, their type.
+    const CtInt = struct { ty: TypeId, int: ?sema.IntInfo = null };
+
+    /// The compile-time integer `node` is; null after a diagnostic about
+    /// it as `what`.
+    fn ctIntOf(self: *TypeResolver, node: Sexp, what: []const u8) Error!?CtInt {
+        if (node == .src) if (try self.ctParamNamed(node)) |ct| return .{ .ty = ct };
+        const names = self.constNames();
+        switch (sema.ctFoldBy(self.ctx, node, names)) {
+            .value => |v| return .{ .ty = try sema.ctInt(self.ctx, v.v), .int = v.int },
+            .overflow => |o| {
+                const at = try self.sourceText(o.node);
+                if (o.int) |int| {
+                    const ty = try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = int }));
+                    const b = sema.intRange(int);
+                    if (std.meta.eql(self.ctx.span(o.node), self.ctx.span(node)))
+                        try self.ctx.errAt(node, "{s} `{s}` overflows `{s}` ({d}..{d})", .{ what, at, ty, b.min, b.max })
+                    else
+                        try self.ctx.errAt(o.node, "{s} `{s}` overflows `{s}` ({d}..{d}) in `{s}`", .{ what, try self.sourceText(node), ty, b.min, b.max, at });
+                } else try self.ctx.errAt(o.node, "{s} `{s}` is too large to compute", .{ what, try self.sourceText(node) });
+                return null;
+            },
+            .mismatch => |m| {
+                try self.ctx.errAt(m.node, "{s} `{s}` combines `{s}` and `{s}`; convert one to the other's type", .{
+                    what, try self.sourceText(m.node),
+                    try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.a })),
+                    try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.b })),
+                });
+                return null;
+            },
+            .not_constant => {},
+        }
+        const text = try self.sourceText(node);
+        if (node == .src and !sema.isIntLiteralText(text)) {
+            if (literalTypeName(text)) |lit| {
+                try self.ctx.errAt(node, "{s} is an integer; `{s}` is {s} `{s}`", .{ what, text, an(lit), lit });
+                return null;
+            }
+            if (std.mem.eql(u8, text, "none")) {
+                try self.ctx.errAt(node, "{s} is an integer; `none` is the absent optional", .{what});
+                return null;
+            }
+            const id = self.lookupCt(node) orelse {
+                if (isBuiltinTypeName(self.ctx, text)) return self.notAType(node, what);
+                try self.ctx.errAt(node, "use of unbound name `{s}`", .{text});
+                return null;
+            };
+            switch (self.ctx.symbols.items[id].kind) {
+                .nominal_type, .generic_type, .type_alias, .generic_param => return self.notAType(node, what),
+                else => {},
+            }
+            const sym = self.ctx.symbols.items[id];
+            if (sym.flags.comptime_known and sym.kind == .param and !self.isPoison(sym.ty)) {
+                try self.ctx.errAt(node, "{s} is an integer; `{s}` is a compile-time `{s}`", .{ what, text, try sema.formatType(self.ctx, sym.ty) });
+                return null;
+            }
+            if (sym.kind == .local and sym.flags.fixed) {
+                if (sym.ty == self.ctx.types.unknown_id and sym.scope == sema.module_scope) {
+                    // A module constant a signature names, checked later.
+                    try self.ctx.errAt(node, "{s} is an integer; `{s}` is not an integer constant", .{ what, text });
+                    return null;
+                } else if (!self.isPoison(sym.ty) and !sema.isInteger(self.ctx, sym.ty)) {
+                    const ty = try sema.formatType(self.ctx, sym.ty);
+                    try self.ctx.errAt(node, "{s} is an integer; `{s}` is {s} `{s}`", .{ what, text, an(ty), ty });
+                    return null;
+                }
+            }
+        } else if (node.isKind(.member)) {
+            if (try self.memberNotCtInt(node, what)) return null;
+        } else if (try self.mentionsCtParam(node)) {
+            try self.ctx.errAt(node, "{s} `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; use a parameter or a constant", .{ what, text });
+            return null;
+        } else if (self.dividesByZero(node)) {
+            try self.ctx.errAt(node, "{s} `{s}` divides by zero", .{ what, text });
+            return null;
+        } else if (node.isKind(.call)) {
+            try self.ctx.errAt(node, "{s} cannot call a function: `{s}` runs only when the program does", .{ what, text });
+            return null;
+        }
+        try self.ctx.errAt(node, "{s} must be known at compile time; `{s}` is not: use an integer, a constant (`N =! 4`), a compile-time parameter, or arithmetic on them", .{ what, text });
+        return null;
+    }
+
+    /// Whether `node` is a name that names a type.
+    fn namesType(self: *TypeResolver, node: Sexp) bool {
+        if (node != .src) return false;
+        const name = identAt(self.ctx.source, node) orelse return false;
+        for (self.nominal.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) return self.ctx.symbols.items[tp].kind == .generic_param;
+        const id = self.ctx.lookupBefore(self.scope, name, node.src.pos) orelse return isBuiltinTypeName(self.ctx, name) or std.mem.eql(u8, name, "Self");
+        return switch (self.ctx.symbols.items[id].kind) {
+            .nominal_type, .generic_type, .type_alias, .generic_param => true,
+            else => false,
+        };
+    }
+
+    /// Report why `module.NAME` is not a compile-time integer, when that
+    /// is something other than its value; false when nothing was reported.
+    fn memberNotCtInt(self: *TypeResolver, node: Sexp, what: []const u8) Error!bool {
+        const obj = ir.Member.object(node);
+        const module_name = identAt(self.ctx.source, obj) orelse return false;
+        const mod_id = self.ctx.lookup(self.scope, module_name) orelse {
+            try self.ctx.errAt(obj, "use of unbound name `{s}`", .{module_name});
+            return true;
+        };
+        if (self.ctx.symbols.items[mod_id].kind != .module) return false;
+        const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(mod_id) orelse return false) orelse return false;
+        const name = identAt(self.ctx.source, ir.Member.name(node)) orelse return false;
+        const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
+            try self.ctx.errAt(node, "no member `{s}` in module `{s}`", .{ name, module_name });
+            return true;
+        };
+        const fsym = foreign.symbols.items[fid];
+        if (!fsym.flags.is_public) {
+            try self.ctx.errAt(node, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, name, module_name });
+            return true;
+        }
+        switch (fsym.kind) {
+            .nominal_type, .generic_type, .type_alias => {
+                _ = try self.notAType(node, what);
+                return true;
+            },
+            .local => if (!sema.isInteger(foreign, fsym.ty) and !sema.containsPoison(foreign, fsym.ty)) {
+                const ty = try sema.formatTypeIn(foreign, self.ctx.arena.allocator(), fsym.ty);
+                try self.ctx.errAt(node, "{s} is an integer; `{s}.{s}` is {s} `{s}`", .{ what, module_name, name, an(ty), ty });
+                return true;
+            },
+            else => {},
+        }
+        return false;
+    }
+
+    fn notAType(self: *TypeResolver, node: Sexp, what: []const u8) Error!?CtInt {
+        try self.ctx.errAt(node, "`{s}` is a type; {s} is an integer, a constant, a compile-time parameter, or arithmetic on them", .{ try self.sourceText(node), what });
+        return null;
+    }
+
+    /// The `ct_param` of the compile-time integer parameter (or `k =! n`
+    /// alias of one) a name leaf denotes; null for any other name.
+    fn ctParamNamed(self: *TypeResolver, leaf: Sexp) Error!?TypeId {
+        const name = identAt(self.ctx.source, leaf) orelse return null;
+        for (self.nominal.type_params) |tp| {
+            if (!std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) continue;
+            if (self.ctx.symbols.items[tp].kind != .param) return null;
+            return try self.ctx.intern(.{ .ct_param = tp });
+        }
+        const id = self.ctx.lookupBefore(self.scope, name, leaf.src.pos) orelse return null;
+        if (self.ctx.ct_locals.get(id)) |ct| return ct;
+        const sym = self.ctx.symbols.items[id];
+        if (sym.kind != .param or !sym.flags.comptime_known or self.ctx.types.get(sym.ty) != .int) return null;
+        return try self.ctx.intern(.{ .ct_param = id });
+    }
+
+    /// Record the symbol each name in a compile-time integer names.
+    fn recordCtNames(self: *TypeResolver, node: Sexp) Error!void {
+        switch (node) {
+            .src => {
+                const name = identAt(self.ctx.source, node) orelse return;
+                for (self.nominal.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) return self.ctx.recordName(node, tp);
+                try self.ctx.recordName(node, self.lookupCt(node) orelse return);
+            },
+            .list => if (node.isKind(.member)) {
+                const obj = ir.Member.object(node);
+                const id = self.ctx.lookup(self.scope, identAt(self.ctx.source, obj) orelse return) orelse return;
+                if (self.ctx.symbols.items[id].kind == .module) try self.ctx.recordName(obj, id);
+            } else for (node.items()) |c| try self.recordCtNames(c),
+            else => {},
+        }
+    }
+
+    /// Whether a name in `node` is a compile-time integer parameter.
+    fn mentionsCtParam(self: *TypeResolver, node: Sexp) Error!bool {
+        switch (node) {
+            .src => return (try self.ctParamNamed(node)) != null,
+            .list => {
+                if (node.isKind(.member)) return false;
+                for (node.items()) |c| if (try self.mentionsCtParam(c)) return true;
+                return false;
+            },
+            else => return false,
+        }
+    }
+
+    /// Whether `node` divides, or takes a remainder, by a constant zero.
+    fn dividesByZero(self: *TypeResolver, node: Sexp) bool {
+        const h = node.kind() orelse return false;
+        if (h == .member) return false;
+        if (h == .@"/" or h == .@"%") switch (sema.constIntBy(self.ctx, ir.get(node, .right), self.constNames())) {
+            .value => |v| if (v == 0) return true,
+            else => {},
+        };
+        for (node.items()) |c| if (self.dividesByZero(c)) return true;
+        return false;
+    }
+
+    /// The constants names in a type denote.
+    fn constNames(self: *const TypeResolver) ConstNames {
+        return .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params, .before = self.const_before };
+    }
+
+    /// The symbol a name leaf in a compile-time integer denotes; a module
+    /// constant a constant's declaration names must come before it.
+    fn lookupCt(self: *const TypeResolver, leaf: Sexp) ?SymbolId {
+        const id = self.ctx.lookupBefore(self.scope, identAt(self.ctx.source, leaf) orelse return null, leaf.src.pos) orelse return null;
+        return if (self.constNames().visible(id)) id else null;
+    }
+
+    fn sourceText(self: *const TypeResolver, node: Sexp) Error![]const u8 {
+        const sp = self.ctx.span(node);
+        return self.ctx.source[sp.start..sp.end];
     }
 
     /// `module.Name`: a public type of an imported module.
@@ -1360,23 +1800,31 @@ pub const TypeResolver = struct {
             try self.ctx.err(pos, "`{s}` is not a generic type", .{name});
             return t.invalid_id;
         }
-        const expected = if (sym.type_params) |tps| tps.len else 0;
+        const tparams = sym.type_params orelse &.{};
         const supplied = ir.GenericInst.args(sexp);
-        if (supplied.len != expected) {
-            try self.ctx.err(pos, "generic type `{s}` expects {d} type argument{s}, got {d}", .{ name, expected, if (expected == 1) @as([]const u8, "") else "s", supplied.len });
+        if (supplied.len != tparams.len) {
+            try self.ctx.err(pos, "generic type `{s}` expects {d} {s} argument{s}, got {d}", .{ name, tparams.len, argsNoun(self.ctx, tparams), if (tparams.len == 1) @as([]const u8, "") else "s", supplied.len });
             return t.invalid_id;
         }
         var args: std.ArrayListUnmanaged(TypeId) = .empty;
         defer args.deinit(self.ctx.allocator);
         var any_bad = false;
-        for (supplied) |a| {
-            const arg = try self.resolveType(a);
-            if (arg == t.invalid_id or arg == t.unknown_id) any_bad = true;
+        for (supplied, tparams, 0..) |a, tp, i| {
+            const arg = if (self.ctx.symbols.items[tp].kind == .param)
+                try self.resolveCtInt(a, .{ .arg = .{ .param = tp, .owner = name, .index = i } })
+            else if (isValueSpelling(self.ctx.source, a)) blk: {
+                try self.ctx.errAt(a, "`{s}` is a value; `{s}` takes a type", .{ try self.sourceText(a), self.ctx.symbols.items[tp].name });
+                break :blk t.invalid_id;
+            } else try self.resolveType(a);
+            if (sema.containsPoison(self.ctx, arg)) any_bad = true;
             try args.append(self.ctx.allocator, arg);
         }
+        // An instance with a rejected argument is poison: what follows
+        // from it was already reported.
+        if (any_bad) return t.invalid_id;
         const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args.items } });
         const inst = self.ctx.types.get(ty).parameterized_nominal;
-        if (!any_bad and sym.decl_pos == sema.builtin_decl_pos) {
+        if (sym.decl_pos == sema.builtin_decl_pos) {
             try self.checkWhenResolved(.{ .builtin = .{ .pos = pos, .sym = sym_id, .args = inst.args } });
         }
         if (!sema.containsTypeVar(self.ctx, ty)) {

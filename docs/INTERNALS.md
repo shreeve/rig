@@ -143,6 +143,7 @@ The grammar's own shape settles the rest:
 | `return` / `break` / `continue` inside conditions | they are statements; a guard applies to a whole simple statement |
 | dangling `else` in guards and ternaries | conditions are block-free values; the ternary has its own token; `else` only follows a block |
 | paren-free calls inside argument lists | paren-free calls (`cmd`) appear only in tail positions outside ( ); inside, only as a closure body (`cclosure`) |
+| a name in an array size or a type's compile-time argument: a type or a value | a bare name, integer, or `module.NAME` is one rule (`dim`, `targ`); arithmetic there is `cexp`, which has at least one operator, so it never overlaps a type. The checker reads a bare name by the slot it fills |
 
 Grammar shapes worth knowing: `tail` is an expression, a paren-free
 call, or a closure, allowed where nothing follows on the line outside
@@ -346,9 +347,15 @@ A few kinds serve more than one surface form:
   type argument in an expression is an expression read as a type
   (`typeArg`); `[]T`, `[N]T`, and function types have no such
   spelling, and the parser wrapper reports them with a hint.
+- `array_type`'s `size`, and a `generic_inst`'s arguments, may be an
+  integer, a name, a `member` (`lib.N`), a `neg` integer (arguments
+  only), or `+ - * / %` over those; sema reads a name by the slot it
+  fills, a type or a compile-time integer.
+- `(array_fill value size)` is `[x; n]`; `(array elems...)` is a list
+  of elements.
 - A declaration's compile-time parameters are its `tparams` group (a
-  `fun` or `sub`'s `[mode: Mode]`, a generic type's `[T, U]`): a bare
-  name is a type parameter, `(: name T)` a compile-time value. The list
+  `fun` or `sub`'s `[mode: Mode]`, a generic type's `[T, n: Int]`): a
+  bare name is a type parameter, `(: name T)` a compile-time value. The list
   says what a parameter is, so the parameter nodes are the same as in
   `params`.
 
@@ -495,7 +502,7 @@ instead of re-deriving it by name:
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Box` for `Box[Int](v: 3)`), and its compile-time arguments |
-| `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (`type_invalid` at a value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
+| `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 Leaves are keyed by source position and list nodes by their node id:
 the parser numbers every node it builds (`List.id`), and the Parser
@@ -523,7 +530,47 @@ borrow. An operator's operand borrowed as `?T` or `!T` counts as a `T`
 symbols in its scope, and its `FunctionType.ct_params` holds the
 `type_var` itself in a type parameter's slot (a compile-time value
 parameter's type may not mention one), so a signature says which of its
-compile-time parameters are types.
+compile-time parameters are types; `ct_syms` names each slot's symbol.
+
+A compile-time integer where a type goes is a type too: `ct_value` (a
+folded integer) or `ct_param` (an integer value parameter, as
+`type_var` stands for a type parameter). An array's length is one
+(`ArrayType.len`), and so is a generic type's value argument
+(`Ring[Int, 4]`), so `TypeSubst` substitutes values as it does types,
+interning makes `[LIMIT]Int` and `[4]Int` one type, and inference
+binds a `ct_param` exactly to the value the argument's type holds.
+`TypeResolver.resolveCtInt` reads an array size or a value argument:
+it folds integers, constants, and arithmetic on them with
+`sema.ctFoldBy`, which reads each constant's value and type from
+`const_ints` (module constants are folded into it once, in declaration
+order, before any type is resolved: `resolve.foldModuleConsts`; `lib.N`
+comes from the other module's), and a compile-time parameter,
+or a `k =! n` binding of one (`ct_locals`), becomes its `ct_param`. A
+`ct_param` used as a length records the `array_len` requirement, so
+each instance's value is checked to be from 0 to 2^32 - 1. A generic
+type's value parameters are detached `param` symbols among its
+`type_params`, and its methods read them by name (`useName`). A
+function's integer value parameters are part of its instances
+(`FnInstance`) like its type parameters, and a call infers the ones its
+signature holds. A public function, or a method of a public type,
+whose integer parameter sizes an array, directly or through the
+functions and types it passes it to, is rejected (`checkPublicArrayLengths`): other modules' instances are
+never checked here. A value takes at most `sema.max_value_bytes`
+(8 MiB), from `sema.minBytes`: an array type is checked where it is
+spelled or made (`checkArrayBytes`), a struct or enum after contents
+are known (`checkTypeSizes`), and an array that mentions a generic
+parameter is kept in `generic_arrays` and checked, with the instance
+itself, at each instance (`checkInstanceSizes`). A type reported too
+large goes into `oversized`, and `minBytes` of anything holding it is
+null, so it is reported once. After the bodies are checked,
+`typecheck.checkFrames` walks every function, method, closure, test,
+and drop body and sums its frame against `sema.max_frame_bytes`
+(16 MiB): each binding and by-value parameter at its declaration, and
+each array literal, fill, and call that is not a `set`'s value; a
+closure's captures count in the enclosing frame. A frame that mentions
+generic parameters is kept in `generic_frames` and summed at each
+instance: a function instance checks the frames that use its own
+parameters, a type instance its methods'.
 
 Instances come from the program: `instantiation_sites` holds each
 generic type instance and where it is first spelled or inferred, and
@@ -739,7 +786,14 @@ lower is an internal error: sema must have rejected it.
   arguments in the same place: `show[3]()` is `show(3)`.
   A compile-time value, or a `=!` constant, read in run-time arithmetic
   goes through `rig.rt(n)`, so Zig computes it when the program runs,
-  with the overflow checks Rig specifies, rather than folding it.
+  with the overflow checks Rig specifies, rather than folding it. A
+  generic type's value parameter is a `comptime n: i64` of its
+  type-returning function (`Ring(i64, 4)`), and an array length or
+  value argument is emitted from its type: the folded integer or the
+  parameter's name. An element of an array whose length is a
+  compile-time parameter is reached through a slice (`rig.elems`),
+  since Zig rejects any index into an array of length 0, and `[x; n]`
+  is `@as([n]T, @splat(x))`.
 - **Generic functions** are Zig generic functions: a type parameter is
   `comptime T: type`, and a call passes its type arguments, inferred
   or given (`genericCallOf`): `max(3, 7)` is `max(i64, 3, 7)`. Zig
@@ -761,9 +815,9 @@ lower is an internal error: sema must have rejected it.
   struct per literal and erases it behind `rig.Closure(params, R)`, so
   every literal of one function type shares one runtime type; a call is
   `cb.value.invoke(.{ args })`.
-- **`main`** of the root module defers `rig.finish()` first, so it runs
-  after every other drop, and the root module declares
-  `pub const panic = rig.panic`.
+- **`main`** of the root module calls `rig.guardStack()`, then defers
+  `rig.finish()`, so it runs after every other drop, and the root
+  module declares `pub const panic = rig.panic`.
 - **Tests.** `test "name"` becomes `fn __rig_test_<n>() anyerror!void`,
   listed in the module's `pub const __rig_tests` table, which only
   `rig test` references.
@@ -789,6 +843,7 @@ reviewed.
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
+| `guardStack` | makes a stack overflow stop the program. Zig probes the stack as a frame grows only on x86, so elsewhere a frame larger than the guard below the stack can step over it. Linux maps nothing within 128 MiB of the top of the stack (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to 16 MiB (`stack_size`), leaving 112 MiB free below it; macOS guards the stack with one page and maps memory right below that once the address space fills, so there `guardStack` reserves 64 MiB (`stack_reserve`) below the guard. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main` runs. A frame holds at most 16 MiB of values (`checkFrames`), so with Zig's temporaries an overflowing one lands in the reserve. `test/cli/stack_guard.sh` checks it |
 | `index`, `at`, `slice`, `div` | bounds-checked indexing and slicing, which panic in every build mode; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `discard`, `isNone`, `eqlOptStr`, `eqlOpt`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; compare optional strings and optional errors; clear an alive flag as a value moves out |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |

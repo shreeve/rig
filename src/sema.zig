@@ -127,10 +127,42 @@ pub const FunctionType = struct {
     /// (`check[.strict](5)`, `max[Int](1, 2)`), or infers the types;
     /// `params` are the run-time ones.
     ct_params: []const TypeId = &.{},
+    /// The symbol of each compile-time parameter, in the same order:
+    /// what a `type_var` or `ct_param` in the signature names.
+    /// `symbol_invalid` in a function type imported from another module.
+    ct_syms: []const SymbolId = &.{},
 };
 
 pub const SliceType = struct { elem: TypeId };
-pub const ArrayType = struct { elem: TypeId, len: u64 };
+/// `[len]elem`: `len` is a `ct_value`, or a `ct_param` inside a generic
+/// declaration.
+pub const ArrayType = struct { elem: TypeId, len: TypeId };
+
+/// A value known at compile time, as a compile-time argument or an
+/// array length.
+pub const CtValue = union(enum) { int: i128 };
+
+/// The largest array length: lengths run from 0 to 2^32 - 1.
+pub const max_array_len: i128 = std.math.maxInt(u32);
+
+/// The most bytes a value takes: 8 MiB. A value may live in a stack
+/// frame, and the main thread's stack holds 16 MiB, so any one value fits
+/// there with room to spare; a frame that overflows it by up to 64 MiB
+/// stops the program (`rig.guardStack`). The cap also keeps compiles
+/// fast, since Zig builds a constant array element by element. Larger
+/// data belongs in a `Vec`.
+pub const max_value_bytes: u64 = 8 << 20;
+
+/// The most bytes of values one function keeps on its stack: 16 MiB, the
+/// size of the main thread's stack, so a function that keeps more could
+/// never run. Zig's own temporaries at most about double it, which keeps
+/// every frame well inside the 64 MiB below the stack that stops an
+/// overflow (`rig.guardStack`).
+pub const max_frame_bytes: u64 = 16 << 20;
+
+/// The values one function or closure keeps on its stack: `label` names
+/// it in messages, declared at `pos`.
+pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId };
 
 pub const Type = union(enum) {
     /// A type error was reported here.
@@ -180,6 +212,13 @@ pub const Type = union(enum) {
     parameterized_nominal: ParamNominal,
     /// A generic parameter (`T` inside `struct Box[T]`).
     type_var: SymbolId,
+    /// A compile-time integer where a type argument or an array length
+    /// goes: `4` in `Ring[Int, 4]` and `[4]Int`. Not a type of values.
+    ct_value: CtValue,
+    /// A compile-time value parameter used where a `ct_value` goes, the
+    /// way a `type_var` stands for a type: `n` in `[n]T` inside `fun
+    /// f[n: Int]` or `struct Ring[T, n: Int]`.
+    ct_param: SymbolId,
 };
 
 pub const ParamNominal = struct {
@@ -309,6 +348,7 @@ pub const TypeStore = struct {
             .function => |af| af.is_sub == b.function.is_sub and
                 af.returns == b.function.returns and
                 std.mem.eql(TypeId, af.ct_params, b.function.ct_params) and
+                std.mem.eql(SymbolId, af.ct_syms, b.function.ct_syms) and
                 std.mem.eql(TypeId, af.params, b.function.params),
             .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
                 std.mem.eql(TypeId, x.args, b.parameterized_nominal.args),
@@ -597,6 +637,9 @@ pub const Requirement = union(enum) {
     /// Owns no resource: the body copies, discards, or leaves a
     /// temporary of the parameter's value.
     plain,
+    /// A compile-time integer from 0 to `max_array_len`: the body uses
+    /// the value parameter as an array length.
+    array_len,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -609,6 +652,7 @@ pub const Requirement = union(enum) {
             .fits => "an integer literal",
             .shift => "a constant shift",
             .plain => "a value that owns no resource",
+            .array_len => "an array length",
         };
     }
 };
@@ -682,7 +726,7 @@ pub const SemContext = struct {
     generic_uses: std.ArrayListUnmanaged(TypeId) = .empty,
     /// The instances of generic functions the module's calls make, each
     /// with the position of its first call, in the order found.
-    fn_instances: std.ArrayListUnmanaged(struct { inst: FnInstance, site: u32 }) = .empty,
+    fn_instances: std.ArrayListUnmanaged(struct { inst: FnInstance, site: u32, via: ?InstanceRoot = null }) = .empty,
     /// Every instance in `fn_instances` and `generic_fn_uses`.
     fn_instance_set: std.HashMapUnmanaged(FnInstance, void, FnInstance.Context, std.hash_map.default_max_load_percentage) = .empty,
     /// Instances of generic functions called with type parameters, inside
@@ -691,8 +735,27 @@ pub const SemContext = struct {
     generic_fn_uses: std.ArrayListUnmanaged(FnInstance) = .empty,
     /// Integer constants: bindings never reassigned or written whose
     /// value is a constant expression. The emitted Zig computes these at
-    /// compile time, so sema checks their arithmetic.
-    const_ints: std.AutoHashMapUnmanaged(SymbolId, i128) = .empty,
+    /// compile time, so sema checks their arithmetic. Module constants
+    /// are folded once, in declaration order, before any type is
+    /// resolved (`resolve.foldModuleConsts`), so a type anywhere in the
+    /// module can name them.
+    const_ints: std.AutoHashMapUnmanaged(SymbolId, ConstVal) = .empty,
+    /// The array types spelled or built in generic declarations, which
+    /// each instance checks against `max_value_bytes`.
+    generic_arrays: std.ArrayListUnmanaged(struct { ty: TypeId, pos: u32 }) = .empty,
+    /// The stack values of the generic functions and closures, and of the
+    /// generic types' methods, whose sizes depend on their parameters:
+    /// each instance checks them against `max_frame_bytes`.
+    generic_frames: std.ArrayListUnmanaged(Frame) = .empty,
+    /// The types reported as too large, each once; a type holding one is
+    /// not reported again.
+    oversized: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
+    /// `minBytes` of each type sized so far.
+    byte_sizes: std.AutoHashMapUnmanaged(TypeId, ?u128) = .empty,
+    /// A local `k =! n` binding of a compile-time integer parameter ->
+    /// the `ct_param` it stands for, where an array length or a
+    /// compile-time argument names it.
+    ct_locals: std.AutoHashMapUnmanaged(SymbolId, TypeId) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -736,6 +799,11 @@ pub const SemContext = struct {
         self.fn_instance_set.deinit(self.allocator);
         self.generic_fn_uses.deinit(self.allocator);
         self.const_ints.deinit(self.allocator);
+        self.ct_locals.deinit(self.allocator);
+        self.generic_arrays.deinit(self.allocator);
+        self.generic_frames.deinit(self.allocator);
+        self.oversized.deinit(self.allocator);
+        self.byte_sizes.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -819,6 +887,20 @@ pub const SemContext = struct {
         while (sid) |s| {
             if (s == scope_invalid or s >= self.scopes.items.len) break;
             if (self.lookupInScopeOnly(s, name)) |id| return id;
+            sid = self.scopes.items[s].parent;
+        }
+        return null;
+    }
+
+    /// Like `lookup`, but a local declared after `pos` in a body is not
+    /// visible there yet.
+    pub fn lookupBefore(self: *const SemContext, from_scope: ScopeId, name: []const u8, pos: u32) ?SymbolId {
+        var sid: ?ScopeId = from_scope;
+        while (sid) |s| {
+            if (s == scope_invalid or s >= self.scopes.items.len) break;
+            var id = self.lookupInScopeOnly(s, name) orelse symbol_invalid;
+            while (id != symbol_invalid and s != module_scope and self.symbols.items[id].kind == .local and self.symbols.items[id].decl_pos > pos) id = self.symbols.items[id].prev_in_scope;
+            if (id != symbol_invalid) return id;
             sid = self.scopes.items[s].parent;
         }
         return null;
@@ -993,8 +1075,9 @@ pub const SemContext = struct {
     /// a concrete one, checked against its body's requirements, or, from
     /// a call inside a generic body, one over type parameters, which
     /// each instance of that body makes concrete
-    /// (`expandInstantiations`). Whether it was new.
-    pub fn recordFnInstance(self: *SemContext, inst: FnInstance, site: u32) !bool {
+    /// (`expandInstantiations`, which gives the instance written at
+    /// `site` that it is made `via`). Whether it was new.
+    pub fn recordFnInstance(self: *SemContext, inst: FnInstance, site: u32, via: ?InstanceRoot) !bool {
         if (self.fn_instance_set.contains(inst)) return false;
         const owned = try self.ownFnInstance(inst);
         try self.fn_instance_set.put(self.allocator, owned, {});
@@ -1002,7 +1085,7 @@ pub const SemContext = struct {
             try self.generic_fn_uses.append(self.allocator, owned);
             return true;
         };
-        try self.fn_instances.append(self.allocator, .{ .inst = owned, .site = site });
+        try self.fn_instances.append(self.allocator, .{ .inst = owned, .site = site, .via = via });
         return true;
     }
 
@@ -1046,6 +1129,7 @@ pub const SemContext = struct {
             .function => |*f| {
                 f.params = try self.dupeIds(f.params);
                 f.ct_params = try self.dupeIds(f.ct_params);
+                f.ct_syms = try self.arena.allocator().dupe(SymbolId, f.ct_syms);
             },
             .parameterized_nominal => |*pn| pn.args = try self.dupeIds(pn.args),
             else => {},
@@ -1106,7 +1190,9 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try computeContents(&ctx);
     try checkInfiniteTypes(&ctx);
     try resolve.checkDeclarations(&ctx);
+    try checkTypeSizes(&ctx);
     try typecheck.checkModule(&ctx, tree, module_scope);
+    try typecheck.checkFrames(&ctx, tree);
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
@@ -1185,7 +1271,7 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
                 return;
             }
             const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own };
-            if (!try ctx.recordFnInstance(concrete, item.site)) continue;
+            if (!try ctx.recordFnInstance(concrete, item.site, item.root)) continue;
             try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root });
         }
         for (ctx.generic_uses.items) |use| {
@@ -1259,9 +1345,12 @@ pub fn formatFnInstanceIn(ctx: *const SemContext, a: std.mem.Allocator, inst: Fn
 const max_instance_depth = 24;
 
 /// Whether `ty` mentions any of `params`.
-fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
+pub fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
     if (!ctx.typeInfo(ty).has_type_var) return false;
-    if (ctx.types.get(ty) == .type_var) return std.mem.indexOfScalar(SymbolId, params, ctx.types.get(ty).type_var) != null;
+    switch (ctx.types.get(ty)) {
+        .type_var, .ct_param => |sym| return std.mem.indexOfScalar(SymbolId, params, sym) != null,
+        else => {},
+    }
     var it = typeChildren(ctx, ty);
     while (it.next()) |c| if (usesParams(ctx, c, params)) return true;
     return false;
@@ -1401,7 +1490,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var };
     }
     return switch (ctx.types.get(ty)) {
-        .bool, .int, .float, .string, .any_error => .{ .plain = true },
+        .bool, .int, .float, .string, .any_error, .ct_value, .ct_param => .{ .plain = true },
         .optional => |inner| holdsIn(ctx, inner, params, held),
         .array => |a| holdsIn(ctx, a.elem, params, held),
         .fallible => |inner| .{ .type_var = (try holdsIn(ctx, inner, params, held)).type_var },
@@ -1562,7 +1651,7 @@ fn borrowEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayL
 /// were interned before it.
 fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInfo {
     const ty = ctx.types.get(id);
-    var info: TypeInfo = .{ .has_type_var = ty == .type_var, .poison = ty == .invalid or ty == .unknown };
+    var info: TypeInfo = .{ .has_type_var = ty == .type_var or ty == .ct_param, .poison = ty == .invalid or ty == .unknown };
     var deepest: ?u8 = null;
     var it: TypeChildren = .{ .ty = ty };
     while (it.next()) |c| {
@@ -1726,9 +1815,9 @@ fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanag
 
 pub const builtin_decl_pos: u32 = std.math.maxInt(u32);
 
-/// The types a type is built from, in order: a wrapper's inner type, an
-/// array or slice's element, a function's parameters then its return
-/// type, a generic instance's arguments.
+/// The types a type is built from, in order: a wrapper's inner type, a
+/// slice's element, an array's element then its length, a function's
+/// parameters then its return type, a generic instance's arguments.
 pub const TypeChildren = struct {
     ty: Type,
     i: usize = 0,
@@ -1739,7 +1828,7 @@ pub const TypeChildren = struct {
         return switch (self.ty) {
             .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner| if (i == 0) inner else null,
             .slice => |s| if (i == 0) s.elem else null,
-            .array => |a| if (i == 0) a.elem else null,
+            .array => |a| if (i == 0) a.elem else if (i == 1) a.len else null,
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
             .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
             else => null,
@@ -1749,6 +1838,159 @@ pub const TypeChildren = struct {
 
 pub fn typeChildren(ctx: *const SemContext, ty: TypeId) TypeChildren {
     return .{ .ty = ctx.types.get(ty) };
+}
+
+/// An array's length when it is a known number; null for a compile-time
+/// parameter, whose value each instance gives, and for a length out of
+/// range, which the instance that gives it is rejected for.
+pub fn arrayLen(ctx: *const SemContext, a: ArrayType) ?u64 {
+    return switch (ctx.types.get(a.len)) {
+        .ct_value => |v| if (v.int < 0 or v.int > max_array_len) null else @intCast(v.int),
+        else => null,
+    };
+}
+
+/// The bytes a value of `ty` takes at least (padding aside), or null
+/// when that depends on a generic parameter or follows an error, such as
+/// holding a type reported too large.
+pub fn minBytes(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?u128 {
+    return minBytesOf(ctx, ty, true);
+}
+
+fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?u128 {
+    if (!top and ctx.oversized.contains(ty)) return null;
+    // Each type is sized once; one that holds itself (rejected) is null
+    // while it is being sized.
+    const slot = try ctx.byte_sizes.getOrPut(ctx.allocator, ty);
+    if (slot.found_existing) return slot.value_ptr.*;
+    slot.value_ptr.* = null;
+    const bytes: ?u128 = switch (ctx.types.get(ty)) {
+        .invalid, .unknown, .type_var, .ct_param => null,
+        .void, .noreturn, .none_literal => 0,
+        .bool => 1,
+        .int => |i| if (i.bits == 0) 8 else (i.bits + 7) / 8,
+        .float => |f| if (f.bits == 0) 8 else f.bits / 8,
+        .string, .slice => 16,
+        // A null handle or borrow is its null address; anything else
+        // needs a flag.
+        .optional => |inner| if (try minBytesOf(ctx, inner, false)) |b| b + @intFromBool(!isAddress(ctx, inner)) else null,
+        .array => |a| blk: {
+            const n = arrayLen(ctx, a) orelse break :blk null;
+            const e = (try minBytesOf(ctx, a.elem, false)) orelse break :blk null;
+            break :blk std.math.mul(u128, n, e) catch std.math.maxInt(u128);
+        },
+        .nominal => |sym| try fieldBytes(ctx, sym, .empty),
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk null;
+            break :blk try minBytes(foreign, try foreign.intern(.{ .nominal = in.sym_id }));
+        },
+        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.cell_sym_id)
+            8
+        else
+            try fieldBytes(ctx, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
+        else => 8,
+    };
+    try ctx.byte_sizes.put(ctx.allocator, ty, bytes);
+    return bytes;
+}
+
+/// The bytes a struct's fields take at least, or an enum's tag and
+/// largest payload.
+fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!?u128 {
+    var total: u128 = 0;
+    var variants: u128 = 0;
+    for (ctx.symbols.items[sym].fields orelse &.{}) |f| {
+        if (f.is_method or f.is_drop_method) continue;
+        if (f.is_variant) {
+            variants += 1;
+            var payload: u128 = 0;
+            for (f.payload orelse &.{}) |p| payload +|= (try minBytesOf(ctx, try substituteType(ctx, p.ty, subst), false)) orelse return null;
+            total = @max(total, payload);
+        } else total +|= (try minBytesOf(ctx, try substituteType(ctx, f.ty, subst), false)) orelse return null;
+    }
+    // The tag: a byte per 8 bits it needs.
+    var tag: u128 = 0;
+    var span: u128 = 1;
+    while (span < variants) : (span <<= 8) tag += 1;
+    return total +| tag;
+}
+
+/// Whether a value of `ty` is an address, which is never 0.
+fn isAddress(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .shared, .weak, .borrow_read, .borrow_write => true,
+        else => false,
+    };
+}
+
+/// Whether integer type `ty` holds `v`.
+pub fn intFits(ctx: *const SemContext, ty: TypeId, v: i128) bool {
+    return switch (ctx.types.get(ty)) {
+        .int => |i| intInfoFits(i, v),
+        else => true,
+    };
+}
+
+/// A value of the array type `ty`, spelled or made at `pos`, must fit
+/// `max_value_bytes`: one that depends on generic parameters is checked
+/// at each instance (`typecheck.checkGenericInstantiations`). False after
+/// a diagnostic.
+pub fn checkArrayBytes(ctx: *SemContext, pos: u32, ty: TypeId) std.mem.Allocator.Error!bool {
+    if (containsPoison(ctx, ty)) return true;
+    if (containsTypeVar(ctx, ty)) {
+        try ctx.generic_arrays.append(ctx.allocator, .{ .ty = ty, .pos = pos });
+        return true;
+    }
+    if (ctx.oversized.contains(ty)) return false;
+    const bytes = (try arrayOversized(ctx, ty)) orelse return true;
+    try reportOversized(ctx, pos, ty, bytes);
+    return false;
+}
+
+/// The size of the array type `ty` when it is too large by itself: its
+/// element fits `max_value_bytes` (one that does not is reported on its
+/// own), and the array does not.
+pub fn arrayOversized(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?u128 {
+    const bytes = (try minBytes(ctx, ty)) orelse return null;
+    if (bytes <= max_value_bytes) return null;
+    const elem = (try minBytes(ctx, ctx.types.get(ty).array.elem)) orelse return null;
+    return if (elem > max_value_bytes) null else bytes;
+}
+
+/// Report that `ty` takes `bytes`, more than `max_value_bytes`.
+pub fn reportOversized(ctx: *SemContext, pos: u32, ty: TypeId, bytes: u128) std.mem.Allocator.Error!void {
+    try ctx.oversized.put(ctx.allocator, ty, {});
+    try ctx.err(pos, "`{s}` takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `Vec`", .{ try formatType(ctx, ty), bytes, max_value_bytes });
+}
+
+/// Whether `ty` (a struct, an enum, or a generic type's instance under
+/// `subst`) is too large by itself: it takes more than `max_value_bytes`,
+/// and no type it holds directly does, which is reported on its own.
+/// Its size, when it is.
+pub fn oversizedByItself(ctx: *SemContext, ty: TypeId, sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!?u128 {
+    const bytes = (try minBytes(ctx, ty)) orelse return null;
+    if (bytes <= max_value_bytes) return null;
+    for (ctx.symbols.items[sym].fields orelse &.{}) |*f| for (dataFields(f)) |d| {
+        const held = (try minBytes(ctx, try substituteType(ctx, d.ty, subst))) orelse return null;
+        if (held > max_value_bytes) return null;
+    };
+    return bytes;
+}
+
+/// Every declared struct and enum must fit `max_value_bytes`; a generic
+/// one is checked at each instance.
+fn checkTypeSizes(ctx: *SemContext) std.mem.Allocator.Error!void {
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (sym.kind != .nominal_type or sym.decl_pos == builtin_decl_pos) continue;
+        const ty = try ctx.intern(.{ .nominal = @intCast(i) });
+        const bytes = (try oversizedByItself(ctx, ty, @intCast(i), .empty)) orelse continue;
+        try reportOversized(ctx, sym.decl_pos, ty, bytes);
+    }
+}
+
+/// The `ct_value` of the integer `v`.
+pub fn ctInt(ctx: *SemContext, v: i128) std.mem.Allocator.Error!TypeId {
+    return ctx.intern(.{ .ct_value = .{ .int = v } });
 }
 
 /// Does a value of this type need its destructor run: a `*T` / `~T`
@@ -1924,12 +2166,12 @@ pub const TypeSubst = struct {
     }
 };
 
-/// Replace every `type_var` in `ty_id` that `subst` maps.
+/// Replace every `type_var` and `ct_param` in `ty_id` that `subst` maps.
 pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem.Allocator.Error!TypeId {
     if (subst.isEmpty()) return ty_id;
     const ty = ctx.types.get(ty_id);
     switch (ty) {
-        .type_var => |sym| return subst.lookup(sym) orelse ty_id,
+        .type_var, .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
         inline .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) return ty_id;
@@ -1942,8 +2184,12 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
         },
         .array => |a| {
             const e = try substituteType(ctx, a.elem, subst);
-            if (e == a.elem) return ty_id;
-            return ctx.intern(.{ .array = .{ .elem = e, .len = a.len } });
+            const n = try substituteType(ctx, a.len, subst);
+            if (e == a.elem and n == a.len) return ty_id;
+            // A length out of range is reported where the instance is
+            // made (`Requirement.array_len`); the array is poison.
+            if (ctx.types.get(n) == .ct_value and arrayLen(ctx, .{ .elem = e, .len = n }) == null) return ctx.types.invalid_id;
+            return ctx.intern(.{ .array = .{ .elem = e, .len = n } });
         },
         .function => |f| {
             var params: std.ArrayListUnmanaged(TypeId) = .empty;
@@ -1954,7 +2200,7 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             for (f.ct_params) |p| try ct.append(ctx.allocator, try substituteType(ctx, p, subst));
             const ret = try substituteType(ctx, f.returns, subst);
             if (ret == f.returns and std.mem.eql(TypeId, params.items, f.params) and std.mem.eql(TypeId, ct.items, f.ct_params)) return ty_id;
-            return ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items } });
+            return ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = f.ct_syms } });
         },
         .parameterized_nominal => |pn| {
             var args: std.ArrayListUnmanaged(TypeId) = .empty;
@@ -2054,13 +2300,16 @@ pub fn importType(
 ) std.mem.Allocator.Error!TypeId {
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
-        .invalid, .unknown, .void, .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => return local_ctx.intern(ty),
+        .invalid, .unknown, .void, .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
         inline .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
         },
         .slice => |s| return local_ctx.intern(.{ .slice = .{ .elem = try importType(local_ctx, foreign_ctx, s.elem, origin_module_id) } }),
-        .array => |a| return local_ctx.intern(.{ .array = .{ .elem = try importType(local_ctx, foreign_ctx, a.elem, origin_module_id), .len = a.len } }),
+        .array => |a| return local_ctx.intern(.{ .array = .{
+            .elem = try importType(local_ctx, foreign_ctx, a.elem, origin_module_id),
+            .len = try importType(local_ctx, foreign_ctx, a.len, origin_module_id),
+        } }),
         .function => |f| {
             var params: std.ArrayListUnmanaged(TypeId) = .empty;
             defer params.deinit(local_ctx.allocator);
@@ -2069,7 +2318,10 @@ pub fn importType(
             defer ct.deinit(local_ctx.allocator);
             for (f.ct_params) |p| try ct.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, p, origin_module_id));
             const ret = try importType(local_ctx, foreign_ctx, f.returns, origin_module_id);
-            return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items } });
+            // The symbols are the other module's.
+            const syms = try local_ctx.arena.allocator().alloc(SymbolId, f.ct_syms.len);
+            @memset(syms, symbol_invalid);
+            return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
         .nominal => |sym_id| return local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
@@ -2084,7 +2336,7 @@ pub fn importType(
             return local_ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items } });
         },
         // A generic parameter never leaves its generic type's module.
-        .type_var => return local_ctx.types.invalid_id,
+        .type_var, .ct_param => return local_ctx.types.invalid_id,
     }
 }
 
@@ -2111,7 +2363,7 @@ pub fn makeNominalContext(ctx: *SemContext, sym_id: SymbolId) std.mem.Allocator.
         .generic_type => {
             const tparams = sym.type_params orelse &.{};
             const args = try ctx.arena.allocator().alloc(TypeId, tparams.len);
-            for (tparams, 0..) |tp, i| args[i] = try ctx.intern(.{ .type_var = tp });
+            for (tparams, 0..) |tp, i| args[i] = try ctx.intern(if (ctx.symbols.items[tp].kind == .param) .{ .ct_param = tp } else .{ .type_var = tp });
             const self_type = try ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args } });
             return .{ .sym = sym_id, .self_type = self_type, .type_params = tparams };
         },
@@ -2259,7 +2511,7 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .shared => |inner| try std.fmt.allocPrint(a, "*{s}", .{try formatTypeIn(ctx, a, inner)}),
         .weak => |inner| try std.fmt.allocPrint(a, "~{s}", .{try formatTypeIn(ctx, a, inner)}),
         .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatTypeIn(ctx, a, s.elem)}),
-        .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatTypeIn(ctx, a, arr.elem) }),
+        .array => |arr| try std.fmt.allocPrint(a, "[{s}]{s}", .{ try formatTypeIn(ctx, a, arr.len), try formatTypeIn(ctx, a, arr.elem) }),
         .range => |e| try std.fmt.allocPrint(a, "range of {s}", .{try formatTypeIn(ctx, a, e)}),
         .function => |f| if (f.is_sub)
             try std.fmt.allocPrint(a, "sub({s})", .{try formatTypeList(ctx, a, f.params)})
@@ -2278,7 +2530,8 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
             break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, name });
         },
         .parameterized_nominal => |pn| try std.fmt.allocPrint(a, "{s}[{s}]", .{ ctx.symbols.items[pn.sym].name, try formatTypeList(ctx, a, pn.args) }),
-        .type_var => |sym| ctx.symbols.items[sym].name,
+        .type_var, .ct_param => |sym| ctx.symbols.items[sym].name,
+        .ct_value => |v| try std.fmt.allocPrint(a, "{d}", .{v.int}),
     };
 }
 
@@ -2371,61 +2624,134 @@ pub const ConstInt = union(enum) {
 /// The value of a constant integer expression: literals, constant
 /// bindings, and arithmetic on them.
 pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
+    return constIntBy(ctx, e, CheckedNames{ .ctx = ctx });
+}
+
+/// The names of checked code: a constant binding's value is known once
+/// its declaration is checked. Their values are untyped here: the
+/// checker gives constant arithmetic its type.
+const CheckedNames = struct {
+    ctx: *const SemContext,
+
+    pub fn name(self: CheckedNames, e: Sexp) ?TypedInt {
+        const id = self.ctx.symbolOf(e) orelse return null;
+        return if (self.ctx.const_ints.get(id)) |c| .{ .v = c.value } else null;
+    }
+
+    pub fn member(_: CheckedNames, _: Sexp) ?TypedInt {
+        return null;
+    }
+};
+
+/// `constInt` with the value of each name leaf and `(member ...)` node
+/// from `names` (`name(e)`, `member(e)`, each a `?TypedInt`).
+pub fn constIntBy(ctx: *const SemContext, e: Sexp, names: anytype) ConstInt {
+    return switch (ctFoldBy(ctx, e, names)) {
+        .value => |t| .{ .value = t.v },
+        .not_constant, .mismatch => .not_constant,
+        .overflow => .overflow,
+    };
+}
+
+/// A module or local integer constant: its value and its type.
+pub const ConstVal = struct { value: i128, int: IntInfo = .{} };
+
+/// A folded integer and its type; `int` is null for arithmetic on
+/// literals alone, which takes the type it is used as.
+pub const TypedInt = struct { v: i128, int: ?IntInfo = null };
+
+/// A constant integer expression folded with its types, as constant
+/// arithmetic is checked: each operation is in the type of its typed
+/// operands, and its value must fit that type.
+pub const CtFold = union(enum) {
+    value: TypedInt,
+    not_constant,
+    /// `node`'s value does not fit its type `int`, or (untyped) is too
+    /// large to compute.
+    overflow: struct { node: Sexp, int: ?IntInfo },
+    /// `node` combines constants of two integer types.
+    mismatch: struct { node: Sexp, a: IntInfo, b: IntInfo },
+};
+
+pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
     switch (e) {
         .src => {
             const text_ = identAt(ctx.source, e) orelse "";
-            if (isIntLiteralText(text_)) return .{ .value = std.fmt.parseInt(i128, text_, 0) catch return .overflow };
-            const id = ctx.symbolOf(e) orelse return .not_constant;
-            return if (ctx.const_ints.get(id)) |v| .{ .value = v } else .not_constant;
+            if (isIntLiteralText(text_)) return if (std.fmt.parseInt(i128, text_, 0)) |v| .{ .value = .{ .v = v } } else |_| .{ .overflow = .{ .node = e, .int = null } };
+            return if (names.name(e)) |t| .{ .value = t } else .not_constant;
         },
         .list => {
             const h = e.kind() orelse return .not_constant;
+            if (h == .member) return if (names.member(e)) |t| .{ .value = t } else .not_constant;
             if (h == .neg) {
-                const v = switch (constInt(ctx, ir.Neg.operand(e))) {
-                    .value => |v| v,
+                const a = switch (ctFoldBy(ctx, ir.Neg.operand(e), names)) {
+                    .value => |t| t,
                     else => |r| return r,
                 };
-                return .{ .value = std.math.negate(v) catch return .overflow };
+                const v = std.math.negate(a.v) catch return .{ .overflow = .{ .node = e, .int = a.int } };
+                return typedResult(e, v, a.int);
             }
             // `a if c else b` with a constant condition: Zig picks the
             // branch at compile time, so its value is constant.
             if (h == .@"if" and ir.If.@"else"(e) != .nil) {
                 const c = constBoolOf(ctx, ir.If.cond(e)) orelse return .not_constant;
-                return constInt(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e));
+                return ctFoldBy(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), names);
             }
             switch (h) {
                 .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
                 else => return .not_constant,
             }
-            const a = switch (constInt(ctx, ir.get(e, .left))) {
-                .value => |v| v,
+            const a = switch (ctFoldBy(ctx, ir.get(e, .left), names)) {
+                .value => |t| t,
                 else => |r| return r,
             };
-            const b = switch (constInt(ctx, ir.get(e, .right))) {
-                .value => |v| v,
+            const b = switch (ctFoldBy(ctx, ir.get(e, .right), names)) {
+                .value => |t| t,
                 else => |r| return r,
             };
+            // A shift is in its left operand's type.
+            const shift = h == .@"<<" or h == .@">>";
+            if (!shift) if (a.int) |ai| if (b.int) |bi| if (!std.meta.eql(ai, bi)) return .{ .mismatch = .{ .node = e, .a = ai, .b = bi } };
+            const int = if (shift) a.int else a.int orelse b.int;
             const v: ?i128 = switch (h) {
-                .@"+" => std.math.add(i128, a, b) catch null,
-                .@"-" => std.math.sub(i128, a, b) catch null,
-                .@"*" => std.math.mul(i128, a, b) catch null,
+                .@"+" => std.math.add(i128, a.v, b.v) catch null,
+                .@"-" => std.math.sub(i128, a.v, b.v) catch null,
+                .@"*" => std.math.mul(i128, a.v, b.v) catch null,
                 // Division by zero and negative shift amounts are
                 // reported where the operator is checked.
-                .@"/" => if (b == 0) return .not_constant else std.math.divTrunc(i128, a, b) catch null,
-                .@"%" => if (b == 0) return .not_constant else if (b == -1) 0 else @rem(a, b),
-                .@"<<" => if (b < 0) return .not_constant else if (b > 126) null else blk: {
-                    const r = a << @intCast(b);
-                    break :blk if (r >> @intCast(b) == a) r else null;
+                .@"/" => if (b.v == 0) return .not_constant else std.math.divTrunc(i128, a.v, b.v) catch null,
+                .@"%" => if (b.v == 0) return .not_constant else if (b.v == -1) 0 else @rem(a.v, b.v),
+                .@"<<" => if (b.v < 0) return .not_constant else if (b.v > 126) null else blk: {
+                    const r = a.v << @intCast(b.v);
+                    break :blk if (r >> @intCast(b.v) == a.v) r else null;
                 },
-                .@">>" => if (b < 0) return .not_constant else a >> @intCast(@min(b, 127)),
-                .@"&" => a & b,
-                .@"|" => a | b,
-                else => a ^ b,
+                .@">>" => if (b.v < 0) return .not_constant else a.v >> @intCast(@min(b.v, 127)),
+                .@"&" => a.v & b.v,
+                .@"|" => a.v | b.v,
+                else => a.v ^ b.v,
             };
-            return if (v) |x| .{ .value = x } else .overflow;
+            return typedResult(e, v orelse return .{ .overflow = .{ .node = e, .int = int } }, int);
         },
         else => return .not_constant,
     }
+}
+
+fn typedResult(e: Sexp, v: i128, int: ?IntInfo) CtFold {
+    if (int) |i| if (!intInfoFits(i, v)) return .{ .overflow = .{ .node = e, .int = i } };
+    return .{ .value = .{ .v = v, .int = int } };
+}
+
+/// Whether an integer type holds `v`.
+pub fn intInfoFits(info: IntInfo, v: i128) bool {
+    const r = intRange(info);
+    return v >= r.min and v <= r.max;
+}
+
+/// The least and greatest values of an integer type.
+pub fn intRange(info: IntInfo) struct { min: i128, max: i128 } {
+    const bits: u8 = if (info.bits == 0) 64 else info.bits;
+    const half = @as(i128, 1) << @intCast(bits - 1);
+    return if (info.signed) .{ .min = -half, .max = half - 1 } else .{ .min = 0, .max = 2 * half - 1 };
 }
 
 /// `constInt` as an optional: null when not constant or too large.
@@ -2738,8 +3064,8 @@ test "facts: constant bindings keep their value; changed ones do not" {
         \\
     );
     defer r.deinit();
-    try std.testing.expectEqual(@as(?i128, 5), r.ctx.const_ints.get(r.sym("a", 0).?));
-    try std.testing.expectEqual(@as(?i128, 20), r.ctx.const_ints.get(r.sym("b", 0).?));
+    try std.testing.expectEqual(@as(i128, 5), r.ctx.const_ints.get(r.sym("a", 0).?).?.value);
+    try std.testing.expectEqual(@as(i128, 20), r.ctx.const_ints.get(r.sym("b", 0).?).?.value);
     try std.testing.expect(r.ctx.symbols.items[r.sym("c", 0).?].flags.reassigned);
     try std.testing.expect(r.ctx.const_ints.get(r.sym("c", 0).?) == null);
     try std.testing.expect(r.ctx.const_ints.get(r.sym("d", 0).?) == null);

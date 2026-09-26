@@ -1,0 +1,28 @@
+# A write into a field of length 0 panics when the program runs, both
+# through `!self` and through a generic type's instance.
+
+struct Ring[T, n: Int]
+  items: [n]T
+
+struct S
+  xs: [0]Int
+
+  sub put(!self, i: Int)
+    self.xs[i] = 1
+
+sub main()
+  i = 0
+  for j in 0..1
+    i += j
+  r = Ring[Int, 0](items: [])
+  if i > 0
+    r.items[i] = 3
+  print(r.items)
+  s = S(xs: [])
+  !s.put(i)
+  print(s.xs)
+
+# expect-panic: index out of bounds
+
+# expect:
+# []

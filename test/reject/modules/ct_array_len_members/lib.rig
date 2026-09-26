@@ -1,0 +1,6 @@
+N =! 3
+pub F =! 2.5
+pub P =! 4
+
+pub struct S
+  x: Int

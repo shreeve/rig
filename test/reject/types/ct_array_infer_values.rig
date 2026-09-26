@@ -1,0 +1,23 @@
+# An inferred length must agree across the arguments, and fit the type
+# of the parameter it gives: a `U8` holds no 300, and takes no `Int`
+# compile-time parameter.
+
+fun sum[n: Int](a: [n]Int, b: [n]Int) -> Int
+  1
+
+fun small[n: U8](xs: [n]Int) -> Int
+  1
+
+fun big[n: Int](xs: [n]Int) -> Int
+  small(xs)
+
+sub main()
+  print(sum([1, 2, 3], [1, 2, 3, 4]))
+  print(small([0; 300]))
+  print(small[300]([1]))
+  print(big([1]))
+
+# error: 15:9: conflicting values for `n` in the call to `sum`: `3` (argument 1) and `4` (argument 2)
+# error: 16:9: argument 1 gives `n` of `small` the value `300`, which a `U8` cannot hold
+# error: 17:15: integer value `300` does not fit in `U8` (0..255)
+# error: 12:3: argument 1 gives `n` of `small` the compile-time `Int` `n`; `n` is a `U8`

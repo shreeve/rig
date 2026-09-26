@@ -85,6 +85,9 @@ const Checker = struct {
     current_call: ?Sexp = null,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
+    /// In a module constant's declaration, its position: the types in it
+    /// name only earlier constants.
+    const_before: u32 = std.math.maxInt(u32),
     /// Enclosing `raw` blocks.
     raw_depth: u32 = 0,
     /// The operand of the `!` or `catch` being checked: a fallible call
@@ -95,6 +98,10 @@ const Checker = struct {
     /// The `!x` being checked where a write borrow is expected, the one
     /// place a write borrow of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
+    /// Checking an expression where a rejected type is expected, or an
+    /// argument of a call that cannot be checked: a size it would have is
+    /// not reported.
+    under_poison: bool = false,
     /// The label, and the value when it is used as one, of the loop
     /// about to be checked.
     loop_label: []const u8 = "",
@@ -212,7 +219,7 @@ const Checker = struct {
     }
 
     fn resolver(self: *Checker) resolve.TypeResolver {
-        return .{ .ctx = self.ctx, .scope = self.scope, .nominal = self.nominal };
+        return .{ .ctx = self.ctx, .scope = self.scope, .nominal = self.nominal, .const_before = self.const_before };
     }
 
     fn t(self: *Checker) *sema.TypeStore {
@@ -258,6 +265,8 @@ const Checker = struct {
         if (rig.bindingKindOf(ir.Set.op(node)) != .fixed) {
             return self.errAt(node, "a module-level binding is a constant; write `{s} =! value`", .{self.text(target)});
         }
+        self.const_before = target.src.pos;
+        defer self.const_before = std.math.maxInt(u32);
         try self.checkSet(node);
         const value = ir.Set.value(node);
         if (self.isPoison(self.ctx.typeOf(target) orelse self.t().invalid_id)) return;
@@ -271,6 +280,7 @@ const Checker = struct {
             for (ir.Array.elems(e)) |x| if (!self.isConstExpr(x)) return false;
             return true;
         }
+        if (e.isKind(.array_fill)) return self.isConstExpr(ir.ArrayFill.value(e));
         return self.isComptimeKnown(e);
     }
 
@@ -583,7 +593,7 @@ const Checker = struct {
         defer self.pending = saved_pending;
         if (kind == .shadow) self.pending = sym_id;
         var rhs_ty: TypeId = undefined;
-        if (!self.isPoison(declared)) {
+        if (!self.isPoison(declared) or type_node != .nil) {
             try self.checkExpr(rhs, declared);
             rhs_ty = declared;
         } else {
@@ -595,12 +605,20 @@ const Checker = struct {
         }
 
         const s = &self.ctx.symbols.items[sym_id];
-        if (s.ty == self.t().unknown_id) s.ty = rhs_ty;
+        // A rejected annotation leaves the binding without a type.
+        if (s.ty == self.t().unknown_id) s.ty = if (type_node != .nil and self.isPoison(declared)) self.t().invalid_id else rhs_ty;
         if (kind == .fixed and self.isComptimeKnown(rhs)) s.flags.comptime_known = true;
+        // `k =! n` stands for the compile-time parameter `n` where an
+        // array length or a compile-time argument names it.
+        if (kind == .fixed and is_decl and s.kind == .local) if (try self.ctParamOf(rhs)) |ct| try self.ctx.ct_locals.put(self.ctx.allocator, sym_id, ct);
         try self.ctx.recordType(target, s.ty);
         // A binding that never changes keeps a constant value.
-        if (is_decl and s.kind == .local and !s.flags.reassigned and !s.flags.written and sema.isInteger(self.ctx, s.ty)) {
-            if (self.constInt(rhs)) |v| try self.ctx.const_ints.put(self.ctx.allocator, sym_id, v);
+        // (A module constant's was folded before any type was resolved.)
+        if (is_decl and s.kind == .local and s.scope != self.module_scope and !s.flags.reassigned and !s.flags.written and sema.isInteger(self.ctx, s.ty)) {
+            if (self.constInt(rhs)) |v| try self.ctx.const_ints.put(self.ctx.allocator, sym_id, .{ .value = v, .int = switch (self.ctx.types.get(s.ty)) {
+                .int => |i| i,
+                else => .{},
+            } });
         }
     }
 
@@ -1581,9 +1599,15 @@ const Checker = struct {
             if (scope.kind == .lambda) crossed_lambda = true;
             sid = scope.parent;
         }
-        // The parameters of a generic type are in scope only as types.
+        // A generic type's type parameters are in scope only as types; its
+        // value parameters are compile-time values in its methods.
         const type_param = for (self.nominal.type_params) |tp| {
-            if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) break true;
+            if (!std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) continue;
+            if (self.ctx.symbols.items[tp].kind == .param) {
+                try self.ctx.recordName(leaf, tp);
+                return tp;
+            }
+            break true;
         } else false;
         if (type_param or resolve.isBuiltinTypeName(self.ctx, name)) {
             try self.errAt(leaf, "`{s}` is a type, not a value", .{name});
@@ -1656,6 +1680,7 @@ const Checker = struct {
             .@"??" => self.synthCoalesce(e, null),
             .@"catch" => self.synthCatch(e, null),
             .array => self.synthArray(e),
+            .array_fill => self.checkArrayFill(e, null),
             .enum_lit => blk: {
                 const name = self.text(ir.EnumLit.name(e));
                 try self.errAt(e, "enum literal `.{s}` needs a known enum type; write `Type.{s}` or annotate the binding", .{ name, name });
@@ -2676,13 +2701,16 @@ const Checker = struct {
         const params = nt.sym.type_params orelse &.{};
         const given = sema.bracketArgs(e);
         if (given.len != params.len) {
-            try self.errAt(e, "generic type `{s}` expects {d} type argument{s}, got {d}", .{ nt.sym.name, params.len, plural(params.len), given.len });
+            try self.errAt(e, "generic type `{s}` expects {d} {s} argument{s}, got {d}", .{ nt.sym.name, params.len, resolve.argsNoun(self.ctx, params), plural(params.len), given.len });
             return self.t().invalid_id;
         }
         const args = try self.ctx.arena.allocator().alloc(TypeId, given.len);
         var bad = false;
-        for (given, args) |g, *a| {
-            a.* = try self.typeArg(g);
+        for (given, args, params, 0..) |g, *a, tp, i| {
+            a.* = if (self.ctx.symbols.items[tp].kind == .param)
+                (try self.ctIntArg(g, tp, i, nt.sym.name)) orelse self.t().invalid_id
+            else
+                try self.typeArg(g);
             if (self.isPoison(a.*)) bad = true;
         }
         if (bad) return self.t().invalid_id;
@@ -2847,10 +2875,10 @@ const Checker = struct {
         const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
             .array => |a| {
-                // The length is part of the type, so a constant index is
-                // checked now.
-                if (self.constInt(index)) |i| if (i < 0 or i >= a.len) {
-                    try self.errAt(index, "index `{d}` is out of bounds for an array of length {d}", .{ i, a.len });
+                // A known length is part of the type, so a constant index
+                // is checked now.
+                if (sema.arrayLen(self.ctx, a)) |n| if (self.constInt(index)) |i| if (i < 0 or i >= n) {
+                    try self.errAt(index, "index `{d}` is out of bounds for an array of length {d}", .{ i, n });
                 };
                 return a.elem;
             },
@@ -2912,7 +2940,7 @@ const Checker = struct {
                 break :blk elem;
             },
         };
-        const len: ?u64 = if (self.ctx.types.get(peeled) == .array) self.ctx.types.get(peeled).array.len else null;
+        const len: ?u64 = if (self.ctx.types.get(peeled) == .array) sema.arrayLen(self.ctx, self.ctx.types.get(peeled).array) else null;
         try self.checkSliceBounds(range, len);
         if (!borrowed) {
             const sp = self.ctx.span(e);
@@ -2964,18 +2992,66 @@ const Checker = struct {
             try self.errAt(node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try self.tyName(concrete)});
             return self.t().invalid_id;
         }
-        return self.ctx.intern(.{ .array = .{ .elem = concrete, .len = elems.len } });
+        const ty = try self.ctx.intern(.{ .array = .{ .elem = concrete, .len = try sema.ctInt(self.ctx, elems.len) } });
+        if (self.under_poison) return ty;
+        return if (try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) ty else self.t().invalid_id;
     }
 
     fn checkArray(self: *Checker, node: Sexp, expected: TypeId) Error!?TypeId {
         const et = self.ctx.types.get(expected);
         if (et != .array) return null;
         const elems = ir.Array.elems(node);
-        if (elems.len != et.array.len) {
-            try self.errAt(node, "array literal has {d} element{s}; `{s}` needs {d}", .{ elems.len, plural(elems.len), try self.tyName(expected), et.array.len });
+        if (sema.arrayLen(self.ctx, et.array)) |n| {
+            if (elems.len != n) try self.errAt(node, "array literal has {d} element{s}; `{s}` needs {d}", .{ elems.len, plural(elems.len), try self.tyName(expected), n });
+        } else if (self.ctx.types.get(et.array.len) == .ct_param) {
+            const len = try self.tyName(et.array.len);
+            try self.errAt(node, "an array of compile-time length `{s}` is built with `[x; {s}]`, not a list of elements", .{ len, len });
         }
         for (elems) |e| try self.checkExpr(e, et.array.elem);
         return expected;
+    }
+
+    /// `[x; n]`: an array of `n` copies of `x`, where `n` is a
+    /// compile-time integer. Its type is `[n]T` for `x`'s type `T`, or
+    /// the array type `expected`, whose length it must have. The element
+    /// is plain data: it is copied into every slot.
+    fn checkArrayFill(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeId {
+        const value = ir.ArrayFill.value(node);
+        var r = self.resolver();
+        const len = try r.resolveCtInt(ir.ArrayFill.size(node), .array_len);
+        var elem: TypeId = undefined;
+        if (expected) |ex| {
+            elem = self.ctx.types.get(ex).array.elem;
+            try self.checkExpr(value, elem);
+        } else {
+            const ty = try self.synthExpr(value);
+            elem = self.canonical(ty);
+            if (elem != ty) try self.checkExpr(value, elem);
+            switch (self.ctx.types.get(elem)) {
+                .none_literal, .void, .noreturn => {
+                    try self.errAt(value, "the element of `[x; n]` needs a type; give it where the array goes (`xs: [n]T? = [none; n]`)", .{});
+                    return self.t().invalid_id;
+                },
+                else => {},
+            }
+        }
+        if (self.isPoison(elem) or self.isPoison(len)) return self.t().invalid_id;
+        if (try self.ownsResource(elem, self.startOf(value), "copies into every slot of `[x; n]` a value")) {
+            try self.errAt(value, "`[x; n]` copies its element into every slot; `{s}` owns a resource, so an array cannot hold it (use a `Vec`)", .{try self.tyName(elem)});
+            return self.t().invalid_id;
+        }
+        if (sema.holdsBorrow(self.ctx, elem)) {
+            try self.errAt(value, "`[x; n]` copies its element into every slot; `{s}` holds a borrow, and its element must be plain data", .{try self.tyName(elem)});
+            return self.t().invalid_id;
+        }
+        const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
+        // An expected array type was checked where it was spelled or made.
+        if (expected == null and !self.under_poison and !try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) return self.t().invalid_id;
+        if (expected) |ex| if (ex != ty) {
+            try self.errAt(node, "`{s}` has length `{s}`; `{s}` needs `{s}`", .{ try self.sourceText(node), try self.tyName(len), try self.tyName(ex), try self.tyName(self.ctx.types.get(ex).array.len) });
+            return self.t().invalid_id;
+        };
+        return ty;
     }
 
     // =========================================================================
@@ -3095,7 +3171,7 @@ const Checker = struct {
         const info = paramsOf(sym, self.ctx.source);
         const f = (try self.instantiateCall(fty.function, ct, args, info, 0, name, callee.src.pos, false, .empty)) orelse return self.skipCall(args);
         // A generic function's callee has the instance's signature.
-        if (sema.isGenericFn(self.ctx, fty.function)) try self.ctx.recordType(callee, try self.ctx.internCopy(.{ .function = f }));
+        if (fty.function.ct_params.len > 0) try self.ctx.recordType(callee, try self.ctx.internCopy(.{ .function = f }));
         try self.checkArgs(args, f, info, name, callee.src.pos);
         return f.returns;
     }
@@ -3131,11 +3207,17 @@ const Checker = struct {
         return self.skipCall(args);
     }
 
+    /// The arguments of a call that cannot be checked: each is checked
+    /// on its own, and nothing that needs a parameter's type (`[]` has
+    /// none) is reported.
     fn synthArgs(self: *Checker, args: []const Sexp) Error!void {
+        const saved = self.under_poison;
+        defer self.under_poison = saved;
+        self.under_poison = true;
         for (args) |a| {
-            if (a.isKind(.kwarg)) {
-                _ = try self.synthExpr(ir.Kwarg.value(a));
-            } else _ = try self.synthExpr(a);
+            const e = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+            if (e.isKind(.array) and ir.Array.elems(e).len == 0) continue;
+            _ = try self.synthExpr(e);
         }
     }
 
@@ -3357,10 +3439,46 @@ const Checker = struct {
         if (self.ctx.diagnostics.items.len != mark or self.isComptimeKnown(a)) return;
         const fixed = a == .src and if (self.ctx.symbolOf(a)) |id| self.ctx.symbols.items[id].flags.fixed else false;
         if (self.isCtArithmetic(a)) {
-            try self.errAt(a, "compile-time argument {d} of `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; pass a parameter or a constant", .{ i + 1, callee });
+            try self.errAt(a, "compile-time argument {d} of `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; use a parameter or a constant", .{ i + 1, callee });
         } else if (fixed) {
             try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; `{s}` is bound with `=!` to a value computed when the program runs", .{ i + 1, callee, self.text(a) });
-        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, or a `=!` binding of one", .{ i + 1, callee });
+        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `=!` binding of one, or arithmetic on them", .{ i + 1, callee });
+    }
+
+    /// The `ct_param` of the compile-time integer parameter (or `k =! n`
+    /// binding of one) that `e` names; null for anything else.
+    fn ctParamOf(self: *Checker, e: Sexp) Error!?TypeId {
+        if (e != .src) return null;
+        const id = self.ctx.symbolOf(e) orelse return null;
+        if (self.ctx.ct_locals.get(id)) |ct| return ct;
+        const sym = self.ctx.symbols.items[id];
+        if (sym.kind != .param or !sym.flags.comptime_known or self.ctx.types.get(sym.ty) != .int) return null;
+        return try self.ctx.intern(.{ .ct_param = id });
+    }
+
+    /// Compile-time argument `i` of `callee` for integer value parameter
+    /// `param`: its value folded to a `ct_value`, or the `ct_param` of a
+    /// compile-time parameter passed on. Null after a diagnostic.
+    fn ctIntArg(self: *Checker, a: Sexp, param: SymbolId, i: usize, callee: []const u8) Error!?TypeId {
+        const ty = self.ctx.symbols.items[param].ty;
+        const mark = self.ctx.diagnostics.items.len;
+        try self.checkCtValue(a, ty, i, callee);
+        if (self.ctx.diagnostics.items.len != mark) return null;
+        if (try self.ctParamOf(a)) |ct| return ct;
+        const names: resolve.ConstNames = .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params };
+        switch (sema.constIntBy(self.ctx, a, names)) {
+            .value => |v| {
+                if (!sema.intFits(self.ctx, ty, v)) {
+                    const name = try self.tyName(ty);
+                    try self.errAt(a, "compile-time argument {d} of `{s}` is `{d}`, which `{s}`, {s} `{s}`, cannot hold", .{ i + 1, callee, v, self.ctx.symbols.items[param].name, resolve.an(name), name });
+                    return null;
+                }
+                return try sema.ctInt(self.ctx, v);
+            },
+            .overflow => try self.errAt(a, "compile-time argument {d} of `{s}` is too large to compute", .{ i + 1, callee }),
+            .not_constant => try self.errAt(a, "compile-time argument {d} of `{s}` must be an integer known at compile time: an integer, a constant, a compile-time parameter, or arithmetic on constants", .{ i + 1, callee }),
+        }
+        return null;
     }
 
     /// A method's type parameters and the receiver's arguments for them:
@@ -3389,8 +3507,15 @@ const Checker = struct {
         for (f.ct_params) |ty| if (self.isPoison(ty)) return null;
         const a = self.ctx.arena.allocator();
         const n = f.ct_params.len;
+        // The parameters an instance binds: the type parameters and the
+        // integer value parameters, at their slots.
         var own: std.ArrayListUnmanaged(SymbolId) = .empty;
-        for (f.ct_params) |slot| if (sema.typeParamOf(self.ctx, slot)) |tp| try own.append(a, tp);
+        var own_slots: std.ArrayListUnmanaged(usize) = .empty;
+        for (f.ct_params, 0..) |slot, i| {
+            const sym = sema.typeParamOf(self.ctx, slot) orelse self.intSlot(f, i) orelse continue;
+            try own.append(a, sym);
+            try own_slots.append(a, i);
+        }
         const given: []const Sexp = if (ct) |b| sema.bracketArgs(b) else &.{};
         if (ct) |b| if (given.len != n) {
             if (n == 0) {
@@ -3398,18 +3523,26 @@ const Checker = struct {
             } else try self.errAt(b, "`{s}` expects {d} compile-time argument{s}, got {d}", .{ callee, n, plural(n), given.len });
             return null;
         };
-        // A value is never inferred: a function that takes one is given
-        // every compile-time argument in brackets.
-        if (ct == null and own.items.len != n) {
+        // A value is inferred only for an integer parameter that the
+        // parameters' or the result's types hold (`[n]T`); a function
+        // that takes another is given every compile-time argument in
+        // brackets.
+        if (ct == null) for (f.ct_params, 0..) |slot, i| {
+            if (sema.typeParamOf(self.ctx, slot) != null) continue;
+            if (self.intSlot(f, i)) |sym| if (self.signatureUses(f, sym)) continue;
+            // A rejected parameter type may be what would have held it.
+            for (f.params) |p| if (sema.containsPoison(self.ctx, p)) return null;
             const parens = if (f.params.len > skip) "(...)" else "()";
-            if (args.len == 1 and args[0].isKind(.array)) {
+            // `f [1, 2](...)` for `f[1, 2](...)`: the only argument is
+            // an array, where the function takes none.
+            if (f.params.len == skip and args.len == 1 and args[0].isKind(.array)) {
                 const arg = try self.sourceText(args[0]);
                 try self.err(pos, "compile-time arguments touch the name: `{s}{s}{s}`", .{ callee, arg, parens });
             } else {
                 try self.err(pos, "`{s}` takes {d} compile-time argument{s} in brackets: `{s}[...]{s}`", .{ callee, n, plural(n), callee, parens });
             }
             return null;
-        }
+        };
         const type_args = try a.alloc(TypeId, n);
         @memset(type_args, sema.type_invalid);
         var bad = false;
@@ -3417,6 +3550,11 @@ const Checker = struct {
             if (sema.typeParamOf(self.ctx, slot) != null) {
                 type_args[i] = try self.typeArg(g);
                 if (self.isPoison(type_args[i])) bad = true;
+            } else if (self.intSlot(f, i)) |sym| {
+                type_args[i] = (try self.ctIntArg(g, sym, i, callee)) orelse blk: {
+                    bad = true;
+                    break :blk sema.type_invalid;
+                };
             } else try self.checkCtValue(g, slot, i, callee);
         };
         if (bad) return null;
@@ -3426,14 +3564,10 @@ const Checker = struct {
         }
         if (ct == null) {
             const inferred = (try self.inferCallTypeArgs(f, own.items, args, info, skip, callee, pos)) orelse return null;
-            @memcpy(type_args, inferred);
+            for (own_slots.items, inferred) |i, ty| type_args[i] = ty;
         }
         const own_args = try a.alloc(TypeId, own.items.len);
-        var j: usize = 0;
-        for (f.ct_params, type_args) |slot, arg| if (sema.typeParamOf(self.ctx, slot) != null) {
-            own_args[j] = arg;
-            j += 1;
-        };
+        for (own_slots.items, own_args) |i, *arg| arg.* = type_args[i];
         const generic = try self.ctx.internCopy(.{ .function = f });
         const result = self.ctx.types.get(try sema.substituteType(self.ctx, generic, .{ .params = own.items, .args = own_args })).function;
         try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
@@ -3442,8 +3576,24 @@ const Checker = struct {
             .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
             .args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args }),
             .own = @intCast(own.items.len),
-        }, pos);
+        }, pos, null);
         return result;
+    }
+
+    /// The symbol of compile-time slot `i` of `f` when it is an integer
+    /// value parameter of this module's (`n: Int`), which an instance
+    /// binds; null for any other slot.
+    fn intSlot(self: *Checker, f: FunctionType, i: usize) ?SymbolId {
+        if (i >= f.ct_syms.len or f.ct_syms[i] == sema.symbol_invalid) return null;
+        if (self.ctx.types.get(f.ct_params[i]) != .int) return null;
+        return f.ct_syms[i];
+    }
+
+    /// Whether the types of `f`'s parameters or result hold `sym`.
+    fn signatureUses(self: *Checker, f: FunctionType, sym: SymbolId) bool {
+        const params = [_]SymbolId{sym};
+        for (f.params) |p| if (sema.usesParams(self.ctx, p, &params)) return true;
+        return sema.usesParams(self.ctx, f.returns, &params);
     }
 
     /// What the arguments of a call say about one type parameter: the
@@ -3520,6 +3670,7 @@ const Checker = struct {
                 };
             }
             const pat = pattern orelse continue;
+            if (sema.containsPoison(self.ctx, pat)) inf.poisoned = true;
             if (!sema.containsTypeVar(self.ctx, pat)) continue;
             const actual = try self.argType(value);
             if (sema.containsPoison(self.ctx, actual)) inf.poisoned = true;
@@ -3689,6 +3840,12 @@ const Checker = struct {
                 }
                 try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments or the type expected of its result; {s}", .{ pname, callee, try self.inferHint(f, own, result, i, callee, parens) });
             } else if (b.conflict != sema.type_invalid) {
+                ok = false;
+                if (self.ctx.symbols.items[param].kind == .param) {
+                    const c = try self.conflictText(b);
+                    try self.err(pos, "conflicting values for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d})", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg });
+                    continue;
+                }
                 // The later argument's type is suggested, when the earlier
                 // argument can have it; otherwise a conversion.
                 const c = try self.conflictText(b);
@@ -3707,9 +3864,34 @@ const Checker = struct {
                     try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); they must have one type", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg });
                 }
                 ok = false;
-            }
+            } else if (!try self.valueBindingFits(param, b, callee, pos)) ok = false;
         }
         return if (ok) result else null;
+    }
+
+    /// Whether the value inference gave value parameter `param` (when it
+    /// is one) is one it takes: a value its type holds, or a compile-time
+    /// parameter of the same type. Reports one that is not.
+    fn valueBindingFits(self: *Checker, param: SymbolId, b: Bound, callee: []const u8, pos: u32) Error!bool {
+        const p = self.ctx.symbols.items[param];
+        if (p.kind != .param or self.isPoison(p.ty)) return true;
+        const from = if (b.expected) "the type expected of the result" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "argument {d}", .{b.arg});
+        switch (self.ctx.types.get(b.ty)) {
+            .ct_value => |v| if (!sema.intFits(self.ctx, p.ty, v.int)) {
+                const name = try self.tyName(p.ty);
+                try self.err(pos, "{s} gives `{s}` of `{s}` the value `{d}`, which {s} `{s}` cannot hold", .{ from, p.name, callee, v.int, resolve.an(name), name });
+                return false;
+            },
+            .ct_param => |sym| {
+                const ty = self.ctx.symbols.items[sym].ty;
+                if (!self.isPoison(ty) and ty != p.ty) {
+                    try self.err(pos, "{s} gives `{s}` of `{s}` the compile-time `{s}` `{s}`; `{s}` is a `{s}`", .{ from, p.name, callee, try self.tyName(ty), self.ctx.symbols.items[sym].name, p.name, try self.tyName(p.ty) });
+                    return false;
+                }
+            },
+            else => {},
+        }
+        return true;
     }
 
     /// What a generic call's result says to the calls around it: whether
@@ -3847,7 +4029,25 @@ const Checker = struct {
             .shared => |p| if (at == .shared) try self.bindArg(inf, p, at.shared, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
             .weak => |p| if (at == .weak) try self.bindArg(inf, p, at.weak, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
             .slice => |p| if (at == .slice) try self.bindArg(inf, p.elem, at.slice.elem, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
-            .array => |p| if (at == .array) try self.bindArg(inf, p.elem, at.array.elem, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
+            .array => |p| if (at == .array) {
+                try self.bindArg(inf, p.elem, at.array.elem, arg, depth + 1);
+                try self.bindArg(inf, p.len, at.array.len, arg, depth + 1);
+            } else self.noteMismatch(inf, pattern, actual, arg),
+            // A value parameter binds exactly the value (or parameter)
+            // the argument's type holds there: an array length, or a
+            // generic type's value argument.
+            .ct_param => |p| {
+                const i = std.mem.indexOfScalar(SymbolId, inf.own, p) orelse return;
+                if (at != .ct_value and at != .ct_param) return;
+                const b = &inf.bound[i];
+                if (b.ty == sema.type_invalid) {
+                    b.ty = actual;
+                    b.arg = arg;
+                } else if (b.ty != actual and b.conflict == sema.type_invalid) {
+                    b.conflict = actual;
+                    b.conflict_arg = arg;
+                }
+            },
             .parameterized_nominal => |pn| if (at == .parameterized_nominal and at.parameterized_nominal.sym == pn.sym) {
                 for (pn.args, at.parameterized_nominal.args) |pa, aa| try self.bindArg(inf, pa, aa, arg, depth + 1);
             } else self.noteMismatch(inf, pattern, actual, arg),
@@ -4302,9 +4502,12 @@ const Checker = struct {
                 try self.err(pos, "cannot infer `{s}` for `{s}` from the arguments; name it (`{s}[...]`), or give the type where the value goes (`x: {s}[...] = ...`)", .{ pname, sym.name, sym.name, sym.name });
                 return null;
             }
-            if (b.conflict == sema.type_invalid) continue;
+            if (b.conflict == sema.type_invalid) {
+                if (!try self.valueBindingFits(p, b, sym.name, pos)) return null;
+                continue;
+            }
             const c = try self.conflictText(b);
-            try self.err(pos, "conflicting types for `{s}` in `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); name it (`{s}[...]`)", .{ pname, sym.name, c.first, c.first_arg, c.second, c.second_arg, sym.name });
+            try self.err(pos, "conflicting {s} for `{s}` in `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); name it (`{s}[...]`)", .{ if (self.ctx.symbols.items[p].kind == .param) "values" else "types", pname, sym.name, c.first, c.first_arg, c.second, c.second_arg, sym.name });
             return null;
         }
         const bound = try self.ctx.arena.allocator().alloc(TypeId, params.len);
@@ -4530,13 +4733,20 @@ const Checker = struct {
         const prev_lent = self.lent_write;
         defer self.lent_write = prev_lent;
         if (e.isKind(.write) and self.ctx.types.get(expected) == .borrow_write) self.lent_write = e;
-        if (self.isPoison(expected)) {
-            _ = try self.synthExpr(e);
-            return;
-        }
         const saved_result = self.result_expected;
         defer self.result_expected = saved_result;
         if (resultCall(e)) |call| self.result_expected = .{ .call = call, .ty = expected };
+        // A poisoned expected type still reaches a generic call's
+        // inference, which then reports nothing more.
+        if (self.isPoison(expected)) {
+            // `[]` has no type of its own to report on.
+            if (e.isKind(.array) and ir.Array.elems(e).len == 0) return;
+            const saved = self.under_poison;
+            defer self.under_poison = saved;
+            self.under_poison = true;
+            _ = try self.synthExpr(e);
+            return;
+        }
         if (try self.checkContextual(e, expected)) |ty| return self.ctx.recordType(e, ty);
 
         const actual = try self.synthExpr(e);
@@ -4652,6 +4862,7 @@ const Checker = struct {
                 return target;
             },
             .array => return self.checkArray(e, target),
+            .array_fill => return if (self.ctx.types.get(target) == .array) try self.checkArrayFill(e, target) else null,
             .@"if" => _ = try self.checkIfValue(e, expected, .value),
             .match => _ = try self.checkMatch(e, .value, expected),
             .@"while", .@"for", .labeled => {
@@ -5358,7 +5569,7 @@ fn classifyReceiverShape(recv: Sexp) ReceiverShape {
         .read => .read_explicit,
         .write => .write_explicit,
         .move => .move_explicit,
-        .call, .builtin, .array, .clone, .share, .weak, .@"if", .match, .@"catch", .propagate, .propagate_none => .rvalue,
+        .call, .builtin, .array, .array_fill, .clone, .share, .weak, .@"if", .match, .@"catch", .propagate, .propagate_none => .rvalue,
         else => .lvalue_bare,
     };
 }
@@ -5631,7 +5842,7 @@ fn plural(n: usize) []const u8 {
 /// the type parameters (`self.value + 1` requires a numeric `T`). Checked
 /// after all bodies, against every instance the module's code makes.
 pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
-    if (ctx.generic_requirements.items.len == 0) return;
+    if (ctx.generic_requirements.items.len > 0) try checkPublicArrayLengths(ctx);
     var it = ctx.instantiation_sites.iterator();
     while (it.next()) |entry| {
         const pn = switch (ctx.types.get(entry.key_ptr.*)) {
@@ -5639,21 +5850,243 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
             else => continue,
         };
         const params = ctx.symbols.items[pn.sym].type_params orelse continue;
-        try checkRequirements(ctx, params, pn.args, entry.value_ptr.*, .{ .type = entry.key_ptr.* });
+        const of: sema.InstanceRoot = .{ .type = entry.key_ptr.* };
+        if (try checkRequirements(ctx, params, pn.args, entry.value_ptr.*, of)) try checkInstanceSizes(ctx, params, pn.args, entry.value_ptr.*, of);
     }
     // A method's instance checks only its own parameters; its type's
     // are checked with the receiver's instance.
     var i: usize = 0;
     while (i < ctx.fn_instances.items.len) : (i += 1) {
         const f = ctx.fn_instances.items[i];
-        try checkRequirements(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, .{ .func = f.inst });
+        const of: sema.InstanceRoot = .{ .func = f.inst };
+        if (try checkRequirements(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of)) {
+            try checkInstanceSizes(ctx, f.inst.params, f.inst.args, f.site, of);
+        } else if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
     }
 }
 
-fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
+// ---- stack frames -----------------------------------------------------------
+
+/// Every function, method, closure, test, and drop body keeps at most
+/// `sema.max_frame_bytes` of values on its stack: each binding it
+/// declares and each by-value parameter, once, and each array literal,
+/// fill, and call whose value no binding takes directly (a temporary). A
+/// closure's captures count in the frame that makes it. A frame whose
+/// size depends on generic parameters is checked at each instance
+/// (`checkInstanceSizes`).
+pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
+    var w: FrameWalker = .{ .ctx = ctx };
+    try w.walk(tree, null, false);
+}
+
+const FrameWalker = struct {
+    ctx: *SemContext,
+
+    const Slots = std.ArrayListUnmanaged(TypeId);
+
+    fn walk(self: *FrameWalker, node: Sexp, frame: ?*Slots, bound: bool) Error!void {
+        const ctx = self.ctx;
+        if (node == .src) {
+            const f = frame orelse return;
+            const id = ctx.symbolOf(node) orelse return;
+            const sym = ctx.symbols.items[id];
+            switch (sym.kind) {
+                .local, .param, .capture => {},
+                else => return,
+            }
+            if (sym.decl_pos != node.src.pos or sym.flags.comptime_known or sym.scope == sema.module_scope) return;
+            try f.append(ctx.allocator, sym.ty);
+            return;
+        }
+        // A group (a parameter list) has no kind.
+        const kind = node.kind() orelse {
+            for (node.items()) |c| try self.walk(c, frame, false);
+            return;
+        };
+        switch (kind) {
+            .fun, .sub => {
+                const name = ir.get(node, .name);
+                const label = try std.fmt.allocPrint(ctx.arena.allocator(), "`{s}`", .{sema.identAt(ctx.source, name) orelse "?"});
+                try self.frameOf(label, ctx.startOf(name), &.{ ir.get(node, .params), ir.get(node, .body) });
+            },
+            .@"test" => {
+                const label = try std.fmt.allocPrint(ctx.arena.allocator(), "test {s}", .{sema.identAt(ctx.source, ir.get(node, .name)) orelse "?"});
+                try self.frameOf(label, ctx.startOf(node), &.{ir.get(node, .body)});
+            },
+            .drop_decl => try self.frameOf("`drop`", ctx.startOf(node), &.{ ir.get(node, .params), ir.get(node, .body) }),
+            .lambda => {
+                // The captures are stored where the closure is made.
+                try self.walk(ir.Lambda.captures(node), frame, false);
+                try self.frameOf("a closure", ctx.startOf(node), &.{ ir.Lambda.params(node), ir.Lambda.body(node) });
+            },
+            .set => {
+                try self.walk(ir.Set.target(node), frame, false);
+                try self.walk(ir.Set.value(node), frame, true);
+            },
+            else => {
+                if (frame) |f| switch (kind) {
+                    .array, .array_fill, .call => if (!bound) if (ctx.typeOf(node)) |ty| try f.append(ctx.allocator, ty),
+                    else => {},
+                };
+                for (rig.children(node)) |c| try self.walk(c, frame, false);
+            },
+        }
+    }
+
+    /// The frame of the body `parts` make up, checked now or, when its
+    /// size depends on generic parameters, at each instance.
+    fn frameOf(self: *FrameWalker, label: []const u8, pos: u32, parts: []const Sexp) Error!void {
+        const ctx = self.ctx;
+        var slots: Slots = .empty;
+        defer slots.deinit(ctx.allocator);
+        for (parts) |p| try self.walk(p, &slots, false);
+        const tys = slots.items;
+        if (tys.len == 0) return;
+        for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) {
+            try ctx.generic_frames.append(ctx.allocator, .{ .label = label, .pos = pos, .tys = try ctx.arena.allocator().dupe(TypeId, tys) });
+            return;
+        };
+        const bytes = (try frameBytes(ctx, tys)) orelse return;
+        if (bytes > sema.max_frame_bytes) try reportFrame(ctx, pos, label, bytes, null);
+    }
+};
+
+/// The bytes the values `tys` take together; null when one follows an
+/// error or is too large by itself, which is reported on its own.
+fn frameBytes(ctx: *SemContext, tys: []const TypeId) Error!?u128 {
+    var total: u128 = 0;
+    for (tys) |ty| {
+        if (sema.containsPoison(ctx, ty)) return null;
+        const b = (try sema.minBytes(ctx, ty)) orelse return null;
+        if (b > sema.max_value_bytes) return null;
+        total += b;
+    }
+    return total;
+}
+
+fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?sema.InstanceRoot) Error!void {
+    const in = if (of) |root| try std.fmt.allocPrint(ctx.arena.allocator(), " in `{s}`", .{try sema.rootName(ctx, root)}) else "";
+    try ctx.err(pos, "{s} keeps {d} bytes of values on its stack{s}; a function keeps at most {d} (16 MiB), the size of the stack. Keep large data in a `Vec`", .{ label, bytes, in, sema.max_frame_bytes });
+}
+
+/// The arrays a generic declaration makes, in one instance, and a generic
+/// type's instance itself, must fit `sema.max_value_bytes`.
+fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
+    for (args) |a| if (sema.containsPoison(ctx, a)) return;
+    const subst: sema.TypeSubst = .{ .params = params, .args = args };
+    var i: usize = 0;
+    while (i < ctx.generic_arrays.items.len) : (i += 1) {
+        const g = ctx.generic_arrays.items[i];
+        if (!sema.usesParams(ctx, g.ty, params)) continue;
+        const ty = try sema.substituteType(ctx, g.ty, subst);
+        if (sema.containsTypeVar(ctx, ty) or sema.containsPoison(ctx, ty)) continue;
+        const bytes = (try sema.arrayOversized(ctx, ty)) orelse continue;
+        try ctx.oversized.put(ctx.allocator, ty, {});
+        if (of == .type) try ctx.oversized.put(ctx.allocator, of.type, {});
+        try ctx.err(at, "`{s}` makes `{s}`, which takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `Vec`", .{ try sema.rootName(ctx, of), try sema.formatType(ctx, ty), bytes, sema.max_value_bytes });
+        try ctx.note(g.pos, "the array is made here", .{});
+        return;
+    }
+    if (of == .type) {
+        const sym = ctx.types.get(of.type).parameterized_nominal.sym;
+        if (try sema.oversizedByItself(ctx, of.type, sym, subst)) |bytes| {
+            try sema.reportOversized(ctx, at, of.type, bytes);
+            return;
+        }
+    }
+    // A function instance checks the frames that use its own parameters;
+    // those that use only its type's are checked with the type's instance.
+    const own = switch (of) {
+        .func => |f| f.ownParams(),
+        .type => params,
+    };
+    var buf: std.ArrayListUnmanaged(TypeId) = .empty;
+    defer buf.deinit(ctx.allocator);
+    frames: for (ctx.generic_frames.items) |fr| {
+        const uses = for (fr.tys) |ty| {
+            if (sema.usesParams(ctx, ty, own)) break true;
+        } else false;
+        if (!uses) continue;
+        buf.clearRetainingCapacity();
+        for (fr.tys) |ty| {
+            const t = try sema.substituteType(ctx, ty, subst);
+            if (sema.containsTypeVar(ctx, t)) continue :frames;
+            try buf.append(ctx.allocator, t);
+        }
+        const bytes = (try frameBytes(ctx, buf.items)) orelse continue;
+        if (bytes <= sema.max_frame_bytes) continue;
+        try reportFrame(ctx, at, fr.label, bytes, of);
+        try ctx.note(fr.pos, "{s} is declared here", .{fr.label});
+        return;
+    }
+}
+
+/// A public function takes its compile-time arguments from other
+/// modules, whose instances this module never sees. One whose integer
+/// parameter sizes an array (in its signature or body, or in a function
+/// or type it passes the parameter to) is rejected, as a generic
+/// function is.
+fn checkPublicArrayLengths(ctx: *SemContext) Error!void {
+    var sized: std.AutoHashMapUnmanaged(SymbolId, void) = .empty;
+    defer sized.deinit(ctx.allocator);
+    for (ctx.generic_requirements.items) |r| if (r.req == .array_len) try sized.put(ctx.allocator, r.param, {});
+    if (sized.count() == 0) return;
+    var grew = true;
+    while (grew) {
+        grew = false;
+        for (ctx.generic_fn_uses.items) |use| for (use.params, use.args) |p, arg| {
+            if (sized.contains(p)) if (ctParamSym(ctx, arg)) |from| if (!sized.contains(from)) {
+                try sized.put(ctx.allocator, from, {});
+                grew = true;
+            };
+        };
+        for (ctx.generic_uses.items) |use| {
+            const pn = ctx.types.get(use).parameterized_nominal;
+            for (ctx.symbols.items[pn.sym].type_params orelse &.{}, pn.args) |p, arg| {
+                if (sized.contains(p)) if (ctParamSym(ctx, arg)) |from| if (!sized.contains(from)) {
+                    try sized.put(ctx.allocator, from, {});
+                    grew = true;
+                };
+            }
+        }
+    }
+    for (ctx.symbols.items) |sym| {
+        if (!sym.flags.is_public) continue;
+        switch (sym.kind) {
+            .function => try reportSizedPublic(ctx, &sized, sym.ty, sym.decl_pos, "function", sym.name),
+            .nominal_type => for (sym.fields orelse &.{}) |f| {
+                if (f.is_method) try reportSizedPublic(ctx, &sized, f.ty, f.decl_pos, "method", f.name);
+            },
+            else => {},
+        }
+    }
+}
+
+fn ctParamSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
+    return switch (ctx.types.get(ty)) {
+        .ct_param => |sym| sym,
+        else => null,
+    };
+}
+
+fn reportSizedPublic(ctx: *SemContext, sized: *const std.AutoHashMapUnmanaged(SymbolId, void), ty: TypeId, pos: u32, what: []const u8, name: []const u8) Error!void {
+    const f = switch (ctx.types.get(ty)) {
+        .function => |f| f,
+        else => return,
+    };
+    for (f.ct_syms) |p| if (sized.contains(p)) {
+        return ctx.err(pos, "public {s} `{s}` sizes an array by its compile-time parameter `{s}`; such functions cannot cross module boundaries yet", .{ what, name, ctx.symbols.items[p].name });
+    };
+}
+
+/// False after a diagnostic.
+fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
+    var ok = true;
     for (params, 0..) |param, i| {
         if (i >= args.len) break;
         const arg = args[i];
+        // A diagnostic was reported about the argument.
+        if (sema.containsPoison(ctx, arg)) continue;
         for (ctx.generic_requirements.items) |req| {
             if (req.param != param or satisfies(ctx, arg, req.req)) continue;
             const inst = try sema.rootName(ctx, of);
@@ -5662,6 +6095,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
             const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
             switch (req.req) {
                 .plain => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname }),
+                .array_len => try ctx.err(at, cannot ++ "uses `{s}` as an array length, which runs from 0 to {d}", .{ inst, pname, aname, pname, sema.max_array_len }),
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
@@ -5672,12 +6106,15 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
             }
             switch (req.req) {
                 .plain => try ctx.note(req.pos, "here", .{}),
+                .array_len => try ctx.note(req.pos, "`{s}` used as an array length here", .{pname}),
                 .fits, .float, .shift => try ctx.note(req.pos, "`{s}` used here", .{req.op}),
                 else => try ctx.note(req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
+            ok = false;
             break;
         }
     }
+    return ok;
 }
 
 fn satisfies(ctx: *const SemContext, ty: TypeId, req: Requirement) bool {
@@ -5696,6 +6133,10 @@ fn satisfies(ctx: *const SemContext, ty: TypeId, req: Requirement) bool {
             else => false,
         },
         .plain => !sema.typeHasDropGlue(ctx, ty),
+        .array_len => switch (ctx.types.get(ty)) {
+            .ct_value => |v| v.int >= 0 and v.int <= sema.max_array_len,
+            else => false,
+        },
         .equatable => switch (ctx.types.get(ty)) {
             .int, .float, .bool => true,
             .nominal, .imported_nominal => sema.isPlainEnum(ctx, ty),

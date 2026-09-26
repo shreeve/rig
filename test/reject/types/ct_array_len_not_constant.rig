@@ -1,0 +1,41 @@
+# An array's length is a compile-time integer: not a type, a run-time
+# value, a float, a call, or arithmetic on a compile-time parameter, which Rig
+# cannot check for overflow at each instance.
+
+HALF =! 2.5
+
+fun grow[n: Int](xs: [n + 1]Int) -> Int
+  1
+
+fun halve(xs: [HALF]Int) -> Int
+  1
+
+fun three() -> Int
+  3
+
+sub main()
+  k = 3
+  a: [k]Int = [1, 2, 3]
+  b: [Int]Int = [1]
+  c: [HALF]Int = [1, 2]
+  d: [4 / 0]Int = [1]
+  e: [nope]Int = [1]
+  f = [0; 2.5]
+  g = [0; true]
+  h = [0; "x"]
+  i = [0; none]
+  j = [0; three()]
+  print(a, b, c, d, e, f, g, h, i, j)
+
+# error: 7:23: an array length `n + 1` does arithmetic on a compile-time parameter
+# error: 10:16: an array length is an integer; `HALF` is not an integer constant
+# error: 18:7: an array length must be known at compile time; `k` is not
+# error: 19:7: `Int` is a type; an array length is an integer, a constant, a compile-time parameter, or arithmetic on them
+# error: 20:7: an array length is an integer; `HALF` is a `Float`
+# error: 21:7: an array length `4 / 0` divides by zero
+# error: 22:7: use of unbound name `nope`
+# error: 23:11: an array length is an integer; `2.5` is a `Float`
+# error: 24:11: an array length is an integer; `true` is a `Bool`
+# error: 25:11: an array length is an integer; `"x"` is a `String`
+# error: 26:11: an array length is an integer; `none` is the absent optional
+# error: 27:11: an array length cannot call a function: `three()` runs only when the program does

@@ -1,0 +1,59 @@
+# A generic type takes compile-time integer parameters beside its type
+# parameters. Its fields and methods use them; its instances are named
+# (`Ring[Int, 4]`), or inferred from the fields. The same value, however
+# it is written, names the same type.
+
+LIMIT =! 2
+
+struct Ring[T, n: Int]
+  items: [n]T
+  head: Int = 0
+  log: Vec[Int]
+
+  fun new(x: T) -> Ring[T, n]
+    Ring[T, n](items: [x; n], log: Vec[Int]())
+
+  sub put(!self, x: T)
+    self.items[self.head % n] = x
+    self.head += 1
+    !self.log.push(self.head)
+
+  fun cap(?self) -> Int
+    n
+
+struct Pool[T, m: Int]
+  ring: Ring[T, m]
+  spare: [m]T
+
+struct Pair[n: Int]
+  items: [n]Int
+
+enum Slot[n: Int]
+  full(items: [n]Int)
+  empty
+
+fun capacity[T, n: Int](r: ?Ring[T, n]) -> Int
+  n * 10
+
+sub main()
+  r = Ring[Int, 2 + 2].new(0)
+  s: Ring[Int, 4] = <r
+  !s.put(5)
+  !s.put(6)
+  print(s.items, s.cap(), s.log.len, capacity(?s))
+  q = Ring[Int, LIMIT * 2](items: [1; 4], log: Vec[Int]())
+  print(q.items, q.cap())
+  u = Ring(items: [true, false, true], log: Vec[Int]())
+  print(u.cap(), u.items)
+  p = Pool[Int, 3](ring: Ring[Int, 3].new(1), spare: [2; 3])
+  print(p.ring.items, p.spare)
+  pr = Pair(items: [1, 2])
+  x: Slot[2] = .full(items: [3, 4])
+  print(pr, x, Slot[2].empty)
+
+# expect:
+# [5, 6, 0, 0] 4 2 40
+# [1, 1, 1, 1] 4
+# 3 [true, false, true]
+# [1, 1, 1] [2, 2, 2]
+# Pair(items: [1, 2]) .full(items: [3, 4]) .empty

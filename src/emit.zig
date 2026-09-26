@@ -452,13 +452,17 @@ pub const Emitter = struct {
         return prev;
     }
 
-    /// `pub fn Name(comptime T: type, ...) type { return <container> {`,
-    /// with a discard for each type parameter nothing in the body names.
+    /// `pub fn Name(comptime T: type, comptime n: i64, ...) type { return
+    /// <container> {`, with a discard for each parameter nothing in the
+    /// body names.
     fn emitGenericHead(self: *Emitter, params: Sexp, members: []const Sexp, container: []const u8) Error!void {
         try self.w.print("pub fn {f}(", .{ident(self.sema.symbols.items[self.nominal.?.sym].name)});
         for (params.items(), 0..) |p, i| {
             if (i > 0) try self.w.writeAll(", ");
-            try self.w.print("comptime {f}: type", .{ident(self.srcText(p))});
+            try self.w.print("comptime {f}: ", .{ident(sema.paramName(self.source, p).?)});
+            if (p == .src) {
+                try self.w.writeAll("type");
+            } else try self.emitTypeTy(try self.declType(ir.get(p, .name)));
         }
         try self.w.writeAll(") type {\n");
         for (self.sema.symbols.items[self.nominal.?.sym].type_params orelse &.{}) |tp| {
@@ -655,12 +659,14 @@ pub const Emitter = struct {
         return std.mem.eql(u8, sema.paramName(self.source, p) orelse "", "self");
     }
 
-    /// Statements at the top of a function body: in `main`, the deferred
-    /// `rig.finish()` (flush output, check for leaks), then parameter
-    /// copies and guards, and discards for unused parameters.
+    /// Statements at the top of a function body: in `main`,
+    /// `rig.guardStack()` and the deferred `rig.finish()` (flush output,
+    /// check for leaks), then parameter copies and guards, and discards
+    /// for unused parameters.
     fn emitFunPrologue(self: *Emitter) Error!void {
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
+            try self.line("rig.guardStack();", .{});
             try self.line("defer rig.finish();", .{});
         }
         if (self.fun.unused_env.len > 0) {
@@ -1090,8 +1096,10 @@ pub const Emitter = struct {
             // field, run-time arithmetic, a `*Self` method) needs the
             // discard.
             if (!s.flags.reassigned) try self.w.print(" _ = &{s};", .{stored.zig_name});
-        } else if (self.sema.const_ints.contains(sym)) {
-            // A constant's uses may all be folded away.
+        } else if (self.sema.const_ints.contains(sym) or self.sema.ct_locals.contains(sym)) {
+            // A constant's uses may all be folded away, and an alias of a
+            // compile-time parameter may be named only in types, which
+            // name the parameter.
             try self.w.print(" _ = &{s};", .{stored.zig_name});
         }
     }
@@ -1865,10 +1873,12 @@ pub const Emitter = struct {
         try self.writeModuleName(name);
     }
 
+    /// A module constant, or a generic type's value parameter: a
+    /// compile-time name without a local.
     fn isModuleConst(self: *Emitter, sexp: Sexp) bool {
         const id = self.sema.symbolOf(sexp) orelse return false;
         const sym = self.sema.symbols.items[id];
-        return sym.kind == .local and sym.flags.comptime_known;
+        return (sym.kind == .local or sym.kind == .param) and sym.flags.comptime_known;
     }
 
     /// A module-level name. Inside a type with a method of the same name,
@@ -2264,6 +2274,7 @@ pub const Emitter = struct {
             .raw_block => try self.emitValueBlock(ir.RawBlock.body(sexp), .{}, self.typeOf(sexp)),
             .@"while", .@"for", .labeled => if (sema.hasValueBreaks(self.source, sexp)) try self.emitLoopValue(sexp) else return self.unsupported(sexp, "a loop without a value in value position"),
             .array => try self.emitArray(sexp),
+            .array_fill => try self.emitArrayFill(sexp),
             else => return self.unsupported(sexp, "this expression"),
         }
     }
@@ -2361,6 +2372,16 @@ pub const Emitter = struct {
         try self.w.writeAll(if (elems.len > 0) " }" else "}");
     }
 
+    /// `[x; n]` → `@as([n]T, @splat(x))`.
+    fn emitArrayFill(self: *Emitter, sexp: Sexp) Error!void {
+        const ty = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped array literal");
+        try self.w.writeAll("@as(");
+        try self.emitTypeTy(self.peelBorrows(ty));
+        try self.w.writeAll(", @splat(");
+        try self.emitBare(ir.ArrayFill.value(sexp));
+        try self.w.writeAll("))");
+    }
+
     /// `x[i]`: bounds-checked element of an array, slice, string, or
     /// `Vec` of plain data. As a place, a `Vec` element is `x.slot(i).*`,
     /// and the base of any element is a place too.
@@ -2390,7 +2411,7 @@ pub const Emitter = struct {
             try self.w.writeAll(if (as_place) ").*" else ")");
             return;
         }
-        const array_len: ?usize = if (base_ty) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
+        const array_len: ?TypeId = if (base_ty) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
             .array => |a| a.len,
             else => null,
         } else null;
@@ -2404,6 +2425,26 @@ pub const Emitter = struct {
             try self.emitBare(index);
             return self.w.writeAll(")");
         };
+        const may_be_empty = switch (self.sema.types.get(n)) {
+            .ct_value => |v| v.int == 0,
+            else => true,
+        };
+        if (may_be_empty) {
+            // Zig rejects indexing an empty array, and a length that is a
+            // compile-time parameter may be 0: the element is reached
+            // through a slice of the array.
+            try self.w.writeAll("rig.elems(");
+            const saved_read = self.read_place;
+            if (!as_place) self.read_place = true;
+            try self.emitAddressOf(base);
+            self.read_place = saved_read;
+            try self.w.writeAll(")[rig.index(");
+            self.place_chain = false;
+            try self.emitBare(index);
+            try self.w.writeAll(", ");
+            try self.emitTypeTy(n);
+            return self.w.writeAll(")]");
+        }
         // An array literal is indexed through parentheses: `([_]T{ ... })[i]`.
         const literal = base.isKind(.array);
         if (literal) try self.w.writeAll("(");
@@ -2411,13 +2452,15 @@ pub const Emitter = struct {
         if (literal) try self.w.writeAll(")");
         try self.w.writeAll("[");
         self.place_chain = false;
-        // Sema checked a constant index against the array's length.
+        // Sema checked a constant index against a known length.
         if (isNonNegativeIntLiteral(self.source, index)) {
             try self.emitExpr(index);
         } else {
             try self.w.writeAll("rig.index(");
             try self.emitBare(index);
-            try self.w.print(", {d})", .{n});
+            try self.w.writeAll(", ");
+            try self.emitTypeTy(n);
+            try self.w.writeAll(")");
         }
         try self.w.writeAll("]");
     }
@@ -3422,9 +3465,17 @@ pub const Emitter = struct {
                 try self.emitTypeTy(s.elem);
             },
             .array => |a| {
-                try self.w.print("[{d}]", .{a.len});
+                try self.w.writeAll("[");
+                try self.emitTypeTy(a.len);
+                try self.w.writeAll("]");
                 try self.emitTypeTy(a.elem);
             },
+            // An array length or a generic type's value argument.
+            .ct_value => |v| try self.w.print("{d}", .{v.int}),
+            .ct_param => |sym_id| if (self.localBySym(sym_id)) |local|
+                try self.w.writeAll(local.zig_name)
+            else
+                try self.w.print("{f}", .{ident(ctx.symbols.items[sym_id].name)}),
             .nominal => |sym_id| try self.writeNominalName(sym_id),
             .imported_nominal => |in| {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
@@ -3486,7 +3537,7 @@ pub const Emitter = struct {
         const params = self.sema.symbols.items[n.sym].type_params orelse return false;
         if (params.len != pn.args.len) return false;
         for (params, pn.args) |p, a| switch (self.sema.types.get(a)) {
-            .type_var => |v| if (v != p) return false,
+            .type_var, .ct_param => |v| if (v != p) return false,
             else => return false,
         };
         return true;

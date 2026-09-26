@@ -1301,6 +1301,7 @@ pub const Checker = struct {
                     for (ir.Array.elems(sexp)) |e| v = try self.valueUnion(v, try self.walkConsumed(e, .element));
                     break :blk v;
                 },
+                .array_fill => self.walkConsumed(ir.ArrayFill.value(sexp), .element),
                 .raw_block => self.walk(ir.RawBlock.body(sexp)),
                 .enum_lit, .use, .type, .generic_struct, .generic_inst => .{},
                 // Operators on values produce fresh Copy results.
