@@ -6179,7 +6179,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
         .handle => std.fmt.allocPrint(a, "field `{s}` is a handle `{s}`, which could compare by identity or by content", .{ n.path, t }),
         .closure => std.fmt.allocPrint(a, "field `{s}` is an owned closure `{s}`", .{ n.path, t }),
         .function => std.fmt.allocPrint(a, "field `{s}` is a function value", .{n.path}),
-        .collection => std.fmt.allocPrint(a, "field `{s}` is a `{s}`, which has no `==`", .{ n.path, t }),
+        .no_eq => std.fmt.allocPrint(a, "field `{s}` is a `{s}`, which has no `==`", .{ n.path, t }),
         .borrow => std.fmt.allocPrint(a, "field `{s}` holds a borrow", .{n.path}),
         .drop => std.fmt.allocPrint(a, "field `{s}` is a `{s}`: `{s}` declares `drop`", .{ n.path, t, t }),
     };
@@ -6187,7 +6187,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
         .handle => std.fmt.allocPrint(a, "`{s}` is a handle, which could compare by identity or by content", .{t}),
         .closure => std.fmt.allocPrint(a, "`{s}` is an owned closure", .{t}),
         .function => std.fmt.allocPrint(a, "`{s}` is a function value", .{t}),
-        .collection => std.fmt.allocPrint(a, "`{s}` has no `==`", .{t}),
+        .no_eq => std.fmt.allocPrint(a, "`{s}` has no `==`", .{t}),
         .borrow => std.fmt.allocPrint(a, "`{s}` is a borrow", .{t}),
         .drop => std.fmt.allocPrint(a, "`{s}` declares `drop`", .{t}),
     };

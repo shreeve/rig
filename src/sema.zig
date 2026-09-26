@@ -2091,8 +2091,8 @@ pub const NotEquatable = struct {
         /// An owned closure `*fun(...)`.
         closure,
         function,
-        /// Vec, Cell, or Signal.
-        collection,
+        /// Vec, Cell, Signal, or `Void`.
+        no_eq,
         /// A borrow held in a field or payload: the value is a view.
         borrow,
         /// A struct that declares `drop`.
@@ -2103,10 +2103,10 @@ pub const NotEquatable = struct {
 /// Why `==` does not compare values of `ty`, or null when it does:
 /// numbers, Bool, String, error values, plain enums, and, when all they
 /// hold is equatable, optionals, arrays, slices, structs without `drop`,
-/// and payload enums. Handles, functions, Vec, Cell, Signal, and borrows
-/// held in a field are not equatable. Each generic parameter `ty` holds
-/// is appended to `params`, when given: `==` on `ty` holds in the
-/// instances where it holds for them.
+/// and payload enums. Handles, functions, `Void`, Vec, Cell, Signal, and
+/// borrows held in a field are not equatable. Each generic parameter
+/// `ty` holds is appended to `params`, when given: `==` on `ty` holds in
+/// the instances where it holds for them.
 pub fn notEquatable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayListUnmanaged(SymbolId)) std.mem.Allocator.Error!?NotEquatable {
     var walk: EquatableWalk = .{ .local = ctx, .params = params };
     defer walk.visited.deinit(ctx.allocator);
@@ -2141,12 +2141,13 @@ const EquatableWalk = struct {
                 return null;
             },
             .nominal, .imported_nominal, .parameterized_nominal => return self.checkDecl(at, ty),
+            .void, .fallible, .range => return with(fail, .no_eq),
             else => return null,
         }
     }
 
     fn checkDecl(self: *EquatableWalk, at: *const SemContext, ty: TypeId) std.mem.Allocator.Error!?NotEquatable {
-        const fail: NotEquatable = .{ .ctx = at, .ty = ty, .path = "", .why = .collection };
+        const fail: NotEquatable = .{ .ctx = at, .ty = ty, .path = "", .why = .no_eq };
         const decl = nominalDecl(at, ty) orelse return null;
         if (decl.sym == decl.ctx.vec_sym_id or decl.sym == decl.ctx.cell_sym_id or decl.sym == decl.ctx.signal_sym_id) return fail;
         const sym = decl.symbol();

@@ -1,0 +1,9 @@
+# `Void` is no value, so it has no `==`.
+
+sub f()
+  print("f")
+
+sub main()
+  print(f() == f())
+
+# error: 7:9: `==` is not defined for `Void`: `Void` has no `==`
