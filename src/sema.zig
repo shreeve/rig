@@ -128,8 +128,9 @@ pub const FunctionType = struct {
     /// `params` are the run-time ones.
     ct_params: []const TypeId = &.{},
     /// The symbol of each compile-time parameter, in the same order:
-    /// what a `type_var` or `ct_param` in the signature names.
-    /// `symbol_invalid` in a function type imported from another module.
+    /// what a `type_var` or `ct_param` in the signature names. In a
+    /// function type imported from another module, a type or integer
+    /// parameter's proxy, and `symbol_invalid` for any other.
     ct_syms: []const SymbolId = &.{},
 };
 
@@ -161,8 +162,9 @@ pub const max_value_bytes: u64 = 8 << 20;
 pub const max_frame_bytes: u64 = 16 << 20;
 
 /// The values one function or closure keeps on its stack: `label` names
-/// it in messages, declared at `pos`.
-pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId };
+/// it in messages, declared at `pos` in module `module_id` (0 for the
+/// module that keeps the frame).
+pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId, module_id: u32 = 0 };
 
 pub const Type = union(enum) {
     /// A type error was reported here.
@@ -457,7 +459,19 @@ pub const Symbol = struct {
     origin: SymbolId = symbol_invalid,
     /// The previous symbol of the same name in the same scope, if any.
     prev_in_scope: SymbolId = symbol_invalid,
+    /// A proxy (`proxyOf`): the other module's generic type or
+    /// compile-time parameter it stands for. `.{}` for a symbol declared
+    /// here.
+    from: ForeignRef = .{},
 };
+
+/// A symbol of another module: the module's id and the symbol's id there.
+pub const ForeignRef = struct { module_id: u32 = 0, sym: SymbolId = symbol_invalid };
+
+/// Whether `sym` stands for another module's declaration (`proxyOf`).
+pub fn isProxy(sym: Symbol) bool {
+    return sym.from.module_id != 0;
+}
 
 pub const ScopeKind = enum { module, function, lambda, block };
 
@@ -662,6 +676,30 @@ pub const GenericRequirement = struct {
     req: Requirement,
     pos: u32,
     op: []const u8,
+    /// The module whose source `pos` is in: 0 for this one, or the
+    /// module that declares the body of a proxy's requirement.
+    module_id: u32 = 0,
+};
+
+/// A generic body copies a value of a type parameter, found by the
+/// ownership checker: every instance's argument for it must own no
+/// resource.
+pub const PlainRequirement = struct {
+    param: SymbolId,
+    pos: u32,
+    /// The value is an element its collection still owns, taken out
+    /// (moved, dropped, reassigned) rather than copied.
+    element: bool = false,
+    /// The module whose source `pos` is in; 0 for this one.
+    module_id: u32 = 0,
+};
+
+/// An entry of one of another module's lists of what its generic bodies
+/// do (`importParam`), copied here once.
+const ImportedEntry = struct {
+    module_id: u32,
+    list: enum(u8) { fn_uses, uses, arrays, frames },
+    index: u32,
 };
 
 // =============================================================================
@@ -741,8 +779,9 @@ pub const SemContext = struct {
     /// module can name them.
     const_ints: std.AutoHashMapUnmanaged(SymbolId, ConstVal) = .empty,
     /// The array types spelled or built in generic declarations, which
-    /// each instance checks against `max_value_bytes`.
-    generic_arrays: std.ArrayListUnmanaged(struct { ty: TypeId, pos: u32 }) = .empty,
+    /// each instance checks against `max_value_bytes`; `module_id` is
+    /// the module whose source `pos` is in (0 for this one).
+    generic_arrays: std.ArrayListUnmanaged(struct { ty: TypeId, pos: u32, module_id: u32 = 0 }) = .empty,
     /// The stack values of the generic functions and closures, and of the
     /// generic types' methods, whose sizes depend on their parameters:
     /// each instance checks them against `max_frame_bytes`.
@@ -756,6 +795,15 @@ pub const SemContext = struct {
     /// the `ct_param` it stands for, where an array length or a
     /// compile-time argument names it.
     ct_locals: std.AutoHashMapUnmanaged(SymbolId, TypeId) = .empty,
+    /// Another module's generic type or compile-time parameter (where it
+    /// is declared) -> its proxy here (`proxyOf`).
+    imported: std.AutoHashMapUnmanaged(ForeignRef, SymbolId) = .empty,
+    /// The entries of other modules' lists copied here (`importParam`).
+    imported_entries: std.AutoHashMapUnmanaged(ImportedEntry, void) = .empty,
+    /// The copies of type parameters' values generic bodies make, which
+    /// the ownership checker finds: this module's own, recorded after it
+    /// is checked, and those of the proxies' bodies, imported with them.
+    plain_reqs: std.ArrayListUnmanaged(PlainRequirement) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -804,6 +852,9 @@ pub const SemContext = struct {
         self.generic_frames.deinit(self.allocator);
         self.oversized.deinit(self.allocator);
         self.byte_sizes.deinit(self.allocator);
+        self.imported.deinit(self.allocator);
+        self.imported_entries.deinit(self.allocator);
+        self.plain_reqs.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -1543,6 +1594,11 @@ fn computeCells(ctx: *SemContext) std.mem.Allocator.Error!void {
     for (ctx.symbols.items, 0..) |sym, i| {
         if (!isTypeDecl(sym)) continue;
         const id: SymbolId = @intCast(i);
+        // A proxy's contents are its declaration's.
+        if (isProxy(sym)) {
+            if (sym.contents.cell) try work.append(ctx.allocator, id);
+            continue;
+        }
         for (sym.fields orelse &.{}) |*f| {
             for (dataFields(f)) |d| {
                 if (!try cellEdges(ctx, d.ty, id, &edges) or ctx.symbols.items[id].contents.cell) continue;
@@ -1612,6 +1668,10 @@ fn computeBorrows(ctx: *SemContext) std.mem.Allocator.Error!void {
     for (ctx.symbols.items, 0..) |sym, i| {
         if (!isTypeDecl(sym)) continue;
         const id: SymbolId = @intCast(i);
+        if (isProxy(sym)) {
+            if (sym.contents.borrows.any) try work.append(ctx.allocator, id);
+            continue;
+        }
         var b: Borrows = .{};
         for (sym.fields orelse &.{}) |*f| {
             for (dataFields(f)) |d| b = b.with(try borrowEdges(ctx, d.ty, id, &edges));
@@ -1734,7 +1794,7 @@ fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
     var targets: std.ArrayListUnmanaged(SymbolId) = .empty;
     defer targets.deinit(a);
     for (ctx.symbols.items, 0..) |sym, i| {
-        if (!s.cyclic[i] or sym.decl_pos == builtin_decl_pos) continue;
+        if (!s.cyclic[i] or sym.decl_pos >= imported_decl_pos) continue;
         const f = fields: for (sym.fields orelse &.{}) |*f| {
             targets.clearRetainingCapacity();
             for (dataFields(f)) |d| try byValueTargets(ctx, d.ty, &targets);
@@ -1823,6 +1883,16 @@ fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanag
 // =============================================================================
 
 pub const builtin_decl_pos: u32 = std.math.maxInt(u32);
+/// The `decl_pos` of a proxy (`proxyOf`): declared in another module's
+/// source, so at no position of this one.
+pub const imported_decl_pos: u32 = std.math.maxInt(u32) - 1;
+
+/// Where the declaration proxy `sym` stands for is: a position in
+/// another module's source.
+pub fn proxyOrigin(ctx: *const SemContext, sym: Symbol) ?struct { module_id: u32, pos: u32 } {
+    const foreign = ctx.foreign_semas.get(sym.from.module_id) orelse return null;
+    return .{ .module_id = sym.from.module_id, .pos = foreign.symbols.items[sym.from.sym].decl_pos };
+}
 
 /// The types a type is built from, in order: a wrapper's inner type, a
 /// slice's element, an array's element then its length, a function's
@@ -2327,26 +2397,149 @@ pub fn importType(
             defer ct.deinit(local_ctx.allocator);
             for (f.ct_params) |p| try ct.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, p, origin_module_id));
             const ret = try importType(local_ctx, foreign_ctx, f.returns, origin_module_id);
-            // The symbols are the other module's.
+            // A type or integer parameter's symbol is its proxy, which an
+            // instance binds; a parameter of another type is given in
+            // brackets and needs none.
             const syms = try local_ctx.arena.allocator().alloc(SymbolId, f.ct_syms.len);
-            @memset(syms, symbol_invalid);
+            for (f.ct_syms, syms, 0..) |p, *out, i| {
+                const slot = if (i < f.ct_params.len) foreign_ctx.types.get(f.ct_params[i]) else .invalid;
+                out.* = if (p != symbol_invalid and (slot == .type_var or slot == .int)) try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = p }) else symbol_invalid;
+            }
             return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
         .nominal => |sym_id| return local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
-        // Only the built-in generics (Vec, Cell, ...) cross module
-        // boundaries (`resolve.checkPublicSurface`); they have the same
-        // symbol ids in every module, so their ids carry over unchanged.
+        // A generic type of another module is its proxy's instance.
         .parameterized_nominal => |pn| {
-            if (foreign_ctx.symbols.items[pn.sym].decl_pos != builtin_decl_pos) return local_ctx.types.invalid_id;
+            const sym = try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = pn.sym });
+            if (sym == symbol_invalid) return local_ctx.types.invalid_id;
             var args: std.ArrayListUnmanaged(TypeId) = .empty;
             defer args.deinit(local_ctx.allocator);
             for (pn.args) |a| try args.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, a, origin_module_id));
-            return local_ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items } });
+            return local_ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym, .args = args.items } });
         },
-        // A generic parameter never leaves its generic type's module.
-        .type_var, .ct_param => return local_ctx.types.invalid_id,
+        inline .type_var, .ct_param => |sym, tag| {
+            const p = try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = sym });
+            if (p == symbol_invalid) return local_ctx.types.invalid_id;
+            return local_ctx.intern(@unionInit(Type, @tagName(tag), p));
+        },
     }
+}
+
+/// The symbol here that stands for `ref`, a generic type or a type or
+/// integer parameter of another module: its proxy, made on first use
+/// (`importSymbol`), or the symbol itself for a built-in generic's,
+/// which has the same id in every module. A proxy of a proxy is one of
+/// the declaration itself, so every path to it gives one symbol here.
+pub fn proxyOf(ctx: *SemContext, ref: ForeignRef) std.mem.Allocator.Error!SymbolId {
+    const foreign = ctx.foreign_semas.get(ref.module_id) orelse return symbol_invalid;
+    if (ref.sym >= foreign.symbols.items.len) return symbol_invalid;
+    const fsym = foreign.symbols.items[ref.sym];
+    if (fsym.decl_pos == builtin_decl_pos) return ref.sym;
+    const origin = if (isProxy(fsym)) fsym.from else ref;
+    if (ctx.imported.get(origin)) |id| return id;
+    return importSymbol(ctx, origin);
+}
+
+/// Make the proxy of `origin`, a generic type or a type or integer
+/// parameter declared in another module, which that module has checked
+/// in full. The proxy is in no scope; the passes that read symbols by id
+/// read it as they read the declaration. A generic type's proxy has the
+/// declaration's contents, its parameters' proxies, and its members with
+/// their types imported; a parameter's proxy has the requirements the
+/// bodies that use it record (`importParam`).
+fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!SymbolId {
+    const foreign = ctx.foreign_semas.get(origin.module_id).?;
+    const fsym = foreign.symbols.items[origin.sym];
+    const a = ctx.arena.allocator();
+    const generic = fsym.kind == .generic_type;
+    const id = try ctx.addSymbol(.{
+        // A generic type is named as this module spells it: `lib.Box`.
+        .name = if (generic) try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, fsym.name }) else fsym.name,
+        .kind = fsym.kind,
+        .ty = ctx.types.unknown_id,
+        .decl_pos = imported_decl_pos,
+        .scope = scope_invalid,
+        .flags = .{ .is_public = fsym.flags.is_public, .comptime_known = fsym.flags.comptime_known },
+        .contents = fsym.contents,
+        .from = origin,
+    });
+    // Recorded first: the members of a generic type name the type.
+    try ctx.imported.put(ctx.allocator, origin, id);
+    if (!generic) {
+        ctx.symbols.items[id].ty = try importType(ctx, foreign, fsym.ty, origin.module_id);
+        try importParam(ctx, id, origin);
+        return id;
+    }
+    const params = fsym.type_params orelse &.{};
+    const tps = try a.alloc(SymbolId, params.len);
+    for (params, tps) |tp, *out| out.* = try proxyOf(ctx, .{ .module_id = origin.module_id, .sym = tp });
+    ctx.symbols.items[id].type_params = tps;
+    const fields = fsym.fields orelse return id;
+    const out = try a.alloc(Field, fields.len);
+    for (fields, out) |f, *o| {
+        o.* = f;
+        o.ty = try importType(ctx, foreign, f.ty, origin.module_id);
+        const payload = f.payload orelse continue;
+        const typed = try a.alloc(Field, payload.len);
+        for (payload, typed) |pf, *t| {
+            t.* = pf;
+            t.ty = try importType(ctx, foreign, pf.ty, origin.module_id);
+        }
+        o.payload = typed;
+    }
+    ctx.symbols.items[id].fields = out;
+    return id;
+}
+
+/// Copy to `proxy` what the declaring module's bodies record about the
+/// parameter `origin`: its requirements and the copies of its values,
+/// with their positions there, and the generic instances, arrays, and
+/// stack frames that mention it, which each instance made here makes
+/// concrete (`expandInstantiations`) and checks.
+fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Allocator.Error!void {
+    const foreign = ctx.foreign_semas.get(origin.module_id).?;
+    const m = origin.module_id;
+    const a = ctx.arena.allocator();
+    const here = [_]SymbolId{origin.sym};
+    for (foreign.generic_requirements.items) |r| if (r.param == origin.sym) {
+        try ctx.generic_requirements.append(ctx.allocator, .{ .param = proxy, .req = r.req, .pos = r.pos, .op = r.op, .module_id = if (r.module_id == 0) m else r.module_id });
+    };
+    for (foreign.plain_reqs.items) |r| if (r.param == origin.sym) {
+        try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .module_id = if (r.module_id == 0) m else r.module_id });
+    };
+    for (foreign.generic_arrays.items, 0..) |g, i| {
+        if (!usesParams(foreign, g.ty, &here) or !try firstImport(ctx, m, .arrays, i)) continue;
+        try ctx.generic_arrays.append(ctx.allocator, .{ .ty = try importType(ctx, foreign, g.ty, m), .pos = g.pos, .module_id = if (g.module_id == 0) m else g.module_id });
+    }
+    for (foreign.generic_frames.items, 0..) |fr, i| {
+        if (!argsUseParams(foreign, fr.tys, &here) or !try firstImport(ctx, m, .frames, i)) continue;
+        const tys = try a.alloc(TypeId, fr.tys.len);
+        for (fr.tys, tys) |t, *out| out.* = try importType(ctx, foreign, t, m);
+        try ctx.generic_frames.append(ctx.allocator, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .module_id = if (fr.module_id == 0) m else fr.module_id });
+    }
+    for (foreign.generic_fn_uses.items, 0..) |use, i| {
+        if (!argsUseParams(foreign, use.args, &here) or !try firstImport(ctx, m, .fn_uses, i)) continue;
+        const params = try a.alloc(SymbolId, use.params.len);
+        for (use.params, params) |p, *out| out.* = try proxyOf(ctx, .{ .module_id = m, .sym = p });
+        const args = try a.alloc(TypeId, use.args.len);
+        for (use.args, args) |t, *out| out.* = try importType(ctx, foreign, t, m);
+        // Named as this module would call it: `lib.helper[T]`.
+        const name = if (std.mem.indexOfScalar(u8, use.name, '.') != null) use.name else try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, use.name });
+        _ = try ctx.recordFnInstance(.{ .name = name, .params = params, .args = args, .own = use.own }, 0, null);
+    }
+    for (foreign.generic_uses.items, 0..) |use, i| {
+        if (!usesParams(foreign, use, &here) or !try firstImport(ctx, m, .uses, i)) continue;
+        const ty = try importType(ctx, foreign, use, m);
+        if (std.mem.indexOfScalar(TypeId, ctx.generic_uses.items, ty) == null) try ctx.generic_uses.append(ctx.allocator, ty);
+    }
+}
+
+/// Whether entry `index` of module `module_id`'s `list` is copied here
+/// for the first time.
+fn firstImport(ctx: *SemContext, module_id: u32, list: @FieldType(ImportedEntry, "list"), index: usize) std.mem.Allocator.Error!bool {
+    const gop = try ctx.imported_entries.getOrPut(ctx.allocator, .{ .module_id = module_id, .list = list, .index = @intCast(index) });
+    return !gop.found_existing;
 }
 
 /// The enclosing nominal while resolving a method signature or body:

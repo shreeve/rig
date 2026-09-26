@@ -311,15 +311,7 @@ const Tail = struct {
     sink: Sink,
 };
 
-/// A generic body copies a value of a type parameter: every
-/// instantiation's argument for it must be plain data.
-const PlainRequirement = struct {
-    param: SymbolId,
-    pos: u32,
-    /// The value is an element its collection still owns, taken out
-    /// (moved, dropped, reassigned) rather than copied.
-    element: bool = false,
-};
+const PlainRequirement = sema.PlainRequirement;
 
 // =============================================================================
 // Checker
@@ -343,6 +335,8 @@ pub const Checker = struct {
     vars: std.ArrayListUnmanaged(Var) = .empty,
     /// The innermost var with each name (see `Var.shadows`).
     names: std.StringHashMapUnmanaged(VarId) = .empty,
+    /// What generic bodies copy: this module's, found while walking them,
+    /// then those of other modules' bodies its instances use.
     plain_reqs: std.ArrayListUnmanaged(PlainRequirement) = .empty,
     /// A branching value (`if` / `match` / block) whose result is taken
     /// (bound, passed, returned): the tails of its branches leave them.
@@ -394,6 +388,8 @@ pub const Checker = struct {
     /// Whether the last error was recorded (notes attach only to a
     /// recorded error; duplicates from re-walked code are dropped).
     last_err_kept: bool = false,
+    /// How many of `plain_reqs` this module's own bodies record.
+    own_plain_reqs: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Error!Checker {
         var c = Checker{
@@ -410,6 +406,12 @@ pub const Checker = struct {
         var c = try init(allocator, source);
         c.sema = ctx;
         return c;
+    }
+
+    /// The copies this module's generic bodies make, for the modules that
+    /// import it (`sema.SemContext.plain_reqs`).
+    pub fn ownPlainReqs(self: *const Checker) []const PlainRequirement {
+        return self.plain_reqs.items[0..self.own_plain_reqs];
     }
 
     pub fn deinit(self: *Checker) void {
@@ -433,6 +435,10 @@ pub const Checker = struct {
 
     pub fn check(self: *Checker, sexp: Sexp) Error!void {
         try self.walkDecl(sexp);
+        self.own_plain_reqs = self.plain_reqs.items.len;
+        if (self.sema) |ctx| for (ctx.plain_reqs.items) |r| {
+            if (r.module_id != 0) try self.plain_reqs.append(self.gpa, r);
+        };
         try self.checkInstantiations();
     }
 
@@ -494,8 +500,8 @@ pub const Checker = struct {
             if (r.param != param) continue;
             try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
             if (r.element) {
-                try self.note(r.pos, "a `{s}` element is taken here while its collection still owns it; take the elements with `for x in <v`", .{pname});
-            } else try self.note(r.pos, "`{s}` copied here; move it with `<` instead", .{pname});
+                try self.noteIn(r.module_id, r.pos, "a `{s}` element is taken here while its collection still owns it; take the elements with `for x in <v`", .{pname});
+            } else try self.noteIn(r.module_id, r.pos, "`{s}` copied here; move it with `<` instead", .{pname});
             return;
         }
     }
@@ -537,9 +543,14 @@ pub const Checker = struct {
     }
 
     fn note(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
+        return self.noteIn(0, pos, fmt, args);
+    }
+
+    /// A note at `pos` in module `module_id`'s source (0 for this one).
+    fn noteIn(self: *Checker, module_id: u32, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
         if (self.quiet > 0 or !self.last_err_kept) return;
         const msg = try std.fmt.allocPrint(self.gpa, fmt, args);
-        try self.diagnostics.append(self.gpa, .{ .severity = .note, .pos = pos, .message = msg });
+        try self.diagnostics.append(self.gpa, .{ .severity = .note, .pos = pos, .message = msg, .module = module_id });
     }
 
     /// The source range of a node: its span from the parser, or from its

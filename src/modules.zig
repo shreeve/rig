@@ -276,6 +276,8 @@ pub const ModuleGraph = struct {
         defer own.deinit();
         try own.check(m.ir);
         for (own.diagnostics.items) |d| try self.addDiagnostic(id, d);
+        // What the generic bodies copy, for the modules that import them.
+        try m.sema.plain_reqs.appendSlice(self.allocator, own.ownPlainReqs());
 
         m.state = if (m.sema.hasErrors()) .failed else .checked;
     }

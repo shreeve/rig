@@ -1442,10 +1442,16 @@ const Checker = struct {
     }
 
     /// Point at where type `sym` is declared, when that is in this
-    /// module's source (`local`).
+    /// module's source (`local`), or where the generic type a proxy
+    /// stands for is.
     fn noteDeclared(self: *Checker, sym: sema.Symbol, local: bool) Error!void {
-        if (local and sym.decl_pos != sema.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
+        if (sema.isProxy(sym)) {
+            const origin = sema.proxyOrigin(self.ctx, sym) orelse return;
+            return self.ctx.noteIn(origin.module_id, origin.pos, "`{s}` declared here", .{sym.name});
+        }
+        if (local and sym.decl_pos < sema.imported_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
     }
+
 
     // =========================================================================
     // Expressions: synthesis
@@ -4154,7 +4160,16 @@ const Checker = struct {
             if (f.is_variant) break true;
         } else false;
         if (is_enum) return self.badCall(args, pos, "`{s}` is an enum; construct a variant with `{s}.name` or `.name(...)`", .{ sym.name, sym.name });
-        try self.checkFieldArgs(args, fields, .{ .owner = sym.name, .decl_pos = sym.decl_pos, .pos = pos, .subst = subst, .foreign = foreign, .kind = .constructor });
+        const origin = if (sema.isProxy(sym)) sema.proxyOrigin(self.ctx, sym) else null;
+        try self.checkFieldArgs(args, fields, .{
+            .owner = sym.name,
+            .decl_pos = if (origin) |o| o.pos else sym.decl_pos,
+            .module_id = if (origin) |o| o.module_id else 0,
+            .pos = pos,
+            .subst = subst,
+            .foreign = foreign,
+            .kind = .constructor,
+        });
         return result;
     }
 
@@ -4163,6 +4178,9 @@ const Checker = struct {
     const FieldArgs = struct {
         owner: []const u8,
         decl_pos: u32,
+        /// The module whose source `decl_pos` and the fields' positions
+        /// are in, for a proxy's fields; 0 for this one.
+        module_id: u32 = 0,
         pos: u32,
         subst: TypeSubst = TypeSubst.empty,
         foreign: ?ForeignFields = null,
@@ -4201,7 +4219,7 @@ const Checker = struct {
             try seen.put(self.ctx.allocator, fname, fpos);
             const f = findDataField(fields, fname) orelse {
                 try self.err(fpos, "no field `{s}` on {s} `{s}`", .{ fname, if (info.kind == .constructor) "type" else "variant", info.owner });
-                if (info.foreign == null and info.decl_pos != sema.builtin_decl_pos and info.decl_pos != 0) try self.note(info.decl_pos, "`{s}` declared here", .{info.owner});
+                if (info.foreign == null and info.decl_pos < sema.imported_decl_pos and info.decl_pos != 0) try self.ctx.noteIn(info.module_id, info.decl_pos, "`{s}` declared here", .{info.owner});
                 _ = try self.synthExpr(value);
                 continue;
             };
@@ -4210,7 +4228,7 @@ const Checker = struct {
         for (fields) |f| {
             if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name)) continue;
             try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
-            if (info.foreign == null and f.decl_pos != sema.builtin_decl_pos) try self.note(f.decl_pos, "field `{s}` declared here", .{f.name});
+            if (info.foreign == null and f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(info.module_id, f.decl_pos, "field `{s}` declared here", .{f.name});
         }
     }
 
@@ -4470,7 +4488,7 @@ const Checker = struct {
                 subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos, self.expectedResult(self_type), name)) orelse return self.skipCall(args);
                 ty = try self.instantiate(nt.id, subst.args, pos);
             }
-            try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
+            try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
             return ty;
         }
         try self.err(pos, "no method `{s}` on type `{s}`", .{ name, nt.sym.name });
@@ -5057,7 +5075,8 @@ const Checker = struct {
             return;
         }
         const decl_pos = if (resolved.nominal_sym == sema.symbol_invalid) sema.builtin_decl_pos else resolved.field.decl_pos;
-        try self.checkFieldArgs(args, resolved.payload, .{ .owner = name, .decl_pos = decl_pos, .pos = pos, .kind = .variant });
+        const module_id = if (resolved.nominal_sym == sema.symbol_invalid) 0 else self.ctx.symbols.items[resolved.nominal_sym].from.module_id;
+        try self.checkFieldArgs(args, resolved.payload, .{ .owner = name, .decl_pos = decl_pos, .module_id = module_id, .pos = pos, .kind = .variant });
     }
 
     /// `Vec()` / `Vec(capacity: n)`.

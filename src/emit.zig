@@ -3479,15 +3479,8 @@ pub const Emitter = struct {
             .nominal => |sym_id| try self.writeNominalName(sym_id),
             .imported_nominal => |in| {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
-                const type_name = foreign.symbols.items[in.sym_id].name;
-                for (ctx.imports) |imp| {
-                    if (imp.module_id == in.module_id) {
-                        try self.writeModuleName(imp.local_name);
-                        return self.w.print(".{f}", .{ident(type_name)});
-                    }
-                }
-                // A module reached only through an import.
-                return self.w.print("@import(\"{s}.zig\").{f}", .{ foreign.name, ident(type_name) });
+                try self.writeModuleRef(in.module_id);
+                try self.w.print(".{f}", .{ident(foreign.symbols.items[in.sym_id].name)});
             },
             .parameterized_nominal => |pn| {
                 if (self.isSelfInstance(pn)) return self.w.writeAll("Self");
@@ -3520,13 +3513,29 @@ pub const Emitter = struct {
         }
     }
 
-    /// A user nominal, or a runtime one (`Vec` → `rig.Vec`).
+    /// A user nominal, or a runtime one (`Vec` → `rig.Vec`), or another
+    /// module's generic type through its proxy (`lib.Box`).
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
-        const name = self.sema.symbols.items[sym].name;
+        const s = self.sema.symbols.items[sym];
         if (sym == self.sema.vec_sym_id or sym == self.sema.cell_sym_id or sym == self.sema.signal_sym_id) {
-            return self.w.print("rig.{s}", .{name});
+            return self.w.print("rig.{s}", .{s.name});
         }
-        try self.writeModuleName(name);
+        if (sema.isProxy(s)) {
+            const foreign = self.sema.foreign_semas.get(s.from.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
+            try self.writeModuleRef(s.from.module_id);
+            return self.w.print(".{f}", .{ident(foreign.symbols.items[s.from.sym].name)});
+        }
+        try self.writeModuleName(s.name);
+    }
+
+    /// Another module, by the name this one imports it as, or, for a
+    /// module reached only through an import, by its file.
+    fn writeModuleRef(self: *Emitter, module_id: u32) Error!void {
+        for (self.sema.imports) |imp| {
+            if (imp.module_id == module_id) return self.writeModuleName(imp.local_name);
+        }
+        const foreign = self.sema.foreign_semas.get(module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
+        try self.w.print("@import(\"{s}.zig\")", .{foreign.name});
     }
 
     /// The generic type being emitted, applied to its own parameters:
