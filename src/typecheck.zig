@@ -1945,9 +1945,26 @@ const Checker = struct {
             if (lit.isKind(.call)) try self.checkEquatable(reached, l, op);
             return self.t().bool_id;
         }
-        // A borrowed operand compares as the value it reaches.
-        const a = try self.synthReached(l);
-        const b = try self.synthReached(r);
+        // A borrowed operand compares as the value it reaches, and an
+        // array literal beside an array takes its type.
+        const l_array = l.isKind(.array) or l.isKind(.array_fill);
+        const r_array = r.isKind(.array) or r.isKind(.array_fill);
+        var a: TypeId = undefined;
+        var b: TypeId = undefined;
+        if (l_array != r_array) {
+            const lit, const other = if (l_array) .{ l, r } else .{ r, l };
+            const other_ty = try self.synthReached(other);
+            if (self.ctx.types.get(other_ty) == .array) {
+                try self.checkExpr(lit, other_ty);
+                try self.checkEquatable(other_ty, l, op);
+                return self.t().bool_id;
+            }
+            const lit_ty = try self.synthReached(lit);
+            a, b = if (l_array) .{ lit_ty, other_ty } else .{ other_ty, lit_ty };
+        } else {
+            a = try self.synthReached(l);
+            b = try self.synthReached(r);
+        }
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         if (sema.isNumeric(self.ctx, a) and sema.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(l, r, a, b, op);
