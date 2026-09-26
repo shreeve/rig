@@ -436,7 +436,8 @@ does not, and a frame steps as far below the stack as its size: at
 most 16 MiB of counted values, plus Zig's own temporaries. At least
 64 MiB below the stack stays unmapped, four times the counted limit,
 so every overflowing frame lands there: on macOS the program reserves
-it when it starts, and on Linux the kernel maps nothing that close.
+it when it starts; Linux maps nothing within 128 MiB of the top of the
+stack, and the program holds its stack to 16 MiB.
 
 ```rig reject
 struct Grid

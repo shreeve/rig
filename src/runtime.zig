@@ -809,9 +809,14 @@ fn reportLeaks(before: Usage) bool {
     return true;
 }
 
-/// The bytes `guardStack` keeps unmapped below the stack: an overflowing frame
-/// of up to this size lands there and stops the program.
+/// The bytes `guardStack` keeps unmapped below the stack on macOS: an
+/// overflowing frame of up to this size lands there and stops the
+/// program.
 pub const stack_reserve: usize = 64 << 20;
+
+/// The main thread's stack: what Zig gives it, and what `guardStack`
+/// holds it to on Linux.
+pub const stack_size: usize = 16 << 20;
 
 extern "c" fn pthread_get_stackaddr_np(std.c.pthread_t) *anyopaque;
 extern "c" fn pthread_get_stacksize_np(std.c.pthread_t) usize;
@@ -819,20 +824,32 @@ extern "c" fn pthread_get_stacksize_np(std.c.pthread_t) usize;
 /// Called first in the emitted `main` (and by `runTests`). Zig probes the
 /// stack page by page as a frame grows only on x86; elsewhere a frame
 /// larger than the guard below the stack steps over it, and an overflow
-/// writes into whatever is mapped beyond instead of stopping the
-/// program. Linux keeps that space free (at least 1 MiB below the stack
-/// for any mapping, and far more for mappings placed by the kernel), but
-/// macOS guards the stack with one page, and once the address space
-/// below fills, it maps memory right next to it. There, reserve
-/// `stack_reserve` bytes below the guard that no access may touch. The
-/// space is free when the program starts; if it is not, leave it be.
+/// would write into whatever is mapped beyond instead of stopping the
+/// program. A frame holds at most 16 MiB of values (`checkFrames` in
+/// the compiler), so 64 MiB kept free below the stack catches it.
+///
+/// - macOS guards the stack with one page, and once the address space
+///   below fills, it maps memory right next to it: reserve
+///   `stack_reserve` bytes below the guard that no access may touch.
+/// - Linux places its mappings at least 128 MiB below the top of the
+///   stack, and at least the stack limit the program started with plus
+///   1 MiB: holding the stack to `stack_size` keeps 112 MiB free below it.
 pub fn guardStack() void {
-    if (builtin.os.tag != .macos or builtin.cpu.arch.isX86()) return;
-    const self = std.c.pthread_self();
-    const bottom = @intFromPtr(pthread_get_stackaddr_np(self)) - pthread_get_stacksize_np(self);
-    const base = bottom - std.heap.pageSize() - stack_reserve;
-    const got = std.c.mmap(@ptrFromInt(base), stack_reserve, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
-    if (got != std.c.MAP_FAILED and @intFromPtr(got) != base) _ = std.c.munmap(@alignCast(got), stack_reserve);
+    if (builtin.cpu.arch.isX86()) return;
+    switch (builtin.os.tag) {
+        .macos => {
+            const self = std.c.pthread_self();
+            const bottom = @intFromPtr(pthread_get_stackaddr_np(self)) - pthread_get_stacksize_np(self);
+            const base = bottom - std.heap.pageSize() - stack_reserve;
+            const got = std.c.mmap(@ptrFromInt(base), stack_reserve, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
+            if (got != std.c.MAP_FAILED and @intFromPtr(got) != base) _ = std.c.munmap(@alignCast(got), stack_reserve);
+        },
+        .linux => {
+            const limit = std.posix.getrlimit(.STACK) catch return;
+            if (limit.cur > stack_size) std.posix.setrlimit(.STACK, .{ .cur = stack_size, .max = limit.max }) catch return;
+        },
+        else => {},
+    }
 }
 
 /// Deferred first in the emitted `main`, so it runs after all of `main`'s
@@ -1091,6 +1108,15 @@ const Order = struct {
         self.n.* += 1;
     }
 };
+
+test "guardStack holds the stack to 16 MiB on Linux" {
+    if (builtin.os.tag != .linux or builtin.cpu.arch.isX86()) return error.SkipZigTest;
+    const before = try std.posix.getrlimit(.STACK);
+    if (before.max < 2 * stack_size) return error.SkipZigTest;
+    try std.posix.setrlimit(.STACK, .{ .cur = 2 * stack_size, .max = before.max });
+    guardStack();
+    try std.testing.expectEqual(stack_size, (try std.posix.getrlimit(.STACK)).cur);
+}
 
 test "strong and weak handles free the box once" {
     const before = usage();
