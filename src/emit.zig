@@ -2731,9 +2731,11 @@ pub const Emitter = struct {
                 return self.emitFieldInit(args);
             }
         };
-        // An owned closure handle, held by a name or a field.
+        // An owned closure handle, held by a name or a field, or a call
+        // yielding a borrow of one, held by pointer.
         if (self.typeOf(callee)) |t| if (sema.ownedClosureFn(self.sema, t) != null) {
             try self.emitExpr(callee);
+            if (callee.isKind(.call) and self.isPtrBorrowTy(t)) try self.w.writeAll(".*");
             try self.w.writeAll(".value.invoke(.{ ");
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
