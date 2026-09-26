@@ -85,6 +85,9 @@ const Checker = struct {
     current_call: ?Sexp = null,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
+    /// In a module constant's declaration, its position: the types in it
+    /// name only earlier constants.
+    const_before: u32 = std.math.maxInt(u32),
     /// Enclosing `raw` blocks.
     raw_depth: u32 = 0,
     /// The operand of the `!` or `catch` being checked: a fallible call
@@ -212,7 +215,7 @@ const Checker = struct {
     }
 
     fn resolver(self: *Checker) resolve.TypeResolver {
-        return .{ .ctx = self.ctx, .scope = self.scope, .nominal = self.nominal };
+        return .{ .ctx = self.ctx, .scope = self.scope, .nominal = self.nominal, .const_before = self.const_before };
     }
 
     fn t(self: *Checker) *sema.TypeStore {
@@ -258,6 +261,8 @@ const Checker = struct {
         if (rig.bindingKindOf(ir.Set.op(node)) != .fixed) {
             return self.errAt(node, "a module-level binding is a constant; write `{s} =! value`", .{self.text(target)});
         }
+        self.const_before = target.src.pos;
+        defer self.const_before = std.math.maxInt(u32);
         try self.checkSet(node);
         const value = ir.Set.value(node);
         if (self.isPoison(self.ctx.typeOf(target) orelse self.t().invalid_id)) return;
@@ -604,8 +609,12 @@ const Checker = struct {
         if (kind == .fixed and is_decl and s.kind == .local) if (try self.ctParamOf(rhs)) |ct| try self.ctx.ct_locals.put(self.ctx.allocator, sym_id, ct);
         try self.ctx.recordType(target, s.ty);
         // A binding that never changes keeps a constant value.
-        if (is_decl and s.kind == .local and !s.flags.reassigned and !s.flags.written and sema.isInteger(self.ctx, s.ty)) {
-            if (self.constInt(rhs)) |v| try self.ctx.const_ints.put(self.ctx.allocator, sym_id, v);
+        // (A module constant's was folded before any type was resolved.)
+        if (is_decl and s.kind == .local and s.scope != self.module_scope and !s.flags.reassigned and !s.flags.written and sema.isInteger(self.ctx, s.ty)) {
+            if (self.constInt(rhs)) |v| try self.ctx.const_ints.put(self.ctx.allocator, sym_id, .{ .value = v, .int = switch (self.ctx.types.get(s.ty)) {
+                .int => |i| i,
+                else => .{},
+            } });
         }
     }
 

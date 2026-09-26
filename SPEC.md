@@ -1205,9 +1205,10 @@ test "area"
 A binding at module level is a constant, `name =! value` or
 `name: T =! value`, and `pub` exports it. Its value must be known at
 compile time: a literal, `.variant`, an earlier constant, or operators
-and array literals over them. Every function in the module reads it,
-wherever it is declared; nothing can reassign or move it, and a local
-or parameter may not reuse its name (`new` shadows it on purpose).
+and array literals over them. Every function and type in the module
+reads it, wherever it is declared; nothing can reassign or move it,
+and a local or parameter may not reuse its name (`new` shadows it on
+purpose).
 Arithmetic on constants alone is checked at compile time; with a value
 known only when the program runs, it is checked then, like any other.
 

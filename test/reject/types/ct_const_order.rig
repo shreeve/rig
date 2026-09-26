@@ -1,0 +1,10 @@
+# A module constant's value names only earlier constants, and so do the
+# array lengths in its declaration.
+
+Z =! [0; B]
+Y: [B]Int =! [1, 2, 3]
+B =! 3
+A =! B + 1
+
+# error: 4:10: use of unbound name `B`
+# error: 5:5: use of unbound name `B`

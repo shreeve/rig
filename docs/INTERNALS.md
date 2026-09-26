@@ -541,9 +541,10 @@ interning makes `[LIMIT]Int` and `[4]Int` one type, and inference
 binds a `ct_param` exactly to the value the argument's type holds.
 `TypeResolver.resolveCtInt` reads an array size or a value argument:
 it folds integers, constants, and arithmetic on them with
-`sema.constIntBy` (a module constant through its declaration,
-`const_decls`, since signatures are resolved before bodies; `lib.N`
-through the other module's `const_ints`), and a compile-time parameter,
+`sema.ctFoldBy`, which reads each constant's value and type from
+`const_ints` (module constants are folded into it once, in declaration
+order, before any type is resolved: `resolve.foldModuleConsts`; `lib.N`
+comes from the other module's), and a compile-time parameter,
 or a `k =! n` binding of one (`ct_locals`), becomes its `ct_param`. A
 `ct_param` used as a length records the `array_len` requirement, so
 each instance's value is checked to be from 0 to 2^32 - 1. A generic

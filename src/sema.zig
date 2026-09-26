@@ -716,12 +716,11 @@ pub const SemContext = struct {
     generic_fn_uses: std.ArrayListUnmanaged(FnInstance) = .empty,
     /// Integer constants: bindings never reassigned or written whose
     /// value is a constant expression. The emitted Zig computes these at
-    /// compile time, so sema checks their arithmetic.
-    const_ints: std.AutoHashMapUnmanaged(SymbolId, i128) = .empty,
-    /// Module-level `=!` constant -> its `set` node, for the constants a
-    /// type's array length or value argument names before bodies are
-    /// checked (`resolve.TypeResolver.resolveCtInt`).
-    const_decls: std.AutoHashMapUnmanaged(SymbolId, Sexp) = .empty,
+    /// compile time, so sema checks their arithmetic. Module constants
+    /// are folded once, in declaration order, before any type is
+    /// resolved (`resolve.foldModuleConsts`), so a type anywhere in the
+    /// module can name them.
+    const_ints: std.AutoHashMapUnmanaged(SymbolId, ConstVal) = .empty,
     /// A local `k =! n` binding of a compile-time integer parameter ->
     /// the `ct_param` it stands for, where an array length or a
     /// compile-time argument names it.
@@ -769,7 +768,6 @@ pub const SemContext = struct {
         self.fn_instance_set.deinit(self.allocator);
         self.generic_fn_uses.deinit(self.allocator);
         self.const_ints.deinit(self.allocator);
-        self.const_decls.deinit(self.allocator);
         self.ct_locals.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -1816,13 +1814,10 @@ pub fn arrayLen(ctx: *const SemContext, a: ArrayType) ?u64 {
 
 /// Whether integer type `ty` holds `v`.
 pub fn intFits(ctx: *const SemContext, ty: TypeId, v: i128) bool {
-    const info = switch (ctx.types.get(ty)) {
-        .int => |i| i,
-        else => return true,
+    return switch (ctx.types.get(ty)) {
+        .int => |i| intInfoFits(i, v),
+        else => true,
     };
-    const bits: u8 = if (info.bits == 0) 64 else info.bits;
-    const half = @as(i128, 1) << @intCast(bits - 1);
-    return if (info.signed) v >= -half and v < half else v >= 0 and v < 2 * half;
 }
 
 /// The `ct_value` of the integer `v`.
@@ -2462,78 +2457,124 @@ pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
 }
 
 /// The names of checked code: a constant binding's value is known once
-/// its declaration is checked.
+/// its declaration is checked. Their values are untyped here: the
+/// checker gives constant arithmetic its type.
 const CheckedNames = struct {
     ctx: *const SemContext,
 
-    pub fn name(self: CheckedNames, e: Sexp) ConstInt {
-        const id = self.ctx.symbolOf(e) orelse return .not_constant;
-        return if (self.ctx.const_ints.get(id)) |v| .{ .value = v } else .not_constant;
+    pub fn name(self: CheckedNames, e: Sexp) ?TypedInt {
+        const id = self.ctx.symbolOf(e) orelse return null;
+        return if (self.ctx.const_ints.get(id)) |c| .{ .v = c.value } else null;
     }
 
-    pub fn member(_: CheckedNames, _: Sexp) ConstInt {
-        return .not_constant;
+    pub fn member(_: CheckedNames, _: Sexp) ?TypedInt {
+        return null;
     }
 };
 
 /// `constInt` with the value of each name leaf and `(member ...)` node
-/// from `names` (`name(e)`, `member(e)`).
+/// from `names` (`name(e)`, `member(e)`, each a `?TypedInt`).
 pub fn constIntBy(ctx: *const SemContext, e: Sexp, names: anytype) ConstInt {
+    return switch (ctFoldBy(ctx, e, names)) {
+        .value => |t| .{ .value = t.v },
+        .not_constant, .mismatch => .not_constant,
+        .overflow => .overflow,
+    };
+}
+
+/// A module or local integer constant: its value and its type.
+pub const ConstVal = struct { value: i128, int: IntInfo = .{} };
+
+/// A folded integer and its type; `int` is null for arithmetic on
+/// literals alone, which takes the type it is used as.
+pub const TypedInt = struct { v: i128, int: ?IntInfo = null };
+
+/// A constant integer expression folded with its types, as constant
+/// arithmetic is checked: each operation is in the type of its typed
+/// operands, and its value must fit that type.
+pub const CtFold = union(enum) {
+    value: TypedInt,
+    not_constant,
+    /// `node`'s value does not fit its type `int`, or (untyped) is too
+    /// large to compute.
+    overflow: struct { node: Sexp, int: ?IntInfo },
+    /// `node` combines constants of two integer types.
+    mismatch: struct { node: Sexp, a: IntInfo, b: IntInfo },
+};
+
+pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
     switch (e) {
         .src => {
             const text_ = identAt(ctx.source, e) orelse "";
-            if (isIntLiteralText(text_)) return .{ .value = std.fmt.parseInt(i128, text_, 0) catch return .overflow };
-            return names.name(e);
+            if (isIntLiteralText(text_)) return if (std.fmt.parseInt(i128, text_, 0)) |v| .{ .value = .{ .v = v } } else |_| .{ .overflow = .{ .node = e, .int = null } };
+            return if (names.name(e)) |t| .{ .value = t } else .not_constant;
         },
         .list => {
             const h = e.kind() orelse return .not_constant;
-            if (h == .member) return names.member(e);
+            if (h == .member) return if (names.member(e)) |t| .{ .value = t } else .not_constant;
             if (h == .neg) {
-                const v = switch (constIntBy(ctx, ir.Neg.operand(e), names)) {
-                    .value => |v| v,
+                const a = switch (ctFoldBy(ctx, ir.Neg.operand(e), names)) {
+                    .value => |t| t,
                     else => |r| return r,
                 };
-                return .{ .value = std.math.negate(v) catch return .overflow };
+                const v = std.math.negate(a.v) catch return .{ .overflow = .{ .node = e, .int = a.int } };
+                return typedResult(e, v, a.int);
             }
             // `a if c else b` with a constant condition: Zig picks the
             // branch at compile time, so its value is constant.
             if (h == .@"if" and ir.If.@"else"(e) != .nil) {
                 const c = constBoolOf(ctx, ir.If.cond(e)) orelse return .not_constant;
-                return constIntBy(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), names);
+                return ctFoldBy(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), names);
             }
             switch (h) {
                 .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
                 else => return .not_constant,
             }
-            const a = switch (constIntBy(ctx, ir.get(e, .left), names)) {
-                .value => |v| v,
+            const a = switch (ctFoldBy(ctx, ir.get(e, .left), names)) {
+                .value => |t| t,
                 else => |r| return r,
             };
-            const b = switch (constIntBy(ctx, ir.get(e, .right), names)) {
-                .value => |v| v,
+            const b = switch (ctFoldBy(ctx, ir.get(e, .right), names)) {
+                .value => |t| t,
                 else => |r| return r,
             };
+            // A shift is in its left operand's type.
+            const shift = h == .@"<<" or h == .@">>";
+            if (!shift) if (a.int) |ai| if (b.int) |bi| if (!std.meta.eql(ai, bi)) return .{ .mismatch = .{ .node = e, .a = ai, .b = bi } };
+            const int = if (shift) a.int else a.int orelse b.int;
             const v: ?i128 = switch (h) {
-                .@"+" => std.math.add(i128, a, b) catch null,
-                .@"-" => std.math.sub(i128, a, b) catch null,
-                .@"*" => std.math.mul(i128, a, b) catch null,
+                .@"+" => std.math.add(i128, a.v, b.v) catch null,
+                .@"-" => std.math.sub(i128, a.v, b.v) catch null,
+                .@"*" => std.math.mul(i128, a.v, b.v) catch null,
                 // Division by zero and negative shift amounts are
                 // reported where the operator is checked.
-                .@"/" => if (b == 0) return .not_constant else std.math.divTrunc(i128, a, b) catch null,
-                .@"%" => if (b == 0) return .not_constant else if (b == -1) 0 else @rem(a, b),
-                .@"<<" => if (b < 0) return .not_constant else if (b > 126) null else blk: {
-                    const r = a << @intCast(b);
-                    break :blk if (r >> @intCast(b) == a) r else null;
+                .@"/" => if (b.v == 0) return .not_constant else std.math.divTrunc(i128, a.v, b.v) catch null,
+                .@"%" => if (b.v == 0) return .not_constant else if (b.v == -1) 0 else @rem(a.v, b.v),
+                .@"<<" => if (b.v < 0) return .not_constant else if (b.v > 126) null else blk: {
+                    const r = a.v << @intCast(b.v);
+                    break :blk if (r >> @intCast(b.v) == a.v) r else null;
                 },
-                .@">>" => if (b < 0) return .not_constant else a >> @intCast(@min(b, 127)),
-                .@"&" => a & b,
-                .@"|" => a | b,
-                else => a ^ b,
+                .@">>" => if (b.v < 0) return .not_constant else a.v >> @intCast(@min(b.v, 127)),
+                .@"&" => a.v & b.v,
+                .@"|" => a.v | b.v,
+                else => a.v ^ b.v,
             };
-            return if (v) |x| .{ .value = x } else .overflow;
+            return typedResult(e, v orelse return .{ .overflow = .{ .node = e, .int = int } }, int);
         },
         else => return .not_constant,
     }
+}
+
+fn typedResult(e: Sexp, v: i128, int: ?IntInfo) CtFold {
+    if (int) |i| if (!intInfoFits(i, v)) return .{ .overflow = .{ .node = e, .int = i } };
+    return .{ .value = .{ .v = v, .int = int } };
+}
+
+/// Whether an integer type holds `v`.
+pub fn intInfoFits(info: IntInfo, v: i128) bool {
+    const bits: u8 = if (info.bits == 0) 64 else info.bits;
+    const half = @as(i128, 1) << @intCast(bits - 1);
+    return if (info.signed) v >= -half and v < half else v >= 0 and v < 2 * half;
 }
 
 /// `constInt` as an optional: null when not constant or too large.
@@ -2846,8 +2887,8 @@ test "facts: constant bindings keep their value; changed ones do not" {
         \\
     );
     defer r.deinit();
-    try std.testing.expectEqual(@as(?i128, 5), r.ctx.const_ints.get(r.sym("a", 0).?));
-    try std.testing.expectEqual(@as(?i128, 20), r.ctx.const_ints.get(r.sym("b", 0).?));
+    try std.testing.expectEqual(@as(i128, 5), r.ctx.const_ints.get(r.sym("a", 0).?).?.value);
+    try std.testing.expectEqual(@as(i128, 20), r.ctx.const_ints.get(r.sym("b", 0).?).?.value);
     try std.testing.expect(r.ctx.symbols.items[r.sym("c", 0).?].flags.reassigned);
     try std.testing.expect(r.ctx.const_ints.get(r.sym("c", 0).?) == null);
     try std.testing.expect(r.ctx.const_ints.get(r.sym("d", 0).?) == null);

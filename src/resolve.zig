@@ -403,8 +403,7 @@ const SymbolResolver = struct {
                     }
                 }
                 try self.checkNewLocal(target);
-                const id = try self.declare(target, .local, .{ .fixed = true });
-                if (id != null and self.scope == self.module_scope) try self.ctx.const_decls.put(self.ctx.allocator, id.?, node);
+                _ = try self.declare(target, .local, .{ .fixed = true });
             },
             .shadow => _ = try self.declare(target, .local, .{}),
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
@@ -526,8 +525,51 @@ const SymbolResolver = struct {
 
 pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!void {
     if (!tree.isKind(.module)) return;
+    try foldModuleConsts(ctx, tree);
     var tr: TypeResolver = .{ .ctx = ctx, .scope = module_scope };
     for (ir.Module.decls(tree)) |decl| try tr.resolveDecl(decl);
+}
+
+/// Fold each integer module constant once, in declaration order, into
+/// `const_ints`, so any type in the module can name it. A constant's
+/// value names only earlier constants; one that does not fold, or does
+/// not fit its type, is left for the checker to report.
+fn foldModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
+    for (ir.Module.decls(tree)) |decl| {
+        if (!rig.isModuleConst(decl)) continue;
+        const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+        const target = ir.Set.target(set);
+        if (target != .src or rig.bindingKindOf(ir.Set.op(set)) != .fixed) continue;
+        const id = ctx.symbolOf(target) orelse continue;
+        const ty = ir.Set.type(set);
+        const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse continue;
+        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope };
+        const t = switch (sema.ctFoldBy(ctx, ir.Set.value(set), names)) {
+            .value => |t| t,
+            else => continue,
+        };
+        const int = declared orelse t.int orelse sema.IntInfo{};
+        if (t.int) |i| if (!std.meta.eql(i, int)) continue;
+        if (!sema.intInfoFits(int, t.v)) continue;
+        try ctx.const_ints.put(ctx.allocator, id, .{ .value = t.v, .int = int });
+    }
+}
+
+/// The integer type a constant's annotation names, through aliases;
+/// null for any other type.
+fn declaredIntType(ctx: *const SemContext, node: Sexp) ?sema.IntInfo {
+    var ty = node;
+    for (0..16) |_| {
+        const name = identAt(ctx.source, ty) orelse return null;
+        if (isIntTypeName(name)) {
+            const bits = sizedTypeBits(name) orelse 0;
+            return if (bits == 64 and name[0] == 'I') .{} else .{ .bits = bits, .signed = name[0] != 'U' };
+        }
+        const id = ctx.lookupInScopeOnly(sema.module_scope, name) orelse return null;
+        if (ctx.symbols.items[id].kind != .type_alias) return null;
+        ty = ctx.alias_targets.get(id) orelse return null;
+    }
+    return null;
 }
 
 /// The checks on declared types that need to know what every type holds
@@ -570,38 +612,43 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
 }
 
 /// The values of the constants a compile-time integer in a type names
-/// (`sema.constIntBy`): a constant binding, a module constant (whose
-/// declaration may not be checked yet), and `module.NAME`.
+/// (`sema.ctFoldBy`): a constant binding, a module constant, and
+/// `module.NAME`, each with its type.
 pub const ConstNames = struct {
     ctx: *const SemContext,
     scope: ScopeId,
     /// The generic type's parameters, which are not constants.
     type_params: []const SymbolId = &.{},
-    /// Module constants being folded that name each other.
-    depth: u8 = 0,
+    /// In a module constant's declaration, its position: the module
+    /// constants declared from there on are not visible yet.
+    before: u32 = std.math.maxInt(u32),
 
-    pub fn name(self: ConstNames, e: Sexp) sema.ConstInt {
-        const text = identAt(self.ctx.source, e) orelse return .not_constant;
-        for (self.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, text)) return .not_constant;
-        const id = self.ctx.symbolOf(e) orelse self.ctx.lookupBefore(self.scope, text, e.src.pos) orelse return .not_constant;
+    pub fn name(self: ConstNames, e: Sexp) ?sema.TypedInt {
+        const text = identAt(self.ctx.source, e) orelse return null;
+        for (self.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, text)) return null;
+        const id = self.ctx.symbolOf(e) orelse self.ctx.lookupBefore(self.scope, text, e.src.pos) orelse return null;
         const sym = self.ctx.symbols.items[id];
-        if (sym.kind != .local or !sym.flags.fixed) return .not_constant;
-        if (self.ctx.const_ints.get(id)) |v| return .{ .value = v };
-        const decl = self.ctx.const_decls.get(id) orelse return .not_constant;
-        if (self.depth > 32) return .not_constant;
-        const ty = ir.Set.type(decl);
-        if (ty != .nil and !isIntTypeName(identAt(self.ctx.source, ty) orelse "")) return .not_constant;
-        return sema.constIntBy(self.ctx, ir.Set.value(decl), ConstNames{ .ctx = self.ctx, .scope = sema.module_scope, .depth = self.depth + 1 });
+        if (sym.kind != .local or !sym.flags.fixed or !self.visible(id)) return null;
+        const c = self.ctx.const_ints.get(id) orelse return null;
+        return .{ .v = c.value, .int = c.int };
     }
 
-    pub fn member(self: ConstNames, e: Sexp) sema.ConstInt {
+    pub fn member(self: ConstNames, e: Sexp) ?sema.TypedInt {
         const obj = ir.Member.object(e);
-        const id = self.ctx.lookup(self.scope, identAt(self.ctx.source, obj) orelse return .not_constant) orelse return .not_constant;
-        if (self.ctx.symbols.items[id].kind != .module) return .not_constant;
-        const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return .not_constant) orelse return .not_constant;
-        const fid = foreign.lookupInScopeOnly(sema.module_scope, identAt(self.ctx.source, ir.Member.name(e)) orelse return .not_constant) orelse return .not_constant;
-        if (!foreign.symbols.items[fid].flags.is_public) return .not_constant;
-        return if (foreign.const_ints.get(fid)) |v| .{ .value = v } else .not_constant;
+        const id = self.ctx.lookup(self.scope, identAt(self.ctx.source, obj) orelse return null) orelse return null;
+        if (self.ctx.symbols.items[id].kind != .module) return null;
+        const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
+        const fid = foreign.lookupInScopeOnly(sema.module_scope, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+        if (!foreign.symbols.items[fid].flags.is_public) return null;
+        const c = foreign.const_ints.get(fid) orelse return null;
+        return .{ .v = c.value, .int = c.int };
+    }
+
+    /// Whether symbol `id` is visible: a module constant declared at or
+    /// after `before` is not.
+    pub fn visible(self: ConstNames, id: SymbolId) bool {
+        const sym = self.ctx.symbols.items[id];
+        return !(sym.scope == sema.module_scope and sym.kind == .local and sym.decl_pos >= self.before);
     }
 };
 
@@ -633,6 +680,8 @@ pub const TypeResolver = struct {
     ctx: *SemContext,
     scope: ScopeId,
     nominal: NominalContext = NominalContext.none,
+    /// In a module constant's declaration, its position (`ConstNames.before`).
+    const_before: u32 = std.math.maxInt(u32),
 
     fn resolveDecl(self: *TypeResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
@@ -1454,7 +1503,7 @@ pub const TypeResolver = struct {
         }
         const text = try self.sourceText(node);
         if (node == .src and !sema.isIntLiteralText(text)) {
-            const id = self.ctx.lookupBefore(self.scope, text, node.src.pos) orelse {
+            const id = self.lookupCt(node) orelse {
                 if (isBuiltinTypeName(self.ctx, text)) return self.notAType(node, what);
                 try self.ctx.errAt(node, "use of unbound name `{s}`", .{text});
                 return null;
@@ -1518,7 +1567,7 @@ pub const TypeResolver = struct {
             .src => {
                 const name = identAt(self.ctx.source, node) orelse return;
                 for (self.nominal.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) return self.ctx.recordName(node, tp);
-                try self.ctx.recordName(node, self.ctx.lookupBefore(self.scope, name, node.src.pos) orelse return);
+                try self.ctx.recordName(node, self.lookupCt(node) orelse return);
             },
             .list => if (node.isKind(.member)) {
                 const obj = ir.Member.object(node);
@@ -1556,7 +1605,14 @@ pub const TypeResolver = struct {
 
     /// The constants names in a type denote.
     fn constNames(self: *const TypeResolver) ConstNames {
-        return .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params };
+        return .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params, .before = self.const_before };
+    }
+
+    /// The symbol a name leaf in a compile-time integer denotes; a module
+    /// constant a constant's declaration names must come before it.
+    fn lookupCt(self: *const TypeResolver, leaf: Sexp) ?SymbolId {
+        const id = self.ctx.lookupBefore(self.scope, identAt(self.ctx.source, leaf) orelse return null, leaf.src.pos) orelse return null;
+        return if (self.constNames().visible(id)) id else null;
     }
 
     fn sourceText(self: *const TypeResolver, node: Sexp) Error![]const u8 {
