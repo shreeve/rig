@@ -731,7 +731,9 @@ type can hold a borrow carries the loans of all its borrowed arguments,
 and of the stack closure it calls (whose value is checked like a
 returned one);
 a call may store its arguments' loans into its receiver and into what
-its `!` arguments and other write borrows lead to. Cells, Signals, and
+its `!` arguments and other write borrows lead to, except a built-in
+element method (`!dst.copy(src)`) whose elements hold no borrow, which
+stores only plain elements. Cells, Signals, and
 owned closures hold no borrows (storing one there is rejected): every
 handle to one reaches what it holds, so loans kept per handle var would
 miss the other handles. A loan not stored anywhere is a temporary and

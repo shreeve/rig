@@ -1,0 +1,45 @@
+# `copy` stores elements, never its argument's borrow: a local copied
+# into a caller's buffer (a `![]T`, `![N]T`, or `!Vec[T]` parameter, or a
+# reslice of one) is fine, and the source is free again once the call
+# returns.
+
+sub load(s: ![]Int)
+  c = [7, 8]
+  !s.copy(?c[..])
+
+sub load_array(a: ![3]Int)
+  c = [4, 5]
+  !a[1..].copy(?c[..])
+
+sub load_vec(v: !Vec[Int])
+  c = [6]
+  !v[..1].copy(?c[..])
+
+sub main()
+  a = [1, 2]
+  load(!a[..])
+  print(a)
+  b = [0, 0, 0]
+  load_array(!b)
+  print(b)
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  !v.push(9)
+  load_vec(!v)
+  print(v)
+  x = [1, 2, 3]
+  y = [0, 0, 0]
+  !y.copy(?x[..])
+  x[0] = 9
+  !v.copy(?x[1..])
+  !v.push(3)
+  w = !y[1..]
+  !w.copy(?x[..2])
+  !x.fill(0)
+  print(x, y, v)
+
+# expect:
+# [7, 8]
+# [0, 4, 5]
+# [6, 9]
+# [0, 0, 0] [1, 9, 2] [2, 3, 3]

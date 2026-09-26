@@ -2261,8 +2261,9 @@ pub const Checker = struct {
         // The callee may store what its arguments borrow into anything it
         // can mutate: the receiver, and whatever the write borrows passed
         // to it lead to (`!x`, a write borrow passed on or moved in, a
-        // value holding one).
-        if (stored.loans.len > 0) {
+        // value holding one). A built-in element method (`!dst.copy(src)`)
+        // stores only elements, which may hold no borrow to store.
+        if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             if (recv_root) |id| {
                 const obj = ir.Member.object(callee);
                 if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{});
@@ -2285,6 +2286,14 @@ pub const Checker = struct {
             return .{};
         }
         return result;
+    }
+
+    /// A call of a built-in element method whose elements hold no
+    /// borrow: it stores none of its arguments' borrows.
+    fn storesNothing(self: *const Checker, callee: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        const ec = ctx.elemCallOf(callee) orelse return false;
+        return !sema.holdsBorrow(ctx, ec.elem);
     }
 
     /// A borrow of plain data (`k` with `k: ?Int`) passed where a value

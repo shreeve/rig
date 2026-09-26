@@ -4780,7 +4780,7 @@ const Checker = struct {
             .read, .write => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
-        try self.ctx.recordElemCall(callee, .{ .op = op });
+        try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
         switch (op) {
             .copy, .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
@@ -4824,7 +4824,7 @@ const Checker = struct {
         const params: []const TypeId = if (op == .read) &.{ recv, self.t().int_id } else &.{ recv, self.t().int_id, num };
         const returns = if (op == .read) num else self.t().void_id;
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = returns, .is_sub = op == .write });
-        try self.ctx.recordElemCall(callee, .{ .op = op, .num = num });
+        try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem, .num = num });
         try self.checkOffsetArg(args[0], num, len, method);
         if (op == .write) try self.checkExpr(args[1], num);
         return returns;

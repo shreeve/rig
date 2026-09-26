@@ -556,6 +556,8 @@ pub const Facts = struct {
 /// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`.
 pub const ElemCall = struct {
     op: ElemOp,
+    /// The receiver's element type.
+    elem: TypeId,
     /// `read` / `write`: the integer or float type of the value.
     num: TypeId = type_invalid,
 };
