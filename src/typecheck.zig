@@ -6174,7 +6174,8 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
 /// Why `==` is not defined for a type, as a diagnostic says it.
 fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
     const a = ctx.arena.allocator();
-    const t = try sema.formatTypeIn(n.ctx, a, n.ty);
+    // Another module's type is named as this module spells it.
+    const t = if (n.origin) |m| try sema.formatType(ctx, try sema.importType(ctx, @constCast(n.ctx), n.ty, m)) else try sema.formatType(ctx, n.ty);
     if (n.path.len > 0) return switch (n.why) {
         .handle => std.fmt.allocPrint(a, "field `{s}` is a handle `{s}`, which could compare by identity or by content", .{ n.path, t }),
         .closure => std.fmt.allocPrint(a, "field `{s}` is an owned closure `{s}`", .{ n.path, t }),

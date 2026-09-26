@@ -4,3 +4,9 @@ pub struct Point
 pub struct Tagged
   id: Int
   h: *Point
+
+pub struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)

@@ -1,10 +1,27 @@
 # A struct from another module that holds a handle has no `==`; the
-# diagnostic names its field.
+# diagnostic names its field, and names the other module's types as
+# this module spells them.
 
 use geo
+
+struct Point
+  y: Int
+
+struct L
+  g: geo.Tagged
+  p: Point
+
+struct K
+  r: geo.Res
 
 sub main()
   u = geo.Tagged(id: 1, h: *geo.Point(x: 1))
   print(u == u)
+  l = L(g: geo.Tagged(id: 2, h: *geo.Point(x: 1)), p: Point(y: 1))
+  print(l == l)
+  k = K(r: geo.Res(n: 1))
+  print(k == k)
 
-# error: 8:9: `==` is not defined for `geo.Tagged`: field `h` is a handle `*Point`
+# error: 19:9: `==` is not defined for `geo.Tagged`: field `h` is a handle `*geo.Point`
+# error: 21:9: `==` is not defined for `L`: field `g.h` is a handle `*geo.Point`
+# error: 23:9: `==` is not defined for `K`: field `r` is a `geo.Res`: `geo.Res` declares `drop`
