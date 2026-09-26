@@ -1,0 +1,17 @@
+# A generic type whose method uses its own instance nested deeper, here
+# through a generic function, would need ever deeper instances.
+
+fun keep[T](x: T) -> T
+  x
+
+type Box[T]
+  v: T
+
+  fun rewrap(self: Box[T]) -> Box[Box[T]]
+    keep(Box(v: <self))
+
+sub main()
+  d = <Box(v: 1).rewrap()
+  print(d.v.v)
+
+# error: 14:8: `Box[Int]` leads to ever deeper instances of generic functions (through `keep[Box[Box[T]]]`); a generic type's body cannot nest itself in its own type arguments

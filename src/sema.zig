@@ -1159,9 +1159,12 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
             }
             if (argsHaveTypeVar(ctx, args)) continue;
             // A generic function that calls itself with its parameters
-            // nested deeper (`f[Box[T]]` in `f[T]`) would expand forever.
+            // nested deeper (`f[Box[T]]` in `f[T]`), or a generic type
+            // whose methods do so with its own instances, would expand
+            // forever.
             if (deepest > max_instance_depth) {
-                try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic functions (through `{s}`); a generic function cannot call itself with its own type parameters nested deeper", .{ try rootName(ctx, item.root), try formatFnInstance(ctx, use) });
+                const why = if (item.root == .func) "a generic function cannot call itself with its own type parameters nested deeper" else "a generic type's body cannot nest itself in its own type arguments";
+                try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic functions (through `{s}`); {s}", .{ try rootName(ctx, item.root), try formatFnInstance(ctx, use), why });
                 return;
             }
             const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own };
