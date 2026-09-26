@@ -95,3 +95,19 @@ expect_eq "$(cat out.txt)" "main.rig:4:13: error: \`lib.max[String]\` cannot use
 lib.rig:2:8:   note: \`>\` used on \`T\` here (ordering comparison)
   a if a > b else b
        ^" "a note in another module's file"
+
+# Each note in another module's file names that file: a requirement
+# reached through a chain (in `util.rig`), a copy, an array length, an
+# array made, and a generic type's declaration.
+m="$ROOT/test/reject/modules"
+out=$("$RIG" check "$m/foreign_chain_requirement/main.rig" 2>&1)
+expect_has "$out" "$m/foreign_chain_requirement/util.rig:2:3:   note: \`+\` used on \`T\` here" "a note through a chain names its file"
+out=$("$RIG" check "$m/foreign_instance_ownership/main.rig" 2>&1)
+expect_has "$out" "$m/foreign_instance_ownership/lib.rig:2:7:   note: \`T\` copied here" "a copy note names its file"
+out=$("$RIG" check "$m/foreign_array_len/main.rig" 2>&1)
+expect_has "$out" "$m/foreign_array_len/lib.rig:12:11:   note: \`n\` used as an array length here" "an array length note names its file"
+expect_has "$out" "$m/foreign_array_len/lib.rig:1:26:   note: the array is made here" "an array note names its file"
+printf 'pub struct Wrap[T]\n  v: T\n' >lib.rig
+printf 'use lib\n\nsub main()\n  print(lib.Wrap[Int].nope())\n' >main.rig
+out=$("$RIG" check main.rig 2>&1); expect_rc $? 1 "rig check of a missing method of another module's generic"
+expect_has "$out" "lib.rig:1:12:   note: \`lib.Wrap\` declared here" "a declaration note names its file"
