@@ -10,6 +10,11 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 
 - **Stack closures as arguments**: pass a non-escaping closure to a call without allocating it.
 - **Generics across modules**: instances of a module's generic types in its public surface, and its `pub` generic functions.
+- **Compile-time values on generic types**: `type Ring[n: Int]`, rejected today; generic types take type parameters only.
+- **Generic closures**: a closure with type parameters of its own.
+- **Inference from the expected type** for generic function calls, as generic constructors have: `z: U8 = max(1, 2)` needs `max[U8]` today.
+- **Arithmetic through borrows in generic bodies**: `a + b` for `a: ?T`, as it works for `a: ?Int`.
+- **Nested array types**: `[2][3]Int` in a type does not parse yet; an array of arrays can be built and indexed.
 - **Owning values in more places**: arrays of owning values, and owned closures that take or return them.
 - **Strings**: building and formatting strings, and matching on them. A slice of a built (heap) string will be a borrow of it, as an array slice is today.
 - **Struct equality**: `==` on structs.
@@ -17,7 +22,7 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `String`).
 - **Aliases of imported and generic types** used as constructors and namespaces.
 - **A labeled value loop on the right of a binding** (`x = :l for ...`), which needs a grammar change without conflicts.
-- **Traits or interfaces** whose dispatch and ownership stay visible in the IR.
+- **Traits or bounds** whose dispatch and ownership stay visible in the IR, so a generic signature says what its type parameters support.
 - **Compile-time evaluation**: computing values at compile time beyond compile-time parameters (`fun f[n: Int]`).
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Unique heap ownership**: a single-owner box without a reference count.
