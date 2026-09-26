@@ -1,0 +1,10 @@
+# Two variant literals compared with each other name no enum type.
+
+enum Shape
+  circle(r: Float)
+  empty
+
+sub main()
+  print(.circle(r: 1.0) == .circle(r: 1.0))
+
+# error: 8:9: variant `.circle(...)` needs a known enum type; annotate the binding

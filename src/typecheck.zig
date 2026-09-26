@@ -5803,8 +5803,10 @@ fn isFieldPath(e: Sexp) bool {
     return isFieldPath(ir.Member.object(e));
 }
 
-/// Forms whose type comes from the other operand: `.variant`, `none`.
+/// Forms whose type comes from the other operand: `.variant`,
+/// `.variant(field: value)`, `none`.
 fn isContextual(source: []const u8, e: Sexp) bool {
+    if (e.isKind(.call) and ir.Call.callee(e).isKind(.enum_lit)) return true;
     return e.isKind(.enum_lit) or std.mem.eql(u8, identAt(source, e) orelse "", "none");
 }
 

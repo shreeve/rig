@@ -3660,12 +3660,18 @@ pub const Emitter = struct {
         };
     }
 
-    /// `pre(left, right)post`.
+    /// `pre(left, right)post`. A payload variant literal (`.circle(r: 1)`)
+    /// is spelled with its enum type, which the other operand gave it.
     fn emitCall2(self: *Emitter, pre: []const u8, operands: [2]Sexp, post: []const u8) Error!void {
         try self.w.writeAll(pre);
-        try self.emitExpr(operands[0]);
-        try self.w.writeAll(", ");
-        try self.emitExpr(operands[1]);
+        for (operands, 0..) |o, i| {
+            if (i > 0) try self.w.writeAll(", ");
+            const variant = o.isKind(.call) and ir.Call.callee(o).isKind(.enum_lit);
+            const ty = if (variant) self.typeOf(o) else null;
+            if (ty) |t| try self.writeAsOpen(t);
+            try self.emitExpr(o);
+            if (ty != null) try self.w.writeAll(")");
+        }
         try self.w.writeAll(post);
     }
 

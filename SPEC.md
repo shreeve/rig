@@ -1425,15 +1425,16 @@ loses bits (or the sign) overflows: a constant one is rejected, and one
 computed when the program runs panics, like `+` and `*`.
 
 `==` and `!=` compare two values of the same type, by content. The
-equatable types are numbers, `Bool`, `String`, errors, and enums (with
-each other or with a `.variant`), and, when everything they hold is
-equatable: optionals, where `none` equals only `none` and a value
-compares with an optional as its value; arrays and `[]T` slices,
-element by element; structs, field by field; and payload enums, by
-variant and then payload. Floats compare as IEEE numbers wherever they
-are, so a struct holding a NaN is not equal to itself. A borrowed
-operand (`?P`, `!P`) compares as the value it reaches. A method named
-`eq` is never called by `==`.
+equatable types are numbers, `Bool`, `String`, errors, and plain enums,
+and, when everything they hold is equatable: optionals, where `none`
+equals only `none` and a value compares with an optional as its value;
+arrays and `[]T` slices, element by element; structs, field by field;
+and payload enums, by variant and then payload. A variant literal,
+`.red` or `.dot(at: p)`, takes its enum type from the other operand, on
+either side. Floats compare as IEEE numbers wherever they are, so a
+struct holding a NaN is not equal to itself. A borrowed operand (`?P`,
+`!P`) compares as the value it reaches. A method named `eq` is never
+called by `==`.
 
 A handle `*T` or `~T` has no `==`, since it could compare identity or
 content; nor does a function or closure, a Vec, Cell, or Signal, a
@@ -1460,7 +1461,7 @@ sub main
   b = Point(x: 1, y: 2)
   s: Shape = .dot(at: a)
   found: Point? = none
-  print(a == b, s == Shape.dot(at: Point(x: 2, y: 1)), found == none, [a] == [b])
+  print(a == b, s == .dot(at: Point(x: 2, y: 1)), found == none, [a] == [b])
   print("abc" < "abd", "ab" < "abc", "b" <= "a")
 ```
 
