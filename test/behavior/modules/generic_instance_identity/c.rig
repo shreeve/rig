@@ -1,5 +1,5 @@
 use a
 
 pub fun pair(n: Int) -> [2]Int
-  boxes = [a.make(n), a.make(n + 1)]
-  [boxes[0].v, boxes[1].v]
+  wraps = [a.make(n), a.make(n + 1)]
+  [wraps[0].v, wraps[1].v]

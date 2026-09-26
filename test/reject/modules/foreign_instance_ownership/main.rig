@@ -16,10 +16,10 @@ sub main()
   a = lib.twice(Res(n: 2))
   b = lib.same(?r)
   print(a.n, b.n, lib.twice(3))
-  c = lib.Box[?Res](v: ?r)
+  c = lib.Wrap[?Res](v: ?r)
   print(c.v.n)
 
 # error: 16:11: `lib.twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
 # error: 2:7: `T` copied here; move it with `<` instead
 # error: 17:11: `lib.same[?Res]` cannot use `T = ?Res`: a generic function is checked for a `T` that holds no borrow
-# error: 19:7: `lib.Box[?Res]` cannot use `T = ?Res`: the methods of `lib.Box` are checked for a `T` that holds no borrow
+# error: 19:7: `lib.Wrap[?Res]` cannot use `T = ?Res`: the methods of `lib.Wrap` are checked for a `T` that holds no borrow

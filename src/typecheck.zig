@@ -3176,7 +3176,7 @@ const Checker = struct {
         return self.callValue(callee, callee_ty, args, try self.sourceText(callee));
     }
 
-    /// `Box(v: 3)`, `lib.Box(v: 3)`: generic type `sym_id`, named `name`
+    /// `Wrap(v: 3)`, `lib.Wrap(v: 3)`: generic type `sym_id`, named `name`
     /// by `callee`, constructed at the type arguments its fields' values
     /// and the type expected of it give.
     fn constructGeneric(self: *Checker, callee: Sexp, sym_id: SymbolId, args: []const Sexp, name: []const u8, pos: u32) Error!TypeId {

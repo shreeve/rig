@@ -1,4 +1,4 @@
 use lib
 
-pub fun make(n: Int) -> lib.Box[Int]
-  lib.Box(v: n)
+pub fun make(n: Int) -> lib.Wrap[Int]
+  lib.Wrap(v: n)

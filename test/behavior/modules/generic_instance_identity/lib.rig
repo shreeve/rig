@@ -1,5 +1,5 @@
-pub struct Box[T]
+pub struct Wrap[T]
   v: T
 
-pub fun unbox[T](b: Box[T]) -> T
+pub fun unbox[T](b: Wrap[T]) -> T
   b.v

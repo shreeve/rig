@@ -1,7 +1,7 @@
 struct Hidden[T]
   v: T
 
-pub struct Box[T]
+pub struct Wrap[T]
   v: T
 
 pub struct Point

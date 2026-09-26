@@ -1399,7 +1399,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayListUnmanaged(ExpandItem), reached: 
 }
 
 /// A public generic function or type, or a generic method of a public
-/// type, whose body nests itself ever deeper (`f[Box[T]]` in `f[T]`)
+/// type, whose body nests itself ever deeper (`f[Wrap[T]]` in `f[T]`)
 /// fails in every instance, which other modules make: each is expanded
 /// over its own parameters, as an instance would be, and such a one is
 /// reported where it is declared.
@@ -2552,7 +2552,7 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
     const a = ctx.arena.allocator();
     const generic = fsym.kind == .generic_type;
     const id = try ctx.addSymbol(.{
-        // A generic type is named as this module spells it: `lib.Box`.
+        // A generic type is named as this module spells it: `lib.Wrap`.
         .name = if (generic) try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, fsym.name }) else fsym.name,
         .kind = fsym.kind,
         .ty = ctx.types.unknown_id,

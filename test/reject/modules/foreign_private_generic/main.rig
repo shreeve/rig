@@ -3,19 +3,19 @@
 
 use lib
 
-sub keep(h: lib.Hidden[Int], b: lib.Box, p: lib.Point[Int])
+sub keep(h: lib.Hidden[Int], b: lib.Wrap, p: lib.Point[Int])
   print(lib.hide(1))
 
 sub main()
   h = lib.Hidden[Int](v: 1)
   g = lib.Hidden(v: 1)
-  b = lib.Box[Int, Int](v: 1)
-  print(lib.Box)
+  b = lib.Wrap[Int, Int](v: 1)
+  print(lib.Wrap)
 
 # error: 6:17: `lib.Hidden` is not public
-# error: 6:37: generic type `lib.Box` requires type arguments; write `lib.Box[T]`
-# error: 6:49: `lib.Point` is not a generic type; it takes no type arguments
+# error: 6:37: generic type `lib.Wrap` requires type arguments; write `lib.Wrap[T]`
+# error: 6:50: `lib.Point` is not a generic type; it takes no type arguments
 # error: 10:11: `lib.Hidden` is not public
 # error: 11:11: `lib.Hidden` is not public
-# error: 12:7: generic type `lib.Box` expects 1 type argument, got 2
-# error: 13:13: `lib.Box` is a type, not a value
+# error: 12:7: generic type `lib.Wrap` expects 1 type argument, got 2
+# error: 13:13: `lib.Wrap` is a type, not a value

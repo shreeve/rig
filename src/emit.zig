@@ -2553,7 +2553,7 @@ pub const Emitter = struct {
         if (o == .src) if (self.sema.symbolOf(o)) |id| if (self.sema.symbols.items[id].kind == .generic_type) {
             if (obj_ty) |t| return self.emitTypeTy(t);
         };
-        // `m.Box.make(...)` of another module's generic type.
+        // `m.Wrap.make(...)` of another module's generic type.
         if (o.isKind(.member) and self.isTypeCallee(o)) if (obj_ty) |t| if (self.sema.types.get(t) == .parameterized_nominal) return self.emitTypeTy(t);
         if (o == .src) if (self.localOf(o)) |local| {
             if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
@@ -2703,7 +2703,7 @@ pub const Emitter = struct {
                 try self.emitMember(callee);
                 return self.emitFieldInit(args);
             }
-            // `m.Box[Int](v: 3)`, `m.Box(v: 3)`: the instance sema gave it.
+            // `m.Wrap[Int](v: 3)`, `m.Wrap(v: 3)`: the instance sema gave it.
             if (self.sema.types.get(t) == .parameterized_nominal and self.isTypeCallee(callee)) {
                 try self.emitTypeTy(t);
                 return self.emitFieldInit(args);
@@ -3521,7 +3521,7 @@ pub const Emitter = struct {
     }
 
     /// A user nominal, or a runtime one (`Vec` → `rig.Vec`), or another
-    /// module's generic type through its proxy (`lib.Box`).
+    /// module's generic type through its proxy (`lib.Wrap`).
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
         const s = self.sema.symbols.items[sym];
         if (sym == self.sema.vec_sym_id or sym == self.sema.cell_sym_id or sym == self.sema.signal_sym_id) {

@@ -1,11 +1,11 @@
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun get(?self) -> T
     self.v
 
 pub struct Holder
-  b: Box[Int]
+  b: Wrap[Int]
 
 struct Slot[T]
   v: T
@@ -22,14 +22,14 @@ pub struct P
 struct Secret
   value: Int
 
-pub struct Wrap[T]
+pub struct Cover[T]
   inner: T
 
-pub fun make(n: Int) -> Box[Int]
-  Box(v: n)
+pub fun make(n: Int) -> Wrap[Int]
+  Wrap(v: n)
 
 pub fun holder() -> Holder
-  Holder(b: Box(v: 4))
+  Holder(b: Wrap(v: 4))
 
 pub fun make_secret() -> Secret
   Secret(value: 42)
@@ -37,8 +37,8 @@ pub fun make_secret() -> Secret
 pub sub take_secret(s: Secret)
   print(s.value)
 
-pub fun wrap_secret(x: Int) -> Wrap[Secret]
-  Wrap(inner: Secret(value: x))
+pub fun cover_secret(x: Int) -> Cover[Secret]
+  Cover(inner: Secret(value: x))
 
-pub fun unwrap(w: Wrap[Secret]) -> Int
+pub fun uncover(w: Cover[Secret]) -> Int
   w.inner.value

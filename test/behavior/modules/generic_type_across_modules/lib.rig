@@ -1,9 +1,9 @@
-pub struct Box[T]
+pub struct Wrap[T]
   v: T
   count: Int = 1
 
   fun make(v: T) -> Self
-    Box(v: v)
+    Wrap(v: v)
 
   fun get(?self) -> T
     self.v

@@ -1790,7 +1790,7 @@ pub const TypeResolver = struct {
         return self.ctx.intern(.{ .imported_nominal = .{ .module_id = d.origin, .sym_id = d.id } });
     }
 
-    /// `module.Box` in `module.Box[Int]`: the proxy of a public generic
+    /// `module.Wrap` in `module.Wrap[Int]`: the proxy of a public generic
     /// type of an imported module (`sema.proxyOf`).
     fn qualifiedGeneric(self: *TypeResolver, member: Sexp) Error!?SymbolId {
         const d = (try self.foreignDecl(ir.Member.object(member), ir.Member.name(member))) orelse return null;
@@ -1822,7 +1822,7 @@ pub const TypeResolver = struct {
         var sym_id: SymbolId = undefined;
         var pos: u32 = undefined;
         if (name_node.isKind(.member)) {
-            // `lib.Box[Int]`: another module's generic type.
+            // `lib.Wrap[Int]`: another module's generic type.
             sym_id = (try self.qualifiedGeneric(name_node)) orelse return t.invalid_id;
             pos = srcPos(ir.Member.name(name_node), 0);
         } else {

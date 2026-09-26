@@ -5,19 +5,19 @@
 
 use lib
 
-struct Box
+struct Wrap
   v: Int
 
 sub main()
   b = lib.make(1)
   h = lib.holder()
-  local = Box(v: 9)
+  local = Wrap(v: 9)
   print(b.v, b.get(), h.b.v, h.b.get(), local.v)
   p = lib.P.make()
   print(p.q.b.v)
-  w = lib.wrap_secret(5)
+  w = lib.cover_secret(5)
   lib.take_secret(lib.make_secret())
-  print(w.inner.value, lib.unwrap(w))
+  print(w.inner.value, lib.uncover(w))
 
 # expect:
 # 1 1 4 4 9
