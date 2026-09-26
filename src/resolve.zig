@@ -460,6 +460,8 @@ const SymbolResolver = struct {
     }
 
     fn walkFor(self: *SymbolResolver, node: Sexp) Error!void {
+        // `for x in !xs` writes `xs` through `x`.
+        if (ir.For.mode(node).tag == .write) try self.markWritten(ir.For.source(node));
         try self.walk(ir.For.source(node));
         {
             const prev = try self.enter(node, .block);
