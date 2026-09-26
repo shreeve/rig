@@ -659,12 +659,14 @@ pub const Emitter = struct {
         return std.mem.eql(u8, sema.paramName(self.source, p) orelse "", "self");
     }
 
-    /// Statements at the top of a function body: in `main`, the deferred
-    /// `rig.finish()` (flush output, check for leaks), then parameter
-    /// copies and guards, and discards for unused parameters.
+    /// Statements at the top of a function body: in `main`,
+    /// `rig.guardStack()` and the deferred `rig.finish()` (flush output,
+    /// check for leaks), then parameter copies and guards, and discards
+    /// for unused parameters.
     fn emitFunPrologue(self: *Emitter) Error!void {
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
+            try self.line("rig.guardStack();", .{});
             try self.line("defer rig.finish();", .{});
         }
         if (self.fun.unused_env.len > 0) {

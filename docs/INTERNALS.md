@@ -800,9 +800,9 @@ lower is an internal error: sema must have rejected it.
   struct per literal and erases it behind `rig.Closure(params, R)`, so
   every literal of one function type shares one runtime type; a call is
   `cb.value.invoke(.{ args })`.
-- **`main`** of the root module defers `rig.finish()` first, so it runs
-  after every other drop, and the root module declares
-  `pub const panic = rig.panic`.
+- **`main`** of the root module calls `rig.guardStack()`, then defers
+  `rig.finish()`, so it runs after every other drop, and the root
+  module declares `pub const panic = rig.panic`.
 - **Tests.** `test "name"` becomes `fn __rig_test_<n>() anyerror!void`,
   listed in the module's `pub const __rig_tests` table, which only
   `rig test` references.
@@ -828,6 +828,7 @@ reviewed.
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
+| `guardStack` | makes a stack overflow stop the program. Zig probes the stack as a frame grows only on x86, so elsewhere a frame larger than the guard below the stack can step over it. Linux keeps the space below the stack unmapped; macOS guards it with one page and maps memory right below that once the address space fills, so there `guardStack` reserves 64 MiB (`stack_reserve`) below the guard, where an overflowing frame of up to that size lands. `test/cli/stack_guard.sh` checks it |
 | `index`, `at`, `slice`, `div` | bounds-checked indexing and slicing, which panic in every build mode; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `discard`, `isNone`, `eqlOptStr`, `eqlOpt`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; compare optional strings and optional errors; clear an alive flag as a value moves out |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |

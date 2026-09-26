@@ -809,6 +809,32 @@ fn reportLeaks(before: Usage) bool {
     return true;
 }
 
+/// The bytes `guardStack` keeps unmapped below the stack: an overflowing frame
+/// of up to this size lands there and stops the program.
+pub const stack_reserve: usize = 64 << 20;
+
+extern "c" fn pthread_get_stackaddr_np(std.c.pthread_t) *anyopaque;
+extern "c" fn pthread_get_stacksize_np(std.c.pthread_t) usize;
+
+/// Called first in the emitted `main` (and by `runTests`). Zig probes the
+/// stack page by page as a frame grows only on x86; elsewhere a frame
+/// larger than the guard below the stack steps over it, and an overflow
+/// writes into whatever is mapped beyond instead of stopping the
+/// program. Linux keeps that space free (at least 1 MiB below the stack
+/// for any mapping, and far more for mappings placed by the kernel), but
+/// macOS guards the stack with one page, and once the address space
+/// below fills, it maps memory right next to it. There, reserve
+/// `stack_reserve` bytes below the guard that no access may touch. The
+/// space is free when the program starts; if it is not, leave it be.
+pub fn guardStack() void {
+    if (builtin.os.tag != .macos or builtin.cpu.arch.isX86()) return;
+    const self = std.c.pthread_self();
+    const bottom = @intFromPtr(pthread_get_stackaddr_np(self)) - pthread_get_stacksize_np(self);
+    const base = bottom - std.heap.pageSize() - stack_reserve;
+    const got = std.c.mmap(@ptrFromInt(base), stack_reserve, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
+    if (got != std.c.MAP_FAILED and @intFromPtr(got) != base) _ = std.c.munmap(@alignCast(got), stack_reserve);
+}
+
 /// Deferred first in the emitted `main`, so it runs after all of `main`'s
 /// drops: flush `print` output, then exit non-zero if anything leaked, so
 /// a leaking program never passes.
@@ -900,6 +926,7 @@ var current_test: ?TestName = null;
 
 /// Run every test, reporting each on stdout; exit 1 if any failed.
 pub fn runTests(modules: []const TestModule) void {
+    guardStack();
     const w = stdout();
     var passed: usize = 0;
     var failed: usize = 0;
