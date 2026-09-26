@@ -2680,6 +2680,41 @@ sub main
 Only `pub` declarations are visible outside a module. A struct's
 fields and methods are visible wherever the struct is.
 
+**Generics** cross modules: another module's generic type is named
+with its arguments (`bag.Bag[Int]`) or has them inferred, and its
+generic functions are called as local ones are. Each instance is
+checked against what the other module's body does with `T`, and a
+mistake is reported at the call with a note in that module's file.
+
+```rig file=bag.rig
+pub struct Bag[T]
+  items: Vec[T]
+
+  sub add(!self, x: T)
+    !self.items.push(<x)
+
+pub fun largest[T](b: ?Bag[T], start: T) -> T
+  t = start
+  for x in b.items
+    if x > t
+      t = x
+  t
+```
+
+```rig
+use bag
+
+sub main
+  b = bag.Bag[Int](items: Vec())
+  !b.add(3)
+  !b.add(4)
+  print(bag.largest(?b, 0), b.items.len)
+```
+
+```output
+4 2
+```
+
 **Constants.** A module-level binding is a constant, written with `=!`
 and known at compile time: literals, `.variant`, earlier constants, and
 operators and arrays over them. There are no mutable globals.

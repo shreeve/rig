@@ -3199,20 +3199,20 @@ fields and methods, though they cannot name the type. A struct's fields
 and methods are visible wherever the struct is.
 
 Another module's `pub` generic types and functions are used as local
-ones are: `boxes.Box[Int]` names an instance in a type or an
+ones are: `boxes.Wrap[Int]` names an instance in a type or an
 expression, its type arguments are given or inferred, and its methods
 and variants are reached through it. Each instance a module makes is
 checked where it is made, against what the declaring module's bodies do
 with its type parameters ([§4](#generic-bodies)), and a diagnostic
 about it has a note at that body's line, in its file. An instance is
-one type wherever it is reached from: `boxes.Box[Int]` spelled here is
-the type another module's function returns as `boxes.Box[Int]`, even
+one type wherever it is reached from: `boxes.Wrap[Int]` spelled here is
+the type another module's function returns as `boxes.Wrap[Int]`, even
 through a module that does not import `boxes`. A public signature may
 hold an instance of a private generic type, which importers hold and
 use as they do a private type.
 
 ```rig file=boxes.rig
-pub struct Box[T]
+pub struct Wrap[T]
   v: T
 
   fun get(?self) -> T
@@ -3225,17 +3225,34 @@ pub fun larger[T](a: T, b: T) -> T
 ```rig
 use boxes
 
-fun unbox(b: ?boxes.Box[Int]) -> Int
+fun unbox(b: ?boxes.Wrap[Int]) -> Int
   b.get()
 
 sub main
-  b = boxes.Box[Int](v: 3)
-  s = boxes.Box(v: "s")
+  b = boxes.Wrap[Int](v: 3)
+  s = boxes.Wrap(v: "s")
   print(unbox(?b), s.get(), boxes.larger(2, 7), boxes.larger[Float](1, 2))
 ```
 
 ```output
 3 s 7 2.0
+```
+
+```rig file=stats.rig
+pub fun mean[T](a: T, b: T) -> T
+  (a + b) / 2
+```
+
+```rig reject
+use stats
+
+sub main
+  print(stats.mean(4, 6), stats.mean("a", "b"))
+```
+
+```error
+`stats.mean[String]` cannot use `T = String`: the generic body applies `+` to `T`, which `String` does not support
+`+` used on `T` here (arithmetic)
 ```
 
 Every check (types, arity, keyword
