@@ -4,7 +4,11 @@
 # assignment, bindings, arguments, returns, fields, payloads, array
 # elements, indexes, ranges, slices, conversions, conditions, `if … as`,
 # `?`, branches, loop values, and clones. The value read is a copy, so
-# the borrow taken to reach it ends there.
+# the borrow taken to reach it ends there, and it is read in argument
+# order, also where a call evaluates its arguments first.
+
+error Bad
+  bad
 
 enum Color
   red
@@ -43,6 +47,24 @@ fun ret(a: !Int) -> Int
 
 fun tail(a: !Int) -> Int?
   wr(!a)
+
+fun bump(a: !Int) -> Int
+  a += 1
+  a
+
+fun join(a: Int, b: Int) -> Int
+  a * 10 + b
+
+fun fail(ok: Bool) -> Int!
+  return Bad.bad if not ok
+  5
+
+fun ordered -> Int!
+  x = 1
+  v = join(wr(!x), bump(!x))
+  w = join(b: fail(true)!, a: wr(!x))
+  x += wr(!x)
+  v + w + x
 
 fun next(a: !Int?) -> Int?
   v = wo(!a)?
@@ -111,6 +133,7 @@ sub main()
   l = while true
     break wr(!y)
   print(t, m, l)
+  print(ordered() catch 0)
 
 # expect:
 # false
@@ -131,3 +154,4 @@ sub main()
 # 3
 # 3
 # 3 3 3
+# 41

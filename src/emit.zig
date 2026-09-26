@@ -1837,13 +1837,14 @@ pub const Emitter = struct {
     fn emitValue(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
         const want_ptr = self.want_ptr;
         self.want_ptr = false;
-        if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const bare = self.bare;
         self.bare = false;
+        // A temporary holds the value its context reads (`hoist`).
         if (self.hoistedOf(sexp)) |h| {
             if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
             return self.w.writeAll(h.name);
         }
+        if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
         defer self.literal_ty = literal_ty;
@@ -3067,10 +3068,11 @@ pub const Emitter = struct {
         const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
         try self.writeIndent(self.indent);
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
-        // The value alone may have no Zig type (`.empty`, `null`, a literal).
+        // The value alone may have no Zig type (`.empty`, `null`, a
+        // literal). A borrow read through is read here, in argument order.
         if (ty) |t| if (!ptr) {
             try self.w.writeAll(": ");
-            try self.emitTypeTy(t);
+            try self.emitTypeTy(if (self.readsThrough(h.node)) self.peelBorrows(t) else t);
         };
         try self.w.writeAll(" = ");
         if (fields) try self.emitStored(h.node) else try self.emitArg(h.node, params, slot);
