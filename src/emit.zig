@@ -2895,12 +2895,24 @@ pub const Emitter = struct {
     fn isTypeCallee(self: *Emitter, obj: Sexp) bool {
         if (self.sema.instanceOf(obj)) |inst| return inst == .type;
         if (obj.isKind(.member)) {
-            const m = ir.Member.object(obj);
-            const id = self.sema.symbolOf(m) orelse return false;
-            return self.sema.symbols.items[id].kind == .module;
+            const sym = self.moduleMemberSym(obj) orelse return false;
+            return switch (sym.kind) {
+                .nominal_type, .generic_type, .type_alias => true,
+                else => false,
+            };
         }
         const id = self.sema.symbolOf(obj) orelse return false;
         return self.isTypeSym(id) or self.sema.symbols.items[id].kind == .module;
+    }
+
+    /// The symbol `module.name` names in that module; null when `obj` is
+    /// not a module's member.
+    fn moduleMemberSym(self: *Emitter, obj: Sexp) ?sema.Symbol {
+        const id = self.sema.symbolOf(ir.Member.object(obj)) orelse return null;
+        if (self.sema.symbols.items[id].kind != .module) return null;
+        const foreign = self.sema.foreign_semas.get(self.sema.module_refs.get(id) orelse return null) orelse return null;
+        const fid = foreign.lookupInScopeOnly(sema.module_scope, self.srcText(ir.Member.name(obj))) orelse return null;
+        return foreign.symbols.items[fid];
     }
 
     /// A struct, enum, or generic type: calling it constructs a value.

@@ -1,0 +1,28 @@
+pub enum Opt[T]
+  some(value: T)
+  none
+
+  fun or(?self, d: T) -> T
+    match self
+      .some(value) => value
+      .none => d
+
+  fun is_none(?self) -> Bool
+    match self
+      .some(value) => false
+      .none => true
+
+  fun pick(?self, a: Int, b: Int) -> Int
+    a if self.is_none() else b
+
+pub enum Color
+  red
+  green
+
+  fun pick(?self, a: Int, b: Int) -> Int
+    match self
+      .red => a
+      .green => b
+
+pub NONE: Opt[Int] =! .none
+pub GREEN: Color =! .green
