@@ -483,7 +483,7 @@ const SymbolResolver = struct {
             try self.walk(ir.As.value(cond));
             const prev = try self.enter(cond, .block);
             defer self.scope = prev;
-            _ = try self.bindFresh(ir.As.name(cond), "optional binding");
+            if (try self.bindFresh(ir.As.name(cond), "optional binding")) |id| self.ctx.symbols.items[id].flags.as_bound = true;
             for (bodies) |b| try self.walk(b);
         } else {
             try self.walk(cond);
@@ -2099,14 +2099,14 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     }
 
     // Box[T]: one T on the heap, owned by the box. Its fields and
-    // methods are reached through it; `take` moves the value out.
+    // methods are reached through it; `unbox` moves the value out.
     {
         const g = try addGeneric(ctx, module_scope, "Box", &.{"T"});
         ctx.box_sym_id = g.sym;
         const t = g.params[0];
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
-            try method(ctx, "take", .value, &.{g.self_ty}, t),
+            try method(ctx, "unbox", .value, &.{g.self_ty}, t),
         });
     }
 

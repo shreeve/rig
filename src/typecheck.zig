@@ -835,6 +835,11 @@ const Checker = struct {
                 try self.err(pos, "cannot {s} fixed binding `{s}` (bound with `=!`)", .{ verb, name });
                 return false;
             } else if (sym.flags.pattern_bound and self.ctx.types.get(sym.ty) != .borrow_write) {
+                // An `as` binding that owns a resource moved into it is
+                // not a copy: it can be written, and any `as` binding
+                // holding its own value can give up an optional field.
+                if (sym.flags.as_bound and !isBorrow(self.ctx, sym.ty) and
+                    (sema.typeHasDropGlue(self.ctx, sym.ty) or std.mem.eql(u8, verb, "take"))) return true;
                 try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb, name, name, name });
                 return false;
             },
@@ -1737,7 +1742,7 @@ const Checker = struct {
             },
             .read => self.synthBorrow(e, .read),
             .write => self.synthBorrow(e, .write),
-            .move => self.synthExpr(ir.Move.operand(e)),
+            .move => self.synthMove(e),
             .share => self.synthShare(e),
             .weak => self.synthWeak(e),
             .clone => self.synthClone(e),
@@ -2458,6 +2463,19 @@ const Checker = struct {
         return self.ctx.intern(.{ .borrow_write = try self.ctx.intern(.{ .slice = .{ .elem = elem } }) });
     }
 
+    /// `<x`. Of a field or element holding an optional, `<p.f` takes the
+    /// value out and leaves `none` behind: the place is written, so it
+    /// must be reachable for writing.
+    fn synthMove(self: *Checker, e: Sexp) Error!TypeId {
+        const operand = ir.Move.operand(e);
+        const ty = try self.synthExpr(operand);
+        if (!operand.isKind(.member) and !operand.isKind(.index)) return ty;
+        if (self.isPoison(ty) or self.ctx.types.get(ty) != .optional) return ty;
+        try self.ctx.recordTake(e);
+        _ = try self.checkWritable(operand, e, "take");
+        return ty;
+    }
+
     fn synthShare(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Share.operand(e);
         if (operand.isKind(.lambda)) return self.ownedClosure(operand, null);
@@ -2636,7 +2654,7 @@ const Checker = struct {
         if (sema.boxedType(self.ctx, peeled) != null) {
             const sp = self.ctx.span(obj);
             const shown = self.ctx.source[sp.start..sp.end];
-            try self.err(pos, "a `{s}` reaches no fields of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.take()`", .{ try self.tyName(peeled), shown, shown, shown });
+            try self.err(pos, "a `{s}` reaches no fields of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.unbox()`", .{ try self.tyName(peeled), shown, shown, shown });
             return self.t().invalid_id;
         }
 
@@ -3470,6 +3488,8 @@ const Checker = struct {
             const name = self.text(callee);
             if (self.lookupQuiet(callee) == null) {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
+                if (std.mem.eql(u8, name, "replace")) return self.checkReplace(callee, args);
+                if (std.mem.eql(u8, name, "swap")) return self.checkSwap(callee, args);
                 if (resolve.isNumericTypeName(name)) {
                     var r = self.resolver();
                     return self.checkConversion(try r.resolveType(callee), name, args, callee.src.pos);
@@ -3646,6 +3666,45 @@ const Checker = struct {
     }
 
     /// `print(a, b, ...)`: any number of values, printed on one line.
+    /// `replace(!place, v)`: store `v` in the place and hand back what
+    /// was there, owned.
+    fn checkReplace(self: *Checker, callee: Sexp, args: []const Sexp) Error!TypeId {
+        if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) return self.badCall(args, callee, "`replace` takes a write-borrowed place and the value to put there: `replace(!x, v)`", .{});
+        const ty = (try self.swapPlace(args[0], "replace")) orelse return self.skipCall(args[1..]);
+        try self.checkExpr(args[1], ty);
+        return ty;
+    }
+
+    /// `swap(!a, !b)`: exchange the values of two places of one type.
+    fn checkSwap(self: *Checker, callee: Sexp, args: []const Sexp) Error!TypeId {
+        if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) return self.badCall(args, callee, "`swap` takes two write-borrowed places: `swap(!a, !b)`", .{});
+        const a = (try self.swapPlace(args[0], "swap")) orelse return self.skipCall(args[1..]);
+        const b = (try self.swapPlace(args[1], "swap")) orelse return self.t().void_id;
+        if (a != b) try self.errAt(args[1], "`swap` exchanges two places of one type; got `{s}` and `{s}`", .{ try self.tyName(a), try self.tyName(b) });
+        return self.t().void_id;
+    }
+
+    /// The type of the place a `replace` or `swap` argument write-borrows
+    /// (`!x`, or a held `!T`), which holds no borrow; null after a
+    /// diagnostic.
+    fn swapPlace(self: *Checker, arg: Sexp, what: []const u8) Error!?TypeId {
+        const ty = try self.synthExpr(arg);
+        if (self.isPoison(ty)) return null;
+        const place = switch (self.ctx.types.get(ty)) {
+            .borrow_write => |inner| if (sema.writeSliceElem(self.ctx, ty) == null) inner else null,
+            else => null,
+        } orelse {
+            try self.errAt(arg, "`{s}` takes a write-borrowed place: `!x`; got `{s}`", .{ what, try self.tyName(ty) });
+            return null;
+        };
+        if (sema.mayHoldBorrow(self.ctx, place)) {
+            try self.errAt(arg, "`{s}` moves values that hold no borrow; `{s}` may hold one", .{ what, try self.tyName(place) });
+            return null;
+        }
+        if (!arg.isKind(.write)) _ = try self.checkLendsWriteBorrow(arg);
+        return place;
+    }
+
     fn checkPrint(self: *Checker, args: []const Sexp) Error!TypeId {
         for (args) |a| {
             if (a.isKind(.kwarg)) {
@@ -4894,7 +4953,7 @@ const Checker = struct {
             } else if (sema.boxedType(self.ctx, peeled) != null) {
                 const sp = self.ctx.span(unborrowedNode(obj));
                 const shown = self.ctx.source[sp.start..sp.end];
-                try self.err(pos, "a `{s}` reaches no methods of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.take()`", .{ try self.tyName(peeled), shown, shown, shown });
+                try self.err(pos, "a `{s}` reaches no methods of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.unbox()`", .{ try self.tyName(peeled), shown, shown, shown });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
                 try self.err(pos, "no method `{s}` on type `{s}`", .{ method, sym.name });

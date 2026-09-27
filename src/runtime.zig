@@ -147,6 +147,25 @@ pub fn dropFields(ptr: anytype) void {
     }
 }
 
+/// `replace(!place, value)`: the old value, with `value` in its place.
+pub fn replace(place: anytype, value: @TypeOf(place.*)) @TypeOf(place.*) {
+    const old = place.*;
+    place.* = value;
+    return old;
+}
+
+/// `swap(!a, !b)`.
+pub fn swapPlaces(a: anytype, b: @TypeOf(a)) void {
+    std.mem.swap(@TypeOf(a.*), a, b);
+}
+
+/// `<p.f` of an optional: the value, with `none` left in its place.
+pub fn takeOut(place: anytype) @TypeOf(place.*) {
+    const value = place.*;
+    place.* = null;
+    return value;
+}
+
 /// Yield `value` after clearing its binding's alive flag: the value has
 /// been moved out, so the binding's scope-exit drop must not run.
 pub fn take(alive: *bool, value: anytype) @TypeOf(value) {
@@ -430,8 +449,8 @@ pub fn Box(comptime T: type) type {
             return .{ .value = p };
         }
 
-        /// `<b.take()`: the value, moved out; the box's memory is freed.
-        pub fn take(self: Self) T {
+        /// `<b.unbox()`: the value, moved out; the box's memory is freed.
+        pub fn unbox(self: Self) T {
             const v = self.value.*;
             defaultAllocator().destroy(self.value);
             return v;

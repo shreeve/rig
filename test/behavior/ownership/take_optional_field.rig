@@ -1,0 +1,48 @@
+# `<p.f` of an optional field takes the value out and leaves `none`
+# behind, so the place stays whole: a stack pushes, pops, and reverses
+# through `!self`, and a field of an `as` binding that owns its value is
+# taken and written.
+
+struct Node
+  value: Int
+  next: Box[Node]?
+
+  drop(!self)
+    print("drop", self.value)
+
+struct Stack
+  top: Box[Node]?
+
+  sub push(!self, v: Int)
+    self.top = Box(value: Node(value: v, next: <self.top))
+
+  fun pop(!self) -> Int?
+    if <self.top as n
+      self.top = <n.next
+      return n.value
+    none
+
+  sub reverse(!self)
+    cur = <self.top
+    prev: Box[Node]? = none
+    while <cur as n
+      cur = <n.next
+      n.next = <prev
+      prev = <n
+    self.top = <prev
+
+sub main
+  s = Stack(top: none)
+  !s.push(1)
+  !s.push(2)
+  !s.push(3)
+  !s.reverse()
+  print(!s.pop(), !s.pop())
+  print("end")
+
+# expect:
+# drop 1
+# drop 2
+# 1 2
+# end
+# drop 3

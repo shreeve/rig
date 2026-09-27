@@ -1,6 +1,6 @@
 # Box[T] owns one T on the heap. Fields and methods of a boxed struct are
 # reached through the box; `?b` and `!b` lend the value as `?T` / `!T`;
-# `<b.take()` moves the value out and frees the box.
+# `<b.unbox()` moves the value out and frees the box.
 
 struct Point
   x: Int
@@ -32,13 +32,13 @@ sub main
   print(b.x, b.y)
   reset(!b)
   print(b.x, b.y)
-  p = <b.take()
+  p = <b.unbox()
   print(p.sum())
   r = Box(value: Res(n: 1))
   s = <r
   print("moved", s.n)
   t: Box[Res] = Box(value: Res(n: 2))
-  u = <t.take()
+  u = <t.unbox()
   print("took", u.n)
 
 # expect:
