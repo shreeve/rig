@@ -2402,12 +2402,15 @@ An optional field or element is the exception: `<p.f` **takes** the
 value out and leaves `none` behind, in one step, so the struct stays
 whole and nothing is dropped twice. Taking writes the field, so it
 needs a path that may write it (an owned local, a `!T`, not a `?T` or a
-`*T`), and no other borrow of the value may be live. Whether a field
-can be taken is decided by its declared type: a generic type's `T?`
-field can, a `T` field cannot, whatever `T` is. An `as` binding that
-owns a resource moved into it (`if <o as n`) can be written and taken
-from like a local. A local binding is still moved whole: `<x` leaves
-`x` unusable, never `none`.
+`*T`), and no other borrow of the value may be live, and it needs an
+owner: a field of a temporary cannot be taken. Whether a field can be
+taken is decided by its type where it is named: inside a generic body a
+`T?` field can be, a `T` field cannot, whatever `T` is. An `as` binding
+that owns a resource moved into it (`if <o as n`) has fields that can
+be written and taken, like a local's. A local binding is still moved
+whole: `<x` leaves `x` unusable, never `none`. Only a binding or a
+field is moved or taken: `<(a if c else b)` and `<o?` are rejected, and
+written `<a if c else <b` and `(<o)?`.
 
 ```rig
 struct Node

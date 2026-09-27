@@ -1,0 +1,35 @@
+# `<` moves a binding or takes a field; the value of a branch or of `?`
+# is neither, so moving it would copy the place out and leave its owner
+# still dropping it. The move is written at the place.
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+  b: R
+
+fun f(o: R?) -> Int?
+  x = <o?
+  x.n
+
+fun g(s: !S) -> Int?
+  y = <s.a?
+  y.n
+
+sub main
+  a = R(n: 1)
+  b = R(n: 2)
+  c = true
+  x = <(a if c else b)
+  s = S(a: none, b: R(n: 3))
+  z = <(s.b if c else R(n: 4))
+  print(x, z, f(none), g(!s))
+
+# error: 16:8: `<` here would copy `o` out without moving it; move it before the `?` or `!`: `(<o)?`
+# error: 20:8: `<` here would copy `s.a` out without moving it; take it before the `?` or `!`: `(<s.a)?`
+# error: 27:9: `<` here would copy `a` out without moving it; move it inside the branch: `<a`
+# error: 29:9: `<` here would copy `s.b` out without moving it, and a field that is not optional cannot be moved out; exchange it: `replace(!s.b, v)`

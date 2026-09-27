@@ -1802,9 +1802,11 @@ pub const Emitter = struct {
         // Over a borrow of an optional, a borrowed binding points into it.
         if (self.borrowsOptionalValue(value)) {
             // A name holding a borrow is emitted as the place it points to.
-            try self.w.writeAll(if (value == .src) "(" else "((");
+            // `o` and `<o` of a name holding the borrow are the place.
+            const named = value == .src or (value.isKind(.move) and ir.Move.operand(value) == .src);
+            try self.w.writeAll(if (named) "(" else "((");
             try self.emitBare(value);
-            try self.w.writeAll(if (value == .src) ") " else ").*) ");
+            try self.w.writeAll(if (named) ") " else ").*) ");
             if (sym == null or !self.usage.used.contains(sym.?)) {
                 try self.w.writeAll("|_| ");
                 return .{};

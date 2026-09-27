@@ -1,0 +1,18 @@
+# A take empties its place, so the place needs an owner that sees it:
+# not a temporary, and not a plain-data `as` binding, which is a copy.
+
+struct S
+  a: Int?
+
+fun mk() -> S
+  S(a: 1)
+
+sub main
+  t = <mk().a
+  o: S? = S(a: 1)
+  if o as x
+    y = <x.a
+    print(y, t)
+
+# error: 11:7: cannot take out of a temporary
+# error: 14:10: cannot take `x`; loop and pattern bindings are immutable

@@ -836,10 +836,8 @@ const Checker = struct {
                 return false;
             } else if (sym.flags.pattern_bound and self.ctx.types.get(sym.ty) != .borrow_write) {
                 // An `as` binding that owns a resource moved into it is
-                // not a copy: it can be written, and any `as` binding
-                // holding its own value can give up an optional field.
-                if (sym.flags.as_bound and !isBorrow(self.ctx, sym.ty) and
-                    (sema.typeHasDropGlue(self.ctx, sym.ty) or std.mem.eql(u8, verb, "take"))) return true;
+                // not a copy: its fields can be written and taken.
+                if (sym.flags.as_bound and sema.typeHasDropGlue(self.ctx, sym.ty)) return true;
                 try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb, name, name, name });
                 return false;
             },
@@ -2472,7 +2470,16 @@ const Checker = struct {
         if (!operand.isKind(.member) and !operand.isKind(.index)) return ty;
         if (self.isPoison(ty) or self.ctx.types.get(ty) != .optional) return ty;
         try self.ctx.recordTake(e);
-        _ = try self.checkWritable(operand, e, "take");
+        if (!try self.checkWritable(operand, e, "take")) return ty;
+        const path = self.placePath(operand);
+        const root = path.root orelse {
+            // Through a borrow or handle the place is the owner's; any
+            // other start is a temporary, whose change would be lost.
+            if (!path.indirect) try self.errAt(e, "cannot take out of a temporary: nothing would see it emptied; bind it to a name first", .{});
+            return ty;
+        };
+        // The owner changes: it lives in mutable storage.
+        if (self.ctx.symbolOf(root)) |id| self.ctx.symbols.items[id].flags.written = true;
         return ty;
     }
 
@@ -3697,7 +3704,7 @@ const Checker = struct {
             try self.errAt(arg, "`{s}` takes a write-borrowed place: `!x`; got `{s}`", .{ what, try self.tyName(ty) });
             return null;
         };
-        if (sema.mayHoldBorrow(self.ctx, place)) {
+        if (sema.holdsBorrow(self.ctx, place)) {
             try self.errAt(arg, "`{s}` moves values that hold no borrow; `{s}` may hold one", .{ what, try self.tyName(place) });
             return null;
         }

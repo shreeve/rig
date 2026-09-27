@@ -1749,7 +1749,10 @@ pub const Checker = struct {
 
     /// `<e`: move a whole binding, or reject moving out of a path.
     fn walkMove(self: *Checker, inner: Sexp) Error!Value {
-        const place = self.resolvePlace(inner) orelse return self.walk(inner);
+        const place = self.resolvePlace(inner) orelse {
+            if (try self.movedTail(inner, inner, false)) |_| return .{};
+            return self.walk(inner);
+        };
         if (place.whole) return self.moveVar(place.root, self.startOf(inner), .move);
         return self.movePath(inner, place);
     }
@@ -1772,6 +1775,60 @@ pub const Checker = struct {
         if (try self.conflicts(id, .write, pos)) return .{};
         if (!self.mayCarryBorrow(self.exprType(inner))) return .{};
         return self.varValue(id);
+    }
+
+    /// `<e` where `e` yields a binding or field it does not own: a
+    /// branch, `?`, `!`, `??`, or `catch` whose value is a place holding
+    /// an owning value. Moving it would leave the owner still dropping
+    /// it, so the move is written where the place is. Reported; the
+    /// offending place, or null.
+    fn movedTail(self: *Checker, e: Sexp, top: Sexp, nested: bool) Error!?Sexp {
+        const kind = e.kind() orelse {
+            return if (nested and self.ownsPlace(e)) try self.reportMovedTail(e, top) else null;
+        };
+        switch (kind) {
+            .member, .index => return if (nested and self.ownsPlace(e)) try self.reportMovedTail(e, top) else null,
+            .@"if" => {
+                if (try self.movedTail(tailOf(ir.If.then(e)), top, true)) |p| return p;
+                return self.movedTail(tailOf(ir.If.@"else"(e)), top, true);
+            },
+            .match => {
+                for (ir.Match.arms(e)) |arm| if (try self.movedTail(tailOf(ir.Arm.body(arm)), top, true)) |p| return p;
+                return null;
+            },
+            .block => return if (ir.Block.stmts(e).len > 0) self.movedTail(tailOf(e), top, true) else null,
+            .@"??" => {
+                if (try self.movedTail(ir.@"??".left(e), top, true)) |p| return p;
+                return self.movedTail(ir.@"??".right(e), top, true);
+            },
+            .@"catch" => {
+                if (try self.movedTail(ir.Catch.value(e), top, true)) |p| return p;
+                return self.movedTail(tailOf(ir.Catch.handler(e)), top, true);
+            },
+            .propagate => return self.movedTail(ir.Propagate.value(e), top, true),
+            .propagate_none => return self.movedTail(ir.PropagateNone.value(e), top, true),
+            else => return null,
+        }
+    }
+
+    /// A binding or field whose value owns a resource.
+    fn ownsPlace(self: *Checker, e: Sexp) bool {
+        if (self.resolvePlace(e) == null) return false;
+        return self.owningKind(self.exprType(e)) != null;
+    }
+
+    fn reportMovedTail(self: *Checker, place: Sexp, top: Sexp) Error!Sexp {
+        const shown = try self.placeText(place);
+        const at_exit = top.isKind(.propagate) or top.isKind(.propagate_none);
+        const optional = if (self.exprType(place)) |t| self.typeData(t) == .optional else false;
+        if (place != .src and !optional) {
+            try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; exchange it: `replace(!{s}, v)`", .{ shown, shown });
+        } else if (at_exit) {
+            try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it before the `?` or `!`: `(<{s}){s}`", .{ shown, if (place == .src) "move" else "take", shown, if (top.isKind(.propagate)) "!" else "?" });
+        } else {
+            try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it inside the branch: `<{s}`", .{ shown, if (place == .src) "move" else "take", shown });
+        }
+        return place;
     }
 
     fn moveVar(self: *Checker, id: VarId, pos: u32, verb: MoveVerb) Error!Value {
