@@ -1802,9 +1802,11 @@ pub const Emitter = struct {
         // Over a borrow of an optional, a borrowed binding points into it.
         if (self.borrowsOptionalValue(value)) {
             // A name holding a borrow is emitted as the place it points to.
-            try self.w.writeAll(if (value == .src) "(" else "((");
+            // `o` and `<o` of a name holding the borrow are the place.
+            const named = value == .src or (value.isKind(.move) and ir.Move.operand(value) == .src);
+            try self.w.writeAll(if (named) "(" else "((");
             try self.emitBare(value);
-            try self.w.writeAll(if (value == .src) ") " else ").*) ");
+            try self.w.writeAll(if (named) ") " else ").*) ");
             if (sym == null or !self.usage.used.contains(sym.?)) {
                 try self.w.writeAll("|_| ");
                 return .{};
@@ -2263,6 +2265,12 @@ pub const Emitter = struct {
             .move => {
                 self.bare = bare;
                 const operand = ir.Move.operand(sexp);
+                // `<p.f` of an optional takes it, leaving `none`.
+                if (self.sema.takes(sexp)) {
+                    try self.w.writeAll("rig.takeOut(");
+                    try self.emitAddressOf(operand);
+                    return self.w.writeAll(")");
+                }
                 if (tail and self.ptr_tail) try self.emitValue(operand, true) else try self.emitMoved(operand);
             },
             .share => try self.emitShare(sexp),
@@ -2672,7 +2680,7 @@ pub const Emitter = struct {
             // A consuming method of an owned box's value takes the value
             // out of the box, which is freed.
             if (sema.boxedType(self.sema, t) != null and sema.boxedNominal(self.sema, t) != null and sema.methodReceiver(self.sema, t, field) == .value) {
-                try self.w.writeAll(".take()");
+                try self.w.writeAll(".unbox()");
             } else try self.writeReach(t);
         };
         try self.w.print(".{f}", .{ident(field)});
@@ -2693,11 +2701,11 @@ pub const Emitter = struct {
         if (sema.boxedNominal(self.sema, t) != null) try self.w.writeAll(".value");
     }
 
-    /// `b.take` called: the box's own method, which comes before its
-    /// value's methods. A data field of the value named `take` is read
+    /// `b.unbox` called: the box's own method, which comes before its
+    /// value's methods. A data field of the value named `unbox` is read
     /// through the box.
     fn isBoxMethod(self: *Emitter, member: Sexp, ty: TypeId, name: []const u8) bool {
-        if (sema.boxedType(self.sema, sema.unwrapReadAccess(self.sema, ty)) == null or !std.mem.eql(u8, name, "take")) return false;
+        if (sema.boxedType(self.sema, sema.unwrapReadAccess(self.sema, ty)) == null or !std.mem.eql(u8, name, "unbox")) return false;
         if (sema.lookupDataFieldConst(self.sema, ty, name) == null) return true;
         const t = self.typeOf(member) orelse return true;
         return self.fnType(t) != null;
@@ -2838,6 +2846,27 @@ pub const Emitter = struct {
     // Calls
     // -------------------------------------------------------------------------
 
+    /// `replace` or `swap` when `call` calls the built-in.
+    fn builtinCall(self: *Emitter, call: Sexp) ?[]const u8 {
+        const callee = self.sema.calleeOf(call);
+        if (callee != .src or self.sema.symbolOf(callee) != null) return null;
+        const name = self.srcText(callee);
+        return if (std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap")) name else null;
+    }
+
+    /// `rig.replace(&place, value)` / `rig.swapPlaces(&a, &b)`: each place by
+    /// its address, a held write borrow as the pointer it is.
+    fn emitSwapCall(self: *Emitter, name: []const u8, args: []const Sexp) Error!void {
+        try self.w.writeAll(if (std.mem.eql(u8, name, "swap")) "rig.swapPlaces(" else "rig.replace(");
+        for (args, 0..) |a, i| {
+            if (i > 0) try self.w.writeAll(", ");
+            if (i == 0 or std.mem.eql(u8, name, "swap")) {
+                try self.emitAddressOf(unborrowed(a));
+            } else try self.emitStored(a);
+        }
+        try self.w.writeAll(")");
+    }
+
     fn isPrintCall(self: *Emitter, call: Sexp) bool {
         const callee = self.sema.calleeOf(call);
         return callee == .src and self.sema.symbolOf(callee) == null and std.mem.eql(u8, self.srcText(callee), "print");
@@ -2904,6 +2933,7 @@ pub const Emitter = struct {
         const args = ir.Call.args(sexp);
 
         if (self.isPrintCall(sexp)) return self.emitPrint(args);
+        if (self.builtinCall(sexp)) |name| return self.emitSwapCall(name, args);
         if (callee == .src and self.sema.symbolOf(callee) == null and resolve.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
         if (callee.isKind(.enum_lit)) return self.emitVariantLit(sexp);
         if (callee.isKind(.lambda)) return self.emitInlineInvoke(sexp);

@@ -1,7 +1,7 @@
 # Only a boxed struct or enum has its fields and methods reached through
 # the box; a box of anything else is lent (`?b`, `!b`) or taken apart
-# (`<b.take()`). A box holds no borrow, has no `==`, and its own
-# consuming `take` and its value's consuming methods need an owned box.
+# (`<b.unbox()`). A box holds no borrow, has no `==`, and its own
+# consuming `unbox` and its value's consuming methods need an owned box.
 
 struct View
   p: ?Int
@@ -14,7 +14,7 @@ struct R
 
 sub f(b: ?Box[R])
   <b.eat()
-  q = <b.take()
+  q = <b.unbox()
   print(q.n)
 
 sub main
@@ -30,8 +30,8 @@ sub main
   print(c + 1)
 
 # error: 16:6: method `eat` consumes the receiver; cannot consume through a borrowed value
-# error: 17:10: method `take` consumes the receiver; cannot consume through a borrowed value
-# error: 22:11: a `Box[Int]` reaches no fields of its value; lend the value with `?c` or `!c`, or move it out with `<c.take()`
+# error: 17:10: method `unbox` consumes the receiver; cannot consume through a borrowed value
+# error: 22:11: a `Box[Int]` reaches no fields of its value; lend the value with `?c` or `!c`, or move it out with `<c.unbox()`
 # error: 24:6: a `Box[Vec[Int]]` reaches no methods of its value
 # error: 26:7: `Box[T]` owns its value, so `T` holds no borrow; got `View`
 # error: 29:9: `==` is not defined for `Box[R]`

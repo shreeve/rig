@@ -1,5 +1,5 @@
 # A box of a Vec, an array, or a String is lent as its value (`?b` as a
-# `?Vec[Int]`, `!b` as a `!Vec[Int]`) and taken apart with `take`.
+# `?Vec[Int]`, `!b` as a `!Vec[Int]`) and taken apart with `unbox`.
 
 sub fill(v: !Vec[Int])
   !v.push(1)
@@ -22,7 +22,7 @@ sub main
   print(first(?arr))
   s = Box(value: "hi")
   print(s)
-  v = <b.take()
+  v = <b.unbox()
   print(v.len)
 
 # expect:

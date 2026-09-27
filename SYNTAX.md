@@ -2081,6 +2081,53 @@ bare use of shared (`*T`) handle `a` in binding would alias the handle
 For a Copy value `<x` also means "done with `x`": the value is copied
 out, and `x` cannot be used until reassigned.
 
+A field cannot be moved out of a struct, since the struct would still
+drop it, with one exception: `<p.f` of an **optional** field takes the
+value and leaves `none` behind (Rust's `Option::take`). For any other
+field, `replace(!p.f, v)` puts `v` in and hands back the old value, and
+`swap(!a, !b)` trades two places (Rust's `mem::replace` and
+`mem::swap`). The three forms of `as` side by side:
+`if o as x` reads, `if !o as x` borrows to write in place, and
+`if <p.f as x` takes the value out.
+
+```rig
+struct Node
+  value: Int
+  next: Box[Node]?
+
+struct Stack
+  top: Box[Node]?
+
+  sub push(!self, v: Int)
+    self.top = Box(value: Node(value: v, next: <self.top))
+
+  fun pop(!self) -> Int?
+    if <self.top as n
+      self.top = <n.next
+      return n.value
+    none
+
+  sub reverse(!self)
+    cur = <self.top
+    prev: Box[Node]? = none
+    while <cur as n
+      cur = <n.next
+      n.next = <prev
+      prev = <n
+    self.top = <prev
+
+sub main
+  s = Stack(top: none)
+  for v in [1, 2, 3]
+    !s.push(v)
+  !s.reverse()
+  print(!s.pop(), !s.pop(), !s.pop(), !s.pop())
+```
+
+```output
+1 2 3 none
+```
+
 ### Borrow: `?x` and `!x`
 
 `?x` lends a read-only view and `!x` an exclusive writable one. The
@@ -2365,7 +2412,7 @@ done 1
 a struct or enum holds itself (`next: Box[Node]?`). It moves and is
 never cloned. A boxed struct's fields and methods are reached through
 it (`b.x`, `!b.bump()`), `?b` and `!b` lend the value where a `?T` or
-`!T` is expected (Rust's deref coercion), `<b.take()` moves the value
+`!T` is expected (Rust's deref coercion), `<b.unbox()` moves the value
 out, and `match ?b` matches a boxed enum. `if ?o as x` / `if !o as x`
 borrow the value inside an optional in place, like Rust's
 `if let Some(x) = &o` / `&mut o`.

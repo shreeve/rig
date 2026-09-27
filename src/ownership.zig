@@ -1306,7 +1306,7 @@ pub const Checker = struct {
             .@"defer", .@"errdefer" => try self.walkDefer(sexp),
             else => return switch (kind) {
                 .block => self.walkBlock(sexp),
-                .move => self.walkMove(ir.Move.operand(sexp)),
+                .move => if (self.takes(sexp)) self.walkTake(ir.Move.operand(sexp)) else self.walkMove(ir.Move.operand(sexp)),
                 // A borrow the type checker rejected lends nothing.
                 .read, .write => if (self.rejected(sexp))
                     self.walkRejectedBorrow(ir.get(sexp, .operand))
@@ -1749,9 +1749,86 @@ pub const Checker = struct {
 
     /// `<e`: move a whole binding, or reject moving out of a path.
     fn walkMove(self: *Checker, inner: Sexp) Error!Value {
-        const place = self.resolvePlace(inner) orelse return self.walk(inner);
+        const place = self.resolvePlace(inner) orelse {
+            if (try self.movedTail(inner, inner, false)) |_| return .{};
+            return self.walk(inner);
+        };
         if (place.whole) return self.moveVar(place.root, self.startOf(inner), .move);
         return self.movePath(inner, place);
+    }
+
+    fn takes(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        return ctx.takes(e);
+    }
+
+    /// `<p.f` of an optional field or element: the value is taken out
+    /// and `none` left behind, so the place stays whole. The place is
+    /// written: no other borrow of it may be live. What the value
+    /// borrows, the place borrowed.
+    fn walkTake(self: *Checker, inner: Sexp) Error!Value {
+        const place = self.resolvePlace(inner) orelse return self.walkBorrowedPath(inner);
+        try self.walkPlaceIndices(inner);
+        const id = place.root;
+        const pos = self.startOf(inner);
+        if (!try self.checkLive(id, pos)) return .{};
+        if (try self.conflicts(id, .write, pos)) return .{};
+        if (!self.mayCarryBorrow(self.exprType(inner))) return .{};
+        return self.varValue(id);
+    }
+
+    /// `<e` where `e` yields a binding or field it does not own: a
+    /// branch, `?`, `!`, `??`, or `catch` whose value is a place holding
+    /// an owning value. Moving it would leave the owner still dropping
+    /// it, so the move is written where the place is. Reported; the
+    /// offending place, or null.
+    fn movedTail(self: *Checker, e: Sexp, top: Sexp, nested: bool) Error!?Sexp {
+        const kind = e.kind() orelse {
+            return if (nested and self.ownsPlace(e)) try self.reportMovedTail(e, top) else null;
+        };
+        switch (kind) {
+            .member, .index => return if (nested and self.ownsPlace(e)) try self.reportMovedTail(e, top) else null,
+            .@"if" => {
+                if (try self.movedTail(tailOf(ir.If.then(e)), top, true)) |p| return p;
+                return self.movedTail(tailOf(ir.If.@"else"(e)), top, true);
+            },
+            .match => {
+                for (ir.Match.arms(e)) |arm| if (try self.movedTail(tailOf(ir.Arm.body(arm)), top, true)) |p| return p;
+                return null;
+            },
+            .block => return if (ir.Block.stmts(e).len > 0) self.movedTail(tailOf(e), top, true) else null,
+            .@"??" => {
+                if (try self.movedTail(ir.@"??".left(e), top, true)) |p| return p;
+                return self.movedTail(ir.@"??".right(e), top, true);
+            },
+            .@"catch" => {
+                if (try self.movedTail(ir.Catch.value(e), top, true)) |p| return p;
+                return self.movedTail(tailOf(ir.Catch.handler(e)), top, true);
+            },
+            .propagate => return self.movedTail(ir.Propagate.value(e), top, true),
+            .propagate_none => return self.movedTail(ir.PropagateNone.value(e), top, true),
+            else => return null,
+        }
+    }
+
+    /// A binding or field whose value owns a resource.
+    fn ownsPlace(self: *Checker, e: Sexp) bool {
+        if (self.resolvePlace(e) == null) return false;
+        return self.owningKind(self.exprType(e)) != null;
+    }
+
+    fn reportMovedTail(self: *Checker, place: Sexp, top: Sexp) Error!Sexp {
+        const shown = try self.placeText(place);
+        const at_exit = top.isKind(.propagate) or top.isKind(.propagate_none);
+        const optional = if (self.exprType(place)) |t| self.typeData(t) == .optional else false;
+        if (place != .src and !optional) {
+            try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; exchange it: `replace(!{s}, v)`", .{ shown, shown });
+        } else if (at_exit) {
+            try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it before the `?` or `!`: `(<{s}){s}`", .{ shown, if (place == .src) "move" else "take", shown, if (top.isKind(.propagate)) "!" else "?" });
+        } else {
+            try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it inside the branch: `<{s}`", .{ shown, if (place == .src) "move" else "take", shown });
+        }
+        return place;
     }
 
     fn moveVar(self: *Checker, id: VarId, pos: u32, verb: MoveVerb) Error!Value {
@@ -1846,13 +1923,13 @@ pub const Checker = struct {
         const root = self.vars.items[place.root].name;
         const pos = self.startOf(inner);
         if (place.through_borrow) {
-            try self.err(pos, "cannot move out of `{s}`: `{s}` is borrowed", .{ path, root });
+            try self.err(pos, "cannot move out of `{s}`: `{s}` is borrowed; exchange it instead: `replace(!{s}, v)`", .{ path, root, path });
         } else if (place.through_shared) {
             try self.err(pos, "cannot move out of `{s}`: it is reached through a shared handle and other handles may still use it; clone it with `+{s}`", .{ path, path });
         } else if (place.indexed) {
             try self.err(pos, "cannot move out of `{s}`: elements cannot be moved out of their container", .{path});
         } else {
-            try self.err(pos, "cannot move out of `{s}`: `{s}` would still drop it (partial moves are not supported); move `{s}` whole instead", .{ path, root, root });
+            try self.err(pos, "cannot move out of `{s}`: `{s}` would still drop it (partial moves are not supported); move `{s}` whole, or exchange the field: `replace(!{s}, v)`", .{ path, root, root, path });
         }
         return .{};
     }
@@ -2332,6 +2409,7 @@ pub const Checker = struct {
         // Compile-time arguments (`f[3](x)`) are constants: no effect.
         const callee = if (self.sema) |s| s.calleeOf(node) else ir.Call.callee(node);
         const args = ir.Call.args(node);
+        if (self.swapBuiltin(callee)) |swap| if (args.len == 2) return self.walkSwapCall(args, swap);
         var result: Value = .{};
 
         // Method call: the receiver is borrowed for the whole call. A
@@ -2477,6 +2555,52 @@ pub const Checker = struct {
             .borrow_read, .borrow_write => |inner| sema.isPlainData(ctx, inner),
             else => false,
         };
+    }
+
+    /// Whether `callee` is the built-in `swap` (true) or `replace`
+    /// (false); null for anything else.
+    fn swapBuiltin(self: *Checker, callee: Sexp) ?bool {
+        if (callee != .src) return null;
+        const name = self.text(callee);
+        const swap = std.mem.eql(u8, name, "swap");
+        if (!swap and !std.mem.eql(u8, name, "replace")) return null;
+        if (self.sema) |ctx| return if (ctx.symbolOf(callee) == null) swap else null;
+        return if (self.find(name) == null) swap else null;
+    }
+
+    /// `replace(!place, v)` / `swap(!a, !b)`: the places are write-borrowed
+    /// for the call, and `v` moves in. The two places of a `swap` may be
+    /// different fields of one value (`swap(!t.left, !t.right)`); neither
+    /// may hold the other. The result holds no borrow.
+    fn walkSwapCall(self: *Checker, args: []const Sexp, swap: bool) Error!Value {
+        const start = self.temps.items.len;
+        _ = try self.walkConsumed(args[0], .argument);
+        const lent = self.temps.items.len;
+        var saved: std.ArrayListUnmanaged(Loan) = .empty;
+        defer saved.deinit(self.gpa);
+        if (swap and self.disjointFields(args[0], args[1])) {
+            try saved.appendSlice(self.gpa, self.temps.items[start..lent]);
+            self.temps.shrinkRetainingCapacity(start);
+        }
+        _ = try self.walkConsumed(args[1], .argument);
+        try self.temps.appendSlice(self.gpa, saved.items);
+        self.temps.shrinkRetainingCapacity(start);
+        return .{};
+    }
+
+    /// `!a.x` and `!a.y`: write borrows of two fields of one binding,
+    /// neither inside the other.
+    fn disjointFields(self: *Checker, a: Sexp, b: Sexp) bool {
+        if (!a.isKind(.write) or !b.isKind(.write)) return false;
+        var fa: [16]Sexp = undefined;
+        var fb: [16]Sexp = undefined;
+        const na = fieldChain(ir.Write.operand(a), &fa) orelse return false;
+        const nb = fieldChain(ir.Write.operand(b), &fb) orelse return false;
+        if (na == 0 or nb == 0 or !std.mem.eql(u8, self.text(fa[0]), self.text(fb[0]))) return false;
+        for (1..@min(na, nb)) |i| {
+            if (!std.mem.eql(u8, self.text(fa[i]), self.text(fb[i]))) return true;
+        }
+        return false;
     }
 
     fn isPrint(self: *Checker, callee: Sexp) bool {
@@ -3487,6 +3611,20 @@ pub const Checker = struct {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+/// The root name and field names of a field path `a.b.c`, into `out`:
+/// its length, or null when the path has an index or anything else.
+fn fieldChain(e: Sexp, out: *[16]Sexp) ?usize {
+    if (e == .src) {
+        out[0] = e;
+        return 1;
+    }
+    if (!e.isKind(.member)) return null;
+    const n = fieldChain(ir.Member.object(e), out) orelse return null;
+    if (n >= out.len) return null;
+    out[n] = ir.Member.name(e);
+    return n + 1;
+}
 
 fn isLambda(s: Sexp) bool {
     return s.isKind(.lambda);

@@ -1,0 +1,23 @@
+# `replace` and `swap` take write-borrowed places (`!x`) of one type,
+# whose values hold no borrow, and the value `replace` stores has the
+# place's type.
+
+struct V
+  p: ?Int
+
+sub main
+  n = 1
+  a = V(p: ?n)
+  b = V(p: ?n)
+  swap(!a, !b)
+  x = 1
+  y = "s"
+  swap(!x, !y)
+  old = replace(x, 2)
+  new = replace(!x, "two")
+  print(old, new)
+
+# error: 12:8: `swap` moves values that hold no borrow; `V` may hold one
+# error: 15:12: `swap` exchanges two places of one type; got `Int` and `String`
+# error: 16:17: `replace` takes a write-borrowed place: `!x`; got `Int`
+# error: 17:21: type mismatch: expected `Int`, got `String`

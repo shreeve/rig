@@ -1,0 +1,60 @@
+# A take writes its owner, so a plain-data local, a field of a field,
+# and an array element are emptied in place; `(<s.a)?` takes, then
+# returns `none` when there was nothing; `if <slot as t` moves a held
+# write borrow of an optional into the binding.
+
+struct S
+  a: Int?
+
+struct T
+  s: S
+
+fun mk() -> S
+  S(a: 1)
+
+sub places
+  s = mk()
+  t = <s.a
+  u = T(s: mk())
+  w = <u.s.a
+  x: S = S(a: 2)
+  y = <x.a
+  z = S(a: 3)
+  q = <z.a
+  print(t, s, w, u, y, x, q, z)
+  a: [2]S = [S(a: 5), S(a: 6)]
+  for e in a
+    print(e)
+  b = <a[1].a
+  print(b, a)
+
+struct N
+  v: Int
+
+struct H
+  a: Box[N]?
+
+fun first(h: !H) -> Int?
+  b = (<h.a)?
+  b.v
+
+sub peek(slot: !Int?)
+  if <slot as t
+    print("got", t)
+
+sub main
+  places()
+  h = H(a: Box(value: N(v: 3)))
+  print(first(!h), h, first(!h))
+  x: Int? = 4
+  peek(!x)
+  print(x)
+
+# expect:
+# 1 S(a: none) 1 T(s: S(a: none)) 2 S(a: none) 3 S(a: none)
+# S(a: 5)
+# S(a: 6)
+# 6 [S(a: 5), S(a: none)]
+# 3 H(a: none) none
+# got 4
+# 4

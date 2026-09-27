@@ -1,0 +1,52 @@
+# `replace` and `swap` in generic bodies: the places hold a `T`, which an
+# instance never makes a borrow.
+
+struct W[T]
+  x: T
+  y: T
+
+  fun put(!self, v: T) -> T
+    replace(!self.x, <v)
+
+  sub flip(!self)
+    swap(!self.x, !self.y)
+
+sub pair
+  w = W[Int](x: 1, y: 2)
+  o = !w.put(5)
+  !w.flip()
+  print(o, w)
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun rep[T](p: !T, v: T) -> T
+  replace(p, <v)
+
+sub sw[T](a: !T, b: !T)
+  swap(a, b)
+
+sub main
+  pair()
+  x = R(n: 1)
+  y = rep(!x, R(n: 2))
+  print(x, y)
+  z = R(n: 3)
+  sw(!x, !z)
+  print(x, z)
+  n = 1
+  m = 2
+  sw(!n, !m)
+  print(n, m)
+
+# expect:
+# 1 W(x: 2, y: 5)
+# R(n: 2) R(n: 1)
+# R(n: 3) R(n: 2)
+# 2 1
+# drop 2
+# drop 1
+# drop 3

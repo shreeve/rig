@@ -406,6 +406,9 @@ pub const SymbolFlags = packed struct(u16) {
     comptime_known: bool = false,
     /// Bound by a `for` loop or a match pattern: not assignable.
     pattern_bound: bool = false,
+    /// Bound by `if e as x` / `while e as x`: when it holds its own
+    /// value, a field of it can be taken out (`<x.next`).
+    as_bound: bool = false,
     /// Assigned again after its declaration (`=`, `<-`, `+=`, ...):
     /// lowers to a Zig `var`.
     reassigned: bool = false,
@@ -416,7 +419,7 @@ pub const SymbolFlags = packed struct(u16) {
     error_set: bool = false,
     /// A local bound to a closure literal: a stack closure.
     closure: bool = false,
-    _: u7 = 0,
+    _: u6 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -557,8 +560,12 @@ pub const Facts = struct {
     /// `?T` is expected): leaves by position, list nodes by id.
     leaf_unboxed: std.AutoHashMapUnmanaged(u32, void) = .empty,
     node_unboxed: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// `<place` nodes that take an optional out of a field or element
+    /// (`SemContext.recordTake`).
+    takes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
+        self.takes.deinit(allocator);
         self.leaf_unboxed.deinit(allocator);
         self.node_unboxed.deinit(allocator);
         self.leaf_callables.deinit(allocator);
@@ -1203,6 +1210,16 @@ pub const SemContext = struct {
             .list => self.facts.node_callables.get(nodeKey(node) orelse return null),
             else => null,
         };
+    }
+
+    /// `node` is `<place` taking an optional out of a field or element,
+    /// leaving `none` behind.
+    pub fn recordTake(self: *SemContext, node: Sexp) !void {
+        try self.facts.takes.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn takes(self: *const SemContext, node: Sexp) bool {
+        return self.facts.takes.contains(nodeKey(node) orelse return false);
     }
 
     /// `node`, a borrow of a `Box[T]`, is lent as a borrow of the `T`.
@@ -2149,6 +2166,12 @@ const Components = struct {
     }
 };
 
+/// A built-in function called by name unless a declaration hides it:
+/// `print`, `replace`, `swap`.
+pub fn isBuiltinCallName(name: []const u8) bool {
+    return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap");
+}
+
 /// A built-in generic that keeps its values on the heap: `Vec[T]`,
 /// `Box[T]`, and `Signal[T]` hold a pointer, whatever `T` is.
 pub fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
@@ -2681,7 +2704,7 @@ pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
 /// The struct or enum a `Box[T]` (or a borrow or handle of one) holds,
 /// whose fields and methods are reached through the box; null for
 /// anything else. A box of another kind of value is only lent (`?b` as
-/// a `?T`) or taken apart (`<b.take()`).
+/// a `?T`) or taken apart (`<b.unbox()`).
 pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     const inner = boxedType(ctx, unwrapReadAccess(ctx, ty_id)) orelse return null;
     return switch (ctx.types.get(inner)) {
@@ -3183,7 +3206,7 @@ pub fn lookupDataFieldConst(ctx: *const SemContext, receiver_ty: TypeId, name: [
 }
 
 /// A callable method of the receiver's nominal (auto-deref through
-/// borrows and `*T`, then through a box: the box's own `take` comes
+/// borrows and `*T`, then through a box: the box's own `unbox` comes
 /// first). The user `drop` body is not callable.
 pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
     if (try methodIn(ctx, unwrapReadAccess(ctx, receiver_ty), name)) |found| return found;
@@ -4185,7 +4208,7 @@ const Coverage = struct {
     fn expectName(self: *Coverage, leaf: Sexp) void {
         if (leaf != .src) return;
         const text = self.r.source[leaf.src.pos..][0..leaf.src.len];
-        if (std.mem.eql(u8, text, "print") or std.mem.eql(u8, text, "_")) return;
+        if (isBuiltinCallName(text) or std.mem.eql(u8, text, "_")) return;
         if (!std.ascii.isAlphabetic(text[0]) and text[0] != '_') return;
         if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false") or std.mem.eql(u8, text, "none")) return;
         if (self.r.ctx.symbolOf(leaf) == null) {
@@ -4206,7 +4229,7 @@ const Coverage = struct {
         switch (e) {
             .src => {
                 self.expectName(e);
-                if (!std.mem.eql(u8, self.r.source[e.src.pos..][0..e.src.len], "print")) self.expectType(e);
+                if (!isBuiltinCallName(self.r.source[e.src.pos..][0..e.src.len])) self.expectType(e);
             },
             .list => switch (e.kind() orelse return) {
                 .set => {

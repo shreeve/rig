@@ -2393,8 +2393,88 @@ use of `b` after move
 ```
 
 Only whole bindings move. Moving a field out of a struct is rejected
-(the struct would still drop it); clone a shared field with `+p.a`, or
-move the struct as a whole. A Copy field can be read or copied freely.
+(the struct would still drop it); clone a shared field with `+p.a`,
+move the struct as a whole, or exchange the field with `replace` or
+`swap` ([below](#replace-and-swap)). A Copy field can be read or copied
+freely.
+
+An optional field or element is the exception: `<p.f` **takes** the
+value out and leaves `none` behind, in one step, so the struct stays
+whole and nothing is dropped twice. Taking writes the field, so it
+needs a path that may write it (an owned local, a `!T`, not a `?T` or a
+`*T`), and no other borrow of the value may be live, and it needs an
+owner: a field of a temporary cannot be taken. Whether a field can be
+taken is decided by its type where it is named: inside a generic body a
+`T?` field can be, a `T` field cannot, whatever `T` is. An `as` binding
+that owns a resource moved into it (`if <o as n`) has fields that can
+be written and taken, like a local's. A local binding is still moved
+whole: `<x` leaves `x` unusable, never `none`. Only a binding or a
+field is moved or taken: `<(a if c else b)` and `<o?` are rejected, and
+written `<a if c else <b` and `(<o)?`.
+
+```rig
+struct Node
+  value: Int
+  next: Box[Node]?
+
+struct Stack
+  top: Box[Node]?
+
+  sub push(!self, v: Int)
+    self.top = Box(value: Node(value: v, next: <self.top))
+
+  fun pop(!self) -> Int?
+    if <self.top as n
+      self.top = <n.next
+      return n.value
+    none
+
+  sub reverse(!self)
+    cur = <self.top
+    prev: Box[Node]? = none
+    while <cur as n
+      cur = <n.next
+      n.next = <prev
+      prev = <n
+    self.top = <prev
+
+sub main
+  s = Stack(top: none)
+  for v in [1, 2, 3]
+    !s.push(v)
+  !s.reverse()
+  print(!s.pop(), !s.pop(), !s.pop(), !s.pop())
+```
+
+```output
+1 2 3 none
+```
+
+#### Replace and swap
+
+`replace(!place, v)` stores `v` in a place and hands back the value that
+was there, owned; `swap(!a, !b)` exchanges the values of two places of
+one type, which may be different fields of one value
+(`swap(!t.left, !t.right)`). The places are write-borrowed for the call,
+and the values hold no borrow. Like `print`, both are names a
+declaration may hide.
+
+```rig
+struct Pair
+  left: String
+  right: String
+
+sub main
+  p = Pair(left: "a", right: "b")
+  swap(!p.left, !p.right)
+  old = replace(!p.left, "c")
+  print(p, old)
+```
+
+```output
+Pair(left: "c", right: "a") b
+```
+
 A `match` payload binding views the matched value; moving it out
 (`.full(b) => eat(<b)`) consumes the matched value, which must then be
 an owned local whose variant has no other owning field.
@@ -3077,7 +3157,8 @@ Long chains of boxes are released without deep recursion.
 | `Box(value: v)` | move `v` into a new box |
 | `b.f`, `b.m(...)` | a field or method of a boxed struct or enum, reached through the box |
 | `?b`, `!b` | lend the box, or, where a `?T` or `!T` is expected, the value inside it |
-| `<b.take()` | move the value out; the box is freed |
+| `<b.unbox()` | move the value out; the box is freed |
+| `<s.f` | take an optional box out of a field, leaving `none` ([§8](#moves)) |
 | `match ?b`, `match !b` | match a boxed enum where it is |
 
 The box is reached as it is held: through an owned box or a `!Box[T]`
@@ -3547,6 +3628,7 @@ expected, and `none` needs a known optional type.
 | `a == v`, `a != v` | whether `a` holds the value `v`, a `T` |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
 | `if ?a as x`, `if !a as x` | the same, with `x` borrowing the value inside `a` |
+| `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§8](#moves)) |
 | `while a as x` | repeat while `a` produces a value |
 | `a?` | the value inside `a`; when `a` is `none`, the enclosing function returns `none` |
 
