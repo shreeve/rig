@@ -1000,7 +1000,10 @@ const Checker = struct {
 
     /// `if expr as name` / `while expr as name`: `expr` is an optional,
     /// and `name` holds the value inside it. A resource moves into the
-    /// binding, which owns it; it cannot be copied out of a place.
+    /// binding, which owns it; it cannot be copied out of a place. Over
+    /// a borrow of an optional (`?o`, `!o`, a `?T?` parameter), `name`
+    /// borrows the value inside the same way: a write borrow always, a
+    /// read borrow when the value owns a resource (plain data is copied).
     fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         const expr = ir.As.value(node);
         const name = ir.As.name(node);
@@ -1011,13 +1014,17 @@ const Checker = struct {
             else => try self.errAt(expr, "`as` binds the value inside an optional; this expression has type `{s}`", .{try self.tyName(ty)}),
         };
         const borrowed = sema.unwrapBorrows(self.ctx, ty) != ty;
-        if (borrowed and try self.ownsResource(inner, self.startOf(expr), "moves out of a borrow a value")) {
-            const handle = switch (self.ctx.types.get(inner)) {
-                .shared, .weak => true,
-                else => false,
-            };
-            const hint = if (handle) "bind a new handle with `+x` instead" else "unwrap the optional where it is owned (`if <m as x`)";
-            try self.errAt(expr, "a borrow cannot give up the resource inside it; {s}", .{hint});
+        if (borrowed and !self.isPoison(inner) and !isBorrow(self.ctx, inner)) {
+            if (expr.isKind(.write)) {
+                inner = try self.ctx.intern(.{ .borrow_write = inner });
+            } else if (try self.ownsResource(inner, self.startOf(expr), "moves out of a borrow a value")) {
+                if (self.ctx.types.get(ty) == .borrow_write) {
+                    // A held write borrow is lent on visibly, as `!o`.
+                    try self.errAt(expr, "`as` over a write borrow lends it on: write `!{s}` to borrow the value inside", .{self.text(expr)});
+                    try self.ctx.recordType(expr, self.t().invalid_id);
+                    inner = self.t().invalid_id;
+                } else inner = try self.ctx.intern(.{ .borrow_read = inner });
+            } else _ = try self.readThrough(expr, ty, sema.unwrapBorrows(self.ctx, ty));
         } else _ = try self.readThrough(expr, ty, sema.unwrapBorrows(self.ctx, ty));
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {

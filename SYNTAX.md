@@ -2588,6 +2588,7 @@ expected.
 | `a == none` | test for absence | `a == null` |
 | `if a as x` | bind the value; `else` for `none` | `if (a) \|x\|` |
 | `while a as x` | loop while `a` has a value | `while (a) \|x\|` |
+| `if ?a as x`, `if !a as x` | borrow the value in place | `if (a) \|*x\|` |
 | `a?` | the value, or return `none` from the function | `a orelse return null` |
 
 Fields and methods are not reached through an optional; unwrap it

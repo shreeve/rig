@@ -1736,17 +1736,21 @@ pub const Emitter = struct {
     const Prelude = struct {
         aliases: []const Alias = &.{},
         optional: ?OptionalBinding = null,
+        lent: ?OptionalBinding = null,
         /// The error a `catch |err|` handler names, captured as `tmp`.
         err_capture: ?struct { zig_name: []const u8, tmp: []const u8 } = null,
 
         fn isEmpty(p: Prelude) bool {
-            return p.aliases.len == 0 and p.optional == null and p.err_capture == null;
+            return p.aliases.len == 0 and p.optional == null and p.lent == null and p.err_capture == null;
         }
     };
 
     /// A resource bound by `as`: captured as `tmp`, then owned by a local
     /// declared at the top of the body (or dropped at once for `as _`).
     const OptionalBinding = struct { name: Sexp, tmp: []const u8 };
+
+    /// A borrow bound by `as`: `tmp` points at the value inside the
+    /// optional, and the binding is declared from it at the top of the body.
 
     /// A payload binding local, viewing the scrutinee.
     fn payloadLocal(self: *Emitter, name_node: Sexp) ?Local {
@@ -1780,6 +1784,7 @@ pub const Emitter = struct {
     fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
         for (prelude.aliases) |a| try self.line("const {s} = {s}.{f};", .{ a.zig_name, a.payload, ident(a.field) });
         if (prelude.optional) |o| try self.bindOptionalResource(o);
+        if (prelude.lent) |o| try self.bindOptionalBorrow(o);
         if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });
     }
 
@@ -1790,11 +1795,25 @@ pub const Emitter = struct {
     fn emitOptionalHead(self: *Emitter, cond: Sexp) Error!Prelude {
         const name = ir.As.name(cond);
         const value = ir.As.value(cond);
+        const sym = self.sema.symbolOf(name);
+        // Over a borrow of an optional, a borrowed binding points into it.
+        if (self.borrowsOptionalValue(value)) {
+            // A name holding a borrow is emitted as the place it points to.
+            try self.w.writeAll(if (value == .src) "(" else "((");
+            try self.emitBare(value);
+            try self.w.writeAll(if (value == .src) ") " else ").*) ");
+            if (sym == null or !self.usage.used.contains(sym.?)) {
+                try self.w.writeAll("|_| ");
+                return .{};
+            }
+            const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
+            try self.w.print("|*{s}| ", .{tmp});
+            return .{ .lent = .{ .name = name, .tmp = tmp } };
+        }
         try self.w.writeAll("(");
         try self.emitBare(value);
         try self.w.writeAll(") ");
         // `as _` binds no symbol; a resource inside is dropped at once.
-        const sym = self.sema.symbolOf(name);
         const ty: ?TypeId = if (sym) |s| self.symType(s) else if (self.typeOf(value)) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
             .optional => |inner| inner,
             else => null,
@@ -1811,6 +1830,20 @@ pub const Emitter = struct {
             try self.w.print("|{s}| ", .{local.zig_name});
         }
         return .{};
+    }
+
+    /// `if o as x` over a borrow of an optional, where `x` borrows the
+    /// value inside rather than copying it (`checkOptionalBinding`).
+    fn borrowsOptionalValue(self: *Emitter, value: Sexp) bool {
+        const ty = self.typeOf(value) orelse return false;
+        return self.isPtrBorrowTy(ty) and !self.sema.readsThrough(value);
+    }
+
+    fn bindOptionalBorrow(self: *Emitter, o: OptionalBinding) Error!void {
+        const sym = self.sema.symbolOf(o.name).?;
+        const ty = self.symType(sym).?;
+        const local = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(o.name));
+        try self.line("const {s} = {s}{s};", .{ local.zig_name, o.tmp, if (local.is_ptr) "" else ".*" });
     }
 
     /// The owning local of a resource bound by `as`, dropped at the end

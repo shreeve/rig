@@ -3484,6 +3484,7 @@ expected, and `none` needs a known optional type.
 | `a == none`, `a != none` | test for absence |
 | `a == v`, `a != v` | whether `a` holds the value `v`, a `T` |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
+| `if ?a as x`, `if !a as x` | the same, with `x` borrowing the value inside `a` |
 | `while a as x` | repeat while `a` produces a value |
 | `a?` | the value inside `a`; when `a` is `none`, the enclosing function returns `none` |
 
@@ -3544,9 +3545,49 @@ An optional of an owning value (such as `*T?` from `upgrade()`) owns
 what it holds. `if e as x` over a temporary gives `x` ownership, and it
 is dropped at the end of the block. An optional held in a binding is
 bound by moving or cloning it: `if <m as x`, `if +m as x`, and
-unwrapped the same way: `(<m)?`. A borrow of an optional (`?m`, a
-`?T?` parameter) cannot give up a resource it holds, so `as`, `?`, and
-`??` reject it.
+unwrapped the same way: `(<m)?`.
+
+To use the value where it is, borrow the optional: `if ?m as x` binds
+`x` as a read borrow of the value (`?T`), and `if !m as x` as a write
+borrow (`!T`), through which `x.f = v` changes the value in place and
+`x = v` replaces it. `m` stays borrowed for the block, as for any
+borrow. A `?T?` parameter, or another read borrow of an optional,
+lends its value the same way with `if p as x`; a held write borrow is
+lent on as `!p`. Plain data read through a `?T?` is copied. A borrow
+cannot give up a resource it holds, so `?` and `??` reject one.
+
+```rig
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub grow(o: !Res?)
+  if !o as r
+    r.n += 10
+
+fun peek(o: ?Res?) -> Int
+  if o as r
+    r.n
+  else
+    0
+
+sub main
+  m: Res? = Res(n: 1)
+  grow(!m)
+  print(peek(?m))
+  if !m as r
+    r = Res(n: r.n + 1)
+  print(peek(?m))
+```
+
+```output
+11
+drop 11
+12
+drop 12
+```
 
 ```rig reject
 struct User

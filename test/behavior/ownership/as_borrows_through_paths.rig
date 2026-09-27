@@ -1,0 +1,44 @@
+# A borrowed `as` binding reaches the optional through any place: a
+# field, a call returning a borrow, a local holding one. `as _` tests
+# without binding, and `while !o as v` changes the value each time.
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Holder
+  r: Res?
+
+fun get(h: ?Holder) -> ?Res?
+  ?h.r
+
+sub main
+  h = Holder(r: Res(n: 3))
+  if ?h.r as v
+    print("field", v.n)
+  if !h.r as v
+    v.n = 4
+  if get(?h) as v
+    print("call", v.n)
+  b = ?h.r
+  if b as v
+    print("local", v.n)
+  if ?h.r as _
+    print("some")
+  count = 0
+  while !h.r as v
+    v.n += 1
+    count += 1
+    if count == 3
+      break
+  print(h.r)
+
+# expect:
+# field 3
+# call 4
+# local 4
+# some
+# Res(n: 7)
+# drop 7
