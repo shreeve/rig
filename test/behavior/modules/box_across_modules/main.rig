@@ -1,0 +1,13 @@
+# A type from another module is boxed, and holds boxes of itself in a
+# Vec; its methods are called through the boxes.
+
+use lib
+
+sub main
+  root = lib.leaf(1)
+  !root.kids.push(lib.leaf(2))
+  !root.kids.push(lib.leaf(3))
+  print(root.total(), root)
+
+# expect:
+# 6 Tree(key: 1, kids: [Tree(key: 2, kids: []), Tree(key: 3, kids: [])])

@@ -29,7 +29,7 @@ hello, rig
 8. [Ownership](#8-ownership)
 9. [Drop and drop glue](#9-drop-and-drop-glue)
 10. [Shared and weak handles](#10-shared-and-weak-handles)
-11. [Cell, Vec, and Signal](#11-cell-vec-and-signal)
+11. [Cell, Vec, Box, and Signal](#11-cell-vec-box-and-signal)
 12. [Closures](#12-closures)
 13. [Optionals](#13-optionals)
 14. [Errors](#14-errors)
@@ -755,7 +755,7 @@ no variant `native` on enum `Endian`
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§12](#12-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§12](#12-closures) |
 | `?fun(A) -> R`, `?sub(A)` | borrowed callable: a closure, function, or owned closure lent to a call | [§12](#closure-parameters) |
-| `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generic types | [§11](#11-cell-vec-and-signal) |
+| `Cell[T]`, `Vec[T]`, `Box[T]`, `Signal[T]` | built-in generic types | [§11](#11-cell-vec-box-and-signal) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§3](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
 
@@ -2902,7 +2902,7 @@ leak-free under the checking allocator.
 
 ---
 
-## 11. Cell, Vec, and Signal
+## 11. Cell, Vec, Box, and Signal
 
 These built-in generic types are part of the language's substrate.
 Their names are reserved.
@@ -2992,7 +2992,7 @@ sub main
 buffer: a `Vec` is an owning value even when its elements are Copy.
 Elements are Copy primitives (numbers, `Bool`, `String`), plain data
 (structs, enums, and optionals that own nothing and hold no borrow),
-shared handles (including owned closures), or weak handles.
+shared handles (including owned closures), weak handles, or boxes.
 
 | Member | Meaning |
 |---|---|
@@ -3062,6 +3062,68 @@ popped 2
 drop 2
 left 1
 drop 1
+```
+
+### Box
+
+`Box[T]` owns one `T` on the heap. A struct or enum can hold itself
+through a box (`next: Box[Node]?`), since a box is a pointer whatever
+`T` is. A box is the value's one owner: it moves (`<b`), is never
+copied or cloned, and dropping it drops the value and frees the memory.
+Long chains of boxes are released without deep recursion.
+
+| Member | Meaning |
+|---|---|
+| `Box(value: v)` | move `v` into a new box |
+| `b.f`, `b.m(...)` | a field or method of a boxed struct or enum, reached through the box |
+| `?b`, `!b` | lend the box, or, where a `?T` or `!T` is expected, the value inside it |
+| `<b.take()` | move the value out; the box is freed |
+| `match ?b`, `match !b` | match a boxed enum where it is |
+
+The box is reached as it is held: through an owned box or a `!Box[T]`
+its value can be written, through a `?Box[T]` only read. A consuming
+(`<self`) method of the value, `<b.m()`, takes the value out of the box
+first. `T` holds no borrow. A box of anything other than a struct or
+enum (a number, a Vec, an array) reaches no members through it: it is
+lent as its value or taken apart. A Vec holds boxes as it holds handles:
+walked by borrowed slot and moved out with `pop` ([Vec](#vec)).
+
+With `if ?o as x` and `if !o as x` ([§13](#13-optionals)), an optional
+box is used where it is:
+
+```rig
+struct Node
+  key: Int
+  left: Box[Node]?
+  right: Box[Node]?
+
+sub insert(slot: !Box[Node]?, key: Int)
+  if !slot as n
+    if key < n.key
+      insert(!n.left, key)
+    else
+      insert(!n.right, key)
+  else
+    slot = Box(value: Node(key: key, left: none, right: none))
+
+sub walk(slot: ?Box[Node]?)
+  if slot as n
+    walk(?n.left)
+    print(n.key)
+    walk(?n.right)
+
+sub main
+  root: Box[Node]? = none
+  for k in [5, 2, 8, 1]
+    insert(!root, k)
+  walk(?root)
+```
+
+```output
+1
+2
+5
+8
 ```
 
 ### Signal

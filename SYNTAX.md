@@ -36,7 +36,7 @@ links to it rather than repeating every rule.
 15. [Ownership: the sigils](#15-ownership-the-sigils)
 16. [Drop](#16-drop)
 17. [Shared and weak handles](#17-shared-and-weak-handles)
-18. [Cell, Vec, and Signal](#18-cell-vec-and-signal)
+18. [Cell, Vec, Box, and Signal](#18-cell-vec-box-and-signal)
 19. [Closures](#19-closures)
 20. [Optionals](#20-optionals)
 21. [Errors](#21-errors)
@@ -2304,10 +2304,10 @@ cannot assign through shared handle
 handle while the value lives and `none` after. A cycle of strong
 handles leaks, as in Rust; break it with a weak handle.
 
-## 18. Cell, Vec, and Signal
+## 18. Cell, Vec, Box, and Signal
 
-These three built-in generic types are the substrate for mutable,
-growable, and reactive state.
+These built-in generic types are the substrate for mutable, growable,
+heap-owned, and reactive state.
 
 **`Cell[T]`** holds one value that can be replaced through any path,
 including a read borrow or a shared handle: `c.get()` copies it out
@@ -2318,7 +2318,7 @@ there is no run-time borrow flag, unlike Rust's `RefCell`.
 
 **`Vec[T]`** is a growable array that owns its elements, like Rust's
 `Vec<T>`. Elements are numbers, `Bool`, `String`, plain structs, enums,
-and optionals, or handles.
+and optionals, handles, or boxes.
 
 | Member | Meaning |
 |---|---|
@@ -2359,6 +2359,37 @@ popped 2
 done 2
 popped 1
 done 1
+```
+
+**`Box[T]`** owns one value on the heap, like Rust's `Box<T>`: the way
+a struct or enum holds itself (`next: Box[Node]?`). It moves and is
+never cloned. A boxed struct's fields and methods are reached through
+it (`b.x`, `!b.bump()`), `?b` and `!b` lend the value where a `?T` or
+`!T` is expected (Rust's deref coercion), `<b.take()` moves the value
+out, and `match ?b` matches a boxed enum. `if ?o as x` / `if !o as x`
+borrow the value inside an optional in place, like Rust's
+`if let Some(x) = &o` / `&mut o`.
+
+```rig
+enum Expr
+  num(n: Int)
+  add(l: Box[Expr], r: Box[Expr])
+
+fun eval(e: ?Box[Expr]) -> Int
+  match e
+    .num(n) => n
+    .add(l, r) => eval(?l) + eval(?r)
+
+fun num(n: Int) -> Box[Expr]
+  Box(value: .num(n))
+
+sub main
+  e = Box(value: Expr.add(l: num(2), r: num(3)))
+  print(eval(?e))
+```
+
+```output
+5
 ```
 
 **`Cell[Vec[T]]`** is the shared, growable list. It answers the Vec's own
@@ -3032,7 +3063,7 @@ Coming from Rust or Zig, you will reach for these and not find them:
   instance supports ([§14](#what-a-generic-body-may-do-with-t));
 - **heap strings and string building**: `String` is an immutable view;
 - **concurrency and async**;
-- **a standard library** beyond `print`, `Cell`, `Vec`, `Signal`, and
+- **a standard library** beyond `print`, `Cell`, `Vec`, `Box`, `Signal`, and
   the slice methods (`copy`, `fill`, `swap`, `read`, `write`);
 - **raw pointers**;
 - **macros**, which Rig does not plan to have.

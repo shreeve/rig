@@ -304,6 +304,7 @@ const Owning = union(enum) {
     shared,
     weak,
     vec,
+    box,
     drop_glue: []const u8, // type name
     /// A value inside a generic body whose type holds type parameters:
     /// it owns a resource if an instantiation's argument does.
@@ -2103,6 +2104,11 @@ pub const Checker = struct {
             } else {
                 try self.err(pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer; a field cannot be moved out of its parent", .{ what, where });
             },
+            .box => if (is_name) {
+                try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer and free its value twice; use `<{s}` to move ownership", .{ what, where, what });
+            } else {
+                try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer; a field cannot be moved out of its parent. Borrow it instead: `?{s}` or `!{s}`", .{ what, where, what, what });
+            },
             .drop_glue => |tname| if (is_name) {
                 try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<{s}` to move ownership", .{ tname, what, where, tname, what });
             } else {
@@ -2755,7 +2761,12 @@ pub const Checker = struct {
         // `if expr as name`: the value inside the optional moves into
         // `name`, which the then-branch owns.
         const as_cond = cond.isKind(.as);
+        const temps_start = self.temps.items.len;
         const bound = if (as_cond) try self.walkConsumed(ir.As.value(cond), .binding) else try self.walk(cond);
+        // The binding holds what the value borrows; the loans taken to
+        // compute it end here, so the `else` branch, which runs when
+        // there is no value, is free to use them.
+        if (as_cond) self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
         const base = try self.here();
         var v1: Value = undefined;
         if (as_cond) {
@@ -3406,7 +3417,7 @@ pub const Checker = struct {
         return switch (ctx.types.get(inner)) {
             .shared => .shared,
             .weak => .weak,
-            .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) .vec else .{ .drop_glue = ctx.symbols.items[pn.sym].name },
+            .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) .vec else if (pn.sym == ctx.box_sym_id) .box else .{ .drop_glue = ctx.symbols.items[pn.sym].name },
             else => .{ .drop_glue = if (sema.nominalDecl(ctx, inner)) |d| d.symbol().name else "value" },
         };
     }

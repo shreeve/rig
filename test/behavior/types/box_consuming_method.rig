@@ -1,0 +1,25 @@
+# A consuming method of a boxed value takes the value out of the box,
+# which is freed: `<b.eat()` on a binding, or on a box a call returns.
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+  sub eat(<self)
+    print("eat", self.n)
+
+fun mk() -> Box[R]
+  Box(value: R(n: 2))
+
+sub main
+  b = Box(value: R(n: 1))
+  <b.eat()
+  mk().eat()
+
+# expect:
+# eat 1
+# drop 1
+# eat 2
+# drop 2

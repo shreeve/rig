@@ -1,0 +1,25 @@
+# A singly linked list of 200,000 boxed nodes is built, counted, and
+# dropped without deep recursion: releasing a box that releases boxes is
+# queued past a fixed depth.
+
+struct Node
+  value: Int
+  next: Box[Node]?
+
+fun count(list: ?Box[Node]?) -> Int
+  n = 0
+  cur = list
+  while cur as node
+    n += 1
+    cur = ?node.next
+  n
+
+sub main
+  head: Box[Node]? = none
+  i = 0
+  while i < 200000 : i += 1
+    head = Box(value: Node(value: i, next: <head))
+  print(count(?head))
+
+# expect:
+# 200000

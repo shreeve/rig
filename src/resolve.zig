@@ -1956,13 +1956,19 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     if (sym_id == ctx.vec_sym_id) {
         const ok = sema.isCopyPrimitive(ctx, args[0]) or switch (ctx.types.get(args[0])) {
             .shared, .weak => true,
+            // A box moves in and out whole, like a handle.
+            .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id or sema.isPlainData(ctx, args[0]),
             // Plain data: a struct, enum, or optional that owns nothing
             // and holds no borrow is copied like a number.
-            .nominal, .imported_nominal, .parameterized_nominal, .optional => sema.isPlainData(ctx, args[0]),
+            .nominal, .imported_nominal, .optional => sema.isPlainData(ctx, args[0]),
             else => false,
         };
         if (ok) return null;
-        return try std.fmt.allocPrint(a, "`Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, or optional that owns nothing), a shared handle (`*T`), or a weak handle (`~T`); got `{s}`", .{arg});
+        return try std.fmt.allocPrint(a, "`Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, or optional that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `{s}`", .{arg});
+    }
+    if (sym_id == ctx.box_sym_id) {
+        if (!sema.holdsBorrow(ctx, args[0])) return null;
+        return try std.fmt.allocPrint(a, "`Box[T]` owns its value, so `T` holds no borrow; got `{s}`", .{arg});
     }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isCopyPrimitive(ctx, args[0])) return null;
@@ -2050,7 +2056,7 @@ pub fn isNumericTypeName(name: []const u8) bool {
 // =============================================================================
 // Built-in generic types
 //
-// `Cell[T]`, `Vec[T]`, and `Signal[T]`, and the enum `Endian`, registered
+// `Cell[T]`, `Vec[T]`, `Box[T]`, and `Signal[T]`, and the enum `Endian`, registered
 // in every module scope before user declarations. The generics' methods
 // are ordinary method Fields on generic symbols, so calls go through the
 // same lookup and substitution as user generics; the runtime
@@ -2089,6 +2095,18 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id),
             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t),
             try method(ctx, "pop", .write, &.{write_self}, opt_t),
+        });
+    }
+
+    // Box[T]: one T on the heap, owned by the box. Its fields and
+    // methods are reached through it; `take` moves the value out.
+    {
+        const g = try addGeneric(ctx, module_scope, "Box", &.{"T"});
+        ctx.box_sym_id = g.sym;
+        const t = g.params[0];
+        try setFields(ctx, g.sym, &.{
+            .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
+            try method(ctx, "take", .value, &.{g.self_ty}, t),
         });
     }
 

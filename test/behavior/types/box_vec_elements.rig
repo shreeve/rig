@@ -1,0 +1,33 @@
+# A Vec holds boxes as it holds handles: a box moves in with `push`,
+# is walked by borrowed slot (`for x in ?v`, `for x in !v`), and moves
+# out with `pop`.
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+  sub bump(!self)
+    self.n += 10
+
+sub main
+  v: Vec[Box[R]] = Vec()
+  !v.push(Box(value: R(n: 1)))
+  b = Box(value: R(n: 2))
+  !v.push(<b)
+  for x in ?v
+    print("see", x.n)
+  for x in !v
+    !x.bump()
+  if !v.pop() as last
+    print("popped", last.n)
+  print(v.len)
+
+# expect:
+# see 1
+# see 2
+# popped 12
+# drop 12
+# 1
+# drop 11
