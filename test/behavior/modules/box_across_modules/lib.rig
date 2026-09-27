@@ -10,3 +10,12 @@ pub struct Tree
 
 pub fun leaf(key: Int) -> Box[Tree]
   Box(value: Tree(key: key, kids: Vec()))
+
+pub struct Ticket
+  n: Int
+
+  fun redeem(<self) -> Int
+    self.n
+
+pub fun ticket(n: Int) -> Box[Ticket]
+  Box(value: Ticket(n: n))

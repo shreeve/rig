@@ -1611,7 +1611,7 @@ pub const Checker = struct {
 
     fn walkBorrow(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
         if (rig.isRangeIndex(inner)) return self.walkSlice(inner, kind);
-        const place = self.resolvePlace(inner) orelse return self.walk(inner);
+        const place = self.resolvePlace(inner) orelse return self.walkBorrowedPath(inner);
         try self.walkPlaceIndices(inner);
         const id = place.root;
         const v = self.vars.items[id];
@@ -1622,6 +1622,15 @@ pub const Checker = struct {
             return .{};
         }
         return (try self.borrowVar(id, kind, pos)) orelse .{};
+    }
+
+    /// A borrow of a path that starts from no var (`?f(?h).r`): it keeps
+    /// what the path's start borrows, whatever the type of each step.
+    fn walkBorrowedPath(self: *Checker, e: Sexp) Error!Value {
+        if (!e.isKind(.member) and !e.isKind(.index)) return self.walk(e);
+        const obj = try self.walkBorrowedPath(ir.get(e, .object));
+        if (e.isKind(.index)) _ = try self.walk(ir.Index.index(e));
+        return obj;
     }
 
     /// Borrow a place in var `id` at `pos`: null when `id` is moved or

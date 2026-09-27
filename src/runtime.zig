@@ -444,7 +444,7 @@ pub fn Box(comptime T: type) type {
         pub fn __rig_drop(self: *Self) void {
             if (comptime !needsDrop(T)) return defaultAllocator().destroy(self.value);
             if (drop_depth >= max_drop_depth) {
-                drop_queue.append(std.heap.smp_allocator, .{ .box = self.value, .release = releaseErased }) catch oom();
+                drop_queue.append(std.heap.smp_allocator, .{ .box = @ptrCast(self.value), .release = releaseErased }) catch oom();
                 return;
             }
             drop_depth += 1;

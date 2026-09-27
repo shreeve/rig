@@ -1015,12 +1015,15 @@ const Checker = struct {
         };
         const borrowed = sema.unwrapBorrows(self.ctx, ty) != ty;
         if (borrowed and !self.isPoison(inner) and !isBorrow(self.ctx, inner)) {
-            if (expr.isKind(.write)) {
+            // `!o`, or a fresh write borrow (a call's result, `<w`).
+            const writes = self.ctx.types.get(ty) == .borrow_write;
+            if (expr.isKind(.write) or (writes and !isPlaceExpr(expr))) {
                 inner = try self.ctx.intern(.{ .borrow_write = inner });
-            } else if (try self.ownsResource(inner, self.startOf(expr), "moves out of a borrow a value")) {
-                if (self.ctx.types.get(ty) == .borrow_write) {
+            } else if (sema.holdsCellByValue(self.ctx, inner) or try self.ownsResource(inner, self.startOf(expr), "moves out of a borrow a value")) {
+                if (writes) {
                     // A held write borrow is lent on visibly, as `!o`.
-                    try self.errAt(expr, "`as` over a write borrow lends it on: write `!{s}` to borrow the value inside", .{self.text(expr)});
+                    const sp = self.ctx.span(expr);
+                    try self.errAt(expr, "`as` over a write borrow lends it on: write `!{s}` to borrow the value inside", .{self.ctx.source[sp.start..sp.end]});
                     try self.ctx.recordType(expr, self.t().invalid_id);
                     inner = self.t().invalid_id;
                 } else inner = try self.ctx.intern(.{ .borrow_read = inner });
@@ -1205,10 +1208,8 @@ const Checker = struct {
         const peeled = sema.unwrapBorrows(self.ctx, source_ty);
         switch (self.ctx.types.get(peeled)) {
             .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
-                const is_resource = switch (self.ctx.types.get(elem)) {
-                    .shared, .weak => true,
-                    else => false,
-                };
+                // Handles and boxes; every other element is plain data.
+                const is_resource = sema.typeHasDropGlue(self.ctx, elem);
                 if (is_resource) {
                     if (mode != .read and mode != .write and mode != .move) {
                         try self.err(pos, "resource Vec[T] iteration requires an explicit read borrow; write `for x in ?vec`", .{});
@@ -3217,7 +3218,7 @@ const Checker = struct {
             },
             .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
                 if ((try self.ownsResource(elem, self.startOf(object), "copies an element out of a Vec"))) {
-                    try self.errAt(object, "indexing a `{s}` would copy an owning handle out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
+                    try self.errAt(object, "indexing a `{s}` would copy an owning element out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
                     return self.t().invalid_id;
                 }
                 return elem;
@@ -4935,7 +4936,7 @@ const Checker = struct {
         if (resolved.nominal_sym == self.ctx.vec_sym_id and std.mem.eql(u8, method, "get")) {
             if (resolved.fn_ty.returns != self.t().invalid_id) {
                 const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
-                if ((try self.ownsResource(elem, pos, "copies an element out of a Vec"))) return self.badCall(args, pos, "`Vec.{s}` would copy an owning handle out of a `Vec` of `{s}`; iterate with `for x in ?v` instead", .{ method, try self.tyName(elem) });
+                if ((try self.ownsResource(elem, pos, "copies an element out of a Vec"))) return self.badCall(args, pos, "`Vec.{s}` would copy an owning element out of a `Vec` of `{s}`; iterate with `for x in ?v` instead", .{ method, try self.tyName(elem) });
             }
         }
 
@@ -5619,10 +5620,14 @@ const Checker = struct {
     fn boxLent(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
         const want = self.ctx.types.get(expected);
         const got = self.ctx.types.get(actual);
-        if (std.meta.activeTag(want) != std.meta.activeTag(got)) return false;
-        const value, const box = switch (want) {
-            .borrow_read => .{ want.borrow_read, got.borrow_read },
-            .borrow_write => .{ want.borrow_write, got.borrow_write },
+        // A write borrow of a box may be lent to read, as a `!T` may.
+        const box = switch (got) {
+            .borrow_write => |b| b,
+            .borrow_read => |b| if (want == .borrow_read) b else return false,
+            else => return false,
+        };
+        const value = switch (want) {
+            .borrow_read, .borrow_write => |v| v,
             else => return false,
         };
         if (sema.boxedType(self.ctx, box) != value) return false;

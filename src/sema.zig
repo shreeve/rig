@@ -3171,6 +3171,17 @@ pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) 
     return null;
 }
 
+/// Whether member access on `receiver_ty` reaches a data field `name`
+/// (without substituting its type).
+pub fn lookupDataFieldConst(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?Field {
+    const decl = nominalDecl(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
+    if (decl.sym == decl.ctx.box_sym_id) return null;
+    for (decl.symbol().fields orelse return null) |f| {
+        if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, name)) return f;
+    }
+    return null;
+}
+
 /// A callable method of the receiver's nominal (auto-deref through
 /// borrows and `*T`, then through a box: the box's own `take` comes
 /// first). The user `drop` body is not callable.
@@ -3183,8 +3194,8 @@ pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std
 /// How the method `name` that member access on `receiver_ty` reaches
 /// takes its receiver; null when it names no method.
 pub fn methodReceiver(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?MethodReceiver {
-    const m = membersOf(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
-    for (m.fields) |f| {
+    const decl = nominalDecl(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
+    for (decl.symbol().fields orelse return null) |f| {
         if (f.is_method and !f.is_drop_method and std.mem.eql(u8, f.name, name)) return f.receiver;
     }
     return null;

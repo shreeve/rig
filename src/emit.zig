@@ -1755,9 +1755,6 @@ pub const Emitter = struct {
     /// declared at the top of the body (or dropped at once for `as _`).
     const OptionalBinding = struct { name: Sexp, tmp: []const u8 };
 
-    /// A borrow bound by `as`: `tmp` points at the value inside the
-    /// optional, and the binding is declared from it at the top of the body.
-
     /// A payload binding local, viewing the scrutinee.
     fn payloadLocal(self: *Emitter, name_node: Sexp) ?Local {
         const sym = self.sema.symbolOf(name_node) orelse return null;
@@ -1845,6 +1842,8 @@ pub const Emitter = struct {
         return self.isPtrBorrowTy(ty) and !self.sema.readsThrough(value);
     }
 
+    /// A borrow bound by `as`: `tmp` points at the value inside the
+    /// optional, and the binding is declared from it at the top of the body.
     fn bindOptionalBorrow(self: *Emitter, o: OptionalBinding) Error!void {
         const sym = self.sema.symbolOf(o.name).?;
         const ty = self.symType(sym).?;
@@ -1900,7 +1899,7 @@ pub const Emitter = struct {
             return self.w.writeAll(h.name);
         }
         if (!sameNode(sexp, self.lent)) if (self.sema.callableOf(sexp)) |fn_ty| return self.emitLentCallable(sexp, fn_ty);
-        if (!sameNode(sexp, self.unboxing) and self.sema.unboxes(sexp)) return self.emitUnboxed(sexp);
+        if (!sameNode(sexp, self.unboxing) and self.sema.unboxes(sexp)) return self.emitUnboxed(sexp, false);
         if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
@@ -1917,20 +1916,17 @@ pub const Emitter = struct {
     }
 
     /// A borrow of a `Box[T]` lent as a borrow of its value: the box's
-    /// pointer, `*T`, reached through the box or a pointer to it; a read
-    /// borrow of a scalar or view copies the value.
-    fn emitUnboxed(self: *Emitter, sexp: Sexp) Error!void {
+    /// pointer, `*T`, reached through the box or a pointer to it. Where a
+    /// read borrow is passed as a value (`as_ptr` false), it is the
+    /// `rig.ReadBorrow(T)` of that pointer: a scalar or view is copied.
+    fn emitUnboxed(self: *Emitter, sexp: Sexp, as_ptr: bool) Error!void {
         const saved = self.unboxing;
         defer self.unboxing = saved;
         self.unboxing = sexp;
-        try self.w.writeAll("(");
+        const lend = !as_ptr and !sexp.isKind(.write) and if (self.typeOf(sexp)) |t| self.sema.types.get(t) == .borrow_read else false;
+        try self.w.writeAll(if (lend) "rig.lend((" else "(");
         try self.emitBare(sexp);
-        try self.w.writeAll(").value");
-        const ty = self.typeOf(sexp) orelse return;
-        switch (self.sema.types.get(ty)) {
-            .borrow_read => |box| if (!self.readBorrowIsPtr(sema.boxedType(self.sema, box).?)) try self.w.writeAll(".*"),
-            else => {},
-        }
+        try self.w.writeAll(if (lend) ").value)" else ").value");
     }
 
     fn emitName(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
@@ -2131,6 +2127,7 @@ pub const Emitter = struct {
     /// `?x` or `!x` held by pointer: the address of `x`, or for a generic
     /// read borrow, `rig.lend` of it.
     fn emitBorrowOf(self: *Emitter, borrow: Sexp) Error!void {
+        if (!sameNode(borrow, self.unboxing) and self.sema.unboxes(borrow)) return self.emitUnboxed(borrow, true);
         const operand = ir.get(borrow, .operand);
         // A read borrow reaches a Vec element through a read-only slot, a
         // write borrow through a writable one.
@@ -2671,7 +2668,7 @@ pub const Emitter = struct {
             return self.w.print(".{f})", .{ident(field)});
         }
         try self.emitMemberBase(obj, obj_ty);
-        if (obj_ty) |t| if (!self.isBoxMethod(t, field)) {
+        if (obj_ty) |t| if (!self.isBoxMethod(sexp, t, field)) {
             // A consuming method of an owned box's value takes the value
             // out of the box, which is freed.
             if (sema.boxedType(self.sema, t) != null and sema.boxedNominal(self.sema, t) != null and sema.methodReceiver(self.sema, t, field) == .value) {
@@ -2696,9 +2693,14 @@ pub const Emitter = struct {
         if (sema.boxedNominal(self.sema, t) != null) try self.w.writeAll(".value");
     }
 
-    /// `take`, the box's own method, which comes before its value's.
-    fn isBoxMethod(self: *Emitter, ty: TypeId, name: []const u8) bool {
-        return sema.boxedType(self.sema, sema.unwrapReadAccess(self.sema, ty)) != null and std.mem.eql(u8, name, "take");
+    /// `b.take` called: the box's own method, which comes before its
+    /// value's methods. A data field of the value named `take` is read
+    /// through the box.
+    fn isBoxMethod(self: *Emitter, member: Sexp, ty: TypeId, name: []const u8) bool {
+        if (sema.boxedType(self.sema, sema.unwrapReadAccess(self.sema, ty)) == null or !std.mem.eql(u8, name, "take")) return false;
+        if (sema.lookupDataFieldConst(self.sema, ty, name) == null) return true;
+        const t = self.typeOf(member) orelse return true;
+        return self.fnType(t) != null;
     }
 
     /// `module.name` naming a constant (not a function or a type).
@@ -3376,7 +3378,9 @@ pub const Emitter = struct {
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
         // The value alone may have no Zig type (`.empty`, `null`, a
         // literal). A borrow read through is read here, in argument order.
-        if (ty) |t| if (!ptr) {
+        // A box lent as its value has the parameter's type.
+        const shown: ?TypeId = if (self.sema.unboxes(h.node)) (if (slot < params.len) params[slot] else null) else ty;
+        if (shown) |t| if (!ptr) {
             try self.w.writeAll(": ");
             try self.emitTypeTy(if (self.readsThrough(h.node)) self.peelBorrows(t) else t);
         };

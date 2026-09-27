@@ -3615,8 +3615,10 @@ borrow (`!T`), through which `x.f = v` changes the value in place and
 `x = v` replaces it. `m` stays borrowed for the block, as for any
 borrow. A `?T?` parameter, or another read borrow of an optional,
 lends its value the same way with `if p as x`; a held write borrow is
-lent on as `!p`. Plain data read through a `?T?` is copied. A borrow
-cannot give up a resource it holds, so `?` and `??` reject one.
+lent on as `!p`, and a write borrow a call returns is bound as one.
+Plain data read through a `?T?` is copied (in a generic body, so is
+every `T`); a value holding a Cell is borrowed. A borrow cannot give up
+a resource it holds, so `?` and `??` reject one.
 
 ```rig
 struct Res

@@ -1,0 +1,31 @@
+# A borrow of a field reached through a borrow a call returns keeps what
+# the call borrows, bound by `=` or by `as`.
+
+struct R
+  n: Int
+
+struct H2
+  r: R
+  b: Box[R]?
+
+struct H
+  h2: H2
+
+fun inner(h: ?H) -> ?H2
+  ?h.h2
+
+sub main
+  h = H(h2: H2(r: R(n: 1), b: Box(value: R(n: 1))))
+  x = ?inner(?h).r
+  h = H(h2: H2(r: R(n: 2), b: none))
+  print(x.n)
+  if ?inner(?h).b as y
+    h = H(h2: H2(r: R(n: 3), b: none))
+    print(y.n)
+  while ?inner(?h).b as y
+    h = H(h2: H2(r: R(n: 4), b: none))
+    print(y.n)
+
+# error: 20:3: cannot reassign `h` while borrows are live
+# error: 23:5: cannot reassign `h` while borrows are live
+# error: 26:5: cannot reassign `h` while borrows are live

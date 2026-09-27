@@ -1,0 +1,48 @@
+# A box lent as its value (`?b` where a `?T` is expected, `!b` where a
+# `!T` or `?T` is) works wherever a borrow goes: a typed or rebound
+# borrow local, an argument evaluated out of order, a generic result, a
+# write borrow of the box read as the value.
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  b: Box[Int]
+
+fun add(x: ?Int, y: Int) -> Int
+  x + y
+
+fun peek[T](b: ?Box[T]) -> ?T
+  ?b
+
+fun rd(r: ?R) -> Int
+  r.n
+
+sub g(w: !Box[R])
+  print(rd(w), rd(!w))
+
+sub main
+  b = Box(value: R(n: 1))
+  c = Box(value: R(n: 2))
+  r: ?R = ?c
+  print(r.n)
+  r = ?b
+  print(r.n)
+  s = S(b: Box(value: 5))
+  k: ?Int = ?s.b
+  print(k + 1)
+  n = 1
+  print(add(y: n + 1, x: ?s.b), peek(?s.b))
+  g(!b)
+
+# expect:
+# 2
+# 1
+# 6
+# 7 5
+# 1 1
+# drop 2
+# drop 1
