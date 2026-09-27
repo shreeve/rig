@@ -1,0 +1,28 @@
+# A `!Box[T]` parameter writes the value in place: a `!self` method, a
+# field, or the whole box (the old one is dropped).
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+  sub bump(!self)
+    self.n += 1
+
+sub f(b: !Box[R])
+  !b.bump()
+  b.n += 5
+  print(b)
+  b = Box(value: R(n: 9))
+
+sub main
+  x = Box(value: R(n: 1))
+  f(!x)
+  print(x.n)
+
+# expect:
+# R(n: 7)
+# drop 7
+# 9
+# drop 9

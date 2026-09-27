@@ -1,0 +1,35 @@
+# A box of a handle, a boxed value's data field named `take` (the box's
+# own `take` is only called), and `match` on each boxed enum a loop
+# walks by borrowed slot.
+
+struct R
+  n: Int
+
+struct P
+  take: Int
+
+enum Sh
+  c(r: Int)
+  s(k: Int)
+
+sub main
+  h = Box(value: *R(n: 1))
+  print(h)
+  b = Box(value: P(take: 4))
+  print(b.take)
+  p = <b.take()
+  print(p.take)
+  v: Vec[Box[Sh]] = Vec()
+  !v.push(Box(value: Sh.s(k: 3)))
+  !v.push(Box(value: Sh.c(r: 2)))
+  for x in ?v
+    match x
+      .c(r) => print("c", r)
+      .s(k) => print("s", k)
+
+# expect:
+# R(n: 1)
+# 4
+# 4
+# s 3
+# c 2

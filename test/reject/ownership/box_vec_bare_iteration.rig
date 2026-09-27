@@ -1,0 +1,19 @@
+# A Vec of boxes is walked by borrowed slot: a bare `for x in v` would
+# copy each box out of the Vec.
+
+struct R
+  n: Int
+
+sub eat(b: Box[R])
+  print(b.n)
+
+sub f(v: ?Vec[Box[R]])
+  for x in v
+    eat(<x)
+
+sub main
+  v: Vec[Box[R]] = Vec()
+  !v.push(Box(value: R(n: 1)))
+  f(?v)
+
+# error: 11:12: resource Vec[T] iteration requires an explicit read borrow; write `for x in ?vec`

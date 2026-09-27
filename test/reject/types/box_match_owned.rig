@@ -1,0 +1,13 @@
+# A `match` reaches a boxed enum through a borrow of the box.
+
+enum Shape
+  circle(r: Int)
+  square(s: Int)
+
+sub main
+  b = Box(value: Shape.circle(r: 2))
+  match b
+    .circle(r) => print(r)
+    .square(s) => print(s)
+
+# error: 9:9: a `match` reaches the value inside a box through a borrow: `match ?b`

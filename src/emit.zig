@@ -197,6 +197,9 @@ pub const Emitter = struct {
     place_chain: bool = false,
     /// The callable `emitLentCallable` is emitting the value of.
     lent: Sexp = .nil,
+    /// The box borrow `emitUnboxed` is emitting, which it emits as a
+    /// plain borrow of the box.
+    unboxing: Sexp = .nil,
     /// Arguments and receivers of the calls being emitted that were
     /// evaluated into temporaries first (`emitHoistedCall`), innermost
     /// call last.
@@ -1661,7 +1664,9 @@ pub const Emitter = struct {
     /// yields a value.
     fn emitMatch(self: *Emitter, sexp: Sexp, value_pos: bool) Error!void {
         const scrutinee = ir.Match.subject(sexp);
-        const scrut_ty = self.typeOf(scrutinee);
+        // A boxed enum is switched on where the box points.
+        const boxed = if (self.typeOf(scrutinee)) |t| sema.boxedNominal(self.sema, t) else null;
+        const scrut_ty = boxed orelse self.typeOf(scrutinee);
         const error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false;
 
         // `match ?t` / `match !t` switch on the value borrowed, and so
@@ -1669,6 +1674,7 @@ pub const Emitter = struct {
         const subject = unborrowed(scrutinee);
         try self.w.writeAll("switch (");
         if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
+        if (boxed != null) try self.w.writeAll(".value.*");
         try self.w.writeAll(") ");
         try self.openBrace();
 
@@ -1736,11 +1742,12 @@ pub const Emitter = struct {
     const Prelude = struct {
         aliases: []const Alias = &.{},
         optional: ?OptionalBinding = null,
+        lent: ?OptionalBinding = null,
         /// The error a `catch |err|` handler names, captured as `tmp`.
         err_capture: ?struct { zig_name: []const u8, tmp: []const u8 } = null,
 
         fn isEmpty(p: Prelude) bool {
-            return p.aliases.len == 0 and p.optional == null and p.err_capture == null;
+            return p.aliases.len == 0 and p.optional == null and p.lent == null and p.err_capture == null;
         }
     };
 
@@ -1780,6 +1787,7 @@ pub const Emitter = struct {
     fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
         for (prelude.aliases) |a| try self.line("const {s} = {s}.{f};", .{ a.zig_name, a.payload, ident(a.field) });
         if (prelude.optional) |o| try self.bindOptionalResource(o);
+        if (prelude.lent) |o| try self.bindOptionalBorrow(o);
         if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });
     }
 
@@ -1790,11 +1798,25 @@ pub const Emitter = struct {
     fn emitOptionalHead(self: *Emitter, cond: Sexp) Error!Prelude {
         const name = ir.As.name(cond);
         const value = ir.As.value(cond);
+        const sym = self.sema.symbolOf(name);
+        // Over a borrow of an optional, a borrowed binding points into it.
+        if (self.borrowsOptionalValue(value)) {
+            // A name holding a borrow is emitted as the place it points to.
+            try self.w.writeAll(if (value == .src) "(" else "((");
+            try self.emitBare(value);
+            try self.w.writeAll(if (value == .src) ") " else ").*) ");
+            if (sym == null or !self.usage.used.contains(sym.?)) {
+                try self.w.writeAll("|_| ");
+                return .{};
+            }
+            const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
+            try self.w.print("|*{s}| ", .{tmp});
+            return .{ .lent = .{ .name = name, .tmp = tmp } };
+        }
         try self.w.writeAll("(");
         try self.emitBare(value);
         try self.w.writeAll(") ");
         // `as _` binds no symbol; a resource inside is dropped at once.
-        const sym = self.sema.symbolOf(name);
         const ty: ?TypeId = if (sym) |s| self.symType(s) else if (self.typeOf(value)) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
             .optional => |inner| inner,
             else => null,
@@ -1811,6 +1833,22 @@ pub const Emitter = struct {
             try self.w.print("|{s}| ", .{local.zig_name});
         }
         return .{};
+    }
+
+    /// `if o as x` over a borrow of an optional, where `x` borrows the
+    /// value inside rather than copying it (`checkOptionalBinding`).
+    fn borrowsOptionalValue(self: *Emitter, value: Sexp) bool {
+        const ty = self.typeOf(value) orelse return false;
+        return self.isPtrBorrowTy(ty) and !self.sema.readsThrough(value);
+    }
+
+    /// A borrow bound by `as`: `tmp` points at the value inside the
+    /// optional, and the binding is declared from it at the top of the body.
+    fn bindOptionalBorrow(self: *Emitter, o: OptionalBinding) Error!void {
+        const sym = self.sema.symbolOf(o.name).?;
+        const ty = self.symType(sym).?;
+        const local = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(o.name));
+        try self.line("const {s} = {s}{s};", .{ local.zig_name, o.tmp, if (local.is_ptr) "" else ".*" });
     }
 
     /// The owning local of a resource bound by `as`, dropped at the end
@@ -1861,6 +1899,7 @@ pub const Emitter = struct {
             return self.w.writeAll(h.name);
         }
         if (!sameNode(sexp, self.lent)) if (self.sema.callableOf(sexp)) |fn_ty| return self.emitLentCallable(sexp, fn_ty);
+        if (!sameNode(sexp, self.unboxing) and self.sema.unboxes(sexp)) return self.emitUnboxed(sexp, false);
         if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
@@ -1874,6 +1913,20 @@ pub const Emitter = struct {
             .list => try self.emitList(sexp, tail, bare, literal_ty),
             else => return self.unsupported(sexp, "this expression"),
         }
+    }
+
+    /// A borrow of a `Box[T]` lent as a borrow of its value: the box's
+    /// pointer, `*T`, reached through the box or a pointer to it. Where a
+    /// read borrow is passed as a value (`as_ptr` false), it is the
+    /// `rig.ReadBorrow(T)` of that pointer: a scalar or view is copied.
+    fn emitUnboxed(self: *Emitter, sexp: Sexp, as_ptr: bool) Error!void {
+        const saved = self.unboxing;
+        defer self.unboxing = saved;
+        self.unboxing = sexp;
+        const lend = !as_ptr and !sexp.isKind(.write) and if (self.typeOf(sexp)) |t| self.sema.types.get(t) == .borrow_read else false;
+        try self.w.writeAll(if (lend) "rig.lend((" else "(");
+        try self.emitBare(sexp);
+        try self.w.writeAll(if (lend) ").value)" else ").value");
     }
 
     fn emitName(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
@@ -2074,6 +2127,7 @@ pub const Emitter = struct {
     /// `?x` or `!x` held by pointer: the address of `x`, or for a generic
     /// read borrow, `rig.lend` of it.
     fn emitBorrowOf(self: *Emitter, borrow: Sexp) Error!void {
+        if (!sameNode(borrow, self.unboxing) and self.sema.unboxes(borrow)) return self.emitUnboxed(borrow, true);
         const operand = ir.get(borrow, .operand);
         // A read borrow reaches a Vec element through a read-only slot, a
         // write borrow through a writable one.
@@ -2614,8 +2668,39 @@ pub const Emitter = struct {
             return self.w.print(".{f})", .{ident(field)});
         }
         try self.emitMemberBase(obj, obj_ty);
-        if (obj_ty) |t| if (self.sema.types.get(self.peelBorrows(t)) == .shared) try self.w.writeAll(".value");
+        if (obj_ty) |t| if (!self.isBoxMethod(sexp, t, field)) {
+            // A consuming method of an owned box's value takes the value
+            // out of the box, which is freed.
+            if (sema.boxedType(self.sema, t) != null and sema.boxedNominal(self.sema, t) != null and sema.methodReceiver(self.sema, t, field) == .value) {
+                try self.w.writeAll(".take()");
+            } else try self.writeReach(t);
+        };
         try self.w.print(".{f}", .{ident(field)});
+    }
+
+    /// `.value` for each shared handle, and then a box, that member
+    /// access on a `ty` reaches through (`sema.unwrapAccess`).
+    fn writeReach(self: *Emitter, ty: TypeId) Error!void {
+        var t = ty;
+        while (true) switch (self.sema.types.get(t)) {
+            .borrow_read, .borrow_write => |inner| t = inner,
+            .shared => |inner| {
+                try self.w.writeAll(".value");
+                t = inner;
+            },
+            else => break,
+        };
+        if (sema.boxedNominal(self.sema, t) != null) try self.w.writeAll(".value");
+    }
+
+    /// `b.take` called: the box's own method, which comes before its
+    /// value's methods. A data field of the value named `take` is read
+    /// through the box.
+    fn isBoxMethod(self: *Emitter, member: Sexp, ty: TypeId, name: []const u8) bool {
+        if (sema.boxedType(self.sema, sema.unwrapReadAccess(self.sema, ty)) == null or !std.mem.eql(u8, name, "take")) return false;
+        if (sema.lookupDataFieldConst(self.sema, ty, name) == null) return true;
+        const t = self.typeOf(member) orelse return true;
+        return self.fnType(t) != null;
     }
 
     /// `module.name` naming a constant (not a function or a type).
@@ -2832,6 +2917,7 @@ pub const Emitter = struct {
             if (self.sema.symbolOf(callee)) |sym_id| {
                 if (sym_id == self.sema.vec_sym_id) return self.emitVecConstruction(sexp);
                 if (sym_id == self.sema.signal_sym_id) return self.emitSignalConstruction(sexp);
+                if (sym_id == self.sema.box_sym_id) return self.emitBoxConstruction(sexp);
                 if (self.isTypeSym(sym_id)) return self.emitConstructor(sexp, sym_id);
             }
         }
@@ -3292,7 +3378,9 @@ pub const Emitter = struct {
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
         // The value alone may have no Zig type (`.empty`, `null`, a
         // literal). A borrow read through is read here, in argument order.
-        if (ty) |t| if (!ptr) {
+        // A box lent as its value has the parameter's type.
+        const shown: ?TypeId = if (self.sema.unboxes(h.node)) (if (slot < params.len) params[slot] else null) else ty;
+        if (shown) |t| if (!ptr) {
             try self.w.writeAll(": ");
             try self.emitTypeTy(if (self.readsThrough(h.node)) self.peelBorrows(t) else t);
         };
@@ -3334,7 +3422,7 @@ pub const Emitter = struct {
         if (!e.isKind(.call) or self.sema.calleeOf(e) != .src) return false;
         if (self.localOf(self.sema.calleeOf(e))) |local| if (local.stack_closure) return false;
         const sym_id = self.sema.symbolOf(self.sema.calleeOf(e)) orelse return false;
-        return sym_id != self.sema.vec_sym_id and sym_id != self.sema.signal_sym_id and self.isTypeSym(sym_id);
+        return sym_id != self.sema.vec_sym_id and sym_id != self.sema.signal_sym_id and sym_id != self.sema.box_sym_id and self.isTypeSym(sym_id);
     }
 
     /// Constructor call `Name(field: v, ...)`: a struct literal typed by
@@ -3395,6 +3483,16 @@ pub const Emitter = struct {
         try self.emitGivenType(call);
         try self.w.writeAll(".init(");
         try self.emitBare(ir.Kwarg.value(args[0]));
+        try self.w.writeAll(")");
+    }
+
+    /// `Box(value: v)`: `v` moved into a new heap allocation.
+    fn emitBoxConstruction(self: *Emitter, call: Sexp) Error!void {
+        const args = ir.Call.args(call);
+        if (args.len != 1) return self.unsupported(call, "this Box construction");
+        try self.emitTypeTy(self.typeOf(call) orelse return self.unsupported(call, "an untyped Box construction"));
+        try self.w.writeAll(".init(");
+        try self.emitStored(ir.Kwarg.value(args[0]));
         try self.w.writeAll(")");
     }
 
@@ -3819,7 +3917,7 @@ pub const Emitter = struct {
     /// module's generic type through its proxy (`lib.Wrap`).
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
         const s = self.sema.symbols.items[sym];
-        if (sym == self.sema.vec_sym_id or sym == self.sema.cell_sym_id or sym == self.sema.signal_sym_id or sym == self.sema.endian_sym_id) {
+        if (sema.isBuiltinGeneric(self.sema, sym) or sym == self.sema.endian_sym_id) {
             return self.w.print("rig.{s}", .{s.name});
         }
         if (sema.isProxy(s)) {

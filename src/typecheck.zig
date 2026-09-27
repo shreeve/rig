@@ -1000,7 +1000,10 @@ const Checker = struct {
 
     /// `if expr as name` / `while expr as name`: `expr` is an optional,
     /// and `name` holds the value inside it. A resource moves into the
-    /// binding, which owns it; it cannot be copied out of a place.
+    /// binding, which owns it; it cannot be copied out of a place. Over
+    /// a borrow of an optional (`?o`, `!o`, a `?T?` parameter), `name`
+    /// borrows the value inside the same way: a write borrow always, a
+    /// read borrow when the value owns a resource (plain data is copied).
     fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         const expr = ir.As.value(node);
         const name = ir.As.name(node);
@@ -1011,13 +1014,20 @@ const Checker = struct {
             else => try self.errAt(expr, "`as` binds the value inside an optional; this expression has type `{s}`", .{try self.tyName(ty)}),
         };
         const borrowed = sema.unwrapBorrows(self.ctx, ty) != ty;
-        if (borrowed and try self.ownsResource(inner, self.startOf(expr), "moves out of a borrow a value")) {
-            const handle = switch (self.ctx.types.get(inner)) {
-                .shared, .weak => true,
-                else => false,
-            };
-            const hint = if (handle) "bind a new handle with `+x` instead" else "unwrap the optional where it is owned (`if <m as x`)";
-            try self.errAt(expr, "a borrow cannot give up the resource inside it; {s}", .{hint});
+        if (borrowed and !self.isPoison(inner) and !isBorrow(self.ctx, inner)) {
+            // `!o`, or a fresh write borrow (a call's result, `<w`).
+            const writes = self.ctx.types.get(ty) == .borrow_write;
+            if (expr.isKind(.write) or (writes and !isPlaceExpr(expr))) {
+                inner = try self.ctx.intern(.{ .borrow_write = inner });
+            } else if (sema.holdsCellByValue(self.ctx, inner) or try self.ownsResource(inner, self.startOf(expr), "moves out of a borrow a value")) {
+                if (writes) {
+                    // A held write borrow is lent on visibly, as `!o`.
+                    const sp = self.ctx.span(expr);
+                    try self.errAt(expr, "`as` over a write borrow lends it on: write `!{s}` to borrow the value inside", .{self.ctx.source[sp.start..sp.end]});
+                    try self.ctx.recordType(expr, self.t().invalid_id);
+                    inner = self.t().invalid_id;
+                } else inner = try self.ctx.intern(.{ .borrow_read = inner });
+            } else _ = try self.readThrough(expr, ty, sema.unwrapBorrows(self.ctx, ty));
         } else _ = try self.readThrough(expr, ty, sema.unwrapBorrows(self.ctx, ty));
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
@@ -1198,10 +1208,8 @@ const Checker = struct {
         const peeled = sema.unwrapBorrows(self.ctx, source_ty);
         switch (self.ctx.types.get(peeled)) {
             .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
-                const is_resource = switch (self.ctx.types.get(elem)) {
-                    .shared, .weak => true,
-                    else => false,
-                };
+                // Handles and boxes; every other element is plain data.
+                const is_resource = sema.typeHasDropGlue(self.ctx, elem);
                 if (is_resource) {
                     if (mode != .read and mode != .write and mode != .move) {
                         try self.err(pos, "resource Vec[T] iteration requires an explicit read borrow; write `for x in ?vec`", .{});
@@ -1249,8 +1257,20 @@ const Checker = struct {
         if (subject.isKind(.move)) {
             try self.errAt(subject, "a `match` reads its scrutinee, so moving it in would leave nothing to drop it; match the binding itself (`match s`)", .{});
         }
-        const scrutinee = try self.synthOperand(subject);
+        var scrutinee = try self.synthOperand(subject);
         const scrut_pos = self.startOf(subject);
+        // A boxed enum is matched where it is, through a borrow of the box.
+        if (sema.boxedType(self.ctx, sema.unwrapBorrows(self.ctx, scrutinee)) != null) if (sema.boxedNominal(self.ctx, scrutinee)) |inner| {
+            switch (self.ctx.types.get(scrutinee)) {
+                .borrow_read => scrutinee = try self.ctx.intern(.{ .borrow_read = inner }),
+                .borrow_write => scrutinee = try self.ctx.intern(.{ .borrow_write = inner }),
+                else => {
+                    const sp = self.ctx.span(subject);
+                    try self.errAt(subject, "a `match` reaches the value inside a box through a borrow: `match ?{s}`", .{self.ctx.source[sp.start..sp.end]});
+                    scrutinee = self.t().invalid_id;
+                },
+            }
+        };
         if (scrutinee == self.t().int_literal_id) try self.checkLiteralFits(subject, self.t().int_id);
         const matchable = switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, scrutinee))) {
             .int, .int_literal, .bool, .invalid, .unknown, .any_error => true,
@@ -2596,7 +2616,7 @@ const Checker = struct {
         const field = self.text(field_node);
         const pos = srcPos(field_node, self.startOf(obj));
         if (self.isPoison(obj_ty)) return obj_ty;
-        const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
+        const peeled = sema.unwrapAccess(self.ctx, obj_ty);
 
         switch (self.ctx.types.get(peeled)) {
             .optional => {
@@ -2610,6 +2630,14 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
             else => {},
+        }
+
+        // A box of anything but a struct or enum is only lent or taken apart.
+        if (sema.boxedType(self.ctx, peeled) != null) {
+            const sp = self.ctx.span(obj);
+            const shown = self.ctx.source[sp.start..sp.end];
+            try self.err(pos, "a `{s}` reaches no fields of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.take()`", .{ try self.tyName(peeled), shown, shown, shown });
+            return self.t().invalid_id;
         }
 
         // `value` names a Cell's constructor argument, not a field to read.
@@ -2660,7 +2688,7 @@ const Checker = struct {
     /// or imported.
     fn dataField(self: *Checker, obj_ty: TypeId, name: []const u8) Error!?TypeId {
         if (try sema.lookupDataField(self.ctx, obj_ty, name)) |f| return f.ty;
-        const decl = sema.nominalDecl(self.ctx, sema.unwrapReadAccess(self.ctx, obj_ty)) orelse return null;
+        const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
         const f = findDataField(decl.symbol().fields orelse &.{}, name) orelse return null;
         return try sema.importType(self.ctx, self.ctx.foreign_semas.get(module_id).?, f.ty, module_id);
@@ -2682,7 +2710,7 @@ const Checker = struct {
         if (try sema.lookupMethod(self.ctx, obj_ty, name)) |m| {
             return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = self.declSource(m.nominal_sym) };
         }
-        const decl = sema.nominalDecl(self.ctx, sema.unwrapReadAccess(self.ctx, obj_ty)) orelse return null;
+        const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
         const foreign = self.ctx.foreign_semas.get(module_id).?;
         for (decl.symbol().fields orelse &.{}) |f| {
@@ -3190,7 +3218,7 @@ const Checker = struct {
             },
             .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
                 if ((try self.ownsResource(elem, self.startOf(object), "copies an element out of a Vec"))) {
-                    try self.errAt(object, "indexing a `{s}` would copy an owning handle out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
+                    try self.errAt(object, "indexing a `{s}` would copy an owning element out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
                     return self.t().invalid_id;
                 }
                 return elem;
@@ -4837,7 +4865,7 @@ const Checker = struct {
             }
         }
 
-        const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
+        const peeled = sema.unwrapAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
             .optional => return self.badCall(args, pos, "cannot call `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ method, try self.tyName(peeled) }),
             .type_var => return self.badCall(args, pos, "a generic parameter `{s}` has no methods; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) }),
@@ -4863,6 +4891,10 @@ const Checker = struct {
             }
             if (vecElementType(self.ctx, peeled) != null and std.mem.eql(u8, method, "length")) {
                 try self.err(pos, "a Vec has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
+            } else if (sema.boxedType(self.ctx, peeled) != null) {
+                const sp = self.ctx.span(unborrowedNode(obj));
+                const shown = self.ctx.source[sp.start..sp.end];
+                try self.err(pos, "a `{s}` reaches no methods of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.take()`", .{ try self.tyName(peeled), shown, shown, shown });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
                 try self.err(pos, "no method `{s}` on type `{s}`", .{ method, sym.name });
@@ -4904,7 +4936,7 @@ const Checker = struct {
         if (resolved.nominal_sym == self.ctx.vec_sym_id and std.mem.eql(u8, method, "get")) {
             if (resolved.fn_ty.returns != self.t().invalid_id) {
                 const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
-                if ((try self.ownsResource(elem, pos, "copies an element out of a Vec"))) return self.badCall(args, pos, "`Vec.{s}` would copy an owning handle out of a `Vec` of `{s}`; iterate with `for x in ?v` instead", .{ method, try self.tyName(elem) });
+                if ((try self.ownsResource(elem, pos, "copies an element out of a Vec"))) return self.badCall(args, pos, "`Vec.{s}` would copy an owning element out of a `Vec` of `{s}`; iterate with `for x in ?v` instead", .{ method, try self.tyName(elem) });
             }
         }
 
@@ -5482,6 +5514,7 @@ const Checker = struct {
 
         const actual = try self.synthExpr(e);
         if (try self.arrayAsSlice(e, actual, expected)) return;
+        if (try self.boxLent(e, actual, expected)) return;
         if (sema.callableFn(self.ctx, expected) != null and try self.lendCallable(e, actual, expected)) return;
         if (self.ctx.types.get(expected) == .function and sema.callableFnTy(self.ctx, actual) == expected) {
             return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; a lent closure goes to a parameter declared `{s}`", .{ try self.tyName(expected), try self.tyName(actual), try self.tyName(actual) });
@@ -5580,6 +5613,27 @@ const Checker = struct {
             else => {},
         }
         return false;
+    }
+
+    /// A borrow of a box where a borrow of its value is expected: `?b`
+    /// lends the value as a `?T`, `!b` as a `!T`. True when handled.
+    fn boxLent(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
+        const want = self.ctx.types.get(expected);
+        const got = self.ctx.types.get(actual);
+        // A write borrow of a box may be lent to read, as a `!T` may.
+        const box = switch (got) {
+            .borrow_write => |b| b,
+            .borrow_read => |b| if (want == .borrow_read) b else return false,
+            else => return false,
+        };
+        const value = switch (want) {
+            .borrow_read, .borrow_write => |v| v,
+            else => return false,
+        };
+        if (sema.boxedType(self.ctx, box) != value) return false;
+        try self.ctx.recordUnboxed(e);
+        if (want == .borrow_write) _ = try self.checkLendsWriteBorrow(e);
+        return true;
     }
 
     fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error!void {
@@ -6422,6 +6476,11 @@ fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// `x` of `?x`, `!x`, or `<x`; any other node as it is.
+fn unborrowedNode(e: Sexp) Sexp {
+    return if (e.isKind(.read) or e.isKind(.write) or e.isKind(.move)) ir.get(e, .operand) else e;
+}
+
 fn isBorrow(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .borrow_read, .borrow_write => true,
@@ -6467,6 +6526,8 @@ const ReceiverTypeKind = enum { owned_nominal, read_borrow, write_borrow, shared
 fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: SymbolId) ReceiverTypeKind {
     const matches = struct {
         fn f(c: *const SemContext, id: TypeId, sym: SymbolId) bool {
+            // A box's value is reached as the box is: owned, or borrowed.
+            if (sym != c.box_sym_id) if (sema.boxedNominal(c, id)) |inner| if (sema.boxedType(c, id) != null) return f(c, inner, sym);
             return switch (c.types.get(id)) {
                 .nominal => |s| s == sym,
                 .parameterized_nominal => |pn| pn.sym == sym,

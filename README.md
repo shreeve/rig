@@ -252,7 +252,7 @@ and environment variable. The suite runs on Linux and macOS in
 - moves, read and write borrows (including borrows returned from
   functions and held in structs) that end at their last use, clones,
   drops, automatic drop on every path, drop glue, user `drop` bodies
-- shared `*T` and weak `~T` handles, `Cell`, `Vec`, and `Signal`
+- shared `*T` and weak `~T` handles, `Cell`, `Vec`, `Box`, and `Signal`
 - stack and owned closures with explicit captures, any arity, inferred
   parameter types, and return values
 - optionals with `none`, `??`, `if x as v`, and `x?`; fallible functions

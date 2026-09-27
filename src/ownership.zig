@@ -304,6 +304,7 @@ const Owning = union(enum) {
     shared,
     weak,
     vec,
+    box,
     drop_glue: []const u8, // type name
     /// A value inside a generic body whose type holds type parameters:
     /// it owns a resource if an instantiation's argument does.
@@ -1610,7 +1611,7 @@ pub const Checker = struct {
 
     fn walkBorrow(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
         if (rig.isRangeIndex(inner)) return self.walkSlice(inner, kind);
-        const place = self.resolvePlace(inner) orelse return self.walk(inner);
+        const place = self.resolvePlace(inner) orelse return self.walkBorrowedPath(inner);
         try self.walkPlaceIndices(inner);
         const id = place.root;
         const v = self.vars.items[id];
@@ -1621,6 +1622,15 @@ pub const Checker = struct {
             return .{};
         }
         return (try self.borrowVar(id, kind, pos)) orelse .{};
+    }
+
+    /// A borrow of a path that starts from no var (`?f(?h).r`): it keeps
+    /// what the path's start borrows, whatever the type of each step.
+    fn walkBorrowedPath(self: *Checker, e: Sexp) Error!Value {
+        if (!e.isKind(.member) and !e.isKind(.index)) return self.walk(e);
+        const obj = try self.walkBorrowedPath(ir.get(e, .object));
+        if (e.isKind(.index)) _ = try self.walk(ir.Index.index(e));
+        return obj;
     }
 
     /// Borrow a place in var `id` at `pos`: null when `id` is moved or
@@ -2102,6 +2112,11 @@ pub const Checker = struct {
                 try self.err(pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer and double-free on scope exit; use `<{s}` to move ownership", .{ what, where, what });
             } else {
                 try self.err(pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer; a field cannot be moved out of its parent", .{ what, where });
+            },
+            .box => if (is_name) {
+                try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer and free its value twice; use `<{s}` to move ownership", .{ what, where, what });
+            } else {
+                try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer; a field cannot be moved out of its parent. Borrow it instead: `?{s}` or `!{s}`", .{ what, where, what, what });
             },
             .drop_glue => |tname| if (is_name) {
                 try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<{s}` to move ownership", .{ tname, what, where, tname, what });
@@ -2755,7 +2770,12 @@ pub const Checker = struct {
         // `if expr as name`: the value inside the optional moves into
         // `name`, which the then-branch owns.
         const as_cond = cond.isKind(.as);
+        const temps_start = self.temps.items.len;
         const bound = if (as_cond) try self.walkConsumed(ir.As.value(cond), .binding) else try self.walk(cond);
+        // The binding holds what the value borrows; the loans taken to
+        // compute it end here, so the `else` branch, which runs when
+        // there is no value, is free to use them.
+        if (as_cond) self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
         const base = try self.here();
         var v1: Value = undefined;
         if (as_cond) {
@@ -3406,7 +3426,7 @@ pub const Checker = struct {
         return switch (ctx.types.get(inner)) {
             .shared => .shared,
             .weak => .weak,
-            .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) .vec else .{ .drop_glue = ctx.symbols.items[pn.sym].name },
+            .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) .vec else if (pn.sym == ctx.box_sym_id) .box else .{ .drop_glue = ctx.symbols.items[pn.sym].name },
             else => .{ .drop_glue = if (sema.nominalDecl(ctx, inner)) |d| d.symbol().name else "value" },
         };
     }

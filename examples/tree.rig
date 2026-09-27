@@ -1,0 +1,84 @@
+# A binary search tree that owns its nodes through boxes. `Box[T]` holds
+# one value on the heap: a node holds its children as `Box[Node[T]]?`.
+# `if !slot as n` borrows the node inside an optional box in place, so
+# insertion walks down with write borrows and stores a new leaf where
+# the walk ends; the reads walk down with read borrows. Dropping the
+# tree drops every node.
+
+struct Node[T]
+  key: T
+  count: Int
+  left: Box[Node[T]]?
+  right: Box[Node[T]]?
+
+struct Tree[T]
+  root: Box[Node[T]]?
+  size: Int
+
+  sub add(!self, key: T)
+    if place(!self.root, key)
+      self.size += 1
+
+  fun has(?self, key: T) -> Bool
+    find(?self.root, key) != none
+
+  fun height(?self) -> Int
+    depth(?self.root)
+
+# Count `key` in the subtree at `slot`: true when it is new.
+fun place[T](slot: !Box[Node[T]]?, key: T) -> Bool
+  if !slot as n
+    if key == n.key
+      n.count += 1
+      return false
+    if key < n.key
+      return place(!n.left, key)
+    return place(!n.right, key)
+  slot = Box(value: Node(key: key, count: 1, left: none, right: none))
+  true
+
+fun find[T](slot: ?Box[Node[T]]?, key: T) -> Int?
+  if slot as n
+    if key == n.key
+      return n.count
+    if key < n.key
+      return find(?n.left, key)
+    return find(?n.right, key)
+  none
+
+fun depth[T](slot: ?Box[Node[T]]?) -> Int
+  if slot as n
+    l = depth(?n.left)
+    r = depth(?n.right)
+    1 + (l if l > r else r)
+  else
+    0
+
+sub show[T](slot: ?Box[Node[T]]?)
+  if slot as n
+    show(?n.left)
+    print(n.key, n.count)
+    show(?n.right)
+
+sub main
+  words = Tree[String](root: none, size: 0)
+  for w in ["the", "quick", "fox", "jumps", "over", "the", "lazy", "fox"]
+    !words.add(w)
+  show(?words.root)
+  print(words.size, words.height(), words.has("fox"), words.has("cat"))
+
+  nums = Tree[Int](root: none, size: 0)
+  i = 0
+  while i < 1000 : i += 1
+    !nums.add((i * 7919) % 1000)
+  print(nums.size, nums.has(500), nums.height() < 40)
+
+# expect:
+# fox 2
+# jumps 1
+# lazy 1
+# over 1
+# quick 1
+# the 2
+# 6 6 true false
+# 1000 true true

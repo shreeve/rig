@@ -411,6 +411,60 @@ pub fn rcNew(value: anytype) *RcBox(@TypeOf(value)) {
 }
 
 // -----------------------------------------------------------------------------
+// Box
+// -----------------------------------------------------------------------------
+
+/// `Box[T]`: one `T` on the heap, owned by the box. The box is a pointer
+/// that moves, never copies; dropping it drops the value and frees its
+/// memory. Deep chains of boxes are released through `drop_queue`, as
+/// shared handles are.
+pub fn Box(comptime T: type) type {
+    return struct {
+        value: *T,
+
+        const Self = @This();
+
+        pub fn init(value: T) Self {
+            const p = create(T);
+            p.* = value;
+            return .{ .value = p };
+        }
+
+        /// `<b.take()`: the value, moved out; the box's memory is freed.
+        pub fn take(self: Self) T {
+            const v = self.value.*;
+            defaultAllocator().destroy(self.value);
+            return v;
+        }
+
+        pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try writeValue(w, self.value.*, false);
+        }
+
+        pub fn __rig_drop(self: *Self) void {
+            if (comptime !needsDrop(T)) return defaultAllocator().destroy(self.value);
+            if (drop_depth >= max_drop_depth) {
+                drop_queue.append(std.heap.smp_allocator, .{ .box = @ptrCast(self.value), .release = releaseErased }) catch oom();
+                return;
+            }
+            drop_depth += 1;
+            release(self.value);
+            drop_depth -= 1;
+            if (drop_depth == 0) drainDropQueue();
+        }
+
+        fn release(p: *T) void {
+            dropElement(T, p);
+            defaultAllocator().destroy(p);
+        }
+
+        fn releaseErased(p: *anyopaque) void {
+            release(@ptrCast(@alignCast(p)));
+        }
+    };
+}
+
+// -----------------------------------------------------------------------------
 // Cell
 // -----------------------------------------------------------------------------
 

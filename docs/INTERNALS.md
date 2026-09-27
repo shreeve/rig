@@ -72,7 +72,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/diag.zig` | diagnostics: source ranges, line and column, the printed format |
 | `src/modules.zig` | the module graph: loads each `use`d file and checks modules in dependency order |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
-| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Signal` as built-in generics and `Endian` as a built-in enum, symbol resolution, declaration types and their checks |
+| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Box`, `Signal` as built-in generics and `Endian` as a built-in enum, symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/ownership.zig` | the ownership checker |
 | `src/emit.zig` | Zig code generation |
@@ -872,7 +872,9 @@ lower is an internal error: sema must have rejected it.
   rule to each instance. A `[]T` is a `[]const T` and a `![]T` a Zig
   `[]T`, not a pointer to one: the slice already points at its
   elements, so it is passed and bound as it is.
-- **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`, `T?`
+- **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`,
+  `Box[T]` is `rig.Box(T)` (a pointer to the value, reached as
+  `b.value.f`; `?b` lent as a `?T` is `b.value`), `T?`
   is `?T`, `T!` is `anyerror!T`, enums with payloads are tagged unions
   (each payload a struct of its fields), and generic types are Zig functions from types to types. A struct
   with drop glue gets a `__rig_drop` method: the user `drop` body, then
@@ -949,6 +951,7 @@ reviewed.
 | Piece | Role |
 |---|---|
 | `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
+| `Box(T)` | `Box[T]`: a pointer to one heap `T`. `init` allocates, `take` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |

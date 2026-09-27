@@ -553,8 +553,14 @@ pub const Facts = struct {
     /// lend it only to read: leaves by position, list nodes by id.
     leaf_views: std.AutoHashMapUnmanaged(u32, void) = .empty,
     node_views: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Borrows of a `Box[T]` lent as borrows of its value (`?b` where a
+    /// `?T` is expected): leaves by position, list nodes by id.
+    leaf_unboxed: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    node_unboxed: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
+        self.leaf_unboxed.deinit(allocator);
+        self.node_unboxed.deinit(allocator);
         self.leaf_callables.deinit(allocator);
         self.node_callables.deinit(allocator);
         self.elem_calls.deinit(allocator);
@@ -786,6 +792,7 @@ pub const SemContext = struct {
     cell_sym_id: SymbolId = symbol_invalid,
     vec_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
+    box_sym_id: SymbolId = symbol_invalid,
     endian_sym_id: SymbolId = symbol_invalid,
 
     /// Assigned by the module graph.
@@ -1195,6 +1202,23 @@ pub const SemContext = struct {
             .src => |s| self.facts.leaf_callables.get(s.pos),
             .list => self.facts.node_callables.get(nodeKey(node) orelse return null),
             else => null,
+        };
+    }
+
+    /// `node`, a borrow of a `Box[T]`, is lent as a borrow of the `T`.
+    pub fn recordUnboxed(self: *SemContext, node: Sexp) !void {
+        switch (node) {
+            .src => |s| try self.facts.leaf_unboxed.put(self.allocator, s.pos, {}),
+            .list => try self.facts.node_unboxed.put(self.allocator, recordKey(node), {}),
+            else => {},
+        }
+    }
+
+    pub fn unboxes(self: *const SemContext, node: Sexp) bool {
+        return switch (node) {
+            .src => |s| self.facts.leaf_unboxed.contains(s.pos),
+            .list => self.facts.node_unboxed.contains(nodeKey(node) orelse return false),
+            else => false,
         };
     }
 
@@ -1797,10 +1821,10 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!Conten
             c.plain = c.plain and h.plain;
         }
     }
-    // The built-in generics are runtime types: a Vec owns its buffer, and
-    // none of them is copied like plain data.
-    if (id == ctx.vec_sym_id) c.glue = true;
-    if (id == ctx.vec_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id) c.plain = false;
+    // The built-in generics are runtime types: a Vec owns its buffer and
+    // a Box its value's memory, and none of them is copied like plain data.
+    if (id == ctx.vec_sym_id or id == ctx.box_sym_id) c.glue = true;
+    if (id == ctx.vec_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id) c.plain = false;
     ctx.symbols.items[id].contents = c;
     return c;
 }
@@ -1913,7 +1937,7 @@ fn cellEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayLis
         .imported_nominal => (nominalDecl(ctx, ty) orelse return false).symbol().contents.cell,
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.cell_sym_id) break :blk true;
-            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            if (isHeapBuiltin(ctx, pn.sym)) break :blk false;
             try edges.append(ctx.allocator, .{ .from = pn.sym, .to = owner });
             for (pn.args) |a| if (try cellEdges(ctx, a, owner, edges)) break :blk true;
             break :blk false;
@@ -2012,7 +2036,7 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
         .nominal, .imported_nominal => if (nominalDecl(ctx, id)) |decl| decl.symbol().contents.cell else false,
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.cell_sym_id) break :blk true;
-            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            if (isHeapBuiltin(ctx, pn.sym)) break :blk false;
             if (ctx.symbols.items[pn.sym].contents.cell) break :blk true;
             for (pn.args) |a| if (ctx.type_info.items[a].cell) break :blk true;
             break :blk false;
@@ -2125,6 +2149,12 @@ const Components = struct {
     }
 };
 
+/// A built-in generic that keeps its values on the heap: `Vec[T]`,
+/// `Box[T]`, and `Signal[T]` hold a pointer, whatever `T` is.
+pub fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
+    return sym == ctx.vec_sym_id or sym == ctx.box_sym_id or sym == ctx.signal_sym_id;
+}
+
 /// The declared types a value of `ty` holds inline (not behind a handle,
 /// a borrow, or a Vec's heap buffer), appended to `out`.
 fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanaged(SymbolId)) std.mem.Allocator.Error!void {
@@ -2133,7 +2163,7 @@ fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanag
         .array => |a| try byValueTargets(ctx, a.elem, out),
         .nominal => |s| try out.append(ctx.allocator, s),
         .parameterized_nominal => |pn| {
-            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id) return;
+            if (isHeapBuiltin(ctx, pn.sym)) return;
             try out.append(ctx.allocator, pn.sym);
             const held = ctx.symbols.items[pn.sym].contents.held;
             for (pn.args, 0..) |arg, i| {
@@ -2229,7 +2259,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk null;
             break :blk try minBytes(foreign, try foreign.intern(.{ .nominal = in.sym_id }));
         },
-        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.cell_sym_id)
+        .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym) or pn.sym == ctx.cell_sym_id)
             8
         else
             try fieldBytes(ctx, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
@@ -2550,7 +2580,7 @@ const EquatableWalk = struct {
     fn checkDecl(self: *EquatableWalk, at: *const SemContext, origin: ?u32, ty: TypeId) std.mem.Allocator.Error!?NotEquatable {
         const fail: NotEquatable = .{ .ctx = at, .origin = origin, .ty = ty, .path = "", .why = .no_eq };
         const decl = nominalDecl(at, ty) orelse return null;
-        if (decl.sym == decl.ctx.vec_sym_id or decl.sym == decl.ctx.cell_sym_id or decl.sym == decl.ctx.signal_sym_id) return fail;
+        if (isHeapBuiltin(decl.ctx, decl.sym) or decl.sym == decl.ctx.cell_sym_id) return fail;
         const sym = decl.symbol();
         if (sym.flags.error_set) return null;
         const gop = try self.visited.getOrPut(self.local.allocator, .{ .ctx = at, .ty = ty });
@@ -2646,6 +2676,39 @@ pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
             else => return id,
         }
     }
+}
+
+/// The struct or enum a `Box[T]` (or a borrow or handle of one) holds,
+/// whose fields and methods are reached through the box; null for
+/// anything else. A box of another kind of value is only lent (`?b` as
+/// a `?T`) or taken apart (`<b.take()`).
+pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
+    const inner = boxedType(ctx, unwrapReadAccess(ctx, ty_id)) orelse return null;
+    return switch (ctx.types.get(inner)) {
+        .nominal, .imported_nominal => inner,
+        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym)) null else inner,
+        else => null,
+    };
+}
+
+/// `T` of a `Box[T]`; null for any other type.
+pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
+    return switch (ctx.types.get(ty_id)) {
+        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1) pn.args[0] else null,
+        else => null,
+    };
+}
+
+/// One of the built-in generic types: `Cell`, `Vec`, `Box`, `Signal`.
+pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
+    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id;
+}
+
+/// `unwrapReadAccess`, then through a box to the struct or enum it
+/// holds (`boxedNominal`): the value member access reaches.
+pub fn unwrapAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
+    const peeled = unwrapReadAccess(ctx, ty_id);
+    return boxedNominal(ctx, peeled) orelse peeled;
 }
 
 /// Where a nominal type is declared: the module's context and the
@@ -3096,7 +3159,9 @@ fn membersOf(ctx: *const SemContext, peeled: TypeId) ?Members {
 /// A data field of the receiver's nominal (auto-deref through borrows
 /// and `*T`).
 pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedField {
-    const m = membersOf(ctx, unwrapReadAccess(ctx, receiver_ty)) orelse return null;
+    const m = membersOf(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
+    // A box's `value` names its constructor argument, not a field.
+    if (m.sym == ctx.box_sym_id) return null;
     for (m.fields) |f| {
         if (f.is_method or f.is_variant) continue;
         if (std.mem.eql(u8, f.name, name)) {
@@ -3106,10 +3171,38 @@ pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) 
     return null;
 }
 
+/// Whether member access on `receiver_ty` reaches a data field `name`
+/// (without substituting its type).
+pub fn lookupDataFieldConst(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?Field {
+    const decl = nominalDecl(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
+    if (decl.sym == decl.ctx.box_sym_id) return null;
+    for (decl.symbol().fields orelse return null) |f| {
+        if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, name)) return f;
+    }
+    return null;
+}
+
 /// A callable method of the receiver's nominal (auto-deref through
-/// borrows and `*T`). The user `drop` body is not callable.
+/// borrows and `*T`, then through a box: the box's own `take` comes
+/// first). The user `drop` body is not callable.
 pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
-    const m = membersOf(ctx, unwrapReadAccess(ctx, receiver_ty)) orelse return null;
+    if (try methodIn(ctx, unwrapReadAccess(ctx, receiver_ty), name)) |found| return found;
+    const boxed = boxedNominal(ctx, receiver_ty) orelse return null;
+    return methodIn(ctx, boxed, name);
+}
+
+/// How the method `name` that member access on `receiver_ty` reaches
+/// takes its receiver; null when it names no method.
+pub fn methodReceiver(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?MethodReceiver {
+    const decl = nominalDecl(ctx, unwrapAccess(ctx, receiver_ty)) orelse return null;
+    for (decl.symbol().fields orelse return null) |f| {
+        if (f.is_method and !f.is_drop_method and std.mem.eql(u8, f.name, name)) return f.receiver;
+    }
+    return null;
+}
+
+fn methodIn(ctx: *SemContext, peeled: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
+    const m = membersOf(ctx, peeled) orelse return null;
     for (m.fields) |f| {
         if (!f.is_method or f.is_drop_method) continue;
         if (!std.mem.eql(u8, f.name, name)) continue;
@@ -3142,7 +3235,7 @@ pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) st
 }
 
 pub fn hasMethodNamed(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) bool {
-    const m = membersOf(ctx, unwrapReadAccess(ctx, receiver_ty)) orelse return false;
+    const m = membersOf(ctx, unwrapAccess(ctx, receiver_ty)) orelse return false;
     for (m.fields) |f| {
         if (f.is_method and !f.is_drop_method and std.mem.eql(u8, f.name, name)) return true;
     }

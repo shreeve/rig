@@ -18,7 +18,7 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 - **Conditional compilation** on the target's operating system and architecture and the build mode.
 - **Compile-time functions**: pure functions over plain data that the checker itself evaluates, for constant tables and sizes computed from a compile-time parameter (`[n * 2]Int`, `[cap(n)]Int`), so a failure is a Rig diagnostic rather than a Zig error.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
-- **Unique heap ownership**: a single-owner box without a reference count.
+- **Replacing a value in place**: moving a value out of a field or a `!T` and putting one back in the same step (`replace`, `swap`), so a linked structure reached through a borrow can be restructured.
 - **Private fields**: a field visible only inside its type's module unless marked `pub`, so setter methods can guard a type's invariants; Rig's tool for encapsulation, rather than properties.
 - **A value-yielding `try` block** with a matching `catch` block.
 - **Drop bodies for enums and generic types.**
