@@ -864,7 +864,9 @@ pub const Lexer = struct {
                 if (name.pre != 0) return false;
                 t = name;
             }
-            if (t.cat != .ident or keyword(self.base.text(t)) != null) return false;
+            // A keyword entry still makes a bar list, so that the parser
+            // reports the keyword (`|when: Int|`).
+            if (t.cat != .ident) return false;
             var sep = probe.matchRules();
             if (sep.cat == .colon) sep = skipType(&probe) orelse return false;
             switch (sep.cat) {

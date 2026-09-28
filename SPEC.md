@@ -2071,8 +2071,31 @@ sub main
 4
 ```
 
-A guard ends a statement; inside an expression, write the ternary
-`a if c else b`.
+A guard ends a statement and applies to all of it: in
+`n = parse(s) catch |e| f(e) if ready`, the guard covers the whole
+binding, `catch` included, not the handler alone. Inside an
+expression, write the ternary `a if c else b`.
+
+```rig
+error E
+  bad
+
+fun parse(s: String) -> Int!
+  return E.bad if s == "x"
+  s.len
+
+sub main
+  n = 5
+  n = parse("x") catch |e| (-1 if e == E.bad else -2) if false
+  print(n)
+  n = parse("x") catch |e| (-1 if e == E.bad else -2) if true
+  print(n)
+```
+
+```output
+5
+-1
+```
 
 ### while
 

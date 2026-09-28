@@ -1987,7 +1987,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
             else => false,
         };
         if (ok) return null;
-        return try std.fmt.allocPrint(a, "`Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, or optional that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `{s}`", .{arg});
+        return try std.fmt.allocPrint(a, "`Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `{s}`", .{arg});
     }
     if (sym_id == ctx.box_sym_id) {
         if (!sema.holdsBorrow(ctx, args[0])) return null;
