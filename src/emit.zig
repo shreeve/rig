@@ -3330,7 +3330,10 @@ pub const Emitter = struct {
         const obj_ty = self.typeOf(obj);
         // `U8.max`, `F64.min`: a number type's limit.
         if (sema.intLimit(self.sema, sexp)) |limit| return self.emitIntConstant(sexp, limit.v);
-        const number_type = obj == .src and if (self.sema.symbolOf(obj)) |id| self.sema.symbols.items[id].kind == .type_alias else resolve.isNumericTypeName(self.srcText(obj));
+        const number_type = if (obj.isKind(.member))
+            (if (self.moduleMemberSym(obj)) |m| m.kind == .type_alias else false)
+        else
+            obj == .src and if (self.sema.symbolOf(obj)) |id| self.sema.symbols.items[id].kind == .type_alias else resolve.isNumericTypeName(self.srcText(obj));
         if (number_type) if (self.typeOf(sexp)) |t| if (self.sema.types.get(t) == .float) {
             try self.writeAsOpen(t);
             try self.w.writeAll(if (std.mem.eql(u8, field, "min")) "-std.math.floatMax(" else "std.math.floatMax(");
@@ -3874,11 +3877,13 @@ pub const Emitter = struct {
             const obj_text = decl.source[obj.src.pos..][0..obj.src.len];
             const name = decl.source[ir.Member.name(e).src.pos..][0..ir.Member.name(e).src.len];
             if (sema.intLimit(decl, e)) |limit| return self.w.print("{d}", .{limit.v});
-            if (decl.symbolOf(obj) == null) {
-                // A float type's limit.
-                const zig = if (std.mem.eql(u8, obj_text, "F32")) "f32" else "f64";
-                return self.w.print("{s}std.math.floatMax({s})", .{ if (std.mem.eql(u8, name, "min")) "-" else "", zig });
-            }
+            const module = if (decl.symbolOf(obj)) |id| decl.symbols.items[id].kind == .module else false;
+            if (!module) if (decl.typeOf(e)) |t| if (decl.types.get(t) == .float) {
+                // A float type's limit, named through the type or an
+                // alias of it.
+                const bits = decl.types.get(t).float.bits;
+                return self.w.print("{s}std.math.floatMax(f{d})", .{ if (std.mem.eql(u8, name, "min")) "-" else "", if (bits == 0) 64 else bits });
+            };
             return self.w.print("@import(\"{s}.zig\").{f}", .{ obj_text, ident(name) });
         }
         return self.w.print("@import(\"{s}.zig\").{f}", .{ decl.name, ident(decl.source[e.src.pos..][0..e.src.len]) });
