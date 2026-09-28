@@ -268,9 +268,13 @@ worker() {
     local entry=$path
     [[ -d "$path" ]] && entry="$path/main.rig"
     REASON=""
-    # Start from an empty output directory, except for the Zig build cache
-    # rig keeps there, so repeated runs stay fast.
-    [[ -d "$outdir" ]] && find "$outdir" -mindepth 1 -maxdepth 1 ! -name .zig-cache -exec rm -rf {} +
+    # Start from an empty output directory, except for the Zig build caches
+    # rig keeps there (a CLI test keeps one per program under programs/),
+    # so repeated runs stay fast.
+    if [[ -d "$outdir" ]]; then
+        find "$outdir" -mindepth 1 -maxdepth 1 ! -name .zig-cache ! -name programs -exec rm -rf {} +
+        [[ -d "$outdir/programs" ]] && find "$outdir/programs" -mindepth 2 -maxdepth 2 ! -name .zig-cache -exec rm -rf {} +
+    fi
 
     local kind=${id%%/*} ok
     case $kind in
