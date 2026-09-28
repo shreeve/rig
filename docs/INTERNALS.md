@@ -586,7 +586,9 @@ ownership:
   needs an optional operand and a function returning `T?` (or `T?!`)
   to return `none` from. A closure body propagates only when the
   closure's type can fail (`?fun(Int) -> Int!`), or, for `?`, returns
-  an optional; `drop` bodies and deferred code never propagate;
+  an optional; `drop` bodies and deferred code never propagate. An
+  `errdefer` needs the same: a body that can fail, or it would never
+  run;
 - **the raw boundary**: builtins outside the safe list (`@sizeOf`,
   `@alignOf`, `@TypeOf`, `@typeName`), and calls to `extern` functions,
   must be inside a `raw` block. An `extern` function can only be

@@ -546,6 +546,7 @@ const Checker = struct {
             .@"break" => try self.checkBreak(stmt),
             .@"continue", .pass => {},
             .@"defer", .@"errdefer" => {
+                if (head == .@"errdefer") try self.checkErrdeferCanRun(stmt);
                 const saved = self.body;
                 defer self.body = saved;
                 self.body.fail_to = .deferred;
@@ -595,6 +596,19 @@ const Checker = struct {
             },
             else => try self.checkExprStmt(stmt),
         }
+    }
+
+    /// An `errdefer` runs only when its function fails: one where
+    /// nothing can fail would never run.
+    fn checkErrdeferCanRun(self: *Checker, stmt: Sexp) Error!void {
+        const what = switch (self.body.fail_to) {
+            .caller, .module => return,
+            .infallible => |name| try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`", .{self.text(name)}),
+            .closure => "this closure",
+            .deferred => "a deferred block",
+            .drop => "a `drop` body",
+        };
+        try self.errAt(stmt, "`errdefer` runs only when the function fails, and {s} cannot fail; use `defer`", .{what});
     }
 
     /// An expression used as a statement must do something: call, fail

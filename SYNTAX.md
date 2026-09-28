@@ -1020,7 +1020,7 @@ and `match <e` consumes `e` ([SPEC §6](SPEC.md#match)).
 
 `defer` takes a statement or a block, and runs it when the enclosing
 block exits, in reverse order. `errdefer` runs only when the function
-fails.
+fails, so it goes only in a function that can fail.
 
 ```rig
 sub main

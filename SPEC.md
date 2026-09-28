@@ -2348,7 +2348,10 @@ sub main
 
 `defer stmt` (or `defer` with a block) runs when the enclosing block
 exits, in reverse order of the defers. `errdefer` runs only when the
-function exits with an error. A deferred body may not move or drop
+function exits with an error, so it is written only where one can: in
+a `fun ... -> T!`, a `sub f()!`, `sub main`, a closure whose type can
+fail, or a test. In a function, closure, or `drop` body that cannot
+fail, or inside deferred code, it is rejected: write `defer`. A deferred body may not move or drop
 outer bindings, or propagate with `!`. It runs after the values declared
 after it are dropped, so it may not read one through a borrow. A
 one-line `defer` or `errdefer` cannot declare a name; a deferred block
@@ -2363,6 +2366,19 @@ sub main
 
 ```error
 a deferred statement runs at scope exit and cannot declare `t`; use an indented `defer` block
+```
+
+```rig reject
+sub log(n: Int)
+  errdefer print("failed")
+  print(n)
+
+sub main
+  log(1)
+```
+
+```error
+`errdefer` runs only when the function fails, and `log` cannot fail; use `defer`
 ```
 
 ---
