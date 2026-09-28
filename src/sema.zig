@@ -2573,10 +2573,10 @@ pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
 /// Why values of a type have no `==`: the type that lacks it, found
 /// inside the compared type, and the path of fields to it.
 pub const NotEquatable = struct {
-    /// The context whose type store holds `ty`.
+    /// The context whose type store holds `ty`: the module being checked.
     ctx: *const SemContext,
     ty: TypeId,
-    /// The module `ctx` checks, when it is another module's.
+    /// Always null: `ty` is in the checked module's store.
     origin: ?u32 = null,
     /// Field names from the compared type to `ty`, joined by `.`, a
     /// variant's payload field as `variant.field`; empty for the
@@ -2608,66 +2608,71 @@ pub const NotEquatable = struct {
 /// `ty` holds is appended to `params`, when given: `==` on `ty` holds in
 /// the instances where it holds for them.
 pub fn notEquatable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayListUnmanaged(SymbolId)) std.mem.Allocator.Error!?NotEquatable {
-    var walk: EquatableWalk = .{ .local = ctx, .params = params };
+    var walk: EquatableWalk = .{ .ctx = ctx, .params = params };
     defer walk.visited.deinit(ctx.allocator);
-    return walk.check(ctx, null, ty, false);
+    return walk.check(ty, false);
 }
 
 pub fn isEquatable(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!bool {
     return (try notEquatable(ctx, ty, null)) == null;
 }
 
+/// Walks the types a value holds, each in `ctx`'s store: the field types
+/// of another module's struct are imported there, and a generic
+/// instance's have its type arguments applied.
 const EquatableWalk = struct {
-    local: *SemContext,
+    ctx: *SemContext,
     params: ?*std.ArrayListUnmanaged(SymbolId),
     /// Declared types checked or being checked: one reached again,
     /// through itself or another path, adds nothing new.
-    visited: std.AutoHashMapUnmanaged(struct { ctx: *const SemContext, ty: TypeId }, void) = .empty,
+    visited: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
 
-    /// `ty` in the type store of `at`, the context of module `origin`
-    /// (null for the module being checked); `in_decl` when a field or
-    /// payload holds it, where a slice is a borrow.
-    fn check(self: *EquatableWalk, at: *const SemContext, origin: ?u32, ty: TypeId, in_decl: bool) std.mem.Allocator.Error!?NotEquatable {
-        const fail: NotEquatable = .{ .ctx = at, .origin = origin, .ty = ty, .path = "", .why = .handle };
-        switch (at.types.get(ty)) {
-            .optional => |inner| return self.check(at, origin, inner, in_decl),
-            .array => |a| return self.check(at, origin, a.elem, in_decl),
-            .slice => |s| return if (in_decl) with(fail, .borrow) else self.check(at, origin, s.elem, in_decl),
+    /// `in_decl` when a field or payload holds `ty`, where a slice is a
+    /// borrow.
+    fn check(self: *EquatableWalk, ty: TypeId, in_decl: bool) std.mem.Allocator.Error!?NotEquatable {
+        const ctx = self.ctx;
+        const fail: NotEquatable = .{ .ctx = ctx, .ty = ty, .path = "", .why = .handle };
+        switch (ctx.types.get(ty)) {
+            .optional => |inner| return self.check(inner, in_decl),
+            .array => |a| return self.check(a.elem, in_decl),
+            .slice => |s| return if (in_decl) with(fail, .borrow) else self.check(s.elem, in_decl),
             .borrow_read, .borrow_write => return with(fail, .borrow),
-            .shared => |inner| return with(fail, if (at.types.get(inner) == .function) .closure else .handle),
+            .shared => |inner| return with(fail, if (ctx.types.get(inner) == .function) .closure else .handle),
             .weak => return fail,
             .function => return with(fail, .function),
+            // A parameter of another module's generic type is always
+            // bound by the instance that reaches it.
             .type_var => |sym| {
-                if (self.params) |out| if (std.mem.indexOfScalar(SymbolId, out.items, sym) == null) try out.append(self.local.allocator, sym);
+                if (self.params) |out| if (!isProxy(ctx.symbols.items[sym]) and std.mem.indexOfScalar(SymbolId, out.items, sym) == null) try out.append(ctx.allocator, sym);
                 return null;
             },
-            .nominal, .imported_nominal, .parameterized_nominal => return self.checkDecl(at, origin, ty),
+            .nominal, .imported_nominal, .parameterized_nominal => return self.checkDecl(ty),
             .void, .fallible, .range => return with(fail, .no_eq),
             else => return null,
         }
     }
 
-    fn checkDecl(self: *EquatableWalk, at: *const SemContext, origin: ?u32, ty: TypeId) std.mem.Allocator.Error!?NotEquatable {
-        const fail: NotEquatable = .{ .ctx = at, .origin = origin, .ty = ty, .path = "", .why = .no_eq };
-        const decl = nominalDecl(at, ty) orelse return null;
-        if (isHeapBuiltin(decl.ctx, decl.sym) or decl.sym == decl.ctx.cell_sym_id) return fail;
+    fn checkDecl(self: *EquatableWalk, ty: TypeId) std.mem.Allocator.Error!?NotEquatable {
+        const ctx = self.ctx;
+        const fail: NotEquatable = .{ .ctx = ctx, .ty = ty, .path = "", .why = .no_eq };
+        const decl = nominalDecl(ctx, ty) orelse return null;
+        if (isBuiltinGeneric(decl.ctx, decl.sym)) return fail;
         const sym = decl.symbol();
         if (sym.flags.error_set) return null;
-        const gop = try self.visited.getOrPut(self.local.allocator, .{ .ctx = at, .ty = ty });
-        if (gop.found_existing) return null;
+        if ((try self.visited.getOrPut(ctx.allocator, ty)).found_existing) return null;
         const fields = sym.fields orelse return null;
         for (fields) |f| if (f.is_drop_method) return with(fail, .drop);
-        // An instance's field types name the generic type's parameters.
-        // Only the module's own generic types have instances here.
-        const subst: TypeSubst = switch (at.types.get(ty)) {
+        // An instance's field types name its generic type's parameters
+        // (a proxy's, for another module's generic type).
+        const subst: TypeSubst = switch (ctx.types.get(ty)) {
             .parameterized_nominal => |pn| .{ .params = sym.type_params orelse &.{}, .args = pn.args },
             else => .empty,
         };
         for (fields) |*f| {
             for (dataFields(f)) |d| {
-                const fty = if (subst.isEmpty() or decl.ctx != self.local) d.ty else try substituteType(self.local, d.ty, subst);
-                var inner = (try self.check(decl.ctx, decl.module_id orelse origin, fty, true)) orelse continue;
-                const a = self.local.arena.allocator();
+                const fty = if (decl.module_id) |m| try importType(ctx, decl.ctx, d.ty, m) else try substituteType(ctx, d.ty, subst);
+                var inner = (try self.check(fty, true)) orelse continue;
+                const a = ctx.arena.allocator();
                 const name = if (f.is_variant) try std.fmt.allocPrint(a, "{s}.{s}", .{ f.name, d.name }) else d.name;
                 inner.path = if (inner.path.len == 0) name else try std.fmt.allocPrint(a, "{s}.{s}", .{ name, inner.path });
                 return inner;
@@ -2983,7 +2988,7 @@ pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnman
 /// declared there become `imported_nominal` tagged with their origin.
 pub fn importType(
     local_ctx: *SemContext,
-    foreign_ctx: *SemContext,
+    foreign_ctx: *const SemContext,
     foreign_ty_id: TypeId,
     origin_module_id: u32,
 ) std.mem.Allocator.Error!TypeId {
@@ -3314,7 +3319,7 @@ pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) st
         if (payload.len > 0 and (decl.module_id != null or !subst.isEmpty())) {
             const typed = try ctx.arena.allocator().dupe(Field, payload);
             for (typed) |*pf| pf.ty = if (decl.module_id) |origin|
-                try importType(ctx, @constCast(decl.ctx), pf.ty, origin)
+                try importType(ctx, decl.ctx, pf.ty, origin)
             else
                 try substituteType(ctx, pf.ty, subst);
             payload = typed;
