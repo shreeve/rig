@@ -1179,7 +1179,8 @@ const Checker = struct {
     }
 
     /// The step of `while cond: step` cannot use an owning binding of
-    /// `cond`: the body drops it before the step runs.
+    /// `cond`, which the body drops before the step runs, or a borrow
+    /// the condition binds, which lives only in the body.
     fn checkStepUses(self: *Checker, cond: Sexp, step: Sexp) Error!void {
         if (rig.isConditionJoin(cond)) {
             try self.checkStepUses(ir.get(cond, .left), step);
@@ -1188,9 +1189,12 @@ const Checker = struct {
         if (!cond.isKind(.as)) return;
         const b = self.ctx.symbolOf(ir.As.name(cond)) orelse return;
         const sym = self.ctx.symbols.items[b];
-        if (findUse(self.ctx, step, b)) |use| if (try self.ownsResource(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
+        const use = findUse(self.ctx, step, b) orelse return;
+        if (try self.ownsResource(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
             try self.errAt(use, "the loop step cannot use `{s}`: it owns a `{s}`, which the body drops before the step runs", .{ sym.name, try self.tyName(sym.ty) });
-        };
+        } else if (isBorrow(self.ctx, sym.ty)) {
+            try self.errAt(use, "the loop step cannot use `{s}`: it is a borrow (`{s}`) that lives only in the body; use it at the end of the body instead", .{ sym.name, try self.tyName(sym.ty) });
+        }
     }
 
     /// A step that reads a binding of a joined condition runs inside the
@@ -1334,8 +1338,17 @@ const Checker = struct {
             try self.errAt(step, "a `while` step is an assignment or a call", .{});
         } else if (step != .nil) {
             try self.checkStmt(step);
+            // The step runs after the body, which would see a name it
+            // declares before it has a value.
+            if (step.isKind(.set) and ir.Set.target(step) == .src) if (self.ctx.symbolOf(ir.Set.target(step))) |id| {
+                const target = ir.Set.target(step);
+                if (self.ctx.symbols.items[id].decl_pos == target.src.pos) {
+                    try self.errAt(target, "a `while` step runs after the body, so it cannot declare `{s}`; declare it before the loop", .{self.text(target)});
+                }
+            };
+            const mark = self.ctx.diagnostics.items.len;
             try self.checkStepUses(cond, step);
-            if (rig.isConditionJoin(cond)) try self.checkJoinedStep(cond, step);
+            if (rig.isConditionJoin(cond) and self.ctx.diagnostics.items.len == mark) try self.checkJoinedStep(cond, step);
         }
         try self.checkStmt(ir.While.body(node));
         self.scope = prev;
