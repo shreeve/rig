@@ -3354,6 +3354,14 @@ pub const Emitter = struct {
         const obj = ir.Member.object(sexp);
         const field = self.srcText(ir.Member.name(sexp));
         const obj_ty = self.typeOf(obj);
+        // `U8.max`, `F64.min`: a number type's limit.
+        if (sema.intLimit(self.sema, sexp)) |limit| return self.emitIntConstant(sexp, limit.v);
+        if (obj == .src and self.sema.symbolOf(obj) == null and resolve.isNumericTypeName(self.srcText(obj))) if (self.typeOf(sexp)) |t| {
+            try self.writeAsOpen(t);
+            try self.w.writeAll(if (std.mem.eql(u8, field, "min")) "-std.math.floatMax(" else "std.math.floatMax(");
+            try self.emitTypeTy(t);
+            return self.w.writeAll("))");
+        };
         // `Shape.dot` of an enum with payloads names the tag; the value
         // is the union holding it.
         if (obj_ty == null and self.isTypeCallee(obj)) if (self.typeOf(sexp)) |t| if (self.hasPayloadVariants(t)) {

@@ -475,6 +475,10 @@ tab	here it's raw: \n
 | `String` | `[]const u8` | `&'static str` |
 | `Void` | `void` | `()` |
 
+`T.min` and `T.max` are a number type's limits, constants of it:
+`U8.max` is Zig's `std.math.maxInt(u8)` and Rust's `u8::MAX`, and
+`F64.min` is `-F64.max`, like Rust's `f64::MIN`.
+
 There are no implicit numeric conversions. A literal adapts to the type
 its context expects and must fit it. Convert explicitly by calling the
 type: `I32(x)`, `Float(n)`, `Int(f)`. A conversion is checked: a value

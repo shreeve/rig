@@ -2998,8 +2998,20 @@ const Checker = struct {
         const pos = srcPos(field_node, self.startOf(obj));
 
         if (try self.moduleMember(obj, field, pos)) |ty| return ty;
+        if (obj == .src and self.lookupQuiet(obj) == null and resolve.isNumericTypeName(self.text(obj))) return self.numberLimit(obj, field, pos);
         if (try self.namedType(obj)) |nt| return self.typeMember(nt, field, pos);
         return self.memberOf(e, obj, try self.synthOperand(obj));
+    }
+
+    /// `U8.max`, `Int.min`, `F64.max`: the greatest or least value of a
+    /// number type, a constant of it. A float's least is the most
+    /// negative finite value.
+    fn numberLimit(self: *Checker, obj: Sexp, field: []const u8, pos: u32) Error!TypeId {
+        var r = self.resolver();
+        const ty = try r.resolveType(obj);
+        if (std.mem.eql(u8, field, "min") or std.mem.eql(u8, field, "max")) return ty;
+        try self.err(pos, "a number type has no member `{s}`; its limits are `{s}.min` and `{s}.max`", .{ field, self.text(obj), self.text(obj) });
+        return self.t().invalid_id;
     }
 
     /// Member `e` of `obj`, a value of type `obj_ty`.
@@ -5140,7 +5152,7 @@ const Checker = struct {
                             break :blk foreign.kind == .nominal_type;
                         }
                         if (obj != .src) break :blk false;
-                        const id = self.lookupQuiet(obj) orelse break :blk false;
+                        const id = self.lookupQuiet(obj) orelse break :blk resolve.isNumericTypeName(self.text(obj));
                         const sym = self.ctx.symbols.items[id];
                         if (sym.kind != .module) break :blk sym.kind == .nominal_type;
                         // An imported module's constant.

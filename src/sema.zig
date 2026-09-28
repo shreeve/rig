@@ -3540,7 +3540,10 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
         },
         .list => {
             const h = e.kind() orelse return .not_constant;
-            if (h == .member) return if (names.member(e)) |t| .{ .value = t } else .not_constant;
+            if (h == .member) {
+                if (intLimit(ctx, e)) |t| return .{ .value = t };
+                return if (names.member(e)) |t| .{ .value = t } else .not_constant;
+            }
             if (h == .neg) {
                 const a = switch (ctFoldBy(ctx, ir.Neg.operand(e), names)) {
                     .value => |t| t,
@@ -3608,6 +3611,32 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
         },
         else => return .not_constant,
     }
+}
+
+/// The integer type a built-in type name spells (`Int`, `U8`, `I128`),
+/// or null.
+pub fn intTypeNamed(name: []const u8) ?IntInfo {
+    if (std.mem.eql(u8, name, "Int")) return .{};
+    if (name.len < 2 or (name[0] != 'I' and name[0] != 'U') or name[1] == '0') return null;
+    const bits = std.fmt.parseInt(u8, name[1..], 10) catch return null;
+    return switch (bits) {
+        8, 16, 32, 128 => .{ .bits = bits, .signed = name[0] == 'I' },
+        64 => if (name[0] == 'I') .{} else .{ .bits = 64, .signed = false },
+        else => null,
+    };
+}
+
+/// `U8.max`, `Int.min`: an integer type's limit, a constant of it.
+/// Null for anything else, and where the type's name is shadowed.
+pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
+    const obj = ir.Member.object(e);
+    if (obj != .src or ctx.symbolOf(obj) != null) return null;
+    const info = intTypeNamed(identAt(ctx.source, obj) orelse return null) orelse return null;
+    const field = identAt(ctx.source, ir.Member.name(e)) orelse return null;
+    const r = intRange(info);
+    if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };
+    if (std.mem.eql(u8, field, "max")) return .{ .v = r.max, .int = info };
+    return null;
 }
 
 /// `v` wrapped into integer type `info`: its low bits, read as the
