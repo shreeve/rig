@@ -1,0 +1,11 @@
+# A write borrow is written against its operand: `!n`.
+
+sub bump(n: !Int)
+  n += 1
+
+sub main()
+  n = 1
+  bump(! n)
+  print(n)
+
+# error: 8:8: a prefix `!` touches its operand: write `!n`

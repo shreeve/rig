@@ -24,7 +24,7 @@
 #   * classifies the characters that several forms share by position,
 #     never by spacing: after a value one continues it, as an infix
 #     operator or a suffix; anywhere else it starts an operand, as a
-#     prefix.
+#     prefix, which must touch its operand.
 #
 #       <x +x ?x !x *x ~x -x         ownership sigils / negation
 #       |+a, b|  ||  *|a|            closure bar list (vs bitwise `|`)

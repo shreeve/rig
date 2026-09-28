@@ -1,0 +1,10 @@
+# Rig has no `<-`: `a <- b` is `a <` and then a `-` that does not touch
+# its operand. `a < -b` compares with a negation.
+
+sub main()
+  a = 1
+  b = 2
+  print(a < -b)
+  print(a <- b)
+
+# error: 8:12: a prefix `-` touches its operand: write `-b`

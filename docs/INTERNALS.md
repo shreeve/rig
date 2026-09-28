@@ -121,7 +121,10 @@ knows the token before and can look ahead on the line, resolves them
 and hands the parser distinct tokens. Whitespace inside an expression
 decides none of them: a character several forms share is read by
 position. After a value (a name, a literal, `)`, `]`, or a `?` / `!`
-suffix) it continues the value; anywhere else it starts an operand.
+suffix) it continues the value; anywhere else it starts an operand. A
+prefix sigil (`<` `+` `-` `*` `?` `!` `~`) must touch its operand, or
+the lexer rejects it (`detached_prefix`), so no spacing reads as
+another form: `a <- b` is an error, not `a < -b`.
 
 | Source | Tokens | Rule |
 |---|---|---|

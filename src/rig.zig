@@ -283,7 +283,7 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //   its open blocks end there.
 //
 // Position
-//   Whitespace inside an expression means nothing. A character that
+//   Whitespace inside an expression never picks a form. A character that
 //   several forms share is read by where it stands: after a value (a
 //   name, a literal, `)`, `]`, or a `?` / `!` suffix) it continues that
 //   value, as an infix operator or a suffix; anywhere else it starts an
@@ -306,6 +306,9 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //
 //   `-x` at the start of a statement (or a match arm) that is nothing
 //   but `-name` is a drop; otherwise `-x` is negation.
+//
+//   A prefix sigil touches its operand: `- b` and `< x` are errors, so
+//   `a <- b` is not quietly `a < -b`.
 //
 //   Token boundaries still matter, as in `!=` and `==`: `=!` is one
 //   token, so `x =!y` could be a fixed binding of `y` or `x = !y`; a
@@ -409,6 +412,7 @@ pub const Lexer = struct {
         bad_number,
         too_long,
         ambiguous_fixed,
+        detached_prefix,
         semicolon,
 
         pub fn message(e: LexError) []const u8 {
@@ -423,6 +427,7 @@ pub const Lexer = struct {
                 .bad_number => "malformed number; `_` may separate digits, and a space or an operator ends a number",
                 .too_long => "token is longer than 65535 bytes",
                 .ambiguous_fixed => "`=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` for a write borrow",
+                .detached_prefix => "a prefix sigil touches its operand",
                 .semicolon => "unexpected `;`",
                 .tab_indent => "tab in indentation; indent with spaces",
                 .bad_dedent => "indentation does not match any enclosing block",
@@ -724,6 +729,13 @@ pub const Lexer = struct {
             .err => return self.lexError(tok),
             else => tok.cat,
         };
+        // A prefix sigil touches its operand (`-b`, `<x`, `*T`).
+        const prefix = switch (out.cat) {
+            .move_pfx, .clone_pfx, .minus_prefix, .drop_stmt, .share_pfx, .read_pfx, .write_pfx => true,
+            .tilde => !after_value,
+            else => false,
+        };
+        if (prefix and isSpace(self.charAfter(tok))) return self.fail(.detached_prefix, tok.pos);
         switch (out.cat) {
             .@"if", .@"while", .@"for" => self.takes_else[self.depth] = true,
             else => {},
@@ -1016,6 +1028,14 @@ fn isOperandStart(c: u8) bool {
     };
 }
 
+/// Whitespace, or the end of the line or source, after a token.
+fn isSpace(c: u8) bool {
+    return switch (c) {
+        ' ', '\t', '\r', '\n', '\\', '#', 0 => true,
+        else => false,
+    };
+}
+
 fn isIdentStart(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_';
 }
@@ -1111,6 +1131,7 @@ pub const Parser = struct {
         const message: []const u8 = switch (tok.cat) {
             .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = switch (lexer.err) {
                 .semicolon => self.semicolonMessage(tok),
+                .detached_prefix => self.detachedPrefix(tok),
                 else => lexer.err.message(),
             } },
             .eof, .outdent => blk: {
@@ -1230,6 +1251,23 @@ pub const Parser = struct {
             return "a slice or array type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead";
         }
         return null;
+    }
+
+    /// A prefix sigil with whitespace after it (`- b`): named with the
+    /// operand it should touch.
+    fn detachedPrefix(self: *Parser, tok: Token) []const u8 {
+        const src = self.base.source;
+        var probe = BaseLexer.init(src);
+        probe.pos = tok.pos + 1;
+        const next = while (true) {
+            const t = probe.matchRules();
+            if (t.cat != .skip and t.cat != .comment) break t;
+        };
+        const operand = switch (next.cat) {
+            .ident, .integer, .real, .string_sq, .string_dq => src[next.pos .. next.pos + next.len],
+            else => "x",
+        };
+        return self.format("a prefix `{c}` touches its operand: write `{c}{s}`", .{ src[tok.pos], src[tok.pos], operand });
     }
 
     /// A `;`, which Rig does not take: one ending a statement, Rust's
@@ -1703,15 +1741,17 @@ test "keywords are reserved; `new` only at statement start" {
     try expectCats("p = Point.new(1)", &.{ .ident, .assign, .ident, .dot, .ident, .lparen_call, .integer, .rparen });
 }
 
-test "position, not spacing, decides prefix vs infix" {
+test "position decides prefix vs infix; a prefix touches its operand" {
     for ([_][]const u8{ "a < b", "a<b", "a <b", "a< b" }) |src| try expectCats(src, &.{ .ident, .lt, .ident });
     for ([_][]const u8{ "a - 1", "a-1", "a -1" }) |src| try expectCats(src, &.{ .ident, .minus, .integer });
-    try expectCats("x = < y", &.{ .ident, .assign, .move_pfx, .ident });
+    try expectCats("x = <y", &.{ .ident, .assign, .move_pfx, .ident });
+    // A prefix sigil touches its operand.
+    try expectCats("x = < y", &.{ .ident, .assign, .err });
     try expectCats("a * b a *b", &.{ .ident, .star, .ident, .ident, .star, .ident });
     try expectCats("x = *b", &.{ .ident, .assign, .share_pfx, .ident });
     try expectCats("a | b | c", &.{ .ident, .bar, .ident, .bar, .ident });
     try expectCats("f = |a, +b| a", &.{ .ident, .assign, .bar_capture, .ident, .comma, .clone_pfx, .ident, .bar_capture, .ident });
-    try expectCats("f = | a , + b | a", &.{ .ident, .assign, .bar_capture, .ident, .comma, .clone_pfx, .ident, .bar_capture, .ident });
+    try expectCats("f = | +b , a | a", &.{ .ident, .assign, .bar_capture, .clone_pfx, .ident, .comma, .ident, .bar_capture, .ident });
     try expectCats("f(x) f (x) (x)", &.{ .ident, .lparen_call, .ident, .rparen, .ident, .lparen_call, .ident, .rparen, .lparen_call, .ident, .rparen });
     try expectCats("x = (y)", &.{ .ident, .assign, .lparen, .ident, .rparen });
     try expectCats("a[i] f [1]", &.{ .ident, .lbracket_index, .ident, .rbracket, .ident, .lbracket_index, .integer, .rbracket });
@@ -1719,7 +1759,7 @@ test "position, not spacing, decides prefix vs infix" {
     try expectCats("a.b f .c", &.{ .ident, .dot, .ident, .ident, .dot, .ident });
     try expectCats("return .red", &.{ .@"return", .dot_lit, .ident });
     try expectCats("T? x! T ? x !", &.{ .ident, .suffix_q, .ident, .suffix_bang, .ident, .suffix_q, .ident, .suffix_bang });
-    try expectCats("f(! x, ? y)", &.{ .ident, .lparen_call, .write_pfx, .ident, .comma, .read_pfx, .ident, .rparen });
+    try expectCats("f(!x, ?y)", &.{ .ident, .lparen_call, .write_pfx, .ident, .comma, .read_pfx, .ident, .rparen });
     // A sigil after a literal's or type's `]` starts its element type.
     try expectCats("[]*T", &.{ .lbracket, .rbracket, .share_pfx, .ident });
     try expectCats("x: [2]?T", &.{ .ident, .colon, .lbracket, .integer, .rbracket, .read_pfx, .ident });
@@ -1738,7 +1778,7 @@ test "minus: infix, negation, drop" {
     try expectCats("a - b", &.{ .ident, .minus, .ident });
     try expectCats("a -b", &.{ .ident, .minus, .ident });
     try expectCats("-x", &.{ .drop_stmt, .ident });
-    try expectCats("- x", &.{ .drop_stmt, .ident });
+    try expectCats("- x", &.{.err});
     try expectCats("-x + 1", &.{ .minus_prefix, .ident, .plus, .integer });
     try expectCats("y = -x", &.{ .ident, .assign, .minus_prefix, .ident });
 }

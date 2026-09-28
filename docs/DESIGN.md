@@ -453,7 +453,8 @@ tree by tag. The grammar has no LALR conflicts; the context-sensitive
 decisions (a sigil or an operator by its position, ternary versus
 guard, closure bars) are made in a small lexer rewriter that sees the
 token before and can look ahead on the line. Whitespace inside an
-expression decides none of them. Lisp's influence on Rig is this IR,
+expression decides none of them, and a prefix sigil touches its
+operand, so a spacing can be wrong but never mean something else. Lisp's influence on Rig is this IR,
 not its syntax.
 
 ### Substrate, not a reactive framework

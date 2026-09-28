@@ -673,9 +673,9 @@ repeats it:
 ### Calls
 
 Every call has parentheses, wherever it stands, as in Rust and Zig:
-`print(x)`, `x = twice(5)`, `!v.push(3)`. Whitespace inside an
-expression means nothing ([§9](#9-operators)), so `twice (5)` is
-`twice(5)`, and Ruby's `x = twice 5` does not parse.
+`print(x)`, `x = twice(5)`, `!v.push(3)`. Spacing never turns one
+form into another ([§9](#9-operators)), so `twice (5)` is `twice(5)`,
+and Ruby's `x = twice 5` does not parse.
 
 ```rig
 fun add(a: Int, b: Int) -> Int
@@ -771,7 +771,9 @@ From lowest to highest precedence:
 
 The characters `<` `+` `-` `*` `?` `!` `|` are both operators and
 prefix sigils, and `(`, `[`, `.` both continue a value and start a new
-one. Whitespace never decides which: a character's position does.
+one. Whitespace never decides which: a character's position does. A
+prefix sigil touches its operand (`-b`, `<x`, `*T`); `- b` is rejected,
+while an infix operator takes any spacing.
 
 > After a value (a name, a literal, `)`, `]`, or a `?` / `!` suffix), a
 > character continues that value: an infix operator, a suffix, a call,
@@ -3467,9 +3469,10 @@ method call onto the place, giving the tree of `(!v).push(x)`
   function returns `T!`.
 - `.{ .x = 1 }` is `P(x: 1)`: constructors name the type and every
   field.
-- Whitespace inside an expression means nothing; position does. `-`
-  after a value subtracts (`a -1` is `a - 1`), and at the start of an
-  operand negates or, as a whole statement (`-x`), drops.
+- Spacing never picks between an operator and a sigil; position does.
+  `-` after a value subtracts (`a -1` is `a - 1`), and at the start of
+  an operand negates or, as a whole statement (`-x`), drops; a prefix
+  sigil touches its operand, so `- x` is rejected.
 - A function with no parameters needs no `()` in its declaration,
   `sub greet`, but a call still does, `greet()`. So does a call with
   compile-time arguments only: `sub show[n: Int]` is called

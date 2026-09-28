@@ -1,8 +1,9 @@
-# Whitespace inside an expression means nothing: a character that
+# Whitespace around an infix operator means nothing: a character that
 # several forms share is read by position. After a value it continues
 # the value (an infix operator, a call, an index, a member, a suffix);
-# anywhere else it starts an operand (a prefix sigil, grouping, an array
-# literal, an enum literal, a closure's bar list).
+# anywhere else it starts an operand (a prefix sigil, which touches its
+# operand, grouping, an array literal, an enum literal, a closure's bar
+# list).
 
 N = 4
 
@@ -37,14 +38,14 @@ sub main()
   w = Wrap [Int](v: 3)
   print(w.get (), w . get(), w .get())
   c: Color = . green
-  print(c, c == .green, - a, -a)
+  print(c, c == .green, -a, 0 - a)
   s: [N -1]Int = [N - 1 of 0]
   print(s, s.len)
   v = Vec[Int]()
-  ! v.push (1)
+  !v.push (1)
   !v .push(2)
   print(v.len, v [0])
-  f = | + b , x : Int | x + b
+  f = | +b , x : Int | x + b
   print(f(1), half(8), half(-1))
   print(a | b, a|b, a & b)
 

@@ -212,10 +212,11 @@ single: "no escapes\n" double: 'x'	y
 
 ### Prefixes and infix operators
 
-Whitespace inside an expression means nothing: `a - 1`, `a -1`, and
-`a-1` are one subtraction. Several characters are both operators and
-prefixes: `<` `+` `-` `*` `?` `!` `|`. Which one a character is depends
-on where it stands, and the same holds for `(`, `[`, and `.`:
+Whitespace around an infix operator means nothing: `a - 1`, `a -1`,
+and `a-1` are one subtraction. Several characters are both operators
+and prefixes: `<` `+` `-` `*` `?` `!` `|`. Which one a character is
+depends on where it stands, never on spacing, and the same holds for
+`(`, `[`, and `.`:
 
 > After a value (a name, a literal, `)`, `]`, or a `?` or `!` suffix),
 > a character continues that value: it is an infix operator, a suffix,
@@ -232,6 +233,22 @@ on where it stands, and the same holds for `(`, `[`, and `.`:
 | `(x)`, `[1, 2]`, `.red` | grouping, an array literal, an enum literal |
 | `f()!`, `x?` | propagate a failure ([§14](#14-errors)) or `none` ([§13](#13-optionals)) |
 | `a \| b` vs `\|x\| x + 1` | bitwise or, and a closure's bar list ([§12](#12-closures)) |
+
+A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) touches its operand, in an
+expression and in a type: `-b`, `<x`, `*T`. One with whitespace after
+it is rejected, so `a <- b`, which Rig does not have, is not quietly
+`a < -b`:
+
+```rig reject
+sub main
+  a = 1
+  b = 2
+  print(a <- b)
+```
+
+```error
+a prefix `-` touches its operand: write `-b`
+```
 
 A sigil after the `]` of an array or slice type starts its element
 type: in `[2]?Int`, the `?` borrows each element.
