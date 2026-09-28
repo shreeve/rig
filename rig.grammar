@@ -388,7 +388,7 @@ tokens
 
 @errors
     stmt: "a statement", block: "an indented block", type: "a type"
-    expr: "an expression", tail: "an expression", rhs: "an expression"
+    expr: "an expression", tail: "an expression"
     value: "a value"
     field: "a parameter", member: "a member"
     pattern: "a pattern", arm: "a match arm", params: "a parameter list"
@@ -421,22 +421,22 @@ stmt     = use
 # A compound assignment's `op` is the tag its operator names (`+=`).
 simple   = tail
          | assign
-         | target:postfix "=!"  value:rhs           → (set op:fixed)
-         | target:name ":" type:type "="  value:rhs  → (set)
-         | target:name ":" type:type "=!" value:rhs  → (set op:fixed)
-         | NEW target:name "=" value:rhs            → (set op:shadow)
+         | target:postfix "=!"  value:tail          → (set op:fixed)
+         | target:name ":" type:type "="  value:tail → (set)
+         | target:name ":" type:type "=!" value:tail → (set op:fixed)
+         | NEW target:name "=" value:tail           → (set op:shadow)
          | DROP_STMT name:name                      → (drop)
-         | RETURN [value:rhs]                       → (return)
-         | BREAK [":" label:name] [value:rhs]       → (break)
+         | RETURN [value:tail]                      → (return)
+         | BREAK [":" label:name] [value:tail]      → (break)
          | CONTINUE [":" label:name]                → (continue)
          | DEFER body:(block | simple)              → (defer)
          | ERRDEFER body:(block | simple)           → (errdefer)
          | RAW body:block                           → (raw_block)
 
-assign   = target:postfix "="   value:rhs           → (set)
+assign   = target:postfix "="   value:tail          → (set)
          | target:postfix
            op:("+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%=" | "*%=" | "&=" | "|=" | "^=" | "<<=" | ">>=")
-           value:rhs                                → (set)
+           value:tail                               → (set)
 
 # ==============================================================================
 # DECLARATIONS
@@ -448,10 +448,10 @@ decl     = defn
 
 # A public module-level constant, `pub LIMIT = 4`. A `=!` parses too, so
 # that the Parser wrapper can say a module-level binding needs none.
-const    = target:name "="  value:rhs               → (set)
-         | target:name ":" type:type "="  value:rhs  → (set)
-         | target:name "=!" value:rhs               → (set op:fixed)
-         | target:name ":" type:type "=!" value:rhs  → (set op:fixed)
+const    = target:name "="  value:tail              → (set)
+         | target:name ":" type:type "="  value:tail → (set)
+         | target:name "=!" value:tail              → (set op:fixed)
+         | target:name ":" type:type "=!" value:tail → (set op:fixed)
 
 defn     = fun | sub | enum | struct | errors | typedef | test
 
@@ -512,19 +512,7 @@ member   = field
          | fun
          | sub
          | DROP params:params body:block            → (drop_decl)  # `drop(!self)`
-         | PUB decl:pubmem                          → (pub)        # `pub len: Int`
-
-# A member other modules may use: a field or a method. A variant or a
-# `drop` body parses too, so that the Parser wrapper can say it takes no
-# `pub`.
-pubmem   = name:fname ":" type:type                 → (:)
-         | name:fname ":" type:type "=" value:expr  → (default)
-         | fun
-         | sub
-         | name
-         | name:name "=" value:expr                 → (valued)
-         | name:name params:params                  → (variant)
-         | DROP params:params body:block            → (drop_decl)
+         | PUB decl:member                          → (pub)        # `pub len: Int`
 
 test     = TEST name:(STRING_DQ | STRING_SQ) body:block → (test)
 
@@ -626,16 +614,13 @@ cunit    = INTEGER
 # ==============================================================================
 #
 #   tail    an expression, or a closure whose body is an assignment: a
-#           statement or a match arm.
-#   rhs     the same: the right side of a binding, `return` and `break`.
+#           statement, a match arm, and the right side of a binding,
+#           `return`, and `break`.
 #   expr    anything that yields a value, including block forms.
 #   value   an expression without a block or closure: conditions, sources,
 #           subjects, operands, ternary branches.
 
 tail     = expr
-         | cclosure
-
-rhs      = expr
          | cclosure
 
 expr     = value

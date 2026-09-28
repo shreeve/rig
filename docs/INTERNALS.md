@@ -161,9 +161,8 @@ The grammar's own shape settles the rest:
 | a name in an array size or a type's compile-time argument: a type or a value | a bare name, integer, or `module.NAME` is one rule (`dim`, `targ`); arithmetic there is `cexp`, which has at least one operator, so it never overlaps a type. The checker reads a bare name by the slot it fills |
 
 Grammar shapes worth knowing: `tail` is an expression or a closure
-whose body is an assignment, and is what a statement or a match arm
-holds; `rhs` is the same, the right side of a binding, `return`, and
-`break`; `expr` adds block
+whose body is an assignment, and is what a statement, a match arm, the
+right side of a binding, `return`, and `break` hold; `expr` adds block
 forms to `value`, an expression without blocks or closures (conditions,
 `for` sources, `match` subjects, operands, ternary branches).
 
@@ -208,8 +207,8 @@ that need to inspect the tree:
 - `pub` on a field or method is taken off: the member list holds the
   member itself, as every pass reads it, and the wrapper records its
   node id (`Parser.isPubMember`), which the resolver copies into the
-  member's `Field.is_pub`; `pub` on a variant or a `drop` body is an
-  error;
+  member's `Field.is_pub`; `pub` on an enum's variant, a `drop` body,
+  or another `pub` is an error;
 - a module-level binding, written `name = value`, is a constant: its
   `set` gets the `fixed` op, and a module-level `=!` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a
@@ -1075,7 +1074,8 @@ green.
 ## Nexus notes
 
 - An `L(X)` list followed by its own separator is a shift/reduce
-  conflict (`L(expr) "," cmd`: another `, expr` or the `, cmd`?), so
+  conflict (`L(expr) "," cclosure`: another `, expr` or the
+  `, cclosure`?), so
   lists followed by a comma and something else are written as
   left-recursive rules (`exprs`, `callargs`), which shift the comma
   and decide by what follows it.

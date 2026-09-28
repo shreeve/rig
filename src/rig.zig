@@ -329,8 +329,8 @@ pub const Lexer = struct {
     /// continue (it has a block `if`, `while`, or `for`). An `else` after
     /// any other block (a match arm) is a new line.
     takes_else: [max_indent_depth + 1]bool = @splat(false),
-    /// Per depth: the block is the member list of a struct, enum, error
-    /// set, or generic type, where a keyword may name a field or method.
+    /// Per depth: the block is the member list of a struct, enum, or
+    /// error set, where a keyword may name a field or method.
     in_members: [max_indent_depth + 1]bool = @splat(false),
     /// The first token of the current line, after any `pub`.
     line_head: TokenCat = .eof,
@@ -619,7 +619,7 @@ pub const Lexer = struct {
             self.column = width;
             self.takes_else[self.depth] = false;
             self.in_members[self.depth] = switch (self.line_head) {
-                .@"struct", .@"enum", .@"error", .type => true,
+                .@"struct", .@"enum", .@"error" => true,
                 else => false,
             };
             return synthetic(.indent, pos);
@@ -1219,7 +1219,7 @@ pub const Parser = struct {
         switch (tok.cat) {
             .lparen => {
                 if (word.len == 0) return null;
-                if (decl_kw) |kw| if (kw[0] == 'e' or kw[1] == 't') return self.format("type parameters go in brackets: `{s} {s}[T]`", .{ kw, word });
+                if (decl_kw) |kw| if (!std.mem.eql(u8, kw, "fun") and !std.mem.eql(u8, kw, "sub")) return self.format("type parameters go in brackets: `{s} {s}[T]`", .{ kw, word });
                 if (std.ascii.isUpper(word[0])) return self.format("type arguments go in brackets: `{s}[...]`", .{word});
                 return null;
             },
@@ -1350,20 +1350,12 @@ pub const Parser = struct {
     /// `@display` and `@errors` names, distinct), or null when it names
     /// more than a few things.
     fn expectedHint(self: *Parser) ?[]const u8 {
-        var buf: [4096]u8 = undefined;
-        var w = std.Io.Writer.fixed(&buf);
-        self.base.writeError(&w) catch return null;
-        // `line:col: expected A, B or C, got D`
-        const text = w.buffered();
-        const from = (std.mem.indexOf(u8, text, ": expected ") orelse return null) + ": expected ".len;
-        const to = std.mem.lastIndexOf(u8, text, ", got ") orelse return null;
+        const failure = self.base.lastError() orelse return null;
         var names: [max_expected][]const u8 = undefined;
         var count: usize = 0;
-        var rest = text[from..to];
-        while (rest.len > 0) {
-            const cut = std.mem.indexOf(u8, rest, ", ") orelse std.mem.indexOf(u8, rest, " or ") orelse rest.len;
-            const name = rest[0..cut];
-            rest = if (cut == rest.len) "" else rest[cut + (if (rest[cut] == ',') @as(usize, 2) else 4) ..];
+        for (BaseParser.expected(failure.state)) |sym| {
+            const name = BaseParser.symbolText(sym);
+            if (name.len == 0) continue;
             for (names[0..count]) |n| {
                 if (std.mem.eql(u8, n, name)) break;
             } else {
@@ -1375,7 +1367,7 @@ pub const Parser = struct {
         if (count == 0) return null;
         var out: std.Io.Writer.Allocating = .init(self.allocator());
         for (names[0..count], 0..) |n, i| {
-            if (i > 0) out.writer.writeAll(if (i + 1 == count) " or " else ", ") catch return null;
+            out.writer.writeAll(if (i == 0) "" else if (i + 1 == count) " or " else ", ") catch return null;
             out.writer.writeAll(n) catch return null;
         }
         return out.written();
@@ -1485,11 +1477,12 @@ pub const Parser = struct {
         for (@constCast(ir.rest(node, .members))) |*m| {
             if (!m.isKind(.@"pub")) continue;
             const inner = ir.Pub.decl(m.*);
-            // In a struct, a variant's shape is left for the checker to
-            // reject.
+            // A bare name is a variant; in a struct, the checker rejects
+            // it, and any other member that is not a field or method.
             switch (inner.kind() orelse .variant) {
                 .@":", .default, .fun, .sub => {},
                 .drop_decl => self.reject(m.*, "a `drop` body is never called by name, so it takes no `pub`"),
+                .@"pub" => self.reject(inner, "`pub` is written once"),
                 else => if (is_enum) self.reject(m.*, "an enum's variants are always public; remove the `pub`"),
             }
             if (inner == .list) try self.pub_members.put(self.allocator(), inner.list.id, {});
