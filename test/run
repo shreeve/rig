@@ -258,10 +258,10 @@ check_ir() {
     return $ok
 }
 
-worker() {
+worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
     local id=$1 path=$2
     local res="$RESULTS/st/${id//\//__}"
-    local log="$RESULTS/log/${id//\//__}" outdir="$OUTROOT/$id"
+    local log="$RESULTS/log/${id//\//__}" outdir="$OUTROOT/$3"
     local entry=$path
     [[ -d "$path" ]] && entry="$path/main.rig"
     REASON=""
@@ -307,7 +307,7 @@ worker() {
 }
 
 if [[ "${1:-}" == "--worker" ]]; then
-    worker "$2" "$3"
+    worker "$2" "$3" "$4"
     # Whole seconds since this worker started, to schedule the next run.
     printf '%s\t%s\n' "$2" "$SECONDS" >>"$RESULTS/durations"
     exit 0
@@ -418,7 +418,9 @@ selected() {
 # plus examples/, test/ir/, test/torture/.
 LIST="$WORK/list"
 : >"$LIST"
-add() { selected "$1" && printf '%s\t%s\n' "$1" "$2" >>"$LIST"; }
+add() { # add <id> <path> [<output directory>]: the directory defaults to the id
+    selected "$1" && printf '%s\t%s\t%s\n' "$1" "$2" "${3:-$1}" >>"$LIST"
+}
 for kind in behavior reject known; do
     for p in test/$kind/*/*; do
         [[ -e "$p" ]] || continue
@@ -514,8 +516,19 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
 }
 for md in *.md docs/*.md examples/*.md test/*.md; do
     [[ -e "$md" ]] || continue
-    while IFS=$'\t' read -r id dir; do add "$id" "$dir"; done < <(extract_docs "$md" "$WORK/doc")
-done
+    extract_docs "$md" "$WORK/doc"
+done >"$WORK/docs"
+# A doc example's output directory is named by a checksum of its text,
+# not by its line, so an edit that moves it keeps its build cache.
+# Identical examples in one file get a suffix each.
+if [[ -s "$WORK/docs" ]]; then
+    cut -f2 "$WORK/docs" | while IFS= read -r dir; do printf '%s\0' "$dir/main.rig"; done |
+        xargs -0 cksum | cut -d' ' -f1 >"$WORK/docs.sum"
+    paste "$WORK/docs" "$WORK/docs.sum" | awk -F'\t' -v OFS='\t' '
+        { key = $1; sub(/[^\/]*$/, $3, key); if (n[key]++) key = key "-" n[key]; print $1, $2, key }
+    ' >"$WORK/docs.keyed"
+    while IFS=$'\t' read -r id dir key; do add "$id" "$dir" "$key"; done <"$WORK/docs.keyed"
+fi
 
 # Whole-program checks run alongside the per-file tests.
 UNIT_LOG="$WORK/unit.log" UNIT_PID=""
@@ -547,6 +560,31 @@ if [[ -n "$DUPLICATES" ]]; then
     exit 1
 fi
 
+# A full run removes the output directories of tests that are gone (and
+# of doc examples whose text changed), keeping the rest and their build
+# caches. Only the directories of test kinds are touched.
+if [[ ${#FILTERS[@]} -eq 0 ]]; then
+    find "$OUTROOT" -mindepth 1 -maxdepth 3 | awk -F'\t' -v root="$OUTROOT/" '
+        FILENAME == ARGV[1] {
+            keep[$3] = 1
+            n = split($3, p, "/"); pre = p[1]
+            for (i = 1; i < n; i++) { dir[pre] = 1; pre = pre "/" p[i + 1] }
+            next
+        }
+        {
+            rel = substr($0, length(root) + 1)
+            if (rel !~ /^(behavior|reject|known|examples|ir|torture|cli|doc)(\/|$)/) next
+            n = split(rel, p, "/"); pre = p[1]; inside = 0
+            for (i = 1; i < n; i++) { if (pre in keep || pre in gone) inside = 1; pre = pre "/" p[i + 1] }
+            if (inside || rel in keep || rel in dir) next
+            base = rel; sub(/\.(stdout|stderr|diff)$/, "", base)
+            if (base in keep) next
+            gone[rel] = 1
+            print
+        }
+    ' "$LIST" - | tr '\n' '\0' | xargs -0 rm -rf
+fi
+
 # Longest first, by each test's time in the last run that ran it, so the
 # run does not end waiting on one long test while the other jobs sit
 # idle. A test with no recorded time is guessed by kind: a CLI script
@@ -559,15 +597,15 @@ awk -F'\t' -v OFS='\t' '
 ' "$DURATIONS" "$LIST" | sort -t$'\t' -k1,1nr -k2,2n | cut -f3- >"$LIST.sorted"
 
 printf '%srunning %s tests (-j %s)%s\n' "$D" "$TOTAL" "$JOBS" "$X"
-while IFS=$'\t' read -r id path; do printf '%s\0%s\0' "$id" "$path"; done <"$LIST.sorted" |
-    xargs -0 -n 2 -P "$JOBS" "$SELF" --worker
+while IFS=$'\t' read -r id path key; do printf '%s\0%s\0%s\0' "$id" "$path" "$key"; done <"$LIST.sorted" |
+    xargs -0 -n 3 -P "$JOBS" "$SELF" --worker
 # Keep the times of the tests this run did not select.
 [[ -f "$RESULTS/durations" ]] &&
     awk -F'\t' 'FILENAME == ARGV[1] { ran[$1] = 1; print; next } !($1 in ran)' \
         "$RESULTS/durations" "$DURATIONS" >"$DURATIONS.new" &&
     mv "$DURATIONS.new" "$DURATIONS"
 # A worker that died left no result.
-while IFS=$'\t' read -r id path; do
+while IFS=$'\t' read -r id _; do
     [[ -f "$RESULTS/st/${id//\//__}" ]] || printf 'fail\t%s\tno result: the test runner died\n' "$id" >"$RESULTS/st/${id//\//__}"
 done <"$LIST"
 

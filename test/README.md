@@ -131,7 +131,10 @@ outside `known/` describe current behavior only.
 `.zig-cache/rig-test/<id>/`, or `$RIG_TEST_OUT/<id>/` (a CLI test's
 scratch directory is its `work/` subdirectory), so emitted code for a
 failing test can be inspected there, and repeated runs hit Zig's build
-cache. One run at a time uses an output directory; a second run waits
+cache. A doc example's directory is `doc/<file>/<checksum>/`, named by
+its text rather than its line, so an edit that moves it keeps its cache.
+A run with no filter removes the directories of tests that no longer
+exist. One run at a time uses an output directory; a second run waits
 for the first, unless `RIG_TEST_OUT` gives it a directory of its own.
 
 The output directory's `.durations` file records how long each test
