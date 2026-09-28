@@ -117,6 +117,9 @@ const Checker = struct {
     /// The argument being checked, when the call keeps no borrow of its
     /// arguments: a temporary array there may be lent as a `[]T`.
     lent_temp: Sexp = .nil,
+    /// The argument being checked, when the call's result keeps no
+    /// borrow of its arguments: a borrow of a temporary may be lent there.
+    lent_borrow: Sexp = .nil,
     /// The argument being checked, where a closure literal may be lent
     /// as a borrowed callable, and the call when its result could hold
     /// the literal instead.
@@ -1528,7 +1531,11 @@ const Checker = struct {
         const subject = ir.Match.subject(node);
         const mode: MatchMode = if (subject.isKind(.write)) .write else if (subject.isKind(.move)) .consume else .read;
         // `<e` names the value it moves; a temporary is checked as one.
+        // A borrowed temporary lives as long as the match.
+        const saved_borrow = self.lent_borrow;
+        self.lent_borrow = subject;
         var scrutinee = if (mode == .consume) try self.synthExpr(subject) else try self.synthOperand(subject);
+        self.lent_borrow = saved_borrow;
         const scrut_pos = self.startOf(subject);
         // `match <e` takes the fields of a value `e` owns.
         if (mode == .consume) if (self.ctx.typeOf(ir.Move.operand(subject))) |held| switch (self.ctx.types.get(held)) {
@@ -2789,6 +2796,10 @@ const Checker = struct {
                 return self.t().invalid_id;
             }
         }
+        if (kind == .read and !sameNode(e, self.lent_borrow) and self.isTemporary(operand)) {
+            try self.errAt(e, "a borrow of a temporary lives only for the call it is lent to; bind the value to a name first", .{});
+            return self.t().invalid_id;
+        }
         switch (self.ctx.types.get(inner)) {
             .borrow_read => {
                 if (kind == .read) return inner;
@@ -2808,6 +2819,20 @@ const Checker = struct {
         if (e != .src) return false;
         const id = self.ctx.symbolOf(e) orelse return false;
         return self.ctx.symbols.items[id].flags.closure;
+    }
+
+    /// A value no binding holds, or a part of one: a borrow of it lives
+    /// only until the end of its statement.
+    fn isTemporary(self: *Checker, e: Sexp) bool {
+        var p = e;
+        while (p.kind()) |k| switch (k) {
+            .member => p = ir.Member.object(p),
+            .index => p = ir.Index.object(p),
+            else => break,
+        };
+        if (p == .src) return self.ctx.symbolOf(p) == null;
+        const ty = self.ctx.typeOf(p) orelse return false;
+        return !isBorrow(self.ctx, ty);
     }
 
     /// A named binding, or a field or element of one or of what a write
@@ -4314,7 +4339,8 @@ const Checker = struct {
     /// that uses keywords or defaults records its argument slots.
     fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info: ParamInfo, callee: []const u8, pos: u32) Error!void {
         const call = self.current_call;
-        const lends = self.lend_call and !self.callRetains(f, self.lend_recv);
+        const retains = self.callRetains(f, self.lend_recv);
+        const lends = self.lend_call and !retains;
         self.lend_call = false;
         self.lend_recv = null;
         var first_kw: ?usize = null;
@@ -4351,7 +4377,7 @@ const Checker = struct {
         @memset(slots, null);
         for (positional, 0..) |a, i| {
             slots[i] = .{ .arg = @intCast(i) };
-            try self.checkArg(a, f, i, lends);
+            try self.checkArg(a, f, i, lends, retains);
         }
         for (keyword, positional.len..) |kw, ai| {
             const kname_node = ir.Kwarg.name(kw);
@@ -4369,7 +4395,7 @@ const Checker = struct {
                 continue;
             }
             slots[idx] = .{ .arg = @intCast(ai) };
-            try self.checkArg(ir.Kwarg.value(kw), f, idx, lends);
+            try self.checkArg(ir.Kwarg.value(kw), f, idx, lends, retains);
         }
         var complete = true;
         for (slots, 0..) |*slot, i| {
@@ -4389,16 +4415,19 @@ const Checker = struct {
         try self.ctx.recordCallSlots(call_node, out);
     }
 
-    fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, lends: bool) Error!void {
+    fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, lends: bool, retains: bool) Error!void {
         const saved = self.lent_temp;
+        const saved_borrow = self.lent_borrow;
         const saved_callable = self.lent_callable;
         const saved_kept = self.callable_kept;
         defer {
             self.lent_temp = saved;
+            self.lent_borrow = saved_borrow;
             self.lent_callable = saved_callable;
             self.callable_kept = saved_kept;
         }
         self.lent_temp = if (lends) arg else .nil;
+        self.lent_borrow = if (retains) .nil else arg;
         // A closure literal lives for the call, so the call's result may
         // not hold it.
         const kept = sema.holdsCallable(self.ctx, f.returns);
