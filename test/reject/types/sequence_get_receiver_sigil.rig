@@ -1,0 +1,13 @@
+# `get` on a String or an array only reads its receiver, so a `!` or a
+# `<` before the receiver is rejected, as for a Vec.
+
+sub main
+  s = "hello"
+  a = [1, 2, 3]
+  print(!s.get(4))
+  print(!a.get(1))
+  print(<a.get(0))
+
+# error: 7:9: `get` does not write its receiver; drop the `!`
+# error: 8:9: `get` does not write its receiver
+# error: 9:9: `get` does not consume its receiver; drop the `<`

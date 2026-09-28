@@ -1,5 +1,6 @@
 # `!` before a method call write-borrows the receiver, so a method that
-# only reads it is the habit of `!` as negation: use `not`.
+# only reads it is the habit of `!` as negation: use `not`, or drop the
+# `!` when the method returns no `Bool`.
 
 struct Queue
   items: Vec[Int]
@@ -16,6 +17,6 @@ sub main
     break
   print(!q.peek() ?? 0)
 
-# error: 13:6: `is_empty` does not write its receiver; for negation use `not`
-# error: 15:9: `is_empty` does not write its receiver; for negation use `not`
-# error: 17:9: `peek` does not write its receiver; for negation use `not`
+# error: 14:6: `is_empty` does not write its receiver; for negation use `not`
+# error: 16:9: `is_empty` does not write its receiver; for negation use `not`
+# error: 18:9: `peek` does not write its receiver; drop the `!`

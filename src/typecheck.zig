@@ -5593,7 +5593,10 @@ const Checker = struct {
             if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "changes a Cell through any path to it");
             return ty;
         };
-        if (resolved_method == null and std.mem.eql(u8, method, "get")) if (try self.sequenceGet(obj_ty, pos, args)) |ty| return ty;
+        if (resolved_method == null and std.mem.eql(u8, method, "get")) if (try self.sequenceGet(obj_ty, pos, args)) |ty| {
+            _ = try self.checkReceiverSigil(obj, .read, ty, method);
+            return ty;
+        };
 
         const resolved = resolved_method orelse {
             // A data field holding a function or a closure handle is
@@ -6187,7 +6190,9 @@ const Checker = struct {
                 if (value != self.t().bool_id or !self.startsNegationOperand(recv)) return false;
                 try self.errAt(recv, "a write-borrowing call that returns `Bool` is written `(!{s}).{s}(...)`, so it is never read as negation", .{ name, method });
             },
-            else => try self.errAt(recv, "`{s}` does not write its receiver; for negation use `not`", .{method}),
+            else => if (returns == self.t().bool_id) {
+                try self.errAt(recv, "`{s}` does not write its receiver; for negation use `not`", .{method});
+            } else try self.errAt(recv, "`{s}` does not write its receiver; drop the `!`", .{method}),
         } else switch (mode) {
             .value => return false,
             .write => try self.errAt(recv, "`{s}` does not consume its receiver; it writes it: `!{s}.{s}(...)`, and its result needs no `<`", .{ method, name, method }),
