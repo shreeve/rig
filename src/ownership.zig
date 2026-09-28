@@ -1611,7 +1611,7 @@ pub const Checker = struct {
     }
 
     fn walkBorrow(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
-        if (rig.isRangeIndex(inner)) return self.walkSlice(inner, kind);
+        if (rig.isRangeIndex(inner)) return self.walkElems(inner, ir.Index.object(inner), kind);
         // An element of a read-only `[]T` is in memory the slice views,
         // not the var holding it: the borrow keeps what the slice keeps.
         if (kind == .read and self.throughReadSlice(inner)) return self.walkBorrowedPath(inner);
@@ -1647,18 +1647,6 @@ pub const Checker = struct {
         return try self.reborrow(id, loan);
     }
 
-    /// `?xs[a..b]` / `!xs[a..b]`. A slice of a String or a `[]T` views
-    /// what that value views. A slice of a Vec borrows the Vec, whose
-    /// buffer it points into, and one of a `![]T` borrows the `![]T`, as
-    /// a borrow of a borrow does. A slice of an array held in the storage
-    /// of the var it is reached from, which may be a copy (a borrowed
-    /// parameter, a read borrow of plain data, a loop or pattern
-    /// binding), also holds a frame loan on that var, so it cannot
-    /// outlive it.
-    fn walkSlice(self: *Checker, slice: Sexp, kind: LoanKind) Error!Value {
-        return self.walkElems(slice, ir.Index.object(slice), kind);
-    }
-
     /// `?a` / `!a` of an array lent as a slice.
     fn isArrayView(self: *const Checker, e: Sexp) bool {
         const ctx = self.sema orelse return false;
@@ -1666,7 +1654,14 @@ pub const Checker = struct {
     }
 
     /// A borrow of the elements of `object`: `slice` is a slice of it
-    /// (`?xs[a..b]`), or a borrow of the whole array lent as one (`?a`).
+    /// (`?xs[a..b]`, `!xs[a..b]`), or a borrow of the whole array lent as
+    /// one (`?a`). A slice of a String or a `[]T` views what that value
+    /// views. A slice of a Vec borrows the Vec, whose buffer it points
+    /// into, and one of a `![]T` borrows the `![]T`, as a borrow of a
+    /// borrow does. A slice of an array held in the storage of the var it
+    /// is reached from, which may be a copy (a borrowed parameter, a read
+    /// borrow of plain data, a loop or pattern binding), also holds a
+    /// frame loan on that var, so it cannot outlive it.
     fn walkElems(self: *Checker, slice: Sexp, object: Sexp, kind: LoanKind) Error!Value {
         // The place's own indexes, and a slice's bounds.
         const indices = if (rig.isRangeIndex(slice)) slice else object;
@@ -3302,7 +3297,7 @@ pub const Checker = struct {
             try self.walkConditionParts(spec.cond.?, spec.body);
             exit = try self.leaveTo(ctx.point);
         } else {
-            if (spec.cond) |c| _ = try self.walkStmtValue(c, null);
+            if (spec.cond) |c| try self.walkStmt(c);
             if (!spec.cond_always_true) exit = try self.capture(ctx.point);
         }
         try self.pushScopeFor(.block, spec.body);
