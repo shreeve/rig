@@ -1,0 +1,18 @@
+# Assigning a `for x in !arr` element stores into `arr`, which outlives
+# a borrow of a local of the loop body.
+
+struct Tok
+  n: Int
+
+struct View
+  b: ?Tok
+
+sub main
+  x = Tok(n: 1)
+  arr = [View(b: ?x), View(b: ?x)]
+  for vw in !arr
+    y = Tok(n: 2)
+    vw = View(b: ?y)
+  print(arr[0].b.n)
+
+# error: 15:5: cannot store a borrow of `y` through `vw`: `vw` borrows `arr`, which outlives it

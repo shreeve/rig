@@ -2315,7 +2315,10 @@ pub const Checker = struct {
             if (!try self.checkLive(id, pos)) return;
             if (self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value);
             for (value.loans) |l| if (self.isLocalLoan(l)) {
-                try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: the caller's value outlives it", .{ self.vars.items[l.root].name, v.name });
+                const stored = self.vars.items[l.root].name;
+                if (self.borrowedRoot(id)) |root| {
+                    try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: `{s}` borrows `{s}`, which outlives it", .{ stored, v.name, v.name, self.vars.items[root].name });
+                } else try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: the caller's value outlives it", .{ stored, v.name });
                 return;
             };
             return;
