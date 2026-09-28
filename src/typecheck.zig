@@ -936,9 +936,7 @@ const Checker = struct {
         // `module.name`: a binding of an imported module.
         if (sym.kind == .module) {
             const leaf = self.text(ir.Member.name(path.module_member orelse return true));
-            const origin = self.ctx.module_refs.get(id) orelse return true;
-            const foreign = self.ctx.foreign_semas.get(origin) orelse return true;
-            sym = foreign.symbols.items[foreign.lookupInScopeOnly(sema.module_scope, leaf) orelse return true];
+            sym = (self.foreignLookup(id, leaf) orelse return true).sym;
             name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(root), leaf });
         }
         _ = try self.checkSymbolWritable(if (sym.kind == .module) null else id, sym, name, pos, verb);
@@ -3107,6 +3105,7 @@ const Checker = struct {
     /// The number type `obj` names: a built-in one (`U8`), or an alias
     /// of one (`type Byte = U8`); null for anything else.
     fn numberType(self: *Checker, obj: Sexp) Error!?TypeId {
+        if (obj.isKind(.member)) return self.importedNumberAlias(obj);
         if (obj != .src) return null;
         const id = self.lookupQuiet(obj) orelse {
             if (!resolve.isNumericTypeName(self.text(obj))) return null;
@@ -3117,6 +3116,18 @@ const Checker = struct {
         if (sym.kind != .type_alias or !sema.isNumeric(self.ctx, sym.ty)) return null;
         try self.ctx.recordName(obj, id);
         return sym.ty;
+    }
+
+    /// `module.Byte` for an imported alias of a number type, whose limits
+    /// are not reached through the module: an error naming the type.
+    fn importedNumberAlias(self: *Checker, obj: Sexp) Error!?TypeId {
+        const module_sym = (try self.moduleNamed(ir.Member.object(obj))) orelse return null;
+        const name = ir.Member.name(obj);
+        const found = self.foreignLookup(module_sym, self.text(name)) orelse return null;
+        if (found.sym.kind != .type_alias or !sema.isNumeric(found.ctx, found.sym.ty)) return null;
+        const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
+        try self.errAt(obj, "an imported alias does not name its limits; write `{s}.min` or `{s}.max`, or alias the type in this module", .{ try self.tyName(ty), try self.tyName(ty) });
+        return self.t().invalid_id;
     }
 
     /// Member `e` of `obj`, a value of type `obj_ty`.
@@ -3263,7 +3274,7 @@ const Checker = struct {
     fn moduleMember(self: *Checker, obj: Sexp, field: []const u8, pos: u32) Error!?TypeId {
         const id = (try self.moduleNamed(obj)) orelse return null;
         const found = (try self.foreignSymbol(id, field, pos)) orelse return self.t().invalid_id;
-        if (found.sym.kind == .nominal_type or found.sym.kind == .generic_type) {
+        if (found.sym.kind == .nominal_type or found.sym.kind == .generic_type or found.sym.kind == .type_alias) {
             try self.err(pos, "`{s}.{s}` is a type, not a value", .{ self.text(obj), field });
             return self.t().invalid_id;
         }
@@ -3305,7 +3316,7 @@ const Checker = struct {
         if (!obj.isKind(.member)) return null;
         const id = (try self.moduleNamed(ir.Member.object(obj))) orelse return null;
         const name = ir.Member.name(obj);
-        const found = (try self.foreignSymbol(id, self.text(name), name.src.pos)) orelse return null;
+        const found = foreignAliased((try self.foreignSymbol(id, self.text(name), name.src.pos)) orelse return null);
         if (found.sym.kind == .generic_type) return try self.foreignGeneric(found);
         if (found.sym.kind != .nominal_type) return null;
         return .{ .id = found.id, .sym = found.sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
@@ -3443,12 +3454,9 @@ const Checker = struct {
         const inner = ir.Member.object(obj);
         const name = self.text(ir.Member.name(obj));
         if (inner == .src) if (self.lookupQuiet(inner)) |id| if (self.ctx.symbols.items[id].kind == .module) {
-            const origin = self.ctx.module_refs.get(id) orelse return null;
-            const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-            const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse return null;
-            const fsym = foreign.symbols.items[fid];
-            return switch (fsym.kind) {
-                .function, .@"extern" => .{ .function = fnTarget(foreign, fsym.ty) },
+            const f = self.foreignLookup(id, name) orelse return null;
+            return switch (f.sym.kind) {
+                .function, .@"extern" => .{ .function = fnTarget(f.ctx, f.sym.ty) },
                 .nominal_type, .type_alias => .{ .not_generic = try self.sourceText(obj) },
                 .generic_type => blk: {
                     try self.ctx.recordName(inner, id);
@@ -3675,6 +3683,25 @@ const Checker = struct {
         sym: sema.Symbol,
     };
 
+    /// The struct or enum an imported alias names, when it is declared
+    /// beside the alias: the alias is that type in every role.
+    fn foreignAliased(found: Foreign) Foreign {
+        if (found.sym.kind != .type_alias) return found;
+        const target = switch (found.ctx.types.get(found.sym.ty)) {
+            .nominal => |target| target,
+            else => return found,
+        };
+        return .{ .ctx = found.ctx, .module_id = found.module_id, .id = target, .sym = found.ctx.symbols.items[target] };
+    }
+
+    /// A module-level symbol of an imported module, public or not.
+    fn foreignLookup(self: *Checker, module_sym: SymbolId, name: []const u8) ?Foreign {
+        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
+        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
+        const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse return null;
+        return .{ .ctx = foreign, .module_id = origin, .id = fid, .sym = foreign.symbols.items[fid] };
+    }
+
     /// A public module-level symbol of an imported module.
     fn foreignSymbol(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32) Error!?Foreign {
         const module_name = self.ctx.symbols.items[module_sym].name;
@@ -3682,17 +3709,16 @@ const Checker = struct {
             try self.err(pos, "module `{s}` was not loaded", .{module_name});
             return null;
         };
-        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
+        if (self.ctx.foreign_semas.get(origin) == null) return null;
+        const found = self.foreignLookup(module_sym, name) orelse {
             try self.err(pos, "no member `{s}` in module `{s}`", .{ name, module_name });
             return null;
         };
-        const fsym = foreign.symbols.items[fid];
-        if (!fsym.flags.is_public and fsym.decl_pos != sema.builtin_decl_pos) {
+        if (!found.sym.flags.is_public and found.sym.decl_pos != sema.builtin_decl_pos) {
             try self.err(pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, name, module_name });
             return null;
         }
-        return .{ .ctx = foreign, .module_id = origin, .id = fid, .sym = fsym };
+        return found;
     }
 
     fn synthIndex(self: *Checker, e: Sexp) Error!TypeId {
@@ -5265,10 +5291,7 @@ const Checker = struct {
         if (m != .src) return null;
         const id = self.lookupQuiet(m) orelse return null;
         if (self.ctx.symbols.items[id].kind != .module) return null;
-        const origin = self.ctx.module_refs.get(id) orelse return null;
-        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        const member = foreign.lookupInScopeOnly(sema.module_scope, self.text(ir.Member.name(e))) orelse return null;
-        return foreign.symbols.items[member];
+        return (self.foreignLookup(id, self.text(ir.Member.name(e))) orelse return null).sym;
     }
 
     /// Arithmetic whose operands are each known at compile time.
@@ -6017,7 +6040,7 @@ const Checker = struct {
     /// `module.function(args)` or `module.Type(fields)`.
     fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const module_name = self.ctx.symbols.items[module_sym].name;
-        const found = (try self.foreignSymbol(module_sym, name, pos)) orelse return self.skipCall(args);
+        const found = foreignAliased((try self.foreignSymbol(module_sym, name, pos)) orelse return self.skipCall(args));
         const qualified = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ module_name, name });
         switch (found.sym.kind) {
             .function, .@"extern" => {
