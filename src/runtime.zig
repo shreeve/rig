@@ -417,9 +417,17 @@ pub fn isNone(value: anytype) bool {
 
 /// `xs.get(i)` on an array (or a pointer to one), a slice, or a String:
 /// the element at `i`, or null when out of range.
-pub fn elementAt(items: anytype, i: Int) ?@TypeOf(items[0]) {
+pub fn elementAt(items: anytype, i: Int) ?ElementOf(@TypeOf(items)) {
     const idx = std.math.cast(usize, i) orelse return null;
     return if (idx < items.len) items[idx] else null;
+}
+
+/// The element type of an array, a pointer to one, or a slice.
+fn ElementOf(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| if (p.size == .one) std.meta.Elem(p.child) else p.child,
+        else => std.meta.Elem(T),
+    };
 }
 
 /// Drop a value nothing keeps: `_ = e`, `as _`, a match payload dropped

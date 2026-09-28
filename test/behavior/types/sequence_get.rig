@@ -33,6 +33,8 @@ sub main
   print(g.cells.get(2), g.cells.get(3) == none)
   words = ["one", "two"]
   print(words.get(1) ?? "?", words.get(2) ?? "?")
+  none_yet: [0]Int = []
+  print(none_yet.get(0), "".get(0))
 
 # expect:
 # 20 none none 10
@@ -41,3 +43,4 @@ sub main
 # 7
 # 9 true
 # two ?
+# none none
