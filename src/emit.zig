@@ -1008,9 +1008,10 @@ pub const Emitter = struct {
                 return self.w.writeAll(");");
             };
             // A named place is discarded by address: it may be used
-            // elsewhere, and Zig rejects discarding a used name.
+            // elsewhere, and Zig rejects discarding a used name. (A
+            // clone or move of a value that owns nothing is a copy.)
             var place = expr;
-            if (place.isKind(.read) or place.isKind(.write)) place = ir.get(place, .operand);
+            if (place.isKind(.read) or place.isKind(.write) or place.isKind(.clone) or place.isKind(.move)) place = ir.get(place, .operand);
             if (isPlace(place) and !place.isKind(.index)) {
                 try self.w.writeAll("_ = &");
                 try self.emitPlace(place);

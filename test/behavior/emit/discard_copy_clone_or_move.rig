@@ -1,0 +1,22 @@
+# Discarding a clone or move of a value that owns nothing copies it and
+# throws the copy away; the name stays usable (a moved one once it is
+# assigned again).
+
+struct P
+  n: Int
+
+sub main()
+  x = 1
+  _ = +x
+  s = "a"
+  _ = +s
+  p = P(n: 2)
+  _ = +p.n
+  _ = +p
+  y = 3
+  _ = <y
+  y = 4
+  print(x, s, p.n, y)
+
+# expect:
+# 1 a 2 4
