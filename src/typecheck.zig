@@ -574,6 +574,17 @@ const Checker = struct {
                     self.loop_label = label;
                     return self.checkStmt(inner);
                 }
+                // Only a loop, a `match`, or a `raw` block has a use for a
+                // label; the statement is still checked as if it took one.
+                if (!inner.isKind(.match) and !inner.isKind(.raw_block)) {
+                    const prefix = "a label names a loop, `match`, or `raw` block that `break` or `continue` can leave";
+                    switch (inner.kind() orelse .labeled) {
+                        .@"if" => try self.errAt(stmt, "{s}; `:{s}` cannot label an `if`", .{ prefix, label }),
+                        .@"defer" => try self.errAt(stmt, "{s}; `:{s}` cannot label a `defer`", .{ prefix, label }),
+                        .@"errdefer" => try self.errAt(stmt, "{s}; `:{s}` cannot label an `errdefer`", .{ prefix, label }),
+                        else => try self.errAt(stmt, "{s}; `:{s}` on this statement would do nothing", .{ prefix, label }),
+                    }
+                }
                 var frame: LoopFrame = .{ .label = label, .is_loop = false, .parent = self.body.loops };
                 self.body.loops = &frame;
                 defer self.body.loops = frame.parent;

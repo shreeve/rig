@@ -1558,8 +1558,9 @@ pub const Emitter = struct {
         try self.w.writeAll(" }");
     }
 
-    /// `(labeled name stmt)`: a labeled loop, or any other statement,
-    /// which `break :name` leaves as it leaves a labeled block.
+    /// `(labeled name stmt)`: a labeled loop, or a labeled `match` or
+    /// `raw` block, which `break :name` leaves as it leaves a Zig
+    /// labeled block.
     fn emitLabeled(self: *Emitter, sexp: Sexp) Error!void {
         const stmt = ir.Labeled.stmt(sexp);
         const label = self.srcText(ir.Labeled.label(sexp));

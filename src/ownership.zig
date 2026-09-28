@@ -3224,8 +3224,8 @@ pub const Checker = struct {
         return self.walkLoop(spec);
     }
 
-    /// `(labeled name stmt)`: a labeled loop, or a labeled block that
-    /// `break :name` leaves.
+    /// `(labeled name stmt)`: a labeled loop, or a labeled `match` or
+    /// `raw` block, which `break :name` leaves.
     fn walkLabeled(self: *Checker, node: Sexp) Error!Value {
         const label = self.text(ir.Labeled.label(node));
         const stmt = ir.Labeled.stmt(node);

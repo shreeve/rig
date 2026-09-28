@@ -1,0 +1,11 @@
+# A `defer` takes no label: nothing can jump out of it by name.
+
+sub main
+  :d defer print("done")
+  :e defer
+    print("block")
+  print("body")
+
+# error: 4:3: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `:d` cannot label a `defer`
+# error: 5:3: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `:e` cannot label a `defer`
+# errors: 2

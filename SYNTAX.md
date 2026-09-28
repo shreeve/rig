@@ -757,7 +757,7 @@ A statement is one of:
 - `defer` or `errdefer` with a statement or block (a one-line
   statement may not declare a name);
 - a `raw` block ([SPEC §15](SPEC.md#15-raw-code-and-ffi));
-- a labeled statement, `:name stmt`.
+- a labeled loop, `match`, or `raw` block, `:name stmt`.
 
 ### if
 
@@ -904,7 +904,8 @@ rules. An `else` block runs when the loop ends without `break`.
 
 `:name` before a loop labels it, and `break :name` or `continue :name`
 names it from an inner loop. A `match` or `raw` statement may be
-labeled too, and `break :name` leaves it. A jump after `??` or `catch`
+labeled too, and `break :name` leaves it; no other statement takes a
+label. A jump after `??` or `catch`
 names a label the same way, `v = next() ?? continue :outer`, except in a
 `while` header, where the first `:` starts the step.
 
@@ -1397,8 +1398,9 @@ is generated from. `[x]` is optional, `x*` repeats, `x, ...` is a
 comma-separated list (which may end with a comma), `tail-closure` is a
 closure whose body assigns, and `INDENT` / `DEDENT` are the block
 structure. The checker narrows a few forms the grammar accepts: a `fun`
-needs `->`, a `drop` body takes `!self`, and a module-level binding
-takes no `=!`.
+needs `->`, a `drop` body takes `!self`, a module-level binding
+takes no `=!`, and a label goes only on a loop, `match`, or `raw`
+block.
 
 ```text
 program   = decl*

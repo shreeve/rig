@@ -383,6 +383,9 @@ A few kinds serve more than one surface form:
 - `(pass)`, the statement `pass`, has no roles. The checker rejects it
   where a value is needed, and the emitter writes it as `{}`, an empty
   Zig block, which is a statement wherever Zig takes one.
+- `(labeled name stmt)` wraps any statement in the grammar; the
+  checker accepts a label only on a loop, a `match`, or a `raw` block,
+  the statements a `break` or `continue` can name.
 - `lambda`'s `captures` is a `(captures cap...)` node the Parser wrapper
   builds from the bar list (the one `@wrapper` kind), or `_`.
 - `weak` is both `~x` and the type `~T`; `member` is both `a.b` and the
