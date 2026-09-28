@@ -64,9 +64,13 @@ const SymbolResolver = struct {
                 for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walk(c);
             },
             .@"pub" => {
-                const before = self.ctx.symbols.items.len;
-                try self.walk(ir.Pub.decl(sexp));
-                if (self.ctx.symbols.items.len > before) self.ctx.symbols.items[before].flags.is_public = true;
+                const decl = ir.Pub.decl(sexp);
+                try self.walk(decl);
+                // The symbol the declaration's name leaf names: a module
+                // constant's value is walked before its name is declared.
+                const kind = decl.kind() orelse return;
+                const name = if (kind == .set) ir.Set.target(decl) else if (ir.has(kind, .name)) ir.get(decl, .name) else return;
+                if (self.ctx.symbolOf(name)) |id| self.ctx.symbols.items[id].flags.is_public = true;
             },
             .fun, .sub => {
                 _ = try self.declare(ir.get(sexp, .name), .function, .{});
