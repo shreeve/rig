@@ -1,0 +1,30 @@
+# A sigil after a `]` is read by what the parser expects there, never by
+# spacing: in an expression it continues the value (`[3][0]*a` is
+# `[3][0] * a`, `[a, b][1]?` a suffix), and in a type it starts the
+# element type (`[2][3]?Int`, `[2](Int?)`, `[]?(Int?)`).
+
+fun second(a: Int?, b: Int?) -> Int?
+  x = [a, b][1]?
+  x + 1
+
+fun count(xs: []?(Int?)) -> Int
+  n = 0
+  for x in xs
+    n += 1 if x != none
+  n
+
+sub main()
+  a = 2
+  print([3][0]*a, [3][0] * a, [3][0]-a)
+  print(second(1, 2), second(1, none))
+  n = 7
+  d: [2][3]?Int = [[?n, ?n, ?n], [?n, ?n, ?n]]
+  e: [2](Int?) = [1, none]
+  f: Int? = 4
+  g: [2]?(Int?) = [?f, ?e[1]]
+  print(d[1][2], e[0], count(?g[..]))
+
+# expect:
+# 6 6 1
+# 3 none
+# 7 1 1

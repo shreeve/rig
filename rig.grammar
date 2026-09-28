@@ -21,20 +21,19 @@
 #     everywhere else;
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
 #     open range (`xs[a..]`, `xs[..]`);
-#   * classifies the characters that several forms share by position,
-#     never by spacing: after a value one continues it, as an infix
-#     operator or a suffix; anywhere else it starts an operand, as a
-#     prefix, which must touch its operand.
+#   * classifies the tokens the parser cannot tell apart by its own
+#     state, by position, never by spacing:
 #
-#       <x +x ?x !x *x ~x -x         ownership sigils / negation
 #       |+a, b|  ||  *|a|            closure bar list (vs bitwise `|`)
-#       f(x) a[i] Vec[Int]           call / index or compile-time
-#                                    arguments (vs grouping and array
-#                                    literals)
-#       .red                         enum literal (vs member access a.b)
+#       -x                           a drop, as a whole statement (vs
+#                                    negation)
 #       ?? return                    `??` before a jump (vs the operator)
-#       T? T! x! x?                  type / propagation suffixes
 #       a if c else b                ternary vs postfix guard `stmt if c`
+#
+#     A character that both starts and continues an operand (`-x` and
+#     `a - b`, `f(x)` and `(x)`, `T?` and `?T`) is one token: the parser
+#     tells the forms apart by where it stands. The rewriter only
+#     checks that a prefix sigil touches its operand.
 #
 # The grammar has no LALR conflicts; see docs/INTERNALS.md (Conflicts policy).
 # ==============================================================================
@@ -96,8 +95,7 @@ tokens
 
     # Operators
     plus            # +
-    minus           # -  infix
-    minus_prefix    # -x negation
+    minus           # -
     star            # *
     slash           # /
     percent         # %
@@ -140,15 +138,15 @@ tokens
     star_wrap_assign   # *%=
 
     # Punctuation
-    lparen          # (  grouping, or a parameter list
+    lparen          # (
     rparen          # )
-    lbracket        # [  array literal or slice/array type
+    lbracket        # [
     rbracket        # ]
     comma           # ,
     colon           # :
     arrow           # ->
     fat_arrow       # =>
-    dot             # .  member access
+    dot             # .
     dotdot          # ..
 
     # Layout (produced by the rewriter)
@@ -157,23 +155,12 @@ tokens
     newline
 
     # Rewriter-classified tokens
-    lparen_call     # (  after a value: call
-    lbracket_index  # [  after a value: index, or compile-time
-                    #    arguments and parameters
     post_if         # if  postfix guard: `stmt if cond`
     ternary_if      # if  inline ternary: `a if cond else b`
     bar_capture     # |   closure bar list delimiter: `|+a, b|`
     bar_empty       # ||  an empty closure bar list: `|| print(1)`
-    dot_lit         # .   enum literal: `.red`
     kwarg_name      # name directly followed by `:` inside ( )
-    move_pfx        # <x  move
-    clone_pfx       # +x  clone
-    read_pfx        # ?x  read borrow, ?T read-borrowed type
-    write_pfx       # !x  write borrow, !T write-borrowed type
-    share_pfx       # *x  share, *T shared type
     drop_stmt       # -x  drop, as a whole statement
-    suffix_q        # T?  optional type
-    suffix_bang     # T!  fallible type, x! propagate failure
     of              # of  after a value inside [ ]: a fill literal `[n of x]`
     dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
     nullish_jump    # ??  directly before `return`, `break`, or `continue`
@@ -379,13 +366,9 @@ tokens
     STRING_SQ: "a string", STRING_DQ: "a string"
     NEWLINE: "the end of the line", INDENT: "an indented block"
     OUTDENT: "the end of the block"
-    LPAREN_CALL: "`(`", LBRACKET_INDEX: "`[`"
-    POST_IF: "`if`", TERNARY_IF: "`if`"
-    BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`", DOT_LIT: "`.`"
-    KWARG_NAME: "a keyword argument"
-    MOVE_PFX: "`<`", CLONE_PFX: "`+`", READ_PFX: "`?`"
-    WRITE_PFX: "`!`", SHARE_PFX: "`*`", DROP_STMT: "`-`", MINUS_PREFIX: "`-`"
-    SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`", OF: "`of`", DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`"
+    POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
+    KWARG_NAME: "a keyword argument", DROP_STMT: "`-`"
+    OF: "`of`", DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -476,18 +459,16 @@ use      = USE name:name                            → (use)
 
 fun      = FUN name:name [tparams:tparams] [params:params] [returns:returns] body:block → (fun)
 sub      = SUB name:name [tparams:tparams] [params:params] body:block → (sub)
-         | SUB name:name [tparams:tparams] [params:params] SUFFIX_BANG body:block → (sub fails:fails)  # `sub save(p: Page)!`
+         | SUB name:name [tparams:tparams] [params:params] "!" body:block → (sub fails:fails)  # `sub save(p: Page)!`
 
 returns  = "->" type                                → 2
 
-params   = !lparen fields [","] ")"                 → (...2)
-         | !lparen          ")"                     → ()
-
-lparen   = LPAREN_CALL | "("
+params   = "(" fields [","] ")"                     → (...2)
+         | "(" ")"                                  → ()
 
 # Compile-time parameters, in brackets after the declared name: a bare
 # name is a type parameter, `name: Type` a compile-time value.
-tparams  = LBRACKET_INDEX tfields [","] "]"         → (...2)
+tparams  = "[" tfields [","] "]"                    → (...2)
 
 tfields  = tfield                                   → (1)
          | tfields "," tfield                       → (...1 3)
@@ -504,9 +485,9 @@ fields   = field                                    → (1)
 field    = fname
          | name:fname ":" type:type                 → (:)
          | name:fname ":" type:type "=" value:expr  → (default)
-         | READ_PFX  operand:fname                  → (read)       # `?self`
-         | WRITE_PFX operand:fname                  → (write)      # `!self`
-         | MOVE_PFX  operand:fname                  → (move)       # `<self`
+         | "?" operand:fname                        → (read)       # `?self`
+         | "!" operand:fname                        → (write)      # `!self`
+         | "<" operand:fname                        → (move)       # `<self`
 
 # Inside ( ) the rewriter turns a name followed by `:` into KWARG_NAME.
 fname    = name | KWARG_NAME
@@ -563,38 +544,31 @@ ext_sub  = EXTERN SUB name:name [params:params]     → (extern_sub)
 # slice or array takes the suffixes too (`[]Int?`), and a function type
 # takes none, so an optional of one is written in parentheses.
 
-type     = READ_PFX  type:type                      → (borrow_read)
-         | WRITE_PFX type:type                      → (borrow_write)
+type     = "?" type:type                            → (borrow_read)
+         | "!" type:type                            → (borrow_write)
          | ptype
          | tsuffix
 
 # A prefix type that takes no suffix, alone or behind handles.
-ptype    = "[" "]" type:inner                       → (slice)
-         | "[" size:dim "]" type:inner              → (array_type)
+ptype    = "[" "]" type:type                        → (slice)
+         | "[" size:dim "]" type:type               → (array_type)
          | FUN "(" [params:L(type)] ")" "->" returns:type → (fun_type)  # `fun(Int) -> Int`
          | SUB "(" [params:L(type)] ")"             → (fun_type)   # `sub(Int)`
-         | SUB "(" [params:L(type)] ")" SUFFIX_BANG → (fun_type fails:fails)  # `sub(Int)!`
-         | SHARE_PFX type:ptype                     → (shared)     # `*fun(Int) -> Int`
-         | "~"       operand:ptype                  → (weak)
+         | SUB "(" [params:L(type)] ")" "!"         → (fun_type fails:fails)  # `sub(Int)!`
+         | "*" type:ptype                           → (shared)     # `*fun(Int) -> Int`
+         | "~" operand:ptype                        → (weak)
 
-# An element type after `[]` or `[N]`. A nested prefix's `[` follows
-# the `]` before it, so the lexer marks it as an index bracket.
-inner    = type
-         | LBRACKET_INDEX "]" type:inner             → (slice)
-         | LBRACKET_INDEX size:dim "]" type:inner    → (array_type)
-
-tsuffix  = type:tsuffix SUFFIX_Q                    → (optional)
-         | type:tsuffix SUFFIX_BANG                 → (error_union)
+tsuffix  = type:tsuffix "?"                         → (optional)
+         | type:tsuffix "!"                         → (error_union)
          | thandle
 
-thandle  = SHARE_PFX type:thandle                   → (shared)
-         | "~"       operand:thandle                → (weak)
+thandle  = "*" type:thandle                         → (shared)
+         | "~" operand:thandle                      → (weak)
          | tatom
 
 tatom    = tname
-         | name:tname LBRACKET_INDEX args:types [","] "]" → (generic_inst)
+         | name:tname "[" args:types [","] "]"      → (generic_inst)
          | "(" type ")"                             → 2
-         | LPAREN_CALL type ")"                     → 2      # `[2](N?)?`: after `]`
 
 # A named type, of this module or another: `Point`, `geo.Point`. Its
 # instance names it the same way: `Wrap[Int]`, `lib.Wrap[Int]`.
@@ -611,7 +585,7 @@ types    = targ                                     → (1)
 # the parameter is one. An integer or arithmetic is always a value.
 targ     = type
          | INTEGER
-         | MINUS_PREFIX operand:INTEGER             → (neg)
+         | "-" operand:INTEGER                      → (neg)
          | "(" INTEGER ")"                          → 2
          | cexp
 
@@ -620,7 +594,7 @@ targ     = type
 # in parentheses. A negative integer parses, to be reported as out of
 # range.
 dim      = INTEGER
-         | MINUS_PREFIX operand:INTEGER             → (neg)
+         | "-" operand:INTEGER                      → (neg)
          | "(" INTEGER ")"                          → 2
          | name
          | "(" name ")"                             → 2
@@ -716,9 +690,9 @@ while    = WHILE cond:value [":" step:step] body:block [ELSE else:block] → (wh
 # call's receiver may take `?`, `!`, or `<` (see the Parser wrapper).
 step     = assign
          | postfix
-         | READ_PFX  operand:postfix                → (read)
-         | WRITE_PFX operand:postfix                → (write)
-         | MOVE_PFX  operand:postfix                → (move)
+         | "?" operand:postfix                      → (read)
+         | "!" operand:postfix                      → (write)
+         | "<" operand:postfix                      → (move)
 
 # The Parser wrapper moves a `?xs` / `!xs` / `<xs` source sigil into the
 # mode slot.
@@ -752,12 +726,12 @@ pattern  = patatom
 
 patatom  = name
          | INTEGER
-         | MINUS_PREFIX operand:INTEGER             → (neg)
+         | "-" operand:INTEGER                      → (neg)
          | TRUE
          | FALSE
-         | DOT_LIT name:name                        → (enum_lit)
-         | DOT_LIT name:name LPAREN_CALL ")"        → (variant_pattern)
-         | DOT_LIT name:name LPAREN_CALL bindings:pbinds [","] ")" → (variant_pattern)
+         | "." name:name                            → (enum_lit)
+         | "." name:name "(" ")"                    → (variant_pattern)
+         | "." name:name "(" bindings:pbinds [","] ")" → (variant_pattern)
 
 # A payload field is bound by position (`.rect(w, h)`) or, reserved for
 # the checker to reject, by name (`.rect(w: a)`). Written out rather
@@ -780,14 +754,14 @@ pbind    = name
 # captures into `(captures ...)`.
 
 closure  = lambda
-         | SHARE_PFX operand:lambda                 → (share)
+         | "*" operand:lambda                       → (share)
 
 lambda   = params:bars body:block                   → (lambda)
          | params:bars expr                         → (lambda body:(block 2))
 
 # A closure whose inline body is an assignment (`|!t, n| t += n`).
 cclosure = clambda
-         | SHARE_PFX operand:clambda                → (share)
+         | "*" operand:clambda                      → (share)
 
 clambda  = params:bars assign                       → (lambda body:(block 2))
 
@@ -799,33 +773,33 @@ barents  = barent                                   → (1)
 
 barent   = fname
          | name:fname ":" type:type                 → (:)
-         | CLONE_PFX name:name                      → (cap_clone)
-         | MOVE_PFX  name:name                      → (cap_move)
-         | "~"       name:name                      → (cap_weak)
-         | READ_PFX  name:name                      → (cap_read)
-         | WRITE_PFX name:name                      → (cap_write)
+         | "+" name:name                            → (cap_clone)
+         | "<" name:name                            → (cap_move)
+         | "~" name:name                            → (cap_weak)
+         | "?" name:name                            → (cap_read)
+         | "!" name:name                            → (cap_write)
 
 
 # ==============================================================================
 # OPERANDS
 # ==============================================================================
 
-unary    = MINUS_PREFIX operand:unary               → (neg)
-         | MOVE_PFX  operand:unary                  → (move)
-         | CLONE_PFX operand:unary                  → (clone)
-         | READ_PFX  operand:unary                  → (read)
-         | WRITE_PFX operand:unary                  → (write)
-         | SHARE_PFX operand:unary                  → (share)
-         | "~"       operand:unary                  → (weak)
+unary    = "-" operand:unary                        → (neg)
+         | "<" operand:unary                        → (move)
+         | "+" operand:unary                        → (clone)
+         | "?" operand:unary                        → (read)
+         | "!" operand:unary                        → (write)
+         | "*" operand:unary                        → (share)
+         | "~" operand:unary                        → (weak)
          | postfix
 
 postfix  = object:postfix "." name:name             → (member)
-         | object:postfix LBRACKET_INDEX index:expr "]" → (index)
-         | object:postfix LBRACKET_INDEX index:open "]" → (index)
-         | object:postfix LBRACKET_INDEX args:targs "]" → (inst)
-         | callee:postfix LPAREN_CALL args:args ")" → (call)
-         | value:postfix SUFFIX_BANG                → (propagate)
-         | value:postfix SUFFIX_Q                   → (propagate_none)
+         | object:postfix "[" index:expr "]"        → (index)
+         | object:postfix "[" index:open "]"        → (index)
+         | object:postfix "[" args:targs "]"        → (inst)
+         | callee:postfix "(" args:args ")"         → (call)
+         | value:postfix "!"                        → (propagate)
+         | value:postfix "?"                        → (propagate_none)
          | atom
 
 # A slice's open range: `xs[a..]`, `xs[..b]`, `xs[..]`. The rewriter
@@ -862,8 +836,8 @@ atom     = name
          | STRING_DQ
          | TRUE
          | FALSE
-         | DOT_LIT name:name                        → (enum_lit)
-         | "@" name:name LPAREN_CALL args:args ")"  → (builtin)
+         | "." name:name                            → (enum_lit)
+         | "@" name:name "(" args:args ")"          → (builtin)
          | "[" [elems:exprs] "]"                    → (array)
          | "[" elems:exprs "," "]"                  → (array)
          | "[" size:expr OF value:expr "]"          → (array_fill)  # `[n of 0]`

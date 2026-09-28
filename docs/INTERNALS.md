@@ -116,23 +116,29 @@ generation on any conflict the grammar does not declare, so a new
 conflict is a deliberate decision: it goes in an `@conflicts` entry
 with its rationale, and is justified here.
 
-The ambiguities in Rig's surface are real; the lexer rewriter, which
-knows the token before and can look ahead on the line, resolves them
-and hands the parser distinct tokens. Whitespace inside an expression
-decides none of them: a character several forms share is read by
-position. After a value (a name, a literal, `)`, `]`, or a `?` / `!`
-suffix) it continues the value; anywhere else it starts an operand. A
-prefix sigil (`<` `+` `-` `*` `?` `!` `~`) must touch its operand, or
-the lexer rejects it (`detached_prefix`), so no spacing reads as
-another form: `a <- b` is an error, not `a < -b`.
+A character that both starts and continues an operand is one token,
+and the parser tells the forms apart by its own state: `<x` and
+`a < b`, `-x` and `a - b`, `*x` and `a * b`, `?x` and `T?`, `!x` and
+`x!`, `(x)` and `f(x)`, `[1]` and `a[i]`, `.red` and `a.b`. With no
+juxtaposition in the grammar (a call takes parentheses), what stands
+before the character decides, so `[3][0]*a` is a product and `[2]*T`
+an array of handles, whatever the spacing.
+
+The ambiguities the parser cannot settle by its state, the lexer
+rewriter, which knows the token before and can look ahead on the line,
+resolves, handing the parser distinct tokens. Whitespace inside an
+expression decides none of them. The lexer still reads position for its
+own rules: after a value (a name, a literal, `)`, `]`, or a `?` / `!`
+suffix) a character continues the value; anywhere else it starts an
+operand. A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) must touch its
+operand, or the lexer rejects it (`detached_prefix`), so no spacing
+reads as another form: `a <- b` is an error, not `a < -b`. After a
+type's `]` (`[2]?Int`) the lexer cannot tell a prefix from a suffix, so
+the Parser wrapper checks the touch on the type's node.
 
 | Source | Tokens | Rule |
 |---|---|---|
-| `f(x)`, `a[i]` vs `(x)`, `[1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | after a value, a call or an index; in a type, an `LBRACKET_INDEX` after `[N]` or `[]` starts the element's own prefix (`[2][3]Int`), and an `LPAREN_CALL` a parenthesized element (`[2](Int?)?`) |
-| `a.b` vs `.red` | `.` vs `DOT_LIT` | after a value, member access |
-| `a - b`, `a -b` vs `-x` | `MINUS` vs `MINUS_PREFIX` / `DROP_STMT` | after a value, infix; otherwise a prefix, and `-name` as a whole statement is a drop |
-| `<x +x *x ?x !x` | `MOVE_PFX` ... `WRITE_PFX` | the same rule; a sigil after the `]` of an array literal or a type's `[N]` / `[]` (not an index's) starts an element type, `[2]?Int` |
-| `T?`, `T!`, `f()!`, `f()?` | `SUFFIX_Q`, `SUFFIX_BANG` | after a value |
+| `-x` vs `a - b`, `-x + 1` | `DROP_STMT` vs `-` | `-name` as a whole statement (a line, after `=>`, `defer`, or `errdefer`, or after a label) is a drop |
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | after a value, bitwise or; otherwise a bar list, whose closing bar is the one the opening probe found |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
