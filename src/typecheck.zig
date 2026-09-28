@@ -407,8 +407,8 @@ const Checker = struct {
         const ok = isDefaultLiteral(self.ctx.source, value) or self.isConstantDefault(value) or (field and try self.isConstructorDefault(value));
         if (!ok) {
             if (field) {
-                try self.errAt(value, "a default field value must be a literal, a module constant, or an empty or literal constructor: `Vec()`, `Cell(0)`, `[n of 0]`", .{});
-            } else try self.errAt(value, "a default parameter value must be a literal or a module constant", .{});
+                try self.errAt(value, "a default field value must be a literal, a module constant, a number type's limit, or an empty or literal constructor: `Vec()`, `Cell(0)`, `[n of 0]`", .{});
+            } else try self.errAt(value, "a default parameter value must be a literal, a module constant, or a number type's limit", .{});
             return;
         }
         try self.checkExpr(value, ty);
@@ -426,7 +426,10 @@ const Checker = struct {
         const obj = ir.Member.object(e);
         if (obj != .src) return false;
         if (self.lookupQuiet(obj)) |id| {
-            if (self.ctx.symbols.items[id].kind != .module) return false;
+            const sym = self.ctx.symbols.items[id];
+            // An integer type's alias names its limits (`Byte.max`).
+            if (sym.kind == .type_alias) return sema.intLimit(self.ctx, e) != null;
+            if (sym.kind != .module) return false;
             const foreign = self.foreignMember(e) orelse return false;
             return foreign.kind == .local and foreign.flags.fixed;
         }
