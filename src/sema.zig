@@ -1855,6 +1855,9 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!Conten
     }
     // The built-in generics are runtime types: a Vec owns its buffer and
     // a Box its value's memory, and none of them is copied like plain data.
+    // A Signal owns its subscribers too, but has no glue of its own: it
+    // lives only behind a `*` handle (typecheck rejects one held by
+    // value), whose release drops it.
     if (id == ctx.vec_sym_id or id == ctx.box_sym_id) c.glue = true;
     if (id == ctx.vec_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -1969,7 +1972,7 @@ fn cellEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayLis
         .imported_nominal => (nominalDecl(ctx, ty) orelse return false).symbol().contents.cell,
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.cell_sym_id) break :blk true;
-            if (isHeapBuiltin(ctx, pn.sym)) break :blk false;
+            if (isHeapBuiltin(ctx, pn.sym) or pn.sym == ctx.signal_sym_id) break :blk false;
             try edges.append(ctx.allocator, .{ .from = pn.sym, .to = owner });
             for (pn.args) |a| if (try cellEdges(ctx, a, owner, edges)) break :blk true;
             break :blk false;
@@ -2068,7 +2071,7 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
         .nominal, .imported_nominal => if (nominalDecl(ctx, id)) |decl| decl.symbol().contents.cell else false,
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.cell_sym_id) break :blk true;
-            if (isHeapBuiltin(ctx, pn.sym)) break :blk false;
+            if (isHeapBuiltin(ctx, pn.sym) or pn.sym == ctx.signal_sym_id) break :blk false;
             if (ctx.symbols.items[pn.sym].contents.cell) break :blk true;
             for (pn.args) |a| if (ctx.type_info.items[a].cell) break :blk true;
             break :blk false;
@@ -2196,10 +2199,11 @@ pub fn isBuiltinCallName(name: []const u8) bool {
     return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap");
 }
 
-/// A built-in generic that keeps its values on the heap: `Vec[T]`,
-/// `Box[T]`, and `Signal[T]` hold a pointer, whatever `T` is.
-pub fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.vec_sym_id or sym == ctx.box_sym_id or sym == ctx.signal_sym_id;
+/// A built-in generic that keeps its values on the heap: a `Vec[T]` and
+/// a `Box[T]` hold a pointer, whatever `T` is. (A `Cell[T]` holds its
+/// `T` inline, and a `Signal[T]` its value and a pending one.)
+fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
+    return sym == ctx.vec_sym_id or sym == ctx.box_sym_id;
 }
 
 /// The declared types a value of `ty` holds inline (not behind a handle,
@@ -2306,10 +2310,17 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk null;
             break :blk try minBytes(foreign, try foreign.intern(.{ .nominal = in.sym_id }));
         },
-        .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym) or pn.sym == ctx.cell_sym_id)
+        // A Vec is its buffer's slice and length, a Box its pointer. A
+        // Cell is its value (its one field), a Signal its value, a pending
+        // one, a flag, and a Vec of subscribers.
+        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id)
+            24
+        else if (pn.sym == ctx.box_sym_id)
             8
-        else
-            try fieldBytes(ctx, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
+        else if (pn.sym == ctx.signal_sym_id) blk: {
+            const v = (try minBytesOf(ctx, pn.args[0], false)) orelse break :blk null;
+            break :blk 2 *| v +| 2 +| 24;
+        } else try fieldBytes(ctx, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
         else => 8,
     };
     try ctx.byte_sizes.put(ctx.allocator, ty, bytes);
@@ -2765,7 +2776,7 @@ pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
 
 /// One of the built-in generic types: `Cell`, `Vec`, `Box`, `Signal`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
-    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id;
+    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id;
 }
 
 /// `unwrapReadAccess`, then through a box to the struct or enum it
