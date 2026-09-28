@@ -5321,12 +5321,18 @@ const Checker = struct {
     fn isCtArithmetic(self: *Checker, e: Sexp) bool {
         const h = e.kind() orelse return false;
         return switch (h) {
-            .neg => self.isComptimeKnown(ir.Neg.operand(e)) or self.isCtArithmetic(ir.Neg.operand(e)),
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => for ([_]Sexp{ ir.get(e, .left), ir.get(e, .right) }) |o| {
-                if (!self.isComptimeKnown(o) and !self.isCtArithmetic(o)) break false;
-            } else true,
+            .neg => self.isCtOperand(ir.Neg.operand(e)),
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => self.isCtOperand(ir.get(e, .left)) and self.isCtOperand(ir.get(e, .right)),
             else => false,
         };
+    }
+
+    /// An operand of compile-time arithmetic: a value known at compile
+    /// time, or arithmetic on such values. (Each node is classified
+    /// once: `isComptimeKnown` of arithmetic would classify it again.)
+    fn isCtOperand(self: *Checker, o: Sexp) bool {
+        if (!isArithmetic(o)) return self.isComptimeKnown(o);
+        return self.isCtArithmetic(o) or self.constInt(o) != null;
     }
 
     /// Whether `e` names a compile-time parameter or a `=!` binding in a
@@ -7504,6 +7510,16 @@ fn hasContinue(e: Sexp) bool {
 
 fn isJump(e: Sexp) bool {
     return e.isKind(.@"return") or e.isKind(.@"break") or e.isKind(.@"continue");
+}
+
+/// An arithmetic operation: unary minus or a binary arithmetic,
+/// bitwise, or shift operator.
+fn isArithmetic(e: Sexp) bool {
+    const h = e.kind() orelse return false;
+    return switch (h) {
+        .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => true,
+        else => false,
+    };
 }
 
 fn isPlaceExpr(e: Sexp) bool {
