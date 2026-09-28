@@ -1,0 +1,64 @@
+# An `errdefer` runs only when the function fails, so it may read a
+# value that the paths which succeed move on after the last failure.
+
+error E
+  bad
+
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(t: Tok)
+  print("eat", t.n)
+
+fun check(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+fun tail(k: Int) -> Int!
+  t = Tok(n: 1)
+  errdefer print("errdefer", t.n)
+  n = check(k)!
+  eat(<t)
+  n
+
+fun early(k: Int) -> Int!
+  t = Tok(n: 2)
+  errdefer print("errdefer", t.n)
+  n = check(k)!
+  eat(<t)
+  return n
+
+fun looped(k: Int) -> Int!
+  for i in 0..2
+    t = Tok(n: 3 + i)
+    errdefer print("errdefer", t.n)
+    check(k)!
+    eat(<t)
+    continue if i == 0
+    break
+  k
+
+sub main
+  print(tail(1) catch -1)
+  print(tail(0) catch -1)
+  print(early(1) catch -1)
+  print(looped(0) catch -1)
+
+# expect:
+# errdefer 1
+# drop 1
+# -1
+# eat 1
+# drop 1
+# 0
+# errdefer 2
+# drop 2
+# -1
+# eat 3
+# drop 3
+# eat 4
+# drop 4
+# 0

@@ -778,8 +778,9 @@ value is checked the same way);
 a call may store its arguments' loans into its receiver and into what
 its `!` arguments and other write borrows lead to, except a built-in
 element method (`!dst.copy(src)`) whose elements hold no borrow, which
-stores only plain elements. Assigning a local write borrow (`w = v`)
-stores `v` in what `w` borrows the same way (`storeThroughLocal`).
+stores only plain elements. Assigning a local write borrow, or a field
+or element through one (`w = v`, `w.f = v`), stores `v` in what `w`
+borrows the same way (`storeThroughLocal`).
 Cells, Signals, and
 owned closures hold no borrows (storing one there is rejected): every
 handle to one reaches what it holds, so loans kept per handle var would
@@ -823,15 +824,21 @@ conflict checks and the "does not live long enough" checks at scope ends
 and jumps skip loans whose holder is not live. This is textual, so it is
 the same on every path, and conservative where paths differ.
 
-**Control flow.** `if`, `match`, ternaries, and `catch` walk every
-branch from the same entry state and join the results: moved or dropped
-on any path means moved or dropped after, and loans are unioned. A
+**Control flow.** `if`, `match`, ternaries, `catch`, and the fallback of
+`??` walk every branch from the same entry state and join the results:
+moved or dropped on any path means moved or dropped after, and loans
+are unioned. A
 `match` scrutinee is resolved as a place (a var, or a field path in
 one), whose root stays borrowed while a payload binding views it (a
 write borrow for `match !x`, whose bindings write through like a local
 write borrow); moving a payload out of a match that reads its subject
 is rejected. `match <x` moves `x` first, and its bindings are owned
-vars holding what `x` held. Loops
+vars holding what `x` held. A guard that fails runs on the way to
+the later arms: they, and the path where no arm runs, start from the
+join of the entry state with what each failed guard left. That path,
+like the one where a part of `if a as x and ...` fails, leaves the
+scope of the bindings, so a borrow of one stored in a surviving value
+is reported as a jump out of the scope would be. Loops
 iterate to a fixpoint over the back edge: the loop-head state joins the
 entry, the end of the body, and every `continue`; the state after the
 loop joins the exit condition with every `break`. A loop's `else` is
@@ -839,10 +846,14 @@ walked after the loop, where a jump leaves the enclosing loop. The value
 of a loop used as a value is the union of its `break` values, each
 consumed like a returned value and checked not to borrow the loop's own
 vars, and its `else` value. Diagnostics are reported only on the final
-walk. `return`, `break`, and `continue` make
+walk; inside another loop's fixpoint, where nothing is reported, the
+round that settles is the final walk, so nested loops are not walked
+exponentially often. `return`, `break`, and `continue` make
 the rest of their block unreachable. A `defer` body is re-checked
 against the state at every exit of its scope, where what it reads may
 not borrow a var declared after the `defer` (dropped before it runs).
+An `errdefer` body is re-checked only at the exits that fail: a `!`,
+and a `return` or final value whose type is, or may be, an error.
 
 **Rules** (SPEC §8 states them for users): no use of a moved or dropped
 value; read loans exclude writes, moves, drops, and reassignment, and

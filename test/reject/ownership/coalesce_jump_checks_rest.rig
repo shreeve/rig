@@ -1,0 +1,47 @@
+# The jump after `??` is taken only when the value is `none`: the code
+# after it still runs, and is checked like any other.
+
+fun make(k: Int) -> Int?
+  k if k > 0 else none
+
+sub eat(v: Vec[Int])
+  print(v.len)
+
+fun ret(k: Int) -> Int
+  a: Vec[Int] = Vec()
+  n = make(k) ?? return -1
+  eat(<a)
+  eat(<a)
+  n
+
+fun borrowed(k: Int) -> Int
+  a: Vec[Int] = Vec()
+  r = ?a
+  n = make(k) ?? return -1
+  a = Vec()
+  print(r.len)
+  n
+
+sub brk
+  a: Vec[Int] = Vec()
+  while true
+    n = make(1) ?? break
+    eat(<a)
+    print(n)
+
+sub cont
+  a: Vec[Int] = Vec()
+  for k in 0..3
+    n = make(k) ?? continue
+    eat(<a)
+    print(n)
+
+sub main
+  print(ret(1), borrowed(1))
+  brk()
+  cont()
+
+# error: 14:8: use of `a` after move
+# error: 21:3: cannot reassign `a` while borrows are live
+# error: 29:10: use of `a` after move
+# error: 36:10: use of `a` after move
