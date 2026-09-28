@@ -3693,15 +3693,27 @@ pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
 }
 
 /// `U8.max`, `Int.min`: an integer type's limit, a constant of it, named
-/// through the type or an alias of it. Null for anything else.
+/// through the type or an alias of it, this module's or another's
+/// (`util.Byte.max`). Null for anything else.
 pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
     return intLimitBy(ctx, e, CheckedNames{ .ctx = ctx });
 }
 
 fn intLimitBy(ctx: *const SemContext, e: Sexp, names: anytype) ?TypedInt {
     const obj = ir.Member.object(e);
-    if (obj != .src) return null;
-    const info = if (names.symbol(obj)) |id| aliasIntType(ctx, id) orelse return null else intTypeNamed(identAt(ctx.source, obj) orelse return null) orelse return null;
+    const info = switch (obj) {
+        .src => if (names.symbol(obj)) |id| aliasIntType(ctx, id) orelse return null else intTypeNamed(identAt(ctx.source, obj) orelse return null) orelse return null,
+        .list => blk: {
+            if (!obj.isKind(.member) or ir.Member.object(obj) != .src) return null;
+            const module = names.symbol(ir.Member.object(obj)) orelse return null;
+            if (ctx.symbols.items[module].kind != .module) return null;
+            const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return null) orelse return null;
+            const alias = foreign.lookupInScopeOnly(module_scope, identAt(ctx.source, ir.Member.name(obj)) orelse return null) orelse return null;
+            if (!foreign.symbols.items[alias].flags.is_public) return null;
+            break :blk aliasIntType(foreign, alias) orelse return null;
+        },
+        else => return null,
+    };
     const field = identAt(ctx.source, ir.Member.name(e)) orelse return null;
     const r = intRange(info);
     if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };
