@@ -216,9 +216,9 @@ that need to inspect the tree:
   parameter list, and a capture after a parameter is an error;
 - a `for` source wrapped in `?`, `!`, or `<` moves into the mode slot:
   `(for iter x _ (read xs) body _)` becomes `(for read x _ xs body _)`;
-- a `-name` statement whose value is used (the last line of a `fun`, or
-  of a branch or arm whose value is used) becomes `(neg name)` instead
-  of `(drop name)`;
+- a `-name` statement whose value is used (the last line of a `fun`, a
+  `break` value, or the last line of a branch, arm, or loop `else` block
+  whose value is used) becomes `(neg name)` instead of `(drop name)`;
 - a jump fallback moves to the nearest `??` of the chain before it:
   `(?? (?? a b) (return v))` becomes `(?? a (?? b (return v)))`, since
   the grammar reads the jump after the whole chain;

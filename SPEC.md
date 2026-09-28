@@ -2145,9 +2145,9 @@ negative 11
 ```
 
 A statement `-x` drops `x`; `-x` where a value is expected negates.
-A value is expected in an operand, an argument, a binding's value, and
-on the last line of a `fun` (the function's value) or of a branch whose
-value is used, so `-x` there is negation, and one whose `x` is not a
+A value is expected in an operand, an argument, a binding's value, a
+`break` value, and on the last line of a `fun` (the function's value)
+or of a branch (a loop's `else` block too) whose value is used, so `-x` there is negation, and one whose `x` is not a
 number is rejected with a pointer to dropping it before the last line.
 Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected.
 

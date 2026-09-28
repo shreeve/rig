@@ -1385,8 +1385,9 @@ pub const Parser = struct {
     //   * `for` source sigils move into the mode slot:
     //       (for iter x _ (read xs) body _)  →  (for read x _ xs body _)
     //   * a `-name` statement whose value is used is negation, not a drop:
-    //     the last statement of a `fun` body, or of a branch, arm, or
-    //     `catch` handler whose value is used, becomes (neg name). (A
+    //     the last statement of a `fun` body, a `break` value, or the last
+    //     statement of a branch, arm, `catch` handler, or loop `else`
+    //     block whose value is used, becomes (neg name). (A
     //     closure has no declared result, so its body is not rewritten.)
     //   * a jump fallback belongs to the nearest `??` (the grammar reads
     //     it at the level of `catch`, after the chain before it):
@@ -1429,6 +1430,8 @@ pub const Parser = struct {
             // The expression's value is bound or returned.
             .set => try self.valueTail(ir.Set.value(out), false),
             .@"return" => try self.valueTail(ir.Return.value(out), false),
+            // A loop's value is always used.
+            .@"break" => try self.valueTail(ir.Break.value(out), false),
             else => {},
         }
         return out;
@@ -1686,6 +1689,8 @@ pub const Parser = struct {
             },
             .match => for (ir.Match.arms(sexp)) |arm| try self.valueTail(ir.Arm.body(arm), false),
             .@"catch" => try self.valueTail(ir.Catch.handler(sexp), false),
+            .@"while" => try self.valueTail(ir.While.@"else"(sexp), false),
+            .@"for" => try self.valueTail(ir.For.@"else"(sexp), false),
             else => {},
         }
     }
