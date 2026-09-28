@@ -3416,12 +3416,10 @@ pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) st
     return null;
 }
 
+/// Whether member access on `receiver_ty` reaches a method `name` of its
+/// type, local or imported.
 pub fn hasMethodNamed(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) bool {
-    const m = membersOf(ctx, unwrapAccess(ctx, receiver_ty)) orelse return false;
-    for (m.fields) |f| {
-        if (f.is_method and !f.is_drop_method and std.mem.eql(u8, f.name, name)) return true;
-    }
-    return false;
+    return methodReceiver(ctx, receiver_ty, name) != null;
 }
 
 /// Number of variants of an enum type, or null if not an enum.
