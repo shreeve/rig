@@ -17,7 +17,7 @@ sub main
   r.w += 1
   print(r.w)
 
-# error: 9:3: cannot write with the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
-# error: 10:3: cannot write with the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
-# error: 17:3: cannot write with the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
+# error: 9:3: cannot write through the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
+# error: 10:3: cannot write through the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
+# error: 17:3: cannot write through the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
 # errors: 3

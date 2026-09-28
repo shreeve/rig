@@ -607,7 +607,7 @@ const Checker = struct {
             .caller, .module => return,
             .infallible => |name| try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`", .{self.text(name)}),
             .closure => "this closure",
-            .deferred => "a deferred block",
+            .deferred => return self.errAt(stmt, "an `errdefer` inside deferred code never runs, since deferred code cannot fail; write its statement in the block directly", .{}),
             .drop => "a `drop` body",
         };
         try self.errAt(stmt, "`errdefer` runs only when the function fails, and {s} cannot fail; use `defer`", .{what});
@@ -879,7 +879,7 @@ const Checker = struct {
         // given a `T` (or a compound assignment), as a `!T` binding is;
         // given a `!T`, it is pointed elsewhere.
         const through = try self.placeWritesThrough(place_ty, kind, rhs);
-        if (through and !(try self.checkUsesWriteBorrow(target, "write with"))) {
+        if (through and !(try self.checkUsesWriteBorrow(target, "write through"))) {
             _ = try self.synthExpr(rhs);
             return;
         }
@@ -890,7 +890,13 @@ const Checker = struct {
         if (through) {
             const inner = sema.unwrapBorrows(self.ctx, place_ty);
             if (kind.operator() != null) return self.checkCompound(kind, inner, rhs, self.startOf(target), "this place has type");
-            return self.checkExpr(rhs, inner);
+            const before = self.ctx.diagnostics.items.len;
+            try self.checkExpr(rhs, inner);
+            if (self.ctx.diagnostics.items.len > before and std.mem.startsWith(u8, self.ctx.diagnostics.items[before].message, "type mismatch")) {
+                const shown = self.sourceText(target);
+                try self.noteAt(target, "`{s} = v` writes the `{s}` that `{s}` borrows; `{s} = !m` points `{s}` at another place", .{ shown, try self.tyName(inner), shown, shown, shown });
+            }
+            return;
         }
         if (try self.assignsIntoTemporary(target)) {
             _ = try self.synthExpr(rhs);
@@ -1087,7 +1093,7 @@ const Checker = struct {
 
     /// A write borrow held in a field or element (`b.t` with `t: !T`) is
     /// lent by `!b.t`, and by the place itself where a value holding a
-    /// write borrow is expected, and written with by `b.t = v` and
+    /// write borrow is expected, and written through by `b.t = v` and
     /// `b.t += v`. Reached through a `?T` or `*T`, it is read-only like
     /// the rest of what that path reaches: other borrows or handles may
     /// reach the same write borrow. False after a diagnostic.

@@ -2740,10 +2740,10 @@ local with `<p`, but not copied. A bare `w` of type `!Int` where an
 `Int` goes copies the value it reaches (`x = w`); where a `!Int` goes
 (`h.w = w`), it would copy the borrow, and is written `<w`. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
-that path reaches: it cannot be written with or passed on from there,
-and a `match` through one cannot bind it. A loop walks elements whose
-fields hold write borrows with `for x in !xs`; an element that is
-itself a write borrow (in a `[2]!Int`) is written by index,
+that path reaches: it cannot be written through or passed on from
+there, and a `match` through one cannot bind it. A loop walks elements
+whose fields hold write borrows with `for x in !xs`; an element that
+is itself a write borrow (in a `[2]!Int`) is written by index,
 `xs[i] = v`, since a loop binding cannot hold it.
 
 ```rig
@@ -2827,7 +2827,7 @@ sub main
 ```
 
 ```error
-cannot write with the write borrow held here through a read borrow (`?T`)
+cannot write through the write borrow held here through a read borrow (`?T`)
 ```
 
 A `!x` borrow needs a binding that may change: a parameter (other than
