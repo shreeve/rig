@@ -549,7 +549,17 @@ const Checker = struct {
                 defer self.body = saved;
                 self.body.fail_to = .deferred;
                 self.body.loops = null;
-                try self.checkStmt(ir.get(stmt, .body));
+                const body = ir.get(stmt, .body);
+                try self.checkStmt(body);
+                // The statement runs at scope exit: a name it declared
+                // would be visible to code that runs before it.
+                if (body.isKind(.set) and ir.Set.target(body) == .src) if (self.ctx.symbolOf(ir.Set.target(body))) |id| {
+                    const target = ir.Set.target(body);
+                    if (self.ctx.symbols.items[id].decl_pos == target.src.pos) {
+                        self.ctx.symbols.items[id].ty = self.t().invalid_id;
+                        try self.errAt(target, "a deferred statement runs at scope exit and cannot declare `{s}`; use an indented `{s}` block", .{ self.text(target), @tagName(stmt.kind().?) });
+                    }
+                };
             },
             .raw_block => {
                 self.raw_depth += 1;
@@ -750,7 +760,10 @@ const Checker = struct {
             try self.errAt(target, "a borrowed callable `{s}` lives only as long as what it borrows, so it cannot be a module-level binding", .{try self.tyName(s.ty)});
             s.ty = self.t().invalid_id;
         }
-        if (kind == .fixed and self.isComptimeKnown(rhs)) s.flags.comptime_known = true;
+        // A module constant's ternary over constants is constant too, so
+        // a later constant may branch on it.
+        const ternary_const = s.scope == self.module_scope and rhs.isKind(.@"if") and self.isConstExpr(rhs);
+        if (kind == .fixed and (ternary_const or self.isComptimeKnown(rhs))) s.flags.comptime_known = true;
         // `k =! n` stands for the compile-time parameter `n` where an
         // array length or a compile-time argument names it.
         if (kind == .fixed and is_decl and s.kind == .local) if (try self.ctParamOf(rhs)) |ct| try self.ctx.ct_locals.put(self.ctx.allocator, sym_id, ct);
@@ -1294,7 +1307,12 @@ const Checker = struct {
     fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         const expr = ir.As.value(node);
         const name = ir.As.name(node);
+        // A borrowed temporary lives as long as the statement, as a match
+        // subject's does.
+        const saved_borrow = self.lent_borrow;
+        self.lent_borrow = expr;
         const ty = try self.synthExpr(expr);
+        self.lent_borrow = saved_borrow;
         var inner = self.t().invalid_id;
         if (!self.isPoison(ty)) switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
             .optional => |i| inner = i,
@@ -1672,6 +1690,10 @@ const Checker = struct {
             var guarded: MatchCoverage = if (guard != .nil) try cov.clone(self.ctx.allocator) else .{};
             defer guarded.deinit(self.ctx.allocator);
             for (alts) |alt| try self.checkPattern(alt, scrutinee, if (guard != .nil) &guarded else &cov, mode);
+            if (guard != .nil) {
+                var it = guarded.variants.keyIterator();
+                while (it.next()) |k| if (!cov.variants.contains(k.*)) try cov.guarded.put(self.ctx.allocator, k.*, {});
+            }
             if (viewed) |v| {
                 if (pattern.isKind(.variant_pattern)) {
                     for (ir.VariantPattern.bindings(pattern)) |b| if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
@@ -1717,10 +1739,13 @@ const Checker = struct {
         /// Inclusive integer intervals, disjoint and in order.
         ints: std.ArrayListUnmanaged([2]Wide) = .empty,
         has_default: bool = false,
+        /// Variants only a guarded arm matches, which covers none.
+        guarded: std.StringHashMapUnmanaged(void) = .empty,
 
         fn deinit(c: *MatchCoverage, a: std.mem.Allocator) void {
             c.variants.deinit(a);
             c.ints.deinit(a);
+            c.guarded.deinit(a);
         }
 
         fn clone(c: *const MatchCoverage, a: std.mem.Allocator) Error!MatchCoverage {
@@ -1815,7 +1840,7 @@ const Checker = struct {
             for (fields) |f| {
                 if (!f.is_variant or cov.variants.contains(f.name)) continue;
                 count += 1;
-                if (count <= 4) try missing.print(a, "{s}`.{s}`", .{ if (count > 1) ", " else "", f.name });
+                if (count <= 4) try missing.print(a, "{s}`.{s}`{s}", .{ if (count > 1) ", " else "", f.name, if (cov.guarded.contains(f.name)) " (its arm has a guard)" else "" });
             }
             if (count > 4) try missing.print(a, ", and {d} more", .{count - 4});
             if (count > 0) return self.err(pos, "`match` is not exhaustive: it misses {s}; {s}", .{ missing.items, if (count > 1) "add an arm for each, or `_ =>` for the rest" else fix });
@@ -2541,7 +2566,13 @@ const Checker = struct {
         const a_lit = a == self.t().int_literal_id or a == self.t().float_literal_id;
         const b_lit = b == self.t().int_literal_id or b == self.t().float_literal_id;
         if (a_lit and b_lit) {
-            return if (a == self.t().float_literal_id or b == self.t().float_literal_id) self.t().float_literal_id else self.t().int_literal_id;
+            if (a == self.t().int_literal_id and b == self.t().int_literal_id) return a;
+            // The integer literals become floats.
+            for ([_]TypeId{ a, b }, operands) |ty, o| if (ty == self.t().int_literal_id) if (integerOnlyOp(o)) |int_op| {
+                try self.errAt(int_op, "operator `{s}` is for integers, and its literal operands here take the type `Float`", .{@tagName(int_op.kind().?)});
+                return self.t().invalid_id;
+            };
+            return self.t().float_literal_id;
         }
         if (a_lit) {
             try self.checkExpr(operands[0], b);
@@ -2573,6 +2604,7 @@ const Checker = struct {
     /// `T` must hold it: a float literal needs a float `T`, an integer
     /// one a `T` that holds its value.
     fn requireHoldsLiteral(self: *Checker, param: SymbolId, lit_ty: TypeId, lit: Sexp, pos: u32, op: []const u8) Error!void {
+        if (integerOnlyOp(lit)) |int_op| try self.require(param, .integer, self.startOf(int_op), @tagName(int_op.kind().?));
         if (lit_ty == self.t().float_literal_id) try self.require(param, .float, pos, op);
         if (lit_ty == self.t().int_literal_id) if (self.constInt(lit)) |v| try self.require(param, .{ .fits = v }, pos, op);
         if (wholeDivision(self.ctx.source, lit)) |div| try self.require(param, .whole_division, self.startOf(div), self.sourceText(div));
@@ -2776,7 +2808,7 @@ const Checker = struct {
         const takes_whole = isJump(right) and !isPlaceExpr(left) and !borrowed;
         if (!takes_whole and (try self.ownsResource(inner, self.startOf(left), "copies out with `??` a value"))) {
             if (borrowed) {
-                try self.errAt(left, "a borrow cannot give up the resource inside it; take a new handle with `+x` instead", .{});
+                try self.borrowGivesUp(left, opt);
             } else if (isJump(right)) {
                 try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; move it out: `<{s} ?? ...`", .{ try self.tyName(opt), self.sourceText(left) });
             } else try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; take the handle out with `if x as h`", .{try self.tyName(opt)});
@@ -2892,7 +2924,7 @@ const Checker = struct {
                 if (name == .nil) {
                     try self.errAt(operand, "use of `?` requires the enclosing function to return an optional (`-> T?`)", .{});
                 } else if (self.body.is_sub) {
-                    try self.errAt(operand, "`?` returns `none` from `{s}`, which returns no value; handle the missing value with `{s} ?? fallback`, or `if {s} as x`", .{ self.text(name), shown, shown });
+                    try self.errAt(operand, "`?` returns `none` from `{s}`, which returns no value; handle the missing value with `{s} ?? fallback`, or `if {s} as {s}`", .{ self.text(name), shown, shown, bindingNameFor(shown) });
                 } else {
                     try self.errAt(operand, "use of `?` requires the enclosing function `{s}` to return an optional (`-> T?`); or handle the missing value with `{s} ?? fallback`", .{ self.text(name), shown });
                     try self.noteAt(name, "`{s}` declared here", .{self.text(name)});
@@ -2902,11 +2934,26 @@ const Checker = struct {
         }
         const borrowed = sema.unwrapBorrows(self.ctx, ty) != ty;
         if (borrowed and (try self.ownsResource(inner, self.startOf(operand), "moves out of a borrow a value"))) {
-            try self.errAt(operand, "a borrow cannot give up the resource inside it; take a new handle with `+x` instead", .{});
+            try self.borrowGivesUp(operand, ty);
             return self.t().invalid_id;
         }
         _ = try self.readThrough(operand, ty, sema.unwrapBorrows(self.ctx, ty));
         return inner;
+    }
+
+    /// `o ?? ...` or `o?` over a borrow `ty` of an optional that owns a
+    /// resource: the borrow can lend the value inside, not give it up.
+    fn borrowGivesUp(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
+        const place = if (operand.isKind(.move)) ir.Move.operand(operand) else operand;
+        const shown = self.sourceText(place);
+        const sigil = if (self.ctx.types.get(ty) == .borrow_write and !place.isKind(.write)) "!" else "";
+        try self.errAt(operand, "a borrow cannot give up the resource inside it; borrow the value inside with `if {s}{s} as {s}`", .{ sigil, shown, bindingNameFor(shown) });
+    }
+
+    /// A name to suggest binding the value inside `shown` to, which
+    /// does not shadow it.
+    fn bindingNameFor(shown: []const u8) []const u8 {
+        return if (std.mem.eql(u8, shown, "value")) "v" else "value";
     }
 
     /// `e?` where no `none` can be returned: the error, and no type.
@@ -4003,11 +4050,6 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
-    /// `xs[a..b]`: the elements from `a` up to, not including, `b`. A
-    /// String gives a String, which borrows nothing: every String is a
-    /// static literal. A `[]T` gives a `[]T` viewing the same elements.
-    /// An array or a `Vec` of plain data gives a `[]T` only as
-    /// `?xs[a..b]` (`borrowed`): the slice is a read borrow of `xs`.
     /// The element of Vec `peeled` (the type of `object`), sliced: plain
     /// data only, since a slice would copy owning handles out. Null
     /// after a diagnostic.
@@ -4023,6 +4065,11 @@ const Checker = struct {
         return elem;
     }
 
+    /// `xs[a..b]`: the elements from `a` up to, not including, `b`. A
+    /// String gives a String, which borrows nothing: every String is a
+    /// static literal. A `[]T` gives a `[]T` viewing the same elements.
+    /// An array or a `Vec` of plain data gives a `[]T` only as
+    /// `?xs[a..b]` (`borrowed`): the slice is a read borrow of `xs`.
     fn synthSlice(self: *Checker, e: Sexp, borrowed: bool) Error!TypeId {
         const object = ir.Index.object(e);
         const range = ir.Index.index(e);
@@ -4501,7 +4548,12 @@ const Checker = struct {
                 try self.errAt(a, "`print` takes no keyword arguments", .{});
                 continue;
             }
+            // `print` keeps nothing, so a borrowed temporary lives long
+            // enough.
+            const saved_borrow = self.lent_borrow;
+            self.lent_borrow = a;
             const ty = try self.synthOperand(a);
+            self.lent_borrow = saved_borrow;
             // An integer literal prints as an `Int`, which must hold it.
             if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
             switch (self.ctx.types.get(ty)) {
@@ -5739,9 +5791,10 @@ const Checker = struct {
     // ---- method calls -----------------------------------------------------------
 
     /// `obj.name(args)`, a call whose callee is `(member obj name)`; the
-    /// callee node's type is the resolved method's signature. `ct` is the bracket list of `obj.name[...](args)`,
-    /// compile-time arguments for a method, or the index of an element of
-    /// a field holding functions.
+    /// callee node's type is the resolved method's signature. `ct` is
+    /// the bracket list of `obj.name[...](args)`, compile-time arguments
+    /// for a method, or the index of an element of a field holding
+    /// functions.
     fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const saved = self.callee_node;
         self.callee_node = callee;
@@ -5838,8 +5891,14 @@ const Checker = struct {
                     return self.callValue(callee, ty, args, method);
                 }
             }
+            const has_len = vecElementType(self.ctx, peeled) != null or switch (self.ctx.types.get(peeled)) {
+                .string, .array, .slice => true,
+                else => false,
+            };
             if (vecElementType(self.ctx, peeled) != null and std.mem.eql(u8, method, "length")) {
                 try self.err(pos, "a Vec has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
+            } else if (has_len and std.mem.eql(u8, method, "len")) {
+                try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), self.sourceText(unborrowedNode(obj)) });
             } else if (sema.boxedType(self.ctx, peeled) != null) {
                 const shown = self.sourceText(unborrowedNode(obj));
                 try self.err(pos, "a `{s}` reaches no methods of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.unbox()`", .{ try self.tyName(peeled), shown, shown, shown });
@@ -6817,17 +6876,40 @@ const Checker = struct {
 
     /// Record how `e`, of type `actual`, adapts to the `expected` its
     /// context gives: a borrow of a Copy value is read through
-    /// (`recordRead`), and a literal takes a concrete type.
+    /// (`recordRead`), and so is a write borrow lent where a read borrow
+    /// that copies its value is expected; a literal takes a concrete type.
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
-        if (readValue(self.ctx, actual) != actual and !isBorrow(self.ctx, self.liftTarget(expected))) return self.ctx.recordRead(e);
+        const lifted = self.liftTarget(expected);
+        if (readValue(self.ctx, actual) != actual and !isBorrow(self.ctx, lifted)) return self.ctx.recordRead(e);
+        if (self.ctx.types.get(actual) == .borrow_write) switch (self.ctx.types.get(lifted)) {
+            .borrow_read => |inner| if (sema.readBorrowCopies(self.ctx, inner)) return self.ctx.recordRead(e),
+            else => {},
+        };
         if (actual != self.t().int_literal_id and actual != self.t().float_literal_id) return;
-        const target = self.liftTarget(expected);
+        const target = lifted;
         if (!sema.isNumeric(self.ctx, target)) return;
+        if (self.ctx.types.get(target) == .float) if (integerOnlyOp(e)) |op| {
+            return self.errAt(op, "operator `{s}` is for integers, and its literal operands here take the type `{s}`", .{ @tagName(op.kind().?), try self.tyName(target) });
+        };
         try self.ctx.recordType(e, target);
         try self.recordLiteralType(e, target);
         if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target);
         if (self.ctx.types.get(target) == .float) try self.checkWholeDivision(e);
         try self.checkFloatConstant(e, target);
+    }
+
+    /// An operator in literal arithmetic `e` that only integers have
+    /// (bitwise, shift, wrapping), whose literals cannot take a float
+    /// type.
+    fn integerOnlyOp(e: Sexp) ?Sexp {
+        const h = e.kind() orelse return null;
+        return switch (h) {
+            .neg => integerOnlyOp(ir.Neg.operand(e)),
+            .@"if" => integerOnlyOp(ir.If.then(e)) orelse integerOnlyOp(ir.If.@"else"(e)),
+            .@"+", .@"-", .@"*", .@"/", .@"%" => integerOnlyOp(ir.get(e, .left)) orelse integerOnlyOp(ir.get(e, .right)),
+            .@"+%", .@"-%", .@"*%", .@"&", .@"|", .@"^", .@"<<", .@">>" => e,
+            else => null,
+        };
     }
 
     /// Integer-literal arithmetic that takes no type from its context is
@@ -8253,6 +8335,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
                 .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
+                .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
@@ -8260,6 +8343,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 .plain => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
+                .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -8314,6 +8398,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         },
         .equatable => sema.isEquatable(ctx, ty),
         .whole_division => sema.isInteger(ctx, ty),
+        .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
     };
 }
 

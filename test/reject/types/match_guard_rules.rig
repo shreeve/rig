@@ -1,5 +1,6 @@
 # A guard is a Bool that moves nothing, and a guarded arm covers none of
-# its values: the match still needs an arm for them.
+# its values: the match still needs an arm for them, and the error says
+# why a variant with only a guarded arm is missed.
 
 struct B
   n: Int
@@ -19,6 +20,15 @@ fun size(n: Int) -> String
     k if k > 0 => "positive"
     0 => "zero"
 
+enum Tank
+  full(n: Int)
+  low
+
+fun level(t: Tank) -> Int
+  match t
+    .full(n) if n > 9 => n
+    .low => 0
+
 sub main
   s: Slot = .full(b: *B(n: 1))
   match <s
@@ -29,6 +39,7 @@ sub main
     _ => print("other")
   print(size(1))
 
-# error: 18:9: `match` on `Int` is not exhaustive: it misses `1`
-# error: 25:21: a guard cannot move a value
-# error: 28:10: type mismatch: expected `Bool`, got `Int`
+# error: 19:9: `match` on `Int` is not exhaustive: it misses `1`
+# error: 28:9: `match` is not exhaustive: it misses `.full` (its arm has a guard); add an arm for it
+# error: 35:21: a guard cannot move a value
+# error: 38:10: type mismatch: expected `Bool`, got `Int`

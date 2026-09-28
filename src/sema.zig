@@ -487,6 +487,7 @@ pub const Diagnostic = diag.Diagnostic;
 /// The name offered so far that is closest to `name`, a name not found:
 /// within one edit for a short name and two for a longer one (a swap
 /// of neighbors is one edit), so a typo finds its name and little else.
+/// A name of one or two letters is a whole word away from any other.
 pub const Suggest = struct {
     name: []const u8,
     best: ?[]const u8 = null,
@@ -499,7 +500,7 @@ pub const Suggest = struct {
     }
 
     pub fn offer(s: *Suggest, candidate: []const u8) void {
-        if (candidate.len == 0 or std.mem.eql(u8, candidate, s.name) or std.mem.eql(u8, candidate, "_")) return;
+        if (s.name.len <= 2 or candidate.len == 0 or std.mem.eql(u8, candidate, s.name) or std.mem.eql(u8, candidate, "_")) return;
         const limit: usize = if (s.name.len >= 6) 2 else 1;
         const d = editDistance(s.name, candidate, limit) orelse return;
         if (d < s.dist) {
@@ -541,6 +542,9 @@ test "suggest: a typo finds its name" {
     var t: Suggest = .{ .name = "Foo" };
     for ([_][]const u8{ "Box", "Vec" }) |c| t.offer(c);
     try std.testing.expect(t.best == null);
+    var u: Suggest = .{ .name = "xs" };
+    for ([_][]const u8{ "x", "ys", "sx" }) |c| u.offer(c);
+    try std.testing.expect(u.best == null);
     try std.testing.expectEqual(@as(?usize, 1), editDistance("ab", "ba", 1));
     try std.testing.expectEqual(@as(?usize, 2), editDistance("counter", "conuter2", 2));
 }
@@ -763,6 +767,9 @@ pub const Requirement = union(enum) {
     /// division of whole-number literals (`1 / 2`), which divides
     /// integers.
     whole_division,
+    /// Not an error: the signature returns the parameter as a fallible
+    /// `T!`, whose failure and success would both be errors.
+    not_error,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -778,6 +785,7 @@ pub const Requirement = union(enum) {
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
+            .not_error => "a fallible return",
         };
     }
 };
@@ -2969,6 +2977,31 @@ pub fn containsTypeVar(ctx: *const SemContext, ty_id: TypeId) bool {
 /// which only follows a diagnostic.
 pub fn containsPoison(ctx: *const SemContext, ty_id: TypeId) bool {
     return ctx.typeInfo(ty_id).poison;
+}
+
+/// Whether a read borrow `?inner` is a copy of the value: a scalar or a
+/// view, which nothing can change while it is borrowed and which costs
+/// no more to copy than a pointer. Anything larger is lent by address,
+/// as is a value that owns resources (a copy would be dropped with
+/// whatever holds it) or holds a Cell (which can change while it is
+/// borrowed). `rig.ReadBorrow` applies the same rule to Zig types, for
+/// a generic `?T`.
+pub fn readBorrowCopies(ctx: *const SemContext, inner: TypeId) bool {
+    if (typeHasDropGlue(ctx, inner) or maybeDropGlue(ctx, inner) or holdsCellByValue(ctx, inner)) return false;
+    return copiedByBorrow(ctx, inner);
+}
+
+/// A type a read borrow copies: a number, `Bool`, `String`, a slice, a
+/// function or borrowed callable (a `rig.FnRef`), a plain enum, an
+/// error, or an optional of one of those.
+fn copiedByBorrow(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
+        .borrow_write => writeSliceElem(ctx, ty) != null,
+        .optional => |inner| copiedByBorrow(ctx, inner),
+        .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
+        else => false,
+    };
 }
 
 /// Whether a value of `ty` holds a `Cell` inline (not behind a handle,

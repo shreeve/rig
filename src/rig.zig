@@ -418,6 +418,7 @@ pub const Lexer = struct {
         ambiguous_fixed,
         detached_prefix,
         semicolon,
+        brace,
 
         pub fn message(e: LexError) []const u8 {
             return switch (e) {
@@ -433,6 +434,7 @@ pub const Lexer = struct {
                 .ambiguous_fixed => "`=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` for a write borrow",
                 .detached_prefix => "a prefix sigil touches its operand",
                 .semicolon => "unexpected `;`",
+                .brace => "Rig has no braces: a block is the lines indented under its header",
                 .tab_indent => "tab in indentation; indent with spaces",
                 .bad_dedent => "indentation does not match any enclosing block",
                 .first_line_indented => "unexpected indentation",
@@ -981,6 +983,7 @@ pub const Lexer = struct {
                 .bad_number, tok.pos),
             '\r' => self.fail(.lone_cr, tok.pos),
             ';' => self.fail(.semicolon, tok.pos),
+            '{', '}' => self.fail(.brace, tok.pos),
             else => self.fail(.bad_char, tok.pos),
         };
     }
@@ -1146,6 +1149,7 @@ pub const Parser = struct {
             .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = switch (lexer.err) {
                 .semicolon => self.semicolonMessage(tok),
                 .detached_prefix => self.detachedPrefix(tok),
+                .brace => self.format("unexpected `{c}`; {s}", .{ src[pos], lexer.err.message() }),
                 else => lexer.err.message(),
             } },
             .eof, .outdent => blk: {
@@ -1477,6 +1481,8 @@ pub const Parser = struct {
         return switch (tok.cat) {
             .of => "a fill literal `[n of x]` holds one count and one element; it cannot share brackets with a list",
             .nullish => "`??` is the fallback operator; an optional of an optional is written `(T?)?`",
+            // Where no operator could come: C and Rust's address-of.
+            .ampersand => "Rig borrows with `?x` (read) or `!x` (write)",
             else => null,
         };
     }

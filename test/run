@@ -368,6 +368,17 @@ echo $$ >"$LOCK/pid"
 trap 'rm -rf "$LOCK" ${WORK:+"$WORK"}' EXIT
 trap 'exit 130' INT TERM
 
+# The run deletes old output in its directory, so it works only in one
+# it has marked as its own: the default, or a RIG_TEST_OUT that is new
+# or empty when first used.
+if [[ ! -e "$OUTROOT/.rig-test" ]]; then
+    if [[ -n "${RIG_TEST_OUT:-}" && -d "$OUTROOT" && -n "$(ls -A "$OUTROOT")" ]]; then
+        printf 'RIG_TEST_OUT=%s holds files this runner did not write, and a run deletes old output there; name a new or empty directory\n' "$OUTROOT" >&2
+        exit 2
+    fi
+    mkdir -p "$OUTROOT" && : >"$OUTROOT/.rig-test"
+fi
+
 printf '%sbuilding rig%s\n' "$D" "$X"
 if ! "$ZIG" build 2>&1; then
     printf '%sbuild failed%s\n' "$R" "$X"

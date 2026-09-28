@@ -1,7 +1,8 @@
 # Release builds keep indexing, slicing, element-method, and (with
 # --release) conversion checks: each program below panics instead of
-# running on. `rig run` builds in the same mode as `rig build`, and its
-# build is cached for the next run.
+# running on. The first is built with `rig build` and its executable
+# run; the rest use `rig run`, which builds in the same mode and caches
+# its build for the next run.
 # timeout: 600
 source "$ROOT/test/cli/_lib.sh"
 
@@ -14,7 +15,8 @@ sub main()
   a = [1, 2, 3]
   print(a[rt(3)])
 EOF
-out=$(rig run --release=fast index.rig 2>&1); rc=$?
+rig build --release=fast -o index index.rig || fail "rig build --release=fast"
+out=$(./index 2>&1); rc=$?
 expect_has "$out" "index out of bounds" "fast build index check"
 [[ $rc -ne 0 ]] || fail "fast build: out-of-bounds index exited 0"
 

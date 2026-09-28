@@ -204,6 +204,10 @@ pub const Emitter = struct {
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayListUnmanaged(struct { rig: []const u8, zig: []const u8 }) = .empty,
+    /// Branch blocks whose value the function returns and which hold an
+    /// `errdefer`: they return it themselves, so that an error runs the
+    /// `errdefer` (`markReturningBlocks`).
+    returning: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// Where the `break` and `continue` of the `while` being emitted go
     /// when Zig cannot reach its loop with them (`JumpRedirect`).
     redirect: ?JumpRedirect = null,
@@ -243,6 +247,7 @@ pub const Emitter = struct {
         self.tests.deinit(self.allocator);
         self.hoisted.deinit(self.allocator);
         self.labels.deinit(self.allocator);
+        self.returning.deinit(self.allocator);
         self.value_loops.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -1008,9 +1013,10 @@ pub const Emitter = struct {
                 return self.w.writeAll(");");
             };
             // A named place is discarded by address: it may be used
-            // elsewhere, and Zig rejects discarding a used name.
+            // elsewhere, and Zig rejects discarding a used name. (A
+            // clone or move of a value that owns nothing is a copy.)
             var place = expr;
-            if (place.isKind(.read) or place.isKind(.write)) place = ir.get(place, .operand);
+            if (place.isKind(.read) or place.isKind(.write) or place.isKind(.clone) or place.isKind(.move)) place = ir.get(place, .operand);
             if (isPlace(place) and !place.isKind(.index)) {
                 try self.w.writeAll("_ = &");
                 try self.emitPlace(place);
@@ -1356,8 +1362,34 @@ pub const Emitter = struct {
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
         if (self.fun.return_ty) |r| if (self.isPtrBorrowTy(self.unwrapOptional(r))) return self.emitBorrowValue(value);
+        try self.markReturningBlocks(value);
         self.bare = true;
         try self.emitValue(value, true);
+    }
+
+    /// Mark the branch blocks of returned `value` that hold an
+    /// `errdefer`. Zig runs an `errdefer` only when the function returns
+    /// an error from within its scope, not when a block breaks out with
+    /// one, so such a block returns its value itself.
+    fn markReturningBlocks(self: *Emitter, value: Sexp) Error!void {
+        const kind = value.kind() orelse return;
+        switch (kind) {
+            .@"if" => {
+                try self.markReturningBlocks(ir.If.then(value));
+                try self.markReturningBlocks(ir.If.@"else"(value));
+            },
+            .match => for (ir.Match.arms(value)) |arm| try self.markReturningBlocks(ir.Arm.body(arm)),
+            .block => {
+                const stmts = ir.Block.stmts(value);
+                if (stmts.len == 0) return;
+                for (stmts) |st| if (st.isKind(.@"errdefer")) {
+                    try self.returning.put(self.allocator, value.list.id, {});
+                    break;
+                };
+                try self.markReturningBlocks(stmts[stmts.len - 1]);
+            },
+            else => {},
+        }
     }
 
     /// `(break value-or-_ label?)`. A value leaves the block of the loop
@@ -2728,27 +2760,10 @@ pub const Emitter = struct {
         };
     }
 
-    /// A read borrow of a scalar or a view is a copy: nothing can change
-    /// what it sees, and copying it costs no more than a pointer. Anything
-    /// larger is lent by address, as is a value that owns resources (a
-    /// copy would be dropped with whatever holds it) or holds a Cell
-    /// (which can change while it is borrowed). `rig.ReadBorrow` applies
-    /// the same rule to Zig types, for a generic `?T`.
+    /// A read borrow of a scalar or a view is a copy
+    /// (`sema.readBorrowCopies`); anything else is lent by address.
     fn readBorrowIsPtr(self: *Emitter, inner: TypeId) bool {
-        return self.kindOf(inner) != null or sema.holdsCellByValue(self.sema, inner) or !self.copiedBorrow(inner);
-    }
-
-    /// A type a read borrow copies: a number, `Bool`, `String`, a slice, a
-    /// function or borrowed callable (a `rig.FnRef`), a plain enum, an
-    /// error, or an optional of one of those.
-    fn copiedBorrow(self: *Emitter, ty: TypeId) bool {
-        return switch (self.sema.types.get(ty)) {
-            .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
-            .borrow_write => sema.writeSliceElem(self.sema, ty) != null,
-            .optional => |inner| self.copiedBorrow(inner),
-            .nominal, .imported_nominal => sema.isPlainEnum(self.sema, ty) or sema.isErrorSet(self.sema, ty),
-            else => false,
-        };
+        return !sema.readBorrowCopies(self.sema, inner);
     }
 
     /// The `T` of a read borrow `?T` whose form depends on a generic
@@ -3519,8 +3534,10 @@ pub const Emitter = struct {
 
         const terminates = isTerminatingStmt(last);
         if (!terminates and !self.yieldsValue(last)) return self.unsupported(last, "a block without a value in value position");
+        // A block marked by `markReturningBlocks` returns its value.
+        const returns = body.isKind(.block) and self.returning.contains(body.list.id);
         var label: []const u8 = "";
-        if (!terminates) {
+        if (!terminates and !returns) {
             label = try self.fmt("__rig_blk_{d}", .{self.nextId()});
             try self.w.print("{s}: ", .{label});
         }
@@ -3531,7 +3548,7 @@ pub const Emitter = struct {
         if (terminates) {
             try self.emitStmt(last);
         } else {
-            try self.w.print("break :{s} ", .{label});
+            if (returns) try self.w.writeAll("return ") else try self.w.print("break :{s} ", .{label});
             self.bare = true;
             try self.emitValueAs(last, result);
             try self.w.writeAll(";");
