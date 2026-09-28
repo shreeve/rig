@@ -9,4 +9,5 @@ fun f(c: Bool) -> Int
 sub main()
   print(f(true))
 
-# error: cannot `return` inside `defer`
+# error: 6:7: cannot `return` inside `defer`; the deferred code runs as the function exits
+# errors: 1

@@ -1,8 +1,9 @@
 # Release builds keep indexing, slicing, element-method, and (with
 # --release) conversion checks: each program below panics instead of
-# running on.
+# running on. `rig run` builds in the same mode as `rig build`, and its
+# build is cached for the next run.
+# timeout: 600
 source "$ROOT/test/cli/_lib.sh"
-mkdir bin
 
 # Indexing and slicing stay checked under --release=fast.
 cat >index.rig <<'EOF'
@@ -13,8 +14,7 @@ sub main()
   a = [1, 2, 3]
   print(a[rt(3)])
 EOF
-"$RIG" build --release=fast -o bin/index index.rig || fail "rig build --release=fast index.rig"
-out=$(bin/index 2>&1); rc=$?
+out=$(rig run --release=fast index.rig 2>&1); rc=$?
 expect_has "$out" "index out of bounds" "fast build index check"
 [[ $rc -ne 0 ]] || fail "fast build: out-of-bounds index exited 0"
 
@@ -26,8 +26,7 @@ sub main()
   s = "abc"
   print(s[0..rt(4)])
 EOF
-"$RIG" build --release=fast -o bin/slice slice.rig || fail "rig build --release=fast slice.rig"
-out=$(bin/slice 2>&1); rc=$?
+out=$(rig run --release=fast slice.rig 2>&1); rc=$?
 expect_has "$out" "slice bounds out of range" "fast build slice check"
 [[ $rc -ne 0 ]] || fail "fast build: out-of-range slice exited 0"
 
@@ -41,8 +40,7 @@ sub main()
   b = [4, 5, 6]
   !a.copy(?b[..rt(2)])
 EOF
-"$RIG" build --release=fast -o bin/copy copy.rig || fail "rig build --release=fast copy.rig"
-out=$(bin/copy 2>&1); rc=$?
+out=$(rig run --release=fast copy.rig 2>&1); rc=$?
 expect_has "$out" "copy between slices of different lengths" "fast build copy check"
 [[ $rc -ne 0 ]] || fail "fast build: copy of a different length exited 0"
 
@@ -54,8 +52,7 @@ sub main()
   a = [1, 2, 3]
   !a.swap(0, rt(3))
 EOF
-"$RIG" build --release=fast -o bin/swap swap.rig || fail "rig build --release=fast swap.rig"
-out=$(bin/swap 2>&1); rc=$?
+out=$(rig run --release=fast swap.rig 2>&1); rc=$?
 expect_has "$out" "index out of bounds" "fast build swap check"
 [[ $rc -ne 0 ]] || fail "fast build: out-of-range swap exited 0"
 
@@ -67,8 +64,7 @@ sub main()
   b: [4]U8 = [1, 2, 3, 4]
   print(b.read[U32, .big](rt(1)))
 EOF
-"$RIG" build --release=fast -o bin/bytes bytes.rig || fail "rig build --release=fast bytes.rig"
-out=$(bin/bytes 2>&1); rc=$?
+out=$(rig run --release=fast bytes.rig 2>&1); rc=$?
 expect_has "$out" "byte read out of range" "fast build read check"
 [[ $rc -ne 0 ]] || fail "fast build: read past the end exited 0"
 
@@ -80,8 +76,7 @@ sub main()
   b: [4]U8 = [1, 2, 3, 4]
   !b.write[U16, .little](rt(3), 7)
 EOF
-"$RIG" build --release=fast -o bin/store store.rig || fail "rig build --release=fast store.rig"
-out=$(bin/store 2>&1); rc=$?
+out=$(rig run --release=fast store.rig 2>&1); rc=$?
 expect_has "$out" "byte write out of range" "fast build write check"
 [[ $rc -ne 0 ]] || fail "fast build: write past the end exited 0"
 
@@ -93,7 +88,6 @@ fun rt(n: Int) -> Int
 sub main()
   print(I8(rt(300)))
 EOF
-"$RIG" build --release -o bin/convert convert.rig || fail "rig build --release convert.rig"
-out=$(bin/convert 2>&1); rc=$?
+out=$(rig run --release convert.rig 2>&1); rc=$?
 expect_has "$out" "integer does not fit in destination type" "release build conversion check"
 [[ $rc -ne 0 ]] || fail "release build: failing conversion exited 0"

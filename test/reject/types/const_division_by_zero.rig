@@ -5,4 +5,5 @@ sub main()
   print(n / 0)
   print(n % 0)
 
-# error: division by zero
+# error: 5:13: division by zero
+# error: 6:13: division by zero

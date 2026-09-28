@@ -16,4 +16,4 @@ sub main()
   p.take()
   print("back")
 
-# error: cannot move out of
+# error: 11:10: cannot move out of `self.a`: `self` is borrowed; exchange it instead: `replace(!self.a, v)`

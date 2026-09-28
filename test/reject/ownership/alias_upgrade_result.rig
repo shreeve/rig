@@ -11,4 +11,4 @@ sub main()
   n = m
   -w
 
-# error: would alias the handle
+# error: 11:7: bare use of shared (`*T`) handle `m` in binding would alias the handle; use `<m` to move or `+m` to clone

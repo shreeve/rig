@@ -14,3 +14,15 @@ expect_has() { grep -qF -- "$2" <<<"$1" || fail "$3: lacks [$2] in: $1"; }
 
 # expect_rc <actual> <expected> <what>
 expect_rc() { [[ "$1" -eq "$2" ]] || fail "$3: exit status $1, expected $2"; }
+
+# rig <command> [options] <file.rig>: "$RIG" with an output directory of
+# its own for each root file, under $RIG_OUT_DIR/programs/. Zig keeps one
+# cached build per root path and flags, and every program's root is
+# `__rig_main.zig` in its output directory, so programs built in one
+# directory evict each other and rebuild cold on every run. The harness
+# keeps each program's Zig cache between runs.
+rig() {
+    local a root=""
+    for a in "$@"; do [[ $a == *.rig ]] && root=${a%.rig}; done
+    RIG_OUT_DIR="$RIG_OUT_DIR/programs/${root//\//_}" "$RIG" "$@"
+}

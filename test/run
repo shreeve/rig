@@ -14,13 +14,15 @@
 #   --update    rewrite test/ir snapshots from the current compiler
 #
 # Environment: ZIG (the Zig executable), NEXUS (the Nexus executable),
-# RIG_TEST_TIMEOUT (seconds per test, default 120), RIG_TEST_OUT (where
-# emitted packages go, default .zig-cache/rig-test; one run at a time
-# uses a directory).
+# RIG_TEST_TIMEOUT (seconds per test, default 120; a test's own
+# `# timeout: N` line can raise its limit), RIG_TEST_OUT (where emitted
+# packages go, default .zig-cache/rig-test; one run at a time uses a
+# directory).
 #
 # Exit status is 1 if any test fails or a known-failing test starts
 # passing (move it out of test/known/ when that happens), 2 on a usage
-# error or when the filters select nothing (or only a skipped check).
+# error or when the filters select nothing (or only a skipped check),
+# unless they only name kinds, which may be empty.
 
 set -uo pipefail
 
@@ -46,10 +48,6 @@ POS_RE='\.rig:[0-9]+:[0-9]+'
 LEAK_RE='rig: memory leak detected'
 TIMEOUT=${RIG_TEST_TIMEOUT:-120}
 ZIG=${ZIG:-zig}
-TIMEOUT_CMD=$(command -v timeout || command -v gtimeout) || {
-    echo "test/run needs GNU timeout (on macOS: brew install coreutils)" >&2
-    exit 2
-}
 
 # -----------------------------------------------------------------------------
 # Worker: run one test, write a result file. Invoked through xargs.
@@ -129,15 +127,15 @@ check_reject() {
     out=$("$TIMEOUT_CMD" "$TIMEOUT" "$RIG" check "$entry" 2>&1 </dev/null)
     local rc=$?
     echo "$out" >"$log"
-    if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
+    if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
     if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler crashed"; return 1; fi
     if [[ $rc -eq 0 ]]; then REASON="accepted (expected rejection)"; return 1; fi
     # Match `# error:` text against the diagnostic lines' messages only:
     # not the file paths, and not the source excerpts under them. Each
     # line of `msgs` is `L:C: message`; `# error: L:C: text` pins the
     # position too.
-    local want msgs pin
-    msgs=$(grep -E "$POS_RE" <<<"$out" | sed -E 's/^[^ ]*\.rig:([0-9]+:[0-9]+): (error|  note): /\1: /')
+    local want msgs pin count
+    msgs=$(sed -nE 's/^.*\.rig:([0-9]+:[0-9]+): (error|  note): /\1: /p' <<<"$out")
     while IFS= read -r want; do
         [[ -z "$want" ]] && continue
         pin=""
@@ -147,6 +145,16 @@ check_reject() {
             return 1
         fi
     done < <(directive error "$entry")
+    # `# errors: N` pins the number of errors, so a cascade fails the test.
+    want=$(directive errors "$entry" | head -1)
+    if [[ -n "$want" ]]; then
+        [[ $want =~ ^[0-9]+$ ]] || { REASON="\`# errors:\` takes a number, not \"$want\""; return 1; }
+        count=$(grep -cE '(^|\.rig:[0-9]+:[0-9]+: )error: ' <<<"$out")
+        if [[ $count -ne $want ]]; then
+            REASON="expected $want error(s), got $count: $(head -1 <<<"$out")"
+            return 1
+        fi
+    fi
     if ! grep -qE "$POS_RE" <<<"$out"; then
         REASON="diagnostic has no file:line:col: $(head -1 <<<"$out")"
         return 1
@@ -161,7 +169,7 @@ check_torture() {
     out=$(RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" 2>&1 </dev/null)
     local rc=$?
     echo "$out" >"$log"
-    if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
+    if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
     if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler panic on bad input"; return 1; fi
     if [[ $rc -eq 0 ]]; then REASON="bad input was accepted and ran"; return 1; fi
     if ! grep -qE "$POS_RE" <<<"$out"; then REASON="rejected without a file:line:col diagnostic: $(head -1 <<<"$out")"; return 1; fi
@@ -175,7 +183,7 @@ check_accept() {
     local rc=$?
     echo "$out" >"$2"
     if [[ $rc -eq 0 ]]; then return 0; fi
-    if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
+    if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
     if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler crashed"; return 1; fi
     REASON="rejected: $(head -1 <<<"$out")"
     return 1
@@ -235,7 +243,7 @@ check_cli() {
     mkdir -p "$outdir/work"
     (cd "$outdir/work" && RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" bash "$ROOT/$script") >"$log" 2>&1 </dev/null
     local rc=$?
-    if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
+    if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
     if [[ $rc -ne 0 ]]; then REASON=$(grep -m1 '^FAIL' "$log" || echo "exit $rc: $(tail -1 "$log")"); return 1; fi
     return 0
 }
@@ -261,18 +269,30 @@ check_ir() {
     return $ok
 }
 
-worker() {
+worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
     local id=$1 path=$2
     local res="$RESULTS/st/${id//\//__}"
-    local log="$RESULTS/log/${id//\//__}" outdir="$OUTROOT/$id"
+    local log="$RESULTS/log/${id//\//__}" outdir="$OUTROOT/$3"
     local entry=$path
     [[ -d "$path" ]] && entry="$path/main.rig"
     REASON=""
-    # Start from an empty output directory, except for the Zig build cache
-    # rig keeps there, so repeated runs stay fast.
-    [[ -d "$outdir" ]] && find "$outdir" -mindepth 1 -maxdepth 1 ! -name .zig-cache -exec rm -rf {} +
-
     local kind=${id%%/*} ok
+    # A test that builds and runs programs may raise its own time limit
+    # with a `# timeout: <seconds>` line.
+    local TIMEOUT=$TIMEOUT limit
+    case $kind in
+        behavior|examples|known|cli)
+            limit=$(sed -n 's/^# timeout:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' "$entry" | head -1)
+            [[ -n "$limit" && $limit -gt $TIMEOUT ]] && TIMEOUT=$limit ;;
+    esac
+    # Start from an empty output directory, except for the Zig build caches
+    # rig keeps there (a CLI test keeps one per program under programs/),
+    # so repeated runs stay fast.
+    if [[ -d "$outdir" ]]; then
+        find "$outdir" -mindepth 1 -maxdepth 1 ! -name .zig-cache ! -name programs -exec rm -rf {} +
+        [[ -d "$outdir/programs" ]] && find "$outdir/programs" -mindepth 2 -maxdepth 2 ! -name .zig-cache -exec rm -rf {} +
+    fi
+
     case $kind in
         behavior|examples) check_behavior "$entry" "$outdir" "$log"; ok=$? ;;
         reject)            check_reject "$entry" "$log"; ok=$? ;;
@@ -298,7 +318,9 @@ worker() {
 }
 
 if [[ "${1:-}" == "--worker" ]]; then
-    worker "$2" "$3"
+    worker "$2" "$3" "$4"
+    # Whole seconds since this worker started, to schedule the next run.
+    printf '%s\t%s\n' "$2" "$SECONDS" >>"$RESULTS/durations"
     exit 0
 fi
 
@@ -314,7 +336,7 @@ while [[ $# -gt 0 ]]; do
         -v) VERBOSE=1 ;;
         -j) [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || { echo "-j needs a number of jobs" >&2; exit 2; }
             JOBS=$2; shift ;;
-        -h|--help) sed -n '2,16p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,/^$/p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
         *) FILTERS+=("$1") ;;
     esac
@@ -355,17 +377,55 @@ fi
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/rig-test.XXXXXX")
 RESULTS="$WORK/results"
 mkdir -p "$RESULTS/st" "$RESULTS/log" "$OUTROOT"
+
+# Each test runs under `$TIMEOUT_CMD <seconds> <command...>`, which exits
+# 124 when the time runs out: GNU timeout, or where there is none (stock
+# macOS) this perl stand-in, which likewise runs the command in a
+# process group of its own and stops the whole group.
+if ! TIMEOUT_CMD=$(command -v timeout || command -v gtimeout); then
+    command -v perl >/dev/null || { echo "test/run needs GNU timeout or perl" >&2; exit 2; }
+    TIMEOUT_CMD="$WORK/timeout"
+    cat >"$TIMEOUT_CMD" <<'PERL'
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use POSIX ();
+my $secs = shift;
+my $pid = fork() // die "timeout: fork: $!\n";
+if ($pid == 0) {
+    setpgrp(0, 0);
+    exec { $ARGV[0] } @ARGV or print STDERR "timeout: $ARGV[0]: $!\n";
+    POSIX::_exit(127);
+}
+setpgrp($pid, $pid);
+my $expired = 0;
+$SIG{ALRM} = sub { kill($expired++ ? 'KILL' : 'TERM', -$pid); alarm 5 };
+$SIG{$_} = sub { kill('TERM', -$pid) } for qw(INT TERM HUP);
+alarm $secs;
+my $r;
+do { $r = waitpid($pid, 0) } while $r == -1 && $!{EINTR};
+my $status = $?;
+exit 124 if $expired;
+exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
+PERL
+    chmod +x "$TIMEOUT_CMD"
+fi
 export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE
+
+is_kind() {
+    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|doc) return 0 ;; esac
+    return 1
+}
 
 selected() {
     [[ ${#FILTERS[@]} -eq 0 ]] && return 0
     local f
     for f in "${FILTERS[@]}"; do
-        case $f in # a bare kind name selects that kind only
-            behavior|reject|known|examples|ir|torture|cli|unit|parser|doc)
-                [[ "$1" == "$f" || "$1" == "$f/"* ]] && return 0 ;;
-            *) [[ "$1" == *"$f"* ]] && return 0 ;;
-        esac
+        if is_kind "$f"; then # a bare kind name selects that kind only
+            [[ "$1" == "$f" || "$1" == "$f/"* ]] && return 0
+        else
+            [[ "$1" == *"$f"* ]] && return 0
+        fi
     done
     return 1
 }
@@ -374,7 +434,9 @@ selected() {
 # plus examples/, test/ir/, test/torture/.
 LIST="$WORK/list"
 : >"$LIST"
-add() { selected "$1" && printf '%s\t%s\n' "$1" "$2" >>"$LIST"; }
+add() { # add <id> <path> [<output directory>]: the directory defaults to the id
+    selected "$1" && printf '%s\t%s\t%s\n' "$1" "$2" "${3:-$1}" >>"$LIST"
+}
 for kind in behavior reject known; do
     for p in test/$kind/*/*; do
         [[ -e "$p" ]] || continue
@@ -470,8 +532,19 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
 }
 for md in *.md docs/*.md examples/*.md test/*.md; do
     [[ -e "$md" ]] || continue
-    while IFS=$'\t' read -r id dir; do add "$id" "$dir"; done < <(extract_docs "$md" "$WORK/doc")
-done
+    extract_docs "$md" "$WORK/doc"
+done >"$WORK/docs"
+# A doc example's output directory is named by a checksum of its text,
+# not by its line, so an edit that moves it keeps its build cache.
+# Identical examples in one file get a suffix each.
+if [[ -s "$WORK/docs" ]]; then
+    cut -f2 "$WORK/docs" | while IFS= read -r dir; do printf '%s\0' "$dir/main.rig"; done |
+        xargs -0 cksum | cut -d' ' -f1 >"$WORK/docs.sum"
+    paste "$WORK/docs" "$WORK/docs.sum" | awk -F'\t' -v OFS='\t' '
+        { key = $1; sub(/[^\/]*$/, $3, key); if (n[key]++) key = key "-" n[key]; print $1, $2, key }
+    ' >"$WORK/docs.keyed"
+    while IFS=$'\t' read -r id dir key; do add "$id" "$dir" "$key"; done <"$WORK/docs.keyed"
+fi
 
 # Whole-program checks run alongside the per-file tests.
 UNIT_LOG="$WORK/unit.log" UNIT_PID=""
@@ -494,19 +567,64 @@ fi
 
 TOTAL=$(wc -l <"$LIST" | tr -d ' ')
 if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected parser; then
-    echo "no test matches ${FILTERS[*]}" >&2
-    exit 2
+    # Only kinds named (`./test/run known`) is not a mistyped filter: a
+    # kind can be empty, as test/known/ is when no bug is open.
+    for f in "${FILTERS[@]}"; do is_kind "$f" || { echo "no test matches ${FILTERS[*]}" >&2; exit 2; }; done
+    echo "no ${FILTERS[*]} tests"
+    exit 0
 fi
 DUPLICATES=$(cut -f1 "$LIST" | sort | uniq -d)
 if [[ -n "$DUPLICATES" ]]; then
     printf 'two tests have the id %s (a name.rig beside a name/ directory?)\n' $DUPLICATES >&2
     exit 1
 fi
+
+# A full run removes the output directories of tests that are gone (and
+# of doc examples whose text changed), keeping the rest and their build
+# caches. Only the directories of test kinds are touched.
+if [[ ${#FILTERS[@]} -eq 0 ]]; then
+    find "$OUTROOT" -mindepth 1 -maxdepth 3 | awk -F'\t' -v root="$OUTROOT/" '
+        FILENAME == ARGV[1] {
+            keep[$3] = 1
+            n = split($3, p, "/"); pre = p[1]
+            for (i = 1; i < n; i++) { dir[pre] = 1; pre = pre "/" p[i + 1] }
+            next
+        }
+        {
+            rel = substr($0, length(root) + 1)
+            if (rel !~ /^(behavior|reject|known|examples|ir|torture|cli|doc)(\/|$)/) next
+            n = split(rel, p, "/"); pre = p[1]; inside = 0
+            for (i = 1; i < n; i++) { if (pre in keep || pre in gone) inside = 1; pre = pre "/" p[i + 1] }
+            if (inside || rel in keep || rel in dir) next
+            base = rel; sub(/\.(stdout|stderr|diff)$/, "", base)
+            if (base in keep) next
+            gone[rel] = 1
+            print
+        }
+    ' "$LIST" - | tr '\n' '\0' | xargs -0 rm -rf
+fi
+
+# Longest first, by each test's time in the last run that ran it, so the
+# run does not end waiting on one long test while the other jobs sit
+# idle. A test with no recorded time is guessed by kind: a CLI script
+# builds several programs; the rest take a second or less.
+DURATIONS="$OUTROOT/.durations"
+[[ -f "$DURATIONS" ]] || : >"$DURATIONS"
+awk -F'\t' -v OFS='\t' '
+    FILENAME == ARGV[1] { t[$1] = $2; next }
+    { d = ($1 in t) ? t[$1] : ($1 ~ /^cli\// ? 60 : 1); print d, FNR, $0 }
+' "$DURATIONS" "$LIST" | sort -t$'\t' -k1,1nr -k2,2n | cut -f3- >"$LIST.sorted"
+
 printf '%srunning %s tests (-j %s)%s\n' "$D" "$TOTAL" "$JOBS" "$X"
-while IFS=$'\t' read -r id path; do printf '%s\0%s\0' "$id" "$path"; done <"$LIST" |
-    xargs -0 -n 2 -P "$JOBS" "$SELF" --worker
+while IFS=$'\t' read -r id path key; do printf '%s\0%s\0%s\0' "$id" "$path" "$key"; done <"$LIST.sorted" |
+    xargs -0 -n 3 -P "$JOBS" "$SELF" --worker
+# Keep the times of the tests this run did not select.
+[[ -f "$RESULTS/durations" ]] &&
+    awk -F'\t' 'FILENAME == ARGV[1] { ran[$1] = 1; print; next } !($1 in ran)' \
+        "$RESULTS/durations" "$DURATIONS" >"$DURATIONS.new" &&
+    mv "$DURATIONS.new" "$DURATIONS"
 # A worker that died left no result.
-while IFS=$'\t' read -r id path; do
+while IFS=$'\t' read -r id _; do
     [[ -f "$RESULTS/st/${id//\//__}" ]] || printf 'fail\t%s\tno result: the test runner died\n' "$id" >"$RESULTS/st/${id//\//__}"
 done <"$LIST"
 

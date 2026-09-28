@@ -6,5 +6,5 @@ sub main()
   m = -9223372036854775807 - 1
   print(-m)
 
-# error: integer value `128` does not fit in `I8` (-128..127)
-# error: integer value `9223372036854775808` does not fit in `Int`
+# error: 5:9: integer value `128` does not fit in `I8` (-128..127)
+# error: 7:9: integer value `9223372036854775808` does not fit in `Int` (-9223372036854775808..9223372036854775807)

@@ -4,4 +4,4 @@ sub main()
   x = 1 << 63
   print(x)
 
-# error: does not fit in `Int`
+# error: 4:7: this constant expression overflows; its value does not fit in `Int`

@@ -13,4 +13,4 @@ sub main()
   c = b
   print(c.value.value.value.value.value.value.value.value.value.value.n)
 
-# error: bare use of `Wrap` value `b` in binding would alias an owning value
+# error: 13:7: bare use of `Wrap` value `b` in binding would alias an owning value; `Wrap` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<b` to move ownership
