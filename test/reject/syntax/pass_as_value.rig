@@ -1,0 +1,27 @@
+# `pass` does nothing and has no value: a match arm, an `if` branch, or
+# a block whose value is used cannot end with it.
+
+fun sign(n: Int) -> Int
+  match n
+    0 => pass
+    _ => 1
+
+fun twice(n: Int) -> Int
+  pass
+
+sub main
+  a = 1 if true else 2
+  x = if a > 0
+    pass
+  else
+    2
+  y = match a
+    1 => 10
+    _ => pass
+  print(sign(0), twice(1), x, y)
+
+# error: 6:10: `pass` does nothing and has no value
+# error: 10:3: this `pass` produces none
+# error: 15:5: `pass` does nothing and has no value
+# error: 20:10: `pass` does nothing and has no value
+# errors: 4

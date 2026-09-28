@@ -1,0 +1,15 @@
+# Assigning a value to a `!T` field writes the value it borrows, so the
+# value is a `T`; another write borrow, `h.w = !m`, points the field
+# elsewhere.
+
+struct H
+  w: !Vec[Int]
+
+sub main
+  v: Vec[Int] = Vec()
+  h = H(w: !v)
+  h.w = 5
+
+# error: 11:9: type mismatch: expected `Vec[Int]`, got `Int`
+# error: 11:3: `h.w = v` writes the `Vec[Int]` that `h.w` borrows; `h.w = !m` points `h.w` at another place
+# errors: 1

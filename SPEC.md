@@ -143,9 +143,10 @@ plain enum value to its integer value ([§3](#enums)). A conversion is checked. 
 does not fit the target type panics when the program runs, and so does
 a float whose integer part does not fit, or a NaN; a float becomes an
 integer by truncating toward zero, and `F32(x)` rounds (to an infinity when `x` is
-too large). A constant integer is converted at compile time, so it
-must fit. (Inside `raw`, Zig's unchecked cast builtins are also
-available, [§15](#15-raw-code-and-ffi).)
+too large). A constant integer converted to an integer type is
+converted at compile time, so it must fit. (Inside `raw`, Zig's
+unchecked cast builtins are also available,
+[§15](#15-raw-code-and-ffi).)
 
 ```rig
 fun average(total: Int, count: Int) -> Float
@@ -167,6 +168,31 @@ sub main
 
 ```error
 integer value `256` does not fit in `U8`
+```
+
+A conversion to a float type rounds to the nearest value the type
+holds, for a constant as it does at run time: `F32(16777217)` is
+`16777216.0`. A constant assigned to a float type without a conversion
+must be exact, so `a: F32 = 16777217` is rejected; write the
+conversion to accept the rounding.
+
+```rig
+sub main
+  n = 16777217
+  print(F32(16777217), F32(n))
+```
+
+```output
+16777216.0 16777216.0
+```
+
+```rig reject
+sub main
+  a: F32 = 16777217
+```
+
+```error
+integer value `16777217` does not fit exactly in `F32`
 ```
 
 A `String` has a length `s.len` and can be indexed (`s[0]`, or
@@ -2100,9 +2126,21 @@ after
 
 A loop may be labeled `:name`; `break :name` and `continue :name` then
 refer to it from an inner loop. A `match` or `raw` statement may be
-labeled too, and `break :name` leaves it. A jump after `??` or `catch`
+labeled too, and `break :name` leaves it. No other statement takes a
+label, since no jump could use it, and none takes two. A jump after `??` or `catch`
 may name a label too ([§12](#the-fallback-of-)). A label may repeat an
 enclosing one's name; the innermost is meant.
+
+```rig reject
+sub main
+  n = 3
+  :done if n > 1
+    print(n)
+```
+
+```error
+a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `:done` cannot label an `if`
+```
 
 ### Loops as values
 
@@ -2125,7 +2163,8 @@ the patterns. A range pattern's bounds are constants. Every match must
 cover every value, whether its value is used
 or it is a statement: its arms name every variant or value, or a
 catch-all (`_`, or a name) covers the rest. Duplicate and unreachable
-arms are rejected.
+arms are rejected. An arm with no work to do is `_ => pass`
+([pass](#pass)).
 
 A guard `if cond` after a pattern is a `Bool` that may read the
 pattern's bindings; when it is false, the later arms are tried, as if
@@ -2267,11 +2306,52 @@ sub main
 cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fields
 ```
 
+### pass
+
+`pass` is a statement that does nothing. It stands where a statement
+is needed and there is no work: a match arm (`_ => pass`), a loop
+body, an `if` branch, or a function body. It has no value, so a match
+arm, branch, or block whose value is used cannot end with it.
+
+```rig
+sub main
+  n = 4
+  match n % 2
+    0 => print("even")
+    _ => pass
+  if n > 10
+    pass
+  else
+    print("small")
+```
+
+```output
+even
+small
+```
+
+```rig reject
+fun sign(n: Int) -> Int
+  match n
+    0 => pass
+    _ => 1
+
+sub main
+  print(sign(0))
+```
+
+```error
+`pass` does nothing and has no value
+```
+
 ### defer and errdefer
 
 `defer stmt` (or `defer` with a block) runs when the enclosing block
 exits, in reverse order of the defers. `errdefer` runs only when the
-function exits with an error. A deferred body may not move or drop
+function exits with an error, so it is written only where one can: in
+a `fun ... -> T!`, a `sub f()!`, `sub main`, a closure whose type can
+fail, or a test. In a function, closure, or `drop` body that cannot
+fail, or inside deferred code, it is rejected: write `defer`. A deferred body may not move or drop
 outer bindings, or propagate with `!`. It runs after the values declared
 after it are dropped, so it may not read one through a borrow. A
 one-line `defer` or `errdefer` cannot declare a name; a deferred block
@@ -2286,6 +2366,19 @@ sub main
 
 ```error
 a deferred statement runs at scope exit and cannot declare `t`; use an indented `defer` block
+```
+
+```rig reject
+sub log(n: Int)
+  errdefer print("failed")
+  print(n)
+
+sub main
+  log(1)
+```
+
+```error
+`errdefer` runs only when the function fails, and `log` cannot fail; use `defer`
 ```
 
 ---
@@ -2552,7 +2645,9 @@ sub main
 **The aliasing rule.** At any point a value may have any number of read
 borrows or one write borrow, not both. While a read borrow is live the
 owner cannot be written, moved, or dropped; while a write borrow is
-live the owner cannot be used at all.
+live the owner cannot be used at all, whatever its type: even a number
+is not read until the borrow's last use, so `w = !n` then `w += n` is
+rejected.
 
 ```rig reject
 struct User
@@ -2634,13 +2729,22 @@ A write borrow is assignable, whether a `!T` parameter or a local
 holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
 borrowed value (the old value is dropped first). A new binding points
 a name at another place: `new w = !m` (`w = !m` is rejected, since it
-would write through `w`). A write borrow can be lent on, written `!p`
-as an owned value's borrow is, or moved into a local with `<p`, but not
-copied. One held
+would write through `w`). A field or element of type `!T` reads and
+writes through too: `h.w = 5`, `h.w += 1`, and `xs[i] += 1` write the
+value the place borrows, while assigning another write borrow,
+`h.w = !m`, points the place at `m`. Writing through a borrow held in
+a field needs write access to the struct, as writing any field does,
+so a plain parameter `h: H` or a capture cannot. A write borrow can be
+lent on, written `!p` as an owned value's borrow is, or moved into a
+local with `<p`, but not copied. A bare `w` of type `!Int` where an
+`Int` goes copies the value it reaches (`x = w`); where a `!Int` goes
+(`h.w = w`), it would copy the borrow, and is written `<w`. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
-that path reaches: it cannot be passed on from there, and a `match`
-through one cannot bind it. A loop walks elements holding write borrows
-with `for x in !xs`.
+that path reaches: it cannot be written through or passed on from
+there, and a `match` through one cannot bind it. A loop walks elements
+whose fields hold write borrows with `for x in !xs`; an element that
+is itself a write borrow (in a `[2]!Int`) is written by index,
+`xs[i] = v`, since a loop binding cannot hold it.
 
 ```rig
 struct Counter
@@ -2679,6 +2783,51 @@ sub main
 
 ```output
 6 20
+```
+
+```rig
+struct Tally
+  count: !Int
+
+  sub add(!self, k: Int)
+    self.count += k
+
+sub main
+  n = 0
+  m = 100
+  t = Tally(count: !n)
+  t.count += 1
+  !t.add(2)
+  t.count = t.count * 10
+  t.count = !m
+  t.count += 1
+  print(n, m)
+  xs = [!n, !m]
+  for i in 0..xs.len
+    xs[i] += 1
+  print(n, m)
+```
+
+```output
+30 101
+31 102
+```
+
+```rig reject
+struct Tally
+  count: !Int
+
+sub peek(t: ?Tally)
+  t.count += 1
+
+sub main
+  n = 0
+  t = Tally(count: !n)
+  peek(?t)
+```
+
+```error
+cannot write through the write borrow held here through a read borrow (`?T`)
 ```
 
 A `!x` borrow needs a binding that may change: a parameter (other than

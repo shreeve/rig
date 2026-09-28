@@ -1,0 +1,9 @@
+# `pass` is a keyword, so it names nothing.
+
+sub pass(n: Int)
+  print(n)
+
+sub main
+  pass(1)
+
+# error: 3:5: unexpected keyword `pass`

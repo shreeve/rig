@@ -380,6 +380,12 @@ A few kinds serve more than one surface form:
   `variant_pattern` binding is a name, or `(kwarg field name)` for a
   field bound by name (`.rect(w: a)`), which the checker rejects as
   not supported yet.
+- `(pass)`, the statement `pass`, has no roles. The checker rejects it
+  where a value is needed, and the emitter writes it as `{}`, an empty
+  Zig block, which is a statement wherever Zig takes one.
+- `(labeled name stmt)` wraps any statement in the grammar; the
+  checker accepts a label only on a loop, a `match`, or a `raw` block,
+  the statements a `break` or `continue` can name.
 - `lambda`'s `captures` is a `(captures cap...)` node the Parser wrapper
   builds from the bar list (the one `@wrapper` kind), or `_`.
 - `weak` is both `~x` and the type `~T`; `member` is both `a.b` and the
@@ -580,7 +586,9 @@ ownership:
   needs an optional operand and a function returning `T?` (or `T?!`)
   to return `none` from. A closure body propagates only when the
   closure's type can fail (`?fun(Int) -> Int!`), or, for `?`, returns
-  an optional; `drop` bodies and deferred code never propagate;
+  an optional; `drop` bodies and deferred code never propagate. An
+  `errdefer` needs the same: a body that can fail, or it would never
+  run;
 - **the raw boundary**: builtins outside the safe list (`@sizeOf`,
   `@alignOf`, `@TypeOf`, `@typeName`), and calls to `extern` functions,
   must be inside a `raw` block. An `extern` function can only be
@@ -828,7 +836,15 @@ its `!` arguments and other write borrows lead to, except a built-in
 element method (`!dst.copy(src)`) whose elements hold no borrow, which
 stores only plain elements. Assigning a local write borrow, or a field
 or element through one (`w = v`, `w.f = v`), stores `v` in what `w`
-borrows the same way (`storeThroughLocal`).
+borrows (`storeThroughLocal`), and so does assigning a value to a
+field or element that holds a `!T` (`h.w = v`, which writes through
+it): `v` lands in what the struct write-borrows (`storesThroughPlace`).
+Unlike a call, an assignment knows how many write borrows it goes
+through (`placeDepth`: `o.i = v` one, `o.i.x = v` two), so only the
+values within that many write loans may hold what `v` borrows, a write
+borrow var on the way counting as the value it borrows
+(`absorbThroughWrites`); the values further on are borrowed only by
+what the assignment replaced.
 Cells, Signals, and
 owned closures hold no borrows (storing one there is rejected): every
 handle to one reaches what it holds, so loans kept per handle var would
@@ -911,8 +927,11 @@ the function's result (`Checker.ret_block`).
 value; read loans exclude writes, moves, drops, and reassignment, and
 write loans exclude everything; no loan outlives its root, including
 through `break` and error propagation; a returned or stored value
-carries only borrows the caller handed in; owning values are never
-copied implicitly, and only whole bindings move; closures use outer
+carries only borrows the caller handed in; owning values and write
+borrows are never copied implicitly (a bare write borrow of a Copy
+value is copied only where the type checker recorded that its context
+reads the value, `SemContext.readsThrough`), and only whole bindings
+move; closures use outer
 locals only through captures, and never consume their captured
 resources; and a value whose drop runs a user `drop` body may not
 borrow, directly or through what it borrows, a value dropped before it

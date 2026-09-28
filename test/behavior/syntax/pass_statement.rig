@@ -1,0 +1,63 @@
+# `pass` is a statement that does nothing: a match arm, a loop body, an
+# `if` branch, or a `sub` body with no work to do. Like any simple
+# statement it takes a postfix guard.
+
+enum Color
+  red
+  green
+  blue
+
+struct Countdown
+  n: Int
+
+  fun next(!self) -> Int?
+    return none if self.n == 0
+    self.n -= 1
+    self.n
+
+sub nothing
+  pass
+
+sub name(c: Color)
+  match c
+    .red => print("red")
+    _ => pass
+
+sub main
+  nothing()
+  name(.red)
+  name(.blue)
+  c = Countdown(n: 3)
+  while !c.next() as _
+    pass
+  print(c.n)
+  i = 0
+  while i < 3 : i += 1
+    pass
+  print(i)
+  for _ in 0..2
+    pass
+  if i > 5
+    pass
+  else
+    print("small")
+  match i
+    3
+      pass
+      print("three")
+    _ => pass
+  if i == 3
+    print("before")
+    pass
+    print("after")
+  pass if i > 1
+  defer pass
+
+# expect:
+# red
+# 0
+# 3
+# small
+# three
+# before
+# after

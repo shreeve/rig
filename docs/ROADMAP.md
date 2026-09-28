@@ -55,12 +55,6 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 Language decisions not yet made. Each describes what Rig does today;
 any change would be future work.
 
-- **A statement that does nothing**, for a `match` arm that has no work to do (every arm needs a statement today).
-- **Which statements take a label**: the reference labels loops, `match`, and `raw`; the compiler also accepts one on any other statement: `break :name` leaves a labeled `if`, and a label on a simple statement has no effect.
 - **`T??`** as a spelling of the nested optional `(T?)?`; today `??` after a type is the fallback operator, and the error points to `(T?)?`.
 - **Modules in subdirectories**: `use name` finds only `name.rig` beside the root file.
 - **Function values as module constants** (`handler = on_click` at module level); a module constant holds only compile-time values today.
-- **`errdefer` in a function that cannot fail**, which is accepted and never runs; it could be rejected instead.
-- **Compound assignment through a `!T` field**: `w += 1` writes through a `!Int` binding, but `h.w += 1` on a `!Int` field is rejected ("requires a numeric target").
-- **Rounding in a float conversion of a constant**: `F32(16777217)` rounds to `16777216.0`, while `a: F32 = 16777217` is rejected as not exact.
-- **Reading a Copy value while it is write-borrowed**: `n` stays readable while `w = !n` is live (memory-safe for a Copy value, but a write borrow is otherwise exclusive).

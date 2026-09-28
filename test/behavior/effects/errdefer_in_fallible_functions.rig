@@ -1,0 +1,34 @@
+# `errdefer` is accepted wherever a failure can leave: a `fun ... -> T!`,
+# a `sub f()!`, `sub main`, a closure whose type can fail, and a test.
+
+error E
+  bad
+
+fun parse(k: Int) -> Int!
+  errdefer print("parse failed")
+  return E.bad if k < 0
+  k
+
+sub save(k: Int)!
+  errdefer print("save failed")
+  _ = parse(k)!
+
+sub main
+  errdefer print("main failed")
+  f: fun(Int) -> Int! = |k|
+    errdefer print("closure failed")
+    parse(k)!
+  print(f(1) catch 0, f(-1) catch 0)
+  save(-1) catch print("caught")
+
+test "a test may fail"
+  errdefer print("test failed")
+  _ = parse(1)!
+
+# expect:
+# parse failed
+# closure failed
+# 1 0
+# parse failed
+# save failed
+# caught

@@ -272,6 +272,9 @@ const LoopCtx = struct {
     /// Source position where the loop starts: code from here on may run
     /// again in the next iteration.
     start: u32 = 0,
+    /// Its value is read through (`SemContext.readsThrough`), so a
+    /// `break` value that is a borrow of a Copy value is copied.
+    reads: bool = false,
 };
 
 /// Where a value is being consumed, for alias diagnostics.
@@ -391,6 +394,14 @@ pub const Checker = struct {
     lambda_ok: bool = false,
     /// Walking the arguments of a call the type checker rejected.
     in_rejected_call: bool = false,
+    /// `checkNoImplicitCopy` is inside an expression whose context reads
+    /// the value a borrow reaches (`SemContext.readsThrough`).
+    copy_reads: bool = false,
+    /// The next value `walkConsumed` takes is read the same way: a
+    /// `break` or `else` value of a loop whose value is read.
+    value_reads: bool = false,
+    /// The loop about to be walked is labeled, and its value is read.
+    pending_reads: bool = false,
     /// Scopes `(lo, hi]` are invisible to name lookup (while re-checking
     /// a deferred body at a scope exit).
     hidden: ?struct { lo: usize, hi: usize } = null,
@@ -1374,7 +1385,10 @@ pub const Checker = struct {
             if (sink == .argument and (self.lentCallable(expr) or self.in_rejected_call or self.rejected(expr))) self.lambda_ok = true;
             return self.walk(expr);
         }
+        self.copy_reads = self.value_reads;
+        self.value_reads = false;
         try self.checkNoImplicitCopy(expr, sink, false);
+        self.copy_reads = false;
         // Passing a held write borrow (`w`, `e.t`) lends it on: like `!w`,
         // its holder is write-borrowed for as long as the result may keep
         // the borrow.
@@ -1484,7 +1498,6 @@ pub const Checker = struct {
     fn checkReadable(self: *Checker, id: VarId, pos: u32) Error!void {
         const v = self.vars.items[id];
         if (!try self.checkLive(id, pos)) return;
-        if (self.isCopy(v.ty)) return;
         if (self.findLoan(id, .write, null)) |l| {
             try self.err(pos, "use of `{s}` while a write borrow is live", .{v.name});
             try self.noteLoan(l);
@@ -2051,6 +2064,11 @@ pub const Checker = struct {
     fn checkNoImplicitCopy(self: *Checker, expr: Sexp, sink: Sink, top_return: bool) Error!void {
         // Reported by the type checker.
         if (self.rejected(expr)) return;
+        // The value a borrow reaches is copied where its context reads
+        // it, in the branches of what is read too.
+        const saved_reads = self.copy_reads;
+        defer self.copy_reads = saved_reads;
+        if (self.readsValue(expr)) self.copy_reads = true;
         switch (expr) {
             .src => {
                 const v = self.vars.items[self.find(self.text(expr)) orelse return];
@@ -2075,7 +2093,9 @@ pub const Checker = struct {
                 if (top_return) return;
                 if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, true, k, sink, v.ty);
                 if (sink == .argument) return;
-                if (v.ref == .write and !self.isCopy(self.pointee(v.ty))) {
+                // A write borrow of a Copy value is copied where the
+                // value is read; where a `!T` goes, the borrow would be.
+                if (v.ref == .write and (!self.isCopy(self.pointee(v.ty)) or !self.copy_reads)) {
                     try self.err(pos, "bare use of write borrow `{s}` in {s} would duplicate a unique borrow; use `<{s}` to move it", .{ name, sink.text(), name });
                 } else if (v.ref != .write and self.carriesWriteBorrow(v.ty)) {
                     try self.err(pos, "bare use of `{s}` in {s} would duplicate the write borrow it holds; use `<{s}` to move it", .{ name, sink.text(), name });
@@ -2124,6 +2144,13 @@ pub const Checker = struct {
             },
             else => {},
         }
+    }
+
+    /// Whether the context of `e` reads the value the borrow it yields
+    /// reaches (`SemContext.readsThrough`).
+    fn readsValue(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        return ctx.readsThrough(e);
     }
 
     /// Whether `e` names a type (`Shape`, `lib.Shape`, `Opt[Int]`) rather
@@ -2313,7 +2340,7 @@ pub const Checker = struct {
             // caller handed in; through a local, it lands in what the
             // local borrows, which then holds them.
             if (!try self.checkLive(id, pos)) return;
-            if (self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value);
+            if (self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, 1);
             for (value.loans) |l| if (self.isLocalLoan(l)) {
                 const stored = self.vars.items[l.root].name;
                 if (self.borrowedRoot(id)) |root| {
@@ -2348,7 +2375,7 @@ pub const Checker = struct {
     /// `w = e` through local write borrow `id`: `e` is stored in what
     /// `w` borrows. A borrowed parameter or module-level binding reached
     /// that way outlives this function's values.
-    fn storeThroughLocal(self: *Checker, id: VarId, pos: u32, value: Value) Error!void {
+    fn storeThroughLocal(self: *Checker, id: VarId, pos: u32, value: Value, depth: u32) Error!void {
         const held = self.varValue(id);
         for (held.loans) |w| {
             if (w.kind != .write) continue;
@@ -2359,7 +2386,7 @@ pub const Checker = struct {
                 return;
             };
         }
-        try self.absorbThroughWrites(held, value, pos, self.vars.items[id].name);
+        try self.absorbThroughWrites(held, value, pos, self.vars.items[id].name, depth);
     }
 
     /// `p.f = e` / `v[i] = e`.
@@ -2380,8 +2407,11 @@ pub const Checker = struct {
             return;
         }
         if (value.loans.len == 0 or !self.mayCarryBorrow(self.exprType(target))) return;
+        // A value stored through a `!T` field or element lands in what
+        // the field borrows, which `v` holds a write loan on.
+        if (self.storesThroughPlace(target, expr)) return self.absorbThroughWrites(self.varValue(id), value, pos, v.name, self.placeDepth(target, true));
         if (v.kind == .capture and !place.through_shared) return self.storeThroughCapture(v, pos, value);
-        if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value);
+        if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, self.placeDepth(target, false));
         if (v.ref != .none or place.through_borrow or place.through_shared or self.isGlobal(id)) {
             // Stored into something the caller owns: only borrows the
             // caller handed in may go there.
@@ -2401,6 +2431,17 @@ pub const Checker = struct {
         var f = self.flows.items[id];
         f.loans = try self.unionLoans(f.loans, value.loans);
         try self.setFlow(id, f);
+    }
+
+    /// Whether `target = expr` writes through the `!T` that field or
+    /// element `target` holds: `expr` is a value, not another `!T` the
+    /// place is pointed at.
+    fn storesThroughPlace(self: *const Checker, target: Sexp, expr: Sexp) bool {
+        const ty = self.exprType(target) orelse return false;
+        const ctx = self.sema orelse return false;
+        if (!sema.assignWritesThrough(ctx, ty) or sema.writeSliceElem(ctx, ty) != null) return false;
+        const vty = self.exprType(expr) orelse return !expr.isKind(.write);
+        return self.typeData(vty) != .borrow_write;
     }
 
     /// Store `value` into `target`, reached through capture `v` of the
@@ -2521,10 +2562,10 @@ pub const Checker = struct {
         if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             if (recv_root) |id| {
                 const obj = ir.Member.object(callee);
-                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null);
+                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null, true);
             }
-            try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null);
-            for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null);
+            try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
+            for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
         }
 
         if (recv_root) |id| if (recv_mode == .write) {
@@ -2674,16 +2715,77 @@ pub const Checker = struct {
     /// the loans in `stored`. Those write loans are the path to them, not
     /// something stored. `via` names the write borrow an assignment
     /// stores through; without it, a call stores them.
-    fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32, via: ?[]const u8) Error!void {
-        var roots: std.ArrayListUnmanaged(VarId) = .empty;
-        for (v.loans) |l| {
-            if (l.kind == .write and std.mem.indexOfScalar(VarId, roots.items, l.root) == null) try roots.append(self.arena(), l.root);
+    ///
+    /// Without a `depth` (a call, which may store anywhere its arguments
+    /// reach), every value the write loans lead to, however deep, may
+    /// hold them. An assignment goes through `depth` write borrows from
+    /// `v` (`placeDepth`): the values within that many write loans may
+    /// hold them, and the ones further on, which only what it wrote
+    /// borrows, do not. A write borrow var on the way (`w2 = !w`) is a
+    /// name for what it borrows, and takes no step of its own.
+    fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32, via: ?[]const u8, depth: ?u32) Error!void {
+        var level: std.ArrayListUnmanaged(VarId) = .empty;
+        try self.appendWriteRoots(&level, v, &.{});
+        const d = depth orelse {
+            for (level.items) |r| {
+                // Only a value that can hold a borrow can have one stored in it.
+                if (!self.mayCarryBorrow(self.pointee(self.vars.items[r].ty))) continue;
+                try self.absorbLoans(r, stored, pos, level.items, via, true);
+            }
+            return;
+        };
+        // The values reached, found before any of them takes the loans.
+        var seen: std.ArrayListUnmanaged(VarId) = .empty;
+        var remaining = d;
+        while (level.items.len > 0 and seen.items.len <= 64) {
+            var next: std.ArrayListUnmanaged(VarId) = .empty;
+            var i: usize = 0;
+            while (i < level.items.len) : (i += 1) {
+                const r = level.items[i];
+                if (std.mem.indexOfScalar(VarId, seen.items, r) != null) continue;
+                try seen.append(self.arena(), r);
+                const c = self.vars.items[r];
+                if ((c.kind == .param and c.ref != .none) or self.isGlobal(r)) continue;
+                if (c.ref == .write) {
+                    try self.appendWriteRoots(&level, self.varValue(r), seen.items);
+                } else if (remaining > 1) try self.appendWriteRoots(&next, self.varValue(r), seen.items);
+            }
+            if (remaining <= 1) break;
+            remaining -= 1;
+            level = next;
         }
-        for (roots.items) |r| {
-            // Only a value that can hold a borrow can have one stored in it.
+        if (seen.items.len > 64) return self.absorbThroughWrites(v, stored, pos, via, null);
+        for (seen.items) |r| {
             if (!self.mayCarryBorrow(self.pointee(self.vars.items[r].ty))) continue;
-            try self.absorbLoans(r, stored, pos, roots.items, via);
+            try self.absorbLoans(r, stored, pos, seen.items, via, false);
         }
+    }
+
+    /// Append to `out` the roots of the write loans in `v` not in `out`
+    /// or `skip`.
+    fn appendWriteRoots(self: *Checker, out: *std.ArrayListUnmanaged(VarId), v: Value, skip: []const VarId) Error!void {
+        for (v.loans) |l| {
+            if (l.kind != .write or std.mem.indexOfScalar(VarId, out.items, l.root) != null or std.mem.indexOfScalar(VarId, skip, l.root) != null) continue;
+            try out.append(self.arena(), l.root);
+        }
+    }
+
+    /// The number of write borrows a store to `target` goes through from
+    /// its root var's value: each one the path reaches through, the root
+    /// included, and the `!T` the place itself holds when the store
+    /// writes through it.
+    fn placeDepth(self: *const Checker, target: Sexp, writes_through: bool) u32 {
+        var n: u32 = @intFromBool(writes_through);
+        var e = target;
+        while (e.isKind(.member) or e.isKind(.index)) {
+            e = ir.get(e, .object);
+            // A root var holding a write borrow (a `match !x` binding
+            // among them, whatever its type) is one.
+            const root_borrows = e == .src and if (self.find(self.text(e))) |id| self.vars.items[id].ref == .write else false;
+            const is_borrow = if (self.exprType(e)) |t| self.typeData(t) == .borrow_write else false;
+            if (root_borrows or is_borrow) n += 1;
+        }
+        return n;
     }
 
     /// Record that var `id` may now hold the loans in `v`, and so may
@@ -2693,7 +2795,7 @@ pub const Checker = struct {
     /// parameter or a module-level binding outlives this function's
     /// values: storing a borrow of one into it is rejected. `via` is as
     /// for `absorbThroughWrites`.
-    fn absorbLoans(self: *Checker, id: VarId, v: Value, pos: u32, through: []const VarId, via: ?[]const u8) Error!void {
+    fn absorbLoans(self: *Checker, id: VarId, v: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool) Error!void {
         var out: std.ArrayListUnmanaged(Loan) = .empty;
         for (v.loans) |l| {
             if (l.root != id and std.mem.indexOfScalar(VarId, through, l.root) == null) try out.append(self.arena(), l);
@@ -2717,10 +2819,10 @@ pub const Checker = struct {
         const held = f.loans;
         f.loans = try self.unionLoans(held, out.items);
         try self.setFlow(id, f);
-        if (through.len > 16) return;
+        if (!deeper or through.len > 16) return;
         const next = try std.mem.concat(self.arena(), VarId, &.{ through, &.{id} });
         for (held) |l| {
-            if (l.kind == .write and std.mem.indexOfScalar(VarId, next, l.root) == null) try self.absorbLoans(l.root, v, pos, next, via);
+            if (l.kind == .write and std.mem.indexOfScalar(VarId, next, l.root) == null) try self.absorbLoans(l.root, v, pos, next, via, true);
         }
     }
 
@@ -2789,7 +2891,7 @@ pub const Checker = struct {
         // captured write borrow leads to, as a call may with its
         // arguments: that value now holds those loans.
         if (!owned and caps.len > 1) for (caps, cap_values.items) |cap, cv| {
-            try self.absorbThroughWrites(cv, value, sema.captureNameNode(cap).?.src.pos, null);
+            try self.absorbThroughWrites(cv, value, sema.captureNameNode(cap).?.src.pos, null, null);
         };
 
         // The body is checked as its own function; it cannot affect the
@@ -3224,15 +3326,17 @@ pub const Checker = struct {
         return self.walkLoop(spec);
     }
 
-    /// `(labeled name stmt)`: a labeled loop, or a labeled block that
-    /// `break :name` leaves.
+    /// `(labeled name stmt)`: a labeled loop, or a labeled `match` or
+    /// `raw` block, which `break :name` leaves.
     fn walkLabeled(self: *Checker, node: Sexp) Error!Value {
         const label = self.text(ir.Labeled.label(node));
         const stmt = ir.Labeled.stmt(node);
         if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) {
             self.pending_label = label;
+            self.pending_reads = self.readsValue(node);
             const v = try self.walk(stmt);
             self.pending_label = "";
+            self.pending_reads = false;
             return v;
         }
         var ctx: LoopCtx = .{ .label = label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .is_loop = false };
@@ -3244,8 +3348,9 @@ pub const Checker = struct {
     }
 
     fn walkLoop(self: *Checker, spec: LoopSpec) Error!Value {
-        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = extent(spec.node).lo };
+        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = extent(spec.node).lo, .reads = self.pending_reads or self.readsValue(spec.node) };
         self.pending_label = "";
+        self.pending_reads = false;
         self.loop = &ctx;
         defer self.loop = ctx.parent;
         const entry = ctx.point;
@@ -3288,7 +3393,9 @@ pub const Checker = struct {
         const e = ir.get(spec.node, .@"else");
         if (e != .nil) {
             if (sema.hasValueBreaks(self.source, spec.node)) {
+                self.value_reads = ctx.reads;
                 value = try self.valueUnion(value, try self.walkStmtValue(e, .brk));
+                self.value_reads = false;
             } else try self.walkStmt(e);
         }
         try self.joinAt(ctx.point, ctx.breaks.items);
@@ -3379,16 +3486,18 @@ pub const Checker = struct {
     fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
         const label = self.text(ir.get(node, .label));
         const value = if (jump == .brk) ir.Break.value(node) else .nil;
-        // A `break` value leaves the loop like a returned value leaves the
-        // function: it is consumed, and it may not borrow what the loop
-        // declared.
-        const v: Value = if (value != .nil) try self.walkConsumed(value, .brk) else .{};
         var target = self.loop;
         while (target) |t| : (target = t.parent) {
             if (label.len == 0) {
                 if (t.is_loop) break;
             } else if (std.mem.eql(u8, t.label, label)) break;
         }
+        // A `break` value leaves the loop like a returned value leaves the
+        // function: it is consumed, and it may not borrow what the loop
+        // declared.
+        if (target) |t| self.value_reads = t.reads;
+        const v: Value = if (value != .nil) try self.walkConsumed(value, .brk) else .{};
+        self.value_reads = false;
         const word = if (jump == .brk) "break" else "continue";
         const at = self.stmtSpan(node);
         if (target == null) {
@@ -3835,7 +3944,7 @@ fn tailOf(s: Sexp) Sexp {
 fn isValueExpr(s: Sexp) bool {
     if (s != .list) return s == .src;
     return switch (s.kind() orelse return false) {
-        .set, .@"return", .@"break", .@"continue", .@"while", .@"for", .drop, .@"defer", .@"errdefer", .labeled => false,
+        .set, .@"return", .@"break", .@"continue", .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .labeled => false,
         else => true,
     };
 }

@@ -153,7 +153,7 @@ not used.
 | Role | Keywords |
 |---|---|
 | declarations | `fun` `sub` `struct` `enum` `error` `type` `use` `pub` `extern` `test` `drop` |
-| control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` |
+| control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` `pass` |
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
 | boundaries | `raw` |
 | reserved forms | `try` `zig` |
@@ -751,12 +751,13 @@ A statement is one of:
   form (`if`, `while`, `for`, `match`);
 - a binding or assignment ([§9](#9-bindings-and-assignment));
 - a drop, `-x`;
+- `pass`, which does nothing;
 - `return`, `return e`, `break`, `break e`, `break :label`,
   `continue`, `continue :label`;
 - `defer` or `errdefer` with a statement or block (a one-line
   statement may not declare a name);
 - a `raw` block ([SPEC §15](SPEC.md#15-raw-code-and-ffi));
-- a labeled statement, `:name stmt`.
+- a labeled loop, `match`, or `raw` block, `:name stmt`.
 
 ### if
 
@@ -903,7 +904,8 @@ rules. An `else` block runs when the loop ends without `break`.
 
 `:name` before a loop labels it, and `break :name` or `continue :name`
 names it from an inner loop. A `match` or `raw` statement may be
-labeled too, and `break :name` leaves it. A jump after `??` or `catch`
+labeled too, and `break :name` leaves it; no other statement takes a
+label, and none takes two. A jump after `??` or `catch`
 names a label the same way, `v = next() ?? continue :outer`, except in a
 `while` header, where the first `:` starts the step.
 
@@ -981,6 +983,35 @@ unit negative small large
 got 7
 ```
 
+Every value the subject can have needs an arm, so an arm with nothing
+to do is written `_ => pass`. `pass` is a statement that does nothing,
+for a match arm, loop body, branch, or function body with no work; it
+has no value, so an arm or branch whose value is used cannot be `pass`.
+
+```rig
+enum Light
+  red
+  amber
+  green
+
+sub stop(l: Light)
+  match l
+    .red => print("stop")
+    _ => pass
+
+sub later
+  pass
+
+sub main
+  stop(.red)
+  stop(.green)
+  later()
+```
+
+```output
+stop
+```
+
 The subject takes a sigil the way a `for` source does: `match e` and
 `match ?e` read the payloads, `match !e` binds write borrows of them,
 and `match <e` consumes `e` ([SPEC §6](SPEC.md#match)).
@@ -989,7 +1020,7 @@ and `match <e` consumes `e` ([SPEC §6](SPEC.md#match)).
 
 `defer` takes a statement or a block, and runs it when the enclosing
 block exits, in reverse order. `errdefer` runs only when the function
-fails.
+fails, so it goes only in a function that can fail.
 
 ```rig
 sub main
@@ -1367,8 +1398,9 @@ is generated from. `[x]` is optional, `x*` repeats, `x, ...` is a
 comma-separated list (which may end with a comma), `tail-closure` is a
 closure whose body assigns, and `INDENT` / `DEDENT` are the block
 structure. The checker narrows a few forms the grammar accepts: a `fun`
-needs `->`, a `drop` body takes `!self`, and a module-level binding
-takes no `=!`.
+needs `->`, a `drop` body takes `!self`, a module-level binding
+takes no `=!`, and a label goes only on a loop, `match`, or `raw`
+block.
 
 ```text
 program   = decl*
@@ -1408,7 +1440,7 @@ block     = INDENT stmt* DEDENT
 stmt      = decl | ":" name stmt | simple ["if" value]
 simple    = tail | assign
           | postfix "=!" tail | name ":" type ("=" | "=!") tail
-          | "new" name "=" tail | "-" name
+          | "new" name "=" tail | "-" name | "pass"
           | "return" [tail] | "break" [":" name] [tail] | "continue" [":" name]
           | ("defer" | "errdefer") (simple | block) | "raw" block
 assign    = postfix ("=" | "+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%="

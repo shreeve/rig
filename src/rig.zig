@@ -174,6 +174,7 @@ const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "new", .new },
     .{ "not", .not },
     .{ "or", .@"or" },
+    .{ "pass", .pass },
     .{ "pub", .@"pub" },
     .{ "raw", .raw },
     .{ "return", .@"return" },
@@ -759,7 +760,7 @@ pub const Lexer = struct {
         if (keyword(word)) |kw| switch (kw) {
             .@"if" => {
                 switch (self.last_cat) {
-                    .@"return", .@"break", .@"continue" => return .post_if,
+                    .@"return", .@"break", .@"continue", .pass => return .post_if,
                     else => {},
                 }
                 if (!self.after_value) return .@"if";

@@ -940,6 +940,8 @@ pub const Emitter = struct {
         switch (head) {
             .set => try self.emitSet(sexp),
             .drop => try self.emitDrop(sexp),
+            // An empty block: a statement wherever Zig wants one.
+            .pass => try self.w.writeAll("{}"),
             .@"return" => try self.emitReturn(sexp),
             .@"break" => try self.emitBreak(sexp),
             .@"continue" => try self.emitContinue(sexp),
@@ -1176,7 +1178,11 @@ pub const Emitter = struct {
     /// Assignment to a field or element. When the place may hold a
     /// resource, the old value is dropped after the new one is computed.
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
-        const place_ty = self.typeOf(target);
+        // A field or element holding a write borrow is written through
+        // when it is given a value, not another write borrow; the place
+        // is then the value it borrows.
+        const through = self.isPtrBorrowExpr(target) and !self.isPtrBorrowExpr(value);
+        const place_ty = if (through) self.peelBorrows(self.typeOf(target).?) else self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
             try self.emitCellPtr(ir.Index.object(target));
             try self.w.writeAll(".vecSet(");
@@ -1185,7 +1191,7 @@ pub const Emitter = struct {
             try self.emitBare(value);
             return self.w.writeAll(");");
         };
-        if (target != .src and self.isPtrBorrowExpr(target)) {
+        if (target != .src and self.isPtrBorrowExpr(target) and !through) {
             // A field or element holding a write borrow is rebound.
             try self.emitBorrowValue(target);
             try self.w.writeAll(" = ");
@@ -1247,7 +1253,13 @@ pub const Emitter = struct {
     /// An assignable place: a binding, field, or element.
     fn emitPlace(self: *Emitter, target: Sexp) Error!void {
         if (target == .src) if (self.localOf(target)) |local| return self.writeLocalPlace(local);
-        if (target.isKind(.index)) return self.emitIndex(target, true);
+        if (target.isKind(.index)) {
+            // An element holding a write borrow denotes the borrowed
+            // value, as a field holding one does (`emitValue`).
+            try self.emitIndex(target, true);
+            if (self.isPtrBorrowExpr(target)) try self.w.writeAll(".*");
+            return;
+        }
         // A field of an element (`v[i].x = ...`) is reached through the
         // element's slot.
         const saved = self.place_chain;
@@ -1556,8 +1568,9 @@ pub const Emitter = struct {
         try self.w.writeAll(" }");
     }
 
-    /// `(labeled name stmt)`: a labeled loop, or any other statement,
-    /// which `break :name` leaves as it leaves a labeled block.
+    /// `(labeled name stmt)`: a labeled loop, or a labeled `match` or
+    /// `raw` block, which `break :name` leaves as it leaves a Zig
+    /// labeled block.
     fn emitLabeled(self: *Emitter, sexp: Sexp) Error!void {
         const stmt = ir.Labeled.stmt(sexp);
         const label = self.srcText(ir.Labeled.label(sexp));
@@ -5338,7 +5351,7 @@ fn sameNode(a: Sexp, b: Sexp) bool {
 fn isValueStmt(s: Sexp) bool {
     const h = s.kind() orelse return true;
     return switch (h) {
-        .set, .drop, .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .block, .@"while", .@"for", .labeled => false,
+        .set, .drop, .pass, .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .block, .@"while", .@"for", .labeled => false,
         .@"if" => ir.If.@"else"(s) != .nil,
         else => true,
     };

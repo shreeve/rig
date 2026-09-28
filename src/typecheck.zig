@@ -503,6 +503,7 @@ const Checker = struct {
                             else => "labeled statement",
                         },
                         .drop => "drop",
+                        .pass => "`pass`",
                         .@"defer", .@"errdefer" => "deferred statement",
                         else => "jump",
                     };
@@ -543,8 +544,9 @@ const Checker = struct {
                 _ = try self.synthExpr(ir.Drop.name(stmt));
             },
             .@"break" => try self.checkBreak(stmt),
-            .@"continue" => {},
+            .@"continue", .pass => {},
             .@"defer", .@"errdefer" => {
+                if (head == .@"errdefer") try self.checkErrdeferCanRun(stmt);
                 const saved = self.body;
                 defer self.body = saved;
                 self.body.fail_to = .deferred;
@@ -573,6 +575,19 @@ const Checker = struct {
                     self.loop_label = label;
                     return self.checkStmt(inner);
                 }
+                // Only a loop, a `match`, or a `raw` block has a use for a
+                // label; the statement is still checked as if it took one.
+                if (inner.isKind(.labeled)) {
+                    try self.errAt(stmt, "a loop, `match`, or `raw` block takes one label; `:{s}` labels a statement already labeled `:{s}`", .{ label, self.text(ir.Labeled.label(inner)) });
+                } else if (!inner.isKind(.match) and !inner.isKind(.raw_block)) {
+                    const prefix = "a label names a loop, `match`, or `raw` block that `break` or `continue` can leave";
+                    switch (inner.kind() orelse .labeled) {
+                        .@"if" => try self.errAt(stmt, "{s}; `:{s}` cannot label an `if`", .{ prefix, label }),
+                        .@"defer" => try self.errAt(stmt, "{s}; `:{s}` cannot label a `defer`", .{ prefix, label }),
+                        .@"errdefer" => try self.errAt(stmt, "{s}; `:{s}` cannot label an `errdefer`", .{ prefix, label }),
+                        else => try self.errAt(stmt, "{s}; `:{s}` on this statement would do nothing", .{ prefix, label }),
+                    }
+                }
                 var frame: LoopFrame = .{ .label = label, .is_loop = false, .parent = self.body.loops };
                 self.body.loops = &frame;
                 defer self.body.loops = frame.parent;
@@ -583,6 +598,19 @@ const Checker = struct {
             },
             else => try self.checkExprStmt(stmt),
         }
+    }
+
+    /// An `errdefer` runs only when its function fails: one where
+    /// nothing can fail would never run.
+    fn checkErrdeferCanRun(self: *Checker, stmt: Sexp) Error!void {
+        const what = switch (self.body.fail_to) {
+            .caller, .module => return,
+            .infallible => |name| try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`", .{self.text(name)}),
+            .closure => "this closure",
+            .deferred => return self.errAt(stmt, "an `errdefer` inside deferred code never runs, since deferred code cannot fail; write its statement in the block directly", .{}),
+            .drop => "a `drop` body",
+        };
+        try self.errAt(stmt, "`errdefer` runs only when the function fails, and {s} cannot fail; use `defer`", .{what});
     }
 
     /// An expression used as a statement must do something: call, fail
@@ -847,8 +875,27 @@ const Checker = struct {
             }
             return self.checkExpr(rhs, place_ty);
         }
+        // A field or element holding a `!T` is written through when it is
+        // given a `T` (or a compound assignment), as a `!T` binding is;
+        // given a `!T`, it is pointed elsewhere.
+        const through = try self.placeWritesThrough(place_ty, kind, rhs);
+        if (through and !(try self.checkUsesWriteBorrow(target, "write through"))) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
         if (!(try self.checkWritable(target, target, "assign to"))) {
             _ = try self.synthExpr(rhs);
+            return;
+        }
+        if (through) {
+            const inner = sema.unwrapBorrows(self.ctx, place_ty);
+            if (kind.operator() != null) return self.checkCompound(kind, inner, rhs, self.startOf(target), "this place has type");
+            const before = self.ctx.diagnostics.items.len;
+            try self.checkExpr(rhs, inner);
+            if (self.ctx.diagnostics.items.len > before and std.mem.startsWith(u8, self.ctx.diagnostics.items[before].message, "type mismatch")) {
+                const shown = self.sourceText(target);
+                try self.noteAt(target, "`{s} = v` writes the `{s}` that `{s}` borrows; `{s} = !m` points `{s}` at another place", .{ shown, try self.tyName(inner), shown, shown, shown });
+            }
             return;
         }
         if (try self.assignsIntoTemporary(target)) {
@@ -861,6 +908,18 @@ const Checker = struct {
         }
         if (kind.operator() != null) return self.checkCompound(kind, place_ty, rhs, self.startOf(target), "this place has type");
         try self.checkExpr(rhs, place_ty);
+    }
+
+    /// Whether assigning `rhs` to a place of type `place_ty` writes
+    /// through the `!T` the place holds: a compound assignment does, and
+    /// so does a value that is not itself a `!T`. (A `![]T` views
+    /// elements it does not own, and is never written whole.)
+    fn placeWritesThrough(self: *Checker, place_ty: TypeId, kind: rig.BindingKind, rhs: Sexp) Error!bool {
+        if (!sema.assignWritesThrough(self.ctx, place_ty) or sema.writeSliceElem(self.ctx, place_ty) != null) return false;
+        if (kind.operator() != null) return true;
+        if (rhs.isKind(.write)) return false;
+        const ty = try self.argType(rhs);
+        return self.ctx.types.get(ty) != .borrow_write;
     }
 
     /// `x op= e` is `x = x op e` with `x` evaluated once, and `x` keeps its
@@ -1034,15 +1093,19 @@ const Checker = struct {
 
     /// A write borrow held in a field or element (`b.t` with `t: !T`) is
     /// lent by `!b.t`, and by the place itself where a value holding a
-    /// write borrow is expected. Reached through a `?T` or `*T`, it is
-    /// read-only like the rest of what that path reaches: other borrows
-    /// or handles may reach the same write borrow. False after a
-    /// diagnostic.
+    /// write borrow is expected, and written through by `b.t = v` and
+    /// `b.t += v`. Reached through a `?T` or `*T`, it is read-only like
+    /// the rest of what that path reaches: other borrows or handles may
+    /// reach the same write borrow. False after a diagnostic.
     fn checkLendsWriteBorrow(self: *Checker, place: Sexp) Error!bool {
+        return self.checkUsesWriteBorrow(place, "lend");
+    }
+
+    fn checkUsesWriteBorrow(self: *Checker, place: Sexp, verb: []const u8) Error!bool {
         if (!place.isKind(.member) and !place.isKind(.index)) return true;
         const path = self.placePath(place);
         if (path.shared) {
-            try self.errAt(place, "cannot lend the write borrow held here through a shared handle (`*T`); other handles reach the same write borrow", .{});
+            try self.errAt(place, "cannot {s} the write borrow held here through a shared handle (`*T`); other handles reach the same write borrow", .{verb});
             return false;
         }
         if (path.read_only) |ro| {
@@ -1051,11 +1114,11 @@ const Checker = struct {
                 .string => "a String, which is read-only",
                 .len => "`.len`, which is read-only",
             };
-            try self.err(ro.pos, "cannot lend the write borrow held here through {s}", .{through});
+            try self.err(ro.pos, "cannot {s} the write borrow held here through {s}", .{ verb, through });
             return false;
         }
         if (path.read_borrow) |pos| {
-            try self.err(pos, "cannot lend the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow", .{});
+            try self.err(pos, "cannot {s} the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow", .{verb});
             return false;
         }
         return true;
@@ -1486,7 +1549,7 @@ const Checker = struct {
     fn yieldsNoValue(self: *Checker, e: Sexp) bool {
         const h = e.kind() orelse return false;
         return switch (h) {
-            .set, .@"while", .@"for", .drop, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .labeled => !self.isValueLoop(e),
+            .set, .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .labeled => !self.isValueLoop(e),
             else => false,
         };
     }
@@ -1584,6 +1647,13 @@ const Checker = struct {
                 return if (is_resource) try self.ctx.intern(.{ .borrow_read = elem }) else elem;
             },
             .array => |a| {
+                // A binding of an element that is itself a write borrow
+                // would be a borrow of the borrow, or a copy of it.
+                if (mode != .move and self.ctx.types.get(a.elem) == .borrow_write) {
+                    const shown = self.sourceText(inner_source);
+                    try self.err(pos, "each element of `{s}` is a write borrow, which a loop binding cannot hold; loop over the indices and write `{s}[i]`", .{ shown, shown });
+                    return self.t().invalid_id;
+                }
                 if (mode == .write) return self.writeElement(source, inner_source, a.elem);
                 if (mode != .move and sema.holdsWriteBorrow(self.ctx, a.elem)) {
                     try self.err(pos, "each element holds a write borrow, which a loop binding would copy; write through them with `for x in !xs`", .{});
@@ -2374,6 +2444,10 @@ const Checker = struct {
             .@"while", .@"for", .labeled, .set, .drop, .@"defer", .@"errdefer" => if (self.isValueLoop(e)) self.checkLoopValue(e, null, true) else blk: {
                 try self.checkStmt(e);
                 break :blk self.t().void_id;
+            },
+            .pass => blk: {
+                try self.errAt(e, "`pass` does nothing and has no value, and a value is needed here", .{});
+                break :blk self.t().invalid_id;
             },
             .@"return" => blk: {
                 try self.checkReturn(e);
@@ -4424,10 +4498,11 @@ const Checker = struct {
     }
 
     /// `I32(x)`, `U8(x)`, `Float(n)`, `Int(f)`: a numeric conversion to
-    /// the named type. It is checked: a value that does not fit panics
-    /// when the program runs, and a float converted to an integer is
-    /// truncated toward zero. A constant argument is converted now, so
-    /// it must fit.
+    /// the named type. A conversion to an integer type is checked: a
+    /// value that does not fit panics when the program runs, and a float
+    /// is truncated toward zero; a constant argument is converted now,
+    /// so it must fit. A conversion to a float type rounds to the nearest
+    /// value, a constant argument included.
     fn checkConversion(self: *Checker, target: TypeId, name: []const u8, args: []const Sexp, pos: u32) Error!TypeId {
         if (args.len != 1 or args[0].isKind(.kwarg)) {
             try self.err(pos, "`{s}(x)` converts one number; it takes exactly one argument", .{name});
@@ -6700,8 +6775,9 @@ const Checker = struct {
             }
         }
         // A place where a borrow of it is expected: the sigil is missing.
+        // (A literal is no place to lend.)
         switch (self.ctx.types.get(expected)) {
-            .borrow_read, .borrow_write => |inner| if (isStoragePath(e) and compatible(self.ctx, actual, inner)) {
+            .borrow_read, .borrow_write => |inner| if (isStoragePath(e) and self.ctx.symbolOf(pathRoot(e)) != null and compatible(self.ctx, actual, inner)) {
                 const write = self.ctx.types.get(expected) == .borrow_write;
                 return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; lend a {s} borrow: `{c}{s}`", .{ try self.tyName(expected), try self.tyName(actual), if (write) "write" else "read", @as(u8, if (write) '!' else '?'), self.sourceText(e) });
             },
@@ -8054,6 +8130,13 @@ fn isStoragePath(e: Sexp) bool {
     if (e.isKind(.member)) return isStoragePath(ir.Member.object(e));
     if (e.isKind(.index) and !rig.isRangeIndex(e)) return isStoragePath(ir.Index.object(e));
     return false;
+}
+
+/// The leaf a storage path starts from: `v` in `v.a[i].b`.
+fn pathRoot(e: Sexp) Sexp {
+    var p = e;
+    while (p.isKind(.member) or p.isKind(.index)) p = ir.get(p, .object);
+    return p;
 }
 
 /// A name or a chain of fields off one: `v`, `t.kids`, `a.b.c`.
