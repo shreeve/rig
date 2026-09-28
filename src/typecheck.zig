@@ -4033,11 +4033,6 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
-    /// `xs[a..b]`: the elements from `a` up to, not including, `b`. A
-    /// String gives a String, which borrows nothing: every String is a
-    /// static literal. A `[]T` gives a `[]T` viewing the same elements.
-    /// An array or a `Vec` of plain data gives a `[]T` only as
-    /// `?xs[a..b]` (`borrowed`): the slice is a read borrow of `xs`.
     /// The element of Vec `peeled` (the type of `object`), sliced: plain
     /// data only, since a slice would copy owning handles out. Null
     /// after a diagnostic.
@@ -4053,6 +4048,11 @@ const Checker = struct {
         return elem;
     }
 
+    /// `xs[a..b]`: the elements from `a` up to, not including, `b`. A
+    /// String gives a String, which borrows nothing: every String is a
+    /// static literal. A `[]T` gives a `[]T` viewing the same elements.
+    /// An array or a `Vec` of plain data gives a `[]T` only as
+    /// `?xs[a..b]` (`borrowed`): the slice is a read borrow of `xs`.
     fn synthSlice(self: *Checker, e: Sexp, borrowed: bool) Error!TypeId {
         const object = ir.Index.object(e);
         const range = ir.Index.index(e);
@@ -5774,9 +5774,10 @@ const Checker = struct {
     // ---- method calls -----------------------------------------------------------
 
     /// `obj.name(args)`, a call whose callee is `(member obj name)`; the
-    /// callee node's type is the resolved method's signature. `ct` is the bracket list of `obj.name[...](args)`,
-    /// compile-time arguments for a method, or the index of an element of
-    /// a field holding functions.
+    /// callee node's type is the resolved method's signature. `ct` is
+    /// the bracket list of `obj.name[...](args)`, compile-time arguments
+    /// for a method, or the index of an element of a field holding
+    /// functions.
     fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const saved = self.callee_node;
         self.callee_node = callee;

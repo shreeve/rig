@@ -3845,8 +3845,6 @@ fn sexpMentionsBorrow(t: Sexp) bool {
     return false;
 }
 
-/// The lowest and highest source positions in `s`; `lo > hi` when it
-/// has none.
 /// Where a path that skips the rest of `node` goes on: at `next`, a
 /// later part of it, or else past its end.
 fn resumeAt(next: Sexp, node: Sexp) u32 {
@@ -3854,6 +3852,8 @@ fn resumeAt(next: Sexp, node: Sexp) u32 {
     return if (next == .nil) past else @min(extent(next).lo, past);
 }
 
+/// The lowest and highest source positions in `s`; `lo > hi` when it
+/// has none.
 fn extent(s: Sexp) struct { lo: u32, hi: u32 } {
     switch (s) {
         .src => |src| return .{ .lo = src.pos, .hi = src.pos },
