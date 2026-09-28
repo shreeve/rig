@@ -4208,7 +4208,11 @@ const Checker = struct {
         if (!sema.isNumeric(self.ctx, from)) {
             try self.errAt(arg, "`{s}(x)` converts a number; `x` has type `{s}`", .{ name, try self.tyName(from) });
         } else if (self.ctx.types.get(target) == .int) {
-            if (sema.isInteger(self.ctx, from)) try self.checkLiteralFits(arg, target) else try self.checkFloatFits(arg, target);
+            // A literal takes the target type; a typed argument keeps its
+            // own, and only its value, when constant, must fit.
+            if (!sema.isInteger(self.ctx, from)) {
+                try self.checkFloatFits(arg, target);
+            } else if (from == self.t().int_literal_id or sema.constInt(self.ctx, arg) != .not_constant) try self.checkLiteralFits(arg, target);
         }
         return target;
     }
