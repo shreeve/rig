@@ -6098,6 +6098,18 @@ const Checker = struct {
     }
 
     fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error!void {
+        // `?p.m()` reads `p`; where a borrow of the call's result is
+        // expected, the borrow goes around the call.
+        if (e.isKind(.call) and self.ctx.types.get(expected) == .borrow_read and compatible(self.ctx, actual, sema.unwrapBorrows(self.ctx, expected))) {
+            const callee = ir.Call.callee(e);
+            if (callee.isKind(.member) and ir.Member.object(callee).isKind(.read) and self.isReceiverSigil(ir.Member.object(callee))) {
+                const recv = ir.Member.object(callee);
+                const start = self.ctx.span(recv).start + 1;
+                const end = self.ctx.span(e).end;
+                const call = self.ctx.source[start..end];
+                return self.errAt(recv, "type mismatch: expected `{s}`, got `{s}`: `?{s}` reads `{s}` for the call; write `?({s})` to borrow the call's result", .{ try self.tyName(expected), try self.tyName(actual), call, try self.sourceText(ir.Read.operand(recv)), call });
+            }
+        }
         try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(expected), try self.tyName(actual) });
     }
 
