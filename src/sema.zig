@@ -290,8 +290,9 @@ pub const TypeStore = struct {
         self.items.deinit(allocator);
     }
 
+    /// The type `id` names. An id from another module's store read in
+    /// this one is a compiler bug, which a safe build stops at.
     pub fn get(self: *const TypeStore, id: TypeId) Type {
-        if (id >= self.items.items.len) return .invalid;
         return self.items.items[id];
     }
 
