@@ -86,6 +86,14 @@ tokens
     use
     while
     zig             # reserved; no form uses it
+    async           # reserved; no form uses it
+    await           # reserved; no form uses it
+    const           # reserved; no form uses it
+    impl            # reserved; no form uses it
+    trait           # reserved; no form uses it
+    when            # reserved; no form uses it
+    where           # reserved; no form uses it
+    yield           # reserved; no form uses it
 
     # Operators
     plus            # +
@@ -370,6 +378,8 @@ tokens
     MATCH: "`match`", NEW: "`new`", NOT: "`not`", OR: "`or`", PUB: "`pub`"
     RAW: "`raw`", RETURN: "`return`", STRUCT: "`struct`", SUB: "`sub`", TEST: "`test`", TRY: "`try`"
     TYPE: "`type`", USE: "`use`", WHILE: "`while`", ZIG: "`zig`"
+    ASYNC: "`async`", AWAIT: "`await`", CONST: "`const`", IMPL: "`impl`"
+    TRAIT: "`trait`", WHEN: "`when`", WHERE: "`where`", YIELD: "`yield`"
     "=": "`=`", "+=": "`+=`", "-=": "`-=`", "*=": "`*=`", "/=": "`/=`", "%=": "`%=`"
     "&=": "`&=`", "|=": "`|=`", "^=": "`^=`", "<<=": "`<<=`", ">>=": "`>>=`", "=!": "`=!`"
     ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"

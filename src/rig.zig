@@ -148,8 +148,11 @@ pub fn bindingKindOf(op: Sexp) BindingKind {
 const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "and", .@"and" },
     .{ "as", .as },
+    .{ "async", .@"async" },
+    .{ "await", .@"await" },
     .{ "break", .@"break" },
     .{ "catch", .@"catch" },
+    .{ "const", .@"const" },
     .{ "continue", .@"continue" },
     .{ "defer", .@"defer" },
     .{ "drop", .drop },
@@ -162,6 +165,7 @@ const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "for", .@"for" },
     .{ "fun", .fun },
     .{ "if", .@"if" },
+    .{ "impl", .impl },
     .{ "in", .in },
     .{ "match", .match },
     .{ "new", .new },
@@ -173,11 +177,15 @@ const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "struct", .@"struct" },
     .{ "sub", .sub },
     .{ "test", .@"test" },
+    .{ "trait", .trait },
     .{ "true", .true },
     .{ "try", .@"try" },
     .{ "type", .type },
     .{ "use", .use },
+    .{ "when", .when },
+    .{ "where", .where },
     .{ "while", .@"while" },
+    .{ "yield", .yield },
     .{ "zig", .zig },
 });
 
@@ -1643,6 +1651,9 @@ fn expectCats(source: []const u8, expected: []const TokenCat) !void {
 test "keywords are reserved; `new` only at statement start" {
     try testing.expectEqual(TokenCat.@"else", keyword("else").?);
     try testing.expect(keyword("fn") == null);
+    for ([_][]const u8{ "trait", "impl", "where", "async", "await", "yield", "when", "const" }) |w| {
+        try testing.expect(keyword(w) != null);
+    }
     try testing.expect(keyword("var") == null);
     try expectCats("new x = 1", &.{ .new, .ident, .assign, .integer });
     try expectCats("p = Point.new(1)", &.{ .ident, .assign, .ident, .dot, .ident, .lparen_call, .integer, .rparen });

@@ -401,6 +401,7 @@ alone discards: `_ = f()`, or an ignored parameter.
 and  as  break  catch  continue  defer  drop  else  enum  errdefer
 error  extern  false  for  fun  if  in  match  not  or  pub  raw
 return  struct  sub  test  true  try  type  use  while  zig
+async  await  const  impl  trait  when  where  yield
 ```
 
 A keyword may still name a member, wherever the position makes that
@@ -426,7 +427,9 @@ sub main
 -1 true true
 ```
 
-Zig's `var`, `fn`, and `const` are ordinary names in Rig.
+Zig's `var` and `fn` are ordinary names in Rig. `async`, `await`,
+`const`, `impl`, `trait`, `when`, `where`, and `yield` are reserved for
+forms to come, and name only members until then.
 
 **Literals:**
 
@@ -3245,7 +3248,7 @@ parentheses.
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
 | bindings | `new` (statement start only), `drop` (an early drop: `drop x`) |
 | boundaries | `raw` |
-| reserved | `try` `zig` |
+| reserved | `try` `zig` `async` `await` `const` `impl` `trait` `when` `where` `yield` |
 
 ## B. How Rig lowers to Zig
 

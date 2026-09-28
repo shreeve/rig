@@ -136,6 +136,7 @@ These words are reserved:
 and  as  break  catch  continue  defer  drop  else  enum  errdefer
 error  extern  false  for  fun  if  in  match  not  or  pub  raw
 return  struct  sub  test  true  try  type  use  while  zig
+async  await  const  impl  trait  when  where  yield
 ```
 
 A keyword may still name a member, where it cannot be mistaken for
@@ -178,8 +179,11 @@ a method may be named `new`. `of` is a keyword only after a value
 directly inside `[ ]`, where it separates a fill literal's count from
 its element (`[n of x]`); anywhere else it is an ordinary name. `none`
 is a reserved
-name for the absent optional. Words that are keywords in Zig but not in
-Rig (`var`, `fn`, `const`) are ordinary names.
+name for the absent optional. `try` and `zig` start reserved forms
+([§19](#19-reserved-and-unsupported-forms)), and `async`, `await`,
+`const`, `impl`, `trait`, `when`, `where`, and `yield` are held for
+forms to come; no form uses them yet. Words that are keywords in Zig
+but not in Rig (`var`, `fn`) are ordinary names.
 
 ### Literals
 
@@ -4484,6 +4488,7 @@ not parse, and their words and sigils stay reserved:
 | `for *x in v` | `` `for *x in` is reserved `` |
 | `try` blocks | `` `try` blocks are reserved `` |
 | `zig "..."` | `` inline Zig is reserved `` |
+| `when`, `yield`, `const`, ... as a name | `` unexpected keyword `when` `` (every word held for later: `async` `await` `const` `impl` `trait` `when` `where` `yield`) |
 | string and float match patterns | `` a pattern is a name, an integer, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet

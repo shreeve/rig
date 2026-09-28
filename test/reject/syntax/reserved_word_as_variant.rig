@@ -1,0 +1,10 @@
+# `async` is reserved and cannot name an enum variant.
+
+enum Mode
+  async
+  sync
+
+sub main()
+  print(1)
+
+# error: 4:3: unexpected keyword `async`
