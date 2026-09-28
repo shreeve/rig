@@ -2791,7 +2791,7 @@ const Checker = struct {
         const takes_whole = isJump(right) and !isPlaceExpr(left) and !borrowed;
         if (!takes_whole and (try self.ownsResource(inner, self.startOf(left), "copies out with `??` a value"))) {
             if (borrowed) {
-                try self.errAt(left, "a borrow cannot give up the resource inside it; take a new handle with `+x` instead", .{});
+                try self.borrowGivesUp(left, opt);
             } else if (isJump(right)) {
                 try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; move it out: `<{s} ?? ...`", .{ try self.tyName(opt), self.sourceText(left) });
             } else try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; take the handle out with `if x as h`", .{try self.tyName(opt)});
@@ -2907,7 +2907,7 @@ const Checker = struct {
                 if (name == .nil) {
                     try self.errAt(operand, "use of `?` requires the enclosing function to return an optional (`-> T?`)", .{});
                 } else if (self.body.is_sub) {
-                    try self.errAt(operand, "`?` returns `none` from `{s}`, which returns no value; handle the missing value with `{s} ?? fallback`, or `if {s} as x`", .{ self.text(name), shown, shown });
+                    try self.errAt(operand, "`?` returns `none` from `{s}`, which returns no value; handle the missing value with `{s} ?? fallback`, or `if {s} as {s}`", .{ self.text(name), shown, shown, bindingNameFor(shown) });
                 } else {
                     try self.errAt(operand, "use of `?` requires the enclosing function `{s}` to return an optional (`-> T?`); or handle the missing value with `{s} ?? fallback`", .{ self.text(name), shown });
                     try self.noteAt(name, "`{s}` declared here", .{self.text(name)});
@@ -2917,11 +2917,26 @@ const Checker = struct {
         }
         const borrowed = sema.unwrapBorrows(self.ctx, ty) != ty;
         if (borrowed and (try self.ownsResource(inner, self.startOf(operand), "moves out of a borrow a value"))) {
-            try self.errAt(operand, "a borrow cannot give up the resource inside it; take a new handle with `+x` instead", .{});
+            try self.borrowGivesUp(operand, ty);
             return self.t().invalid_id;
         }
         _ = try self.readThrough(operand, ty, sema.unwrapBorrows(self.ctx, ty));
         return inner;
+    }
+
+    /// `o ?? ...` or `o?` over a borrow `ty` of an optional that owns a
+    /// resource: the borrow can lend the value inside, not give it up.
+    fn borrowGivesUp(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
+        const place = if (operand.isKind(.move)) ir.Move.operand(operand) else operand;
+        const shown = self.sourceText(place);
+        const sigil = if (self.ctx.types.get(ty) == .borrow_write and !place.isKind(.write)) "!" else "";
+        try self.errAt(operand, "a borrow cannot give up the resource inside it; borrow the value inside with `if {s}{s} as {s}`", .{ sigil, shown, bindingNameFor(shown) });
+    }
+
+    /// A name to suggest binding the value inside `shown` to, which
+    /// does not shadow it.
+    fn bindingNameFor(shown: []const u8) []const u8 {
+        return if (std.mem.eql(u8, shown, "value")) "v" else "value";
     }
 
     /// `e?` where no `none` can be returned: the error, and no type.
