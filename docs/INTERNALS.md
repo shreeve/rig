@@ -778,8 +778,9 @@ value is checked the same way);
 a call may store its arguments' loans into its receiver and into what
 its `!` arguments and other write borrows lead to, except a built-in
 element method (`!dst.copy(src)`) whose elements hold no borrow, which
-stores only plain elements. Assigning a local write borrow (`w = v`)
-stores `v` in what `w` borrows the same way (`storeThroughLocal`).
+stores only plain elements. Assigning a local write borrow, or a field
+or element through one (`w = v`, `w.f = v`), stores `v` in what `w`
+borrows the same way (`storeThroughLocal`).
 Cells, Signals, and
 owned closures hold no borrows (storing one there is rejected): every
 handle to one reaches what it holds, so loans kept per handle var would

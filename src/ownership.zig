@@ -2312,8 +2312,7 @@ pub const Checker = struct {
             // caller handed in; through a local, it lands in what the
             // local borrows, which then holds them.
             if (!try self.checkLive(id, pos)) return;
-            // (A `match !x` binding borrows `x`, as a local write borrow does.)
-            if ((v.kind == .local or (v.kind == .pattern and v.alias_of != null)) and self.borrowedRoot(id) != null) return self.storeThroughLocal(id, pos, value);
+            if (self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value);
             for (value.loans) |l| if (self.isLocalLoan(l)) {
                 try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: the caller's value outlives it", .{ self.vars.items[l.root].name, v.name });
                 return;
@@ -2331,6 +2330,15 @@ pub const Checker = struct {
         if (self.vars.items[id].ref == .none) return null;
         for (self.flows.items[id].loans) |l| if (!l.ext and l.root != id) return l.root;
         return null;
+    }
+
+    /// Var `id` is a local write borrow of a var of this function (a
+    /// `match !x` binding borrows `x` as one does): a store through it
+    /// lands in what it borrows.
+    fn writesThroughLocal(self: *const Checker, id: VarId) bool {
+        const v = self.vars.items[id];
+        if (v.ref != .write or !(v.kind == .local or (v.kind == .pattern and v.alias_of != null))) return false;
+        return self.borrowedRoot(id) != null;
     }
 
     /// `w = e` through local write borrow `id`: `e` is stored in what
@@ -2369,6 +2377,7 @@ pub const Checker = struct {
         }
         if (value.loans.len == 0 or !self.mayCarryBorrow(self.exprType(target))) return;
         if (v.kind == .capture and !place.through_shared) return self.storeThroughCapture(v, pos, value);
+        if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value);
         if (v.ref != .none or place.through_borrow or place.through_shared or self.isGlobal(id)) {
             // Stored into something the caller owns: only borrows the
             // caller handed in may go there.
