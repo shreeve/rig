@@ -2223,14 +2223,21 @@ const Checker = struct {
         const ty = try self.numericOperands(e, op, req, synthesized);
         if (self.isPoison(ty)) return ty;
         if (!(try self.checkDivisor(e.kind().?, ty, ir.get(e, .right)))) return self.t().invalid_id;
-        // Constant operands are computed now, so the result must fit.
-        if (self.ctx.types.get(ty) == .int) try self.checkLiteralFits(e, ty);
+        try self.checkConstantFits(e, ty);
         // Literals default to `Float` unless a type is given them later.
         if (ty == self.t().float_literal_id) {
             try self.checkWholeDivision(e);
             try self.checkFloatConstant(e, self.t().float_id);
         } else if (self.ctx.types.get(ty) == .float) try self.checkFloatConstant(e, ty);
         return ty;
+    }
+
+    /// Constant operands are computed now, so an integer result must fit.
+    /// (The constant parts of an operation that is not constant were
+    /// checked as operands.)
+    fn checkConstantFits(self: *Checker, e: Sexp, ty: TypeId) Error!void {
+        if (self.ctx.types.get(ty) != .int or sema.constInt(self.ctx, e) == .not_constant) return;
+        try self.checkLiteralFits(e, ty);
     }
 
     /// `checkNumericOperands` where two literal operands, which take no
@@ -2301,8 +2308,7 @@ const Checker = struct {
             },
         }
         if (!(try self.checkShiftAmount(ir.get(e, .right), ty, op))) return self.t().invalid_id;
-        // Constant operands are computed now, so the result must fit.
-        if (self.ctx.types.get(ty) == .int) try self.checkLiteralFits(e, ty);
+        try self.checkConstantFits(e, ty);
         return ty;
     }
 
