@@ -487,6 +487,7 @@ pub const Diagnostic = diag.Diagnostic;
 /// The name offered so far that is closest to `name`, a name not found:
 /// within one edit for a short name and two for a longer one (a swap
 /// of neighbors is one edit), so a typo finds its name and little else.
+/// A name of one or two letters is a whole word away from any other.
 pub const Suggest = struct {
     name: []const u8,
     best: ?[]const u8 = null,
@@ -499,7 +500,7 @@ pub const Suggest = struct {
     }
 
     pub fn offer(s: *Suggest, candidate: []const u8) void {
-        if (candidate.len == 0 or std.mem.eql(u8, candidate, s.name) or std.mem.eql(u8, candidate, "_")) return;
+        if (s.name.len <= 2 or candidate.len == 0 or std.mem.eql(u8, candidate, s.name) or std.mem.eql(u8, candidate, "_")) return;
         const limit: usize = if (s.name.len >= 6) 2 else 1;
         const d = editDistance(s.name, candidate, limit) orelse return;
         if (d < s.dist) {
@@ -541,6 +542,9 @@ test "suggest: a typo finds its name" {
     var t: Suggest = .{ .name = "Foo" };
     for ([_][]const u8{ "Box", "Vec" }) |c| t.offer(c);
     try std.testing.expect(t.best == null);
+    var u: Suggest = .{ .name = "xs" };
+    for ([_][]const u8{ "x", "ys", "sx" }) |c| u.offer(c);
+    try std.testing.expect(u.best == null);
     try std.testing.expectEqual(@as(?usize, 1), editDistance("ab", "ba", 1));
     try std.testing.expectEqual(@as(?usize, 2), editDistance("counter", "conuter2", 2));
 }
