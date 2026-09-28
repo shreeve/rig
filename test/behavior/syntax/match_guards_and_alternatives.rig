@@ -66,6 +66,7 @@ sub main
   t: Slot = .full(b: *B(n: 2))
   match <t
     .full(b) if b.n > 5 => print("big", b.n)
+    _ => print("not big")
   print("end")
 
 # expect:
@@ -87,5 +88,6 @@ sub main
 # .circle(r: 400)
 # small 1
 # drop 1
+# not big
 # drop 2
 # end

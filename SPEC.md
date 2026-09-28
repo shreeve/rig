@@ -299,7 +299,7 @@ rejected.
 
 A number type's `.min` and `.max` are its least and greatest values,
 constants of that type, named through the type or an alias of it
-(`type Byte = U8`, `Byte.max`): `U8.max` is `255`, `Int.min` is
+(`type Byte = U8`, `Byte.max`, or another module's `lib.Byte.max`): `U8.max` is `255`, `Int.min` is
 `-9223372036854775808`, and `U128.max` is `2^128 - 1`. A float's `.max`
 is its greatest finite value and its `.min` the most negative one
 (`-F64.max`), as in Rust. Constant arithmetic on them is checked, so
@@ -560,9 +560,11 @@ sub main
 a range needs an end; only a slice leaves a side open
 ```
 
-A borrowed array parameter (`xs: ?[N]T`) is the function's own copy of
-the caller's array, so a slice of it cannot be returned; a function
-that returns part of its argument takes `xs: []T`.
+A borrowed array parameter (`xs: ?[N]T`) points at the caller's array,
+so a function may return a slice of it (`?xs[1..3]`) or a borrow of an
+element, as it may of a `[]T` parameter; the result borrows the
+caller's array. An array parameter taken by value (`xs: [N]T`) is the
+function's own, so a borrow of it cannot be returned.
 
 An array goes where a slice is expected in three ways. Where a `[]T`
 is expected, `?a` of a named array (or a field or element of one)
@@ -1643,9 +1645,14 @@ sub main
 6
 ```
 
-An alias of a struct or enum declared in the same module is that type
-in every role: it constructs values, calls associated functions, and
-names variants.
+An alias names its type in every role, in this module or, when `pub`,
+in another (`lib.Alias`). An alias of a struct or enum (this module's
+or an imported one) constructs values, calls associated functions, and
+names variants; one of a generic instance (`Wrap[Int]`, `Vec[Int]`,
+`Cell[Int]`) constructs it as naming the instance does; one of a number
+type converts to it (`Byte(x)`) and names its limits (`Byte.max`).
+An alias is not a value, and an alias of any other type (`String`,
+`Int?`) has no constructor.
 
 ```rig
 struct Point
@@ -1695,8 +1702,8 @@ test "area"
 
 A binding at module level is a constant, `name = value` or
 `name: T = value`, and `pub` exports it. Its value must be known at
-compile time: a literal, `.variant`, an earlier constant, or operators
-and array literals over them. Every function and type in the module
+compile time: a literal, `.variant`, an earlier constant, or operators,
+ternaries (`a if c else b`), and array literals over them. Every function and type in the module
 reads it, wherever it is declared; nothing can reassign or move it,
 and a local or parameter may not reuse its name (`new` shadows it on
 purpose).
@@ -2315,7 +2322,9 @@ done
 `for x in source` walks an array, a slice, a `String` (bytes), or a
 range `a..b` (from `a` up to, not including, `b`; the bounds are
 evaluated once). `for x, i in xs` also binds the index (not for
-ranges). An `else` block runs when the loop ends without `break`. A
+ranges); the element comes first, the reverse of Python's
+`enumerate`, and where a loop written index first gives a binding the
+other's type, the error says so. An `else` block runs when the loop ends without `break`. A
 `Vec` is walked in place, so the loop borrows it and says so:
 `for x in ?v` ([§11](#vec)); a bare `for x in v` over a Vec binding or
 field is rejected with that fix. An array is copied, and a slice or
@@ -2471,9 +2480,10 @@ enums, integers, and `Bool`.
 | `p if cond` | what `p` matches, when `cond` holds |
 
 An arm is `pattern => statement` or a pattern followed by an indented
-block. A match whose value is used must cover every value; a statement
-match need not, and then runs no arm for the rest. Duplicate and
-unreachable arms are rejected.
+block. Every match must cover every value, whether its value is used
+or it is a statement: its arms name every variant or value, or a
+catch-all (`_`, or a name) covers the rest. Duplicate and unreachable
+arms are rejected.
 
 A guard `if cond` after a pattern is a `Bool` that may read the
 pattern's bindings; when it is false, the later arms are tried, as if
@@ -2481,7 +2491,7 @@ the arm's pattern had not matched. A guard changes nothing it matches:
 it moves nothing, and write-borrows neither the matched value nor a
 binding of the arm (as Rust's guards do not). A guarded arm covers none
 of its values: a later arm may repeat its pattern, and
-a match whose value is used still needs arms for them. Alternatives
+the match still needs arms for them. Alternatives
 are literals, ranges, or variants; since which one matched would decide
 what a name held, they bind none (`_` fills a payload field), and none
 may be a catch-all.

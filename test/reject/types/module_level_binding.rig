@@ -25,6 +25,8 @@ fun uses(big: Int) -> Int
 sub main()
   over =! 2
 
+t = 1 if k > 2 else f()
+
 # error: 14:5: a module-level constant needs a value known at compile time
 # error: 15:5: a module-level constant needs a value known at compile time
 # error: 16:5: use of unbound name `later`
@@ -32,3 +34,4 @@ sub main()
 # error: 20:1: a module-level binding is a constant; write `k = value`
 # error: 22:10: parameter `big` has the same name as the module-level declaration `big`
 # error: 26:3: local `over` has the same name as the module-level declaration `over`
+# error: 28:5: a module-level constant needs a value known at compile time

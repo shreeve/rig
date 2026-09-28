@@ -332,8 +332,7 @@ pub const ModuleGraph = struct {
 /// of the same program are still worth reporting.
 fn hasTypeErrors(items: []const diag.Diagnostic) bool {
     for (items) |d| {
-        if (d.severity == .@"error" and std.mem.indexOf(u8, d.message, "` is assigned but never read") == null and
-            std.mem.indexOf(u8, d.message, "` is bound but never read") == null) return true;
+        if (d.severity == .@"error" and !d.lint) return true;
     }
     return false;
 }

@@ -1,4 +1,4 @@
-# A value-position match on a Bool must cover both values.
+# A match on a Bool must cover both values.
 
 sub main()
   b = false
@@ -6,4 +6,4 @@ sub main()
     true => "yes"
   print(s)
 
-# error: value-position `match` on `Bool` needs
+# error: `match` is not exhaustive: it misses `false`; add an arm for it, or `_ =>` for the rest

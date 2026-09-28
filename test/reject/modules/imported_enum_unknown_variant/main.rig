@@ -14,4 +14,4 @@ sub main()
 
 # error: no variant `purple` on enum `colors.Color`
 # error: no variant `mauve` on enum `colors.Color`
-# error: value-position `match` is not exhaustive
+# error: `match` is not exhaustive: it misses `.green`

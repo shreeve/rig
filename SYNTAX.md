@@ -979,7 +979,8 @@ done
 ### for
 
 `for x in source` walks a range `a..b`, an array, a slice, a `Vec`, or a
-`String` (its bytes). `for x, i in xs` also binds the index. A range is
+`String` (its bytes). `for x, i in xs` also binds the index, after the
+element (Python's `for i, x in enumerate(xs)`). A range is
 half-open: `0..3` is 0, 1, 2. A Vec is walked where it is, so the loop
 borrows it, visibly: `for x in ?v` (a bare `for x in v` is rejected
 with that fix). An array is copied, and a slice or String is a view,
@@ -1085,8 +1086,8 @@ first matching arm runs; there is no fallthrough.
 | `p, q` | either alternative (Rust's `p \| q`); they bind no names |
 | `p if cond` | `p`, when the guard `cond` holds (Rust's match guard) |
 
-A `match` whose value is used must be exhaustive; a statement `match`
-need not be. Duplicate and unreachable arms are errors. A guard may
+Every `match` must be exhaustive, as a value or as a statement: its
+arms cover every variant or value, or `_ =>` covers the rest. Duplicate and unreachable arms are errors. A guard may
 read the pattern's bindings; when it fails, matching goes on with the
 next arm, and a guarded arm does not count toward exhaustiveness.
 
@@ -1485,7 +1486,9 @@ sub main
 ### Aliases
 
 `type Name = T` is a transparent second name for `T`. An alias of a
-local struct or enum constructs values and names variants.
+struct, an enum, or a generic instance constructs values and names
+variants, and one of a number type converts (`Byte(x)`) and names its
+limits (`Byte.max`), here or in a module that imports it.
 
 ```rig
 type UserId = Int
@@ -3128,7 +3131,7 @@ sub main
 
 **Constants.** A module-level binding is a constant, written with `=`
 and known at compile time: literals, `.variant`, earlier constants, and
-operators and arrays over them. There are no mutable globals, so a
+operators, ternaries, and arrays over them. There are no mutable globals, so a
 module-level binding needs no `=!` (and is rejected with one).
 
 ```rig

@@ -484,6 +484,67 @@ pub const Scope = struct {
 
 pub const Diagnostic = diag.Diagnostic;
 
+/// The name offered so far that is closest to `name`, a name not found:
+/// within one edit for a short name and two for a longer one (a swap
+/// of neighbors is one edit), so a typo finds its name and little else.
+pub const Suggest = struct {
+    name: []const u8,
+    best: ?[]const u8 = null,
+    dist: usize = std.math.maxInt(usize),
+
+    /// `; did you mean `best`?`, or nothing.
+    pub fn hint(s: Suggest, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
+        const best = s.best orelse return "";
+        return std.fmt.allocPrint(a, "; did you mean `{s}`?", .{best});
+    }
+
+    pub fn offer(s: *Suggest, candidate: []const u8) void {
+        if (candidate.len == 0 or std.mem.eql(u8, candidate, s.name) or std.mem.eql(u8, candidate, "_")) return;
+        const limit: usize = if (s.name.len >= 6) 2 else 1;
+        const d = editDistance(s.name, candidate, limit) orelse return;
+        if (d < s.dist) {
+            s.best = candidate;
+            s.dist = d;
+        }
+    }
+};
+
+/// The edit distance from `a` to `b` counting a swap of neighbors as one
+/// edit, or null when it is over `limit` (or a name is long).
+fn editDistance(a: []const u8, b: []const u8, limit: usize) ?usize {
+    const max = 32;
+    if (a.len > max or b.len > max) return null;
+    if ((if (a.len > b.len) a.len - b.len else b.len - a.len) > limit) return null;
+    // Row `i` of the table is `rows[i % 3]`: this one and two back.
+    var rows: [3][max + 1]usize = undefined;
+    for (0..b.len + 1) |j| rows[0][j] = j;
+    for (1..a.len + 1) |i| {
+        const cur = &rows[i % 3];
+        const prev = &rows[(i + 2) % 3];
+        const back = &rows[(i + 1) % 3];
+        cur[0] = i;
+        for (1..b.len + 1) |j| {
+            const cost: usize = if (a[i - 1] == b[j - 1]) 0 else 1;
+            var d = @min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+            if (i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]) d = @min(d, back[j - 2] + 1);
+            cur[j] = d;
+        }
+    }
+    const d = rows[a.len % 3][b.len];
+    return if (d <= limit) d else null;
+}
+
+test "suggest: a typo finds its name" {
+    var s: Suggest = .{ .name = "totla" };
+    for ([_][]const u8{ "total", "tot", "table", "x" }) |c| s.offer(c);
+    try std.testing.expectEqualStrings("total", s.best.?);
+    var t: Suggest = .{ .name = "Foo" };
+    for ([_][]const u8{ "Box", "Vec" }) |c| t.offer(c);
+    try std.testing.expect(t.best == null);
+    try std.testing.expectEqual(@as(?usize, 1), editDistance("ab", "ba", 1));
+    try std.testing.expectEqual(@as(?usize, 2), editDistance("counter", "conuter2", 2));
+}
+
 // =============================================================================
 // Facts
 // =============================================================================
@@ -939,6 +1000,13 @@ pub const SemContext = struct {
         return self.report(.@"error", .{ .start = pos, .end = pos }, fmt, args);
     }
 
+    /// An error marked `lint` (see `diag.Diagnostic.lint`).
+    pub fn lintErr(self: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        const n = self.diagnostics.items.len;
+        try self.err(pos, fmt, args);
+        if (self.diagnostics.items.len > n) self.diagnostics.items[n].lint = true;
+    }
+
     pub fn note(self: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
         return self.report(.note, .{ .start = pos, .end = pos }, fmt, args);
     }
@@ -1029,6 +1097,21 @@ pub const SemContext = struct {
             sid = self.scopes.items[s].parent;
         }
         return null;
+    }
+
+    /// Offer `s` each name visible from `from_scope` at `pos` whose
+    /// symbol `keep` accepts, for a diagnostic's "did you mean".
+    pub fn offerVisible(self: *const SemContext, s: *Suggest, from_scope: ScopeId, pos: u32, keep: *const fn (Symbol) bool) void {
+        var sid: ?ScopeId = from_scope;
+        while (sid) |id| {
+            if (id == scope_invalid or id >= self.scopes.items.len) break;
+            for (self.scopes.items[id].symbols.items) |sym_id| {
+                const sym = self.symbols.items[sym_id];
+                if (id != module_scope and sym.kind == .local and sym.decl_pos > pos) continue;
+                if (keep(sym)) s.offer(sym.name);
+            }
+            sid = self.scopes.items[id].parent;
+        }
     }
 
     /// Like `lookup`, but stops at the nearest function or lambda
@@ -1391,9 +1474,9 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
         }
         if (typeHasDropGlue(ctx, sym.ty) or maybeDropGlue(ctx, sym.ty)) continue;
         if (sym.flags.pattern_bound) {
-            try ctx.err(sym.decl_pos, "`{s}` is bound but never read; name it `_` to ignore the value", .{sym.name});
+            try ctx.lintErr(sym.decl_pos, "`{s}` is bound but never read; name it `_` to ignore the value", .{sym.name});
         } else {
-            try ctx.err(sym.decl_pos, "`{s}` is assigned but never read; use it, or discard the value with `_ = ...`", .{sym.name});
+            try ctx.lintErr(sym.decl_pos, "`{s}` is assigned but never read; use it, or discard the value with `_ = ...`", .{sym.name});
         }
     }
 }
@@ -2514,11 +2597,8 @@ pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
 /// Why values of a type have no `==`: the type that lacks it, found
 /// inside the compared type, and the path of fields to it.
 pub const NotEquatable = struct {
-    /// The context whose type store holds `ty`: the module being checked.
-    ctx: *const SemContext,
+    /// In the checked module's type store.
     ty: TypeId,
-    /// Always null: `ty` is in the checked module's store.
-    origin: ?u32 = null,
     /// Field names from the compared type to `ty`, joined by `.`, a
     /// variant's payload field as `variant.field`; empty for the
     /// compared type itself or what it holds outside a field (an
@@ -2565,7 +2645,7 @@ pub fn notEquatable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayListUnmanag
         }
         std.mem.reverse([]const u8, names.items);
         const path = try std.mem.join(ctx.arena.allocator(), ".", names.items);
-        return .{ .ctx = ctx, .ty = walk.items.items[i].ty, .path = path, .why = why };
+        return .{ .ty = walk.items.items[i].ty, .path = path, .why = why };
     }
     return null;
 }
@@ -3570,13 +3650,12 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
         },
         .list => {
             const h = e.kind() orelse return .not_constant;
-            // `U8(k)` of a constant integer: a constant of the target
-            // type, which must hold it.
+            // `U8(k)` (or `Byte(k)` of an alias) of a constant integer: a
+            // constant of the target type, which must hold it.
             if (h == .call) {
-                const callee = ir.Call.callee(e);
                 const args = ir.Call.args(e);
-                if (callee != .src or names.symbol(callee) != null or args.len != 1 or args[0].isKind(.kwarg)) return .not_constant;
-                const info = intTypeNamed(identAt(ctx.source, callee) orelse return .not_constant) orelse return .not_constant;
+                if (args.len != 1 or args[0].isKind(.kwarg)) return .not_constant;
+                const info = intTypeBy(ctx, ir.Call.callee(e), names) orelse return .not_constant;
                 const a = switch (ctFoldBy(ctx, args[0], names)) {
                     .value => |t| t,
                     else => |r| return r,
@@ -3676,18 +3755,32 @@ pub fn intTypeNamed(name: []const u8) ?IntInfo {
 /// The integer type the type alias `id` names, through other aliases;
 /// null for any other type. Known before the alias is resolved, too.
 pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
+    var c = ctx;
     var alias = id;
     // An alias chain longer than this is a cycle, reported elsewhere.
     for (0..64) |_| {
-        const sym = ctx.symbols.items[alias];
+        const sym = c.symbols.items[alias];
         if (sym.kind != .type_alias) return null;
-        if (sym.ty != ctx.types.unknown_id) return switch (ctx.types.get(sym.ty)) {
+        if (sym.ty != c.types.unknown_id) return switch (c.types.get(sym.ty)) {
             .int => |i| i,
             else => null,
         };
-        const name = identAt(ctx.source, ctx.alias_targets.get(alias) orelse return null) orelse return null;
+        const target = c.alias_targets.get(alias) orelse return null;
+        // `module.Name`: another module's public alias.
+        if (target.isKind(.member)) {
+            const m = ir.Member.object(target);
+            if (m != .src) return null;
+            const module = c.lookup(sym.scope, identAt(c.source, m) orelse return null) orelse return null;
+            if (c.symbols.items[module].kind != .module) return null;
+            const foreign = c.foreign_semas.get(c.module_refs.get(module) orelse return null) orelse return null;
+            alias = foreign.lookupInScopeOnly(module_scope, identAt(c.source, ir.Member.name(target)) orelse return null) orelse return null;
+            if (!foreign.symbols.items[alias].flags.is_public) return null;
+            c = foreign;
+            continue;
+        }
+        const name = identAt(c.source, target) orelse return null;
         if (intTypeNamed(name)) |i| return i;
-        alias = ctx.lookup(sym.scope, name) orelse return null;
+        alias = c.lookup(sym.scope, name) orelse return null;
     }
     return null;
 }
@@ -3700,25 +3793,30 @@ pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
 }
 
 fn intLimitBy(ctx: *const SemContext, e: Sexp, names: anytype) ?TypedInt {
-    const obj = ir.Member.object(e);
-    const info = switch (obj) {
-        .src => if (names.symbol(obj)) |id| aliasIntType(ctx, id) orelse return null else intTypeNamed(identAt(ctx.source, obj) orelse return null) orelse return null,
-        .list => blk: {
-            if (!obj.isKind(.member) or ir.Member.object(obj) != .src) return null;
-            const module = names.symbol(ir.Member.object(obj)) orelse return null;
-            if (ctx.symbols.items[module].kind != .module) return null;
-            const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return null) orelse return null;
-            const alias = foreign.lookupInScopeOnly(module_scope, identAt(ctx.source, ir.Member.name(obj)) orelse return null) orelse return null;
-            if (!foreign.symbols.items[alias].flags.is_public) return null;
-            break :blk aliasIntType(foreign, alias) orelse return null;
-        },
-        else => return null,
-    };
+    const info = intTypeBy(ctx, ir.Member.object(e), names) orelse return null;
     const field = identAt(ctx.source, ir.Member.name(e)) orelse return null;
     const r = intRange(info);
     if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };
     if (std.mem.eql(u8, field, "max")) return .{ .v = r.max, .int = info };
     return null;
+}
+
+/// The integer type `e` names: a built-in one (`U8`), or an alias of
+/// one, this module's (`Byte`) or an imported one (`lib.Byte`).
+fn intTypeBy(ctx: *const SemContext, e: Sexp, names: anytype) ?IntInfo {
+    switch (e) {
+        .src => return if (names.symbol(e)) |id| aliasIntType(ctx, id) else intTypeNamed(identAt(ctx.source, e) orelse return null),
+        .list => {
+            if (!e.isKind(.member) or ir.Member.object(e) != .src) return null;
+            const module = names.symbol(ir.Member.object(e)) orelse return null;
+            if (ctx.symbols.items[module].kind != .module) return null;
+            const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return null) orelse return null;
+            const alias = foreign.lookupInScopeOnly(module_scope, identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+            if (!foreign.symbols.items[alias].flags.is_public) return null;
+            return aliasIntType(foreign, alias);
+        },
+        else => return null,
+    }
 }
 
 /// `v` wrapped into integer type `info`: its low bits, read as the
@@ -4072,7 +4170,7 @@ test "facts: constant bindings keep their value; changed ones do not" {
     try std.testing.expect(r.ctx.symbols.items[r.sym("d", 0).?].flags.written);
 }
 
-test "facts: a match covering every value without a default is exhaustive" {
+test "facts: a match covering every value without a default arm is exhaustive" {
     var r = try factsRun(
         \\sub main()
         \\  b = true
@@ -4082,6 +4180,7 @@ test "facts: a match covering every value without a default is exhaustive" {
         \\  n = 3
         \\  match n
         \\    1 => print(1)
+        \\    _ => print(0)
         \\
     );
     defer r.deinit();

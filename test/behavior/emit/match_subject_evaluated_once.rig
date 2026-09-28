@@ -37,6 +37,7 @@ sub keep(b: *B)
 sub main
   match <make(1)
     .full(b, _) if b.n > 5 => keep(<b)
+    _ => print("other")
   match <make(2)
     .full(b, c) if b.n > 5 => keep(<b)
     .full(_, c) if c.n > 5 => keep(<c)
@@ -67,6 +68,7 @@ sub main
 
 # expect:
 # make 1
+# other
 # drop 101
 # drop 1
 # make 2

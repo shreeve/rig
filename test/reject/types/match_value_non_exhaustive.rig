@@ -1,14 +1,43 @@
-# A value-position match must cover every variant or have a default arm.
+# A match, used as a value or as a statement, must cover every variant
+# or value, or have a default arm; the error names what it misses.
 
 enum Color
   red
   green
   blue
 
+enum Big
+  a
+  b
+  c
+  d
+  e
+  f
+
 sub main()
   c: Color = .red
   x = match c
     .red => 1
     .green => 2
+  match c
+    .red => print("red")
+  g: Big = .a
+  match g
+    .a => print("a")
+  n: U8 = 3
+  match n
+    0..10 => print("small")
+    k if k > 100 => print("big")
+  m = -3
+  match m
+    0..9223372036854775808 => print("not negative")
+  match n > 1
+    true => print("yes")
+  print(x)
 
-# error: value-position `match` is not exhaustive
+# error: 19:13: `match` is not exhaustive: it misses `.blue`; add an arm for it, or `_ =>` for the rest
+# error: 22:9: `match` is not exhaustive: it misses `.green`, `.blue`; add an arm for each, or `_ =>` for the rest
+# error: 25:9: `match` is not exhaustive: it misses `.b`, `.c`, `.d`, `.e`, and 1 more
+# error: 28:9: `match` on `U8` is not exhaustive: it misses `10`
+# error: 32:9: `match` on `Int` is not exhaustive: it misses `-1`
+# error: 34:9: `match` is not exhaustive: it misses `false`

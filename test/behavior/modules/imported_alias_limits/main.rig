@@ -1,0 +1,30 @@
+# Another module's alias of a number type names its limits, which are
+# constants: a module constant can use them, a type can use it, and a
+# default value may be one. A call through the alias converts to its
+# type, and folds when its argument is constant.
+
+use util
+
+type Local = util.Byte
+
+K = util.Byte.max - 250
+F = util.Real.min
+C = Local(3) + 1
+
+struct D
+  b: util.Byte = util.Byte.max
+  r: util.Real = util.Real.max
+
+fun f(x: Local = Local.min) -> Int
+  Int(x)
+
+sub main()
+  a: [K]Bool? = [5 of none]
+  c: [C]Int = [C of 0]
+  print(K, a.len, c.len, F < -3.0e38, util.Byte.min, util.Real.max > 3.0e38)
+  d = D()
+  print(d.b, d.r > 3.0e38, f(), util.Byte(200), util.Real(1.5))
+
+# expect:
+# 5 5 4 true 0 true
+# 255 true 0 200 1.5

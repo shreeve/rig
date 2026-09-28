@@ -409,6 +409,11 @@ const SymbolResolver = struct {
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     self.ctx.symbols.items[existing].flags.reassigned = true;
+                } else if (self.scope == self.module_scope) {
+                    // A module-level `K += 1` declares nothing it could
+                    // update; the checker rejects it, and `K` is bound so
+                    // its uses report nothing more.
+                    _ = try self.declare(target, .local, .{ .fixed = true });
                 }
             },
         }
@@ -747,6 +752,31 @@ pub const TypeResolver = struct {
     nominal: NominalContext = NominalContext.none,
     /// In a module constant's declaration, its position (`ConstNames.before`).
     const_before: u32 = std.math.maxInt(u32),
+
+    /// The type a type name not found here was likely meant as: a
+    /// built-in one written in lower case (`i32`, `string`), or a type
+    /// it is a typo of.
+    fn typeHint(self: *TypeResolver, name: []const u8, pos: u32) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        if (name.len > 0 and std.ascii.isLower(name[0])) {
+            const upper = try a.dupe(u8, name);
+            upper[0] = std.ascii.toUpper(upper[0]);
+            if (isBuiltinTypeName(self.ctx, upper)) return std.fmt.allocPrint(a, "; Rig's types are capitalized: `{s}`", .{upper});
+            if (std.mem.eql(u8, name, "str")) return "; Rig's string type is `String`";
+        }
+        var s: sema.Suggest = .{ .name = name };
+        self.ctx.offerVisible(&s, self.scope, pos, struct {
+            fn keep(sym: sema.Symbol) bool {
+                return switch (sym.kind) {
+                    .nominal_type, .generic_type, .type_alias => true,
+                    else => false,
+                };
+            }
+        }.keep);
+        for (self.nominal.type_params) |tp| s.offer(self.ctx.symbols.items[tp].name);
+        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Void" }) |p| s.offer(p);
+        return s.hint(a);
+    }
 
     fn resolveDecl(self: *TypeResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
@@ -1518,7 +1548,7 @@ pub const TypeResolver = struct {
                         },
                     }
                 }
-                try self.ctx.err(s.pos, "use of unbound type `{s}`", .{name});
+                try self.ctx.err(s.pos, "use of unbound type `{s}`{s}", .{ name, try self.typeHint(name, s.pos) });
                 return t.invalid_id;
             },
             .list => {
@@ -1704,6 +1734,8 @@ pub const TypeResolver = struct {
                 else => {},
             }
             const sym = self.ctx.symbols.items[id];
+            // A binding already reported.
+            if (sym.ty == self.ctx.types.invalid_id) return null;
             if (sym.flags.comptime_known and sym.kind == .param and !self.isPoison(sym.ty)) {
                 try self.ctx.errAt(node, "{s} is an integer; `{s}` is a compile-time `{s}`", .{ what, text, try sema.formatType(self.ctx, sym.ty) });
                 return null;
@@ -1979,7 +2011,7 @@ pub const TypeResolver = struct {
             const name = identAt(self.ctx.source, name_node).?;
             pos = name_node.src.pos;
             sym_id = self.ctx.lookup(self.scope, name) orelse {
-                try self.ctx.err(pos, "use of unbound type `{s}`", .{name});
+                try self.ctx.err(pos, "use of unbound type `{s}`{s}", .{ name, try self.typeHint(name, pos) });
                 return t.invalid_id;
             };
             try self.ctx.recordName(name_node, sym_id);

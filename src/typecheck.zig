@@ -67,6 +67,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     };
     defer c.arg_types.deinit(ctx.allocator);
     defer c.copied_from.deinit(ctx.allocator);
+    defer c.loop_pairs.deinit(ctx.allocator);
     defer c.owned_bindings.deinit(ctx.allocator);
     defer c.literal_results.deinit(ctx.allocator);
     defer c.result_hints.deinit(ctx.allocator);
@@ -143,6 +144,9 @@ const Checker = struct {
     /// A loop element or `as` binding that copies from a place: the
     /// place, named when the binding is written (`checkBindingWritable`).
     copied_from: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
+    /// The element and index bindings of `for x, i in xs`, each mapped
+    /// to both, for the hint on a loop written index first.
+    loop_pairs: std.AutoHashMapUnmanaged(SymbolId, LoopPair) = .empty,
     /// The bindings of a `match <x` arm: each owns what it binds.
     owned_bindings: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// The call whose value goes where a `ty` is expected (`checkExpr`),
@@ -300,6 +304,9 @@ const Checker = struct {
         const target = ir.Set.target(node);
         if (target != .src) return self.errAt(node, not_at_module_level, .{});
         if (rig.bindingKindOf(ir.Set.op(node)) != .fixed) {
+            if (self.ctx.symbolOf(target)) |id| if (self.ctx.symbols.items[id].decl_pos == target.src.pos) {
+                self.ctx.symbols.items[id].ty = self.t().invalid_id;
+            };
             return self.errAt(node, "a module-level binding is a constant; write `{s} = value`", .{self.text(target)});
         }
         self.const_before = target.src.pos;
@@ -308,7 +315,7 @@ const Checker = struct {
         const value = ir.Set.value(node);
         if (self.isPoison(self.ctx.typeOf(target) orelse self.t().invalid_id)) return;
         if (!self.isConstExpr(value)) {
-            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators and arrays over them", .{});
+            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators, ternaries, and arrays over them", .{});
         }
     }
 
@@ -318,6 +325,8 @@ const Checker = struct {
             return true;
         }
         if (e.isKind(.array_fill)) return self.isConstExpr(ir.ArrayFill.value(e));
+        // A ternary `a if c else b` over constants.
+        if (e.isKind(.@"if")) return self.isConstExpr(ir.If.cond(e)) and self.isConstExpr(ir.If.then(e)) and self.isConstExpr(ir.If.@"else"(e));
         return self.isComptimeKnown(e);
     }
 
@@ -415,7 +424,8 @@ const Checker = struct {
     }
 
     /// A module constant, of this module or an imported one (`LIMIT`,
-    /// `lib.LIMIT`), or a number type's limit (`U8.max`).
+    /// `lib.LIMIT`), or a number type's limit (`U8.max`, `Byte.max`,
+    /// `lib.Byte.max`).
     fn isConstantDefault(self: *Checker, e: Sexp) bool {
         if (e == .src) {
             const id = self.lookupQuiet(e) orelse return false;
@@ -424,16 +434,12 @@ const Checker = struct {
         }
         if (!e.isKind(.member)) return false;
         const obj = ir.Member.object(e);
+        if (self.namesNumberType(obj)) return true;
         if (obj != .src) return false;
-        if (self.lookupQuiet(obj)) |id| {
-            const sym = self.ctx.symbols.items[id];
-            // An integer type's alias names its limits (`Byte.max`).
-            if (sym.kind == .type_alias) return sema.intLimit(self.ctx, e) != null;
-            if (sym.kind != .module) return false;
-            const foreign = self.foreignMember(e) orelse return false;
-            return foreign.kind == .local and foreign.flags.fixed;
-        }
-        return resolve.isNumericTypeName(self.text(obj));
+        const id = self.lookupQuiet(obj) orelse return false;
+        if (self.ctx.symbols.items[id].kind != .module) return false;
+        const foreign = self.foreignMember(e) orelse return false;
+        return foreign.kind == .local and foreign.flags.fixed;
     }
 
     /// `Vec()`, `Vec[T]()`, `Cell(literal)`, `[n of literal]` (or of a
@@ -737,8 +743,9 @@ const Checker = struct {
         }
 
         const s = &self.ctx.symbols.items[sym_id];
-        // A rejected annotation leaves the binding without a type.
-        if (s.ty == self.t().unknown_id) s.ty = if (type_node != .nil and self.isPoison(declared)) self.t().invalid_id else rhs_ty;
+        // A rejected annotation or initializer leaves the binding without
+        // a type, which later uses do not report again.
+        if (s.ty == self.t().unknown_id) s.ty = if ((type_node != .nil and self.isPoison(declared)) or rhs_ty == self.t().unknown_id) self.t().invalid_id else rhs_ty;
         if (is_decl and s.scope == self.module_scope and sema.holdsCallable(self.ctx, s.ty)) {
             try self.errAt(target, "a borrowed callable `{s}` lives only as long as what it borrows, so it cannot be a module-level binding", .{try self.tyName(s.ty)});
             s.ty = self.t().invalid_id;
@@ -1344,7 +1351,11 @@ const Checker = struct {
         const step = ir.While.step(node);
         const call_step = step.isKind(.call) or (step.isKind(.propagate) and ir.Propagate.value(step).isKind(.call));
         if (step != .nil and !step.isKind(.set) and !call_step) {
-            try self.errAt(step, "a `while` step is an assignment or a call", .{});
+            // `while x ?? break :outer`: the label reads as the step.
+            const jump = if (step == .src) bareJumpAtEnd(cond) else null;
+            if (jump) |j| {
+                try self.errAt(step, "a jump in a `while` header takes no label; the `:` there starts the step, so `{s}` reads as the step: to jump to an outer loop, jump from the body with `{s} :{s}`", .{ self.text(step), j, self.text(step) });
+            } else try self.errAt(step, "a `while` step is an assignment or a call", .{});
         } else if (step != .nil) {
             try self.checkStmt(step);
             // The step runs after the body, which would see a name it
@@ -1407,10 +1418,44 @@ const Checker = struct {
             if (self.ctx.symbolOf(index_binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = self.t().int_id;
                 try self.ctx.recordType(index_binding, self.t().int_id);
+                if (self.ctx.symbolOf(binding)) |elem| {
+                    const pair: LoopPair = .{ .elem = elem, .index = sym, .source = source };
+                    try self.loop_pairs.put(self.ctx.allocator, elem, pair);
+                    try self.loop_pairs.put(self.ctx.allocator, sym, pair);
+                }
             }
             try self.checkStmt(ir.For.body(node));
         }
         try self.checkLoopElse(&frame, ir.For.@"else"(node));
+    }
+
+    const LoopPair = struct { elem: SymbolId, index: SymbolId, source: Sexp };
+
+    /// The hint for a value of the wrong type that is a binding of
+    /// `for x, i in xs` whose other binding has the type wanted: the loop
+    /// was likely written index first, as Python's `enumerate` is.
+    fn loopOrderHint(self: *Checker, e: Sexp, wanted: TypeId) Error![]const u8 {
+        if (e != .src) return "";
+        const sym = self.ctx.symbolOf(e) orelse return "";
+        const pair = self.loop_pairs.get(sym) orelse return "";
+        const other = if (sym == pair.elem) pair.index else pair.elem;
+        const other_ty = self.ctx.symbols.items[other].ty;
+        const fits = if (sym == pair.elem) sema.isInteger(self.ctx, wanted) else compatible(self.ctx, other_ty, wanted);
+        if (!fits) return "";
+        const elem = self.ctx.symbols.items[pair.elem].name;
+        const index = self.ctx.symbols.items[pair.index].name;
+        return std.fmt.allocPrint(self.ctx.arena.allocator(), "; `{s}` is the index here: Rig writes the element first, `for {s}, {s} in {s}`", .{ index, index, elem, self.sourceText(pair.source) });
+    }
+
+    /// The `break` or `continue`, with no label or value, that `cond`
+    /// ends in (`x ?? break`), which a label written after it would
+    /// belong to.
+    fn bareJumpAtEnd(cond: Sexp) ?[]const u8 {
+        var e = cond;
+        while (e.isKind(.@"??") or e.isKind(.@"and") or e.isKind(.@"or")) e = ir.get(e, .right);
+        if (e.isKind(.@"break") and ir.Break.label(e) == .nil and ir.Break.value(e) == .nil) return "break";
+        if (e.isKind(.@"continue") and ir.Continue.label(e) == .nil) return "continue";
+        return null;
     }
 
     /// A loop with a `break` that carries a value: its value is used.
@@ -1660,13 +1705,7 @@ const Checker = struct {
         if (result) |r| for (arm_values.items) |av| try self.adaptLiteral(av.node, av.ty, r);
         const exhaustive = self.coversAll(&cov, scrutinee);
         if (exhaustive) try self.ctx.recordExhaustive(node);
-        if (position == .value and !cov.has_default and !exhaustive and !self.isPoison(scrutinee)) {
-            if (sema.enumVariantCount(self.ctx, scrutinee)) |total| {
-                try self.err(scrut_pos, "value-position `match` is not exhaustive (covered {d} of {d} variants and no default arm)", .{ cov.variants.count(), total });
-            } else {
-                try self.err(scrut_pos, "value-position `match` on `{s}` needs a default arm", .{try self.tyName(scrutinee)});
-            }
-        }
+        if (matchable and !cov.has_default and !exhaustive and !self.isPoison(scrutinee)) try self.notExhaustive(&cov, scrutinee, scrut_pos);
         if (position == .statement) return self.t().void_id;
         return result orelse self.t().invalid_id;
     }
@@ -1761,6 +1800,49 @@ const Checker = struct {
                 return false;
             },
             else => return false,
+        }
+    }
+
+    /// A `match` whose arms miss some values: the error names what they
+    /// miss, the first few variants or the least integer.
+    fn notExhaustive(self: *Checker, cov: *const MatchCoverage, scrutinee: TypeId, pos: u32) Error!void {
+        const ty = sema.unwrapBorrows(self.ctx, scrutinee);
+        const fix = "add an arm for it, or `_ =>` for the rest";
+        if (sema.nominalDecl(self.ctx, ty)) |decl| if (decl.symbol().fields) |fields| {
+            var missing: std.ArrayListUnmanaged(u8) = .empty;
+            const a = self.ctx.arena.allocator();
+            var count: usize = 0;
+            for (fields) |f| {
+                if (!f.is_variant or cov.variants.contains(f.name)) continue;
+                count += 1;
+                if (count <= 4) try missing.print(a, "{s}`.{s}`", .{ if (count > 1) ", " else "", f.name });
+            }
+            if (count > 4) try missing.print(a, ", and {d} more", .{count - 4});
+            if (count > 0) return self.err(pos, "`match` is not exhaustive: it misses {s}; {s}", .{ missing.items, if (count > 1) "add an arm for each, or `_ =>` for the rest" else fix });
+        };
+        switch (self.ctx.types.get(ty)) {
+            .bool => return self.err(pos, "`match` is not exhaustive: it misses {s}; {s}", .{ if (cov.bools[0]) "`true`" else if (cov.bools[1]) "`false`" else "`true` and `false`", fix }),
+            .int, .int_literal => {
+                // The least value missed that is not negative, else the
+                // greatest negative one.
+                const bounds = intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
+                var next: Wide = @max(bounds.min, 0);
+                for (cov.ints.items) |iv| {
+                    if (iv[0] > next) break;
+                    if (iv[1] >= next) next = iv[1] + 1;
+                }
+                if (next > bounds.max) {
+                    next = -1;
+                    var i = cov.ints.items.len;
+                    while (i > 0) : (i -= 1) {
+                        const iv = cov.ints.items[i - 1];
+                        if (iv[1] < next) break;
+                        if (iv[0] <= next) next = iv[0] - 1;
+                    }
+                }
+                return self.err(pos, "`match` on `{s}` is not exhaustive: it misses `{d}`; {s}", .{ try self.tyName(scrutinee), next, fix });
+            },
+            else => return self.err(pos, "`match` on `{s}` is not exhaustive; add `_ =>` for the values its arms miss", .{try self.tyName(scrutinee)}),
         }
     }
 
@@ -2134,8 +2216,61 @@ const Checker = struct {
                 return null;
             };
         }
-        try self.errAt(leaf, "use of unbound name `{s}`", .{name});
+        try self.errAt(leaf, "use of unbound name `{s}`{s}", .{ name, try self.unboundHint(leaf, name) });
         return null;
+    }
+
+    /// The member of `members` a name not found among them is a typo
+    /// of: a data field, a method, or (called through the type) a
+    /// method or variant.
+    fn memberHint(self: *Checker, members: []const Field, name: []const u8, want: MemberKind) Error![]const u8 {
+        return memberSuggest(members, name, want).hint(self.ctx.arena.allocator());
+    }
+
+    const MemberKind = enum { field, method, associated };
+
+    fn memberSuggest(members: []const Field, name: []const u8, want: MemberKind) sema.Suggest {
+        var s: sema.Suggest = .{ .name = name };
+        for (members) |m| {
+            if (m.is_drop_method) continue;
+            const ok = switch (want) {
+                .field => !m.is_method and !m.is_variant,
+                .method => m.is_method,
+                .associated => m.is_method or m.is_variant,
+            };
+            if (ok) s.offer(m.name);
+        }
+        return s;
+    }
+
+    /// What a name not found here was likely meant as: another
+    /// language's spelling of a Rig one, or a visible name it is a typo
+    /// of.
+    fn unboundHint(self: *Checker, leaf: Sexp, name: []const u8) Error![]const u8 {
+        const Other = struct { []const u8, []const u8 };
+        const others = [_]Other{
+            .{ "null", "; Rig's absent value is `none`" },
+            .{ "nil", "; Rig's absent value is `none`" },
+            .{ "None", "; Rig's absent value is `none`" },
+            .{ "NULL", "; Rig's absent value is `none`" },
+            .{ "True", "; Rig writes `true`" },
+            .{ "False", "; Rig writes `false`" },
+            .{ "this", "; a method's receiver is `self`, declared as `(?self)`, `(!self)`, or `(<self)`" },
+            .{ "self", "; `self` is the receiver of a method that declares one: `(?self)`, `(!self)`, or `(<self)`" },
+            .{ "len", "; a length is a member: `x.len`" },
+            .{ "println", "; Rig prints a line with `print(...)`" },
+            .{ "puts", "; Rig prints a line with `print(...)`" },
+            .{ "printf", "; Rig prints a line with `print(...)`" },
+        };
+        for (others) |o| if (std.mem.eql(u8, name, o[0])) return o[1];
+        var s: sema.Suggest = .{ .name = name };
+        self.ctx.offerVisible(&s, self.scope, leaf.src.pos, struct {
+            fn keep(sym: sema.Symbol) bool {
+                return sym.decl_pos != sema.builtin_decl_pos or sym.kind != .local;
+            }
+        }.keep);
+        for ([_][]const u8{ "true", "false", "print" }) |w| s.offer(w);
+        return s.hint(self.ctx.arena.allocator());
     }
 
     /// The binding `name` denotes at `pos` among those declared directly
@@ -2876,11 +3011,14 @@ const Checker = struct {
         return self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
     }
 
-    /// Whether `e` names a stack closure binding.
+    /// Whether `e` names a stack closure binding: one bound to a closure
+    /// literal, whose type is that function type (a binding declared as
+    /// another type keeps that type, and the literal was rejected).
     fn closureBinding(self: *Checker, e: Sexp) bool {
         if (e != .src) return false;
         const id = self.ctx.symbolOf(e) orelse return false;
-        return self.ctx.symbols.items[id].flags.closure;
+        const sym = self.ctx.symbols.items[id];
+        return sym.flags.closure and self.ctx.types.get(sym.ty) == .function;
     }
 
     /// A value no binding holds, or a part of one: a borrow of it lives
@@ -3155,8 +3293,9 @@ const Checker = struct {
     /// number type, a constant of it. A float's least is the most
     /// negative finite value.
     fn numberLimit(self: *Checker, obj: Sexp, ty: TypeId, field: []const u8, pos: u32) Error!TypeId {
+        if (self.isPoison(ty)) return ty;
         if (std.mem.eql(u8, field, "min") or std.mem.eql(u8, field, "max")) return ty;
-        try self.err(pos, "a number type has no member `{s}`; its limits are `{s}.min` and `{s}.max`", .{ field, self.text(obj), self.text(obj) });
+        try self.err(pos, "a number type has no member `{s}`; its limits are `{s}.min` and `{s}.max`", .{ field, self.sourceText(obj), self.sourceText(obj) });
         return self.t().invalid_id;
     }
 
@@ -3176,16 +3315,14 @@ const Checker = struct {
         return sym.ty;
     }
 
-    /// `module.Byte` for an imported alias of a number type, whose limits
-    /// are not reached through the module: an error naming the type.
+    /// `module.Byte`: an imported alias of a number type.
     fn importedNumberAlias(self: *Checker, obj: Sexp) Error!?TypeId {
         const module_sym = (try self.moduleNamed(ir.Member.object(obj))) orelse return null;
         const name = ir.Member.name(obj);
         const found = self.foreignLookup(module_sym, self.text(name)) orelse return null;
         if (found.sym.kind != .type_alias or !sema.isNumeric(found.ctx, found.sym.ty)) return null;
-        const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
-        try self.errAt(obj, "an imported alias does not name its limits; write `{s}.min` or `{s}.max`, or alias the type in this module", .{ try self.tyName(ty), try self.tyName(ty) });
-        return self.t().invalid_id;
+        _ = (try self.foreignSymbol(module_sym, self.text(name), name.src.pos)) orelse return self.t().invalid_id;
+        return try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
     }
 
     /// A field or method reached through weak handle `obj`, which does not
@@ -3264,7 +3401,7 @@ const Checker = struct {
         } else if (owner.fields == null) {
             try self.err(pos, "opaque type `{s}` has no accessible fields", .{owner.name});
         } else {
-            try self.err(pos, "no field `{s}` on type `{s}`", .{ field, owner.name });
+            try self.err(pos, "no field `{s}` on type `{s}`{s}", .{ field, owner.name, try self.memberHint(owner.fields.?, field, .field) });
             try self.noteDeclared(owner, decl.module_id == null);
         }
         return self.t().invalid_id;
@@ -3375,9 +3512,13 @@ const Checker = struct {
             return nt;
         }
         if (obj == .src) {
-            var id = self.lookupQuiet(obj) orelse return null;
-            if (self.aliasedNominal(id)) |target| id = target;
+            const id = self.lookupQuiet(obj) orelse return null;
             const sym = self.ctx.symbols.items[id];
+            if (sym.kind == .type_alias) {
+                const nt = self.aliasNamedType(sym.ty) orelse return null;
+                if (nt.foreign == null) try self.ctx.recordName(obj, nt.id);
+                return nt;
+            }
             if (sym.kind != .nominal_type and sym.kind != .generic_type) return null;
             try self.ctx.recordName(obj, id);
             return .{ .id = id, .sym = sym };
@@ -3385,10 +3526,27 @@ const Checker = struct {
         if (!obj.isKind(.member)) return null;
         const id = (try self.moduleNamed(ir.Member.object(obj))) orelse return null;
         const name = ir.Member.name(obj);
-        const found = foreignAliased((try self.foreignSymbol(id, self.text(name), name.src.pos)) orelse return null);
+        const found = (try self.foreignSymbol(id, self.text(name), name.src.pos)) orelse return null;
+        if (found.sym.kind == .type_alias) return self.aliasNamedType(try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id));
         if (found.sym.kind == .generic_type) return try self.foreignGeneric(found);
         if (found.sym.kind != .nominal_type) return null;
         return .{ .id = found.id, .sym = found.sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
+    }
+
+    /// The struct or enum an alias names, `ty` being the aliased type in
+    /// this module's terms: the alias constructs its values and reaches
+    /// its members as the type itself does. Null for an alias of any
+    /// other type.
+    fn aliasNamedType(self: *Checker, ty: TypeId) ?NamedType {
+        return switch (self.ctx.types.get(ty)) {
+            .nominal => |id| .{ .id = id, .sym = self.ctx.symbols.items[id] },
+            .imported_nominal => |in| blk: {
+                const foreign = self.ctx.foreign_semas.get(in.module_id) orelse break :blk null;
+                break :blk .{ .id = in.sym_id, .sym = foreign.symbols.items[in.sym_id], .foreign = .{ .ctx = foreign, .module_id = in.module_id } };
+            },
+            .parameterized_nominal => |pn| .{ .id = pn.sym, .sym = self.ctx.symbols.items[pn.sym], .args = pn.args },
+            else => null,
+        };
     }
 
     /// A named type as this module spells it: `lib.Point` for another
@@ -3411,18 +3569,6 @@ const Checker = struct {
         const sym = self.ctx.symbols.items[id];
         if (!sema.isProxy(sym)) return self.ctx.source;
         return (self.ctx.foreign_semas.get(sym.from.module_id) orelse return self.ctx.source).source;
-    }
-
-    /// The type an alias of a local struct or enum names (`Point` for
-    /// `type P2 = Point`): the alias constructs its values and reaches its
-    /// members as the type itself does.
-    fn aliasedNominal(self: *Checker, id: SymbolId) ?SymbolId {
-        const sym = self.ctx.symbols.items[id];
-        if (sym.kind != .type_alias) return null;
-        return switch (self.ctx.types.get(sym.ty)) {
-            .nominal => |target| target,
-            else => null,
-        };
     }
 
     /// The type a (non-generic) named type denotes.
@@ -3752,17 +3898,6 @@ const Checker = struct {
         sym: sema.Symbol,
     };
 
-    /// The struct or enum an imported alias names, when it is declared
-    /// beside the alias: the alias is that type in every role.
-    fn foreignAliased(found: Foreign) Foreign {
-        if (found.sym.kind != .type_alias) return found;
-        const target = switch (found.ctx.types.get(found.sym.ty)) {
-            .nominal => |target| target,
-            else => return found,
-        };
-        return .{ .ctx = found.ctx, .module_id = found.module_id, .id = target, .sym = found.ctx.symbols.items[target] };
-    }
-
     /// A module-level symbol of an imported module, public or not.
     fn foreignLookup(self: *Checker, module_sym: SymbolId, name: []const u8) ?Foreign {
         const origin = self.ctx.module_refs.get(module_sym) orelse return null;
@@ -3829,7 +3964,7 @@ const Checker = struct {
         const idx_ty = try self.synthValue(index);
         if (self.isPoison(idx_ty)) return idx_ty;
         if (!sema.isInteger(self.ctx, idx_ty)) {
-            try self.errAt(index, "an index must be an integer; got `{s}`", .{try self.tyName(idx_ty)});
+            try self.errAt(index, "an index must be an integer; got `{s}`{s}", .{ try self.tyName(idx_ty), try self.loopOrderHint(index, self.t().int_id) });
         } else if (idx_ty == self.t().int_literal_id) try self.defaultIntLiteral(index);
         const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
@@ -4113,11 +4248,7 @@ const Checker = struct {
                     return self.checkConversion(try r.resolveType(callee), name, args, callee.src.pos);
                 }
             }
-            var sym_id = (try self.useName(callee)) orelse return self.skipCall(args);
-            if (self.aliasedNominal(sym_id)) |target| {
-                try self.ctx.recordName(callee, target);
-                sym_id = target;
-            }
+            const sym_id = (try self.useName(callee)) orelse return self.skipCall(args);
             const sym = self.ctx.symbols.items[sym_id];
             if (sym.kind != .nominal_type and sym.kind != .generic_type and sym.kind != .type_alias and sym.kind != .module) {
                 try self.ctx.recordType(callee, sym.ty);
@@ -4125,7 +4256,7 @@ const Checker = struct {
             switch (sym.kind) {
                 .function, .@"extern" => return self.functionCall(callee, sym, ct, args),
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
-                .type_alias => return self.badCall(args, callee, "`{s}` is a type alias for `{s}` and cannot be called as a constructor; construct the aliased type directly", .{ name, try self.tyName(sym.ty) }),
+                .type_alias => return self.aliasCall(node, callee, name, sym.ty, args, callee.src.pos),
                 .generic_type => {
                     if (sym_id == self.ctx.vec_sym_id) return self.badCall(args, callee, "`Vec()` needs its element type: name it (`Vec[T]()`), or give it where the value goes (`v: Vec[T] = Vec()`)", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
@@ -4143,6 +4274,26 @@ const Checker = struct {
 
         const callee_ty = try self.synthOperand(callee);
         return self.callValue(callee, callee_ty, args, self.sourceText(callee));
+    }
+
+    /// A call through an alias of type `ty` (in this module's terms),
+    /// named `name`: it constructs the struct the alias names, or
+    /// converts to the number type it names.
+    fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty: TypeId, args: []const Sexp, pos: u32) Error!TypeId {
+        if (self.isPoison(ty)) return self.skipCall(args);
+        if (sema.isNumeric(self.ctx, ty)) return self.checkConversion(ty, name, args, pos);
+        const nt = self.aliasNamedType(ty) orelse return self.badCall(args, callee, "`{s}` is a type alias for `{s}`, which has no constructor", .{ name, try self.tyName(ty) });
+        if (nt.foreign) |fo| return self.construct(nt.id, args, pos, TypeSubst.empty, fo);
+        if (nt.args) |targs| {
+            if (nt.id == self.ctx.vec_sym_id) {
+                try self.checkVecConstruction(call);
+                return ty;
+            }
+            if (nt.id == self.ctx.signal_sym_id and !sameNode(call, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
+            return self.construct(nt.id, args, pos, .{ .params = nt.sym.type_params orelse &.{}, .args = targs }, null);
+        }
+        if (callee == .src) try self.ctx.recordName(callee, nt.id);
+        return self.construct(nt.id, args, pos, TypeSubst.empty, null);
     }
 
     /// `Wrap(v: 3)`, `lib.Wrap(v: 3)`: generic type `sym_id`, named `name`
@@ -5331,16 +5482,16 @@ const Checker = struct {
                     .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
                     .member => blk: {
                         const obj = ir.Member.object(e);
+                        // A number type's limits.
+                        if (self.namesNumberType(obj)) break :blk true;
                         // `lib.Mode.a`: a variant of an imported type.
                         if (obj.isKind(.member)) {
                             const foreign = self.foreignMember(obj) orelse break :blk false;
                             break :blk foreign.kind == .nominal_type;
                         }
                         if (obj != .src) break :blk false;
-                        const id = self.lookupQuiet(obj) orelse break :blk resolve.isNumericTypeName(self.text(obj));
+                        const id = self.lookupQuiet(obj) orelse break :blk false;
                         const sym = self.ctx.symbols.items[id];
-                        // A number type's alias: its limits.
-                        if (sym.kind == .type_alias) break :blk sema.isNumeric(self.ctx, sym.ty);
                         if (sym.kind != .module) break :blk sym.kind == .nominal_type;
                         // An imported module's constant.
                         const foreign = self.foreignMember(e) orelse break :blk false;
@@ -5351,6 +5502,23 @@ const Checker = struct {
             },
             else => return false,
         }
+    }
+
+    /// Whether `obj` names a number type: a built-in one, or an alias of
+    /// one in this module or an imported one.
+    fn namesNumberType(self: *Checker, obj: Sexp) bool {
+        if (obj.isKind(.member)) {
+            const m = ir.Member.object(obj);
+            if (m != .src) return false;
+            const id = self.lookupQuiet(m) orelse return false;
+            if (self.ctx.symbols.items[id].kind != .module) return false;
+            const found = self.foreignLookup(id, self.text(ir.Member.name(obj))) orelse return false;
+            return found.sym.kind == .type_alias and sema.isNumeric(found.ctx, found.sym.ty);
+        }
+        if (obj != .src) return false;
+        const id = self.lookupQuiet(obj) orelse return resolve.isNumericTypeName(self.text(obj));
+        const sym = self.ctx.symbols.items[id];
+        return sym.kind == .type_alias and sema.isNumeric(self.ctx, sym.ty);
     }
 
     /// The symbol `module.name` names in an imported module.
@@ -5493,6 +5661,10 @@ const Checker = struct {
         }
         var seen: std.StringHashMapUnmanaged(u32) = .empty;
         defer seen.deinit(self.ctx.allocator);
+        // The fields an unknown name was likely meant as, which are not
+        // reported missing too.
+        var meant: std.StringHashMapUnmanaged(void) = .empty;
+        defer meant.deinit(self.ctx.allocator);
         for (args) |a| {
             const value = ir.Kwarg.value(a);
             const fname = self.text(ir.Kwarg.name(a));
@@ -5505,7 +5677,9 @@ const Checker = struct {
             }
             try seen.put(self.ctx.allocator, fname, fpos);
             const f = findDataField(fields, fname) orelse {
-                try self.err(fpos, "no field `{s}` on {s} `{s}`", .{ fname, if (info.kind == .constructor) "type" else "variant", info.owner });
+                const likely = memberSuggest(fields, fname, .field);
+                if (likely.best) |b| try meant.put(self.ctx.allocator, b, {});
+                try self.err(fpos, "no field `{s}` on {s} `{s}`{s}", .{ fname, if (info.kind == .constructor) "type" else "variant", info.owner, try likely.hint(self.ctx.arena.allocator()) });
                 if (info.foreign == null and info.decl_pos < sema.imported_decl_pos and info.decl_pos != 0) try self.ctx.noteIn(info.module_id, info.decl_pos, "`{s}` declared here", .{info.owner});
                 _ = try self.synthExpr(value);
                 continue;
@@ -5515,7 +5689,7 @@ const Checker = struct {
             try self.checkLendsVisibly(value, ty, "the field writes through");
         }
         for (fields) |f| {
-            if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name)) continue;
+            if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name) or meant.contains(f.name)) continue;
             try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
             if (info.foreign == null and f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(info.module_id, f.decl_pos, "field `{s}` declared here", .{f.name});
         }
@@ -5671,7 +5845,7 @@ const Checker = struct {
                 try self.err(pos, "a `{s}` reaches no methods of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.unbox()`", .{ try self.tyName(peeled), shown, shown, shown });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
-                try self.err(pos, "no method `{s}` on type `{s}`", .{ method, sym.name });
+                try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, try self.memberHint(sym.fields orelse &.{}, method, .method) });
                 try self.noteDeclared(sym, decl.module_id == null);
             } else if (self.ctx.types.get(peeled) == .weak) {
                 try self.weakReach(obj, peeled, pos);
@@ -5872,7 +6046,7 @@ const Checker = struct {
     fn checkIndexArg(self: *Checker, a: Sexp, len: ?u64) Error!void {
         const ty = try self.synthValue(a);
         if (self.isPoison(ty)) return;
-        if (!sema.isInteger(self.ctx, ty)) return self.errAt(a, "an index must be an integer; got `{s}`", .{try self.tyName(ty)});
+        if (!sema.isInteger(self.ctx, ty)) return self.errAt(a, "an index must be an integer; got `{s}`{s}", .{ try self.tyName(ty), try self.loopOrderHint(a, self.t().int_id) });
         if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
         if (len) |n| if (self.constInt(a)) |i| if (i < 0 or i >= n) {
             try self.errAt(a, "index `{d}` is out of bounds for an array of length {d}", .{ i, n });
@@ -6031,7 +6205,7 @@ const Checker = struct {
             try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
             return ty;
         }
-        try self.err(pos, "no method `{s}` on type `{s}`", .{ name, tname });
+        try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ name, tname, try self.memberHint(nt.sym.fields orelse &.{}, name, .associated) });
         try self.noteDeclared(nt.sym, nt.foreign == null);
         return self.skipCall(args);
     }
@@ -6120,9 +6294,10 @@ const Checker = struct {
     /// `module.function(args)` or `module.Type(fields)`.
     fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const module_name = self.ctx.symbols.items[module_sym].name;
-        const found = foreignAliased((try self.foreignSymbol(module_sym, name, pos)) orelse return self.skipCall(args));
+        const found = (try self.foreignSymbol(module_sym, name, pos)) orelse return self.skipCall(args);
         const qualified = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ module_name, name });
         switch (found.sym.kind) {
+            .type_alias => return self.aliasCall(self.current_call orelse Sexp.nil, self.callee_node orelse Sexp.nil, qualified, try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id), args, pos),
             .function, .@"extern" => {
                 const local = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
                 const fty = self.ctx.types.get(local);
@@ -6473,7 +6648,7 @@ const Checker = struct {
             },
             else => {},
         }
-        try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(expected), try self.tyName(actual) });
+        try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`{s}", .{ try self.tyName(expected), try self.tyName(actual), try self.loopOrderHint(e, expected) });
     }
 
     /// A form whose type comes from context: its type, or null when `e`
@@ -8097,8 +8272,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
 /// Why `==` is not defined for a type, as a diagnostic says it.
 fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
     const a = ctx.arena.allocator();
-    // Another module's type is named as this module spells it.
-    const t = if (n.origin) |m| try sema.formatType(ctx, try sema.importType(ctx, @constCast(n.ctx), n.ty, m)) else try sema.formatType(ctx, n.ty);
+    const t = try sema.formatType(ctx, n.ty);
     if (n.path.len > 0) return switch (n.why) {
         .handle => std.fmt.allocPrint(a, "field `{s}` is a handle `{s}`, which could compare by identity or by content", .{ n.path, t }),
         .closure => std.fmt.allocPrint(a, "field `{s}` is an owned closure `{s}`", .{ n.path, t }),
