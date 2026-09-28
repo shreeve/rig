@@ -4424,10 +4424,11 @@ const Checker = struct {
     }
 
     /// `I32(x)`, `U8(x)`, `Float(n)`, `Int(f)`: a numeric conversion to
-    /// the named type. It is checked: a value that does not fit panics
-    /// when the program runs, and a float converted to an integer is
-    /// truncated toward zero. A constant argument is converted now, so
-    /// it must fit.
+    /// the named type. A conversion to an integer type is checked: a
+    /// value that does not fit panics when the program runs, and a float
+    /// is truncated toward zero; a constant argument is converted now,
+    /// so it must fit. A conversion to a float type rounds to the nearest
+    /// value, a constant argument included.
     fn checkConversion(self: *Checker, target: TypeId, name: []const u8, args: []const Sexp, pos: u32) Error!TypeId {
         if (args.len != 1 or args[0].isKind(.kwarg)) {
             try self.err(pos, "`{s}(x)` converts one number; it takes exactly one argument", .{name});

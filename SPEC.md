@@ -143,9 +143,10 @@ plain enum value to its integer value ([§3](#enums)). A conversion is checked. 
 does not fit the target type panics when the program runs, and so does
 a float whose integer part does not fit, or a NaN; a float becomes an
 integer by truncating toward zero, and `F32(x)` rounds (to an infinity when `x` is
-too large). A constant integer is converted at compile time, so it
-must fit. (Inside `raw`, Zig's unchecked cast builtins are also
-available, [§15](#15-raw-code-and-ffi).)
+too large). A constant integer converted to an integer type is
+converted at compile time, so it must fit. (Inside `raw`, Zig's
+unchecked cast builtins are also available,
+[§15](#15-raw-code-and-ffi).)
 
 ```rig
 fun average(total: Int, count: Int) -> Float
@@ -167,6 +168,31 @@ sub main
 
 ```error
 integer value `256` does not fit in `U8`
+```
+
+A conversion to a float type rounds to the nearest value the type
+holds, for a constant as it does at run time: `F32(16777217)` is
+`16777216.0`. A constant assigned to a float type without a conversion
+must be exact, so `a: F32 = 16777217` is rejected; write the
+conversion to accept the rounding.
+
+```rig
+sub main
+  n = 16777217
+  print(F32(16777217), F32(n))
+```
+
+```output
+16777216.0 16777216.0
+```
+
+```rig reject
+sub main
+  a: F32 = 16777217
+```
+
+```error
+integer value `16777217` does not fit exactly in `F32`
 ```
 
 A `String` has a length `s.len` and can be indexed (`s[0]`, or
