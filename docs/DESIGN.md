@@ -309,6 +309,20 @@ every binding that is never reassigned as a Zig `const`, and visible
 mutation is better expressed through types like `Cell` than through
 binding syntax.
 
+### Private members by default
+
+A declaration, a field, and a method are each private to their module
+unless marked `pub`. A module's `pub` surface is then exactly what it
+spells out: a type can keep its representation (a count, a cache, an
+invariant between two fields) to itself and hand out values through
+`pub` functions, and changing a private member cannot break another
+module. Construction follows: another module may construct a struct
+only when it could set every field anyway, so a type with a private
+field is made by its own module. An enum's variants and their payloads
+are the type's shape, which `match` must see, so they are always
+public. Inside a module nothing is hidden, since the module is one unit
+of code and review.
+
 ### `and`, `or`, `not`
 
 Words read better than `&&` and `||`, and they free `!` for its two

@@ -3033,7 +3033,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
 
-        if (try self.dataField(obj_ty, field)) |ty| return ty;
+        if (try self.dataField(obj_ty, field, pos)) |ty| return ty;
         const decl = sema.nominalDecl(self.ctx, peeled) orelse {
             // An element method named without its call.
             const has_elems = switch (self.ctx.types.get(peeled)) {
@@ -3072,13 +3072,38 @@ const Checker = struct {
     }
 
     /// The type of data field `name` of a receiver's nominal type, local
-    /// or imported.
-    fn dataField(self: *Checker, obj_ty: TypeId, name: []const u8) Error!?TypeId {
-        if (try sema.lookupDataField(self.ctx, obj_ty, name)) |f| return f.ty;
+    /// or imported, used at `pos`: another module's field must be `pub`.
+    fn dataField(self: *Checker, obj_ty: TypeId, name: []const u8, pos: u32) Error!?TypeId {
+        if (try sema.lookupDataField(self.ctx, obj_ty, name)) |f| {
+            try self.checkVisible(f.field, self.ctx.symbols.items[f.nominal_sym], null, pos);
+            return f.ty;
+        }
         const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
         const f = findDataField(decl.symbol().fields orelse &.{}, name) orelse return null;
+        try self.checkVisible(f, decl.symbol(), module_id, pos);
         return try sema.importType(self.ctx, self.ctx.foreign_semas.get(module_id).?, f.ty, module_id);
+    }
+
+    /// A field or method of a type another module declares, used at
+    /// `pos`, must be declared `pub` there; variants always are visible.
+    /// `owner` is the type's symbol: in module `module` (an imported
+    /// type), or here (a proxy stands for another module's generic type).
+    fn checkVisible(self: *Checker, f: Field, owner: sema.Symbol, module: ?u32, pos: u32) Error!void {
+        if (f.is_pub or f.is_variant) return;
+        const m = module orelse if (sema.isProxy(owner)) owner.from.module_id else return;
+        if (m == self.ctx.module_id) return;
+        const foreign = self.ctx.foreign_semas.get(m) orelse return;
+        // A proxy is named as this module spells it already: `lib.Wrap`.
+        const tname = if (module != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ foreign.name, owner.name }) else owner.name;
+        if (f.is_method) {
+            const before = std.mem.trimEnd(u8, foreign.source[0..@min(f.decl_pos, foreign.source.len)], " ");
+            const kw = if (std.mem.endsWith(u8, before, "sub")) "sub" else "fun";
+            try self.err(pos, "method `{s}` of `{s}` is private to module `{s}`; declare it `pub {s} {s}` there to call it from here", .{ f.name, tname, foreign.name, kw, f.name });
+        } else {
+            try self.err(pos, "field `{s}` of `{s}` is private to module `{s}`; declare it `pub {s}: ...` there to use it from here", .{ f.name, tname, foreign.name, f.name });
+        }
+        if (f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(m, f.decl_pos, "`{s}` declared here", .{f.name});
     }
 
     /// A method of a receiver's nominal type, local or imported, with
@@ -3091,11 +3116,14 @@ const Checker = struct {
         nominal_sym: SymbolId,
         /// Source of the module that declares the parameter defaults.
         source: []const u8,
+        /// The type's symbol, and the module it is in: null for this one.
+        owner_sym: sema.Symbol,
+        module: ?u32 = null,
     };
 
     fn findMethod(self: *Checker, obj_ty: TypeId, name: []const u8) Error!?Method {
         if (try sema.lookupMethod(self.ctx, obj_ty, name)) |m| {
-            return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = self.declSource(m.nominal_sym) };
+            return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = self.declSource(m.nominal_sym), .owner_sym = self.ctx.symbols.items[m.nominal_sym] };
         }
         const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
@@ -3104,7 +3132,7 @@ const Checker = struct {
             if (!f.is_method or f.is_drop_method or !std.mem.eql(u8, f.name, name)) continue;
             const ty = self.ctx.types.get(try sema.importType(self.ctx, foreign, f.ty, module_id));
             if (ty != .function) return null;
-            return .{ .field = f, .fn_ty = ty.function, .owner = decl.symbol().name, .nominal_sym = sema.symbol_invalid, .source = foreign.source };
+            return .{ .field = f, .fn_ty = ty.function, .owner = decl.symbol().name, .nominal_sym = sema.symbol_invalid, .source = foreign.source, .owner_sym = decl.symbol(), .module = module_id };
         }
         return null;
     }
@@ -3213,6 +3241,7 @@ const Checker = struct {
             // `Type.method` is a plain function value whose first
             // parameter is the receiver.
             if (m.is_method) {
+                try self.checkVisible(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, pos);
                 if (nt.sym.kind == .generic_type) {
                     try self.err(pos, "method `{s}.{s}` of a generic type must be called; wrap it in a closure to pass it as a value", .{ tname, field });
                     return self.t().invalid_id;
@@ -5134,6 +5163,7 @@ const Checker = struct {
             if (f.is_variant) break true;
         } else false;
         if (is_enum) return self.badCall(args, pos, "`{s}` is an enum; construct a variant with `{s}.name` or `.name(...)`", .{ sym.name, sym.name });
+        try self.checkConstructible(sym, fields, if (foreign) |fo| fo.module_id else null, pos);
         const origin = if (sema.isProxy(sym)) sema.proxyOrigin(self.ctx, sym) else null;
         try self.checkFieldArgs(args, fields, .{
             .owner = sym.name,
@@ -5145,6 +5175,30 @@ const Checker = struct {
             .kind = .constructor,
         });
         return result;
+    }
+
+    /// Another module's struct is constructed here only when every one
+    /// of its fields is `pub`; a private field is that module's to set.
+    fn checkConstructible(self: *Checker, sym: sema.Symbol, fields: []const Field, module: ?u32, pos: u32) Error!void {
+        const m = module orelse if (sema.isProxy(sym)) sym.from.module_id else return;
+        const foreign = self.ctx.foreign_semas.get(m) orelse return;
+        var private: std.ArrayListUnmanaged(u8) = .empty;
+        defer private.deinit(self.ctx.allocator);
+        var count: usize = 0;
+        for (fields) |f| {
+            if (f.is_method or f.is_variant or f.is_pub) continue;
+            try private.appendSlice(self.ctx.allocator, if (count == 0) "`" else ", `");
+            try private.appendSlice(self.ctx.allocator, f.name);
+            try private.append(self.ctx.allocator, '`');
+            count += 1;
+        }
+        if (count == 0) return;
+        const tname = if (module != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ foreign.name, sym.name }) else sym.name;
+        try self.err(pos, "only module `{s}` can construct `{s}`: its {s} {s} {s} private; declare every field `pub` there, or make the value with a `pub` function of `{s}`", .{ foreign.name, tname, if (count == 1) "field" else "fields", private.items, if (count == 1) "is" else "are", foreign.name });
+        for (fields) |f| {
+            if (f.is_method or f.is_variant or f.is_pub or f.decl_pos >= sema.imported_decl_pos) continue;
+            try self.ctx.noteIn(m, f.decl_pos, "`{s}` declared here", .{f.name});
+        }
     }
 
     const ForeignFields = struct { ctx: *SemContext, module_id: u32 };
@@ -5351,7 +5405,7 @@ const Checker = struct {
         const resolved = resolved_method orelse {
             // A data field holding a function or a closure handle is
             // called like one.
-            if (try self.dataField(obj_ty, method)) |ty| {
+            if (try self.dataField(obj_ty, method, pos)) |ty| {
                 if (sema.ownedClosureFn(self.ctx, ty) != null or self.ctx.types.get(ty) == .function) {
                     if (self.isReceiverSigil(obj)) {
                         try self.fieldCallSigil(obj, method, "a field holding a function", ty);
@@ -5402,6 +5456,7 @@ const Checker = struct {
                 }
             }
         }
+        try self.checkVisible(resolved.field, resolved.owner_sym, resolved.module, pos);
         // `pop` removes the element, so it hands over ownership; `get`
         // would copy it out of the Vec.
         if (resolved.nominal_sym == self.ctx.vec_sym_id and std.mem.eql(u8, method, "get")) {
@@ -5675,6 +5730,7 @@ const Checker = struct {
         for (members) |m| {
             if (!std.mem.eql(u8, m.name, name)) continue;
             if (m.is_method and !m.is_drop_method) {
+                try self.checkVisible(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, pos);
                 const fty = self.ctx.types.get(try self.memberType(nt.foreign, m.ty));
                 if (fty != .function) break;
                 var f = fty.function;

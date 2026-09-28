@@ -194,6 +194,11 @@ stands where a value is expected: `x = twice 5`, or `b = a -1`, whose
 hint names both the operator and the call), and makes the only rewrites
 that need to inspect the tree:
 
+- `pub` on a field or method is taken off: the member list holds the
+  member itself, as every pass reads it, and the wrapper records its
+  node id (`Parser.isPubMember`), which the resolver copies into the
+  member's `Field.is_pub`; `pub` on a variant or a `drop` body is an
+  error;
 - a module-level binding, written `name = value`, is a constant: its
   `set` gets the `fixed` op, and a module-level `=!` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a

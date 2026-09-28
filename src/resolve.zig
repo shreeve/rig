@@ -1075,7 +1075,7 @@ pub const TypeResolver = struct {
                             if (try self.checkDuplicateMember(fields.items, fname, fpos, sym_name)) continue;
                             var fty = try self.resolveType(ir.get(m, .type));
                             if (try self.fieldCallable(ir.get(m, .type), fty)) fty = self.ctx.types.invalid_id;
-                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null });
+                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null, .is_pub = self.isPubMember(m) });
                         },
                         .valued => {
                             const name_node = ir.Valued.name(m);
@@ -1291,6 +1291,12 @@ pub const TypeResolver = struct {
         });
     }
 
+    /// Whether a field or method is declared `pub`.
+    fn isPubMember(self: *const TypeResolver, member: Sexp) bool {
+        const p = self.ctx.parser orelse return false;
+        return p.isPubMember(member);
+    }
+
     fn resolveMethod(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayListUnmanaged(Field)) Error!void {
         const name = ir.get(node, .name);
         const mname = identAt(self.ctx.source, name).?;
@@ -1317,6 +1323,7 @@ pub const TypeResolver = struct {
             .ty = fn_ty,
             .decl_pos = mpos,
             .is_method = true,
+            .is_pub = self.isPubMember(node),
             .receiver = receiver,
             .param_names = try self.paramNames(params),
             .param_defaults = try self.paramDefaults(params),

@@ -3079,10 +3079,10 @@ module's `pub` declarations are reached as `name.decl` and its types as
 
 ```rig file=shapes.rig
 pub struct Point
-  x: Int
-  y: Int
+  pub x: Int
+  pub y: Int
 
-  fun sum(?self) -> Int
+  pub fun sum(?self) -> Int
     self.x + self.y
 
 pub fun origin -> Point
@@ -3103,8 +3103,33 @@ sub main
 3 0 10
 ```
 
-Only `pub` declarations are visible outside a module. A struct's
-fields and methods are visible wherever the struct is.
+Only `pub` declarations are visible outside a module, and the same
+goes for the fields and methods of a struct or enum: each is private to
+its module unless declared `pub` (`pub x: Int`, `pub fun sum(?self)`).
+Another module constructs a struct only when all its fields are `pub`;
+otherwise it gets one from a `pub` function, as `origin` is here. An
+enum's variants and their payloads are always public: they are the
+type's shape.
+
+```rig file=vault.rig
+pub struct Vault
+  secret: Int
+
+pub fun vault(n: Int) -> Vault
+  Vault(secret: n)
+```
+
+```rig reject
+use vault
+
+sub main
+  v = vault.vault(7)
+  print(v.secret)
+```
+
+```error
+field `secret` of `vault.Vault` is private to module `vault`; declare it `pub secret: ...` there to use it from here
+```
 
 **Generics** cross modules: another module's generic type is named
 with its arguments (`bag.Bag[Int]`) or has them inferred, and its
@@ -3114,9 +3139,9 @@ mistake is reported at the call with a note in that module's file.
 
 ```rig file=bag.rig
 pub struct Bag[T]
-  items: Vec[T]
+  pub items: Vec[T]
 
-  sub add(!self, x: T)
+  pub sub add(!self, x: T)
     !self.items.push(<x)
 
 pub fun largest[T](b: ?Bag[T], start: T) -> T
@@ -3379,9 +3404,9 @@ fun       = "fun" name ["[" tparam, ... "]"] ["(" params ")"] ["->" type] block
 sub       = "sub" name ["[" tparam, ... "]"] ["(" params ")"] block
 tparam    = name | name ":" type      # a type, or a compile-time value
 param     = name ":" type ["=" literal] | "?self" | "!self" | "<self"
-struct    = "struct" name ["[" tparam, ... "]"] INDENT (field | fun | sub | drop)* DEDENT
-field     = name ":" type ["=" literal]
-enum      = "enum" name ["[" tparam, ... "]"] INDENT (variant | fun | sub)* DEDENT
+struct    = "struct" name ["[" tparam, ... "]"] INDENT (field | ["pub"] (fun | sub) | drop)* DEDENT
+field     = ["pub"] name ":" type ["=" literal]
+enum      = "enum" name ["[" tparam, ... "]"] INDENT (variant | ["pub"] (fun | sub))* DEDENT
 variant   = name | name "=" integer | name "(" field, ... ")"
 errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type

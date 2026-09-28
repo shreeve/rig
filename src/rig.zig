@@ -766,7 +766,7 @@ pub const Lexer = struct {
         }
         if (self.nextCat() != .colon) return null;
         if (self.inParens()) return .kwarg_name;
-        return if (self.in_members[self.depth] and self.atStatementStart()) .ident else null;
+        return if (self.in_members[self.depth] and (self.atStatementStart() or self.last_cat == .@"pub")) .ident else null;
     }
 
     /// `-` is infix when spaced after or attached to a value (`a - b`,
@@ -1072,6 +1072,9 @@ pub const Parser = struct {
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
     paren_suffixes: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The node ids of the fields and methods declared `pub`, which the
+    /// member list holds without their `(pub ...)` wrapper.
+    pub_members: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
 
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
@@ -1515,6 +1518,7 @@ pub const Parser = struct {
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         switch (out.kind() orelse return out) {
             .module => self.moduleConsts(out),
+            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.pubMembers(out),
             .lambda => try self.splitBars(out, walked),
             .@"??" => return self.nearestFallback(out),
             .read, .write, .move => return self.receiverSigil(out),
@@ -1551,6 +1555,31 @@ pub const Parser = struct {
                 else => {},
             }
         }
+    }
+
+    /// `pub` on a field or method: the member stands in the member list
+    /// as itself, as every pass reads it, and its id is recorded
+    /// (`isPubMember`).
+    fn pubMembers(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
+        const is_enum = node.isKind(.@"enum") or node.isKind(.generic_enum) or node.isKind(.errors);
+        for (@constCast(ir.rest(node, .members))) |*m| {
+            if (!m.isKind(.@"pub")) continue;
+            const inner = ir.Pub.decl(m.*);
+            // In a struct, a variant's shape is left for the checker to
+            // reject.
+            switch (inner.kind() orelse .variant) {
+                .@":", .default, .fun, .sub => {},
+                .drop_decl => self.reject(m.*, "a `drop` body is never called by name, so it takes no `pub`"),
+                else => if (is_enum) self.reject(m.*, "an enum's variants are always public; remove the `pub`"),
+            }
+            if (inner == .list) try self.pub_members.put(self.allocator(), inner.list.id, {});
+            m.* = inner;
+        }
+    }
+
+    /// Whether `member`, a field or method, is declared `pub`.
+    pub fn isPubMember(self: *const Parser, member: Sexp) bool {
+        return member == .list and self.pub_members.contains(member.list.id);
     }
 
     /// `a ?? b ?? return v`: the grammar reads a jump fallback after the

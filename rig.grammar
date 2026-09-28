@@ -289,7 +289,7 @@ tokens
     generic_struct, generic_enum name:leaf tparams:group ...members
     type                        name:leaf type
     test                        name:leaf body:block
-    pub                         decl:fun|sub|struct|enum|errors|type|generic_struct|generic_enum|test|set
+    pub                         decl
     extern                      name:leaf type
     extern_fun                  name:leaf params:group? returns?
     extern_sub                  name:leaf params:group?
@@ -518,6 +518,19 @@ member   = field
          | fun
          | sub
          | DROP params:params body:block            → (drop_decl)  # `drop(!self)`
+         | PUB decl:pubmem                          → (pub)        # `pub len: Int`
+
+# A member other modules may use: a field or a method. A variant or a
+# `drop` body parses too, so that the Parser wrapper can say it takes no
+# `pub`.
+pubmem   = name:fname ":" type:type                 → (:)
+         | name:fname ":" type:type "=" value:expr  → (default)
+         | fun
+         | sub
+         | name
+         | name:name "=" value:expr                 → (valued)
+         | name:name params:params                  → (variant)
+         | DROP params:params body:block            → (drop_decl)
 
 test     = TEST name:(STRING_DQ | STRING_SQ) body:block → (test)
 

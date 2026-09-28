@@ -14,7 +14,7 @@ pub fun plain[k: Int] -> Int
 pub struct Maker
   x: Int
 
-  fun zeros[n: Int] -> [n]Int
+  pub fun zeros[n: Int] -> [n]Int
     [n of 0]
 
 pub fun sum[n: Int](xs: [n]Int) -> Int
@@ -24,7 +24,7 @@ pub fun sum[n: Int](xs: [n]Int) -> Int
   t
 
 pub struct Ring[T, n: Int]
-  items: [n]T
+  pub items: [n]T
 
-  fun cap(?self) -> Int
+  pub fun cap(?self) -> Int
     n

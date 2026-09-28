@@ -1,0 +1,34 @@
+pub struct Counter
+  pub label: String
+  count: Int
+
+  pub fun make(label: String) -> Counter
+    Counter(label: label, count: 0)
+
+  fun fresh() -> Counter
+    Counter(label: "f", count: 0)
+
+  fun value(?self) -> Int
+    self.count
+
+  sub reset(!self)
+    self.count = 0
+
+pub struct Pair[T]
+  pub a: T
+  b: T
+
+  fun second(?self) -> T
+    self.b
+
+pub fun pair(a: Int, b: Int) -> Pair[Int]
+  Pair(a: a, b: b)
+
+pub enum Shape
+  dot
+
+  fun size(?self) -> Int
+    0
+
+pub fun boxed() -> Box[Counter]
+  Box(Counter.make("b"))

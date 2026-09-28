@@ -445,6 +445,9 @@ pub const Field = struct {
     param_names: ?[]const []const u8 = null,
     /// Default values of a method's parameters (null where none).
     param_defaults: ?[]const ?Sexp = null,
+    /// A field or method declared `pub`, which other modules may use.
+    /// (Variants and their payload fields are always visible.)
+    is_pub: bool = false,
 };
 
 pub const Symbol = struct {

@@ -4282,13 +4282,13 @@ order, each module once; a cycle is an error.
 
 ```rig file=geo.rig
 pub struct Point
-  x: Int
-  y: Int
+  pub x: Int
+  pub y: Int
 
-  fun at(x: Int, y: Int) -> Point
+  pub fun at(x: Int, y: Int) -> Point
     Point(x: x, y: y)
 
-  fun sum(?self) -> Int
+  pub fun sum(?self) -> Int
     self.x + self.y
 
 pub enum Dir
@@ -4318,8 +4318,76 @@ sub main
 
 Only `pub` declarations are visible to importers. A `pub` function may
 take or return a private type: importers can hold the value and use its
-fields and methods, though they cannot name the type. A struct's fields
-and methods are visible wherever the struct is.
+`pub` fields and methods, though they cannot name the type.
+
+A field or method is private to its module unless it is declared `pub`:
+`pub x: Int`, `pub x: Int = 0`, `pub fun sum(?self) -> Int`,
+`pub sub push(!self, x: Int)`. Inside the declaring module every member
+is visible; another module that reads or writes a private field, or
+calls a private method or associated function, is rejected, whichever
+way it reaches the member: through a borrow, a `*T` handle, a `Box`, or
+an instance of a generic type. Another module constructs a struct only
+when every one of its fields is `pub`; a type with a private field is
+made by its own module, which can hand it out through a `pub` function.
+An enum's variants and their payload fields are always public, since
+they are the type's shape; its methods follow the rule above. A `drop`
+body is not called by name, so it takes no `pub`.
+
+```rig file=bank.rig
+pub struct Account
+  pub owner: String
+  balance: Int
+
+  pub fun total(?self) -> Int
+    self.balance
+
+  sub audit(?self)
+    print("audit", self.balance)
+
+pub fun open(owner: String) -> Account
+  Account(owner: owner, balance: 100)
+```
+
+```rig
+use bank
+
+sub main
+  a = bank.open("ada")
+  print(a.owner, a.total())
+```
+
+```output
+ada 100
+```
+
+Here `audit` and `balance` are private to `bank`:
+
+```rig file=bank.rig
+pub struct Account
+  pub owner: String
+  balance: Int
+
+  pub fun total(?self) -> Int
+    self.balance
+
+  sub audit(?self)
+    print("audit", self.balance)
+```
+
+```rig reject
+use bank
+
+sub main
+  a = bank.Account(owner: "bo", balance: 5)
+  a.audit()
+  print(a.balance, a.total())
+```
+
+```error
+method `audit` of `bank.Account` is private to module `bank`; declare it `pub sub audit` there to call it from here
+only module `bank` can construct `bank.Account`: its field `balance` is private
+field `balance` of `bank.Account` is private to module `bank`; declare it `pub balance: ...` there to use it from here
+```
 
 Another module's `pub` generic types and functions are used as local
 ones are: `boxes.Wrap[Int]` names an instance in a type or an
@@ -4336,9 +4404,9 @@ use as they do a private type.
 
 ```rig file=boxes.rig
 pub struct Wrap[T]
-  v: T
+  pub v: T
 
-  fun get(?self) -> T
+  pub fun get(?self) -> T
     self.v
 
 pub fun larger[T](a: T, b: T) -> T

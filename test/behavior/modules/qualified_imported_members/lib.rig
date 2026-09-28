@@ -3,17 +3,17 @@ pub enum Shape
   dot
 
 pub struct P
-  x: Int
+  pub x: Int
   y: Int
 
-  fun at(x: Int, y: Int) -> P
+  pub fun at(x: Int, y: Int) -> P
     P(x: x, y: y)
 
-  fun sum(?self) -> Int
+  pub fun sum(?self) -> Int
     self.x + self.y
 
 pub struct Q
-  n: Int
+  pub n: Int
 
-  sub grow(q: !Q, by: Int)
+  pub sub grow(q: !Q, by: Int)
     q.n += by

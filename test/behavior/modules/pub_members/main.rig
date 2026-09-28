@@ -1,0 +1,39 @@
+# A struct's or enum's `pub` fields and methods are visible to other
+# modules, through a value, a borrow, a `*T` handle, a `Box`, and an
+# instance of a generic type; its private members are used by its own
+# module's methods. Variants and payloads are always public.
+use lib
+
+fun peek(c: ?lib.Counter) -> Int
+  c.value()
+
+sub main()
+  c = lib.Counter.make("a")
+  !c.bump()
+  c.step = 5
+  !c.bump()
+  print(c.label, c.value(), peek(?c))
+  h = *lib.Counter.make("h")
+  print(h.value(), h.label)
+  b = lib.boxed("b")
+  !b.bump()
+  print(b.value(), b.label)
+  p = lib.Pair[Int](a: 1, b: 2)
+  q = lib.Pair(a: "x", b: "y")
+  print(p.first(), p.b, q.first())
+  s = lib.Shape.circle(r: 3)
+  match s
+    .circle(r) => print("circle", r, s.size())
+    .dot => print("dot")
+  print(lib.Shape.dot.size())
+
+# expect:
+# bumped a 1
+# bumped a 6
+# a 6 6
+# 0 h
+# bumped b 1
+# 1 b
+# 1 2 x
+# circle 3 3
+# 0

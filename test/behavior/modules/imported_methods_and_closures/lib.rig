@@ -1,16 +1,16 @@
 pub struct B
-  n: Int
+  pub n: Int
 
   drop(!self)
     print("drop", self.n)
 
-  fun get(?self) -> Int
+  pub fun get(?self) -> Int
     self.n
 
-  sub bump(!self)
+  pub sub bump(!self)
     self.n += 1
 
-  fun take(self: B) -> Int
+  pub fun take(self: B) -> Int
     self.n
 
 pub fun peek(b: ?B) -> Int

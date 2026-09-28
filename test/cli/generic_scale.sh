@@ -9,9 +9,9 @@ source "$ROOT/test/cli/_lib.sh"
   for ((i = 1; i < 1200; i++)); do
     printf '\npub fun f%d[T](a: T, b: T) -> Int\n  f%d(a, b) + 1\n' $i $((i - 1))
   done
-  printf '\npub struct S0[T]\n  v: T\n'
+  printf '\npub struct S0[T]\n  pub v: T\n'
   for ((i = 1; i < 400; i++)); do
-    printf '\npub struct S%d[T]\n  v: T\n\n  fun get(?self) -> Int\n    s: S%d[T]? = none\n    1 if s == none else 0\n' $i $((i - 1))
+    printf '\npub struct S%d[T]\n  pub v: T\n\n  pub fun get(?self) -> Int\n    s: S%d[T]? = none\n    1 if s == none else 0\n' $i $((i - 1))
   done
 } >lib.rig
 printf 'use lib\n\nsub main()\n  s = lib.S399(v: 2)\n  print(lib.f1199(1, 2), s.get())\n' >main.rig

@@ -1,0 +1,10 @@
+# An enum variant is always public, so it takes no `pub`.
+
+enum Color
+  red
+  pub green
+
+sub main()
+  print(Color.red)
+
+# error: 5:3: an enum's variants are always public; remove the `pub`

@@ -1,0 +1,36 @@
+# Another module's private fields and methods are rejected wherever
+# they are reached: a value, a borrow, a Box, a generic instance, an
+# associated function or its value, and a constructor of a type with a
+# private field.
+use lib
+
+fun peek(c: ?lib.Counter) -> Int
+  c.count
+
+sub main()
+  c = lib.Counter.make("a")
+  c.count = 3
+  !c.reset()
+  print(c.value(), peek(?c))
+  _ = lib.Counter.fresh()
+  _ = lib.Counter.value
+  b = lib.boxed()
+  print(b.value())
+  p = lib.pair(1, 2)
+  print(p.b, p.second())
+  _ = lib.Pair[Int](a: 1, b: 2)
+  print(lib.Shape.dot.size())
+  _ = lib.Counter(label: "x", count: 1)
+
+# error: 8:5: field `count` of `lib.Counter` is private to module `lib`; declare it `pub count: ...` there to use it from here
+# error: 12:5: field `count` of `lib.Counter` is private
+# error: 13:6: method `reset` of `lib.Counter` is private to module `lib`; declare it `pub sub reset` there to call it from here
+# error: 14:11: method `value` of `lib.Counter` is private to module `lib`; declare it `pub fun value` there
+# error: 15:19: method `fresh` of `lib.Counter` is private
+# error: 16:19: method `value` of `lib.Counter` is private
+# error: 18:11: method `value` of `lib.Counter` is private
+# error: 20:11: field `b` of `lib.Pair` is private
+# error: 20:16: method `second` of `lib.Pair` is private
+# error: 21:7: only module `lib` can construct `lib.Pair`: its field `b` is private
+# error: 22:23: method `size` of `lib.Shape` is private
+# error: 23:11: only module `lib` can construct `lib.Counter`: its field `count` is private

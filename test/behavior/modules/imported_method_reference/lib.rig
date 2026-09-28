@@ -1,8 +1,8 @@
 pub struct P
-  n: Int
+  pub n: Int
 
-  fun get(?self) -> Int
+  pub fun get(?self) -> Int
     self.n
 
-  sub bump(!self)
+  pub sub bump(!self)
     self.n += 1
