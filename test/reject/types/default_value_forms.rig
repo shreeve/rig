@@ -25,9 +25,9 @@ sub main()
   s = S()
   print(s.d, f(1), g[2]())
 
-# error: 11:12: a default field value must be a literal, a module constant, or an empty or literal constructor: `Vec()`, `Cell(0)`, `[n of 0]`
+# error: 11:12: a default field value must be a literal, a module constant, a number type's limit, or an empty or literal constructor: `Vec()`, `Cell(0)`, `[n of 0]`
 # error: 12:17: a default field value must be a literal
 # error: 13:18: a default field value must be a literal
 # error: 16:19: a default field value must be a literal
-# error: 18:29: a default parameter value must be a literal or a module constant
-# error: 21:24: a default parameter value must be a literal or a module constant
+# error: 18:29: a default parameter value must be a literal, a module constant, or a number type's limit
+# error: 21:24: a default parameter value must be a literal, a module constant, or a number type's limit

@@ -1,0 +1,11 @@
+# An element of a Cell's Vec is read and written whole, so it cannot be
+# taken out in place with `<`.
+
+sub main()
+  v = Vec[Int?]()
+  (!v).push(4)
+  c = Cell(<v)
+  y = <c[0]
+  print(y ?? 0)
+
+# error: 8:7: an element of a Cell's Vec is read and written whole: copy it out with `c[i]`, then write `c[i] = none`

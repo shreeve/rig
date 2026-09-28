@@ -14,5 +14,5 @@ test "t"
   print(y?)
 
 # error: 5:3: use of `?` requires the enclosing function `f` to return an optional (`-> T?`)
-# error: 9:9: use of `?` requires the enclosing function `main` to return an optional
+# error: 9:9: `?` returns `none` from `main`, which returns no value; handle the missing value with `x ?? fallback`, or `if x as x`
 # error: 14:9: use of `?` requires the enclosing function to return an optional

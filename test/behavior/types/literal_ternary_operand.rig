@@ -1,0 +1,25 @@
+# A ternary whose branches are all literals takes the type its context
+# gives through the operators around it, as a lone literal does.
+
+fun rt(b: Bool) -> Bool
+  b
+
+fun id_f32(x: F32) -> F32
+  x
+
+sub main
+  f = rt(true)
+  r: U8 = (1 if f else 2) + 1
+  n: I8 = -(100 if f else 2)
+  big: U128 = (170141183460469231731687303715884105728 if f else 1) + 1
+  x: F32 = (0.5 if f else 1.5) + 1.5
+  y: F32 = ((-2) if f else 3) + 1.5
+  z: Float = (1 if f else 2) * 3
+  o: Float? = none
+  w = o ?? ((1 if f else (-2)) + 1.5)
+  acc: U16 = 7
+  acc += (1 if f else 2) << 3
+  print(r, n, big, x, y, z, w, acc, id_f32((1 if f else 2) - 0.25))
+
+# expect:
+# 2 -100 170141183460469231731687303715884105729 2.0 -0.5 3.0 2.5 15 0.75

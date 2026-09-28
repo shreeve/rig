@@ -1,0 +1,17 @@
+# A weak handle does not keep its value alive, so its fields and methods
+# are reached only through `upgrade`.
+
+struct S
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+sub main
+  s = *S(n: 1)
+  w = ~s
+  print(w.n)
+  print(w.get())
+
+# error: 13:11: a weak handle `~S` reaches its value only through `upgrade`: `if w.upgrade() as s`
+# error: 14:11: a weak handle `~S` reaches its value only through `upgrade`

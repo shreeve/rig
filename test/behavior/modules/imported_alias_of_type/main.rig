@@ -1,0 +1,15 @@
+# An imported alias of a struct or enum declared beside it is that type
+# in every role: it constructs values, calls associated functions, and
+# names variants.
+
+use lib
+
+sub main()
+  p = lib.PA.mk()
+  q = lib.PA(n: 2)
+  x = lib.M.a
+  y: lib.M = .b
+  print(p.n, q.n, x == lib.Mode.a, y == lib.M.b)
+
+# expect:
+# 1 2 true true

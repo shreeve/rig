@@ -2341,6 +2341,7 @@ source sigils change that:
 - `for x in <v` consumes the Vec: each element is handed to `x`, which
   owns it for one iteration and may move it on. Elements a `break` or
   `return` leaves behind are dropped with the buffer, and `v` is moved.
+  `v` must own the Vec: through a borrow, loop over `?v` or `!v`.
 
 ```rig
 struct B
@@ -3197,6 +3198,25 @@ sub main
 bind it to a name first
 ```
 
+A borrow of a temporary (`?S(n: 1)`, `?make()`) lives only as long as
+the call it is lent to, so it may be an argument of a call whose result
+keeps no borrow, or a `match` subject. Bound to a name, stored in a
+field, or passed to a call whose result may borrow it, it would outlive
+the value, and it is rejected.
+
+```rig reject
+struct S
+  n: Int
+
+sub main
+  r = ?S(n: 1)
+  print(r.n)
+```
+
+```error
+a borrow of a temporary lives only for the call it is lent to; bind the value to a name first
+```
+
 ---
 
 ## 9. Drop and drop glue
@@ -3324,7 +3344,7 @@ sub main
 ```
 
 ```error
-cannot assign through shared handle
+cannot assign through a shared handle
 ```
 
 ### Weak handles
@@ -4213,7 +4233,8 @@ chain of `??`, where the jump belongs to the nearest one, as `??` is
 right-associative: `a ?? b ?? return v` is `a ?? (b ?? return v)`.
 With a jump as the fallback nothing is copied, so the optional may hold
 an owning value when it is a temporary (`make(k) ?? return`) or moved
-(`<o ?? return`, `<h.f ?? return`, which leaves `none`). Anything
+(`<o ?? return`, `<h.f ?? return`, which leaves `none`), but not when
+it is reached through a borrow, which gives up nothing. Anything
 else on the right of `??` is a value of the optional's type, so a bare
 error value is no fallback: `?? E.missing` is rejected, and failing is
 written `?? return E.missing` in a fallible function.
