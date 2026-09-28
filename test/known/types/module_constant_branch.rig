@@ -1,0 +1,16 @@
+# A module constant may pick a branch on a constant condition, as a local
+# `=!` constant may; it folds, so a type can use it as an array length.
+#
+# Known bug: the checker's test for a module constant's value
+# (`isConstExpr` in typecheck.zig) does not accept `a if c else b`, so
+# `D` is rejected as "not known at compile time".
+
+N = 3
+D = 4 if N > 2 else 2
+
+sub main()
+  d: [D]Int = [D of 3]
+  print(D, d.len)
+
+# expect:
+# 4 4

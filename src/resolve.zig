@@ -568,8 +568,10 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
 
 /// Fold each integer module constant once, in declaration order, into
 /// `const_ints`, so any type in the module can name it. A constant's
-/// value names only earlier constants; one that does not fold, or does
-/// not fit its type, is left for the checker to report.
+/// value names only earlier constants, and its literals take its
+/// declared type (`Int` without one), as a local constant's do; one that
+/// does not fold, or does not fit its type, is left for the checker to
+/// report.
 fn foldModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
     for (ir.Module.decls(tree)) |decl| {
         if (!rig.isModuleConst(decl)) continue;
@@ -579,7 +581,7 @@ fn foldModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
         const id = ctx.symbolOf(target) orelse continue;
         const ty = ir.Set.type(set);
         const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse continue;
-        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope };
+        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .before = target.src.pos, .literal = declared orelse .{} };
         const t = switch (sema.ctFoldBy(ctx, ir.Set.value(set), names)) {
             .value => |t| t,
             else => continue,
@@ -594,18 +596,9 @@ fn foldModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
 /// The integer type a constant's annotation names, through aliases;
 /// null for any other type.
 fn declaredIntType(ctx: *const SemContext, node: Sexp) ?sema.IntInfo {
-    var ty = node;
-    for (0..16) |_| {
-        const name = identAt(ctx.source, ty) orelse return null;
-        if (isIntTypeName(name)) {
-            const bits = sizedTypeBits(name) orelse 0;
-            return if (bits == 64 and name[0] == 'I') .{} else .{ .bits = bits, .signed = name[0] != 'U' };
-        }
-        const id = ctx.lookupInScopeOnly(sema.module_scope, name) orelse return null;
-        if (ctx.symbols.items[id].kind != .type_alias) return null;
-        ty = ctx.alias_targets.get(id) orelse return null;
-    }
-    return null;
+    const name = identAt(ctx.source, node) orelse return null;
+    if (sema.intTypeNamed(name)) |i| return i;
+    return sema.aliasIntType(ctx, ctx.lookupInScopeOnly(sema.module_scope, name) orelse return null);
 }
 
 /// The checks on declared types that need to know what every type holds
@@ -664,8 +657,9 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
     }
 }
 
-/// The values of the constants a compile-time integer in a type names
-/// (`sema.ctFoldBy`): a constant binding, a module constant, and
+/// What `sema.ctFoldBy` knows where a compile-time integer is declared
+/// (in a type, a module constant, an enum value): the names visible from
+/// `scope`, a constant binding's and a module constant's value, and
 /// `module.NAME`, each with its type.
 pub const ConstNames = struct {
     ctx: *const SemContext,
@@ -675,13 +669,21 @@ pub const ConstNames = struct {
     /// In a module constant's declaration, its position: the module
     /// constants declared from there on are not visible yet.
     before: u32 = std.math.maxInt(u32),
+    /// The integer type arithmetic on literals alone takes: a module
+    /// constant's declared type.
+    literal: ?sema.IntInfo = null,
+
+    pub fn symbol(self: ConstNames, e: Sexp) ?SymbolId {
+        const text = identAt(self.ctx.source, e) orelse return null;
+        for (self.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, text)) return tp;
+        const id = self.ctx.symbolOf(e) orelse self.ctx.lookupBefore(self.scope, text, e.src.pos) orelse return null;
+        return if (self.visible(id)) id else null;
+    }
 
     pub fn name(self: ConstNames, e: Sexp) ?sema.TypedInt {
-        const text = identAt(self.ctx.source, e) orelse return null;
-        for (self.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, text)) return null;
-        const id = self.ctx.symbolOf(e) orelse self.ctx.lookupBefore(self.scope, text, e.src.pos) orelse return null;
+        const id = self.symbol(e) orelse return null;
         const sym = self.ctx.symbols.items[id];
-        if (sym.kind != .local or !sym.flags.fixed or !self.visible(id)) return null;
+        if (sym.kind != .local or !sym.flags.fixed) return null;
         const c = self.ctx.const_ints.get(id) orelse return null;
         return .{ .v = c.value, .int = c.int };
     }
@@ -695,6 +697,10 @@ pub const ConstNames = struct {
         if (!foreign.symbols.items[fid].flags.is_public) return null;
         const c = foreign.const_ints.get(fid) orelse return null;
         return .{ .v = c.value, .int = c.int };
+    }
+
+    pub fn literalInt(self: ConstNames, _: Sexp) ?sema.IntInfo {
+        return self.literal;
     }
 
     /// Whether symbol `id` is visible: a module constant declared at or
@@ -736,11 +742,6 @@ fn literalTypeName(text: []const u8) ?[]const u8 {
 /// The article for a type's name: "an `Int`", "a `Float`".
 pub fn an(name: []const u8) []const u8 {
     return if (name.len > 0 and std.mem.indexOfScalar(u8, "AEIO", name[0]) != null) "an" else "a";
-}
-
-/// `Int` or a sized integer type's name.
-fn isIntTypeName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "Int") or (sizedTypeBits(name) != null and name[0] != 'F');
 }
 
 pub const TypeResolver = struct {

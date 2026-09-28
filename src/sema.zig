@@ -3507,18 +3507,23 @@ pub const ConstInt = union(enum) {
     overflow,
 };
 
-/// The value of a constant integer expression: literals, constant
-/// bindings, and arithmetic on them.
+/// The value of a constant integer expression in checked code: literals,
+/// constant bindings, and arithmetic on them.
 pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
     return constIntBy(ctx, e, CheckedNames{ .ctx = ctx });
 }
 
-/// The names of checked code: a constant binding's value is known once
-/// its declaration is checked, and an imported constant's (`lib.N`) is
-/// known. Their values are untyped here: the checker gives constant
-/// arithmetic its type.
+/// What `ctFoldBy` knows of checked code, from the facts the checker
+/// recorded: the symbol a name is, a constant binding's value (known once
+/// its declaration is checked) and an imported constant's (`lib.N`), and
+/// the type literal arithmetic was given. The values are untyped here:
+/// the checker gives constant arithmetic its type.
 const CheckedNames = struct {
     ctx: *const SemContext,
+
+    pub fn symbol(self: CheckedNames, e: Sexp) ?SymbolId {
+        return self.ctx.symbolOf(e) orelse self.ctx.lookupInScopeOnly(module_scope, identAt(self.ctx.source, e) orelse return null);
+    }
 
     pub fn name(self: CheckedNames, e: Sexp) ?TypedInt {
         const id = self.ctx.symbolOf(e) orelse return null;
@@ -3529,17 +3534,23 @@ const CheckedNames = struct {
     pub fn member(self: CheckedNames, e: Sexp) ?TypedInt {
         const obj = ir.Member.object(e);
         if (obj != .src) return null;
-        const id = self.ctx.symbolOf(obj) orelse self.ctx.lookupInScopeOnly(module_scope, identAt(self.ctx.source, obj) orelse return null) orelse return null;
+        const id = self.symbol(obj) orelse return null;
         if (self.ctx.symbols.items[id].kind != .module) return null;
         const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
         const fid = foreign.lookupInScopeOnly(module_scope, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
         const c = foreign.const_ints.get(fid) orelse return null;
         return .{ .v = c.value };
     }
+
+    pub fn literalInt(self: CheckedNames, e: Sexp) ?IntInfo {
+        return switch (self.ctx.types.get(self.ctx.typeOf(e) orelse return null)) {
+            .int => |i| i,
+            else => null,
+        };
+    }
 };
 
-/// `constInt` with the value of each name leaf and `(member ...)` node
-/// from `names` (`name(e)`, `member(e)`, each a `?TypedInt`).
+/// `constInt` with what `names` knows (`ctFoldBy`).
 pub fn constIntBy(ctx: *const SemContext, e: Sexp, names: anytype) ConstInt {
     return switch (ctFoldBy(ctx, e, names)) {
         .value => |t| .{ .value = t.v },
@@ -3568,6 +3579,15 @@ pub const CtFold = union(enum) {
     mismatch: struct { node: Sexp, a: IntInfo, b: IntInfo },
 };
 
+/// The one constant evaluator: the value of a constant integer
+/// expression, for module and local constants, array lengths,
+/// compile-time arguments, and enum values. It reads the program only
+/// through `names`, which answers for the context the expression is in:
+/// `symbol(leaf) ?SymbolId`, the declaration a name is; `name(leaf)`
+/// and `member(e)`, each a `?TypedInt`, the value of a constant and of
+/// another module's (`lib.N`); and `literalInt(e) ?IntInfo`, the integer
+/// type arithmetic on literals alone is computed in (for a wrapping
+/// operation or a shift).
 pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
     switch (e) {
         .src => {
@@ -3582,7 +3602,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
             if (h == .call) {
                 const callee = ir.Call.callee(e);
                 const args = ir.Call.args(e);
-                if (callee != .src or ctx.symbolOf(callee) != null or args.len != 1 or args[0].isKind(.kwarg)) return .not_constant;
+                if (callee != .src or names.symbol(callee) != null or args.len != 1 or args[0].isKind(.kwarg)) return .not_constant;
                 const info = intTypeNamed(identAt(ctx.source, callee) orelse return .not_constant) orelse return .not_constant;
                 const a = switch (ctFoldBy(ctx, args[0], names)) {
                     .value => |t| t,
@@ -3592,7 +3612,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                 return .{ .value = .{ .v = a.v, .int = info } };
             }
             if (h == .member) {
-                if (intLimit(ctx, e)) |t| return .{ .value = t };
+                if (intLimitBy(ctx, e, names)) |t| return .{ .value = t };
                 return if (names.member(e)) |t| .{ .value = t } else .not_constant;
             }
             if (h == .neg) {
@@ -3606,7 +3626,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
             // `a if c else b` with a constant condition: Zig picks the
             // branch at compile time, so its value is constant.
             if (h == .@"if" and ir.If.@"else"(e) != .nil) {
-                const c = constBoolOf(ctx, ir.If.cond(e)) orelse return .not_constant;
+                const c = constBoolBy(ctx, ir.If.cond(e), names) orelse return .not_constant;
                 return ctFoldBy(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), names);
             }
             switch (h) {
@@ -3624,16 +3644,15 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
             // A shift is in its left operand's type.
             const shift = h == .@"<<" or h == .@">>";
             if (!shift) if (a.int) |ai| if (b.int) |bi| if (!std.meta.eql(ai, bi)) return .{ .mismatch = .{ .node = e, .a = ai, .b = bi } };
-            const int = if (shift) a.int orelse literalInt(ctx, e) else a.int orelse b.int;
+            const int = if (shift) a.int orelse names.literalInt(e) else a.int orelse b.int;
             // Wrapping arithmetic keeps the low bits of the result in its
             // type, which a `Wide` computes exactly (its width is a
-            // multiple of every integer type's). Untyped, the width is not
-            // known here, so the program computes it.
+            // multiple of every integer type's). Literals alone wrap in
+            // the type their context gives them; without one, the width
+            // is not known here, so the program computes it.
             switch (h) {
                 .@"+%", .@"-%", .@"*%" => {
-                    // Literals alone wrap in the type their context gives
-                    // them, which the checker records.
-                    const info = int orelse literalInt(ctx, e) orelse return .not_constant;
+                    const info = int orelse names.literalInt(e) orelse return .not_constant;
                     const v = switch (h) {
                         .@"+%" => a.v +% b.v,
                         .@"-%" => a.v -% b.v,
@@ -3653,11 +3672,11 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                 .@"%" => if (b.v == 0) return .not_constant else if (b.v == -1) 0 else @rem(a.v, b.v),
                 // A shift by the width or more is reported where the
                 // operator is checked; one that loses bits overflows.
-                .@"<<" => if (b.v < 0 or b.v >= widthOf(int orelse literalInt(ctx, e) orelse IntInfo{})) return .not_constant else blk: {
+                .@"<<" => if (b.v < 0 or b.v >= widthOf(int orelse IntInfo{})) return .not_constant else blk: {
                     const r = a.v << @intCast(b.v);
                     break :blk if (r >> @intCast(b.v) == a.v) r else null;
                 },
-                .@">>" => if (b.v < 0 or b.v >= widthOf(int orelse literalInt(ctx, e) orelse IntInfo{})) return .not_constant else a.v >> @intCast(b.v),
+                .@">>" => if (b.v < 0 or b.v >= widthOf(int orelse IntInfo{})) return .not_constant else a.v >> @intCast(b.v),
                 .@"&" => a.v & b.v,
                 .@"|" => a.v | b.v,
                 else => a.v ^ b.v,
@@ -3681,21 +3700,35 @@ pub fn intTypeNamed(name: []const u8) ?IntInfo {
     };
 }
 
+/// The integer type the type alias `id` names, through other aliases;
+/// null for any other type. Known before the alias is resolved, too.
+pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
+    var alias = id;
+    // An alias chain longer than this is a cycle, reported elsewhere.
+    for (0..64) |_| {
+        const sym = ctx.symbols.items[alias];
+        if (sym.kind != .type_alias) return null;
+        if (sym.ty != ctx.types.unknown_id) return switch (ctx.types.get(sym.ty)) {
+            .int => |i| i,
+            else => null,
+        };
+        const name = identAt(ctx.source, ctx.alias_targets.get(alias) orelse return null) orelse return null;
+        if (intTypeNamed(name)) |i| return i;
+        alias = ctx.lookup(sym.scope, name) orelse return null;
+    }
+    return null;
+}
+
 /// `U8.max`, `Int.min`: an integer type's limit, a constant of it, named
 /// through the type or an alias of it. Null for anything else.
 pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
+    return intLimitBy(ctx, e, CheckedNames{ .ctx = ctx });
+}
+
+fn intLimitBy(ctx: *const SemContext, e: Sexp, names: anytype) ?TypedInt {
     const obj = ir.Member.object(e);
     if (obj != .src) return null;
-    const name = identAt(ctx.source, obj) orelse return null;
-    // An alias of an integer type (`type Byte = U8`) names its limits.
-    const info = if (ctx.symbolOf(obj) orelse ctx.lookupInScopeOnly(module_scope, name)) |id| blk: {
-        const sym = ctx.symbols.items[id];
-        if (sym.kind != .type_alias) return null;
-        break :blk switch (ctx.types.get(sym.ty)) {
-            .int => |i| i,
-            else => return null,
-        };
-    } else intTypeNamed(name) orelse return null;
+    const info = if (names.symbol(obj)) |id| aliasIntType(ctx, id) orelse return null else intTypeNamed(identAt(ctx.source, obj) orelse return null) orelse return null;
     const field = identAt(ctx.source, ir.Member.name(e)) orelse return null;
     const r = intRange(info);
     if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };
@@ -3706,14 +3739,6 @@ pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
 /// The width of an integer type in bits.
 fn widthOf(info: IntInfo) Wide {
     return if (info.bits == 0) 64 else info.bits;
-}
-
-/// The integer type the checker gave literal arithmetic `e`, if any.
-fn literalInt(ctx: *const SemContext, e: Sexp) ?IntInfo {
-    return switch (ctx.types.get(ctx.typeOf(e) orelse return null)) {
-        .int => |i| i,
-        else => null,
-    };
 }
 
 /// `v` wrapped into integer type `info`: its low bits, read as the
@@ -3752,8 +3777,8 @@ pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?Wide {
 }
 
 /// The value of a constant Bool expression: literals, `not`, `and`,
-/// `or`, and comparisons of constant integers.
-fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
+/// `or`, and comparisons of constant integers (`ctFoldBy`).
+fn constBoolBy(ctx: *const SemContext, e: Sexp, names: anytype) ?bool {
     switch (e) {
         .src => {
             const word = identAt(ctx.source, e) orelse "";
@@ -3764,12 +3789,18 @@ fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
         .list => {
             const h = e.kind() orelse return null;
             switch (h) {
-                .not => return !(constBoolOf(ctx, ir.Not.operand(e)) orelse return null),
-                .@"and" => return (constBoolOf(ctx, ir.And.left(e)) orelse return null) and (constBoolOf(ctx, ir.And.right(e)) orelse return null),
-                .@"or" => return (constBoolOf(ctx, ir.Or.left(e)) orelse return null) or (constBoolOf(ctx, ir.Or.right(e)) orelse return null),
+                .not => return !(constBoolBy(ctx, ir.Not.operand(e), names) orelse return null),
+                .@"and" => return (constBoolBy(ctx, ir.And.left(e), names) orelse return null) and (constBoolBy(ctx, ir.And.right(e), names) orelse return null),
+                .@"or" => return (constBoolBy(ctx, ir.Or.left(e), names) orelse return null) or (constBoolBy(ctx, ir.Or.right(e), names) orelse return null),
                 .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
-                    const a = constIntOf(ctx, ir.get(e, .left)) orelse return null;
-                    const b = constIntOf(ctx, ir.get(e, .right)) orelse return null;
+                    const a = switch (constIntBy(ctx, ir.get(e, .left), names)) {
+                        .value => |v| v,
+                        else => return null,
+                    };
+                    const b = switch (constIntBy(ctx, ir.get(e, .right), names)) {
+                        .value => |v| v,
+                        else => return null,
+                    };
                     return switch (h) {
                         .@"==" => a == b,
                         .@"!=" => a != b,
