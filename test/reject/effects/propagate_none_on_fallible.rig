@@ -1,0 +1,17 @@
+# `?` propagates `none`; a failure is propagated with `!`. One error
+# names the fix.
+
+error E
+  bad
+
+fun f(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+fun g -> Int!
+  f(1)? + 1
+
+sub main
+  print(g()!)
+
+# error: 12:3: `?` propagates `none`, and `f(1)` fails with an error instead: propagate the failure with `f(1)!`, or handle it with `catch`

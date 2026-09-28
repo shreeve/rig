@@ -2703,25 +2703,14 @@ const Checker = struct {
     /// A resource inside `e` is handed over, so `e` cannot be a borrow.
     fn synthPropagateNone(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.PropagateNone.value(e);
-        switch (self.body.fail_to) {
-            .deferred => try self.errAt(operand, "cannot use `?` inside `defer`; deferred code cannot return, so take the value out with `if x as v` or `??`", .{}),
-            // An inferred closure's type returns no optional.
-            .closure => if (self.body.returns != null or !self.returnsOptional(self.body.ret)) {
-                try self.errAt(operand, "a closure body returns `none` with `?` only when its type returns an optional (`?fun(A) -> T?`); take the value out with `if x as v` or `??`", .{});
-            },
-            .drop => try self.errAt(operand, "a `drop` body cannot return `none` with `?`; take the value out with `if x as v` or `??`", .{}),
-            .caller, .infallible, .module => if (!self.returnsOptional(self.body.ret)) {
-                const name = self.body.name;
-                if (name == .nil) {
-                    try self.errAt(operand, "use of `?` requires the enclosing function to return an optional (`-> T?`)", .{});
-                } else {
-                    try self.errAt(operand, "use of `?` requires the enclosing function `{s}` to return an optional (`-> T?`)", .{self.text(name)});
-                    try self.noteAt(name, "`{s}` declared here", .{self.text(name)});
-                }
-            },
-        }
-        const ty = try self.synthExpr(operand);
+        // A fallible call is handled here, by the one error below.
+        const ty = try self.synthHandled(operand);
         if (self.isPoison(ty)) return ty;
+        if (self.ctx.types.get(ty) == .fallible) {
+            const shown = try self.sourceText(operand);
+            try self.errAt(operand, "`?` propagates `none`, and `{s}` fails with an error instead: propagate the failure with `{s}!`, or handle it with `catch`", .{ shown, shown });
+            return self.ctx.types.get(ty).fallible;
+        }
         const inner = switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
             .optional => |i| i,
             else => {
@@ -2729,6 +2718,27 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
         };
+        switch (self.body.fail_to) {
+            .deferred => return self.noneNotReturned(operand, "cannot use `?` inside `defer`; deferred code cannot return, so take the value out with `if x as v` or `??`"),
+            // An inferred closure's type returns no optional.
+            .closure => if (self.body.returns != null or !self.returnsOptional(self.body.ret)) {
+                return self.noneNotReturned(operand, "a closure body returns `none` with `?` only when its type returns an optional (`?fun(A) -> T?`); take the value out with `if x as v` or `??`");
+            },
+            .drop => return self.noneNotReturned(operand, "a `drop` body cannot return `none` with `?`; take the value out with `if x as v` or `??`"),
+            .caller, .infallible, .module => if (!self.returnsOptional(self.body.ret)) {
+                const name = self.body.name;
+                const shown = try self.sourceText(operand);
+                if (name == .nil) {
+                    try self.errAt(operand, "use of `?` requires the enclosing function to return an optional (`-> T?`)", .{});
+                } else if (self.body.is_sub) {
+                    try self.errAt(operand, "`?` returns `none` from `{s}`, which returns no value; handle the missing value with `{s} ?? fallback`, or `if {s} as x`", .{ self.text(name), shown, shown });
+                } else {
+                    try self.errAt(operand, "use of `?` requires the enclosing function `{s}` to return an optional (`-> T?`); or handle the missing value with `{s} ?? fallback`", .{ self.text(name), shown });
+                    try self.noteAt(name, "`{s}` declared here", .{self.text(name)});
+                }
+                return self.t().invalid_id;
+            },
+        }
         const borrowed = sema.unwrapBorrows(self.ctx, ty) != ty;
         if (borrowed and (try self.ownsResource(inner, self.startOf(operand), "moves out of a borrow a value"))) {
             try self.errAt(operand, "a borrow cannot give up the resource inside it; take a new handle with `+x` instead", .{});
@@ -2736,6 +2746,12 @@ const Checker = struct {
         }
         _ = try self.readThrough(operand, ty, sema.unwrapBorrows(self.ctx, ty));
         return inner;
+    }
+
+    /// `e?` where no `none` can be returned: the error, and no type.
+    fn noneNotReturned(self: *Checker, operand: Sexp, comptime msg: []const u8) Error!TypeId {
+        try self.errAt(operand, msg, .{});
+        return self.t().invalid_id;
     }
 
     /// A return type `e?` can leave with `none`: `T?`, or `T?!`.
