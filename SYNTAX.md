@@ -2674,6 +2674,7 @@ expected.
 | Form | Meaning | Zig |
 |---|---|---|
 | `a ?? b` | the value in `a`, or `b` | `a orelse b` |
+| `a ?? return v`, `a ?? break`, `a ?? continue` | the value in `a`, or leave | `a orelse return v` |
 | `a == none` | test for absence | `a == null` |
 | `if a as x` | bind the value; `else` for `none` | `if (a) \|x\|` |
 | `while a as x` | loop while `a` has a value | `while (a) \|x\|` |
@@ -2709,6 +2710,26 @@ grace
 true nobody
 ```
 
+The fallback may be a jump, as in Zig's `orelse return`: the common
+"get it or leave" line needs no `if`:
+
+```rig
+fun first_word(words: ?Vec[String]) -> Int
+  w = words.get(0) ?? return -1
+  w.len
+
+sub main
+  xs: Vec[String] = Vec()
+  print(first_word(?xs))
+  !xs.push("hello")
+  print(first_word(?xs))
+```
+
+```output
+-1
+5
+```
+
 Note the direction: `?x` (prefix) borrows, `x?` (suffix) unwraps.
 
 ## 21. Errors
@@ -2723,7 +2744,9 @@ it says what happens to the failure:
   of early exit it can take;
 - `f() catch v` handles it with a fallback;
 - `f() catch |err| handler` names the error for the handler, which may
-  be a block.
+  be a block;
+- the fallback may be a jump: `f() catch return -1`,
+  `f() catch |e| return e`, `f() catch break`, `f() catch continue`.
 
 ```rig
 error ParseError
@@ -3292,7 +3315,9 @@ match     = "match" value INDENT (pattern ("=>" simple | block))* DEDENT
 pattern   = "." name ["(" name, ... ")"] | integer | "-" integer
           | "true" | "false" | integer ".." integer | "_" | name
 closure   = ["*"] "|" (("+" | "<" | "~") name | name [":" type]), ... "|" (expr | command | block)
-value     = logic "if" logic "else" value | logic "catch" ["|" name "|"] value | logic
+value     = logic "if" logic "else" value | logic "catch" ["|" name "|"] (value | jump)
+          | logic "??" jump | logic
+jump      = "return" [value] | "break" [value] | "continue"
 logic     = logic "or" logic | logic "and" logic | "not" logic | infix
 infix     = unary (op unary)*          # precedence table in section 10
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~") unary | postfix

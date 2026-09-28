@@ -1,0 +1,36 @@
+# A jump as a fallback is checked as the statement is: `return` against
+# the function's result, `break` and `continue` inside a loop. A bare
+# error value is no fallback for `??`.
+
+error E
+  missing
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+fun wrong(k: Int) -> Int
+  n = get(k) ?? return "none"
+  n
+
+fun empty(k: Int) -> Int
+  n = get(k) ?? return
+  n
+
+fun err(k: Int) -> Int!
+  n = get(k) ?? E.missing
+  n
+
+sub nothing(k: Int)
+  n = get(k) ?? return 0
+  print(n)
+
+sub main
+  n = get(1) ?? break
+  print(n, wrong(1), empty(1), err(1) catch 0)
+  nothing(1)
+
+# error: 12:24: expected `Int`, got `String`
+# error: 16:17: `return` needs a value of type `Int`
+# error: 20:17: expected `Int`, got
+# error: 24:24: a `sub` returns no value
+# error: 28:17: `break` is not inside a loop

@@ -689,6 +689,8 @@ pub const Lexer = struct {
             .fixed_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_fixed, tok.pos) else tok.cat,
             // `xs[a..]`: an open range ends at the `]`.
             .dotdot => if (self.nextJoinedCat() == .rbracket) .dotdot_open else .dotdot,
+            // `get(k) ?? return none`: a jump as the fallback.
+            .nullish => if (self.nextIsJump()) .nullish_jump else .nullish,
             .err => return self.lexError(tok),
             else => tok.cat,
         };
@@ -907,6 +909,15 @@ pub const Lexer = struct {
                 else => return t.cat,
             }
         }
+    }
+
+    /// The next token is `return`, `break`, or `continue`.
+    fn nextIsJump(self: *const Lexer) bool {
+        var probe = self.base;
+        const t = probe.matchRules();
+        if (t.cat != .ident) return false;
+        const kw = keyword(self.base.text(t)) orelse return false;
+        return kw == .@"return" or kw == .@"break" or kw == .@"continue";
     }
 
     fn nextIsName(self: *const Lexer) bool {

@@ -1,0 +1,100 @@
+# A jump is a fallback: `?? return`, `?? break`, `?? continue`, and the
+# same after `catch`. It leaves as the statement would, dropping what
+# the scope owns.
+
+error E
+  missing
+  bad
+
+struct Noisy
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun find(xs: ?Vec[Int], k: Int) -> Int?
+  for x, i in xs
+    return i if x == k
+  none
+
+fun parse(s: String) -> Int!
+  return E.bad if s == "x"
+  s.len
+
+fun index_of(xs: ?Vec[Int], k: Int) -> Int!
+  guard = Noisy(id: k)
+  i = find(xs, k) ?? return E.missing
+  print("found", guard.id)
+  i
+
+fun size(s: String) -> Int
+  n = parse(s) catch return -1
+  n * 10
+
+fun describe(s: String) -> String
+  n = parse(s) catch |e| return "error" if e == E.bad else "other"
+  "ok" if n > 0 else "empty"
+
+sub report(xs: ?Vec[Int], k: Int)
+  i = find(xs, k) ?? return
+  print("at", i)
+
+sub main
+  xs: Vec[Int] = Vec()
+  for n in 1..5
+    !xs.push(n * 2)
+  print(index_of(?xs, 4) catch -1)
+  print(index_of(?xs, 5) catch -1)
+  print(size("abc"), size("x"))
+  print(describe("ab"), describe("x"))
+  report(?xs, 6)
+  report(?xs, 7)
+
+  total = 0
+  for k in 0..10
+    i = find(?xs, k) ?? continue
+    total += i
+  print("total", total)
+
+  words = ["1", "22", "x", "4444"]
+  seen = 0
+  for w in words
+    n = parse(w) catch break
+    seen += n
+  print("seen", seen)
+
+  j = 2
+  while true
+    held = Noisy(id: 100 + j)
+    i = find(?xs, j) ?? break
+    print("step", i, held.id)
+    j += 2
+
+  first = for w in words
+    n = parse(w) catch continue
+    break n if n > 1
+  else
+    0
+  print("first", first)
+
+# expect:
+# found 4
+# drop 4
+# 1
+# drop 5
+# -1
+# 30 -1
+# ok error
+# at 2
+# total 6
+# seen 3
+# step 0 102
+# drop 102
+# step 1 104
+# drop 104
+# step 2 106
+# drop 106
+# step 3 108
+# drop 108
+# drop 110
+# first 2

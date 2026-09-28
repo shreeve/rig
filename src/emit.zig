@@ -2400,6 +2400,13 @@ pub const Emitter = struct {
             .@"while", .@"for", .labeled => if (sema.hasValueBreaks(self.source, sexp)) try self.emitLoopValue(sexp) else return self.unsupported(sexp, "a loop without a value in value position"),
             .array => try self.emitArray(sexp),
             .array_fill => try self.emitArrayFill(sexp),
+            // A jump as a fallback (`?? return`, `catch break`): a block
+            // that leaves, which Zig types as `noreturn`.
+            .@"return", .@"break", .@"continue" => {
+                try self.w.writeAll("{ ");
+                try self.emitStmt(sexp);
+                try self.w.writeAll(" }");
+            },
             else => return self.unsupported(sexp, "this expression"),
         }
     }

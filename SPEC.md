@@ -1689,7 +1689,7 @@ From lowest to highest precedence:
 
 | Operators | Notes |
 |---|---|
-| `a if c else b`, `e catch f` | ternary and error fallback; right-nested |
+| `a if c else b`, `e catch f` | ternary and error fallback; right-nested (`e catch return v` and `a ?? return v` take a jump at this level) |
 | `or` | Bool; short-circuit |
 | `and` | Bool; short-circuit |
 | `not` | Bool |
@@ -3671,6 +3671,46 @@ sub main
 8 0 true
 ```
 
+The fallback of `??` may be a jump: `a ?? return v`, `a ?? return`,
+`a ?? break`, `a ?? break v`, or `a ?? continue`. When `a` is `none`
+the jump runs, exactly as the statement would: `return` is checked
+against the function's result, `break` and `continue` apply to the
+innermost loop (a jump here takes no label), and leaving drops what the
+scope owns. The jump takes the rest of the expression as its value,
+and the left side of `?? return` is the whole expression before it, as
+for `catch` (`a and b ?? return` is `(a and b) ?? return`). Anything
+else on the right of `??` is a value of the optional's type, so a bare
+error value is no fallback: `?? E.missing` is rejected, and failing is
+written `?? return E.missing` in a fallible function.
+
+```rig
+error E
+  missing
+
+fun find(xs: ?Vec[Int], k: Int) -> Int?
+  for x, i in xs
+    return i if x == k
+  none
+
+fun index_of(xs: ?Vec[Int], k: Int) -> Int!
+  i = find(xs, k) ?? return E.missing
+  i + 1
+
+sub main
+  xs: Vec[Int] = Vec()
+  for n in 1..4
+    !xs.push(n * 10)
+  total = 0
+  for k in [10, 15, 30]
+    i = find(?xs, k) ?? continue
+    total += i
+  print(total, index_of(?xs, 20) catch 0, index_of(?xs, 25) catch 0)
+```
+
+```output
+2 2 0
+```
+
 `a?` mirrors `e!` ([§14](#14-errors)): it is allowed only in a
 function returning `T?` (or `T?!`), and not in a closure body or
 deferred code. The early return runs deferred code and drops what the
@@ -3772,7 +3812,9 @@ must say what happens to the failure, visibly:
   error. The enclosing function must itself return a `T!`, be a
   fallible `sub`, or be the top-level `sub main` or a `test`.
 - `f() catch fallback` handles it: the value of the call, or `fallback`
-  when it fails.
+  when it fails. The fallback may be a jump, as after `??`
+  ([§13](#13-optionals)): `f() catch return -1`, `f() catch |e| return e`,
+  `f() catch break`, `f() catch continue`.
 
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A closure body, a `drop` body, and a `defer` cannot
@@ -3833,6 +3875,31 @@ sub main
 
 ```error
 must be wrapped with `!` (propagate) or `catch` (handle)
+```
+
+A jump as the handler leaves instead of giving a value:
+
+```rig
+error E
+  bad
+
+fun parse(s: String) -> Int!
+  return E.bad if s == "x"
+  s.len
+
+fun size(s: String) -> Int
+  n = parse(s) catch return -1
+  n * 10
+
+sub main
+  seen = 0
+  for w in ["a", "bb", "x", "dddd"]
+    seen += parse(w) catch break
+  print(size("abc"), size("x"), seen)
+```
+
+```output
+30 -1 3
 ```
 
 ### Failing

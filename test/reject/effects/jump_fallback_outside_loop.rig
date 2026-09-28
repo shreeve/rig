@@ -1,0 +1,22 @@
+# `?? continue` and `catch continue` must be inside a loop.
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+fun parse(k: Int) -> Int!
+  k
+
+sub first
+  m = get(2) ?? continue
+  print(m)
+
+sub second
+  n = parse(3) catch continue
+  print(n)
+
+sub main
+  first()
+  second()
+
+# error: 10:17: `continue` is not inside a loop
+# error: 14:22: `continue` is not inside a loop

@@ -33,6 +33,7 @@
 #                                    arguments (vs `f (x)`, `f [1, 2]`,
 #                                    which pass a new operand to `f`)
 #       .red                         enum literal (vs member access a.b)
+#       ?? return                    `??` before a jump (vs the operator)
 #       T? T! x! x?                  type / propagation suffixes
 #       a if c else b                ternary vs postfix guard `stmt if c`
 #
@@ -161,6 +162,7 @@ tokens
     suffix_bang     # T!  fallible type, x! propagate failure
     of              # of  after a value inside [ ]: a fill literal `[n of x]`
     dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
+    nullish_jump    # ??  directly before `return`, `break`, or `continue`
 
     # Misc
     comment
@@ -361,7 +363,7 @@ tokens
     KWARG_NAME: "a keyword argument"
     MOVE_PFX: "`<`", CLONE_PFX: "`+`", READ_PFX: "`?`"
     WRITE_PFX: "`!`", SHARE_PFX: "`*`", MINUS_PREFIX: "`-`"
-    SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`", OF: "`of`", DOTDOT_OPEN: "`..`"
+    SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`", OF: "`of`", DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -636,7 +638,18 @@ expr     = value
 
 value    = then:logic TERNARY_IF cond:logic ELSE else:value → (if)
          | value:logic CATCH [BAR_CAPTURE name:name BAR_CAPTURE] handler:value → (catch)
+         | value:logic CATCH [BAR_CAPTURE name:name BAR_CAPTURE] handler:jump → (catch)
+         | left:logic NULLISH_JUMP right:jump        → (??)
          | logic
+
+# A jump as the fallback of `??` or a `catch` handler: `get(k) ?? return
+# none`, `parse(s) catch break`. It takes the rest of the expression, so
+# its left side is a whole `logic`, as `catch`'s is; the rewriter marks a
+# `??` before a jump as NULLISH_JUMP. It takes no label: a `:` after it
+# may start a `while` step.
+jump     = RETURN [value:value]                     → (return)
+         | BREAK [value:value]                      → (break)
+         | CONTINUE                                 → (continue)
 
 logic    = left:logic OR right:conj                 → (or)
          | conj
