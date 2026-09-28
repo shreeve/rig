@@ -1485,8 +1485,14 @@ const Checker = struct {
                     }
                 }
                 if (mode == .write) return self.writeElement(source, inner_source, elem);
-                // `for x in <v` hands each element over.
-                if (mode == .move) return elem;
+                // `for x in <v` hands each element over, which only the
+                // Vec's owner can do.
+                if (mode == .move) {
+                    if (peeled == source_ty) return elem;
+                    const shown = try self.sourceText(inner_source);
+                    try self.err(pos, "`<{s}` would move the elements out of a Vec that `{s}` only borrows; loop over `?{s}` or `!{s}`, or move the Vec itself", .{ shown, shown, shown, shown });
+                    return self.ctx.intern(.{ .borrow_read = elem });
+                }
                 return if (is_resource) try self.ctx.intern(.{ .borrow_read = elem }) else elem;
             },
             .array => |a| {
