@@ -1,0 +1,7 @@
+# A block is the lines indented under its header; Rig has no braces.
+
+sub main() {
+  print(1)
+}
+
+# error: 3:12: unexpected `{`; Rig has no braces: a block is the lines indented under its header
