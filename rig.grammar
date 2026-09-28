@@ -114,7 +114,6 @@ tokens
     at              # @
     assign          # =
     fixed_assign    # =!
-    move_assign     # <-
     plus_assign     # +=
     minus_assign    # -=
     star_assign     # *=
@@ -205,7 +204,6 @@ tokens
 "&&"                                        → and_sym
 "||"                                        → or_sym
 "=!"                                        → fixed_assign
-"<-"                                        → move_assign
 "+="                                        → plus_assign
 "-="                                        → minus_assign
 "*="                                        → star_assign
@@ -295,7 +293,7 @@ tokens
     variant                     name:leaf params:group
 
     # Bindings: `op` is the binding kind (see BindingKind in src/rig.zig)
-    set                         op:tag(fixed|shadow|move|"+="|"-="|"*="|"/="|"%="|"&="|"|="|"^="|"<<="|">>=")? target type? value
+    set                         op:tag(fixed|shadow|"+="|"-="|"*="|"/="|"%="|"&="|"|="|"^="|"<<="|">>=")? target type? value
     drop                        name:leaf
 
     # Control flow
@@ -372,7 +370,7 @@ tokens
     TYPE: "`type`", USE: "`use`", WHILE: "`while`", ZIG: "`zig`"
     "=": "`=`", "+=": "`+=`", "-=": "`-=`", "*=": "`*=`", "/=": "`/=`", "%=": "`%=`"
     "&=": "`&=`", "|=": "`|=`", "^=": "`^=`", "<<=": "`<<=`", ">>=": "`>>=`", "=!": "`=!`"
-    "<-": "`<-`", ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
+    ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
     "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
     "@": "`@`", "==": "`==`", "!=": "`!=`", "<": "`<`", ">": "`>`", "<=": "`<=`"
     ">=": "`>=`", "??": "`??`", "|": "`|`", "^": "`^`", "&": "`&`", "<<": "`<<`"
@@ -415,7 +413,6 @@ stmt     = use
 simple   = tail
          | assign
          | target:postfix "=!"  value:rhs           → (set op:fixed)
-         | target:postfix "<-"  value:rhs           → (set op:move)
          | target:name ":" type:type "="  value:rhs  → (set)
          | target:name ":" type:type "=!" value:rhs  → (set op:fixed)
          | NEW target:name "=" value:rhs            → (set op:shadow)

@@ -230,9 +230,8 @@ before them (`struct Wrap[T]`, `show[3]()`); a declaration with a space
 there (`struct Wrap [T]`) is rejected.
 
 Two values may not touch with no operator between them: `t.5` and
-`print"hi"` are rejected, since neither is a call. Nor may `=!` and
-`<-` touch the operand after them (`x =!y`, `a <-b`), which could as
-well be `x = !y` and `a < -b`.
+`print"hi"` are rejected, since neither is a call. Nor may `=!` touch
+the operand after it (`x =!y`), which could as well be `x = !y`.
 
 A paren-free call is a command, never a value ([§6](#calls)), so
 where a value is expected `a -1` is neither a call nor a subtraction,
@@ -1598,7 +1597,7 @@ declaration ([§15](#15-modules)), and `extern` declares a C symbol
 | `x: T = e` | bind with a type annotation |
 | `x =! e`, `x: T =! e` | bind a fixed local, which cannot be reassigned |
 | `new x = e` | bind a new `x` that shadows the visible one; `e` may read the old `x` |
-| `x <- y` | move-assign: `x = <y` |
+| `x = <y` | move `y` into `x` (there is no `<-` operator) |
 | `x += e` (`-=` `*=` `/=` `%=` `<<=` `>>=` `&=` `\|=` `^=`) | compound assignment: `x = x op e`, with `x` evaluated once |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it; an owning value is dropped at once |
@@ -4349,6 +4348,7 @@ not parse, and their words and sigils stay reserved:
 | Form | Diagnostic |
 |---|---|
 | `&&`, `\|\|`, `**` | `` `&&` is not a Rig operator; use `and` `` |
+| `a <- b` | `` `<-` is not a Rig operator; move-assign with `a = <b` `` |
 | `@x` (pin) | `` the pin sigil `@x` is reserved `` |
 | `for *x in v` | `` `for *x in` is reserved `` |
 | `try` blocks | `` `try` blocks are reserved `` |

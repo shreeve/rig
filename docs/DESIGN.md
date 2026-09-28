@@ -188,7 +188,7 @@ can always be read: a `!T` is accepted where a `?T` is expected.
 reuses the expression sigils for captures (`|+x|` clones, `|<x|` moves,
 `|?x|` and `|!x|` borrow, `|~x|` holds weakly). A loop over owning elements borrows its source
 (`for x in ?v`). Receivers are `?self` and `!self`, the only place a
-sigil may prefix a parameter name. Move-assignment `a <- b` is `a = <b`.
+sigil may prefix a parameter name. A move-assignment is `a = <b`.
 The fixed binding `x =! e` is the one place `!` appears in an operator
 that is not about borrowing or failure.
 

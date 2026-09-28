@@ -73,15 +73,14 @@ pub fn children(node: Sexp) []const Sexp {
 // =============================================================================
 
 /// Exhaustive view of the op slot, so dispatch sites must handle every
-/// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), `move`
-/// (`<-`), and the compound assignments (`x op= e`, one per binary
+/// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), and the
+/// compound assignments (`x op= e`, one per binary
 /// arithmetic, bitwise, and shift operator). Every kind but `default` is
 /// named after its tag in the schema's `op:tag(...)` for `set`.
 pub const BindingKind = enum {
     default,
     fixed,
     shadow,
-    move,
     @"+=",
     @"-=",
     @"*=",
@@ -103,7 +102,7 @@ pub const BindingKind = enum {
     /// `+`), or null for a plain binding or assignment.
     pub fn operator(k: BindingKind) ?Tag {
         return switch (k) {
-            .default, .fixed, .shadow, .move => null,
+            .default, .fixed, .shadow => null,
             inline else => |c| @field(Tag, @tagName(c)[0 .. @tagName(c).len - 1]),
         };
     }
@@ -271,8 +270,8 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //   statement `drop x`.
 //
 //   Two operands never touch (`t.5`, `print"hi"`), and neither does a
-//   `=!` or `<-` and the operand after it (`x =!y`): the spacing would
-//   not say what was meant, so these are errors.
+//   `=!` and the operand after it (`x =!y`): the spacing would not say
+//   what was meant, so these are errors.
 //
 // `if`
 //   After `return`/`break`/`continue` or a value, `if` is a postfix guard
@@ -370,7 +369,6 @@ pub const Lexer = struct {
         bad_number,
         too_long,
         ambiguous_fixed,
-        ambiguous_move,
         missing_space,
         semicolon,
 
@@ -386,7 +384,6 @@ pub const Lexer = struct {
                 .bad_number => "malformed number; `_` may separate digits, and a space or an operator ends a number",
                 .too_long => "token is longer than 65535 bytes",
                 .ambiguous_fixed => "`=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` for a write borrow",
-                .ambiguous_move => "`<-` touches the operand after it: write `a <- b` to move-assign, or `a < -b` to compare",
                 .missing_space => "missing space or operator",
                 .semicolon => "unexpected `;`",
                 .tab_indent => "tab in indentation; indent with spaces",
@@ -690,7 +687,6 @@ pub const Lexer = struct {
             .power => return self.fail(.power_operator, tok.pos),
             // `x =!y`: a fixed binding of `y`, or a write borrow?
             .fixed_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_fixed, tok.pos) else tok.cat,
-            .move_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_move, tok.pos) else tok.cat,
             // `xs[a..]`: an open range ends at the `]`.
             .dotdot => if (self.nextJoinedCat() == .rbracket) .dotdot_open else .dotdot,
             .err => return self.lexError(tok),
@@ -1136,6 +1132,7 @@ pub const Parser = struct {
         return switch (tok.cat) {
             .real, .string_sq, .string_dq => if (in_pattern) "a pattern is a name, an integer, `true`, `false`, or an enum variant" else null,
             .@"else" => if (in_pattern) "the catch-all arm is `_`, or a name that binds the value" else null,
+            .minus => if (tok.pos > 0 and src[tok.pos - 1] == '<') "`<-` is not a Rig operator; move-assign with `a = <b`" else null,
             .@"try" => "`try` blocks are reserved: propagate with `e!` or handle with `e catch ...`",
             .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
             .share_pfx => if (precededBy(src, tok.pos, "for")) "`for *x in` is reserved: iterate with `for x in xs`, `?xs`, or `!xs`" else null,
@@ -1812,7 +1809,7 @@ test "parser: every form parses" {
         \\  new x = x + 1
         \\  x += 1
         \\  x <<= 2
-        \\  z <- w
+        \\  z = <w
         \\  drop z
         \\  if x > 1
         \\    print x, y

@@ -1005,12 +1005,11 @@ pub const Emitter = struct {
         const target = ir.Set.target(sexp);
         const type_node = ir.Set.type(sexp);
         const expr = ir.Set.value(sexp);
-        const is_move = kind == .move;
 
         if (kind.operator()) |op| return self.emitCompound(target, op, expr);
         if (target != .src) {
             return switch (kind) {
-                .default, .move => self.emitPlaceAssign(target, expr, is_move),
+                .default => self.emitPlaceAssign(target, expr),
                 else => self.unsupported(sexp, "this binding target"),
             };
         }
@@ -1018,20 +1017,20 @@ pub const Emitter = struct {
             // A discarded resource is dropped at once.
             if (self.typeOf(expr)) |t| if (self.kindOf(t) != null) {
                 try self.w.writeAll("rig.discard(");
-                try self.emitValueOf(expr, is_move);
+                try self.emitBare(expr);
                 return self.w.writeAll(");");
             };
             // A named place is discarded by address: it may be used
             // elsewhere, and Zig rejects discarding a used name.
             var place = expr;
             if (place.isKind(.read) or place.isKind(.write)) place = ir.get(place, .operand);
-            if (!is_move and isPlace(place) and !place.isKind(.index)) {
+            if (isPlace(place) and !place.isKind(.index)) {
                 try self.w.writeAll("_ = &");
                 try self.emitPlace(place);
                 return self.w.writeAll(";");
             }
             try self.w.writeAll("_ = ");
-            try self.emitValueOf(expr, is_move);
+            try self.emitBare(expr);
             try self.w.writeAll(";");
             return;
         }
@@ -1039,21 +1038,15 @@ pub const Emitter = struct {
         // reassigns one.
         const sym = self.sema.symbolOf(target) orelse return self.unsupported(target, "an unresolved binding");
         if (self.sema.symbols.items[sym].decl_pos == target.src.pos) {
-            try self.emitBind(target, sym, type_node, expr, is_move);
+            try self.emitBind(target, sym, type_node, expr);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
-            try self.emitRebind(local.*, expr, is_move);
+            try self.emitRebind(local.*, expr);
         }
     }
 
-    /// `expr`, or `<expr` when `is_move`.
-    fn emitValueOf(self: *Emitter, expr: Sexp, is_move: bool) Error!void {
-        if (is_move) return self.emitMoved(expr);
-        return self.emitBare(expr);
-    }
-
     /// A new binding.
-    fn emitBind(self: *Emitter, name_node: Sexp, sym: SymbolId, type_node: Sexp, expr: Sexp, is_move: bool) Error!void {
+    fn emitBind(self: *Emitter, name_node: Sexp, sym: SymbolId, type_node: Sexp, expr: Sexp) Error!void {
         if (expr.isKind(.lambda)) return self.emitClosureBinding(name_node, sym, expr);
 
         const s = self.sema.symbols.items[sym];
@@ -1062,7 +1055,7 @@ pub const Emitter = struct {
             .borrow_read, .borrow_write => true,
             else => false,
         } else true;
-        const is_borrow = !is_move and binds_borrow and (expr.isKind(.read) or expr.isKind(.write)) and
+        const is_borrow = binds_borrow and (expr.isKind(.read) or expr.isKind(.write)) and
             (ty == null or (sema.writeSliceElem(self.sema, ty.?) == null and sema.callableFn(self.sema, ty.?) == null));
         // A write borrow is held as a pointer however it was obtained.
         const holds_ptr = is_borrow or (ty != null and self.isPtrBorrowTy(ty.?));
@@ -1080,7 +1073,7 @@ pub const Emitter = struct {
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
         const is_var = s.flags.reassigned or (!holds_ptr and (s.flags.written or needs_ptr_self or
-            (!s.flags.comptime_known and !is_move and (isZigComptimeIn(self, expr, 0) or self.sema.const_ints.contains(sym)))));
+            (!s.flags.comptime_known and (isZigComptimeIn(self, expr, 0) or self.sema.const_ints.contains(sym)))));
 
         // Evaluate the value before the new name is visible, so a shadow
         // (`new x = x + 1`) reads the old binding.
@@ -1093,7 +1086,7 @@ pub const Emitter = struct {
                 try self.emitBorrowOf(expr);
             } else if (holds_ptr) {
                 try self.emitBorrowValue(expr);
-            } else try self.emitValueOf(expr, is_move);
+            } else try self.emitBare(expr);
         }
 
         const stored = try self.declare(local, self.srcText(name_node));
@@ -1136,7 +1129,7 @@ pub const Emitter = struct {
     /// Reassign an existing binding. A resource's old value is dropped
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
-    fn emitRebind(self: *Emitter, local: Local, value: Sexp, is_move: bool) Error!void {
+    fn emitRebind(self: *Emitter, local: Local, value: Sexp) Error!void {
         const s = self.sema.symbols.items[local.sym];
         const captured_write = s.kind == .capture and self.sema.types.get(s.ty) == .borrow_write;
         const writes_through = s.kind == .param or s.flags.pattern_bound or captured_write;
@@ -1150,18 +1143,18 @@ pub const Emitter = struct {
             // Through a `!T` parameter: the caller's value is replaced.
             const pointee = if (local.ty) |t| self.peelBorrows(t) else null;
             if (pointee != null and self.kindOf(pointee.?) != null) {
-                const id = try self.openNewValue(pointee, value, is_move);
+                const id = try self.openNewValue(pointee, value);
                 return self.w.print("; rig.drop({s}); {s}.* = __rig_new_{d}; }}", .{ local.zig_name, local.zig_name, id });
             }
         }
         const kind = local.kind orelse {
             try self.writeLocalPlace(&local);
             try self.w.writeAll(" = ");
-            try self.emitValueOf(value, is_move);
+            try self.emitBare(value);
             try self.w.writeAll(";");
             return;
         };
-        const id = try self.openNewValue(local.ty, value, is_move);
+        const id = try self.openNewValue(local.ty, value);
         try self.w.writeAll("; ");
         if (local.guard == .flag) try self.w.print("if ({s}) ", .{local.flag});
         try self.writeDrop(local.zig_name, kind);
@@ -1173,7 +1166,7 @@ pub const Emitter = struct {
     /// `{ const __rig_new_N: T = value`: a new value, computed before the
     /// one it replaces is dropped. The type lets a context-typed value
     /// (`Vec()`, `.variant(...)`) resolve. Returns `N`.
-    fn openNewValue(self: *Emitter, ty: ?TypeId, value: Sexp, is_move: bool) Error!u32 {
+    fn openNewValue(self: *Emitter, ty: ?TypeId, value: Sexp) Error!u32 {
         const id = self.nextId();
         try self.w.print("{{ const __rig_new_{d}", .{id});
         if (ty) |t| {
@@ -1181,20 +1174,20 @@ pub const Emitter = struct {
             try self.emitTypeTy(t);
         }
         try self.w.writeAll(" = ");
-        try self.emitValueOf(value, is_move);
+        try self.emitBare(value);
         return id;
     }
 
     /// Assignment to a field or element. When the place may hold a
     /// resource, the old value is dropped after the new one is computed.
-    fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp, is_move: bool) Error!void {
+    fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
         const place_ty = self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
             try self.emitCellPtr(ir.Index.object(target));
             try self.w.writeAll(".vecSet(");
             try self.emitBare(ir.Index.index(target));
             try self.w.writeAll(", ");
-            try self.emitValueOf(value, is_move);
+            try self.emitBare(value);
             return self.w.writeAll(");");
         };
         if (target != .src and self.isPtrBorrowExpr(target)) {
@@ -1208,11 +1201,11 @@ pub const Emitter = struct {
         if (!may_own) {
             try self.emitPlace(target);
             try self.w.writeAll(" = ");
-            try self.emitValueOf(value, is_move);
+            try self.emitBare(value);
             try self.w.writeAll(";");
             return;
         }
-        const id = try self.openNewValue(place_ty, value, is_move);
+        const id = try self.openNewValue(place_ty, value);
         try self.w.print("; const __rig_slot_{d} = &", .{id});
         try self.emitPlace(target);
         try self.w.print("; rig.drop(__rig_slot_{d}); __rig_slot_{d}.* = __rig_new_{d}; }}", .{ id, id, id });
@@ -4320,7 +4313,6 @@ const Scan = struct {
             return;
         };
         switch (head) {
-            .set => if (rig.bindingKindOf(ir.Set.op(sexp)) == .move) try s.consume(ir.Set.value(sexp)),
             .move => try s.consume(ir.Move.operand(sexp)),
             .drop => try s.consume(ir.Drop.name(sexp)),
             .@"return" => try s.consumeTail(ir.Return.value(sexp)),

@@ -409,7 +409,7 @@ pub const SymbolFlags = packed struct(u16) {
     /// Bound by `if e as x` / `while e as x`: when it holds its own
     /// value, a field of it can be taken out (`<x.next`).
     as_bound: bool = false,
-    /// Assigned again after its declaration (`=`, `<-`, `+=`, ...):
+    /// Assigned again after its declaration (`=`, `+=`, ...):
     /// lowers to a Zig `var`.
     reassigned: bool = false,
     /// Written through: write-borrowed (`!x`), or a field or element of
@@ -540,7 +540,7 @@ pub const Facts = struct {
     /// Call of a generic function (or a statement `f[Int]` that is the
     /// call) -> its type arguments.
     generic_calls: std.AutoHashMapUnmanaged(NodeKey, GenericCall) = .empty,
-    /// Positions of names assigned to (`x = e`, `x <- e`, `x += e` after
+    /// Positions of names assigned to (`x = e`, `x += e` after
     /// `x` is declared): a use there writes the binding, not reads it.
     writes: std.AutoHashMapUnmanaged(u32, void) = .empty,
     /// Expressions that yield a borrow where their context reads the

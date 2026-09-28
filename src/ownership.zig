@@ -2211,13 +2211,12 @@ pub const Checker = struct {
         const kind = rig.bindingKindOf(ir.Set.op(node));
         const target = ir.Set.target(node);
         const expr = ir.Set.value(node);
-        if (target != .src) return self.walkFieldAssign(target, expr, kind == .move);
+        if (target != .src) return self.walkFieldAssign(target, expr);
 
         const pos = target.src.pos;
         const name = self.text(target);
         const is_lambda = isLambda(expr);
         const value: Value = switch (kind) {
-            .move => try self.walkMove(expr),
             .default, .fixed, .shadow => if (is_lambda) blk: {
                 self.lambda_ok = true;
                 break :blk try self.walk(expr);
@@ -2230,7 +2229,7 @@ pub const Checker = struct {
         switch (kind) {
             .shadow => try self.bindNew(target, false, is_lambda, value),
             .fixed => try self.bindNew(target, true, is_lambda, value),
-            .default, .move => {
+            .default => {
                 if (self.find(name)) |id| {
                     try self.reassign(id, pos, value);
                     return;
@@ -2347,8 +2346,8 @@ pub const Checker = struct {
     }
 
     /// `p.f = e` / `v[i] = e`.
-    fn walkFieldAssign(self: *Checker, target: Sexp, expr: Sexp, is_move: bool) Error!void {
-        const value = if (is_move) try self.walkMove(expr) else try self.walkConsumed(expr, .field);
+    fn walkFieldAssign(self: *Checker, target: Sexp, expr: Sexp) Error!void {
+        const value = try self.walkConsumed(expr, .field);
         const place = self.resolvePlace(target) orelse {
             _ = try self.walk(target);
             return;

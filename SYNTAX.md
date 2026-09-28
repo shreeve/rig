@@ -386,8 +386,8 @@ sub main
 ```
 
 Two values may not touch with nothing between them (`t.5`, `print"x"`),
-and `=!` / `<-` may not touch the operand after them (`x =!y`), since
-each could be read two ways.
+and `=!` may not touch the operand after it (`x =!y`), since it could
+be read two ways.
 
 ## 6. Names, keywords, and literals
 
@@ -545,7 +545,7 @@ glue**).
 | `x: T = e` | declare with a type |
 | `x =! e`, `x: T =! e` | declare a fixed `x`, which cannot be reassigned |
 | `new x = e` | declare a new `x` shadowing the old one; `e` may read the old |
-| `x <- y` | move-assign, the same as `x = <y` |
+| `x = <y` | move `y` into `x` |
 | `x += e`, and `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | compound assignment |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate and discard; an owning value is dropped now |
@@ -742,7 +742,7 @@ command: a statement, a match arm's body, a closure's body, or the last
 argument of another paren-free call. It takes the rest of the line as
 its arguments.
 
-The right side of `=` (and of `=!`, `<-`, `+=`, and the other binding
+The right side of `=` (and of `=!`, `+=`, and the other binding
 forms), a `return` or `break` value, an `if` or `while` condition, a
 `for` source, a `match` subject, and every argument inside `( )` are
 values, so a call there keeps its parentheses. Ruby's `x = twice 5` is
@@ -2267,7 +2267,7 @@ The same sigils mean the same thing in every position:
 | method call | `p.m()` | `!p.m()` | `<p.m()` | | |
 | `for` source | `for x in ?v` | `for x in !v` | `for x in <v` | | |
 | closure capture | `\|?x\|` | `\|!x\|` | `\|<x\|` | `\|+x\|` | `\|~x\|` |
-| assignment | | | `a <- b` | | |
+| assignment | | | `a = <b` | | |
 
 In a method call the sigil goes on the receiver, `!p.m()` for
 `(!p).m()` ([§12](#receiver-sigils-vpushx-and-pclose)); before any
@@ -3172,8 +3172,8 @@ optional).
 **Array literals:** `[a, b, c]` elements, `[n of x]` `n` copies of `x`
 (`of` is a keyword only there; elsewhere it is a name).
 
-**Binding operators:** `=` bind or assign, `=!` fixed binding, `<-`
-move-assign, `new x =` shadow, compound `+=` `-=` `*=` `/=` `%=` `&=`
+**Binding operators:** `=` bind or assign (`a = <b` moves `b`), `=!`
+fixed binding, `new x =` shadow, compound `+=` `-=` `*=` `/=` `%=` `&=`
 `|=` `^=` `<<=` `>>=`.
 
 **Calls:** `f(a, b)` anywhere; `f a, b` only as a command: a
@@ -3274,7 +3274,7 @@ cunit     = integer | name | mod "." name | "(" cexp ")"
 
 stmt      = simple ["if" value] | ":" label stmt
 simple    = expr | command
-          | target ("=" | "=!" | "<-" | "+=" | ...) expr
+          | target ("=" | "=!" | "+=" | ...) expr
           | name ":" type ("=" | "=!") expr | "new" name "=" expr
           | "drop" name | "return" [expr] | "break" [":" label] [expr]
           | "continue" [":" label] | "defer" (simple | block)

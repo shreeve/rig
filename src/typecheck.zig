@@ -585,7 +585,7 @@ const Checker = struct {
             _ = try self.synthExpr(rhs);
             return;
         }
-        // `<-` and compound assignment name an existing binding.
+        // A compound assignment names an existing binding.
         const sym_id = self.ctx.symbolOf(target) orelse (try self.useName(target)) orelse {
             _ = try self.synthExpr(rhs);
             return;

@@ -172,7 +172,7 @@ forms to `value`, an expression without blocks or closures (conditions,
   closure bars as above;
 - rejects `&&`, `||`, `**`, and the reserved pin sigil `@x` with a
   hint, and malformed input where it is written: two values touching
-  (`t.5`), `=!` or `<-` touching the operand after it, a number with a
+  (`t.5`), `=!` touching the operand after it, a number with a
   leading zero or an uppercase radix prefix, a control character in a
   string, and a carriage return without a line feed (a leading byte
   order mark is skipped);
@@ -327,7 +327,7 @@ A few kinds serve more than one surface form:
   `stmt if c` (whose `then` is a block holding the statement); its
   `cond` may be `(as value name)`, as may a `while`'s.
 - `set`'s `op` is `_` for `=`, `fixed` for `=!`, `shadow` for
-  `new x =`, `move` for `<-`, and the operator for a compound
+  `new x =`, and the operator for a compound
   assignment.
 - `for`'s `mode` is `iter` from the grammar; the Parser wrapper turns
   `for x in ?xs` / `!xs` / `<xs` into `read`, `write`, `move`.

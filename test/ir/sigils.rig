@@ -43,7 +43,7 @@ sub main()
   fixed =! 10
   x = 1
   new x = x + 1
-  y <- x
+  y = <x
 
   raw
     p: I32 = @intCast(y)

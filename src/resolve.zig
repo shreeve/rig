@@ -385,7 +385,7 @@ const SymbolResolver = struct {
         // `_ = expr` discards the value; it binds nothing.
         if (std.mem.eql(u8, identAt(self.ctx.source, target).?, "_")) return;
         switch (kind) {
-            .default, .move => {
+            .default => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     try self.ctx.recordName(target, existing);
                     self.ctx.symbols.items[existing].flags.reassigned = true;

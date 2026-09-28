@@ -1,0 +1,9 @@
+# Rig has no `<-` operator: a move-assignment is `a = <b`.
+
+sub main()
+  a = [1]
+  b = [2]
+  a <- b
+  print(a)
+
+# error: 6:6: `<-` is not a Rig operator; move-assign with `a = <b`

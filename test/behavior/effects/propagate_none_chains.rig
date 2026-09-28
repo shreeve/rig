@@ -28,7 +28,7 @@ fun first_even(xs: ?[3]Int) -> Int?
 
 fun bump(m: !(Int?)) -> Int?
   v = m?
-  m <- v + 1
+  m = v + 1
   v
 
 fun peek(m: ?(Int?)) -> Int?
