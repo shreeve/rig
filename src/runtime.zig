@@ -872,15 +872,19 @@ pub fn Vec(comptime T: type) type {
 // Integers and indexing
 // -----------------------------------------------------------------------------
 
-/// Convert a Rig index to `usize`, panicking unless `0 <= i < len`. A
-/// negative index becomes a huge unsigned one, which fails the bound.
+/// Convert a Rig index of any integer type to `usize`, panicking unless
+/// `0 <= i < len`.
 pub fn index(i: anytype, count: usize) usize {
-    const idx: u64 = switch (@typeInfo(@TypeOf(i))) {
-        .int => |int| if (int.signedness == .signed) @bitCast(@as(i64, i)) else i,
-        else => std.math.cast(u64, i) orelse indexPanic(),
-    };
+    const idx = std.math.cast(usize, i) orelse indexPanic();
     if (idx >= count) indexPanic();
-    return @intCast(idx);
+    return idx;
+}
+
+/// A float about to be converted to an integer type, panicking if it is
+/// NaN, which `@intFromFloat`'s own range check does not catch.
+pub fn notNan(x: anytype) @TypeOf(x) {
+    if (std.debug.runtime_safety and std.math.isNan(x)) @panic("integer part of floating point value out of bounds");
+    return x;
 }
 
 /// The elements of the array `p` points to, as a slice. Zig rejects

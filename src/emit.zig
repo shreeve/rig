@@ -3791,7 +3791,8 @@ pub const Emitter = struct {
 
     /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin
     /// chosen by the kinds of the two types. Zig checks that the value
-    /// fits in safe builds; `@intFromFloat` truncates toward zero.
+    /// fits in safe builds; `@intFromFloat` truncates toward zero, and
+    /// `rig.notNan` panics on a NaN.
     fn emitConversion(self: *Emitter, call: Sexp) Error!void {
         const target = self.typeOf(call) orelse return self.unsupported(call, "an untyped conversion");
         const arg = argValue(ir.Call.args(call)[0]);
@@ -3820,8 +3821,9 @@ pub const Emitter = struct {
         };
         const from_int = self.sema.types.get(from) == .int;
         const builtin = if (to_int) (if (from_int) "@intCast" else "@intFromFloat") else (if (from_int) "@floatFromInt" else "@floatCast");
+        const nan_check = to_int and !from_int;
         try self.writeAsOpen(target);
-        try self.w.print("{s}(", .{builtin});
+        try self.w.print("{s}({s}", .{ builtin, if (nan_check) "rig.notNan(" else "" });
         try self.writeAsOpen(from);
         // A constant is converted at run time, where Zig checks it as Rig
         // does, not at compile time.
@@ -3829,7 +3831,7 @@ pub const Emitter = struct {
         defer self.rt_names = saved_rt;
         self.rt_names = true;
         try self.emitBare(arg);
-        try self.w.writeAll(")))");
+        try self.w.writeAll(if (nan_check) "))))" else ")))");
     }
 
     /// `(|n| print n)()`: the closure is built and called in a block.
