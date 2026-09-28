@@ -1689,6 +1689,7 @@ pub fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) 
 /// What the values of a nominal or generic type hold, from its data
 /// fields and variant payloads (`computeContents`).
 pub const Contents = struct {
+    /// `glue`, `plain`, and `held` are computed (`symbolContents`).
     done: bool = false,
     /// Needs its destructor run whatever its type arguments: a user
     /// `drop`, or a field that owns a resource.
