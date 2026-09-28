@@ -3,7 +3,7 @@
 //! `check` runs these steps over the normalized IR and returns
 //! a `SemContext`, which every later pass (ownership, emit) reads:
 //!
-//!   1. builtins     `resolve.zig`    Cell, Vec, Signal
+//!   1. builtins     `resolve.zig`    Cell, Vec, Box, Signal, Endian
 //!   2. symbols      `resolve.zig`    every declaration gets a Symbol in a
 //!                                    Scope; scopes are keyed by the IR node
 //!                                    that opens them
@@ -12,10 +12,13 @@
 //!   4. contents     `sema.zig`       what each declared type's values hold
 //!                                    (drop glue, a Cell, plain data), and
 //!                                    types that contain themselves
-//!   5. validation   `resolve.zig`    the declaration checks that need 4
+//!   5. validation   `sema.zig`,      every struct and enum fits
+//!                   `resolve.zig`    `max_value_bytes`; the declaration
+//!                                    checks that need 4
 //!   6. expressions  `typecheck.zig`  bodies are type-checked; every
 //!                                    expression's type is recorded;
 //!                                    fallibility and `raw` are checked;
+//!                                    each frame fits `max_frame_bytes`;
 //!                   `sema.zig`       then every local must be read
 //!   7. generics     `sema.zig`,      the instances generic bodies reach,
 //!                   `typecheck.zig`  and each instance's requirements
@@ -23,44 +26,15 @@
 //! ## The facts table
 //!
 //! Sema records what it learned about each IR node so later passes can
-//! ask instead of re-deriving it by name:
-//!
-//!   ctx.symbolOf(leaf)   -> ?SymbolId  the symbol an identifier leaf names,
-//!                                      at its declaration or any use site
-//!   ctx.typeOf(node)     -> ?TypeId    the type of an expression node
-//!                                      (literals get the type their context
-//!                                      gave them, e.g. `U8` in `x: U8 = 5`)
-//!   ctx.bindingTypeOf(leaf) -> ?TypeId the declared/inferred type of the
-//!                                      symbol a leaf names
-//!   ctx.readsThrough(node) -> bool    the node yields a borrow (`!x`, a
-//!                                      call returning `!Int`, a `!Int`
-//!                                      name) where its context reads the
-//!                                      value it reaches
-//!   ctx.scopeOf(node)    -> ?ScopeId   the scope a fun/sub/method/lambda/
-//!                                      block/for/arm/catch node opens
-//!   ctx.isExhaustive(match) -> bool   the match's arms cover every value
-//!                                      without a default arm
-//!   ctx.callSlotsOf(call) -> ?[]ArgSlot for a call with keyword or
-//!                                      omitted arguments: which argument
-//!                                      (or default value) fills each
-//!                                      parameter, in parameter order
-//!   ctx.instanceOf(node) -> ?Instance  for a bracket list (`index` or
-//!                                      `inst`) of compile-time arguments
-//!                                      rather than an index: the generic
-//!                                      type's instance, or a function's
-//!                                      compile-time arguments
-//!   ctx.genericCallOf(call) -> ?GenericCall  for a call with compile-time
-//!                                      arguments: its type arguments,
-//!                                      inferred or given in brackets
-//!
-//! A call's callee gets a type too: a function name its signature, and a
-//! method callee `(member obj m)` the resolved method signature with the
-//! receiver's generic arguments applied. The name leaf of every `fun` /
-//! `sub` declaration, method or not, carries its function type. Binding
-//! facts live on the Symbol: `flags.reassigned`, `flags.written`,
-//! `flags.fixed`,
-//! `flags.comptime_known`, `flags.pattern_bound`, `kind` (local / param /
-//! capture / ...), and for a capture the `origin` binding it captures.
+//! ask instead of re-deriving it by name (`symbolOf`, `typeOf`, and the
+//! other queries on `SemContext`); `docs/INTERNALS.md` (The facts table)
+//! says what each answers. A call's callee gets a type too:
+//! a function name its signature, and a method callee `(member obj m)`
+//! the resolved method signature with the receiver's generic arguments
+//! applied. The name leaf of every `fun` / `sub` declaration, method or
+//! not, carries its function type. Binding facts live on the Symbol
+//! (`SymbolFlags`, `kind`, and for a capture the `origin` binding it
+//! captures).
 //!
 //! Leaves are keyed by source position (`src.pos`); list nodes by the
 //! node id the parser gave them (`List.id`), which the Parser wrapper's
@@ -105,9 +79,14 @@ pub const module_scope: ScopeId = 1;
 // =============================================================================
 
 pub const IntInfo = struct {
-    /// 0 for `Int` (64-bit signed); otherwise 8/16/32/64.
+    /// 0 for `Int` (64-bit signed); otherwise 8/16/32/64/128.
     bits: u8 = 0,
     signed: bool = true,
+
+    /// The width in bits.
+    pub fn width(self: IntInfo) u8 {
+        return if (self.bits == 0) 64 else self.bits;
+    }
 };
 
 pub const FloatInfo = struct {
@@ -316,8 +295,9 @@ pub const TypeStore = struct {
         self.items.deinit(allocator);
     }
 
+    /// The type `id` names. An id from another module's store read in
+    /// this one is a compiler bug, which a safe build stops at.
     pub fn get(self: *const TypeStore, id: TypeId) Type {
-        if (id >= self.items.items.len) return .invalid;
         return self.items.items[id];
     }
 
@@ -403,8 +383,6 @@ pub const SymbolFlags = packed struct(u16) {
     /// `=!` binding: cannot be reassigned.
     fixed: bool = false,
     is_public: bool = false,
-    /// Parameter declared with a borrowed type (`?T` / `!T`).
-    borrowed_param: bool = false,
     /// Value known at compile time: a compile-time parameter
     /// (`fun f[n: Int]`), or a `=!` binding
     /// initialized with a compile-time-known expression.
@@ -424,7 +402,7 @@ pub const SymbolFlags = packed struct(u16) {
     error_set: bool = false,
     /// A local bound to a closure literal: a stack closure.
     closure: bool = false,
-    _: u6 = 0,
+    _: u7 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -524,19 +502,42 @@ fn recordKey(node: Sexp) NodeKey {
     return nodeKey(node) orelse std.debug.panic("sema recorded a fact for a node without a node id: {s}", .{if (node.kind()) |k| @tagName(k) else @tagName(node)});
 }
 
+/// The key of a fact about an expression, leaf or list node: a leaf's
+/// source position, or a list node's id with bit 32 set. Null for any
+/// other node.
+fn exprKey(node: Sexp) ?u64 {
+    return switch (node) {
+        .src => |s| s.pos,
+        .list => @as(u64, nodeKey(node) orelse return null) | 1 << 32,
+        else => null,
+    };
+}
+
+/// `exprKey` of an expression a fact is recorded for: a list node the
+/// parser built (`recordKey`).
+fn recordExprKey(node: Sexp) ?u64 {
+    if (node == .list) _ = recordKey(node);
+    return exprKey(node);
+}
+
 pub const Facts = struct {
-    /// Expressions lent where a borrowed callable `?fun(...)` is
-    /// expected that are not one yet (a closure literal, a function, an
-    /// owned closure): the callable's function type. Leaves by position,
-    /// list nodes by id.
-    leaf_callables: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
-    node_callables: std.AutoHashMapUnmanaged(NodeKey, TypeId) = .empty,
     /// Identifier leaf position -> the symbol it names.
     names: std.AutoHashMapUnmanaged(u32, SymbolId) = .empty,
-    /// Leaf expression position -> type.
-    leaf_types: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
-    /// List expression node -> type.
-    node_types: std.AutoHashMapUnmanaged(NodeKey, TypeId) = .empty,
+    /// Expression (`exprKey`) -> its type.
+    types: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
+    /// Expressions lent where a borrowed callable `?fun(...)` is
+    /// expected that are not one yet (a closure literal, a function, an
+    /// owned closure) -> the callable's function type.
+    callables: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
+    /// Expressions that yield a borrow where their context reads the
+    /// value it reaches (`SemContext.recordRead`).
+    reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Expressions yielding a `![]T` where a `[]T` is expected, which
+    /// lend it only to read.
+    views: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Borrows of a `Box[T]` lent as borrows of its value (`?b` where a
+    /// `?T` is expected).
+    unboxed: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Scope-opening node -> the scope it opens.
     scopes: std.AutoHashMapUnmanaged(NodeKey, ScopeId) = .empty,
     /// Call node -> how its arguments fill the parameters, for calls
@@ -553,48 +554,16 @@ pub const Facts = struct {
     /// Positions of names assigned to (`x = e`, `x += e` after
     /// `x` is declared): a use there writes the binding, not reads it.
     writes: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    /// Expressions that yield a borrow where their context reads the
-    /// value it reaches (`SemContext.recordRead`): leaves by position,
-    /// list nodes by id.
-    leaf_reads: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    node_reads: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Callee (`member`) node -> the built-in element method it calls.
     elem_calls: std.AutoHashMapUnmanaged(NodeKey, ElemCall) = .empty,
     /// Array expressions lent as a slice (`ArrayView`).
     array_views: std.AutoHashMapUnmanaged(NodeKey, ArrayView) = .empty,
-    /// Expressions yielding a `![]T` where a `[]T` is expected, which
-    /// lend it only to read: leaves by position, list nodes by id.
-    leaf_views: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    node_views: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
-    /// Borrows of a `Box[T]` lent as borrows of its value (`?b` where a
-    /// `?T` is expected): leaves by position, list nodes by id.
-    leaf_unboxed: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    node_unboxed: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// `<place` nodes that take an optional out of a field or element
     /// (`SemContext.recordTake`).
     takes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
-        self.takes.deinit(allocator);
-        self.leaf_unboxed.deinit(allocator);
-        self.node_unboxed.deinit(allocator);
-        self.leaf_callables.deinit(allocator);
-        self.node_callables.deinit(allocator);
-        self.elem_calls.deinit(allocator);
-        self.array_views.deinit(allocator);
-        self.leaf_views.deinit(allocator);
-        self.node_views.deinit(allocator);
-        self.writes.deinit(allocator);
-        self.leaf_reads.deinit(allocator);
-        self.node_reads.deinit(allocator);
-        self.names.deinit(allocator);
-        self.leaf_types.deinit(allocator);
-        self.node_types.deinit(allocator);
-        self.scopes.deinit(allocator);
-        self.call_slots.deinit(allocator);
-        self.exhaustive.deinit(allocator);
-        self.instances.deinit(allocator);
-        self.generic_calls.deinit(allocator);
+        inline for (std.meta.fields(Facts)) |f| @field(self, f.name).deinit(allocator);
     }
 };
 
@@ -809,6 +778,10 @@ pub const SemContext = struct {
     /// `contents_ready`.
     deferred_checks: std.ArrayListUnmanaged(resolve.DeferredCheck) = .empty,
     diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
+    /// Each error reported, by position and message hash -> its index in
+    /// `diagnostics`: the same finding reached twice is reported once.
+    /// (A check whose diagnostics are dropped truncates `diagnostics`.)
+    reported: std.AutoHashMapUnmanaged(struct { pos: u32, message: u64 }, usize) = .empty,
     facts: Facts = .{},
 
     cell_sym_id: SymbolId = symbol_invalid,
@@ -922,6 +895,7 @@ pub const SemContext = struct {
         self.type_info.deinit(self.allocator);
         self.deferred_checks.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
+        self.reported.deinit(self.allocator);
         self.facts.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.reach.deinit(self.allocator);
@@ -989,10 +963,14 @@ pub const SemContext = struct {
 
     fn report(self: *SemContext, severity: diag.Severity, at: diag.Span, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
         const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
-        // The same finding reached twice is reported once.
-        if (severity == .@"error") for (self.diagnostics.items) |d| {
-            if (d.severity == .@"error" and d.module == 0 and d.pos == at.start and std.mem.eql(u8, d.message, msg)) return;
-        };
+        if (severity == .@"error") {
+            const gop = try self.reported.getOrPut(self.allocator, .{ .pos = at.start, .message = std.hash.Wyhash.hash(0, msg) });
+            if (gop.found_existing and gop.value_ptr.* < self.diagnostics.items.len) {
+                const d = self.diagnostics.items[gop.value_ptr.*];
+                if (d.pos == at.start and std.mem.eql(u8, d.message, msg)) return;
+            }
+            gop.value_ptr.* = self.diagnostics.items.len;
+        }
         try self.diagnostics.append(self.allocator, .{ .severity = severity, .pos = at.start, .end = at.end, .message = msg });
     }
 
@@ -1083,10 +1061,7 @@ pub const SemContext = struct {
 
     /// The symbol an identifier leaf names (declaration or use).
     pub fn symbolOf(self: *const SemContext, node: Sexp) ?SymbolId {
-        return switch (node) {
-            .src => |s| self.facts.names.get(s.pos),
-            else => null,
-        };
+        return if (node == .src) self.symbolAt(node.src.pos) else null;
     }
 
     /// The symbol named by the identifier at source position `pos`.
@@ -1096,11 +1071,7 @@ pub const SemContext = struct {
 
     /// The type of an expression node.
     pub fn typeOf(self: *const SemContext, node: Sexp) ?TypeId {
-        return switch (node) {
-            .src => |s| self.facts.leaf_types.get(s.pos),
-            .list => self.facts.node_types.get(nodeKey(node) orelse return null),
-            else => null,
-        };
+        return self.facts.types.get(exprKey(node) orelse return null);
     }
 
     /// The type of the symbol an identifier leaf names.
@@ -1112,11 +1083,7 @@ pub const SemContext = struct {
     /// Whether `node` yields a borrow whose value its context reads
     /// (`recordRead`).
     pub fn readsThrough(self: *const SemContext, node: Sexp) bool {
-        return switch (node) {
-            .src => |s| self.facts.leaf_reads.contains(s.pos),
-            .list => self.facts.node_reads.contains(nodeKey(node) orelse return false),
-            else => false,
-        };
+        return self.facts.reads.contains(exprKey(node) orelse return false);
     }
 
     /// The scope a scope-opening node opens.
@@ -1179,11 +1146,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
-        switch (node) {
-            .src => |s| try self.facts.leaf_types.put(self.allocator, s.pos, ty),
-            .list => try self.facts.node_types.put(self.allocator, recordKey(node), ty),
-            else => {},
-        }
+        try self.facts.types.put(self.allocator, recordExprKey(node) orelse return, ty);
     }
 
     /// `node` yields a borrow where its context reads the value it
@@ -1191,11 +1154,7 @@ pub const SemContext = struct {
     /// optional of `??`, `?`, or `as`, a String or slice indexed, or a
     /// clone.
     pub fn recordRead(self: *SemContext, node: Sexp) !void {
-        switch (node) {
-            .src => |s| try self.facts.leaf_reads.put(self.allocator, s.pos, {}),
-            .list => try self.facts.node_reads.put(self.allocator, recordKey(node), {}),
-            else => {},
-        }
+        try self.facts.reads.put(self.allocator, recordExprKey(node) orelse return, {});
     }
 
     pub fn recordArrayView(self: *SemContext, node: Sexp, view: ArrayView) !void {
@@ -1207,24 +1166,16 @@ pub const SemContext = struct {
         return self.facts.array_views.get(nodeKey(node) orelse return null);
     }
 
-    /// `node` yields a `![]T` where a `[]T` is expected: it is lent to
-    /// read only.
+    /// `node`, lent where a borrowed callable is expected, is lent as one
+    /// of function type `fn_ty` (`callableOf`).
     pub fn recordCallable(self: *SemContext, node: Sexp, fn_ty: TypeId) !void {
-        switch (node) {
-            .src => |s| try self.facts.leaf_callables.put(self.allocator, s.pos, fn_ty),
-            .list => try self.facts.node_callables.put(self.allocator, recordKey(node), fn_ty),
-            else => {},
-        }
+        try self.facts.callables.put(self.allocator, recordExprKey(node) orelse return, fn_ty);
     }
 
     /// The function type `node` is lent as, where a borrowed callable is
     /// expected and `node` is not one yet (`recordCallable`).
     pub fn callableOf(self: *const SemContext, node: Sexp) ?TypeId {
-        return switch (node) {
-            .src => |s| self.facts.leaf_callables.get(s.pos),
-            .list => self.facts.node_callables.get(nodeKey(node) orelse return null),
-            else => null,
-        };
+        return self.facts.callables.get(exprKey(node) orelse return null);
     }
 
     /// `node` is `<place` taking an optional out of a field or element,
@@ -1239,35 +1190,21 @@ pub const SemContext = struct {
 
     /// `node`, a borrow of a `Box[T]`, is lent as a borrow of the `T`.
     pub fn recordUnboxed(self: *SemContext, node: Sexp) !void {
-        switch (node) {
-            .src => |s| try self.facts.leaf_unboxed.put(self.allocator, s.pos, {}),
-            .list => try self.facts.node_unboxed.put(self.allocator, recordKey(node), {}),
-            else => {},
-        }
+        try self.facts.unboxed.put(self.allocator, recordExprKey(node) orelse return, {});
     }
 
     pub fn unboxes(self: *const SemContext, node: Sexp) bool {
-        return switch (node) {
-            .src => |s| self.facts.leaf_unboxed.contains(s.pos),
-            .list => self.facts.node_unboxed.contains(nodeKey(node) orelse return false),
-            else => false,
-        };
+        return self.facts.unboxed.contains(exprKey(node) orelse return false);
     }
 
+    /// `node` yields a `![]T` where a `[]T` is expected: it is lent to
+    /// read only.
     pub fn recordReadView(self: *SemContext, node: Sexp) !void {
-        switch (node) {
-            .src => |s| try self.facts.leaf_views.put(self.allocator, s.pos, {}),
-            .list => try self.facts.node_views.put(self.allocator, recordKey(node), {}),
-            else => {},
-        }
+        try self.facts.views.put(self.allocator, recordExprKey(node) orelse return, {});
     }
 
     pub fn readsAsView(self: *const SemContext, node: Sexp) bool {
-        return switch (node) {
-            .src => |s| self.facts.leaf_views.contains(s.pos),
-            .list => self.facts.node_views.contains(nodeKey(node) orelse return false),
-            else => false,
-        };
+        return self.facts.views.contains(exprKey(node) orelse return false);
     }
 
     pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {
@@ -1415,10 +1352,10 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try resolve.registerBuiltins(&ctx, module_scope);
     try resolve.resolveSymbols(&ctx, tree, module_scope);
     try resolve.resolveDeclarations(&ctx, tree, module_scope);
-    try computeContents(&ctx);
+    const order = try computeContents(&ctx);
     try checkInfiniteTypes(&ctx);
+    try checkTypeSizes(&ctx, order);
     try resolve.checkDeclarations(&ctx);
-    try checkTypeSizes(&ctx);
     try typecheck.checkModule(&ctx, tree, module_scope);
     try typecheck.checkFrames(&ctx, tree);
     try checkUnreadLocals(&ctx);
@@ -1752,7 +1689,8 @@ pub fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) 
 /// What the values of a nominal or generic type hold, from its data
 /// fields and variant payloads (`computeContents`).
 pub const Contents = struct {
-    state: enum { todo, busy, done } = .todo,
+    /// `glue`, `plain`, and `held` are computed (`symbolContents`).
+    done: bool = false,
     /// Needs its destructor run whatever its type arguments: a user
     /// `drop`, or a field that owns a resource.
     glue: bool = false,
@@ -1766,6 +1704,9 @@ pub const Contents = struct {
     held: []const bool = &.{},
     /// Holds a borrow, or a write borrow (see `Borrows`).
     borrows: Borrows = .{},
+    /// Holds itself by value, which `checkInfiniteTypes` reports: it has
+    /// no size.
+    cyclic: bool = false,
 };
 
 /// Whether values hold a borrow (`?T`, `!T`, a slice) and whether they
@@ -1775,10 +1716,6 @@ pub const Contents = struct {
 pub const Borrows = packed struct(u2) {
     any: bool = false,
     write: bool = false,
-
-    fn with(a: Borrows, b: Borrows) Borrows {
-        return .{ .any = a.any or b.any, .write = a.write or b.write };
-    }
 };
 
 /// Facts about an interned type, recorded when it is interned
@@ -1819,32 +1756,26 @@ fn isTypeDecl(sym: Symbol) bool {
 
 /// Compute what the values of every declared type hold, then the facts
 /// of every type interned so far. Types interned later get theirs as
-/// they are interned.
-fn computeContents(ctx: *SemContext) std.mem.Allocator.Error!void {
-    for (ctx.symbols.items, 0..) |sym, i| {
-        if (isTypeDecl(sym)) _ = try symbolContents(ctx, @intCast(i));
-    }
-    try computeCells(ctx);
-    try computeBorrows(ctx);
+/// they are interned. Each declared type is computed after those it
+/// holds, in the order returned, so no walk nests through the chain of
+/// types a value holds.
+fn computeContents(ctx: *SemContext) std.mem.Allocator.Error![]const SymbolId {
+    var c = try Components.run(ctx, true);
+    defer c.deinit();
+    for (c.order.items) |id| try symbolContents(ctx, id);
+    try computeReach(ctx);
     ctx.contents_ready = true;
     ctx.type_info.clearRetainingCapacity();
     try ctx.syncTypeInfo();
+    return ctx.arena.allocator().dupe(SymbolId, c.order.items);
 }
 
-fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!Contents {
-    const current = ctx.symbols.items[id].contents;
-    switch (current.state) {
-        .done => return current,
-        // Reached again while computing its own contents: the type holds
-        // itself by value, which `checkInfiniteTypes` reports.
-        .busy => return .{},
-        .todo => {},
-    }
-    ctx.symbols.items[id].contents.state = .busy;
+fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
+    if (ctx.symbols.items[id].contents.done) return;
     const params = ctx.symbols.items[id].type_params orelse &.{};
     const held = try ctx.arena.allocator().alloc(bool, params.len);
     @memset(held, false);
-    var c: Contents = .{ .state = .done, .plain = true, .held = held };
+    var c: Contents = .{ .done = true, .plain = true, .held = held };
     for (ctx.symbols.items[id].fields orelse &.{}) |*f| {
         if (f.is_drop_method) c.glue = true;
         for (dataFields(f)) |d| {
@@ -1855,10 +1786,20 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!Conten
     }
     // The built-in generics are runtime types: a Vec owns its buffer and
     // a Box its value's memory, and none of them is copied like plain data.
+    // A Signal owns its subscribers too, but has no glue of its own: it
+    // lives only behind a `*` handle (typecheck rejects one held by
+    // value), whose release drops it.
     if (id == ctx.vec_sym_id or id == ctx.box_sym_id) c.glue = true;
     if (id == ctx.vec_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id) c.plain = false;
     ctx.symbols.items[id].contents = c;
-    return c;
+}
+
+/// What the values of a declared type hold, once computed. A type not
+/// computed yet holds itself by value (`computeContents` computes each
+/// after those it holds), which `checkInfiniteTypes` reports.
+fn contentsOf(ctx: *const SemContext, id: SymbolId) Contents {
+    const c = ctx.symbols.items[id].contents;
+    return if (c.done) c else .{};
 }
 
 const Holds = struct { glue: bool = false, plain: bool = false, type_var: bool = false };
@@ -1879,7 +1820,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         .shared, .weak => .{ .glue = true },
         .nominal, .imported_nominal => blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk .{};
-            const c = if (decl.module_id == null) try symbolContents(ctx, decl.sym) else decl.symbol().contents;
+            const c = contentsOf(decl.ctx, decl.sym);
             break :blk .{ .glue = c.glue, .plain = c.plain };
         },
         .type_var => |sym| blk: {
@@ -1888,7 +1829,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
             break :blk .{ .plain = true, .type_var = true };
         },
         .parameterized_nominal => |pn| blk: {
-            const c = try symbolContents(ctx, pn.sym);
+            const c = contentsOf(ctx, pn.sym);
             var h: Holds = .{ .glue = c.glue, .plain = c.plain };
             for (pn.args, 0..) |a, i| {
                 if (i >= c.held.len or !c.held[i]) continue;
@@ -1903,13 +1844,52 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
     };
 }
 
-/// A declared type holds a `Cell` inline when a field does: itself, or
-/// through a type it holds, or any argument of a generic instance it
-/// holds (as the emitter reads type expressions). Found by propagating
-/// backwards from the types that hold one directly, so each field type
-/// is walked once.
-fn computeCells(ctx: *SemContext) std.mem.Allocator.Error!void {
-    var edges: std.ArrayListUnmanaged(CellEdge) = .empty;
+/// What a value holds, of what it can hold through the declared types it
+/// holds: a `Cell` inline, a borrow, and a write borrow.
+const Reach = packed struct(u3) {
+    cell: bool = false,
+    borrows: Borrows = .{},
+
+    const all: Reach = .{ .cell = true, .borrows = .{ .any = true, .write = true } };
+    /// What reaches through a handle or heap memory: no Cell is inline.
+    const borrows_only: Reach = .{ .borrows = .{ .any = true, .write = true } };
+
+    fn with(a: Reach, b: Reach) Reach {
+        return @bitCast(@as(u3, @bitCast(a)) | @as(u3, @bitCast(b)));
+    }
+
+    fn within(a: Reach, mask: Reach) Reach {
+        return @bitCast(@as(u3, @bitCast(a)) & @as(u3, @bitCast(mask)));
+    }
+
+    fn of(c: Contents) Reach {
+        return .{ .cell = c.cell, .borrows = c.borrows };
+    }
+};
+
+/// `to` holds what `from` holds, as far as `mask` lets it reach.
+const ReachEdge = struct {
+    from: SymbolId,
+    to: SymbolId,
+    mask: Reach,
+
+    fn lessThan(_: void, a: ReachEdge, b: ReachEdge) bool {
+        return a.from < b.from;
+    }
+
+    fn before(from: SymbolId, e: ReachEdge) bool {
+        return e.from < from;
+    }
+};
+
+/// What each declared type's values hold (`Reach`): a type holds what
+/// the declared types it holds do, a borrow even through a handle, and
+/// what any argument of a generic instance it holds does (as the
+/// emitter reads type expressions). Found by propagating backwards from
+/// the types that hold something directly, so each field type is walked
+/// once.
+fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var edges: std.ArrayListUnmanaged(ReachEdge) = .empty;
     defer edges.deinit(ctx.allocator);
     var work: std.ArrayListUnmanaged(SymbolId) = .empty;
     defer work.deinit(ctx.allocator);
@@ -1917,125 +1897,62 @@ fn computeCells(ctx: *SemContext) std.mem.Allocator.Error!void {
         if (!isTypeDecl(sym)) continue;
         const id: SymbolId = @intCast(i);
         // A proxy's contents are its declaration's.
-        if (isProxy(sym)) {
-            if (sym.contents.cell) try work.append(ctx.allocator, id);
-            continue;
-        }
-        for (sym.fields orelse &.{}) |*f| {
-            for (dataFields(f)) |d| {
-                if (!try cellEdges(ctx, d.ty, id, &edges) or ctx.symbols.items[id].contents.cell) continue;
-                ctx.symbols.items[id].contents.cell = true;
-                try work.append(ctx.allocator, id);
-            }
-        }
+        var r: Reach = if (isProxy(sym)) Reach.of(sym.contents) else .{};
+        if (!isProxy(sym)) for (sym.fields orelse &.{}) |*f| {
+            for (dataFields(f)) |d| r = r.with(try reachOf(ctx, d.ty, .all, .{ .edges = &edges, .owner = id }));
+        };
+        ctx.symbols.items[id].contents.cell = r.cell;
+        ctx.symbols.items[id].contents.borrows = r.borrows;
+        if (r != Reach{}) try work.append(ctx.allocator, id);
     }
-    std.mem.sort(CellEdge, edges.items, {}, CellEdge.lessThan);
+    std.mem.sort(ReachEdge, edges.items, {}, ReachEdge.lessThan);
     while (work.pop()) |from| {
-        var i = std.sort.partitionPoint(CellEdge, edges.items, from, CellEdge.before);
+        const r = Reach.of(ctx.symbols.items[from].contents);
+        var i = std.sort.partitionPoint(ReachEdge, edges.items, from, ReachEdge.before);
         while (i < edges.items.len and edges.items[i].from == from) : (i += 1) {
-            const to = edges.items[i].to;
-            if (ctx.symbols.items[to].contents.cell) continue;
-            ctx.symbols.items[to].contents.cell = true;
-            try work.append(ctx.allocator, to);
-        }
-    }
-}
-
-/// `to` holds a `Cell` inline if `from` does.
-const CellEdge = struct {
-    from: SymbolId,
-    to: SymbolId,
-
-    fn lessThan(_: void, a: CellEdge, b: CellEdge) bool {
-        return a.from < b.from;
-    }
-
-    fn before(from: SymbolId, e: CellEdge) bool {
-        return e.from < from;
-    }
-};
-
-/// Whether a field of type `ty` of `owner` holds a `Cell` inline
-/// whatever the declared types it names hold; adds an edge from each of
-/// those to `owner`.
-fn cellEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayListUnmanaged(CellEdge)) std.mem.Allocator.Error!bool {
-    return switch (ctx.types.get(ty)) {
-        .optional, .fallible => |inner| cellEdges(ctx, inner, owner, edges),
-        .array => |a| cellEdges(ctx, a.elem, owner, edges),
-        .nominal => |s| blk: {
-            try edges.append(ctx.allocator, .{ .from = s, .to = owner });
-            break :blk false;
-        },
-        .imported_nominal => (nominalDecl(ctx, ty) orelse return false).symbol().contents.cell,
-        .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id) break :blk true;
-            if (isHeapBuiltin(ctx, pn.sym)) break :blk false;
-            try edges.append(ctx.allocator, .{ .from = pn.sym, .to = owner });
-            for (pn.args) |a| if (try cellEdges(ctx, a, owner, edges)) break :blk true;
-            break :blk false;
-        },
-        else => false,
-    };
-}
-
-/// What each declared type's values borrow. A type borrows what the
-/// declared types it holds borrow, even through a handle, so the answers
-/// are propagated backwards from the types that hold a borrow directly,
-/// like `computeCells`.
-fn computeBorrows(ctx: *SemContext) std.mem.Allocator.Error!void {
-    var edges: std.ArrayListUnmanaged(CellEdge) = .empty;
-    defer edges.deinit(ctx.allocator);
-    var work: std.ArrayListUnmanaged(SymbolId) = .empty;
-    defer work.deinit(ctx.allocator);
-    for (ctx.symbols.items, 0..) |sym, i| {
-        if (!isTypeDecl(sym)) continue;
-        const id: SymbolId = @intCast(i);
-        if (isProxy(sym)) {
-            if (sym.contents.borrows.any) try work.append(ctx.allocator, id);
-            continue;
-        }
-        var b: Borrows = .{};
-        for (sym.fields orelse &.{}) |*f| {
-            for (dataFields(f)) |d| b = b.with(try borrowEdges(ctx, d.ty, id, &edges));
-        }
-        ctx.symbols.items[id].contents.borrows = b;
-        if (b.any) try work.append(ctx.allocator, id);
-    }
-    std.mem.sort(CellEdge, edges.items, {}, CellEdge.lessThan);
-    while (work.pop()) |from| {
-        const b = ctx.symbols.items[from].contents.borrows;
-        var i = std.sort.partitionPoint(CellEdge, edges.items, from, CellEdge.before);
-        while (i < edges.items.len and edges.items[i].from == from) : (i += 1) {
-            const to = &ctx.symbols.items[edges.items[i].to].contents.borrows;
-            if (to.with(b) == to.*) continue;
-            to.* = to.with(b);
+            const to = &ctx.symbols.items[edges.items[i].to].contents;
+            const now = Reach.of(to.*).with(r.within(edges.items[i].mask));
+            if (now == Reach.of(to.*)) continue;
+            to.cell = now.cell;
+            to.borrows = now.borrows;
             try work.append(ctx.allocator, edges.items[i].to);
         }
     }
 }
 
-/// What a field of type `ty` of `owner` borrows whatever the declared
-/// types it names borrow; adds an edge from each of those to `owner`.
-fn borrowEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayListUnmanaged(CellEdge)) std.mem.Allocator.Error!Borrows {
-    return switch (ctx.types.get(ty)) {
-        .borrow_read, .slice => .{ .any = true },
-        .borrow_write => .{ .any = true, .write = true },
-        .optional, .fallible, .shared, .weak => |inner| borrowEdges(ctx, inner, owner, edges),
-        .array => |a| borrowEdges(ctx, a.elem, owner, edges),
-        .nominal => |s| blk: {
-            try edges.append(ctx.allocator, .{ .from = s, .to = owner });
+/// What a value of `ty` holds (`Reach`), as far as `mask` lets it
+/// reach: through a handle, or a Vec's or a Box's heap memory, only a
+/// borrow does, and a Cell's or Signal's value holds nothing that
+/// matters here. What a declared type `ty` names holds is read from its
+/// contents; while they are computed (`computeReach`), an edge from it
+/// to `into.owner` is added instead.
+fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edges: *std.ArrayListUnmanaged(ReachEdge), owner: SymbolId }) std.mem.Allocator.Error!Reach {
+    const r: Reach = switch (ctx.types.get(ty)) {
+        .borrow_read, .slice => .{ .borrows = .{ .any = true } },
+        .borrow_write => .{ .borrows = .{ .any = true, .write = true } },
+        .optional, .fallible => |inner| return reachOf(ctx, inner, mask, into),
+        .array => |a| return reachOf(ctx, a.elem, mask, into),
+        .shared, .weak => |inner| return reachOf(ctx, inner, mask.within(Reach.borrows_only), into),
+        .nominal => |sym| blk: {
+            const e = into orelse break :blk Reach.of(ctx.symbols.items[sym].contents);
+            try e.edges.append(ctx.allocator, .{ .from = sym, .to = e.owner, .mask = mask });
             break :blk .{};
         },
-        .imported_nominal => (nominalDecl(ctx, ty) orelse return .{}).symbol().contents.borrows,
+        .imported_nominal => Reach.of((nominalDecl(ctx, ty) orelse return .{}).symbol().contents),
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk .{};
-            try edges.append(ctx.allocator, .{ .from = pn.sym, .to = owner });
-            var b: Borrows = .{};
-            for (pn.args) |a| b = b.with(try borrowEdges(ctx, a, owner, edges));
-            break :blk b;
+            if (pn.sym == ctx.cell_sym_id) break :blk .{ .cell = true };
+            if (pn.sym == ctx.signal_sym_id) break :blk .{};
+            const m = if (isHeapBuiltin(ctx, pn.sym)) mask.within(Reach.borrows_only) else mask;
+            var r: Reach = .{};
+            if (into) |e| {
+                try e.edges.append(ctx.allocator, .{ .from = pn.sym, .to = e.owner, .mask = m });
+            } else r = Reach.of(ctx.symbols.items[pn.sym].contents);
+            for (pn.args) |a| r = r.with(try reachOf(ctx, a, m, into));
+            break :blk r;
         },
         else => .{},
     };
+    return r.within(mask);
 }
 
 /// The facts of a type, from those of the types it is built from, which
@@ -2062,74 +1979,44 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     info.glue = h.glue;
     info.plain = h.plain;
     info.holds_type_var = h.type_var;
-    info.cell = switch (ty) {
-        .optional, .fallible => |inner| ctx.type_info.items[inner].cell,
-        .array => |a| ctx.type_info.items[a.elem].cell,
-        .nominal, .imported_nominal => if (nominalDecl(ctx, id)) |decl| decl.symbol().contents.cell else false,
-        .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id) break :blk true;
-            if (isHeapBuiltin(ctx, pn.sym)) break :blk false;
-            if (ctx.symbols.items[pn.sym].contents.cell) break :blk true;
-            for (pn.args) |a| if (ctx.type_info.items[a].cell) break :blk true;
-            break :blk false;
-        },
-        else => false,
-    };
-    info.borrows = switch (ty) {
-        .borrow_read, .slice => .{ .any = true },
-        .borrow_write => .{ .any = true, .write = true },
-        .optional, .fallible, .shared, .weak => |inner| ctx.type_info.items[inner].borrows,
-        .array => |a| ctx.type_info.items[a.elem].borrows,
-        .nominal, .imported_nominal => if (nominalDecl(ctx, id)) |decl| decl.symbol().contents.borrows else .{},
-        .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk .{};
-            var b = ctx.symbols.items[pn.sym].contents.borrows;
-            for (pn.args) |a| b = b.with(ctx.type_info.items[a].borrows);
-            break :blk b;
-        },
-        else => .{},
-    };
+    const r = try reachOf(ctx, id, .all, null);
+    info.cell = r.cell;
+    info.borrows = r.borrows;
     return info;
 }
 
 /// A struct or enum may not hold itself by value, directly or through
 /// the types it holds by value: it would have no finite size. One search
-/// of the by-value graph over the declared types finds every cycle
-/// (Tarjan's strongly connected components).
+/// of the by-value graph over the declared types finds every cycle.
 fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
-    const n = ctx.symbols.items.len;
-    const a = ctx.allocator;
-    var s: Components = .{
-        .ctx = ctx,
-        .index = try a.alloc(u32, n),
-        .low = try a.alloc(u32, n),
-        .on_stack = try a.alloc(bool, n),
-        .cyclic = try a.alloc(bool, n),
-    };
-    defer s.deinit();
-    @memset(s.index, 0);
-    @memset(s.on_stack, false);
-    @memset(s.cyclic, false);
-    for (ctx.symbols.items, 0..) |sym, i| {
-        if (isTypeDecl(sym) and s.index[i] == 0) try s.visit(@intCast(i));
-    }
+    var c = try Components.run(ctx, false);
+    defer c.deinit();
     var targets: std.ArrayListUnmanaged(SymbolId) = .empty;
-    defer targets.deinit(a);
+    defer targets.deinit(ctx.allocator);
     for (ctx.symbols.items, 0..) |sym, i| {
-        if (!s.cyclic[i] or sym.decl_pos >= imported_decl_pos) continue;
+        if (!c.cyclic[i]) continue;
+        ctx.symbols.items[i].contents.cyclic = true;
+        if (sym.decl_pos >= imported_decl_pos) continue;
         const f = fields: for (sym.fields orelse &.{}) |*f| {
             targets.clearRetainingCapacity();
-            for (dataFields(f)) |d| try byValueTargets(ctx, d.ty, &targets);
+            for (dataFields(f)) |d| try byValueTargets(ctx, d.ty, &targets, false);
             // `low` names the component after the search.
-            for (targets.items) |t| if (s.low[t] == s.low[i]) break :fields f;
+            for (targets.items) |t| if (c.low[t] == c.low[i]) break :fields f;
         } else continue;
         const shown = if (sym.kind == .generic_type) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}[...]", .{sym.name}) else sym.name;
         try ctx.err(f.decl_pos, "`{s}` contains itself by value through `{s}`, so it would have no finite size; hold it through a shared handle (`*{s}`)", .{ shown, f.name, shown });
     }
 }
 
+/// The strongly connected components of the graph of declared types, an
+/// edge going from a type to each one it holds by value (Tarjan's
+/// algorithm, with an explicit stack, so a long chain of types does not
+/// nest the search). Before what each type holds is known
+/// (`every_arg`), a generic instance counts as holding all its
+/// arguments, and a Vec or a Box its element.
 const Components = struct {
-    ctx: *SemContext,
+    ctx: *const SemContext,
+    every_arg: bool,
     next: u32 = 1,
     /// Visit order (0: not visited yet).
     index: []u32,
@@ -2139,7 +2026,35 @@ const Components = struct {
     on_stack: []bool,
     /// In a component with a cycle.
     cyclic: []bool,
+    /// The types in completed components, each component after every
+    /// one its members hold by value.
+    order: std.ArrayListUnmanaged(SymbolId) = .empty,
     stack: std.ArrayListUnmanaged(SymbolId) = .empty,
+    /// The types being visited, innermost last, each with its range of
+    /// `targets` and the next one to follow.
+    visiting: std.ArrayListUnmanaged(struct { v: SymbolId, start: u32, next: u32, end: u32 }) = .empty,
+    targets: std.ArrayListUnmanaged(SymbolId) = .empty,
+
+    fn run(ctx: *const SemContext, every_arg: bool) std.mem.Allocator.Error!Components {
+        const n = ctx.symbols.items.len;
+        const a = ctx.allocator;
+        var self: Components = .{
+            .ctx = ctx,
+            .every_arg = every_arg,
+            .index = try a.alloc(u32, n),
+            .low = try a.alloc(u32, n),
+            .on_stack = try a.alloc(bool, n),
+            .cyclic = try a.alloc(bool, n),
+        };
+        errdefer self.deinit();
+        @memset(self.index, 0);
+        @memset(self.on_stack, false);
+        @memset(self.cyclic, false);
+        for (ctx.symbols.items, 0..) |sym, i| {
+            if (isTypeDecl(sym) and self.index[i] == 0) try self.visit(@intCast(i));
+        }
+        return self;
+    }
 
     fn deinit(self: *Components) void {
         const a = self.ctx.allocator;
@@ -2147,37 +2062,57 @@ const Components = struct {
         a.free(self.low);
         a.free(self.on_stack);
         a.free(self.cyclic);
+        self.order.deinit(a);
         self.stack.deinit(a);
+        self.visiting.deinit(a);
+        self.targets.deinit(a);
     }
 
-    fn visit(self: *Components, v: SymbolId) std.mem.Allocator.Error!void {
+    fn visit(self: *Components, root: SymbolId) std.mem.Allocator.Error!void {
+        try self.enter(root);
+        while (self.visiting.items.len > 0) {
+            const top = &self.visiting.items[self.visiting.items.len - 1];
+            const v = top.v;
+            if (top.next < top.end) {
+                const w = self.targets.items[top.next];
+                top.next += 1;
+                if (w == v) self.cyclic[v] = true;
+                if (self.index[w] == 0) {
+                    try self.enter(w);
+                } else if (self.on_stack[w]) self.low[v] = @min(self.low[v], self.index[w]);
+                continue;
+            }
+            self.targets.shrinkRetainingCapacity(top.start);
+            _ = self.visiting.pop();
+            if (self.visiting.items.len > 0) {
+                const parent = self.visiting.items[self.visiting.items.len - 1].v;
+                self.low[parent] = @min(self.low[parent], self.low[v]);
+            }
+            if (self.low[v] != self.index[v]) continue;
+            const start = std.mem.lastIndexOfScalar(SymbolId, self.stack.items, v).?;
+            const members = self.stack.items[start..];
+            for (members) |m| {
+                self.on_stack[m] = false;
+                self.low[m] = self.index[v];
+                if (members.len > 1) self.cyclic[m] = true;
+            }
+            try self.order.appendSlice(self.ctx.allocator, members);
+            self.stack.shrinkRetainingCapacity(start);
+        }
+    }
+
+    fn enter(self: *Components, v: SymbolId) std.mem.Allocator.Error!void {
         const a = self.ctx.allocator;
         self.index[v] = self.next;
         self.low[v] = self.next;
         self.next += 1;
         try self.stack.append(a, v);
         self.on_stack[v] = true;
-        var targets: std.ArrayListUnmanaged(SymbolId) = .empty;
-        defer targets.deinit(a);
+        const start: u32 = @intCast(self.targets.items.len);
         for (self.ctx.symbols.items[v].fields orelse &.{}) |*f| {
-            for (dataFields(f)) |d| try byValueTargets(self.ctx, d.ty, &targets);
+            for (dataFields(f)) |d| try byValueTargets(self.ctx, d.ty, &self.targets, self.every_arg);
         }
-        for (targets.items) |w| {
-            if (w == v) self.cyclic[v] = true;
-            if (self.index[w] == 0) {
-                try self.visit(w);
-                self.low[v] = @min(self.low[v], self.low[w]);
-            } else if (self.on_stack[w]) self.low[v] = @min(self.low[v], self.index[w]);
-        }
-        if (self.low[v] != self.index[v]) return;
-        const start = std.mem.lastIndexOfScalar(SymbolId, self.stack.items, v).?;
-        const members = self.stack.items[start..];
-        for (members) |m| {
-            self.on_stack[m] = false;
-            self.low[m] = self.index[v];
-            if (members.len > 1) self.cyclic[m] = true;
-        }
-        self.stack.shrinkRetainingCapacity(start);
+        try self.visiting.append(a, .{ .v = v, .start = start, .next = start, .end = @intCast(self.targets.items.len) });
     }
 };
 
@@ -2196,25 +2131,27 @@ pub fn isBuiltinCallName(name: []const u8) bool {
     return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap");
 }
 
-/// A built-in generic that keeps its values on the heap: `Vec[T]`,
-/// `Box[T]`, and `Signal[T]` hold a pointer, whatever `T` is.
-pub fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.vec_sym_id or sym == ctx.box_sym_id or sym == ctx.signal_sym_id;
+/// A built-in generic that keeps its values on the heap: a `Vec[T]` and
+/// a `Box[T]` hold a pointer, whatever `T` is. (A `Cell[T]` holds its
+/// `T` inline, and a `Signal[T]` its value and a pending one.)
+fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
+    return sym == ctx.vec_sym_id or sym == ctx.box_sym_id;
 }
 
 /// The declared types a value of `ty` holds inline (not behind a handle,
-/// a borrow, or a Vec's heap buffer), appended to `out`.
-fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanaged(SymbolId)) std.mem.Allocator.Error!void {
+/// a borrow, or a Vec's or a Box's heap memory), appended to `out`; with
+/// `every_arg`, those of every argument of a generic instance as well.
+fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanaged(SymbolId), every_arg: bool) std.mem.Allocator.Error!void {
     switch (ctx.types.get(ty)) {
-        .optional, .fallible => |inner| try byValueTargets(ctx, inner, out),
-        .array => |a| try byValueTargets(ctx, a.elem, out),
+        .optional, .fallible => |inner| try byValueTargets(ctx, inner, out, every_arg),
+        .array => |a| try byValueTargets(ctx, a.elem, out, every_arg),
         .nominal => |s| try out.append(ctx.allocator, s),
         .parameterized_nominal => |pn| {
-            if (isHeapBuiltin(ctx, pn.sym)) return;
+            if (!every_arg and isHeapBuiltin(ctx, pn.sym)) return;
             try out.append(ctx.allocator, pn.sym);
             const held = ctx.symbols.items[pn.sym].contents.held;
             for (pn.args, 0..) |arg, i| {
-                if (i < held.len and held[i]) try byValueTargets(ctx, arg, out);
+                if (every_arg or (i < held.len and held[i])) try byValueTargets(ctx, arg, out, every_arg);
             }
         },
         else => {},
@@ -2290,9 +2227,10 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .invalid, .unknown, .type_var, .ct_param => null,
         .void, .noreturn, .none_literal => 0,
         .bool => 1,
-        .int => |i| if (i.bits == 0) 8 else (i.bits + 7) / 8,
+        .int => |i| i.width() / 8,
         .float => |f| if (f.bits == 0) 8 else f.bits / 8,
         .string, .slice => 16,
+        .any_error => 2,
         // A null handle or borrow is its null address; anything else
         // needs a flag.
         .optional => |inner| if (try minBytesOf(ctx, inner, false)) |b| b + @intFromBool(!isAddress(ctx, inner)) else null,
@@ -2302,14 +2240,23 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             break :blk std.math.mul(u128, n, e) catch std.math.maxInt(u128);
         },
         .nominal => |sym| try fieldBytes(ctx, sym, .empty),
+        // Sized where it is declared (`checkTypeSizes`).
         .imported_nominal => |in| blk: {
             const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk null;
-            break :blk try minBytes(foreign, try foreign.intern(.{ .nominal = in.sym_id }));
+            const declared = foreign.types.find(.{ .nominal = in.sym_id }) orelse break :blk null;
+            break :blk foreign.byte_sizes.get(declared) orelse null;
         },
-        .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym) or pn.sym == ctx.cell_sym_id)
+        // A Vec is its buffer's slice and length, a Box its pointer. A
+        // Cell is its value (its one field), a Signal its value, a pending
+        // one, a flag, and a Vec of subscribers.
+        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id)
+            24
+        else if (pn.sym == ctx.box_sym_id)
             8
-        else
-            try fieldBytes(ctx, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
+        else if (pn.sym == ctx.signal_sym_id) blk: {
+            const v = (try minBytesOf(ctx, pn.args[0], false)) orelse break :blk null;
+            break :blk 2 *| v +| 2 +| 24;
+        } else try fieldBytes(ctx, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
         else => 8,
     };
     try ctx.byte_sizes.put(ctx.allocator, ty, bytes);
@@ -2319,6 +2266,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
 /// The bytes a struct's fields take at least, or an enum's tag and
 /// largest payload.
 fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!?u128 {
+    if (ctx.symbols.items[sym].contents.cyclic) return null;
     var total: u128 = 0;
     var variants: u128 = 0;
     for (ctx.symbols.items[sym].fields orelse &.{}) |f| {
@@ -2337,10 +2285,11 @@ fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocat
     return total +| tag;
 }
 
-/// Whether a value of `ty` is an address, which is never 0.
+/// Whether a value of `ty` is or starts with an address, which is never
+/// 0: an optional of it is null there.
 fn isAddress(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .shared, .weak, .borrow_read, .borrow_write => true,
+        .shared, .weak, .borrow_read, .borrow_write, .string, .slice => true,
         else => false,
     };
 }
@@ -2411,12 +2360,15 @@ pub fn oversizedByItself(ctx: *SemContext, ty: TypeId, sym: SymbolId, subst: Typ
 }
 
 /// Every declared struct and enum must fit `max_value_bytes`; a generic
-/// one is checked at each instance.
-fn checkTypeSizes(ctx: *SemContext) std.mem.Allocator.Error!void {
-    for (ctx.symbols.items, 0..) |sym, i| {
-        if (sym.kind != .nominal_type or sym.decl_pos == builtin_decl_pos) continue;
-        const ty = try ctx.intern(.{ .nominal = @intCast(i) });
-        const bytes = (try oversizedByItself(ctx, ty, @intCast(i), .empty)) orelse continue;
+/// one is checked at each instance. Each is sized after the types it
+/// holds (`order`, from `computeContents`), so sizing one does not nest
+/// through the chain of types it holds.
+fn checkTypeSizes(ctx: *SemContext, order: []const SymbolId) std.mem.Allocator.Error!void {
+    for (order) |id| {
+        const sym = ctx.symbols.items[id];
+        if (sym.kind != .nominal_type or sym.decl_pos >= imported_decl_pos) continue;
+        const ty = try ctx.intern(.{ .nominal = id });
+        const bytes = (try oversizedByItself(ctx, ty, id, .empty)) orelse continue;
         try reportOversized(ctx, sym.decl_pos, ty, bytes);
     }
 }
@@ -2427,7 +2379,7 @@ pub fn ctInt(ctx: *SemContext, v: Wide) std.mem.Allocator.Error!TypeId {
 }
 
 /// Does a value of this type need its destructor run: a `*T` / `~T`
-/// handle, a Vec, an owned closure, or a nominal or generic instance
+/// handle, a Vec, a Box, an owned closure, or a nominal or generic instance
 /// that declares `drop` or holds such a value. Types with drop glue are
 /// non-Copy.
 pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
@@ -2452,15 +2404,18 @@ pub fn callableFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
     return ctx.types.get(callableFnTy(ctx, ty) orelse return null).function;
 }
 
-/// The function type of borrowed callable `ty`, or null.
+/// The function type of borrowed callable `ty`, or null. (A callable of
+/// anything else follows a diagnostic.)
 pub fn callableFnTy(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    return switch (ctx.types.get(ty)) {
-        .borrow_read => |inner| switch (ctx.types.get(inner)) {
-            .callable => |f| f,
-            else => null,
-        },
-        else => null,
+    const inner = switch (ctx.types.get(ty)) {
+        .borrow_read => |inner| inner,
+        else => return null,
     };
+    const f = switch (ctx.types.get(inner)) {
+        .callable => |f| f,
+        else => return null,
+    };
+    return if (ctx.types.get(f) == .function) f else null;
 }
 
 /// The borrowed callable of function type `fn_ty`: `?fun(...)`.
@@ -2559,10 +2514,10 @@ pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
 /// Why values of a type have no `==`: the type that lacks it, found
 /// inside the compared type, and the path of fields to it.
 pub const NotEquatable = struct {
-    /// The context whose type store holds `ty`.
+    /// The context whose type store holds `ty`: the module being checked.
     ctx: *const SemContext,
     ty: TypeId,
-    /// The module `ctx` checks, when it is another module's.
+    /// Always null: `ty` is in the checked module's store.
     origin: ?u32 = null,
     /// Field names from the compared type to `ty`, joined by `.`, a
     /// variant's payload field as `variant.field`; empty for the
@@ -2594,78 +2549,118 @@ pub const NotEquatable = struct {
 /// `ty` holds is appended to `params`, when given: `==` on `ty` holds in
 /// the instances where it holds for them.
 pub fn notEquatable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayListUnmanaged(SymbolId)) std.mem.Allocator.Error!?NotEquatable {
-    var walk: EquatableWalk = .{ .local = ctx, .params = params };
-    defer walk.visited.deinit(ctx.allocator);
-    return walk.check(ctx, null, ty, false);
+    var walk: EquatableWalk = .{ .ctx = ctx, .params = params };
+    defer walk.deinit();
+    try walk.items.append(ctx.allocator, .{ .ty = ty });
+    try walk.work.append(ctx.allocator, 0);
+    while (walk.work.pop()) |i| {
+        const why = (try walk.step(i)) orelse continue;
+        // The path of fields from the compared type to the one found.
+        var names: std.ArrayListUnmanaged([]const u8) = .empty;
+        defer names.deinit(ctx.allocator);
+        var at = i;
+        while (at != 0) : (at = walk.items.items[at].parent) {
+            const name = walk.items.items[at].name;
+            if (name.len > 0) try names.append(ctx.allocator, name);
+        }
+        std.mem.reverse([]const u8, names.items);
+        const path = try std.mem.join(ctx.arena.allocator(), ".", names.items);
+        return .{ .ctx = ctx, .ty = walk.items.items[i].ty, .path = path, .why = why };
+    }
+    return null;
 }
 
 pub fn isEquatable(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!bool {
     return (try notEquatable(ctx, ty, null)) == null;
 }
 
+/// The types a compared value holds, walked depth first with an explicit
+/// stack, so a long chain of types does not nest the walk. Each is in
+/// `ctx`'s store: the field types of another module's struct are
+/// imported there, and a generic instance's have its type arguments
+/// applied.
 const EquatableWalk = struct {
-    local: *SemContext,
+    ctx: *SemContext,
     params: ?*std.ArrayListUnmanaged(SymbolId),
+    /// Every type reached: the compared one first, then each with the
+    /// one that holds it and, for a field or payload, its name
+    /// (`variant.field` for a payload field).
+    items: std.ArrayListUnmanaged(struct { ty: TypeId, parent: u32 = 0, name: []const u8 = "", in_decl: bool = false }) = .empty,
+    /// The items still to check, the next last.
+    work: std.ArrayListUnmanaged(u32) = .empty,
     /// Declared types checked or being checked: one reached again,
     /// through itself or another path, adds nothing new.
-    visited: std.AutoHashMapUnmanaged(struct { ctx: *const SemContext, ty: TypeId }, void) = .empty,
+    visited: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
 
-    /// `ty` in the type store of `at`, the context of module `origin`
-    /// (null for the module being checked); `in_decl` when a field or
-    /// payload holds it, where a slice is a borrow.
-    fn check(self: *EquatableWalk, at: *const SemContext, origin: ?u32, ty: TypeId, in_decl: bool) std.mem.Allocator.Error!?NotEquatable {
-        const fail: NotEquatable = .{ .ctx = at, .origin = origin, .ty = ty, .path = "", .why = .handle };
-        switch (at.types.get(ty)) {
-            .optional => |inner| return self.check(at, origin, inner, in_decl),
-            .array => |a| return self.check(at, origin, a.elem, in_decl),
-            .slice => |s| return if (in_decl) with(fail, .borrow) else self.check(at, origin, s.elem, in_decl),
-            .borrow_read, .borrow_write => return with(fail, .borrow),
-            .shared => |inner| return with(fail, if (at.types.get(inner) == .function) .closure else .handle),
-            .weak => return fail,
-            .function => return with(fail, .function),
-            .type_var => |sym| {
-                if (self.params) |out| if (std.mem.indexOfScalar(SymbolId, out.items, sym) == null) try out.append(self.local.allocator, sym);
-                return null;
-            },
-            .nominal, .imported_nominal, .parameterized_nominal => return self.checkDecl(at, origin, ty),
-            .void, .fallible, .range => return with(fail, .no_eq),
-            else => return null,
-        }
+    fn deinit(self: *EquatableWalk) void {
+        self.items.deinit(self.ctx.allocator);
+        self.work.deinit(self.ctx.allocator);
+        self.visited.deinit(self.ctx.allocator);
     }
 
-    fn checkDecl(self: *EquatableWalk, at: *const SemContext, origin: ?u32, ty: TypeId) std.mem.Allocator.Error!?NotEquatable {
-        const fail: NotEquatable = .{ .ctx = at, .origin = origin, .ty = ty, .path = "", .why = .no_eq };
-        const decl = nominalDecl(at, ty) orelse return null;
-        if (isHeapBuiltin(decl.ctx, decl.sym) or decl.sym == decl.ctx.cell_sym_id) return fail;
+    /// Why item `i`'s type has no `==` itself, or null after queuing
+    /// what it holds. A slice held in a field or payload is a borrow.
+    fn step(self: *EquatableWalk, i: u32) std.mem.Allocator.Error!?NotEquatable.Why {
+        const ctx = self.ctx;
+        const item = self.items.items[i];
+        switch (ctx.types.get(item.ty)) {
+            .optional => |inner| try self.push(i, inner, ""),
+            .array => |a| try self.push(i, a.elem, ""),
+            .slice => |sl| if (item.in_decl) return .borrow else try self.push(i, sl.elem, ""),
+            .borrow_read, .borrow_write => return .borrow,
+            .shared => |inner| return if (ctx.types.get(inner) == .function) .closure else .handle,
+            .weak => return .handle,
+            .function => return .function,
+            // A parameter of another module's generic type is always
+            // bound by the instance that reaches it.
+            .type_var => |sym| if (self.params) |out| if (!isProxy(ctx.symbols.items[sym]) and std.mem.indexOfScalar(SymbolId, out.items, sym) == null) try out.append(ctx.allocator, sym),
+            .nominal, .imported_nominal, .parameterized_nominal => return self.stepDecl(i),
+            .void, .fallible, .range => return .no_eq,
+            else => {},
+        }
+        return null;
+    }
+
+    fn stepDecl(self: *EquatableWalk, i: u32) std.mem.Allocator.Error!?NotEquatable.Why {
+        const ctx = self.ctx;
+        const ty = self.items.items[i].ty;
+        const decl = nominalDecl(ctx, ty) orelse return null;
+        if (isBuiltinGeneric(decl.ctx, decl.sym)) return .no_eq;
         const sym = decl.symbol();
         if (sym.flags.error_set) return null;
-        const gop = try self.visited.getOrPut(self.local.allocator, .{ .ctx = at, .ty = ty });
-        if (gop.found_existing) return null;
+        if ((try self.visited.getOrPut(ctx.allocator, ty)).found_existing) return null;
         const fields = sym.fields orelse return null;
-        for (fields) |f| if (f.is_drop_method) return with(fail, .drop);
-        // An instance's field types name the generic type's parameters.
-        // Only the module's own generic types have instances here.
-        const subst: TypeSubst = switch (at.types.get(ty)) {
+        for (fields) |f| if (f.is_drop_method) return .drop;
+        // An instance's field types name its generic type's parameters
+        // (a proxy's, for another module's generic type).
+        const subst: TypeSubst = switch (ctx.types.get(ty)) {
             .parameterized_nominal => |pn| .{ .params = sym.type_params orelse &.{}, .args = pn.args },
             else => .empty,
         };
-        for (fields) |*f| {
-            for (dataFields(f)) |d| {
-                const fty = if (subst.isEmpty() or decl.ctx != self.local) d.ty else try substituteType(self.local, d.ty, subst);
-                var inner = (try self.check(decl.ctx, decl.module_id orelse origin, fty, true)) orelse continue;
-                const a = self.local.arena.allocator();
-                const name = if (f.is_variant) try std.fmt.allocPrint(a, "{s}.{s}", .{ f.name, d.name }) else d.name;
-                inner.path = if (inner.path.len == 0) name else try std.fmt.allocPrint(a, "{s}.{s}", .{ name, inner.path });
-                return inner;
+        // Queued last to first, so the first field is checked first.
+        var k = fields.len;
+        while (k > 0) {
+            k -= 1;
+            const f = &fields[k];
+            const held = dataFields(f);
+            var j = held.len;
+            while (j > 0) {
+                j -= 1;
+                const d = held[j];
+                const fty = if (decl.module_id) |m| try importType(ctx, decl.ctx, d.ty, m) else try substituteType(ctx, d.ty, subst);
+                const name = if (f.is_variant) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}.{s}", .{ f.name, d.name }) else d.name;
+                try self.push(i, fty, name);
             }
         }
         return null;
     }
 
-    fn with(n: NotEquatable, why: NotEquatable.Why) NotEquatable {
-        var r = n;
-        r.why = why;
-        return r;
+    /// Queue `ty`, which item `parent` holds: in the field `name`, or
+    /// (with no name) as its value or element.
+    fn push(self: *EquatableWalk, parent: u32, ty: TypeId, name: []const u8) std.mem.Allocator.Error!void {
+        const in_decl = name.len > 0 or self.items.items[parent].in_decl;
+        try self.items.append(self.ctx.allocator, .{ .ty = ty, .parent = parent, .name = name, .in_decl = in_decl });
+        try self.work.append(self.ctx.allocator, @intCast(self.items.items.len - 1));
     }
 };
 
@@ -2765,7 +2760,7 @@ pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
 
 /// One of the built-in generic types: `Cell`, `Vec`, `Box`, `Signal`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
-    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id;
+    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id;
 }
 
 /// `unwrapReadAccess`, then through a box to the struct or enum it
@@ -2825,7 +2820,7 @@ pub const TypeSubst = struct {
 
 /// Replace every `type_var` and `ct_param` in `ty_id` that `subst` maps.
 pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem.Allocator.Error!TypeId {
-    if (subst.isEmpty()) return ty_id;
+    if (subst.isEmpty() or !ctx.typeInfo(ty_id).has_type_var) return ty_id;
     const ty = ctx.types.get(ty_id);
     switch (ty) {
         .type_var, .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
@@ -2926,8 +2921,7 @@ pub fn holdsWriteBorrow(ctx: *const SemContext, ty: TypeId) bool {
 pub fn isCopyElement(ctx: *const SemContext, ty: TypeId) bool {
     if (isCopyPrimitive(ctx, ty)) return true;
     return switch (ctx.types.get(ty)) {
-        .nominal, .imported_nominal, .optional, .array => isPlainData(ctx, ty),
-        .parameterized_nominal => |pn| pn.sym != ctx.box_sym_id and isPlainData(ctx, ty),
+        .nominal, .imported_nominal, .parameterized_nominal, .optional, .array => isPlainData(ctx, ty),
         else => false,
     };
 }
@@ -2969,7 +2963,7 @@ pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnman
 /// declared there become `imported_nominal` tagged with their origin.
 pub fn importType(
     local_ctx: *SemContext,
-    foreign_ctx: *SemContext,
+    foreign_ctx: *const SemContext,
     foreign_ty_id: TypeId,
     origin_module_id: u32,
 ) std.mem.Allocator.Error!TypeId {
@@ -3300,7 +3294,7 @@ pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) st
         if (payload.len > 0 and (decl.module_id != null or !subst.isEmpty())) {
             const typed = try ctx.arena.allocator().dupe(Field, payload);
             for (typed) |*pf| pf.ty = if (decl.module_id) |origin|
-                try importType(ctx, @constCast(decl.ctx), pf.ty, origin)
+                try importType(ctx, decl.ctx, pf.ty, origin)
             else
                 try substituteType(ctx, pf.ty, subst);
             payload = typed;
@@ -3310,12 +3304,10 @@ pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) st
     return null;
 }
 
+/// Whether member access on `receiver_ty` reaches a method `name` of its
+/// type, local or imported.
 pub fn hasMethodNamed(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) bool {
-    const m = membersOf(ctx, unwrapAccess(ctx, receiver_ty)) orelse return false;
-    for (m.fields) |f| {
-        if (f.is_method and !f.is_drop_method and std.mem.eql(u8, f.name, name)) return true;
-    }
-    return false;
+    return methodReceiver(ctx, receiver_ty, name) != null;
 }
 
 /// Number of variants of an enum type, or null if not an enum.
@@ -3488,18 +3480,23 @@ pub const ConstInt = union(enum) {
     overflow,
 };
 
-/// The value of a constant integer expression: literals, constant
-/// bindings, and arithmetic on them.
+/// The value of a constant integer expression in checked code: literals,
+/// constant bindings, and arithmetic on them.
 pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
     return constIntBy(ctx, e, CheckedNames{ .ctx = ctx });
 }
 
-/// The names of checked code: a constant binding's value is known once
-/// its declaration is checked, and an imported constant's (`lib.N`) is
-/// known. Their values are untyped here: the checker gives constant
-/// arithmetic its type.
+/// What `ctFoldBy` knows of checked code, from the facts the checker
+/// recorded: the symbol a name is, a constant binding's value (known once
+/// its declaration is checked) and an imported constant's (`lib.N`), and
+/// the type literal arithmetic was given. The values are untyped here:
+/// the checker gives constant arithmetic its type.
 const CheckedNames = struct {
     ctx: *const SemContext,
+
+    pub fn symbol(self: CheckedNames, e: Sexp) ?SymbolId {
+        return self.ctx.symbolOf(e) orelse self.ctx.lookupInScopeOnly(module_scope, identAt(self.ctx.source, e) orelse return null);
+    }
 
     pub fn name(self: CheckedNames, e: Sexp) ?TypedInt {
         const id = self.ctx.symbolOf(e) orelse return null;
@@ -3510,17 +3507,23 @@ const CheckedNames = struct {
     pub fn member(self: CheckedNames, e: Sexp) ?TypedInt {
         const obj = ir.Member.object(e);
         if (obj != .src) return null;
-        const id = self.ctx.symbolOf(obj) orelse self.ctx.lookupInScopeOnly(module_scope, identAt(self.ctx.source, obj) orelse return null) orelse return null;
+        const id = self.symbol(obj) orelse return null;
         if (self.ctx.symbols.items[id].kind != .module) return null;
         const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
         const fid = foreign.lookupInScopeOnly(module_scope, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
         const c = foreign.const_ints.get(fid) orelse return null;
         return .{ .v = c.value };
     }
+
+    pub fn literalInt(self: CheckedNames, e: Sexp) ?IntInfo {
+        return switch (self.ctx.types.get(self.ctx.typeOf(e) orelse return null)) {
+            .int => |i| i,
+            else => null,
+        };
+    }
 };
 
-/// `constInt` with the value of each name leaf and `(member ...)` node
-/// from `names` (`name(e)`, `member(e)`, each a `?TypedInt`).
+/// `constInt` with what `names` knows (`ctFoldBy`).
 pub fn constIntBy(ctx: *const SemContext, e: Sexp, names: anytype) ConstInt {
     return switch (ctFoldBy(ctx, e, names)) {
         .value => |t| .{ .value = t.v },
@@ -3549,6 +3552,15 @@ pub const CtFold = union(enum) {
     mismatch: struct { node: Sexp, a: IntInfo, b: IntInfo },
 };
 
+/// The one constant evaluator: the value of a constant integer
+/// expression, for module and local constants, array lengths,
+/// compile-time arguments, and enum values. It reads the program only
+/// through `names`, which answers for the context the expression is in:
+/// `symbol(leaf) ?SymbolId`, the declaration a name is; `name(leaf)`
+/// and `member(e)`, each a `?TypedInt`, the value of a constant and of
+/// another module's (`lib.N`); and `literalInt(e) ?IntInfo`, the integer
+/// type arithmetic on literals alone is computed in (for a wrapping
+/// operation or a shift).
 pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
     switch (e) {
         .src => {
@@ -3563,7 +3575,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
             if (h == .call) {
                 const callee = ir.Call.callee(e);
                 const args = ir.Call.args(e);
-                if (callee != .src or ctx.symbolOf(callee) != null or args.len != 1 or args[0].isKind(.kwarg)) return .not_constant;
+                if (callee != .src or names.symbol(callee) != null or args.len != 1 or args[0].isKind(.kwarg)) return .not_constant;
                 const info = intTypeNamed(identAt(ctx.source, callee) orelse return .not_constant) orelse return .not_constant;
                 const a = switch (ctFoldBy(ctx, args[0], names)) {
                     .value => |t| t,
@@ -3573,7 +3585,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                 return .{ .value = .{ .v = a.v, .int = info } };
             }
             if (h == .member) {
-                if (intLimit(ctx, e)) |t| return .{ .value = t };
+                if (intLimitBy(ctx, e, names)) |t| return .{ .value = t };
                 return if (names.member(e)) |t| .{ .value = t } else .not_constant;
             }
             if (h == .neg) {
@@ -3587,7 +3599,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
             // `a if c else b` with a constant condition: Zig picks the
             // branch at compile time, so its value is constant.
             if (h == .@"if" and ir.If.@"else"(e) != .nil) {
-                const c = constBoolOf(ctx, ir.If.cond(e)) orelse return .not_constant;
+                const c = constBoolBy(ctx, ir.If.cond(e), names) orelse return .not_constant;
                 return ctFoldBy(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), names);
             }
             switch (h) {
@@ -3605,16 +3617,15 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
             // A shift is in its left operand's type.
             const shift = h == .@"<<" or h == .@">>";
             if (!shift) if (a.int) |ai| if (b.int) |bi| if (!std.meta.eql(ai, bi)) return .{ .mismatch = .{ .node = e, .a = ai, .b = bi } };
-            const int = if (shift) a.int orelse literalInt(ctx, e) else a.int orelse b.int;
+            const int = if (shift) a.int orelse names.literalInt(e) else a.int orelse b.int;
             // Wrapping arithmetic keeps the low bits of the result in its
             // type, which a `Wide` computes exactly (its width is a
-            // multiple of every integer type's). Untyped, the width is not
-            // known here, so the program computes it.
+            // multiple of every integer type's). Literals alone wrap in
+            // the type their context gives them; without one, the width
+            // is not known here, so the program computes it.
             switch (h) {
                 .@"+%", .@"-%", .@"*%" => {
-                    // Literals alone wrap in the type their context gives
-                    // them, which the checker records.
-                    const info = int orelse literalInt(ctx, e) orelse return .not_constant;
+                    const info = int orelse names.literalInt(e) orelse return .not_constant;
                     const v = switch (h) {
                         .@"+%" => a.v +% b.v,
                         .@"-%" => a.v -% b.v,
@@ -3634,11 +3645,11 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                 .@"%" => if (b.v == 0) return .not_constant else if (b.v == -1) 0 else @rem(a.v, b.v),
                 // A shift by the width or more is reported where the
                 // operator is checked; one that loses bits overflows.
-                .@"<<" => if (b.v < 0 or b.v >= widthOf(int orelse literalInt(ctx, e) orelse IntInfo{})) return .not_constant else blk: {
+                .@"<<" => if (b.v < 0 or b.v >= (int orelse IntInfo{}).width()) return .not_constant else blk: {
                     const r = a.v << @intCast(b.v);
                     break :blk if (r >> @intCast(b.v) == a.v) r else null;
                 },
-                .@">>" => if (b.v < 0 or b.v >= widthOf(int orelse literalInt(ctx, e) orelse IntInfo{})) return .not_constant else a.v >> @intCast(b.v),
+                .@">>" => if (b.v < 0 or b.v >= (int orelse IntInfo{}).width()) return .not_constant else a.v >> @intCast(b.v),
                 .@"&" => a.v & b.v,
                 .@"|" => a.v | b.v,
                 else => a.v ^ b.v,
@@ -3662,21 +3673,47 @@ pub fn intTypeNamed(name: []const u8) ?IntInfo {
     };
 }
 
-/// `U8.max`, `Int.min`: an integer type's limit, a constant of it, named
-/// through the type or an alias of it. Null for anything else.
-pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
-    const obj = ir.Member.object(e);
-    if (obj != .src) return null;
-    const name = identAt(ctx.source, obj) orelse return null;
-    // An alias of an integer type (`type Byte = U8`) names its limits.
-    const info = if (ctx.symbolOf(obj) orelse ctx.lookupInScopeOnly(module_scope, name)) |id| blk: {
-        const sym = ctx.symbols.items[id];
+/// The integer type the type alias `id` names, through other aliases;
+/// null for any other type. Known before the alias is resolved, too.
+pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
+    var alias = id;
+    // An alias chain longer than this is a cycle, reported elsewhere.
+    for (0..64) |_| {
+        const sym = ctx.symbols.items[alias];
         if (sym.kind != .type_alias) return null;
-        break :blk switch (ctx.types.get(sym.ty)) {
+        if (sym.ty != ctx.types.unknown_id) return switch (ctx.types.get(sym.ty)) {
             .int => |i| i,
-            else => return null,
+            else => null,
         };
-    } else intTypeNamed(name) orelse return null;
+        const name = identAt(ctx.source, ctx.alias_targets.get(alias) orelse return null) orelse return null;
+        if (intTypeNamed(name)) |i| return i;
+        alias = ctx.lookup(sym.scope, name) orelse return null;
+    }
+    return null;
+}
+
+/// `U8.max`, `Int.min`: an integer type's limit, a constant of it, named
+/// through the type or an alias of it, this module's or another's
+/// (`util.Byte.max`). Null for anything else.
+pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
+    return intLimitBy(ctx, e, CheckedNames{ .ctx = ctx });
+}
+
+fn intLimitBy(ctx: *const SemContext, e: Sexp, names: anytype) ?TypedInt {
+    const obj = ir.Member.object(e);
+    const info = switch (obj) {
+        .src => if (names.symbol(obj)) |id| aliasIntType(ctx, id) orelse return null else intTypeNamed(identAt(ctx.source, obj) orelse return null) orelse return null,
+        .list => blk: {
+            if (!obj.isKind(.member) or ir.Member.object(obj) != .src) return null;
+            const module = names.symbol(ir.Member.object(obj)) orelse return null;
+            if (ctx.symbols.items[module].kind != .module) return null;
+            const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return null) orelse return null;
+            const alias = foreign.lookupInScopeOnly(module_scope, identAt(ctx.source, ir.Member.name(obj)) orelse return null) orelse return null;
+            if (!foreign.symbols.items[alias].flags.is_public) return null;
+            break :blk aliasIntType(foreign, alias) orelse return null;
+        },
+        else => return null,
+    };
     const field = identAt(ctx.source, ir.Member.name(e)) orelse return null;
     const r = intRange(info);
     if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };
@@ -3684,24 +3721,10 @@ pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
     return null;
 }
 
-/// The width of an integer type in bits.
-fn widthOf(info: IntInfo) Wide {
-    return if (info.bits == 0) 64 else info.bits;
-}
-
-/// The integer type the checker gave literal arithmetic `e`, if any.
-fn literalInt(ctx: *const SemContext, e: Sexp) ?IntInfo {
-    return switch (ctx.types.get(ctx.typeOf(e) orelse return null)) {
-        .int => |i| i,
-        else => null,
-    };
-}
-
 /// `v` wrapped into integer type `info`: its low bits, read as the
 /// type reads them.
 pub fn wrapTo(info: IntInfo, v: Wide) Wide {
-    const bits: u9 = if (info.bits == 0) 64 else info.bits;
-    const modulus = @as(Wide, 1) << @intCast(bits);
+    const modulus = @as(Wide, 1) << @intCast(info.width());
     const low = @mod(v, modulus);
     return if (info.signed and low >= modulus >> 1) low - modulus else low;
 }
@@ -3719,8 +3742,7 @@ pub fn intInfoFits(info: IntInfo, v: Wide) bool {
 
 /// The least and greatest values of an integer type.
 pub fn intRange(info: IntInfo) struct { min: Wide, max: Wide } {
-    const bits: u8 = if (info.bits == 0) 64 else info.bits;
-    const half = @as(Wide, 1) << @intCast(bits - 1);
+    const half = @as(Wide, 1) << @intCast(info.width() - 1);
     return if (info.signed) .{ .min = -half, .max = half - 1 } else .{ .min = 0, .max = 2 * half - 1 };
 }
 
@@ -3733,8 +3755,8 @@ pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?Wide {
 }
 
 /// The value of a constant Bool expression: literals, `not`, `and`,
-/// `or`, and comparisons of constant integers.
-fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
+/// `or`, and comparisons of constant integers (`ctFoldBy`).
+fn constBoolBy(ctx: *const SemContext, e: Sexp, names: anytype) ?bool {
     switch (e) {
         .src => {
             const word = identAt(ctx.source, e) orelse "";
@@ -3745,12 +3767,18 @@ fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
         .list => {
             const h = e.kind() orelse return null;
             switch (h) {
-                .not => return !(constBoolOf(ctx, ir.Not.operand(e)) orelse return null),
-                .@"and" => return (constBoolOf(ctx, ir.And.left(e)) orelse return null) and (constBoolOf(ctx, ir.And.right(e)) orelse return null),
-                .@"or" => return (constBoolOf(ctx, ir.Or.left(e)) orelse return null) or (constBoolOf(ctx, ir.Or.right(e)) orelse return null),
+                .not => return !(constBoolBy(ctx, ir.Not.operand(e), names) orelse return null),
+                .@"and" => return (constBoolBy(ctx, ir.And.left(e), names) orelse return null) and (constBoolBy(ctx, ir.And.right(e), names) orelse return null),
+                .@"or" => return (constBoolBy(ctx, ir.Or.left(e), names) orelse return null) or (constBoolBy(ctx, ir.Or.right(e), names) orelse return null),
                 .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
-                    const a = constIntOf(ctx, ir.get(e, .left)) orelse return null;
-                    const b = constIntOf(ctx, ir.get(e, .right)) orelse return null;
+                    const a = switch (constIntBy(ctx, ir.get(e, .left), names)) {
+                        .value => |v| v,
+                        else => return null,
+                    };
+                    const b = switch (constIntBy(ctx, ir.get(e, .right), names)) {
+                        .value => |v| v,
+                        else => return null,
+                    };
                     return switch (h) {
                         .@"==" => a == b,
                         .@"!=" => a != b,
@@ -3938,7 +3966,7 @@ const FactsRun = struct {
     }
 
     fn leafType(self: *const FactsRun, needle: []const u8, nth: usize) ?TypeId {
-        return self.ctx.facts.leaf_types.get(self.at(needle, nth));
+        return self.ctx.facts.types.get(self.at(needle, nth));
     }
 };
 
@@ -4286,7 +4314,6 @@ test "symbols: binding flags" {
         \\
     );
     defer r.deinit();
-    try std.testing.expect(r.ctx.symbols.items[r.sym("u", 0).?].flags.borrowed_param);
     const y = r.ctx.symbols.items[r.sym("y", 0).?];
     try std.testing.expect(y.flags.fixed);
     try std.testing.expect(y.flags.comptime_known);
@@ -4353,6 +4380,21 @@ test "declarations: struct fields, methods, and enum variants" {
     try std.testing.expect(shape[1].payload == null);
     const net = r.ctx.symbols.items[r.ctx.lookup(1, "NetError").?].fields.?;
     try std.testing.expectEqualStrings("timeout", net[0].name);
+}
+
+test "check: a long chain of types each holding the next by value" {
+    // Each walk over what a type holds runs once per type, not nested
+    // once per link of the chain.
+    const n = 5000;
+    var src: std.ArrayListUnmanaged(u8) = .empty;
+    defer src.deinit(std.testing.allocator);
+    const a = std.testing.allocator;
+    for (0..n) |i| try src.print(a, "struct S{d}\n  x: S{d}\n\n", .{ i, i + 1 });
+    try src.print(a, "struct S{d}\n  x: Int\n\nfun same(a: ?S0, b: ?S0) -> Bool\n  a == b\n", .{n});
+    var r = try factsRun(src.items);
+    defer r.deinit();
+    const s0 = try r.ctx.intern(.{ .nominal = r.ctx.lookup(module_scope, "S0").? });
+    try std.testing.expectEqual(@as(?u128, 8), try minBytes(&r.ctx, s0));
 }
 
 /// Walk every expression position of a body and report nodes sema left

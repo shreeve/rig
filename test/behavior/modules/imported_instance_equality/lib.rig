@@ -1,0 +1,8 @@
+struct Wrap[T]
+  v: T
+
+pub struct P
+  w: Wrap[Int]
+
+  pub fun make(n: Int) -> P
+    P(w: Wrap[Int](v: n))

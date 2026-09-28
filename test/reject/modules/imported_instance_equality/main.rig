@@ -1,0 +1,11 @@
+# A struct from another module that holds that module's generic instance
+# has `==` only if the instance's fields do, at its type arguments.
+
+use lib
+
+sub main()
+  a = lib.P.make(1)
+  b = lib.P.make(1)
+  print(a == b)
+
+# error: 9:9: `==` is not defined for `lib.P`: field `w.v` is a handle `*Int`

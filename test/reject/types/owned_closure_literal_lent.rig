@@ -1,0 +1,12 @@
+# A stack closure bound where an owned closure is expected is rejected,
+# and the passes after the checker still read its uses, such as lending
+# the binding as a borrowed callable.
+
+fun apply(f: ?*fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main
+  inc: *fun(Int) -> Int = |x| x + 1
+  print(apply(?inc, 1))
+
+# error: 9:27: `*fun(Int) -> Int` is an owned closure; write `*|...| body` to make one

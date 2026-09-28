@@ -1,0 +1,22 @@
+# A module constant folds as a local `=!` constant does, so a type can
+# use it as an array length: wrapping literals take its declared type, a
+# shift is in its left operand's type, and an alias of a number type
+# names its limits.
+
+type Byte = U8
+
+A: U8 = 250 +% 10
+B: I128 = 1 << 70
+C = B >> 60
+E = Byte.max
+
+sub main()
+  a: [A]Int = [A of 1]
+  c: [C]Int = [C of 2]
+  e: [E]Int = [E of 4]
+  print(A, C, E)
+  print(a.len, c.len, e.len)
+
+# expect:
+# 4 1024 255
+# 4 1024 255

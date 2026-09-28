@@ -64,9 +64,13 @@ const SymbolResolver = struct {
                 for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walk(c);
             },
             .@"pub" => {
-                const before = self.ctx.symbols.items.len;
-                try self.walk(ir.Pub.decl(sexp));
-                if (self.ctx.symbols.items.len > before) self.ctx.symbols.items[before].flags.is_public = true;
+                const decl = ir.Pub.decl(sexp);
+                try self.walk(decl);
+                // The symbol the declaration's name leaf names: a module
+                // constant's value is walked before its name is declared.
+                const kind = decl.kind() orelse return;
+                const name = if (kind == .set) ir.Set.target(decl) else if (ir.has(kind, .name)) ir.get(decl, .name) else return;
+                if (self.ctx.symbolOf(name)) |id| self.ctx.symbols.items[id].flags.is_public = true;
             },
             .fun, .sub => {
                 _ = try self.declare(ir.get(sexp, .name), .function, .{});
@@ -282,14 +286,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(name_node, .generic_param, .{});
                 continue;
             }
-            const h = p.kind();
-            const borrowed = h == .read or h == .write or
-                ((h == .@":" or h == .default) and
-                    (ir.get(p, .type).isKind(.borrow_read) or ir.get(p, .type).isKind(.borrow_write)));
-            _ = try self.declare(name_node, .param, .{
-                .borrowed_param = borrowed,
-                .comptime_known = ct,
-            });
+            _ = try self.declare(name_node, .param, .{ .comptime_known = ct });
         }
     }
 
@@ -568,8 +565,10 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
 
 /// Fold each integer module constant once, in declaration order, into
 /// `const_ints`, so any type in the module can name it. A constant's
-/// value names only earlier constants; one that does not fold, or does
-/// not fit its type, is left for the checker to report.
+/// value names only earlier constants, and its literals take its
+/// declared type (`Int` without one), as a local constant's do; one that
+/// does not fold, or does not fit its type, is left for the checker to
+/// report.
 fn foldModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
     for (ir.Module.decls(tree)) |decl| {
         if (!rig.isModuleConst(decl)) continue;
@@ -579,7 +578,7 @@ fn foldModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
         const id = ctx.symbolOf(target) orelse continue;
         const ty = ir.Set.type(set);
         const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse continue;
-        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope };
+        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .before = target.src.pos, .literal = declared orelse .{} };
         const t = switch (sema.ctFoldBy(ctx, ir.Set.value(set), names)) {
             .value => |t| t,
             else => continue,
@@ -594,18 +593,9 @@ fn foldModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
 /// The integer type a constant's annotation names, through aliases;
 /// null for any other type.
 fn declaredIntType(ctx: *const SemContext, node: Sexp) ?sema.IntInfo {
-    var ty = node;
-    for (0..16) |_| {
-        const name = identAt(ctx.source, ty) orelse return null;
-        if (isIntTypeName(name)) {
-            const bits = sizedTypeBits(name) orelse 0;
-            return if (bits == 64 and name[0] == 'I') .{} else .{ .bits = bits, .signed = name[0] != 'U' };
-        }
-        const id = ctx.lookupInScopeOnly(sema.module_scope, name) orelse return null;
-        if (ctx.symbols.items[id].kind != .type_alias) return null;
-        ty = ctx.alias_targets.get(id) orelse return null;
-    }
-    return null;
+    const name = identAt(ctx.source, node) orelse return null;
+    if (sema.intTypeNamed(name)) |i| return i;
+    return sema.aliasIntType(ctx, ctx.lookupInScopeOnly(sema.module_scope, name) orelse return null);
 }
 
 /// The checks on declared types that need to know what every type holds
@@ -622,7 +612,7 @@ pub const DeferredCheck = union(enum) {
     array: struct { node: Sexp, elem: TypeId, at: Sexp, ty: ?TypeId },
     /// `[]T`, with `T` spelled at `node`.
     slice: struct { node: Sexp, elem: TypeId },
-    /// `Vec[T]`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
+    /// `Vec[T]`, `Box[T]`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
     owned_closure: struct { node: Sexp, ty: TypeId },
@@ -664,8 +654,9 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
     }
 }
 
-/// The values of the constants a compile-time integer in a type names
-/// (`sema.ctFoldBy`): a constant binding, a module constant, and
+/// What `sema.ctFoldBy` knows where a compile-time integer is declared
+/// (in a type, a module constant, an enum value): the names visible from
+/// `scope`, a constant binding's and a module constant's value, and
 /// `module.NAME`, each with its type.
 pub const ConstNames = struct {
     ctx: *const SemContext,
@@ -675,13 +666,21 @@ pub const ConstNames = struct {
     /// In a module constant's declaration, its position: the module
     /// constants declared from there on are not visible yet.
     before: u32 = std.math.maxInt(u32),
+    /// The integer type arithmetic on literals alone takes: a module
+    /// constant's declared type.
+    literal: ?sema.IntInfo = null,
+
+    pub fn symbol(self: ConstNames, e: Sexp) ?SymbolId {
+        const text = identAt(self.ctx.source, e) orelse return null;
+        for (self.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, text)) return tp;
+        const id = self.ctx.symbolOf(e) orelse self.ctx.lookupBefore(self.scope, text, e.src.pos) orelse return null;
+        return if (self.visible(id)) id else null;
+    }
 
     pub fn name(self: ConstNames, e: Sexp) ?sema.TypedInt {
-        const text = identAt(self.ctx.source, e) orelse return null;
-        for (self.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, text)) return null;
-        const id = self.ctx.symbolOf(e) orelse self.ctx.lookupBefore(self.scope, text, e.src.pos) orelse return null;
+        const id = self.symbol(e) orelse return null;
         const sym = self.ctx.symbols.items[id];
-        if (sym.kind != .local or !sym.flags.fixed or !self.visible(id)) return null;
+        if (sym.kind != .local or !sym.flags.fixed) return null;
         const c = self.ctx.const_ints.get(id) orelse return null;
         return .{ .v = c.value, .int = c.int };
     }
@@ -695,6 +694,10 @@ pub const ConstNames = struct {
         if (!foreign.symbols.items[fid].flags.is_public) return null;
         const c = foreign.const_ints.get(fid) orelse return null;
         return .{ .v = c.value, .int = c.int };
+    }
+
+    pub fn literalInt(self: ConstNames, _: Sexp) ?sema.IntInfo {
+        return self.literal;
     }
 
     /// Whether symbol `id` is visible: a module constant declared at or
@@ -736,11 +739,6 @@ fn literalTypeName(text: []const u8) ?[]const u8 {
 /// The article for a type's name: "an `Int`", "a `Float`".
 pub fn an(name: []const u8) []const u8 {
     return if (name.len > 0 and std.mem.indexOfScalar(u8, "AEIO", name[0]) != null) "an" else "a";
-}
-
-/// `Int` or a sized integer type's name.
-fn isIntTypeName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "Int") or (sizedTypeBits(name) != null and name[0] != 'F');
 }
 
 pub const TypeResolver = struct {
@@ -1048,8 +1046,18 @@ pub const TypeResolver = struct {
 
         var fields: std.ArrayListUnmanaged(Field) = .empty;
         defer fields.deinit(self.ctx.allocator);
+        // Each member's name -> where it is declared.
+        var names: std.StringHashMapUnmanaged(u32) = .empty;
+        defer names.deinit(self.ctx.allocator);
         const sym_name = self.ctx.symbols.items[sym_id].name;
         if (generic) try self.resolveValueParams(ir.get(node, .tparams));
+        // Only a plain enum, without payloads or generic parameters, has
+        // values, which its variants' fields record (`Field.value`).
+        const plain_enum = head == .@"enum" and for (members) |m| {
+            if (m.isKind(.variant)) break false;
+        } else true;
+        var values: EnumValues = .{};
+        defer values.seen.deinit(self.ctx.allocator);
 
         for (members) |m| {
             switch (m) {
@@ -1059,8 +1067,9 @@ pub const TypeResolver = struct {
                         try self.ctx.err(s.pos, "field `{s}` needs a type (`{s}: T`)", .{ vname, vname });
                         continue;
                     }
-                    if (try self.checkDuplicateMember(fields.items, vname, s.pos, sym_name)) continue;
-                    try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = s.pos, .is_variant = true });
+                    if (try self.checkDuplicateMember(&names, vname, s.pos, sym_name)) continue;
+                    const value = if (plain_enum) try self.enumValue(&values, m, null) else null;
+                    try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = s.pos, .is_variant = true, .value = value });
                 },
                 .list => {
                     const h = m.kind() orelse continue;
@@ -1073,7 +1082,7 @@ pub const TypeResolver = struct {
                                 try self.ctx.err(fpos, "an enum declares variants, not typed fields; write `{s}` or `{s}(field: T)`", .{ fname, fname });
                                 continue;
                             }
-                            if (try self.checkDuplicateMember(fields.items, fname, fpos, sym_name)) continue;
+                            if (try self.checkDuplicateMember(&names, fname, fpos, sym_name)) continue;
                             var fty = try self.resolveType(ir.get(m, .type));
                             if (try self.fieldCallable(ir.get(m, .type), fty)) fty = self.ctx.types.invalid_id;
                             try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null, .is_pub = self.isPubMember(m) });
@@ -1088,23 +1097,26 @@ pub const TypeResolver = struct {
                             }
                             if (head == .errors) {
                                 try self.ctx.err(vpos, "error set members have no values; write `{s}`", .{vname});
+                            } else if (!plain_enum) {
+                                try self.ctx.errAt(ir.Valued.value(m), "{s} cannot give its variants values; only a plain enum can", .{if (generic) "a generic enum" else "an enum with payload variants"});
                             }
-                            if (try self.checkDuplicateMember(fields.items, vname, vpos, sym_name)) continue;
-                            try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = vpos, .is_variant = true });
+                            if (try self.checkDuplicateMember(&names, vname, vpos, sym_name)) continue;
+                            const value = if (plain_enum) try self.enumValue(&values, name_node, ir.Valued.value(m)) else null;
+                            try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = vpos, .is_variant = true, .value = value });
                         },
                         .variant => {
                             if (!is_enum or head == .errors) {
                                 try self.ctx.errAt(m, "only enums declare payload variants", .{});
                                 continue;
                             }
-                            try self.resolveVariant(m, &fields, sym_name);
+                            try self.resolveVariant(m, &fields, &names, sym_name);
                         },
                         .fun, .sub => {
                             if (head == .errors) {
                                 try self.ctx.errAt(ir.get(m, .name), "an error set cannot declare methods; write a function that takes the error", .{});
                                 continue;
                             }
-                            try self.resolveMethod(m, sym_id, &fields);
+                            try self.resolveMethod(m, sym_id, &fields, &names);
                         },
                         .read, .write, .move => {
                             const n = identAt(self.ctx.source, ir.get(m, .operand)) orelse "name";
@@ -1133,7 +1145,6 @@ pub const TypeResolver = struct {
         self.ctx.symbols.items[sym_id].fields = owned;
 
         if (generic) try self.checkTypeParamNames(sym_id, members);
-        if (head == .@"enum" or head == .generic_enum) try self.checkEnumValues(sym_id, members, generic);
         if (head == .@"struct") {
             for (members) |m| {
                 if (m.isKind(.drop_decl)) try self.enforceDropBody(ir.DropDecl.body(m));
@@ -1199,68 +1210,86 @@ pub const TypeResolver = struct {
         }
     }
 
-    /// Explicit enum values are constant integers that fit the emitted
-    /// `enum(u32)` tag, and no two variants share a value (a variant
-    /// without one takes the value after the previous variant's). Only a
-    /// plain enum, without payloads or generic parameters, has values,
-    /// which its variants' fields record (`Field.value`).
-    fn checkEnumValues(self: *TypeResolver, sym_id: SymbolId, members: []const Sexp, generic: bool) Error!void {
-        const payloads = for (members) |m| {
-            if (m.isKind(.variant)) break true;
-        } else false;
-        if (generic or payloads) {
-            for (members) |m| {
-                if (!m.isKind(.valued)) continue;
-                try self.ctx.errAt(ir.Valued.value(m), "{s} cannot give its variants values; only a plain enum can", .{if (generic) "a generic enum" else "an enum with payload variants"});
-            }
-            return;
+    /// The values a plain enum's variants have taken so far.
+    const EnumValues = struct {
+        /// The value of a variant without `= value`: the one after the
+        /// previous variant's.
+        next: Wide = 0,
+        /// Each value taken -> the name of the variant that took it.
+        seen: std.AutoHashMapUnmanaged(Wide, Sexp) = .empty,
+        /// A value was rejected; the rest are not checked.
+        failed: bool = false,
+    };
+
+    /// The value of a plain enum's variant named `name_node`, given by
+    /// `value_node` or implicit: a constant integer that fits the
+    /// emitted `enum(u32)` tag, which no other variant has. After a
+    /// rejected value the rest are not checked, but every variant still
+    /// has one, so the enum stays plain.
+    fn enumValue(self: *TypeResolver, ev: *EnumValues, name_node: Sexp, value_node: ?Sexp) Error!Wide {
+        const name = identAt(self.ctx.source, name_node).?;
+        const value = blk: {
+            const v = value_node orelse break :blk ev.next;
+            if (ev.failed) break :blk ev.next;
+            break :blk (try self.foldEnumValue(v, name)) orelse {
+                ev.failed = true;
+                break :blk ev.next;
+            };
+        };
+        ev.next = value +| 1;
+        if (ev.failed) return value;
+        if (value < 0 or value > std.math.maxInt(u32)) {
+            try self.ctx.errAt(value_node orelse name_node, "`{s}` has the value {d}, out of range: enum values run from 0 to {d}", .{ name, value, std.math.maxInt(u32) });
+            ev.failed = true;
+            return value;
         }
-        var seen: std.AutoHashMapUnmanaged(Wide, Sexp) = .empty;
-        defer seen.deinit(self.ctx.allocator);
-        var next: Wide = 0;
-        for (members) |m| {
-            const explicit = m.isKind(.valued);
-            const name_node = if (explicit) ir.Valued.name(m) else if (m == .src) m else continue;
-            const name = identAt(self.ctx.source, name_node).?;
-            const value = if (explicit) sema.constIntOf(self.ctx, ir.Valued.value(m)) orelse {
-                try self.ctx.errAt(ir.Valued.value(m), "the value of `{s}` must be a constant integer", .{name});
-                return;
-            } else next;
-            if (value < 0 or value > std.math.maxInt(u32)) {
-                try self.ctx.errAt(if (explicit) ir.Valued.value(m) else name_node, "`{s}` has the value {d}, out of range: enum values run from 0 to {d}", .{ name, value, std.math.maxInt(u32) });
-                return;
-            }
-            const gop = try seen.getOrPut(self.ctx.allocator, value);
-            if (gop.found_existing) {
-                const prev = gop.value_ptr.*;
-                try self.ctx.errAt(name_node, "`{s}` has the value {d}, which `{s}` already has{s}", .{ name, value, identAt(self.ctx.source, prev).?, if (explicit) "" else " (a variant without `= value` takes the value after the previous variant's)" });
-                try self.ctx.noteAt(prev, "`{s}` declared here", .{identAt(self.ctx.source, prev).?});
-            } else gop.value_ptr.* = name_node;
-            next = value + 1;
-            for (@constCast(self.ctx.symbols.items[sym_id].fields orelse &.{})) |*f| {
-                if (f.is_variant and std.mem.eql(u8, f.name, name)) f.value = value;
-            }
-        }
+        const gop = try ev.seen.getOrPut(self.ctx.allocator, value);
+        if (gop.found_existing) {
+            const prev = identAt(self.ctx.source, gop.value_ptr.*).?;
+            try self.ctx.errAt(name_node, "`{s}` has the value {d}, which `{s}` already has{s}", .{ name, value, prev, if (value_node != null) "" else " (a variant without `= value` takes the value after the previous variant's)" });
+            try self.ctx.noteAt(gop.value_ptr.*, "`{s}` declared here", .{prev});
+        } else gop.value_ptr.* = name_node;
+        return value;
     }
 
-    fn checkDuplicateMember(self: *TypeResolver, fields: []const Field, name: []const u8, pos: u32, owner: []const u8) Error!bool {
-        for (fields) |f| {
-            if (std.mem.eql(u8, f.name, name)) {
-                try self.ctx.err(pos, "duplicate member `{s}` in `{s}`", .{ name, owner });
-                try self.ctx.note(f.decl_pos, "first declared here", .{});
-                return true;
-            }
+    /// The value `= node` gives the variant `name`, as module constants
+    /// are folded; null after a diagnostic.
+    fn foldEnumValue(self: *TypeResolver, node: Sexp, name: []const u8) Error!?Wide {
+        const what = "an enum value";
+        const fold = sema.ctFoldBy(self.ctx, node, ConstNames{ .ctx = self.ctx, .scope = sema.module_scope });
+        switch (fold) {
+            .value => |t| return t.v,
+            .overflow, .mismatch => try self.reportFold(node, fold, what),
+            .not_constant => if (!node.isKind(.member) or !try self.memberNotCtInt(node, what)) {
+                try self.ctx.errAt(node, "the value of `{s}` must be a constant integer", .{name});
+            },
         }
-        return false;
+        return null;
     }
 
-    fn resolveVariant(self: *TypeResolver, variant: Sexp, fields: *std.ArrayListUnmanaged(Field), owner: []const u8) Error!void {
+    /// Whether `name`, declared at `pos`, names an earlier member of
+    /// `owner` (`names`: each member's name -> where it is declared).
+    /// Reported.
+    fn checkDuplicateMember(self: *TypeResolver, names: *std.StringHashMapUnmanaged(u32), name: []const u8, pos: u32, owner: []const u8) Error!bool {
+        const gop = try names.getOrPut(self.ctx.allocator, name);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = pos;
+            return false;
+        }
+        try self.ctx.err(pos, "duplicate member `{s}` in `{s}`", .{ name, owner });
+        try self.ctx.note(gop.value_ptr.*, "first declared here", .{});
+        return true;
+    }
+
+    fn resolveVariant(self: *TypeResolver, variant: Sexp, fields: *std.ArrayListUnmanaged(Field), names: *std.StringHashMapUnmanaged(u32), owner: []const u8) Error!void {
         const name_node = ir.Variant.name(variant);
         const vname = identAt(self.ctx.source, name_node).?;
         const vpos = name_node.src.pos;
-        if (try self.checkDuplicateMember(fields.items, vname, vpos, owner)) return;
+        if (try self.checkDuplicateMember(names, vname, vpos, owner)) return;
         var payload: std.ArrayListUnmanaged(Field) = .empty;
         defer payload.deinit(self.ctx.allocator);
+        var payload_names: std.StringHashMapUnmanaged(u32) = .empty;
+        defer payload_names.deinit(self.ctx.allocator);
         {
             for (ir.Variant.params(variant).items()) |p| {
                 if (!p.isKind(.@":")) {
@@ -1273,7 +1302,7 @@ pub const TypeResolver = struct {
                 }
                 const field_name = ir.get(p, .name);
                 const fname = identAt(self.ctx.source, field_name) orelse continue;
-                if (try self.checkDuplicateMember(payload.items, fname, srcPos(field_name, 0), vname)) continue;
+                if (try self.checkDuplicateMember(&payload_names, fname, srcPos(field_name, 0), vname)) continue;
                 var fty = try self.resolveType(ir.get(p, .type));
                 if (try self.fieldCallable(ir.get(p, .type), fty)) fty = self.ctx.types.invalid_id;
                 try payload.append(self.ctx.allocator, .{
@@ -1298,12 +1327,12 @@ pub const TypeResolver = struct {
         return p.isPubMember(member);
     }
 
-    fn resolveMethod(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayListUnmanaged(Field)) Error!void {
+    fn resolveMethod(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayListUnmanaged(Field), names: *std.StringHashMapUnmanaged(u32)) Error!void {
         const name = ir.get(node, .name);
         const mname = identAt(self.ctx.source, name).?;
         const mpos = name.src.pos;
         const owner = self.ctx.symbols.items[nominal_sym].name;
-        if (try self.checkDuplicateMember(fields.items, mname, mpos, owner)) return;
+        if (try self.checkDuplicateMember(names, mname, mpos, owner)) return;
         const fn_ty = try self.resolveFunction(node, nominal_sym);
         const params = ir.get(node, .params);
         for (params.items(), 0..) |p, i| {
@@ -1646,26 +1675,11 @@ pub const TypeResolver = struct {
     fn ctIntOf(self: *TypeResolver, node: Sexp, what: []const u8) Error!?CtInt {
         if (node == .src) if (try self.ctParamNamed(node)) |ct| return .{ .ty = ct };
         const names = self.constNames();
-        switch (sema.ctFoldBy(self.ctx, node, names)) {
+        const fold = sema.ctFoldBy(self.ctx, node, names);
+        switch (fold) {
             .value => |v| return .{ .ty = try sema.ctInt(self.ctx, v.v), .int = v.int },
-            .overflow => |o| {
-                const at = try self.sourceText(o.node);
-                if (o.int) |int| {
-                    const ty = try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = int }));
-                    const b = sema.intRange(int);
-                    if (std.meta.eql(self.ctx.span(o.node), self.ctx.span(node)))
-                        try self.ctx.errAt(node, "{s} `{s}` overflows `{s}` ({d}..{d})", .{ what, at, ty, b.min, b.max })
-                    else
-                        try self.ctx.errAt(o.node, "{s} `{s}` overflows `{s}` ({d}..{d}) in `{s}`", .{ what, try self.sourceText(node), ty, b.min, b.max, at });
-                } else try self.ctx.errAt(o.node, "{s} `{s}` is too large to compute", .{ what, try self.sourceText(node) });
-                return null;
-            },
-            .mismatch => |m| {
-                try self.ctx.errAt(m.node, "{s} `{s}` combines `{s}` and `{s}`; convert one to the other's type", .{
-                    what, try self.sourceText(m.node),
-                    try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.a })),
-                    try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.b })),
-                });
+            .overflow, .mismatch => {
+                try self.reportFold(node, fold, what);
                 return null;
             },
             .not_constant => {},
@@ -1719,6 +1733,29 @@ pub const TypeResolver = struct {
         }
         try self.ctx.errAt(node, "{s} must be known at compile time; `{s}` is not: use an integer, a constant (`N = 4`), a compile-time parameter, or arithmetic on them", .{ what, text });
         return null;
+    }
+
+    /// Report why the compile-time integer `node`, used as `what`, has no
+    /// value: `fold` overflows its type, or mixes two.
+    fn reportFold(self: *TypeResolver, node: Sexp, fold: sema.CtFold, what: []const u8) Error!void {
+        switch (fold) {
+            .overflow => |o| {
+                const at = try self.sourceText(o.node);
+                const int = o.int orelse return self.ctx.errAt(o.node, "{s} `{s}` is too large to compute", .{ what, try self.sourceText(node) });
+                const ty = try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = int }));
+                const b = sema.intRange(int);
+                if (std.meta.eql(self.ctx.span(o.node), self.ctx.span(node)))
+                    try self.ctx.errAt(node, "{s} `{s}` overflows `{s}` ({d}..{d})", .{ what, at, ty, b.min, b.max })
+                else
+                    try self.ctx.errAt(o.node, "{s} `{s}` overflows `{s}` ({d}..{d}) in `{s}`", .{ what, try self.sourceText(node), ty, b.min, b.max, at });
+            },
+            .mismatch => |m| try self.ctx.errAt(m.node, "{s} `{s}` combines `{s}` and `{s}`; convert one to the other's type", .{
+                what, try self.sourceText(m.node),
+                try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.a })),
+                try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.b })),
+            }),
+            .value, .not_constant => unreachable,
+        }
     }
 
     /// Whether `node` is a name that names a type.

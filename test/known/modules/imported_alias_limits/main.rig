@@ -1,0 +1,17 @@
+# Another module's alias of a number type names its limits, which are
+# constants: a module constant can use them, and a type can use it.
+#
+# Known bug: the checker reads a number type's limits only through a
+# name (`numberType` in typecheck.zig), so `util.Byte.max` is rejected
+# with "type `U8` has no field `max`". Sema folds it (`sema.intLimit`).
+
+use util
+
+K = util.Byte.max - 250
+
+sub main()
+  a: [K]Bool? = [5 of none]
+  print(K, a.len)
+
+# expect:
+# 5 5

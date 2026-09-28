@@ -1,0 +1,30 @@
+# A `Cell[T]` holds its `T` inline, and a `Signal[T]` its value and a
+# pending one: both count toward the 8 MiB a value takes and the 16 MiB
+# a function keeps on its stack.
+
+type Arr = [600000]Int
+type Big = [700000]Int
+
+struct Two
+  a: Cell[Arr]
+  b: Cell[Arr]
+
+fun cell(k: Int) -> Cell[Big]
+  Cell[Big](value: [700000 of k])
+
+fun first(c: ?Cell[Big]) -> Int
+  c.get()[0]
+
+fun three(k: Int) -> Int
+  a = cell(k)
+  b = cell(k)
+  c = cell(k)
+  first(?a) + first(?b) + first(?c)
+
+sub main()
+  s = *Signal[Arr](value: [600000 of 0])
+  print(three(1), s.get()[0])
+
+# error: 8:8: `Two` takes 9600000 bytes; a value takes at most 8388608 (8 MiB)
+# error: 18:5: `three` keeps 16800032 bytes
+# error: `Signal[[600000]Int]` takes
