@@ -1,0 +1,43 @@
+# `get(i)` on an array, a slice, or a String gives the element as `T?`
+# (a String's byte as `U8?`): `none` when `i` is out of range, as for a
+# Vec.
+
+struct Point
+  x: Int
+  y: Int
+
+struct Grid
+  cells: [3]Int
+
+fun first(xs: ?[3]Int) -> Int
+  xs.get(0) ?? -1
+
+fun at(s: []Int, i: Int) -> Int?
+  s.get(i)
+
+fun byte(s: String, i: Int) -> U8
+  s.get(i) ?? 0
+
+sub main
+  a = [10, 20, 30]
+  print(a.get(1), a.get(3), a.get(-1), first(?a))
+  v: Vec[Int] = Vec()
+  for n in 1..5
+    !v.push(n)
+  print(at(?v[1..], 0), at(?v[..], 4), at(?a[..2], 1))
+  print(byte("hi", 1), byte("hi", 2), "abc".get(0))
+  pts = [Point(x: 1, y: 2), Point(x: 3, y: 4)]
+  if pts.get(1) as p
+    print(p.x + p.y)
+  g = Grid(cells: [7, 8, 9])
+  print(g.cells.get(2), g.cells.get(3) == none)
+  words = ["one", "two"]
+  print(words.get(1) ?? "?", words.get(2) ?? "?")
+
+# expect:
+# 20 none none 10
+# 2 none 20
+# 105 0 97
+# 7
+# 9 true
+# two ?

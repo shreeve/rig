@@ -17,14 +17,15 @@ struct Plain
   n: Int
 
 sub main()
+  p = Plain(n: 1)
   x = Same(a: none, b: none)
   v = Vec()
   y = Same(a: 1, b: "two")
   z = Adder(v: "s")
-  c = Cell(Plain(n: 1))
+  c = Cell(?p)
 
 # error: cannot infer `T` for `Same` from the arguments
 # error: `Vec()` needs its element type: name it (`Vec[T]()`)
 # error: conflicting types for `T` in `Same`: `Int` (argument 1) and `String` (argument 2)
 # error: `Adder[String]` cannot use `T = String`
-# error: `Cell[T]` requires `T` to be a Copy primitive
+# error: `Cell[T]` requires `T` to be a Copy type

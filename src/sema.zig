@@ -2890,6 +2890,18 @@ pub fn holdsWriteBorrow(ctx: *const SemContext, ty: TypeId) bool {
 
 /// A value that owns nothing and holds no borrow or type parameter: it
 /// can be copied freely, like a number.
+/// A value `Vec`, `Cell`, and `Signal` copy in and out like a number: a
+/// Copy primitive, or plain data (a struct, enum, optional, or array
+/// that owns nothing and holds no borrow).
+pub fn isCopyElement(ctx: *const SemContext, ty: TypeId) bool {
+    if (isCopyPrimitive(ctx, ty)) return true;
+    return switch (ctx.types.get(ty)) {
+        .nominal, .imported_nominal, .optional, .array => isPlainData(ctx, ty),
+        .parameterized_nominal => |pn| pn.sym != ctx.box_sym_id and isPlainData(ctx, ty),
+        else => false,
+    };
+}
+
 pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
     return info.plain and !info.glue;

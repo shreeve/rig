@@ -353,8 +353,9 @@ sub main
 integer value `256` does not fit in `U8`
 ```
 
-A `String` has a length `s.len` and can be indexed (`s[0]`), and a `for`
-loop over it yields its bytes as `U8`. Strings compare with `==` and
+A `String` has a length `s.len` and can be indexed (`s[0]`, or
+`s.get(i)`, a `U8?` that is `none` past the end), and a `for` loop over
+it yields its bytes as `U8`. Strings compare with `==` and
 `!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
 ([§6](#operators)).
 
@@ -382,6 +383,8 @@ included; it has the array type expected where it goes, or `[n]T` for
 built with it. `xs.len` is an array's length, and `xs[i]` reads or
 writes an element; an index outside the half-open range `0..xs.len`
 panics, and a constant one is rejected where the length is known.
+`xs.get(i)` reads one as a `T?`, `none` when `i` is out of range, as a
+Vec's does.
 Arrays hold plain data only, and `[n of x]` copies `x` into every slot; a
 collection of resources is a `Vec`. An array of arrays is `[2][3]T`:
 two rows of three.
@@ -404,11 +407,13 @@ sub main
   d = [3 of [2 of 0]]
   e: [0]Int = []
   print(b, c.len, d, e)
+  print(xs.get(1), xs.get(3), "hi".get(0))
 ```
 
 ```output
 [5, 20, 30] 3 30 [1, 2] 6
 [7, 7, 7, 7] 8 [[0, 0], [0, 0], [0, 0]] []
+20 none 104
 ```
 
 ```rig reject
@@ -487,8 +492,8 @@ sub main
 data it is written `?xs[a..b]`: a `[]T`, a read-only view that borrows
 `xs` like any `?` borrow ([§8](#8-ownership)), so `xs` cannot be
 written, moved, or dropped while the slice is in use, and the slice
-cannot outlive it. A `[]T` has `.len`, is indexed and iterated like an
-array, and is sliced again with `s[a..b]`, which views the same
+cannot outlive it. A `[]T` has `.len` and `get(i)`, is indexed and
+iterated like an array, and is sliced again with `s[a..b]`, which views the same
 elements. The bounds must satisfy `0 <= a <= b <= len`; constant bounds
 are checked at compile time, others when the slice is taken, which
 panics when they do not. A side may be left open: `xs[a..]` runs to the
@@ -3009,14 +3014,15 @@ mutable value.
 | Member | Meaning |
 |---|---|
 | `Cell(v)` | construct |
-| `c.get()` | a copy of the value (Copy `T` only) |
+| `c.get()` | a copy of the value (Copy or plain-data `T` only) |
 | `c.set(v)` | store `v`; the old value is dropped |
 | `c.replace(v)` | store `v` and return the old value |
 | `c.push(x)`, `c.pop()`, `c.clear()`, `c.len` | a `Cell[Vec[T]]`: its Vec's members |
 | `c[i]`, `c[i] = x`, `c.get(i)` | a `Cell[Vec[T]]` of Copy `T`: an element, bounds-checked, or `T?` |
 
-`T` is a Copy primitive or an owning type. An owning value is never
-copied out of a cell: it moves in with `set` / `replace` and moves out
+`T` is a Copy primitive, plain data (a struct, enum, optional, or array
+that owns nothing and holds no borrow), or an owning type. An owning
+value is never copied out of a cell: it moves in with `set` / `replace` and moves out
 with `replace`. What goes into a cell holds no borrow, since every
 handle to the cell reaches it.
 
@@ -3084,7 +3090,8 @@ sub main
 `Vec[T]` is a growable array that owns its elements. The binding is the
 buffer: a `Vec` is an owning value even when its elements are Copy.
 Elements are Copy primitives (numbers, `Bool`, `String`), plain data
-(structs, enums, and optionals that own nothing and hold no borrow),
+(structs, enums, optionals, and arrays that own nothing and hold no
+borrow),
 shared handles (including owned closures), weak handles, or boxes.
 
 | Member | Meaning |
@@ -3222,7 +3229,8 @@ sub main
 
 ### Signal
 
-`Signal[T]` holds a Copy value and a list of subscribers, owned closures
+`Signal[T]` holds a Copy or plain-data value (as a `Cell` does) and a
+list of subscribers, owned closures
 of type `*sub()`. It lives behind a shared handle: a stack `Signal` is
 rejected.
 

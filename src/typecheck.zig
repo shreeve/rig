@@ -5045,6 +5045,7 @@ const Checker = struct {
             if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "changes a Cell through any path to it");
             return ty;
         };
+        if (resolved_method == null and std.mem.eql(u8, method, "get")) if (try self.sequenceGet(obj_ty, pos, args)) |ty| return ty;
 
         const resolved = resolved_method orelse {
             // A data field holding a function or a closure handle is
@@ -5330,6 +5331,31 @@ const Checker = struct {
             return f.returns;
         }
         try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub }, .{}, method, pos);
+        return f.returns;
+    }
+
+    /// `xs.get(i)` on an array, a slice, or a String: the element as
+    /// `T?` (a String's byte as `U8?`), `none` when `i` is out of range.
+    /// Null when `obj_ty` is none of these.
+    fn sequenceGet(self: *Checker, obj_ty: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
+        const seq = sema.unwrapBorrows(self.ctx, obj_ty);
+        const elem: TypeId = switch (self.ctx.types.get(seq)) {
+            .array => |a| a.elem,
+            .slice => |sl| sl.elem,
+            .string => try self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } }),
+            else => return null,
+        };
+        const recv = try self.ctx.intern(.{ .borrow_read = seq });
+        const f: FunctionType = .{
+            .params = try self.ctx.dupeIds(&.{ recv, self.t().int_id }),
+            .returns = try self.ctx.intern(.{ .optional = elem }),
+            .is_sub = false,
+        };
+        try self.noteCallee(f);
+        if (sema.holdsWriteBorrow(self.ctx, elem) or try self.ownsResource(elem, pos, "copies an element out of a sequence")) {
+            return try self.badCall(args, pos, "`get` would copy an element out of a `{s}`, whose elements a copy cannot share; index it (`xs[i]`) or iterate over it instead", .{try self.tyName(seq)});
+        }
+        try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "get", pos);
         return f.returns;
     }
 

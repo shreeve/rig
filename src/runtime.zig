@@ -415,6 +415,13 @@ pub fn isNone(value: anytype) bool {
     return value == null;
 }
 
+/// `xs.get(i)` on an array (or a pointer to one), a slice, or a String:
+/// the element at `i`, or null when out of range.
+pub fn elementAt(items: anytype, i: Int) ?@TypeOf(items[0]) {
+    const idx = std.math.cast(usize, i) orelse return null;
+    return if (idx < items.len) items[idx] else null;
+}
+
 /// Drop a value nothing keeps: `_ = e`, `as _`, a match payload dropped
 /// with `drop x`.
 pub fn discard(value: anytype) void {

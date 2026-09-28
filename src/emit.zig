@@ -3163,6 +3163,14 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             }
         };
+        // `get` on an array, a slice, or a String.
+        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isSequence(t) and std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "get")) {
+            try self.w.writeAll("rig.elementAt(");
+            try self.emitBare(ir.Member.object(callee));
+            try self.w.writeAll(", ");
+            try self.emitArgs(sexp);
+            return self.w.writeAll(")");
+        };
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.sema.cell_sym_id)) {
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
@@ -3177,6 +3185,14 @@ pub const Emitter = struct {
         try self.w.writeAll("(");
         try self.emitArgs(sexp);
         try self.w.writeAll(")");
+    }
+
+    /// An array, a slice, or a String, or a borrow of one.
+    fn isSequence(self: *Emitter, ty: TypeId) bool {
+        return switch (self.sema.types.get(self.peelBorrows(ty))) {
+            .array, .slice, .string => true,
+            else => false,
+        };
     }
 
     /// A mutable pointer to the Cell `obj` denotes: a shared handle's

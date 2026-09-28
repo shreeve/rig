@@ -1976,17 +1976,14 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const a = ctx.arena.allocator();
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
-        if (sema.isCopyPrimitive(ctx, args[0]) or sema.typeHasDropGlue(ctx, args[0])) return null;
-        return try std.fmt.allocPrint(a, "`Cell[T]` requires `T` to be a Copy primitive (Int, Bool, Float, String) or a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`); got `{s}`", .{arg});
+        if (sema.isCopyElement(ctx, args[0]) or sema.typeHasDropGlue(ctx, args[0])) return null;
+        return try std.fmt.allocPrint(a, "`Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), or a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`); got `{s}`", .{arg});
     }
     if (sym_id == ctx.vec_sym_id) {
-        const ok = sema.isCopyPrimitive(ctx, args[0]) or switch (ctx.types.get(args[0])) {
+        const ok = sema.isCopyElement(ctx, args[0]) or switch (ctx.types.get(args[0])) {
             .shared, .weak => true,
             // A box moves in and out whole, like a handle.
-            .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id or sema.isPlainData(ctx, args[0]),
-            // Plain data: a struct, enum, or optional that owns nothing
-            // and holds no borrow is copied like a number.
-            .nominal, .imported_nominal, .optional => sema.isPlainData(ctx, args[0]),
+            .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id,
             else => false,
         };
         if (ok) return null;
@@ -1997,8 +1994,8 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
         return try std.fmt.allocPrint(a, "`Box[T]` owns its value, so `T` holds no borrow; got `{s}`", .{arg});
     }
     if (sym_id == ctx.signal_sym_id) {
-        if (sema.isCopyPrimitive(ctx, args[0])) return null;
-        return try std.fmt.allocPrint(a, "`Signal[T]` requires `T` to be a Copy type (Int, Bool, Float, String); got `{s}`", .{arg});
+        if (sema.isCopyElement(ctx, args[0])) return null;
+        return try std.fmt.allocPrint(a, "`Signal[T]` requires `T` to be a Copy type (Int, Bool, Float, String) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
     }
     return null;
 }

@@ -2369,14 +2369,15 @@ heap-owned, and reactive state.
 
 **`Cell[T]`** holds one value that can be replaced through any path,
 including a read borrow or a shared handle: `c.get()` copies it out
-(Copy `T`), `c.set(v)` stores, and `c.replace(v)` stores and returns the
+(a Copy or plain-data `T`: a number, a plain struct, enum, optional, or
+array), `c.set(v)` stores, and `c.replace(v)` stores and returns the
 old value. These calls need no `!`: a Cell's contents are never lent
 out, only replaced, so any holder may change them. That is also why
 there is no run-time borrow flag, unlike Rust's `RefCell`.
 
 **`Vec[T]`** is a growable array that owns its elements, like Rust's
 `Vec<T>`. Elements are numbers, `Bool`, `String`, plain structs, enums,
-and optionals, handles, or boxes.
+optionals, and arrays, handles, or boxes.
 
 | Member | Meaning |
 |---|---|
@@ -2478,7 +2479,7 @@ popped 2
 For anything else, take the value out with `replace`, change it, and
 put it back: `v = c.replace(Vec())`, `!v.push(x)`, `c.set(<v)`.
 
-**`Signal[T]`** holds a Copy value and a list of subscribers (owned
+**`Signal[T]`** holds a Copy or plain-data value and a list of subscribers (owned
 closures) that run on every `set`. It lives behind a shared handle,
 `*Signal(v)`.
 
@@ -2821,8 +2822,10 @@ propagate. Closures, `defer`, and `drop` bodies may not.
 known at compile time: an integer, a constant, a compile-time
 parameter, or arithmetic on constants (`[LIMIT * 2 + 1]U8`). It is a
 value, so `[LIMIT]Int` is `[4]Int` when `LIMIT =! 4`. `xs.len` is the
-length and `xs[i]` a bounds-checked element. `[2][3]Int` is two arrays
-of three, read as `grid[1][2]`.
+length, `xs[i]` a bounds-checked element, and `xs.get(i)` the element
+as a `T?`, `none` out of range (as for a `Vec`, a slice, and a `String`,
+whose `get` gives a `U8?`). `[2][3]Int` is two arrays of three, read as
+`grid[1][2]`.
 
 The **fill literal** `[n of x]` is `n` copies of `x`, count first as in
 the type `[n]T` (`page: [4096]U8 = [4096 of 0]`), where `n` is any
@@ -2844,10 +2847,12 @@ sub main
   grid = [2 of [3 of 0]]
   z = zeros[LIMIT * 2]()
   print(b, grid, z.len, [0 of 7].len)
+  print(a.get(3), a.get(4), "ok".get(1))
 ```
 
 ```output
 [1, 2, 3, 4] [[0, 0, 0], [0, 0, 0]] 8 0
+4 none 107
 ```
 
 An array, like any value, takes at most 8 MiB (`[1048576]Int`),
