@@ -2417,7 +2417,11 @@ pub const Checker = struct {
         var recv_root: ?VarId = null;
         var recv_mode: sema.MethodReceiver = .read;
         var reservation: usize = 0;
-        if (callee.isKind(.member)) {
+        if (callee.isKind(.member) and self.callsFunctionField(callee)) {
+            // A function held in a field is called with the arguments
+            // alone; it reaches nothing of the value holding it.
+            result = try self.walk(ir.Member.object(callee));
+        } else if (callee.isKind(.member)) {
             var obj = ir.Member.object(callee);
             var explicit_write = false;
             if (obj.isKind(.write) or obj.isKind(.read)) {
@@ -3647,6 +3651,19 @@ pub const Checker = struct {
     /// How a method call takes its receiver, from the signature ctx
     /// resolved for the callee: `!self` writes, a `Self` value is consumed,
     /// anything else reads. A shared handle is only ever read through.
+    /// `p.f(...)` where `f` is a data field holding a plain function or
+    /// an owned closure (not a method): neither can keep a borrow of an
+    /// argument in `p`.
+    fn callsFunctionField(self: *const Checker, callee: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        const obj = ir.Member.object(callee);
+        const obj_ty = self.exprType(if (obj.isKind(.write) or obj.isKind(.read)) ir.get(obj, .operand) else obj) orelse return false;
+        const name = self.text(ir.Member.name(callee));
+        if (sema.hasMethodNamed(ctx, obj_ty, name)) return false;
+        const field = sema.lookupDataFieldConst(ctx, obj_ty, name) orelse return false;
+        return ctx.types.get(field.ty) == .function or sema.ownedClosureFn(ctx, field.ty) != null;
+    }
+
     fn receiverMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.MethodReceiver {
         if (obj.isKind(.move)) return .value;
         if (self.exprType(obj)) |t| if (self.typeData(t) == .shared) return .read;

@@ -1,0 +1,29 @@
+# A function held in a field is called with its arguments alone, so a
+# `!self` method may lend it a borrow of a local: nothing of `self` can
+# keep the borrow.
+
+struct Map[K]
+  hash: fun(?K) -> U64
+  n: Int
+
+  sub put(!self, k: K)
+    x = self.hash(?k)
+    self.n += Int(x)
+
+  fun slot(!self, k: ?K) -> U64
+    self.hash(k)
+
+fun byte_sum(s: ?String) -> U64
+  total: U64 = 0
+  for b in s
+    total += U64(b)
+  total
+
+sub main
+  m = Map[String](hash: byte_sum, n: 0)
+  !m.put("ab")
+  key = "c"
+  print(m.n, !m.slot(?key))
+
+# expect:
+# 195 99
