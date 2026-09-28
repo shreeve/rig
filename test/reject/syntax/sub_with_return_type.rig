@@ -1,0 +1,10 @@
+# A `sub` returns no value, so its parameters end the header; only `!`
+# may follow, to make it fallible. The error names what may come next.
+
+sub total(n: Int) -> Int
+  n
+
+sub main
+  print(1)
+
+# error: 4:19: unexpected `->`; expected an indented block or `!`

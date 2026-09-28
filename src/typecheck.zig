@@ -1672,6 +1672,10 @@ const Checker = struct {
             var guarded: MatchCoverage = if (guard != .nil) try cov.clone(self.ctx.allocator) else .{};
             defer guarded.deinit(self.ctx.allocator);
             for (alts) |alt| try self.checkPattern(alt, scrutinee, if (guard != .nil) &guarded else &cov, mode);
+            if (guard != .nil) {
+                var it = guarded.variants.keyIterator();
+                while (it.next()) |k| if (!cov.variants.contains(k.*)) try cov.guarded.put(self.ctx.allocator, k.*, {});
+            }
             if (viewed) |v| {
                 if (pattern.isKind(.variant_pattern)) {
                     for (ir.VariantPattern.bindings(pattern)) |b| if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
@@ -1717,10 +1721,13 @@ const Checker = struct {
         /// Inclusive integer intervals, disjoint and in order.
         ints: std.ArrayListUnmanaged([2]Wide) = .empty,
         has_default: bool = false,
+        /// Variants only a guarded arm matches, which covers none.
+        guarded: std.StringHashMapUnmanaged(void) = .empty,
 
         fn deinit(c: *MatchCoverage, a: std.mem.Allocator) void {
             c.variants.deinit(a);
             c.ints.deinit(a);
+            c.guarded.deinit(a);
         }
 
         fn clone(c: *const MatchCoverage, a: std.mem.Allocator) Error!MatchCoverage {
@@ -1815,7 +1822,7 @@ const Checker = struct {
             for (fields) |f| {
                 if (!f.is_variant or cov.variants.contains(f.name)) continue;
                 count += 1;
-                if (count <= 4) try missing.print(a, "{s}`.{s}`", .{ if (count > 1) ", " else "", f.name });
+                if (count <= 4) try missing.print(a, "{s}`.{s}`{s}", .{ if (count > 1) ", " else "", f.name, if (cov.guarded.contains(f.name)) " (its arm has a guard)" else "" });
             }
             if (count > 4) try missing.print(a, ", and {d} more", .{count - 4});
             if (count > 0) return self.err(pos, "`match` is not exhaustive: it misses {s}; {s}", .{ missing.items, if (count > 1) "add an arm for each, or `_ =>` for the rest" else fix });
