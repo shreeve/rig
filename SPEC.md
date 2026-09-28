@@ -2473,9 +2473,10 @@ enums, integers, and `Bool`.
 | `p if cond` | what `p` matches, when `cond` holds |
 
 An arm is `pattern => statement` or a pattern followed by an indented
-block. A match whose value is used must cover every value; a statement
-match need not, and then runs no arm for the rest. Duplicate and
-unreachable arms are rejected.
+block. Every match must cover every value, whether its value is used
+or it is a statement: its arms name every variant or value, or a
+catch-all (`_`, or a name) covers the rest. Duplicate and unreachable
+arms are rejected.
 
 A guard `if cond` after a pattern is a `Bool` that may read the
 pattern's bindings; when it is false, the later arms are tried, as if
@@ -2483,7 +2484,7 @@ the arm's pattern had not matched. A guard changes nothing it matches:
 it moves nothing, and write-borrows neither the matched value nor a
 binding of the arm (as Rust's guards do not). A guarded arm covers none
 of its values: a later arm may repeat its pattern, and
-a match whose value is used still needs arms for them. Alternatives
+the match still needs arms for them. Alternatives
 are literals, ranges, or variants; since which one matched would decide
 what a name held, they bind none (`_` fills a payload field), and none
 may be a catch-all.

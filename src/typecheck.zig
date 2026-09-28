@@ -1662,13 +1662,7 @@ const Checker = struct {
         if (result) |r| for (arm_values.items) |av| try self.adaptLiteral(av.node, av.ty, r);
         const exhaustive = self.coversAll(&cov, scrutinee);
         if (exhaustive) try self.ctx.recordExhaustive(node);
-        if (position == .value and !cov.has_default and !exhaustive and !self.isPoison(scrutinee)) {
-            if (sema.enumVariantCount(self.ctx, scrutinee)) |total| {
-                try self.err(scrut_pos, "value-position `match` is not exhaustive (covered {d} of {d} variants and no default arm)", .{ cov.variants.count(), total });
-            } else {
-                try self.err(scrut_pos, "value-position `match` on `{s}` needs a default arm", .{try self.tyName(scrutinee)});
-            }
-        }
+        if (matchable and !cov.has_default and !exhaustive and !self.isPoison(scrutinee)) try self.notExhaustive(&cov, scrutinee, scrut_pos);
         if (position == .statement) return self.t().void_id;
         return result orelse self.t().invalid_id;
     }
@@ -1763,6 +1757,49 @@ const Checker = struct {
                 return false;
             },
             else => return false,
+        }
+    }
+
+    /// A `match` whose arms miss some values: the error names what they
+    /// miss, the first few variants or the least integer.
+    fn notExhaustive(self: *Checker, cov: *const MatchCoverage, scrutinee: TypeId, pos: u32) Error!void {
+        const ty = sema.unwrapBorrows(self.ctx, scrutinee);
+        const fix = "add an arm for it, or `_ =>` for the rest";
+        if (sema.nominalDecl(self.ctx, ty)) |decl| if (decl.symbol().fields) |fields| {
+            var missing: std.ArrayListUnmanaged(u8) = .empty;
+            const a = self.ctx.arena.allocator();
+            var count: usize = 0;
+            for (fields) |f| {
+                if (!f.is_variant or cov.variants.contains(f.name)) continue;
+                count += 1;
+                if (count <= 4) try missing.print(a, "{s}`.{s}`", .{ if (count > 1) ", " else "", f.name });
+            }
+            if (count > 4) try missing.print(a, ", and {d} more", .{count - 4});
+            if (count > 0) return self.err(pos, "`match` is not exhaustive: it misses {s}; {s}", .{ missing.items, if (count > 1) "add an arm for each, or `_ =>` for the rest" else fix });
+        };
+        switch (self.ctx.types.get(ty)) {
+            .bool => return self.err(pos, "`match` is not exhaustive: it misses {s}; {s}", .{ if (cov.bools[0]) "`true`" else if (cov.bools[1]) "`false`" else "`true` and `false`", fix }),
+            .int, .int_literal => {
+                // The least value missed that is not negative, else the
+                // greatest negative one.
+                const bounds = intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
+                var next: Wide = @max(bounds.min, 0);
+                for (cov.ints.items) |iv| {
+                    if (iv[0] > next) break;
+                    if (iv[1] >= next) next = iv[1] + 1;
+                }
+                if (next > bounds.max) {
+                    next = -1;
+                    var i = cov.ints.items.len;
+                    while (i > 0) : (i -= 1) {
+                        const iv = cov.ints.items[i - 1];
+                        if (iv[1] < next) break;
+                        if (iv[0] <= next) next = iv[0] - 1;
+                    }
+                }
+                return self.err(pos, "`match` on `{s}` is not exhaustive: it misses `{d}`; {s}", .{ try self.tyName(scrutinee), next, fix });
+            },
+            else => return self.err(pos, "`match` on `{s}` is not exhaustive; add `_ =>` for the values its arms miss", .{try self.tyName(scrutinee)}),
         }
     }
 

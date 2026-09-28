@@ -1,5 +1,5 @@
-# A statement-position match need not cover every variant; the handled
-# variant runs its arm.
+# A statement-position match covers every variant, here with `_` for the
+# ones it does not name; the matching arm runs.
 
 enum Color
   red
@@ -11,6 +11,7 @@ sub main()
   match c
     .red => print("R")
     .green => print("G")
+    _ => print("other")
 
 # expect:
 # R

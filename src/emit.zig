@@ -2046,12 +2046,6 @@ pub const Emitter = struct {
             if (value_pos) try self.emitValueBlock(body, prelude, self.typeOf(sexp)) else try self.emitBodyWith(body, prelude);
             try self.w.writeAll(",\n");
         }
-        // A statement match whose arms leave some values out runs no arm
-        // for them (sema requires a value-position match to be complete);
-        // one that consumes its subject drops it.
-        if (!has_default and !self.sema.isExhaustive(sexp)) {
-            if (info.mode == .consume) try self.line("else => |__rig_rest| rig.discard(__rig_rest),", .{}) else try self.line("else => {{}},", .{});
-        }
         try self.closeBrace();
         if (block.len > 0) {
             if (value_pos) try self.w.writeAll(";");
@@ -2166,7 +2160,7 @@ pub const Emitter = struct {
     /// arm is picked first, trying each in order (a guard sees the
     /// bindings it names), and a `switch` on its index runs it:
     ///     { const arm = sel: { if (s == .a) { const r = s.a.r; if (r > 0) break :sel 0; } ... break :sel N; };
-    ///       switch (arm) { 0 => { const r = s.a.r; body }, ..., else => {} } }
+    ///       switch (arm) { 0 => { const r = s.a.r; body }, ..., else => unreachable } }
     /// The subject is read in place, or from a copy when it is not a
     /// place (sema rejects a temporary that owns a resource).
     fn emitGuardedMatch(self: *Emitter, sexp: Sexp, value_pos: bool, info: MatchInfo, block: []const u8) Error!void {
@@ -2226,15 +2220,9 @@ pub const Emitter = struct {
             if (value_pos) try self.emitValueBlock(ir.Arm.body(arm), prelude, self.typeOf(sexp)) else try self.emitBodyWith(ir.Arm.body(arm), prelude);
             try self.w.writeAll(",\n");
         }
-        // No arm ran: impossible when the arms cover every value.
-        if (value_pos or picked or self.sema.isExhaustive(sexp)) {
-            try self.line("else => unreachable,", .{});
-        } else if (info.mode == .consume) {
-            try self.writeIndent(self.indent);
-            try self.w.writeAll("else => rig.discard(");
-            if (info.temp) try self.w.writeAll(info.reread) else try self.emitBare(info.subject);
-            try self.w.writeAll("),\n");
-        } else try self.line("else => {{}},", .{});
+        // No arm ran: impossible, since sema requires the arms to cover
+        // every value.
+        try self.line("else => unreachable,", .{});
         try self.closeBrace();
         if (value_pos) try self.w.writeAll(";");
     }

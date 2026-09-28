@@ -1,5 +1,5 @@
 # A guard is a Bool that moves nothing, and a guarded arm covers none of
-# its values: a value-position match still needs an arm for them.
+# its values: the match still needs an arm for them.
 
 struct B
   n: Int
@@ -29,6 +29,6 @@ sub main
     _ => print("other")
   print(size(1))
 
-# error: 18:9: value-position `match` on `Int` needs a default arm
+# error: 18:9: `match` on `Int` is not exhaustive: it misses `1`
 # error: 25:21: a guard cannot move a value
 # error: 28:10: type mismatch: expected `Bool`, got `Int`

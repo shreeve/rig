@@ -4072,7 +4072,7 @@ test "facts: constant bindings keep their value; changed ones do not" {
     try std.testing.expect(r.ctx.symbols.items[r.sym("d", 0).?].flags.written);
 }
 
-test "facts: a match covering every value without a default is exhaustive" {
+test "facts: a match covering every value without a default arm is exhaustive" {
     var r = try factsRun(
         \\sub main()
         \\  b = true
@@ -4082,6 +4082,7 @@ test "facts: a match covering every value without a default is exhaustive" {
         \\  n = 3
         \\  match n
         \\    1 => print(1)
+        \\    _ => print(0)
         \\
     );
     defer r.deinit();

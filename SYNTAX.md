@@ -1085,8 +1085,8 @@ first matching arm runs; there is no fallthrough.
 | `p, q` | either alternative (Rust's `p \| q`); they bind no names |
 | `p if cond` | `p`, when the guard `cond` holds (Rust's match guard) |
 
-A `match` whose value is used must be exhaustive; a statement `match`
-need not be. Duplicate and unreachable arms are errors. A guard may
+Every `match` must be exhaustive, as a value or as a statement: its
+arms cover every variant or value, or `_ =>` covers the rest. Duplicate and unreachable arms are errors. A guard may
 read the pattern's bindings; when it fails, matching goes on with the
 next arm, and a guarded arm does not count toward exhaustiveness.
 
