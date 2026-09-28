@@ -2948,7 +2948,8 @@ pub const Checker = struct {
         const base = try self.here();
         const depth = self.scopes.items.len;
         try self.walkConditionParts(ir.If.cond(node), then_b);
-        const failed = try self.leaveTo(base);
+        // A failing part goes on to the `else`, or past the `if`.
+        const failed = try self.leaveTo(base, resumeAt(else_b, node));
         var v1 = try self.walkTailBranch(then_b, t);
         while (self.scopes.items.len > depth) {
             v1 = try self.checkValueEscapesScope(v1);
@@ -3052,7 +3053,8 @@ pub const Checker = struct {
         var acc: ?State = null;
         var value: Value = .{};
         var catch_all = false;
-        for (ir.Match.arms(match)) |arm| {
+        const arms = ir.Match.arms(match);
+        for (arms, 0..) |arm, i| {
             const pattern = ir.Arm.pattern(arm);
             const guard = ir.Arm.guard(arm);
             const body = ir.Arm.body(arm);
@@ -3066,7 +3068,8 @@ pub const Checker = struct {
                 const temps_start = self.temps.items.len;
                 _ = try self.walk(guard);
                 self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
-                failed = try self.leaveTo(base);
+                // A failing guard goes on to the next arm, or past the match.
+                failed = try self.leaveTo(base, resumeAt(if (i + 1 < arms.len) arms[i + 1] else .nil, match));
             }
             var v = try self.walkTailBranch(body, tail_ctx);
             v = try self.checkValueEscapesScope(v);
@@ -3292,7 +3295,10 @@ pub const Checker = struct {
         var exit: State = .{ .reachable = false };
         if (spec.cond_binds) {
             try self.walkConditionParts(spec.cond.?, spec.body);
-            exit = try self.leaveTo(ctx.point);
+            // A failing part leaves the loop for its `else`, or past it.
+            self.loop = ctx.parent;
+            defer self.loop = ctx;
+            exit = try self.leaveTo(ctx.point, resumeAt(ir.get(spec.node, .@"else"), spec.node));
         } else {
             if (spec.cond) |c| try self.walkStmt(c);
             if (!spec.cond_always_true) exit = try self.capture(ctx.point);
@@ -3384,7 +3390,7 @@ pub const Checker = struct {
         if (target) |t| {
             t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
             try self.runDefersTo(t.scope_depth, false);
-            const s = try self.leaveTo(t.point);
+            const s = try self.leaveTo(t.point, null);
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
                 .cont => try t.conts.append(self.arena(), s),
@@ -3394,12 +3400,13 @@ pub const Checker = struct {
     }
 
     /// The state of a path that leaves for point `target`, relative to
-    /// it, dropping the vars declared since: a live value that survives
-    /// may not borrow one of them.
-    fn leaveTo(self: *Checker, target: Point) Error!State {
+    /// it, dropping the vars declared since: a value that survives, and
+    /// is live where the path goes on (at position `at`, or after the
+    /// current statement), may not borrow one of them.
+    fn leaveTo(self: *Checker, target: Point, at: ?u32) Error!State {
         const depth = target.vars;
         for (self.flows.items[0..depth], 0..) |f, holder| {
-            if (!hasLoanFrom(f.loans, depth) or !self.holderLive(@intCast(holder), null)) continue;
+            if (!hasLoanFrom(f.loans, depth) or !self.holderLive(@intCast(holder), at)) continue;
             for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, @intCast(holder));
         }
         return self.capture(target);
@@ -3836,6 +3843,13 @@ fn sexpMentionsBorrow(t: Sexp) bool {
 
 /// The lowest and highest source positions in `s`; `lo > hi` when it
 /// has none.
+/// Where a path that skips the rest of `node` goes on: at `next`, a
+/// later part of it, or else past its end.
+fn resumeAt(next: Sexp, node: Sexp) u32 {
+    const past = extent(node).hi +| 1;
+    return if (next == .nil) past else @min(extent(next).lo, past);
+}
+
 fn extent(s: Sexp) struct { lo: u32, hi: u32 } {
     switch (s) {
         .src => |src| return .{ .lo = src.pos, .hi = src.pos },

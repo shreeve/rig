@@ -1,0 +1,54 @@
+# A condition part or guard may store a borrow of its binding in an
+# outer value that is not used where the failing path goes on.
+
+struct Big
+  v: Vec[Int]
+
+struct View
+  b: ?Big
+
+enum O
+  some(x: Big)
+  nothing
+
+fun put(v: !View, t: ?Big) -> Bool
+  v.b = t
+  true
+
+sub viaIf
+  x0 = Big(v: Vec())
+  vw = View(b: ?x0)
+  o: Big? = Big(v: Vec())
+  if <o as x and put(!vw, ?x)
+    print(vw.b.v.len)
+  print("if")
+
+sub viaMatch
+  x0 = Big(v: Vec())
+  vw = View(b: ?x0)
+  o: O = .some(x: Big(v: Vec()))
+  match <o
+    .some(x) if put(!vw, ?x) => print(vw.b.v.len)
+    _ => print("other")
+  print("match")
+
+sub viaWhile
+  x0 = Big(v: Vec())
+  vw = View(b: ?x0)
+  o: Big? = Big(v: Vec())
+  while <o as x and put(!vw, ?x)
+    print(vw.b.v.len)
+    return
+  print("while")
+
+sub main
+  viaIf()
+  viaMatch()
+  viaWhile()
+
+# expect:
+# 0
+# if
+# 0
+# match
+# 0
