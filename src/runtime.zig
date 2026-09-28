@@ -471,9 +471,8 @@ pub fn Box(comptime T: type) type {
             return v;
         }
 
-        pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
-            try writeValue(w, self.value.*, false);
-        }
+        /// Printed as the value it holds (`writeValue`).
+        pub const __rig_box = {};
 
         pub fn __rig_drop(self: *Self) void {
             if (comptime !needsDrop(T)) return defaultAllocator().destroy(self.value);
@@ -1341,7 +1340,7 @@ var print_depth: u32 = 0;
 /// inside other values, a float with a decimal point, `none` for an
 /// absent optional, `Name(field: v)` for a struct, `.variant` /
 /// `.variant(field: v)` for an enum, and `[a, b]` for arrays and Vecs. A
-/// shared handle prints its value, a function `<fun>`.
+/// shared handle or a Box prints its value, a function `<fun>`.
 fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
     if (comptime isString(T)) {
@@ -1359,6 +1358,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         },
         .bool => return w.writeAll(if (value) "true" else "false"),
         .@"fn" => return w.writeAll("<fun>"),
+        .@"struct" => if (@hasDecl(T, "__rig_box")) return writeValue(w, value.value.*, top),
         .optional => return if (value) |v| writeValue(w, v, top) else w.writeAll("none"),
         .pointer => |p| {
             if (comptime isStrongHandle(T)) return writeValue(w, value.value, top);

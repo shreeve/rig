@@ -4477,7 +4477,7 @@ direct call; it is not a value.
 | struct | `User(name: "ada", age: 36)` |
 | array, slice, `Vec` | `[1, 2]` |
 | shared handle | the value it holds |
-| `Box` | the value it holds, as a nested value (a `String` quoted) |
+| `Box` | the value it holds |
 | `Cell`, `Signal` | `Cell(value: 5)`, `Signal(value: 5)` |
 | weak handle | `~(alive)` or `~(gone)` |
 | owned closure | `<closure>` |
