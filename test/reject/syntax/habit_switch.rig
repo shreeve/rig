@@ -1,0 +1,8 @@
+# Rig's `switch` is `match`.
+
+sub main()
+  n = 1
+  switch n
+    1 => print(1)
+
+# error: 5:3: Rig has no `switch`; write `match`

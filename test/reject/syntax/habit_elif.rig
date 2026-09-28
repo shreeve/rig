@@ -1,0 +1,10 @@
+# `elif` is written `else if`.
+
+sub main()
+  n = 1
+  if n > 1
+    print(1)
+  elif n > 0
+    print(0)
+
+# error: 7:3: Rig has no `elif`; write `else if`

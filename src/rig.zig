@@ -332,8 +332,10 @@ pub const Lexer = struct {
     /// Per depth: the block is the member list of a struct, enum, or
     /// error set, where a keyword may name a field or method.
     in_members: [max_indent_depth + 1]bool = @splat(false),
-    /// The first token of the current line, after any `pub`.
+    /// The first token of the current statement, after any `pub`, and
+    /// where it starts.
     line_head: TokenCat = .eof,
+    head_pos: u32 = 0,
     column: u32 = 0,
     pending_outdents: u32 = 0,
     pending_newline: bool = false,
@@ -401,7 +403,11 @@ pub const Lexer = struct {
         islands_too_deep,
         and_operator,
         or_operator,
+        or_fallback,
         power_operator,
+        increment,
+        decrement,
+        slash_comment,
         pin_sigil,
         control_in_string,
         lone_cr,
@@ -434,8 +440,12 @@ pub const Lexer = struct {
                 .nesting_too_deep => "brackets are nested too deeply",
                 .islands_too_deep => "closures laid out inside brackets are nested too deeply",
                 .and_operator => "`&&` is not a Rig operator; use `and`",
-                .or_operator => "`||` is not a Rig operator; use `or`",
+                .or_operator => "`||` is not a Rig operator; use `or`, or `??` for an optional's fallback",
+                .or_fallback => "`||` is not a Rig operator; a fallback value for an optional is written with `??`: `x ?? 0`",
                 .power_operator => "`**` is not a Rig operator",
+                .increment => "Rig has no `++`; write `x += 1`",
+                .decrement => "Rig has no `--`; write `x -= 1`",
+                .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
                 .pin_sigil => "the pin sigil `@x` is reserved; `@` only starts a builtin call, `@name(...)`",
             };
         }
@@ -708,7 +718,8 @@ pub const Lexer = struct {
             .or_sym => if (!after_value) blk: {
                 self.closed_bars = true;
                 break :blk .bar_empty;
-            } else return self.fail(.or_operator, tok.pos),
+            } else return self.fail(if (self.literalFollows()) .or_fallback else .or_operator, tok.pos),
+            .slash => if (self.charAfter(tok) == '/' or self.charAfter(tok) == '*') return self.fail(.slash_comment, tok.pos) else .slash,
             .power => return self.fail(.power_operator, tok.pos),
             // `x =!y`: a fixed binding of `y`, or a write borrow?
             .fixed_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_fixed, tok.pos) else tok.cat,
@@ -722,13 +733,22 @@ pub const Lexer = struct {
             .err => return self.lexError(tok),
             else => tok.cat,
         };
-        // A prefix sigil touches its operand (`-b`, `<x`, `*T`).
-        if (!after_value and isSigil(tok.cat) and isSpace(self.charAfter(tok))) return self.fail(.detached_prefix, tok.pos);
+        // A prefix sigil touches its operand (`-b`, `<x`, `*T`); `i++`
+        // is no increment.
+        if (!after_value and isSigil(tok.cat) and isSpace(self.charAfter(tok))) {
+            const twice = tok.pos > 0 and self.base.source[tok.pos - 1] == self.base.source[tok.pos];
+            if (twice and tok.cat == .plus) return self.fail(.increment, tok.pos - 1);
+            if (twice and tok.cat == .minus) return self.fail(.decrement, tok.pos - 1);
+            return self.fail(.detached_prefix, tok.pos);
+        }
         switch (out.cat) {
             .@"if", .@"while", .@"for" => self.takes_else[self.depth] = true,
             else => {},
         }
-        if (self.stmtStart() or self.last_cat == .@"pub") self.line_head = out.cat;
+        if (self.stmtStart() or self.last_cat == .@"pub") {
+            self.line_head = out.cat;
+            self.head_pos = tok.pos;
+        }
         return out;
     }
 
@@ -933,6 +953,14 @@ pub const Lexer = struct {
         return kw == .@"return" or kw == .@"break" or kw == .@"continue";
     }
 
+    /// A literal comes next: a number, a string, or an array.
+    fn literalFollows(self: *const Lexer) bool {
+        return switch (self.nextJoined().cat) {
+            .integer, .real, .string_sq, .string_dq, .lbracket => true,
+            else => false,
+        };
+    }
+
     fn nextIsName(self: *const Lexer) bool {
         var probe = self.base;
         const t = probe.matchRules();
@@ -1112,6 +1140,8 @@ pub const Parser = struct {
         var end = tok.pos + tok.len;
         const lexer = &self.base.lexer;
         if (self.openRange(tok)) |d| return d;
+        if (self.foreignWord(tok)) |d| return d;
+        if (self.headerColon(tok)) |d| return d;
         const message: []const u8 = switch (tok.cat) {
             .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = switch (lexer.err) {
                 .semicolon => self.semicolonMessage(tok),
@@ -1151,10 +1181,108 @@ pub const Parser = struct {
                 // one, so the last real token is.
                 const cat, const pos = if (tok.len > 0) .{ lexer.before_cat, lexer.before_pos } else .{ lexer.prev_cat, lexer.prev_pos };
                 if (cat != .dotdot or tok.cat == .err) return null;
+                if (tok.cat == .assign and tok.pos == pos + 2) return self.inclusiveRange(pos);
                 break :blk .{ .{ .cat = .dotdot, .pre = 0, .pos = pos, .len = 2 }, "an end" };
             },
         };
         return .{ .severity = .@"error", .pos = at.pos, .end = at.pos + at.len, .message = self.format("a range needs {s}; only a slice leaves a side open: `xs[a..]`, `xs[..b]`, `xs[..]`", .{side}) };
+    }
+
+    /// A word other languages use where Rig has its own form, at the
+    /// start of a statement (`def f()`, `let x = 5`, `loop` before its
+    /// block) or where it fails itself (`if x then`): reported at the
+    /// word, with Rig's spelling.
+    fn foreignWord(self: *Parser, tok: Token) ?diag.Diagnostic {
+        const lexer = &self.base.lexer;
+        const src = self.base.source;
+        const at: Token = blk: {
+            // The word the parser failed on, written where no Rig form
+            // takes a name (`if x then`, `const x = 5`).
+            if (tok.len > 0 and (tok.cat == .ident or keyword(src[tok.pos .. tok.pos + tok.len]) != null)) {
+                const word = src[tok.pos .. tok.pos + tok.len];
+                if (foreign_words.get(word)) |f| if (f.alone) break :blk tok;
+            }
+            // The statement's first word, right before the failure.
+            const cat, const pos = if (tok.len > 0) .{ lexer.before_cat, lexer.before_pos } else .{ lexer.prev_cat, lexer.prev_pos };
+            if (cat != .ident or pos != lexer.head_pos) return null;
+            var end = pos;
+            while (end < src.len and isIdentCont(src[end])) end += 1;
+            break :blk .{ .cat = .ident, .pre = 0, .pos = pos, .len = @intCast(end - pos) };
+        };
+        const word = src[at.pos .. at.pos + at.len];
+        const f = foreign_words.get(word) orelse return null;
+        return .{ .severity = .@"error", .pos = at.pos, .end = at.pos + at.len, .message = self.format("Rig has no `{s}`; {s}", .{ word, f.fix }) };
+    }
+
+    const Foreign = struct {
+        fix: []const u8,
+        /// Named even where the parse fails on the word itself, not only
+        /// when it starts a statement: a keyword of Rig's, or a word that
+        /// ends a header.
+        alone: bool = false,
+    };
+
+    /// Other languages' words for forms Rig spells differently.
+    const foreign_words = std.StaticStringMap(Foreign).initComptime(.{
+        .{ "def", Foreign{ .fix = "declare a function with `fun` (it returns a value) or `sub`" } },
+        .{ "fn", Foreign{ .fix = "declare a function with `fun` (it returns a value) or `sub`" } },
+        .{ "func", Foreign{ .fix = "declare a function with `fun` (it returns a value) or `sub`" } },
+        .{ "function", Foreign{ .fix = "declare a function with `fun` (it returns a value) or `sub`" } },
+        .{ "let", Foreign{ .fix = "bind a name with `x = 5`, or `x =! 5` for a fixed binding" } },
+        .{ "var", Foreign{ .fix = "bind a name with `x = 5`, or `x =! 5` for a fixed binding" } },
+        .{ "const", Foreign{ .fix = "a fixed local is `x =! 5`, and a module-level `X = 5` is a constant", .alone = true } },
+        .{ "class", Foreign{ .fix = "declare a type with `struct`" } },
+        .{ "impl", Foreign{ .fix = "methods go in the `struct` body", .alone = true } },
+        .{ "switch", Foreign{ .fix = "write `match`" } },
+        .{ "case", Foreign{ .fix = "a match arm is `pattern => ...`" } },
+        .{ "elif", Foreign{ .fix = "write `else if`" } },
+        .{ "elsif", Foreign{ .fix = "write `else if`" } },
+        .{ "elseif", Foreign{ .fix = "write `else if`" } },
+        .{ "unless", Foreign{ .fix = "write `if not`" } },
+        .{ "until", Foreign{ .fix = "write `while not`" } },
+        .{ "import", Foreign{ .fix = "use a module with `use name`" } },
+        .{ "require", Foreign{ .fix = "use a module with `use name`" } },
+        .{ "include", Foreign{ .fix = "use a module with `use name`" } },
+        .{ "loop", Foreign{ .fix = "write `while true`" } },
+        .{ "forever", Foreign{ .fix = "write `while true`" } },
+        .{ "do", Foreign{ .fix = "a block is the indented lines below the line that opens it", .alone = true } },
+        .{ "begin", Foreign{ .fix = "a block is the indented lines below the line that opens it", .alone = true } },
+        .{ "then", Foreign{ .fix = "a block is the indented lines below the line that opens it", .alone = true } },
+    });
+
+    /// `if x:`, `while x:`, `struct S:`: a `:` ending a block's header,
+    /// as in Python. Reported at the `:`.
+    fn headerColon(self: *Parser, tok: Token) ?diag.Diagnostic {
+        const lexer = &self.base.lexer;
+        const src = self.base.source;
+        const pos = switch (tok.cat) {
+            // `while x:` reads the `:` as the start of a step.
+            .indent, .newline => if (lexer.prev_cat == .step_colon) lexer.prev_pos else return null,
+            .colon, .step_colon => blk: {
+                var p = tok.pos + 1;
+                while (p < src.len and (src[p] == ' ' or src[p] == '\r')) p += 1;
+                if (p < src.len and src[p] != '\n' and src[p] != '#') return null;
+                break :blk tok.pos;
+            },
+            else => return null,
+        };
+        return .{ .severity = .@"error", .pos = pos, .end = pos + 1, .message = "unexpected `:`; a block's header ends without one: drop the `:`, and indent the block below" };
+    }
+
+    /// `0..=3`: Rig's ranges exclude their end. Reported at the `..=`.
+    fn inclusiveRange(self: *Parser, at: u32) diag.Diagnostic {
+        var probe = BaseLexer.init(self.base.source);
+        probe.pos = at + 3;
+        const end = probe.matchRules();
+        const text = self.base.source[end.pos .. end.pos + end.len];
+        const n = if (end.cat == .integer) std.fmt.parseInt(i64, text, 0) catch null else null;
+        const fix = if (n) |v|
+            self.format("`..={s}` is written `..{d}`", .{ text, v + 1 })
+        else if (end.cat == .ident)
+            self.format("`..={s}` is written `..{s} + 1`", .{ text, text })
+        else
+            "`..=b` is written `..b + 1`";
+        return .{ .severity = .@"error", .pos = at, .end = at + 3, .message = self.format("a range excludes its end: {s}", .{fix}) };
     }
 
     /// A note for a parse error inside a bracket opened on an earlier

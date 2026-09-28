@@ -1,0 +1,7 @@
+# `const` is reserved; a fixed binding is written `=!`.
+
+sub main()
+  const x = 5
+  print(x)
+
+# error: 4:3: Rig has no `const`; a fixed local is `x =! 5`

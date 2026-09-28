@@ -187,8 +187,9 @@ forms to `value`, an expression without blocks or closures (conditions,
   closed;
 - classifies keywords, the characters read by position, `if`, and
   closure bars as above;
-- rejects `&&`, `||`, `**`, and the reserved pin sigil `@x` with a
-  hint, and malformed input where it is written: `=!` touching the
+- rejects `&&`, `||` (pointing to `??` before a literal, to `or`
+  otherwise), `**`, `i++` and `i--`, `//` and `/*` comments, and the
+  reserved pin sigil `@x` with a hint, and malformed input where it is written: `=!` touching the
   operand after it (the one place token boundaries could read two ways:
   a fixed binding of `y`, or `x = !y`), a number with a
   leading zero or an uppercase radix prefix, a control character in a
@@ -206,8 +207,13 @@ into a positioned diagnostic (``unexpected `)`; expected an operand``:
 what the parser expected there, in the grammar's `@display` names for
 tokens and `@errors` names for rules, when that is at most three
 things, and a hint when the token starts a reserved form such as a
-`try` block, `zig "..."`, or `for *x in`), and makes the only rewrites
-that need to inspect the tree:
+`try` block, `zig "..."`, or `for *x in`). Another language's word for
+a form Rig spells differently (`def`, `let`, `class`, `elif`, `import`,
+`loop`, `then`, ...; the table `foreign_words`) is reported at the word
+with Rig's spelling, when it starts the statement the parser failed on
+or is itself the token it failed on; so are a `:` ending a block's
+header and an inclusive range `a..=b`. The wrapper also makes the only
+rewrites that need to inspect the tree:
 
 - `pub` on a field or method is taken off: the member list holds the
   member itself, as every pass reads it, and the wrapper records its

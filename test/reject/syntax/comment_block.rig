@@ -1,0 +1,7 @@
+# Comments start with `#`; there are no block comments.
+
+/* main */
+sub main()
+  print(1)
+
+# error: 3:1: comments start with `#`

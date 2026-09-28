@@ -1,0 +1,6 @@
+# Rust's `fn` is named at the word, even after `pub`.
+
+pub fn add(a: Int, b: Int) -> Int
+  a + b
+
+# error: 3:5: Rig has no `fn`; declare a function with `fun`
