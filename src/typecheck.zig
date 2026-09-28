@@ -1639,6 +1639,13 @@ const Checker = struct {
                 return if (is_resource) try self.ctx.intern(.{ .borrow_read = elem }) else elem;
             },
             .array => |a| {
+                // A binding of an element that is itself a write borrow
+                // would be a borrow of the borrow, or a copy of it.
+                if (mode != .move and self.ctx.types.get(a.elem) == .borrow_write) {
+                    const shown = self.sourceText(inner_source);
+                    try self.err(pos, "each element of `{s}` is a write borrow, which a loop binding cannot hold; loop over the indices and write `{s}[i]`", .{ shown, shown });
+                    return self.t().invalid_id;
+                }
                 if (mode == .write) return self.writeElement(source, inner_source, a.elem);
                 if (mode != .move and sema.holdsWriteBorrow(self.ctx, a.elem)) {
                     try self.err(pos, "each element holds a write borrow, which a loop binding would copy; write through them with `for x in !xs`", .{});

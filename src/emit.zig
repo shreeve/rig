@@ -1253,7 +1253,13 @@ pub const Emitter = struct {
     /// An assignable place: a binding, field, or element.
     fn emitPlace(self: *Emitter, target: Sexp) Error!void {
         if (target == .src) if (self.localOf(target)) |local| return self.writeLocalPlace(local);
-        if (target.isKind(.index)) return self.emitIndex(target, true);
+        if (target.isKind(.index)) {
+            // An element holding a write borrow denotes the borrowed
+            // value, as a field holding one does (`emitValue`).
+            try self.emitIndex(target, true);
+            if (self.isPtrBorrowExpr(target)) try self.w.writeAll(".*");
+            return;
+        }
         // A field of an element (`v[i].x = ...`) is reached through the
         // element's slot.
         const saved = self.place_chain;

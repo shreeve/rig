@@ -2729,16 +2729,19 @@ A write borrow is assignable, whether a `!T` parameter or a local
 holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
 borrowed value (the old value is dropped first). A new binding points
 a name at another place: `new w = !m` (`w = !m` is rejected, since it
-would write through `w`). A field of type `!T` reads and writes
-through the same way: `h.w = 5` and `h.w += 1` write the value `h.w`
-borrows, while assigning another write borrow, `h.w = !m`, points the
-field at `m`. A write borrow can be lent on, written `!p`
+would write through `w`). A field or element of type `!T` reads and
+writes through the same way: `h.w = 5`, `h.w += 1`, and `xs[i] += 1`
+write the value the place borrows, while assigning another write
+borrow, `h.w = !m`, points the place at `m`. A write borrow can be lent
+on, written `!p`
 as an owned value's borrow is, or moved into a local with `<p`, but not
 copied. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
 that path reaches: it cannot be written with or passed on from there,
-and a `match` through one cannot bind it. A loop walks elements
-holding write borrows with `for x in !xs`.
+and a `match` through one cannot bind it. A loop walks elements whose
+fields hold write borrows with `for x in !xs`; an element that is
+itself a write borrow (in a `[2]!Int`) is written by index,
+`xs[i] = v`, since a loop binding cannot hold it.
 
 ```rig
 struct Counter
@@ -2796,10 +2799,15 @@ sub main
   t.count = !m
   t.count += 1
   print(n, m)
+  xs = [!n, !m]
+  for i in 0..xs.len
+    xs[i] += 1
+  print(n, m)
 ```
 
 ```output
 30 101
+31 102
 ```
 
 ```rig reject
