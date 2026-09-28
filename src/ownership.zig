@@ -2316,11 +2316,14 @@ pub const Checker = struct {
         if (v.closure or v.fixed or v.loop_borrow or v.capture_resource) return;
         if (self.isGlobal(id) and !self.isCopy(v.ty)) return;
         if (self.findLoan(id, .any, null) != null) return;
-        if (v.ref == .write and self.writesThrough(v)) {
-            // Assigning a `!T` parameter (or loop or pattern binding)
-            // writes into the value it borrows: it still borrows it, and
-            // the new value may only carry borrows the caller handed in.
-            // A local write borrow is rebound instead.
+        if (v.ref == .write) {
+            // Assigning a write borrow writes into the value it borrows:
+            // it still borrows it. Through a `!T` parameter (or a loop or
+            // pattern binding) the new value may only carry borrows the
+            // caller handed in; through a local, it lands in what the
+            // local borrows, which then holds them.
+            if (!try self.checkLive(id, pos)) return;
+            if (v.kind == .local and self.borrowedRoot(id) != null) return self.storeThroughLocal(id, pos, value);
             for (value.loans) |l| if (self.isLocalLoan(l)) {
                 try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: the caller's value outlives it", .{ self.vars.items[l.root].name, v.name });
                 return;
@@ -2340,12 +2343,21 @@ pub const Checker = struct {
         return null;
     }
 
-    /// Whether assigning var `v` writes through it (a parameter, or a
-    /// loop or pattern binding) rather than rebinding it.
-    fn writesThrough(self: *const Checker, v: Var) bool {
-        const ctx = self.sema orelse return true;
-        const s = ctx.symbols.items[v.sym orelse return true];
-        return s.kind == .param or s.flags.pattern_bound;
+    /// `w = e` through local write borrow `id`: `e` is stored in what
+    /// `w` borrows. A borrowed parameter or module-level binding reached
+    /// that way outlives this function's values.
+    fn storeThroughLocal(self: *Checker, id: VarId, pos: u32, value: Value) Error!void {
+        const held = self.varValue(id);
+        for (held.loans) |w| {
+            if (w.kind != .write) continue;
+            const r = self.vars.items[w.root];
+            if (!w.ext and !(r.kind == .param and r.ref != .none) and !self.isGlobal(w.root)) continue;
+            for (value.loans) |l| if (self.isLocalLoan(l)) {
+                try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, self.vars.items[id].name, r.name });
+                return;
+            };
+        }
+        try self.absorbThroughWrites(held, value, pos);
     }
 
     /// `p.f = e` / `v[i] = e`.

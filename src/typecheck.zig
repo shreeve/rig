@@ -606,11 +606,19 @@ const Checker = struct {
         if (!is_decl and sym.kind == .capture and !captured_write and !self.isPoison(sym.ty)) {
             try self.errAt(target, "cannot assign to captured `{s}`; captures are fixed when the closure is created", .{name});
         }
-        const writes_through = sym.kind == .param or sym.flags.pattern_bound or captured_write;
-        // A `![]T` parameter or pattern binding views the caller's
-        // elements; there is no whole value to write through to.
+        const writes_through = sema.assignWritesThrough(self.ctx, sym.ty);
+        // A `![]T` binding views elements it does not own; there is no
+        // whole value to write through to.
         if (!is_decl and writes_through and sema.writeSliceElem(self.ctx, sym.ty) != null) {
             try self.errAt(target, "cannot assign to `{s}`, a `{s}` {s}; write its elements with `{s}[i] = v` or `!{s}.copy(src)`", .{ name, try self.tyName(sym.ty), if (sym.kind == .param) "parameter" else "binding", name, name });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        // `w = !m` writes through `w`, so it would store a borrow where a
+        // value goes; a new binding points the name elsewhere.
+        if (!is_decl and writes_through and kind == .default and rhs.isKind(.write)) {
+            const src = try self.sourceText(rhs);
+            try self.errAt(rhs, "`{s} = {s}` would write through `{s}`; to point `{s}` at another place, write `new {s} = {s}`", .{ name, src, name, name, name, src });
             _ = try self.synthExpr(rhs);
             return;
         }

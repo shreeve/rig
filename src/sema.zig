@@ -2675,6 +2675,14 @@ pub fn isBorrowType(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// Whether assigning a binding of type `ty` after its declaration writes
+/// through to the value it borrows instead of rebinding it: every write
+/// borrow does, a `!T` parameter, local, capture, or loop or pattern
+/// binding alike (`new w = !m` binds a new one).
+pub fn assignWritesThrough(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.types.get(ty) == .borrow_write;
+}
+
 /// The element type of a writable slice `![]T`; null for any other type.
 pub fn writeSliceElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {

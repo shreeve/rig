@@ -1075,7 +1075,10 @@ pub const Emitter = struct {
         // A constant initializer would make a Zig `const` compile-time
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
-        const is_var = s.flags.reassigned or (!holds_ptr and (s.flags.written or needs_ptr_self or
+        // Assigning a write borrow writes through it, leaving the
+        // pointer as it is.
+        const rebound = s.flags.reassigned and !(ty != null and sema.assignWritesThrough(self.sema, ty.?));
+        const is_var = rebound or (!holds_ptr and (s.flags.written or needs_ptr_self or
             (!s.flags.comptime_known and (isZigComptimeIn(self, expr, 0) or self.sema.const_ints.contains(sym)))));
 
         // Evaluate the value before the new name is visible, so a shadow
@@ -1120,7 +1123,7 @@ pub const Emitter = struct {
             // through the binding, which may land behind a pointer
             // field, run-time arithmetic, a `*Self` method) needs the
             // discard.
-            if (!s.flags.reassigned) try self.w.print(" _ = &{s};", .{stored.zig_name});
+            if (!rebound) try self.w.print(" _ = &{s};", .{stored.zig_name});
         } else if (self.sema.const_ints.contains(sym) or self.sema.ct_locals.contains(sym)) {
             // A constant's uses may all be folded away, and an alias of a
             // compile-time parameter may be named only in types, which
@@ -1134,8 +1137,7 @@ pub const Emitter = struct {
     /// guard is re-armed.
     fn emitRebind(self: *Emitter, local: Local, value: Sexp) Error!void {
         const s = self.sema.symbols.items[local.sym];
-        const captured_write = s.kind == .capture and self.sema.types.get(s.ty) == .borrow_write;
-        const writes_through = s.kind == .param or s.flags.pattern_bound or captured_write;
+        const writes_through = sema.assignWritesThrough(self.sema, s.ty);
         if (local.is_ptr and !writes_through) {
             // A borrow local is rebound to borrow something else.
             try self.w.print("{s} = ", .{local.zig_name});

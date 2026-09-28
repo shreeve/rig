@@ -1,5 +1,5 @@
-# A local write borrow can be rebound to borrow another value; the first
-# is free again once nothing borrows it.
+# `new w = !y` points the name of a local write borrow at another value;
+# the first is free again once nothing borrows it.
 
 struct Wrap
   n: Int
@@ -9,9 +9,10 @@ sub main()
   y = Wrap(n: 2)
   w = !x
   w.n = 10
-  w = !y
+  new w = !y
   w.n = 20
+  x.n += 1
   print(x.n, y.n)
 
 # expect:
-# 10 20
+# 11 20

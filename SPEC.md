@@ -1603,7 +1603,7 @@ declaration ([§15](#15-modules)), and `extern` declares a C symbol
 
 | Form | Meaning |
 |---|---|
-| `x = e` | bind a new local `x`, or assign to the visible `x` |
+| `x = e` | bind a new local `x`, or assign to the visible `x` (through it, when `x` is a write borrow) |
 | `x: T = e` | bind with a type annotation |
 | `x =! e`, `x: T =! e` | bind a fixed local, which cannot be reassigned |
 | `new x = e` | bind a new `x` that shadows the visible one; `e` may read the old `x` |
@@ -2649,9 +2649,12 @@ cannot write-borrow `x` while a read borrow is live
 
 #### Write borrows
 
-A `!T` parameter is assignable: `p.f = v` and `p = v` write through to
-the caller's value (the old value is dropped first). A write borrow can
-be passed on, or moved into a local with `<p`, but not copied. One held
+A write borrow is assignable, whether a `!T` parameter or a local
+holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
+borrowed value (the old value is dropped first). A new binding points
+a name at another place: `new w = !m` (`w = !m` is rejected, since it
+would write through `w`). A write borrow can be passed on, or moved
+into a local with `<p`, but not copied. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
 that path reaches: it cannot be passed on from there, and a `match`
 through one cannot bind it. A loop walks elements holding write borrows
@@ -2678,6 +2681,22 @@ sub main
 ```output
 6
 0
+```
+
+```rig
+sub main
+  n = 1
+  w = !n
+  w = 5
+  w += 1
+  m = 10
+  new w = !m
+  w *= 2
+  print(n, m)
+```
+
+```output
+6 20
 ```
 
 A `!x` borrow needs a binding that may change: a parameter (other than

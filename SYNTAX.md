@@ -546,7 +546,7 @@ glue**).
 
 | Form | Meaning |
 |---|---|
-| `x = e` | declare `x`, or assign the visible `x` |
+| `x = e` | declare `x`, or assign the visible `x` (through it, when `x` holds a write borrow) |
 | `x: T = e` | declare with a type |
 | `x =! e`, `x: T =! e` | declare a fixed `x`, which cannot be reassigned |
 | `new x = e` | declare a new `x` shadowing the old one; `e` may read the old |
@@ -2191,6 +2191,27 @@ cannot write-borrow `u` while a read borrow is live
 
 A borrow lasts until its last use (like Rust's non-lexical lifetimes),
 and a borrow passed to a call ends when the call returns.
+
+A local holding a write borrow is assigned like a `!T` parameter:
+`w = 5` and `w += 1` write through it, as `*w = 5` would in Rust or
+`w.* = 5` in Zig. To point the name at another place, bind it anew
+with `new w = !m`.
+
+```rig
+sub main
+  n = 1
+  w = !n
+  w = 5
+  w += 1
+  m = 10
+  new w = !m
+  w *= 2
+  print(n, m)
+```
+
+```output
+6 20
+```
 
 ### Borrows without lifetimes
 
