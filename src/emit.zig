@@ -4111,7 +4111,7 @@ pub const Emitter = struct {
         const recv = unborrowed(self.receiverOf(call) orelse return);
         const writes = self.receiverWrites(call);
         const temporary = !isPlace(recv) and !recv.isKind(.move);
-        if (!contains(recv, &.{.call}) and !(writes and temporary)) return;
+        if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return;
         const name = try self.fmt("__rig_recv_{d}", .{id});
         try self.writeIndent(self.indent);
         if (!temporary) {

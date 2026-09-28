@@ -1,0 +1,46 @@
+# A method call on an indexed element picks the element before its
+# arguments run, also when the arguments are evaluated into temporaries
+# first (keyword arguments, an owned argument before a failing one).
+
+error E
+  bad
+
+struct C
+  n: Int
+
+  fun sub2(!self, a: Int, b: Int) -> Int
+    self.n += 100
+    a * 10 + b
+
+  sub put(!self, v: Vec[Int], b: Int)
+    self.n += 100 + v.len + b
+
+fun bump(k: !Int) -> Int
+  k += 1
+  7
+
+fun bump2(k: !Int) -> Int!
+  return E.bad if k > 5
+  k += 1
+  7
+
+fun two -> Int
+  2
+
+sub run!
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  !cs[k].put(Vec(), bump2(!k)!)
+  print(cs[0].n, cs[1].n, k)
+
+sub main()
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  print(!cs[k].sub2(b: bump(!k), a: two()))
+  print(cs[0].n, cs[1].n, k)
+  run() catch print("e")
+
+# expect:
+# 27
+# 105 6 1
+# 112 6 1
