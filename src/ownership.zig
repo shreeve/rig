@@ -2340,7 +2340,7 @@ pub const Checker = struct {
             // caller handed in; through a local, it lands in what the
             // local borrows, which then holds them.
             if (!try self.checkLive(id, pos)) return;
-            if (self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value);
+            if (self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, 1);
             for (value.loans) |l| if (self.isLocalLoan(l)) {
                 const stored = self.vars.items[l.root].name;
                 if (self.borrowedRoot(id)) |root| {
@@ -2375,7 +2375,7 @@ pub const Checker = struct {
     /// `w = e` through local write borrow `id`: `e` is stored in what
     /// `w` borrows. A borrowed parameter or module-level binding reached
     /// that way outlives this function's values.
-    fn storeThroughLocal(self: *Checker, id: VarId, pos: u32, value: Value) Error!void {
+    fn storeThroughLocal(self: *Checker, id: VarId, pos: u32, value: Value, depth: u32) Error!void {
         const held = self.varValue(id);
         for (held.loans) |w| {
             if (w.kind != .write) continue;
@@ -2386,7 +2386,7 @@ pub const Checker = struct {
                 return;
             };
         }
-        try self.absorbThroughWrites(held, value, pos, self.vars.items[id].name);
+        try self.absorbThroughWrites(held, value, pos, self.vars.items[id].name, depth);
     }
 
     /// `p.f = e` / `v[i] = e`.
@@ -2409,9 +2409,9 @@ pub const Checker = struct {
         if (value.loans.len == 0 or !self.mayCarryBorrow(self.exprType(target))) return;
         // A value stored through a `!T` field or element lands in what
         // the field borrows, which `v` holds a write loan on.
-        if (self.storesThroughPlace(target, expr)) return self.absorbThroughWrites(self.varValue(id), value, pos, v.name);
+        if (self.storesThroughPlace(target, expr)) return self.absorbThroughWrites(self.varValue(id), value, pos, v.name, self.placeDepth(target, true));
         if (v.kind == .capture and !place.through_shared) return self.storeThroughCapture(v, pos, value);
-        if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value);
+        if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, self.placeDepth(target, false));
         if (v.ref != .none or place.through_borrow or place.through_shared or self.isGlobal(id)) {
             // Stored into something the caller owns: only borrows the
             // caller handed in may go there.
@@ -2562,10 +2562,10 @@ pub const Checker = struct {
         if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             if (recv_root) |id| {
                 const obj = ir.Member.object(callee);
-                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null);
+                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null, true);
             }
-            try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null);
-            for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null);
+            try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
+            for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
         }
 
         if (recv_root) |id| if (recv_mode == .write) {
@@ -2715,16 +2715,77 @@ pub const Checker = struct {
     /// the loans in `stored`. Those write loans are the path to them, not
     /// something stored. `via` names the write borrow an assignment
     /// stores through; without it, a call stores them.
-    fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32, via: ?[]const u8) Error!void {
-        var roots: std.ArrayListUnmanaged(VarId) = .empty;
-        for (v.loans) |l| {
-            if (l.kind == .write and std.mem.indexOfScalar(VarId, roots.items, l.root) == null) try roots.append(self.arena(), l.root);
+    ///
+    /// Without a `depth` (a call, which may store anywhere its arguments
+    /// reach), every value the write loans lead to, however deep, may
+    /// hold them. An assignment goes through `depth` write borrows from
+    /// `v` (`placeDepth`): the values within that many write loans may
+    /// hold them, and the ones further on, which only what it wrote
+    /// borrows, do not. A write borrow var on the way (`w2 = !w`) is a
+    /// name for what it borrows, and takes no step of its own.
+    fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32, via: ?[]const u8, depth: ?u32) Error!void {
+        var level: std.ArrayListUnmanaged(VarId) = .empty;
+        try self.appendWriteRoots(&level, v, &.{});
+        const d = depth orelse {
+            for (level.items) |r| {
+                // Only a value that can hold a borrow can have one stored in it.
+                if (!self.mayCarryBorrow(self.pointee(self.vars.items[r].ty))) continue;
+                try self.absorbLoans(r, stored, pos, level.items, via, true);
+            }
+            return;
+        };
+        // The values reached, found before any of them takes the loans.
+        var seen: std.ArrayListUnmanaged(VarId) = .empty;
+        var remaining = d;
+        while (level.items.len > 0 and seen.items.len <= 64) {
+            var next: std.ArrayListUnmanaged(VarId) = .empty;
+            var i: usize = 0;
+            while (i < level.items.len) : (i += 1) {
+                const r = level.items[i];
+                if (std.mem.indexOfScalar(VarId, seen.items, r) != null) continue;
+                try seen.append(self.arena(), r);
+                const c = self.vars.items[r];
+                if ((c.kind == .param and c.ref != .none) or self.isGlobal(r)) continue;
+                if (c.ref == .write) {
+                    try self.appendWriteRoots(&level, self.varValue(r), seen.items);
+                } else if (remaining > 1) try self.appendWriteRoots(&next, self.varValue(r), seen.items);
+            }
+            if (remaining <= 1) break;
+            remaining -= 1;
+            level = next;
         }
-        for (roots.items) |r| {
-            // Only a value that can hold a borrow can have one stored in it.
+        if (seen.items.len > 64) return self.absorbThroughWrites(v, stored, pos, via, null);
+        for (seen.items) |r| {
             if (!self.mayCarryBorrow(self.pointee(self.vars.items[r].ty))) continue;
-            try self.absorbLoans(r, stored, pos, roots.items, via);
+            try self.absorbLoans(r, stored, pos, seen.items, via, false);
         }
+    }
+
+    /// Append to `out` the roots of the write loans in `v` not in `out`
+    /// or `skip`.
+    fn appendWriteRoots(self: *Checker, out: *std.ArrayListUnmanaged(VarId), v: Value, skip: []const VarId) Error!void {
+        for (v.loans) |l| {
+            if (l.kind != .write or std.mem.indexOfScalar(VarId, out.items, l.root) != null or std.mem.indexOfScalar(VarId, skip, l.root) != null) continue;
+            try out.append(self.arena(), l.root);
+        }
+    }
+
+    /// The number of write borrows a store to `target` goes through from
+    /// its root var's value: each one the path reaches through, the root
+    /// included, and the `!T` the place itself holds when the store
+    /// writes through it.
+    fn placeDepth(self: *const Checker, target: Sexp, writes_through: bool) u32 {
+        var n: u32 = @intFromBool(writes_through);
+        var e = target;
+        while (e.isKind(.member) or e.isKind(.index)) {
+            e = ir.get(e, .object);
+            // A root var holding a write borrow (a `match !x` binding
+            // among them, whatever its type) is one.
+            const root_borrows = e == .src and if (self.find(self.text(e))) |id| self.vars.items[id].ref == .write else false;
+            const is_borrow = if (self.exprType(e)) |t| self.typeData(t) == .borrow_write else false;
+            if (root_borrows or is_borrow) n += 1;
+        }
+        return n;
     }
 
     /// Record that var `id` may now hold the loans in `v`, and so may
@@ -2734,7 +2795,7 @@ pub const Checker = struct {
     /// parameter or a module-level binding outlives this function's
     /// values: storing a borrow of one into it is rejected. `via` is as
     /// for `absorbThroughWrites`.
-    fn absorbLoans(self: *Checker, id: VarId, v: Value, pos: u32, through: []const VarId, via: ?[]const u8) Error!void {
+    fn absorbLoans(self: *Checker, id: VarId, v: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool) Error!void {
         var out: std.ArrayListUnmanaged(Loan) = .empty;
         for (v.loans) |l| {
             if (l.root != id and std.mem.indexOfScalar(VarId, through, l.root) == null) try out.append(self.arena(), l);
@@ -2758,10 +2819,10 @@ pub const Checker = struct {
         const held = f.loans;
         f.loans = try self.unionLoans(held, out.items);
         try self.setFlow(id, f);
-        if (through.len > 16) return;
+        if (!deeper or through.len > 16) return;
         const next = try std.mem.concat(self.arena(), VarId, &.{ through, &.{id} });
         for (held) |l| {
-            if (l.kind == .write and std.mem.indexOfScalar(VarId, next, l.root) == null) try self.absorbLoans(l.root, v, pos, next, via);
+            if (l.kind == .write and std.mem.indexOfScalar(VarId, next, l.root) == null) try self.absorbLoans(l.root, v, pos, next, via, true);
         }
     }
 
@@ -2830,7 +2891,7 @@ pub const Checker = struct {
         // captured write borrow leads to, as a call may with its
         // arguments: that value now holds those loans.
         if (!owned and caps.len > 1) for (caps, cap_values.items) |cap, cv| {
-            try self.absorbThroughWrites(cv, value, sema.captureNameNode(cap).?.src.pos, null);
+            try self.absorbThroughWrites(cv, value, sema.captureNameNode(cap).?.src.pos, null, null);
         };
 
         // The body is checked as its own function; it cannot affect the

@@ -836,10 +836,15 @@ its `!` arguments and other write borrows lead to, except a built-in
 element method (`!dst.copy(src)`) whose elements hold no borrow, which
 stores only plain elements. Assigning a local write borrow, or a field
 or element through one (`w = v`, `w.f = v`), stores `v` in what `w`
-borrows the same way (`storeThroughLocal`), and so does assigning a
-value to a field or element that holds a `!T` (`h.w = v`, which
-writes through it): `v` lands in what the struct write-borrows
-(`storesThroughPlace`).
+borrows (`storeThroughLocal`), and so does assigning a value to a
+field or element that holds a `!T` (`h.w = v`, which writes through
+it): `v` lands in what the struct write-borrows (`storesThroughPlace`).
+Unlike a call, an assignment knows how many write borrows it goes
+through (`placeDepth`: `o.i = v` one, `o.i.x = v` two), so only the
+values within that many write loans may hold what `v` borrows, a write
+borrow var on the way counting as the value it borrows
+(`absorbThroughWrites`); the values further on are borrowed only by
+what the assignment replaced.
 Cells, Signals, and
 owned closures hold no borrows (storing one there is rejected): every
 handle to one reaches what it holds, so loans kept per handle var would
