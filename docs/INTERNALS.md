@@ -587,7 +587,9 @@ ownership:
   called, so it cannot leave `raw` as a value.
 
 It also allows a borrow of a temporary (`?S(n: 1)`) only as an
-argument of a call whose result keeps no borrow, since the temporary
+argument of a call whose result keeps no borrow, a `print` argument, a
+`match` subject, a `for` source, or the optional an `if`/`while ... as`
+binds, since the temporary
 ends with its statement, so the ownership checker, which tracks loans
 on named values, never meets one that outlives its value.
 
@@ -642,7 +644,8 @@ type parameters as `type_var` types. What the body does with a `T` that
 only some types support records a `Requirement` on the parameter in
 `generic_requirements`, with the position of the operation: arithmetic,
 ordering, `==`, integer operators, negation, a float or integer literal
-beside a `T`, a constant shift, and `plain` where the body copies a
+beside a `T`, a constant shift, `not_error` for a `T!` return (an
+error set cannot fill it), and `plain` where the body copies a
 value holding a `T` in a way the ownership checker does not see:
 discarding it, leaving it as a temporary, cloning it, reading it out of
 a `Vec` or `Cell`, putting it in an array, or moving it out of a
@@ -782,8 +785,8 @@ format.
 
 A name, type, field, or method that is not found names the closest
 one in scope or on the type (`sema.Suggest`: within one edit for a
-name of up to five characters and two for a longer one, a swap of
-neighbors counting as one), as in
+name of three to five characters and two for a longer one, a swap of
+neighbors counting as one, and none for one or two characters), as in
 ``use of unbound name `totla`; did you mean `total`?``, and another
 language's spelling of a Rig form (`null`, `True`, `this`,
 `println`, ...; `unboundHint` in typecheck) names Rig's. A local that
@@ -900,7 +903,9 @@ the rest of their block unreachable. A `defer` body is re-checked
 against the state at every exit of its scope, where what it reads may
 not borrow a var declared after the `defer` (dropped before it runs).
 An `errdefer` body is re-checked only at the exits that fail: a `!`,
-and a `return` or final value whose type is, or may be, an error.
+and a `return` or final value whose type is, or may be, an error,
+including the final value of an `if` or `match` branch block that is
+the function's result (`Checker.ret_block`).
 
 **Rules** (SPEC §7 states them for users): no use of a moved or dropped
 value; read loans exclude writes, moves, drops, and reassignment, and
@@ -975,6 +980,8 @@ lower is an internal error: sema must have rejected it.
   change while it is borrowed. In a generic type, where that depends on
   the type arguments (`?T`, `?Self`), the borrow is a
   `rig.ReadBorrow(T)`, which applies the same rule to each instance.
+  The rule is `sema.readBorrowCopies`, which typecheck also uses to
+  read through a `!T` lent where a copied `?T` is expected.
   A `[]T` is a `[]const T` and a `![]T` a Zig `[]T`, not a pointer to
   one: the slice already points at its elements, so it is passed and
   bound as it is.
@@ -998,7 +1005,10 @@ lower is an internal error: sema must have rejected it.
   a value (one a `break` leaves with a value) becomes a labeled block
   holding the loop without its `else`, then `break :block else_value`;
   each `break v` leaves the block, so the `else` value is reached only
-  when no `break` gave one, for every form of loop.
+  when no `break` gave one, for every form of loop. A branch block of a
+  returned value that holds an `errdefer` ends in `return v`, not
+  `break :blk v` (`markReturningBlocks`): Zig runs an `errdefer` only
+  when the function returns.
 - **Compile-time parameters** are Zig `comptime` parameters, first in
   the signature, after a method's receiver (Zig's method call syntax
   needs the receiver first): `fun times[n: Int](?self)` is

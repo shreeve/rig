@@ -753,7 +753,8 @@ A statement is one of:
 - a drop, `-x`;
 - `return`, `return e`, `break`, `break e`, `break :label`,
   `continue`, `continue :label`;
-- `defer` or `errdefer` with a statement or block;
+- `defer` or `errdefer` with a statement or block (a one-line
+  statement may not declare a name);
 - a `raw` block ([SPEC §15](SPEC.md#15-raw-code-and-ffi));
 - a labeled statement, `:name stmt`.
 

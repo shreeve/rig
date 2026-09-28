@@ -1700,7 +1700,9 @@ computed when the program runs panics, like `+` and `*`.
 `+%`, `-%`, and `*%` are wrapping arithmetic, as in Zig: on overflow
 the result wraps around in two's complement, keeping the low bits in
 the operands' integer type, and never panics. They take integers of
-any type; a `Float` is rejected. `+%=`, `-%=`, and `*%=` assign the
+any type; a `Float` is rejected, as is a literal operand that would
+take a float type or a type parameter a float fills. The same holds
+for the integer operators `&`, `|`, `^`, `<<`, and `>>`. `+%=`, `-%=`, and `*%=` assign the
 wrapped result. Constant wrapping arithmetic is computed in its type,
 as the program computes it.
 
@@ -2271,7 +2273,20 @@ cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fi
 exits, in reverse order of the defers. `errdefer` runs only when the
 function exits with an error. A deferred body may not move or drop
 outer bindings, or propagate with `!`. It runs after the values declared
-after it are dropped, so it may not read one through a borrow.
+after it are dropped, so it may not read one through a borrow. A
+one-line `defer` or `errdefer` cannot declare a name; a deferred block
+can.
+
+```rig reject
+sub main
+  s = 1
+  defer t = s
+  print(s)
+```
+
+```error
+a deferred statement runs at scope exit and cannot declare `t`; use an indented `defer` block
+```
 
 ---
 
@@ -2858,7 +2873,8 @@ bind it to a name first
 
 A borrow of a temporary (`?S(n: 1)`, `?make()`) lives only as long as
 the call it is lent to, so it may be an argument of a call whose result
-keeps no borrow, or a `match` subject. Bound to a name, stored in a
+keeps no borrow or of `print`, a `match` subject, a `for` source, or
+the optional an `if` or `while` binds with `as`. Bound to a name, stored in a
 field, or passed to a call whose result may borrow it, it would outlive
 the value, and it is rejected.
 
@@ -3928,7 +3944,8 @@ body, handles failures with `catch`. A fallible type is only allowed as
 the return type of a function or of a function type
 (`fun(Int) -> Int!`, `sub(Int)!`, `*fun(Int) -> Int!`), and a plain `T`
 is accepted where `T!` is expected. `E!` for an error set `E` is
-rejected: a failure and a success would both be `E` values.
+rejected: a failure and a success would both be `E` values. So is a
+generic `T!` whose `T` an error set fills.
 
 ```rig
 error Parse
@@ -4038,7 +4055,9 @@ expected: `return E.name` (a member of an error set,
 [§3](#error-sets)), a binding of an error set's type, an error it
 caught, or `.name` when `T` has no variant of that name. The failure
 leaves the function the way `!` does: every `defer` and `errdefer` of
-the scopes it leaves runs. Only a function returning `T!` can fail.
+the scopes it leaves runs, including when the error is the final value
+of an `if` or `match` branch block. Only a function returning `T!` can
+fail.
 
 ### Naming the error
 
