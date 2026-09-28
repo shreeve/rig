@@ -2078,6 +2078,10 @@ const Checker = struct {
             try self.errAt(leaf, "`{s}` is a type, not a value", .{name});
             return null;
         }
+        if (std.mem.eql(u8, name, "print")) {
+            try self.errAt(leaf, "`print` is called with parentheses: `print(...)`", .{});
+            return null;
+        }
         try self.errAt(leaf, "use of unbound name `{s}`", .{name});
         return null;
     }

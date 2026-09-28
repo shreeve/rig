@@ -1153,7 +1153,7 @@ pub const Parser = struct {
         };
         const expected = self.expectedHint();
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
-        const hint = self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse fillHint(tok) orelse reservedHint(src, tok, expected orelse "");
+        const hint = self.printHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse fillHint(tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
@@ -1254,6 +1254,17 @@ pub const Parser = struct {
             return "a slice or array type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead";
         }
         return null;
+    }
+
+    /// `print "hi"`: `print` named without its call's parentheses.
+    fn printHint(self: *Parser, tok: Token) ?[]const u8 {
+        const lex = &self.base.lexer;
+        if (tok.len == 0 or lex.before_cat != .ident) return null;
+        const src = self.base.source;
+        var end = lex.before_pos;
+        while (end < src.len and isIdentCont(src[end])) end += 1;
+        if (!std.mem.eql(u8, src[lex.before_pos..end], "print")) return null;
+        return "`print` is called with parentheses: `print(...)`";
     }
 
     /// A prefix sigil with whitespace after it (`- b`): named with the

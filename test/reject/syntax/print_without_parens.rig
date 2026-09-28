@@ -1,8 +1,8 @@
 # A statement that calls takes parentheses too: `print x` is a syntax
-# error, like any name followed by an operand.
+# error, which names the fix for `print`, the name most often written so.
 
 sub main()
   x = 1
   print x
 
-# error: 6:9: unexpected name `x`
+# error: 6:9: unexpected name `x`; `print` is called with parentheses: `print(...)`

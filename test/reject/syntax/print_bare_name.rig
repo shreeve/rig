@@ -1,0 +1,7 @@
+# `print` is only a call: written without its parentheses, before a
+# string, a negation, or a list, it is named with the fix.
+
+sub main()
+  print -1
+
+# error: 5:3: `print` is called with parentheses: `print(...)`
