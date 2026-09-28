@@ -1297,7 +1297,12 @@ const Checker = struct {
     fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         const expr = ir.As.value(node);
         const name = ir.As.name(node);
+        // A borrowed temporary lives as long as the statement, as a match
+        // subject's does.
+        const saved_borrow = self.lent_borrow;
+        self.lent_borrow = expr;
         const ty = try self.synthExpr(expr);
+        self.lent_borrow = saved_borrow;
         var inner = self.t().invalid_id;
         if (!self.isPoison(ty)) switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
             .optional => |i| inner = i,
@@ -4511,7 +4516,12 @@ const Checker = struct {
                 try self.errAt(a, "`print` takes no keyword arguments", .{});
                 continue;
             }
+            // `print` keeps nothing, so a borrowed temporary lives long
+            // enough.
+            const saved_borrow = self.lent_borrow;
+            self.lent_borrow = a;
             const ty = try self.synthOperand(a);
+            self.lent_borrow = saved_borrow;
             // An integer literal prints as an `Int`, which must hold it.
             if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
             switch (self.ctx.types.get(ty)) {
