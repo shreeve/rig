@@ -2234,9 +2234,11 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             break :blk std.math.mul(u128, n, e) catch std.math.maxInt(u128);
         },
         .nominal => |sym| try fieldBytes(ctx, sym, .empty),
+        // Sized where it is declared (`checkTypeSizes`).
         .imported_nominal => |in| blk: {
             const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk null;
-            break :blk try minBytes(foreign, try foreign.intern(.{ .nominal = in.sym_id }));
+            const declared = foreign.types.find(.{ .nominal = in.sym_id }) orelse break :blk null;
+            break :blk foreign.byte_sizes.get(declared) orelse null;
         },
         // A Vec is its buffer's slice and length, a Box its pointer. A
         // Cell is its value (its one field), a Signal its value, a pending
