@@ -1,0 +1,18 @@
+# `for x, i in xs` binds the element, then the index. A loop written
+# index first, as Python's `enumerate` is, shows up where a binding has
+# the other one's type, and the error says so.
+
+fun width(s: String) -> Int
+  s.len
+
+sub main()
+  xs = ["a", "bb"]
+  for i, x in xs
+    print(xs[i], width(x))
+  ns = [1, 2]
+  for i, n in ns
+    print(width(n))
+
+# error: 11:14: an index must be an integer; got `String`; `x` is the index here: Rig writes the element first, `for x, i in xs`
+# error: 11:24: type mismatch: expected `String`, got `Int`; `x` is the index here: Rig writes the element first, `for x, i in xs`
+# error: 14:17: type mismatch: expected `String`, got `Int`

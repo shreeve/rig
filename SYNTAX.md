@@ -979,7 +979,8 @@ done
 ### for
 
 `for x in source` walks a range `a..b`, an array, a slice, a `Vec`, or a
-`String` (its bytes). `for x, i in xs` also binds the index. A range is
+`String` (its bytes). `for x, i in xs` also binds the index, after the
+element (Python's `for i, x in enumerate(xs)`). A range is
 half-open: `0..3` is 0, 1, 2. A Vec is walked where it is, so the loop
 borrows it, visibly: `for x in ?v` (a bare `for x in v` is rejected
 with that fix). An array is copied, and a slice or String is a view,

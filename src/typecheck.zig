@@ -67,6 +67,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     };
     defer c.arg_types.deinit(ctx.allocator);
     defer c.copied_from.deinit(ctx.allocator);
+    defer c.loop_pairs.deinit(ctx.allocator);
     defer c.owned_bindings.deinit(ctx.allocator);
     defer c.literal_results.deinit(ctx.allocator);
     defer c.result_hints.deinit(ctx.allocator);
@@ -143,6 +144,9 @@ const Checker = struct {
     /// A loop element or `as` binding that copies from a place: the
     /// place, named when the binding is written (`checkBindingWritable`).
     copied_from: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
+    /// The element and index bindings of `for x, i in xs`, each mapped
+    /// to both, for the hint on a loop written index first.
+    loop_pairs: std.AutoHashMapUnmanaged(SymbolId, LoopPair) = .empty,
     /// The bindings of a `match <x` arm: each owns what it binds.
     owned_bindings: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// The call whose value goes where a `ty` is expected (`checkExpr`),
@@ -1406,10 +1410,33 @@ const Checker = struct {
             if (self.ctx.symbolOf(index_binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = self.t().int_id;
                 try self.ctx.recordType(index_binding, self.t().int_id);
+                if (self.ctx.symbolOf(binding)) |elem| {
+                    const pair: LoopPair = .{ .elem = elem, .index = sym, .source = source };
+                    try self.loop_pairs.put(self.ctx.allocator, elem, pair);
+                    try self.loop_pairs.put(self.ctx.allocator, sym, pair);
+                }
             }
             try self.checkStmt(ir.For.body(node));
         }
         try self.checkLoopElse(&frame, ir.For.@"else"(node));
+    }
+
+    const LoopPair = struct { elem: SymbolId, index: SymbolId, source: Sexp };
+
+    /// The hint for a value of the wrong type that is a binding of
+    /// `for x, i in xs` whose other binding has the type wanted: the loop
+    /// was likely written index first, as Python's `enumerate` is.
+    fn loopOrderHint(self: *Checker, e: Sexp, wanted: TypeId) Error![]const u8 {
+        if (e != .src) return "";
+        const sym = self.ctx.symbolOf(e) orelse return "";
+        const pair = self.loop_pairs.get(sym) orelse return "";
+        const other = if (sym == pair.elem) pair.index else pair.elem;
+        const other_ty = self.ctx.symbols.items[other].ty;
+        const fits = if (sym == pair.elem) sema.isInteger(self.ctx, wanted) else compatible(self.ctx, other_ty, wanted);
+        if (!fits) return "";
+        const elem = self.ctx.symbols.items[pair.elem].name;
+        const index = self.ctx.symbols.items[pair.index].name;
+        return std.fmt.allocPrint(self.ctx.arena.allocator(), "; `{s}` is the index here: Rig writes the element first, `for {s}, {s} in {s}`", .{ index, index, elem, self.sourceText(pair.source) });
     }
 
     /// A loop with a `break` that carries a value: its value is used.
@@ -3862,7 +3889,7 @@ const Checker = struct {
         const idx_ty = try self.synthValue(index);
         if (self.isPoison(idx_ty)) return idx_ty;
         if (!sema.isInteger(self.ctx, idx_ty)) {
-            try self.errAt(index, "an index must be an integer; got `{s}`", .{try self.tyName(idx_ty)});
+            try self.errAt(index, "an index must be an integer; got `{s}`{s}", .{ try self.tyName(idx_ty), try self.loopOrderHint(index, self.t().int_id) });
         } else if (idx_ty == self.t().int_literal_id) try self.defaultIntLiteral(index);
         const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
@@ -5938,7 +5965,7 @@ const Checker = struct {
     fn checkIndexArg(self: *Checker, a: Sexp, len: ?u64) Error!void {
         const ty = try self.synthValue(a);
         if (self.isPoison(ty)) return;
-        if (!sema.isInteger(self.ctx, ty)) return self.errAt(a, "an index must be an integer; got `{s}`", .{try self.tyName(ty)});
+        if (!sema.isInteger(self.ctx, ty)) return self.errAt(a, "an index must be an integer; got `{s}`{s}", .{ try self.tyName(ty), try self.loopOrderHint(a, self.t().int_id) });
         if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
         if (len) |n| if (self.constInt(a)) |i| if (i < 0 or i >= n) {
             try self.errAt(a, "index `{d}` is out of bounds for an array of length {d}", .{ i, n });
@@ -6540,7 +6567,7 @@ const Checker = struct {
             },
             else => {},
         }
-        try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(expected), try self.tyName(actual) });
+        try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`{s}", .{ try self.tyName(expected), try self.tyName(actual), try self.loopOrderHint(e, expected) });
     }
 
     /// A form whose type comes from context: its type, or null when `e`

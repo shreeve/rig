@@ -2322,7 +2322,9 @@ done
 `for x in source` walks an array, a slice, a `String` (bytes), or a
 range `a..b` (from `a` up to, not including, `b`; the bounds are
 evaluated once). `for x, i in xs` also binds the index (not for
-ranges). An `else` block runs when the loop ends without `break`. A
+ranges); the element comes first, the reverse of Python's
+`enumerate`, and where a loop written index first gives a binding the
+other's type, the error says so. An `else` block runs when the loop ends without `break`. A
 `Vec` is walked in place, so the loop borrows it and says so:
 `for x in ?v` ([§11](#vec)); a bare `for x in v` over a Vec binding or
 field is rejected with that fix. An array is copied, and a slice or
