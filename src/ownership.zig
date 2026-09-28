@@ -2955,7 +2955,7 @@ pub const Checker = struct {
         const base = try self.here();
         const depth = self.scopes.items.len;
         try self.walkConditionParts(ir.If.cond(node), then_b);
-        const failed = try self.captureBelow(base, base.vars);
+        const failed = try self.leaveTo(base);
         var v1 = try self.walkTailBranch(then_b, t);
         while (self.scopes.items.len > depth) {
             v1 = try self.checkValueEscapesScope(v1);
@@ -3286,7 +3286,7 @@ pub const Checker = struct {
             // gone.
             const depth = self.scopes.items.len;
             try self.walkConditionParts(spec.cond.?, spec.body);
-            const exit = try self.captureBelow(ctx.point, ctx.point.vars);
+            const exit = try self.leaveTo(ctx.point);
             try self.walkStmt(spec.body);
             while (self.scopes.items.len > depth) try self.popScope();
             if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items);
@@ -3397,6 +3397,13 @@ pub const Checker = struct {
     /// nothing that survives may borrow what is left behind.
     fn exitState(self: *Checker, target: Point, scope_depth: usize) Error!State {
         try self.runDefersTo(scope_depth);
+        return self.leaveTo(target);
+    }
+
+    /// The state of a path that leaves for point `target`, relative to
+    /// it, dropping the vars declared since: a live value that survives
+    /// may not borrow one of them.
+    fn leaveTo(self: *Checker, target: Point) Error!State {
         const depth = target.vars;
         for (self.flows.items[0..depth], 0..) |f, holder| {
             if (!hasLoanFrom(f.loans, depth) or !self.holderLive(@intCast(holder), null)) continue;
