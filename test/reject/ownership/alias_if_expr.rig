@@ -12,4 +12,5 @@ sub main()
     rc
   print(x.payload)
 
-# error: would alias the handle
+# error: 10:5: bare use of shared (`*T`) handle `rc` in binding would alias the handle; use `<rc` to move or `+rc` to clone
+# error: 12:5: bare use of shared (`*T`) handle `rc` in binding would alias the handle; use `<rc` to move or `+rc` to clone

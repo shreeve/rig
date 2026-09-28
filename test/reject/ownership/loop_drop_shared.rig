@@ -11,4 +11,4 @@ sub main()
     -rc
     i += 1
 
-# error: use of `rc` after drop
+# error: 10:11: use of `rc` after drop

@@ -7,6 +7,6 @@ sub main()
   c = 922337203685 << 4775807
   print(a, b, c)
 
-# error: shift amount `127` is out of range for `Int` (0..63)
-# error: shift amount `126` is out of range for `Int` (0..63)
-# error: shift amount `4775807` is out of range for `Int` (0..63)
+# error: 5:12: shift amount `127` is out of range for `Int` (0..63)
+# error: 6:12: shift amount `126` is out of range for `Int` (0..63)
+# error: 7:23: shift amount `4775807` is out of range for `Int` (0..63)

@@ -4,4 +4,4 @@ sub main()
   x = 9223372036854775808
   print(x)
 
-# error: does not fit in `Int`
+# error: 4:7: integer value `9223372036854775808` does not fit in `Int` (-9223372036854775808..9223372036854775807)

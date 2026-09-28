@@ -13,7 +13,7 @@ sub main()
   print((9223372036854775807 << 2) < 0)
   print((5 if a < 1 else 0) % (9223372036854775807 << 3))
 
-# error: integer value `18446744073709551614` does not fit in `Int`
-# error: integer value `9223372036854775808` does not fit in `Int`
+# error: 11:23: integer value `18446744073709551614` does not fit in `Int` (-9223372036854775808..9223372036854775807)
+# error: 12:12: integer value `9223372036854775808` does not fit in `Int` (-9223372036854775808..9223372036854775807)
 # error: 13:10: this constant expression overflows; its value does not fit in `Int`
 # error: 14:32: this constant expression overflows; its value does not fit in `Int`

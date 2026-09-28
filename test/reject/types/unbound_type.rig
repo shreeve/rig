@@ -4,4 +4,4 @@ sub main()
   x: NopeType = 1
   print(x)
 
-# error: use of unbound type `NopeType`
+# error: 4:6: use of unbound type `NopeType`

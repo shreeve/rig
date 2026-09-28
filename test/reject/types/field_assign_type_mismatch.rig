@@ -8,4 +8,4 @@ sub main()
   u.name = 5
   print(u.name)
 
-# error: expected `String`
+# error: 8:12: type mismatch: expected `String`, got `Int`

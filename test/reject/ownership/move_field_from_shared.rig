@@ -16,4 +16,4 @@ sub main()
   eat(<o.inner)
   print("back")
 
-# error: cannot move out of
+# error: 16:8: cannot move out of `o.inner`: it is reached through a shared handle and other handles may still use it; clone it with `+o.inner`

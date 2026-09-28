@@ -17,4 +17,4 @@ sub main()
   send(<packet)
   log(packet)
 
-# error: use of `packet` after move
+# error: 18:7: use of `packet` after move

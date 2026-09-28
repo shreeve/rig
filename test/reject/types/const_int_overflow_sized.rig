@@ -7,5 +7,5 @@ sub main()
   c = b + 10
   print(a, c)
 
-# error: `300` does not fit in `U8`
-# error: `260` does not fit in `U8`
+# error: 5:11: integer value `300` does not fit in `U8` (0..255)
+# error: 7:7: integer value `260` does not fit in `U8` (0..255)

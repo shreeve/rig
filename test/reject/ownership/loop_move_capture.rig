@@ -12,4 +12,4 @@ sub main()
     f()
     i += 1
 
-# error: cannot capture `rc` after move
+# error: 10:11: cannot capture `rc` after move

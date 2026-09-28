@@ -17,4 +17,5 @@ sub main()
       continue
     print(rc.payload)
 
-# error: use of `rc` after move
+# error: 16:12: use of `rc` after move
+# error: 18:11: use of `rc` after move

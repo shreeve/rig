@@ -8,4 +8,4 @@ sub main()
   u = User(name: "Steve", age: 30)
   print(u.zzz)
 
-# error: no field `zzz` on type `User`
+# error: 9:11: no field `zzz` on type `User`

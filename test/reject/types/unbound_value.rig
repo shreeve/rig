@@ -3,4 +3,4 @@
 sub main()
   print(nope)
 
-# error: use of unbound name `nope`
+# error: 4:9: use of unbound name `nope`

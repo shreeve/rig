@@ -11,4 +11,4 @@ sub main()
   defer print(rc.payload)
   eat(<rc)
 
-# error: use of `rc` after move
+# error: 11:15: use of `rc` after move

@@ -16,4 +16,5 @@ sub main()
   eat(o.inner)
   eat(o.inner)
 
-# error: would alias the handle
+# error: 16:7: bare use of shared (`*T`) handle `o.inner` in call argument would alias the handle; use `+o.inner` to clone
+# error: 17:7: bare use of shared (`*T`) handle `o.inner` in call argument would alias the handle; use `+o.inner` to clone
