@@ -197,32 +197,43 @@ pub const ModuleGraph = struct {
     /// `failed` at once.
     fn add(self: *ModuleGraph, canonical: []const u8, display: []const u8, name: []const u8, source: []const u8) Error!ModuleId {
         const a = self.arena.allocator();
-        const ctx = try self.allocator.create(sema.SemContext);
-        errdefer self.allocator.destroy(ctx);
-        ctx.* = try sema.SemContext.init(self.allocator, source);
-        const p = try self.allocator.create(parser.Parser);
-        p.* = parser.Parser.init(self.allocator, source);
-
         const id: ModuleId = @intCast(self.modules.items.len + 1);
-        try self.modules.append(self.allocator, .{
-            .id = id,
-            .path = canonical,
-            .display = display,
-            .name = name,
-            .out_basename = if (id == 1) root_zig else try std.fmt.allocPrint(a, "{s}.zig", .{name}),
-            .source = source,
-            .parser = p,
-            .sema = ctx,
-        });
-        try self.by_path.put(self.allocator, canonical, id);
-        try self.by_name.put(self.allocator, name, id);
-        const semas = self.semas orelse blk: {
-            const map = try a.create(sema.ModuleMap);
-            map.* = .empty;
-            self.semas = map;
-            break :blk map;
+        const p = blk: {
+            // Everything that can fail comes first; the graph owns the
+            // module once it is registered.
+            const out_basename = if (id == 1) root_zig else try std.fmt.allocPrint(a, "{s}.zig", .{name});
+            const semas = self.semas orelse semas: {
+                const map = try a.create(sema.ModuleMap);
+                map.* = .empty;
+                self.semas = map;
+                break :semas map;
+            };
+            try self.modules.ensureUnusedCapacity(self.allocator, 1);
+            try self.by_path.ensureUnusedCapacity(self.allocator, 1);
+            try self.by_name.ensureUnusedCapacity(self.allocator, 1);
+            try semas.ensureUnusedCapacity(self.allocator, 1);
+            const ctx = try self.allocator.create(sema.SemContext);
+            errdefer self.allocator.destroy(ctx);
+            ctx.* = try sema.SemContext.init(self.allocator, source);
+            errdefer ctx.deinit();
+            const p = try self.allocator.create(parser.Parser);
+            p.* = parser.Parser.init(self.allocator, source);
+
+            self.modules.appendAssumeCapacity(.{
+                .id = id,
+                .path = canonical,
+                .display = display,
+                .name = name,
+                .out_basename = out_basename,
+                .source = source,
+                .parser = p,
+                .sema = ctx,
+            });
+            self.by_path.putAssumeCapacity(canonical, id);
+            self.by_name.putAssumeCapacity(name, id);
+            semas.putAssumeCapacity(id, ctx);
+            break :blk p;
         };
-        try semas.put(self.allocator, id, ctx);
 
         self.get(id).ir = p.parseProgram() catch |err| switch (err) {
             error.ParseError => {
@@ -340,7 +351,7 @@ pub fn fileError(err: anyerror) []const u8 {
         error.IsDir => "it is a directory",
         error.NotDir => "a component of the path is not a directory",
         error.AccessDenied, error.PermissionDenied => "permission denied",
-        error.StreamTooLong => "the file is larger than 16 MiB",
+        error.StreamTooLong => std.fmt.comptimePrint("the file is larger than {d} MiB", .{max_source_bytes >> 20}),
         else => @errorName(err),
     };
 }

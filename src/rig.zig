@@ -1103,7 +1103,7 @@ pub const Parser = struct {
     pub fn parseTree(self: *Parser) !Sexp {
         const tree = try self.base.parseProgram();
         if (tooDeep(tree, 0)) |deep| {
-            self.reject(deep, "expression is nested too deeply");
+            self.reject(deep, "expression is nested too deeply or too long; split it with named intermediate values");
             return error.ParseError;
         }
         return tree;
@@ -1164,7 +1164,7 @@ pub const Parser = struct {
         };
         const expected = self.expectedHint();
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
-        const hint = self.printHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse fillHint(tok) orelse reservedHint(src, tok, expected orelse "");
+        const hint = self.printHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse tokenHint(tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
@@ -1470,10 +1470,15 @@ pub const Parser = struct {
         return self.format("a function type takes no suffix; write `({s}){c}`", .{ src[start..tok.pos], src[tok.pos] });
     }
 
-    /// `[a, 2 of 3]`: a fill literal is the whole bracket.
-    fn fillHint(tok: Token) ?[]const u8 {
-        if (tok.cat != .of) return null;
-        return "a fill literal `[n of x]` holds one count and one element; it cannot share brackets with a list";
+    /// `[a, 2 of 3]`: a fill literal is the whole bracket. `Int??`: `??`
+    /// is an operator, and where the parser does not take one, it was
+    /// meant as two suffixes.
+    fn tokenHint(tok: Token) ?[]const u8 {
+        return switch (tok.cat) {
+            .of => "a fill literal `[n of x]` holds one count and one element; it cannot share brackets with a list",
+            .nullish => "`??` is the fallback operator; an optional of an optional is written `(T?)?`",
+            else => null,
+        };
     }
 
     fn endsWithWord(text: []const u8, word: []const u8) bool {
@@ -1725,9 +1730,6 @@ pub const Parser = struct {
         }
     }
 
-    /// The longest postfix chain `receiverSigil` looks through.
-    const max_spine = 256;
-
     /// `?`, `!`, and `<` before a place (a name and the fields and elements
     /// after it) followed by a method call apply to the place; the call
     /// and every postfix after it apply to the borrowed or moved place:
@@ -1741,13 +1743,11 @@ pub const Parser = struct {
         const tag: parser.Tag = node.kind().?;
         const at = self.afterSigil(node);
         // The chain from the operand down to its head, outermost first.
-        var spine: [max_spine]Sexp = undefined;
-        var n: usize = 0;
+        var chain: std.ArrayListUnmanaged(Sexp) = .empty;
         var e = ir.get(node, .operand);
         while (true) {
-            if (n == spine.len or self.span(e).start != at) return node;
-            spine[n] = e;
-            n += 1;
+            if (self.span(e).start != at) return node;
+            try chain.append(self.allocator(), e);
             e = switch (e.kind() orelse break) {
                 .propagate, .propagate_none => ir.get(e, .value),
                 .member, .index, .inst => ir.get(e, .object),
@@ -1755,6 +1755,8 @@ pub const Parser = struct {
                 else => return node,
             };
         }
+        const spine = chain.items;
+        const n = spine.len;
         // Grow the place up from the head through fields and elements,
         // stopping at the member a call follows, directly or after a
         // bracket list (`!v.put[2](x)`, compile-time arguments): the
