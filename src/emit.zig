@@ -207,6 +207,9 @@ pub const Emitter = struct {
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayListUnmanaged(struct { rig: []const u8, zig: []const u8 }) = .empty,
+    /// Where the `break` and `continue` of the `while` being emitted go
+    /// when Zig cannot reach its loop with them (`JumpRedirect`).
+    redirect: ?JumpRedirect = null,
     /// The loops used as values around the current point, innermost last.
     value_loops: std.ArrayListUnmanaged(ValueLoop) = .empty,
     /// The place being emitted is only read: a Vec element on its path
@@ -1297,6 +1300,70 @@ pub const Emitter = struct {
     // Control flow
     // -------------------------------------------------------------------------
 
+    /// A `while` whose condition or step jumps to it, or whose step runs
+    /// inside its body, is written in a form where Zig's own `break` and
+    /// `continue` would go elsewhere: the jumps that target it are written
+    /// as `brk` / `cont` instead. Inside a loop nested in it, only a
+    /// jump naming its label (`rig_label`) targets it (`shielded`).
+    const JumpRedirect = struct {
+        rig_label: []const u8,
+        brk: ?[]const u8 = null,
+        cont: ?[]const u8 = null,
+        shielded: bool = false,
+    };
+
+    /// The redirected text of a jump `node` with Rig label `label`, if it
+    /// targets the `while` a redirect is set for.
+    fn redirected(self: *Emitter, label: Sexp, jump: enum { brk, cont }) ?[]const u8 {
+        const r = self.redirect orelse return null;
+        const targets = if (label == .nil) !r.shielded else r.rig_label.len > 0 and std.mem.eql(u8, self.srcText(label), r.rig_label);
+        if (!targets) return null;
+        return if (jump == .brk) r.brk else r.cont;
+    }
+
+    /// Entering a loop nested in the one a redirect is set for; returns
+    /// the redirect to restore.
+    fn shieldRedirect(self: *Emitter) ?JumpRedirect {
+        const saved = self.redirect;
+        if (self.redirect) |*r| r.shielded = true;
+        return saved;
+    }
+
+    /// Whether `node` holds a `break` (`brk`) or `continue` that targets
+    /// the loop labeled `rig_label` ("" when unlabeled) around it: one
+    /// with no label outside a nested loop, or one naming the label.
+    fn jumpsToLoop(self: *Emitter, node: Sexp, rig_label: []const u8, jump: enum { brk, cont }, nested: bool) bool {
+        if (node != .list) return false;
+        if (node.kind()) |k| switch (k) {
+            .@"break", .@"continue" => {
+                if ((k == .@"break") != (jump == .brk)) return false;
+                if (k == .@"break" and ir.Break.value(node) != .nil) return false;
+                const l = ir.get(node, .label);
+                if (l == .nil) return !nested;
+                return rig_label.len > 0 and std.mem.eql(u8, self.srcText(l), rig_label);
+            },
+            .@"while", .@"for" => {
+                for (rig.children(node)) |c| if (self.jumpsToLoop(c, rig_label, jump, true)) return true;
+                return false;
+            },
+            .lambda => return false,
+            else => {},
+        };
+        for (node.items()) |c| if (self.jumpsToLoop(c, rig_label, jump, nested)) return true;
+        return false;
+    }
+
+    /// The Rig label of the loop given Zig label `zig`, or "".
+    fn rigLabelOf(self: *Emitter, zig: ?[]const u8) []const u8 {
+        const z = zig orelse return "";
+        var i = self.labels.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (std.mem.eql(u8, self.labels.items[i].zig, z)) return self.labels.items[i].rig;
+        }
+        return "";
+    }
+
     /// `(return value?)`.
     fn emitReturn(self: *Emitter, node: Sexp) Error!void {
         const value = ir.Return.value(node);
@@ -1327,6 +1394,7 @@ pub const Emitter = struct {
             try self.emitValueAs(value, target.ty);
             return self.w.writeAll(";");
         }
+        if (self.redirected(ir.Break.label(node), .brk)) |text| return self.w.print("{s};", .{text});
         try self.w.writeAll("break");
         try self.writeJumpLabel(ir.Break.label(node));
         try self.w.writeAll(";");
@@ -1334,6 +1402,7 @@ pub const Emitter = struct {
 
     /// `(continue label?)`.
     fn emitContinue(self: *Emitter, node: Sexp) Error!void {
+        if (self.redirected(ir.Continue.label(node), .cont)) |text| return self.w.print("{s};", .{text});
         try self.w.writeAll("continue");
         try self.writeJumpLabel(ir.Continue.label(node));
         try self.w.writeAll(";");
@@ -1524,22 +1593,56 @@ pub const Emitter = struct {
 
     /// `(while cond continuation body else?)`.
     fn emitWhile(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+        const saved = self.shieldRedirect();
+        defer self.redirect = saved;
+        self.redirect = null;
         const cond = ir.While.cond(sexp);
         const step = ir.While.step(sexp);
-        if (rig.isConditionJoin(cond)) return self.emitWhileJoined(sexp, label);
-        try self.writeLabel(label);
+        const rig_label = self.rigLabelOf(label);
+        // A jump in the condition leaves or repeats this loop, which Zig
+        // cannot reach from its condition: the condition moves inside.
+        if (rig.isConditionJoin(cond) or self.jumpsToLoop(cond, rig_label, .brk, false) or self.jumpsToLoop(cond, rig_label, .cont, false))
+            return self.emitWhileJoined(sexp, label);
+        const zig_label = try self.stepLabel(step, rig_label, label);
+        try self.writeLabel(zig_label);
         try self.w.writeAll("while ");
         try self.pushScope();
         const prelude = try self.emitCond(cond);
-        if (step != .nil) {
-            // A statement, so an assignment drops the value it replaces.
-            try self.w.writeAll(": ({ ");
-            try self.emitStmt(step);
-            try self.w.writeAll(" }) ");
-        }
+        try self.emitStep(step, rig_label, zig_label);
         try self.emitBodyWith(ir.While.body(sexp), prelude);
         try self.popScope();
         try self.emitElse(ir.While.@"else"(sexp));
+    }
+
+    /// The Zig label of a `while` whose step jumps: its own, or a fresh
+    /// one, since a `break` in a Zig loop's continue expression must name
+    /// the loop.
+    fn stepLabel(self: *Emitter, step: Sexp, rig_label: []const u8, label: ?[]const u8) Error!?[]const u8 {
+        if (label != null or step == .nil or !self.jumpsToLoop(step, rig_label, .brk, false)) return label;
+        return try self.fmt("__rig_while_{d}", .{self.nextId()});
+    }
+
+    /// ` : ({ step }) ` of a `while`. A `break` in it leaves the loop by
+    /// its label, and a `continue` ends the step, leaving a block around
+    /// it.
+    fn emitStep(self: *Emitter, step: Sexp, rig_label: []const u8, zig_label: ?[]const u8) Error!void {
+        if (step == .nil) return;
+        const saved = self.redirect;
+        defer self.redirect = saved;
+        var r: JumpRedirect = .{ .rig_label = rig_label };
+        if (self.jumpsToLoop(step, rig_label, .brk, false)) r.brk = try self.fmt("break :{s}", .{zig_label.?});
+        var block: ?[]const u8 = null;
+        if (self.jumpsToLoop(step, rig_label, .cont, false)) {
+            block = try self.fmt("__rig_step_{d}", .{self.nextId()});
+            r.cont = try self.fmt("break :{s}", .{block.?});
+        }
+        self.redirect = r;
+        // A statement, so an assignment drops the value it replaces.
+        try self.w.writeAll(": ({ ");
+        if (block) |b| try self.w.print("{s}: {{ ", .{b});
+        try self.emitStmt(step);
+        if (block != null) try self.w.writeAll(" }");
+        try self.w.writeAll(" }) ");
     }
 
     /// `while a as x and ...`: a `while (true)` whose body is the nested
@@ -1554,10 +1657,17 @@ pub const Emitter = struct {
     ///         }
     ///         if (__rig_ended_N) { ... }
     ///     }
-    fn emitWhileJoined(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+    fn emitWhileJoined(self: *Emitter, sexp: Sexp, label_in: ?[]const u8) Error!void {
         const parts = try self.conditionParts(ir.While.cond(sexp));
         const step = ir.While.step(sexp);
+        const body = ir.While.body(sexp);
         const else_ = ir.While.@"else"(sexp);
+        const rig_label = self.rigLabelOf(label_in);
+        // A step that reads a binding of the condition runs inside the
+        // `if`s that bind it, after the body; a `continue` in the body
+        // then leaves a block around the body.
+        const step_inside = step != .nil and self.stepReadsBinding(ir.While.cond(sexp), step);
+        const label = if (step_inside) self.keptLabel(sexp, label_in, rig_label) else try self.stepLabel(step, rig_label, label_in);
         const has_else = else_ != .nil and !sameNode(else_, self.value_else);
         var fail: []const u8 = "break;";
         var flag: []const u8 = "";
@@ -1570,16 +1680,28 @@ pub const Emitter = struct {
         }
         try self.writeLabel(label);
         try self.w.writeAll("while (true) ");
-        if (step != .nil) {
-            try self.w.writeAll(": ({ ");
-            try self.emitStmt(step);
-            try self.w.writeAll(" }) ");
-        }
+        if (!step_inside) try self.emitStep(step, rig_label, label);
         try self.openBrace();
         try self.writeIndent(self.indent);
         try self.pushScope();
         try self.openParts(parts);
-        try self.emitStmts(try self.stmtsOf(ir.While.body(sexp)));
+        if (step_inside) {
+            const saved = self.redirect;
+            defer self.redirect = saved;
+            if (self.jumpsToLoop(body, rig_label, .cont, false)) {
+                const block = try self.fmt("__rig_body_{d}", .{self.nextId()});
+                self.redirect = .{ .rig_label = rig_label, .cont = try self.fmt("break :{s}", .{block}) };
+                try self.writeIndent(self.indent);
+                try self.w.print("{s}: ", .{block});
+                try self.emitBlock(body);
+                try self.w.writeAll("\n");
+            } else try self.emitStmts(try self.stmtsOf(body));
+            self.redirect = saved;
+            try self.writeIndent(self.indent);
+            try self.w.writeAll("{ ");
+            try self.emitStmt(step);
+            try self.w.writeAll(" }\n");
+        } else try self.emitStmts(try self.stmtsOf(body));
         try self.closeParts(parts.len, fail);
         try self.popScope();
         try self.w.writeAll("\n");
@@ -1592,6 +1714,35 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
             try self.closeBrace();
         }
+    }
+
+    /// The Zig label of a `while` whose step runs inside its body, or
+    /// null when only its body's `continue`s named it, which leave a
+    /// block instead (Zig rejects an unused label).
+    fn keptLabel(self: *Emitter, sexp: Sexp, label: ?[]const u8, rig_label: []const u8) ?[]const u8 {
+        if (label == null) return null;
+        const cond = ir.While.cond(sexp);
+        const step = ir.While.step(sexp);
+        const body = ir.While.body(sexp);
+        const used = self.jumpsToLoop(cond, rig_label, .brk, true) or self.jumpsToLoop(body, rig_label, .brk, true) or
+            self.jumpsToLoop(step, rig_label, .brk, true) or self.jumpsToLoop(cond, rig_label, .cont, true) or
+            self.jumpsToLoop(step, rig_label, .cont, true);
+        return if (used) label else null;
+    }
+
+    /// Whether `step` reads a name an `as` part of `cond` binds.
+    fn stepReadsBinding(self: *Emitter, cond: Sexp, step: Sexp) bool {
+        if (rig.isConditionJoin(cond)) return self.stepReadsBinding(ir.get(cond, .left), step) or self.stepReadsBinding(ir.get(cond, .right), step);
+        if (!cond.isKind(.as)) return false;
+        const sym = self.sema.symbolOf(ir.As.name(cond)) orelse return false;
+        return self.usesSymbol(step, sym);
+    }
+
+    fn usesSymbol(self: *Emitter, node: Sexp, sym: SymbolId) bool {
+        if (node == .src) return if (self.sema.symbolOf(node)) |s| s == sym else false;
+        if (node != .list) return false;
+        for (node.items()) |c| if (self.usesSymbol(c, sym)) return true;
+        return false;
     }
 
     /// The innermost loop used as a value with Rig label `label`, or the
@@ -1661,6 +1812,8 @@ pub const Emitter = struct {
 
     /// `(for mode binding index-binding source body else?)`.
     fn emitFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+        const saved = self.shieldRedirect();
+        defer self.redirect = saved;
         const mode = ir.For.mode(sexp).tag;
         const binding = ir.For.@"var"(sexp);
         const source = ir.For.source(sexp);

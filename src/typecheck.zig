@@ -1052,6 +1052,33 @@ const Checker = struct {
         };
     }
 
+    /// A step that reads a binding of a joined condition runs inside the
+    /// `if`s that bind it, after the body, so every binding there stays
+    /// until the step is done: each must be plain data (neither a borrow
+    /// nor owning), and no `continue` in the condition may skip binding
+    /// one.
+    fn checkJoinedStep(self: *Checker, cond: Sexp, step: Sexp) Error!void {
+        var parts: std.ArrayListUnmanaged(Sexp) = .empty;
+        defer parts.deinit(self.ctx.allocator);
+        try collectConditionParts(self.ctx.allocator, cond, &parts);
+        var read: ?Sexp = null;
+        for (parts.items) |p| if (p.isKind(.as)) if (self.ctx.symbolOf(ir.As.name(p))) |b| {
+            if (findUse(self.ctx, step, b)) |use| read = use;
+        };
+        const use = read orelse return;
+        const name = self.text(use);
+        for (parts.items) |p| {
+            if (hasContinue(p)) return self.errAt(use, "the loop step reads `{s}`, a binding of the condition, which a `continue` in the condition leaves unbound", .{name});
+            if (!p.isKind(.as)) continue;
+            const b = self.ctx.symbolOf(ir.As.name(p)) orelse continue;
+            const sym = self.ctx.symbols.items[b];
+            if (self.isPoison(sym.ty)) continue;
+            if (isBorrow(self.ctx, sym.ty) or sema.typeHasDropGlue(self.ctx, sym.ty)) {
+                return self.errAt(use, "the loop step reads `{s}`, a binding of a joined condition, so each binding there must be plain data; `{s}` is a `{s}`", .{ name, sym.name, try self.tyName(sym.ty) });
+            }
+        }
+    }
+
     /// A Bool where a leading `!` reads as negation: a condition, or an
     /// operand of `and`, `or`, or `not`.
     fn checkBoolOperand(self: *Checker, e: Sexp) Error!void {
@@ -1152,6 +1179,7 @@ const Checker = struct {
         } else if (step != .nil) {
             try self.checkStmt(step);
             try self.checkStepUses(cond, step);
+            if (rig.isConditionJoin(cond)) try self.checkJoinedStep(cond, step);
         }
         try self.checkStmt(ir.While.body(node));
         self.scope = prev;
@@ -6797,6 +6825,26 @@ fn vecElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
 
 /// Storage that already has an owner: a name, a field or element of
 /// one, or a borrow of one.
+fn collectConditionParts(a: std.mem.Allocator, cond: Sexp, out: *std.ArrayListUnmanaged(Sexp)) std.mem.Allocator.Error!void {
+    if (rig.isConditionJoin(cond)) {
+        try collectConditionParts(a, ir.get(cond, .left), out);
+        return collectConditionParts(a, ir.get(cond, .right), out);
+    }
+    try out.append(a, cond);
+}
+
+/// A `continue` in `e`, outside the closures in it.
+fn hasContinue(e: Sexp) bool {
+    const kind = e.kind() orelse return false;
+    switch (kind) {
+        .@"continue" => return true,
+        .lambda => return false,
+        else => {},
+    }
+    for (rig.children(e)) |c| if (hasContinue(c)) return true;
+    return false;
+}
+
 fn isPlaceExpr(e: Sexp) bool {
     const h = e.kind() orelse return e == .src;
     return switch (h) {

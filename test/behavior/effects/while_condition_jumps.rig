@@ -1,0 +1,72 @@
+# A jump in a `while` condition or step targets that loop: `?? break`
+# and `catch break` leave it, `?? continue` in the condition runs the
+# step and tests again, and in the step `continue` ends the step and
+# `break` leaves the loop.
+
+error E
+  bad
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+fun p(k: Int) -> Int!
+  return E.bad if k == 0
+  k
+
+sub main
+  n = 3
+  while (get(n) ?? break) > 0
+    n -= 1
+  print("break in condition", n)
+
+  for i in 0..3
+    m = 3
+    while (p(m) catch break) > i
+      m -= 1
+    print("catch break", i, m)
+
+  n = 5
+  seen = 0
+  while (get(n % 3) ?? continue) > 0 : n -= 1
+    seen += 1
+    break if n < 2
+  print("continue in condition", n, seen)
+
+  c = 0
+  n = 3
+  while c < 6 : n = get(n - 1) ?? continue
+    c += 1
+  print("continue in step", c, n)
+
+  c = 0
+  n = 3
+  while c < 6 : n = get(n - 1) ?? break
+    c += 1
+  print("break in step", c, n)
+
+  n = 3
+  total = 0
+  while get(n) as x and x > 0 : n = x - 1
+    total += x
+  print("step reads a binding", total, n)
+
+  n = 6
+  odd = 0
+  :outer while get(n) as x and x > 0 : n = x - 1
+    for _ in 0..2
+      continue :outer if x % 2 == 0
+    odd += x
+    continue if x == 3
+    odd += 100
+  print("continue with the step inside", odd, n)
+
+# expect:
+# break in condition 0
+# catch break 0 0
+# catch break 1 1
+# catch break 2 2
+# continue in condition 1 4
+# continue in step 6 1
+# break in step 3 1
+# step reads a binding 6 0
+# continue with the step inside 209 0

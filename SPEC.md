@@ -2079,7 +2079,10 @@ A guard ends a statement; inside an expression, write the ternary
 `while cond` repeats its block. `while cond : step` runs `step`, an
 assignment or a call (which may propagate, `f()!`), after each
 iteration (including after `continue`). `while e as x` repeats
-while the optional `e` has a value. An `else` block runs when the loop
+while the optional `e` has a value. A jump in the condition or the step
+(`?? break`, `catch continue`, [§13](#the-fallback-of-)) targets this
+loop: `break` leaves it, `continue` in the condition runs the step and
+tests again, and `continue` in the step ends the step. An `else` block runs when the loop
 ends without `break`, after the loop: a `break` or `continue` in it
 leaves the loop around this one. A loop can also yield a value
 ([Loops as values](#loops-as-values)).
@@ -3798,7 +3801,10 @@ before it held. Each binding is visible to the parts after it and to
 the body, not to `else`, which runs when any part fails (and a loop
 ends then). Each binding takes its own form: `if ?o as x and !p as y`
 borrows from both. A binding made before a part that fails is dropped
-before `else` runs. `as` stands nowhere else: not under `or` or `not`,
+before `else` runs. A `while` step may read the bindings (it runs
+after the body, before they go) when every binding of the condition is
+plain data and no `continue` in the condition can skip one. `as` stands
+nowhere else: not under `or` or `not`,
 and not in an expression.
 
 ```rig
