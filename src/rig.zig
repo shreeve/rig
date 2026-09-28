@@ -685,7 +685,10 @@ pub const Lexer = struct {
         // element type (`[2]?T`).
         const after_value = isValue(self.last_cat);
         const after_literal = self.closed_literal;
-        const sigil_prefix = !after_value or after_literal;
+        // A sigil after a literal's or type's `]` starts the element type
+        // only when a type follows it; otherwise it is a suffix
+        // (`[a, b][i]?`).
+        const sigil_prefix = !after_value or (after_literal and startsType(self.base.source, tok.pos));
         self.closed_literal = false;
         var out = tok;
         out.cat = switch (tok.cat) {
@@ -695,8 +698,10 @@ pub const Lexer = struct {
                 if (self.nesting == max_nesting) return self.fail(.nesting_too_deep, tok.pos);
                 self.brackets[self.nesting] = tok.pos;
                 // After a type's `[N]` / `[]`, a bracket is the element
-                // type's own prefix (`[2][3]?T`), not an index.
-                self.indexes[self.nesting] = after_value and !after_literal;
+                // type's own prefix (`[2][3]?T`), not an index; after an
+                // array literal it indexes it (`[a, b][1]`). A type
+                // follows its brackets (`[3]Int`, `[3]?Int`).
+                self.indexes[self.nesting] = after_value and !(after_literal and tok.cat == .lbracket and self.typeFollowsBracket(tok));
                 self.nesting += 1;
                 if (!after_value) break :blk tok.cat;
                 break :blk if (tok.cat == .lparen) .lparen_call else .lbracket_index;
@@ -829,6 +834,33 @@ pub const Lexer = struct {
     }
 
     /// The character right after `tok`, or 0 at the end of the source.
+    /// Whether the `[` at `tok` closes before a type starts: a name, a
+    /// type sigil, or another `[`, touching its `]`.
+    fn typeFollowsBracket(self: *const Lexer, tok: Token) bool {
+        const src = self.base.source;
+        var i: usize = tok.pos + 1;
+        var depth: u32 = 1;
+        while (i < src.len) : (i += 1) switch (src[i]) {
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if (depth == 0) break;
+            },
+            '\n' => return false,
+            else => {},
+        };
+        return startsType(src, i + 1);
+    }
+
+    /// Whether a type starts at `i`: a name or `[`, behind any touching
+    /// type sigils (`?T`, `*T`, `![]T`).
+    fn startsType(src: []const u8, start: usize) bool {
+        var i = start;
+        while (i < src.len and (src[i] == '?' or src[i] == '!' or src[i] == '*' or src[i] == '~')) i += 1;
+        if (i >= src.len) return false;
+        return std.ascii.isAlphabetic(src[i]) or src[i] == '_' or src[i] == '[';
+    }
+
     fn charAfter(self: *const Lexer, tok: Token) u8 {
         const end = tok.pos + tok.len;
         return if (end < self.base.source.len) self.base.source[end] else 0;
