@@ -2514,11 +2514,8 @@ pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
 /// Why values of a type have no `==`: the type that lacks it, found
 /// inside the compared type, and the path of fields to it.
 pub const NotEquatable = struct {
-    /// The context whose type store holds `ty`: the module being checked.
-    ctx: *const SemContext,
+    /// In the checked module's type store.
     ty: TypeId,
-    /// Always null: `ty` is in the checked module's store.
-    origin: ?u32 = null,
     /// Field names from the compared type to `ty`, joined by `.`, a
     /// variant's payload field as `variant.field`; empty for the
     /// compared type itself or what it holds outside a field (an
@@ -2565,7 +2562,7 @@ pub fn notEquatable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayListUnmanag
         }
         std.mem.reverse([]const u8, names.items);
         const path = try std.mem.join(ctx.arena.allocator(), ".", names.items);
-        return .{ .ctx = ctx, .ty = walk.items.items[i].ty, .path = path, .why = why };
+        return .{ .ty = walk.items.items[i].ty, .path = path, .why = why };
     }
     return null;
 }
