@@ -41,6 +41,14 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 - **Drop plans from the ownership checker**: which bindings are consumed on every path, so the emitter can drop their alive flags and emit a plain `defer` or none.
 - **Cached `rig build`**: `rig build` runs `zig build-exe`, which reuses no cached work, so every build compiles in full; emitting a small `build.zig` per package and running `zig build --prefix`, or copying the executable out of a `zig run` cache, would reuse it as `rig run` does.
 
+## Compiler
+
+- **Traces in Rig terms**: a panic, or an error that leaves `main`, prints Zig's stack trace, whose lines are in the emitted Zig (in the package directory `rig run` names); mapping them to `.rig` lines would need a source map.
+- **One place-access analysis in typecheck**: about a dozen predicates each work out whether a place is writable, borrowed, or boxed; one walk over the place (`Checker.placePath`) followed by one access check would replace them.
+- **An explicit emitter context**: the emitter keeps per-function state in `Emitter.fun`, swapped out around a closure's body; passing it explicitly would make what each helper reads visible.
+- **Tighter generated code**: Debug builds pay for round trips such as `rig.lend(&rig.elemPtr(xs, j).*)` and `rig.eql((&p).*, (&q).*)`, and a generic `for x in xs` copies each element it only lends. Release builds optimize these away.
+- **Runtime tests outside the runtime**: `src/runtime.zig` carries its unit tests into every emitted package; they could move to their own file.
+
 ## Open questions
 
 Language decisions not yet made. Each describes what Rig does today;
@@ -52,4 +60,7 @@ any change would be future work.
 - **Modules in subdirectories**: `use name` finds only `name.rig` beside the root file.
 - **Function values as module constants** (`handler = on_click` at module level); a module constant holds only compile-time values today.
 - **`errdefer` in a function that cannot fail**, which is accepted and never runs; it could be rejected instead.
+- **Compound assignment through a `!T` field**: `w += 1` writes through a `!Int` binding, but `h.w += 1` on a `!Int` field is rejected ("requires a numeric target").
+- **Rounding in a float conversion of a constant**: `F32(16777217)` rounds to `16777216.0`, while `a: F32 = 16777217` is rejected as not exact.
+- **Reading a Copy value while it is write-borrowed**: `n` stays readable while `w = !n` is live (memory-safe for a Copy value, but a write borrow is otherwise exclusive).
 - **Printing a `Box` as its value**: a `Box[T]` prints as the value it holds, but a `Box[String]` prints its text quoted, as a String inside another value does, where a `String?` prints it bare.
