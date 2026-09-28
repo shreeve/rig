@@ -1485,7 +1485,9 @@ sub main
 ### Aliases
 
 `type Name = T` is a transparent second name for `T`. An alias of a
-local struct or enum constructs values and names variants.
+struct, an enum, or a generic instance constructs values and names
+variants, and one of a number type converts (`Byte(x)`) and names its
+limits (`Byte.max`), here or in a module that imports it.
 
 ```rig
 type UserId = Int

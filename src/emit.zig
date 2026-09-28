@@ -3633,6 +3633,23 @@ pub const Emitter = struct {
         if (self.isPrintCall(sexp)) return self.emitPrint(args);
         if (self.builtinCall(sexp)) |name| return self.emitSwapCall(name, args);
         if (callee == .src and self.sema.symbolOf(callee) == null and resolve.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
+        // A call through an alias: a conversion to the number type it
+        // names, or a value of the struct it names.
+        if (self.isAliasCallee(callee)) {
+            const t = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped call through an alias");
+            if (sema.isNumeric(self.sema, t)) return self.emitConversion(sexp);
+            if (self.sema.types.get(t) == .parameterized_nominal) {
+                const g = self.sema.types.get(t).parameterized_nominal.sym;
+                if (g == self.sema.vec_sym_id) return self.emitVecConstruction(sexp);
+                if (g == self.sema.box_sym_id) return self.emitBoxConstruction(sexp);
+                if (g == self.sema.signal_sym_id) {
+                    try self.emitTypeTy(t);
+                    return self.emitSignalConstruction(sexp);
+                }
+            }
+            try self.emitTypeTy(t);
+            return self.emitFieldInit(args, self.declFields(t));
+        }
         if (callee.isKind(.enum_lit)) return self.emitVariantLit(sexp);
         if (callee.isKind(.lambda)) return self.emitInlineInvoke(sexp);
 
@@ -3861,17 +3878,17 @@ pub const Emitter = struct {
         }
         if (e.isKind(.member)) {
             const obj = ir.Member.object(e);
-            const obj_text = decl.source[obj.src.pos..][0..obj.src.len];
             const name = decl.source[ir.Member.name(e).src.pos..][0..ir.Member.name(e).src.len];
             if (sema.intLimit(decl, e)) |limit| return self.w.print("{d}", .{limit.v});
             const module = if (decl.symbolOf(obj)) |id| decl.symbols.items[id].kind == .module else false;
             if (!module) if (decl.typeOf(e)) |t| if (decl.types.get(t) == .float) {
                 // A float type's limit, named through the type or an
-                // alias of it.
+                // alias of it, this module's or an imported one.
                 const bits = decl.types.get(t).float.bits;
                 return self.w.print("{s}std.math.floatMax(f{d})", .{ if (std.mem.eql(u8, name, "min")) "-" else "", if (bits == 0) 64 else bits });
             };
-            return self.w.print("@import(\"{s}.zig\").{f}", .{ obj_text, ident(name) });
+            if (obj != .src) return self.unsupported(e, "this default value");
+            return self.w.print("@import(\"{s}.zig\").{f}", .{ decl.source[obj.src.pos..][0..obj.src.len], ident(name) });
         }
         return self.w.print("@import(\"{s}.zig\").{f}", .{ decl.name, ident(decl.source[e.src.pos..][0..e.src.len]) });
     }
@@ -3963,6 +3980,14 @@ pub const Emitter = struct {
     }
 
     /// A struct, enum, or generic type: calling it constructs a value.
+    /// A callee naming a type alias, this module's or an imported one.
+    fn isAliasCallee(self: *Emitter, callee: Sexp) bool {
+        if (callee.isKind(.member)) return if (self.moduleMemberSym(callee)) |m| m.kind == .type_alias else false;
+        if (callee != .src) return false;
+        const id = self.sema.symbolOf(callee) orelse return false;
+        return self.sema.symbols.items[id].kind == .type_alias;
+    }
+
     fn isTypeSym(self: *Emitter, id: SymbolId) bool {
         return switch (self.sema.symbols.items[id].kind) {
             .nominal_type, .generic_type => true,

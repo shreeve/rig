@@ -1,0 +1,20 @@
+use util
+
+pub struct Pair[T]
+  pub a: T
+  pub b: T
+
+  pub fun twin(x: T) -> Pair[T]
+    Pair(a: x, b: x)
+
+pub type UP = util.Point
+pub type US = util.Shade
+pub type IP = Pair[Int]
+pub type IV = Vec[Int]
+pub type Real = F32
+
+type R = F32
+
+pub struct Limits
+  pub hi: R = R.max
+  pub lo: Real = Real.min

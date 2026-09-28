@@ -417,7 +417,8 @@ const Checker = struct {
     }
 
     /// A module constant, of this module or an imported one (`LIMIT`,
-    /// `lib.LIMIT`), or a number type's limit (`U8.max`).
+    /// `lib.LIMIT`), or a number type's limit (`U8.max`, `Byte.max`,
+    /// `lib.Byte.max`).
     fn isConstantDefault(self: *Checker, e: Sexp) bool {
         if (e == .src) {
             const id = self.lookupQuiet(e) orelse return false;
@@ -426,16 +427,12 @@ const Checker = struct {
         }
         if (!e.isKind(.member)) return false;
         const obj = ir.Member.object(e);
+        if (self.namesNumberType(obj)) return true;
         if (obj != .src) return false;
-        if (self.lookupQuiet(obj)) |id| {
-            const sym = self.ctx.symbols.items[id];
-            // An integer type's alias names its limits (`Byte.max`).
-            if (sym.kind == .type_alias) return sema.intLimit(self.ctx, e) != null;
-            if (sym.kind != .module) return false;
-            const foreign = self.foreignMember(e) orelse return false;
-            return foreign.kind == .local and foreign.flags.fixed;
-        }
-        return resolve.isNumericTypeName(self.text(obj));
+        const id = self.lookupQuiet(obj) orelse return false;
+        if (self.ctx.symbols.items[id].kind != .module) return false;
+        const foreign = self.foreignMember(e) orelse return false;
+        return foreign.kind == .local and foreign.flags.fixed;
     }
 
     /// `Vec()`, `Vec[T]()`, `Cell(literal)`, `[n of literal]` (or of a
@@ -3194,8 +3191,9 @@ const Checker = struct {
     /// number type, a constant of it. A float's least is the most
     /// negative finite value.
     fn numberLimit(self: *Checker, obj: Sexp, ty: TypeId, field: []const u8, pos: u32) Error!TypeId {
+        if (self.isPoison(ty)) return ty;
         if (std.mem.eql(u8, field, "min") or std.mem.eql(u8, field, "max")) return ty;
-        try self.err(pos, "a number type has no member `{s}`; its limits are `{s}.min` and `{s}.max`", .{ field, self.text(obj), self.text(obj) });
+        try self.err(pos, "a number type has no member `{s}`; its limits are `{s}.min` and `{s}.max`", .{ field, self.sourceText(obj), self.sourceText(obj) });
         return self.t().invalid_id;
     }
 
@@ -3215,16 +3213,14 @@ const Checker = struct {
         return sym.ty;
     }
 
-    /// `module.Byte` for an imported alias of a number type, whose limits
-    /// are not reached through the module: an error naming the type.
+    /// `module.Byte`: an imported alias of a number type.
     fn importedNumberAlias(self: *Checker, obj: Sexp) Error!?TypeId {
         const module_sym = (try self.moduleNamed(ir.Member.object(obj))) orelse return null;
         const name = ir.Member.name(obj);
         const found = self.foreignLookup(module_sym, self.text(name)) orelse return null;
         if (found.sym.kind != .type_alias or !sema.isNumeric(found.ctx, found.sym.ty)) return null;
-        const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
-        try self.errAt(obj, "an imported alias does not name its limits; write `{s}.min` or `{s}.max`, or alias the type in this module", .{ try self.tyName(ty), try self.tyName(ty) });
-        return self.t().invalid_id;
+        _ = (try self.foreignSymbol(module_sym, self.text(name), name.src.pos)) orelse return self.t().invalid_id;
+        return try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
     }
 
     /// A field or method reached through weak handle `obj`, which does not
@@ -3414,9 +3410,13 @@ const Checker = struct {
             return nt;
         }
         if (obj == .src) {
-            var id = self.lookupQuiet(obj) orelse return null;
-            if (self.aliasedNominal(id)) |target| id = target;
+            const id = self.lookupQuiet(obj) orelse return null;
             const sym = self.ctx.symbols.items[id];
+            if (sym.kind == .type_alias) {
+                const nt = self.aliasNamedType(sym.ty) orelse return null;
+                if (nt.foreign == null) try self.ctx.recordName(obj, nt.id);
+                return nt;
+            }
             if (sym.kind != .nominal_type and sym.kind != .generic_type) return null;
             try self.ctx.recordName(obj, id);
             return .{ .id = id, .sym = sym };
@@ -3424,10 +3424,27 @@ const Checker = struct {
         if (!obj.isKind(.member)) return null;
         const id = (try self.moduleNamed(ir.Member.object(obj))) orelse return null;
         const name = ir.Member.name(obj);
-        const found = foreignAliased((try self.foreignSymbol(id, self.text(name), name.src.pos)) orelse return null);
+        const found = (try self.foreignSymbol(id, self.text(name), name.src.pos)) orelse return null;
+        if (found.sym.kind == .type_alias) return self.aliasNamedType(try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id));
         if (found.sym.kind == .generic_type) return try self.foreignGeneric(found);
         if (found.sym.kind != .nominal_type) return null;
         return .{ .id = found.id, .sym = found.sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
+    }
+
+    /// The struct or enum an alias names, `ty` being the aliased type in
+    /// this module's terms: the alias constructs its values and reaches
+    /// its members as the type itself does. Null for an alias of any
+    /// other type.
+    fn aliasNamedType(self: *Checker, ty: TypeId) ?NamedType {
+        return switch (self.ctx.types.get(ty)) {
+            .nominal => |id| .{ .id = id, .sym = self.ctx.symbols.items[id] },
+            .imported_nominal => |in| blk: {
+                const foreign = self.ctx.foreign_semas.get(in.module_id) orelse break :blk null;
+                break :blk .{ .id = in.sym_id, .sym = foreign.symbols.items[in.sym_id], .foreign = .{ .ctx = foreign, .module_id = in.module_id } };
+            },
+            .parameterized_nominal => |pn| .{ .id = pn.sym, .sym = self.ctx.symbols.items[pn.sym], .args = pn.args },
+            else => null,
+        };
     }
 
     /// A named type as this module spells it: `lib.Point` for another
@@ -3450,18 +3467,6 @@ const Checker = struct {
         const sym = self.ctx.symbols.items[id];
         if (!sema.isProxy(sym)) return self.ctx.source;
         return (self.ctx.foreign_semas.get(sym.from.module_id) orelse return self.ctx.source).source;
-    }
-
-    /// The type an alias of a local struct or enum names (`Point` for
-    /// `type P2 = Point`): the alias constructs its values and reaches its
-    /// members as the type itself does.
-    fn aliasedNominal(self: *Checker, id: SymbolId) ?SymbolId {
-        const sym = self.ctx.symbols.items[id];
-        if (sym.kind != .type_alias) return null;
-        return switch (self.ctx.types.get(sym.ty)) {
-            .nominal => |target| target,
-            else => null,
-        };
     }
 
     /// The type a (non-generic) named type denotes.
@@ -3790,17 +3795,6 @@ const Checker = struct {
         id: SymbolId,
         sym: sema.Symbol,
     };
-
-    /// The struct or enum an imported alias names, when it is declared
-    /// beside the alias: the alias is that type in every role.
-    fn foreignAliased(found: Foreign) Foreign {
-        if (found.sym.kind != .type_alias) return found;
-        const target = switch (found.ctx.types.get(found.sym.ty)) {
-            .nominal => |target| target,
-            else => return found,
-        };
-        return .{ .ctx = found.ctx, .module_id = found.module_id, .id = target, .sym = found.ctx.symbols.items[target] };
-    }
 
     /// A module-level symbol of an imported module, public or not.
     fn foreignLookup(self: *Checker, module_sym: SymbolId, name: []const u8) ?Foreign {
@@ -4152,11 +4146,7 @@ const Checker = struct {
                     return self.checkConversion(try r.resolveType(callee), name, args, callee.src.pos);
                 }
             }
-            var sym_id = (try self.useName(callee)) orelse return self.skipCall(args);
-            if (self.aliasedNominal(sym_id)) |target| {
-                try self.ctx.recordName(callee, target);
-                sym_id = target;
-            }
+            const sym_id = (try self.useName(callee)) orelse return self.skipCall(args);
             const sym = self.ctx.symbols.items[sym_id];
             if (sym.kind != .nominal_type and sym.kind != .generic_type and sym.kind != .type_alias and sym.kind != .module) {
                 try self.ctx.recordType(callee, sym.ty);
@@ -4164,7 +4154,7 @@ const Checker = struct {
             switch (sym.kind) {
                 .function, .@"extern" => return self.functionCall(callee, sym, ct, args),
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
-                .type_alias => return self.badCall(args, callee, "`{s}` is a type alias for `{s}` and cannot be called as a constructor; construct the aliased type directly", .{ name, try self.tyName(sym.ty) }),
+                .type_alias => return self.aliasCall(node, callee, name, sym.ty, args, callee.src.pos),
                 .generic_type => {
                     if (sym_id == self.ctx.vec_sym_id) return self.badCall(args, callee, "`Vec()` needs its element type: name it (`Vec[T]()`), or give it where the value goes (`v: Vec[T] = Vec()`)", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
@@ -4182,6 +4172,26 @@ const Checker = struct {
 
         const callee_ty = try self.synthOperand(callee);
         return self.callValue(callee, callee_ty, args, self.sourceText(callee));
+    }
+
+    /// A call through an alias of type `ty` (in this module's terms),
+    /// named `name`: it constructs the struct the alias names, or
+    /// converts to the number type it names.
+    fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty: TypeId, args: []const Sexp, pos: u32) Error!TypeId {
+        if (self.isPoison(ty)) return self.skipCall(args);
+        if (sema.isNumeric(self.ctx, ty)) return self.checkConversion(ty, name, args, pos);
+        const nt = self.aliasNamedType(ty) orelse return self.badCall(args, callee, "`{s}` is a type alias for `{s}`, which has no constructor", .{ name, try self.tyName(ty) });
+        if (nt.foreign) |fo| return self.construct(nt.id, args, pos, TypeSubst.empty, fo);
+        if (nt.args) |targs| {
+            if (nt.id == self.ctx.vec_sym_id) {
+                try self.checkVecConstruction(call);
+                return ty;
+            }
+            if (nt.id == self.ctx.signal_sym_id and !sameNode(call, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
+            return self.construct(nt.id, args, pos, .{ .params = nt.sym.type_params orelse &.{}, .args = targs }, null);
+        }
+        if (callee == .src) try self.ctx.recordName(callee, nt.id);
+        return self.construct(nt.id, args, pos, TypeSubst.empty, null);
     }
 
     /// `Wrap(v: 3)`, `lib.Wrap(v: 3)`: generic type `sym_id`, named `name`
@@ -5370,16 +5380,16 @@ const Checker = struct {
                     .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
                     .member => blk: {
                         const obj = ir.Member.object(e);
+                        // A number type's limits.
+                        if (self.namesNumberType(obj)) break :blk true;
                         // `lib.Mode.a`: a variant of an imported type.
                         if (obj.isKind(.member)) {
                             const foreign = self.foreignMember(obj) orelse break :blk false;
                             break :blk foreign.kind == .nominal_type;
                         }
                         if (obj != .src) break :blk false;
-                        const id = self.lookupQuiet(obj) orelse break :blk resolve.isNumericTypeName(self.text(obj));
+                        const id = self.lookupQuiet(obj) orelse break :blk false;
                         const sym = self.ctx.symbols.items[id];
-                        // A number type's alias: its limits.
-                        if (sym.kind == .type_alias) break :blk sema.isNumeric(self.ctx, sym.ty);
                         if (sym.kind != .module) break :blk sym.kind == .nominal_type;
                         // An imported module's constant.
                         const foreign = self.foreignMember(e) orelse break :blk false;
@@ -5390,6 +5400,23 @@ const Checker = struct {
             },
             else => return false,
         }
+    }
+
+    /// Whether `obj` names a number type: a built-in one, or an alias of
+    /// one in this module or an imported one.
+    fn namesNumberType(self: *Checker, obj: Sexp) bool {
+        if (obj.isKind(.member)) {
+            const m = ir.Member.object(obj);
+            if (m != .src) return false;
+            const id = self.lookupQuiet(m) orelse return false;
+            if (self.ctx.symbols.items[id].kind != .module) return false;
+            const found = self.foreignLookup(id, self.text(ir.Member.name(obj))) orelse return false;
+            return found.sym.kind == .type_alias and sema.isNumeric(found.ctx, found.sym.ty);
+        }
+        if (obj != .src) return false;
+        const id = self.lookupQuiet(obj) orelse return resolve.isNumericTypeName(self.text(obj));
+        const sym = self.ctx.symbols.items[id];
+        return sym.kind == .type_alias and sema.isNumeric(self.ctx, sym.ty);
     }
 
     /// The symbol `module.name` names in an imported module.
@@ -6159,9 +6186,10 @@ const Checker = struct {
     /// `module.function(args)` or `module.Type(fields)`.
     fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const module_name = self.ctx.symbols.items[module_sym].name;
-        const found = foreignAliased((try self.foreignSymbol(module_sym, name, pos)) orelse return self.skipCall(args));
+        const found = (try self.foreignSymbol(module_sym, name, pos)) orelse return self.skipCall(args);
         const qualified = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ module_name, name });
         switch (found.sym.kind) {
+            .type_alias => return self.aliasCall(self.current_call orelse Sexp.nil, self.callee_node orelse Sexp.nil, qualified, try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id), args, pos),
             .function, .@"extern" => {
                 const local = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
                 const fty = self.ctx.types.get(local);

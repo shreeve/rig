@@ -1,0 +1,6 @@
+type Hidden = U16
+
+pub struct P
+  pub n: Int
+
+type PH = P

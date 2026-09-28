@@ -1,0 +1,52 @@
+# An alias names its type in every role: a call through an alias of a
+# generic instance, of `Vec`, `Cell`, `Box`, or `Signal`, constructs a
+# value of it, as naming the instance does, and one through an alias of
+# a number type converts to it. An alias of a float type names its
+# limits, which a default value may be.
+
+struct Wrap[T]
+  v: T
+
+  fun make(n: T) -> Wrap[T]
+    Wrap(v: n)
+
+enum Mode
+  a
+  b(n: Int)
+
+type IW = Wrap[Int]
+type IV = Vec[Int]
+type IC = Cell[Int]
+type IB = Box[Int]
+type IS = Signal[Int]
+type M = Mode
+type Real = F32
+type Small = I8
+
+struct D
+  hi: Real = Real.max
+  lo: Real = Real.min
+
+fun low(x: Real = Real.min) -> Bool
+  x < -3.0e38
+
+sub main()
+  w = IW(v: 3)
+  u = IW.make(4)
+  v = IV(capacity: 2)
+  e: IV = IV()
+  c = IC(5)
+  b = IB(6)
+  s = *IS(7)
+  m = M.b(n: 8)
+  print(w.v, u.v, v.len, e.len, c.get(), ?b, s.get())
+  match m
+    .b(n) => print(n, M.a == Mode.a)
+    .a => print("a")
+  d = D()
+  print(d.hi > 3.0e38, d.lo < -3.0e38, low(), Real(2), Small(-5), Small.min)
+
+# expect:
+# 3 4 0 0 5 6 7
+# 8 true
+# true true true 2.0 -5 -128

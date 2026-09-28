@@ -1,5 +1,6 @@
 # An imported alias is a type, not a value, and its members are the
-# aliased type's: a struct has no member named after a field.
+# aliased type's: a struct has no member named after a field, and a
+# number type has only its limits.
 
 use lib
 
@@ -7,10 +8,10 @@ sub main()
   x = lib.Byte
   p = lib.PA
   n = lib.PA.n
-  m = lib.Byte.max
+  m = lib.Byte.bits
   print(x, p.n, n, m)
 
-# error: 7:11: `lib.Byte` is a type, not a value
-# error: 8:11: `lib.PA` is a type, not a value
-# error: 9:14: no member `n` on type `lib.P`
-# error: 10:7: an imported alias does not name its limits; write `U8.min` or `U8.max`
+# error: 8:11: `lib.Byte` is a type, not a value
+# error: 9:11: `lib.PA` is a type, not a value
+# error: 10:14: no member `n` on type `lib.P`
+# error: 11:16: a number type has no member `bits`; its limits are `lib.Byte.min` and `lib.Byte.max`

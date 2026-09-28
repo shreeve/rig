@@ -299,7 +299,7 @@ rejected.
 
 A number type's `.min` and `.max` are its least and greatest values,
 constants of that type, named through the type or an alias of it
-(`type Byte = U8`, `Byte.max`): `U8.max` is `255`, `Int.min` is
+(`type Byte = U8`, `Byte.max`, or another module's `lib.Byte.max`): `U8.max` is `255`, `Int.min` is
 `-9223372036854775808`, and `U128.max` is `2^128 - 1`. A float's `.max`
 is its greatest finite value and its `.min` the most negative one
 (`-F64.max`), as in Rust. Constant arithmetic on them is checked, so
@@ -1645,9 +1645,14 @@ sub main
 6
 ```
 
-An alias of a struct or enum declared in the same module is that type
-in every role: it constructs values, calls associated functions, and
-names variants.
+An alias names its type in every role, in this module or, when `pub`,
+in another (`lib.Alias`). An alias of a struct or enum (this module's
+or an imported one) constructs values, calls associated functions, and
+names variants; one of a generic instance (`Wrap[Int]`, `Vec[Int]`,
+`Cell[Int]`) constructs it as naming the instance does; one of a number
+type converts to it (`Byte(x)`) and names its limits (`Byte.max`).
+An alias is not a value, and an alias of any other type (`String`,
+`Int?`) has no constructor.
 
 ```rig
 struct Point

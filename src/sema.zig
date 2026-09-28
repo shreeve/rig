@@ -3570,13 +3570,12 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
         },
         .list => {
             const h = e.kind() orelse return .not_constant;
-            // `U8(k)` of a constant integer: a constant of the target
-            // type, which must hold it.
+            // `U8(k)` (or `Byte(k)` of an alias) of a constant integer: a
+            // constant of the target type, which must hold it.
             if (h == .call) {
-                const callee = ir.Call.callee(e);
                 const args = ir.Call.args(e);
-                if (callee != .src or names.symbol(callee) != null or args.len != 1 or args[0].isKind(.kwarg)) return .not_constant;
-                const info = intTypeNamed(identAt(ctx.source, callee) orelse return .not_constant) orelse return .not_constant;
+                if (args.len != 1 or args[0].isKind(.kwarg)) return .not_constant;
+                const info = intTypeBy(ctx, ir.Call.callee(e), names) orelse return .not_constant;
                 const a = switch (ctFoldBy(ctx, args[0], names)) {
                     .value => |t| t,
                     else => |r| return r,
@@ -3676,18 +3675,32 @@ pub fn intTypeNamed(name: []const u8) ?IntInfo {
 /// The integer type the type alias `id` names, through other aliases;
 /// null for any other type. Known before the alias is resolved, too.
 pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
+    var c = ctx;
     var alias = id;
     // An alias chain longer than this is a cycle, reported elsewhere.
     for (0..64) |_| {
-        const sym = ctx.symbols.items[alias];
+        const sym = c.symbols.items[alias];
         if (sym.kind != .type_alias) return null;
-        if (sym.ty != ctx.types.unknown_id) return switch (ctx.types.get(sym.ty)) {
+        if (sym.ty != c.types.unknown_id) return switch (c.types.get(sym.ty)) {
             .int => |i| i,
             else => null,
         };
-        const name = identAt(ctx.source, ctx.alias_targets.get(alias) orelse return null) orelse return null;
+        const target = c.alias_targets.get(alias) orelse return null;
+        // `module.Name`: another module's public alias.
+        if (target.isKind(.member)) {
+            const m = ir.Member.object(target);
+            if (m != .src) return null;
+            const module = c.lookup(sym.scope, identAt(c.source, m) orelse return null) orelse return null;
+            if (c.symbols.items[module].kind != .module) return null;
+            const foreign = c.foreign_semas.get(c.module_refs.get(module) orelse return null) orelse return null;
+            alias = foreign.lookupInScopeOnly(module_scope, identAt(c.source, ir.Member.name(target)) orelse return null) orelse return null;
+            if (!foreign.symbols.items[alias].flags.is_public) return null;
+            c = foreign;
+            continue;
+        }
+        const name = identAt(c.source, target) orelse return null;
         if (intTypeNamed(name)) |i| return i;
-        alias = ctx.lookup(sym.scope, name) orelse return null;
+        alias = c.lookup(sym.scope, name) orelse return null;
     }
     return null;
 }
@@ -3700,25 +3713,30 @@ pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
 }
 
 fn intLimitBy(ctx: *const SemContext, e: Sexp, names: anytype) ?TypedInt {
-    const obj = ir.Member.object(e);
-    const info = switch (obj) {
-        .src => if (names.symbol(obj)) |id| aliasIntType(ctx, id) orelse return null else intTypeNamed(identAt(ctx.source, obj) orelse return null) orelse return null,
-        .list => blk: {
-            if (!obj.isKind(.member) or ir.Member.object(obj) != .src) return null;
-            const module = names.symbol(ir.Member.object(obj)) orelse return null;
-            if (ctx.symbols.items[module].kind != .module) return null;
-            const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return null) orelse return null;
-            const alias = foreign.lookupInScopeOnly(module_scope, identAt(ctx.source, ir.Member.name(obj)) orelse return null) orelse return null;
-            if (!foreign.symbols.items[alias].flags.is_public) return null;
-            break :blk aliasIntType(foreign, alias) orelse return null;
-        },
-        else => return null,
-    };
+    const info = intTypeBy(ctx, ir.Member.object(e), names) orelse return null;
     const field = identAt(ctx.source, ir.Member.name(e)) orelse return null;
     const r = intRange(info);
     if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };
     if (std.mem.eql(u8, field, "max")) return .{ .v = r.max, .int = info };
     return null;
+}
+
+/// The integer type `e` names: a built-in one (`U8`), or an alias of
+/// one, this module's (`Byte`) or an imported one (`lib.Byte`).
+fn intTypeBy(ctx: *const SemContext, e: Sexp, names: anytype) ?IntInfo {
+    switch (e) {
+        .src => return if (names.symbol(e)) |id| aliasIntType(ctx, id) else intTypeNamed(identAt(ctx.source, e) orelse return null),
+        .list => {
+            if (!e.isKind(.member) or ir.Member.object(e) != .src) return null;
+            const module = names.symbol(ir.Member.object(e)) orelse return null;
+            if (ctx.symbols.items[module].kind != .module) return null;
+            const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return null) orelse return null;
+            const alias = foreign.lookupInScopeOnly(module_scope, identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+            if (!foreign.symbols.items[alias].flags.is_public) return null;
+            return aliasIntType(foreign, alias);
+        },
+        else => return null,
+    }
 }
 
 /// `v` wrapped into integer type `info`: its low bits, read as the
