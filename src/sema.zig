@@ -4358,7 +4358,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  moved = <acct
         \\  shared = *Account(owner: "bob", balance: 7)
         \\  other = +shared
-        \\  -shared
+        \\  drop shared
         \\  print(other.balance)
         \\  total = 0
         \\  v: Vec[Int] = Vec()

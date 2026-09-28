@@ -9,6 +9,6 @@ struct User
 sub main()
   rc = *User(age: 1)
   rc.set_age(5)
-  -rc
+  drop rc
 
 # error: cannot call write-receiver method `set_age` through a shared handle

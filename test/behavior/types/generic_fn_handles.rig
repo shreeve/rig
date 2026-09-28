@@ -21,11 +21,11 @@ sub main()
   h = *Res(n: 1)
   c = clone_of(?h)
   w = weak_of(+c)
-  -h
+  drop h
   print("one dropped")
   if upgraded(?w) as s
     print("alive", s.n)
-  -c
+  drop c
   print("both dropped")
   print(upgraded(?w) == none)
 

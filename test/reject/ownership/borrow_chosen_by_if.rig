@@ -13,7 +13,7 @@ sub main()
     ?h
   else
     ?h
-  -h
+  drop h
   x = +r.inner
   print(x.payload)
 

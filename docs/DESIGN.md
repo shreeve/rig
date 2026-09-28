@@ -104,7 +104,7 @@ For a value `x` of type `T`:
 | `?x` | `?T` | shared, read-only loan | none: checked statically |
 | `!x` | `!T` | exclusive, writable loan | none: checked statically |
 | `+x` | `T` | a new owner (`T` is Copy or a handle) | a count bump for a handle |
-| `-x` | (statement) | release now | runs the drop glue |
+| `drop x` | (statement) | release now | runs the drop glue |
 | `*x` | `*T` | move into a new counted box | one allocation |
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
 | `e!` | `T` when `e : T!` | propagate failure | a branch |
@@ -213,7 +213,7 @@ sub main
   first = +shared.node         # clone the handle in a field: *Node
   print(id_of(?first))         # lend the handle: ?*Node
   w = ~first                   # weaken it: ~Node
-  -first
+  drop first
   if w.upgrade() as n          # the way back is a method: *Node?
     print("alive", n.id)
 ```
@@ -229,7 +229,7 @@ drop 1
 The costs are where the sigils are. Moves, borrows, and plain values
 cost what they cost in Zig or C. Reference counting happens only behind
 `*T`, and each count change is written: `*x` allocates, `+x` bumps,
-`-x` and scope exit release. Borrows are never counted. Drop glue is
+`drop x` and scope exit release. Borrows are never counted. Drop glue is
 ordinary code the compiler generates, run at points you can see.
 
 ## Why these choices

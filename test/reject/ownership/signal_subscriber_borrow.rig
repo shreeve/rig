@@ -13,8 +13,8 @@ sub main()
   r = ?a
   cb: *sub() = *|<r| print(r.payload)
   sig.subscribe(+cb)
-  -cb
-  -a
+  drop cb
+  drop a
   sig.set(1)
 
 # error: an owned closure cannot capture `r`, which holds a borrow of `a`

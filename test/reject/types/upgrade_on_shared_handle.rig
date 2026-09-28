@@ -7,6 +7,6 @@ struct User
 sub main()
   rc = *User(name: "x")
   m  = rc.upgrade()
-  -rc
+  drop rc
 
 # error: `upgrade` is only available on weak handles (`~T`)

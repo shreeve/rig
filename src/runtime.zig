@@ -416,7 +416,7 @@ pub fn isNone(value: anytype) bool {
 }
 
 /// Drop a value nothing keeps: `_ = e`, `as _`, a match payload dropped
-/// with `-x`.
+/// with `drop x`.
 pub fn discard(value: anytype) void {
     var v = value;
     drop(&v);

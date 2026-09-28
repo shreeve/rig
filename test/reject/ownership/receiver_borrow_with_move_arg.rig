@@ -8,7 +8,7 @@ struct Wrap
   inner: *Inner
 
   sub show(?self, other: *Wrap)
-    -other
+    drop other
     y = +self.inner
     print(y.x)
 

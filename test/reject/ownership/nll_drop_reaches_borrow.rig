@@ -19,6 +19,6 @@ struct Guard
 sub main()
   x = Wrap(n: 1)
   g = Guard(box: ?x)
-  -x
+  drop x
 
 # error: cannot drop `x` while borrows are live

@@ -16,7 +16,7 @@ fun mk(h: ?Holder) -> View
 sub main()
   h = Holder(inner: *Wrap(payload: 5))
   v = mk(?h)
-  -h
+  drop h
   x = +v.h.inner
   print(x.payload)
 

@@ -13,7 +13,7 @@ fun view(h: ?Holder) -> ?Holder
 sub main()
   h = Holder(inner: *Wrap(payload: 5))
   r = view(?h)
-  -h
+  drop h
   x = +r.inner
   print(x.payload)
 

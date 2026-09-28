@@ -1,5 +1,5 @@
 # The last line of a `catch` handler whose value is used is its value:
-# `-y` there is negation, not a drop.
+# `-y` there is negation.
 
 error E
   bad

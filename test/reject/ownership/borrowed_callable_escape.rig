@@ -43,7 +43,7 @@ sub main
   r = Res(id: 1)
   m = |<r, a: Int| a + r.id
   p = pick(?m, double, true)
-  -m
+  drop m
   print(p(2))
   c: Vec[Int] = Vec()
   each(?c, |!c, n|
@@ -58,6 +58,6 @@ sub main
 # error: 28:11: an owned closure cannot borrow `f`
 # error: 29:12: cannot move-capture borrowed parameter `f`
 # error: 41:10: `l` does not live long enough
-# error: 46:4: cannot drop `m` while borrows are live
+# error: 46:8: cannot drop `m` while borrows are live
 # error: 49:14: cannot write-borrow `c` while a read borrow is live
 # error: 55:40: cannot take a second write borrow on `total`

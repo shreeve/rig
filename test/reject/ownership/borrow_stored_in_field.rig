@@ -10,7 +10,7 @@ struct View
 sub main()
   b = Wrap(payload: 5)
   v = View(box: ?b)
-  -b
+  drop b
   print(v.box.payload)
 
 # error: cannot drop `b` while borrows are live

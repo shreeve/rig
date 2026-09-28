@@ -1278,7 +1278,7 @@ pub const Emitter = struct {
         if (local.is_ptr) try self.w.writeAll(".*");
     }
 
-    /// `-x`: drop now.
+    /// `drop x`: drop now.
     fn emitDrop(self: *Emitter, sexp: Sexp) Error!void {
         const local = self.localOf(ir.Drop.name(sexp)) orelse return self.unsupported(sexp, "this drop");
         if (local.kind) |kind| {

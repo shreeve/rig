@@ -48,7 +48,7 @@ sub main()
   f = |+c| c + 1
   print(f())
   d = 5
-  -d
+  drop d
   for _ in 0..2
     print("tick")
   sh: Shape = .circle(r: 1)

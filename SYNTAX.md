@@ -73,7 +73,6 @@ What Rig adds to that plain surface is a small set of one-character
 | `?x` | read borrow | `&x` | `x` or `&x` |
 | `!x` | write borrow | `&mut x` | `&x` |
 | `+x` | clone (a new owner) | `x.clone()`, `Rc::clone(&x)` | copy, or a manual refcount bump |
-| `-x` | drop now | `drop(x)` | `x.deinit()` |
 | `*x` | move into a shared box | `Rc::new(x)` | a hand-written refcounted box |
 | `~x` | weak handle | `Rc::downgrade(&x)` | a hand-written weak count |
 | `e!` | propagate failure | `e?` | `try e` |
@@ -159,7 +158,7 @@ sub main
   archive(<log)
   cfg = *File(name: "cfg.toml")
   cfg2 = +cfg
-  -cfg
+  drop cfg
   print("still open:", cfg2.name)
 ```
 
@@ -172,7 +171,7 @@ closing cfg.toml
 
 `<log` moves the file into `archive`, which owns it and closes it on
 return. `*File(...)` puts a file in a reference-counted box, `+cfg`
-makes a second owner, `-cfg` drops the first now, and the box closes
+makes a second owner, `drop cfg` drops the first now, and the box closes
 when `cfg2` goes out of scope.
 
 ### Optionals and errors
@@ -254,7 +253,7 @@ would move, `?x` and `!x` would borrow, `~x` would hold a handle weakly.
 | growable array | `Vec<T>` | `std.ArrayList(T)` | `Vec[T]` |
 | closure | `move \|a\| a + n` | a struct with a method | `\|+n, a\| a + n` |
 | closure argument | `f: &dyn Fn(i64) -> i64`, `v.sort_by(\|a, b\| a.cmp(b))` | a context pointer and a function | `f: ?fun(Int) -> Int`, `sort(!v[..], \|a, b\| a < b)` |
-| drop early | `drop(x)` | `x.deinit()` | `-x` |
+| drop early | `drop(x)` | `x.deinit()` | `drop x` |
 | destructor | `impl Drop` | `deinit` + `defer` | `drop(!self)` |
 | cleanup | scope guard | `defer`, `errdefer` | `defer`, `errdefer` |
 | generic type | `struct Wrap<T>` | `fn Wrap(comptime T: type) type` | `struct Wrap[T]` |
@@ -340,7 +339,6 @@ one. One rule decides every case:
 | `f(x)`, `a[i]`, `a.b` | call, index or compile-time arguments (`Vec[Int]`, [§14](#index-or-compile-time-arguments)), member access |
 | `f (x)`, `f [1, 2]`, `f .red` | a paren-free call whose argument is `(x)`, `[1, 2]`, `.red` |
 | `T?`, `T!`, `e!`, `e?` | suffixes: optional, fallible, propagate |
-| `-x` alone on a line | drop `x` (negation where the line's value is used) |
 
 ```rig
 fun twice(n: Int) -> Int
@@ -2242,13 +2240,15 @@ returned borrow of `u` does not originate from a borrowed parameter
 copy for a Copy value. A struct with drop glue has no clone; share it
 with `*` and clone the handle. `+p.a` clones the handle in a field.
 
-### Drop: `-x`
+### Drop: `drop x`
 
-`-x` as a statement releases `x` now. Every owning value still live is
-dropped automatically when its block ends, on every path (early
+The statement `drop x` releases `x` now. Every owning value still live
+is dropped automatically when its block ends, on every path (early
 `return`, `break`, error propagation), in reverse order of
-declaration. So `-x` is only for releasing something early, like
-Rust's `drop(x)`.
+declaration. So `drop x` is only for releasing something early, like
+Rust's `drop(x)`. It is a keyword, not a sigil: `-x` is only negation,
+and a statement `-x`, which would do nothing, is rejected with a
+pointer to `drop x`.
 
 ### Share and weak: `*x` and `~x`
 
@@ -2328,10 +2328,10 @@ struct User
 sub main
   a = *User(name: "ada")
   b = +a
-  -a
+  drop a
   print(b.name)
   w = ~b
-  -b
+  drop b
   print(w.upgrade() == none)
 ```
 
@@ -3144,8 +3144,7 @@ are in the [roadmap](docs/ROADMAP.md).
 | `?x` | read borrow | `?T` | shared, read-only loan |
 | `!x` | write borrow | `!T` | exclusive, writable loan |
 | `+x` | clone | `T` | a new owner |
-| `-x` | drop (statement) | | release now |
-| `-x` | negate (in an expression) | `T` | arithmetic negation |
+| `-x` | negate | `T` | arithmetic negation |
 | `*x` | share | `*T` | move into a counted box |
 | `~x` | weak | `~T` | non-owning handle |
 | `!p.m()` | write receiver | | `(!p).m()`: `p` lent to a `!self` method |
@@ -3196,7 +3195,7 @@ parentheses.
 | declarations | `fun` `sub` `struct` `enum` `error` `type` `use` `pub` `extern` `test` `drop` |
 | control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` |
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
-| bindings | `new` (statement start only) |
+| bindings | `new` (statement start only), `drop` (an early drop: `drop x`) |
 | boundaries | `raw` |
 | reserved | `try` `zig` |
 
@@ -3277,7 +3276,7 @@ stmt      = simple ["if" value] | ":" label stmt
 simple    = expr | command
           | target ("=" | "=!" | "<-" | "+=" | ...) expr
           | name ":" type ("=" | "=!") expr | "new" name "=" expr
-          | "-" name | "return" [expr] | "break" [":" label] [expr]
+          | "drop" name | "return" [expr] | "break" [":" label] [expr]
           | "continue" [":" label] | "defer" (simple | block)
           | "errdefer" (simple | block) | "raw" block
 block     = INDENT stmt* DEDENT

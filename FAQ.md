@@ -8,7 +8,7 @@ reasoning behind each is in [docs/DESIGN.md](docs/DESIGN.md).
 No. Numbers, strings, structs, enums, and arrays are plain values, and
 borrows (`?T`, `!T`) are checked at compile time and cost nothing at
 run time. Counting happens only behind a shared handle `*T`, and every
-count change is written in the source: `*x` allocates, `+x` bumps, `-x`
+count change is written in the source: `*x` allocates, `+x` bumps, `drop x`
 and scope exit release ([cost model](docs/DESIGN.md#cost-model)). The
 honest gap: there is no single-owner heap box yet, so a heap value with
 one owner still pays for a count.

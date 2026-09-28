@@ -505,6 +505,12 @@ const Checker = struct {
     /// over (`!`, `?`), or handle a failure. One that only reads a value
     /// and drops it is a mistake; a function name was meant as a call.
     fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
+        // `-x` only negates: an early drop is `drop x`.
+        if (stmt.isKind(.neg) and ir.Neg.operand(stmt).kind() == null and isNameText(self.text(ir.Neg.operand(stmt)))) {
+            const name = self.text(ir.Neg.operand(stmt));
+            _ = try self.synthExpr(ir.Neg.operand(stmt));
+            return self.errAt(stmt, "`-{s}` negates `{s}`, which does nothing as a statement; write `drop {s}` to drop it early", .{ name, name, name });
+        }
         const ty = try self.synthExpr(stmt);
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
@@ -516,6 +522,10 @@ const Checker = struct {
         if ((try self.ownsResource(ty, self.startOf(stmt), "discards a value"))) {
             try self.errAt(stmt, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
         }
+    }
+
+    fn isNameText(word: []const u8) bool {
+        return word.len > 0 and (std.ascii.isAlphabetic(word[0]) or word[0] == '_');
     }
 
     /// Whether evaluating `e` runs code or leaves: a call, a builtin, a

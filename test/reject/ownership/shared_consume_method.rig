@@ -10,6 +10,6 @@ struct User
 sub main()
   rc = *User(name: "x")
   rc.consume()
-  -rc
+  drop rc
 
 # error: method `consume` consumes the receiver

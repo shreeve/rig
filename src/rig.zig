@@ -267,8 +267,8 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //     `a.b`           member          `.red`, `f .red`  enum literal
 //     `x!`, `T?`      suffix          `!x`, `?x`   write / read borrow
 //
-//   `-x` at the start of a statement (or a match arm) that is nothing
-//   but `-name` is a drop; otherwise `-x` is negation.
+//   `-x` is negation (`a - b`, `a-b` subtract); an early drop is the
+//   statement `drop x`.
 //
 //   Two operands never touch (`t.5`, `print"hi"`), and neither does a
 //   `=!` or `<-` and the operand after it (`x =!y`): the spacing would
@@ -673,7 +673,7 @@ pub const Lexer = struct {
                 if (self.nesting > 0) self.nesting -= 1;
                 break :blk tok.cat;
             },
-            .minus => self.classifyMinus(tok),
+            .minus => if (self.isPrefix(tok)) .minus_prefix else .minus,
             .lt => if (self.isPrefix(tok)) .move_pfx else .lt,
             .plus => if (self.isPrefix(tok)) .clone_pfx else .plus,
             .star => if (self.isPrefix(tok) or self.isOwnedClosureStar(tok)) .share_pfx else .star,
@@ -745,31 +745,6 @@ pub const Lexer = struct {
         return if (self.in_members[self.depth] and self.atStatementStart()) .ident else null;
     }
 
-    /// `-` is infix when spaced after or attached to a value (`a - b`,
-    /// `a-b`); otherwise a prefix: a drop when `-name` is a whole
-    /// statement (a line, a `defer`, or a match arm), negation otherwise.
-    fn classifyMinus(self: *const Lexer, tok: Token) TokenCat {
-        if (!self.isPrefix(tok)) return .minus;
-        const starts = switch (self.last_cat) {
-            .@"defer", .@"errdefer", .fat_arrow => true,
-            else => self.atStatementStart(),
-        };
-        return if (starts and self.isWholeDropStatement()) .drop_stmt else .minus_prefix;
-    }
-
-    /// After `-` comes a name and then the end of the line, a comment, or
-    /// a postfix guard.
-    fn isWholeDropStatement(self: *const Lexer) bool {
-        var probe = self.base;
-        const name = probe.matchRules();
-        if (name.cat != .ident or name.pre != 0 or keyword(self.base.text(name)) != null) return false;
-        const after = probe.matchRules();
-        return switch (after.cat) {
-            .newline, .eof, .comment => true,
-            .ident => std.mem.eql(u8, self.base.text(after), "if"),
-            else => false,
-        };
-    }
 
     /// The character touches its operand, and does not touch a preceding
     /// value (`<x`, `f <x`, but not `a<b` or `a < b`).
@@ -1446,10 +1421,6 @@ pub const Parser = struct {
     //       (lambda _ ((cap_clone v) a) _ body)  →  (lambda (captures (cap_clone v)) (a) _ body)
     //   * `for` source sigils move into the mode slot:
     //       (for iter x _ (read xs) body _)  →  (for read x _ xs body _)
-    //   * a `-name` statement whose value is used is negation, not a drop:
-    //     the last statement of a `fun` body, or of a branch, arm, or
-    //     `catch` handler whose value is used, becomes (neg name). (A
-    //     closure has no declared result, so its body is not rewritten.)
     //   * `!` or `<` before a place followed by a method call is the
     //     receiver's mode:
     //       (write (call (member (member x v) push) 1))  →  (call (member (write (member x v)) push) 1)
@@ -1475,11 +1446,6 @@ pub const Parser = struct {
             .lambda => try self.splitBars(out, walked),
             .write, .move => return self.receiverSigil(out),
             .share, .weak => try self.noteParenSuffix(out),
-            // The body's value is returned.
-            .fun => if (ir.Fun.returns(out) != .nil) valueTail(ir.Fun.body(out)),
-            // The expression's value is bound or returned.
-            .set => valueTail(ir.Set.value(out)),
-            .@"return" => valueTail(ir.Return.value(out)),
             else => {},
         }
         return out;
@@ -1615,27 +1581,6 @@ pub const Parser = struct {
         items[ir.slot(.lambda, .params)] = if (params.items.len > 0) .{ .list = parser.List.withId(params.items, bars.list.id) } else .nil;
     }
 
-    /// `sexp` (already walked, so its lists are freshly allocated) is in
-    /// value position: a trailing `(drop x)` there is `(neg x)`.
-    fn valueTail(sexp: Sexp) void {
-        const kind = sexp.kind() orelse return;
-        const items = @constCast(sexp.items());
-        switch (kind) {
-            .drop => items[0] = .{ .tag = .neg },
-            .block => {
-                const stmts = ir.Block.stmts(sexp);
-                if (stmts.len > 0) valueTail(stmts[stmts.len - 1]);
-            },
-            .@"if" => {
-                valueTail(ir.If.then(sexp));
-                valueTail(ir.If.@"else"(sexp));
-            },
-            .match => for (ir.Match.arms(sexp)) |arm| valueTail(ir.Arm.body(arm)),
-            .@"catch" => valueTail(ir.Catch.handler(sexp)),
-            else => {},
-        }
-    }
-
     /// Promote the source's `?xs` / `!xs` / `<xs` wrapper into the mode.
     fn normFor(items: []Sexp) void {
         const node = Sexp.listOf(items);
@@ -1703,7 +1648,8 @@ test "compile-time brackets touch the name; `name:` inside them is a name" {
 test "minus: infix, negation, drop" {
     try expectCats("a - b", &.{ .ident, .minus, .ident });
     try expectCats("a -b", &.{ .ident, .minus_prefix, .ident });
-    try expectCats("-x", &.{ .drop_stmt, .ident });
+    try expectCats("-x", &.{ .minus_prefix, .ident });
+    try expectCats("drop x", &.{ .drop, .ident });
     try expectCats("-x + 1", &.{ .minus_prefix, .ident, .plus, .integer });
     try expectCats("y = -x", &.{ .ident, .assign, .minus_prefix, .ident });
 }
@@ -1867,7 +1813,7 @@ test "parser: every form parses" {
         \\  x += 1
         \\  x <<= 2
         \\  z <- w
-        \\  -z
+        \\  drop z
         \\  if x > 1
         \\    print x, y
         \\  else if not (x < 0 and true)

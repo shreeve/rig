@@ -14,7 +14,7 @@ sub main()
   vs: Vec[*View] = Vec()
   a = Wrap(payload: 1)
   !vs.push(*View(b: ?a))
-  -a
+  drop a
   for v in ?vs
     print(v.b.payload)
 

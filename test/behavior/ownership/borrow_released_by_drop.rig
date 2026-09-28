@@ -10,8 +10,8 @@ sub main()
   b = Wrap(payload: 1)
   r = ?b
   print(r.payload)
-  -r
-  -b
+  drop r
+  drop b
   print("end")
 
 # expect:

@@ -1,4 +1,4 @@
-# `-a` on a match payload that owns a resource drops it now and consumes
+# `drop a` on a match payload that owns a resource drops it now and consumes
 # the scrutinee.
 
 struct B
@@ -15,7 +15,7 @@ sub main()
   s: S = .one(a: B(n: 1))
   match s
     .one(a)
-      -a
+      drop a
       print("dropped")
     .empty => print(0)
   print("end")

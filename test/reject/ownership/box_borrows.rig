@@ -27,7 +27,7 @@ sub main
   a = Box(Node(key: 2, left: none))
   print(f.key)
   r = ?a
-  -a
+  drop a
   print(r.key)
   bad(?root)
 
@@ -35,4 +35,4 @@ sub main
 # error: 18:11: cannot write-borrow through a read borrow (`?T`)
 # error: 23:5: cannot reassign `root` while borrows are live
 # error: 27:3: cannot reassign `a` while borrows are live
-# error: 30:4: cannot drop `a` while borrows are live
+# error: 30:8: cannot drop `a` while borrows are live

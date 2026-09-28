@@ -15,7 +15,7 @@ sub main()
   b = Wrap(payload: 2)
   v = View(box: ?a)
   put(!v, ?b)
-  -b
+  drop b
   print(v.box.payload)
 
 # error: cannot drop `b` while borrows are live
