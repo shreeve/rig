@@ -1,5 +1,6 @@
 # `pass` is a statement that does nothing: a match arm, a loop body, an
-# `if` branch, or a `sub` body with no work to do.
+# `if` branch, or a `sub` body with no work to do. Like any simple
+# statement it takes a postfix guard.
 
 enum Color
   red
@@ -49,6 +50,7 @@ sub main
     print("before")
     pass
     print("after")
+  pass if i > 1
   defer pass
 
 # expect:
