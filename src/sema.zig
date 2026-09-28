@@ -3549,6 +3549,20 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
         },
         .list => {
             const h = e.kind() orelse return .not_constant;
+            // `U8(k)` of a constant integer: a constant of the target
+            // type, which must hold it.
+            if (h == .call) {
+                const callee = ir.Call.callee(e);
+                const args = ir.Call.args(e);
+                if (callee != .src or ctx.symbolOf(callee) != null or args.len != 1 or args[0].isKind(.kwarg)) return .not_constant;
+                const info = intTypeNamed(identAt(ctx.source, callee) orelse return .not_constant) orelse return .not_constant;
+                const a = switch (ctFoldBy(ctx, args[0], names)) {
+                    .value => |t| t,
+                    else => |r| return r,
+                };
+                if (!intInfoFits(info, a.v)) return .{ .overflow = .{ .node = args[0], .int = info } };
+                return .{ .value = .{ .v = a.v, .int = info } };
+            }
             if (h == .member) {
                 if (intLimit(ctx, e)) |t| return .{ .value = t };
                 return if (names.member(e)) |t| .{ .value = t } else .not_constant;
