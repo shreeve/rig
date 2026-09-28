@@ -773,6 +773,10 @@ pub const SemContext = struct {
     /// `contents_ready`.
     deferred_checks: std.ArrayListUnmanaged(resolve.DeferredCheck) = .empty,
     diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
+    /// Each error reported, by position and message hash -> its index in
+    /// `diagnostics`: the same finding reached twice is reported once.
+    /// (A check whose diagnostics are dropped truncates `diagnostics`.)
+    reported: std.AutoHashMapUnmanaged(struct { pos: u32, message: u64 }, usize) = .empty,
     facts: Facts = .{},
 
     cell_sym_id: SymbolId = symbol_invalid,
@@ -886,6 +890,7 @@ pub const SemContext = struct {
         self.type_info.deinit(self.allocator);
         self.deferred_checks.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
+        self.reported.deinit(self.allocator);
         self.facts.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.reach.deinit(self.allocator);
@@ -953,10 +958,14 @@ pub const SemContext = struct {
 
     fn report(self: *SemContext, severity: diag.Severity, at: diag.Span, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
         const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
-        // The same finding reached twice is reported once.
-        if (severity == .@"error") for (self.diagnostics.items) |d| {
-            if (d.severity == .@"error" and d.module == 0 and d.pos == at.start and std.mem.eql(u8, d.message, msg)) return;
-        };
+        if (severity == .@"error") {
+            const gop = try self.reported.getOrPut(self.allocator, .{ .pos = at.start, .message = std.hash.Wyhash.hash(0, msg) });
+            if (gop.found_existing and gop.value_ptr.* < self.diagnostics.items.len) {
+                const d = self.diagnostics.items[gop.value_ptr.*];
+                if (d.pos == at.start and std.mem.eql(u8, d.message, msg)) return;
+            }
+            gop.value_ptr.* = self.diagnostics.items.len;
+        }
         try self.diagnostics.append(self.allocator, .{ .severity = severity, .pos = at.start, .end = at.end, .message = msg });
     }
 
