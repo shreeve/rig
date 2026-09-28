@@ -676,8 +676,10 @@ const Checker = struct {
         } else {
             rhs_ty = try self.synthExpr(rhs);
             // Binding a borrowed Copy value copies the value; an explicit
-            // `?x` / `!x` binds the borrow.
-            if (!rhs.isKind(.read) and !rhs.isKind(.write)) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
+            // `?x` / `!x` binds the borrow, and so does `<w`, which moves
+            // a write borrow.
+            const moves_borrow = rhs.isKind(.move) and self.ctx.types.get(rhs_ty) == .borrow_write;
+            if (!rhs.isKind(.read) and !rhs.isKind(.write) and !moves_borrow) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
 
