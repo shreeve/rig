@@ -204,8 +204,8 @@ that need to inspect the tree:
 - a jump fallback moves to the nearest `??` of the chain before it:
   `(?? (?? a b) (return v))` becomes `(?? a (?? b (return v)))`, since
   the grammar reads the jump after the whole chain;
-- a `!` or `<` before a place (a name and the fields and elements after
-  it) followed by a method call moves onto the place, the method's
+- a `?`, `!`, or `<` before a place (a name and the fields and elements
+  after it) followed by a method call moves onto the place, the method's
   receiver: `!x.v.push(1)` parses as
   `(write (call (member (member x v) push) 1))` and becomes
   `(call (member (write (member x v)) push) 1)`, the tree
@@ -222,7 +222,8 @@ that need to inspect the tree:
   node's id (`Parser.isReceiverSigil`), since the checker rejects some
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!self` (the habit of `!` as negation),
-  a `<` before one that does not take `<self`, and a `!` call whose
+  a `<` before one that does not take `<self`, a `?` before one that
+  takes `!self` or `<self`, and a `!` call whose
   value is a `Bool` where it starts a condition or an operand of
   `and`, `or`, or `not`, written `(!set).insert(k)` there. A `for` source sigil
   is the loop's mode, moved before this rewrite sees it.
@@ -231,7 +232,7 @@ It also rejects a tree nested more than 1000 deep, since every later
 pass walks the tree recursively.
 
 A rewritten node keeps its node id, and so its span; the `captures`
-node and a receiver sigil's `write` or `move` node are built with the
+node and a receiver sigil's `read`, `write`, or `move` node are built with the
 generated parser's `newNode`, which gives each a fresh id spanning its
 entries (for a receiver sigil, the sigil and the place). The wrapper
 places children by `ir.slot(.kind, .role)`, the compile-time slot of a

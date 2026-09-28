@@ -965,7 +965,7 @@ how the method uses the value, and the call site says the same thing:
 
 | Receiver | Meaning | Call |
 |---|---|---|
-| `?self` (= `self: ?Self`) | reads the value | `p.m()`: the read borrow is implicit |
+| `?self` (= `self: ?Self`) | reads the value | `p.m()`, or `?p.m()`: the read borrow may be left implicit |
 | `!self` (= `self: !Self`) | modifies the value | `!p.m()` |
 | `<self` (= `self: Self`) | consumes the value | `<p.m()`, or on a temporary |
 
@@ -975,23 +975,25 @@ write borrow (a `!T` parameter, `self` in a `!self` method, a local
 `w = !p`) calls it directly, `w.m()`: the borrow it holds is lent to the
 call.
 
-**Receiver sigils.** `!` or `<` directly before a *place* (a name
-followed by any `.field` or `[index]` steps) that is followed by a
-method call applies to that place: `!P.m(args)` is `(!P).m(args)` and
-`<P.m(args)` is `(<P).m(args)`, with or without parentheses around the
-arguments (`!v.push 3`). Postfixes after that call apply to its result:
-`!v.pop()?`, and `!a.b().c(x)` is `(!a).b().c(x)`. Every other prefix
-sigil (`?`, `+`, `-`, `*`, `~`), and `!` or `<` with no method call
-after the place, applies to the whole expression as before:
-`*Point.origin()` shares the result, `+n.first()` clones it, `-a.len`
-negates it, `!x.v` borrows the field, `<p.f` moves the field, and
-`?xs[0]` borrows the element. With parentheses, `!(v.pop())` borrows
-the call's result.
+**Receiver sigils.** `?`, `!`, or `<` directly before a *place* (a
+name followed by any `.field` or `[index]` steps) that is followed by
+a method call applies to that place: `?P.m(args)` is `(?P).m(args)`,
+`!P.m(args)` is `(!P).m(args)`, and `<P.m(args)` is `(<P).m(args)`,
+with or without parentheses around the arguments (`!v.push 3`).
+Postfixes after that call apply to its result: `!v.pop()?`, and
+`!a.b().c(x)` is `(!a).b().c(x)`. Writing `?` is optional, since a
+read receiver is lent without it. Every other prefix sigil (`+`, `-`,
+`*`, `~`), and `?`, `!`, or `<` with no method call after the place,
+applies to the whole expression as before: `*Point.origin()` shares
+the result, `+n.first()` clones it, `-a.len` negates it, `!x.v`
+borrows the field, `<p.f` moves the field, and `?xs[0]` borrows the
+element. With parentheses, `?(p.m())` borrows the call's result.
 
 The short form is checked against the method: `!` before a method that
 does not take `!self` is rejected (it reads as negation, which is
-`not`), and so is `<` before one that does not take `<self`, or
-either before a function with no receiver (`Point.origin()`). A
+`not`), `<` before one that does not take `<self`, `?` before one that
+takes `!self` or `<self`, and any of them before a function with no
+receiver (`Point.origin()`). A
 write-borrowing call whose value is a `Bool` is written in the long
 form, `(!set).insert(k)`, where its `!` would start a condition (of
 `if`, `while`, a ternary, or a postfix guard) or an operand of `and`,
@@ -1717,8 +1719,8 @@ From lowest to highest precedence:
 
 Postfixes bind tighter than prefixes, so `-a.len` is `-(a.len)` and
 `+n.first()` clones the result. The one exception is a receiver sigil:
-`!` or `<` before a place followed by a method call applies to the
-place, `!v.push(x)` is `(!v).push(x)` and `!v.put[2](x)` is
+`?`, `!`, or `<` before a place followed by a method call applies to
+the place, `!v.push(x)` is `(!v).push(x)` and `!v.put[2](x)` is
 `(!v).put[2](x)` ([§4](#structs)). A call of a field holding functions
 (`!p.f()`, `!p.fs[0]()`) has no receiver, so a sigil there is rejected.
 

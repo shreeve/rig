@@ -1,0 +1,46 @@
+# `?p.m()` spells out the read receiver a call takes anyway, on a place
+# and its fields and elements, and in a paren-free call and a `while`
+# step; `?(p.m())` borrows the call's result.
+
+struct Point
+  x: Int
+
+  fun shifted(?self, d: Int) -> Point
+    Point(x: self.x + d)
+
+  sub show(?self, label: String)
+    print(label, self.x)
+
+struct Line
+  a: Point
+  b: Point
+
+sub show_point(p: ?Point)
+  print("point", p.x)
+
+sub main
+  p = Point(x: 1)
+  print(?p.shifted(1).x)
+  line = Line(a: Point(x: 2), b: Point(x: 3))
+  q = ?line.b.shifted(10)
+  print(q.x)
+  pts = [Point(x: 5), Point(x: 6)]
+  print(?pts[1].shifted(0).x)
+  ?p.show "p"
+  show_point(?(p.shifted(4)))
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  print(?v.get(0) ?? 0)
+  i = 0
+  while i < 2 : ?p.show("step")
+    i += 1
+
+# expect:
+# 2
+# 13
+# 6
+# p 1
+# point 5
+# 7
+# step 1
+# step 1

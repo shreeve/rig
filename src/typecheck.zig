@@ -5089,6 +5089,11 @@ const Checker = struct {
         if (self.isReceiverSigil(obj)) {
             const place = ir.get(obj, .operand);
             if ((try self.moduleNamed(place)) != null or (try self.namedType(place)) != null) {
+                if (obj.isKind(.read)) {
+                    try self.errAt(obj, "`{s}` is called through its type or module and has no receiver; to borrow the call's result, write `?({s}.{s}(...))`", .{ method, try self.sourceText(place), method });
+                    try self.synthArgs(args);
+                    return self.t().invalid_id;
+                }
                 try self.misplacedSigil(obj, method, "is called through its type or module and has no receiver");
                 obj = place;
             }
@@ -5121,7 +5126,7 @@ const Checker = struct {
         if (std.mem.eql(u8, method, "upgrade")) {
             switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, obj_ty))) {
                 .weak => |inner| {
-                    if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "only reads the weak handle");
+                    if (self.isReceiverSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, method, "only reads the weak handle");
                     try self.rejectResourceTemporary(obj, obj_ty);
                     if (args.len != 0) {
                         try self.err(pos, "weak `upgrade` takes no arguments; got {d}", .{args.len});
@@ -5312,7 +5317,7 @@ const Checker = struct {
         if (elem != byte) return self.badCall(args, obj, "`{s}` works on bytes: a `[]U8`, an `![]U8`, a `[N]U8`, a `Vec[U8]`, or a String; got `{s}`", .{ method, try self.tyName(obj_ty) });
         if (op == .write) {
             if (!try self.writesElements(obj, obj_ty, peeled, method)) return self.skipCall(args);
-        } else if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "only reads its receiver");
+        } else if (self.isReceiverSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, method, "only reads its receiver");
         const example = if (op == .read) "read[U32, .little](at)" else "write[U32, .little](at, value)";
         const b = ct orelse return self.badCall(args, pos, "`{s}` takes the type and the byte order in brackets: `{s}`", .{ method, example });
         try self.ctx.recordInstance(b, .function);
@@ -5689,17 +5694,18 @@ const Checker = struct {
         };
     }
 
-    /// Whether `node` is the `!p` or `<p` of `!p.m(...)` or `<p.m(...)`,
-    /// written before the call rather than in parentheses.
+    /// Whether `node` is the `?p`, `!p`, or `<p` of `?p.m(...)`,
+    /// `!p.m(...)`, or `<p.m(...)`, written before the call rather than
+    /// in parentheses.
     fn isReceiverSigil(self: *Checker, node: Sexp) bool {
         const p = self.ctx.parser orelse return false;
         return p.isReceiverSigil(node);
     }
 
-    /// `!p.m(...)` or `<p.m(...)` where `m` takes no receiver the sigil
-    /// could apply to.
+    /// `?p.m(...)`, `!p.m(...)`, or `<p.m(...)` where `m` takes no
+    /// receiver the sigil could apply to.
     fn misplacedSigil(self: *Checker, recv: Sexp, method: []const u8, why: []const u8) Error!void {
-        try self.errAt(recv, "`{s}` {s}; drop the `{s}`", .{ method, why, if (recv.isKind(.write)) "!" else "<" });
+        try self.errAt(recv, "`{s}` {s}; drop the `{s}`", .{ method, why, sigilText(recv) });
     }
 
     /// `!p.f(...)` or `<p.f[i](...)`, where `f` is a field holding
@@ -5713,20 +5719,29 @@ const Checker = struct {
         if (recv.isKind(.write) and returns == self.t().bool_id) {
             return self.errAt(recv, "`{s}` is {s}, not a method with a receiver; for negation use `not`", .{ field, what });
         }
-        try self.errAt(recv, "`{s}` is {s}, not a method with a receiver; drop the `{s}`", .{ field, what, if (recv.isKind(.write)) "!" else "<" });
+        if (recv.isKind(.read)) return self.errAt(recv, "`{s}` is {s}, not a method with a receiver; drop the `?`, or borrow the call's result with `?({s}.{s}(...))`", .{ field, what, try self.sourceText(ir.Read.operand(recv)), field });
+        try self.errAt(recv, "`{s}` is {s}, not a method with a receiver; drop the `{s}`", .{ field, what, sigilText(recv) });
     }
 
-    /// `!p.m(...)` and `<p.m(...)` (see `Parser.receiverSigil`): the sigil
-    /// is the receiver mode of `m`, so a `!` before a method that only
-    /// reads is the habit of `!` as negation, and a `!` call whose value
-    /// is a `Bool` is written `(!p).m(...)` so it never reads as one.
-    /// Returns whether it reported an error.
+    /// `?p.m(...)`, `!p.m(...)`, and `<p.m(...)` (see
+    /// `Parser.receiverSigil`): the sigil is the receiver mode of `m`, so
+    /// a `!` before a method that only reads is the habit of `!` as
+    /// negation, and a `!` call whose value is a `Bool` is written
+    /// `(!p).m(...)` so it never reads as one. A `?` spells out the read
+    /// receiver a call takes anyway. Returns whether it reported an
+    /// error.
     fn checkReceiverSigil(self: *Checker, recv: Sexp, mode: MethodReceiver, returns: TypeId, method: []const u8) Error!bool {
         if (!self.isReceiverSigil(recv)) return false;
         const place = ir.get(recv, .operand);
         const at = self.ctx.span(place);
         const name = self.ctx.source[at.start..at.end];
-        if (recv.isKind(.write)) switch (mode) {
+        if (recv.isKind(.read)) {
+            if (mode == .read) return false;
+            const hint = if (returns == self.t().void_id) "" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "; to borrow the call's result, write `?({s}.{s}(...))`", .{ name, method });
+            if (mode == .write) {
+                try self.errAt(recv, "`{s}` writes its receiver: write `!{s}.{s}(...)`{s}", .{ method, name, method, hint });
+            } else try self.errAt(recv, "`{s}` consumes its receiver: write `<{s}.{s}(...)`{s}", .{ method, name, method, hint });
+        } else if (recv.isKind(.write)) switch (mode) {
             .write => {
                 const result = self.ctx.types.get(returns);
                 const value = if (result == .fallible) result.fallible else returns;
@@ -6863,6 +6878,11 @@ const ReceiverShape = enum { read_explicit, write_explicit, move_explicit, rvalu
 
 /// How the receiver expression is written. Only heads that certainly
 /// produce a fresh value count as rvalues; everything else is a place.
+/// The sigil of a receiver sigil node, as written.
+fn sigilText(recv: Sexp) []const u8 {
+    return if (recv.isKind(.read)) "?" else if (recv.isKind(.write)) "!" else "<";
+}
+
 fn classifyReceiverShape(recv: Sexp) ReceiverShape {
     const h = recv.kind() orelse return .lvalue_bare;
     return switch (h) {

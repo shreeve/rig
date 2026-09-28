@@ -83,8 +83,8 @@ The same characters prefix types: `?T` and `!T` are borrowed types,
 `*T` a shared handle, `~T` a weak one. As suffixes, `T?` is an optional
 and `T!` a fallible `T`. Suffix `?` and `!` always mean absence and
 failure; prefix `?` and `!` always mean borrowing, so `!` is never
-"not" (that is `not`). Before a method call, `!` and `<` mark the
-receiver: `!v.push(x)` write-borrows `v` for `push`
+"not" (that is `not`). Before a method call, `?`, `!`, and `<` mark
+the receiver: `!v.push(x)` write-borrows `v` for `push`
 ([§12](#receiver-sigils-vpushx-and-pclose)).
 
 The compiler checks every sigil: no use after move, no double free, no
@@ -870,8 +870,8 @@ From lowest to highest precedence:
   before a method call marks the receiver ([§12](#12-structs-and-methods)),
   and is rejected too when the method only reads it (`!q.is_empty()`).
 - Postfixes bind tighter than prefixes: `-a.len` is `-(a.len)`. The
-  one exception is `!` or `<` before a method call, which applies to
-  the receiver: `!v.push(x)` is `(!v).push(x)`.
+  one exception is `?`, `!`, or `<` before a method call, which applies
+  to the receiver: `!v.push(x)` is `(!v).push(x)`.
 - Arithmetic needs one numeric type on both sides. Integer `/`
   truncates toward zero and `%` takes the dividend's sign, like Zig's
   `@divTrunc` and `@rem`. Overflow panics in Debug and `--release`
@@ -1146,7 +1146,8 @@ fun size(n: U8) -> String
     100..256 => "large"
 
 sub main
-  print(area(?Shape.rect(w: 2, h: 5)), size(42))
+  r = Shape.rect(w: 2, h: 5)
+  print(area(?r), size(42))
   match 7
     1 => print("one")
     other
@@ -1215,7 +1216,7 @@ Point(x: 13, y: 4) 25
 
 | Receiver | Rust | Meaning | Call |
 |---|---|---|---|
-| `?self` | `&self` | reads | `p.m()`: the read borrow is implicit |
+| `?self` | `&self` | reads | `p.m()`, or `?p.m()`: the read borrow may be left implicit |
 | `!self` | `&mut self` | writes | `!p.m()` |
 | `<self` | `self` | consumes | `<p.m()`, or on a temporary |
 | (none) | associated fn | | `Point.origin()` |
@@ -1230,7 +1231,7 @@ what it lends.
 
 ### Receiver sigils: `!v.push(x)` and `<p.close()`
 
-`!` or `<` directly before a place (a name, then any `.field` or
+`?`, `!`, or `<` directly before a place (a name, then any `.field` or
 `[index]` steps) that a method call follows applies to that place, the
 method's receiver; anything after the call applies to its result.
 
@@ -1241,12 +1242,16 @@ method's receiver; anything after the call applies to its result.
 | `(!grid[r]).bump()` | `!grid[r].bump()` | an element, changed in place |
 | `while (!q).pop() as j` | `while !q.pop() as j` | the loop binds what `pop` returns |
 | `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
+| `(?p).dist(q)` | `?p.dist(q)` | read-borrow `p`; the same as `p.dist(q)` |
 
-Only `!` and `<` reach the receiver, because they are exactly the
-receiver modes a method declares (`!self`, `<self`), and on a
-call's result they would mean nothing: a result is already a
-temporary the caller owns. The other sigils keep their meaning on the
-whole expression:
+Only `?`, `!`, and `<` reach the receiver, because they are exactly
+the receiver modes a method declares (`?self`, `!self`, `<self`). `?`
+is optional, since a read receiver is lent anyway; `?` before a method
+that writes or consumes its receiver is rejected. On a call's result
+`!` and `<` would mean nothing, a result being already a temporary the
+caller owns, and a borrow of a result is written around the call,
+`?(p.m())`. The other sigils keep their meaning on the whole
+expression:
 
 - `*Point.origin()` shares the new `Point` in a handle.
 - `+n.first()` clones the handle `first` returns.
@@ -3355,8 +3360,8 @@ simple    = expr | command
           | "continue" [":" label] | "defer" (simple | block)
           | "errdefer" (simple | block) | "raw" block
 block     = INDENT stmt* DEDENT
-command   = ["!" | "<"] postfix (expr | command), ...  # a paren-free call; only
-                                                      # its last argument is a command
+command   = ["?" | "!" | "<"] postfix (expr | command), ...  # a paren-free call;
+                                                  # only its last argument is a command
 
 expr      = if | while | for | match | closure | value
 if        = "if" value block ["else" (block | if)]
@@ -3381,8 +3386,8 @@ atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]
 ```
 
 The grammar reads `!v.push(x)` as `!` applied to `v.push(x)`, like any
-prefix; the compiler then moves a `!` or `<` before a place and a method
-call onto the place, giving the tree of `(!v).push(x)`
+prefix; the compiler then moves a `?`, `!`, or `<` before a place and a
+method call onto the place, giving the tree of `(!v).push(x)`
 ([§12](#receiver-sigils-vpushx-and-pclose)).
 
 ## D. Habits to unlearn

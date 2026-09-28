@@ -674,11 +674,12 @@ neg      = NOT operand:neg                          → (not)
 # `print p.x` is print(p.x); `send encode <packet` is send(encode(<packet)).
 # A paren-free call is a command: a statement, a match arm, a closure
 # body, or the last argument of another paren-free call. Anywhere a
-# value is expected, a call takes parentheses. A leading `!` or `<` is
-# the receiver's mode, which the Parser wrapper moves onto the receiver:
-# `!v.push 3`.
+# value is expected, a call takes parentheses. A leading `?`, `!`, or
+# `<` is the receiver's mode, which the Parser wrapper moves onto the
+# receiver: `!v.push 3`.
 
 cmd      = callee:postfix args:cmdargs              → (call)
+         | READ_PFX  operand:cmd                    → (read)
          | WRITE_PFX operand:cmd                    → (write)
          | MOVE_PFX  operand:cmd                    → (move)
 
@@ -707,9 +708,10 @@ while    = WHILE cond:value [":" step:step] body:block [ELSE else:block] → (wh
 
 # A `while` step runs after each iteration: an assignment, or a call,
 # which may propagate its failure (the checker rejects other forms). A
-# call's receiver may take `!` or `<` (see the Parser wrapper).
+# call's receiver may take `?`, `!`, or `<` (see the Parser wrapper).
 step     = assign
          | postfix
+         | READ_PFX  operand:postfix                → (read)
          | WRITE_PFX operand:postfix                → (write)
          | MOVE_PFX  operand:postfix                → (move)
 

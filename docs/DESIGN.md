@@ -159,19 +159,23 @@ suffixes included, so `?User?` borrows an optional:
 | `+n.first()` | clone the handle `first` returns |
 | `!v.push(x)` | write-borrow `v`, then call a writing method |
 
-One exception is made, for method calls: `!` or `<` directly before a
-place followed by a method call applies to the place, so `!v.push(x)`
-is `(!v).push(x)` and `<conn.close()` is `(<conn).close()`. `!` and `<`
-are exactly the receiver modes a method declares (`!self`,
-`<self`), and on a call's result they would mean nothing: the
-result is a temporary the caller already owns, so writing through it
-would be lost and moving it is what happens anyway. `*`, `+`, `~`, `?`,
+One exception is made, for method calls: `?`, `!`, or `<` directly
+before a place followed by a method call applies to the place, so
+`!v.push(x)` is `(!v).push(x)` and `<conn.close()` is
+`(<conn).close()`. The three are exactly the receiver modes a method
+declares (`?self`, `!self`, `<self`), so a call reads the same way
+whichever mode its method takes; `?p.m()` spells out the read borrow
+a plain `p.m()` takes anyway. On a call's result `!` and `<` would mean
+nothing (the result is a temporary the caller already owns, so writing
+through it would be lost and moving it is what happens anyway), and a
+borrow of a result is written around it, `?(p.m())`. `*`, `+`, `~`,
 and `-` do mean something on a result (share it, clone the handle it
-is, take a weak handle, borrow it, negate it), so they keep the rule:
+is, take a weak handle, negate it), so they keep the rule:
 `*Point.origin()` shares the new point. The exception comes with checks
 that keep it honest: `!` before a method that only reads its receiver
 is rejected, since it would read as negation (which is `not`), `<`
-before one that does not consume it is rejected, and a `!` call whose
+before one that does not consume it is rejected, `?` before one that
+writes or consumes it is rejected, and a `!` call whose
 value is a `Bool` keeps the parentheses, `(!set).insert(k)`, where a
 leading `!` would read as "not": as a condition and as an operand of
 `and`, `or`, or `not`. Elsewhere, as in `added = !set.insert(k)`,
