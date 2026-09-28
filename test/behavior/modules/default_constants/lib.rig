@@ -1,0 +1,12 @@
+pub LIMIT = 8
+pub NAME = "lib"
+RATE = 2.5
+
+pub struct Config
+  pub size: Int = LIMIT
+  pub label: String = NAME
+  pub rate: Float = RATE
+  pub tags: Vec[String] = Vec()
+
+pub fun scaled(n: Int, by: Int = LIMIT, rate: Float = RATE) -> Float
+  Float(n * by) * rate

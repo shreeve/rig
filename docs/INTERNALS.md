@@ -943,6 +943,14 @@ lower is an internal error: sema must have rejected it.
   compile-time parameter is reached through a slice (`rig.elems`),
   since Zig rejects any index into an array of length 0, and `[n of x]`
   is `@as([n]T, @splat(x))`.
+- **Defaults.** A field default is the Zig struct field's default
+  value, which Zig copies into each value a constructor makes: a
+  literal, a constant, `rig.Vec(T).empty`, a `rig.Cell(T)`, or
+  `@splat(x)`, none of which allocates, so each value's is its own. A
+  parameter default is written at each call that leaves it out: a
+  literal from the declaring module's source, and a constant of another
+  module than the caller's through its file, `@import("lib.zig").LIMIT`,
+  which any module of the package can import.
 - **Generic functions** are Zig generic functions: a type parameter is
   `comptime T: type`, and a call passes its type arguments, inferred
   or given (`genericCallOf`): `max(3, 7)` is `max(i64, 3, 7)`. Zig

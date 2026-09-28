@@ -530,7 +530,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(f.ty);
             if (f.default) |d| {
                 try self.w.writeAll(" = ");
-                try writeLiteral(self.w, self.source, d);
+                try self.emitDefault(self.sema, d);
             }
             try self.w.writeAll(",\n");
         }
@@ -3874,9 +3874,46 @@ pub const Emitter = struct {
             written += 1;
             if (slots) |sl| switch (sl[i]) {
                 .arg => |ai| try self.emitArg(args[ai], params, i),
-                .default => |d| try writeLiteral(self.w, d.source, d.expr),
+                .default => |d| try self.emitDefault(self.semaOf(d.source) orelse return self.unsupported(call, "this default argument"), d.expr),
             } else try self.emitArg(args[i], params, i);
         }
+    }
+
+    /// A field or parameter default, `e`, declared in module `decl`: a
+    /// literal, a constant, or (a field's, emitted in its own module's
+    /// type) a constructor. A constant of another module than the one
+    /// being emitted is reached through its file, which every module of
+    /// the package can import.
+    fn emitDefault(self: *Emitter, decl: *const sema.SemContext, e: Sexp) Error!void {
+        if (isDefaultLiteralNode(decl.source, e)) return writeLiteral(self.w, decl.source, e);
+        if (decl == self.sema) {
+            const saved = self.keep_comptime;
+            defer self.keep_comptime = saved;
+            self.keep_comptime = true;
+            return self.emitBare(e);
+        }
+        if (e.isKind(.member)) {
+            const obj = ir.Member.object(e);
+            const obj_text = decl.source[obj.src.pos..][0..obj.src.len];
+            const name = decl.source[ir.Member.name(e).src.pos..][0..ir.Member.name(e).src.len];
+            if (sema.intLimit(decl, e)) |limit| return self.w.print("{d}", .{limit.v});
+            if (decl.symbolOf(obj) == null) {
+                // A float type's limit.
+                const zig = if (std.mem.eql(u8, obj_text, "F32")) "f32" else "f64";
+                return self.w.print("{s}std.math.floatMax({s})", .{ if (std.mem.eql(u8, name, "min")) "-" else "", zig });
+            }
+            return self.w.print("@import(\"{s}.zig\").{f}", .{ obj_text, ident(name) });
+        }
+        return self.w.print("@import(\"{s}.zig\").{f}", .{ decl.name, ident(decl.source[e.src.pos..][0..e.src.len]) });
+    }
+
+    /// The checked module whose source is `source`: this one, or one it
+    /// reaches.
+    fn semaOf(self: *Emitter, source: []const u8) ?*const sema.SemContext {
+        if (source.ptr == self.sema.source.ptr) return self.sema;
+        var it = self.sema.foreign_semas.valueIterator();
+        while (it.next()) |ctx| if (ctx.*.source.ptr == source.ptr) return ctx.*;
+        return null;
     }
 
     /// The argument filling parameter slot `i`: a `!T` parameter receives
@@ -5139,6 +5176,19 @@ const Ident = struct {
 
 fn ident(name: []const u8) Ident {
     return .{ .name = name };
+}
+
+/// A literal default value: a number, a string, `true` / `false`,
+/// `none`, `.variant`, or a negated number.
+fn isDefaultLiteralNode(source: []const u8, e: Sexp) bool {
+    return switch (e) {
+        .src => |s| blk: {
+            const t = source[s.pos..][0..s.len];
+            break :blk isLiteralText(t) or std.mem.eql(u8, t, "none");
+        },
+        .list => e.isKind(.enum_lit) or (e.isKind(.neg) and ir.Neg.operand(e) == .src),
+        else => false,
+    };
 }
 
 /// A default argument value: a literal, written from the source of the

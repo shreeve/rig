@@ -394,14 +394,58 @@ const Checker = struct {
         }
     }
 
-    /// A parameter or field default: a literal of type `ty`, so it owns
-    /// nothing and means the same value wherever it is filled in.
+    /// A parameter or field default, of type `ty`, means the same value
+    /// wherever it is filled in: a literal, or a module constant (this
+    /// module's or an imported one, or a number type's limit). A field's
+    /// may also be an empty or literal constructor, `Vec()`, `Cell(0)`,
+    /// or `[n of 0]`, which each value gets a fresh one of.
     fn checkDefaultValue(self: *Checker, value: Sexp, ty: TypeId, what: []const u8) Error!void {
-        if (!isDefaultLiteral(self.ctx.source, value)) {
-            try self.errAt(value, "a default {s} value must be a literal: a number, a string, `true` / `false`, `none`, or `.variant`", .{what});
+        const field = std.mem.eql(u8, what, "field");
+        const ok = isDefaultLiteral(self.ctx.source, value) or self.isConstantDefault(value) or (field and try self.isConstructorDefault(value));
+        if (!ok) {
+            if (field) {
+                try self.errAt(value, "a default field value must be a literal, a module constant, or an empty or literal constructor: `Vec()`, `Cell(0)`, `[n of 0]`", .{});
+            } else try self.errAt(value, "a default parameter value must be a literal or a module constant", .{});
             return;
         }
         try self.checkExpr(value, ty);
+    }
+
+    /// A module constant, of this module or an imported one (`LIMIT`,
+    /// `lib.LIMIT`), or a number type's limit (`U8.max`).
+    fn isConstantDefault(self: *Checker, e: Sexp) bool {
+        if (e == .src) {
+            const id = self.lookupQuiet(e) orelse return false;
+            const sym = self.ctx.symbols.items[id];
+            return sym.kind == .local and sym.scope == self.module_scope and sym.flags.comptime_known;
+        }
+        if (!e.isKind(.member)) return false;
+        const obj = ir.Member.object(e);
+        if (obj != .src) return false;
+        if (self.lookupQuiet(obj)) |id| {
+            if (self.ctx.symbols.items[id].kind != .module) return false;
+            const foreign = self.foreignMember(e) orelse return false;
+            return foreign.kind == .local and foreign.flags.comptime_known;
+        }
+        return resolve.isNumericTypeName(self.text(obj));
+    }
+
+    /// `Vec()`, `Vec[T]()`, `Cell(literal)`, `[n of literal]` (or of a
+    /// constant).
+    fn isConstructorDefault(self: *Checker, e: Sexp) Error!bool {
+        if (e.isKind(.array_fill)) {
+            const v = ir.ArrayFill.value(e);
+            return isDefaultLiteral(self.ctx.source, v) or self.isConstantDefault(v);
+        }
+        if (!e.isKind(.call)) return false;
+        var callee = ir.Call.callee(e);
+        if (rig.isBracketList(callee)) callee = ir.get(callee, .object);
+        if (callee != .src) return false;
+        const id = self.lookupQuiet(callee) orelse return false;
+        const args = ir.Call.args(e);
+        if (id == self.ctx.vec_sym_id) return args.len == 0;
+        if (id == self.ctx.cell_sym_id) return args.len == 1 and isDefaultLiteral(self.ctx.source, args[0]);
+        return false;
     }
 
     /// A body's statements, checked as `context`; in a `fun`, the last one

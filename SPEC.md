@@ -881,7 +881,8 @@ sign -1
 Parameters are immutable, except a write-borrowed `!T` parameter, which
 can be assigned ([§8](#write-borrows)). A parameter the body ignores
 may be named `_`, any number of times. A parameter may have a default
-value, which must be a literal. A call passes arguments by position, in
+value: a literal or a module constant (`LIMIT`, `lib.LIMIT`,
+`U8.max`), which means the same value at every call, in any module. A call passes arguments by position, in
 parameter order (`scaled(3, 2)`); by keyword, in any order
 (`scaled(by: 4, n: 5)`); or both, positional arguments first
 (`scaled(3, by: 2)`). A parameter with a default may be left out
@@ -929,24 +930,34 @@ naming its fields: `Point(x: 1, y: 2)`. A struct with exactly one field
 also takes it by position, as a one-field variant does:
 `Meters(3.5)` is `Meters(value: 3.5)`, and so are the built-ins
 `Box(x)`, `Cell(0)`, and `*Signal(0)`. A field may have a default
-value, which, like a parameter default, must be a literal (a number, a
-string, `true` / `false`, `none`, or `.variant`); a constructor may omit
-that field.
+value, and a constructor may omit that field. Like a parameter default,
+it is a literal (a number, a string, `true` / `false`, `none`, or
+`.variant`) or a module constant, of this module or an imported one
+(`LIMIT`, `lib.LIMIT`, `U8.max`); a field's may also be an empty or
+literal constructor: `Vec()`, `Vec[T]()`, `Cell(0)`, or `[n of x]` with
+a literal or constant `x`. Each value the constructor makes gets a fresh
+default, so no two share a `Vec`.
 
 ```rig
+RETRIES = 3
+
 struct Config
-  retries: Int = 3
+  retries: Int = RETRIES
   name: String = "anon"
+  tags: Vec[String] = Vec()
+  hits: Cell[Int] = Cell(0)
   verbose: Bool
 
 sub main
   c = Config(verbose: true)
   d = Config(retries: 5, verbose: false)
-  print(c.retries, c.name, d.retries)
+  !c.tags.push("x")
+  c.hits.set(2)
+  print(c.retries, c.name, d.retries, c.tags.len, d.tags.len, d.hits.get())
 ```
 
 ```output
-3 anon 5
+3 anon 5 1 0 0
 ```
 
 ```rig

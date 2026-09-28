@@ -697,7 +697,8 @@ sub main
 
 ### Parameters
 
-A parameter may have a literal default. A call passes its arguments:
+A parameter may have a default: a literal or a module constant. A call
+passes its arguments:
 
 - by position, in parameter order: `scaled(3, 2)`;
 - by keyword, in any order: `scaled(by: 4, n: 5)`;
@@ -1240,7 +1241,8 @@ cleanup 1
 
 A `struct` lists fields, then methods. Construct it by naming every
 field that has no default: `Point(x: 1, y: 2)`. A field default is a
-literal.
+literal, a module constant, or an empty or literal constructor
+(`Vec()`, `Cell(0)`, `[n of 0]`), made fresh for each value.
 
 ```rig
 struct Point
