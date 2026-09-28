@@ -5,6 +5,6 @@ fun add(a: Int, b: Int) -> Int
 
 sub main()
   x = add(1)
-  print x
+  print(x)
 
 # error: call to `add` expects 2 arguments, got 1

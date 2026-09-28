@@ -7,7 +7,7 @@ struct User
 sub main()
   user = User(name: "Steve")
   w = !user
-  print user
+  print(user)
   w.name = "Bob"
 
 # error: use of `user` while a write borrow is live

@@ -10,19 +10,19 @@ fun fallible(n: Int) -> Int!
   n
 
 sub types(a: ?Node, b: !Node, c: *Node, d: ~Node, e: Node?, f: *Node?, g: *(Node?))
-  print "types"
+  print("types")
 
 sub containers(v: Vec[Int], s: *Cell[Vec[*sub()]], c: *sub(Int), d: *sub(Int, String))
-  print "containers"
+  print("containers")
 
 sub sized(a: U8, b: I64, c: U64, d: F64, e: Bool, f: String)
-  print "sized"
+  print("sized")
 
 fun generic[T](x: T) -> T
   x
 
 sub counted[n: Int, T](x: Int)
-  print x
+  print(x)
 
 N = 2
 
@@ -31,4 +31,4 @@ struct Ring[T, n: Int]
 
 sub arrays[n: Int](a: [n]Int, b: [N * 2 + 1][n]U8, c: Ring[Int, 4], d: Ring[Int, (N + 1) * 2])
   e = [n of 0]
-  print e
+  print(e)

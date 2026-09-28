@@ -6,7 +6,7 @@ struct Point
 
 sub main()
   p = Point(x: 42)
-  print p.x
+  print(p.x)
 
 # expect:
 # 42

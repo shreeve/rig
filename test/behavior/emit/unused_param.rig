@@ -1,7 +1,7 @@
 # A parameter the body never reads is allowed.
 
 sub greet(name: String)
-  print "hello"
+  print("hello")
 
 sub main()
   greet("ada")

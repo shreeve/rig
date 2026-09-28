@@ -2067,12 +2067,12 @@ fun twice(n: Int) -> Int
   n * 2
 
 sub main
-  print add 1, 2
-  print (1 + 2) * 3
-  print add(1, 2), add 3, 4
+  print(add(1, 2))
+  print((1 + 2) * 3)
+  print(add(1, 2), add(3, 4))
   x = twice(5)
   if twice(x) > 10
-    print twice x
+    print(twice(x))
 ```
 
 ```output
@@ -3994,8 +3994,8 @@ sub main
   each(3, *|+total, i|
     total.set(total.get() + i)
     print("saw", i))
-  each 2, *|i|
-    print("trailing", i)
+  each(2, *|i|
+    print("trailing", i))
   print(total.get())
 ```
 

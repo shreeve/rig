@@ -24,10 +24,10 @@ struct Log
 
 sub main()
   a = Node(value: 1)
-  inspect ?a
-  touch !a
+  inspect(?a)
+  touch(!a)
   b = <a
-  consume <b
+  consume(<b)
 
   s = *Node(value: 2)
   t = +s
@@ -36,7 +36,7 @@ sub main()
 
   log = Log(lines: Vec())
   !log.add(1)
-  !log.add 2
+  !log.add(2)
   (!log).add(3)
   print(<log.close())
 

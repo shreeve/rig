@@ -18,28 +18,28 @@ fun quad(n: Int) -> Int
 
 sub main()
   # Commands: a statement, and the last argument of a command.
-  print add 1, 2
-  print (1 + 2) * 3
-  print add(1, 2), add 3, 4
-  print twice twice 1
+  print(add(1, 2))
+  print((1 + 2) * 3)
+  print(add(1, 2), add(3, 4))
+  print(twice(twice(1)))
   # Values: bindings, `return`, conditions, sources, and subjects.
   x = twice(5)
   x += twice(1)
   print(1, twice(-3), 5, x, quad(2))
   if twice(x) > 20
-    print "big"
+    print("big")
   n = 3
   while n > 0: n -= 1
-    print n
+    print(n)
   for i in [twice(1), twice(2)]
-    print i
+    print(i)
   match twice(1)
-    2 => print "two"
-    _ => print "other"
+    2 => print("two")
+    _ => print("other")
   # Closures: the body may be a command.
-  each(2, *|i| print i * 10)
-  (|+x| print x)()
-  print x - 1
+  each(2, *|i| print(i * 10))
+  (|+x| print(x))()
+  print(x - 1)
 
 # expect:
 # 3

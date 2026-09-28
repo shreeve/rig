@@ -9,6 +9,6 @@ fun loadUser(id: U64) -> User!
 
 sub main()
   x = loadUser(1)
-  print x.name
+  print(x.name)
 
 # error: fallible call to `loadUser` must be wrapped with `!` (propagate) or `catch` (handle)

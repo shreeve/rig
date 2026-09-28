@@ -36,7 +36,7 @@ struct Wrap[T]
 
 sub main()
   show(3)
-  show [3]
+  show([3])
   show[Int]()
   print(scaled(3))
   plain[0]

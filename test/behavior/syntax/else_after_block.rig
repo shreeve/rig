@@ -11,22 +11,22 @@ sub show(k: Kind, flag: Bool)
   match k
     .one
       if flag
-        print "one, flagged"
+        print("one, flagged")
       else
-        print "one"
+        print("one")
     _
-      print "not one"
+      print("not one")
 
 sub main()
   show(.one, true)
   show(.one, false)
   show(.three, true)
   if false
-    print "no"
+    print("no")
   else if true
-    print "else if"
+    print("else if")
   else
-    print "else"
+    print("else")
 
 # expect:
 # one, flagged

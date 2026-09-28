@@ -2,6 +2,6 @@
 
 sub main()
   x = true and 1
-  print x
+  print(x)
 
 # error: type mismatch: expected `Bool`, got `Int`

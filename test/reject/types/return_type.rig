@@ -5,6 +5,6 @@ fun bad() -> Int
 
 sub main()
   x = bad()
-  print x
+  print(x)
 
 # error: type mismatch: expected `Int`, got `String`

@@ -6,6 +6,6 @@ struct User
 sub main()
   user = User(name: "Steve")
   -user
-  print ?user
+  print(?user)
 
 # error: use of `user` after drop

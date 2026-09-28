@@ -5,6 +5,6 @@ fun consume(a: Int) -> Int
 
 sub main()
   x = consume("nope")
-  print x
+  print(x)
 
 # error: type mismatch: expected `Int`, got `String`

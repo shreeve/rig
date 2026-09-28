@@ -40,7 +40,7 @@ sub main()
   show[3]()
   show[4]()
   report[.lax, 2]("lax 2")
-  report[.strict, 2] "strict 2"
+  report[.strict, 2]("strict 2")
   s = Scale.unit[6]()
   !s.bump[1]()
   print(s.times[5](), Scale.times[2](?s))

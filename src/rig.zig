@@ -2015,7 +2015,7 @@ test "parser: every form parses" {
         \\  z = <w
         \\  -z
         \\  if x > 1
-        \\    print x, y
+        \\    print(x, y)
         \\  else if not (x < 0 and true)
         \\    return
         \\  if m as v

@@ -350,7 +350,7 @@ sub main
   a = 5
   b = 3
   print(a - b, a-b, twice(-b), twice(a) - b)
-  print twice -b
+  print(twice(-b))
 ```
 
 ```output
@@ -763,12 +763,12 @@ fun add(a: Int, b: Int) -> Int
   a + b
 
 sub main
-  print add 1, 2
-  print add(1, 2), add 3, 4
-  print (1 + 2) * 3
+  print(add(1, 2))
+  print(add(1, 2), add(3, 4))
+  print((1 + 2) * 3)
   total = add(1, 2)
   if add(total, 1) > 3
-    print total
+    print(total)
 ```
 
 ```output
@@ -1342,7 +1342,7 @@ struct Stack
 sub main
   s = Stack(items: Vec())
   !s.push(1)
-  !s.push 2
+  !s.push(2)
   !s.items.push(3)
   print(!s.pop() ?? 0)
   print(<s.total())
@@ -2754,8 +2754,8 @@ sub each(n: Int, f: *sub(Int))
 sub main
   each(2, *|i|
     print("saw", i))
-  each 2, *|i|
-    print("trailing", i)
+  each(2, *|i|
+    print("trailing", i))
 ```
 
 ```output

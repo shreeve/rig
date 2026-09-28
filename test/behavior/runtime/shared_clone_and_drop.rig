@@ -10,7 +10,7 @@ sub main()
   print(rc2.value)
   -rc2
   -rc
-  print "ok"
+  print("ok")
 
 # expect:
 # 1

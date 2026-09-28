@@ -9,11 +9,11 @@ fun double(n: Int) -> Int
   n * 2
 
 sub main()
-  print add 1, 2
-  print double add 3, 4
-  print add 1, double 5
+  print(add(1, 2))
+  print(double(add(3, 4)))
+  print(add(1, double(5)))
   n = 6
-  show = |+n| print n
+  show = |+n| print(n)
   show()
 
 # expect:

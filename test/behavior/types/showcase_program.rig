@@ -41,33 +41,33 @@ fun loadProfile(id: U64) -> Profile!
 # Compile-time specialization: `[mode: ParseMode]` is Zig's `comptime`.
 fun parse[mode: ParseMode](input: ?Bytes) -> Ast
   if mode == .strict
-    parseStrict ?input
+    parseStrict(?input)
   else
-    parseLoose ?input
+    parseLoose(?input)
 
 struct Wrap[T]
   value: T
 
 sub main()
   total = add(1, 2)
-  print total
+  print(total)
 
   user =! loadUser(1)!         # fixed binding of a propagated result
-  print user.name
+  print(user.name)
 
   other = <user                # a move: `user` is done
 
   u = loadUser(7)!
   p = loadProfile(u.id)!
   view = UserView(user: ?u, profile: ?p)
-  print view.user.id
+  print(view.user.id)
 
   bytes = Bytes(data: 0)
   ast = parse[.strict](?bytes)
-  print ast.ok
+  print(ast.ok)
 
   b: Wrap[Int] = Wrap(value: 5)
-  print b.value
+  print(b.value)
 
   -other                       # drop now
 

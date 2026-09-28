@@ -23,7 +23,7 @@ prints exactly the output shown under it.
 
 ```rig
 sub main
-  print "hello, rig"
+  print("hello, rig")
 ```
 
 ```output

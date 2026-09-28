@@ -44,8 +44,8 @@ Directives are whole-line comments.
 
 ```rig
 sub main
-  print 42
-  print "done"
+  print(42)
+  print("done")
 
 # expect:
 # 42

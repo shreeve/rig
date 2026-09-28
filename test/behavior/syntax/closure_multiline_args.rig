@@ -51,8 +51,8 @@ sub main()
     m + 1)()
   print(r)
 
-  each_n 2, *|i|
-    print("trailing", i)
+  each_n(2, *|i|
+    print("trailing", i))
 
 # expect:
 # got 4

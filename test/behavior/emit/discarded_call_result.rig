@@ -7,9 +7,9 @@ fun consume(n: Int) -> Int
 
 sub main()
   n = 1
-  consume <n
+  consume(<n)
   n = 5
-  print n
+  print(n)
 
 # expect:
 # consumed 1

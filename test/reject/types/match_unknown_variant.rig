@@ -7,7 +7,7 @@ enum Color
 sub main()
   c: Color = .red
   match c
-    .red => print "R"
-    .purple => print "P"
+    .red => print("R")
+    .purple => print("P")
 
 # error: no variant `purple` on enum `Color`

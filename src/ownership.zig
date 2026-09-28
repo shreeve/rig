@@ -3878,8 +3878,8 @@ test "use after move" {
     try expectError(
         \\sub main()
         \\  packet = make_packet()
-        \\  send <packet
-        \\  log ?packet
+        \\  send(<packet)
+        \\  log(?packet)
         \\
     , "use of `packet` after move");
 }
@@ -3887,7 +3887,7 @@ test "use after move" {
 test "hello passes" {
     try expectClean(
         \\sub main()
-        \\  print "hello"
+        \\  print("hello")
         \\
     );
 }
@@ -3914,8 +3914,8 @@ test "temporary read borrow ends at statement end" {
     try expectClean(
         \\sub main()
         \\  user = make_user()
-        \\  print ?user
-        \\  rename !user
+        \\  print(?user)
+        \\  rename(!user)
         \\
     );
 }
@@ -3925,7 +3925,7 @@ test "bound borrow blocks write" {
         \\sub main()
         \\  user = make_user()
         \\  r = ?user
-        \\  rename !user
+        \\  rename(!user)
         \\
     , "cannot write-borrow `user` while a read borrow is live");
 }
