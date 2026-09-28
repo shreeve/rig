@@ -9,7 +9,7 @@ sub g(acc: !Int, y: ?Int)
   acc += y
 
 sub h(out: !Vec[Int], k: ?Int)
-  out.push(k)
+  !out.push(k)
 
 sub fill(out: !Vec[Int])
   t = 5

@@ -5,7 +5,7 @@ fun count(v: ?Vec[Int]) -> Int
   v.len
 
 sub grow(v: !Vec[Int])
-  v.push(v.len * 10)
+  !v.push(v.len * 10)
 
 struct Bag
   items: Vec[Int]

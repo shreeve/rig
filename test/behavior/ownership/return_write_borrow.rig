@@ -8,7 +8,7 @@ fun pick(c: !C) -> !C
   c
 
 sub set_through(c: !C)
-  r = pick(c)
+  r = pick(!c)
   r.n = 5
 
 sub main()

@@ -35,7 +35,7 @@ fun read(f: fun(?P) -> Int, p: ?P) -> Int
   f(p)
 
 sub write(f: sub(!P), p: !P)
-  f(p)
+  f(!p)
 
 sub main()
   p = apply(P.make, 4)

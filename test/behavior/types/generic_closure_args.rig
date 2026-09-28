@@ -20,11 +20,11 @@ sub sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
       !xs.swap(j, j - 1)
 
 sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
-  sort(xs, less)
+  sort(!xs, less)
 
 sub sort_twice[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
-  sort_by(xs, less)
-  sort_by(xs, less)
+  sort_by(!xs, less)
+  sort_by(!xs, less)
 
 fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
   out: Vec[U] = Vec()

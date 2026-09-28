@@ -21,7 +21,7 @@ sub main
   c = Counter(n: 0)
   g = |!c|
     !c.inc()
-    c.inc()
+    !c.inc()
   g()
   v: Vec[Int] = Vec()
   h = |!v|

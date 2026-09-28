@@ -909,7 +909,9 @@ const Checker = struct {
                 try self.err(pos, "cannot {s} captured `{s}`; captures are fixed when the closure is created", .{ verb, name });
                 return false;
             },
-            .local => if (sym.flags.fixed) {
+            // A fixed write borrow is lent and written through, never
+            // pointed elsewhere.
+            .local => if (sym.flags.fixed and self.ctx.types.get(sym.ty) != .borrow_write) {
                 try self.err(pos, "cannot {s} fixed binding `{s}` (bound with `=!`)", .{ verb, name });
                 return false;
             } else if (sym.flags.pattern_bound and self.ctx.types.get(sym.ty) != .borrow_write) {
@@ -935,10 +937,11 @@ const Checker = struct {
     }
 
     /// A write borrow held in a field or element (`b.t` with `t: !T`) is
-    /// lent as it is when the place is used bare where a value holding a
-    /// write borrow is expected, or called with a `!self` method. Reached through a `?T` or `*T`, it is read-only
-    /// like the rest of what that path reaches: other borrows or handles
-    /// may reach the same write borrow. False after a diagnostic.
+    /// lent by `!b.t`, and by the place itself where a value holding a
+    /// write borrow is expected. Reached through a `?T` or `*T`, it is
+    /// read-only like the rest of what that path reaches: other borrows
+    /// or handles may reach the same write borrow. False after a
+    /// diagnostic.
     fn checkLendsWriteBorrow(self: *Checker, place: Sexp) Error!bool {
         if (!place.isKind(.member) and !place.isKind(.index)) return true;
         const path = self.placePath(place);
@@ -2626,7 +2629,12 @@ const Checker = struct {
             try self.errAt(operand, "cannot write-borrow a temporary: the change would be lost; bind it to a name first", .{});
             return self.t().invalid_id;
         }
-        if (kind == .write and !(try self.checkWritable(operand, operand, "write-borrow"))) return self.t().invalid_id;
+        if (kind == .write) {
+            // `!e.t` of a write borrow held in a field lends that borrow:
+            // it writes what `e.t` points to, not `e`.
+            const lends = self.ctx.types.get(inner) == .borrow_write and (operand.isKind(.member) or operand.isKind(.index));
+            if (!(if (lends) try self.checkLendsWriteBorrow(operand) else try self.checkWritable(operand, operand, "write-borrow"))) return self.t().invalid_id;
+        }
         // A borrow of a value holding a Cell can change the Cell, which a
         // loop or match binding only copies.
         if (kind == .read and sema.holdsCellByValue(self.ctx, inner)) {
@@ -3994,7 +4002,7 @@ const Checker = struct {
             try self.errAt(arg, "`{s}` moves values that hold no borrow; `{s}` may hold one", .{ what, try self.tyName(place) });
             return null;
         }
-        if (!arg.isKind(.write)) _ = try self.checkLendsWriteBorrow(arg);
+        if (!arg.isKind(.write)) try self.checkLendsVisibly(arg, ty, "the call writes through");
         return place;
     }
 
@@ -4178,6 +4186,19 @@ const Checker = struct {
         self.lent_callable = if (kept) .nil else arg;
         self.callable_kept = if (kept) arg else .nil;
         try self.checkExpr(arg, f.params[i]);
+        try self.checkLendsVisibly(arg, f.params[i], "the call writes through");
+    }
+
+    /// A write borrow a binding or field holds is lent on to a `!T`
+    /// visibly, `!w`, as an owned value is: the receiver of the lent
+    /// borrow writes through it. (A read borrow is lent on bare.)
+    fn checkLendsVisibly(self: *Checker, arg: Sexp, expected: TypeId, what: []const u8) Error!void {
+        if (self.ctx.types.get(expected) != .borrow_write) return;
+        if (arg != .src and !arg.isKind(.member) and !arg.isKind(.index)) return;
+        const ty = self.ctx.typeOf(arg) orelse return;
+        if (self.ctx.types.get(ty) != .borrow_write) return;
+        const src = try self.sourceText(arg);
+        try self.errAt(arg, "write `!{s}`: {s} `{s}`", .{ src, what, src });
     }
 
     /// Whether a call of `f` (with receiver parameter `recv`) may keep a
@@ -5077,7 +5098,11 @@ const Checker = struct {
     fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field, info: FieldArgs) Error!void {
         const noun = if (info.kind == .constructor) "constructor of" else "variant";
         if (args.len == 1 and !args[0].isKind(.kwarg)) {
-            if (soleField(fields)) |f| return self.checkExpr(args[0], try self.fieldType(f, info));
+            if (soleField(fields)) |f| {
+                const ty = try self.fieldType(f, info);
+                try self.checkExpr(args[0], ty);
+                return self.checkLendsVisibly(args[0], ty, "the field writes through");
+            }
         }
         for (args) |a| {
             if (a.isKind(.kwarg)) continue;
@@ -5113,7 +5138,9 @@ const Checker = struct {
                 _ = try self.synthExpr(value);
                 continue;
             };
-            try self.checkExpr(value, try self.fieldType(f, info));
+            const ty = try self.fieldType(f, info);
+            try self.checkExpr(value, ty);
+            try self.checkLendsVisibly(value, ty, "the field writes through");
         }
         for (fields) |f| {
             if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name)) continue;
@@ -5319,7 +5346,7 @@ const Checker = struct {
             try self.synthArgs(args);
             return resolved.fn_ty.returns;
         }
-        if (!misplaced_sigil) try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos);
+        if (!misplaced_sigil) try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos, args.len > 0);
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
@@ -5489,8 +5516,6 @@ const Checker = struct {
         }
         // `!xs.fill(v)`: the write borrow took the checks.
         if (obj.isKind(.write)) return true;
-        // A binding that holds a write borrow lends it as it is.
-        if (self.ctx.types.get(obj_ty) == .borrow_write and !obj.isKind(.read)) return self.checkLendsWriteBorrow(obj);
         const place = if (obj.isKind(.read) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
         // A receiver `!` could not write (through a `*T` or `?T`, or of
         // a parameter) is reported as such, not with a `!` to add.
@@ -5855,7 +5880,7 @@ const Checker = struct {
     /// Receiver rules: `?self` auto-borrows; `!self` needs an explicit
     /// `!x.m()`; a consuming `self` needs an explicit `<x.m()`. Write and
     /// consuming receivers are refused through `?T` and `*T`.
-    fn checkReceiverMode(self: *Checker, recv: Sexp, mode: MethodReceiver, kind: ReceiverTypeKind, method: []const u8, pos: u32) Error!void {
+    fn checkReceiverMode(self: *Checker, recv: Sexp, mode: MethodReceiver, kind: ReceiverTypeKind, method: []const u8, pos: u32, has_args: bool) Error!void {
         const shape = classifyReceiverShape(recv);
         switch (mode) {
             .read => if (shape == .move_explicit) {
@@ -5872,11 +5897,12 @@ const Checker = struct {
                     .read_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; got `?...`; use `!receiver.{s}(...)`", .{ method, method }),
                     .move_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; cannot move; use `!receiver.{s}(...)`", .{ method, method }),
                     // A binding that already holds a write borrow (`x: !T`,
-                    // `!self`) lends it to the call as it is.
+                    // `!self`) lends it visibly too.
                     .lvalue_bare => if (kind != .write_borrow) {
                         try self.err(pos, "method `{s}` requires a write-borrowed receiver; use `!receiver.{s}(...)`", .{ method, method });
                     } else {
-                        _ = try self.checkLendsWriteBorrow(recv);
+                        const name = try self.sourceText(recv);
+                        try self.errAt(recv, "write `!{s}.{s}({s})`: the call writes `{s}`", .{ name, method, if (has_args) "..." else "", name });
                     },
                 }
             },

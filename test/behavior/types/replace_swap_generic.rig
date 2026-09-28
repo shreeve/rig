@@ -24,10 +24,10 @@ struct R
     print("drop", self.n)
 
 fun rep[T](p: !T, v: T) -> T
-  replace(p, <v)
+  replace(!p, <v)
 
 sub sw[T](a: !T, b: !T)
-  swap(a, b)
+  swap(!a, !b)
 
 sub main
   pair()

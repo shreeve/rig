@@ -55,9 +55,11 @@ no unmarked unsafe code. What stays implicit is cheap and cannot
 surprise: copying plain data, reading through a shared handle, lending
 a receiver to a `?self` method, and moving a local out with `return x`,
 where its scope ends anyway. Writing through a receiver
-(`!v.push(x)`) or consuming it (`<u.close()`) is always spelled out;
-a binding that already holds a write borrow (`v: !Vec[Int]`) says so in
-its type, and lends it as it is (`v.push(x)`).
+(`!v.push(x)`) or consuming it (`<u.close()`) is always spelled out,
+and so is lending a write borrow a binding already holds
+(`v: !Vec[Int]` lends with `!v.push(x)` and `f(!v)`): at a call, `!`
+marks exactly the values it may change. A held read borrow is passed
+on bare, since a copy of it can change nothing.
 
 **Effects survive into the IR.** Every sigil becomes a named node in
 the semantic IR (`(move x)`, `(read x)`, `(clone x)`, `(drop x)`,

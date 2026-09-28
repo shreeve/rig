@@ -1273,9 +1273,10 @@ The sigils are short forms: `?self` is `self: ?Self`, `!self` is
 `self: !Self`, and `<self` is `self: Self`; the long forms are valid
 too. `Self` names the enclosing type. Inside a `!self` method, `self.f = v`
 and `self = v` write the caller's value. A binding that already holds a
-write borrow (a `!T` parameter, or `self` in a `!self` method) calls
-writing methods directly, `self.bump()`, because the borrow it holds is
-what it lends.
+write borrow (a `!T` parameter, or `self` in a `!self` method) lends it
+visibly too: `!self.bump()`, `bump(!p)`. Where Rust reborrows a
+`&mut` silently, Rig shows every write lending with `!`; a held read
+borrow is passed on bare, like a `&T` copy.
 
 ### Receiver sigils: `!v.push(x)` and `<p.close()`
 

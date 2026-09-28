@@ -25,7 +25,7 @@ sub main()
   v = View(b: ?a)
   if true
     w = !v
-    fill(w, ?y)
+    fill(!w, ?y)
   print(v.b.n)
   x = Wrap(r: ?a)
   e = Ed(t: !x)

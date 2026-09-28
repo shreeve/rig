@@ -19,10 +19,10 @@ sub reset(h: !Holder)
 
 sub f(a: ?Ed, b: ?Ed)
   for x in ?a.t.v
-    b.t.reset()
-    reset(b.t)
-    e = Ed(t: b.t)
-    print("saw", x.n)
+    !b.t.reset()
+    reset(!b.t)
+    e = Ed(t: !b.t)
+    print("saw", x.n, e.t.v.len)
 
 sub main()
   h = Holder(v: Vec())
@@ -30,6 +30,6 @@ sub main()
   ed = Ed(t: !h)
   f(?ed, ?ed)
 
-# error: 22:5: cannot lend the write borrow held here through a read borrow
-# error: 23:11: cannot lend the write borrow held here through a read borrow
-# error: 24:15: cannot lend the write borrow held here through a read borrow
+# error: 22:6: cannot lend the write borrow held here through a read borrow
+# error: 23:12: cannot lend the write borrow held here through a read borrow
+# error: 24:16: cannot lend the write borrow held here through a read borrow

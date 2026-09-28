@@ -10,7 +10,7 @@ struct Set
     !self.items.push(k)
     true
   fun checked(!self, k: Int) -> Bool!
-    self.insert(k)
+    !self.insert(k)
 
 fun add(s: !Set, k: Int) -> Bool
   return !s.insert(k)

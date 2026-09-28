@@ -34,7 +34,7 @@ sub main
   print(w.n)
   v: Vec[Int] = Vec()
   push = |!v, x: Int|
-    v.push(x)
+    !v.push(x)
   push(1)
   push(2)
   print(v.len, count_of(?v))

@@ -970,10 +970,32 @@ how the method uses the value, and the call site says the same thing:
 | `<self` (= `self: Self`) | consumes the value | `<p.m()`, or on a temporary |
 
 Write borrows and moves are never implicit, so calling a `!self` method
-as `p.m()` on an owned `p` is an error. A binding that already holds a
-write borrow (a `!T` parameter, `self` in a `!self` method, a local
-`w = !p`) calls it directly, `w.m()`: the borrow it holds is lent to the
-call.
+as `p.m()` is an error. That holds for a binding that already holds a
+write borrow too (a `!T` parameter, `self` in a `!self` method, a local
+`w = !p`): it lends that borrow visibly, `!w.m()` and `!self.m()`, as it
+lends it to a `!T` parameter or field with `!w`. Lending a write borrow
+always shows its sigil; a held read borrow is lent on bare, since
+another copy of it changes nothing.
+
+```rig reject
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  sub twice(!self)
+    !self.bump()
+    self.bump()
+
+sub main
+  c = Counter(n: 0)
+  !c.twice()
+```
+
+```error
+write `!self.bump()`: the call writes `self`
+```
 
 **Receiver sigils.** `?`, `!`, or `<` directly before a *place* (a
 name followed by any `.field` or `[index]` steps) that is followed by
@@ -1089,12 +1111,12 @@ struct Counter
     self.n += 1
 
   sub bump_twice(!self)
-    self.bump()
-    self.bump()
+    !self.bump()
+    !self.bump()
 
 sub add_three(c: !Counter)
-  c.bump()
-  c.bump_twice()
+  !c.bump()
+  !c.bump_twice()
 
 sub main
   c = Counter(n: 0)
@@ -1130,8 +1152,8 @@ struct Counter
     self.n
 
 sub twice(f: sub(!Counter), c: !Counter)
-  f(c)
-  f(c)
+  f(!c)
+  f(!c)
 
 sub main
   c = Counter(n: 0)
@@ -2772,8 +2794,9 @@ A write borrow is assignable, whether a `!T` parameter or a local
 holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
 borrowed value (the old value is dropped first). A new binding points
 a name at another place: `new w = !m` (`w = !m` is rejected, since it
-would write through `w`). A write borrow can be passed on, or moved
-into a local with `<p`, but not copied. One held
+would write through `w`). A write borrow can be lent on, written `!p`
+as an owned value's borrow is, or moved into a local with `<p`, but not
+copied. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
 that path reaches: it cannot be passed on from there, and a `match`
 through one cannot bind it. A loop walks elements holding write borrows
@@ -3740,7 +3763,7 @@ sub main
   print(apply(*|a| a + 1, 2))
   c: Vec[Int] = Vec()
   each(?c, |!c, n|
-    c.push(n))
+    !c.push(n))
 ```
 
 ```error
