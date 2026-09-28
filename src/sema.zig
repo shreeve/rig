@@ -3589,7 +3589,9 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
             // known here, so the program computes it.
             switch (h) {
                 .@"+%", .@"-%", .@"*%" => {
-                    const info = int orelse return .not_constant;
+                    // Literals alone wrap in the type their context gives
+                    // them, which the checker records.
+                    const info = int orelse literalInt(ctx, e) orelse return .not_constant;
                     const v = switch (h) {
                         .@"+%" => a.v +% b.v,
                         .@"-%" => a.v -% b.v,
@@ -3646,6 +3648,14 @@ pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
     if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };
     if (std.mem.eql(u8, field, "max")) return .{ .v = r.max, .int = info };
     return null;
+}
+
+/// The integer type the checker gave literal arithmetic `e`, if any.
+fn literalInt(ctx: *const SemContext, e: Sexp) ?IntInfo {
+    return switch (ctx.types.get(ctx.typeOf(e) orelse return null)) {
+        .int => |i| i,
+        else => null,
+    };
 }
 
 /// `v` wrapped into integer type `info`: its low bits, read as the

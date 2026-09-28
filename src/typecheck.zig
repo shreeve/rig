@@ -6473,9 +6473,33 @@ const Checker = struct {
         const target = self.liftTarget(expected);
         if (!sema.isNumeric(self.ctx, target)) return;
         try self.ctx.recordType(e, target);
+        if (actual == self.t().int_literal_id and self.ctx.types.get(target) == .int) try self.recordLiteralType(e, target);
         if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target);
         if (self.ctx.types.get(target) == .float) try self.checkWholeDivision(e);
         try self.checkFloatConstant(e, target);
+    }
+
+    /// Integer-literal arithmetic given integer type `target` is
+    /// computed in it: each operation in `e` records the type, so that a
+    /// wrapping one wraps there (`sema.ctFoldBy`) and the emitter types
+    /// it so.
+    fn recordLiteralType(self: *Checker, e: Sexp, target: TypeId) Error!void {
+        const h = e.kind() orelse return;
+        switch (h) {
+            .neg => try self.recordLiteralType(ir.Neg.operand(e), target),
+            .@"if" => {
+                try self.recordLiteralType(ir.If.then(e), target);
+                try self.recordLiteralType(ir.If.@"else"(e), target);
+                return;
+            },
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"&", .@"|", .@"^" => {
+                try self.recordLiteralType(ir.get(e, .left), target);
+                try self.recordLiteralType(ir.get(e, .right), target);
+            },
+            .@"<<", .@">>" => try self.recordLiteralType(ir.get(e, .left), target),
+            else => return,
+        }
+        try self.ctx.recordType(e, target);
     }
 
     /// A division of whole-number literals, `7 / 2`, divides integers:
