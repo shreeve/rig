@@ -2952,17 +2952,7 @@ const Checker = struct {
                 len = sema.arrayLen(self.ctx, a);
                 break :blk a.elem;
             },
-            else => blk: {
-                const elem = vecElementType(self.ctx, peeled) orelse {
-                    try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a Vec, or a `[]T`", .{try self.tyName(obj_ty)});
-                    return self.t().invalid_id;
-                };
-                if ((try self.ownsResource(elem, self.startOf(object), "slices a Vec"))) {
-                    try self.errAt(object, "cannot slice a `{s}`: a slice would copy owning handles out of the Vec; iterate with `for x in !v` instead", .{try self.tyName(peeled)});
-                    return self.t().invalid_id;
-                }
-                break :blk elem;
-            },
+            else => (try self.vecSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
         };
         try self.checkSliceBounds(range, len);
         // A `![]T` may be resliced wherever it comes from; an array or a
@@ -2973,7 +2963,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             }
             if (!isStoragePath(object)) {
-                try self.errAt(object, "only a named array or Vec, or a field or element of one, can be sliced; bind this value to a name first", .{});
+                try self.errAt(object, slice_of_temporary, .{});
                 return self.t().invalid_id;
             }
         }
@@ -3883,6 +3873,21 @@ const Checker = struct {
     /// static literal. A `[]T` gives a `[]T` viewing the same elements.
     /// An array or a `Vec` of plain data gives a `[]T` only as
     /// `?xs[a..b]` (`borrowed`): the slice is a read borrow of `xs`.
+    /// The element of Vec `peeled` (the type of `object`), sliced: plain
+    /// data only, since a slice would copy owning handles out. Null
+    /// after a diagnostic.
+    fn vecSliceElem(self: *Checker, object: Sexp, obj_ty: TypeId, peeled: TypeId) Error!?TypeId {
+        const elem = vecElementType(self.ctx, peeled) orelse {
+            try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a Vec, or a `[]T`", .{try self.tyName(obj_ty)});
+            return null;
+        };
+        if (try self.ownsResource(elem, self.startOf(object), "slices a Vec")) {
+            try self.errAt(object, "cannot slice a `{s}`: a slice would copy owning handles out of the Vec; iterate with `for x in ?v` or `for x in !v` instead", .{try self.tyName(peeled)});
+            return null;
+        }
+        return elem;
+    }
+
     fn synthSlice(self: *Checker, e: Sexp, borrowed: bool) Error!TypeId {
         const object = ir.Index.object(e);
         const range = ir.Index.index(e);
@@ -3904,17 +3909,7 @@ const Checker = struct {
                 return peeled;
             },
             .array => |a| a.elem,
-            else => blk: {
-                const elem = vecElementType(self.ctx, peeled) orelse {
-                    try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a Vec, or a `[]T`", .{try self.tyName(obj_ty)});
-                    return self.t().invalid_id;
-                };
-                if ((try self.ownsResource(elem, self.startOf(object), "slices a Vec"))) {
-                    try self.errAt(object, "cannot slice a `{s}`: a slice would copy owning handles out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
-                    return self.t().invalid_id;
-                }
-                break :blk elem;
-            },
+            else => (try self.vecSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
         };
         const len: ?u64 = if (self.ctx.types.get(peeled) == .array) sema.arrayLen(self.ctx, self.ctx.types.get(peeled).array) else null;
         try self.checkSliceBounds(range, len);
@@ -3924,7 +3919,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         if (!isStoragePath(object)) {
-            try self.errAt(object, "only a named array or Vec, or a field or element of one, can be sliced; bind this value to a name first", .{});
+            try self.errAt(object, slice_of_temporary, .{});
             return self.t().invalid_id;
         }
         return self.ctx.intern(.{ .slice = .{ .elem = elem } });
@@ -7539,6 +7534,10 @@ fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
 fn cellVecElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return vecElementType(ctx, cellElementType(ctx, ty) orelse return null);
 }
+
+const cell_place = "`{s}{s}` needs a Cell that has a place: a local binding, a field of one, or one reached through a borrow (`?T` or `!T`) or a shared handle (`*T`). A by-value parameter, a loop or match binding (a copy), or a temporary cannot be changed.";
+
+const slice_of_temporary = "only a named array or Vec, or a field or element of one, can be sliced; bind this value to a name first";
 
 const cell_vec_handle = "cannot read or overwrite an element of a `{s}` in place: its elements are handles, which would be copied out or released while the cell holds them; `pop` the element, or `replace` the Vec to work on it";
 
