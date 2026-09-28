@@ -1,0 +1,12 @@
+# A variant's value may name only another module's public constants.
+
+use lib
+
+enum E
+  a = lib.J
+  b
+
+sub main()
+  print(Int(E.a), Int(E.b))
+
+# error: 6:7: `lib.J` is not public

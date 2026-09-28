@@ -1,0 +1,22 @@
+# A variant's value is a constant integer expression: it may name module
+# constants, declared before or after the enum, and a number type's
+# limits, directly or through an alias.
+
+type Byte = U8
+
+K = 5
+
+enum E
+  a = K
+  b
+  c = Byte.max
+  d = 1 << 10
+  e = K * 2 + LATER
+
+LATER = 100
+
+sub main()
+  print(Int(E.a), Int(E.b), Int(E.c), Int(E.d), Int(E.e))
+
+# expect:
+# 5 6 255 1024 110
