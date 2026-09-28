@@ -1,0 +1,21 @@
+# A value where a borrow of it is expected: the message names the sigil
+# that lends it.
+
+struct S
+  n: Int
+
+fun f(s: ?S) -> Int
+  s.n
+
+sub bump(n: !Int)
+  n += 1
+
+sub main
+  s = S(n: 1)
+  x = 1
+  print(f(s))
+  bump(x)
+  print(x)
+
+# error: 16:11: type mismatch: expected `?S`, got `S`; lend a read borrow: `?s`
+# error: 17:8: type mismatch: expected `!Int`, got `Int`; lend a write borrow: `!x`

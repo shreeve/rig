@@ -6458,6 +6458,14 @@ const Checker = struct {
                 return self.errAt(recv, "type mismatch: expected `{s}`, got `{s}`: `?{s}` reads `{s}` for the call; write `?({s})` to borrow the call's result", .{ try self.tyName(expected), try self.tyName(actual), call, try self.sourceText(ir.Read.operand(recv)), call });
             }
         }
+        // A place where a borrow of it is expected: the sigil is missing.
+        switch (self.ctx.types.get(expected)) {
+            .borrow_read, .borrow_write => |inner| if (isStoragePath(e) and compatible(self.ctx, actual, inner)) {
+                const write = self.ctx.types.get(expected) == .borrow_write;
+                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; lend a {s} borrow: `{c}{s}`", .{ try self.tyName(expected), try self.tyName(actual), if (write) "write" else "read", @as(u8, if (write) '!' else '?'), try self.sourceText(e) });
+            },
+            else => {},
+        }
         try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(expected), try self.tyName(actual) });
     }
 
