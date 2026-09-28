@@ -1,0 +1,10 @@
+# A division of whole-number literals compared with a float literal
+# would be compared as a float, silently `3.0`: it is rejected.
+
+sub main()
+  print(7 / 2 == 3.5, 3.5 != 7 / 2, 7 / 2 < 3.5, 1 / 2 > 0.1)
+
+# error: 5:9: `7 / 2` divides whole numbers (3); for 3.5 write `7.0 / 2`
+# error: 5:30: `7 / 2` divides whole numbers (3); for 3.5 write `7.0 / 2`
+# error: 5:37: `7 / 2` divides whole numbers (3); for 3.5 write `7.0 / 2`
+# error: 5:50: `1 / 2` divides whole numbers (0); for 0.5 write `1.0 / 2`

@@ -2512,6 +2512,9 @@ const Checker = struct {
     fn checkNumericComparison(self: *Checker, l: Sexp, r: Sexp, a: TypeId, b: TypeId, op: []const u8) Error!void {
         const a_lit = a == self.t().int_literal_id or a == self.t().float_literal_id;
         const b_lit = b == self.t().int_literal_id or b == self.t().float_literal_id;
+        // Beside a float literal, integer literals compare as floats.
+        if (a == self.t().int_literal_id and b == self.t().float_literal_id) try self.checkWholeDivision(l);
+        if (b == self.t().int_literal_id and a == self.t().float_literal_id) try self.checkWholeDivision(r);
         if (a_lit and !b_lit) return self.checkExpr(l, b);
         if (b_lit and !a_lit) return self.checkExpr(r, a);
         // Two literal operands are compared as `Int`s.
@@ -7515,13 +7518,14 @@ fn wideToFloat(comptime F: type, v: Wide) F {
 
 /// The first division of whole-number literals (`7 / 2`, `9 % 4`) that
 /// a literal context reaches in `e`: through negation, a ternary's
-/// branches, `+`, `-`, `*`, and a division that is not one.
+/// branches, `+`, `-`, `*`, a comparison of literals, and a division
+/// that is not one.
 fn wholeDivision(source: []const u8, e: Sexp) ?Sexp {
     const h = e.kind() orelse return null;
     return switch (h) {
         .neg => wholeDivision(source, ir.Neg.operand(e)),
         .@"if" => wholeDivision(source, ir.If.then(e)) orelse wholeDivision(source, ir.If.@"else"(e)),
-        .@"+", .@"-", .@"*" => wholeDivision(source, ir.get(e, .left)) orelse wholeDivision(source, ir.get(e, .right)),
+        .@"+", .@"-", .@"*", .@"<", .@">", .@"<=", .@">=", .@"==", .@"!=" => wholeDivision(source, ir.get(e, .left)) orelse wholeDivision(source, ir.get(e, .right)),
         .@"/", .@"%" => if (wholeLiterals(source, ir.get(e, .left)) and wholeLiterals(source, ir.get(e, .right)))
             e
         else
