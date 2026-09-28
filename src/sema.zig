@@ -3,7 +3,7 @@
 //! `check` runs these steps over the normalized IR and returns
 //! a `SemContext`, which every later pass (ownership, emit) reads:
 //!
-//!   1. builtins     `resolve.zig`    Cell, Vec, Signal
+//!   1. builtins     `resolve.zig`    Cell, Vec, Box, Signal, Endian
 //!   2. symbols      `resolve.zig`    every declaration gets a Symbol in a
 //!                                    Scope; scopes are keyed by the IR node
 //!                                    that opens them
@@ -12,10 +12,13 @@
 //!   4. contents     `sema.zig`       what each declared type's values hold
 //!                                    (drop glue, a Cell, plain data), and
 //!                                    types that contain themselves
-//!   5. validation   `resolve.zig`    the declaration checks that need 4
+//!   5. validation   `sema.zig`,      every struct and enum fits
+//!                   `resolve.zig`    `max_value_bytes`; the declaration
+//!                                    checks that need 4
 //!   6. expressions  `typecheck.zig`  bodies are type-checked; every
 //!                                    expression's type is recorded;
 //!                                    fallibility and `raw` are checked;
+//!                                    each frame fits `max_frame_bytes`;
 //!                   `sema.zig`       then every local must be read
 //!   7. generics     `sema.zig`,      the instances generic bodies reach,
 //!                   `typecheck.zig`  and each instance's requirements
@@ -23,44 +26,15 @@
 //! ## The facts table
 //!
 //! Sema records what it learned about each IR node so later passes can
-//! ask instead of re-deriving it by name:
-//!
-//!   ctx.symbolOf(leaf)   -> ?SymbolId  the symbol an identifier leaf names,
-//!                                      at its declaration or any use site
-//!   ctx.typeOf(node)     -> ?TypeId    the type of an expression node
-//!                                      (literals get the type their context
-//!                                      gave them, e.g. `U8` in `x: U8 = 5`)
-//!   ctx.bindingTypeOf(leaf) -> ?TypeId the declared/inferred type of the
-//!                                      symbol a leaf names
-//!   ctx.readsThrough(node) -> bool    the node yields a borrow (`!x`, a
-//!                                      call returning `!Int`, a `!Int`
-//!                                      name) where its context reads the
-//!                                      value it reaches
-//!   ctx.scopeOf(node)    -> ?ScopeId   the scope a fun/sub/method/lambda/
-//!                                      block/for/arm/catch node opens
-//!   ctx.isExhaustive(match) -> bool   the match's arms cover every value
-//!                                      without a default arm
-//!   ctx.callSlotsOf(call) -> ?[]ArgSlot for a call with keyword or
-//!                                      omitted arguments: which argument
-//!                                      (or default value) fills each
-//!                                      parameter, in parameter order
-//!   ctx.instanceOf(node) -> ?Instance  for a bracket list (`index` or
-//!                                      `inst`) of compile-time arguments
-//!                                      rather than an index: the generic
-//!                                      type's instance, or a function's
-//!                                      compile-time arguments
-//!   ctx.genericCallOf(call) -> ?GenericCall  for a call with compile-time
-//!                                      arguments: its type arguments,
-//!                                      inferred or given in brackets
-//!
-//! A call's callee gets a type too: a function name its signature, and a
-//! method callee `(member obj m)` the resolved method signature with the
-//! receiver's generic arguments applied. The name leaf of every `fun` /
-//! `sub` declaration, method or not, carries its function type. Binding
-//! facts live on the Symbol: `flags.reassigned`, `flags.written`,
-//! `flags.fixed`,
-//! `flags.comptime_known`, `flags.pattern_bound`, `kind` (local / param /
-//! capture / ...), and for a capture the `origin` binding it captures.
+//! ask instead of re-deriving it by name (`symbolOf`, `typeOf`, and the
+//! other queries on `SemContext`); `docs/INTERNALS.md` (The facts table)
+//! says what each answers. A call's callee gets a type too:
+//! a function name its signature, and a method callee `(member obj m)`
+//! the resolved method signature with the receiver's generic arguments
+//! applied. The name leaf of every `fun` / `sub` declaration, method or
+//! not, carries its function type. Binding facts live on the Symbol
+//! (`SymbolFlags`, `kind`, and for a capture the `origin` binding it
+//! captures).
 //!
 //! Leaves are keyed by source position (`src.pos`); list nodes by the
 //! node id the parser gave them (`List.id`), which the Parser wrapper's
@@ -105,7 +79,7 @@ pub const module_scope: ScopeId = 1;
 // =============================================================================
 
 pub const IntInfo = struct {
-    /// 0 for `Int` (64-bit signed); otherwise 8/16/32/64.
+    /// 0 for `Int` (64-bit signed); otherwise 8/16/32/64/128.
     bits: u8 = 0,
     signed: bool = true,
 };
@@ -403,8 +377,6 @@ pub const SymbolFlags = packed struct(u16) {
     /// `=!` binding: cannot be reassigned.
     fixed: bool = false,
     is_public: bool = false,
-    /// Parameter declared with a borrowed type (`?T` / `!T`).
-    borrowed_param: bool = false,
     /// Value known at compile time: a compile-time parameter
     /// (`fun f[n: Int]`), or a `=!` binding
     /// initialized with a compile-time-known expression.
@@ -424,7 +396,7 @@ pub const SymbolFlags = packed struct(u16) {
     error_set: bool = false,
     /// A local bound to a closure literal: a stack closure.
     closure: bool = false,
-    _: u6 = 0,
+    _: u7 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -1083,10 +1055,7 @@ pub const SemContext = struct {
 
     /// The symbol an identifier leaf names (declaration or use).
     pub fn symbolOf(self: *const SemContext, node: Sexp) ?SymbolId {
-        return switch (node) {
-            .src => |s| self.facts.names.get(s.pos),
-            else => null,
-        };
+        return if (node == .src) self.symbolAt(node.src.pos) else null;
     }
 
     /// The symbol named by the identifier at source position `pos`.
@@ -1207,8 +1176,8 @@ pub const SemContext = struct {
         return self.facts.array_views.get(nodeKey(node) orelse return null);
     }
 
-    /// `node` yields a `![]T` where a `[]T` is expected: it is lent to
-    /// read only.
+    /// `node`, lent where a borrowed callable is expected, is lent as one
+    /// of function type `fn_ty` (`callableOf`).
     pub fn recordCallable(self: *SemContext, node: Sexp, fn_ty: TypeId) !void {
         switch (node) {
             .src => |s| try self.facts.leaf_callables.put(self.allocator, s.pos, fn_ty),
@@ -1254,6 +1223,8 @@ pub const SemContext = struct {
         };
     }
 
+    /// `node` yields a `![]T` where a `[]T` is expected: it is lent to
+    /// read only.
     pub fn recordReadView(self: *SemContext, node: Sexp) !void {
         switch (node) {
             .src => |s| try self.facts.leaf_views.put(self.allocator, s.pos, {}),
@@ -2492,7 +2463,7 @@ pub fn ctInt(ctx: *SemContext, v: Wide) std.mem.Allocator.Error!TypeId {
 }
 
 /// Does a value of this type need its destructor run: a `*T` / `~T`
-/// handle, a Vec, an owned closure, or a nominal or generic instance
+/// handle, a Vec, a Box, an owned closure, or a nominal or generic instance
 /// that declares `drop` or holds such a value. Types with drop glue are
 /// non-Copy.
 pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
@@ -4423,7 +4394,6 @@ test "symbols: binding flags" {
         \\
     );
     defer r.deinit();
-    try std.testing.expect(r.ctx.symbols.items[r.sym("u", 0).?].flags.borrowed_param);
     const y = r.ctx.symbols.items[r.sym("y", 0).?];
     try std.testing.expect(y.flags.fixed);
     try std.testing.expect(y.flags.comptime_known);

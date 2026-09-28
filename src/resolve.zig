@@ -282,14 +282,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(name_node, .generic_param, .{});
                 continue;
             }
-            const h = p.kind();
-            const borrowed = h == .read or h == .write or
-                ((h == .@":" or h == .default) and
-                    (ir.get(p, .type).isKind(.borrow_read) or ir.get(p, .type).isKind(.borrow_write)));
-            _ = try self.declare(name_node, .param, .{
-                .borrowed_param = borrowed,
-                .comptime_known = ct,
-            });
+            _ = try self.declare(name_node, .param, .{ .comptime_known = ct });
         }
     }
 
@@ -615,7 +608,7 @@ pub const DeferredCheck = union(enum) {
     array: struct { node: Sexp, elem: TypeId, at: Sexp, ty: ?TypeId },
     /// `[]T`, with `T` spelled at `node`.
     slice: struct { node: Sexp, elem: TypeId },
-    /// `Vec[T]`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
+    /// `Vec[T]`, `Box[T]`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
     owned_closure: struct { node: Sexp, ty: TypeId },
