@@ -1,0 +1,12 @@
+# A float type's limits are constants: arithmetic on them that overflows
+# the type is rejected, like any constant float arithmetic.
+
+sub main()
+  y: F32 = F32.max * 10.0
+  z = Float.max * 2.0
+  w = F64.min - F64.max
+  print(y, z, w, F32.max * 0.5)
+
+# error: 5:12: this constant expression overflows `F32`
+# error: 6:7: this constant expression overflows `Float`
+# error: 7:7: this constant expression overflows `Float`

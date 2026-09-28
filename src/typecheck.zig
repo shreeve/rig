@@ -2197,7 +2197,7 @@ const Checker = struct {
         if (ty == self.t().float_literal_id) {
             try self.checkWholeDivision(e);
             try self.checkFloatConstant(e, self.t().float_id);
-        }
+        } else if (self.ctx.types.get(ty) == .float) try self.checkFloatConstant(e, ty);
         return ty;
     }
 
@@ -7443,6 +7443,7 @@ fn floatConstIn(comptime F: type, source: []const u8, e: Sexp) ?F {
         },
         .list => {
             const h = e.kind() orelse return null;
+            if (h == .member) return floatLimit(F, source, e);
             if (h == .neg) return -(floatConstIn(F, source, ir.Neg.operand(e)) orelse return null);
             switch (h) {
                 .@"+", .@"-", .@"*", .@"/", .@"%" => {},
@@ -7454,6 +7455,22 @@ fn floatConstIn(comptime F: type, source: []const u8, e: Sexp) ?F {
         },
         else => return null,
     }
+}
+
+/// `F32.max`, `Float.min`: a float type's limit, in `F`; null for any
+/// other member.
+fn floatLimit(comptime F: type, source: []const u8, e: Sexp) ?F {
+    const obj = ir.Member.object(e);
+    const name = identAt(source, obj) orelse return null;
+    const max: f64 = if (std.mem.eql(u8, name, "F32"))
+        std.math.floatMax(f32)
+    else if (std.mem.eql(u8, name, "F64") or std.mem.eql(u8, name, "Float"))
+        std.math.floatMax(f64)
+    else
+        return null;
+    const field = identAt(source, ir.Member.name(e)) orelse return null;
+    const v: F = @floatCast(if (std.mem.eql(u8, field, "max")) max else if (std.mem.eql(u8, field, "min")) -max else return null);
+    return if (std.math.isFinite(v)) v else null;
 }
 
 /// Whether the arithmetic node `e`, whose operands are constants in `F`,
