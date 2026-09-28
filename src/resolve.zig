@@ -21,6 +21,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
+const Wide = sema.Wide;
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -408,7 +409,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .fixed = true, .closure = ir.Set.value(node).isKind(.lambda) });
             },
             .shadow => _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) }),
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     self.ctx.symbols.items[existing].flags.reassigned = true;
                 }
@@ -1217,9 +1218,9 @@ pub const TypeResolver = struct {
             }
             return;
         }
-        var seen: std.AutoHashMapUnmanaged(i128, Sexp) = .empty;
+        var seen: std.AutoHashMapUnmanaged(Wide, Sexp) = .empty;
         defer seen.deinit(self.ctx.allocator);
-        var next: i128 = 0;
+        var next: Wide = 0;
         for (members) |m| {
             const explicit = m.isKind(.valued);
             const name_node = if (explicit) ir.Valued.name(m) else if (m == .src) m else continue;
@@ -2065,14 +2066,14 @@ fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     return null;
 }
 
-/// The bit width a sized type name spells: `I8`..`I64`, `U8`..`U64`,
+/// The bit width a sized type name spells: `I8`..`I128`, `U8`..`U128`,
 /// `F32`, `F64`.
 fn sizedTypeBits(name: []const u8) ?u8 {
     // No leading zero: `I08` is not `I8`.
-    if (name.len < 2 or name.len > 3 or name[1] == '0') return null;
+    if (name.len < 2 or name.len > 4 or name[1] == '0') return null;
     const bits = std.fmt.parseInt(u8, name[1..], 10) catch return null;
     const ok = switch (name[0]) {
-        'I', 'U' => bits == 8 or bits == 16 or bits == 32 or bits == 64,
+        'I', 'U' => bits == 8 or bits == 16 or bits == 32 or bits == 64 or bits == 128,
         'F' => bits == 32 or bits == 64,
         else => false,
     };

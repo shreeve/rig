@@ -276,8 +276,8 @@ sub main
 |---|---|---|
 | `Int` | 64-bit signed integer, the same type as `I64`; the type of integer literals by default | `i64` |
 | `Float` | 64-bit float, the same type as `F64`; the type of float literals by default | `f64` |
-| `I8` `I16` `I32` `I64` | signed integers | `i8` ... `i64` |
-| `U8` `U16` `U32` `U64` | unsigned integers | `u8` ... `u64` |
+| `I8` `I16` `I32` `I64` `I128` | signed integers | `i8` ... `i128` |
+| `U8` `U16` `U32` `U64` `U128` | unsigned integers | `u8` ... `u128` |
 | `F32` `F64` | floats | `f32`, `f64` |
 | `Bool` | `true` or `false` | `bool` |
 | `String` | immutable UTF-8 bytes; a Copy value | `[]const u8` |
@@ -1643,7 +1643,7 @@ declaration ([§15](#15-modules)), and `extern` declares a C symbol
 | `x =! e`, `x: T =! e` | bind a fixed local, which cannot be reassigned |
 | `new x = e` | bind a new `x` that shadows the visible one; `e` may read the old `x` |
 | `x = <y` | move `y` into `x` (there is no `<-` operator) |
-| `x += e` (`-=` `*=` `/=` `%=` `<<=` `>>=` `&=` `\|=` `^=`) | compound assignment: `x = x op e`, with `x` evaluated once |
+| `x += e` (`-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `<<=` `>>=` `&=` `\|=` `^=`) | compound assignment: `x = x op e`, with `x` evaluated once |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it; an owning value is dropped at once |
 
@@ -1745,8 +1745,8 @@ From lowest to highest precedence:
 | `^` | bitwise xor |
 | `&` | bitwise and |
 | `<<` `>>` | shifts |
-| `+` `-` | |
-| `*` `/` `%` | |
+| `+` `-` `+%` `-%` | |
+| `*` `/` `%` `*%` | |
 | `-x` and the ownership sigils | prefix |
 | `f(x)` `a[i]` `a.b` `e!` | postfix: call, index, member, propagate |
 
@@ -1767,6 +1767,41 @@ it is `Int`. Unsigned values cannot be negated. Bitwise operators need integers;
 integer, from 0 up to the width of the shifted type. A left shift that
 loses bits (or the sign) overflows: a constant one is rejected, and one
 computed when the program runs panics, like `+` and `*`.
+
+`+%`, `-%`, and `*%` are wrapping arithmetic, as in Zig: on overflow
+the result wraps around in two's complement, keeping the low bits in
+the operands' integer type, and never panics. They take integers of
+any type; a `Float` is rejected. `+%=`, `-%=`, and `*%=` assign the
+wrapped result. Constant wrapping arithmetic is computed in its type,
+as the program computes it.
+
+```rig
+fun fnv1a(s: String) -> U64
+  h: U64 = 14695981039346656037
+  for b in s
+    h ^= U64(b)
+    h *%= 1099511628211
+  h
+
+sub main
+  a: U8 = 250
+  i: I8 = 127
+  print(a +% 10, a -% 255, i +% 1, fnv1a("rig"))
+```
+
+```output
+4 251 -128 9948945366585317705
+```
+
+```rig reject
+sub main
+  x = 1.5
+  print(x +% 1.0)
+```
+
+```error
+operator `+%` requires integer operands; got `Float`
+```
 
 `==` and `!=` compare two values of the same type, by content. The
 equatable types are numbers, `Bool`, `String`, errors, and plain enums,

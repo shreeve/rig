@@ -1334,7 +1334,7 @@ pub const Checker = struct {
                 .raw_block => self.walk(ir.RawBlock.body(sexp)),
                 .enum_lit, .use, .type, .generic_struct, .generic_inst => .{},
                 // Operators on values produce fresh Copy results.
-                .@"+", .@"-", .@"*", .@"/", .@"%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
                     for (rig.children(sexp)) |c| _ = try self.walk(c);
                     break :blk .{};
                 },

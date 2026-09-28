@@ -468,8 +468,8 @@ tab	here it's raw: \n
 | Rig | Zig | Rust |
 |---|---|---|
 | `Int` (= `I64`) | `i64` | `i64` |
-| `I8` `I16` `I32` `I64` | `i8` ... `i64` | `i8` ... `i64` |
-| `U8` `U16` `U32` `U64` | `u8` ... `u64` | `u8` ... `u64` |
+| `I8` `I16` `I32` `I64` `I128` | `i8` ... `i128` | `i8` ... `i128` |
+| `U8` `U16` `U32` `U64` `U128` | `u8` ... `u128` | `u8` ... `u128` |
 | `Float` (= `F64`), `F32` | `f64`, `f32` | `f64`, `f32` |
 | `Bool` | `bool` | `bool` |
 | `String` | `[]const u8` | `&'static str` |
@@ -551,7 +551,7 @@ glue**).
 | `x =! e`, `x: T =! e` | declare a fixed `x`, which cannot be reassigned |
 | `new x = e` | declare a new `x` shadowing the old one; `e` may read the old |
 | `x = <y` | move `y` into `x` |
-| `x += e`, and `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | compound assignment |
+| `x += e`, and `-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `&=` `\|=` `^=` `<<=` `>>=` | compound assignment |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate and discard; an owning value is dropped now |
 
@@ -855,8 +855,8 @@ From lowest to highest precedence:
 | `^` | bitwise xor |
 | `&` | bitwise and |
 | `<<` `>>` | shifts |
-| `+` `-` | |
-| `*` `/` `%` | |
+| `+` `-` `+%` `-%` | |
+| `*` `/` `%` `*%` | |
 | `-x` and the sigils | prefix |
 | `f(x)` `a[i]` `a.b` `e!` `e?` | postfix |
 
@@ -876,6 +876,9 @@ From lowest to highest precedence:
   truncates toward zero and `%` takes the dividend's sign, like Zig's
   `@divTrunc` and `@rem`. Overflow panics in Debug and `--release`
   builds.
+- `+%` `-%` `*%` (and `+%=` `-%=` `*%=`) wrap around on overflow, as in
+  Zig and like Rust's `wrapping_add`: `U8(250) +% 10` is `4`. They
+  take integers only.
 - Integer literals in float arithmetic are floats: `h: Float = 7 / 2`
   is `3.5`.
 - `==` compares by content: numbers, `Bool`, `String`, enums, and,
@@ -3329,8 +3332,8 @@ optional).
 (`of` is a keyword only there; elsewhere it is a name).
 
 **Binding operators:** `=` bind or assign (`a = <b` moves `b`), `=!`
-fixed binding, `new x =` shadow, compound `+=` `-=` `*=` `/=` `%=` `&=`
-`|=` `^=` `<<=` `>>=`.
+fixed binding, `new x =` shadow, compound `+=` `-=` `*=` `/=` `%=`
+`+%=` `-%=` `*%=` `&=` `|=` `^=` `<<=` `>>=`.
 
 **Calls:** `f(a, b)` anywhere; `f a, b` only as a command: a
 statement, a match arm or closure body, or the last argument of another

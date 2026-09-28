@@ -25,6 +25,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
+const Wide = sema.Wide;
 const resolve = @import("resolve.zig");
 const diag = @import("diag.zig");
 
@@ -2157,7 +2158,7 @@ pub const Emitter = struct {
     }
 
     /// The inclusive bounds of range pattern `lo..hi`.
-    fn rangeBounds(self: *Emitter, pattern: Sexp) Error![2]i128 {
+    fn rangeBounds(self: *Emitter, pattern: Sexp) Error![2]Wide {
         const lo = sema.constIntOf(self.sema, ir.RangePattern.lo(pattern)) orelse return self.unsupported(pattern, "this range pattern");
         const hi = sema.constIntOf(self.sema, ir.RangePattern.hi(pattern)) orelse return self.unsupported(pattern, "this range pattern");
         return .{ lo, hi - 1 };
@@ -2685,7 +2686,19 @@ pub const Emitter = struct {
         }
     }
 
-    fn emitIntConstant(self: *Emitter, sexp: Sexp, v: i128) Error!void {
+    /// Every leaf of `e` is a literal.
+    fn literalLeaves(self: *Emitter, e: Sexp) bool {
+        switch (e) {
+            .src => return self.sema.symbolOf(e) == null,
+            .list => {
+                for (e.items()) |c| if (!self.literalLeaves(c)) return false;
+                return true;
+            },
+            else => return true,
+        }
+    }
+
+    fn emitIntConstant(self: *Emitter, sexp: Sexp, v: Wide) Error!void {
         const t = self.typeOf(sexp);
         const concrete = t != null and self.sema.types.get(t.?) == .int;
         if (concrete) {
@@ -2900,7 +2913,7 @@ pub const Emitter = struct {
             else => {},
         }
         if (self.literal_ty == null) switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
                 // Sema computed a constant integer expression (and checked
                 // that it fits); its value is written as a literal, so Zig
                 // does not evaluate it again with other intermediate types.
@@ -2909,7 +2922,7 @@ pub const Emitter = struct {
             else => {},
         };
         switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .neg, .index => self.rt_names = true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .neg, .index => self.rt_names = true,
             else => {},
         }
         switch (head) {
@@ -3012,6 +3025,16 @@ pub const Emitter = struct {
                 try self.w.print("{s}{f}", .{ if (in_error_set) "error." else ".", ident(self.srcText(ir.EnumLit.name(sexp))) });
             },
             .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^" => try self.emitInfix(sexp, bare),
+            .@"+%", .@"-%", .@"*%" => {
+                // In the expression's type, so that literal operands wrap
+                // as it does rather than as a Zig `comptime_int`.
+                if (!bare) try self.w.writeAll("(");
+                try self.writeAsOpen(self.typeOf(sexp) orelse self.sema.types.int_id);
+                try self.emitBare(ir.get(sexp, .left));
+                try self.w.print(") {s} ", .{@tagName(head)});
+                try self.emitExpr(ir.get(sexp, .right));
+                if (!bare) try self.w.writeAll(")");
+            },
             .@"and", .@"or" => {
                 if (!bare) try self.w.writeAll("(");
                 try self.emitExpr(ir.get(sexp, .left));
@@ -3422,7 +3445,7 @@ pub const Emitter = struct {
             return self.writeLocalPlace(local);
         };
         const needs_parens = if (o.kind()) |h| switch (h) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .neg, .not, .@"if", .match, .@"??", .@"catch", .propagate, .call, .array => true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"if", .match, .@"??", .@"catch", .propagate, .call, .array => true,
             else => false,
         } else false;
         if (needs_parens) try self.w.writeAll("(");
@@ -3771,6 +3794,13 @@ pub const Emitter = struct {
             else => return self.unsupported(call, "this conversion"),
         };
         const to_int = self.sema.types.get(target) == .int;
+        // Constant arithmetic on literals converted to an integer type is
+        // a value of it, which the checker made sure fits (it may not fit
+        // `Int`).
+        if (to_int and self.literalLeaves(arg)) if (sema.constIntOf(self.sema, arg)) |v| {
+            try self.writeAsOpen(target);
+            return self.w.print("{d})", .{v});
+        };
         const from_int = self.sema.types.get(from) == .int;
         const builtin = if (to_int) (if (from_int) "@intCast" else "@intFromFloat") else (if (from_int) "@floatFromInt" else "@floatCast");
         try self.writeAsOpen(target);
@@ -5184,7 +5214,7 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
 
 fn isIntZeroText(t: []const u8) bool {
     if (!sema.isIntLiteralText(t)) return false;
-    const v = std.fmt.parseInt(i128, t, 0) catch return false;
+    const v = std.fmt.parseInt(Wide, t, 0) catch return false;
     return v == 0;
 }
 

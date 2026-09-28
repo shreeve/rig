@@ -630,7 +630,9 @@ interning makes `[LIMIT]Int` and `[4]Int` one type, and inference
 binds a `ct_param` exactly to the value the argument's type holds.
 `TypeResolver.resolveCtInt` reads an array size or a value argument:
 it folds integers, constants, and arithmetic on them with
-`sema.ctFoldBy`, which reads each constant's value and type from
+`sema.ctFoldBy` (in `sema.Wide`, an `i256`, which holds every `U128` and
+`I128` value and the checked results of operations on them, and wraps
+`+%`, `-%`, `*%` exactly), which reads each constant's value and type from
 `const_ints` (module constants are folded into it once, in declaration
 order, before any type is resolved: `resolve.foldModuleConsts`; `lib.N`
 comes from the other module's), and a compile-time parameter,

@@ -92,8 +92,8 @@ pub fn children(node: Sexp) []const Sexp {
 
 /// Exhaustive view of the op slot, so dispatch sites must handle every
 /// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), and the
-/// compound assignments (`x op= e`, one per binary
-/// arithmetic, bitwise, and shift operator). Every kind but `default` is
+/// compound assignments (`x op= e`, one per binary arithmetic, wrapping,
+/// bitwise, and shift operator). Every kind but `default` is
 /// named after its tag in the schema's `op:tag(...)` for `set`.
 pub const BindingKind = enum {
     default,
@@ -104,6 +104,9 @@ pub const BindingKind = enum {
     @"*=",
     @"/=",
     @"%=",
+    @"+%=",
+    @"-%=",
+    @"*%=",
     @"&=",
     @"|=",
     @"^=",

@@ -35,6 +35,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
+const Wide = sema.Wide;
 const resolve = @import("resolve.zig");
 
 const Sexp = parser.Sexp;
@@ -667,7 +668,7 @@ const Checker = struct {
         };
 
         switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
                 const what = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}` has type", .{name});
                 try self.checkCompound(kind, declared, rhs, target.src.pos, what);
                 try self.ctx.recordType(target, declared);
@@ -812,7 +813,7 @@ const Checker = struct {
             return;
         }
         const req: Requirement = switch (op) {
-            .@"&", .@"|", .@"^", .@"<<", .@">>" => .integer,
+            .@"&", .@"|", .@"^", .@"<<", .@">>", .@"+%", .@"-%", .@"*%" => .integer,
             else => .numeric,
         };
         const tv: ?SymbolId = switch (self.ctx.types.get(target_ty)) {
@@ -1594,7 +1595,7 @@ const Checker = struct {
         variants: std.StringHashMapUnmanaged(u32) = .empty,
         bools: [2]bool = .{ false, false },
         /// Inclusive integer intervals.
-        ints: std.ArrayListUnmanaged([2]i128) = .empty,
+        ints: std.ArrayListUnmanaged([2]Wide) = .empty,
         has_default: bool = false,
 
         fn deinit(c: *MatchCoverage, a: std.mem.Allocator) void {
@@ -1672,8 +1673,8 @@ const Checker = struct {
                 var next = bounds.min;
                 const max = bounds.max;
                 // Sweep the intervals in order of their low ends.
-                std.mem.sort([2]i128, cov.ints.items, {}, struct {
-                    fn lt(_: void, a: [2]i128, b: [2]i128) bool {
+                std.mem.sort([2]Wide, cov.ints.items, {}, struct {
+                    fn lt(_: void, a: [2]Wide, b: [2]Wide) bool {
                         return a[0] < b[0];
                     }
                 }.lt);
@@ -1690,7 +1691,7 @@ const Checker = struct {
 
     /// Record an integer interval a pattern matches; it may not overlap
     /// an earlier one.
-    fn coverInts(self: *Checker, cov: *MatchCoverage, lo: i128, hi: i128, pos: u32) Error!void {
+    fn coverInts(self: *Checker, cov: *MatchCoverage, lo: Wide, hi: Wide, pos: u32) Error!void {
         for (cov.ints.items) |iv| {
             if (hi >= iv[0] and lo <= iv[1]) {
                 try self.err(pos, "this pattern overlaps an earlier arm", .{});
@@ -1938,7 +1939,7 @@ const Checker = struct {
             return self.t().float_literal_id;
         }
         if (sema.isIntLiteralText(s)) {
-            if (std.fmt.parseInt(u64, s, 0)) |_| {} else |_| {
+            if (std.fmt.parseInt(u128, s, 0)) |_| {} else |_| {
                 try self.errAt(leaf, "integer literal `{s}` is too large", .{s});
                 return self.t().invalid_id;
             }
@@ -2078,7 +2079,7 @@ const Checker = struct {
             .weak => self.synthWeak(e),
             .clone => self.synthClone(e),
             .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(e, @tagName(head), .numeric, null),
-            .@"&", .@"|", .@"^" => self.checkNumericOperands(e, @tagName(head), .integer, null),
+            .@"&", .@"|", .@"^", .@"+%", .@"-%", .@"*%" => self.checkNumericOperands(e, @tagName(head), .integer, null),
             .@"<<", .@">>" => self.synthShift(e, @tagName(head)),
             .@"<", .@">", .@"<=", .@">=" => self.synthOrdering(e, @tagName(head)),
             .@"==", .@"!=" => self.synthEquality(e),
@@ -2239,7 +2240,7 @@ const Checker = struct {
             },
         }
         const v = self.constInt(amount) orelse return true;
-        const width: ?i128 = switch (self.ctx.types.get(shifted)) {
+        const width: ?Wide = switch (self.ctx.types.get(shifted)) {
             .int => |info| intBounds(info).bits,
             .type_var => |tv| blk: {
                 if (v >= 0) try self.require(tv, .{ .shift = v }, self.startOf(amount), op);
@@ -2254,7 +2255,7 @@ const Checker = struct {
         return false;
     }
 
-    fn constInt(self: *Checker, e: Sexp) ?i128 {
+    fn constInt(self: *Checker, e: Sexp) ?Wide {
         return sema.constIntOf(self.ctx, e);
     }
 
@@ -3727,7 +3728,7 @@ const Checker = struct {
     fn checkSliceBounds(self: *Checker, range: Sexp, len: ?u64) Error!void {
         const lo_node = ir.@"..".left(range);
         const hi_node = ir.@"..".right(range);
-        const lo: ?i128 = if (lo_node == .nil) 0 else self.constInt(lo_node);
+        const lo: ?Wide = if (lo_node == .nil) 0 else self.constInt(lo_node);
         if (lo) |a| if (a < 0) return self.errAt(lo_node, "a slice bound cannot be negative; got `{d}`", .{a});
         if (hi_node == .nil) {
             if (lo) |a| if (len) |n| if (a > n) return self.errAt(lo_node, "slice start `{d}` is past the end of an array of length {d}", .{ a, n });
@@ -4059,7 +4060,7 @@ const Checker = struct {
         const f = constFloatOf(self.ctx.source, arg) orelse return;
         const b = intBounds(self.ctx.types.get(target).int);
         const whole = @trunc(f);
-        if (whole >= @as(f64, @floatFromInt(b.min)) and whole < @as(f64, @floatFromInt(b.max)) + 1) return;
+        if (whole >= wideToFloat(f64, b.min) and whole < wideToFloat(f64, b.max) + 1) return;
         if (@abs(f) < 1e18) {
             try self.errAt(arg, "`{d}` does not fit in `{s}`", .{ f, try self.tyName(target) });
         } else try self.errAt(arg, "`{e}` does not fit in `{s}`", .{ f, try self.tyName(target) });
@@ -5085,7 +5086,7 @@ const Checker = struct {
                     .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
                     // Rig checks arithmetic only on constants: a compile-time
                     // parameter or a `=!` binding of one differs per call.
-                    .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
+                    .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
                     .member => blk: {
                         const obj = ir.Member.object(e);
                         // `lib.Mode.a`: a variant of an imported type.
@@ -5125,7 +5126,7 @@ const Checker = struct {
         const h = e.kind() orelse return false;
         return switch (h) {
             .neg => self.isComptimeKnown(ir.Neg.operand(e)) or self.isCtArithmetic(ir.Neg.operand(e)),
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => for ([_]Sexp{ ir.get(e, .left), ir.get(e, .right) }) |o| {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => for ([_]Sexp{ ir.get(e, .left), ir.get(e, .right) }) |o| {
                 if (!self.isComptimeKnown(o) and !self.isCtArithmetic(o)) break false;
             } else true,
             else => false,
@@ -5601,7 +5602,7 @@ const Checker = struct {
         if (!sema.isInteger(self.ctx, ty)) return self.errAt(a, "an offset must be an integer; got `{s}`", .{try self.tyName(ty)});
         if (ty == self.t().int_literal_id) try self.checkLiteralFits(a, self.t().int_id);
         const at = self.constInt(a) orelse return;
-        const size: i128 = switch (self.ctx.types.get(num)) {
+        const size: Wide = switch (self.ctx.types.get(num)) {
             .int => |i| if (i.bits == 0) 8 else i.bits / 8,
             .float => |f| if (f.bits == 0) 8 else f.bits / 8,
             else => return,
@@ -6410,7 +6411,7 @@ const Checker = struct {
                         try self.errAt(e, "float literal `{s}` does not fit in `{s}`", .{ s, try self.tyName(target) });
                     }
                 } else if (sema.isIntLiteralText(s)) {
-                    const v = std.fmt.parseInt(i128, s, 0) catch return;
+                    const v = std.fmt.parseInt(Wide, s, 0) catch return;
                     if (!holdsInt(self.ctx, target, v) and (bits != 32 or holdsInt(self.ctx, self.t().float_id, v))) {
                         try self.errAt(e, "integer value `{d}` does not fit exactly in `{s}`", .{ v, try self.tyName(target) });
                     }
@@ -6453,7 +6454,7 @@ const Checker = struct {
             // Not constant as a whole (a branch is chosen when the program
             // runs): its constant parts are values of the type too.
             .not_constant => if (e.kind()) |h| switch (h) {
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"&", .@"|", .@"^" => {
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"&", .@"|", .@"^" => {
                     try self.checkLiteralFits(ir.get(e, .left), target);
                     try self.checkLiteralFits(ir.get(e, .right), target);
                 },
@@ -7252,12 +7253,12 @@ fn numericBits(t: sema.Type) ?u16 {
     };
 }
 
-const IntBounds = struct { min: i128, max: i128, bits: u8 };
+const IntBounds = struct { min: Wide, max: Wide, bits: u8 };
 
 /// The width and value range of an integer type.
 fn intBounds(info: sema.IntInfo) IntBounds {
     const bits: u8 = if (info.bits == 0) 64 else info.bits;
-    const half = @as(i128, 1) << @intCast(bits - 1);
+    const half = @as(Wide, 1) << @intCast(bits - 1);
     return if (info.signed) .{ .min = -half, .max = half - 1, .bits = bits } else .{ .min = 0, .max = 2 * half - 1, .bits = bits };
 }
 
@@ -7286,7 +7287,7 @@ fn floatConstIn(comptime F: type, source: []const u8, e: Sexp) ?F {
                 return if (std.math.isFinite(v)) v else null;
             }
             if (!sema.isIntLiteralText(t)) return null;
-            return @floatFromInt(std.fmt.parseInt(i128, t, 0) catch return null);
+            return wideToFloat(F, std.fmt.parseInt(Wide, t, 0) catch return null);
         },
         .list => {
             const h = e.kind() orelse return null;
@@ -7328,13 +7329,22 @@ fn floatOp(comptime F: type, h: Tag, a: F, b: F) F {
     };
 }
 
-fn holdsInt(ctx: *const SemContext, ty: TypeId, v: i128) bool {
+/// `v` as a float, rounded. (LLVM has no conversion from an integer as
+/// wide as `Wide`, so it goes through two 128-bit halves.)
+fn wideToFloat(comptime F: type, v: Wide) F {
+    if (std.math.cast(i128, v)) |n| return @floatFromInt(n);
+    const lo: u128 = @truncate(@as(u256, @bitCast(v)));
+    const hi: i128 = @truncate(v >> 128);
+    return @floatCast(@as(f64, @floatFromInt(hi)) * 0x1p128 + @as(f64, @floatFromInt(lo)));
+}
+
+fn holdsInt(ctx: *const SemContext, ty: TypeId, v: Wide) bool {
     return switch (ctx.types.get(ty)) {
         .int => |info| v >= intBounds(info).min and v <= intBounds(info).max,
         .float => |f| blk: {
             const mantissa: u8 = if (f.bits == 32) 24 else 53;
             const a = @abs(v);
-            break :blk a == 0 or 128 - @clz(a) - @ctz(a) <= mantissa;
+            break :blk a == 0 or @bitSizeOf(Wide) - @clz(a) - @ctz(a) <= mantissa;
         },
         else => true,
     };
