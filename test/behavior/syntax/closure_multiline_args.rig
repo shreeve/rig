@@ -14,13 +14,13 @@ sub twice(f: *sub())
   f()
 
 sub main()
-  sig: *Signal[Int] = *Signal(value: 0)
+  sig: *Signal[Int] = *Signal(0)
   sig.subscribe(*|~sig|
     if sig.upgrade() as s
       print("got", s.get()))
   sig.set(4)
 
-  total: *Cell[Int] = *Cell(value: 0)
+  total: *Cell[Int] = *Cell(0)
   each_n(3, *|+total, i|   # the body starts on the next line
     total.set(total.get() + i)
     print("seen", i)

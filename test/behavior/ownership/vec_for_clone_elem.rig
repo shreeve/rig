@@ -9,7 +9,7 @@ struct B
     print("drop", self.n)
 
 sub main()
-  count: *Cell[Int] = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(0)
   subs: Vec[*sub()] = Vec()
   !subs.push(*|+count| count.set(count.get() + 1))
   other: Vec[*sub()] = Vec()

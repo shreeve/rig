@@ -9,7 +9,7 @@ pub struct Tree
     t
 
 pub fun leaf(key: Int) -> Box[Tree]
-  Box(value: Tree(key: key, kids: Vec()))
+  Box(Tree(key: key, kids: Vec()))
 
 pub struct Ticket
   n: Int
@@ -18,4 +18,4 @@ pub struct Ticket
     self.n
 
 pub fun ticket(n: Int) -> Box[Ticket]
-  Box(value: Ticket(n: n))
+  Box(Ticket(n: n))

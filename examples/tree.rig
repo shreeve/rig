@@ -34,7 +34,7 @@ fun place[T](slot: !Box[Node[T]]?, key: T) -> Bool
     if key < n.key
       return place(!n.left, key)
     return place(!n.right, key)
-  slot = Box(value: Node(key: key, count: 1, left: none, right: none))
+  slot = Box(Node(key: key, count: 1, left: none, right: none))
   true
 
 fun find[T](slot: ?Box[Node[T]]?, key: T) -> Int?

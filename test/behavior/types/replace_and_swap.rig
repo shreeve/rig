@@ -19,10 +19,10 @@ sub show(slot: ?Box[Tree]?)
     show(?t.right)
 
 fun leaf(k: Int) -> Box[Tree]?
-  Box(value: Tree(key: k, left: none, right: none))
+  Box(Tree(key: k, left: none, right: none))
 
 sub main
-  root: Box[Tree]? = Box(value: Tree(key: 2, left: leaf(1), right: leaf(3)))
+  root: Box[Tree]? = Box(Tree(key: 2, left: leaf(1), right: leaf(3)))
   mirror(!root)
   show(?root)
   a = 1

@@ -5,7 +5,7 @@ sub takes_owned(c: *Cell[Int])
   c.set(0)
 
 sub main()
-  sig: *Cell[Int] = *Cell(value: 0)
+  sig: *Cell[Int] = *Cell(0)
   bad: *sub(Int) = *|+sig, a: Int| takes_owned(<sig)
 
 # error: cannot move captured resource `sig`

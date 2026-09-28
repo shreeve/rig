@@ -2,7 +2,7 @@
 # rejected too.
 
 sub main()
-  sig = Signal(value: 0)
+  sig = Signal(0)
   print(sig.get())
 
 # error: stack-local `Signal[T]` is not supported

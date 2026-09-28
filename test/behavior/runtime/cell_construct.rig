@@ -2,7 +2,7 @@
 # Copy payload is read with `get()`.
 
 sub main()
-  c: Cell[Int] = Cell(value: 7)
+  c: Cell[Int] = Cell(7)
   print(c.get())
 
 # expect:

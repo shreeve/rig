@@ -4,7 +4,7 @@ struct Holder
   inner: *Cell[Int]
 
 sub main()
-  c: *Cell[Int] = *Cell(value: 1)
+  c: *Cell[Int] = *Cell(1)
   h = Holder(inner: <c)
   k = +h
   print(1)

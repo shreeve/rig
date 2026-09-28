@@ -6,7 +6,7 @@ struct N
   id: Int
 
 sub main()
-  hs: Cell[Vec[*N]] = Cell(value: Vec())
+  hs: Cell[Vec[*N]] = Cell(Vec())
   hs.push(*N(id: 1))
   a = hs[0]
   b = hs.get(0)

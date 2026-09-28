@@ -2,7 +2,7 @@
 # source (`for x in ?vec`).
 
 sub main()
-  count: *Cell[Int] = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(0)
   cb1: *sub() = *|+count| count.set(count.get() + 1)
 
   subs: Vec[*sub()] = Vec()

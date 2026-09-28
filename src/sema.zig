@@ -2166,6 +2166,15 @@ const Components = struct {
     }
 };
 
+/// `Void` or `Void!`: what a `sub` returns.
+pub fn returnsNothing(ctx: *const SemContext, ret: TypeId) bool {
+    if (ret == ctx.types.void_id) return true;
+    return switch (ctx.types.get(ret)) {
+        .fallible => |inner| inner == ctx.types.void_id,
+        else => false,
+    };
+}
+
 /// A built-in function called by name unless a declaration hides it:
 /// `print`, `replace`, `swap`.
 pub fn isBuiltinCallName(name: []const u8) bool {
@@ -3308,7 +3317,7 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .array => |arr| try std.fmt.allocPrint(a, "[{s}]{s}", .{ try formatTypeIn(ctx, a, arr.len), try formatTypeIn(ctx, a, arr.elem) }),
         .range => |e| try std.fmt.allocPrint(a, "range of {s}", .{try formatTypeIn(ctx, a, e)}),
         .function => |f| if (f.is_sub)
-            try std.fmt.allocPrint(a, "sub({s})", .{try formatTypeList(ctx, a, f.params)})
+            try std.fmt.allocPrint(a, "sub({s}){s}", .{ try formatTypeList(ctx, a, f.params), if (f.returns == ctx.types.void_id) "" else "!" })
         else
             try std.fmt.allocPrint(a, "fun({s}) -> {s}", .{ try formatTypeList(ctx, a, f.params), try formatTypeIn(ctx, a, f.returns) }),
         .nominal => |sym| ctx.symbols.items[sym].name,

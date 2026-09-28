@@ -1,4 +1,4 @@
-# A built-in generic constructed in a generic body (`Cell(value: self.v)`
+# A built-in generic constructed in a generic body (`Cell(self.v)`
 # in `Wrap[T]`) is checked for each instance: `Cell[Pt]` holds plain data
 # that is neither a Copy primitive nor has drop glue.
 
@@ -6,7 +6,7 @@ struct Wrap[T]
   v: T
 
   fun peek(?self) -> Int
-    c = Cell(value: self.v)
+    c = Cell(self.v)
     1
 
 struct Pt

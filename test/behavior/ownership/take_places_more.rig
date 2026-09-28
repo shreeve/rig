@@ -44,7 +44,7 @@ sub peek(slot: !Int?)
 
 sub main
   places()
-  h = H(a: Box(value: N(v: 3)))
+  h = H(a: Box(N(v: 3)))
   print(first(!h), h, first(!h))
   x: Int? = 4
   peek(!x)

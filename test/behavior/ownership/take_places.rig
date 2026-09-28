@@ -31,8 +31,8 @@ sub main
   head: Box[Node]? = none
   i = 0
   while i < 100000 : i += 1
-    head = Box(value: Node(v: i, next: <head))
-  b = Box(value: Node(v: 1, next: Box(value: Node(v: 2, next: none))))
+    head = Box(Node(v: i, next: <head))
+  b = Box(Node(v: 1, next: Box(Node(v: 2, next: none))))
   rest = <b.next
   print(b, rest)
   w = W[Int](x: 4)

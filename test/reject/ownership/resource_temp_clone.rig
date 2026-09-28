@@ -2,7 +2,7 @@
 # the anonymous handle would leak.
 
 sub main()
-  c = +(*Cell(value: 0))
+  c = +(*Cell(0))
   print(c.get())
 
 # error: bind it to a name first

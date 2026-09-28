@@ -25,7 +25,7 @@ sub reset(p: !Point)
   p = Point(x: 0, y: 1)
 
 sub main
-  b = Box(value: Point(x: 3, y: 4))
+  b = Box(Point(x: 3, y: 4))
   print(b.x, b.y, b.sum(), norm(?b))
   b.y = 10
   !b.shift(2)
@@ -34,10 +34,10 @@ sub main
   print(b.x, b.y)
   p = <b.unbox()
   print(p.sum())
-  r = Box(value: Res(n: 1))
+  r = Box(Res(n: 1))
   s = <r
   print("moved", s.n)
-  t: Box[Res] = Box(value: Res(n: 2))
+  t: Box[Res] = Box(Res(n: 2))
   u = <t.unbox()
   print("took", u.n)
 

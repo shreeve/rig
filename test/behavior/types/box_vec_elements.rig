@@ -13,8 +13,8 @@ struct R
 
 sub main
   v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
-  b = Box(value: R(n: 2))
+  !v.push(Box(R(n: 1)))
+  b = Box(R(n: 2))
   !v.push(<b)
   for x in ?v
     print("see", x.n)

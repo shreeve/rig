@@ -1,0 +1,54 @@
+# A `sub` that may fail is declared `sub f(...)!`: it fails with
+# `return E.name` or by propagating with `!`, and its type is
+# `sub(...)!`. A method, a function value, and a borrowed callable
+# parameter all take that form.
+
+error Bad
+  neg
+  full
+
+sub check(n: Int)!
+  return Bad.neg if n < 0
+  print("ok", n)
+
+sub twice(n: Int)!
+  check(n)!
+  check(n - 5)!
+
+sub each(xs: []Int, f: ?sub(Int)!)!
+  for x in xs
+    f(x)!
+
+struct Bin
+  items: Vec[Int]
+
+  sub add(!self, n: Int)!
+    return Bad.full if self.items.len >= 2
+    !self.items.push(n)
+
+sub main
+  check(1)!
+  twice(3) catch |e|
+    print("failed", e)
+  a = [1, 2, -3]
+  each(?a, check) catch |e|
+    print("stopped", e)
+  h: sub(Int)! = check
+  h(4)!
+  b = Bin(items: Vec())
+  !b.add(1)!
+  !b.add(2)!
+  !b.add(3) catch |e|
+    print("add failed", e)
+  print(b.items)
+
+# expect:
+# ok 1
+# ok 3
+# failed .neg
+# ok 1
+# ok 2
+# stopped .neg
+# ok 4
+# add failed .full
+# [1, 2]

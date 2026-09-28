@@ -18,4 +18,4 @@ sub main()
   p = P(n: 1)
   p.main()
 
-# error: use of `!` propagation requires the enclosing function `main` to declare a fallible return type
+# error: use of `!` propagation requires the enclosing `main` to be fallible: `sub main(...)!`

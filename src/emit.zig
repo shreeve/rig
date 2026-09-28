@@ -634,7 +634,8 @@ pub const Emitter = struct {
             try self.w.writeAll(if (is_main and contains(body, &.{.propagate})) "anyerror!void" else "void");
         }
         try self.w.writeAll(" ");
-        if (return_ty != null) try self.emitValueBody(body) else try self.emitBlock(body);
+        // A `sub` yields no value, even one that may fail (`Void!`).
+        if (return_ty != null and !f.is_sub) try self.emitValueBody(body) else try self.emitBlock(body);
         try self.w.writeAll("\n");
     }
 
@@ -2963,12 +2964,12 @@ pub const Emitter = struct {
             }
             if (self.sema.types.get(t) == .imported_nominal) {
                 try self.emitMember(callee);
-                return self.emitFieldInit(args, &.{});
+                return self.emitFieldInit(args, self.declFields(t));
             }
             // `m.Wrap[Int](v: 3)`, `m.Wrap(v: 3)`: the instance sema gave it.
             if (self.sema.types.get(t) == .parameterized_nominal and self.isTypeCallee(callee)) {
                 try self.emitTypeTy(t);
-                return self.emitFieldInit(args, &.{});
+                return self.emitFieldInit(args, self.declFields(t));
             }
         };
         // A borrowed callable calls through its `rig.FnRef`.
@@ -3464,7 +3465,13 @@ pub const Emitter = struct {
         } else {
             try self.writeNominalName(sym_id);
         }
-        try self.emitFieldInit(ir.Call.args(call), &.{});
+        try self.emitFieldInit(ir.Call.args(call), self.sema.symbols.items[sym_id].fields orelse &.{});
+    }
+
+    /// The members of the struct or enum type `ty` is declared as.
+    fn declFields(self: *Emitter, ty: TypeId) []const sema.Field {
+        const decl = sema.nominalDecl(self.sema, ty) orelse return &.{};
+        return decl.symbol().fields orelse &.{};
     }
 
     /// The type a constructor's bracket list gives (`Vec[Int]()`), before
@@ -3475,14 +3482,21 @@ pub const Emitter = struct {
     }
 
     /// `{ .a = x, ... }` from keyword arguments, or from the one
-    /// positional argument of a variant whose payload is one field.
-    fn emitFieldInit(self: *Emitter, args: []const Sexp, payload: []const sema.Field) Error!void {
+    /// positional argument of a type or variant whose `fields` hold one
+    /// data field.
+    fn emitFieldInit(self: *Emitter, args: []const Sexp, fields: []const sema.Field) Error!void {
+        var sole: ?sema.Field = null;
+        for (fields) |f| {
+            if (f.is_method or f.is_variant) continue;
+            sole = if (sole == null) f else null;
+            if (sole == null) break;
+        }
         try self.w.writeAll("{");
         for (args, 0..) |a, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
             if (!a.isKind(.kwarg)) {
-                if (payload.len != 1) return self.unsupported(a, "a positional field");
-                try self.w.print(".{f} = ", .{ident(payload[0].name)});
+                const f = sole orelse return self.unsupported(a, "a positional field");
+                try self.w.print(".{f} = ", .{ident(f.name)});
                 try self.emitStored(a);
                 continue;
             }
@@ -3506,23 +3520,23 @@ pub const Emitter = struct {
         try self.w.writeAll(".empty");
     }
 
-    /// `Signal(value: v)`.
+    /// `Signal(v)`.
     fn emitSignalConstruction(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
         if (args.len != 1) return self.unsupported(call, "this Signal construction");
         try self.emitGivenType(call);
         try self.w.writeAll(".init(");
-        try self.emitBare(ir.Kwarg.value(args[0]));
+        try self.emitBare(argValue(args[0]));
         try self.w.writeAll(")");
     }
 
-    /// `Box(value: v)`: `v` moved into a new heap allocation.
+    /// `Box(v)`: `v` moved into a new heap allocation.
     fn emitBoxConstruction(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
         if (args.len != 1) return self.unsupported(call, "this Box construction");
         try self.emitTypeTy(self.typeOf(call) orelse return self.unsupported(call, "an untyped Box construction"));
         try self.w.writeAll(".init(");
-        try self.emitStored(ir.Kwarg.value(args[0]));
+        try self.emitStored(argValue(args[0]));
         try self.w.writeAll(")");
     }
 
@@ -3650,7 +3664,7 @@ pub const Emitter = struct {
         if (ret) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
         try self.w.writeAll(" ");
         const body = ir.Lambda.body(lambda);
-        if (ret != null) try self.emitValueBody(body) else try self.emitBlock(body);
+        if (self.lambdaYields(lambda)) try self.emitValueBody(body) else try self.emitBlock(body);
         try self.w.writeAll("\n");
         try self.closeBrace();
     }
@@ -3763,7 +3777,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(p);
         }
         try self.w.writeAll(if (f.params.len > 0) " }, " else "}, ");
-        if (f.is_sub) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
+        if (f.is_sub and f.returns == self.sema.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
         try self.w.writeAll(")");
     }
 
@@ -3775,7 +3789,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(p);
         }
         try self.w.writeAll(if (f.params.len > 0) " }, " else "}, ");
-        if (f.is_sub) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
+        if (f.is_sub and f.returns == self.sema.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
         try self.w.writeAll(")");
     }
 
@@ -3830,6 +3844,13 @@ pub const Emitter = struct {
     }
 
     /// The value type a closure literal's body produces, or null.
+    /// Whether a closure's body yields its value: not a `sub`'s, even a
+    /// fallible one (`Void!`).
+    fn lambdaYields(self: *Emitter, lambda: Sexp) bool {
+        const f = self.fnType(self.typeOf(lambda)) orelse return false;
+        return self.lambdaReturn(lambda) != null and !f.is_sub;
+    }
+
     fn lambdaReturn(self: *Emitter, lambda: Sexp) ?TypeId {
         const f = self.fnType(self.typeOf(lambda)) orelse return null;
         return switch (self.sema.types.get(f.returns)) {
@@ -4330,7 +4351,7 @@ const Scan = struct {
                 return;
             },
             .fun => if (ir.Fun.returns(sexp) != .nil) try s.consumeTail(ir.Fun.body(sexp)),
-            .lambda => if (s.e.lambdaReturn(sexp) != null) try s.consumeTail(ir.Lambda.body(sexp)),
+            .lambda => if (s.e.lambdaYields(sexp)) try s.consumeTail(ir.Lambda.body(sexp)),
             else => {},
         }
         for (rig.children(sexp)) |c| try s.walk(c);

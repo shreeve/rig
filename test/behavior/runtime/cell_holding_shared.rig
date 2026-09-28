@@ -9,7 +9,7 @@ struct Noisy
 
 sub main()
   u = *Noisy(id: 30)
-  c: Cell[*Noisy] = Cell(value: <u)
+  c: Cell[*Noisy] = Cell(<u)
   print("stored")
 
 # expect:

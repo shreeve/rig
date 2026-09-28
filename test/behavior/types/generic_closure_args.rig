@@ -12,17 +12,17 @@ struct Res
   drop(!self)
     print("drop", self.id)
 
-fun sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+sub sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
   i = 1
   while i < xs.len : i += 1
     j = i
     while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
       !xs.swap(j, j - 1)
 
-fun sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
   sort(xs, less)
 
-fun sort_twice[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+sub sort_twice[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
   sort_by(xs, less)
   sort_by(xs, less)
 

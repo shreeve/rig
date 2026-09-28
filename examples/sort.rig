@@ -9,7 +9,7 @@ struct Player
   name: String
   score: Int
 
-fun sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+sub sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
   i = 1
   while i < xs.len : i += 1
     j = i

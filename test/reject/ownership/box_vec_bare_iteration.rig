@@ -13,7 +13,7 @@ sub f(v: ?Vec[Box[R]])
 
 sub main
   v: Vec[Box[R]] = Vec()
-  !v.push(Box(value: R(n: 1)))
+  !v.push(Box(R(n: 1)))
   f(?v)
 
 # error: 11:12: resource Vec[T] iteration requires an explicit read borrow; write `for x in ?vec`

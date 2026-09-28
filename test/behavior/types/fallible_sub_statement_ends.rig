@@ -1,0 +1,54 @@
+# A fallible `sub` yields no value, whatever its last statement is: a
+# propagated call, a handled call, a method call, or an `if` without an
+# `else`. So does a closure lent as a `?sub(Int)!`.
+
+error Bad
+  neg
+
+fun get(n: Int) -> Int!
+  return Bad.neg if n < 0
+  n
+
+sub a(n: Int)!
+  get(n)!
+
+sub b(n: Int)!
+  get(n) catch 0
+
+sub c(v: !Vec[Int])!
+  !v.pop()
+
+sub d(n: Int)!
+  if n < 0
+    return Bad.neg
+  else if n == 0
+    print("zero")
+
+sub run(f: ?sub(Int)!)!
+  f(3)!
+
+fun sq(n: Int) -> Int
+  n * n
+
+sub main
+  a(1)!
+  b(-1)!
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  c(!v)!
+  d(0)!
+  d(-1) catch |e|
+    print("d failed", e)
+  run(|x| sq(x))!
+  run(|x|
+    if x > 2
+      print("big", x)
+    else if x < 0
+      print("negative"))!
+  print(v.len)
+
+# expect:
+# zero
+# d failed .neg
+# big 3
+# 0

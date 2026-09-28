@@ -275,7 +275,7 @@ tokens
     module                      ...decls
     use                         name:leaf
     fun                         name:leaf tparams:group? params:group? returns? body:block
-    sub                         name:leaf tparams:group? params:group? body:block
+    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? body:block
     lambda                      captures:captures? params:group? body:block
     struct, enum, errors        name:leaf ...members
     generic_struct, generic_enum name:leaf tparams:group ...members
@@ -348,7 +348,7 @@ tokens
     optional, error_union, borrow_read, borrow_write, shared, slice  type
     generic_inst                name ...args
     array_type                  size type
-    fun_type                    params:group? returns?
+    fun_type                    params:group? returns? fails:tag(fails)?
 
 @display
     # Tokens by what they read as in a message; every keyword and
@@ -450,6 +450,7 @@ use      = USE name:name                            → (use)
 
 fun      = FUN name:name [tparams:tparams] [params:params] [returns:returns] body:block → (fun)
 sub      = SUB name:name [tparams:tparams] [params:params] body:block → (sub)
+         | SUB name:name [tparams:tparams] [params:params] SUFFIX_BANG body:block → (sub fails:fails)  # `sub save(p: Page)!`
 
 returns  = "->" type                                → 2
 
@@ -533,6 +534,7 @@ ptype    = "[" "]" type:inner                       → (slice)
          | "[" size:dim "]" type:inner              → (array_type)
          | FUN "(" [params:L(type)] ")" "->" returns:type → (fun_type)  # `fun(Int) -> Int`
          | SUB "(" [params:L(type)] ")"             → (fun_type)   # `sub(Int)`
+         | SUB "(" [params:L(type)] ")" SUFFIX_BANG → (fun_type fails:fails)  # `sub(Int)!`
          | SHARE_PFX type:ptype                     → (shared)     # `*fun(Int) -> Int`
          | "~"       operand:ptype                  → (weak)
 

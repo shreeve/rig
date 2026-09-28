@@ -2463,7 +2463,7 @@ pub const Checker = struct {
             return .{};
         }
         // Every handle to a Cell or Signal reaches what it holds, so what
-        // goes in (`Cell(value: v)`, `set`, `replace`, `subscribe`) may
+        // goes in (`Cell(v)`, `set`, `replace`, `subscribe`) may
         // not hold a borrow.
         const into = if (callee.isKind(.member) and !self.namesType(callee))
             self.builtinName(self.exprType(ir.Member.object(callee)))

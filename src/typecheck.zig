@@ -184,7 +184,7 @@ const Checker = struct {
     const ReturnSite = struct { node: Sexp, ty: ?TypeId };
 
     const FailTarget = union(enum) {
-        /// The caller: in a `fun ... -> T!`, `sub main`, or a test.
+        /// The caller: in a `fun ... -> T!`, a `sub ...!`, `sub main`, or a test.
         caller,
         /// A `fun` or `sub` that cannot fail; its name.
         infallible: Sexp,
@@ -299,7 +299,7 @@ const Checker = struct {
 
     const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
     const discard_read = "`_` discards a value; it cannot be read";
-    const stack_signal = "stack-local `Signal[T]` is not supported: a Signal lives behind a shared handle; construct it with `*Signal(value: ...)`";
+    const stack_signal = "stack-local `Signal[T]` is not supported: a Signal lives behind a shared handle; construct it with `*Signal(...)`";
 
     /// A `struct`, `enum`, `errors`, `generic_struct`, or `generic_enum`.
     fn checkNominal(self: *Checker, node: Sexp) Error!void {
@@ -352,8 +352,25 @@ const Checker = struct {
             try self.checkDefaultValue(ir.Default.value(p), ty, "parameter");
         };
         // `sub main` lowers to a fallible `main`.
-        const fallible = (is_main and is_sub) or rig.returnType(node).isKind(.error_union);
+        const fallible = (is_main and is_sub) or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
+        if (node.isKind(.fun) and !is_main) try self.checkFunReturns(node, ret);
         try self.checkBody(ir.get(node, .body), .{ .ret = ret, .is_sub = is_sub, .fail_to = if (fallible) .caller else .{ .infallible = name }, .name = name });
+    }
+
+    /// A `fun` returns a value: one without `-> T`, or returning `Void`,
+    /// is a `sub` (`sub f(...)!` when it may fail).
+    fn checkFunReturns(self: *Checker, node: Sexp, ret: TypeId) Error!void {
+        const returns = rig.returnType(node);
+        const name = self.text(ir.get(node, .name));
+        if (returns == .nil) {
+            return self.errAt(ir.get(node, .name), "a `fun` returns a value; declare `-> T`, or make `{s}` a `sub`", .{name});
+        }
+        const r = self.ctx.types.get(ret);
+        if (ret == self.t().void_id) {
+            try self.errAt(returns, "a `fun` returning nothing is a `sub`: `sub {s}(...)`", .{name});
+        } else if (r == .fallible and r.fallible == self.t().void_id) {
+            try self.errAt(returns, "a `fun` that returns nothing but may fail is a fallible `sub`: `sub {s}(...)!`", .{name});
+        }
     }
 
     /// A parameter or field default: a literal of type `ty`, so it owns
@@ -528,8 +545,11 @@ const Checker = struct {
             return;
         }
         if (self.body.is_sub and ret == self.t().void_id) {
-            try self.errAt(value, "a `sub` returns no value; remove the value or declare a `fun`", .{});
-            _ = try self.synthExpr(value);
+            const ty = try self.synthExpr(value);
+            if (sema.isErrorSet(self.ctx, ty)) {
+                const name = if (self.body.name != .nil) self.text(self.body.name) else "f";
+                try self.errAt(value, "a `sub` that cannot fail returns no error; declare it fallible to fail: `sub {s}(...)!`", .{name});
+            } else try self.errAt(value, "a `sub` returns no value; remove the value or declare a `fun`", .{});
             return;
         }
         try self.checkExpr(value, ret);
@@ -2236,7 +2256,9 @@ const Checker = struct {
             .closure => try self.errAt(operand, "use of `!` propagation requires a fallible enclosing function; a closure body cannot propagate failure, so handle it with `catch`", .{}),
             .drop => try self.errAt(operand, "a `drop` body cannot propagate failure; handle it with `catch`", .{}),
             .infallible => |name| {
-                try self.errAt(operand, "use of `!` propagation requires the enclosing function `{s}` to declare a fallible return type (`-> T!`)", .{self.text(name)});
+                if (self.body.is_sub) {
+                    try self.errAt(operand, "use of `!` propagation requires the enclosing `{s}` to be fallible: `sub {s}(...)!`", .{ self.text(name), self.text(name) });
+                } else try self.errAt(operand, "use of `!` propagation requires the enclosing function `{s}` to declare a fallible return type (`-> T!`)", .{self.text(name)});
                 try self.noteAt(name, "`{s}` declared here", .{self.text(name)});
             },
         }
@@ -3542,10 +3564,12 @@ const Checker = struct {
             try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
             return self.t().invalid_id;
         }
-        // Fields are set by name; a positional argument binds nothing to
-        // infer from.
-        for (args) |a| if (!a.isKind(.kwarg)) return self.badCall(args, pos, "fields of `{s}` are set by name: `{s}(field: value)`", .{ name, name });
         const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
+        // Fields are set by name, but for one field given positionally.
+        if (!(args.len == 1 and soleField(fields) != null)) for (args) |a| if (!a.isKind(.kwarg)) {
+            try self.positionalFieldsError(fields, name, pos);
+            return self.skipCall(args);
+        };
         const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = fields }, pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return self.skipCall(args);
         _ = try self.instantiate(sym_id, subst.args, pos);
         return self.construct(sym_id, args, pos, subst, null);
@@ -4157,12 +4181,11 @@ const Checker = struct {
                     },
                 };
             } else {
-                // A struct's fields are set only by name; a variant's one
-                // field may be given positionally.
+                // A struct's or variant's one field may be given
+                // positionally; more fields are set by name.
                 defer positional += 1;
                 pattern = switch (from) {
-                    .fields => null,
-                    .payload => |fs| if (positional == 0 and args.len == 1) if (soleField(fs)) |f| f.ty else null else null,
+                    .fields, .payload => |fs| if (positional == 0 and args.len == 1) if (soleField(fs)) |f| f.ty else null else null,
                     .params => |p| if (positional < p.params.len) p.params[positional] else null,
                 };
             }
@@ -4786,11 +4809,12 @@ const Checker = struct {
     };
 
     /// Keyword arguments against named fields: each names a real field
-    /// once, and every field without a default is given. A variant with
-    /// one field also takes it positionally: `.some(7)`.
+    /// once, and every field without a default is given. A type or
+    /// variant with one field also takes it positionally: `Box(x)`,
+    /// `.some(7)`.
     fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field, info: FieldArgs) Error!void {
         const noun = if (info.kind == .constructor) "constructor of" else "variant";
-        if (info.kind == .variant and args.len == 1 and !args[0].isKind(.kwarg)) {
+        if (args.len == 1 and !args[0].isKind(.kwarg)) {
             if (soleField(fields)) |f| return self.checkExpr(args[0], try self.fieldType(f, info));
         }
         for (args) |a| {
@@ -4804,9 +4828,7 @@ const Checker = struct {
                 } else {
                     try self.err(info.pos, "a variant with more than one field sets them by name: `.{s}({s}: ...)`", .{ info.owner, first });
                 }
-            } else {
-                try self.err(info.pos, "fields of `{s}` are set by name: `{s}(field: value)`", .{ info.owner, info.owner });
-            }
+            } else try self.positionalFieldsError(fields, info.owner, info.pos);
             try self.synthArgs(args);
             return;
         }
@@ -4835,6 +4857,24 @@ const Checker = struct {
             if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name)) continue;
             try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
             if (info.foreign == null and f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(info.module_id, f.decl_pos, "field `{s}` declared here", .{f.name});
+        }
+    }
+
+    /// A constructor given positional arguments it cannot take: a type
+    /// with one field takes exactly one, alone; one with more sets them
+    /// by name.
+    fn positionalFieldsError(self: *Checker, fields: []const Field, owner: []const u8, pos: u32) Error!void {
+        var count: usize = 0;
+        var first: []const u8 = "field";
+        for (fields) |f| {
+            if (f.is_method or f.is_variant) continue;
+            if (count == 0) first = f.name;
+            count += 1;
+        }
+        switch (count) {
+            0 => try self.err(pos, "`{s}` has no fields: `{s}()`", .{ owner, owner }),
+            1 => try self.err(pos, "`{s}` has one field, given by position alone (`{s}(x)`) or by name (`{s}({s}: x)`)", .{ owner, owner, owner, first }),
+            else => try self.err(pos, "a type with more than one field sets them by name: `{s}({s}: ...)`", .{ owner, first }),
         }
     }
 
@@ -6338,7 +6378,7 @@ const Checker = struct {
             try self.errAt(body, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); this one returns `{s}`", .{try self.tyName(ret)});
         }
 
-        return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = ret == self.t().void_id } });
+        return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = sema.returnsNothing(self.ctx, ret) } });
     }
 
     /// The return type of a closure inferred from its body's value `ret`

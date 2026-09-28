@@ -19,7 +19,7 @@ struct Wrap[T]
     print(t, u)
     true
 
-  fun show(?self)
+  sub show(?self)
     r = self.get()
     print(r)
 
@@ -65,7 +65,7 @@ sub main()
   print(va.get().len)
   vr = Ref(r: ?va)
   print(vr.val().get().len)
-  n = Cell(value: 3)
+  n = Cell(3)
   d = Wrap(v: <n)
   e = d.get()
   (?d.v).set(9)

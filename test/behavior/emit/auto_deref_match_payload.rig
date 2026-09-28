@@ -6,7 +6,7 @@ enum Slot
   empty
 
 sub main()
-  c: *Cell[Int] = *Cell(value: 8)
+  c: *Cell[Int] = *Cell(8)
   s: Slot = .full(cell: <c)
   match s
     .full(cell) => print(cell.get())

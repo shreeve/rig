@@ -1,0 +1,20 @@
+# A type with one field takes it by position (`Box(x)`); with more
+# fields, they are set by name.
+
+struct P
+  x: Int
+  y: Int
+
+struct Pair[T]
+  a: T
+  b: T
+
+sub main()
+  p = P(1, 2)
+  w = Pair(2, 3)
+  u = Pair[Int](3, 4)
+  print(p.x, w.a, u.a)
+
+# error: 13:7: a type with more than one field sets them by name: `P(x: ...)`
+# error: 14:7: a type with more than one field sets them by name: `Pair(a: ...)`
+# error: 15:7: a type with more than one field sets them by name: `Pair(a: ...)`

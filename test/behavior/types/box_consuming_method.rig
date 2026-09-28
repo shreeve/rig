@@ -11,10 +11,10 @@ struct R
     print("eat", self.n)
 
 fun mk() -> Box[R]
-  Box(value: R(n: 2))
+  Box(R(n: 2))
 
 sub main
-  b = Box(value: R(n: 1))
+  b = Box(R(n: 1))
   <b.eat()
   mk().eat()
 

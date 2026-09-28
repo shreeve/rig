@@ -2,7 +2,7 @@
 # is rejected.
 
 sub main()
-  s = Signal(value: 1)
+  s = Signal(1)
   t = *<s
   print(t.get())
 

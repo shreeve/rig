@@ -776,7 +776,9 @@ pub const TypeResolver = struct {
             if (p != .src and pid != sema.symbol_invalid) self.ctx.symbols.items[pid].ty = pty;
         }
         const returns = rig.returnType(node);
-        const return_ty = if (returns == .nil) self.ctx.types.void_id else try self.resolveReturnType(returns);
+        const return_ty = if (rig.subFails(node))
+            try self.ctx.intern(.{ .fallible = self.ctx.types.void_id })
+        else if (returns == .nil) self.ctx.types.void_id else try self.resolveReturnType(returns);
         var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
         defer param_types.deinit(self.ctx.allocator);
         for (params.items()) |p| {
@@ -932,6 +934,10 @@ pub const TypeResolver = struct {
         const params = ir.get(node, .params);
         const returns: Sexp = if (is_sub) .nil else ir.ExternFun.returns(node);
         const return_ty = if (returns == .nil) self.ctx.types.void_id else try self.resolveReturnType(returns);
+        // As for `fun`: an `extern fun` returns a value.
+        if (!is_sub and (returns == .nil or return_ty == self.ctx.types.void_id)) {
+            try self.ctx.errAt(if (returns == .nil) name else returns, "an `extern fun` returns a value; declare `-> T`, or make `{s}` an `extern sub`", .{identAt(self.ctx.source, name) orelse "it"});
+        }
         var ps: std.ArrayListUnmanaged(TypeId) = .empty;
         defer ps.deinit(self.ctx.allocator);
         for (params.items()) |p| {
@@ -1505,11 +1511,18 @@ pub const TypeResolver = struct {
                         var ps: std.ArrayListUnmanaged(TypeId) = .empty;
                         defer ps.deinit(self.ctx.allocator);
                         for (ir.FunType.params(sexp).items()) |p| try ps.append(self.ctx.allocator, try self.resolveType(p));
-                        const ret = try self.resolveReturnType(ir.FunType.returns(sexp));
+                        const ret = if (ir.FunType.fails(sexp) != .nil)
+                            try self.ctx.intern(.{ .fallible = t.void_id })
+                        else
+                            try self.resolveReturnType(ir.FunType.returns(sexp));
+                        // A function type returning nothing is spelled as a `sub`'s.
+                        if (ir.FunType.returns(sexp) != .nil and sema.returnsNothing(self.ctx, ret)) {
+                            try self.ctx.errAt(ir.FunType.returns(sexp), "a function type that returns nothing is a `sub` type: `sub(...){s}`", .{if (ret == t.void_id) "" else "!"});
+                        }
                         return self.ctx.intern(.{ .function = .{
                             .params = try self.ctx.dupeIds(ps.items),
                             .returns = ret,
-                            .is_sub = ret == t.void_id,
+                            .is_sub = sema.returnsNothing(self.ctx, ret),
                         } });
                     },
                     .generic_inst => return self.resolveGenericInst(sexp),

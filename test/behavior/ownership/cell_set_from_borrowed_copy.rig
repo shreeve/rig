@@ -5,12 +5,12 @@ sub put(c: ?Cell[Int], k: ?Int)
   c.set(k)
 
 sub main()
-  c: Cell[Int] = Cell(value: 1)
+  c: Cell[Int] = Cell(1)
   n = 7
   put(?c, ?n)
   q = ?n
   c.set(c.get() + q)
-  d: Cell[Int] = Cell(value: q)
+  d: Cell[Int] = Cell(q)
   n = 9
   print(c.get(), d.get(), n)
 

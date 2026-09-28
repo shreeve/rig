@@ -22,7 +22,7 @@ test "area"
 
 test "shared handles are released"
   v: Vec[*Cell[Int]] = Vec()
-  (!v).push(*Cell(value: 1))
+  (!v).push(*Cell(1))
   print(v.len)
 EOF
 
@@ -51,7 +51,7 @@ test "passes"
   print("fine")
 
 test "leaks a cycle"
-  a = *Node(next: *Cell(value: none))
+  a = *Node(next: *Cell(none))
   a.next.set(+a)
 
 test "fails with an error"

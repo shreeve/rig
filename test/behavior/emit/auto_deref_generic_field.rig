@@ -5,7 +5,7 @@ struct Holder[T]
   value: T
 
 sub main()
-  c: *Cell[Int] = *Cell(value: 8)
+  c: *Cell[Int] = *Cell(8)
   h: Holder[*Cell[Int]] = Holder(value: <c)
   print(h.value.get())
 

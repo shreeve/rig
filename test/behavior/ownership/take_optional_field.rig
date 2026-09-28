@@ -14,7 +14,7 @@ struct Stack
   top: Box[Node]?
 
   sub push(!self, v: Int)
-    self.top = Box(value: Node(value: v, next: <self.top))
+    self.top = Box(Node(value: v, next: <self.top))
 
   fun pop(!self) -> Int?
     if <self.top as n

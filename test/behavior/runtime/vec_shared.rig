@@ -13,7 +13,7 @@ sub push_one(cell: ?*Cell[Vec[Int]], n: Int)
   cell.push(n)
 
 sub main()
-  shared: *Cell[Vec[Int]] = *Cell(value: Vec())
+  shared: *Cell[Vec[Int]] = *Cell(Vec())
   other = +shared
   push_all(?other, 3)
   push_one(?other, 300)

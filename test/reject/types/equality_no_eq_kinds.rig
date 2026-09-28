@@ -7,9 +7,9 @@ sub main()
   s = *N(n: 1)
   w = ~s
   print(w == w)
-  c = Cell(value: 1)
+  c = Cell(1)
   print(c == c)
-  g = *Signal(value: 1)
+  g = *Signal(1)
   print(g == g)
   f = *|x: Int| x + 1
   print(f == f)

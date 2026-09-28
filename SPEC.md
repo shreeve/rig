@@ -822,7 +822,11 @@ ownership rules of [§8](#8-ownership) apply to them.
 ### Functions
 
 `fun` declares a function that returns a value; `sub` declares one that
-does not. The return type follows `->`. A function's value is its last
+does not. The return type follows `->`, and a `fun` always has one: a
+`fun` without `->`, or returning `Void`, is rejected in favor of a
+`sub`. A `sub` that may fail is marked `!` after its parameters,
+`sub save(n: Int)!`, and its type is `sub(Int)!`
+([§14](#14-errors)). A function's value is its last
 expression, or the value of a `return`. A function with no parameters
 may leave out the empty `()`: `sub main` and `sub main()` are the same
 declaration, and this reference writes the shorter one. A call always
@@ -896,7 +900,10 @@ name.
 ### Structs
 
 A `struct` lists its fields, then its methods. It is constructed by
-naming its fields: `Point(x: 1, y: 2)`. A field may have a default
+naming its fields: `Point(x: 1, y: 2)`. A struct with exactly one field
+also takes it by position, as a one-field variant does:
+`Meters(3.5)` is `Meters(value: 3.5)`, and so are the built-ins
+`Box(x)`, `Cell(0)`, and `*Signal(0)`. A field may have a default
 value, which, like a parameter default, must be a literal (a number, a
 string, `true` / `false`, `none`, or `.variant`); a constructor may omit
 that field.
@@ -1162,8 +1169,8 @@ true
 A payload variant is constructed with keyword fields, like a struct:
 `.rect(w: 2, h: 5)`, `Shape.rect(w: 2, h: 5)`. A variant with exactly
 one field also takes it by position, as a pattern binds it:
-`.circle(2)` is `.circle(radius: 2)`. A variant with more fields sets
-them by name, and a struct's constructor always does. A pattern binds
+`.circle(2)` is `.circle(radius: 2)`. A variant or struct with more
+fields sets them by name. A pattern binds
 the fields in order (`.circle(r) =>`). Enums have no constructor call
 (`Shape(...)` is an error); enums compare with `==` ([§6](#operators)). A plain enum's variants may take
 explicit values (`ok = 200`): constant integers from 0 to 4294967295,
@@ -2421,7 +2428,7 @@ struct Stack
   top: Box[Node]?
 
   sub push(!self, v: Int)
-    self.top = Box(value: Node(value: v, next: <self.top))
+    self.top = Box(Node(value: v, next: <self.top))
 
   fun pop(!self) -> Int?
     if <self.top as n
@@ -2995,7 +3002,7 @@ mutable value.
 
 | Member | Meaning |
 |---|---|
-| `Cell(value: v)` | construct |
+| `Cell(v)` | construct |
 | `c.get()` | a copy of the value (Copy `T` only) |
 | `c.set(v)` | store `v`; the old value is dropped |
 | `c.replace(v)` | store `v` and return the old value |
@@ -3035,17 +3042,17 @@ sub bump(c: ?Cell[Int])
   c.set(c.get() + 10)
 
 sub main
-  count: *Cell[Int] = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(0)
   other = +count
   other.set(other.get() + 5)
-  local: Cell[Int] = Cell(value: 1)
+  local: Cell[Int] = Cell(1)
   bump(?local)
-  k = Counter(hits: Cell(value: 0))
+  k = Counter(hits: Cell(0))
   k.hit()
   k.hit()
   print(count.get(), local.get(), k.hits.get())
 
-  shared: *Cell[Vec[Int]] = *Cell(value: Vec())
+  shared: *Cell[Vec[Int]] = *Cell(Vec())
   shared.push(7)
   shared.push(8)
   shared[0] = shared[0] + 1
@@ -3094,7 +3101,7 @@ consume the elements ([§7](#for)).
 
 ```rig
 sub main
-  total: *Cell[Int] = *Cell(value: 0)
+  total: *Cell[Int] = *Cell(0)
   steps: Vec[*sub()] = Vec()
   !steps.push(*|+total| total.set(total.get() + 1))
   !steps.push(*|+total| total.set(total.get() + 10))
@@ -3154,7 +3161,7 @@ Long chains of boxes are released without deep recursion.
 
 | Member | Meaning |
 |---|---|
-| `Box(value: v)` | move `v` into a new box |
+| `Box(v)` | move `v` into a new box |
 | `b.f`, `b.m(...)` | a field or method of a boxed struct or enum, reached through the box |
 | `?b`, `!b` | lend the box, or, where a `?T` or `!T` is expected, the value inside it |
 | `<b.unbox()` | move the value out; the box is freed |
@@ -3185,7 +3192,7 @@ sub insert(slot: !Box[Node]?, key: Int)
     else
       insert(!n.right, key)
   else
-    slot = Box(value: Node(key: key, left: none, right: none))
+    slot = Box(Node(key: key, left: none, right: none))
 
 sub walk(slot: ?Box[Node]?)
   if slot as n
@@ -3215,7 +3222,7 @@ rejected.
 
 | Member | Meaning |
 |---|---|
-| `*Signal(value: v)` | construct |
+| `*Signal(v)` | construct |
 | `s.get()` | the current value |
 | `s.set(v)` | store `v`, then call every subscriber in subscription order |
 | `s.subscribe(cb)` | take ownership of the handle `cb` (pass `+cb` to keep yours) |
@@ -3227,7 +3234,7 @@ it weakly, or the signal and its subscriber keep each other alive.
 
 ```rig
 sub main
-  sig: *Signal[Int] = *Signal(value: 0)
+  sig: *Signal[Int] = *Signal(0)
   sig.subscribe(*|~sig|
     if sig.upgrade() as s
       print("now", s.get()))
@@ -3267,7 +3274,7 @@ arguments: it is the last one.
 ```rig
 sub main
   n = 10
-  cell: *Cell[Int] = *Cell(value: 0)
+  cell: *Cell[Int] = *Cell(0)
   plus_n = |+n, a: Int| a + n
   bump = |+cell| cell.set(cell.get() + 1)
   hello = || print("hello")
@@ -3352,7 +3359,7 @@ not move it (`|<x|`), since the outer closure may run again.
 
 ```rig
 sub main
-  total: *Cell[Int] = *Cell(value: 0)
+  total: *Cell[Int] = *Cell(0)
   add = |+total, k: Int|
     step = |+total, +k| total.set(total.get() + k)
     step()
@@ -3554,7 +3561,7 @@ held weakly, and dropped like any `*T`.
 
 ```rig
 fun make_counter(start: Int) -> *fun(Int) -> Int
-  count: *Cell[Int] = *Cell(value: start)
+  count: *Cell[Int] = *Cell(start)
   *|+count, step|
     count.set(count.get() + step)
     count.get()
@@ -3596,7 +3603,7 @@ sub each(n: Int, f: *sub(Int))
     f(i)
 
 sub main
-  total: *Cell[Int] = *Cell(value: 0)
+  total: *Cell[Int] = *Cell(0)
   each(3, *|+total, i|
     total.set(total.get() + i)
     print("saw", i))
@@ -3752,20 +3759,46 @@ sub main
 
 ## 14. Errors
 
-A function whose return type is `T!` may fail. A call to it must say
-what happens to the failure, visibly:
+A function whose return type is `T!` may fail, and so may a `sub`
+marked `!` (`sub save(n: Int)!`, of type `sub(Int)!`). A call to it
+must say what happens to the failure, visibly:
 
 - `f()!` propagates it: the enclosing function fails with the same
-  error. The enclosing function must itself return a `T!`, or be
-  the top-level `sub main` or a `test`.
+  error. The enclosing function must itself return a `T!`, be a
+  fallible `sub`, or be the top-level `sub main` or a `test`.
 - `f() catch fallback` handles it: the value of the call, or `fallback`
   when it fails.
 
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A closure body, a `drop` body, and a `defer` cannot
 propagate. A fallible type is only allowed as the return type of a
-function or of a function type (`fun(Int) -> Int!`, not for an owned
-closure), and a plain `T` is accepted where `T!` is expected. `E!` for an error
+function or of a function type (`fun(Int) -> Int!`, `sub(Int)!`, not
+for an owned closure), and a plain `T` is accepted where `T!` is
+expected.
+
+```rig
+error SaveError
+  full
+
+sub save(n: Int, used: !Int)!
+  return SaveError.full if used >= 2
+  used += 1
+  print("saved", n)
+
+sub main
+  used = 0
+  save(1, !used)!
+  save(2, !used)!
+  save(3, !used) catch |e|
+    print("not saved:", e)
+```
+
+```output
+saved 1
+saved 2
+not saved: .full
+```
+ `E!` for an error
 set `E` is rejected: a failure and a success would both be `E` values.
 
 ```rig
@@ -4210,7 +4243,7 @@ a slice or array type has no expression spelling
 ```
 
 In an expression, `*T?` as a type argument is an optional handle, as
-in a type (`Cell[*Node?](value: none)`), and so is a chain of handles
+in a type (`Cell[*Node?](none)`), and so is a chain of handles
 such as `*~T?`. A handle to an optional,
 `*(T?)`, has no expression spelling; name it with a `type` alias:
 
@@ -4221,8 +4254,8 @@ struct Node
 type Held = *(Node?)
 
 sub main
-  a = Cell[*Node?](value: none)
-  b = Cell[Held](value: *none)
+  a = Cell[*Node?](none)
+  b = Cell[Held](*none)
   print(a.replace(none) == none)
   old = b.replace(*none)
   -old
@@ -4237,7 +4270,7 @@ struct Node
   value: Int
 
 sub main
-  b = Cell[*(Node?)](value: *none)
+  b = Cell[*(Node?)](*none)
 ```
 
 ```error
