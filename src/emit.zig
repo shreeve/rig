@@ -417,15 +417,12 @@ pub const Emitter = struct {
             try self.emitUnionVariants(1);
         } else {
             try self.w.print("pub const {f} = enum{s} {{\n", .{ ident(name), if (has_values) "(u32)" else "" });
-            for (members) |m| switch (m) {
-                .src => try self.w.print("    {f},\n", .{ident(self.srcText(m))}),
-                .list => if (m.isKind(.valued)) {
-                    try self.w.print("    {f} = ", .{ident(self.srcText(ir.Valued.name(m)))});
-                    try self.emitExpr(ir.Valued.value(m));
-                    try self.w.writeAll(",\n");
-                },
-                else => {},
-            };
+            for (self.nominalFields()) |f| {
+                if (!f.is_variant) continue;
+                try self.w.print("    {f}", .{ident(f.name)});
+                if (has_values) try self.w.print(" = {d}", .{f.value.?});
+                try self.w.writeAll(",\n");
+            }
         }
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
