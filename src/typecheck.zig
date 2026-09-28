@@ -8329,6 +8329,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
                 .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
+                .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
@@ -8336,6 +8337,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 .plain => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
+                .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -8390,6 +8392,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         },
         .equatable => sema.isEquatable(ctx, ty),
         .whole_division => sema.isInteger(ctx, ty),
+        .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
     };
 }
 

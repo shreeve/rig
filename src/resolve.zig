@@ -927,6 +927,10 @@ pub const TypeResolver = struct {
                 try self.ctx.errAt(node, "`{s}!` would make a failure and a success both `{s}` values; return `{s}` or `{s}?`, or a struct that holds one", .{ e, e, e, e });
                 return self.ctx.types.invalid_id;
             }
+            // Each instance must give `T` a type that is not an error.
+            if (self.ctx.types.get(inner) == .type_var) {
+                try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = self.ctx.types.get(inner).type_var, .req = .not_error, .pos = self.ctx.startOf(node), .op = "`!`" });
+            }
             return self.ctx.intern(.{ .fallible = inner });
         }
         return self.resolveType(node);

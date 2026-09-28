@@ -767,6 +767,9 @@ pub const Requirement = union(enum) {
     /// division of whole-number literals (`1 / 2`), which divides
     /// integers.
     whole_division,
+    /// Not an error: the signature returns the parameter as a fallible
+    /// `T!`, whose failure and success would both be errors.
+    not_error,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -782,6 +785,7 @@ pub const Requirement = union(enum) {
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
+            .not_error => "a fallible return",
         };
     }
 };
