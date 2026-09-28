@@ -5948,6 +5948,20 @@ const Checker = struct {
         }
         const head = e.kind() orelse return null;
         switch (head) {
+            // `?5` where a `?Int` is expected: the literal takes the
+            // borrowed type, as it would bare.
+            .read => {
+                const operand = ir.Read.operand(e);
+                const lit = if (operand.isKind(.neg)) ir.Neg.operand(operand) else operand;
+                if (lit != .src or !(sema.isIntLiteralText(self.text(lit)) or sema.isFloatLiteralText(self.text(lit)))) return null;
+                const inner = switch (self.ctx.types.get(expected)) {
+                    .borrow_read => |i| i,
+                    else => return null,
+                };
+                if (!sema.isNumeric(self.ctx, inner)) return null;
+                try self.checkExpr(operand, inner);
+                return expected;
+            },
             .neg => {
                 const operand = ir.Neg.operand(e);
                 if (operand != .src or !sema.isIntLiteralText(self.text(operand)) or !sema.isInteger(self.ctx, target)) return null;
