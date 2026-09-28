@@ -272,6 +272,9 @@ const LoopCtx = struct {
     /// Source position where the loop starts: code from here on may run
     /// again in the next iteration.
     start: u32 = 0,
+    /// Its value is read through (`SemContext.readsThrough`), so a
+    /// `break` value that is a borrow of a Copy value is copied.
+    reads: bool = false,
 };
 
 /// Where a value is being consumed, for alias diagnostics.
@@ -391,6 +394,14 @@ pub const Checker = struct {
     lambda_ok: bool = false,
     /// Walking the arguments of a call the type checker rejected.
     in_rejected_call: bool = false,
+    /// `checkNoImplicitCopy` is inside an expression whose context reads
+    /// the value a borrow reaches (`SemContext.readsThrough`).
+    copy_reads: bool = false,
+    /// The next value `walkConsumed` takes is read the same way: a
+    /// `break` or `else` value of a loop whose value is read.
+    value_reads: bool = false,
+    /// The loop about to be walked is labeled, and its value is read.
+    pending_reads: bool = false,
     /// Scopes `(lo, hi]` are invisible to name lookup (while re-checking
     /// a deferred body at a scope exit).
     hidden: ?struct { lo: usize, hi: usize } = null,
@@ -1374,7 +1385,10 @@ pub const Checker = struct {
             if (sink == .argument and (self.lentCallable(expr) or self.in_rejected_call or self.rejected(expr))) self.lambda_ok = true;
             return self.walk(expr);
         }
+        self.copy_reads = self.value_reads;
+        self.value_reads = false;
         try self.checkNoImplicitCopy(expr, sink, false);
+        self.copy_reads = false;
         // Passing a held write borrow (`w`, `e.t`) lends it on: like `!w`,
         // its holder is write-borrowed for as long as the result may keep
         // the borrow.
@@ -2050,6 +2064,11 @@ pub const Checker = struct {
     fn checkNoImplicitCopy(self: *Checker, expr: Sexp, sink: Sink, top_return: bool) Error!void {
         // Reported by the type checker.
         if (self.rejected(expr)) return;
+        // The value a borrow reaches is copied where its context reads
+        // it, in the branches of what is read too.
+        const saved_reads = self.copy_reads;
+        defer self.copy_reads = saved_reads;
+        if (self.readsValue(expr)) self.copy_reads = true;
         switch (expr) {
             .src => {
                 const v = self.vars.items[self.find(self.text(expr)) orelse return];
@@ -2074,7 +2093,9 @@ pub const Checker = struct {
                 if (top_return) return;
                 if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, true, k, sink, v.ty);
                 if (sink == .argument) return;
-                if (v.ref == .write and !self.isCopy(self.pointee(v.ty))) {
+                // A write borrow of a Copy value is copied where the
+                // value is read; where a `!T` goes, the borrow would be.
+                if (v.ref == .write and (!self.isCopy(self.pointee(v.ty)) or !self.copy_reads)) {
                     try self.err(pos, "bare use of write borrow `{s}` in {s} would duplicate a unique borrow; use `<{s}` to move it", .{ name, sink.text(), name });
                 } else if (v.ref != .write and self.carriesWriteBorrow(v.ty)) {
                     try self.err(pos, "bare use of `{s}` in {s} would duplicate the write borrow it holds; use `<{s}` to move it", .{ name, sink.text(), name });
@@ -2123,6 +2144,13 @@ pub const Checker = struct {
             },
             else => {},
         }
+    }
+
+    /// Whether the context of `e` reads the value the borrow it yields
+    /// reaches (`SemContext.readsThrough`).
+    fn readsValue(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        return ctx.readsThrough(e);
     }
 
     /// Whether `e` names a type (`Shape`, `lib.Shape`, `Opt[Int]`) rather
@@ -3244,8 +3272,10 @@ pub const Checker = struct {
         const stmt = ir.Labeled.stmt(node);
         if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) {
             self.pending_label = label;
+            self.pending_reads = self.readsValue(node);
             const v = try self.walk(stmt);
             self.pending_label = "";
+            self.pending_reads = false;
             return v;
         }
         var ctx: LoopCtx = .{ .label = label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .is_loop = false };
@@ -3257,8 +3287,9 @@ pub const Checker = struct {
     }
 
     fn walkLoop(self: *Checker, spec: LoopSpec) Error!Value {
-        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = extent(spec.node).lo };
+        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = extent(spec.node).lo, .reads = self.pending_reads or self.readsValue(spec.node) };
         self.pending_label = "";
+        self.pending_reads = false;
         self.loop = &ctx;
         defer self.loop = ctx.parent;
         const entry = ctx.point;
@@ -3301,7 +3332,9 @@ pub const Checker = struct {
         const e = ir.get(spec.node, .@"else");
         if (e != .nil) {
             if (sema.hasValueBreaks(self.source, spec.node)) {
+                self.value_reads = ctx.reads;
                 value = try self.valueUnion(value, try self.walkStmtValue(e, .brk));
+                self.value_reads = false;
             } else try self.walkStmt(e);
         }
         try self.joinAt(ctx.point, ctx.breaks.items);
@@ -3392,16 +3425,18 @@ pub const Checker = struct {
     fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
         const label = self.text(ir.get(node, .label));
         const value = if (jump == .brk) ir.Break.value(node) else .nil;
-        // A `break` value leaves the loop like a returned value leaves the
-        // function: it is consumed, and it may not borrow what the loop
-        // declared.
-        const v: Value = if (value != .nil) try self.walkConsumed(value, .brk) else .{};
         var target = self.loop;
         while (target) |t| : (target = t.parent) {
             if (label.len == 0) {
                 if (t.is_loop) break;
             } else if (std.mem.eql(u8, t.label, label)) break;
         }
+        // A `break` value leaves the loop like a returned value leaves the
+        // function: it is consumed, and it may not borrow what the loop
+        // declared.
+        if (target) |t| self.value_reads = t.reads;
+        const v: Value = if (value != .nil) try self.walkConsumed(value, .brk) else .{};
+        self.value_reads = false;
         const word = if (jump == .brk) "break" else "continue";
         const at = self.stmtSpan(node);
         if (target == null) {

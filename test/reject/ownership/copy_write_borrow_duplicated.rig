@@ -1,0 +1,47 @@
+# A bare write borrow of a Copy value is read where its context wants
+# the value, but where a `!T` is expected it would be a second writer:
+# a field, a `!T` binding, an element, a `break` value, or a branch of
+# one takes it with `<w`. (`new w = w2` copies the value.)
+
+struct H
+  w: !Int
+  f: !Bool
+
+sub put(h: !H, w2: !Int, w3: !Int, b: !Bool, c: Bool)
+  h.w = w2
+  h.w = w2 if c else w3
+  h.f = b
+  w2 += 1
+  w3 += 1
+  b = false
+
+sub bind(w2: !Int)
+  new w = w2
+  v: !Int = w2
+  xs = [w2]
+  u: !Int = while true
+    break w2
+  w2 += 1
+  w += 1
+  v += 1
+  u += 1
+  print(w, v, xs[0])
+
+sub main
+  n = 1
+  m = 2
+  k = 3
+  b = true
+  h = H(w: !n, f: !b)
+  q = true
+  put(!h, !m, !k, !q, true)
+  bind(!n)
+
+# error: 11:9: bare use of write borrow `w2` in field assignment would duplicate a unique borrow; use `<w2`
+# error: 12:9: bare use of write borrow `w2` in field assignment would duplicate a unique borrow; use `<w2`
+# error: 12:22: bare use of write borrow `w3` in field assignment would duplicate a unique borrow; use `<w3`
+# error: 13:9: bare use of write borrow `b` in field assignment would duplicate a unique borrow; use `<b`
+# error: 20:13: bare use of write borrow `w2` in binding would duplicate a unique borrow; use `<w2`
+# error: 21:9: bare use of write borrow `w2` in array element would duplicate a unique borrow; use `<w2`
+# error: 23:11: bare use of write borrow `w2` in `break` value would duplicate a unique borrow; use `<w2`
+# errors: 7

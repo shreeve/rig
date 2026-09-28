@@ -2735,7 +2735,9 @@ write the value the place borrows, while assigning another write
 borrow, `h.w = !m`, points the place at `m`. A write borrow can be lent
 on, written `!p`
 as an owned value's borrow is, or moved into a local with `<p`, but not
-copied. One held
+copied. A bare `w` of type `!Int` where an `Int` goes copies the value
+it reaches (`x = w`); where a `!Int` goes (`h.w = w`), it would copy
+the borrow, and is written `<w`. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
 that path reaches: it cannot be written with or passed on from there,
 and a `match` through one cannot bind it. A loop walks elements whose

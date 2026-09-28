@@ -922,8 +922,11 @@ the function's result (`Checker.ret_block`).
 value; read loans exclude writes, moves, drops, and reassignment, and
 write loans exclude everything; no loan outlives its root, including
 through `break` and error propagation; a returned or stored value
-carries only borrows the caller handed in; owning values are never
-copied implicitly, and only whole bindings move; closures use outer
+carries only borrows the caller handed in; owning values and write
+borrows are never copied implicitly (a bare write borrow of a Copy
+value is copied only where the type checker recorded that its context
+reads the value, `SemContext.readsThrough`), and only whole bindings
+move; closures use outer
 locals only through captures, and never consume their captured
 resources; and a value whose drop runs a user `drop` body may not
 borrow, directly or through what it borrows, a value dropped before it
