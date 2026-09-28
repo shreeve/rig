@@ -409,6 +409,11 @@ const SymbolResolver = struct {
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     self.ctx.symbols.items[existing].flags.reassigned = true;
+                } else if (self.scope == self.module_scope) {
+                    // A module-level `K += 1` declares nothing it could
+                    // update; the checker rejects it, and `K` is bound so
+                    // its uses report nothing more.
+                    _ = try self.declare(target, .local, .{ .fixed = true });
                 }
             },
         }
@@ -1729,6 +1734,8 @@ pub const TypeResolver = struct {
                 else => {},
             }
             const sym = self.ctx.symbols.items[id];
+            // A binding already reported.
+            if (sym.ty == self.ctx.types.invalid_id) return null;
             if (sym.flags.comptime_known and sym.kind == .param and !self.isPoison(sym.ty)) {
                 try self.ctx.errAt(node, "{s} is an integer; `{s}` is a compile-time `{s}`", .{ what, text, try sema.formatType(self.ctx, sym.ty) });
                 return null;

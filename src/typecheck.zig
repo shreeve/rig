@@ -304,6 +304,9 @@ const Checker = struct {
         const target = ir.Set.target(node);
         if (target != .src) return self.errAt(node, not_at_module_level, .{});
         if (rig.bindingKindOf(ir.Set.op(node)) != .fixed) {
+            if (self.ctx.symbolOf(target)) |id| if (self.ctx.symbols.items[id].decl_pos == target.src.pos) {
+                self.ctx.symbols.items[id].ty = self.t().invalid_id;
+            };
             return self.errAt(node, "a module-level binding is a constant; write `{s} = value`", .{self.text(target)});
         }
         self.const_before = target.src.pos;
