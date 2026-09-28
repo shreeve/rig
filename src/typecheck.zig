@@ -2321,8 +2321,14 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
         };
-        if ((try self.ownsResource(inner, self.startOf(left), "copies out with `??` a value"))) {
-            try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; take the handle out with `if x as h`", .{try self.tyName(opt)});
+        // With a jump as the fallback, a temporary or moved optional gives
+        // its value up whole: nothing is copied.
+        const takes_whole = isJump(right) and !isPlaceExpr(left);
+        if (!takes_whole and (try self.ownsResource(inner, self.startOf(left), "copies out with `??` a value"))) {
+            if (isJump(right)) {
+                const sp = self.ctx.span(left);
+                try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; move it out: `<{s} ?? ...`", .{ try self.tyName(opt), self.ctx.source[sp.start..sp.end] });
+            } else try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; take the handle out with `if x as h`", .{try self.tyName(opt)});
             return self.t().invalid_id;
         }
         _ = try self.readThrough(left, opt, sema.unwrapBorrows(self.ctx, opt));
@@ -6877,6 +6883,10 @@ fn hasContinue(e: Sexp) bool {
     }
     for (rig.children(e)) |c| if (hasContinue(c)) return true;
     return false;
+}
+
+fn isJump(e: Sexp) bool {
+    return e.isKind(.@"return") or e.isKind(.@"break") or e.isKind(.@"continue");
 }
 
 fn isPlaceExpr(e: Sexp) bool {
