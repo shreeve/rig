@@ -577,7 +577,9 @@ const Checker = struct {
                 }
                 // Only a loop, a `match`, or a `raw` block has a use for a
                 // label; the statement is still checked as if it took one.
-                if (!inner.isKind(.match) and !inner.isKind(.raw_block)) {
+                if (inner.isKind(.labeled)) {
+                    try self.errAt(stmt, "a loop, `match`, or `raw` block takes one label; `:{s}` labels a statement already labeled `:{s}`", .{ label, self.text(ir.Labeled.label(inner)) });
+                } else if (!inner.isKind(.match) and !inner.isKind(.raw_block)) {
                     const prefix = "a label names a loop, `match`, or `raw` block that `break` or `continue` can leave";
                     switch (inner.kind() orelse .labeled) {
                         .@"if" => try self.errAt(stmt, "{s}; `:{s}` cannot label an `if`", .{ prefix, label }),

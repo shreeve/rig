@@ -905,7 +905,7 @@ rules. An `else` block runs when the loop ends without `break`.
 `:name` before a loop labels it, and `break :name` or `continue :name`
 names it from an inner loop. A `match` or `raw` statement may be
 labeled too, and `break :name` leaves it; no other statement takes a
-label. A jump after `??` or `catch`
+label, and none takes two. A jump after `??` or `catch`
 names a label the same way, `v = next() ?? continue :outer`, except in a
 `while` header, where the first `:` starts the step.
 

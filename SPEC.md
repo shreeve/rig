@@ -2127,7 +2127,7 @@ after
 A loop may be labeled `:name`; `break :name` and `continue :name` then
 refer to it from an inner loop. A `match` or `raw` statement may be
 labeled too, and `break :name` leaves it. No other statement takes a
-label, since no jump could use it. A jump after `??` or `catch`
+label, since no jump could use it, and none takes two. A jump after `??` or `catch`
 may name a label too ([§12](#the-fallback-of-)). A label may repeat an
 enclosing one's name; the innermost is meant.
 
