@@ -3320,7 +3320,7 @@ correspondences:
 | `Int`, `U8`, `Float`, `String` | `i64`, `u8`, `f64`, `[]const u8` |
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `U8(x)`, `Int(e)` of a plain enum | `@as(u8, @intCast(x))`, `@as(i64, @intCast(@intFromEnum(e)))` |
-| `a +% b`, `U8.max` | `a +% b`, the constant `std.math.maxInt(u8)` is |
+| `a +% b`, `U8.max` | `a +% b`, the constant `std.math.maxInt(u8)` |
 | `error E` | an error set |
 | `struct Wrap[T]` | `fn Wrap(comptime T: type) type` |
 | `fun max[T](a: T, b: T) -> T`, `max(3, 7)` | `fn max(comptime T: type, a: T, b: T) T`, `max(i64, 3, 7)` |
