@@ -1,6 +1,7 @@
 # `rig build` writes a native executable: ./<name> by default, or -o;
 # Debug by default, ReleaseSafe with --release, ReleaseFast with
 # --release=fast. ReleaseSafe keeps overflow checks.
+# timeout: 600
 source "$ROOT/test/cli/_lib.sh"
 
 cat >sum.rig <<'EOF'

@@ -12,10 +12,10 @@ when nothing fails and no known-failing test has started passing. A
 filter that selects nothing, or only the `parser` check when Nexus is
 not built, exits 2. The runner works from any directory.
 
-The runner needs GNU `timeout` (on macOS, `gtimeout` from `brew install
-coreutils`). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the
-seconds each test may take (default 120), and `RIG_TEST_OUT` the
-directory for emitted packages (see [Output](#output)).
+The runner needs bash and either GNU `timeout` or perl (stock macOS has
+perl). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the seconds
+each test may take (default 120), and `RIG_TEST_OUT` the directory for
+emitted packages (see [Output](#output)).
 
 ## Layout
 
@@ -61,6 +61,9 @@ sub main
 - `# error: <text>` — makes the file a rejection test. Repeat the line to
   require several diagnostics. `# error: L:C: <text>` also requires the
   diagnostic to be at line `L`, column `C`.
+- `# timeout: <seconds>` — raises this test's time limit above
+  `RIG_TEST_TIMEOUT`, for a behavior test or CLI script that builds
+  programs slowly when Zig's cache is cold.
 
 ## Doc examples
 

@@ -1,5 +1,6 @@
 # `rig run` in each mode; the program's exit status passes through, and
 # output printed before a panic comes out before the panic message.
+# timeout: 600
 source "$ROOT/test/cli/_lib.sh"
 
 cat >hi.rig <<'EOF'

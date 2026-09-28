@@ -2,6 +2,7 @@
 # --release) conversion checks: each program below panics instead of
 # running on. `rig run` builds in the same mode as `rig build`, and its
 # build is cached for the next run.
+# timeout: 600
 source "$ROOT/test/cli/_lib.sh"
 
 # Indexing and slicing stay checked under --release=fast.
