@@ -34,6 +34,6 @@ sub main()
 # error: 19:8: does not fit in `Int`
 # error: 20:1: a module-level binding is a constant; write `k = value`
 # error: 22:10: parameter `big` has the same name as the module-level declaration `big`
-# error: 26:3: cannot reassign fixed binding `later`
+# error: 26:3: cannot reassign constant `later`
 # error: 27:8: cannot move module-level `big` inside a function
 # error: 29:3: local `over` has the same name as the module-level declaration `over`

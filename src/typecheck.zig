@@ -969,7 +969,9 @@ const Checker = struct {
             // A fixed write borrow is lent and written through, never
             // pointed elsewhere.
             .local => if (sym.flags.fixed and self.ctx.types.get(sym.ty) != .borrow_write) {
-                try self.err(pos, "cannot {s} fixed binding `{s}` (bound with `=!`)", .{ verb, name });
+                if (sym.scope == self.module_scope) {
+                    try self.err(pos, "cannot {s} constant `{s}`", .{ verb, name });
+                } else try self.err(pos, "cannot {s} fixed binding `{s}` (bound with `=!`)", .{ verb, name });
                 return false;
             } else if (sym.flags.pattern_bound and self.ctx.types.get(sym.ty) == .borrow_write) {
                 // A write borrow a match that only reads its subject binds

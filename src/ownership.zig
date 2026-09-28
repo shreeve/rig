@@ -2264,6 +2264,11 @@ pub const Checker = struct {
             try self.note(v.decl, "`{s}` was bound here as a closure", .{v.name});
             return;
         }
+        if (v.fixed and self.isGlobal(id)) {
+            try self.err(pos, "cannot reassign constant `{s}`", .{v.name});
+            try self.note(v.decl, "`{s}` is declared here", .{v.name});
+            return;
+        }
         if (v.fixed) {
             try self.err(pos, "cannot reassign fixed binding `{s}`", .{v.name});
             try self.note(v.decl, "`{s}` was bound here with `=!`", .{v.name});
