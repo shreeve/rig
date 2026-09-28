@@ -8,7 +8,9 @@
 //! `set` declares or reassigns, and the type of every expression.
 //!
 //! - A binding is `const` unless it is reassigned, written through
-//!   (`!x`, `x.f = ...`), or has a type whose methods take `*Self`.
+//!   (`!x`, `x.f = ...`), holds a Cell or a value with drop glue (whose
+//!   methods take `*Self`), or has a compile-time-known initializer,
+//!   which Zig would otherwise fold at compile time.
 //! - A resource binding (`*T`, `~T`, a value with drop glue, or an
 //!   optional of one) is dropped at scope exit by a `defer`. When the
 //!   binding may be moved, dropped, or returned, the defer tests a
@@ -1057,12 +1059,12 @@ pub const Emitter = struct {
         // one lives in mutable storage.
         const needs_ptr_self = local.kind == .value or local.kind == .optional or
             (ty != null and sema.holdsCellByValue(self.sema, ty.?));
-        // A constant initializer would make a Zig `const` compile-time
-        // known, and Zig would then evaluate later arithmetic on it at
-        // compile time; Rig treats it as a run-time value.
         // Assigning a write borrow writes through it, leaving the
         // pointer as it is.
         const rebound = s.flags.reassigned and !(ty != null and sema.assignWritesThrough(self.sema, ty.?));
+        // A constant initializer would make a Zig `const` compile-time
+        // known, and Zig would then evaluate later arithmetic on it at
+        // compile time; Rig treats it as a run-time value.
         const is_var = rebound or (!holds_ptr and (s.flags.written or needs_ptr_self or
             (!s.flags.comptime_known and (isZigComptimeIn(self, expr, 0) or self.sema.const_ints.contains(sym)))));
 
@@ -3699,10 +3701,6 @@ pub const Emitter = struct {
             return self.w.writeAll(" })");
         };
 
-        // `set` / `replace` change a Cell through any path to it: the
-        // receiver's address, which may be a `*const` read borrow, is
-        // cast to a mutable pointer. Sema keeps every Cell in mutable
-        // storage, so the cast is sound.
         // A Cell holding a Vec answers the Vec's members.
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isCellVecTy(t)) {
             const m = self.srcText(ir.Member.name(callee));
@@ -3728,6 +3726,10 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
         };
+        // `set` / `replace` change a Cell through any path to it: the
+        // receiver's address, which may be a `*const` read borrow, is
+        // cast to a mutable pointer. Sema keeps every Cell in mutable
+        // storage, so the cast is sound.
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.sema.cell_sym_id)) {
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
@@ -4615,7 +4617,6 @@ pub const Emitter = struct {
         try self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
     }
 
-    /// The value type a closure literal's body produces, or null.
     /// Whether a closure's body yields its value: not a `sub`'s, even a
     /// fallible one (`Void!`).
     fn lambdaYields(self: *Emitter, lambda: Sexp) bool {
@@ -4623,6 +4624,7 @@ pub const Emitter = struct {
         return self.lambdaReturn(lambda) != null and !f.is_sub;
     }
 
+    /// The value type a closure literal's body produces, or null.
     fn lambdaReturn(self: *Emitter, lambda: Sexp) ?TypeId {
         const f = self.fnType(self.typeOf(lambda)) orelse return null;
         return switch (self.sema.types.get(f.returns)) {
@@ -5258,7 +5260,6 @@ fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
     return t.len > 0;
 }
 
-/// `e` without the borrow sigils around it.
 /// Whether a `match !x` binding of a field of type `ty` points at the
 /// field: every field but a borrow or slice, which is bound as it is.
 fn fieldIsPointee(ctx: *const sema.SemContext, ty: TypeId) bool {
@@ -5268,6 +5269,7 @@ fn fieldIsPointee(ctx: *const sema.SemContext, ty: TypeId) bool {
     };
 }
 
+/// `e` without the borrow sigils around it.
 fn unborrowed(e: Sexp) Sexp {
     var x = e;
     while (x.isKind(.read) or x.isKind(.write)) x = ir.get(x, .operand);
