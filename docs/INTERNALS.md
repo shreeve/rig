@@ -325,6 +325,7 @@ sub         name:leaf tparams:group? params:group? body:block
 set         op:tag(fixed|shadow|move|"+="|...)? target type? value
 for         mode:tag(iter|read|write|move) var:leaf index:leaf? source body:block else:block?
 match       subject ...arms:arm
+arm         pattern guard? body
 call        callee ...args
 "+", "-", "*", "/", "%"   left right
 ```
@@ -346,6 +347,11 @@ A few kinds serve more than one surface form:
   assignment.
 - `for`'s `mode` is `iter` from the grammar; the Parser wrapper turns
   `for x in ?xs` / `!xs` / `<xs` into `read`, `write`, `move`.
+- `arm`'s `guard` is the condition of `pattern if cond =>`, or `_`; its
+  `pattern` is `(alt_pattern p...)` for alternatives (`1, 2 =>`). A
+  `variant_pattern` binding is a name, or `(kwarg field name)` for a
+  field bound by name (`.rect(w: a)`), which the checker rejects as
+  not supported yet.
 - `lambda`'s `captures` is a `(captures cap...)` node the Parser wrapper
   builds from the bar list (the one `@wrapper` kind), or `_`.
 - `weak` is both `~x` and the type `~T`; `member` is both `a.b` and the
@@ -902,7 +908,11 @@ lower is an internal error: sema must have rejected it.
   captures copy the payload (`match e`, `match ?e`), point into it
   (`|*p|` for `match !e`), or own it (`match <e`: each bound field
   becomes an owned local with its drop guard, and the rest is dropped
-  by a `defer` in the prong). A loop used as
+  by a `defer` in the prong). Alternatives are one prong's list of
+  items. A Zig `switch` has no guards, so a match with a guarded arm
+  first picks its arm in a labeled block (one `if` per arm, testing the
+  pattern with `==` or a range comparison, then the guard over the
+  bindings it names), then switches on the arm's index. A loop used as
   a value (one a `break` leaves with a value) becomes a labeled block
   holding the loop without its `else`, then `break :block else_value`;
   each `break v` leaves the block, so the `else` value is reached only

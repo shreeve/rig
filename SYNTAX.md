@@ -1123,9 +1123,29 @@ first matching arm runs; there is no fallthrough.
 | `lo..hi` | an integer in `lo` up to, not including, `hi` |
 | `_` | everything else |
 | a name | everything else, bound to that name |
+| `p, q` | either alternative (Rust's `p \| q`); they bind no names |
+| `p if cond` | `p`, when the guard `cond` holds (Rust's match guard) |
 
 A `match` whose value is used must be exhaustive; a statement `match`
-need not be. Duplicate and unreachable arms are errors.
+need not be. Duplicate and unreachable arms are errors. A guard may
+read the pattern's bindings; when it fails, matching goes on with the
+next arm, and a guarded arm does not count toward exhaustiveness.
+
+```rig
+fun kind(n: Int) -> String
+  match n
+    0, 1 => "unit"
+    k if k < 0 => "negative"
+    2..10 => "small"
+    _ => "large"
+
+sub main
+  print(kind(1), kind(-4), kind(7), kind(99))
+```
+
+```output
+unit negative small large
+```
 
 The subject's sigil says what the arms may do with the payload, as it
 does for a `for` source: `match e` and `match ?e` read the fields,
@@ -3393,7 +3413,7 @@ expr      = if | while | for | match | closure | value
 if        = "if" value block ["else" (block | if)]
 while     = "while" value [":" step] block ["else" block]
 for       = "for" name ["," name] "in" ["?" | "!" | "<"] value block ["else" block]
-match     = "match" value INDENT (pattern ("=>" simple | block))* DEDENT
+match     = "match" value INDENT (pattern, ... ["if" value] ("=>" simple | block))* DEDENT
 pattern   = "." name ["(" name, ... ")"] | integer | "-" integer
           | "true" | "false" | integer ".." integer | "_" | name
 closure   = ["*"] "|" (("+" | "<" | "~") name | name [":" type]), ... "|" (expr | command | block)

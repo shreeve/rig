@@ -4289,6 +4289,7 @@ const Coverage = struct {
                     for (ir.Match.arms(e)) |arm| {
                         const pat = ir.Arm.pattern(arm);
                         if (pat.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(pat)) |b| self.expectName(b);
+                        if (ir.Arm.guard(arm) != .nil) self.expr(ir.Arm.guard(arm));
                         self.expr(ir.Arm.body(arm));
                     }
                 },

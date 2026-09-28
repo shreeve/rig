@@ -2280,11 +2280,48 @@ enums, integers, and `Bool`.
 | `lo..hi` | an integer from `lo` up to, not including, `hi` (constant bounds) |
 | `_` | everything else |
 | any other name | everything else, binding the value to the name |
+| `p, q` | any of the alternatives, which bind no names |
+| `p if cond` | what `p` matches, when `cond` holds |
 
 An arm is `pattern => statement` or a pattern followed by an indented
 block. A match whose value is used must cover every value; a statement
 match need not, and then runs no arm for the rest. Duplicate and
-unreachable arms are rejected. A range pattern is half-open like every
+unreachable arms are rejected.
+
+A guard `if cond` after a pattern is a `Bool` that may read the
+pattern's bindings; when it is false, the later arms are tried, as if
+the arm's pattern had not matched. A guard moves nothing, and a guarded
+arm covers none of its values: a later arm may repeat its pattern, and
+a match whose value is used still needs arms for them. Alternatives
+are literals, ranges, or variants; since which one matched would decide
+what a name held, they bind none (`_` fills a payload field), and none
+may be a catch-all.
+
+```rig
+enum Shape
+  circle(r: Int)
+  square(s: Int)
+  point
+
+fun describe(s: Shape) -> String
+  match s
+    .circle(r) if r > 10 => "big circle"
+    .circle(_), .square(_) => "small shape"
+    .point => "point"
+
+sub main
+  print(describe(.circle(r: 20)), describe(.square(s: 1)), describe(.point))
+  match 4
+    1, 2, 3 => print("low")
+    n if n % 2 == 0 => print("even", n)
+    _ => print("other")
+```
+
+```output
+big circle small shape point
+even 4
+```
+ A range pattern is half-open like every
 range, so `0..10` matches 0 through 9, and its end may be one past the
 type's largest value: `100..256` covers the rest of a `U8`.
 
@@ -4645,6 +4682,7 @@ The rest parse, and the checker rejects them as not supported yet
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |
 | an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |
+| a payload field bound by name, `.rect(w: a, h: b)` | `` binding a payload field by name is not supported yet `` |
 
 ```rig reject
 sub main

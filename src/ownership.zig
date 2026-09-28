@@ -3012,9 +3012,17 @@ pub const Checker = struct {
         var catch_all = false;
         for (ir.Match.arms(match)) |arm| {
             const pattern = ir.Arm.pattern(arm);
+            const guard = ir.Arm.guard(arm);
             const body = ir.Arm.body(arm);
             try self.pushScopeFor(.block, arm);
-            if (try self.bindPattern(pattern, info, scrut_value)) catch_all = true;
+            // A guarded arm may not run for the values its pattern
+            // matches. The guard reads; the borrows it takes end with it.
+            if (try self.bindPattern(pattern, info, scrut_value) and guard == .nil) catch_all = true;
+            if (guard != .nil) {
+                const temps_start = self.temps.items.len;
+                _ = try self.walk(guard);
+                self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+            }
             var v = try self.walkTailBranch(body, tail_ctx);
             v = try self.checkValueEscapesScope(v);
             try self.popScope();

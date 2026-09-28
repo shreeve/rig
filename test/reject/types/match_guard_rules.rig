@@ -1,0 +1,34 @@
+# A guard is a Bool that moves nothing, and a guarded arm covers none of
+# its values: a value-position match still needs an arm for them.
+
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+fun eat(b: *B) -> Bool
+  b.n > 0
+
+fun size(n: Int) -> String
+  match n
+    k if k > 0 => "positive"
+    0 => "zero"
+
+sub main
+  s: Slot = .full(b: *B(n: 1))
+  match <s
+    .full(b) if eat(<b) => print("ate")
+    _ => print("other")
+  match 3
+    n if n => print(n)
+    _ => print("other")
+  print(size(1))
+
+# error: 18:9: value-position `match` on `Int` needs a default arm
+# error: 25:21: a guard cannot move a value
+# error: 28:10: type mismatch: expected `Bool`, got `Int`

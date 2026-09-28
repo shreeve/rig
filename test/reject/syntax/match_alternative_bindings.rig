@@ -1,0 +1,16 @@
+# An arm with alternatives binds no names, and none of its alternatives
+# may match everything.
+
+enum Shape
+  circle(r: Int)
+  square(s: Int)
+
+sub main
+  s = Shape.circle(r: 1)
+  match s
+    .circle(r), .square(r) => print(r)
+  match 3
+    1, n => print(n)
+
+# error: 11:13: an arm with alternatives cannot bind names
+# error: 13:8: `n` matches every value, so the other alternatives never matter

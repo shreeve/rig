@@ -1,0 +1,12 @@
+# Binding payload fields by name is reserved: the syntax parses, and the
+# checker says it is not supported yet.
+
+enum Shape
+  rect(w: Int, h: Int)
+
+sub main
+  s = Shape.rect(w: 1, h: 2)
+  match s
+    .rect(w: a, h: b) => print(a, b)
+
+# error: 10:11: binding a payload field by name is not supported yet; bind the fields in order: `.rect(a, b)`

@@ -1495,14 +1495,26 @@ const Checker = struct {
             const prev = self.enter(arm);
             defer self.scope = prev;
             const pattern = ir.Arm.pattern(arm);
+            const guard = ir.Arm.guard(arm);
             if (cov.has_default or self.coversAll(&cov, scrutinee)) {
                 try self.errAt(pattern, "this arm never runs: the arms before it cover every value", .{});
             }
-            try self.checkPattern(pattern, scrutinee, &cov, mode);
+            const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
+            if (alts.len > 1) try self.checkAlternatives(alts);
+            // A guarded arm may not run for the values its pattern
+            // matches, so it covers none of them; later arms may repeat
+            // its pattern.
+            var guarded: MatchCoverage = if (guard != .nil) try cov.clone(self.ctx.allocator) else .{};
+            defer guarded.deinit(self.ctx.allocator);
+            for (alts) |alt| try self.checkPattern(alt, scrutinee, if (guard != .nil) &guarded else &cov, mode);
             if (viewed) |v| if (pattern.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(pattern)) |b| {
                 if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
             };
             if (read_only) try self.rejectWriteBorrowBindings(pattern);
+            if (guard != .nil) {
+                try self.checkBoolOperand(guard);
+                if (findMove(guard)) |m| try self.errAt(m, "a guard cannot move a value: when it fails, a later arm matches the same value", .{});
+            }
             const body = ir.Arm.body(arm);
             switch (position) {
                 .statement => try self.checkStmt(body),
@@ -1540,7 +1552,40 @@ const Checker = struct {
             c.variants.deinit(a);
             c.ints.deinit(a);
         }
+
+        fn clone(c: *const MatchCoverage, a: std.mem.Allocator) Error!MatchCoverage {
+            var variants = try c.variants.clone(a);
+            errdefer variants.deinit(a);
+            return .{ .variants = variants, .bools = c.bools, .ints = try c.ints.clone(a), .has_default = c.has_default };
+        }
     };
+
+    /// `a, b => ...`: each alternative is a literal, range, or variant;
+    /// none binds a name or matches everything.
+    fn checkAlternatives(self: *Checker, alts: []const Sexp) Error!void {
+        var named = false;
+        for (alts) |alt| {
+            if (alt == .src and !isLiteralText(self.text(alt))) {
+                try self.errAt(alt, "`{s}` matches every value, so the other alternatives never matter; give it an arm of its own", .{self.text(alt)});
+                self.poisonBinding(alt);
+                continue;
+            }
+            if (!alt.isKind(.variant_pattern)) continue;
+            for (ir.VariantPattern.bindings(alt)) |b| {
+                if (b == .src and std.mem.eql(u8, self.text(b), "_")) continue;
+                if (!named) try self.errAt(b, "an arm with alternatives cannot bind names: which alternative matched would decide what they hold; write `_`, or give each alternative an arm of its own", .{});
+                named = true;
+                self.poisonBinding(b);
+            }
+        }
+    }
+
+    /// Give a rejected pattern binding no type, so its uses report
+    /// nothing more.
+    fn poisonBinding(self: *Checker, b: Sexp) void {
+        const sym = self.ctx.symbolOf(b) orelse return;
+        self.ctx.symbols.items[sym].ty = self.t().invalid_id;
+    }
 
     /// Whether the arms so far match every value of the scrutinee type.
     fn coversAll(self: *Checker, cov: *MatchCoverage, scrutinee: TypeId) bool {
@@ -1683,6 +1728,15 @@ const Checker = struct {
         const name = ir.VariantPattern.name(pattern);
         const vname = self.text(name);
         const vpos = name.src.pos;
+        for (ir.VariantPattern.bindings(pattern)) |b| if (b.isKind(.kwarg)) {
+            try self.errAt(b, "binding a payload field by name is not supported yet; bind the fields in order: `.{s}(a, b)`", .{vname});
+            try self.recordCovered(vname, vpos, covered);
+            for (ir.VariantPattern.bindings(pattern)) |c| {
+                const leaf = if (c.isKind(.kwarg)) ir.Kwarg.value(c) else c;
+                if (self.ctx.symbolOf(leaf)) |sym| self.ctx.symbols.items[sym].ty = self.t().invalid_id;
+            }
+            return;
+        };
         try self.recordCovered(vname, vpos, covered);
         if (sema.unwrapBorrows(self.ctx, scrutinee) == self.t().any_error_id) {
             try self.err(vpos, "an error has no payload to destructure; match it as `.{s}`", .{vname});
@@ -6842,6 +6896,14 @@ fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
 /// `x` of `?x`, `!x`, or `<x`; any other node as it is.
 fn unborrowedNode(e: Sexp) Sexp {
     return if (e.isKind(.read) or e.isKind(.write) or e.isKind(.move)) ir.get(e, .operand) else e;
+}
+
+/// The first `<x` in `e`, if any.
+fn findMove(e: Sexp) ?Sexp {
+    if (e != .list) return null;
+    if (e.isKind(.move)) return e;
+    for (e.items()) |c| if (findMove(c)) |m| return m;
+    return null;
 }
 
 fn isBorrow(ctx: *const SemContext, ty: TypeId) bool {
