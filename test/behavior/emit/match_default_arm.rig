@@ -7,8 +7,8 @@ enum Color
 
 sub show(c: Color)
   match c
-    .red => print "red"
-    other => print "not red:", other
+    .red => print("red")
+    other => print("not red:", other)
 
 sub main()
   show(.red)

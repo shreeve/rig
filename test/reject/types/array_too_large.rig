@@ -31,7 +31,7 @@ enum Color
 struct Paint
   shades: [9000000]Color?
 
-BIG =! [4000000000 of 7]
+BIG = [4000000000 of 7]
 
 fun zeros[n: Int] -> [n]Int
   [n of 0]
@@ -54,7 +54,7 @@ sub main()
 
 # error: 32:11: `[9000000]Color?` takes 18000000 bytes
 # error: 12:8: `Two` takes 9600000 bytes; a value takes at most 8388608 (8 MiB)
-# error: 34:8: `[4000000000]Int` takes 32000000000 bytes
+# error: 34:7: `[4000000000]Int` takes 32000000000 bytes
 # error: 44:6: `[4294967295]U8` takes 4294967295 bytes
 # error: 45:6: `[2]Half` takes 9600000 bytes
 # error: 47:7: `Ring[Int, 1048577]` makes `[1048577]Int`, which takes 8388616 bytes

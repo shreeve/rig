@@ -1,0 +1,18 @@
+# A conversion of a constant is a constant of the target type, so
+# arithmetic on it is checked at compile time like any constant's.
+
+sub main()
+  a = U8.max + U8(1)
+  b = 7 / U128(0)
+  c = I128(1) << 127
+  d = I8.min / I8(-1)
+  e = U128(0) - 1
+  f = U8(3) * 100
+  print(a, b, c, d, e, f)
+
+# error: 5:7: this constant expression overflows; its value does not fit in `U8`
+# error: 6:11: division by zero
+# error: 7:7: this constant expression overflows; its value does not fit in `I128`
+# error: 8:7: this constant expression overflows; its value does not fit in `I8`
+# error: 9:7: this constant expression overflows; its value does not fit in `U128`
+# error: 10:7: this constant expression overflows; its value does not fit in `U8`

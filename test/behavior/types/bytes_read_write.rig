@@ -12,7 +12,7 @@ fun first(b: []U8, e: Int) -> U16
 fun get[e: Endian](b: []U8) -> U32
   b.read[U32, e](0)
 
-ORDER =! Endian.big
+ORDER = Endian.big
 
 sub main()
   b: [8]U8 = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0]

@@ -1,4 +1,4 @@
-# A module-level constant, `name =! value`, is known at compile time and
+# A module-level constant, `name = value`, is known at compile time and
 # readable from every function, wherever it is declared.
 
 enum Mode
@@ -8,15 +8,15 @@ enum Mode
 fun early(k: Int) -> Int
   k * limit
 
-limit =! 10
-half =! limit / 2
-name =! "rig"
-ratio =! 2.5
-on =! true
-mode: Mode =! .slow
-small: U8 =! 200
-xs =! [1, 2, 3]
-neg =! -limit
+limit = 10
+half = limit / 2
+name = "rig"
+ratio = 2.5
+on = true
+mode: Mode = .slow
+small: U8 = 200
+xs = [1, 2, 3]
+neg = -limit
 
 fun rep[n: Int](x: Int) -> Int
   x * n

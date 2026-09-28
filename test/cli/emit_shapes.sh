@@ -5,7 +5,7 @@ source "$ROOT/test/cli/_lib.sh"
 
 cat >hello.rig <<'EOF'
 sub main()
-  print "hello, rig"
+  print("hello, rig")
 EOF
 out=$("$RIG" emit hello.rig 2>/dev/null) || fail "rig emit hello.rig"
 expect_has "$out" 'pub fn main() void' "hello"

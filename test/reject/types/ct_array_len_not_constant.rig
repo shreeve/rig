@@ -2,7 +2,7 @@
 # value, a float, a call, or arithmetic on a compile-time parameter, which Rig
 # cannot check for overflow at each instance.
 
-HALF =! 2.5
+HALF = 2.5
 
 fun grow[n: Int](xs: [n + 1]Int) -> Int
   1

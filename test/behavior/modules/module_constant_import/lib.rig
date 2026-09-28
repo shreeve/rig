@@ -2,10 +2,10 @@ pub enum Mode
   fast
   slow
 
-pub limit =! 10
-pub mode: Mode =! .fast
-pub names =! ["a", "b"]
-secret =! 3
+pub limit = 10
+pub mode: Mode = .fast
+pub names = ["a", "b"]
+secret = 3
 
 pub fun get() -> Int
   limit + secret

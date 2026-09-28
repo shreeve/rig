@@ -3,7 +3,7 @@
 # another parameter, or a method of the type, and no local or parameter
 # inside the type may reuse it.
 
-LIMIT =! 4
+LIMIT = 4
 
 struct A[T, Int: Int]
   items: [2]T

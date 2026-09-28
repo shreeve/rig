@@ -2,8 +2,8 @@
 # integer, and the element is plain data. Without an expected type its
 # type is `[n]T` for `x`'s type.
 
-N =! 3
-ZEROS =! [4 of 0]
+N = 3
+ZEROS = [4 of 0]
 
 struct Point
   x: Int

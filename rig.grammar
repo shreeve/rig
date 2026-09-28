@@ -21,16 +21,16 @@
 #     everywhere else;
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
 #     open range (`xs[a..]`, `xs[..]`);
-#   * classifies the characters whose meaning depends on spacing. The rule
-#     is the same for all of them: a character that touches its operand and
-#     not the preceding value is a prefix; otherwise it is an infix
-#     operator or a suffix.
+#   * classifies the characters that several forms share by position,
+#     never by spacing: after a value one continues it, as an infix
+#     operator or a suffix; anywhere else it starts an operand, as a
+#     prefix, which must touch its operand.
 #
 #       <x +x ?x !x *x ~x -x         ownership sigils / negation
 #       |+a, b|  ||  *|a|            closure bar list (vs bitwise `|`)
 #       f(x) a[i] Vec[Int]           call / index or compile-time
-#                                    arguments (vs `f (x)`, `f [1, 2]`,
-#                                    which pass a new operand to `f`)
+#                                    arguments (vs grouping and array
+#                                    literals)
 #       .red                         enum literal (vs member access a.b)
 #       ?? return                    `??` before a jump (vs the operator)
 #       T? T! x! x?                  type / propagation suffixes
@@ -101,6 +101,9 @@ tokens
     star            # *
     slash           # /
     percent         # %
+    plus_wrap       # +%  wrapping add
+    minus_wrap      # -%  wrapping subtract
+    star_wrap       # *%  wrapping multiply
     power           # ** (not a Rig operator; lexed so it can be rejected)
     eq              # ==
     ne              # !=
@@ -132,9 +135,12 @@ tokens
     caret_assign    # ^=
     lshift_assign   # <<=
     rshift_assign   # >>=
+    plus_wrap_assign   # +%=
+    minus_wrap_assign  # -%=
+    star_wrap_assign   # *%=
 
     # Punctuation
-    lparen          # (  grouping, parameter list, or a new operand
+    lparen          # (  grouping, or a parameter list
     rparen          # )
     lbracket        # [  array literal or slice/array type
     rbracket        # ]
@@ -151,9 +157,9 @@ tokens
     newline
 
     # Rewriter-classified tokens
-    lparen_call     # (  touching the preceding value: call
-    lbracket_index  # [  touching the preceding value: index, or
-                    #    compile-time arguments and parameters
+    lparen_call     # (  after a value: call
+    lbracket_index  # [  after a value: index, or compile-time
+                    #    arguments and parameters
     post_if         # if  postfix guard: `stmt if cond`
     ternary_if      # if  inline ternary: `a if cond else b`
     bar_capture     # |   closure bar list delimiter: `|+a, b|`
@@ -205,6 +211,12 @@ tokens
 [0-9] [0-9a-zA-Z_]*                         → err
 
 "<<="                                       → lshift_assign
+"+%="                                       → plus_wrap_assign
+"-%="                                       → minus_wrap_assign
+"*%="                                       → star_wrap_assign
+"+%"                                        → plus_wrap
+"-%"                                        → minus_wrap
+"*%"                                        → star_wrap
 ">>="                                       → rshift_assign
 "**"                                        → power
 "=="                                        → eq
@@ -289,7 +301,7 @@ tokens
     generic_struct, generic_enum name:leaf tparams:group ...members
     type                        name:leaf type
     test                        name:leaf body:block
-    pub                         decl:fun|sub|struct|enum|errors|type|generic_struct|generic_enum|test|set
+    pub                         decl
     extern                      name:leaf type
     extern_fun                  name:leaf params:group? returns?
     extern_sub                  name:leaf params:group?
@@ -303,7 +315,7 @@ tokens
     variant                     name:leaf params:group
 
     # Bindings: `op` is the binding kind (see BindingKind in src/rig.zig)
-    set                         op:tag(fixed|shadow|"+="|"-="|"*="|"/="|"%="|"&="|"|="|"^="|"<<="|">>=")? target type? value
+    set                         op:tag(fixed|shadow|"+="|"-="|"*="|"/="|"%="|"+%="|"-%="|"*%="|"&="|"|="|"^="|"<<="|">>=")? target type? value
     drop                        name:leaf
 
     # Control flow
@@ -343,6 +355,7 @@ tokens
 
     # Operators
     "+", "-", "*", "/", "%"     left right
+    "+%", "-%", "*%"            left right
     "==", "!=", "<", ">", "<=", ">="  left right
     "&", "|", "^", "<<", ">>"   left right
     "??", and, or               left right
@@ -383,6 +396,7 @@ tokens
     TRAIT: "`trait`", WHEN: "`when`", WHERE: "`where`", YIELD: "`yield`"
     "=": "`=`", "+=": "`+=`", "-=": "`-=`", "*=": "`*=`", "/=": "`/=`", "%=": "`%=`"
     "&=": "`&=`", "|=": "`|=`", "^=": "`^=`", "<<=": "`<<=`", ">>=": "`>>=`", "=!": "`=!`"
+    "+%=": "`+%=`", "-%=": "`-%=`", "*%=": "`*%=`", "+%": "`+%`", "-%": "`-%`", "*%": "`*%`"
     ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
     "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
     "@": "`@`", "==": "`==`", "!=": "`!=`", "<": "`<`", ">": "`>`", "<=": "`<=`"
@@ -420,8 +434,7 @@ stmt     = use
          | simple
          | simple POST_IF cond:value                → (if then:(block 1))
 
-# A simple statement: an expression, a paren-free call, a binding, or a
-# flow statement. Only these take a postfix guard (`return x if done`).
+# A simple statement: an expression, a binding, or a flow statement. Only these take a postfix guard (`return x if done`).
 # A compound assignment's `op` is the tag its operator names (`+=`).
 simple   = tail
          | assign
@@ -439,7 +452,7 @@ simple   = tail
 
 assign   = target:postfix "="   value:rhs           → (set)
          | target:postfix
-           op:("+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=")
+           op:("+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%=" | "*%=" | "&=" | "|=" | "^=" | "<<=" | ">>=")
            value:rhs                                → (set)
 
 # ==============================================================================
@@ -450,8 +463,11 @@ decl     = defn
          | PUB decl:defn                            → (pub)
          | PUB decl:const                           → (pub)
 
-# A public module-level constant.
-const    = target:name "=!" value:rhs               → (set op:fixed)
+# A public module-level constant, `pub LIMIT = 4`. A `=!` parses too, so
+# that the Parser wrapper can say a module-level binding needs none.
+const    = target:name "="  value:rhs               → (set)
+         | target:name ":" type:type "="  value:rhs  → (set)
+         | target:name "=!" value:rhs               → (set op:fixed)
          | target:name ":" type:type "=!" value:rhs  → (set op:fixed)
 
 defn     = fun | sub | enum | struct | errors | typedef | test
@@ -469,8 +485,8 @@ params   = !lparen fields [","] ")"                 → (...2)
 
 lparen   = LPAREN_CALL | "("
 
-# Compile-time parameters, in brackets touching the declared name: a
-# bare name is a type parameter, `name: Type` a compile-time value.
+# Compile-time parameters, in brackets after the declared name: a bare
+# name is a type parameter, `name: Type` a compile-time value.
 tparams  = LBRACKET_INDEX tfields [","] "]"         → (...2)
 
 tfields  = tfield                                   → (1)
@@ -515,6 +531,19 @@ member   = field
          | fun
          | sub
          | DROP params:params body:block            → (drop_decl)  # `drop(!self)`
+         | PUB decl:pubmem                          → (pub)        # `pub len: Int`
+
+# A member other modules may use: a field or a method. A variant or a
+# `drop` body parses too, so that the Parser wrapper can say it takes no
+# `pub`.
+pubmem   = name:fname ":" type:type                 → (:)
+         | name:fname ":" type:type "=" value:expr  → (default)
+         | fun
+         | sub
+         | name
+         | name:name "=" value:expr                 → (valued)
+         | name:name params:params                  → (variant)
+         | DROP params:params body:block            → (drop_decl)
 
 test     = TEST name:(STRING_DQ | STRING_SQ) body:block → (test)
 
@@ -527,7 +556,7 @@ ext_sub  = EXTERN SUB name:name [params:params]     → (extern_sub)
 # TYPES
 # ==============================================================================
 #
-# The handle sigils `*` and `~` bind to the type they touch, tighter than
+# The handle sigils `*` and `~` bind to the type after them, tighter than
 # the suffixes: `*User?` is an optional shared handle, and a handle to an
 # optional is `*(User?)`. A borrow applies to the whole type after it,
 # suffixes included: `?User?` borrows an optional User. The element of a
@@ -548,8 +577,8 @@ ptype    = "[" "]" type:inner                       → (slice)
          | SHARE_PFX type:ptype                     → (shared)     # `*fun(Int) -> Int`
          | "~"       operand:ptype                  → (weak)
 
-# An element type after `[]` or `[N]`. A nested prefix's `[` touches the
-# `]` before it, so the lexer marks it as an index bracket.
+# An element type after `[]` or `[N]`. A nested prefix's `[` follows
+# the `]` before it, so the lexer marks it as an index bracket.
 inner    = type
          | LBRACKET_INDEX "]" type:inner             → (slice)
          | LBRACKET_INDEX size:dim "]" type:inner    → (array_type)
@@ -565,7 +594,7 @@ thandle  = SHARE_PFX type:thandle                   → (shared)
 tatom    = tname
          | name:tname LBRACKET_INDEX args:types [","] "]" → (generic_inst)
          | "(" type ")"                             → 2
-         | LPAREN_CALL type ")"                     → 2      # `[2](N?)?`: touching `]`
+         | LPAREN_CALL type ")"                     → 2      # `[2](N?)?`: after `]`
 
 # A named type, of this module or another: `Point`, `geo.Point`. Its
 # instance names it the same way: `Wrap[Int]`, `lib.Wrap[Int]`.
@@ -622,18 +651,14 @@ cunit    = INTEGER
 # EXPRESSIONS
 # ==============================================================================
 #
-#   tail    an expression, a paren-free call, or a closure whose body is one:
-#           a statement or a match arm. A paren-free call is a command,
-#           never a value.
-#   rhs     an expression, or a closure whose body is a paren-free call:
-#           the right side of a binding, `return` and `break`. Inside ( )
-#           only this closure may appear (`cclosure`).
+#   tail    an expression, or a closure whose body is an assignment: a
+#           statement or a match arm.
+#   rhs     the same: the right side of a binding, `return` and `break`.
 #   expr    anything that yields a value, including block forms.
 #   value   an expression without a block or closure: conditions, sources,
 #           subjects, operands, ternary branches.
 
 tail     = expr
-         | cmd
          | cclosure
 
 rhs      = expr
@@ -670,31 +695,10 @@ neg      = NOT operand:neg                          → (not)
          | value:@infix AS name:name                → (as)
          | @infix
 
-# --- Paren-free calls ---------------------------------------------------------
-#
-# `print p.x` is print(p.x); `send encode <packet` is send(encode(<packet)).
-# A paren-free call is a command: a statement, a match arm, a closure
-# body, or the last argument of another paren-free call. Anywhere a
-# value is expected, a call takes parentheses. A leading `?`, `!`, or
-# `<` is the receiver's mode, which the Parser wrapper moves onto the
-# receiver: `!v.push 3`.
-
-cmd      = callee:postfix args:cmdargs              → (call)
-         | READ_PFX  operand:cmd                    → (read)
-         | WRITE_PFX operand:cmd                    → (write)
-         | MOVE_PFX  operand:cmd                    → (move)
-
-# These argument lists are written out rather than `L(expr)`:
-# `L(expr) "," cmdtail` conflicts on the comma.
-cmdargs  = exprs                                    → 1
-         | exprs "," cmdtail                        → (...1 3)
-         | cmdtail                                  → (1)
-
+# Written out rather than `L(expr)`, which conflicts with a trailing
+# comma.
 exprs    = expr                                     → (1)
          | exprs "," expr                           → (...1 3)
-
-cmdtail  = cmd
-         | cclosure
 
 # --- Control flow -------------------------------------------------------------
 
@@ -781,12 +785,11 @@ closure  = lambda
 lambda   = params:bars body:block                   → (lambda)
          | params:bars expr                         → (lambda body:(block 2))
 
-# A closure whose inline body is a paren-free call or an assignment.
+# A closure whose inline body is an assignment (`|!t, n| t += n`).
 cclosure = clambda
          | SHARE_PFX operand:clambda                → (share)
 
-clambda  = params:bars cmd                          → (lambda body:(block 2))
-         | params:bars assign                       → (lambda body:(block 2))
+clambda  = params:bars assign                       → (lambda body:(block 2))
 
 bars     = BAR_CAPTURE barents [","] BAR_CAPTURE    → (...2)
          | BAR_EMPTY                                → ()
@@ -879,5 +882,5 @@ atom     = name
     "^"  left
     "&"  left
     "<<" left, ">>" left
-    "+"  left, "-"  left
-    "*"  left, "/"  left, "%"  left
+    "+"  left, "-"  left, "+%" left, "-%" left
+    "*"  left, "/"  left, "%"  left, "*%" left

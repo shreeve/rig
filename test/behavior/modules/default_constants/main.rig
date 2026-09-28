@@ -1,0 +1,40 @@
+# Field and parameter defaults may name module constants, this module's
+# or an imported one; a field default may also be an empty or literal
+# constructor, made fresh for each value.
+use lib
+
+MAX = 3
+
+struct Stack
+  items: Vec[Int] = Vec()
+  names: Vec[String] = Vec[String]()
+  hits: Cell[Int] = Cell(0)
+  slots: [MAX]Int = [MAX of -1]
+  cap: Int = MAX
+  top: U8 = U8.max
+  far: Int = lib.LIMIT
+
+  sub push(!self, x: Int)
+    !self.items.push(x)
+    self.hits.set(self.hits.get() + 1)
+
+fun pad(s: String, width: Int = MAX, fill: Int = lib.LIMIT) -> Int
+  s.len + width + fill
+
+sub main()
+  a = Stack()
+  b = Stack(cap: 10)
+  !a.push(1)
+  !a.push(2)
+  !b.push(5)
+  print(a.items.len, b.items.len, a.hits.get(), b.hits.get(), a.slots, a.cap, b.cap, a.top, a.far, a.names.len)
+  c = lib.Config()
+  !c.tags.push("x")
+  d = lib.Config(size: 1)
+  print(c.size, c.label, c.rate, c.tags.len, d.size, d.tags.len)
+  print(pad("ab"), pad("ab", 1), pad("ab", fill: 0), lib.scaled(2), lib.scaled(2, 1), lib.scaled(1, rate: 1.0))
+
+# expect:
+# 2 1 2 1 [-1, -1, -1] 3 10 255 8 0
+# 8 lib 2.5 1 1 0
+# 13 11 5 40.0 5.0 8.0

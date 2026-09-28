@@ -1,0 +1,24 @@
+# Only a plain enum has integer values: a payload enum or an error is
+# rejected, as is a conversion to a float, and a constant variant's value
+# must fit the target type.
+
+enum Shape
+  dot
+  circle(r: Int)
+
+enum Status
+  ok = 200
+  huge = 300
+
+error Net
+  timeout
+
+sub main()
+  s: Shape = .dot
+  e: Net = .timeout
+  print(Int(s), Float(Status.ok), U8(Status.huge), U8(Status.ok), Int(e))
+
+# error: 19:13: `Int(x)` takes a plain enum's value; `Shape` has variants with payloads, which have no integer value
+# error: 19:23: `Float(x)` converts an enum's value to an integer type only; write `Float(Int(...))`
+# error: 19:38: `Status.huge` has the value 300, which does not fit in `U8`
+# error: 19:71: `Int(x)` converts a number; `x` has type `Net`

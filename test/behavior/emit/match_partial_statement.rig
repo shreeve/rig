@@ -9,8 +9,8 @@ enum Color
 sub main()
   c: Color = .red
   match c
-    .red => print "R"
-    .green => print "G"
+    .red => print("R")
+    .green => print("G")
 
 # expect:
 # R

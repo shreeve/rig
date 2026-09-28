@@ -10,7 +10,7 @@ sub send(p: Packet)
 sub run(cond: Bool)
   x = Packet(payload: 42)
   if cond
-    send <x
+    send(<x)
   else
     print(x.payload + 1)
 

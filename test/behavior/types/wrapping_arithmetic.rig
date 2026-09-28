@@ -1,0 +1,38 @@
+# `+%`, `-%`, and `*%` wrap around on overflow, in two's complement, for
+# any integer type; `+%=`, `-%=`, and `*%=` assign the wrapped result.
+
+fun fnv1a(s: String) -> U64
+  h: U64 = 14695981039346656037
+  for b in s
+    h ^= U64(b)
+    h *%= 1099511628211
+  h
+
+sub main()
+  a: U8 = 250
+  print(a +% 10, a -% 255, a *% 2)
+  i: I8 = 127
+  print(i +% 1, I8(-128) -% 1, i *% i)
+  n = 9223372036854775807
+  print(n +% 1)
+  m: U128 = 340282366920938463463374607431768211455
+  print(m +% 1, U128(0) -% 1 == m)
+  k: I128 = -170141183460469231731687303715884105728
+  print(k -% 1)
+  c: U16 = 65535
+  c +%= 2
+  c -%= 5
+  print(c)
+  print(fnv1a(""), fnv1a("a"), fnv1a("rig"))
+  # Constants wrap as the program does.
+  print(U8(200) +% 100, 255 +% 1)
+
+# expect:
+# 4 251 244
+# -128 127 1
+# -9223372036854775808
+# 0 true
+# 170141183460469231731687303715884105727
+# 65532
+# 14695981039346656037 12638187200555641996 9948945366585317705
+# 44 256

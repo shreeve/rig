@@ -1,8 +1,8 @@
 pub struct Point
-  x: Int
-  y: Int
+  pub x: Int
+  pub y: Int
 
-  fun sum(?self) -> Int
+  pub fun sum(?self) -> Int
     self.x + self.y
 
 pub fun origin() -> Point

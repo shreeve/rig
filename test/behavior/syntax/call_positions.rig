@@ -1,0 +1,59 @@
+# A call takes its parentheses wherever it stands: a statement, an
+# argument, a binding, `return`, a condition, a source, a subject, a
+# match arm, and a closure body.
+
+fun twice(n: Int) -> Int
+  n * 2
+
+fun add(a: Int, b: Int) -> Int
+  a + b
+
+sub each(n: Int, f: *sub(Int))
+  for i in 0..n
+    f(i)
+
+fun quad(n: Int) -> Int
+  return twice(twice(n))
+
+sub main()
+  # Statements and arguments.
+  print(add(1, 2))
+  print((1 + 2) * 3)
+  print(add(1, 2), add(3, 4))
+  print(twice(twice(1)))
+  # Values: bindings, `return`, conditions, sources, and subjects.
+  x = twice(5)
+  x += twice(1)
+  print(1, twice(-3), 5, x, quad(2))
+  if twice(x) > 20
+    print("big")
+  n = 3
+  while n > 0: n -= 1
+    print(n)
+  for i in [twice(1), twice(2)]
+    print(i)
+  match twice(1)
+    2 => print("two")
+    _ => print("other")
+  # Closure bodies.
+  each(2, *|i| print(i * 10))
+  (|+x| print(x))()
+  print(x - 1)
+
+# expect:
+# 3
+# 9
+# 3 7
+# 4
+# 1 -6 5 12 8
+# big
+# 3
+# 2
+# 1
+# 2
+# 4
+# two
+# 0
+# 10
+# 12
+# 11

@@ -1,0 +1,13 @@
+# A constant shift is checked against its type's width: in a 128-bit
+# type, a shift by 127 keeps its bits.
+
+K: U128 = 1
+TOP: U128 = K << 127
+
+sub main()
+  x: U128 = 1
+  y: I128 = -1
+  print(x << 127, y << 127, TOP)
+
+# expect:
+# 170141183460469231731687303715884105728 -170141183460469231731687303715884105728 170141183460469231731687303715884105728

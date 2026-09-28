@@ -10,7 +10,7 @@ sub main()
   print(rc.value)
   -rc
   -w
-  print "done"
+  print("done")
 
 # expect:
 # 7

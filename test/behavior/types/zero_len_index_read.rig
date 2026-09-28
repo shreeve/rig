@@ -2,7 +2,7 @@
 # a loop; an index into it, which can only be out of range, panics when
 # the program runs.
 
-Z =! 0
+Z = 0
 
 fun zeros[n: Int] -> [n]Int
   [n of 0]

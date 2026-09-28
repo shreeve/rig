@@ -1,0 +1,6 @@
+# `print "hi"` is not a call; the error names the fix.
+
+sub main()
+  print "hi"
+
+# error: 4:9: unexpected `"hi"`; `print` is called with parentheses: `print(...)`

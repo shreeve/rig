@@ -3,7 +3,7 @@
 sub main()
   x = 1
   new x = x + 1
-  print x
+  print(x)
 
 # expect:
 # 2

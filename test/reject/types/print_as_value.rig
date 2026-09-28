@@ -1,7 +1,7 @@
-# `print` is only special as a direct call; as a value it is unbound.
+# `print` is only special as a direct call; it is no value.
 
 sub main()
   x = print
   x(42)
 
-# error: use of unbound name `print`
+# error: 4:7: `print` is called with parentheses: `print(...)`

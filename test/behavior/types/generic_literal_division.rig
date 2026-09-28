@@ -1,6 +1,7 @@
 # Integer literals in arithmetic over a type parameter take its type in
-# each instance: `1 / 2` is `0.5` where `T` is `Float` and `0` where it
-# is `Int`.
+# each instance; a division of whole-number literals divides integers,
+# so `1 / 2` is `0` (see reject/types/generic_whole_division for a
+# float instance).
 
 struct Wrap[T]
   v: T
@@ -15,12 +16,16 @@ struct Wrap[T]
     y = self.v - 7 / 2
     y * (1 + 1) / 4 + -(3 / 2) % 2
 
+struct Scale[T]
+  v: T
+
+  fun scale(?self) -> T
+    self.v * 3 / 2
+
 sub main()
-  print(Wrap(v: 3.0).half(), Wrap(v: 3).half())
-  print(Wrap(v: 3.0).mix(), Wrap(v: 3).mix())
-  print(Wrap(v: 3.0).more(), Wrap(v: 3).more())
+  print(Wrap(v: 3).half(), Wrap(v: 3).mix(), Wrap(v: 3).more())
+  print(Scale(v: 3.0).scale(), Scale(v: U8(3)).scale())
 
 # expect:
-# 3.5 3
-# 7.5 7
-# -1.75 -1
+# 3 7 -1
+# 4.5 4

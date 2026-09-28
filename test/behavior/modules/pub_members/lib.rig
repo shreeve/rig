@@ -1,0 +1,36 @@
+pub struct Counter
+  pub label: String
+  pub step: Int = 1
+  count: Int
+
+  pub fun make(label: String) -> Counter
+    Counter(label: label, count: 0)
+
+  pub fun value(?self) -> Int
+    self.count
+
+  pub sub bump(!self)
+    self.count += self.step
+    self.note()
+
+  sub note(?self)
+    print("bumped", self.label, self.count)
+
+pub struct Pair[T]
+  pub a: T
+  pub b: T
+
+  pub fun first(?self) -> T
+    self.a
+
+pub enum Shape
+  circle(r: Int)
+  dot
+
+  pub fun size(?self) -> Int
+    match self
+      .circle(r) => r
+      .dot => 0
+
+pub fun boxed(label: String) -> Box[Counter]
+  Box(Counter.make(label))

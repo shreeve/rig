@@ -1,4 +1,5 @@
-# A closure body cannot propagate with `!`: the closure returns Void, even
+# A closure body cannot propagate with `!` when its type cannot fail: this
+# one's, inferred, returns Void, even
 # inside a function that may fail.
 
 fun g() -> Int!

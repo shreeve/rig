@@ -1,0 +1,22 @@
+# Wrapping arithmetic on literals takes the type its context gives the
+# whole expression, however deep it sits in other arithmetic, and wraps
+# in that type.
+
+sub main()
+  a: U128 = 1 + (4294967296 *% 4294967296)
+  b: U128 = 4294967296 *% 4294967296
+  c: I128 = 1 + (9223372036854775807 +% 1)
+  print(a, b, c)
+  v: U8 = 5
+  d: U8 = (200 +% 100) / 2
+  e: U8 = v + (1 + (250 +% 10))
+  print(d, e)
+  x: I8 = (-128 | 2) -% 127
+  y: I8 = -126 -% (127 | 0)
+  z: U8 = (1 | 2) -% (4 ^ 0)
+  print(x, y, z)
+
+# expect:
+# 18446744073709551617 18446744073709551616 9223372036854775809
+# 22 10
+# 3 3 255

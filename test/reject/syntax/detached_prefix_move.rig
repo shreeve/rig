@@ -1,0 +1,10 @@
+# A move is written against the moved name: `<n`.
+
+sub take(n: Int)
+  print(n)
+
+sub main()
+  n = 1
+  take(< n)
+
+# error: 8:8: a prefix `<` touches its operand: write `<n`

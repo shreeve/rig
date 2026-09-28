@@ -1334,7 +1334,7 @@ pub const Checker = struct {
                 .raw_block => self.walk(ir.RawBlock.body(sexp)),
                 .enum_lit, .use, .type, .generic_struct, .generic_inst => .{},
                 // Operators on values produce fresh Copy results.
-                .@"+", .@"-", .@"*", .@"/", .@"%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
                     for (rig.children(sexp)) |c| _ = try self.walk(c);
                     break :blk .{};
                 },
@@ -2264,6 +2264,11 @@ pub const Checker = struct {
             try self.note(v.decl, "`{s}` was bound here as a closure", .{v.name});
             return;
         }
+        if (v.fixed and self.isGlobal(id)) {
+            try self.err(pos, "cannot reassign constant `{s}`", .{v.name});
+            try self.note(v.decl, "`{s}` is declared here", .{v.name});
+            return;
+        }
         if (v.fixed) {
             try self.err(pos, "cannot reassign fixed binding `{s}`", .{v.name});
             try self.note(v.decl, "`{s}` was bound here with `=!`", .{v.name});
@@ -2578,7 +2583,13 @@ pub const Checker = struct {
         const lent = self.temps.items.len;
         var saved: std.ArrayListUnmanaged(Loan) = .empty;
         defer saved.deinit(self.gpa);
-        if (swap and self.disjointFields(args[0], args[1])) {
+        const elements = if (swap) self.sameCollection(args[0], args[1]) else null;
+        if (elements) |e| {
+            // Two elements of one collection: its own `swap` exchanges
+            // them.
+            try self.err(self.startOf(ir.Write.operand(args[1])), "cannot take a second write borrow on `{s}`: to swap two elements of `{s}`, write `!{s}.swap({s}, {s})`", .{ e.base, e.base, e.base, e.i, e.j });
+        }
+        if (swap and (elements != null or self.disjointFields(args[0], args[1]))) {
             try saved.appendSlice(self.gpa, self.temps.items[start..lent]);
             self.temps.shrinkRetainingCapacity(start);
         }
@@ -2586,6 +2597,23 @@ pub const Checker = struct {
         try self.temps.appendSlice(self.gpa, saved.items);
         self.temps.shrinkRetainingCapacity(start);
         return .{};
+    }
+
+    /// `!a[i]` and `!a[j]`: write borrows of two elements of the one
+    /// collection `a`, as the source spells them.
+    fn sameCollection(self: *const Checker, a: Sexp, b: Sexp) ?struct { base: []const u8, i: []const u8, j: []const u8 } {
+        if (!a.isKind(.write) or !b.isKind(.write)) return null;
+        const ea = ir.Write.operand(a);
+        const eb = ir.Write.operand(b);
+        if (!ea.isKind(.index) or !eb.isKind(.index) or rig.isRangeIndex(ea) or rig.isRangeIndex(eb)) return null;
+        const base = self.spanText(ir.Index.object(ea));
+        if (base.len == 0 or !std.mem.eql(u8, base, self.spanText(ir.Index.object(eb)))) return null;
+        return .{ .base = base, .i = self.spanText(ir.Index.index(ea)), .j = self.spanText(ir.Index.index(eb)) };
+    }
+
+    fn spanText(self: *const Checker, node: Sexp) []const u8 {
+        const sp = self.span(node);
+        return self.source[sp.start..sp.end];
     }
 
     /// `!a.x` and `!a.y`: write borrows of two fields of one binding,
@@ -3855,8 +3883,8 @@ test "use after move" {
     try expectError(
         \\sub main()
         \\  packet = make_packet()
-        \\  send <packet
-        \\  log ?packet
+        \\  send(<packet)
+        \\  log(?packet)
         \\
     , "use of `packet` after move");
 }
@@ -3864,7 +3892,7 @@ test "use after move" {
 test "hello passes" {
     try expectClean(
         \\sub main()
-        \\  print "hello"
+        \\  print("hello")
         \\
     );
 }
@@ -3891,8 +3919,8 @@ test "temporary read borrow ends at statement end" {
     try expectClean(
         \\sub main()
         \\  user = make_user()
-        \\  print ?user
-        \\  rename !user
+        \\  print(?user)
+        \\  rename(!user)
         \\
     );
 }
@@ -3902,7 +3930,7 @@ test "bound borrow blocks write" {
         \\sub main()
         \\  user = make_user()
         \\  r = ?user
-        \\  rename !user
+        \\  rename(!user)
         \\
     , "cannot write-borrow `user` while a read borrow is live");
 }

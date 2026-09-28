@@ -1,0 +1,8 @@
+# `=!` at module level, without `pub` or a type.
+
+LIMIT =! 4
+
+sub main()
+  print(LIMIT)
+
+# error: 3:1: a module-level binding is already a constant; write `LIMIT = 4`

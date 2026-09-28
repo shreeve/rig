@@ -1,0 +1,14 @@
+# A division of whole-number literals divides integers, so an instance
+# whose type parameter is a float is rejected where the body gives a `T`
+# one.
+
+struct Wrap[T]
+  v: T
+
+  fun half(?self) -> T
+    self.v + 1 / 2
+
+sub main()
+  print(Wrap(v: 3.0).half(), Wrap(v: 3).half())
+
+# error: 12:9: `Wrap[Float]` cannot use `T = Float`: the generic body gives a `T` the division of whole numbers `1 / 2`, which divides integers, not a `Float`

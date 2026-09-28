@@ -5,6 +5,6 @@ sub main()
     1
   else
     "no"
-  print x
+  print(x)
 
 # error: incompatible types `Int` and `String`

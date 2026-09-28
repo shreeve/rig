@@ -14,7 +14,7 @@ sub log(p: ?Packet)
 
 sub main()
   packet = make_packet()
-  send <packet
-  log ?packet
+  send(<packet)
+  log(?packet)
 
 # error: use of `packet` after move

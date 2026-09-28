@@ -309,6 +309,20 @@ every binding that is never reassigned as a Zig `const`, and visible
 mutation is better expressed through types like `Cell` than through
 binding syntax.
 
+### Private members by default
+
+A declaration, a field, and a method are each private to their module
+unless marked `pub`. A module's `pub` surface is then exactly what it
+spells out: a type can keep its representation (a count, a cache, an
+invariant between two fields) to itself and hand out values through
+`pub` functions, and changing a private member cannot break another
+module. Construction follows: another module may construct a struct
+only when it could set every field anyway, so a type with a private
+field is made by its own module. An enum's variants and their payloads
+are the type's shape, which `match` must see, so they are always
+public. Inside a module nothing is hidden, since the module is one unit
+of code and review.
+
 ### `and`, `or`, `not`
 
 Words read better than `&&` and `||`, and they free `!` for its two
@@ -436,9 +450,12 @@ declares the S-expression node it produces, so there is no hand-written
 parser and no separate AST type: the grammar is the single source of
 truth for both syntax and IR shape, and every later pass walks the same
 tree by tag. The grammar has no LALR conflicts; the context-sensitive
-decisions (the spacing rule, ternary versus guard, closure bars) are
-made in a small lexer rewriter that can see spacing. Lisp's influence
-on Rig is this IR, not its syntax.
+decisions (a sigil or an operator by its position, ternary versus
+guard, closure bars) are made in a small lexer rewriter that sees the
+token before and can look ahead on the line. Whitespace inside an
+expression decides none of them, and a prefix sigil touches its
+operand, so a spacing can be wrong but never mean something else. Lisp's influence on Rig is this IR,
+not its syntax.
 
 ### Substrate, not a reactive framework
 
@@ -463,7 +480,7 @@ goals, and says no where they don't.
 | **Zig** | the backend itself; `comptime` as bracketed compile-time parameters; generics checked per instance; error unions; `defer`/`errdefer`; no GC; generic types as type functions | its async history as a cautionary tale; leaving aliasing and lifetimes to convention |
 | **Go** | square brackets for type parameters and arguments, told from an index by what the name denotes | interfaces as constraints on type parameters |
 | **Python** | indentation, `and`/`or`/`not`, readable one-line calls, `print` with several values, bindings without declarations | dynamic typing, implicit shadowing |
-| **Ruby** | paren-free calls as commands, short keywords, readability first | `valid?` names, implicit mutation, paren-free calls as values |
+| **Ruby** | short keywords, readability first | `valid?` names, implicit mutation, calls without parentheses |
 | **CoffeeScript, Rip** | the aesthetic; Rip (a CoffeeScript-style language by Rig's author) and Zag (its Zig-targeted sibling) supplied the indentation lexer and much of the surface | reactive operators in the core language |
 | **Swift** | second-class borrows; `x?` optional propagation | |
 | **Hylo, Mojo** | borrows as parameter conventions rather than types with lifetimes; values first | |

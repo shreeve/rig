@@ -1,0 +1,14 @@
+# An imported constant is a constant here too: constant arithmetic on it
+# is checked at compile time, in a module constant and in a body.
+use lib
+
+X: U8 = lib.SMALL + 6
+Y = lib.HALF * 4611686018427387904
+
+sub main()
+  print(X, Y, lib.SMALL + 6, lib.BIG + 1)
+
+# error: 5:9: integer value `256` does not fit in `U8`
+# error: 6:5: integer value `13835058055282163712` does not fit in `Int`
+# error: 9:15: integer value `256` does not fit in `U8`
+# error: 9:30: integer value `340282366920938463463374607431768211456` does not fit in `U128`

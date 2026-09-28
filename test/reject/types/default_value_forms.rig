@@ -1,0 +1,33 @@
+# A default is a literal or a module constant; a field's may also be an
+# empty or literal constructor. Anything computed, a local, or a
+# parameter's constructor is rejected.
+
+LIMIT = 4
+
+fun seed() -> Int
+  1
+
+struct S
+  a: Int = seed()
+  b: Vec[Int] = Vec(capacity: 2)
+  c: Cell[Int] = Cell(LIMIT + 1)
+  d: Int = LIMIT
+  h: [LIMIT]Int = [LIMIT of LIMIT]
+  e: [LIMIT]Int = [LIMIT of seed()]
+
+fun f(n: Int, v: Vec[Int] = Vec(), k: Int = LIMIT) -> Int
+  n + k + v.len
+
+fun g[m: Int](x: Int = m) -> Int
+  x
+
+sub main()
+  s = S()
+  print(s.d, f(1), g[2]())
+
+# error: 11:12: a default field value must be a literal, a module constant, or an empty or literal constructor: `Vec()`, `Cell(0)`, `[n of 0]`
+# error: 12:17: a default field value must be a literal
+# error: 13:18: a default field value must be a literal
+# error: 16:19: a default field value must be a literal
+# error: 18:29: a default parameter value must be a literal or a module constant
+# error: 21:24: a default parameter value must be a literal or a module constant

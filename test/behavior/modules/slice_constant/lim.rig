@@ -1,2 +1,2 @@
-pub LIMITS =! [1, 2, 3]
-pub NAME =! "limits"
+pub LIMITS = [1, 2, 3]
+pub NAME = "limits"

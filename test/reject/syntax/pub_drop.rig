@@ -1,0 +1,12 @@
+# A `drop` body is never called by name, so it takes no `pub`.
+
+struct S
+  n: Int
+
+  pub drop(!self)
+    print(self.n)
+
+sub main()
+  print(S(n: 1).n)
+
+# error: 6:3: a `drop` body is never called by name, so it takes no `pub`

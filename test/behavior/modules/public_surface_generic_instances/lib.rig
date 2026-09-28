@@ -1,29 +1,29 @@
 struct Wrap[T]
-  v: T
+  pub v: T
 
-  fun get(?self) -> T
+  pub fun get(?self) -> T
     self.v
 
 pub struct Holder
-  b: Wrap[Int]
+  pub b: Wrap[Int]
 
 struct Slot[T]
-  v: T
+  pub v: T
 
 struct Q
-  b: Slot[*Int]
+  pub b: Slot[*Int]
 
 pub struct P
-  q: Q
+  pub q: Q
 
-  fun make() -> P
+  pub fun make() -> P
     P(q: Q(b: Slot(v: *41)))
 
 struct Secret
-  value: Int
+  pub value: Int
 
 pub struct Cover[T]
-  inner: T
+  pub inner: T
 
 pub fun make(n: Int) -> Wrap[Int]
   Wrap(v: n)

@@ -12,8 +12,8 @@ pub fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
   out
 
 pub struct Bag
-  items: Vec[Int]
+  pub items: Vec[Int]
 
-  sub each(?self, f: ?sub(Int))
+  pub sub each(?self, f: ?sub(Int))
     for x in ?self.items
       f(x)

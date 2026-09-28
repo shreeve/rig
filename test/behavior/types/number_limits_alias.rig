@@ -1,0 +1,13 @@
+# A number type's alias names its limits too.
+
+type Byte = U8
+type Real = F32
+
+LAST = Byte.max
+
+sub main()
+  b: Byte = Byte.max - 5
+  print(Byte.min, LAST, b, Real.max > 3.0e38, Real.min < 0.0)
+
+# expect:
+# 0 255 250 true true

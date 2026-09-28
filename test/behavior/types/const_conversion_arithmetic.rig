@@ -1,0 +1,11 @@
+# Constant arithmetic on conversions is computed in the target type.
+
+sub main()
+  a = U8.max - U8(5)
+  b = I128(1) << 126
+  c = U128(0) + 1
+  d = I8(-100) / I8(7)
+  print(a, b, c, d, U16(3) * 1000)
+
+# expect:
+# 250 85070591730234615865843651857942052864 1 -14 3000

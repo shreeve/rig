@@ -140,10 +140,15 @@ pub const ArrayType = struct { elem: TypeId, len: TypeId };
 
 /// A value known at compile time, as a compile-time argument or an
 /// array length.
-pub const CtValue = union(enum) { int: i128 };
+/// The integer type constants are computed in: wide enough for every
+/// value of `I128` and `U128`, and for the checked results of operations
+/// on them.
+pub const Wide = i256;
+
+pub const CtValue = union(enum) { int: Wide };
 
 /// The largest array length: lengths run from 0 to 2^32 - 1.
-pub const max_array_len: i128 = std.math.maxInt(u32);
+pub const max_array_len: Wide = std.math.maxInt(u32);
 
 /// The most bytes a value takes: 8 MiB. A value may live in a stack
 /// frame, and the main thread's stack holds 16 MiB, so any one value fits
@@ -445,6 +450,11 @@ pub const Field = struct {
     param_names: ?[]const []const u8 = null,
     /// Default values of a method's parameters (null where none).
     param_defaults: ?[]const ?Sexp = null,
+    /// A plain enum's variant: its integer value, declared or implicit.
+    value: ?Wide = null,
+    /// A field or method declared `pub`, which other modules may use.
+    /// (Variants and their payload fields are always visible.)
+    is_pub: bool = false,
 };
 
 pub const Symbol = struct {
@@ -706,10 +716,10 @@ pub const Requirement = union(enum) {
     float,
     /// A type that holds this integer exactly: the body combines the
     /// value with an integer literal.
-    fits: i128,
+    fits: Wide,
     /// An integer wider than this many bits: the body shifts the value
     /// by a constant amount.
-    shift: i128,
+    shift: Wide,
     /// Owns no resource: the body copies, discards, or leaves a
     /// temporary of the parameter's value.
     plain,
@@ -719,6 +729,10 @@ pub const Requirement = union(enum) {
     /// An integer or float type: the body reads or writes one in bytes
     /// (`b.read[T, .big](at)`).
     bytes,
+    /// An integer: the body gives a value of the parameter's type a
+    /// division of whole-number literals (`1 / 2`), which divides
+    /// integers.
+    whole_division,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -733,6 +747,7 @@ pub const Requirement = union(enum) {
             .plain => "a value that owns no resource",
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
+            .whole_division => "a division of whole numbers",
         };
     }
 };
@@ -2331,7 +2346,7 @@ fn isAddress(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// Whether integer type `ty` holds `v`.
-pub fn intFits(ctx: *const SemContext, ty: TypeId, v: i128) bool {
+pub fn intFits(ctx: *const SemContext, ty: TypeId, v: Wide) bool {
     return switch (ctx.types.get(ty)) {
         .int => |i| intInfoFits(i, v),
         else => true,
@@ -2407,7 +2422,7 @@ fn checkTypeSizes(ctx: *SemContext) std.mem.Allocator.Error!void {
 }
 
 /// The `ct_value` of the integer `v`.
-pub fn ctInt(ctx: *SemContext, v: i128) std.mem.Allocator.Error!TypeId {
+pub fn ctInt(ctx: *SemContext, v: Wide) std.mem.Allocator.Error!TypeId {
     return ctx.intern(.{ .ct_value = .{ .int = v } });
 }
 
@@ -2482,6 +2497,15 @@ pub fn isClosureValue(ctx: *const SemContext, ty: TypeId) bool {
         .optional => |inner| isCopyPrimitive(ctx, inner) or isPlainEnum(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty),
         else => isCopyPrimitive(ctx, ty),
+    };
+}
+
+/// What an owned closure may return: a plain Copy value, or a fallible
+/// one (`Int!`).
+pub fn isClosureResult(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .fallible => |inner| isClosureValue(ctx, inner),
+        else => isClosureValue(ctx, ty),
     };
 }
 
@@ -3458,7 +3482,7 @@ pub fn srcPos(sexp: Sexp, fallback: u32) u32 {
 
 /// A constant integer expression's value, or why it has none.
 pub const ConstInt = union(enum) {
-    value: i128,
+    value: Wide,
     not_constant,
     /// Constant, but too large to compute.
     overflow,
@@ -3471,8 +3495,9 @@ pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
 }
 
 /// The names of checked code: a constant binding's value is known once
-/// its declaration is checked. Their values are untyped here: the
-/// checker gives constant arithmetic its type.
+/// its declaration is checked, and an imported constant's (`lib.N`) is
+/// known. Their values are untyped here: the checker gives constant
+/// arithmetic its type.
 const CheckedNames = struct {
     ctx: *const SemContext,
 
@@ -3481,8 +3506,16 @@ const CheckedNames = struct {
         return if (self.ctx.const_ints.get(id)) |c| .{ .v = c.value } else null;
     }
 
-    pub fn member(_: CheckedNames, _: Sexp) ?TypedInt {
-        return null;
+    /// `lib.N`: another module's integer constant.
+    pub fn member(self: CheckedNames, e: Sexp) ?TypedInt {
+        const obj = ir.Member.object(e);
+        if (obj != .src) return null;
+        const id = self.ctx.symbolOf(obj) orelse self.ctx.lookupInScopeOnly(module_scope, identAt(self.ctx.source, obj) orelse return null) orelse return null;
+        if (self.ctx.symbols.items[id].kind != .module) return null;
+        const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
+        const fid = foreign.lookupInScopeOnly(module_scope, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+        const c = foreign.const_ints.get(fid) orelse return null;
+        return .{ .v = c.value };
     }
 };
 
@@ -3497,11 +3530,11 @@ pub fn constIntBy(ctx: *const SemContext, e: Sexp, names: anytype) ConstInt {
 }
 
 /// A module or local integer constant: its value and its type.
-pub const ConstVal = struct { value: i128, int: IntInfo = .{} };
+pub const ConstVal = struct { value: Wide, int: IntInfo = .{} };
 
 /// A folded integer and its type; `int` is null for arithmetic on
 /// literals alone, which takes the type it is used as.
-pub const TypedInt = struct { v: i128, int: ?IntInfo = null };
+pub const TypedInt = struct { v: Wide, int: ?IntInfo = null };
 
 /// A constant integer expression folded with its types, as constant
 /// arithmetic is checked: each operation is in the type of its typed
@@ -3520,12 +3553,29 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
     switch (e) {
         .src => {
             const text_ = identAt(ctx.source, e) orelse "";
-            if (isIntLiteralText(text_)) return if (std.fmt.parseInt(i128, text_, 0)) |v| .{ .value = .{ .v = v } } else |_| .{ .overflow = .{ .node = e, .int = null } };
+            if (isIntLiteralText(text_)) return if (std.fmt.parseInt(Wide, text_, 0)) |v| .{ .value = .{ .v = v } } else |_| .{ .overflow = .{ .node = e, .int = null } };
             return if (names.name(e)) |t| .{ .value = t } else .not_constant;
         },
         .list => {
             const h = e.kind() orelse return .not_constant;
-            if (h == .member) return if (names.member(e)) |t| .{ .value = t } else .not_constant;
+            // `U8(k)` of a constant integer: a constant of the target
+            // type, which must hold it.
+            if (h == .call) {
+                const callee = ir.Call.callee(e);
+                const args = ir.Call.args(e);
+                if (callee != .src or ctx.symbolOf(callee) != null or args.len != 1 or args[0].isKind(.kwarg)) return .not_constant;
+                const info = intTypeNamed(identAt(ctx.source, callee) orelse return .not_constant) orelse return .not_constant;
+                const a = switch (ctFoldBy(ctx, args[0], names)) {
+                    .value => |t| t,
+                    else => |r| return r,
+                };
+                if (!intInfoFits(info, a.v)) return .{ .overflow = .{ .node = args[0], .int = info } };
+                return .{ .value = .{ .v = a.v, .int = info } };
+            }
+            if (h == .member) {
+                if (intLimit(ctx, e)) |t| return .{ .value = t };
+                return if (names.member(e)) |t| .{ .value = t } else .not_constant;
+            }
             if (h == .neg) {
                 const a = switch (ctFoldBy(ctx, ir.Neg.operand(e), names)) {
                     .value => |t| t,
@@ -3541,7 +3591,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                 return ctFoldBy(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), names);
             }
             switch (h) {
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
                 else => return .not_constant,
             }
             const a = switch (ctFoldBy(ctx, ir.get(e, .left), names)) {
@@ -3555,20 +3605,40 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
             // A shift is in its left operand's type.
             const shift = h == .@"<<" or h == .@">>";
             if (!shift) if (a.int) |ai| if (b.int) |bi| if (!std.meta.eql(ai, bi)) return .{ .mismatch = .{ .node = e, .a = ai, .b = bi } };
-            const int = if (shift) a.int else a.int orelse b.int;
-            const v: ?i128 = switch (h) {
-                .@"+" => std.math.add(i128, a.v, b.v) catch null,
-                .@"-" => std.math.sub(i128, a.v, b.v) catch null,
-                .@"*" => std.math.mul(i128, a.v, b.v) catch null,
+            const int = if (shift) a.int orelse literalInt(ctx, e) else a.int orelse b.int;
+            // Wrapping arithmetic keeps the low bits of the result in its
+            // type, which a `Wide` computes exactly (its width is a
+            // multiple of every integer type's). Untyped, the width is not
+            // known here, so the program computes it.
+            switch (h) {
+                .@"+%", .@"-%", .@"*%" => {
+                    // Literals alone wrap in the type their context gives
+                    // them, which the checker records.
+                    const info = int orelse literalInt(ctx, e) orelse return .not_constant;
+                    const v = switch (h) {
+                        .@"+%" => a.v +% b.v,
+                        .@"-%" => a.v -% b.v,
+                        else => a.v *% b.v,
+                    };
+                    return .{ .value = .{ .v = wrapTo(info, v), .int = info } };
+                },
+                else => {},
+            }
+            const v: ?Wide = switch (h) {
+                .@"+" => std.math.add(Wide, a.v, b.v) catch null,
+                .@"-" => std.math.sub(Wide, a.v, b.v) catch null,
+                .@"*" => std.math.mul(Wide, a.v, b.v) catch null,
                 // Division by zero and negative shift amounts are
                 // reported where the operator is checked.
-                .@"/" => if (b.v == 0) return .not_constant else std.math.divTrunc(i128, a.v, b.v) catch null,
+                .@"/" => if (b.v == 0) return .not_constant else std.math.divTrunc(Wide, a.v, b.v) catch null,
                 .@"%" => if (b.v == 0) return .not_constant else if (b.v == -1) 0 else @rem(a.v, b.v),
-                .@"<<" => if (b.v < 0) return .not_constant else if (b.v > 126) null else blk: {
+                // A shift by the width or more is reported where the
+                // operator is checked; one that loses bits overflows.
+                .@"<<" => if (b.v < 0 or b.v >= widthOf(int orelse literalInt(ctx, e) orelse IntInfo{})) return .not_constant else blk: {
                     const r = a.v << @intCast(b.v);
                     break :blk if (r >> @intCast(b.v) == a.v) r else null;
                 },
-                .@">>" => if (b.v < 0) return .not_constant else a.v >> @intCast(@min(b.v, 127)),
+                .@">>" => if (b.v < 0 or b.v >= widthOf(int orelse literalInt(ctx, e) orelse IntInfo{})) return .not_constant else a.v >> @intCast(b.v),
                 .@"&" => a.v & b.v,
                 .@"|" => a.v | b.v,
                 else => a.v ^ b.v,
@@ -3579,26 +3649,83 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
     }
 }
 
-fn typedResult(e: Sexp, v: i128, int: ?IntInfo) CtFold {
+/// The integer type a built-in type name spells (`Int`, `U8`, `I128`),
+/// or null.
+pub fn intTypeNamed(name: []const u8) ?IntInfo {
+    if (std.mem.eql(u8, name, "Int")) return .{};
+    if (name.len < 2 or (name[0] != 'I' and name[0] != 'U') or name[1] == '0') return null;
+    const bits = std.fmt.parseInt(u8, name[1..], 10) catch return null;
+    return switch (bits) {
+        8, 16, 32, 128 => .{ .bits = bits, .signed = name[0] == 'I' },
+        64 => if (name[0] == 'I') .{} else .{ .bits = 64, .signed = false },
+        else => null,
+    };
+}
+
+/// `U8.max`, `Int.min`: an integer type's limit, a constant of it, named
+/// through the type or an alias of it. Null for anything else.
+pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
+    const obj = ir.Member.object(e);
+    if (obj != .src) return null;
+    const name = identAt(ctx.source, obj) orelse return null;
+    // An alias of an integer type (`type Byte = U8`) names its limits.
+    const info = if (ctx.symbolOf(obj) orelse ctx.lookupInScopeOnly(module_scope, name)) |id| blk: {
+        const sym = ctx.symbols.items[id];
+        if (sym.kind != .type_alias) return null;
+        break :blk switch (ctx.types.get(sym.ty)) {
+            .int => |i| i,
+            else => return null,
+        };
+    } else intTypeNamed(name) orelse return null;
+    const field = identAt(ctx.source, ir.Member.name(e)) orelse return null;
+    const r = intRange(info);
+    if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };
+    if (std.mem.eql(u8, field, "max")) return .{ .v = r.max, .int = info };
+    return null;
+}
+
+/// The width of an integer type in bits.
+fn widthOf(info: IntInfo) Wide {
+    return if (info.bits == 0) 64 else info.bits;
+}
+
+/// The integer type the checker gave literal arithmetic `e`, if any.
+fn literalInt(ctx: *const SemContext, e: Sexp) ?IntInfo {
+    return switch (ctx.types.get(ctx.typeOf(e) orelse return null)) {
+        .int => |i| i,
+        else => null,
+    };
+}
+
+/// `v` wrapped into integer type `info`: its low bits, read as the
+/// type reads them.
+pub fn wrapTo(info: IntInfo, v: Wide) Wide {
+    const bits: u9 = if (info.bits == 0) 64 else info.bits;
+    const modulus = @as(Wide, 1) << @intCast(bits);
+    const low = @mod(v, modulus);
+    return if (info.signed and low >= modulus >> 1) low - modulus else low;
+}
+
+fn typedResult(e: Sexp, v: Wide, int: ?IntInfo) CtFold {
     if (int) |i| if (!intInfoFits(i, v)) return .{ .overflow = .{ .node = e, .int = i } };
     return .{ .value = .{ .v = v, .int = int } };
 }
 
 /// Whether an integer type holds `v`.
-pub fn intInfoFits(info: IntInfo, v: i128) bool {
+pub fn intInfoFits(info: IntInfo, v: Wide) bool {
     const r = intRange(info);
     return v >= r.min and v <= r.max;
 }
 
 /// The least and greatest values of an integer type.
-pub fn intRange(info: IntInfo) struct { min: i128, max: i128 } {
+pub fn intRange(info: IntInfo) struct { min: Wide, max: Wide } {
     const bits: u8 = if (info.bits == 0) 64 else info.bits;
-    const half = @as(i128, 1) << @intCast(bits - 1);
+    const half = @as(Wide, 1) << @intCast(bits - 1);
     return if (info.signed) .{ .min = -half, .max = half - 1 } else .{ .min = 0, .max = 2 * half - 1 };
 }
 
 /// `constInt` as an optional: null when not constant or too large.
-pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?i128 {
+pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?Wide {
     return switch (constInt(ctx, e)) {
         .value => |v| v,
         else => null,
@@ -3909,8 +4036,8 @@ test "facts: constant bindings keep their value; changed ones do not" {
         \\
     );
     defer r.deinit();
-    try std.testing.expectEqual(@as(i128, 5), r.ctx.const_ints.get(r.sym("a", 0).?).?.value);
-    try std.testing.expectEqual(@as(i128, 20), r.ctx.const_ints.get(r.sym("b", 0).?).?.value);
+    try std.testing.expectEqual(@as(Wide, 5), r.ctx.const_ints.get(r.sym("a", 0).?).?.value);
+    try std.testing.expectEqual(@as(Wide, 20), r.ctx.const_ints.get(r.sym("b", 0).?).?.value);
     try std.testing.expect(r.ctx.symbols.items[r.sym("c", 0).?].flags.reassigned);
     try std.testing.expect(r.ctx.const_ints.get(r.sym("c", 0).?) == null);
     try std.testing.expect(r.ctx.const_ints.get(r.sym("d", 0).?) == null);

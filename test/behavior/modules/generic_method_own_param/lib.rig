@@ -1,11 +1,11 @@
 pub struct Pair[A, B]
-  a: A
-  b: B
+  pub a: A
+  pub b: B
 
 pub struct List[T]
-  items: Vec[T]
+  pub items: Vec[T]
 
-  fun zip[U](?self, other: ?List[U]) -> List[Pair[T, U]]
+  pub fun zip[U](?self, other: ?List[U]) -> List[Pair[T, U]]
     out: Vec[Pair[T, U]] = Vec()
     i = 0
     while i < self.items.len and i < other.items.len

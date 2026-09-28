@@ -1,4 +1,5 @@
-# A closure body cannot return `none` from the function around it.
+# A closure body cannot return `none` from the function around it; its
+# type, inferred here, returns no optional.
 
 fun f(m: Int?) -> Int?
   g = |+m| m? + 1
@@ -7,4 +8,4 @@ fun f(m: Int?) -> Int?
 sub main()
   print(f(1))
 
-# error: 4:12: a closure body cannot return `none` with `?`
+# error: 5:12: a closure body returns `none` with `?` only when its type returns an optional

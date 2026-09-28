@@ -40,7 +40,7 @@ Negation is the word `not`, as in Python. `!v.push(x)` marks that
 Rust, or Zig habit would change a program's meaning is a compile error
 instead: `if !done`, `!q.is_empty()`, and a `!` call returning a `Bool`
 without parentheses ([receiver sigils](SYNTAX.md#receiver-sigils-vpushx-and-pclose),
-[operators](SYNTAX.md#10-operators)).
+[operators](SYNTAX.md#9-operators)).
 
 ## Why indentation?
 

@@ -14,7 +14,7 @@ struct Wrap[T]
 fun double(n: Int) -> Int
   n * 2
 
-keep: ?fun(Int) -> Int =! double
+keep: ?fun(Int) -> Int = double
 
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)

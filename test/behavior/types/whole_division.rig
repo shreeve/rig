@@ -1,0 +1,15 @@
+# Literal context reaches through `+`, `-`, and `*`, but a division of
+# whole-number literals is integer division: `7 / 2` is 3.
+
+sub main()
+  x = 7 / 2
+  y: U8 = 200 / 3
+  a: Float = 7
+  b: Float = 2 * 3 - 1
+  c: Float = 7.0 / 2
+  d: Float = 7 / 2.0
+  e = -7 % 3
+  print(x, y, a, b, c, d, e, 9 / 2 * 2)
+
+# expect:
+# 3 66 7.0 5.0 3.5 3.5 -1 8

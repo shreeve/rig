@@ -15,5 +15,5 @@ sub main()
 
 # error: integer value `18446744073709551614` does not fit in `Int`
 # error: integer value `9223372036854775808` does not fit in `Int`
-# error: integer value `36893488147419103228` does not fit in `Int`
-# error: integer value `73786976294838206456` does not fit in `Int`
+# error: 13:10: this constant expression overflows; its value does not fit in `Int`
+# error: 14:32: this constant expression overflows; its value does not fit in `Int`

@@ -1,0 +1,45 @@
+# A closure whose type can fail propagates with `!` to its caller, and
+# one whose type returns an optional returns `none` with `?`.
+
+error Parse
+  empty
+
+fun parse(s: String) -> Int!
+  if s.len == 0
+    return Parse.empty
+  s.len
+
+fun first(s: String) -> U8?
+  s.get(0)
+
+sub each(xs: []String, f: ?sub(String)!)!
+  for x in xs
+    f(x)!
+
+fun apply(s: String, f: ?fun(String) -> Int!) -> Int
+  f(s) catch -1
+
+fun lead(s: String, f: ?fun(String) -> Int?) -> Int
+  f(s) ?? 0
+
+sub main()
+  total = Cell(0)
+  each(["ab", "c"], |!total, l| total.set(total.get() + parse(l)!)) catch print("failed")
+  print(total.get())
+  each(["ab", ""], |!total, l| total.set(total.get() + parse(l)!)) catch |e| print("failed", e)
+  print(apply("abc", |l| parse(l)! * 2), apply("", |l| parse(l)! * 2))
+  g: *fun(String) -> Int! = *|l| parse(l)! + 1
+  print(g("xy") catch 0, g("") catch 0)
+  print(lead("hi", |s| Int(first(s)?)), lead("", |s| Int(first(s)?)))
+  h: *sub(String)! = *|l| print("len", parse(l)!)
+  h("abcd") catch print("no")
+  h("") catch print("no")
+
+# expect:
+# 3
+# failed .empty
+# 6 -1
+# 3 0
+# 104 0
+# len 4
+# no

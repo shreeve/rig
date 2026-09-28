@@ -1,5 +1,5 @@
 # A nested array type is an array of arrays: `[2][3]Int`. Each prefix
-# after the first starts with a `[` touching the `]` before it.
+# after the first starts with a `[` after the `]` before it.
 
 fun corner(g: [2][3]Int) -> Int
   g[1][2]

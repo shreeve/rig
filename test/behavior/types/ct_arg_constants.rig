@@ -1,8 +1,8 @@
 # A compile-time argument may compute with constants, which Rig folds
 # and checks, and may compare or combine compile-time values.
 
-LIM =! 4
-FL =! 1.5
+LIM = 4
+FL = 1.5
 
 sub g[n: Int]
   print(n)

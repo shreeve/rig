@@ -1,0 +1,11 @@
+# A number type's limits are constants of it: arithmetic on them is
+# checked, and they are only `.min` and `.max`.
+
+sub main()
+  a = U8.max + 1
+  b: U8 = Int.max
+  print(a, b, I8.size)
+
+# error: 5:7: this constant expression overflows
+# error: 6:11: type mismatch: expected `U8`, got `Int`
+# error: 7:18: a number type has no member `size`; its limits are `I8.min` and `I8.max`

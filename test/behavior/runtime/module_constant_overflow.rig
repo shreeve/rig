@@ -1,7 +1,7 @@
 # Arithmetic on a module-level constant is checked when it runs, as
 # for any value.
 
-big =! 9223372036854775807
+big = 9223372036854775807
 
 fun one() -> Int
   1

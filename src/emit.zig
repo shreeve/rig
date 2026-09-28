@@ -25,6 +25,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
+const Wide = sema.Wide;
 const resolve = @import("resolve.zig");
 const diag = @import("diag.zig");
 
@@ -304,7 +305,7 @@ pub const Emitter = struct {
         }
     }
 
-    /// A module-level constant, `name =! value`.
+    /// A module-level constant, `name = value`.
     fn emitConst(self: *Emitter, node: Sexp) Error!void {
         const target = ir.Set.target(node);
         try self.w.print("pub const {f}: ", .{ident(self.srcText(target))});
@@ -529,7 +530,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(f.ty);
             if (f.default) |d| {
                 try self.w.writeAll(" = ");
-                try writeLiteral(self.w, self.source, d);
+                try self.emitDefault(self.sema, d);
             }
             try self.w.writeAll(",\n");
         }
@@ -2157,7 +2158,7 @@ pub const Emitter = struct {
     }
 
     /// The inclusive bounds of range pattern `lo..hi`.
-    fn rangeBounds(self: *Emitter, pattern: Sexp) Error![2]i128 {
+    fn rangeBounds(self: *Emitter, pattern: Sexp) Error![2]Wide {
         const lo = sema.constIntOf(self.sema, ir.RangePattern.lo(pattern)) orelse return self.unsupported(pattern, "this range pattern");
         const hi = sema.constIntOf(self.sema, ir.RangePattern.hi(pattern)) orelse return self.unsupported(pattern, "this range pattern");
         return .{ lo, hi - 1 };
@@ -2685,7 +2686,19 @@ pub const Emitter = struct {
         }
     }
 
-    fn emitIntConstant(self: *Emitter, sexp: Sexp, v: i128) Error!void {
+    /// Every leaf of `e` is a literal.
+    fn literalLeaves(self: *Emitter, e: Sexp) bool {
+        switch (e) {
+            .src => return self.sema.symbolOf(e) == null,
+            .list => {
+                for (e.items()) |c| if (!self.literalLeaves(c)) return false;
+                return true;
+            },
+            else => return true,
+        }
+    }
+
+    fn emitIntConstant(self: *Emitter, sexp: Sexp, v: Wide) Error!void {
         const t = self.typeOf(sexp);
         const concrete = t != null and self.sema.types.get(t.?) == .int;
         if (concrete) {
@@ -2900,7 +2913,7 @@ pub const Emitter = struct {
             else => {},
         }
         if (self.literal_ty == null) switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
                 // Sema computed a constant integer expression (and checked
                 // that it fits); its value is written as a literal, so Zig
                 // does not evaluate it again with other intermediate types.
@@ -2909,7 +2922,7 @@ pub const Emitter = struct {
             else => {},
         };
         switch (head) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .neg, .index => self.rt_names = true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .neg, .index => self.rt_names = true,
             else => {},
         }
         switch (head) {
@@ -3012,6 +3025,16 @@ pub const Emitter = struct {
                 try self.w.print("{s}{f}", .{ if (in_error_set) "error." else ".", ident(self.srcText(ir.EnumLit.name(sexp))) });
             },
             .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^" => try self.emitInfix(sexp, bare),
+            .@"+%", .@"-%", .@"*%" => {
+                // In the expression's type, so that literal operands wrap
+                // as it does rather than as a Zig `comptime_int`.
+                if (!bare) try self.w.writeAll("(");
+                try self.writeAsOpen(self.typeOf(sexp) orelse self.sema.types.int_id);
+                try self.emitBare(ir.get(sexp, .left));
+                try self.w.print(") {s} ", .{@tagName(head)});
+                try self.emitExpr(ir.get(sexp, .right));
+                if (!bare) try self.w.writeAll(")");
+            },
             .@"and", .@"or" => {
                 if (!bare) try self.w.writeAll("(");
                 try self.emitExpr(ir.get(sexp, .left));
@@ -3331,6 +3354,15 @@ pub const Emitter = struct {
         const obj = ir.Member.object(sexp);
         const field = self.srcText(ir.Member.name(sexp));
         const obj_ty = self.typeOf(obj);
+        // `U8.max`, `F64.min`: a number type's limit.
+        if (sema.intLimit(self.sema, sexp)) |limit| return self.emitIntConstant(sexp, limit.v);
+        const number_type = obj == .src and if (self.sema.symbolOf(obj)) |id| self.sema.symbols.items[id].kind == .type_alias else resolve.isNumericTypeName(self.srcText(obj));
+        if (number_type) if (self.typeOf(sexp)) |t| if (self.sema.types.get(t) == .float) {
+            try self.writeAsOpen(t);
+            try self.w.writeAll(if (std.mem.eql(u8, field, "min")) "-std.math.floatMax(" else "std.math.floatMax(");
+            try self.emitTypeTy(t);
+            return self.w.writeAll("))");
+        };
         // `Shape.dot` of an enum with payloads names the tag; the value
         // is the union holding it.
         if (obj_ty == null and self.isTypeCallee(obj)) if (self.typeOf(sexp)) |t| if (self.hasPayloadVariants(t)) {
@@ -3422,7 +3454,7 @@ pub const Emitter = struct {
             return self.writeLocalPlace(local);
         };
         const needs_parens = if (o.kind()) |h| switch (h) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .neg, .not, .@"if", .match, .@"??", .@"catch", .propagate, .call, .array => true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"if", .match, .@"??", .@"catch", .propagate, .call, .array => true,
             else => false,
         } else false;
         if (needs_parens) try self.w.writeAll("(");
@@ -3764,6 +3796,14 @@ pub const Emitter = struct {
         const target = self.typeOf(call) orelse return self.unsupported(call, "an untyped conversion");
         const arg = argValue(ir.Call.args(call)[0]);
         const arg_ty = self.typeOf(arg) orelse return self.unsupported(call, "this conversion");
+        // A plain enum's value, converted when the program runs, where
+        // Zig checks that it fits (the checker did for a constant one).
+        if (self.isEnumTy(self.peelBorrows(arg_ty))) {
+            try self.writeAsOpen(target);
+            try self.w.writeAll("@intCast(@intFromEnum(rig.rt(");
+            try self.emitBare(arg);
+            return self.w.writeAll("))))");
+        }
         const from = switch (self.sema.types.get(self.peelBorrows(arg_ty))) {
             .int, .float => self.peelBorrows(arg_ty),
             .int_literal => self.sema.types.int_id,
@@ -3771,6 +3811,13 @@ pub const Emitter = struct {
             else => return self.unsupported(call, "this conversion"),
         };
         const to_int = self.sema.types.get(target) == .int;
+        // Constant arithmetic on literals converted to an integer type is
+        // a value of it, which the checker made sure fits (it may not fit
+        // `Int`).
+        if (to_int and self.literalLeaves(arg)) if (sema.constIntOf(self.sema, arg)) |v| {
+            try self.writeAsOpen(target);
+            return self.w.print("{d})", .{v});
+        };
         const from_int = self.sema.types.get(from) == .int;
         const builtin = if (to_int) (if (from_int) "@intCast" else "@intFromFloat") else (if (from_int) "@floatFromInt" else "@floatCast");
         try self.writeAsOpen(target);
@@ -3828,9 +3875,46 @@ pub const Emitter = struct {
             written += 1;
             if (slots) |sl| switch (sl[i]) {
                 .arg => |ai| try self.emitArg(args[ai], params, i),
-                .default => |d| try writeLiteral(self.w, d.source, d.expr),
+                .default => |d| try self.emitDefault(self.semaOf(d.source) orelse return self.unsupported(call, "this default argument"), d.expr),
             } else try self.emitArg(args[i], params, i);
         }
+    }
+
+    /// A field or parameter default, `e`, declared in module `decl`: a
+    /// literal, a constant, or (a field's, emitted in its own module's
+    /// type) a constructor. A constant of another module than the one
+    /// being emitted is reached through its file, which every module of
+    /// the package can import.
+    fn emitDefault(self: *Emitter, decl: *const sema.SemContext, e: Sexp) Error!void {
+        if (isDefaultLiteralNode(decl.source, e)) return writeLiteral(self.w, decl.source, e);
+        if (decl == self.sema) {
+            const saved = self.keep_comptime;
+            defer self.keep_comptime = saved;
+            self.keep_comptime = true;
+            return self.emitBare(e);
+        }
+        if (e.isKind(.member)) {
+            const obj = ir.Member.object(e);
+            const obj_text = decl.source[obj.src.pos..][0..obj.src.len];
+            const name = decl.source[ir.Member.name(e).src.pos..][0..ir.Member.name(e).src.len];
+            if (sema.intLimit(decl, e)) |limit| return self.w.print("{d}", .{limit.v});
+            if (decl.symbolOf(obj) == null) {
+                // A float type's limit.
+                const zig = if (std.mem.eql(u8, obj_text, "F32")) "f32" else "f64";
+                return self.w.print("{s}std.math.floatMax({s})", .{ if (std.mem.eql(u8, name, "min")) "-" else "", zig });
+            }
+            return self.w.print("@import(\"{s}.zig\").{f}", .{ obj_text, ident(name) });
+        }
+        return self.w.print("@import(\"{s}.zig\").{f}", .{ decl.name, ident(decl.source[e.src.pos..][0..e.src.len]) });
+    }
+
+    /// The checked module whose source is `source`: this one, or one it
+    /// reaches.
+    fn semaOf(self: *Emitter, source: []const u8) ?*const sema.SemContext {
+        if (source.ptr == self.sema.source.ptr) return self.sema;
+        var it = self.sema.foreign_semas.valueIterator();
+        while (it.next()) |ctx| if (ctx.*.source.ptr == source.ptr) return ctx.*;
+        return null;
     }
 
     /// The argument filling parameter slot `i`: a `!T` parameter receives
@@ -5095,6 +5179,19 @@ fn ident(name: []const u8) Ident {
     return .{ .name = name };
 }
 
+/// A literal default value: a number, a string, `true` / `false`,
+/// `none`, `.variant`, or a negated number.
+fn isDefaultLiteralNode(source: []const u8, e: Sexp) bool {
+    return switch (e) {
+        .src => |s| blk: {
+            const t = source[s.pos..][0..s.len];
+            break :blk isLiteralText(t) or std.mem.eql(u8, t, "none");
+        },
+        .list => e.isKind(.enum_lit) or (e.isKind(.neg) and ir.Neg.operand(e) == .src),
+        else => false,
+    };
+}
+
 /// A default argument value: a literal, written from the source of the
 /// module that declares it.
 fn writeLiteral(w: *Writer, source: []const u8, e: Sexp) Error!void {
@@ -5184,7 +5281,7 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
 
 fn isIntZeroText(t: []const u8) bool {
     if (!sema.isIntLiteralText(t)) return false;
-    const v = std.fmt.parseInt(i128, t, 0) catch return false;
+    const v = std.fmt.parseInt(Wide, t, 0) catch return false;
     return v == 0;
 }
 

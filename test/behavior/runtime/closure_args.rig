@@ -51,8 +51,8 @@ sub main
   seen = 0
   twice_each(?v, |!seen, n| seen += 1)
   print(seen)
-  countdown 3, |n|
-    print("tick", n)
+  countdown(3, |n|
+    print("tick", n))
   r = Res(id: 7)
   n = apply(|<r, a| a + r.id, 1)
   print(n)

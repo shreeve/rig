@@ -4,7 +4,7 @@
 //! in by Nexus through `@hasDecl`:
 //!
 //!   stage   generated (parser.zig)   wrapper (this file)
-//!   lex     BaseLexer                Lexer   — layout, keywords, spacing
+//!   lex     BaseLexer                Lexer   — layout, keywords, position
 //!   parse   BaseParser               Parser  — post-parse IR rewrites,
 //!                                              diagnostics
 //!
@@ -43,7 +43,7 @@ pub fn subFails(fun_or_sub: Sexp) bool {
     return fun_or_sub.isKind(.sub) and ir.Sub.fails(fun_or_sub) != .nil;
 }
 
-/// A module-level constant (`name =! value`, or `pub` one). Passes take
+/// A module-level constant (`name = value`, or a `pub` one). Passes take
 /// them before the other declarations, so functions anywhere in the
 /// module see them.
 pub fn isModuleConst(decl: Sexp) bool {
@@ -92,8 +92,8 @@ pub fn children(node: Sexp) []const Sexp {
 
 /// Exhaustive view of the op slot, so dispatch sites must handle every
 /// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), and the
-/// compound assignments (`x op= e`, one per binary
-/// arithmetic, bitwise, and shift operator). Every kind but `default` is
+/// compound assignments (`x op= e`, one per binary arithmetic, wrapping,
+/// bitwise, and shift operator). Every kind but `default` is
 /// named after its tag in the schema's `op:tag(...)` for `set`.
 pub const BindingKind = enum {
     default,
@@ -104,6 +104,9 @@ pub const BindingKind = enum {
     @"*=",
     @"/=",
     @"%=",
+    @"+%=",
+    @"-%=",
+    @"*%=",
     @"&=",
     @"|=",
     @"^=",
@@ -279,25 +282,37 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //   line the closure started on, or when the bracket around it closes;
 //   its open blocks end there.
 //
-// Spacing
-//   A character that touches its operand and not the preceding value is a
-//   prefix; otherwise it is infix (or a suffix when it touches the value):
+// Position
+//   Whitespace inside an expression never picks a form. A character that
+//   several forms share is read by where it stands: after a value (a
+//   name, a literal, `)`, `]`, or a `?` / `!` suffix) it continues that
+//   value, as an infix operator or a suffix; anywhere else it starts an
+//   operand, as a prefix:
 //
-//     `a < b`, `a<b` less-than        `<x`, `f <x` move
-//     `a * b`         multiply        `*x`, `f *x` share, `*T` shared type
-//     `a | b`         bitwise or      `|x| ...`    closure bar list
-//     `f(x)`, `a[i]`  call, index or  `f (x)`, `f [1]`  new operand of f
-//                     compile-time
-//                     arguments
-//     `a.b`           member          `.red`, `f .red`  enum literal
-//     `x!`, `T?`      suffix          `!x`, `?x`   write / read borrow
+//     after a value                    starting an operand
+//     `a < b`   less-than              `<x`   move
+//     `a + b`   add                    `+x`   clone
+//     `a - b`   subtract               `-x`   negation, or a drop
+//     `a * b`   multiply               `*x`   share, `*T` shared type
+//     `a | b`   bitwise or             `|x| ...`  closure bar list
+//     `f(x)`    call                   `(x)`  grouping
+//     `a[i]`    index, or compile-     `[1, 2]`  array literal, or an
+//               time arguments                   array or slice type
+//     `a.b`     member                 `.red`  enum literal
+//     `x!`, `T?`  suffix               `!x`, `?x`  write / read borrow
+//
+//   A `]` that closes an array literal or a type's `[N]` / `[]` is no
+//   value to a sigil after it, which starts the element type: `[2]?T`.
 //
 //   `-x` at the start of a statement (or a match arm) that is nothing
 //   but `-name` is a drop; otherwise `-x` is negation.
 //
-//   Two operands never touch (`t.5`, `print"hi"`), and neither does a
-//   `=!` and the operand after it (`x =!y`): the spacing would not say
-//   what was meant, so these are errors.
+//   A prefix sigil touches its operand: `- b` and `< x` are errors, so
+//   `a <- b` is not quietly `a < -b`.
+//
+//   Token boundaries still matter, as in `!=` and `==`: `=!` is one
+//   token, so `x =!y` could be a fixed binding of `y` or `x = !y`; a
+//   `=!` touching the operand after it is an error.
 //
 // `if`
 //   After `return`/`break`/`continue` or a value, `if` is a postfix guard
@@ -336,6 +351,11 @@ pub const Lexer = struct {
     // Positions of the open ( and [; newlines inside them are whitespace.
     brackets: [max_nesting]u32 = undefined,
     nesting: u32 = 0,
+    /// Per open bracket: it is an index or compile-time bracket
+    /// (LBRACKET_INDEX), not a literal's or a type's.
+    indexes: [max_nesting]bool = undefined,
+    /// The last token closed an array literal or a type's `[N]` / `[]`.
+    closed_literal: bool = false,
 
     /// Category of the last token returned.
     last_cat: TokenCat = .eof,
@@ -347,9 +367,6 @@ pub const Lexer = struct {
     /// The real token before that one, which a parse error's hint reads.
     before_cat: TokenCat = .eof,
     before_pos: u32 = 0,
-    before_end: u32 = 0,
-    /// A newline or `\` continuation was skipped since the last token.
-    joined: bool = false,
     /// Position of the `|` that closes the bar list being lexed.
     capture_close: ?u32 = null,
     /// The last token closed a closure's bar list.
@@ -395,7 +412,7 @@ pub const Lexer = struct {
         bad_number,
         too_long,
         ambiguous_fixed,
-        missing_space,
+        detached_prefix,
         semicolon,
 
         pub fn message(e: LexError) []const u8 {
@@ -410,7 +427,7 @@ pub const Lexer = struct {
                 .bad_number => "malformed number; `_` may separate digits, and a space or an operator ends a number",
                 .too_long => "token is longer than 65535 bytes",
                 .ambiguous_fixed => "`=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` for a write borrow",
-                .missing_space => "missing space or operator",
+                .detached_prefix => "a prefix sigil touches its operand",
                 .semicolon => "unexpected `;`",
                 .tab_indent => "tab in indentation; indent with spaces",
                 .bad_dedent => "indentation does not match any enclosing block",
@@ -440,10 +457,8 @@ pub const Lexer = struct {
         const tok = self.produce();
         self.last_cat = tok.cat;
         if (tok.len > 0 and tok.cat != .err) { // a real token, not layout
-            self.joined = false;
             self.before_cat = self.prev_cat;
             self.before_pos = self.prev_pos;
-            self.before_end = self.prev_end;
             self.prev_cat = tok.cat;
             self.prev_pos = tok.pos;
             self.prev_end = tok.pos + tok.len;
@@ -521,15 +536,9 @@ pub const Lexer = struct {
                 .comment => continue,
                 // A comment longer than a token can hold.
                 .err => if (tok.len == std.math.maxInt(u16) and self.base.source[tok.pos] == '#') continue,
-                .skip => { // `\` line continuation
-                    self.joined = true;
-                    continue;
-                },
+                .skip => continue, // `\` line continuation
                 .newline => {
-                    if (!self.inIsland() and (self.nesting > 0 or self.last_cat == .eof)) {
-                        self.joined = true;
-                        continue;
-                    }
+                    if (!self.inIsland() and (self.nesting > 0 or self.last_cat == .eof)) continue;
                     return self.lineBreak(tok);
                 },
                 .eof => return self.endOfInput(tok),
@@ -598,7 +607,6 @@ pub const Lexer = struct {
             // Back at the closure's own line: the island ends and the
             // bracketed expression continues.
             if (self.inIsland() and p - line <= self.islands[self.island_count - 1].column) {
-                self.joined = true;
                 return self.closeIsland(p, null) orelse self.produce();
             }
             return self.indentTo(p - line, p, nl);
@@ -672,41 +680,50 @@ pub const Lexer = struct {
         if ((tok.cat == .rparen or tok.cat == .rbracket) and self.inIsland()) {
             if (self.closeIsland(tok.pos, tok)) |outdent| return outdent;
         }
-        // Two operands with nothing between them (`t.5`, `print"hi"`); a
-        // type may touch the `]` of its array or slice prefix (`[2]Int`).
-        if (isValue(self.last_cat) and self.last_cat != .rbracket and !self.spacedBefore(tok)) switch (tok.cat) {
-            .ident, .integer, .real, .string_sq, .string_dq => {
-                self.err = .missing_space;
-                return .{ .cat = .err, .pre = 0, .pos = tok.pos, .len = tok.len };
-            },
-            else => {},
-        };
+        // After a value a character continues it; elsewhere it starts an
+        // operand. A sigil after a literal's or type's `]` starts its
+        // element type (`[2]?T`).
+        const after_value = isValue(self.last_cat);
+        const after_literal = self.closed_literal;
+        // A sigil after a literal's or type's `]` starts the element type
+        // only when a type follows it; otherwise it is a suffix
+        // (`[a, b][i]?`).
+        const sigil_prefix = !after_value or (after_literal and startsType(self.base.source, tok.pos));
+        self.closed_literal = false;
         var out = tok;
         out.cat = switch (tok.cat) {
             .ident => self.classifyWord(tok),
-            .dot => if (self.isEnumLiteralDot(tok)) .dot_lit else .dot,
+            .dot => if (after_value) .dot else .dot_lit,
             .lparen, .lbracket => blk: {
                 if (self.nesting == max_nesting) return self.fail(.nesting_too_deep, tok.pos);
                 self.brackets[self.nesting] = tok.pos;
+                // After a type's `[N]` / `[]`, a bracket is the element
+                // type's own prefix (`[2][3]?T`), not an index; after an
+                // array literal it indexes it (`[a, b][1]`). A type
+                // follows its brackets (`[3]Int`, `[3]?Int`).
+                self.indexes[self.nesting] = after_value and !(after_literal and tok.cat == .lbracket and self.typeFollowsBracket(tok));
                 self.nesting += 1;
-                if (!self.touchesValue(tok)) break :blk tok.cat;
+                if (!after_value) break :blk tok.cat;
                 break :blk if (tok.cat == .lparen) .lparen_call else .lbracket_index;
             },
             .rparen, .rbracket => blk: {
-                if (self.nesting > 0) self.nesting -= 1;
+                if (self.nesting > 0) {
+                    self.nesting -= 1;
+                    self.closed_literal = tok.cat == .rbracket and !self.indexes[self.nesting];
+                }
                 break :blk tok.cat;
             },
-            .minus => self.classifyMinus(tok),
-            .lt => if (self.isPrefix(tok)) .move_pfx else .lt,
-            .plus => if (self.isPrefix(tok)) .clone_pfx else .plus,
-            .star => if (self.isPrefix(tok) or self.isOwnedClosureStar(tok)) .share_pfx else .star,
-            .at => if (self.isPrefix(tok) and !self.isBuiltinCall(tok)) return self.fail(.pin_sigil, tok.pos) else .at,
-            .question => if (self.touchesValue(tok)) .suffix_q else if (self.isPrefix(tok)) .read_pfx else .question,
-            .not_sym => if (self.touchesValue(tok)) .suffix_bang else if (self.isPrefix(tok)) .write_pfx else .not_sym,
-            .bar => if (self.isCaptureBar(tok)) .bar_capture else .bar,
+            .minus => self.classifyMinus(after_value),
+            .lt => if (after_value) .lt else .move_pfx,
+            .plus => if (after_value) .plus else .clone_pfx,
+            .star => if (sigil_prefix) .share_pfx else .star,
+            .at => if (self.isBuiltinCall()) .at else return self.fail(.pin_sigil, tok.pos),
+            .question => if (sigil_prefix) .read_pfx else .suffix_q,
+            .not_sym => if (sigil_prefix) .write_pfx else .suffix_bang,
+            .bar => if (self.isCaptureBar(tok, after_value)) .bar_capture else .bar,
             .and_sym => return self.fail(.and_operator, tok.pos),
             // `||` where an operand starts is an empty closure bar list.
-            .or_sym => if (!isValue(self.last_cat) or (self.spacedBefore(tok) and self.touchesNext(tok))) blk: {
+            .or_sym => if (!after_value) blk: {
                 self.closed_bars = true;
                 break :blk .bar_empty;
             } else return self.fail(.or_operator, tok.pos),
@@ -720,6 +737,13 @@ pub const Lexer = struct {
             .err => return self.lexError(tok),
             else => tok.cat,
         };
+        // A prefix sigil touches its operand (`-b`, `<x`, `*T`).
+        const prefix = switch (out.cat) {
+            .move_pfx, .clone_pfx, .minus_prefix, .drop_stmt, .share_pfx, .read_pfx, .write_pfx => true,
+            .tilde => !after_value,
+            else => false,
+        };
+        if (prefix and isSpace(self.charAfter(tok))) return self.fail(.detached_prefix, tok.pos);
         switch (out.cat) {
             .@"if", .@"while", .@"for" => self.takes_else[self.depth] = true,
             else => {},
@@ -766,14 +790,14 @@ pub const Lexer = struct {
         }
         if (self.nextCat() != .colon) return null;
         if (self.inParens()) return .kwarg_name;
-        return if (self.in_members[self.depth] and self.atStatementStart()) .ident else null;
+        return if (self.in_members[self.depth] and (self.atStatementStart() or self.last_cat == .@"pub")) .ident else null;
     }
 
-    /// `-` is infix when spaced after or attached to a value (`a - b`,
-    /// `a-b`); otherwise a prefix: a drop when `-name` is a whole
-    /// statement (a line, a `defer`, or a match arm), negation otherwise.
-    fn classifyMinus(self: *const Lexer, tok: Token) TokenCat {
-        if (!self.isPrefix(tok)) return .minus;
+    /// `-` after a value is infix (`a - b`); otherwise a prefix: a drop
+    /// when `-name` is a whole statement (a line, a `defer`, or a match
+    /// arm), negation otherwise.
+    fn classifyMinus(self: *const Lexer, after_value: bool) TokenCat {
+        if (after_value) return .minus;
         const starts = switch (self.last_cat) {
             .@"defer", .@"errdefer", .fat_arrow => true,
             else => self.atStatementStart(),
@@ -786,7 +810,7 @@ pub const Lexer = struct {
     fn isWholeDropStatement(self: *const Lexer) bool {
         var probe = self.base;
         const name = probe.matchRules();
-        if (name.cat != .ident or name.pre != 0 or keyword(self.base.text(name)) != null) return false;
+        if (name.cat != .ident or keyword(self.base.text(name)) != null) return false;
         const after = probe.matchRules();
         return switch (after.cat) {
             .newline, .eof, .comment => true,
@@ -795,41 +819,13 @@ pub const Lexer = struct {
         };
     }
 
-    /// The character touches its operand, and does not touch a preceding
-    /// value (`<x`, `f <x`, but not `a<b` or `a < b`).
-    fn isPrefix(self: *const Lexer, tok: Token) bool {
-        return isOperandStart(self.charAfter(tok)) and !self.touchesValue(tok);
-    }
-
-    /// The token touches the value before it (`f(`, `a[`, `T?`, `x!`).
-    fn touchesValue(self: *const Lexer, tok: Token) bool {
-        return isValue(self.last_cat) and !self.spacedBefore(tok);
-    }
-
-    fn spacedBefore(self: *const Lexer, tok: Token) bool {
-        return tok.pre > 0 or self.joined;
-    }
-
-    /// `.name` starts an enum literal unless it touches a value (member
-    /// access). A `.` that begins a continuation line inside brackets is
-    /// member access, so method chains can be split across lines.
-    fn isEnumLiteralDot(self: *const Lexer, tok: Token) bool {
-        if (!isIdentStart(self.charAfter(tok))) return false;
-        if (!isValue(self.last_cat)) return true;
-        return tok.pre > 0 and !self.joined;
-    }
-
-    /// `@name(` is a builtin call; `@name` alone is the reserved pin sigil.
-    fn isBuiltinCall(self: *const Lexer, tok: Token) bool {
-        var p = tok.pos + tok.len;
-        const src = self.base.source;
-        while (p < src.len and isIdentCont(src[p])) p += 1;
-        return p < src.len and src[p] == '(';
-    }
-
-    /// `*` directly before a closure's bar list: `*|+v| ...`, `*|| ...`.
-    fn isOwnedClosureStar(self: *const Lexer, tok: Token) bool {
-        return self.charAfter(tok) == '|' and !self.touchesValue(tok);
+    /// `@name(...)` is a builtin call; `@name` alone is the reserved pin
+    /// sigil.
+    fn isBuiltinCall(self: *const Lexer) bool {
+        var probe = self.base;
+        const name = probe.matchRules();
+        if (name.cat != .ident) return false;
+        return probe.matchRules().cat == .lparen;
     }
 
     /// The token touches the one after it.
@@ -838,52 +834,73 @@ pub const Lexer = struct {
     }
 
     /// The character right after `tok`, or 0 at the end of the source.
+    /// Whether the `[` at `tok` closes before a type starts: a name, a
+    /// type sigil, or another `[`, touching its `]`.
+    fn typeFollowsBracket(self: *const Lexer, tok: Token) bool {
+        const src = self.base.source;
+        var i: usize = tok.pos + 1;
+        var depth: u32 = 1;
+        while (i < src.len) : (i += 1) switch (src[i]) {
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if (depth == 0) break;
+            },
+            '\n' => return false,
+            else => {},
+        };
+        return startsType(src, i + 1);
+    }
+
+    /// Whether a type starts at `i`: a name or `[`, behind any touching
+    /// type sigils (`?T`, `*T`, `![]T`).
+    fn startsType(src: []const u8, start: usize) bool {
+        var i = start;
+        while (i < src.len and (src[i] == '?' or src[i] == '!' or src[i] == '*' or src[i] == '~')) i += 1;
+        if (i >= src.len) return false;
+        return std.ascii.isAlphabetic(src[i]) or src[i] == '_' or src[i] == '[';
+    }
+
     fn charAfter(self: *const Lexer, tok: Token) u8 {
         const end = tok.pos + tok.len;
         return if (end < self.base.source.len) self.base.source[end] else 0;
     }
 
-    /// An opening bar touches its first entry and is followed by
-    /// `entry (, entry)* [,]` and a closing bar touching the last entry
-    /// or comma. An
-    /// entry is a sigiled capture (`+x`, `<x`, `~x`) or a parameter name
-    /// with an optional type (`a`, `a: Int`, `f: *fun(Int) -> Int`). The
-    /// closing bar is recognized by position.
-    fn isCaptureBar(self: *Lexer, tok: Token) bool {
+    /// A `|` that starts an operand opens a closure's bar list:
+    /// `entry (, entry)* [,]` and a closing bar. An entry is a sigiled
+    /// capture (`+x`, `<x`, `~x`, `?x`, `!x`) or a parameter name with
+    /// an optional type (`a`, `a: Int`, `f: *fun(Int) -> Int`). The
+    /// closing bar is the one this probe finds.
+    fn isCaptureBar(self: *Lexer, tok: Token, after_value: bool) bool {
         if (self.capture_close) |close| if (close == tok.pos) {
             self.capture_close = null;
             self.closed_bars = true;
             return true;
         };
-        if (!self.isPrefix(tok)) return false;
+        if (after_value) return false;
         var probe = self.base;
         while (true) {
             var t = probe.matchRules();
-            if (t.cat == .plus or t.cat == .lt or t.cat == .tilde or t.cat == .question or t.cat == .not_sym) {
-                const name = probe.matchRules();
-                if (name.pre != 0) return false;
-                t = name;
-            }
+            if (t.cat == .plus or t.cat == .lt or t.cat == .tilde or t.cat == .question or t.cat == .not_sym) t = probe.matchRules();
             // A keyword entry still makes a bar list, so that the parser
             // reports the keyword (`|when: Int|`).
-            if (t.cat != .ident) return false;
+            if (t.cat != .ident) return true;
             var sep = probe.matchRules();
-            if (sep.cat == .colon) sep = skipType(&probe) orelse return false;
+            if (sep.cat == .colon) sep = skipType(&probe) orelse return true;
             switch (sep.cat) {
                 .bar => {
-                    if (sep.pre != 0) return false;
                     self.capture_close = sep.pos;
                     return true;
                 },
                 .comma => {
                     var after = probe;
                     const close = after.matchRules();
-                    if (close.cat == .bar and close.pre == 0) {
+                    if (close.cat == .bar) {
                         self.capture_close = close.pos;
                         return true;
                     }
                 },
-                else => return false,
+                else => return true,
             }
         }
     }
@@ -1018,8 +1035,9 @@ pub const Lexer = struct {
     }
 };
 
-/// Token categories that end an operand: a following `(` / `[` / `?` /
-/// `!` touching one of these is a suffix, not a prefix.
+/// Token categories that end an operand: a `(` / `[` / `?` / `!` or
+/// another shared character after one of these continues it, as a
+/// call, an index, a suffix, or an infix operator.
 fn isValue(cat: TokenCat) bool {
     return switch (cat) {
         .ident,
@@ -1041,6 +1059,14 @@ fn isValue(cat: TokenCat) bool {
 fn isOperandStart(c: u8) bool {
     return isIdentStart(c) or (c >= '0' and c <= '9') or switch (c) {
         '(', '[', '"', '\'', '.', '<', '?', '!', '+', '-', '*', '~', '@' => true,
+        else => false,
+    };
+}
+
+/// Whitespace, or the end of the line or source, after a token.
+fn isSpace(c: u8) bool {
+    return switch (c) {
+        ' ', '\t', '\r', '\n', '\\', '#', 0 => true,
         else => false,
     };
 }
@@ -1072,6 +1098,9 @@ pub const Parser = struct {
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
     paren_suffixes: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The node ids of the fields and methods declared `pub`, which the
+    /// member list holds without their `(pub ...)` wrapper.
+    pub_members: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
 
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
@@ -1136,8 +1165,8 @@ pub const Parser = struct {
         if (self.openRange(tok)) |d| return d;
         const message: []const u8 = switch (tok.cat) {
             .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = switch (lexer.err) {
-                .missing_space => self.format("missing space or operator between `{s}` and `{s}`", .{ src[lexer.prev_pos..lexer.prev_end], src[pos..end] }),
                 .semicolon => self.semicolonMessage(tok),
+                .detached_prefix => self.detachedPrefix(tok),
                 else => lexer.err.message(),
             } },
             .eof, .outdent => blk: {
@@ -1156,7 +1185,7 @@ pub const Parser = struct {
         };
         const expected = self.expectedHint();
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
-        const hint = self.parenFreeCallHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse fillHint(tok) orelse self.spacingHint(tok) orelse self.valueCallHint(tok) orelse reservedHint(src, tok, expected orelse "");
+        const hint = self.printHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse fillHint(tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
@@ -1210,9 +1239,8 @@ pub const Parser = struct {
 
     /// Compile-time parameters and arguments written where Rig does not
     /// take them: in parentheses (`struct Wrap(T)`, `Vec(Int)` in a type,
-    /// `pre n: Int`), in brackets apart from the name (`struct Wrap [T]`),
-    /// on a type alias, or as a type an expression cannot spell
-    /// (`Vec[[]Int]()`). Also a struct declared with `type`.
+    /// `pre n: Int`), on a type alias, or as a type an expression cannot
+    /// spell (`Vec[[]Int]()`). Also a struct declared with `type`.
     fn bracketHint(self: *Parser, tok: Token) ?[]const u8 {
         const src = self.base.source;
         const before = std.mem.trimEnd(u8, src[0..tok.pos], if (tok.cat == .indent) " \r\n" else " ");
@@ -1236,12 +1264,9 @@ pub const Parser = struct {
         switch (tok.cat) {
             .lparen_call => {
                 if (word.len == 0) return null;
-                if (decl_kw) |kw| if (kw[0] == 'e' or kw[1] == 't') return self.format("type parameters go in brackets touching the name: `{s} {s}[T]`", .{ kw, word });
+                if (decl_kw) |kw| if (kw[0] == 'e' or kw[1] == 't') return self.format("type parameters go in brackets: `{s} {s}[T]`", .{ kw, word });
                 if (std.ascii.isUpper(word[0])) return self.format("type arguments go in brackets: `{s}[...]`", .{word});
                 return null;
-            },
-            .lbracket => if (decl_kw) |kw| if (word.len > 0) {
-                return self.format("compile-time parameters go in brackets touching the name: `{s} {s}[...]`", .{ kw, word });
             },
             .lbracket_index => if (word.len > 0 and endsWithWord(declared, "error")) {
                 return "an error set takes no type parameters";
@@ -1261,6 +1286,34 @@ pub const Parser = struct {
             return "a slice or array type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead";
         }
         return null;
+    }
+
+    /// `print "hi"`: `print` named without its call's parentheses.
+    fn printHint(self: *Parser, tok: Token) ?[]const u8 {
+        const lex = &self.base.lexer;
+        if (tok.len == 0 or lex.before_cat != .ident) return null;
+        const src = self.base.source;
+        var end = lex.before_pos;
+        while (end < src.len and isIdentCont(src[end])) end += 1;
+        if (!std.mem.eql(u8, src[lex.before_pos..end], "print")) return null;
+        return "`print` is called with parentheses: `print(...)`";
+    }
+
+    /// A prefix sigil with whitespace after it (`- b`): named with the
+    /// operand it should touch.
+    fn detachedPrefix(self: *Parser, tok: Token) []const u8 {
+        const src = self.base.source;
+        var probe = BaseLexer.init(src);
+        probe.pos = tok.pos + 1;
+        const next = while (true) {
+            const t = probe.matchRules();
+            if (t.cat != .skip and t.cat != .comment) break t;
+        };
+        const operand = switch (next.cat) {
+            .ident, .integer, .real, .string_sq, .string_dq => src[next.pos .. next.pos + next.len],
+            else => "x",
+        };
+        return self.format("a prefix `{c}` touches its operand: write `{c}{s}`", .{ src[tok.pos], src[tok.pos], operand });
     }
 
     /// A `;`, which Rig does not take: one ending a statement, Rust's
@@ -1329,101 +1382,8 @@ pub const Parser = struct {
         return "a fill literal `[n of x]` holds one count and one element; it cannot share brackets with a list";
     }
 
-    /// `[N -1]T`: an operator that touches what follows and not what
-    /// precedes is a prefix, which a size does not take.
-    fn spacingHint(self: *Parser, tok: Token) ?[]const u8 {
-        const op: u8 = switch (tok.cat) {
-            .minus_prefix => '-',
-            .share_pfx => '*',
-            .clone_pfx => '+',
-            else => return null,
-        };
-        const src = self.base.source;
-        const lex = &self.base.lexer;
-        if (lex.nesting == 0 or src[lex.brackets[lex.nesting - 1]] != '[') return null;
-        if (tok.pos == 0 or src[tok.pos - 1] != ' ') return null;
-        const before = std.mem.trimEnd(u8, src[0..tok.pos], " ");
-        var start = before.len;
-        while (start > 0 and isIdentCont(before[start - 1])) start -= 1;
-        var end = tok.pos + 1;
-        while (end < src.len and isIdentCont(src[end])) end += 1;
-        if (start == before.len or end == tok.pos + 1 or keyword(before[start..]) != null) return null;
-        return self.format("`{c}` touching `{s}` is a prefix (the spacing rule); for arithmetic, write `{s} {c} {s}`", .{ op, src[tok.pos + 1 .. end], before[start..], op, src[tok.pos + 1 .. end] });
-    }
-
-    /// A name, a space, then an operand, where a value is expected (the
-    /// right side of a binding, `return`, a condition): a paren-free
-    /// call, which only a command may be. A sigil touching the operand
-    /// is a prefix, not the infix operator it also spells.
-    fn valueCallHint(self: *Parser, tok: Token) ?[]const u8 {
-        const lex = &self.base.lexer;
-        if (lex.nesting > 0 and !lex.inIsland()) return null;
-        if (lex.before_cat != .ident or tok.pos <= lex.before_end) return null;
-        switch (lex.line_head) {
-            .@"struct", .@"enum", .@"error", .type, .fun, .sub, .use, .@"extern", .@"test", .drop => return null,
-            else => {},
-        }
-        const src = self.base.source;
-        if (std.mem.indexOfNone(u8, src[lex.before_end..tok.pos], " ") != null) return null;
-        const callee = nameChain(src, lex.before_pos, lex.before_end);
-        const infix: ?struct { op: u8, verb: []const u8 } = switch (tok.cat) {
-            .minus_prefix => .{ .op = '-', .verb = "subtract" },
-            .move_pfx => .{ .op = '<', .verb = "compare" },
-            .share_pfx => .{ .op = '*', .verb = "multiply" },
-            .clone_pfx => .{ .op = '+', .verb = "add" },
-            .ident, .integer, .real, .string_sq, .string_dq, .true, .false => null,
-            .dot_lit, .lparen, .lbracket, .read_pfx, .write_pfx, .tilde => return self.format("a call where a value is expected takes parentheses: `{s}(...)`", .{callee}),
-            else => return null,
-        };
-        if (infix) |in| {
-            var end = tok.pos + 1;
-            while (end < src.len and (isIdentCont(src[end]) or (src[end] == '.' and end + 1 < src.len and isIdentCont(src[end + 1])))) end += 1;
-            const operand = if (end == tok.pos + 1) "..." else src[tok.pos + 1 .. end];
-            return self.format("a sigil touching its operand is a prefix: to {s}, write `{s} {c} {s}`; to call `{s}`, write `{s}({c}{s})`", .{ in.verb, callee, in.op, operand, callee, callee, in.op, operand });
-        }
-        // The argument alone ends the line: show the whole call.
-        const eol = std.mem.indexOfScalarPos(u8, src, tok.pos, '\n') orelse src.len;
-        const rest = std.mem.trim(u8, src[tok.pos + tok.len .. eol], " \r");
-        const arg = if (rest.len == 0 or rest[0] == '#') src[tok.pos .. tok.pos + tok.len] else "...";
-        return self.format("a call where a value is expected takes parentheses: `{s}({s})`", .{ callee, arg });
-    }
-
-    /// The name at `start..end`, with the `a.b.` before it: `p.x`.
-    fn nameChain(src: []const u8, start: u32, end: u32) []const u8 {
-        var from = start;
-        while (from > 1 and src[from - 1] == '.' and isIdentCont(src[from - 2])) {
-            from -= 1;
-            while (from > 0 and isIdentCont(src[from - 1])) from -= 1;
-        }
-        return src[from..end];
-    }
-
     fn endsWithWord(text: []const u8, word: []const u8) bool {
         return std.mem.endsWith(u8, text, word) and (text.len == word.len or !isIdentCont(text[text.len - word.len - 1]));
-    }
-
-    /// Inside ( ), a name followed by an operand: a paren-free call,
-    /// which only a statement or a closure body takes.
-    fn parenFreeCallHint(self: *Parser, tok: Token) ?[]const u8 {
-        const src = self.base.source;
-        // The bracket around the token, not one it opens.
-        const lex = &self.base.lexer;
-        const depth = lex.nesting - @intFromBool(tok.cat == .lparen or tok.cat == .lbracket);
-        if (depth == 0 or lex.inIsland() or src[lex.brackets[depth - 1]] != '(') return null;
-        var end = tok.pos;
-        while (end > 0 and src[end - 1] == ' ') end -= 1;
-        if (end == tok.pos) return null;
-        var start = end;
-        while (start > 0 and isIdentCont(src[start - 1])) start -= 1;
-        const name = src[start..end];
-        if (name.len == 0 or !isIdentStart(name[0]) or keyword(name) != null) return null;
-        const operand = switch (tok.cat) {
-            .ident, .integer, .real, .string_sq, .string_dq, .true, .false, .dot_lit, .lparen, .lbracket => true,
-            .minus_prefix, .move_pfx, .clone_pfx, .read_pfx, .write_pfx, .share_pfx, .tilde, .not => true,
-            else => false,
-        };
-        if (!operand) return null;
-        return self.format("a call inside parentheses needs its own parentheses: `{s}(...)`", .{name});
     }
 
     /// The word before `pos` is `word`.
@@ -1514,6 +1474,8 @@ pub const Parser = struct {
         for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         switch (out.kind() orelse return out) {
+            .module => self.moduleConsts(out),
+            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.pubMembers(out),
             .lambda => try self.splitBars(out, walked),
             .@"??" => return self.nearestFallback(out),
             .read, .write, .move => return self.receiverSigil(out),
@@ -1526,6 +1488,55 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// A module-level binding is a constant, written with `=`: its
+    /// `(set _ ...)` becomes `(set fixed ...)`, the fixed binding every
+    /// pass reads. A `=!` there is rejected, as it would say nothing more.
+    fn moduleConsts(self: *Parser, module: Sexp) void {
+        for (ir.Module.decls(module)) |decl| {
+            const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+            if (!set.isKind(.set)) continue;
+            switch (bindingKindOf(ir.Set.op(set))) {
+                .default => @constCast(set.items())[ir.slot(.set, .op)] = .{ .tag = .fixed },
+                .fixed => {
+                    const src = self.base.source;
+                    const target = self.span(ir.Set.target(set));
+                    const value = self.span(ir.Set.value(set));
+                    const ty = ir.Set.type(set);
+                    const annot = if (ty == .nil) "" else src[target.end..self.span(ty).end];
+                    const shown = src[value.start..value.end];
+                    const short = shown.len <= 40 and std.mem.indexOfScalar(u8, shown, '\n') == null;
+                    self.reject(set, self.format("a module-level binding is already a constant; write `{s}{s} = {s}`", .{ src[target.start..target.end], annot, if (short) shown else "..." }));
+                },
+                else => {},
+            }
+        }
+    }
+
+    /// `pub` on a field or method: the member stands in the member list
+    /// as itself, as every pass reads it, and its id is recorded
+    /// (`isPubMember`).
+    fn pubMembers(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
+        const is_enum = node.isKind(.@"enum") or node.isKind(.generic_enum) or node.isKind(.errors);
+        for (@constCast(ir.rest(node, .members))) |*m| {
+            if (!m.isKind(.@"pub")) continue;
+            const inner = ir.Pub.decl(m.*);
+            // In a struct, a variant's shape is left for the checker to
+            // reject.
+            switch (inner.kind() orelse .variant) {
+                .@":", .default, .fun, .sub => {},
+                .drop_decl => self.reject(m.*, "a `drop` body is never called by name, so it takes no `pub`"),
+                else => if (is_enum) self.reject(m.*, "an enum's variants are always public; remove the `pub`"),
+            }
+            if (inner == .list) try self.pub_members.put(self.allocator(), inner.list.id, {});
+            m.* = inner;
+        }
+    }
+
+    /// Whether `member`, a field or method, is declared `pub`.
+    pub fn isPubMember(self: *const Parser, member: Sexp) bool {
+        return member == .list and self.pub_members.contains(member.list.id);
     }
 
     /// `a ?? b ?? return v`: the grammar reads a jump fallback after the
@@ -1559,12 +1570,12 @@ pub const Parser = struct {
     /// `*(T?)`, `~(T?)`, `*(~T?)`: a `?` suffix sits inside parentheses
     /// within a chain of handles, so it belongs to what a handle holds.
     /// In `*T?`, `*~T?`, and `*(T)?` every suffix follows the whole chain:
-    /// each handle and each suffix layer starts right after the sigil
-    /// before it.
+    /// each handle and each suffix layer starts at the token after the
+    /// sigil before it.
     fn noteParenSuffix(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
         var e = node;
         while (true) {
-            const at = self.span(e).start + 1;
+            const at = self.afterSigil(e);
             var op = ir.get(e, .operand);
             if (op.isKind(.share) or op.isKind(.weak)) {
                 if (self.span(op).start == at) {
@@ -1595,6 +1606,20 @@ pub const Parser = struct {
         return node == .list and self.receiver_sigils.contains(node.list.id);
     }
 
+    /// Where the token after the sigil that starts `node` starts, past
+    /// any whitespace, line joins, and comments.
+    fn afterSigil(self: *const Parser, node: Sexp) u32 {
+        var probe = BaseLexer.init(self.base.source);
+        probe.pos = self.span(node).start + 1;
+        while (true) {
+            const t = probe.matchRules();
+            switch (t.cat) {
+                .comment, .newline, .skip => continue,
+                else => return t.pos,
+            }
+        }
+    }
+
     /// The longest postfix chain `receiverSigil` looks through.
     const max_spine = 256;
 
@@ -1606,10 +1631,10 @@ pub const Parser = struct {
     /// Anything else keeps its sigil outside: a chain that is all place
     /// (`!x.v`), one whose head is called (`<f(x).g()`), and one whose
     /// spine is parenthesized (`!(v.pop())`), which starts after the
-    /// sigil's own position + 1.
+    /// token after the sigil, a `(`.
     fn receiverSigil(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const tag: parser.Tag = node.kind().?;
-        const at = self.span(node).start + 1;
+        const at = self.afterSigil(node);
         // The chain from the operand down to its head, outermost first.
         var spine: [max_spine]Sexp = undefined;
         var n: usize = 0;
@@ -1639,7 +1664,7 @@ pub const Parser = struct {
         }
         if (top == 0) return node;
         const place = spine[top];
-        var out = try self.base.newNode(tag, &.{place}, .{ .start = at - 1, .end = self.span(place).end });
+        var out = try self.base.newNode(tag, &.{place}, .{ .start = self.span(node).start, .end = self.span(place).end });
         try self.receiver_sigils.put(self.allocator(), out.list.id, {});
         var i = top;
         while (i > 0) {
@@ -1762,24 +1787,35 @@ test "keywords are reserved; `new` only at statement start" {
     try expectCats("p = Point.new(1)", &.{ .ident, .assign, .ident, .dot, .ident, .lparen_call, .integer, .rparen });
 }
 
-test "spacing decides prefix vs infix" {
-    try expectCats("a < b", &.{ .ident, .lt, .ident });
-    try expectCats("a<b", &.{ .ident, .lt, .ident });
-    try expectCats("f <x", &.{ .ident, .move_pfx, .ident });
-    try expectCats("a * b", &.{ .ident, .star, .ident });
+test "position decides prefix vs infix; a prefix touches its operand" {
+    for ([_][]const u8{ "a < b", "a<b", "a <b", "a< b" }) |src| try expectCats(src, &.{ .ident, .lt, .ident });
+    for ([_][]const u8{ "a - 1", "a-1", "a -1" }) |src| try expectCats(src, &.{ .ident, .minus, .integer });
+    try expectCats("x = <y", &.{ .ident, .assign, .move_pfx, .ident });
+    // A prefix sigil touches its operand.
+    try expectCats("x = < y", &.{ .ident, .assign, .err });
+    try expectCats("a * b a *b", &.{ .ident, .star, .ident, .ident, .star, .ident });
     try expectCats("x = *b", &.{ .ident, .assign, .share_pfx, .ident });
     try expectCats("a | b | c", &.{ .ident, .bar, .ident, .bar, .ident });
     try expectCats("f = |a, +b| a", &.{ .ident, .assign, .bar_capture, .ident, .comma, .clone_pfx, .ident, .bar_capture, .ident });
-    try expectCats("f(x) f (x)", &.{ .ident, .lparen_call, .ident, .rparen, .ident, .lparen, .ident, .rparen });
-    try expectCats("a[i] f [1]", &.{ .ident, .lbracket_index, .ident, .rbracket, .ident, .lbracket, .integer, .rbracket });
-    try expectCats("a.b f .c", &.{ .ident, .dot, .ident, .ident, .dot_lit, .ident });
+    try expectCats("f = | +b , a | a", &.{ .ident, .assign, .bar_capture, .clone_pfx, .ident, .comma, .ident, .bar_capture, .ident });
+    try expectCats("f(x) f (x) (x)", &.{ .ident, .lparen_call, .ident, .rparen, .ident, .lparen_call, .ident, .rparen, .lparen_call, .ident, .rparen });
+    try expectCats("x = (y)", &.{ .ident, .assign, .lparen, .ident, .rparen });
+    try expectCats("a[i] f [1]", &.{ .ident, .lbracket_index, .ident, .rbracket, .ident, .lbracket_index, .integer, .rbracket });
+    try expectCats("x = [1]", &.{ .ident, .assign, .lbracket, .integer, .rbracket });
+    try expectCats("a.b f .c", &.{ .ident, .dot, .ident, .ident, .dot, .ident });
     try expectCats("return .red", &.{ .@"return", .dot_lit, .ident });
-    try expectCats("T? x!", &.{ .ident, .suffix_q, .ident, .suffix_bang });
+    try expectCats("T? x! T ? x !", &.{ .ident, .suffix_q, .ident, .suffix_bang, .ident, .suffix_q, .ident, .suffix_bang });
+    try expectCats("f(!x, ?y)", &.{ .ident, .lparen_call, .write_pfx, .ident, .comma, .read_pfx, .ident, .rparen });
+    // A sigil after a literal's or type's `]` starts its element type.
+    try expectCats("[]*T", &.{ .lbracket, .rbracket, .share_pfx, .ident });
+    try expectCats("[2][3]?T", &.{ .lbracket, .integer, .rbracket, .lbracket_index, .integer, .rbracket, .read_pfx, .ident });
+    try expectCats("x: [2]?T", &.{ .ident, .colon, .lbracket, .integer, .rbracket, .read_pfx, .ident });
+    try expectCats("a[i] * 2", &.{ .ident, .lbracket_index, .ident, .rbracket, .star, .integer });
 }
 
-test "compile-time brackets touch the name; `name:` inside them is a name" {
+test "compile-time brackets follow the name; `name:` inside them is a name" {
     try expectCats("struct Wrap[T]", &.{ .@"struct", .ident, .lbracket_index, .ident, .rbracket });
-    try expectCats("struct Wrap [T]", &.{ .@"struct", .ident, .lbracket, .ident, .rbracket });
+    try expectCats("struct Wrap [T]", &.{ .@"struct", .ident, .lbracket_index, .ident, .rbracket });
     try expectCats("fun f[n: Int](x: Int)", &.{ .fun, .ident, .lbracket_index, .ident, .colon, .ident, .rbracket, .lparen_call, .kwarg_name, .colon, .ident, .rparen });
     try expectCats("Pair[Int, String].make(1)", &.{ .ident, .lbracket_index, .ident, .comma, .ident, .rbracket, .dot, .ident, .lparen_call, .integer, .rparen });
     try expectCats("pre = 1", &.{ .ident, .assign, .integer });
@@ -1787,8 +1823,9 @@ test "compile-time brackets touch the name; `name:` inside them is a name" {
 
 test "minus: infix, negation, drop" {
     try expectCats("a - b", &.{ .ident, .minus, .ident });
-    try expectCats("a -b", &.{ .ident, .minus_prefix, .ident });
+    try expectCats("a -b", &.{ .ident, .minus, .ident });
     try expectCats("-x", &.{ .drop_stmt, .ident });
+    try expectCats("- x", &.{.err});
     try expectCats("-x + 1", &.{ .minus_prefix, .ident, .plus, .integer });
     try expectCats("y = -x", &.{ .ident, .assign, .minus_prefix, .ident });
 }
@@ -1958,7 +1995,7 @@ test "parser: every form parses" {
         \\  z = <w
         \\  -z
         \\  if x > 1
-        \\    print x, y
+        \\    print(x, y)
         \\  else if not (x < 0 and true)
         \\    return
         \\  if m as v

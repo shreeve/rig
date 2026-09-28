@@ -1,0 +1,9 @@
+# A module-level binding is already a constant: it is written with `=`,
+# and `=!` there is rejected with the spelling to use.
+
+pub W: U8 =! 2
+
+sub main()
+  print(W)
+
+# error: 4:5: a module-level binding is already a constant; write `W: U8 = 2`

@@ -1,7 +1,6 @@
 # A closure's body on the same line may be an assignment, plain or
 # compound, to a captured write borrow or a field through one: as a
-# bound closure, and as a closure lent to a call in its last argument,
-# like a paren-free call.
+# bound closure, and as a closure lent to a call in its last argument.
 
 struct Wrap
   n: Int

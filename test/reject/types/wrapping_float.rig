@@ -1,0 +1,12 @@
+# Wrapping arithmetic is for integers: a Float never wraps.
+
+sub main()
+  x = 1.5
+  y = x +% 2.0
+  x *%= 2.0
+  z: U8 = 7
+  print(y, x, z +% 300)
+
+# error: 5:7: operator `+%` requires integer operands
+# error: 6:3: `*%=` requires an integer target
+# error: 8:20: integer value `300` does not fit in `U8`

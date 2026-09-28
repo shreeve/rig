@@ -3,7 +3,7 @@
 
 use lim
 
-LOCAL =! [7, 8, 9]
+LOCAL = [7, 8, 9]
 
 fun top() -> []Int
   ?lim.LIMITS[1..3]

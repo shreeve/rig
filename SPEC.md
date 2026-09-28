@@ -44,7 +44,7 @@ hello, rig
 ## 1. Programs
 
 A Rig program is a file of declarations: functions (`fun`, `sub`),
-types (`struct`, `enum`, `error`, `type`), constants (`name =! value`),
+types (`struct`, `enum`, `error`, `type`), constants (`name = value`),
 imports (`use`), `extern` declarations, and `test` blocks. Statements
 live inside functions. The file's name ends in `.rig`, and a program
 that runs declares its entry point as `sub main`, with no parameters.
@@ -210,61 +210,66 @@ sub main
 single: "no escapes\n" double: 'x'	y
 ```
 
-### The spacing rule
+### Prefixes and infix operators
 
-Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
-`!` `~`. One rule decides which, and it also governs `(`, `[`, and `.`:
+Whitespace around an infix operator means nothing: `a - 1`, `a -1`,
+and `a-1` are one subtraction. Several characters are both operators
+and prefixes: `<` `+` `-` `*` `?` `!` `|`. Which one a character is
+depends on where it stands, never on spacing, and the same holds for
+`(`, `[`, and `.`:
 
-> A character that touches its operand and not the value before it is
-> a prefix. Otherwise it is an infix operator, or it continues the value
-> before it.
+> After a value (a name, a literal, `)`, `]`, or a `?` or `!` suffix),
+> a character continues that value: it is an infix operator, a suffix,
+> a call, an index, or member access. Anywhere else it starts an
+> operand, as a prefix.
 
 | Source | Reads as |
 |---|---|
-| `a < b`, `a<b` | comparison |
-| `f <x` | `f(<x)`: a paren-free call passing `x` moved ([§6](#calls)) |
-| `a - b`, `a-b` | subtraction |
-| `f -x` | `f(-x)`, as a paren-free call |
-| `f(x)`, `a[i]`, `a.b` | call, index or compile-time arguments ([§17](#17-compile-time-parameters)), member access |
-| `f (x)`, `f [1, 2]`, `f .red` | paren-free call with the argument `(x)`, `[1, 2]`, `.red` |
+| `a < b`, `a <b`, `a<b` | comparison |
+| `x = <y`, `f(<y)` | a move ([§8](#moves)) |
+| `a - b`, `a -b` | subtraction |
+| `-x`, `f(-x)` | negation; `-x` as a whole statement drops `x` ([§8](#drop)) |
+| `f(x)`, `f (x)`, `a[i]`, `a.b` | call, index or compile-time arguments ([§17](#17-compile-time-parameters)), member access |
+| `(x)`, `[1, 2]`, `.red` | grouping, an array literal, an enum literal |
 | `f()!`, `x?` | propagate a failure ([§14](#14-errors)) or `none` ([§13](#13-optionals)) |
-| `-x` as a statement | drops `x` ([§8](#drop)); where a value is expected, negates |
+| `a \| b` vs `\|x\| x + 1` | bitwise or, and a closure's bar list ([§12](#12-closures)) |
 
-The brackets of compile-time parameters and arguments touch the name
-before them (`struct Wrap[T]`, `show[3]()`); a declaration with a space
-there (`struct Wrap [T]`) is rejected.
-
-Two values may not touch with no operator between them: `t.5` and
-`print"hi"` are rejected, since neither is a call. Nor may `=!` touch
-the operand after it (`x =!y`), which could as well be `x = !y`.
-
-A paren-free call is a command, never a value ([§6](#calls)), so
-where a value is expected `a -1` is neither a call nor a subtraction,
-and it is rejected:
+A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) touches its operand, in an
+expression and in a type: `-b`, `<x`, `*T`. One with whitespace after
+it is rejected, so `a <- b`, which Rig does not have, is not quietly
+`a < -b`:
 
 ```rig reject
 sub main
-  a = 5
-  b = a -1
+  a = 1
+  b = 2
+  print(a <- b)
 ```
 
 ```error
-unexpected `-`; a sigil touching its operand is a prefix: to subtract, write `a - 1`; to call `a`, write `a(-1)`
+a prefix `-` touches its operand: write `-b`
 ```
 
-As a command's argument, where a paren-free call is legal, `print a -1`
-is `print(a(-1))`. When `a` cannot be called, the checker says so and
-names the fix:
+A sigil after the `]` of an array or slice type starts its element
+type: in `[2]?Int`, the `?` borrows each element.
+
+Every call has parentheses: `print x` is not a call, and does not
+parse.
 
 ```rig reject
 sub main
-  a = 5
-  print a -1
+  x = 1
+  print x
 ```
 
 ```error
-`a` has type `Int` and cannot be called; a sigil touching its operand is a prefix: to subtract, write `a - 1`
+unexpected name `x`
 ```
+
+Tokens are split as in Zig and C, by the longest match, so `a == b` is
+not `a = = b`. `=!` is one token, so `x =!y` could be a fixed binding
+of `y` or `x = !y`, a write borrow; a `=!` touching the operand after it
+is rejected.
 
 ---
 
@@ -276,8 +281,8 @@ sub main
 |---|---|---|
 | `Int` | 64-bit signed integer, the same type as `I64`; the type of integer literals by default | `i64` |
 | `Float` | 64-bit float, the same type as `F64`; the type of float literals by default | `f64` |
-| `I8` `I16` `I32` `I64` | signed integers | `i8` ... `i64` |
-| `U8` `U16` `U32` `U64` | unsigned integers | `u8` ... `u64` |
+| `I8` `I16` `I32` `I64` `I128` | signed integers | `i8` ... `i128` |
+| `U8` `U16` `U32` `U64` `U128` | unsigned integers | `u8` ... `u128` |
 | `F32` `F64` | floats | `f32`, `f64` |
 | `Bool` | `true` or `false` | `bool` |
 | `String` | immutable UTF-8 bytes; a Copy value | `[]const u8` |
@@ -291,6 +296,23 @@ exactly). Constant arithmetic is checked at compile time. Arithmetic on
 literals given a float type is computed in that type, so it rounds like
 run-time arithmetic and must not overflow it: `x: F32 = 1e38 * 10.0` is
 rejected.
+
+A number type's `.min` and `.max` are its least and greatest values,
+constants of that type, named through the type or an alias of it
+(`type Byte = U8`, `Byte.max`): `U8.max` is `255`, `Int.min` is
+`-9223372036854775808`, and `U128.max` is `2^128 - 1`. A float's `.max`
+is its greatest finite value and its `.min` the most negative one
+(`-F64.max`), as in Rust. Constant arithmetic on them is checked, so
+`U8.max + 1` is rejected.
+
+```rig
+sub main
+  print(U8.max, I8.min, Int.max, U128.max, Float.min < 0.0)
+```
+
+```output
+255 -128 9223372036854775807 340282366920938463463374607431768211455 true
+```
 
 ```rig
 sub main
@@ -328,7 +350,8 @@ operands have different types `I32` and `Int`
 ### Numeric conversions
 
 A numeric type's name converts a number to that type: `I32(x)`,
-`U8(x)`, `Float(n)`, `Int(f)`. A conversion is checked. An integer that
+`U8(x)`, `Float(n)`, `Int(f)`. An integer type's name also converts a
+plain enum value to its integer value ([§4](#enums)). A conversion is checked. An integer that
 does not fit the target type panics when the program runs, and so does
 a float whose integer part does not fit; a float becomes an integer by
 truncating toward zero, and `F32(x)` rounds (to an infinity when `x` is
@@ -372,12 +395,12 @@ parameter (`[n]T` in `fun zeros[n: Int] -> [n]Int`,
 [§17](#17-compile-time-parameters)), or arithmetic on integers and
 constants with `+`, `-`, `*`, `/`, `%`, and parentheses
 (`[LIMIT * 2 + 1]U8`). The arithmetic is checked as constant
-arithmetic is, in its constants' type: with `W: U8 =! 200`, `[W * 2]T`
+arithmetic is, in its constants' type: with `W: U8 = 200`, `[W * 2]T`
 overflows `U8`. A length runs from 0 to 4294967295, and one
 given by a compile-time parameter is checked at each instance.
 Arithmetic on a compile-time parameter (`[n + 1]T`) is rejected, as in
 a compile-time argument. The length is a value, however it is written:
-with `LIMIT =! 4`, `[LIMIT]Int`, `[2 + 2]Int`, and `[4]Int` are one
+with `LIMIT = 4`, `[LIMIT]Int`, `[2 + 2]Int`, and `[4]Int` are one
 type.
 
 An array literal `[a, b, c]` takes its element type from its elements
@@ -395,7 +418,7 @@ collection of resources is a `Vec`. An array of arrays is `[2][3]T`:
 two rows of three.
 
 ```rig
-LIMIT =! 4
+LIMIT = 4
 
 fun zeros[n: Int] -> [n]Int
   [n of 0]
@@ -767,7 +790,7 @@ no variant `native` on enum `Endian`
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§3](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
 
-The handle sigils `*` and `~` bind to the type they touch, tighter than
+The handle sigils `*` and `~` bind to the type after them, tighter than
 the suffixes: `*User?` is an optional shared handle and `~User?` an
 optional weak handle, while a handle to an optional `User` is written
 `*(User?)`. A borrow applies to the whole type after it, suffixes
@@ -864,7 +887,8 @@ sign -1
 Parameters are immutable, except a write-borrowed `!T` parameter, which
 can be assigned ([§8](#write-borrows)). A parameter the body ignores
 may be named `_`, any number of times. A parameter may have a default
-value, which must be a literal. A call passes arguments by position, in
+value: a literal or a module constant (`LIMIT`, `lib.LIMIT`,
+`U8.max`), which means the same value at every call, in any module. A call passes arguments by position, in
 parameter order (`scaled(3, 2)`); by keyword, in any order
 (`scaled(by: 4, n: 5)`); or both, positional arguments first
 (`scaled(3, by: 2)`). A parameter with a default may be left out
@@ -912,24 +936,34 @@ naming its fields: `Point(x: 1, y: 2)`. A struct with exactly one field
 also takes it by position, as a one-field variant does:
 `Meters(3.5)` is `Meters(value: 3.5)`, and so are the built-ins
 `Box(x)`, `Cell(0)`, and `*Signal(0)`. A field may have a default
-value, which, like a parameter default, must be a literal (a number, a
-string, `true` / `false`, `none`, or `.variant`); a constructor may omit
-that field.
+value, and a constructor may omit that field. Like a parameter default,
+it is a literal (a number, a string, `true` / `false`, `none`, or
+`.variant`) or a module constant, of this module or an imported one
+(`LIMIT`, `lib.LIMIT`, `U8.max`); a field's may also be an empty or
+literal constructor: `Vec()`, `Vec[T]()`, `Cell(0)`, or `[n of x]` with
+a literal or constant `x`. Each value the constructor makes gets a fresh
+default, so no two share a `Vec`.
 
 ```rig
+RETRIES = 3
+
 struct Config
-  retries: Int = 3
+  retries: Int = RETRIES
   name: String = "anon"
+  tags: Vec[String] = Vec()
+  hits: Cell[Int] = Cell(0)
   verbose: Bool
 
 sub main
   c = Config(verbose: true)
   d = Config(retries: 5, verbose: false)
-  print(c.retries, c.name, d.retries)
+  !c.tags.push("x")
+  c.hits.set(2)
+  print(c.retries, c.name, d.retries, c.tags.len, d.tags.len, d.hits.get())
 ```
 
 ```output
-3 anon 5
+3 anon 5 1 0 0
 ```
 
 ```rig
@@ -1000,8 +1034,7 @@ write `!self.bump()`: the call writes `self`
 **Receiver sigils.** `?`, `!`, or `<` directly before a *place* (a
 name followed by any `.field` or `[index]` steps) that is followed by
 a method call applies to that place: `?P.m(args)` is `(?P).m(args)`,
-`!P.m(args)` is `(!P).m(args)`, and `<P.m(args)` is `(<P).m(args)`,
-with or without parentheses around the arguments (`!v.push 3`).
+`!P.m(args)` is `(!P).m(args)`, and `<P.m(args)` is `(<P).m(args)`.
 Postfixes after that call apply to its result: `!v.pop()?`, and
 `!a.b().c(x)` is `(!a).b().c(x)`. Writing `?` is optional, since a
 read receiver is lent without it. Every other prefix sigil (`+`, `-`,
@@ -1211,7 +1244,47 @@ the fields in order (`.circle(r) =>`). Enums have no constructor call
 (`Shape(...)` is an error); enums compare with `==` ([§6](#operators)). A plain enum's variants may take
 explicit values (`ok = 200`): constant integers from 0 to 4294967295,
 no two the same, where a variant without one takes the value after the
-previous variant's. Payload and generic enums take no values.
+previous variant's (the first, 0). Payload and generic enums take no
+values.
+
+An integer type's name converts a plain enum value to its value, as it
+converts a number ([§3](#numeric-conversions)): `Int(st)`, `U16(d)`.
+The conversion is checked: a variant named through its type
+(`Status.missing`) must fit the target at compile time, and any other
+value that does not fit panics when the program runs. A payload enum
+has no integer values, and neither converts to a float directly.
+
+```rig
+enum Status
+  ok = 200
+  missing = 404
+
+enum Dir
+  north
+  east
+
+sub main
+  st: Status = .missing
+  print(Int(st), U16(Status.ok), U8(Dir.east))
+```
+
+```output
+404 200 1
+```
+
+```rig reject
+enum Shape
+  dot
+  circle(r: Int)
+
+sub main
+  s: Shape = .dot
+  print(Int(s))
+```
+
+```error
+`Int(x)` takes a plain enum's value; `Shape` has variants with payloads, which have no integer value
+```
 
 ### Error sets
 
@@ -1463,6 +1536,24 @@ note at the body line that needs the operation, in the module that
 declares the body. A body cannot call a method on a `T`, read a field
 of one, or call `T` itself.
 
+A literal becomes a `T` only as an operand beside one (`x * 3`), and
+must fit every instance's `T`; a binding annotated `T` takes a `T`,
+not a literal (`y: T = 7` is a mismatch). Beside a `T`, a division of
+whole-number literals divides integers, so `x * (3 / 2)` is `x * 1`, and
+an instance whose `T` is a float is rejected rather than given `1.5`.
+
+```rig reject
+fun scale[T](x: T) -> T
+  x * (3 / 2)
+
+sub main
+  print(scale(2), scale(2.0))
+```
+
+```error
+`scale[Float]` cannot use `T = Float`: the generic body gives a `T` the division of whole numbers `3 / 2`, which divides integers, not a `Float`
+```
+
 The body is ownership-checked once, for a `T` that may own a resource
 and holds no borrow. A `T` that owns a resource moves where the body
 moves it, and is dropped where the body lets it go. Where the body
@@ -1586,8 +1677,8 @@ test "area"
 
 ### Constants
 
-A binding at module level is a constant, `name =! value` or
-`name: T =! value`, and `pub` exports it. Its value must be known at
+A binding at module level is a constant, `name = value` or
+`name: T = value`, and `pub` exports it. Its value must be known at
 compile time: a literal, `.variant`, an earlier constant, or operators
 and array literals over them. Every function and type in the module
 reads it, wherever it is declared; nothing can reassign or move it,
@@ -1597,9 +1688,9 @@ Arithmetic on constants alone is checked at compile time; with a value
 known only when the program runs, it is checked then, like any other.
 
 ```rig
-limit =! 10
-half =! limit / 2
-names =! ["low", "high"]
+limit = 10
+half = limit / 2
+names = ["low", "high"]
 
 fun over(n: Int) -> Bool
   n > limit
@@ -1612,8 +1703,19 @@ sub main
 10 5 high true
 ```
 
-A plain `name = value` at module level is rejected: there are no
-mutable module-level variables.
+There are no mutable module-level variables, so a module-level binding
+needs no `=!`, and one written with it is rejected:
+
+```rig reject
+LIMIT =! 4
+
+sub main
+  print(LIMIT)
+```
+
+```error
+a module-level binding is already a constant; write `LIMIT = 4`
+```
 
 ### Other declarations
 
@@ -1632,7 +1734,7 @@ declaration ([§15](#15-modules)), and `extern` declares a C symbol
 | `x =! e`, `x: T =! e` | bind a fixed local, which cannot be reassigned |
 | `new x = e` | bind a new `x` that shadows the visible one; `e` may read the old `x` |
 | `x = <y` | move `y` into `x` (there is no `<-` operator) |
-| `x += e` (`-=` `*=` `/=` `%=` `<<=` `>>=` `&=` `\|=` `^=`) | compound assignment: `x = x op e`, with `x` evaluated once |
+| `x += e` (`-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `<<=` `>>=` `&=` `\|=` `^=`) | compound assignment: `x = x op e`, with `x` evaluated once |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it; an owning value is dropped at once |
 
@@ -1734,8 +1836,8 @@ From lowest to highest precedence:
 | `^` | bitwise xor |
 | `&` | bitwise and |
 | `<<` `>>` | shifts |
-| `+` `-` | |
-| `*` `/` `%` | |
+| `+` `-` `+%` `-%` | |
+| `*` `/` `%` `*%` | |
 | `-x` and the ownership sigils | prefix |
 | `f(x)` `a[i]` `a.b` `e!` | postfix: call, index, member, propagate |
 
@@ -1748,14 +1850,78 @@ the place, `!v.push(x)` is `(!v).push(x)` and `!v.put[2](x)` is
 
 Arithmetic needs numeric operands of one type (a literal adapts to the
 other operand). Integer `/` truncates toward zero and `%` takes the sign
-of the dividend, so `(a / b) * b + a % b == a`. Integer literals in
-float arithmetic are floats, so `h: Float = 7 / 2` is `3.5`. In
-arithmetic over a type parameter `T` they take `T`'s type in each
-instance: `self.v + 1 / 2` adds `0.5` when `T` is `Float` and `0` when
-it is `Int`. Unsigned values cannot be negated. Bitwise operators need integers; a shift amount may be any
+of the dividend, so `(a / b) * b + a % b == a`. A literal takes the type
+its context expects through `+`, `-`, and `*`, so `h: Float = 2 * 3` is
+`6.0`, but not through `/` and `%`: a division of whole-number literals
+divides integers, `x = 7 / 2` is `3`, and where its value would be a
+float (`h: Float = 7 / 2`, `7 / 2 + 1.5`) it is rejected, since it would
+silently be `3.0`. A float literal makes it a float division:
+`7.0 / 2` is `3.5`. In arithmetic over a type parameter `T`, integer
+literals take `T`'s type in each instance, and an instance whose `T` is
+a float is rejected where the body gives a `T` a whole-number division
+(`self.v + 1 / 2`). Unsigned values cannot be negated.
+
+```rig
+sub main
+  x = 7 / 2
+  h: Float = 7.0 / 2
+  k: Float = 2 * 3
+  print(x, h, k, -7 % 3)
+```
+
+```output
+3 3.5 6.0 -1
+```
+
+```rig reject
+sub main
+  h: Float = 7 / 2
+  print(h)
+```
+
+```error
+`7 / 2` divides whole numbers (3); for 3.5 write `7.0 / 2`
+```
+
+Bitwise operators need integers; a shift amount may be any
 integer, from 0 up to the width of the shifted type. A left shift that
 loses bits (or the sign) overflows: a constant one is rejected, and one
 computed when the program runs panics, like `+` and `*`.
+
+`+%`, `-%`, and `*%` are wrapping arithmetic, as in Zig: on overflow
+the result wraps around in two's complement, keeping the low bits in
+the operands' integer type, and never panics. They take integers of
+any type; a `Float` is rejected. `+%=`, `-%=`, and `*%=` assign the
+wrapped result. Constant wrapping arithmetic is computed in its type,
+as the program computes it.
+
+```rig
+fun fnv1a(s: String) -> U64
+  h: U64 = 14695981039346656037
+  for b in s
+    h ^= U64(b)
+    h *%= 1099511628211
+  h
+
+sub main
+  a: U8 = 250
+  i: I8 = 127
+  print(a +% 10, a -% 255, i +% 1, fnv1a("rig"))
+```
+
+```output
+4 251 -128 9948945366585317705
+```
+
+```rig reject
+sub main
+  x = 1.5
+  print(x +% 1.0)
+```
+
+```error
+operator `+%` requires integer operands; got `Float`
+```
 
 `==` and `!=` compare two values of the same type, by content. The
 equatable types are numbers, `Bool`, `String`, errors, and plain enums,
@@ -1902,19 +2068,9 @@ sub main
 
 ### Calls
 
-`f(a, b)` calls `f`. A line that does something may drop its call
-parentheses; anywhere a value is expected, a call takes parentheses.
-A **paren-free call** is a command: it takes the rest of the line as
-its arguments, and it may stand as a statement, a match arm's body, a
-closure's body, or the last argument of another paren-free call:
-`print add 1, 2` is `print(add(1, 2))`.
-
-Everywhere else a call takes its parentheses: the right side of a
-binding or an assignment, `return` and `break` values, `if` and `while`
-conditions, `for` sources, `match` subjects, and every argument inside
-parentheses: `x = twice(5)`, `if ready(3)`, `print(1, twice(-3), 5)`.
-Only a closure body, which is a statement of its own, may be a
-paren-free call inside parentheses (`each(3, *|i| print i)`).
+`f(a, b)` calls `f`, wherever the call stands: a statement, a binding's
+right side, an argument, a condition. Every call has its parentheses,
+and a space before them changes nothing (`f (x)` is `f(x)`).
 
 ```rig
 fun add(a: Int, b: Int) -> Int
@@ -1924,12 +2080,12 @@ fun twice(n: Int) -> Int
   n * 2
 
 sub main
-  print add 1, 2
-  print (1 + 2) * 3
-  print add(1, 2), add 3, 4
+  print(add(1, 2))
+  print((1 + 2) * 3)
+  print(add(1, 2), add(3, 4))
   x = twice(5)
   if twice(x) > 10
-    print twice x
+    print(twice (x))
 ```
 
 ```output
@@ -1948,19 +2104,7 @@ sub main
 ```
 
 ```error
-unexpected `5`; a call where a value is expected takes parentheses: `twice(5)`
-```
-
-```rig reject
-fun twice(n: Int) -> Int
-  n * 2
-
-sub main
-  print(1, twice -3, 5)
-```
-
-```error
-a call inside parentheses needs its own parentheses: `twice(...)`
+unexpected `5`
 ```
 
 Keyword arguments name parameters (`scaled(by: 4, n: 5)`), and
@@ -2683,6 +2827,21 @@ sub main
 
 ```output
 Pair(left: "c", right: "a") b
+```
+
+Two elements of one collection are not two places: `swap(!a[i],
+!a[j])` write-borrows `a` twice, and is rejected with the collection's
+own `swap`, which exchanges them ([§3](#slices)):
+
+```rig reject
+sub main
+  a = [1, 2, 3]
+  swap(!a[0], !a[2])
+  print(a)
+```
+
+```error
+cannot take a second write borrow on `a`: to swap two elements of `a`, write `!a.swap(0, 2)`
 ```
 
 A payload binding of `match <s` owns its field and may move it on
@@ -3492,10 +3651,9 @@ the closure's **captures** and its **parameters**, captures first:
 - a bare name is a parameter, optionally annotated (`a`, `a: Int`);
 - `||` is an empty list.
 
-The body is an expression, a paren-free call, or an assignment on the
-same line (`|!total, n| total += n`), or an indented block. A closure
-whose body is a paren-free call or an assignment ends a call's
-arguments: it is the last one.
+The body is an expression or an assignment on the same line
+(`|!total, n| total += n`), or an indented block. A closure whose body
+is an assignment ends a call's arguments: it is the last one.
 
 ```rig
 sub main
@@ -3608,7 +3766,10 @@ annotation is allowed anywhere and must agree with the context; with no
 context, every parameter must be annotated. A closure takes exactly the
 parameters its type passes, and may ignore one by naming it `_`.
 
-With a type from context, the body is checked against its return type.
+With a type from context, the body is checked against its return type,
+and a body whose type can fail may propagate with `!`
+([§14](#14-errors)), as one whose type returns an optional may return
+`none` with `?` ([§13](#13-optionals)).
 Otherwise the closure returns the type of its last expression, or of
 its `return`s when it ends in one, and these give each other no type: a
 `return max(3, 4)` beside a `return x` of a `U8` is still an `Int`. A
@@ -3821,7 +3982,7 @@ A closure's body may be an indented block wherever the closure is
 written. When the bar list ends a line inside `( )`, the body below is
 laid out in blocks as anywhere else; it ends where the bracket closes,
 or where a line comes back to the indentation of the line the closure
-started on. A paren-free call takes a trailing closure the same way.
+started on.
 
 ```rig
 sub each(n: Int, f: *sub(Int))
@@ -3833,8 +3994,8 @@ sub main
   each(3, *|+total, i|
     total.set(total.get() + i)
     print("saw", i))
-  each 2, *|i|
-    print("trailing", i)
+  each(2, *|i|
+    print("trailing", i))
   print(total.get())
 ```
 
@@ -4102,11 +4263,39 @@ must say what happens to the failure, visibly:
   `f() catch break`, `f() catch continue`.
 
 A bare call to a fallible function is rejected, and so is `!` on a call
-that cannot fail. A closure body, a `drop` body, and a `defer` cannot
-propagate. A fallible type is only allowed as the return type of a
-function or of a function type (`fun(Int) -> Int!`, `sub(Int)!`, not
-for an owned closure), and a plain `T` is accepted where `T!` is
-expected.
+that cannot fail. A `drop` body and a `defer` cannot propagate, and a
+closure propagates only when its type can fail: one checked against
+`?fun(String) -> Int!`, `?sub(String)!`, or `*fun(String) -> Int!`
+sends the failure of its `!` to whoever calls it, as a function does.
+A closure whose type cannot fail, or whose type is inferred from its
+body, handles failures with `catch`. A fallible type is only allowed as
+the return type of a function or of a function type
+(`fun(Int) -> Int!`, `sub(Int)!`, `*fun(Int) -> Int!`), and a plain `T`
+is accepted where `T!` is expected.
+
+```rig
+error Parse
+  empty
+
+fun parse(s: String) -> Int!
+  return Parse.empty if s.len == 0
+  s.len
+
+sub each(xs: []String, f: ?sub(String)!)!
+  for x in xs
+    f(x)!
+
+sub main
+  total = Cell(0)
+  each(["ab", "c"], |!total, l| total.set(total.get() + parse(l)!))!
+  each(["ab", ""], |!total, l| total.set(total.get() + parse(l)!)) catch |e| print("failed", e)
+  print(total.get())
+```
+
+```output
+failed .empty
+5
+```
 
 ```rig
 error SaveError
@@ -4271,13 +4460,13 @@ order, each module once; a cycle is an error.
 
 ```rig file=geo.rig
 pub struct Point
-  x: Int
-  y: Int
+  pub x: Int
+  pub y: Int
 
-  fun at(x: Int, y: Int) -> Point
+  pub fun at(x: Int, y: Int) -> Point
     Point(x: x, y: y)
 
-  fun sum(?self) -> Int
+  pub fun sum(?self) -> Int
     self.x + self.y
 
 pub enum Dir
@@ -4307,8 +4496,76 @@ sub main
 
 Only `pub` declarations are visible to importers. A `pub` function may
 take or return a private type: importers can hold the value and use its
-fields and methods, though they cannot name the type. A struct's fields
-and methods are visible wherever the struct is.
+`pub` fields and methods, though they cannot name the type.
+
+A field or method is private to its module unless it is declared `pub`:
+`pub x: Int`, `pub x: Int = 0`, `pub fun sum(?self) -> Int`,
+`pub sub push(!self, x: Int)`. Inside the declaring module every member
+is visible; another module that reads or writes a private field, or
+calls a private method or associated function, is rejected, whichever
+way it reaches the member: through a borrow, a `*T` handle, a `Box`, or
+an instance of a generic type. Another module constructs a struct only
+when every one of its fields is `pub`; a type with a private field is
+made by its own module, which can hand it out through a `pub` function.
+An enum's variants and their payload fields are always public, since
+they are the type's shape; its methods follow the rule above. A `drop`
+body is not called by name, so it takes no `pub`.
+
+```rig file=bank.rig
+pub struct Account
+  pub owner: String
+  balance: Int
+
+  pub fun total(?self) -> Int
+    self.balance
+
+  sub audit(?self)
+    print("audit", self.balance)
+
+pub fun open(owner: String) -> Account
+  Account(owner: owner, balance: 100)
+```
+
+```rig
+use bank
+
+sub main
+  a = bank.open("ada")
+  print(a.owner, a.total())
+```
+
+```output
+ada 100
+```
+
+Here `audit` and `balance` are private to `bank`:
+
+```rig file=bank.rig
+pub struct Account
+  pub owner: String
+  balance: Int
+
+  pub fun total(?self) -> Int
+    self.balance
+
+  sub audit(?self)
+    print("audit", self.balance)
+```
+
+```rig reject
+use bank
+
+sub main
+  a = bank.Account(owner: "bo", balance: 5)
+  a.audit()
+  print(a.balance, a.total())
+```
+
+```error
+method `audit` of `bank.Account` is private to module `bank`; declare it `pub sub audit` there to call it from here
+only module `bank` can construct `bank.Account`: its field `balance` is private
+field `balance` of `bank.Account` is private to module `bank`; declare it `pub balance: ...` there to use it from here
+```
 
 Another module's `pub` generic types and functions are used as local
 ones are: `boxes.Wrap[Int]` names an instance in a type or an
@@ -4325,9 +4582,9 @@ use as they do a private type.
 
 ```rig file=boxes.rig
 pub struct Wrap[T]
-  v: T
+  pub v: T
 
-  fun get(?self) -> T
+  pub fun get(?self) -> T
     self.v
 
 pub fun larger[T](a: T, b: T) -> T
@@ -4434,7 +4691,7 @@ call to extern function `abs` requires `raw` block
 
 Square brackets hold everything known at compile time, and
 parentheses what is known when the program runs. A declaration lists
-its compile-time parameters in brackets touching its name, before any
+its compile-time parameters in brackets after its name, before any
 run-time parameters. In the list, a bare name is a **type parameter**
 and `name: Type` a **compile-time value**:
 `fun check[mode: Mode](n: Int) -> Bool`, `fun max[T](a: T, b: T) -> T`,
@@ -4454,8 +4711,8 @@ of these, and it cannot mention a type parameter; on a generic type it
 is an integer. An integer compile-time value sizes arrays
 ([arrays](#arrays)).
 
-A call gives the compile-time arguments in brackets touching the
-callee, before its run-time arguments: `check[.strict](5)`,
+A call gives the compile-time arguments in brackets after the callee,
+before its run-time arguments: `check[.strict](5)`,
 `rep[String, 3]("hi")`, `s.times[5]()`, `Scale.unit[6]()`,
 `lib.scaled[3](5)`, `lib.zeros[3]()`. It gives all of them or none; a type argument, and
 an integer value that an array length or a generic type's argument in
@@ -4483,7 +4740,7 @@ enum Mode
   strict
   loose
 
-LIMIT =! 5
+LIMIT = 5
 
 fun check[mode: Mode](n: Int) -> Bool
   if mode == .strict
@@ -4539,9 +4796,8 @@ the checker decides by what `x` names. When it names a generic type or
 a function, directly, through its module, through its type, or as a
 method of a value, the brackets are compile-time arguments; otherwise
 they index `x`. A bracket list of two or more is never an index, and
-empty brackets are rejected. Written with a space, `show [3]` is a
-paren-free call whose argument is the array `[3]`
-([§2](#the-spacing-rule)).
+empty brackets are rejected. A space changes nothing: `show [3]()` is
+`show[3]()` ([§2](#prefixes-and-infix-operators)).
 
 In an expression, a type argument is written as a type that is also an
 expression: a name, `module.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or an
@@ -4639,9 +4895,8 @@ a handle to an optional has no expression spelling
 ## 18. Printing
 
 `print(a, b, ...)` writes its values separated by single spaces, then a
-newline; `print()` writes an empty line. It also takes the paren-free
-form `print a, b`. `print` is only special as a direct call; it is not
-a value.
+newline; `print()` writes an empty line. `print` is only special as a
+direct call; it is not a value.
 
 | Value | Printed as |
 |---|---|

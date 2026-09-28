@@ -21,6 +21,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
+const Wide = sema.Wide;
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -408,7 +409,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .fixed = true, .closure = ir.Set.value(node).isKind(.lambda) });
             },
             .shadow => _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) }),
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     self.ctx.symbols.items[existing].flags.reassigned = true;
                 }
@@ -1075,7 +1076,7 @@ pub const TypeResolver = struct {
                             if (try self.checkDuplicateMember(fields.items, fname, fpos, sym_name)) continue;
                             var fty = try self.resolveType(ir.get(m, .type));
                             if (try self.fieldCallable(ir.get(m, .type), fty)) fty = self.ctx.types.invalid_id;
-                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null });
+                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null, .is_pub = self.isPubMember(m) });
                         },
                         .valued => {
                             const name_node = ir.Valued.name(m);
@@ -1132,7 +1133,7 @@ pub const TypeResolver = struct {
         self.ctx.symbols.items[sym_id].fields = owned;
 
         if (generic) try self.checkTypeParamNames(sym_id, members);
-        if (head == .@"enum" or head == .generic_enum) try self.checkEnumValues(members, generic);
+        if (head == .@"enum" or head == .generic_enum) try self.checkEnumValues(sym_id, members, generic);
         if (head == .@"struct") {
             for (members) |m| {
                 if (m.isKind(.drop_decl)) try self.enforceDropBody(ir.DropDecl.body(m));
@@ -1201,15 +1202,12 @@ pub const TypeResolver = struct {
     /// Explicit enum values are constant integers that fit the emitted
     /// `enum(u32)` tag, and no two variants share a value (a variant
     /// without one takes the value after the previous variant's). Only a
-    /// plain enum, without payloads or generic parameters, has values.
-    fn checkEnumValues(self: *TypeResolver, members: []const Sexp, generic: bool) Error!void {
-        var valued = false;
-        var payloads = false;
-        for (members) |m| {
-            if (m.isKind(.valued)) valued = true;
-            if (m.isKind(.variant)) payloads = true;
-        }
-        if (!valued) return;
+    /// plain enum, without payloads or generic parameters, has values,
+    /// which its variants' fields record (`Field.value`).
+    fn checkEnumValues(self: *TypeResolver, sym_id: SymbolId, members: []const Sexp, generic: bool) Error!void {
+        const payloads = for (members) |m| {
+            if (m.isKind(.variant)) break true;
+        } else false;
         if (generic or payloads) {
             for (members) |m| {
                 if (!m.isKind(.valued)) continue;
@@ -1217,9 +1215,9 @@ pub const TypeResolver = struct {
             }
             return;
         }
-        var seen: std.AutoHashMapUnmanaged(i128, Sexp) = .empty;
+        var seen: std.AutoHashMapUnmanaged(Wide, Sexp) = .empty;
         defer seen.deinit(self.ctx.allocator);
-        var next: i128 = 0;
+        var next: Wide = 0;
         for (members) |m| {
             const explicit = m.isKind(.valued);
             const name_node = if (explicit) ir.Valued.name(m) else if (m == .src) m else continue;
@@ -1239,6 +1237,9 @@ pub const TypeResolver = struct {
                 try self.ctx.noteAt(prev, "`{s}` declared here", .{identAt(self.ctx.source, prev).?});
             } else gop.value_ptr.* = name_node;
             next = value + 1;
+            for (@constCast(self.ctx.symbols.items[sym_id].fields orelse &.{})) |*f| {
+                if (f.is_variant and std.mem.eql(u8, f.name, name)) f.value = value;
+            }
         }
     }
 
@@ -1291,6 +1292,12 @@ pub const TypeResolver = struct {
         });
     }
 
+    /// Whether a field or method is declared `pub`.
+    fn isPubMember(self: *const TypeResolver, member: Sexp) bool {
+        const p = self.ctx.parser orelse return false;
+        return p.isPubMember(member);
+    }
+
     fn resolveMethod(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayListUnmanaged(Field)) Error!void {
         const name = ir.get(node, .name);
         const mname = identAt(self.ctx.source, name).?;
@@ -1317,6 +1324,7 @@ pub const TypeResolver = struct {
             .ty = fn_ty,
             .decl_pos = mpos,
             .is_method = true,
+            .is_pub = self.isPubMember(node),
             .receiver = receiver,
             .param_names = try self.paramNames(params),
             .param_defaults = try self.paramDefaults(params),
@@ -1709,7 +1717,7 @@ pub const TypeResolver = struct {
             try self.ctx.errAt(node, "{s} cannot call a function: `{s}` runs only when the program does", .{ what, text });
             return null;
         }
-        try self.ctx.errAt(node, "{s} must be known at compile time; `{s}` is not: use an integer, a constant (`N =! 4`), a compile-time parameter, or arithmetic on them", .{ what, text });
+        try self.ctx.errAt(node, "{s} must be known at compile time; `{s}` is not: use an integer, a constant (`N = 4`), a compile-time parameter, or arithmetic on them", .{ what, text });
         return null;
     }
 
@@ -2019,7 +2027,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
 }
 
 /// `*fun(...) -> R` / `*sub(...)`: an owned closure passes plain Copy
-/// values through its type-erased form.
+/// values through its type-erased form, and may fail (`-> R!`).
 fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!void {
     const f = ctx.types.get(ty).function;
     const is_fun_type = fun_type.isKind(.fun_type);
@@ -2029,9 +2037,9 @@ fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!voi
         const pos = if (i < nodes.len) ctx.startOf(nodes[i]) else ctx.startOf(fun_type);
         try ctx.err(pos, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(ctx, p)});
     }
-    if (!f.is_sub and !sema.isClosureValue(ctx, f.returns)) {
+    if (!f.is_sub and !sema.isClosureResult(ctx, f.returns)) {
         const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ctx.startOf(ir.FunType.returns(fun_type)) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
+        try ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
     }
 }
 
@@ -2058,14 +2066,14 @@ fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     return null;
 }
 
-/// The bit width a sized type name spells: `I8`..`I64`, `U8`..`U64`,
+/// The bit width a sized type name spells: `I8`..`I128`, `U8`..`U128`,
 /// `F32`, `F64`.
 fn sizedTypeBits(name: []const u8) ?u8 {
     // No leading zero: `I08` is not `I8`.
-    if (name.len < 2 or name.len > 3 or name[1] == '0') return null;
+    if (name.len < 2 or name.len > 4 or name[1] == '0') return null;
     const bits = std.fmt.parseInt(u8, name[1..], 10) catch return null;
     const ok = switch (name[0]) {
-        'I', 'U' => bits == 8 or bits == 16 or bits == 32 or bits == 64,
+        'I', 'U' => bits == 8 or bits == 16 or bits == 32 or bits == 64 or bits == 128,
         'F' => bits == 32 or bits == 64,
         else => false,
     };

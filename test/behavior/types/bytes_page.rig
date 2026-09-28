@@ -2,7 +2,7 @@
 # start of a zeroed page, read back, and the last bytes of the page used
 # too.
 
-MAGIC: U32 =! 0x52494721
+MAGIC: U32 = 0x52494721
 
 struct Header
   magic: U32

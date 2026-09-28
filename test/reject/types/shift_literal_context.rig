@@ -1,0 +1,11 @@
+# A literal shifted by as much as its type's width or more is rejected in
+# that type.
+
+sub main()
+  a: U8 = 2 >> 15
+  b = 128 >> 63
+  c = 1 << 64
+  print(a, b, c)
+
+# error: 5:16: shift amount `15` is out of range for `U8` (0..7)
+# error: 7:12: shift amount `64` is out of range for `Int` (0..63)

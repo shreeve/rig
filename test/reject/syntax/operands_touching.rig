@@ -1,5 +1,5 @@
-# Two operands need a space or an operator between them: `t.5` is not a
-# call of `t` with `.5`.
+# Two operands with no operator between them do not parse: `t.5` is `t`
+# and then `.5`, not a call of `t`.
 
 fun t(x: Float) -> Float
   x
@@ -7,4 +7,4 @@ fun t(x: Float) -> Float
 sub main()
   print(t.5)
 
-# error: 8:10: missing space or operator between `t` and `.5`
+# error: 8:10: unexpected `.5`

@@ -4,9 +4,9 @@ sub main()
   x: U8 = 0
   y: I32 = -1
   z: F64 = 3.14
-  print x
-  print y
-  print z
+  print(x)
+  print(y)
+  print(z)
 
 # expect:
 # 0

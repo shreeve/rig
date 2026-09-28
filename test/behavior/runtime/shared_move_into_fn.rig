@@ -11,7 +11,7 @@ sub use_rc(rc: *Wrap)
 sub main()
   rc = *Wrap(payload: 42)
   use_rc(<rc)
-  print "moved"
+  print("moved")
 
 # expect:
 # 42

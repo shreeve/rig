@@ -1,6 +1,6 @@
 # `?p.m()` spells out the read receiver a call takes anyway, on a place
-# and its fields and elements, and in a paren-free call and a `while`
-# step; `?(p.m())` borrows the call's result.
+# and its fields and elements, and in a `while` step; `?(p.m())`
+# borrows the call's result.
 
 struct Point
   x: Int
@@ -26,7 +26,7 @@ sub main
   print(q.x)
   pts = [Point(x: 5), Point(x: 6)]
   print(?pts[1].shifted(0).x)
-  ?p.show "p"
+  ?p.show("p")
   show_point(?(p.shifted(4)))
   v: Vec[Int] = Vec()
   !v.push(7)

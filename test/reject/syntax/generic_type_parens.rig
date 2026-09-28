@@ -1,7 +1,7 @@
-# Type parameters go in brackets touching the name; `struct Wrap(T)` is
-# not Rig.
+# Type parameters go in brackets after the name; `struct Wrap(T)` is not
+# Rig.
 
 struct Wrap(T)
   v: T
 
-# error: 4:12: type parameters go in brackets touching the name: `struct Wrap[T]`
+# error: 4:12: type parameters go in brackets: `struct Wrap[T]`

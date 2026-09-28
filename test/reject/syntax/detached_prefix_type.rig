@@ -1,0 +1,8 @@
+# In a type as in an expression, a handle or borrow sigil touches the
+# type it applies to.
+
+sub main()
+  x: * Cell[Int] = *Cell(0)
+  print(x.get())
+
+# error: 5:6: a prefix `*` touches its operand: write `*Cell`

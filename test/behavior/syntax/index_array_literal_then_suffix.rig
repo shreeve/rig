@@ -1,0 +1,26 @@
+# After an array literal, `[i]` indexes it, and a `?` or `!` that
+# follows is a suffix: only a type after a `]` makes the sigil its
+# element type's prefix (`[2][3]?Int`).
+
+error E
+  bad
+
+fun second(a: Int?, b: Int?) -> Int?
+  x = [a, b][1]?
+  x + 1
+
+fun pick(i: Int) -> Int!
+  return E.bad if i > 1
+  i
+
+fun twice() -> Int!
+  y = [pick(0)!, 5][0]
+  [[1, 2], [3, 4]][1][0] + y
+
+sub main
+  n = 7
+  d: [2][3]?Int = [[?n, ?n, ?n], [?n, ?n, ?n]]
+  print(second(1, 2), second(1, none), twice() catch -1, d[1][2])
+
+# expect:
+# 3 none 3 7

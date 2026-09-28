@@ -1,0 +1,8 @@
+# A clone is written against its operand: `+h`.
+
+sub main()
+  h = *Cell(1)
+  g = + h
+  print(g.get(), h.get())
+
+# error: 5:7: a prefix `+` touches its operand: write `+h`
