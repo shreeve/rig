@@ -6541,6 +6541,9 @@ const Checker = struct {
             try std.fmt.allocPrint(a, "{s}.0 {s} {s}", .{ self.text(left), op, try self.sourceText(right) })
         else
             try std.fmt.allocPrint(a, "Float({s}) {s} {s}", .{ try self.sourceText(left), op, try self.sourceText(right) });
+        // A remainder of whole numbers is the same whole number as a
+        // float's: only its type differs.
+        if (div.isKind(.@"%")) return self.errAt(div, "`{s}` is a whole-number remainder; write `{s}` for a Float", .{ try self.sourceText(div), fix });
         const whole: []const u8 = if (self.constInt(div)) |v| try std.fmt.allocPrint(a, " ({d})", .{v}) else "";
         if (floatConstIn(f64, self.ctx.source, div)) |f| {
             const shown = if (f == @trunc(f) and @abs(f) < 1e15) try std.fmt.allocPrint(a, "{d}.0", .{f}) else try std.fmt.allocPrint(a, "{d}", .{f});
