@@ -90,7 +90,7 @@ RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 | Path | Role |
 |---|---|
 | `rig.grammar` | Nexus grammar: syntax, and the IR schema every node follows |
-| `src/rig.zig` | Lexer and parser wrappers (layout, spacing, IR rewrites) |
+| `src/rig.zig` | Lexer and parser wrappers (layout, position, IR rewrites) |
 | `src/diag.zig` | Diagnostics: spans, line and column, the printed format |
 | `src/parser.zig` | Generated — do not edit: lexer, parser, IR tags and accessors |
 | `src/modules.zig` | Module graph and `use` resolution |
@@ -103,8 +103,9 @@ RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 | `src/main.zig` | CLI |
 | `test/` | The test suite (see `test/README.md`) |
 | `examples/` | Curated example programs, all run by the suite |
-| `SPEC.md` | Language reference |
-| `SYNTAX.md` | Syntax guide for Zig and Rust programmers |
+| `WELCOME.md` | Guide for programmers coming from other languages |
+| `SYNTAX.md` | How every form is written, and the grammar summary |
+| `SPEC.md` | Language reference: what every form means |
 | `docs/DESIGN.md` | Principles and rationale |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |

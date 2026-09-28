@@ -11,7 +11,10 @@ It is written for people and for AI agents whose knowledge of Zig
 predates 0.16. The 0.15 and 0.16 releases changed most of the
 standard library's I/O, containers, and entry point, so Zig written
 from memory usually fails to compile. Each section gives the 0.16
-spelling; every `zig` block here compiles and passes under Zig 0.16.0.
+spelling. Every `zig` block here is a whole file that compiles under
+Zig 0.16.0, with passing tests where it has them, except the three
+alternative signatures of `main` in [§4](#4-main-arguments-environment-processes),
+one per program.
 
 When this document is silent, the installed standard library is the
 authority:
@@ -56,7 +59,7 @@ cover everything this document leaves out.
 | `src/sema.zig`, `resolve.zig`, `typecheck.zig`, `ownership.zig` | unmanaged `ArrayList` / `HashMap` with `.empty`, `ArenaAllocator` |
 | `src/emit.zig` | `std.Io.Writer.Allocating`, `std.fmt.allocPrint` |
 | `src/runtime.zig` | `std.heap.smp_allocator`, `std.heap.DebugAllocator`, a custom `std.mem.Allocator`, `std.Io.Threaded.global_single_threaded`, `std.debug.FullPanic` |
-| Emitted programs | `pub fn main() void`, `pub const panic = rig.panic;`, `anyerror!T`, `@divTrunc`, `@rem`, `@intCast`, `@floatFromInt`, `@intFromFloat` |
+| Emitted programs | `pub fn main() void` (`anyerror!void` when `main` propagates a failure), `pub const panic = rig.panic;`, `anyerror!T`, `@divTrunc`, `@rem`, `@intCast`, `@floatFromInt`, `@intFromFloat` |
 | `build.zig` | `b.createModule`, `b.addExecutable(.{ .root_module = ... })`, `b.addOptions`, `b.addInstallArtifact`, `b.addSystemCommand`, `b.addTest`, `b.graph.io` |
 
 ## 2. Reflexes that no longer compile
@@ -1020,6 +1023,10 @@ pub fn build(b: *std.Build) void {
 - Useful flags: `--summary all`, `--error-style minimal` (replaces
   `--prominent-compile-errors`), `--test-timeout 30s`,
   `-Doptimize=ReleaseSafe`, `-p PREFIX`.
+- `zig run`, `zig test`, and `zig build` reuse cached work; `zig
+  build-exe` compiles in full every time, with or without
+  `-femit-bin=` or `-fincremental`. `rig build` runs `zig build-exe`,
+  so it pays a full compile on every call.
 
 ---
 

@@ -16,7 +16,9 @@ generation, and linking.
 
 ## A short tour
 
-Every example in this README is compiled and run by the test suite, and
+New to Rig? [WELCOME.md](WELCOME.md) is the guide for programmers
+coming from Rust, Zig, C, Python, Ruby, JavaScript, or Go. Every
+example in this README is compiled and run by the test suite, and
 prints exactly the output shown under it.
 
 ### Hello
@@ -189,9 +191,11 @@ libraries are written in Rig itself (see
 
 A sigil is a prefix where an operand starts, and an operator after a
 value, so `a < b` is still a comparison and `a * b` a product, however
-they are spaced. The [language reference](SPEC.md)
-covers every rule; [docs/DESIGN.md](docs/DESIGN.md) explains how the
-sigils form a small algebra.
+an infix operator is spaced; a prefix sigil touches its operand. The
+[syntax guide](SYNTAX.md#5-prefixes-infixes-and-suffixes) shows the
+forms, the [language reference](SPEC.md) covers every rule, and
+[docs/DESIGN.md](docs/DESIGN.md) explains how the sigils form a small
+algebra.
 
 ## Install
 
@@ -203,8 +207,8 @@ zig build                  # builds bin/rig in the checkout
 zig build -p ~/.local      # or installs ~/.local/bin/rig
 ```
 
-The test runner also needs GNU `timeout` (on macOS, `gtimeout` from
-`brew install coreutils`). [Nexus](https://github.com/shreeve/nexus)
+The test runner also needs bash and either GNU `timeout` or perl
+(stock macOS has perl). [Nexus](https://github.com/shreeve/nexus)
 1.0, the parser generator, is needed only to change the grammar: clone
 it beside this checkout and build it there (`zig build
 -Doptimize=ReleaseSafe`), and `zig build parser` and the suite find it
@@ -262,7 +266,7 @@ and environment variable. The suite runs on Linux and macOS in
   `test` blocks run by `rig test`
 
 **Not yet:** a standard library (there is a small runtime and `print`),
-concurrency, and async. [SPEC §19](SPEC.md#19-reserved-and-unsupported-forms)
+concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
 storing or returning a stack closure (lending one to a call, as a
 `?fun`, works);
@@ -270,9 +274,10 @@ storing or returning a stack closure (lending one to a call, as a
 
 ## Learn more
 
-- [SYNTAX.md](SYNTAX.md): the syntax, taught to Zig and Rust
-  programmers, from a tour to a full reference
-- [SPEC.md](SPEC.md): the language reference
+- [WELCOME.md](WELCOME.md): a guide for programmers coming from other
+  languages
+- [SYNTAX.md](SYNTAX.md): how every form is written
+- [SPEC.md](SPEC.md): the language reference, what every form means
 - [docs/DESIGN.md](docs/DESIGN.md): principles, the sigil algebra, and
   influences
 - [docs/INTERNALS.md](docs/INTERNALS.md): how the compiler works
