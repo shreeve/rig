@@ -1,0 +1,6 @@
+# A type is declared with `struct`.
+
+class Point
+  x: Int
+
+# error: 3:1: Rig has no `class`; declare a type with `struct`

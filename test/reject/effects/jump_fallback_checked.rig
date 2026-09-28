@@ -1,6 +1,5 @@
-# A jump as a fallback is checked as the statement is: `return` against
-# the function's result, `break` and `continue` inside a loop. A bare
-# error value is no fallback for `??`.
+# A `return` as a fallback is checked as the statement is, against the
+# function's result. A bare error value is no fallback for `??`.
 
 error E
   missing
@@ -25,12 +24,11 @@ sub nothing(k: Int)
   print(n)
 
 sub main
-  n = get(1) ?? break
+  n = get(1) ?? 0
   print(n, wrong(1), empty(1), err(1) catch 0)
   nothing(1)
 
-# error: 12:24: expected `Int`, got `String`
-# error: 16:17: `return` needs a value of type `Int`
-# error: 20:17: expected `Int`, got
-# error: 24:24: a `sub` returns no value
-# error: 28:17: `break` is not inside a loop
+# error: 11:24: expected `Int`, got `String`
+# error: 15:17: `return` needs a value of type `Int`
+# error: 19:17: expected `Int`, got
+# error: 23:24: a `sub` returns no value

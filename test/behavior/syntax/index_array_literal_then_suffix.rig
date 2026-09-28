@@ -1,6 +1,6 @@
 # After an array literal, `[i]` indexes it, and a `?` or `!` that
-# follows is a suffix: only a type after a `]` makes the sigil its
-# element type's prefix (`[2][3]?Int`).
+# follows is a suffix; in a type, a sigil after a `]` is the element
+# type's prefix (`[2][3]?Int`).
 
 error E
   bad

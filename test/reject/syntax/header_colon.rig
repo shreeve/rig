@@ -1,0 +1,9 @@
+# A block's header ends without a `:`, as a `while` step would begin
+# with one.
+
+sub main()
+  n = 0
+  while n < 3:
+    n += 1
+
+# error: 6:14: drop the `:`

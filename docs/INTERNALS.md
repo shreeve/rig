@@ -29,6 +29,10 @@ zig run / zig build-exe            Debug (leak-checked), ReleaseSafe, or Release
 `src/main.zig` is the CLI; `rig --help` is its reference. `check` runs
 every checker on the program and its imports, and `check --facts` then
 prints the root module's IR as flat facts ([Syntax facts](#syntax-facts)).
+A module whose sema reports an error (other than a local that is never
+read, a lint on well-typed code) is not ownership-checked: ownership
+reads the types sema settled, as Rust's borrow checker waits for its
+type checker.
 `tokens`, `parse`, and `normalize` print the lexer's tokens, the
 grammar's raw tree, and the semantic IR.
 
@@ -116,26 +120,33 @@ generation on any conflict the grammar does not declare, so a new
 conflict is a deliberate decision: it goes in an `@conflicts` entry
 with its rationale, and is justified here.
 
-The ambiguities in Rig's surface are real; the lexer rewriter, which
-knows the token before and can look ahead on the line, resolves them
-and hands the parser distinct tokens. Whitespace inside an expression
-decides none of them: a character several forms share is read by
-position. After a value (a name, a literal, `)`, `]`, or a `?` / `!`
-suffix) it continues the value; anywhere else it starts an operand. A
-prefix sigil (`<` `+` `-` `*` `?` `!` `~`) must touch its operand, or
-the lexer rejects it (`detached_prefix`), so no spacing reads as
-another form: `a <- b` is an error, not `a < -b`.
+A character that both starts and continues an operand is one token,
+and the parser tells the forms apart by its own state: `<x` and
+`a < b`, `-x` and `a - b`, `*x` and `a * b`, `?x` and `T?`, `!x` and
+`x!`, `(x)` and `f(x)`, `[1]` and `a[i]`, `.red` and `a.b`. With no
+juxtaposition in the grammar (a call takes parentheses), what stands
+before the character decides, so `[3][0]*a` is a product and `[2]*T`
+an array of handles, whatever the spacing.
+
+The ambiguities the parser cannot settle by its state, the lexer
+rewriter, which knows the token before and can look ahead on the line,
+resolves, handing the parser distinct tokens. Whitespace inside an
+expression decides none of them. The lexer still reads position for its
+own rules: after a value (a name, a literal, `)`, `]`, or a `?` / `!`
+suffix) a character continues the value; anywhere else it starts an
+operand. A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) must touch its
+operand, or the lexer rejects it (`detached_prefix`), so no spacing
+reads as another form: `a <- b` is an error, not `a < -b`. After a
+type's `]` (`[2]?Int`) the lexer cannot tell a prefix from a suffix, so
+the Parser wrapper checks the touch on the type's node.
 
 | Source | Tokens | Rule |
 |---|---|---|
-| `f(x)`, `a[i]` vs `(x)`, `[1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | after a value, a call or an index; in a type, an `LBRACKET_INDEX` after `[N]` or `[]` starts the element's own prefix (`[2][3]Int`), and an `LPAREN_CALL` a parenthesized element (`[2](Int?)?`) |
-| `a.b` vs `.red` | `.` vs `DOT_LIT` | after a value, member access |
-| `a - b`, `a -b` vs `-x` | `MINUS` vs `MINUS_PREFIX` / `DROP_STMT` | after a value, infix; otherwise a prefix, and `-name` as a whole statement is a drop |
-| `<x +x *x ?x !x` | `MOVE_PFX` ... `WRITE_PFX` | the same rule; a sigil after the `]` of an array literal or a type's `[N]` / `[]` (not an index's) starts an element type, `[2]?Int` |
-| `T?`, `T!`, `f()!`, `f()?` | `SUFFIX_Q`, `SUFFIX_BANG` | after a value |
+| `-x` vs `a - b`, `-x + 1` | `DROP_STMT` vs `-` | `-name` as a whole statement (a line, after `=>`, `defer`, or `errdefer`, or after a label) is a drop |
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | after a value, bitwise or; otherwise a bar list, whose closing bar is the one the opening probe found |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
+| `while c : step` vs `?? break :outer`, `break :outer` | `STEP_COLON` vs `:` | the first `:` at a `while` header's bracket depth starts its step; any other `:` after a jump names a label, and the grammar takes a label after every `break` and `continue` |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
 | keywords | one token each | every keyword is reserved; `new` only at statement start |
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
@@ -155,9 +166,8 @@ The grammar's own shape settles the rest:
 | a name in an array size or a type's compile-time argument: a type or a value | a bare name, integer, or `module.NAME` is one rule (`dim`, `targ`); arithmetic there is `cexp`, which has at least one operator, so it never overlaps a type. The checker reads a bare name by the slot it fills |
 
 Grammar shapes worth knowing: `tail` is an expression or a closure
-whose body is an assignment, and is what a statement or a match arm
-holds; `rhs` is the same, the right side of a binding, `return`, and
-`break`; `expr` adds block
+whose body is an assignment, and is what a statement, a match arm, the
+right side of a binding, `return`, and `break` hold; `expr` adds block
 forms to `value`, an expression without blocks or closures (conditions,
 `for` sources, `match` subjects, operands, ternary branches).
 
@@ -177,8 +187,9 @@ forms to `value`, an expression without blocks or closures (conditions,
   closed;
 - classifies keywords, the characters read by position, `if`, and
   closure bars as above;
-- rejects `&&`, `||`, `**`, and the reserved pin sigil `@x` with a
-  hint, and malformed input where it is written: `=!` touching the
+- rejects `&&`, `||` (pointing to `??` before a literal, to `or`
+  otherwise), `**`, `i++` and `i--`, `//` and `/*` comments, and the
+  reserved pin sigil `@x` with a hint, and malformed input where it is written: `=!` touching the
   operand after it (the one place token boundaries could read two ways:
   a fixed binding of `y`, or `x = !y`), a number with a
   leading zero or an uppercase radix prefix, a control character in a
@@ -196,23 +207,28 @@ into a positioned diagnostic (``unexpected `)`; expected an operand``:
 what the parser expected there, in the grammar's `@display` names for
 tokens and `@errors` names for rules, when that is at most three
 things, and a hint when the token starts a reserved form such as a
-`try` block, `zig "..."`, or `for *x in`), and makes the only rewrites
-that need to inspect the tree:
+`try` block, `zig "..."`, or `for *x in`). Another language's word for
+a form Rig spells differently (`def`, `let`, `class`, `elif`, `import`,
+`loop`, `then`, ...; the table `foreign_words`) is reported at the word
+with Rig's spelling, when it starts the statement the parser failed on
+or is itself the token it failed on; so are a `:` ending a block's
+header and an inclusive range `a..=b`. The wrapper also makes the only
+rewrites that need to inspect the tree:
 
 - `pub` on a field or method is taken off: the member list holds the
   member itself, as every pass reads it, and the wrapper records its
   node id (`Parser.isPubMember`), which the resolver copies into the
-  member's `Field.is_pub`; `pub` on a variant or a `drop` body is an
-  error;
+  member's `Field.is_pub`; `pub` on an enum's variant, a `drop` body,
+  or another `pub` is an error;
 - a module-level binding, written `name = value`, is a constant: its
   `set` gets the `fixed` op, and a module-level `=!` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a
   parameter list, and a capture after a parameter is an error;
 - a `for` source wrapped in `?`, `!`, or `<` moves into the mode slot:
   `(for iter x _ (read xs) body _)` becomes `(for read x _ xs body _)`;
-- a `-name` statement whose value is used (the last line of a `fun`, or
-  of a branch or arm whose value is used) becomes `(neg name)` instead
-  of `(drop name)`;
+- a `-name` statement whose value is used (the last line of a `fun`, a
+  `break` value, or the last line of a branch, arm, or loop `else` block
+  whose value is used) becomes `(neg name)` instead of `(drop name)`;
 - a jump fallback moves to the nearest `??` of the chain before it:
   `(?? (?? a b) (return v))` becomes `(?? a (?? b (return v)))`, since
   the grammar reads the jump after the whole chain;
@@ -1072,7 +1088,8 @@ green.
 ## Nexus notes
 
 - An `L(X)` list followed by its own separator is a shift/reduce
-  conflict (`L(expr) "," cmd`: another `, expr` or the `, cmd`?), so
+  conflict (`L(expr) "," cclosure`: another `, expr` or the
+  `, cclosure`?), so
   lists followed by a comma and something else are written as
   left-recursive rules (`exprs`, `callargs`), which shift the comma
   and decide by what follows it.

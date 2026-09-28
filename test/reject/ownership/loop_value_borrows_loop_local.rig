@@ -5,11 +5,12 @@ struct P
   n: Int
 
 sub main()
+  q = P(n: 0)
   x = for i in 0..3
     p = P(n: i)
     break ?p if i == 2
   else
-    ?P(n: 0)
-  print(x)
+    ?q
+  print(x.n)
 
-# error: 10:12: `p` does not live long enough
+# error: 11:12: `p` does not live long enough

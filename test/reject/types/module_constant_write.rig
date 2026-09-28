@@ -1,4 +1,4 @@
-# A module constant cannot be changed from a function: it is named a
+# A module constant cannot be lent to write from a function: it is named a
 # constant, not a `=!` binding, in what the checkers say.
 
 LIMIT = 4
@@ -8,8 +8,6 @@ sub bump(x: !Int)
 
 sub main()
   bump(!LIMIT)
-  LIMIT += 1
   print(LIMIT)
 
 # error: 10:9: cannot write-borrow constant `LIMIT`
-# error: 11:3: cannot reassign constant `LIMIT`

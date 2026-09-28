@@ -1019,7 +1019,9 @@ mean the same thing everywhere:
 ### Labels, break, continue
 
 Label a loop with `:name` and name it from an inner loop. A `match` or
-`raw` statement may be labeled too, and `break :name` leaves it.
+`raw` statement may be labeled too, and `break :name` leaves it. A
+jump after `??` or `catch` names a label the same way:
+`v = next() ?? continue :outer`.
 
 ```rig
 sub main
@@ -3404,7 +3406,7 @@ pattern   = "." name ["(" name, ... ")"] | integer | "-" integer
 closure   = ["*"] "|" (("+" | "<" | "~") name | name [":" type]), ... "|" (expr | assign | block)
 value     = logic "if" logic "else" value | logic "catch" ["|" name "|"] (value | jump)
           | logic "??" jump | logic
-jump      = "return" [value] | "break" [value] | "continue"
+jump      = "return" [value] | "break" [":" label] [value] | "continue" [":" label]
 logic     = logic "or" logic | logic "and" logic | "not" logic
           | infix "as" name | infix   # `as` only in an `if` or `while` condition
 infix     = unary (op unary)*          # precedence table in section 9

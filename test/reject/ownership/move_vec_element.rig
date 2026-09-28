@@ -1,13 +1,14 @@
-# An element cannot be moved out of a Vec: the Vec still owns and drops
-# the slot.
+# An element cannot be moved out of a Vec: the Vec still owns the slot.
 
-sub eat(c: *Cell[Int])
-  print(c.get())
+struct P
+  n: Int
+
+sub eat(p: P)
+  print(p.n)
 
 sub main()
-  c1: *Cell[Int] = *Cell(7)
-  v: Vec[*Cell[Int]] = Vec()
-  !v.push(<c1)
+  v: Vec[P] = Vec()
+  !v.push(P(n: 7))
   eat(<v[0])
 
-# error: cannot move out of
+# error: 12:8: cannot move out of

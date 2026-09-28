@@ -7,7 +7,7 @@ pub fun same[T](x: T) -> T
   x
 
 pub struct Wrap[T]
-  v: T
+  pub v: T
 
   fun get(?self) -> ?T
     ?self.v

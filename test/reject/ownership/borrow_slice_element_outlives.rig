@@ -8,10 +8,11 @@ fun first(xs: []Val) -> ?Val
   ?xs[0]
 
 sub main
-  r = ?Val(n: 0)
+  v = Val(n: 0)
+  r = ?v
   if true
     a = [Val(n: 1)]
     r = first(?a)
   print(r.n)
 
-# error: 14:15: `a` does not live long enough
+# error: 15:15: `a` does not live long enough

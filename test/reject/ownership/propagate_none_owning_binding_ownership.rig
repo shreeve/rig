@@ -1,0 +1,14 @@
+# `m?` hands over the handle inside `m`: an owning binding is moved,
+# `(<m)?`.
+
+struct Wrap
+  n: Int
+
+fun f(m: *Wrap?) -> Int?
+  b = m?
+  b.n
+
+sub main()
+  print(f(none))
+
+# error: 8:7: bare use of shared (`*T`) handle `m` in binding would alias the handle; use `<m` to move or `+m` to clone

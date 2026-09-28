@@ -1,0 +1,5 @@
+# A module is used with `use`.
+
+import math
+
+# error: 3:1: Rig has no `import`; use a module with `use name`

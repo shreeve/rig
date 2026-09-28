@@ -22,7 +22,8 @@ sub main()
   print(f(?a))
   view = View(xs: ?a[0..1])
   keep(!view, ?a)
-  print(view.xs, field(?S(arr: a)))
+  s = S(arr: a)
+  print(view.xs, field(?s))
 
 # error: 12:4: cannot return a slice of `a`
 # error: 15:3: cannot store a borrow of `a` in `v.xs`
