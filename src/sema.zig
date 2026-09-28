@@ -2463,15 +2463,18 @@ pub fn callableFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
     return ctx.types.get(callableFnTy(ctx, ty) orelse return null).function;
 }
 
-/// The function type of borrowed callable `ty`, or null.
+/// The function type of borrowed callable `ty`, or null. (A callable of
+/// anything else follows a diagnostic.)
 pub fn callableFnTy(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    return switch (ctx.types.get(ty)) {
-        .borrow_read => |inner| switch (ctx.types.get(inner)) {
-            .callable => |f| f,
-            else => null,
-        },
-        else => null,
+    const inner = switch (ctx.types.get(ty)) {
+        .borrow_read => |inner| inner,
+        else => return null,
     };
+    const f = switch (ctx.types.get(inner)) {
+        .callable => |f| f,
+        else => return null,
+    };
+    return if (ctx.types.get(f) == .function) f else null;
 }
 
 /// The borrowed callable of function type `fn_ty`: `?fun(...)`.
