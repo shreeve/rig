@@ -1536,6 +1536,24 @@ note at the body line that needs the operation, in the module that
 declares the body. A body cannot call a method on a `T`, read a field
 of one, or call `T` itself.
 
+A literal becomes a `T` only as an operand beside one (`x * 3`), and
+must fit every instance's `T`; a binding annotated `T` takes a `T`,
+not a literal (`y: T = 7` is a mismatch). Beside a `T`, a division of
+whole-number literals divides integers, so `x * (3 / 2)` is `x * 1`, and
+an instance whose `T` is a float is rejected rather than given `1.5`.
+
+```rig reject
+fun scale[T](x: T) -> T
+  x * (3 / 2)
+
+sub main
+  print(scale(2), scale(2.0))
+```
+
+```error
+`scale[Float]` cannot use `T = Float`: the generic body gives a `T` the division of whole numbers `3 / 2`, which divides integers, not a `Float`
+```
+
 The body is ownership-checked once, for a `T` that may own a resource
 and holds no borrow. A `T` that owns a resource moves where the body
 moves it, and is dropped where the body lets it go. Where the body

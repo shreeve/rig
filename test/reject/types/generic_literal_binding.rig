@@ -1,0 +1,13 @@
+# A literal becomes a `T` only beside one; a binding annotated `T` takes
+# a `T`, whether the literal is a number or a whole-number division.
+
+fun f[T](x: T) -> T
+  y: T = 7
+  z: T = 7 / 2
+  x + y + z
+
+sub main()
+  print(f(1))
+
+# error: 5:10: type mismatch: expected `T`, got `Int`
+# error: 6:10: type mismatch: expected `T`, got `Int`
