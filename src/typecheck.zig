@@ -1523,6 +1523,7 @@ const Checker = struct {
             if (guard != .nil) {
                 try self.checkBoolOperand(guard);
                 if (findMove(guard)) |m| try self.errAt(m, "a guard cannot move a value: when it fails, a later arm matches the same value", .{});
+                if (self.guardWrite(guard, subject, pattern)) |w| try self.errAt(w, "a guard cannot change the value being matched: when it fails, a later arm matches the same value", .{});
             }
             const body = ir.Arm.body(arm);
             switch (position) {
@@ -1568,6 +1569,31 @@ const Checker = struct {
             return .{ .variants = variants, .bools = c.bools, .ints = try c.ints.clone(a), .has_default = c.has_default };
         }
     };
+
+    /// The first write borrow in guard `g` of what the match reaches: the
+    /// subject's binding, or a binding of the arm's `pattern`.
+    fn guardWrite(self: *Checker, g: Sexp, subject: Sexp, pattern: Sexp) ?Sexp {
+        if (g != .list) return null;
+        const written: ?Sexp = if (g.isKind(.write)) ir.Write.operand(g) else if (g.isKind(.cap_write)) ir.CapWrite.name(g) else null;
+        if (written) |w| if (placeRoot(w)) |leaf| if (self.ctx.symbolOf(leaf)) |sym| {
+            if (placeRoot(subject)) |s| if (self.ctx.symbolOf(s) == sym) return g;
+            if (patternBinds(self, pattern, sym)) return g;
+            if (self.ctx.symbols.items[sym].kind == .capture) {
+                const origin = self.ctx.symbols.items[sym].origin;
+                if (placeRoot(subject)) |s| if (self.ctx.symbolOf(s) == origin) return g;
+            }
+        };
+        for (g.items()) |c| if (self.guardWrite(c, subject, pattern)) |w| return w;
+        return null;
+    }
+
+    /// Whether `pattern` binds symbol `sym`.
+    fn patternBinds(self: *Checker, pattern: Sexp, sym: SymbolId) bool {
+        if (pattern == .src) return self.ctx.symbolOf(pattern) == sym;
+        if (!pattern.isKind(.variant_pattern)) return false;
+        for (ir.VariantPattern.bindings(pattern)) |b| if (b == .src and self.ctx.symbolOf(b) == sym) return true;
+        return false;
+    }
 
     /// `a, b => ...`: each alternative is a literal, range, or variant;
     /// none binds a name or matches everything.
@@ -6928,6 +6954,20 @@ fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
 /// `x` of `?x`, `!x`, or `<x`; any other node as it is.
 fn unborrowedNode(e: Sexp) Sexp {
     return if (e.isKind(.read) or e.isKind(.write) or e.isKind(.move)) ir.get(e, .operand) else e;
+}
+
+/// The leaf a place starts from: `a` in `!a.b[i]`.
+fn placeRoot(e: Sexp) ?Sexp {
+    var x = e;
+    while (true) {
+        if (x == .src) return x;
+        const h = x.kind() orelse return null;
+        x = switch (h) {
+            .member, .index => ir.get(x, .object),
+            .read, .write, .move => ir.get(x, .operand),
+            else => return null,
+        };
+    }
 }
 
 /// The first `<x` in `e`, if any.

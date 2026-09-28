@@ -2316,8 +2316,10 @@ unreachable arms are rejected.
 
 A guard `if cond` after a pattern is a `Bool` that may read the
 pattern's bindings; when it is false, the later arms are tried, as if
-the arm's pattern had not matched. A guard moves nothing, and a guarded
-arm covers none of its values: a later arm may repeat its pattern, and
+the arm's pattern had not matched. A guard changes nothing it matches:
+it moves nothing, and write-borrows neither the matched value nor a
+binding of the arm (as Rust's guards do not). A guarded arm covers none
+of its values: a later arm may repeat its pattern, and
 a match whose value is used still needs arms for them. Alternatives
 are literals, ranges, or variants; since which one matched would decide
 what a name held, they bind none (`_` fills a payload field), and none
