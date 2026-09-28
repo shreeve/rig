@@ -9,7 +9,7 @@ sub main()
   v: Vec[Int] = Vec()
   !v.push(7)
   !v.push(8)
-  for n, k in v
+  for n, k in ?v
     print(n + k)
 
 # expect:

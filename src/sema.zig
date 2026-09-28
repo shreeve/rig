@@ -4016,7 +4016,7 @@ test "facts: loop and pattern bindings" {
         \\sub main()
         \\  v: Vec[Int] = Vec()
         \\  !v.push(3)
-        \\  for x in v
+        \\  for x in ?v
         \\    print(x)
         \\  s: Shape = .circle(radius: 4)
         \\  match s
@@ -4384,7 +4384,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  total = 0
         \\  v: Vec[Int] = Vec()
         \\  !v.push(3)
-        \\  for x in v
+        \\  for x in ?v
         \\    total += x
         \\  print(total + moved.balance)
         \\  b: Wrap[Int] = Wrap(value: 4)

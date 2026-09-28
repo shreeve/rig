@@ -1446,7 +1446,7 @@ and holds no borrow. A `T` that owns a resource moves where the body
 moves it, and is dropped where the body lets it go. Where the body
 copies a `T`, every instance must be plain data; the same holds where it
 takes (moves, drops, or returns) an element of a loop that does not
-consume its collection (`for x in v`), or unwraps a `T` out of a
+consume its collection (`for x in ?v`), or unwraps a `T` out of a
 borrowed optional with `as`, since the collection or the owner still
 holds the value. A type argument cannot be a borrow or hold one, for a
 generic function or a generic type with methods: the parameter is
@@ -2130,11 +2130,15 @@ done
 
 ### for
 
-`for x in source` walks an array, a `Vec` of Copy values, a `String`
-(bytes), or a range `a..b` (from `a` up to, not including, `b`; the
-bounds are evaluated once). `for x, i in xs` also binds the index (not
-for ranges). An `else` block runs when the loop ends without `break`.
-A `Vec` of owning values is walked with `for x in ?v` ([§11](#vec)).
+`for x in source` walks an array, a slice, a `String` (bytes), or a
+range `a..b` (from `a` up to, not including, `b`; the bounds are
+evaluated once). `for x, i in xs` also binds the index (not for
+ranges). An `else` block runs when the loop ends without `break`. A
+`Vec` is walked in place, so the loop borrows it and says so:
+`for x in ?v` ([§11](#vec)); a bare `for x in v` over a Vec binding or
+field is rejected with that fix. An array is copied, and a slice or
+String is a view, so they are walked bare, as is a Vec a call returns,
+which the loop owns and drops.
 
 ```rig
 sub find(xs: ?[4]Int, target: Int)
@@ -3251,7 +3255,7 @@ sub main
   # Anything else: take the value out, use it, and put it back.
   v = shared.replace(Vec())
   sum = 0
-  for x in v
+  for x in ?v
     sum += x
   shared.set(<v)
   print(sum, shared.len)
@@ -3283,11 +3287,11 @@ shared handles (including owned closures), weak handles, or boxes.
 | `!v.clear()` | drop every element |
 
 A `for` loop borrows the Vec for the whole loop, so it cannot be
-modified inside it. A Vec of Copy values may be walked by value
-(`for x in v`). A Vec of owning values is walked by borrowed slot with
-`for x in ?v`, where `v` must be a binding or a field of one: the
-element can be read, called, and cloned (`+x` is a new handle), but not
-moved, dropped, or stored. `for x in !v` and `for x in <v` write and
+modified inside it, and the source says so: `for x in ?v`. Each element
+of Copy values is a copy; one of owning values is a borrowed slot,
+where `v` must be a binding or a field of one: the element can be
+read, called, and cloned (`+x` is a new handle), but not moved,
+dropped, or stored. `for x in !v` and `for x in <v` write and
 consume the elements ([§7](#for)).
 
 ```rig

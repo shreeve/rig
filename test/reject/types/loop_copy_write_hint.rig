@@ -10,10 +10,10 @@ struct Box2
 sub main
   cs: Vec[C] = Vec()
   !cs.push(C(n: 1))
-  for c in cs
+  for c in ?cs
     c.n += 1
   b = Box2(items: Vec())
-  for c in b.items
+  for c in ?b.items
     c.n = 0
   o: C? = C(n: 2)
   if o as x

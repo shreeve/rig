@@ -17,7 +17,7 @@ sub main()
   print(v[0].x + v[1].y)
   v[0] = P(x: 9, y: 9)
   v[1].x = 7
-  for p in v
+  for p in ?v
     print(p.x, p.y)
   if !v.pop() as last
     print("popped", last.x)
@@ -26,7 +26,7 @@ sub main()
   shapes: Vec[Shape] = Vec()
   !shapes.push(.circle(r: 2))
   !shapes.push(.dot)
-  for s in shapes
+  for s in ?shapes
     match s
       .circle(r) => print("circle", r)
       .dot => print("dot")
@@ -34,7 +34,7 @@ sub main()
   maybe: Vec[Int?] = Vec()
   !maybe.push(3)
   !maybe.push(none)
-  for m in maybe
+  for m in ?maybe
     print(m ?? 0)
 
 # expect:

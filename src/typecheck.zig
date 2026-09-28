@@ -1286,6 +1286,11 @@ const Checker = struct {
                 try self.borrowSlice(source, if (mode == .read) .read else .write)
             else
                 try self.synthExpr(source);
+            // A loop borrows the Vec it walks, and says so: `for x in ?v`.
+            // (An array is copied, and a String or slice is a view.)
+            if (mode == .iter and isPlaceExpr(source) and vecElementType(self.ctx, source_ty) != null) {
+                try self.errAt(source, "write `for {s}{s}{s} in ?{s}` to read the Vec's elements", .{ self.text(binding), if (index_binding != .nil) ", " else "", if (index_binding != .nil) self.text(index_binding) else "", try self.sourceText(source) });
+            }
             elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, mode);
         }
 
@@ -1295,7 +1300,7 @@ const Checker = struct {
             if (self.ctx.symbolOf(binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = elem_ty;
                 try self.ctx.recordType(binding, elem_ty);
-                if (mode == .iter and !source.isKind(.@"..") and isPlaceExpr(source)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = source, .kind = .loop });
+                if ((mode == .iter or mode == .read) and !source.isKind(.@"..") and isPlaceExpr(source) and !isBorrow(self.ctx, elem_ty)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = source, .kind = .loop });
             }
             if (self.ctx.symbolOf(index_binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = self.t().int_id;
@@ -1394,7 +1399,8 @@ const Checker = struct {
                 // Handles and boxes; every other element is plain data.
                 const is_resource = sema.typeHasDropGlue(self.ctx, elem);
                 if (is_resource) {
-                    if (mode != .read and mode != .write and mode != .move) {
+                    // (A Vec place walked bare is reported by `checkFor`.)
+                    if (mode != .read and mode != .write and mode != .move and !(isPlaceExpr(inner_source) and vecElementType(self.ctx, source_ty) != null)) {
                         try self.err(pos, "resource Vec[T] iteration requires an explicit read borrow; write `for x in ?vec`", .{});
                     }
                     if (!isFieldPath(inner_source)) {

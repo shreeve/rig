@@ -1,0 +1,22 @@
+# A loop over a Vec borrows it, and the source says so: `for x in ?v`,
+# for Copy elements too. An array is copied, and a String or slice is a
+# view, so they are walked bare.
+
+struct Bag
+  items: Vec[Int]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  for x in v
+    print(x)
+  b = Bag(items: Vec())
+  for x, i in b.items
+    print(x, i)
+  for x in [1, 2]
+    print(x)
+  for c in "ab"
+    print(c)
+
+# error: 11:12: write `for x in ?v` to read the Vec's elements
+# error: 14:15: write `for x, i in ?b.items` to read the Vec's elements

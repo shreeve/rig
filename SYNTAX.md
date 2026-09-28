@@ -1026,7 +1026,10 @@ done
 
 `for x in source` walks a range `a..b`, an array, a slice, a `Vec`, or a
 `String` (its bytes). `for x, i in xs` also binds the index. A range is
-half-open: `0..3` is 0, 1, 2.
+half-open: `0..3` is 0, 1, 2. A Vec is walked where it is, so the loop
+borrows it, visibly: `for x in ?v` (a bare `for x in v` is rejected
+with that fix). An array is copied, and a slice or String is a view,
+so they are walked bare.
 
 ```rig
 sub main
@@ -1054,8 +1057,8 @@ mean the same thing everywhere:
 
 | Loop | Element |
 |---|---|
-| `for x in xs` | a copy (Copy elements) |
-| `for x in ?v` | a read borrow of each slot (owning elements) |
+| `for x in xs` | a copy of each element of an array, slice, or String |
+| `for x in ?v` | each element of a Vec, read in place: a copy of a Copy element, a read borrow of an owning one |
 | `for x in !xs` | a write borrow: assigning `x` writes the element |
 | `for x in <v` | ownership of each element; `v` is consumed |
 
@@ -1966,7 +1969,7 @@ sub main
 ```
 
 The same holds where a body takes an element from a loop that does not
-consume its collection (`for x in v`, then `<x`), or unwraps a `T` out
+consume its collection (`for x in ?v`, then `<x`), or unwraps a `T` out
 of a borrowed optional with `as`: the collection or the owner still
 holds the value.
 
@@ -3117,7 +3120,7 @@ pub struct Bag[T]
 
 pub fun largest[T](b: ?Bag[T], start: T) -> T
   t = start
-  for x in b.items
+  for x in ?b.items
     if x > t
       t = x
   t
