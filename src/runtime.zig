@@ -18,14 +18,14 @@
 const std = @import("std");
 
 /// Rig's `Int`. Sizes and indices cross the Rig boundary as `Int`.
-pub const Int = i64;
+const Int = i64;
 
 // -----------------------------------------------------------------------------
 // Dropping values
 // -----------------------------------------------------------------------------
 
 /// True when `T` is `*RcBox(U)` for some `U`.
-pub fn isStrongHandle(comptime T: type) bool {
+fn isStrongHandle(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => |p| p.size == .one and
             @typeInfo(p.child) == .@"struct" and
@@ -37,7 +37,7 @@ pub fn isStrongHandle(comptime T: type) bool {
 /// True when dropping a `T` releases anything. A type owns resources
 /// when it declares `__rig_drop`, is a strong handle, or (for structs,
 /// tagged unions, arrays, and optionals) contains something that does.
-pub fn needsDrop(comptime T: type) bool {
+fn needsDrop(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => isStrongHandle(T),
         .optional => |o| needsDrop(o.child),
@@ -60,7 +60,7 @@ pub fn needsDrop(comptime T: type) bool {
 
 /// True when a `T` holds a `Cell` by value (not behind a pointer or in
 /// a `Vec` or `Signal`).
-pub fn holdsCell(comptime T: type) bool {
+fn holdsCell(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .optional => |o| holdsCell(o.child),
         .array => |a| holdsCell(a.child),
@@ -109,7 +109,7 @@ pub fn borrowed(comptime T: type, borrow: ReadBorrow(T)) T {
 /// Release whatever `value` owns: a strong handle drops its count, a
 /// type with `__rig_drop` runs it, and aggregates drop their parts.
 /// Plain data is a no-op, decided at compile time.
-pub fn dropElement(comptime T: type, value: *T) void {
+fn dropElement(comptime T: type, value: *T) void {
     if (comptime !needsDrop(T)) return;
     switch (@typeInfo(T)) {
         .pointer => value.*.dropStrong(),
@@ -628,7 +628,7 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
 }
 
 /// `*sub()`: what a Signal notifies.
-pub const Callback = Closure(&.{}, void);
+const Callback = Closure(&.{}, void);
 
 // A borrowed callable `?fun(A, B) -> R` / `?sub(A)` is a
 // `FnRef(&.{ A, B }, R)`: a context pointer and a function that calls
@@ -1103,9 +1103,9 @@ const LeakChecker = struct {
 };
 
 /// Live allocations and their total size (Debug builds; zero otherwise).
-pub const Usage = struct { count: usize, bytes: usize };
+const Usage = struct { count: usize, bytes: usize };
 
-pub fn usage() Usage {
+fn usage() Usage {
     return .{ .count = leak_checker.live.count(), .bytes = leak_checker.bytes };
 }
 
@@ -1125,11 +1125,11 @@ fn reportLeaks(before: Usage) bool {
 /// The bytes `guardStack` keeps unmapped below the stack on macOS: an
 /// overflowing frame of up to this size lands there and stops the
 /// program.
-pub const stack_reserve: usize = 64 << 20;
+const stack_reserve: usize = 64 << 20;
 
 /// The main thread's stack: what Zig gives it, and what `guardStack`
 /// holds it to on Linux.
-pub const stack_size: usize = 16 << 20;
+const stack_size: usize = 16 << 20;
 
 extern "c" fn pthread_get_stackaddr_np(std.c.pthread_t) *anyopaque;
 extern "c" fn pthread_get_stacksize_np(std.c.pthread_t) usize;
@@ -1214,7 +1214,7 @@ fn stdout() *std.Io.Writer {
 }
 
 /// Write out everything `print` has buffered.
-pub fn flush() void {
+fn flush() void {
     if (stdout_writer) |*w| w.interface.flush() catch {};
 }
 
@@ -1342,7 +1342,7 @@ var print_depth: u32 = 0;
 /// absent optional, `Name(field: v)` for a struct, `.variant` /
 /// `.variant(field: v)` for an enum, and `[a, b]` for arrays and Vecs. A
 /// shared handle prints its value, a function `<fun>`.
-pub fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
+fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
     if (comptime isString(T)) {
         return if (top) w.writeAll(value) else w.print("\"{s}\"", .{value});
