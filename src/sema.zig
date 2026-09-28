@@ -82,6 +82,11 @@ pub const IntInfo = struct {
     /// 0 for `Int` (64-bit signed); otherwise 8/16/32/64/128.
     bits: u8 = 0,
     signed: bool = true,
+
+    /// The width in bits.
+    pub fn width(self: IntInfo) u8 {
+        return if (self.bits == 0) 64 else self.bits;
+    }
 };
 
 pub const FloatInfo = struct {
@@ -2221,7 +2226,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .invalid, .unknown, .type_var, .ct_param => null,
         .void, .noreturn, .none_literal => 0,
         .bool => 1,
-        .int => |i| if (i.bits == 0) 8 else (i.bits + 7) / 8,
+        .int => |i| i.width() / 8,
         .float => |f| if (f.bits == 0) 8 else f.bits / 8,
         .string, .slice => 16,
         .any_error => 2,
@@ -3639,11 +3644,11 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                 .@"%" => if (b.v == 0) return .not_constant else if (b.v == -1) 0 else @rem(a.v, b.v),
                 // A shift by the width or more is reported where the
                 // operator is checked; one that loses bits overflows.
-                .@"<<" => if (b.v < 0 or b.v >= widthOf(int orelse IntInfo{})) return .not_constant else blk: {
+                .@"<<" => if (b.v < 0 or b.v >= (int orelse IntInfo{}).width()) return .not_constant else blk: {
                     const r = a.v << @intCast(b.v);
                     break :blk if (r >> @intCast(b.v) == a.v) r else null;
                 },
-                .@">>" => if (b.v < 0 or b.v >= widthOf(int orelse IntInfo{})) return .not_constant else a.v >> @intCast(b.v),
+                .@">>" => if (b.v < 0 or b.v >= (int orelse IntInfo{}).width()) return .not_constant else a.v >> @intCast(b.v),
                 .@"&" => a.v & b.v,
                 .@"|" => a.v | b.v,
                 else => a.v ^ b.v,
@@ -3703,16 +3708,10 @@ fn intLimitBy(ctx: *const SemContext, e: Sexp, names: anytype) ?TypedInt {
     return null;
 }
 
-/// The width of an integer type in bits.
-fn widthOf(info: IntInfo) Wide {
-    return if (info.bits == 0) 64 else info.bits;
-}
-
 /// `v` wrapped into integer type `info`: its low bits, read as the
 /// type reads them.
 pub fn wrapTo(info: IntInfo, v: Wide) Wide {
-    const bits: u9 = if (info.bits == 0) 64 else info.bits;
-    const modulus = @as(Wide, 1) << @intCast(bits);
+    const modulus = @as(Wide, 1) << @intCast(info.width());
     const low = @mod(v, modulus);
     return if (info.signed and low >= modulus >> 1) low - modulus else low;
 }
@@ -3730,8 +3729,7 @@ pub fn intInfoFits(info: IntInfo, v: Wide) bool {
 
 /// The least and greatest values of an integer type.
 pub fn intRange(info: IntInfo) struct { min: Wide, max: Wide } {
-    const bits: u8 = if (info.bits == 0) 64 else info.bits;
-    const half = @as(Wide, 1) << @intCast(bits - 1);
+    const half = @as(Wide, 1) << @intCast(info.width() - 1);
     return if (info.signed) .{ .min = -half, .max = half - 1 } else .{ .min = 0, .max = 2 * half - 1 };
 }
 
