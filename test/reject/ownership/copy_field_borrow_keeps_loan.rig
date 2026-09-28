@@ -1,0 +1,14 @@
+# A struct holding `!Int` keeps its write borrow while it is used
+# later, so the Int it borrows cannot be read until then.
+
+struct H
+  w: !Int
+
+sub main
+  n = 1
+  h = H(w: !n)
+  print(n)
+  h.w += 1
+
+# error: 10:9: use of `n` while a write borrow is live
+# errors: 1

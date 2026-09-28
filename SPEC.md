@@ -2645,7 +2645,9 @@ sub main
 **The aliasing rule.** At any point a value may have any number of read
 borrows or one write borrow, not both. While a read borrow is live the
 owner cannot be written, moved, or dropped; while a write borrow is
-live the owner cannot be used at all.
+live the owner cannot be used at all, whatever its type: even a number
+is not read until the borrow's last use, so `w = !n` then `w += n` is
+rejected.
 
 ```rig reject
 struct User

@@ -1484,7 +1484,6 @@ pub const Checker = struct {
     fn checkReadable(self: *Checker, id: VarId, pos: u32) Error!void {
         const v = self.vars.items[id];
         if (!try self.checkLive(id, pos)) return;
-        if (self.isCopy(v.ty)) return;
         if (self.findLoan(id, .write, null)) |l| {
             try self.err(pos, "use of `{s}` while a write borrow is live", .{v.name});
             try self.noteLoan(l);
