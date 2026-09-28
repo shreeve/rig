@@ -417,7 +417,7 @@ const Checker = struct {
         if (e == .src) {
             const id = self.lookupQuiet(e) orelse return false;
             const sym = self.ctx.symbols.items[id];
-            return sym.kind == .local and sym.scope == self.module_scope and sym.flags.comptime_known;
+            return sym.kind == .local and sym.scope == self.module_scope and sym.flags.fixed;
         }
         if (!e.isKind(.member)) return false;
         const obj = ir.Member.object(e);
@@ -425,7 +425,7 @@ const Checker = struct {
         if (self.lookupQuiet(obj)) |id| {
             if (self.ctx.symbols.items[id].kind != .module) return false;
             const foreign = self.foreignMember(e) orelse return false;
-            return foreign.kind == .local and foreign.flags.comptime_known;
+            return foreign.kind == .local and foreign.flags.fixed;
         }
         return resolve.isNumericTypeName(self.text(obj));
     }
