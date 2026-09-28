@@ -684,7 +684,8 @@ pub const Lexer = struct {
         // operand. A sigil after a literal's or type's `]` starts its
         // element type (`[2]?T`).
         const after_value = isValue(self.last_cat);
-        const sigil_prefix = !after_value or self.closed_literal;
+        const after_literal = self.closed_literal;
+        const sigil_prefix = !after_value or after_literal;
         self.closed_literal = false;
         var out = tok;
         out.cat = switch (tok.cat) {
@@ -693,7 +694,9 @@ pub const Lexer = struct {
             .lparen, .lbracket => blk: {
                 if (self.nesting == max_nesting) return self.fail(.nesting_too_deep, tok.pos);
                 self.brackets[self.nesting] = tok.pos;
-                self.indexes[self.nesting] = after_value;
+                // After a type's `[N]` / `[]`, a bracket is the element
+                // type's own prefix (`[2][3]?T`), not an index.
+                self.indexes[self.nesting] = after_value and !after_literal;
                 self.nesting += 1;
                 if (!after_value) break :blk tok.cat;
                 break :blk if (tok.cat == .lparen) .lparen_call else .lbracket_index;
@@ -1762,6 +1765,7 @@ test "position decides prefix vs infix; a prefix touches its operand" {
     try expectCats("f(!x, ?y)", &.{ .ident, .lparen_call, .write_pfx, .ident, .comma, .read_pfx, .ident, .rparen });
     // A sigil after a literal's or type's `]` starts its element type.
     try expectCats("[]*T", &.{ .lbracket, .rbracket, .share_pfx, .ident });
+    try expectCats("[2][3]?T", &.{ .lbracket, .integer, .rbracket, .lbracket_index, .integer, .rbracket, .read_pfx, .ident });
     try expectCats("x: [2]?T", &.{ .ident, .colon, .lbracket, .integer, .rbracket, .read_pfx, .ident });
     try expectCats("a[i] * 2", &.{ .ident, .lbracket_index, .ident, .rbracket, .star, .integer });
 }

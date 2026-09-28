@@ -1,0 +1,19 @@
+# In a nested array or slice type, a sigil after the last `[...]` starts
+# the element type, as after the first: `[2][3]?Int`, `[][]!Int`.
+
+fun first(x: [2][3]?Int) -> Int
+  x[0][0]
+
+fun rows(x: [2][]!Int) -> Int
+  x.len
+
+fun inner(x: [2]?[3]Int) -> Int
+  x[1][2]
+
+sub main()
+  a = 1
+  b = [3 of 7]
+  print(first([[?a, ?a, ?a], [?a, ?a, ?a]]), inner([?b, ?b]))
+
+# expect:
+# 1 7
