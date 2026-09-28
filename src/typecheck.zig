@@ -65,11 +65,14 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
         .body = .{ .ret = ctx.types.void_id },
     };
     defer c.arg_types.deinit(ctx.allocator);
+    defer c.copied_from.deinit(ctx.allocator);
     defer c.literal_results.deinit(ctx.allocator);
     defer c.result_hints.deinit(ctx.allocator);
     for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
 }
+
+const CopySource = struct { place: Sexp, kind: enum { loop, as } };
 
 const Checker = struct {
     ctx: *SemContext,
@@ -124,6 +127,9 @@ const Checker = struct {
     loop_value: ?*LoopValue = null,
     /// The types inference found for arguments (`argType`).
     arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
+    /// A loop element or `as` binding that copies from a place: the
+    /// place, named when the binding is written (`checkBindingWritable`).
+    copied_from: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
     /// The call whose value goes where a `ty` is expected (`checkExpr`),
     /// directly or through `!`, `?`, `catch`, or `??` (`resultCall`):
     /// inference binds the type parameters its arguments leave open from
@@ -857,7 +863,7 @@ const Checker = struct {
             sym = foreign.symbols.items[foreign.lookupInScopeOnly(sema.module_scope, leaf) orelse return true];
             name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(root), leaf });
         }
-        _ = try self.checkBindingWritable(sym, name, pos, verb);
+        _ = try self.checkSymbolWritable(if (sym.kind == .module) null else id, sym, name, pos, verb);
         return true;
     }
 
@@ -866,6 +872,13 @@ const Checker = struct {
     /// binding, or a loop or pattern binding that copies. False after a
     /// diagnostic.
     fn checkBindingWritable(self: *Checker, sym: sema.Symbol, name: []const u8, pos: u32, verb: []const u8) Error!bool {
+        return self.checkSymbolWritable(null, sym, name, pos, verb);
+    }
+
+    /// `checkBindingWritable` for symbol `id` when known: a loop element
+    /// or `as` binding copied from a place is written through a write
+    /// borrow of the place instead.
+    fn checkSymbolWritable(self: *Checker, id: ?SymbolId, sym: sema.Symbol, name: []const u8, pos: u32, verb: []const u8) Error!bool {
         switch (sym.kind) {
             .param => if (self.ctx.types.get(sym.ty) != .borrow_write) {
                 if (std.mem.eql(u8, name, "self")) {
@@ -885,6 +898,15 @@ const Checker = struct {
                 // An `as` binding that owns a resource moved into it is
                 // not a copy: its fields can be written and taken.
                 if (sym.flags.as_bound and sema.typeHasDropGlue(self.ctx, sym.ty)) return true;
+                if (id) |i| if (self.copied_from.get(i)) |from| {
+                    const sp = self.ctx.span(from.place);
+                    const place = self.ctx.source[sp.start..sp.end];
+                    switch (from.kind) {
+                        .loop => try self.err(pos, "cannot {s} `{s}`: it is a copy of an element of `{s}`; to change the elements in place, loop with `for {s} in !{s}`", .{ verb, name, place, name, place }),
+                        .as => try self.err(pos, "cannot {s} `{s}`: it is a copy of the value inside `{s}`; to change that value in place, bind it with `!{s} as {s}`", .{ verb, name, place, place, name }),
+                    }
+                    return false;
+                };
                 try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb, name, name, name });
                 return false;
             },
@@ -1178,6 +1200,7 @@ const Checker = struct {
         if (self.ctx.symbolOf(name)) |sym| {
             self.ctx.symbols.items[sym].ty = inner;
             try self.ctx.recordType(name, inner);
+            if (!borrowed and isPlaceExpr(expr)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = expr, .kind = .as });
         }
     }
 
@@ -1253,6 +1276,7 @@ const Checker = struct {
             if (self.ctx.symbolOf(binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = elem_ty;
                 try self.ctx.recordType(binding, elem_ty);
+                if (mode == .iter and !source.isKind(.@"..") and isPlaceExpr(source)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = source, .kind = .loop });
             }
             if (self.ctx.symbolOf(index_binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = self.t().int_id;
