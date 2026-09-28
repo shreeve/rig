@@ -1,4 +1,4 @@
-# `as` binds only in an `if` or `while` condition, alone or joined to
+# `as` binds only in the condition of an `if` or `while` block, alone or joined to
 # the rest of it by `and`.
 
 fun get(k: Int) -> Int?
@@ -12,7 +12,7 @@ sub main
     print(2)
   print(get(3) as z)
 
-# error: 8:7: `as` binds only in an `if` or `while` condition, alone or joined to the rest by `and`
-# error: 9:6: `as` binds only in an `if` or `while` condition
-# error: 11:10: `as` binds only in an `if` or `while` condition
-# error: 13:9: `as` binds only in an `if` or `while` condition
+# error: 8:7: `as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`
+# error: 9:6: `as` binds only in the condition of an `if` or `while` block
+# error: 11:10: `as` binds only in the condition of an `if` or `while` block
+# error: 13:9: `as` binds only in the condition of an `if` or `while` block

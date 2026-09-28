@@ -997,7 +997,10 @@ const Checker = struct {
         const else_node = ir.If.@"else"(node);
 
         const prev = self.scope;
-        try self.checkCondition(cond);
+        // A ternary or a postfix guard has no block to bind a name for.
+        if (!self.isBlockIf(node) and rig.bindsInCondition(cond)) {
+            try self.checkBoolOperand(cond);
+        } else try self.checkCondition(cond);
         const then_ty = try self.branch(then_node, expected, position);
         self.scope = prev;
 
@@ -1094,6 +1097,19 @@ const Checker = struct {
                 return self.errAt(use, "the loop step reads `{s}`, a binding of a joined condition, so each binding there must be plain data; `{s}` is a `{s}`", .{ name, sym.name, try self.tyName(sym.ty) });
             }
         }
+    }
+
+    /// Whether `node` is a block `if` (`if c` then a block), not a
+    /// ternary `a if c else b` or a postfix guard `stmt if c`, which
+    /// start with their value or statement.
+    fn isBlockIf(self: *Checker, node: Sexp) bool {
+        // Without the Parser wrapper's spans, every `if` is taken for a
+        // block.
+        if (self.ctx.parser == null) return true;
+        const at = self.ctx.span(node).start;
+        const src = self.ctx.source;
+        if (!std.mem.startsWith(u8, src[at..], "if")) return false;
+        return at + 2 >= src.len or !(std.ascii.isAlphanumeric(src[at + 2]) or src[at + 2] == '_');
     }
 
     /// A Bool where a leading `!` reads as negation: a condition, or an
@@ -1909,7 +1925,7 @@ const Checker = struct {
                 break :blk self.t().noreturn_id;
             },
             .as => blk: {
-                try self.errAt(e, "`as` binds only in an `if` or `while` condition, alone or joined to the rest by `and`", .{});
+                try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
                 _ = try self.synthExpr(ir.As.value(e));
                 break :blk self.t().invalid_id;
             },

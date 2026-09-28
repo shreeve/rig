@@ -1,0 +1,13 @@
+# `as` binds in the condition of an `if` or `while` block, where the
+# block can see the name; a ternary or a postfix guard has no block.
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  v = 1 if get(1) as x else 2
+  print(v)
+  print(3) if get(4) as y and y > 3
+
+# error: 8:12: `as` binds only in the condition of an `if` or `while` block
+# error: 10:15: `as` binds only in the condition of an `if` or `while` block

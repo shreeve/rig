@@ -3804,8 +3804,9 @@ borrows from both. A binding made before a part that fails is dropped
 before `else` runs. A `while` step may read the bindings (it runs
 after the body, before they go) when every binding of the condition is
 plain data and no `continue` in the condition can skip one. `as` stands
-nowhere else: not under `or` or `not`,
-and not in an expression.
+nowhere else: not under `or` or `not`, not in the condition of a
+ternary or a postfix guard (which have no block to see the name), and
+not in an expression.
 
 ```rig
 fun get(k: Int) -> Int?
@@ -3843,7 +3844,7 @@ sub main
 ```
 
 ```error
-`as` binds only in an `if` or `while` condition, alone or joined to the rest by `and`
+`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`
 ```
 
 ### The fallback of `??`
