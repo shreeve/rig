@@ -219,7 +219,8 @@ that need to inspect the tree:
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!self` (the habit of `!` as negation),
   a `<` before one that does not take `<self`, and a `!` call whose
-  value is a `Bool`, written `(!set).insert(k)`. A `for` source sigil
+  value is a `Bool` where it starts a condition or an operand of
+  `and`, `or`, or `not`, written `(!set).insert(k)` there. A `for` source sigil
   is the loop's mode, moved before this rewrite sees it.
 
 It also rejects a tree nested more than 1000 deep, since every later

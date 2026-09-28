@@ -985,7 +985,11 @@ does not take `!self` is rejected (it reads as negation, which is
 `not`), and so is `<` before one that does not take `<self`, or
 either before a function with no receiver (`Point.origin()`). A
 write-borrowing call whose value is a `Bool` is written in the long
-form, `(!set).insert(k)`, so it is never read as negation.
+form, `(!set).insert(k)`, where its `!` would start a condition (of
+`if`, `while`, a ternary, or a postfix guard) or an operand of `and`,
+`or`, or `not`, so it is never read as negation. Elsewhere (a binding,
+an argument, a return value) the short form is accepted:
+`added = !set.insert(k)`.
 
 ```rig
 struct Tally
@@ -1006,8 +1010,8 @@ struct Tally
 sub main
   t = Tally(seen: Vec())
   !t.seen.push(1)
-  added = (!t).insert(2)
-  print(added, (!t).insert(2))
+  added = !t.insert(2)
+  print(added, !t.insert(2))
   print(<t.total())
 ```
 

@@ -172,8 +172,10 @@ is, take a weak handle, borrow it, negate it), so they keep the rule:
 that keep it honest: `!` before a method that only reads its receiver
 is rejected, since it would read as negation (which is `not`), `<`
 before one that does not consume it is rejected, and a `!` call whose
-value is a `Bool` keeps the parentheses, `(!set).insert(k)`, so no
-`!` in Rig ever reads as "not".
+value is a `Bool` keeps the parentheses, `(!set).insert(k)`, where a
+leading `!` would read as "not": as a condition and as an operand of
+`and`, `or`, or `not`. Elsewhere, as in `added = !set.insert(k)`,
+nothing reads it as negation, so the short form stands.
 
 **Absorption.** Operations that would add nothing are rejected rather
 than silently tolerated. Sharing a shared handle (`*x` when `x : *T`,

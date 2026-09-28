@@ -1,5 +1,6 @@
 # A write-borrowing call whose value is a `Bool` is written with the
-# borrow in parentheses, so `!set.insert(k)` never reads as negation.
+# borrow in parentheses where a leading `!` could read as negation: a
+# condition and an operand of `and`, `or`, or `not`.
 
 struct Set
   items: Vec[Int]
@@ -12,18 +13,29 @@ struct Set
     self.insert(k)
 
 fun fill(s: !Set) -> Int!
-  added = !s.checked(3)!
-  1 if added else 0
+  if !s.checked(3)!
+    return 1
+  0
 
 sub main
   set = Set(items: Vec())
   if !set.insert(1)
     print("new")
-  fresh = !set.insert(2)
-  print(fresh)
-  print(!set.insert(3))
+  while !set.insert(2)
+    print("again")
+  print("dup") if !set.insert(3)
+  a = true and !set.insert(4)
+  b = !set.insert(5) or false
+  c = not !set.insert(6)
+  d = 1 if !set.insert(7) else 0
+  print(a, b, c, d)
   print(fill(!set) catch 0)
 
-# error: 15:11: a write-borrowing call that returns `Bool` is written `(!s).checked(...)`, so it is never read as negation
-# error: 20:6: a write-borrowing call that returns `Bool` is written `(!set).insert(...)`, so it is never read as negation
-# error: 22:11: a write-borrowing call that returns `Bool` is written `(!set).insert(...)`
+# error: 16:6: a write-borrowing call that returns `Bool` is written `(!s).checked(...)`, so it is never read as negation
+# error: 22:6: a write-borrowing call that returns `Bool` is written `(!set).insert(...)`, so it is never read as negation
+# error: 24:9: `(!set).insert(...)`
+# error: 26:19: `(!set).insert(...)`
+# error: 27:16: `(!set).insert(...)`
+# error: 28:7: `(!set).insert(...)`
+# error: 29:11: `(!set).insert(...)`
+# error: 30:12: `(!set).insert(...)`

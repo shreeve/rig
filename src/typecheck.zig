@@ -95,6 +95,9 @@ const Checker = struct {
     handled: Sexp = .nil,
     /// The operand of the `*x` being checked.
     shared_operand: Sexp = .nil,
+    /// The condition, or operand of `and`, `or`, or `not`, being
+    /// checked: a `!` that starts it reads as negation.
+    negation_operand: Sexp = .nil,
     /// The `!x` being checked where a write borrow is expected, the one
     /// place a write borrow of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
@@ -1018,7 +1021,37 @@ const Checker = struct {
     /// enters the scope binding `name`; the caller restores the scope.
     fn checkCondition(self: *Checker, cond: Sexp) Error!void {
         if (cond.isKind(.as)) return self.checkOptionalBinding(cond);
-        return self.checkExpr(cond, self.t().bool_id);
+        return self.checkBoolOperand(cond);
+    }
+
+    /// A Bool where a leading `!` reads as negation: a condition, or an
+    /// operand of `and`, `or`, or `not`.
+    fn checkBoolOperand(self: *Checker, e: Sexp) Error!void {
+        const prev = self.negation_operand;
+        self.negation_operand = e;
+        defer self.negation_operand = prev;
+        return self.checkExpr(e, self.t().bool_id);
+    }
+
+    /// Whether `node` starts the condition or logical operand being
+    /// checked: it is that expression, or its leftmost part, reached
+    /// through the children that start where their parent does (or just
+    /// before, as a receiver sigil does: in `!s.add(1)` the call starts
+    /// at `s`).
+    fn startsNegationOperand(self: *Checker, node: Sexp) bool {
+        var e = self.negation_operand;
+        outer: while (e == .list) {
+            if (e.list.id == node.list.id) return true;
+            const at = self.ctx.span(e).start;
+            for (rig.children(e)) |child| {
+                if (child == .list and self.ctx.span(child).start <= at) {
+                    e = child;
+                    continue :outer;
+                }
+            }
+            return false;
+        }
+        return false;
     }
 
     /// `if expr as name` / `while expr as name`: `expr` is an optional,
@@ -1770,12 +1803,12 @@ const Checker = struct {
             .@"<", .@">", .@"<=", .@">=" => self.synthOrdering(e, @tagName(head)),
             .@"==", .@"!=" => self.synthEquality(e),
             .@"and", .@"or" => blk: {
-                try self.checkExpr(ir.get(e, .left), self.t().bool_id);
-                try self.checkExpr(ir.get(e, .right), self.t().bool_id);
+                try self.checkBoolOperand(ir.get(e, .left));
+                try self.checkBoolOperand(ir.get(e, .right));
                 break :blk self.t().bool_id;
             },
             .not => blk: {
-                try self.checkExpr(ir.Not.operand(e), self.t().bool_id);
+                try self.checkBoolOperand(ir.Not.operand(e));
                 break :blk self.t().bool_id;
             },
             .neg => self.synthNeg(e),
@@ -5537,7 +5570,7 @@ const Checker = struct {
             .write => {
                 const result = self.ctx.types.get(returns);
                 const value = if (result == .fallible) result.fallible else returns;
-                if (value != self.t().bool_id) return false;
+                if (value != self.t().bool_id or !self.startsNegationOperand(recv)) return false;
                 try self.errAt(recv, "a write-borrowing call that returns `Bool` is written `(!{s}).{s}(...)`, so it is never read as negation", .{ name, method });
             },
             else => try self.errAt(recv, "`{s}` does not write its receiver; for negation use `not`", .{method}),

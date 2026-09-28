@@ -1319,8 +1319,9 @@ sub main
 `is_empty` does not write its receiver; for negation use `not`
 ```
 
-And a write-borrowing call whose value is a `Bool` takes the long form,
-so `!set.insert(k)` can never be read as "not inserted":
+And a write-borrowing call whose value is a `Bool` takes the long form
+as a condition or an operand of `and`, `or`, or `not`, so
+`if !set.insert(k)` can never be read as "if not inserted":
 
 ```rig reject
 struct Set
@@ -1358,12 +1359,18 @@ sub main
     print("new")
   if not (!set).insert(1)
     print("seen")
+  print(!set.insert(2))
 ```
 
 ```output
 new
 seen
+true
 ```
+
+Where the `!` cannot start a condition or a logical operand (a
+binding, an argument, a return value), the short form stands:
+`print(!set.insert(2))` above.
 
 For Zig, Rust, and C readers: in Rig, `!` never means "not"; `not`
 does, and every place where the habit would change a program's meaning
