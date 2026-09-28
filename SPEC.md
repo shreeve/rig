@@ -3344,7 +3344,7 @@ sub main
 ```
 
 ```error
-cannot assign through shared handle
+cannot assign through a shared handle
 ```
 
 ### Weak handles

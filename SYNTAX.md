@@ -2392,7 +2392,7 @@ sub main
 ```
 
 ```error
-cannot assign through shared handle
+cannot assign through a shared handle
 ```
 
 `~h` is a weak handle; `w.upgrade()` returns `*T?`, a new strong

@@ -913,7 +913,13 @@ const Checker = struct {
         const assign = std.mem.eql(u8, verb, "assign to");
         const through = if (assign) "assign" else verb;
         if (path.shared) {
-            try self.errAt(at, "cannot {s} through {s}shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{ through, if (assign) "" else "a " });
+            // A Cell reached through the handle changes in place.
+            if (assign) if (self.ctx.typeOf(place)) |ty| if (cellElementType(self.ctx, ty) != null) {
+                const shown = try self.sourceText(place);
+                try self.errAt(at, "cannot assign through a shared handle (`*T`); other handles may exist. `{s}` is a Cell: change its value with `{s}.set(...)`", .{ shown, shown });
+                return false;
+            };
+            try self.errAt(at, "cannot {s} through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{through});
             return false;
         }
         if (path.read_only) |ro| {
@@ -3185,6 +3191,13 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
+    /// A field or method reached through weak handle `obj`, which does not
+    /// keep its value alive.
+    fn weakReach(self: *Checker, obj: Sexp, weak: TypeId, pos: u32) Error!void {
+        const shown = try self.sourceText(unborrowedNode(obj));
+        try self.err(pos, "a weak handle `{s}` reaches its value only through `upgrade`: `if {s}.upgrade() as s`", .{ try self.tyName(weak), shown });
+    }
+
     /// Member `e` of `obj`, a value of type `obj_ty`.
     fn memberOf(self: *Checker, e: Sexp, obj: Sexp, obj_ty: TypeId) Error!TypeId {
         const field_node = ir.Member.name(e);
@@ -3239,7 +3252,9 @@ const Checker = struct {
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
             };
-            try self.err(pos, "type `{s}` has no field `{s}`", .{ try self.tyName(obj_ty), field });
+            if (self.ctx.types.get(peeled) == .weak) {
+                try self.weakReach(obj, peeled, pos);
+            } else try self.err(pos, "type `{s}` has no field `{s}`", .{ try self.tyName(obj_ty), field });
             return self.t().invalid_id;
         };
         const owner = decl.symbol();
@@ -5666,6 +5681,8 @@ const Checker = struct {
                 const sym = decl.symbol();
                 try self.err(pos, "no method `{s}` on type `{s}`", .{ method, sym.name });
                 try self.noteDeclared(sym, decl.module_id == null);
+            } else if (self.ctx.types.get(peeled) == .weak) {
+                try self.weakReach(obj, peeled, pos);
             } else {
                 try self.err(pos, "type `{s}` has no method `{s}`", .{ try self.tyName(obj_ty), method });
             }
