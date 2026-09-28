@@ -1,0 +1,43 @@
+# A guard that fails runs on the way to the later arms: a borrow it
+# stored in an outer value is still there after the match, even when
+# the guarded arm's body never falls through.
+
+struct Big
+  v: Vec[Int]
+
+struct View
+  b: ?Big
+
+enum O
+  some(x: Big)
+  nothing
+
+fun put(v: !View, t: ?Big) -> Bool
+  v.b = t
+  false
+
+sub payload
+  x0 = Big(v: Vec())
+  vw = View(b: ?x0)
+  o: O = .some(x: Big(v: Vec()))
+  match <o
+    .some(x) if put(!vw, ?x) => return
+    _ => print("other")
+  print(vw.b.v.len)
+
+sub outer(n: Int)
+  x0 = Big(v: Vec())
+  vw = View(b: ?x0)
+  y = Big(v: Vec())
+  match n
+    3 if put(!vw, ?y) => return
+    _ => print("other")
+  y = Big(v: Vec())
+  print(vw.b.v.len, y.v.len)
+
+sub main
+  payload()
+  outer(3)
+
+# error: 24:27: `x` does not live long enough
+# error: 35:3: cannot reassign `y` while borrows are live

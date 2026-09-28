@@ -1,0 +1,17 @@
+# `==` on a struct from another module that holds that module's generic
+# instance compares the instance's fields at its type arguments, and a
+# generic function comparing it asks nothing of its own parameters.
+
+fun same[T](a: T, p: ?lib.P, q: ?lib.P) -> Bool
+  p == q
+
+use lib
+
+sub main()
+  x = lib.P.make(1)
+  y = lib.P.make(1)
+  z = lib.P.make(2)
+  print(same(*1, ?x, ?y), same(*1, ?x, ?z), x == y)
+
+# expect:
+# true false true

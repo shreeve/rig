@@ -1,0 +1,35 @@
+# A parameter taken by value, and a loop's copy of an element, belong to
+# the function, so a borrow of them cannot be returned. A borrow returned
+# from a read-borrowed array parameter borrows the caller's array, which
+# must outlive it.
+
+struct Pt
+  x: Int
+
+fun f(a: [3]Int) -> []Int
+  ?a[0..2]
+
+fun g(p: Pt) -> ?Pt
+  ?p
+
+fun rows(xs: ?[2][3]Int) -> []Int
+  for x in xs
+    return ?x[1..3]
+  ?xs[0][0..1]
+
+fun mid(a: ?[3]Int) -> []Int
+  ?a[1..3]
+
+sub main()
+  a = [1, 2, 3]
+  print(f(a), g(Pt(x: 1)).x)
+  s: []Int = ?a[0..1]
+  if a[0] == 1
+    b = [4, 5, 6]
+    s = mid(?b)
+  print(s)
+
+# error: 10:4: cannot return a borrow of `a`: a parameter taken by value belongs to this function and ends with it; take `a: ?[3]Int`
+# error: 13:4: cannot return a borrow of `p`
+# error: 17:13: returned borrow of `x` does not originate from a borrowed parameter
+# error: `b` does not live long enough

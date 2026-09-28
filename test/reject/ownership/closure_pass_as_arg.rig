@@ -1,8 +1,8 @@
 # A local closure cannot be passed as a call argument, where the callee
 # could retain it.
 
-sub consume(f)
-  print(f)
+sub consume(f: fun() -> Int)
+  print(f())
 
 sub main()
   n =! 3
@@ -10,4 +10,4 @@ sub main()
     n
   consume(f)
 
-# error: closure `f` cannot be moved, returned, stored, or aliased
+# error: 11:11: closure `f` cannot be moved, returned, stored, or aliased

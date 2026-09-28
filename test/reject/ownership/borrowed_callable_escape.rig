@@ -47,7 +47,7 @@ sub main
   print(p(2))
   c: Vec[Int] = Vec()
   each(?c, |!c, n|
-    c.push(n))
+    !c.push(n))
   total = 0
   both = |a: ?sub(Int), b: ?sub(Int)|
     a(1)

@@ -1,0 +1,50 @@
+# A name that is not found is reported with what it was likely meant as:
+# another language's spelling of a Rig one, or a visible name, type,
+# field, or method it is a typo of (one edit for a short name, two for
+# a longer one).
+
+struct Point
+  x: Int
+  width: Int
+
+  fun area(?self) -> Int
+    self.x * self.width
+
+  fun origin() -> Point
+    Point(x: 0, width: 0)
+
+fun total(n: Int) -> Int
+  n + 1
+
+fun f(a: i32, b: string, c: Piont) -> Int
+  1
+
+sub main()
+  counter = 3
+  a = null
+  b = True
+  c = this
+  d = len(counter)
+  println(counter)
+  e = self
+  print(conuter, totl(1), ture, prnt)
+  p = Point(x: 1, widht: 2)
+  print(p.wdith, p.aera(), Point.orgin(), a, b, c, d, e)
+
+# error: 19:10: use of unbound type `i32`; Rig's types are capitalized: `I32`
+# error: 19:18: use of unbound type `string`; Rig's types are capitalized: `String`
+# error: 19:29: use of unbound type `Piont`; did you mean `Point`?
+# error: 24:7: use of unbound name `null`; Rig's absent value is `none`
+# error: 25:7: use of unbound name `True`; Rig writes `true`
+# error: 26:7: use of unbound name `this`; a method's receiver is `self`
+# error: 27:7: use of unbound name `len`; a length is a member: `x.len`
+# error: 28:3: use of unbound name `println`; Rig prints a line with `print(...)`
+# error: 29:7: use of unbound name `self`; `self` is the receiver of a method that declares one
+# error: 30:9: use of unbound name `conuter`; did you mean `counter`?
+# error: 30:18: use of unbound name `totl`; did you mean `total`?
+# error: 30:27: use of unbound name `ture`; did you mean `true`?
+# error: 30:33: use of unbound name `prnt`; did you mean `print`?
+# error: 31:19: no field `widht` on type `Point`; did you mean `width`?
+# error: 32:11: no field `wdith` on type `Point`; did you mean `width`?
+# error: 32:20: no method `aera` on type `Point`; did you mean `area`?
+# error: 32:34: no method `orgin` on type `Point`; did you mean `origin`?

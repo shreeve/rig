@@ -25,7 +25,7 @@ sub main()
   if true
     y = In(v: Vec())
     w = !v
-    fill(w, ?y)
+    fill(!w, ?y)
   print(v.b.v.len)
   x = Wrap(r: ?a)
   e = Ed(t: !x)

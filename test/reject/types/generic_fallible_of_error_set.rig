@@ -1,0 +1,25 @@
+# `E!` of an error set `E` is rejected: a failure and a success would
+# both be `E` values. A generic `T!` is rejected where an instance gives
+# `T` an error set.
+
+error E
+  bad
+
+fun id[T](x: T) -> T!
+  x
+
+struct Slot[T]
+  v: T
+
+  fun get(?self) -> T!
+    self.v
+
+sub main()
+  print(id(1) catch 0)
+  e: E = E.bad
+  r = id(e) catch E.bad
+  b = Slot[E](v: E.bad)
+  print(r, b.v)
+
+# error: 20:7: `id[E]` cannot use `T = E`: a return type `T!` would make a failure and a success both `E` values
+# error: 21:7: `Slot[E]` cannot use `T = E`: a return type `T!`

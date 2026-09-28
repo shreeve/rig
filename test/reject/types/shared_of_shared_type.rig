@@ -9,4 +9,4 @@ sub main()
   outer: *(*Noisy) = *(<inner)
   print("wrapped")
 
-# error: nested shared type
+# error: 9:12: nested shared type `**T` is not meaningful; use a single `*T`

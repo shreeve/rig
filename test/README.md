@@ -10,19 +10,20 @@
 The summary line reads `N passed, M failed, K known`. The suite is green
 when nothing fails and no known-failing test has started passing. A
 filter that selects nothing, or only the `parser` check when Nexus is
-not built, exits 2. The runner works from any directory.
+not built, exits 2; naming only kinds that have no tests (`known`, when
+no bug is open) exits 0. The runner works from any directory.
 
-The runner needs GNU `timeout` (on macOS, `gtimeout` from `brew install
-coreutils`). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the
-seconds each test may take (default 120), and `RIG_TEST_OUT` the
-directory for emitted packages (see [Output](#output)).
+The runner needs bash and either GNU `timeout` or perl (stock macOS has
+perl). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the seconds
+each test may take (default 120), and `RIG_TEST_OUT` the directory for
+emitted packages (see [Output](#output)).
 
 ## Layout
 
 | Path | Contract |
 |---|---|
 | `test/behavior/<area>/<name>.rig` | `rig run` exits 0, no leaks, stdout equals the `# expect:` block |
-| `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text |
+| `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text (and, with `# errors: n`, exactly `n` errors) |
 | `test/known/<area>/<name>.rig` | a known bug, written as a behavior or reject test of the *correct* behavior |
 | `examples/<name>.rig` | curated showcase programs; same contract as `behavior/` |
 | `test/ir/<name>.rig` | raw and semantic IR snapshots (`<name>.raw.sexp`, `<name>.sem.sexp`) |
@@ -61,6 +62,12 @@ sub main
 - `# error: <text>` — makes the file a rejection test. Repeat the line to
   require several diagnostics. `# error: L:C: <text>` also requires the
   diagnostic to be at line `L`, column `C`.
+- `# errors: <n>` — the check must report exactly `n` errors (notes
+  aside), so a cascade of follow-on errors fails the test. Use it where
+  one mistake should get one error.
+- `# timeout: <seconds>` — raises this test's time limit above
+  `RIG_TEST_TIMEOUT`, for a behavior test or CLI script that builds
+  programs slowly when Zig's cache is cold.
 
 ## Doc examples
 
@@ -102,6 +109,17 @@ compiler), `ROOT` (the checkout), and `RIG_OUT_DIR` set, sources
 `expect_rc`, writes the programs it needs with heredocs, and passes when
 it exits 0. Files starting with `_` are helpers, not tests.
 
+A script builds its programs with `rig run|build|test ... file.rig`, a
+function in `_lib.sh` that gives each root file its own output directory
+under `$RIG_OUT_DIR/programs/`, whose Zig cache the harness keeps
+between runs. Zig caches one build per root path and flags, and every
+program's root is `__rig_main.zig` in its output directory, so programs
+built in one directory would rebuild cold on every run. (`zig build-exe`
+caches nothing, so `rig build` is always cold; prefer `rig run` when the
+executable itself is not under test.) Call `"$RIG"` directly for
+commands that build nothing (`check`, `emit`, usage errors) and when
+the output directory is what the test is about.
+
 ## Known bugs
 
 `test/known/` is the work queue. Each file is written as a behavior or
@@ -117,5 +135,15 @@ outside `known/` describe current behavior only.
 `.zig-cache/rig-test/<id>/`, or `$RIG_TEST_OUT/<id>/` (a CLI test's
 scratch directory is its `work/` subdirectory), so emitted code for a
 failing test can be inspected there, and repeated runs hit Zig's build
-cache. One run at a time uses an output directory; a second run waits
+cache. A doc example's directory is `doc/<file>/<checksum>/`, named by
+its text rather than its line, so an edit that moves it keeps its cache.
+A run with no filter removes the directories of tests that no longer
+exist. One run at a time uses an output directory; a second run waits
 for the first, unless `RIG_TEST_OUT` gives it a directory of its own.
+The runner marks an output directory as its own with a `.rig-test`
+file, and refuses a `RIG_TEST_OUT` that is not empty and lacks it, so
+it never removes files it did not write.
+
+The output directory's `.durations` file records how long each test
+took, in whole seconds; the next run starts the longest tests first, so
+it does not end waiting on one of them.

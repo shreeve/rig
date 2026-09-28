@@ -1,0 +1,36 @@
+# A borrow of a temporary lives only for the call it is lent to, so it
+# may be an argument only to a call whose result keeps no borrow. Held
+# in a binding, a field, or a returned value, it would outlive the
+# temporary it points to.
+
+struct S
+  n: Int
+
+struct H
+  s: ?S
+
+fun rt(n: Int) -> Int
+  n
+
+fun pick(s: ?S) -> ?S
+  s
+
+fun mk(n: Int) -> H
+  H(s: ?S(n: rt(n)))
+
+fun first(s: ?S) -> Int
+  s.n
+
+sub main()
+  h = H(s: ?S(n: rt(7)))
+  r = ?S(n: 1)
+  q = pick(?S(n: rt(7)))
+  c = ?mk(3)
+  print(first(?S(n: 2)))
+  print(h.s.n, r.n, q.n, c.s.n)
+
+# error: 19:8: a borrow of a temporary lives only for the call it is lent to; bind the value to a name first
+# error: 25:12: a borrow of a temporary lives only for the call it is lent to
+# error: 26:7: a borrow of a temporary lives only for the call it is lent to
+# error: 27:12: a borrow of a temporary lives only for the call it is lent to
+# error: 28:7: a borrow of a temporary lives only for the call it is lent to

@@ -18,6 +18,6 @@ sub main()
   w = !x
   w2 = lend(<w)
   print(x.n)
-  w2.bump()
+  !w2.bump()
 
 # error: use of `x` while a write borrow is live

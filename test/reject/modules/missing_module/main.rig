@@ -4,4 +4,6 @@ use nope
 sub main()
   print(0)
 
-# error: cannot read module
+# error: 2:1: cannot read module `nope`
+# error: 2:1: no such file
+# errors: 1

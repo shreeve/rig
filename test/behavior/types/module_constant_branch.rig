@@ -1,0 +1,22 @@
+# A module constant may pick a branch on a constant condition, as a local
+# `=!` constant may; it folds, so a type can use it as an array length.
+# A constant picked this way is itself constant, so a later branch may
+# test it.
+
+N = 3
+D = 4 if N > 2 else 2
+S = "big" if N > 2 else "small"
+F = 1.5 if N > 9 else 0.5 if N > 2 else 0.25
+G = 1 if D > 3 else 0
+L: U8 = 200 if G > 0 else 100
+M: Int = D * 2 if D < 10 else -1
+
+sub main()
+  d: [D]Int = [D of 3]
+  g: [G + 1]Int = [G + 1 of 7]
+  print(D, d.len, S, F)
+  print(G, L, M, g.len)
+
+# expect:
+# 4 4 big 0.5
+# 1 200 8 2

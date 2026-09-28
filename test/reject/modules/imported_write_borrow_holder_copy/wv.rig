@@ -1,5 +1,5 @@
 pub struct Wrap
-  v: Vec[Int]
+  pub v: Vec[Int]
 
 pub struct WV
-  b: !Wrap
+  pub b: !Wrap

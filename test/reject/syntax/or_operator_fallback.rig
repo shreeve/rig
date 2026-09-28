@@ -1,0 +1,9 @@
+# `||` before a literal is a fallback: Rig writes it `??`.
+
+fun get() -> Int?
+  none
+
+sub main()
+  print(get() || 0)
+
+# error: 7:15: a fallback value for an optional is written with `??`

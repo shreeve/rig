@@ -1,0 +1,18 @@
+# The length of a Vec, String, array, or slice is the field `len`, not a
+# method.
+
+fun count(xs: []Int) -> Int
+  xs.len()
+
+sub main()
+  v: Vec[Int] = Vec()
+  s = "abc"
+  a = [1, 2]
+  print(v.len(), s.len(), a.len(), ?v.len(), count(?a[..]))
+
+# error: 5:6: no method `len` on type `[]Int`; `len` is a field: write `xs.len`
+# error: 11:11: no method `len` on type `Vec[Int]`; `len` is a field: write `v.len`
+# error: 11:20: no method `len` on type `String`; `len` is a field: write `s.len`
+# error: 11:29: `len` is a field: write `a.len`
+# error: 11:39: `len` is a field: write `v.len`
+# errors: 5

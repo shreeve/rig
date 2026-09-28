@@ -1,19 +1,15 @@
-# `m?` hands over the handle inside `m`: an owning binding is moved,
-# `(<m)?`, and a borrow cannot give up what it holds.
+# `m?` hands over the handle inside `m`, and a borrow cannot give up
+# what it holds.
 
 struct Wrap
   n: Int
-
-fun f(m: *Wrap?) -> Int?
-  b = m?
-  b.n
 
 fun g(m: ?*Wrap?) -> Int?
   b = m?
   b.n
 
 sub main()
-  print(f(none))
+  w: *Wrap? = none
+  print(g(?w))
 
-# error: 8:7: bare use of shared (`*T`) handle `m` in binding would alias the handle; use `<m` to move or `+m` to clone
-# error: 12:7: a borrow cannot give up the resource inside it
+# error: 8:7: a borrow cannot give up the resource inside it; borrow the value inside with `if m as value`

@@ -1,0 +1,13 @@
+# A variant's value may name another module's public constant.
+
+use lib
+
+enum E
+  a = lib.K
+  b
+
+sub main()
+  print(Int(E.a), Int(E.b))
+
+# expect:
+# 5 6

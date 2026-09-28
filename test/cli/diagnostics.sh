@@ -1,7 +1,7 @@
 # A diagnostic is `file:line:col: error: message` at the start of the
 # node it is about (keywords and sigils included), then the source line
-# with the node's span underlined on it. Sema's diagnostics come before
-# the ownership checker's.
+# with the node's span underlined on it. A module with type errors is
+# not checked for ownership.
 source "$ROOT/test/cli/_lib.sh"
 
 cat >spans.rig <<'EOF'
@@ -23,10 +23,17 @@ expect_eq "$(cat out.txt)" "spans.rig:3:5: error: \`return\` needs a value of ty
     ^~~~~~
 spans.rig:9:9: error: this value is already a shared handle \`*Int\`; \`*\` would nest handles. Clone it with \`+x\` for another handle
   x = *(*(1))
-        ^~~~
-spans.rig:8:5: error: \`break\` is not inside a loop (a closure body cannot leave a loop around it)
+        ^~~~" "diagnostics at node spans"
+cat >own.rig <<'EOF'
+sub main()
+  f = ||
     break
-    ^~~~~" "diagnostics at node spans"
+  f()
+EOF
+"$RIG" check own.rig >out.txt 2>&1; expect_rc $? 1 "rig check of an ownership error"
+expect_eq "$(cat out.txt)" "own.rig:3:5: error: \`break\` is not inside a loop (a closure body cannot leave a loop around it)
+    break
+    ^~~~~" "ownership diagnostic at its node span"
 
 # A parse error points at the token the parser stopped on, and says
 # what the parser expected there when that is a short list.
@@ -38,6 +45,25 @@ EOF
 expect_eq "$(cat out.txt)" "parse.rig:2:12: error: unexpected \`)\`; expected an operand
   x = (1 + )
            ^" "parse error at its token"
+
+# A bracket opened on an earlier line is noted only when nothing after
+# the error closes it.
+cat >closed.rig <<'EOF'
+sub main()
+  print(max(1,
+    2 3))
+EOF
+"$RIG" check closed.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a parse error in closed brackets"
+expect_eq "$(cat out.txt)" "closed.rig:3:7: error: unexpected \`3\`
+    2 3))
+      ^" "no note for a bracket that closes"
+cat >open.rig <<'EOF'
+sub main()
+  print(max(1,
+    2 3)
+EOF
+"$RIG" check open.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a parse error in an unclosed bracket"
+expect_has "$(cat out.txt)" "open.rig:2:8:   note: the \`(\` opened here is not closed" "note for the bracket left open"
 
 # At most 100 errors print; the rest are counted.
 { echo "sub main()"; for ((i = 0; i < 150; i++)); do echo "  print(missing$i)"; done; } >many.rig

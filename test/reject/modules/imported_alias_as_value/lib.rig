@@ -1,0 +1,6 @@
+pub type Byte = U8
+
+pub struct P
+  pub n: Int
+
+pub type PA = P

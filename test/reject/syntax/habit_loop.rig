@@ -1,0 +1,8 @@
+# An endless loop is `while true`; `loop` is named at the word, not
+# at the block below it.
+
+sub main()
+  loop
+    print(1)
+
+# error: 5:3: Rig has no `loop`; write `while true`

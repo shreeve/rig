@@ -1,0 +1,8 @@
+# A block needs no `do` or `then`: it is the indented lines below.
+
+sub main()
+  n = 0
+  while n < 3 do
+    n += 1
+
+# error: 5:15: Rig has no `do`; a block is the indented lines below the line that opens it

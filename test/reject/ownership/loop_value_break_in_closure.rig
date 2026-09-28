@@ -5,6 +5,7 @@ sub main()
     f = ||
       break 1
     f()
+    break i if i == 2
   else
     0
   print(x)

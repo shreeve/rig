@@ -1,0 +1,27 @@
+# A one-line `defer` or `errdefer` runs its statement at scope exit, so
+# that statement cannot declare a name: nothing after it could see one.
+# An indented block may declare names of its own.
+
+error E
+  bad
+
+fun f(k: Int) -> Int!
+  errdefer x =! 1
+  return E.bad if k > 0
+  k
+
+sub main()
+  s = 1
+  defer t = s
+  defer new s = 3
+  defer u: Int = 1
+  defer
+    v = s
+    print(v)
+  print(f(0) catch -1)
+
+# error: 9:12: a deferred statement runs at scope exit and cannot declare `x`; use an indented `errdefer` block
+# error: 15:9: a deferred statement runs at scope exit and cannot declare `t`; use an indented `defer` block
+# error: 16:13: cannot declare `s`
+# error: 17:9: cannot declare `u`
+# errors: 4

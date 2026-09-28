@@ -1,0 +1,25 @@
+# A value borrowed by `as` keeps its optional borrowed for the block:
+# the optional cannot be used under a write borrow, nor dropped or
+# reassigned under any borrow.
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  r: Res? = Res(n: 1)
+  if !r as v
+    print(r)
+    v.n = 2
+  if ?r as v
+    -r
+    print(v.n)
+  if !r as v
+    r = none
+    v.n = 3
+
+# error: 14:11: use of `r` while a write borrow is live
+# error: 17:6: cannot drop `r` while borrows are live
+# error: 20:5: cannot reassign `r` while borrows are live

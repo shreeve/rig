@@ -1,0 +1,10 @@
+# A `while` step runs after the body, so a name it declared would be
+# seen by the body before it has a value.
+
+sub main
+  i = 0
+  while i < 3 : x = i
+    print(x)
+    i += 1
+
+# error: 6:17: a `while` step runs after the body, so it cannot declare `x`; declare it before the loop

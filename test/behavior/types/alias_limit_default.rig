@@ -1,0 +1,18 @@
+# An integer type's alias names its limits, which are constants: a
+# default value may be one, as `U8.max` may.
+
+type Byte = U8
+
+struct P
+  lo: Byte = Byte.min
+  hi: U8 = U8.max
+
+fun f(n: U8 = Byte.max) -> U8
+  n
+
+sub main
+  p = P()
+  print(f(), p.lo, p.hi)
+
+# expect:
+# 255 0 255

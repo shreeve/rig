@@ -1,0 +1,7 @@
+# A range excludes its end; `..=` is not Rig.
+
+sub main()
+  for i in 0..=3
+    print(i)
+
+# error: 4:13: a range excludes its end: `..=3` is written `..4`

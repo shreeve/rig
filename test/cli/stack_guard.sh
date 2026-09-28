@@ -70,7 +70,7 @@ sub main()
   print(addrs.len > 0, dirty)
 EOF2
 
-out=$("$RIG" run clash.rig 2>/dev/null); expect_eq "$out" "true 0" "mappings the overflowing child wrote into"
+out=$(rig run clash.rig 2>/dev/null); expect_eq "$out" "true 0" "mappings the overflowing child wrote into"
 
 # A program that cannot reserve the space below its stack (here a
 # preloaded library maps a page there first) stops before it runs.
@@ -87,7 +87,7 @@ export const init linksection("__DATA,__mod_init_func") = [_]*const fn () callco
 EOF2
 "${ZIG:-zig}" build-lib occupy.zig -dynamic -lc -femit-bin=occupy.dylib || fail "build occupy.dylib"
 printf 'sub main()\n  print(42)\n' >hi.rig
-"$RIG" build -o hi hi.rig || fail "build hi"
+rig build -o hi hi.rig || fail "build hi"
 expect_eq "$(./hi)" "42" "a program with the space free"
 DYLD_INSERT_LIBRARIES=$PWD/occupy.dylib ./hi >out.txt 2>err.txt; expect_rc $? 1 "a program with the space taken"
 expect_eq "$(cat out.txt)" "" "stdout of a program that cannot guard its stack"

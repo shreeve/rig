@@ -1,0 +1,19 @@
+# In a `while` header, `:` starts the step, so a jump there takes no
+# label: `while x ?? break :outer` reads `outer` as the step, and the
+# error says how to leave the outer loop instead.
+
+fun more(n: Int) -> Bool?
+  n > 0 if n < 9 else none
+
+sub main()
+  n = 3
+  :outer while true
+    while more(n) ?? break :outer
+      n -= 1
+    while more(n) ?? continue :outer
+      n -= 1
+    break
+  print(n)
+
+# error: 11:29: a jump in a `while` header takes no label; the `:` there starts the step, so `outer` reads as the step: to jump to an outer loop, jump from the body with `break :outer`
+# error: 13:32: a jump in a `while` header takes no label; the `:` there starts the step, so `outer` reads as the step: to jump to an outer loop, jump from the body with `continue :outer`

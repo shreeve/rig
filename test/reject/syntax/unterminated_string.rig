@@ -5,4 +5,5 @@ sub main()
   x = "abc
   print(x)
 
-# error: unterminated string
+# error: 5:7: unterminated string
+# errors: 1

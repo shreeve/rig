@@ -1,0 +1,39 @@
+# A generic body is checked once, for any `T`. Where it copies a `T`,
+# every instantiation must use plain data for `T`, including
+# instantiations reached through another generic's body (`Opt[*B]`
+# through `Holder[*B]`).
+
+struct B
+  n: Int
+
+struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+  fun copy_out(?self, d: T) -> T
+    match self
+      .some(v) => v
+      .nothing => <d
+
+struct Holder[T]
+  v: T
+
+  fun peek(?self, x: T, d: T) -> Int
+    o: Opt[T] = .some(v: <x)
+    c = o.copy_out(<d)
+    1
+
+sub main()
+  a: Wrap[Int] = Wrap(v: 1)
+  print(a.get())
+  b: Wrap[*B] = Wrap(v: *B(n: 1))
+  h: Holder[*B] = Holder(v: *B(n: 3))
+
+# error: `Wrap[*B]` cannot use `T = *B`: the generic body copies a `T`
+# error: `Opt[*B]` cannot use `T = *B`: the generic body copies a `T`

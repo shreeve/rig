@@ -1,0 +1,28 @@
+# `x ?? return` hands over the optional's value only when `x` owns it.
+# Through a borrow of an optional the handle inside still belongs to
+# the lender, so taking it out would free it twice.
+
+struct N
+  v: Int
+
+sub take_read(o: ?*N?)
+  n = <o ?? return
+  print(n.v)
+
+sub take_write(o: !*N?)
+  n = <o ?? return
+  print(n.v)
+
+fun lend(o: ?*N?) -> ?*N?
+  o
+
+sub main()
+  h: *N? = *N(v: 1)
+  take_read(?h)
+  take_write(!h)
+  n = lend(?h) ?? return
+  print(n.v)
+
+# error: 9:7: a borrow cannot give up the resource inside it; borrow the value inside with `if o as value`
+# error: 13:7: a borrow cannot give up the resource inside it; borrow the value inside with `if !o as value`
+# error: 23:7: a borrow cannot give up the resource inside it; borrow the value inside with `if lend(?h) as value`

@@ -11,7 +11,7 @@ printf 'pub fun val() -> Int\n  1\n' >a/c.rig
 printf 'use c\n\npub fun fromb() -> Int\n  c.val()\n' >other/b.rig
 printf 'pub fun val() -> Int\n  20\n' >other/c.rig
 ln -s ../other/b.rig a/b.rig
-out=$("$RIG" run a/main.rig 2>&1); expect_rc $? 0 "symlinked module"
+out=$(rig run a/main.rig 2>&1); expect_rc $? 0 "symlinked module"
 expect_eq "$out" $'1\n1' "symlinked module imports from the root's directory"
 
 # One file under two names is rejected, as is a name spelled differently
@@ -30,10 +30,10 @@ expect_has "$out" "alias/case.rig:1:1: error:" "module name in another case"
 # A root file named like a Zig package, or with quotes in its name.
 mkdir odd
 printf 'test "t"\n  print(2)\n\nsub main()\n  print(1)\n' >odd/std.rig
-out=$("$RIG" run odd/std.rig 2>&1); expect_rc $? 0 "root named std"
+out=$(rig run odd/std.rig 2>&1); expect_rc $? 0 "root named std"
 expect_eq "$out" "1" "root named std"
 cp odd/std.rig 'odd/a"b.rig'
-out=$("$RIG" test 'odd/a"b.rig' 2>&1); expect_rc $? 0 "root name with a quote"
+out=$(rig test 'odd/a"b.rig' 2>&1); expect_rc $? 0 "root name with a quote"
 expect_has "$out" '1 passed, 0 failed' "root name with a quote"
 
 # Names starting with `__rig` are the compiler's.

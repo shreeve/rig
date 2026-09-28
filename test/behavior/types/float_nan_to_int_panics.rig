@@ -1,0 +1,15 @@
+# Converting a NaN to an integer type panics, like a float whose integer
+# part does not fit.
+
+fun rt(x: Float) -> Float
+  x
+
+sub main()
+  nan = rt(0.0) / rt(0.0)
+  print(U8(rt(2.5)))
+  print(U8(nan))
+
+# expect-panic: integer part of floating point value out of bounds
+
+# expect:
+# 2

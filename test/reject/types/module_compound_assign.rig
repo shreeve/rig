@@ -1,0 +1,13 @@
+# A module-level binding is a constant, so `K += 2` there is rejected,
+# and once: a `K` it would have declared is bound for its uses, which
+# report nothing more.
+
+K += 2
+new M = 1
+
+sub main()
+  a: [K]Int = [K of 0]
+  print(K, M, a)
+
+# error: 5:1: a module-level binding is a constant; write `K = value`
+# error: 6:1: a module-level binding is a constant; write `M = value`

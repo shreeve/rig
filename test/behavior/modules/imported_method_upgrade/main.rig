@@ -1,0 +1,12 @@
+# A method named `upgrade` of a struct from another module is called
+# through a shared handle as the struct's own, not as a weak handle's
+# `upgrade`.
+
+use lib
+
+sub main()
+  p = *lib.P(n: 1)
+  print(p.upgrade())
+
+# expect:
+# 2

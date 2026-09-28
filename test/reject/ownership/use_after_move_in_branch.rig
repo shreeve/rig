@@ -15,4 +15,4 @@ sub main()
     print(x.payload)
   print(x.payload)
 
-# error: use of `x` after move
+# error: 16:9: use of `x` after move

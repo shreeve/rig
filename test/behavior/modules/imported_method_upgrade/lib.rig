@@ -1,0 +1,5 @@
+pub struct P
+  pub n: Int
+
+  pub fun upgrade(?self) -> Int
+    self.n + 1

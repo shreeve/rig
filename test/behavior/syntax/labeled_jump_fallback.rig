@@ -1,0 +1,33 @@
+# The jump after `??` or `catch` may name a loop's label, as the jump
+# statements do. In a `while` header the first `:` starts the step.
+
+error E
+  bad
+
+fun get(i: Int, j: Int) -> Int?
+  none if j == 2 else i * 10 + j
+
+fun check(n: Int) -> Int!
+  return E.bad if n == 20
+  n
+
+sub main()
+  :outer for i in 0..3
+    for j in 0..3
+      v = get(i, j) ?? continue :outer
+      w = check(v) catch break :outer
+      print(w)
+  i = 0
+  :loop while i < 5 : i += 1
+    while true
+      n = get(i, i) ?? break :loop
+      print(n)
+      break
+
+# expect:
+# 0
+# 1
+# 10
+# 11
+# 0
+# 11

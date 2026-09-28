@@ -1,0 +1,11 @@
+# A variant's value may convert a constant to a sized integer type.
+
+enum E
+  a = U16(7)
+  b = I128(3) + 5
+
+sub main()
+  print(Int(E.a), Int(E.b))
+
+# expect:
+# 7 8

@@ -1,0 +1,27 @@
+# A local, parameter, or closure parameter may be named `invoke`, the
+# name a closure's call would otherwise have in the emitted Zig.
+
+sub each(n: Int, f: ?sub(Int))
+  for i in 0..n
+    f(i)
+
+fun helper(invoke: Int) -> Int
+  f = |a: Int| a + 1
+  f(invoke)
+
+fun sum -> Int
+  total = 0
+  each(3, |!total, invoke| total += invoke)
+  total
+
+sub main()
+  invoke = 3
+  print(invoke)
+  f = || print("x")
+  f()
+  print(sum(), helper(2))
+
+# expect:
+# 3
+# x
+# 3 3

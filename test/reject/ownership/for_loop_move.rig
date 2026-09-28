@@ -11,4 +11,4 @@ sub main()
   for i in 0..3
     eat(<rc)
 
-# error: use of `rc` after move
+# error: 12:10: use of `rc` after move

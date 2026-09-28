@@ -1,0 +1,13 @@
+# Another module's alias is used here only when it is `pub`.
+
+use lib
+
+sub main()
+  a = lib.Hidden.max
+  b = lib.Hidden(3)
+  c = lib.PH(n: 1)
+  print(a, b, c.n)
+
+# error: 6:11: `lib.Hidden` is not public
+# error: 7:11: `lib.Hidden` is not public
+# error: 8:11: `lib.PH` is not public

@@ -1,0 +1,11 @@
+# A `break` as a fallback is checked as the statement is: it must be
+# inside a loop.
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  n = get(1) ?? break
+  print(n)
+
+# error: 8:17: `break` is not inside a loop

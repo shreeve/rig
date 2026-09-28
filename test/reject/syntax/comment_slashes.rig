@@ -1,0 +1,7 @@
+# Comments start with `#`.
+
+sub main()
+  x = 1 // one
+  print(x)
+
+# error: 4:9: comments start with `#`

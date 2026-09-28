@@ -1,0 +1,12 @@
+# A Cell field reached through a shared handle is not assigned; its
+# value changes in place with `set`.
+
+struct S
+  n: Cell[Int]
+
+sub main
+  s = *S(n: Cell(1))
+  s.n = Cell(2)
+  print(s.n.get())
+
+# error: 9:3: cannot assign through a shared handle (`*T`); other handles may exist. `s.n` is a Cell: change its value with `s.n.set(...)`

@@ -1,0 +1,30 @@
+# A loop's value is used, so `-y` as a `break` value, or as the last
+# line of a loop's `else` block, is negation, not a drop.
+
+fun first(y: Int) -> Int
+  x = while true
+    break match y
+      3 => -y
+      _ => 0
+  x
+
+fun found(xs: [3]Int, y: Int) -> Int
+  x = for v in xs
+    break v if v > 10
+  else
+    -y
+  x
+
+fun counted(y: Int) -> Int
+  n = 0
+  x = while n < 2 : n += 1
+    break -y if n > 5
+  else
+    -y
+  x
+
+sub main()
+  print(first(3), first(4), found([1, 2, 3], 3), found([1, 20, 3], 3), counted(5))
+
+# expect:
+# -3 0 -3 20 -5

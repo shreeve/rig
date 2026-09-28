@@ -1,0 +1,9 @@
+pub type Byte = U8
+
+pub struct P
+  pub a: F32 = F32.max
+  pub b: Byte = Byte.max
+  pub c: Float = Float.min
+
+pub fun f(x: Byte = Byte.min, y: F32 = F32.min) -> Bool
+  x == 0 and y < -3.0e38

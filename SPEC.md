@@ -1,43 +1,37 @@
 # The Rig Language Reference
 
-This is the reference for Rig as the compiler implements it today. Every
-rule here is enforced by `rig check`, and every example is run by
-`./test/run`: a program followed by an `output` block must print exactly
-that output with no leaks, and a program marked as rejected must fail
-with the error shown. For the reasons behind the rules, see
-[docs/DESIGN.md](docs/DESIGN.md); for what is not built yet, see
-[docs/ROADMAP.md](docs/ROADMAP.md).
+This is the reference for Rig as the compiler implements it today: what
+each form means, and the rules `rig check` enforces. How each form is
+written (layout, names, literals, operators and their precedence, and
+the grammar) is in [SYNTAX.md](SYNTAX.md), and a guided start from
+another language is [WELCOME.md](WELCOME.md). For the reasons behind
+the rules, see [docs/DESIGN.md](docs/DESIGN.md); for what is not built
+yet, see [docs/ROADMAP.md](docs/ROADMAP.md).
 
-```rig
-sub main
-  print("hello, rig")
-```
-
-```output
-hello, rig
-```
+Every example is run by `./test/run`: a program followed by an `output`
+block must print exactly that output with no leaks, and a program
+marked as rejected must fail with the errors shown.
 
 ## Contents
 
 1. [Programs](#1-programs)
-2. [Lexical structure](#2-lexical-structure)
-3. [Types](#3-types)
-4. [Declarations](#4-declarations)
-5. [Bindings and assignment](#5-bindings-and-assignment)
-6. [Expressions](#6-expressions)
-7. [Control flow](#7-control-flow)
-8. [Ownership](#8-ownership)
-9. [Drop and drop glue](#9-drop-and-drop-glue)
-10. [Shared and weak handles](#10-shared-and-weak-handles)
-11. [Cell, Vec, Box, and Signal](#11-cell-vec-box-and-signal)
-12. [Closures](#12-closures)
-13. [Optionals](#13-optionals)
-14. [Errors](#14-errors)
-15. [Modules](#15-modules)
-16. [Raw code and FFI](#16-raw-code-and-ffi)
-17. [Compile-time parameters](#17-compile-time-parameters)
-18. [Printing](#18-printing)
-19. [Reserved and unsupported forms](#19-reserved-and-unsupported-forms)
+2. [Types](#2-types)
+3. [Declarations](#3-declarations)
+4. [Bindings and assignment](#4-bindings-and-assignment)
+5. [Expressions](#5-expressions)
+6. [Control flow](#6-control-flow)
+7. [Ownership](#7-ownership)
+8. [Drop and drop glue](#8-drop-and-drop-glue)
+9. [Shared and weak handles](#9-shared-and-weak-handles)
+10. [Cell, Vec, Box, and Signal](#10-cell-vec-box-and-signal)
+11. [Closures](#11-closures)
+12. [Optionals](#12-optionals)
+13. [Errors](#13-errors)
+14. [Modules](#14-modules)
+15. [Raw code and FFI](#15-raw-code-and-ffi)
+16. [Compile-time parameters](#16-compile-time-parameters)
+17. [Printing](#17-printing)
+18. [Reserved and unsupported forms](#18-reserved-and-unsupported-forms)
 
 ---
 
@@ -45,11 +39,12 @@ hello, rig
 
 A Rig program is a file of declarations: functions (`fun`, `sub`),
 types (`struct`, `enum`, `error`, `type`), constants (`name = value`),
-imports (`use`), `extern` declarations, and `test` blocks. Statements
-live inside functions. The file's name ends in `.rig`, and a program
-that runs declares its entry point as `sub main`, with no parameters.
-Only the program calls it: Rig code cannot call `main` or use it as a
-value.
+imports (`use`), `extern` declarations, and `test` blocks, written as
+[SYNTAX.md](SYNTAX.md) shows. Statements live inside functions. A
+program that runs declares its entry point as `sub main`, with no
+parameters. Only the program calls it: Rig code cannot call `main` or
+use it as a value.
+
 `rig check` checks a program, `rig run` checks, builds, and runs it,
 and `rig --help` lists the other commands (see also the
 [README](README.md#build-and-run)).
@@ -66,214 +61,7 @@ every mode.
 
 ---
 
-## 2. Lexical structure
-
-### Source text
-
-A source file is UTF-8 text. Lines end in `\n` or `\r\n`; a carriage
-return without a line feed is an error. A byte order mark at the start
-of the file is skipped.
-
-### Comments
-
-A comment runs from `#` to the end of the line.
-
-### Indentation
-
-Blocks are marked by indentation, with spaces only. A line indented
-deeper than the one before it opens a block; coming back to an
-enclosing line's indentation closes it. A tab in indentation is an
-error, and so is a dedent to a column that matches no enclosing block.
-
-```rig reject
-sub main
-	print(1)
-```
-
-```error
-tab in indentation; indent with spaces
-```
-
-### Line joining
-
-Inside `( )` and `[ ]` a newline is plain whitespace, so arguments,
-expressions, and method chains can span lines at any indentation. An
-array, a call's arguments, a parameter list, a closure's bar list, a
-variant pattern's bindings, a list of compile-time parameters, and a
-list of compile-time arguments may end with a comma. A
-backslash at the end of a line joins the next line anywhere.
-
-```rig
-fun add3(a: Int, b: Int, c: Int) -> Int
-  a + b + c
-
-sub main
-  total = add3(
-    1,
-    2,
-    3
-  )
-  more = (total +
-      10)
-  last = 1 + \
-    2
-  print(total, more, last)
-```
-
-```output
-6 16 3
-```
-
-The one exception is a closure whose bar list ends a line inside
-brackets: its body below is laid out in blocks as usual
-([§12](#multi-line-closure-bodies)).
-
-### Keywords
-
-These words are reserved:
-
-```text
-and  as  break  catch  continue  defer  drop  else  enum  errdefer
-error  extern  false  for  fun  if  in  match  not  or  pub  raw
-return  struct  sub  test  true  try  type  use  while  zig
-async  await  const  impl  trait  when  where  yield
-```
-
-A keyword may still name a member, where it cannot be mistaken for
-the keyword: a struct field, a method, or a payload field. It reads as
-a name right after `.` (`t.type`, `t.error()`), before `:` inside
-parentheses (a keyword argument or payload field: `Token(type: 1)`),
-and in a member list before `:` (a field) or after `fun` / `sub` (a
-method). `drop(!self)` is still a drop body; `drop: Bool` is a
-field. Everywhere else a keyword cannot name anything: a local, a
-parameter, a top-level declaration, or an enum variant.
-
-```rig
-struct Token
-  type: Int
-  drop: Bool
-
-  fun error(?self) -> Bool
-    self.type < 0
-
-sub main
-  t = Token(type: -1, drop: false)
-  print(t.type, t.drop, t.error())
-```
-
-```output
--1 false true
-```
-
-```rig reject
-fun f(in: Int) -> Int
-  1
-```
-
-```error
-`in` is a keyword and cannot name a parameter
-```
-
-`new` is a keyword only at the start of a statement (`new x = ...`), so
-a method may be named `new`. `of` is a keyword only after a value
-directly inside `[ ]`, where it separates a fill literal's count from
-its element (`[n of x]`); anywhere else it is an ordinary name. `none`
-is a reserved
-name for the absent optional. `try` and `zig` start reserved forms
-([§19](#19-reserved-and-unsupported-forms)), and `async`, `await`,
-`const`, `impl`, `trait`, `when`, `where`, and `yield` are held for
-forms to come; no form uses them yet. Words that are keywords in Zig
-but not in Rig (`var`, `fn`) are ordinary names.
-
-### Literals
-
-| Literal | Examples | Notes |
-|---|---|---|
-| Integer | `42`, `1_000`, `0xff`, `0b1010`, `0o17` | `_` may separate digits; radix prefixes are lowercase; no leading zeros or suffixes |
-| Float | `3.14`, `1.0e10`, `2e-3`, `1.5E+2` | a digit sequence with a `.` or an exponent |
-| String | `"tab\tnewline\n"`, `'it''s'` | double quotes take Zig escapes (`\n`, `\t`, `\\`, `\"`, `\x41`, `\u{e9}`); single quotes take none, and `''` is one `'`; neither holds a control character (a raw tab or newline) |
-| Bool | `true`, `false` | |
-| Absent optional | `none` | see [§13](#13-optionals) |
-| Array | `[1, 2, 3]` | see [§3](#arrays) |
-| Enum variant | `.red`, `.circle(2)`, `.rect(w: 2, h: 3)` | typed by context |
-
-There is no string interpolation; `print` takes several values instead.
-
-```rig
-sub main
-  print(0xff, 0b101, 0o17, 1.5E+2, 2e-3)
-  print('single: "no escapes\n"', "double: 'x'\ty")
-```
-
-```output
-255 5 15 150.0 0.002
-single: "no escapes\n" double: 'x'	y
-```
-
-### Prefixes and infix operators
-
-Whitespace around an infix operator means nothing: `a - 1`, `a -1`,
-and `a-1` are one subtraction. Several characters are both operators
-and prefixes: `<` `+` `-` `*` `?` `!` `|`. Which one a character is
-depends on where it stands, never on spacing, and the same holds for
-`(`, `[`, and `.`:
-
-> After a value (a name, a literal, `)`, `]`, or a `?` or `!` suffix),
-> a character continues that value: it is an infix operator, a suffix,
-> a call, an index, or member access. Anywhere else it starts an
-> operand, as a prefix.
-
-| Source | Reads as |
-|---|---|
-| `a < b`, `a <b`, `a<b` | comparison |
-| `x = <y`, `f(<y)` | a move ([§8](#moves)) |
-| `a - b`, `a -b` | subtraction |
-| `-x`, `f(-x)` | negation; `-x` as a whole statement drops `x` ([§8](#drop)) |
-| `f(x)`, `f (x)`, `a[i]`, `a.b` | call, index or compile-time arguments ([§17](#17-compile-time-parameters)), member access |
-| `(x)`, `[1, 2]`, `.red` | grouping, an array literal, an enum literal |
-| `f()!`, `x?` | propagate a failure ([§14](#14-errors)) or `none` ([§13](#13-optionals)) |
-| `a \| b` vs `\|x\| x + 1` | bitwise or, and a closure's bar list ([§12](#12-closures)) |
-
-A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) touches its operand, in an
-expression and in a type: `-b`, `<x`, `*T`. One with whitespace after
-it is rejected, so `a <- b`, which Rig does not have, is not quietly
-`a < -b`:
-
-```rig reject
-sub main
-  a = 1
-  b = 2
-  print(a <- b)
-```
-
-```error
-a prefix `-` touches its operand: write `-b`
-```
-
-A sigil after the `]` of an array or slice type starts its element
-type: in `[2]?Int`, the `?` borrows each element.
-
-Every call has parentheses: `print x` is not a call, and does not
-parse.
-
-```rig reject
-sub main
-  x = 1
-  print x
-```
-
-```error
-unexpected name `x`
-```
-
-Tokens are split as in Zig and C, by the longest match, so `a == b` is
-not `a = = b`. `=!` is one token, so `x =!y` could be a fixed binding
-of `y` or `x = !y`, a write borrow; a `=!` touching the operand after it
-is rejected.
-
----
-
-## 3. Types
+## 2. Types
 
 ### Primitive types
 
@@ -299,7 +87,7 @@ rejected.
 
 A number type's `.min` and `.max` are its least and greatest values,
 constants of that type, named through the type or an alias of it
-(`type Byte = U8`, `Byte.max`): `U8.max` is `255`, `Int.min` is
+(`type Byte = U8`, `Byte.max`, or another module's `lib.Byte.max`): `U8.max` is `255`, `Int.min` is
 `-9223372036854775808`, and `U128.max` is `2^128 - 1`. A float's `.max`
 is its greatest finite value and its `.min` the most negative one
 (`-F64.max`), as in Rust. Constant arithmetic on them is checked, so
@@ -351,13 +139,13 @@ operands have different types `I32` and `Int`
 
 A numeric type's name converts a number to that type: `I32(x)`,
 `U8(x)`, `Float(n)`, `Int(f)`. An integer type's name also converts a
-plain enum value to its integer value ([§4](#enums)). A conversion is checked. An integer that
+plain enum value to its integer value ([§3](#enums)). A conversion is checked. An integer that
 does not fit the target type panics when the program runs, and so does
-a float whose integer part does not fit; a float becomes an integer by
-truncating toward zero, and `F32(x)` rounds (to an infinity when `x` is
+a float whose integer part does not fit, or a NaN; a float becomes an
+integer by truncating toward zero, and `F32(x)` rounds (to an infinity when `x` is
 too large). A constant integer is converted at compile time, so it
 must fit. (Inside `raw`, Zig's unchecked cast builtins are also
-available, [§16](#16-raw-code-and-ffi).)
+available, [§15](#15-raw-code-and-ffi).)
 
 ```rig
 fun average(total: Int, count: Int) -> Float
@@ -385,14 +173,14 @@ A `String` has a length `s.len` and can be indexed (`s[0]`, or
 `s.get(i)`, a `U8?` that is `none` past the end), and a `for` loop over
 it yields its bytes as `U8`. Strings compare with `==` and
 `!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
-([§6](#operators)).
+([§5](#operators)).
 
 ### Arrays
 
 `[N]T` is a fixed-size array. Its length is known at compile time: an
 integer, a constant (`[LIMIT]T`, `[lib.N]T`), a compile-time integer
 parameter (`[n]T` in `fun zeros[n: Int] -> [n]Int`,
-[§17](#17-compile-time-parameters)), or arithmetic on integers and
+[§16](#16-compile-time-parameters)), or arithmetic on integers and
 constants with `+`, `-`, `*`, `/`, `%`, and parentheses
 (`[LIMIT * 2 + 1]U8`). The arithmetic is checked as constant
 arithmetic is, in its constants' type: with `W: U8 = 200`, `[W * 2]T`
@@ -409,7 +197,7 @@ where `n` is any compile-time integer, a compile-time parameter
 included; it has the array type expected where it goes, or `[n]T` for
 `x`'s type `T`. An array whose length is a compile-time parameter is
 built with it. `xs.len` is an array's length, and `xs[i]` reads or
-writes an element; an index outside the half-open range `0..xs.len`
+writes an element, with an index of any integer type; an index outside the half-open range `0..xs.len`
 panics, and a constant one is rejected where the length is known.
 `xs.get(i)` reads one as a `T?`, `none` when `i` is out of range, as a
 Vec's does.
@@ -468,8 +256,9 @@ array length -1 is out of range
 
 A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
 array, a struct or an enum, and each instance of a generic type or
-function, for the arrays it makes and, for a type, for itself. The
-values a function keeps on its stack take at most 16 MiB together: the
+function, for the arrays it makes and, for a type, for itself. A
+`Cell` or `Signal` holds its value inline, so it counts at the size of
+what it holds. The values a function keeps on its stack take at most 16 MiB together: the
 bindings it declares and its by-value parameters, each once, and every
 array literal, fill, and call whose value no binding takes directly.
 This holds for every function, method, closure (whose captures count
@@ -479,17 +268,11 @@ could never run. Larger data belongs in a `Vec`, which keeps its
 elements on the heap. A value or function too large is reported once;
 a type or function holding a value too large is not reported again.
 
-A program that runs off the end of its stack stops before it writes
-beyond it. On x86_64, Zig touches each page of a new frame in turn,
-so any frame stops at the guard page below the stack. On aarch64 it
-does not, and a frame steps as far below the stack as its size: at
-most 16 MiB of counted values, plus Zig's own temporaries. At least
-64 MiB below the stack stays unmapped, four times the counted limit,
-so every overflowing frame lands there: on macOS the program reserves
-it when it starts; Linux maps nothing within 128 MiB of the top of the
-stack, and the program holds its stack to 16 MiB. A program that
-cannot do so stops before it runs, with `rig: cannot reserve the stack
-guard below the main stack` and exit status 1.
+A program that runs off the end of its stack, by recursing too deeply,
+stops before it writes beyond it. A program that cannot set up the
+guard that ensures this stops before it runs, with `rig: cannot reserve
+the stack guard below the main stack` and exit status 1
+([INTERNALS](docs/INTERNALS.md) describes the mechanism).
 
 ```rig reject
 struct Grid
@@ -518,7 +301,7 @@ sub main
 `xs[a..b]` is the part of `xs` from index `a` up to, not including,
 `b`. Of a `String` it is a `String`. Of an array or a `Vec` of plain
 data it is written `?xs[a..b]`: a `[]T`, a read-only view that borrows
-`xs` like any `?` borrow ([§8](#8-ownership)), so `xs` cannot be
+`xs` like any `?` borrow ([§7](#7-ownership)), so `xs` cannot be
 written, moved, or dropped while the slice is in use, and the slice
 cannot outlive it. A `[]T` has `.len` and `get(i)`, is indexed and
 iterated like an array, and is sliced again with `s[a..b]`, which views the same
@@ -560,9 +343,11 @@ sub main
 a range needs an end; only a slice leaves a side open
 ```
 
-A borrowed array parameter (`xs: ?[N]T`) is the function's own copy of
-the caller's array, so a slice of it cannot be returned; a function
-that returns part of its argument takes `xs: []T`.
+A borrowed array parameter (`xs: ?[N]T`) points at the caller's array,
+so a function may return a slice of it (`?xs[1..3]`) or a borrow of an
+element, as it may of a `[]T` parameter; the result borrows the
+caller's array. An array parameter taken by value (`xs: [N]T`) is the
+function's own, so a borrow of it cannot be returned.
 
 An array goes where a slice is expected in three ways. Where a `[]T`
 is expected, `?a` of a named array (or a field or element of one)
@@ -625,7 +410,7 @@ the elements, taken of an array or a `Vec` of plain data that could be
 write-borrowed (`!xs`), or of another `![]T`. A String and a `[]T` are
 read-only, and so is what a fixed binding, a loop or pattern binding,
 or a parameter other than a `!T` one holds. A `![]T` is a write borrow
-like any other ([§8](#write-borrows)): while it is live, what it
+like any other ([§7](#write-borrows)): while it is live, what it
 borrows cannot otherwise be used, so two live write slices of one
 array, or a `push` to a Vec while a slice of it is live, are rejected;
 it cannot be copied or cloned (`<s` moves it), a call reborrows it, and
@@ -672,6 +457,18 @@ sub main
 [7, 3, 30, 40]
 ```
 
+```rig reject
+sub main
+  a = [1, 2, 3, 4]
+  x = !a[..2]
+  y = !a[2..]
+  x[0] = y[0]
+```
+
+```error
+cannot take a second write borrow on `a`
+```
+
 Three methods write the elements of a `![]T`, an array, or a Vec,
 whose receiver is written `!xs` (or is a `![]T` binding):
 `!dst.copy(src)` copies a `[]T` of the same length into them, and
@@ -698,6 +495,34 @@ sub main
 [0, 8, 7, 0, 0, 9]
 ```
 
+A recursive function passes on write slices of its own write slice:
+
+```rig
+sub quicksort(s: ![]Int)
+  if s.len < 2
+    return
+  last = s.len - 1
+  pivot = s[last]
+  i = 0
+  j = 0
+  while j < last : j += 1
+    if s[j] < pivot
+      !s.swap(i, j)
+      i += 1
+  !s.swap(i, last)
+  quicksort(!s[..i])
+  quicksort(!s[i + 1..])
+
+sub main
+  a = [5, 3, 9, 1, 7]
+  quicksort(!a[..])
+  print(a)
+```
+
+```output
+[1, 3, 5, 7, 9]
+```
+
 ```rig reject
 sub main
   a = [1, 2, 3, 4]
@@ -710,17 +535,25 @@ cannot write-borrow `a` while a read borrow is live
 
 ```rig reject
 sub main
-  s = "text"
   v: Vec[Int] = Vec()
   !v.push(1)
   w = !v[..]
   !v.push(2)
   w[0] = 5
-  t = !s[1..]
 ```
 
 ```error
 use of `v` while a write borrow is live
+```
+
+```rig reject
+sub main
+  s = "text"
+  t = !s[1..]
+  t[0] = 65
+```
+
+```error
 cannot write-borrow a slice of a String; a String is read-only
 ```
 
@@ -775,138 +608,63 @@ no variant `native` on enum `Endian`
 
 | Type | Meaning | Section |
 |---|---|---|
-| `[]T` | slice: a read-only view of elements | [§3](#slices) |
-| `![]T` | writable slice: a write borrow of elements | [§3](#slices) |
-| `T?` | optional: a `T` or `none` | [§13](#13-optionals) |
-| `T!` | fallible: a `T` or an error; only as a return type, including a function type's | [§14](#14-errors) |
-| `?T` | read borrow of a `T` (parameters, returns, locals, fields) | [§8](#8-ownership) |
-| `!T` | write borrow of a `T` | [§8](#8-ownership) |
-| `*T` | shared handle: reference-counted, single-threaded | [§10](#10-shared-and-weak-handles) |
-| `~T` | weak handle to a shared value | [§10](#10-shared-and-weak-handles) |
-| `fun(A, B) -> R`, `sub(A)` | function and closure types | [§12](#12-closures) |
-| `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§12](#12-closures) |
-| `?fun(A) -> R`, `?sub(A)` | borrowed callable: a closure, function, or owned closure lent to a call | [§12](#closure-parameters) |
-| `Cell[T]`, `Vec[T]`, `Box[T]`, `Signal[T]` | built-in generic types | [§11](#11-cell-vec-box-and-signal) |
-| `Endian` | built-in enum: the byte order of `read` and `write` | [§3](#bytes) |
-| `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
+| `[]T` | slice: a read-only view of elements | [§2](#slices) |
+| `![]T` | writable slice: a write borrow of elements | [§2](#slices) |
+| `T?` | optional: a `T` or `none` | [§12](#12-optionals) |
+| `T!` | fallible: a `T` or an error; only as a return type, including a function type's | [§13](#13-errors) |
+| `?T` | read borrow of a `T` (parameters, returns, locals, fields) | [§7](#7-ownership) |
+| `!T` | write borrow of a `T` | [§7](#7-ownership) |
+| `*T` | shared handle: reference-counted, single-threaded | [§9](#9-shared-and-weak-handles) |
+| `~T` | weak handle to a shared value | [§9](#9-shared-and-weak-handles) |
+| `fun(A, B) -> R`, `sub(A)` | function and closure types | [§11](#11-closures) |
+| `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§11](#11-closures) |
+| `?fun(A) -> R`, `?sub(A)` | borrowed callable: a closure, function, or owned closure lent to a call | [§11](#closure-parameters) |
+| `Cell[T]`, `Vec[T]`, `Box[T]`, `Signal[T]` | built-in generic types | [§10](#10-cell-vec-box-and-signal) |
+| `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
+| `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
 
-The handle sigils `*` and `~` bind to the type after them, tighter than
-the suffixes: `*User?` is an optional shared handle and `~User?` an
-optional weak handle, while a handle to an optional `User` is written
-`*(User?)`. A borrow applies to the whole type after it, suffixes
-included: `?User?` and `!User?` borrow an optional `User`, and
-`?*User?` borrows an optional handle. The element of a slice or array
-takes the suffixes (`[]Int?` is a slice of optionals), so an optional
-slice, array, or function type is written in parentheses: `([]Int)?`,
-`(*sub())?`, and so is an optional of an optional, `(User?)?` (`??` is
-an operator). A handle holds a value, never a borrow: `*(?User)` is
-rejected. Prefixes compose right to left: `?*Wrap` is a read borrow
-of a shared handle, and `*Cell[Vec[*sub()]]` is a shared cell holding a
-list of owned closures.
-
-```rig
-struct User
-  name: String
-
-fun named(u: ?*User?) -> Bool
-  u != none
-
-sub main
-  a: *User? = none
-  b: *User? = *User(name: "ada")
-  print(named(?a), named(?b))
-```
-
-```output
-false true
-```
-
-```rig reject
-struct User
-  name: String
-
-sub main
-  c: *(User?) = none
-```
-
-```error
-`none` needs an optional type; `*(User?)` is not optional (write `*(User?)?`)
-```
+How the sigils of a type combine (`*User?` is an optional handle,
+`?User?` a borrow of an optional) is in
+[SYNTAX §7](SYNTAX.md#7-types). A handle holds a value, never a
+borrow: `*(?User)` is rejected.
 
 ### Copy values and owning values
 
 A **Copy** value is plain data: numbers, `Bool`, `String`, plain enums,
-arrays of Copy values, and structs whose fields are all Copy. Using one
-copies it.
+and optionals, arrays, structs, and `Cell`s that hold only Copy values.
+Using one copies it.
 
 An **owning** value holds a resource that must be released exactly
-once: a `*T` or `~T` handle, a `Vec`, a `Signal`, an owned closure, and
-any struct, enum, or generic instance that contains one or declares a
-`drop` body. Owning values have **drop glue**: code the compiler
+once: a `*T` or `~T` handle, a `Vec`, a `Box`, a `Signal`, an owned
+closure, and any struct, enum, or generic instance that contains one or
+declares a `drop` body. Owning values have **drop glue**: code the compiler
 generates to release them. They move instead of copying, and the
-ownership rules of [§8](#8-ownership) apply to them.
+ownership rules of [§7](#7-ownership) apply to them.
 
 ---
 
-## 4. Declarations
+## 3. Declarations
 
 ### Functions
 
-`fun` declares a function that returns a value; `sub` declares one that
-does not. The return type follows `->`, and a `fun` always has one: a
-`fun` without `->`, or returning `Void`, is rejected in favor of a
-`sub`. A `sub` that may fail is marked `!` after its parameters,
-`sub save(n: Int)!`, and its type is `sub(Int)!`
-([§14](#14-errors)). A function's value is its last
-expression, or the value of a `return`. A function with no parameters
-may leave out the empty `()`: `sub main` and `sub main()` are the same
-declaration, and this reference writes the shorter one. A call always
-has its parentheses, `greet()`: the name alone, `greet`, is the function
-as a value.
-
-```rig
-fun area(w: Int, h: Int) -> Int
-  w * h
-
-fun sign(n: Int) -> Int
-  return 1 if n > 0 else -1 if n < 0 else 0
-
-sub report(label: String, n: Int)
-  print(label, n)
-
-sub main
-  report("area", area(3, 4))
-  report("sign", sign(-7))
-```
-
-```output
-area 12
-sign -1
-```
+`fun` declares a function that returns a value, and `sub` one that
+does not ([SYNTAX §8](SYNTAX.md#functions)). A `fun` always has a
+return type: a `fun` without `->`, or returning `Void`, is rejected in
+favor of a `sub`. A `sub` marked `!`, `sub save(n: Int)!`, may fail,
+and its type is `sub(Int)!` ([§13](#13-errors)). A function's value is
+its last expression, or the value of a `return`. A call always has its
+parentheses, `greet()`: the name alone is the function as a value.
 
 Parameters are immutable, except a write-borrowed `!T` parameter, which
-can be assigned ([§8](#write-borrows)). A parameter the body ignores
+can be assigned ([§7](#write-borrows)). A parameter the body ignores
 may be named `_`, any number of times. A parameter may have a default
 value: a literal or a module constant (`LIMIT`, `lib.LIMIT`,
-`U8.max`), which means the same value at every call, in any module. A call passes arguments by position, in
-parameter order (`scaled(3, 2)`); by keyword, in any order
-(`scaled(by: 4, n: 5)`); or both, positional arguments first
-(`scaled(3, by: 2)`). A parameter with a default may be left out
-(`scaled(3)`). Each parameter gets exactly one argument, and every
-parameter without a default needs one. Arguments are evaluated in the
-order written.
-
-```rig
-fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
-  n * by
-
-sub main
-  print(scaled(3, 2), scaled(by: 4, n: 5), scaled(3, by: 2), scaled(3))
-```
-
-```output
-6 20 6 30
-```
+`U8.max`), which means the same value at every call, in any module. A
+call passes arguments by position, by keyword, or both, positional
+arguments first ([SYNTAX §11](SYNTAX.md#calls)). Each parameter gets
+exactly one argument, and every parameter without a default needs one;
+arity, keyword names, and argument types are checked. Arguments are
+evaluated in the order written.
 
 ```rig reject
 fun scaled(n: Int, by: Int = 10) -> Int
@@ -923,7 +681,7 @@ parameter `n` of `scaled` is given twice
 ```
 
 A function name is a value of its function type, so it can be passed
-where a `fun(...)` or `sub(...)` is expected ([§12](#function-types)).
+where a `fun(...)` or `sub(...)` is expected ([§11](#function-types)).
 
 Declarations are only allowed at module level; there are no nested
 functions (use a closure). Two module-level declarations may not share a
@@ -932,10 +690,10 @@ name.
 ### Structs
 
 A `struct` lists its fields, then its methods. It is constructed by
-naming its fields: `Point(x: 1, y: 2)`. A struct with exactly one field
-also takes it by position, as a one-field variant does:
-`Meters(3.5)` is `Meters(value: 3.5)`, and so are the built-ins
-`Box(x)`, `Cell(0)`, and `*Signal(0)`. A field may have a default
+naming its fields, `Point(x: 1, y: 2)`, and a struct with exactly one
+field also takes it by position: `Meters(3.5)` is
+`Meters(value: 3.5)`, as `Box(x)`, `Cell(0)`, and `*Signal(0)` are
+([SYNTAX §11](SYNTAX.md#constructors)). A field may have a default
 value, and a constructor may omit that field. Like a parameter default,
 it is a literal (a number, a string, `true` / `false`, `none`, or
 `.variant`) or a module constant, of this module or an imported one
@@ -964,32 +722,6 @@ sub main
 
 ```output
 3 anon 5 1 0 0
-```
-
-```rig
-struct Point
-  x: Int
-  y: Int
-
-  fun origin -> Self
-    Point(x: 0, y: 0)
-
-  fun plus(?self, other: ?Point) -> Point
-    Point(x: self.x + other.x, y: self.y + other.y)
-
-  sub shift(!self, dx: Int)
-    self.x += dx
-
-sub main
-  p = Point.origin()
-  q = Point(x: 1, y: 2)
-  r = p.plus(?q)
-  !r.shift(10)
-  print(r, r.x)
-```
-
-```output
-Point(x: 11, y: 2) 11
 ```
 
 A method whose first parameter is `self` is an instance method;
@@ -1031,20 +763,10 @@ sub main
 write `!self.bump()`: the call writes `self`
 ```
 
-**Receiver sigils.** `?`, `!`, or `<` directly before a *place* (a
-name followed by any `.field` or `[index]` steps) that is followed by
-a method call applies to that place: `?P.m(args)` is `(?P).m(args)`,
-`!P.m(args)` is `(!P).m(args)`, and `<P.m(args)` is `(<P).m(args)`.
-Postfixes after that call apply to its result: `!v.pop()?`, and
-`!a.b().c(x)` is `(!a).b().c(x)`. Writing `?` is optional, since a
-read receiver is lent without it. Every other prefix sigil (`+`, `-`,
-`*`, `~`), and `?`, `!`, or `<` with no method call after the place,
-applies to the whole expression as before: `*Point.origin()` shares
-the result, `+n.first()` clones it, `-a.len` negates it, `!x.v`
-borrows the field, `<p.f` moves the field, and `?xs[0]` borrows the
-element. With parentheses, `?(p.m())` borrows the call's result.
-
-The short form is checked against the method: `!` before a method that
+A `?`, `!`, or `<` before a place and a method call marks the receiver:
+`!v.push(x)` is `(!v).push(x)` ([SYNTAX §5](SYNTAX.md#receiver-sigils)).
+Writing `?` is optional, since a read receiver is lent without it. The
+short form is checked against the method: `!` before a method that
 does not take `!self` is rejected (it reads as negation, which is
 `not`), `<` before one that does not take `<self`, `?` before one that
 takes `!self` or `<self`, and any of them before a function with no
@@ -1137,6 +859,31 @@ a write-borrowing call that returns `Bool` is written `(!t).insert(...)`, so it 
 ```
 
 ```rig
+struct Set
+  items: Vec[Int]
+
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.items
+      return false if x == k
+    !self.items.push(k)
+    true
+
+sub main
+  set = Set(items: Vec())
+  if (!set).insert(1)
+    print("new")
+  if not (!set).insert(1)
+    print("seen")
+  print(!set.insert(2))
+```
+
+```output
+new
+seen
+true
+```
+
+```rig
 struct Counter
   n: Int
 
@@ -1201,54 +948,21 @@ sub main
 
 ### Enums
 
-An `enum` lists variants. A variant may carry an explicit integer value
-or payload fields, and an enum may have methods. A variant is written
-`.name` where the enum type is known, or `Type.name`.
-
-```rig
-enum Shape
-  circle(radius: Int)
-  rect(w: Int, h: Int)
-  point
-
-  fun area(?self) -> Int
-    match self
-      .circle(r) => 3 * r * r
-      .rect(w, h) => w * h
-      .point => 0
-
-enum Status
-  ok = 200
-  missing = 404
-
-sub main
-  s: Shape = .rect(w: 2, h: 5)
-  c: Shape = Shape.point
-  d = Shape.circle(1)
-  print(s.area(), c.area(), d.area(), s)
-  st: Status = .missing
-  print(st == .missing)
-```
-
-```output
-10 0 3 .rect(w: 2, h: 5)
-true
-```
-
-A payload variant is constructed with keyword fields, like a struct:
-`.rect(w: 2, h: 5)`, `Shape.rect(w: 2, h: 5)`. A variant with exactly
-one field also takes it by position, as a pattern binds it:
-`.circle(2)` is `.circle(radius: 2)`. A variant or struct with more
-fields sets them by name. A pattern binds
-the fields in order (`.circle(r) =>`). Enums have no constructor call
-(`Shape(...)` is an error); enums compare with `==` ([§6](#operators)). A plain enum's variants may take
+An `enum` lists variants, which may carry an explicit integer value or
+payload fields, and may have methods ([SYNTAX §8](SYNTAX.md#enums)). A
+variant is named `.name` where the enum type is known, or `Type.name`.
+A payload variant is constructed with its fields named, like a struct,
+and a variant with exactly one field also takes it by position:
+`.circle(2)` is `.circle(radius: 2)`. A pattern binds the fields in
+order (`.circle(r) =>`). Enums have no constructor call (`Shape(...)`
+is an error), and compare with `==` ([§5](#operators)). A plain enum's variants may take
 explicit values (`ok = 200`): constant integers from 0 to 4294967295,
 no two the same, where a variant without one takes the value after the
 previous variant's (the first, 0). Payload and generic enums take no
 values.
 
 An integer type's name converts a plain enum value to its value, as it
-converts a number ([§3](#numeric-conversions)): `Int(st)`, `U16(d)`.
+converts a number ([§2](#numeric-conversions)): `Int(st)`, `U16(d)`.
 The conversion is checked: a variant named through its type
 (`Status.missing`) must fit the target at compile time, and any other
 value that does not fit panics when the program runs. A payload enum
@@ -1289,7 +1003,7 @@ sub main
 ### Error sets
 
 `error Name` declares a set of error values, which are used like the
-variants of a plain enum ([§14](#14-errors)).
+variants of a plain enum ([§13](#13-errors)).
 
 ```rig
 error NetworkError
@@ -1313,7 +1027,7 @@ timed out
 a generic enum; `error Name[T]` is rejected, and so is a struct declared
 with `type`, which only names an [alias](#type-aliases). Their
 parameters are type parameters and compile-time integers
-([§17](#17-compile-time-parameters)): `struct Ring[T, n: Int]`. A value
+([§16](#16-compile-time-parameters)): `struct Ring[T, n: Int]`. A value
 parameter is named in the type's fields and methods, as an array length
 (`items: [n]T`) or as a value in a method's body.
 An instance names its compile-time arguments in brackets, in a type
@@ -1372,6 +1086,35 @@ sub main
 .some(value: 2.5) 3 x .nothing 0
 ```
 
+A value parameter sizes a field's array and reads as a value in a
+method; an instance's value argument may be arithmetic on constants,
+and a constructor infers it from an array field:
+
+```rig
+LIMIT = 2
+
+struct Ring[T, n: Int]
+  items: [n]T
+  head: Int = 0
+
+  sub put(!self, x: T)
+    self.items[self.head % n] = x
+    self.head += 1
+
+  fun cap(?self) -> Int
+    n
+
+sub main
+  r = Ring(items: [3 of 0])
+  !r.put(7)
+  s: Ring[Int, LIMIT * 2] = Ring[Int, 2 + 2](items: [1, 2, 3, 4])
+  print(r.items, r.cap(), s.cap())
+```
+
+```output
+[7, 0, 0] 3 4
+```
+
 ```rig reject
 struct Flag[on: Bool]
   first: Int
@@ -1388,45 +1131,52 @@ generic type `Vec` expects 1 type argument, got 2
 ### Generic functions
 
 A type parameter among a function's compile-time parameters
-([§17](#17-compile-time-parameters)) makes it generic:
+([§16](#16-compile-time-parameters)) makes it generic:
 `fun max[T](a: T, b: T) -> T`. A `sub`, a method, and an associated
 function take them too, and a method's own sit after its type's: a
 method `fun map[U](?self, u: U)` of `Wrap[T]` has both.
 
 A call gives every compile-time argument in brackets
-(`max[Float](1, 2)`), or none, and then its type arguments are
-inferred by matching each parameter's type against its argument's type
-(`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Wrap[T]`,
-`fun(T) -> U`, `?fun(T) -> U`). A method's receiver gives its type's
-parameters. Every argument must agree, and an argument whose type does
-not have its parameter's shape is a type mismatch. A closure literal
-argument is matched last: its parameters take the types the other
-arguments give its parameter's function type, and the type its body
-returns binds what only the result mentions, so
-`map(?names[..], |s| s.len)` of
-`fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]` is
-`map[String, Int]`. A parameter no argument other
-than a literal gives a type takes one from the type expected of the
-call's result, where there is one (a typed binding, parameter, field,
-or assigned place, a `return` from a function or from a closure whose
-result type is given, and the last expression of either), by matching
-the declared result against it the same way; a result lifted into an
-expected `T?` or `T!` is matched against the `T`, a propagated or
-caught `T!` against its value, and the left of `??` against an optional
-of the expected type. So `z: U8 = max(1, 2)` is `max[U8]`. A generic
-function call that is an argument of another, and whose result is a
-type parameter only literals gave a type (directly, or propagated with
-`!` or `?`), takes the type that call gives it: `max(max(1, 2), small)`
-with `small: U8` is `max[U8]` twice. One whose result is an optional
-that nothing but `none` gave a type (`nothing()`, `id(none)`) binds
-like `none`, so `z: Int? = id(nothing())` is `id[Int?]`. A nested call
-with a result of another shape (`Wrap.make(1)`, `Opt.some(1)`)
-keeps the type its own arguments give it; naming the outer call's type
-arguments (`Wrap[Wrap[U8]].make(...)`, `id[Opt[U8]](...)`) passes the
-expected type on. Only then does a literal take its default type, and
-among literals alone a float literal gives `Float`: `max(3, 2.5)` is
-`max[Float]`. An argument that is not a literal keeps
-the type it gives, even where the result is expected to have another.
+(`max[Float](1, 2)`), or none. With none, they are inferred in this
+order:
+
+1. **From the arguments.** Each parameter's type is matched against
+   its argument's type (`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
+   `[N]T`, `Wrap[T]`, `fun(T) -> U`, `?fun(T) -> U`), and a method's
+   receiver gives its type's parameters. Every argument must agree, and
+   an argument whose type does not have its parameter's shape is a type
+   mismatch. An argument that is not a literal keeps the type it gives,
+   even where the result is expected to have another.
+2. **From closure literals**, matched after the other arguments: a
+   closure's parameters take the types the other arguments give its
+   parameter's function type, and the type its body returns binds what
+   only the result mentions, so `map(?names[..], |s| s.len)` of
+   `fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]` is
+   `map[String, Int]`.
+3. **From the expected result.** A parameter that only literals give a
+   type takes one from the type expected of the call's result, where
+   there is one (a typed binding, parameter, field, or assigned place,
+   a `return` from a function or from a closure whose result type is
+   given, and the last expression of either), by matching the declared
+   result against it the same way. A result lifted into an expected
+   `T?` or `T!` is matched against the `T`, a propagated or caught `T!`
+   against its value, and the left of `??` against an optional of the
+   expected type. So `z: U8 = max(1, 2)` is `max[U8]`.
+4. **Through nested calls.** A generic call that is an argument of
+   another, and whose result is a type parameter only literals gave a
+   type (directly, or propagated with `!` or `?`), takes the type that
+   call gives it: `max(max(1, 2), small)` with `small: U8` is
+   `max[U8]` twice. One whose result is an optional that nothing but
+   `none` gave a type (`nothing()`, `id(none)`) binds like `none`, so
+   `z: Int? = id(nothing())` is `id[Int?]`. A nested call with a result
+   of another shape (`Wrap.make(1)`, `Opt.some(1)`) keeps the type its
+   own arguments give it; naming the outer call's type arguments
+   (`Wrap[Wrap[U8]].make(...)`, `id[Opt[U8]](...)`) passes the expected
+   type on.
+5. **From literals.** Only then does a literal take its default type,
+   and among literals alone a float literal gives `Float`:
+   `max(3, 2.5)` is `max[Float]`.
+
 An integer compile-time value that a parameter's or the result's type
 holds, as an array length (`[n]T`) or a generic type's value argument
 (`Ring[T, n]`), is inferred the same way: `sum([1, 2, 3])` of
@@ -1435,14 +1185,13 @@ of `fun zeros[n: Int] -> [n]Int` is `zeros[3]`. It takes exactly the
 length the argument's type has; arguments that give it different ones
 conflict, and the value must fit the parameter's type. Any other
 compile-time value is never inferred, so a function that takes one is
-always called with brackets, and so is one with a type parameter
-neither its arguments nor the expected type determine (one used only in
-the result where no type is expected, or given only `none` or a
-`.variant`).
+always called with brackets, and so is one with a type parameter that
+none of these determine (one used only in the result where no type is
+expected, or given only `none` or a `.variant`).
 
 A generic function can only be called: it is not a value, and a closure
 is never generic. Another module's generic function is called as a
-local one is ([§15](#15-modules)).
+local one is ([§14](#14-modules)).
 
 ```rig
 struct Res
@@ -1492,6 +1241,37 @@ drop 2
 kept 1
 6 0 [0, 0, 0]
 drop 1
+```
+
+```rig
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun empty[T] -> Vec[T]
+  Vec()
+
+fun id[T](a: T) -> T
+  a
+
+fun nothing[T] -> T?
+  none
+
+fun half[T](x: T) -> T
+  x / 2
+
+sub main
+  small: U8 = 200
+  v: Vec[Int] = empty()
+  !v.push(3)
+  o: Int? = id(nothing())
+  print(v.len, max(max(1, 2), small), o)
+  f: Float = half(7)
+  print(half(7), f, max(half(7), 2.5))
+```
+
+```output
+1 200 none
+3 3.5 3.5
 ```
 
 ```rig reject
@@ -1565,12 +1345,80 @@ holds the value. A type argument cannot be a borrow or hold one, for a
 generic function or a generic type with methods: the parameter is
 written `?T` or `!T` instead.
 
+```rig
+struct Track
+  title: String
+
+  drop(!self)
+    print("free", self.title)
+
+struct Shelf[T]
+  items: Vec[T]
+
+  sub add(!self, x: T)
+    !self.items.push(<x)
+
+  fun take(!self) -> T?
+    !self.items.pop()
+
+fun pick[T](a: T, b: T, first: Bool) -> T
+  if first
+    return <a
+  <b
+
+sub main
+  t = pick(Track(title: "a"), Track(title: "b"), false)
+  print("picked", t.title)
+  s = Shelf[*Track](items: Vec())
+  !s.add(*Track(title: "intro"))
+  !s.add(*Track(title: "outro"))
+  if !s.take() as last
+    print("took", last.title)
+  print("left", s.items.len, pick(1, 2, true))
+```
+
+```output
+free a
+picked b
+took outro
+free outro
+left 1 1
+free intro
+free b
+```
+
 A body that calls itself, or builds its own type, with its type
 parameters nested deeper each time (`nest[Wrap[T]]` inside `nest[T]`)
 would need ever deeper instances, and is rejected rather than expanded
 forever: at an instance, or, for a `pub` generic and the generic
 methods of a `pub` type, whose instances other modules make, where it
 is declared.
+
+```rig reject
+struct Point
+  x: Int
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun larger[T](a: ?T, b: !T) -> Bool
+  a > b
+
+sub main
+  n = 3
+  m = 4
+  print(larger(?n, !m), max(true, false))
+  p = max(Point(x: 1), Point(x: 2))
+  q = Point(x: 3)
+  print(p.x, larger(?p, !q))
+```
+
+```error
+`max[Bool]` cannot use `T = Bool`: the generic body applies `>` to `T`, which `Bool` does not support
+`>` used on `T` here (ordering comparison)
+`max[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support
+`larger[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support
+```
 
 ```rig reject
 struct Res
@@ -1583,9 +1431,6 @@ struct Pair[A, B]
   first: A
   second: B
 
-fun max[T](a: T, b: T) -> T
-  a if a > b else b
-
 fun twice[T](x: T) -> Pair[T, T]
   Pair(first: x, second: x)
 
@@ -1593,15 +1438,13 @@ fun same[T](x: T) -> T
   x
 
 sub main
-  print(max(true, false))
   p = twice(Res(n: 1))
   r = Res(n: 2)
   q = same(?r)
+  print(p.first.n, q.n)
 ```
 
 ```error
-`max[Bool]` cannot use `T = Bool`: the generic body applies `>` to `T`, which `Bool` does not support
-`>` used on `T` here (ordering comparison)
 `twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
 `T` copied here; move it with `<` instead
 `same[?Res]` cannot use `T = ?Res`: a generic function is checked for a `T` that holds no borrow
@@ -1610,26 +1453,14 @@ sub main
 ### Type aliases
 
 `type Name = T` gives a type a second name. An alias is transparent: it
-is the same type as `T`.
-
-```rig
-type UserId = Int
-
-fun next(id: UserId) -> Int
-  id + 1
-
-sub main
-  x: UserId = 5
-  print(next(x))
-```
-
-```output
-6
-```
-
-An alias of a struct or enum declared in the same module is that type
-in every role: it constructs values, calls associated functions, and
-names variants.
+is the same type as `T`. An alias names its type in every role, in this module or, when `pub`,
+in another (`lib.Alias`). An alias of a struct or enum (this module's
+or an imported one) constructs values, calls associated functions, and
+names variants; one of a generic instance (`Wrap[Int]`, `Vec[Int]`,
+`Cell[Int]`) constructs it as naming the instance does; one of a number
+type converts to it (`Byte(x)`) and names its limits (`Byte.max`).
+An alias is not a value, and an alias of any other type (`String`,
+`Int?`) has no constructor.
 
 ```rig
 struct Point
@@ -1645,16 +1476,21 @@ enum Color
 
 type P = Point
 type C = Color
+type Byte = U8
+
+fun next(b: Byte) -> Int
+  Int(b) + 1
 
 sub main
   p = P(x: 3, y: 4)
   o = P.origin()
   c = C.green
-  print(p.x + o.x, c == .green)
+  n = 300
+  print(p.x + o.x, c == .green, Byte(n - 100), Byte.max, next(7))
 ```
 
 ```output
-3 true
+3 true 200 255 8
 ```
 
 ### Tests
@@ -1679,8 +1515,8 @@ test "area"
 
 A binding at module level is a constant, `name = value` or
 `name: T = value`, and `pub` exports it. Its value must be known at
-compile time: a literal, `.variant`, an earlier constant, or operators
-and array literals over them. Every function and type in the module
+compile time: a literal, `.variant`, an earlier constant, or operators,
+ternaries (`a if c else b`), and array literals over them. Every function and type in the module
 reads it, wherever it is declared; nothing can reassign or move it,
 and a local or parameter may not reuse its name (`new` shadows it on
 purpose).
@@ -1719,29 +1555,27 @@ a module-level binding is already a constant; write `LIMIT = 4`
 
 ### Other declarations
 
-`use` imports a module ([§15](#15-modules)), `pub` exports a
-declaration ([§15](#15-modules)), and `extern` declares a C symbol
-([§16](#16-raw-code-and-ffi)).
+`use` imports a module ([§14](#14-modules)), `pub` exports a
+declaration ([§14](#14-modules)), and `extern` declares a C symbol
+([§15](#15-raw-code-and-ffi)).
 
 ---
 
-## 5. Bindings and assignment
+## 4. Bindings and assignment
 
-| Form | Meaning |
-|---|---|
-| `x = e` | bind a new local `x`, or assign to the visible `x` (through it, when `x` is a write borrow) |
-| `x: T = e` | bind with a type annotation |
-| `x =! e`, `x: T =! e` | bind a fixed local, which cannot be reassigned |
-| `new x = e` | bind a new `x` that shadows the visible one; `e` may read the old `x` |
-| `x = <y` | move `y` into `x` (there is no `<-` operator) |
-| `x += e` (`-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `<<=` `>>=` `&=` `\|=` `^=`) | compound assignment: `x = x op e`, with `x` evaluated once |
-| `p.f = e`, `xs[i] = e` | assign a field or an element |
-| `_ = e` | evaluate `e` and discard it; an owning value is dropped at once |
+The forms are in [SYNTAX §9](SYNTAX.md#9-bindings-and-assignment).
+`x = e` binds a new local `x` when no `x` is visible, and otherwise
+assigns the visible one: through it, when `x` holds a write borrow
+([§7](#write-borrows)). `x =! e` binds a fixed local, which cannot be
+reassigned. `_ = e` evaluates `e` and discards it, and an owning value
+discarded so is dropped at once. A binding's type comes from its
+annotation or its value.
 
-A compound assignment keeps its target's type: an arithmetic operator
+A compound assignment `x op= e` is `x = x op e`, with `x` evaluated
+once, and keeps its target's type: an arithmetic operator
 needs a number, a bitwise operator or shift an integer, and a shift
 amount may be any integer. Each behaves like its operator
-([§6](#operators)): `/=` truncates, `%=` takes the dividend's sign, and
+([§5](#operators)): `/=` truncates, `%=` takes the dividend's sign, and
 `<<=` panics when bits are lost.
 
 ```rig
@@ -1756,10 +1590,6 @@ sub main
 ```output
 21
 ```
-
-A binding's type comes from its annotation or its value. Rig has no
-`var`, `let`, or `const`: the compiler emits a Zig `const` unless the
-binding is reassigned or written through.
 
 There is no implicit shadowing. A local may not reuse the name of a
 visible local, parameter, or module-level declaration, and `x =! e`
@@ -1800,7 +1630,7 @@ capture, a drop `-x`. Assigning does not: a local that is only ever
 assigned, like a misspelled `totl = 5`, is rejected. A name bound by
 `for`, a match pattern, `as`, or `catch |e|` must be read too, or be
 `_`. Discard a value on purpose with `_ = e`. A value with drop glue
-([§9](#9-drop-and-drop-glue)) is read by its own release, so a local
+([§8](#8-drop-and-drop-glue)) is read by its own release, so a local
 held only for its `drop` at the end of the scope is fine. Parameters
 are exempt.
 
@@ -1817,36 +1647,15 @@ sub main
 
 ---
 
-## 6. Expressions
+## 5. Expressions
 
 ### Operators
 
-From lowest to highest precedence:
-
-| Operators | Notes |
-|---|---|
-| `a if c else b`, `e catch f` | ternary and error fallback; right-nested (`e catch return v` and `a ?? return v` take a jump at this level) |
-| `or` | Bool; short-circuit |
-| `and` | Bool; short-circuit |
-| `not` | Bool |
-| `==` `!=` `<` `>` `<=` `>=` | not chainable |
-| `??` | optional fallback; right-associative |
-| `..` | half-open range: a `for` source, a match pattern, or a slice's index, where a side may be open ([§3](#slices)) |
-| `\|` | bitwise or |
-| `^` | bitwise xor |
-| `&` | bitwise and |
-| `<<` `>>` | shifts |
-| `+` `-` `+%` `-%` | |
-| `*` `/` `%` `*%` | |
-| `-x` and the ownership sigils | prefix |
-| `f(x)` `a[i]` `a.b` `e!` | postfix: call, index, member, propagate |
-
-Postfixes bind tighter than prefixes, so `-a.len` is `-(a.len)` and
-`+n.first()` clones the result. The one exception is a receiver sigil:
-`?`, `!`, or `<` before a place followed by a method call applies to
-the place, `!v.push(x)` is `(!v).push(x)` and `!v.put[2](x)` is
-`(!v).put[2](x)` ([§4](#structs)). A call of a field holding functions
-(`!p.f()`, `!p.fs[0]()`) has no receiver, so a sigil there is rejected.
+The operators and their precedence are in
+[SYNTAX §6](SYNTAX.md#6-operators-and-precedence). A receiver sigil
+applies to a method's receiver ([§3](#structs)); a call of a field
+holding functions (`!p.f()`, `!p.fs[0]()`) has no receiver, so a sigil
+there is rejected.
 
 Arithmetic needs numeric operands of one type (a literal adapts to the
 other operand). Integer `/` truncates toward zero and `%` takes the sign
@@ -1891,7 +1700,9 @@ computed when the program runs panics, like `+` and `*`.
 `+%`, `-%`, and `*%` are wrapping arithmetic, as in Zig: on overflow
 the result wraps around in two's complement, keeping the low bits in
 the operands' integer type, and never panics. They take integers of
-any type; a `Float` is rejected. `+%=`, `-%=`, and `*%=` assign the
+any type; a `Float` is rejected, as is a literal operand that would
+take a float type or a type parameter a float fills. The same holds
+for the integer operators `&`, `|`, `^`, `<<`, and `>>`. `+%=`, `-%=`, and `*%=` assign the
 wrapped result. Constant wrapping arithmetic is computed in its type,
 as the program computes it.
 
@@ -1963,13 +1774,14 @@ sub main
   b = Point(x: 1, y: 2)
   s: Shape = .dot(at: a)
   found: Point? = none
-  print(a == b, s == .dot(at: Point(x: 2, y: 1)), found == none, [a] == [b])
-  print("abc" < "abd", "ab" < "abc", "b" <= "a")
+  maybe: Point? = b
+  print(a == b, s == .dot(at: Point(x: 2, y: 1)), found == none, [a] == [b], a == maybe)
+  print("abc" < "abd", "ab" < "abc", "b" <= "a", "Zoo" < "apple")
 ```
 
 ```output
-true false true true
-true true false
+true false true true true
+true true false true
 ```
 
 ```rig reject
@@ -2024,9 +1836,9 @@ sub main
 `==` is not defined for `Slot`: field `held.to` is a handle `*Node`
 ```
 
-`and`, `or`, and `not` take `Bool`s; `not` binds looser than comparisons,
-so `not a == b` is `not (a == b)`. The spellings `&&` and `||` are
-rejected with a hint. Prefix `!` is always a write borrow, never
+`and`, `or`, and `not` take `Bool`s, and `and` and `or` short-circuit:
+the right side runs only when the left does not decide. The spellings
+`&&` and `||` are rejected with a hint. Prefix `!` is always a write borrow, never
 negation: a `!x` whose `Bool` value would be read (a condition, an
 operand, a binding, an argument) is rejected. It is valid only where a
 `!Bool` is expected, as for an argument to a `flag: !Bool` parameter.
@@ -2066,52 +1878,6 @@ sub main
 `&&` is not a Rig operator; use `and`
 ```
 
-### Calls
-
-`f(a, b)` calls `f`, wherever the call stands: a statement, a binding's
-right side, an argument, a condition. Every call has its parentheses,
-and a space before them changes nothing (`f (x)` is `f(x)`).
-
-```rig
-fun add(a: Int, b: Int) -> Int
-  a + b
-
-fun twice(n: Int) -> Int
-  n * 2
-
-sub main
-  print(add(1, 2))
-  print((1 + 2) * 3)
-  print(add(1, 2), add(3, 4))
-  x = twice(5)
-  if twice(x) > 10
-    print(twice (x))
-```
-
-```output
-3
-9
-3 7
-20
-```
-
-```rig reject
-fun twice(n: Int) -> Int
-  n * 2
-
-sub main
-  x = twice 5
-```
-
-```error
-unexpected `5`
-```
-
-Keyword arguments name parameters (`scaled(by: 4, n: 5)`), and
-constructors always use them. Arity, keyword names, and argument types
-are checked. Compile-time arguments go in brackets before the
-parentheses: `check[.strict](5)` ([§17](#17-compile-time-parameters)).
-
 ### Block expressions
 
 `if` and `match` are expressions when their value is used: as a
@@ -2145,9 +1911,9 @@ negative 11
 ```
 
 A statement `-x` drops `x`; `-x` where a value is expected negates.
-A value is expected in an operand, an argument, a binding's value, and
-on the last line of a `fun` (the function's value) or of a branch whose
-value is used, so `-x` there is negation, and one whose `x` is not a
+A value is expected in an operand, an argument, a binding's value, a
+`break` value, and on the last line of a `fun` (the function's value)
+or of a branch (a loop's `else` block too) whose value is used, so `-x` there is negation, and one whose `x` is not a
 number is rejected with a pointer to dropping it before the last line.
 Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected.
 
@@ -2171,6 +1937,24 @@ whose value would be thrown away must do something: call, propagate
 a line has no use and is rejected, and a function name alone is taken
 for a forgotten call.
 
+```rig
+sub greet
+  print("hi")
+
+fun pick -> sub()
+  greet
+
+sub main
+  greet()
+  say = pick()
+  say()
+```
+
+```output
+hi
+hi
+```
+
 ```rig reject
 sub greet
   print("hi")
@@ -2187,83 +1971,29 @@ sub main
 
 `@name(args)` calls a Zig builtin. `@sizeOf`, `@alignOf`, `@TypeOf`,
 and `@typeName` are safe anywhere; every other builtin needs a `raw`
-block ([§16](#16-raw-code-and-ffi)). Rig type names are translated
+block ([§15](#15-raw-code-and-ffi)). Rig type names are translated
 (`@sizeOf(I64)` is 8).
 
 ---
 
-## 7. Control flow
+## 6. Control flow
+
+The forms of each statement are in
+[SYNTAX §10](SYNTAX.md#10-statements-and-control-flow); this section
+says what they do.
 
 ### if
 
-```rig
-sub main
-  x = 5
-  if x > 10
-    print("big")
-  else if x > 3
-    print("medium")
-  else
-    print("small")
-```
-
-```output
-medium
-```
-
 Conditions must be `Bool`. `if e as name` tests an optional and binds
-its value ([§13](#13-optionals)), and bindings join with `and`
+its value ([§12](#12-optionals)), and bindings join with `and`
 ([Joined bindings](#joined-bindings)).
 
 ### Guards
 
-A simple statement (a call, binding, `return`, `break`, or `continue`)
-may end with `if cond`: it runs only when `cond` holds.
-
-```rig
-fun first_over(limit: Int) -> Int
-  i = 0
-  while i < 100
-    i += 1
-    break if i > limit
-  return i
-
-sub main
-  x = 5
-  print(x) if x > 3
-  print(first_over(3))
-```
-
-```output
-5
-4
-```
-
-A guard ends a statement and applies to all of it: in
-`n = parse(s) catch |e| f(e) if ready`, the guard covers the whole
-binding, `catch` included, not the handler alone. Inside an
-expression, write the ternary `a if c else b`.
-
-```rig
-error E
-  bad
-
-fun parse(s: String) -> Int!
-  return E.bad if s == "x"
-  s.len
-
-sub main
-  n = 5
-  n = parse("x") catch |e| (-1 if e == E.bad else -2) if false
-  print(n)
-  n = parse("x") catch |e| (-1 if e == E.bad else -2) if true
-  print(n)
-```
-
-```output
-5
--1
-```
+A simple statement (a call, a binding or assignment, a drop, `return`,
+`break`, or `continue`) that ends with a guard, `if cond`, runs only
+when `cond` holds. The guard covers the whole statement, a `catch`
+handler included ([SYNTAX §10](SYNTAX.md#guards)).
 
 ### while
 
@@ -2271,37 +2001,23 @@ sub main
 assignment or a call (which may propagate, `f()!`), after each
 iteration (including after `continue`). `while e as x` repeats
 while the optional `e` has a value. A jump in the condition or the step
-(`?? break`, `catch continue`, [§13](#the-fallback-of-)) targets this
+(`?? break`, `catch continue`, [§12](#the-fallback-of-)) targets this
 loop: `break` leaves it, `continue` in the condition runs the step and
 tests again, and `continue` in the step ends the step. An `else` block runs when the loop
 ends without `break`, after the loop: a `break` or `continue` in it
 leaves the loop around this one. A loop can also yield a value
 ([Loops as values](#loops-as-values)).
 
-```rig
-sub main
-  i = 0
-  while i < 3 : i += 1
-    continue if i == 1
-    print(i)
-  else
-    print("done")
-```
-
-```output
-0
-2
-done
-```
-
 ### for
 
 `for x in source` walks an array, a slice, a `String` (bytes), or a
 range `a..b` (from `a` up to, not including, `b`; the bounds are
 evaluated once). `for x, i in xs` also binds the index (not for
-ranges). An `else` block runs when the loop ends without `break`. A
+ranges); the element comes first, the reverse of Python's
+`enumerate`, and where a loop written index first gives a binding the
+other's type, the error says so. An `else` block runs when the loop ends without `break`. A
 `Vec` is walked in place, so the loop borrows it and says so:
-`for x in ?v` ([§11](#vec)); a bare `for x in v` over a Vec binding or
+`for x in ?v` ([§10](#vec)); a bare `for x in v` over a Vec binding or
 field is rejected with that fix. An array is copied, and a slice or
 String is a view, so they are walked bare, as is a Vec a call returns,
 which the loop owns and drops.
@@ -2341,6 +2057,7 @@ source sigils change that:
 - `for x in <v` consumes the Vec: each element is handed to `x`, which
   owns it for one iteration and may move it on. Elements a `break` or
   `return` leaves behind are dropped with the buffer, and `v` is moved.
+  `v` must own the Vec: through a borrow, loop over `?v` or `!v`.
 
 ```rig
 struct B
@@ -2383,23 +2100,9 @@ after
 
 A loop may be labeled `:name`; `break :name` and `continue :name` then
 refer to it from an inner loop. A `match` or `raw` statement may be
-labeled too, and `break :name` leaves it. A label may repeat an
+labeled too, and `break :name` leaves it. A jump after `??` or `catch`
+may name a label too ([§12](#the-fallback-of-)). A label may repeat an
 enclosing one's name; the innermost is meant.
-
-```rig
-sub main
-  :outer for i in 0..3
-    for j in 0..3
-      continue :outer if j > i
-      break :outer if i == 2
-      print(i, j)
-```
-
-```output
-0 0
-1 0
-1 1
-```
 
 ### Loops as values
 
@@ -2413,50 +2116,16 @@ returned value: an owning binding is moved out with `<x`, and a borrow
 may not outlive what it borrows. The value must be used; a `break`
 cannot carry a value out of a loop whose value is not.
 
-```rig
-fun index_of(xs: ?[4]Int, target: Int) -> Int
-  for x, i in xs
-    break i if x == target
-  else
-    -1
-
-sub main
-  xs = [3, 1, 4, 1]
-  print(index_of(?xs, 4), index_of(?xs, 9))
-  n = 27
-  steps = 0
-  last = while true
-    break steps if n == 1
-    n = n / 2 if n % 2 == 0 else 3 * n + 1
-    steps += 1
-  print(last)
-```
-
-```output
-2 -1
-111
-```
-
 ### match
 
-`match` selects the first arm whose pattern matches. It works on
-enums, integers, and `Bool`.
-
-| Pattern | Matches |
-|---|---|
-| `.name` | an enum variant |
-| `.name(a, b)` | a payload variant, binding its fields in order |
-| `42`, `-1`, `true` | a literal |
-| `lo..hi` | an integer from `lo` up to, not including, `hi` (constant bounds) |
-| `_` | everything else |
-| any other name | everything else, binding the value to the name |
-| `p, q` | any of the alternatives, which bind no names |
-| `p if cond` | what `p` matches, when `cond` holds |
-
-An arm is `pattern => statement` or a pattern followed by an indented
-block. A match whose value is used must cover every value; a statement
-match need not, and then runs no arm for the rest. Duplicate and
-unreachable arms are rejected.
+`match` runs the first arm whose pattern matches, and no other. It works
+on enums, integers, `Bool`, and error values (`catch |err|`,
+[§13](#naming-the-error)); [SYNTAX §12](SYNTAX.md#12-patterns) lists
+the patterns. A range pattern's bounds are constants. Every match must
+cover every value, whether its value is used
+or it is a statement: its arms name every variant or value, or a
+catch-all (`_`, or a name) covers the rest. Duplicate and unreachable
+arms are rejected.
 
 A guard `if cond` after a pattern is a `Bool` that may read the
 pattern's bindings; when it is false, the later arms are tried, as if
@@ -2464,7 +2133,7 @@ the arm's pattern had not matched. A guard changes nothing it matches:
 it moves nothing, and write-borrows neither the matched value nor a
 binding of the arm (as Rust's guards do not). A guarded arm covers none
 of its values: a later arm may repeat its pattern, and
-a match whose value is used still needs arms for them. Alternatives
+the match still needs arms for them. Alternatives
 are literals, ranges, or variants; since which one matched would decide
 what a name held, they bind none (`_` fills a payload field), and none
 may be a catch-all.
@@ -2493,9 +2162,10 @@ sub main
 big circle small shape point
 even 4
 ```
- A range pattern is half-open like every
-range, so `0..10` matches 0 through 9, and its end may be one past the
-type's largest value: `100..256` covers the rest of a `U8`.
+
+A range pattern is half-open like every range, so `0..10` matches 0
+through 9, and its end may be one past the type's largest value:
+`100..256` covers the rest of a `U8`.
 
 ```rig
 fun size(n: U8) -> String
@@ -2535,7 +2205,7 @@ expected. `match !e` needs a place that may be
 written, as `!e` does, and while one of its bindings is live `e` cannot
 be used otherwise. `match <e` needs a value `e` owns, not a borrow. A
 boxed enum is matched through a borrow of the box, `match ?b` or
-`match !b` ([§11](#box)).
+`match !b` ([§10](#box)).
 
 ```rig
 struct B
@@ -2603,25 +2273,24 @@ cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fi
 exits, in reverse order of the defers. `errdefer` runs only when the
 function exits with an error. A deferred body may not move or drop
 outer bindings, or propagate with `!`. It runs after the values declared
-after it are dropped, so it may not read one through a borrow.
+after it are dropped, so it may not read one through a borrow. A
+one-line `defer` or `errdefer` cannot declare a name; a deferred block
+can.
 
-```rig
+```rig reject
 sub main
-  defer print("cleanup 1")
-  defer
-    print("cleanup 2")
-  print("body")
+  s = 1
+  defer t = s
+  print(s)
 ```
 
-```output
-body
-cleanup 2
-cleanup 1
+```error
+a deferred statement runs at scope exit and cannot declare `t`; use an indented `defer` block
 ```
 
 ---
 
-## 8. Ownership
+## 7. Ownership
 
 Every owning value has exactly one owner, and the owner decides when it
 is released. The sigils make each ownership effect visible where it
@@ -2634,8 +2303,8 @@ happens:
 | `!x` | write borrow | a temporary exclusive, writable view |
 | `+x` | clone | a new owner: a refcount bump for a handle, a copy for a Copy value |
 | `-x` | drop | release `x` now |
-| `*x` | share | move `x` into a new shared box ([§10](#10-shared-and-weak-handles)) |
-| `~x` | weak | a weak handle to a shared value ([§10](#10-shared-and-weak-handles)) |
+| `*x` | share | move `x` into a new shared box ([§9](#9-shared-and-weak-handles)) |
+| `~x` | weak | a weak handle to a shared value ([§9](#9-shared-and-weak-handles)) |
 
 A Copy value can be used freely: a bare use copies it. `<x` always
 means "done with `x`", whatever its type: a Copy value or a borrow is
@@ -2664,26 +2333,31 @@ used until it is reassigned.
 
 ```rig
 struct Packet
-  payload: Int
+  id: Int
 
   drop(!self)
-    print("released", self.payload)
+    print("released", self.id)
 
 sub send(p: Packet)
-  print("sent", p.payload)
+  print("sent", p.id)
+
+fun make(id: Int) -> Packet
+  p = Packet(id: id)
+  p
 
 sub main
-  p = Packet(payload: 42)
+  p = make(1)
   send(<p)
-  p = Packet(payload: 7)     # reassigning makes `p` usable again
-  print(p.payload)
+  p = make(2)      # reassigning makes `p` usable again
+  q = <p
+  print(q.id)
 ```
 
 ```output
-sent 42
-released 42
-7
-released 7
+sent 1
+released 1
+2
+released 2
 ```
 
 ```rig reject
@@ -2831,7 +2505,7 @@ Pair(left: "c", right: "a") b
 
 Two elements of one collection are not two places: `swap(!a[i],
 !a[j])` write-borrows `a` twice, and is rejected with the collection's
-own `swap`, which exchanges them ([§3](#slices)):
+own `swap`, which exchanges them ([§2](#slices)):
 
 ```rig reject
 sub main
@@ -3197,9 +2871,29 @@ sub main
 bind it to a name first
 ```
 
+A borrow of a temporary (`?S(n: 1)`, `?make()`) lives only as long as
+the call it is lent to, so it may be an argument of a call whose result
+keeps no borrow or of `print`, a `match` subject, a `for` source, or
+the optional an `if` or `while` binds with `as`. Bound to a name, stored in a
+field, or passed to a call whose result may borrow it, it would outlive
+the value, and it is rejected.
+
+```rig reject
+struct S
+  n: Int
+
+sub main
+  r = ?S(n: 1)
+  print(r.n)
+```
+
+```error
+a borrow of a temporary lives only for the call it is lent to; bind the value to a name first
+```
+
 ---
 
-## 9. Drop and drop glue
+## 8. Drop and drop glue
 
 A struct may declare one `drop` body, which runs when a value of the
 type is released. It takes exactly one parameter, its write-borrowed
@@ -3266,7 +2960,7 @@ structs get structural glue only.
 
 ---
 
-## 10. Shared and weak handles
+## 9. Shared and weak handles
 
 ### Shared handles
 
@@ -3310,7 +3004,7 @@ write `<a` or `+a`. Sharing a value that is already a shared handle
 a handle automatically, including through fields and loop elements.
 Writing a field, calling a `!self` method, or consuming the value
 through a handle is rejected, because other handles share it; shared
-mutable state goes in a `Cell` ([§11](#cell)). The built-in `Vec` is no
+mutable state goes in a `Cell` ([§10](#cell)). The built-in `Vec` is no
 exception: `!h.push(x)` through a `*Vec[T]` is rejected, and a shared
 Vec is a `*Cell[Vec[T]]`.
 
@@ -3324,7 +3018,7 @@ sub main
 ```
 
 ```error
-cannot assign through shared handle
+cannot assign through a shared handle
 ```
 
 ### Weak handles
@@ -3366,12 +3060,12 @@ A cycle of strong handles is never released: it leaks, as in Rust and
 Swift. This is the one leak the compiler does not prevent. Break cycles
 with weak handles: a child holds its parent weakly, and a callback
 that refers back to its owner captures it weakly (`|~owner|`,
-[§12](#captures)). Every test and example in this repository runs
+[§11](#captures)). Every test and example in this repository runs
 leak-free under the checking allocator.
 
 ---
 
-## 11. Cell, Vec, Box, and Signal
+## 10. Cell, Vec, Box, and Signal
 
 These built-in generic types are part of the language's substrate.
 Their names are reserved.
@@ -3448,12 +3142,15 @@ sub main
     sum += x
   shared.set(<v)
   print(sum, shared.len)
+  if shared.pop() as last
+    print("popped", last, shared.len)
 ```
 
 ```output
 5 11 2
 2 8 8 none
 16 2
+popped 8 1
 ```
 
 ### Vec
@@ -3481,7 +3178,7 @@ of Copy values is a copy; one of owning values is a borrowed slot,
 where `v` must be a binding or a field of one: the element can be
 read, called, and cloned (`+x` is a new handle), but not moved,
 dropped, or stored. `for x in !v` and `for x in <v` write and
-consume the elements ([§7](#for)).
+consume the elements ([§6](#for)).
 
 ```rig
 sub main
@@ -3549,7 +3246,7 @@ Long chains of boxes are released without deep recursion.
 | `b.f`, `b.m(...)` | a field or method of a boxed struct or enum, reached through the box |
 | `?b`, `!b` | lend the box, or, where a `?T` or `!T` is expected, the value inside it |
 | `<b.unbox()` | move the value out; the box is freed |
-| `<s.f` | take an optional box out of a field, leaving `none` ([§8](#moves)) |
+| `<s.f` | take an optional box out of a field, leaving `none` ([§7](#moves)) |
 | `match ?b`, `match !b` | match a boxed enum where it is |
 
 The box is reached as it is held: through an owned box or a `!Box[T]`
@@ -3560,7 +3257,32 @@ enum (a number, a Vec, an array) reaches no members through it: it is
 lent as its value or taken apart. A Vec holds boxes as it holds handles:
 walked by borrowed slot and moved out with `pop` ([Vec](#vec)).
 
-With `if ?o as x` and `if !o as x` ([§13](#13-optionals)), an optional
+A recursive enum holds its children in boxes, and a function reads one
+through a borrow of the box:
+
+```rig
+enum Expr
+  num(n: Int)
+  add(l: Box[Expr], r: Box[Expr])
+
+fun eval(e: ?Box[Expr]) -> Int
+  match e
+    .num(n) => n
+    .add(l, r) => eval(?l) + eval(?r)
+
+fun num(n: Int) -> Box[Expr]
+  Box(.num(n))
+
+sub main
+  e = Box(Expr.add(l: num(2), r: num(3)))
+  print(eval(?e))
+```
+
+```output
+5
+```
+
+With `if ?o as x` and `if !o as x` ([§12](#12-optionals)), an optional
 box is used where it is:
 
 ```rig
@@ -3638,43 +3360,14 @@ Rig from `Cell`, `Vec`, and owned closures (see
 
 ---
 
-## 12. Closures
+## 11. Closures
 
 ### Bar lists
 
-A closure starts with its bar list and has no keyword. The list holds
-the closure's **captures** and its **parameters**, captures first:
-
-- an entry with a sigil captures an outer local: `+x` copies a Copy
-  value or clones a handle, `<x` moves the binding in, `?x` and `!x`
-  borrow it, `~x` holds a shared handle weakly;
-- a bare name is a parameter, optionally annotated (`a`, `a: Int`);
-- `||` is an empty list.
-
-The body is an expression or an assignment on the same line
-(`|!total, n| total += n`), or an indented block. A closure whose body
-is an assignment ends a call's arguments: it is the last one.
-
-```rig
-sub main
-  n = 10
-  cell: *Cell[Int] = *Cell(0)
-  plus_n = |+n, a: Int| a + n
-  bump = |+cell| cell.set(cell.get() + 1)
-  hello = || print("hello")
-  bump()
-  bump()
-  hello()
-  print(plus_n(5), cell.get())
-```
-
-```output
-hello
-15 2
-```
-
-A closure reaches the enclosing function's locals only through its
-captures. A bare entry that names a visible local is rejected, with the
+A closure starts with its bar list, which holds its **captures**, each
+with a sigil, and then its **parameters**, bare names
+([SYNTAX §11](SYNTAX.md#closures)). A closure reaches the enclosing
+function's locals only through its captures. A bare entry that names a visible local is rejected, with the
 sigils that would capture it, because the spelling alone decides what
 an entry is:
 
@@ -3707,7 +3400,7 @@ closure's value either. A captured borrow may be passed to a call,
 which borrows it for the call. A captured read borrow may be the
 closure's value, and a call's result then borrows what the closure
 captured. Through a captured write borrow the body can write fields,
-call `!self` methods (`!w.push(x)` or `w.push(x)`), lend it on for a
+call `!self` methods (`!w.push(x)`), lend it on for a
 call (`!w`), and assign the whole value (`w = v`, `w += 1`), which
 writes through to what it borrows. Nothing the closure owns or receives
 as a parameter may be stored through it: those last one call at most,
@@ -3717,7 +3410,7 @@ list.
 `|?x|` and `|!x|` borrow `x` for as long as the closure lives, which is
 until its last use: `|!x|` is `w = !x` followed by `|<w|`. While the
 closure lives, `x` follows the aliasing rule
-([§8](#borrows)); after its last call, `x` is free again.
+([§7](#borrows)); after its last call, `x` is free again.
 
 ```rig
 sub main
@@ -3768,8 +3461,8 @@ parameters its type passes, and may ignore one by naming it `_`.
 
 With a type from context, the body is checked against its return type,
 and a body whose type can fail may propagate with `!`
-([§14](#14-errors)), as one whose type returns an optional may return
-`none` with `?` ([§13](#13-optionals)).
+([§13](#13-errors)), as one whose type returns an optional may return
+`none` with `?` ([§12](#12-optionals)).
 Otherwise the closure returns the type of its last expression, or of
 its `return`s when it ends in one, and these give each other no type: a
 `return max(3, 4)` beside a `return x` of a `U8` is still an `Int`. A
@@ -3811,7 +3504,7 @@ used as values. A function type writes its result after `->`, as a
 declaration does; a suffix belongs to the result, so `fun(Int) -> Int!`
 returns an `Int!`, and an optional function is `(fun(Int) -> Int)?`. An owned closure is a
 shared handle, so `~f` makes a weak handle to it, which upgrades like
-any other ([§10](#weak-handles)).
+any other ([§9](#weak-handles)).
 
 ```rig
 sub main
@@ -3858,7 +3551,7 @@ callable**: a read borrow of something to call. It accepts
 - a function name or a `fun` value, as it is;
 - an owned closure lent as `?cb`.
 
-A borrowed callable is a borrow like any `?T` ([§8](#second-class-borrows)):
+A borrowed callable is a borrow like any `?T` ([§7](#second-class-borrows)):
 the callee may call it and forward it, and the caller's values stay
 borrowed while it lives. A lent closure literal borrows what it
 captures for the call, so its captures conflict with the call's other
@@ -3923,19 +3616,28 @@ takes:
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
+sub main
+  print(apply(*|a| a + 1, 2))
+```
+
+```error
+borrows a closure for the call; write the closure without `*` (drop the `*`)
+```
+
+A closure lent to a call is checked with the call's other arguments:
+
+```rig reject
 sub each(xs: ?Vec[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
 sub main
-  print(apply(*|a| a + 1, 2))
   c: Vec[Int] = Vec()
   each(?c, |!c, n|
     !c.push(n))
 ```
 
 ```error
-borrows a closure for the call; write the closure without `*` (drop the `*`)
 cannot write-borrow `c` while a read borrow is live
 ```
 
@@ -3976,41 +3678,9 @@ closure can be stored anywhere, so it cannot capture a borrow or a
 value holding one; a stack closure can. `*` applies only to a closure
 literal, not to a function name or a closure binding.
 
-### Multi-line closure bodies
-
-A closure's body may be an indented block wherever the closure is
-written. When the bar list ends a line inside `( )`, the body below is
-laid out in blocks as anywhere else; it ends where the bracket closes,
-or where a line comes back to the indentation of the line the closure
-started on.
-
-```rig
-sub each(n: Int, f: *sub(Int))
-  for i in 0..n
-    f(i)
-
-sub main
-  total: *Cell[Int] = *Cell(0)
-  each(3, *|+total, i|
-    total.set(total.get() + i)
-    print("saw", i))
-  each(2, *|i|
-    print("trailing", i))
-  print(total.get())
-```
-
-```output
-saw 0
-saw 1
-saw 2
-trailing 0
-trailing 1
-3
-```
-
 ---
 
-## 13. Optionals
+## 12. Optionals
 
 `T?` holds a `T` or `none`. A plain `T` is accepted where a `T?` is
 expected, and `none` needs a known optional type.
@@ -4022,7 +3692,7 @@ expected, and `none` needs a known optional type.
 | `a == v`, `a != v` | whether `a` holds the value `v`, a `T` |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
 | `if ?a as x`, `if !a as x` | the same, with `x` borrowing the value inside `a` |
-| `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§8](#moves)) |
+| `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§7](#moves)) |
 | `while a as x` | repeat while `a` produces a value |
 | `if a as x and b as y`, `if a as x and x > 0` | bindings and `Bool` conditions joined by `and`; `else` runs when any fails |
 | `a?` | the value inside `a`; when `a` is `none`, the enclosing function returns `none` |
@@ -4054,9 +3724,9 @@ sub main
 8 0 true
 ```
 
-`a?` mirrors `e!` ([§14](#14-errors)): it is allowed only in a
-function returning `T?` (or `T?!`), and not in a closure body or
-deferred code. The early return runs deferred code and drops what the
+`a?` mirrors `e!` ([§13](#13-errors)): it is allowed only in a
+function returning `T?` (or `T?!`), or in a closure whose type returns
+one ([§11](#parameters-and-results)), and not in deferred code. The early return runs deferred code and drops what the
 function owns, including values already computed for the same call.
 
 ```rig
@@ -4205,15 +3875,17 @@ The fallback of `??` may be a jump: `a ?? return v`, `a ?? return`,
 `a ?? break`, `a ?? break v`, or `a ?? continue`. When `a` is `none`
 the jump runs, exactly as the statement would: `return` is checked
 against the function's result, `break` and `continue` apply to the
-innermost loop (a jump here takes no label), and leaving drops what the
-scope owns. The jump takes the rest of the expression as its value,
+innermost loop or name a label (`a ?? continue :outer`), and leaving
+drops what the scope owns. In a `while` header the first `:` starts the
+step, so a jump there takes no label. The jump takes the rest of the expression as its value,
 and the left side of `?? return` is the whole expression before it, as
 for `catch` (`a and b ?? return` is `(a and b) ?? return`), except in a
 chain of `??`, where the jump belongs to the nearest one, as `??` is
 right-associative: `a ?? b ?? return v` is `a ?? (b ?? return v)`.
 With a jump as the fallback nothing is copied, so the optional may hold
 an owning value when it is a temporary (`make(k) ?? return`) or moved
-(`<o ?? return`, `<h.f ?? return`, which leaves `none`). Anything
+(`<o ?? return`, `<h.f ?? return`, which leaves `none`), but not when
+it is reached through a borrow, which gives up nothing. Anything
 else on the right of `??` is a value of the optional's type, so a bare
 error value is no fallback: `?? E.missing` is rejected, and failing is
 written `?? return E.missing` in a fallible function.
@@ -4248,7 +3920,7 @@ sub main
 
 ---
 
-## 14. Errors
+## 13. Errors
 
 A function whose return type is `T!` may fail, and so may a `sub`
 marked `!` (`sub save(n: Int)!`, of type `sub(Int)!`). A call to it
@@ -4259,7 +3931,7 @@ must say what happens to the failure, visibly:
   fallible `sub`, or be the top-level `sub main` or a `test`.
 - `f() catch fallback` handles it: the value of the call, or `fallback`
   when it fails. The fallback may be a jump, as after `??`
-  ([§13](#13-optionals)): `f() catch return -1`, `f() catch |e| return e`,
+  ([§12](#12-optionals)): `f() catch return -1`, `f() catch |e| return e`,
   `f() catch break`, `f() catch continue`.
 
 A bare call to a fallible function is rejected, and so is `!` on a call
@@ -4271,7 +3943,9 @@ A closure whose type cannot fail, or whose type is inferred from its
 body, handles failures with `catch`. A fallible type is only allowed as
 the return type of a function or of a function type
 (`fun(Int) -> Int!`, `sub(Int)!`, `*fun(Int) -> Int!`), and a plain `T`
-is accepted where `T!` is expected.
+is accepted where `T!` is expected. `E!` for an error set `E` is
+rejected: a failure and a success would both be `E` values. So is a
+generic `T!` whose `T` an error set fills.
 
 ```rig
 error Parse
@@ -4319,8 +3993,6 @@ saved 1
 saved 2
 not saved: .full
 ```
- `E!` for an error
-set `E` is rejected: a failure and a success would both be `E` values.
 
 ```rig
 fun parse_len(s: String) -> Int!
@@ -4380,10 +4052,12 @@ sub main
 
 A fallible function fails by producing an error value where its `T` is
 expected: `return E.name` (a member of an error set,
-[§4](#error-sets)), a binding of an error set's type, an error it
+[§3](#error-sets)), a binding of an error set's type, an error it
 caught, or `.name` when `T` has no variant of that name. The failure
 leaves the function the way `!` does: every `defer` and `errdefer` of
-the scopes it leaves runs. Only a function returning `T!` can fail.
+the scopes it leaves runs, including when the error is the final value
+of an `if` or `match` branch block. Only a function returning `T!` can
+fail.
 
 ### Naming the error
 
@@ -4446,7 +4120,7 @@ type mismatch: expected `Int`, got `ParseError`
 
 ---
 
-## 15. Modules
+## 14. Modules
 
 `use name` imports `name.rig` from the directory of the program's root
 file, whichever module says it, so a name denotes one file. The file's
@@ -4572,7 +4246,7 @@ ones are: `boxes.Wrap[Int]` names an instance in a type or an
 expression, its type arguments are given or inferred, and its methods
 and variants are reached through it. Each instance a module makes is
 checked where it is made, against what the declaring module's bodies do
-with its type parameters ([§4](#generic-bodies)), and a diagnostic
+with its type parameters ([§3](#generic-bodies)), and a diagnostic
 about it has a note at that body's line, in its file. An instance is
 one type wherever it is reached from: `boxes.Wrap[Int]` spelled here is
 the type another module's function returns as `boxes.Wrap[Int]`, even
@@ -4633,7 +4307,7 @@ reported.
 
 ---
 
-## 16. Raw code and FFI
+## 15. Raw code and FFI
 
 A `raw` block is the boundary of what the checker guarantees. Inside
 it, and only there, a program may:
@@ -4687,16 +4361,13 @@ call to extern function `abs` requires `raw` block
 
 ---
 
-## 17. Compile-time parameters
+## 16. Compile-time parameters
 
-Square brackets hold everything known at compile time, and
-parentheses what is known when the program runs. A declaration lists
-its compile-time parameters in brackets after its name, before any
-run-time parameters. In the list, a bare name is a **type parameter**
-and `name: Type` a **compile-time value**:
-`fun check[mode: Mode](n: Int) -> Bool`, `fun max[T](a: T, b: T) -> T`,
-`sub rep[T, n: Int](x: T)`. Functions, `sub`s, methods, and associated
-functions take both kinds; generic types take type parameters and
+A declaration lists its compile-time parameters in brackets after its
+name, before any run-time parameters: a bare name is a **type
+parameter** and `name: Type` a **compile-time value**
+([SYNTAX §8](SYNTAX.md#generics-and-compile-time-parameters)).
+Functions, `sub`s, methods, and associated functions take both kinds; generic types take type parameters and
 integer values ([generic types](#generic-types)); `main` takes none.
 Each lowers to a Zig `comptime` parameter, a type parameter as
 `comptime T: type`.
@@ -4712,10 +4383,9 @@ is an integer. An integer compile-time value sizes arrays
 ([arrays](#arrays)).
 
 A call gives the compile-time arguments in brackets after the callee,
-before its run-time arguments: `check[.strict](5)`,
-`rep[String, 3]("hi")`, `s.times[5]()`, `Scale.unit[6]()`,
-`lib.scaled[3](5)`, `lib.zeros[3]()`. It gives all of them or none; a type argument, and
-an integer value that an array length or a generic type's argument in
+before its run-time arguments (`check[.strict](5)`, `s.times[5]()`,
+`lib.zeros[3]()`), all of them or none; a type argument, and an integer
+value that an array length or a generic type's argument in
 the signature holds, may be left to inference
 ([generic functions](#generic-functions)), any other value never. A
 value argument must be known at compile time: a literal
@@ -4726,14 +4396,15 @@ a constant (`LIMIT * 2`), which is checked like constant arithmetic;
 arithmetic on a compile-time parameter (`n + 1`), directly or through a
 `=!` binding, is rejected, since each instance would compute it
 unchecked. Inside a body, a compile-time value is an ordinary value, and
-arithmetic on it is checked when it runs.
+arithmetic on it is checked when it runs. Whether `x[...]` indexes `x`
+or gives it compile-time arguments is decided by what `x` names
+([SYNTAX §11](SYNTAX.md#compile-time-arguments)).
 
-A function with no run-time parameters may leave out its parentheses in
-its declaration (`sub show[n: Int]`), but a call always has them: the
-brackets choose the instance and the parentheses call it,
-`show[3]()`. A statement `show[3]` is rejected, as a statement `greet`
-is. A function with compile-time parameters can only be called, never
-used as a value.
+The brackets choose an instance and the parentheses call it, so a call
+of a function with no run-time parameters is still written `show[3]()`,
+and a statement `show[3]` is rejected, as a statement `greet` is. A
+function with compile-time parameters can only be called, never used
+as a value.
 
 ```rig
 enum Mode
@@ -4789,110 +4460,9 @@ compile-time argument 1 of `show` must be known at compile time
 compile-time argument 1 of `show` does arithmetic on a compile-time parameter
 ```
 
-### Reading `x[...]`
-
-The parser cannot tell `xs[0]` from `Vec[Int]` or `check[.strict]`, so
-the checker decides by what `x` names. When it names a generic type or
-a function, directly, through its module, through its type, or as a
-method of a value, the brackets are compile-time arguments; otherwise
-they index `x`. A bracket list of two or more is never an index, and
-empty brackets are rejected. A space changes nothing: `show [3]()` is
-`show[3]()` ([§2](#prefixes-and-infix-operators)).
-
-In an expression, a type argument is written as a type that is also an
-expression: a name, `module.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or an
-instance (`Cell[Vec[Int]]()`). A slice, array, or function type has no
-such spelling: name it with a type alias, or give the type where the
-value goes (`b: Wrap[[3]Int] = Wrap(v: [4, 5, 6])`).
-
-```rig
-struct Wrap[T]
-  v: T
-
-type Row = [3]Int
-
-fun double(n: Int) -> Int
-  n * 2
-
-sub main
-  xs = [10, 20, 30]
-  ops = [double, double]
-  a = Wrap[Row](v: [1, 2, 3])
-  print(xs[1], ops[0](4), a.v[2])
-```
-
-```output
-20 8 3
-```
-
-```rig reject
-struct Pair[T, U]
-  a: T
-  b: U
-
-fun plain(n: Int) -> Int
-  n
-
-sub main
-  n = 5
-  print(n[Int, Int])
-  p = Pair[Int](a: 1, b: 2)
-  print(plain[3](4))
-```
-
-```error
-an index is one value with no trailing comma; a list in brackets gives compile-time arguments
-generic type `Pair` expects 2 type arguments, got 1
-`plain` takes no compile-time arguments
-```
-
-```rig reject
-sub main
-  v = Vec[[]Int]()
-```
-
-```error
-a slice or array type has no expression spelling
-```
-
-In an expression, `*T?` as a type argument is an optional handle, as
-in a type (`Cell[*Node?](none)`), and so is a chain of handles
-such as `*~T?`. A handle to an optional,
-`*(T?)`, has no expression spelling; name it with a `type` alias:
-
-```rig
-struct Node
-  value: Int
-
-type Held = *(Node?)
-
-sub main
-  a = Cell[*Node?](none)
-  b = Cell[Held](*none)
-  print(a.replace(none) == none)
-  old = b.replace(*none)
-  -old
-```
-
-```output
-true
-```
-
-```rig reject
-struct Node
-  value: Int
-
-sub main
-  b = Cell[*(Node?)](*none)
-```
-
-```error
-a handle to an optional has no expression spelling
-```
-
 ---
 
-## 18. Printing
+## 17. Printing
 
 `print(a, b, ...)` writes its values separated by single spaces, then a
 newline; `print()` writes an empty line. `print` is only special as a
@@ -4900,13 +4470,15 @@ direct call; it is not a value.
 
 | Value | Printed as |
 |---|---|
-| numbers, `Bool` | `42`, `-3`, `2.5`, `true`; a whole `Float` keeps its point: `1.0` |
+| numbers, `Bool` | `42`, `-3`, `2.5`, `true`; a whole `Float` keeps its point, `1.0`, and a NaN is `nan` on every platform |
 | `String` | its text; inside other values, quoted |
 | `none` | `none` |
 | enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, however it was built |
 | struct | `User(name: "ada", age: 36)` |
 | array, slice, `Vec` | `[1, 2]` |
 | shared handle | the value it holds |
+| `Box` | the value it holds, as a nested value (a `String` quoted) |
+| `Cell`, `Signal` | `Cell(value: 5)`, `Signal(value: 5)` |
 | weak handle | `~(alive)` or `~(gone)` |
 | owned closure | `<closure>` |
 | function | `<fun>` |
@@ -4920,33 +4492,31 @@ struct User
   name: String
   age: Int
 
-sub main
-  u = User(name: "ada", age: 36)
-  n: Int? = none
-  print(u, n, ["a", "b"], 2.5)
-```
-
-```output
-User(name: "ada", age: 36) none ["a", "b"] 2.5
-```
-
-```rig
 enum Shape
   dot
   circle(r: Float)
   rect(w: Int, h: Int)
 
 sub main
+  u = User(name: "ada", age: 36)
+  n: Int? = none
+  print(u, n, ["a", "b"], 2.5, 2.0)
   print(Shape.dot, Shape.circle(2.5), Shape.rect(w: 2, h: 3))
+  h = *User(name: "bob", age: 1)
+  w = ~h
+  b = Box(User(name: "cy", age: 2))
+  print(h, w, b, Cell(5))
 ```
 
 ```output
+User(name: "ada", age: 36) none ["a", "b"] 2.5 2.0
 .dot .circle(r: 2.5) .rect(w: 2, h: 3)
+User(name: "bob", age: 1) ~(alive) User(name: "cy", age: 2) Cell(value: 5)
 ```
 
 ---
 
-## 19. Reserved and unsupported forms
+## 18. Reserved and unsupported forms
 
 These forms are rejected, with a diagnostic that says what to write
 instead; each is proven by a test in `test/reject/`. The first group do

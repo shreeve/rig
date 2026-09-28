@@ -1,0 +1,38 @@
+# A block whose tail is the function's error value fails the function,
+# so its `errdefer` runs there and cannot read a value moved before it.
+
+error E
+  bad
+
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(t: Tok)
+  print("eat", t.n)
+
+fun branch(k: Int) -> Int!
+  if k > 0
+    t = Tok(n: 1)
+    errdefer print("errdefer", t.n)
+    eat(<t)
+    E.bad
+  else
+    0
+
+fun arm(k: Int) -> Int!
+  match k
+    0 => 0
+    _
+      t = Tok(n: 2)
+      errdefer print("errdefer", t.n)
+      eat(<t)
+      .bad
+
+sub main
+  print(branch(1) catch -1, arm(1) catch -1)
+
+# error: 19:32: use of `t` after move
+# error: 30:34: use of `t` after move

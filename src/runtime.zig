@@ -18,14 +18,14 @@
 const std = @import("std");
 
 /// Rig's `Int`. Sizes and indices cross the Rig boundary as `Int`.
-pub const Int = i64;
+const Int = i64;
 
 // -----------------------------------------------------------------------------
 // Dropping values
 // -----------------------------------------------------------------------------
 
 /// True when `T` is `*RcBox(U)` for some `U`.
-pub fn isStrongHandle(comptime T: type) bool {
+fn isStrongHandle(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => |p| p.size == .one and
             @typeInfo(p.child) == .@"struct" and
@@ -37,7 +37,7 @@ pub fn isStrongHandle(comptime T: type) bool {
 /// True when dropping a `T` releases anything. A type owns resources
 /// when it declares `__rig_drop`, is a strong handle, or (for structs,
 /// tagged unions, arrays, and optionals) contains something that does.
-pub fn needsDrop(comptime T: type) bool {
+fn needsDrop(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => isStrongHandle(T),
         .optional => |o| needsDrop(o.child),
@@ -60,7 +60,7 @@ pub fn needsDrop(comptime T: type) bool {
 
 /// True when a `T` holds a `Cell` by value (not behind a pointer or in
 /// a `Vec` or `Signal`).
-pub fn holdsCell(comptime T: type) bool {
+fn holdsCell(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .optional => |o| holdsCell(o.child),
         .array => |a| holdsCell(a.child),
@@ -109,7 +109,7 @@ pub fn borrowed(comptime T: type, borrow: ReadBorrow(T)) T {
 /// Release whatever `value` owns: a strong handle drops its count, a
 /// type with `__rig_drop` runs it, and aggregates drop their parts.
 /// Plain data is a no-op, decided at compile time.
-pub fn dropElement(comptime T: type, value: *T) void {
+fn dropElement(comptime T: type, value: *T) void {
     if (comptime !needsDrop(T)) return;
     switch (@typeInfo(T)) {
         .pointer => value.*.dropStrong(),
@@ -583,7 +583,7 @@ pub fn Cell(comptime T: type) type {
 
 // An owned closure `*fun(A, B) -> R` / `*sub(A)` is a shared handle to a
 // `Closure(&.{ A, B }, R)`: a type-erased closure. Each closure literal
-// allocates its own environment `Env` (the captures plus an `invoke`
+// allocates its own environment `Env` (the captures plus an `__rig_invoke`
 // method taking the parameters); `init` erases it behind `ctx`, so every
 // literal with the same parameter and return types has the same type.
 // `drop_fn` releases the captures and frees the environment.
@@ -602,7 +602,7 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
             const erased = struct {
                 fn invoke(ctx: *anyopaque, args: Args) R {
                     const e: *Env = @ptrCast(@alignCast(ctx));
-                    return @call(.auto, Env.invoke, .{e} ++ args);
+                    return @call(.auto, Env.__rig_invoke, .{e} ++ args);
                 }
                 fn dropEnv(ctx: *anyopaque) void {
                     const e: *Env = @ptrCast(@alignCast(ctx));
@@ -628,7 +628,7 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
 }
 
 /// `*sub()`: what a Signal notifies.
-pub const Callback = Closure(&.{}, void);
+const Callback = Closure(&.{}, void);
 
 // A borrowed callable `?fun(A, B) -> R` / `?sub(A)` is a
 // `FnRef(&.{ A, B }, R)`: a context pointer and a function that calls
@@ -644,13 +644,13 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         const Self = @This();
         pub const Args = std.meta.Tuple(params);
 
-        /// Lend `env`, a stack closure's environment, whose `invoke`
+        /// Lend `env`, a stack closure's environment, whose `__rig_invoke`
         /// takes the parameters.
         pub fn of(comptime Env: type, env: *Env) Self {
             const thunk = struct {
                 fn call(ctx: *anyopaque, args: Args) R {
                     const e: *Env = @ptrCast(@alignCast(ctx));
-                    return @call(.auto, Env.invoke, .{e} ++ args);
+                    return @call(.auto, Env.__rig_invoke, .{e} ++ args);
                 }
             };
             return .{ .ctx = env, .call_fn = thunk.call };
@@ -872,15 +872,19 @@ pub fn Vec(comptime T: type) type {
 // Integers and indexing
 // -----------------------------------------------------------------------------
 
-/// Convert a Rig index to `usize`, panicking unless `0 <= i < len`. A
-/// negative index becomes a huge unsigned one, which fails the bound.
+/// Convert a Rig index of any integer type to `usize`, panicking unless
+/// `0 <= i < len`.
 pub fn index(i: anytype, count: usize) usize {
-    const idx: u64 = switch (@typeInfo(@TypeOf(i))) {
-        .int => |int| if (int.signedness == .signed) @bitCast(@as(i64, i)) else i,
-        else => std.math.cast(u64, i) orelse indexPanic(),
-    };
+    const idx = std.math.cast(usize, i) orelse indexPanic();
     if (idx >= count) indexPanic();
-    return @intCast(idx);
+    return idx;
+}
+
+/// A float about to be converted to an integer type, panicking if it is
+/// NaN, which `@intFromFloat`'s own range check does not catch.
+pub fn notNan(x: anytype) @TypeOf(x) {
+    if (std.debug.runtime_safety and std.math.isNan(x)) @panic("integer part of floating point value out of bounds");
+    return x;
 }
 
 /// The elements of the array `p` points to, as a slice. Zig rejects
@@ -1099,9 +1103,9 @@ const LeakChecker = struct {
 };
 
 /// Live allocations and their total size (Debug builds; zero otherwise).
-pub const Usage = struct { count: usize, bytes: usize };
+const Usage = struct { count: usize, bytes: usize };
 
-pub fn usage() Usage {
+fn usage() Usage {
     return .{ .count = leak_checker.live.count(), .bytes = leak_checker.bytes };
 }
 
@@ -1121,11 +1125,11 @@ fn reportLeaks(before: Usage) bool {
 /// The bytes `guardStack` keeps unmapped below the stack on macOS: an
 /// overflowing frame of up to this size lands there and stops the
 /// program.
-pub const stack_reserve: usize = 64 << 20;
+const stack_reserve: usize = 64 << 20;
 
 /// The main thread's stack: what Zig gives it, and what `guardStack`
 /// holds it to on Linux.
-pub const stack_size: usize = 16 << 20;
+const stack_size: usize = 16 << 20;
 
 extern "c" fn pthread_get_stackaddr_np(std.c.pthread_t) *anyopaque;
 extern "c" fn pthread_get_stacksize_np(std.c.pthread_t) usize;
@@ -1210,7 +1214,7 @@ fn stdout() *std.Io.Writer {
 }
 
 /// Write out everything `print` has buffered.
-pub fn flush() void {
+fn flush() void {
     if (stdout_writer) |*w| w.interface.flush() catch {};
 }
 
@@ -1338,7 +1342,7 @@ var print_depth: u32 = 0;
 /// absent optional, `Name(field: v)` for a struct, `.variant` /
 /// `.variant(field: v)` for an enum, and `[a, b]` for arrays and Vecs. A
 /// shared handle prints its value, a function `<fun>`.
-pub fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
+fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
     if (comptime isString(T)) {
         return if (top) w.writeAll(value) else w.print("\"{s}\"", .{value});
@@ -1586,7 +1590,7 @@ test "Signal takes ownership of subscribers and delivers reentrant sets" {
         sig: *Signal(i32),
         seen: *[4]i32,
         n: *usize,
-        pub fn invoke(self: *@This()) void {
+        pub fn __rig_invoke(self: *@This()) void {
             self.seen[self.n.*] = self.sig.value;
             self.n.* += 1;
             if (self.sig.value == 1) self.sig.set(2);
@@ -1608,7 +1612,7 @@ test "closures take any number of arguments and return values" {
     const before = usage();
     const Env = struct {
         base: i64,
-        pub fn invoke(self: *@This(), a: i64, b: i64, c: bool) i64 {
+        pub fn __rig_invoke(self: *@This(), a: i64, b: i64, c: bool) i64 {
             return if (c) self.base + a * b else self.base;
         }
     };
@@ -1630,7 +1634,7 @@ test "a borrowed callable calls a stack closure, a function, or an owned closure
     const Ref = FnRef(&.{i64}, i64);
     const Env = struct {
         k: i64,
-        pub fn invoke(self: *@This(), a: i64) i64 {
+        pub fn __rig_invoke(self: *@This(), a: i64) i64 {
             return a + self.k;
         }
     };
@@ -1734,7 +1738,7 @@ test "values print the way Rig writes them" {
     const h = rcNew(P{ .name = "b", .n = 1 });
     const weak = h.weakRef();
     const Env = struct {
-        pub fn invoke(_: *@This()) void {}
+        pub fn __rig_invoke(_: *@This()) void {}
     };
     var closure = Callback.init(Env, create(Env));
     const bytes = [3]u8{ 72, 105, 33 };

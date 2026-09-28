@@ -33,10 +33,10 @@ sub main()
   print(1)
 EOF2
 
-out=$("$RIG" run main.rig 2>&1); expect_eq "$out" "5" "run"
-"$RIG" build -o prog main.rig || fail "build"
-out=$("$RIG" test main.rig 2>&1); expect_has "$out" "1 passed" "test"
-"$RIG" run plain.rig >/dev/null || fail "plain run"
+out=$(rig run main.rig 2>&1); expect_eq "$out" "5" "run"
+rig build -o prog main.rig || fail "build"
+out=$(rig test main.rig 2>&1); expect_has "$out" "1 passed" "test"
+rig run plain.rig >/dev/null || fail "plain run"
 
 log=$(cat zig.log)
 expect_eq "$(grep -c -- ' -lc' <<<"$log")" "3" "-lc for run, build, and test: $log"

@@ -1,0 +1,24 @@
+# Wrapping, bitwise, and shift operators are for integers. Literal
+# operands take their type from the context, so where that type is a
+# float, or a type parameter a float instantiates, they cannot use one.
+
+fun half[T](x: T) -> T
+  x / (2 +% 1)
+
+fun mx[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main()
+  print(half(5.0))
+  print(mx(3 +% 1, 2.5))
+  f: Float = 2 *% 3
+  g = 1.5 + (2 -% 1)
+  h: Float = 0.5
+  h = h + (1 << 2)
+  print(f, g, h)
+
+# error: 12:9: `half[Float]` cannot use `T = Float`: the generic body applies `+%` to `T`
+# error: 13:12: operator `+%` is for integers, and its literal operands here take the type `Float`
+# error: 14:14: operator `*%` is for integers
+# error: 15:14: operator `-%` is for integers
+# error: 17:12: operator `<<` is for integers

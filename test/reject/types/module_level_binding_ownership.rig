@@ -1,0 +1,13 @@
+# A module-level binding is a constant: functions read it but cannot
+# change or move it.
+
+later = 1
+big = 9223372036854775807
+
+sub main()
+  later = 2
+  y = <big
+  print(y)
+
+# error: 8:3: cannot reassign constant `later`
+# error: 9:8: cannot move module-level `big` inside a function

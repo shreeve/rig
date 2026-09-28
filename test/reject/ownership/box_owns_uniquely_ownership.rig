@@ -1,0 +1,29 @@
+# A box is its value's one owner: it cannot be copied, and a field of
+# the boxed value cannot be moved out or copied out when it owns a
+# resource.
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct H
+  r: Res
+
+struct Node
+  next: Box[Node]?
+
+sub main
+  b = Box(H(r: Res(n: 1)))
+  d = b
+  s = <b.r
+  t = b.r
+  n = Box(Node(next: none))
+  if n.next as x
+    print("next")
+
+# error: 19:7: bare use of `Box` value `b` in binding would copy the box's pointer and free its value twice; use `<b` to move ownership
+# error: 20:8: cannot move out of `b.r`
+# error: 21:7: bare use of `Res` value `b.r` in binding would alias an owning value
+# error: 23:6: bare use of `Box` value `n.next` in binding would copy the box's pointer; a field cannot be moved out of its parent. Borrow it instead: `?n.next` or `!n.next`

@@ -1,0 +1,9 @@
+# After a type's `]`, a sigil starts the element type, and touches it as
+# any prefix sigil does.
+
+sub main()
+  n = 1
+  xs: [1]? Int = [?n]
+  print(xs[0])
+
+# error: 6:10: a prefix `?` touches its operand: write `?Int`

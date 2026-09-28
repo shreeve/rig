@@ -1,0 +1,7 @@
+# A function is declared with `fun` or `sub`; `def` is named where it
+# stands.
+
+def greet(name: String)
+  print(name)
+
+# error: 4:1: Rig has no `def`; declare a function with `fun`

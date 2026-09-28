@@ -1,0 +1,37 @@
+# Another module's alias names its type in every role here: it
+# constructs values of a struct (declared in that module or one it
+# imports) or a generic instance, calls associated functions, names
+# variants, and converts to a number type. A local alias of an imported
+# alias does too, and a default naming a limit through an alias, of
+# that module or one it imports, fills in here.
+
+use lib
+
+type LUP = lib.UP
+type LIP = lib.IP
+
+sub main()
+  p = lib.UP(x: 1)
+  o = lib.UP.origin()
+  l = LUP(x: 2)
+  q = lib.IP(a: 3, b: 4)
+  t = lib.IP.twin(5)
+  r = LIP(a: 6, b: 7)
+  v = lib.IV(capacity: 3)
+  s = lib.US.dark(n: 8)
+  k: lib.US = lib.US.light
+  print(p.x, o.x, l.x, q.b, t.a, r.b, v.len, lib.Real(1.5))
+  match s
+    .dark(n) => print(n)
+    .light => print("light")
+  match k
+    .light => print("light")
+    .dark(_) => print("dark")
+  m = lib.Limits()
+  print(m.hi > 3.0e38, m.lo < -3.0e38, m.small, m.wide > 1.0e308)
+
+# expect:
+# 1 0 2 4 5 7 0 1.5
+# 8
+# light
+# true true -128 true

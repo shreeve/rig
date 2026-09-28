@@ -5,7 +5,9 @@ bug, written as a behavior or reject test of the *correct* behavior
 (see [../README.md](../README.md#directives)), with a header comment
 that says what goes wrong today.
 
-`./test/run` counts a failing known test as `known`, not as a failure.
+`./test/run` counts a failing known test as `known`, not as a failure;
+`./test/run -v known` lists each with what goes wrong (and says
+`no known tests` when there are none).
 When a fix makes one pass, it reports `FIXED` and the suite fails until
 the test moves to `test/behavior/` or `test/reject/`, under the same
 area, in the same commit, without the note about the bug.

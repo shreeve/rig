@@ -14,4 +14,4 @@ sub main()
     _ => print(0)
   print(rc.payload)
 
-# error: use of `rc` after move
+# error: 15:9: use of `rc` after move

@@ -30,6 +30,9 @@ pub const Diagnostic = struct {
     /// that reports the diagnostic: a note about another module's code
     /// (a generic body's operation). 0 for the reporting module.
     module: u32 = 0,
+    /// An error no later check depends on (an unread local): the
+    /// ownership pass still runs on a module that has only these.
+    lint: bool = false,
 };
 
 /// A source file diagnostics point into.

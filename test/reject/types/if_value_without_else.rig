@@ -7,4 +7,5 @@ fun f(c: Bool) -> Int
 sub main()
   print(f(true))
 
-# error: requires an `else` branch
+# error: 5:5: `if` used as a value requires an `else` branch
+# errors: 1

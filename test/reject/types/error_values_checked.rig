@@ -1,6 +1,6 @@
 # Only a fallible function fails with an error value. The error
 # `catch |err|` names may be any error: it is matched by the names of
-# error-set members, with a default arm where its value is used, and it
+# error-set members, with a default arm, and it
 # is not a number or the fallback value.
 
 error ParseError
@@ -32,7 +32,7 @@ sub main()
 
 # error: type mismatch: expected `Int`, got `ParseError`
 # error: no error set has a member `missing`
-# error: value-position `match` on `error` needs a default arm
+# error: `match` on `error` is not exhaustive; add `_ =>`
 # error: type mismatch: expected `Int`, got `error`
 # error: operator `+` requires numeric operands; got `error`
 # error: cannot compare `error` with `Int`

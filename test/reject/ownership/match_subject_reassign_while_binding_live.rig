@@ -1,0 +1,25 @@
+# While a payload binding is live, the matched value cannot be
+# reassigned: the binding views what the old value holds.
+
+enum Tree
+  leaf(v: Int)
+  node(l: Box[Tree], r: Box[Tree])
+
+sub main
+  t: Tree = .node(l: Box(Tree.leaf(v: 1)), r: Box(Tree.leaf(v: 3)))
+  match !t
+    .node(l, _)
+      t = .leaf(v: 4)
+      l = Box(Tree.leaf(v: 7))
+    .leaf(v)
+      t = .leaf(v: 9)
+      v += 1
+  match ?t
+    .node(l, _)
+      t = .leaf(v: 4)
+      print(l)
+    _ => print("x")
+
+# error: 12:7: cannot reassign `t` while borrows are live
+# error: 15:7: cannot reassign `t` while borrows are live
+# error: 19:7: cannot reassign `t` while borrows are live
