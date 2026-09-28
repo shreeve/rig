@@ -1197,7 +1197,6 @@ pub const Parser = struct {
         return switch (tok.cat) {
             .real, .string_sq, .string_dq => if (in_pattern) "a pattern is a name, an integer, `true`, `false`, or an enum variant" else null,
             .@"else" => if (in_pattern) "the catch-all arm is `_`, or a name that binds the value" else null,
-            .minus => if (tok.pos > 0 and src[tok.pos - 1] == '<') "`<-` is not a Rig operator; move-assign with `a = <b`" else null,
             .@"try" => "`try` blocks are reserved: propagate with `e!` or handle with `e catch ...`",
             .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
             .share_pfx => if (precededBy(src, tok.pos, "for")) "`for *x in` is reserved: iterate with `for x in xs`, `?xs`, or `!xs`" else null,

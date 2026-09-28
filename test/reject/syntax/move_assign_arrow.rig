@@ -1,4 +1,5 @@
-# Rig has no `<-` operator: a move-assignment is `a = <b`.
+# Rig has no `<-` operator (a move-assignment is `a = <b`), so `a <- b`
+# does not parse.
 
 sub main()
   a = [1]
@@ -6,4 +7,4 @@ sub main()
   a <- b
   print(a)
 
-# error: 6:6: `<-` is not a Rig operator; move-assign with `a = <b`
+# error: 7:6: unexpected `-`

@@ -4497,7 +4497,6 @@ not parse, and their words and sigils stay reserved:
 | Form | Diagnostic |
 |---|---|
 | `&&`, `\|\|`, `**` | `` `&&` is not a Rig operator; use `and` `` |
-| `a <- b` | `` `<-` is not a Rig operator; move-assign with `a = <b` `` |
 | `@x` (pin) | `` the pin sigil `@x` is reserved `` |
 | `for *x in v` | `` `for *x in` is reserved `` |
 | `try` blocks | `` `try` blocks are reserved `` |
