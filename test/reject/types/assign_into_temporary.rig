@@ -1,0 +1,22 @@
+# A field or element of a value no binding holds is gone after the
+# statement, so assigning to it is rejected.
+
+struct P
+  x: Int
+
+fun mk() -> P
+  P(x: 1)
+
+fun pair() -> [2]Int
+  [1, 2]
+
+sub main
+  mk().x = 5
+  pair()[0] = 3
+  c: Cell[P] = Cell(P(x: 1))
+  c.get().x = 99
+  print(c.get().x)
+
+# error: 14:3: cannot assign to a field or element of a temporary; bind the value first
+# error: 15:3: cannot assign to a field or element of a temporary
+# error: 17:3: cannot assign to a field or element of a temporary

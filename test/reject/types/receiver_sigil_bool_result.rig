@@ -30,6 +30,13 @@ sub main
   d = 1 if !set.insert(7) else 0
   print(a, b, c, d)
   print(fill(!set) catch 0)
+  if !set.insert(8) == false
+    print("seen")
+  e = true and !set.insert(9) == true
+  f = not !set.insert(10) == true
+  print("x") if !set.insert(11) != false
+  g = 1 if !set.insert(12) == true else 2
+  print(e, f, g)
 
 # error: 16:6: a write-borrowing call that returns `Bool` is written `(!s).checked(...)`, so it is never read as negation
 # error: 22:6: a write-borrowing call that returns `Bool` is written `(!set).insert(...)`, so it is never read as negation
@@ -39,3 +46,8 @@ sub main
 # error: 28:7: `(!set).insert(...)`
 # error: 29:11: `(!set).insert(...)`
 # error: 30:12: `(!set).insert(...)`
+# error: 33:6: `(!set).insert(...)`
+# error: 35:16: `(!set).insert(...)`
+# error: 36:11: `(!set).insert(...)`
+# error: 37:17: `(!set).insert(...)`
+# error: 38:12: `(!set).insert(...)`

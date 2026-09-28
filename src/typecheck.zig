@@ -752,6 +752,10 @@ const Checker = struct {
             _ = try self.synthExpr(rhs);
             return;
         }
+        if (try self.assignsIntoTemporary(target)) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
         if (head == .index and (try self.ownsResource(place_ty, self.startOf(target), "overwrites an element"))) {
             try self.errAt(target, "cannot replace an element of type `{s}` by assignment; the old handle would leak", .{try self.tyName(place_ty)});
             return;
@@ -807,6 +811,19 @@ const Checker = struct {
     /// fixed (`=!`), loop and pattern bindings, captures, and parameters
     /// other than `!T` ones are not. False after a diagnostic about the
     /// path.
+    /// `mk().x = 5`, `c.get().x = 9`: a place whose base is a value no
+    /// binding holds (a call's result that is not a write borrow) is
+    /// gone after the statement, so the assignment would change nothing.
+    fn assignsIntoTemporary(self: *Checker, target: Sexp) Error!bool {
+        var base = target;
+        while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+        if (base == .src or base.isKind(.read) or base.isKind(.write)) return false;
+        const ty = self.ctx.typeOf(base) orelse return false;
+        if (self.isPoison(ty) or self.ctx.types.get(ty) == .borrow_write) return false;
+        try self.errAt(target, "cannot assign to a field or element of a temporary; bind the value first (`t = ...`), then assign to `t`", .{});
+        return true;
+    }
+
     fn checkWritable(self: *Checker, place: Sexp, at: Sexp, verb: []const u8) Error!bool {
         const path = self.placePath(place);
         const assign = std.mem.eql(u8, verb, "assign to");
@@ -1090,16 +1107,17 @@ const Checker = struct {
 
     /// Whether `node` starts the condition or logical operand being
     /// checked: it is that expression, or its leftmost part, reached
-    /// through the children that start where their parent does (or just
-    /// before, as a receiver sigil does: in `!s.add(1)` the call starts
-    /// at `s`).
+    /// through the children that start where their parent does, or one
+    /// character on either side: a receiver sigil starts before the call
+    /// it was moved into, which starts after an operator's left side
+    /// (`!s.add(1) == x` starts at `!`, its call at `s`).
     fn startsNegationOperand(self: *Checker, node: Sexp) bool {
         var e = self.negation_operand;
         outer: while (e == .list) {
             if (e.list.id == node.list.id) return true;
             const at = self.ctx.span(e).start;
             for (rig.children(e)) |child| {
-                if (child == .list and self.ctx.span(child).start <= at) {
+                if (child == .list and self.ctx.span(child).start <= at + 1) {
                     e = child;
                     continue :outer;
                 }
