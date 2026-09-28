@@ -2730,14 +2730,15 @@ holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
 borrowed value (the old value is dropped first). A new binding points
 a name at another place: `new w = !m` (`w = !m` is rejected, since it
 would write through `w`). A field or element of type `!T` reads and
-writes through the same way: `h.w = 5`, `h.w += 1`, and `xs[i] += 1`
-write the value the place borrows, while assigning another write
-borrow, `h.w = !m`, points the place at `m`. A write borrow can be lent
-on, written `!p`
-as an owned value's borrow is, or moved into a local with `<p`, but not
-copied. A bare `w` of type `!Int` where an `Int` goes copies the value
-it reaches (`x = w`); where a `!Int` goes (`h.w = w`), it would copy
-the borrow, and is written `<w`. One held
+writes through too: `h.w = 5`, `h.w += 1`, and `xs[i] += 1` write the
+value the place borrows, while assigning another write borrow,
+`h.w = !m`, points the place at `m`. Writing through a borrow held in
+a field needs write access to the struct, as writing any field does,
+so a plain parameter `h: H` or a capture cannot. A write borrow can be
+lent on, written `!p` as an owned value's borrow is, or moved into a
+local with `<p`, but not copied. A bare `w` of type `!Int` where an
+`Int` goes copies the value it reaches (`x = w`); where a `!Int` goes
+(`h.w = w`), it would copy the borrow, and is written `<w`. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
 that path reaches: it cannot be written with or passed on from there,
 and a `match` through one cannot bind it. A loop walks elements whose
