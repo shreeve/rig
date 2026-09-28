@@ -55,7 +55,6 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 Language decisions not yet made. Each describes what Rig does today;
 any change would be future work.
 
-- **A statement that does nothing**, for a `match` arm that has no work to do (every arm needs a statement today).
 - **Which statements take a label**: the reference labels loops, `match`, and `raw`; the compiler also accepts one on any other statement: `break :name` leaves a labeled `if`, and a label on a simple statement has no effect.
 - **`T??`** as a spelling of the nested optional `(T?)?`; today `??` after a type is the fallback operator, and the error points to `(T?)?`.
 - **Modules in subdirectories**: `use name` finds only `name.rig` beside the root file.

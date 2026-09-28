@@ -3835,7 +3835,7 @@ fn tailOf(s: Sexp) Sexp {
 fn isValueExpr(s: Sexp) bool {
     if (s != .list) return s == .src;
     return switch (s.kind() orelse return false) {
-        .set, .@"return", .@"break", .@"continue", .@"while", .@"for", .drop, .@"defer", .@"errdefer", .labeled => false,
+        .set, .@"return", .@"break", .@"continue", .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .labeled => false,
         else => true,
     };
 }

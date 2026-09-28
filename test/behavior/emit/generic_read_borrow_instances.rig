@@ -9,13 +9,13 @@ struct Wrap[T]
   fun get(?self) -> ?T
     ?self.v
 
-  fun pass(?self, x: ?T) -> ?T
+  fun echo(?self, x: ?T) -> ?T
     x
 
   fun same(?self, other: ?Self) -> Bool
     s = other.get()
-    t = self.pass(s)
-    u = self.pass(?other.v)
+    t = self.echo(s)
+    u = self.echo(?other.v)
     print(t, u)
     true
 

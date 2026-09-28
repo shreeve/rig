@@ -940,6 +940,8 @@ pub const Emitter = struct {
         switch (head) {
             .set => try self.emitSet(sexp),
             .drop => try self.emitDrop(sexp),
+            // An empty block: a statement wherever Zig wants one.
+            .pass => try self.w.writeAll("{}"),
             .@"return" => try self.emitReturn(sexp),
             .@"break" => try self.emitBreak(sexp),
             .@"continue" => try self.emitContinue(sexp),
@@ -5338,7 +5340,7 @@ fn sameNode(a: Sexp, b: Sexp) bool {
 fn isValueStmt(s: Sexp) bool {
     const h = s.kind() orelse return true;
     return switch (h) {
-        .set, .drop, .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .block, .@"while", .@"for", .labeled => false,
+        .set, .drop, .pass, .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .block, .@"while", .@"for", .labeled => false,
         .@"if" => ir.If.@"else"(s) != .nil,
         else => true,
     };

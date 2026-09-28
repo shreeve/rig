@@ -174,6 +174,7 @@ const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "new", .new },
     .{ "not", .not },
     .{ "or", .@"or" },
+    .{ "pass", .pass },
     .{ "pub", .@"pub" },
     .{ "raw", .raw },
     .{ "return", .@"return" },

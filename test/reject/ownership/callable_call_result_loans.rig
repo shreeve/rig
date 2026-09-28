@@ -4,7 +4,7 @@
 # call returned. So `|?c| c` called through any of them cannot outlive
 # `c`, or be returned from the function that owns `c`.
 
-fun pass(f: ?fun() -> ?Vec[Int]) -> ?fun() -> ?Vec[Int]
+fun echo(f: ?fun() -> ?Vec[Int]) -> ?fun() -> ?Vec[Int]
   f
 
 fun bad(a: ?Vec[Int]) -> ?Vec[Int]
@@ -28,7 +28,7 @@ sub main
   if true
     e: Vec[Int] = Vec()
     n = |?e| e
-    r = pass(?n)()
+    r = echo(?n)()
   print(r.len)
 
 # error: 12:9: returned borrow of `c` does not originate from a borrowed parameter

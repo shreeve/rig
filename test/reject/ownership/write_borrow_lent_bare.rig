@@ -25,7 +25,7 @@ sub bump(c: !Counter)
 fun peek(c: ?Counter) -> Int
   c.get()
 
-sub pass(c: !Counter, r: ?Counter)
+sub echo(c: !Counter, r: ?Counter)
   bump(c)
   print(peek(r), peek(c))
   e = Ed(c: c)
@@ -44,7 +44,7 @@ sub main
   w.bump()
   !w.twice()
   d = Counter(n: 0)
-  pass(!c, ?d)
+  echo(!c, ?d)
   xs = [1, 2, 3]
   fill(!xs[..])
 

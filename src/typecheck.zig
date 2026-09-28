@@ -503,6 +503,7 @@ const Checker = struct {
                             else => "labeled statement",
                         },
                         .drop => "drop",
+                        .pass => "`pass`",
                         .@"defer", .@"errdefer" => "deferred statement",
                         else => "jump",
                     };
@@ -543,7 +544,7 @@ const Checker = struct {
                 _ = try self.synthExpr(ir.Drop.name(stmt));
             },
             .@"break" => try self.checkBreak(stmt),
-            .@"continue" => {},
+            .@"continue", .pass => {},
             .@"defer", .@"errdefer" => {
                 const saved = self.body;
                 defer self.body = saved;
@@ -1486,7 +1487,7 @@ const Checker = struct {
     fn yieldsNoValue(self: *Checker, e: Sexp) bool {
         const h = e.kind() orelse return false;
         return switch (h) {
-            .set, .@"while", .@"for", .drop, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .labeled => !self.isValueLoop(e),
+            .set, .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .labeled => !self.isValueLoop(e),
             else => false,
         };
     }
@@ -2374,6 +2375,10 @@ const Checker = struct {
             .@"while", .@"for", .labeled, .set, .drop, .@"defer", .@"errdefer" => if (self.isValueLoop(e)) self.checkLoopValue(e, null, true) else blk: {
                 try self.checkStmt(e);
                 break :blk self.t().void_id;
+            },
+            .pass => blk: {
+                try self.errAt(e, "`pass` does nothing and has no value, and a value is needed here", .{});
+                break :blk self.t().invalid_id;
             },
             .@"return" => blk: {
                 try self.checkReturn(e);

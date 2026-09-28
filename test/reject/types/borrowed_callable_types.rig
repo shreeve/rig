@@ -19,7 +19,7 @@ keep: ?fun(Int) -> Int = double
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-fun pass(f: ?fun(Int) -> Int) -> ?fun(Int) -> Int
+fun echo(f: ?fun(Int) -> Int) -> ?fun(Int) -> Int
   f
 
 sub store(f: ?fun(Int) -> Int)
@@ -32,7 +32,7 @@ sub store(f: ?fun(Int) -> Int)
 sub main
   print(apply(*|a| a + 1, 2))
   g: ?fun(Int) -> Int = |a| a
-  h = pass(|a| a + 1)
+  h = echo(|a| a + 1)
   k = 1
   l = |+k, a: Int| a + k
   m = !l

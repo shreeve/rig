@@ -74,6 +74,7 @@ tokens
     new             # a keyword only at statement start (`new x = ...`)
     not
     or
+    pass
     pub
     raw
     return
@@ -306,6 +307,7 @@ tokens
     # Bindings: `op` is the binding kind (see BindingKind in src/rig.zig)
     set                         op:tag(fixed|shadow|"+="|"-="|"*="|"/="|"%="|"+%="|"-%="|"*%="|"&="|"|="|"^="|"<<="|">>=")? target type? value
     drop                        name:leaf
+    pass
 
     # Control flow
     if                          cond then else?
@@ -374,7 +376,7 @@ tokens
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
-    MATCH: "`match`", NEW: "`new`", NOT: "`not`", OR: "`or`", PUB: "`pub`"
+    MATCH: "`match`", NEW: "`new`", NOT: "`not`", OR: "`or`", PASS: "`pass`", PUB: "`pub`"
     RAW: "`raw`", RETURN: "`return`", STRUCT: "`struct`", SUB: "`sub`", TEST: "`test`", TRY: "`try`"
     TYPE: "`type`", USE: "`use`", WHILE: "`while`", ZIG: "`zig`"
     ASYNC: "`async`", AWAIT: "`await`", CONST: "`const`", IMPL: "`impl`"
@@ -420,7 +422,7 @@ stmt     = use
          | simple
          | simple POST_IF cond:value                → (if then:(block 1))
 
-# A simple statement: an expression, a binding, or a flow statement. Only these take a postfix guard (`return x if done`).
+# A simple statement: an expression, a binding, `pass`, or a flow statement. Only these take a postfix guard (`return x if done`).
 # A compound assignment's `op` is the tag its operator names (`+=`).
 simple   = tail
          | assign
@@ -429,6 +431,7 @@ simple   = tail
          | target:name ":" type:type "=!" value:tail → (set op:fixed)
          | NEW target:name "=" value:tail           → (set op:shadow)
          | DROP_STMT name:name                      → (drop)
+         | PASS                                     → (pass)
          | RETURN [value:tail]                      → (return)
          | BREAK [":" label:name] [value:tail]      → (break)
          | CONTINUE [":" label:name]                → (continue)

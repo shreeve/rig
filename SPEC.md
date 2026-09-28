@@ -2151,7 +2151,8 @@ the patterns. A range pattern's bounds are constants. Every match must
 cover every value, whether its value is used
 or it is a statement: its arms name every variant or value, or a
 catch-all (`_`, or a name) covers the rest. Duplicate and unreachable
-arms are rejected.
+arms are rejected. An arm with no work to do is `_ => pass`
+([pass](#pass)).
 
 A guard `if cond` after a pattern is a `Bool` that may read the
 pattern's bindings; when it is false, the later arms are tried, as if
@@ -2291,6 +2292,44 @@ sub main
 
 ```error
 cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fields
+```
+
+### pass
+
+`pass` is a statement that does nothing. It stands where a statement
+is needed and there is no work: a match arm (`_ => pass`), a loop
+body, an `if` branch, or a function body. It has no value, so a match
+arm, branch, or block whose value is used cannot end with it.
+
+```rig
+sub main
+  n = 4
+  match n % 2
+    0 => print("even")
+    _ => pass
+  if n > 10
+    pass
+  else
+    print("small")
+```
+
+```output
+even
+small
+```
+
+```rig reject
+fun sign(n: Int) -> Int
+  match n
+    0 => pass
+    _ => 1
+
+sub main
+  print(sign(0))
+```
+
+```error
+`pass` does nothing and has no value
 ```
 
 ### defer and errdefer

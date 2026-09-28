@@ -343,6 +343,7 @@ program; [INTERNALS](docs/INTERNALS.md) describes it.
 | class | `struct` + functions | `class` | `class` / `struct` + methods | `struct` with methods |
 | `this` / `self` | a pointer argument | `self` (implicit in Ruby) | `this` / a receiver | `self`, always written |
 | switch | `switch` | `match` / `case` | `switch` | `match` |
+| do nothing | `;` | `pass` / `nil` | `{}` | `pass` |
 | exceptions | error codes | `raise` / `try` | `throw` / `error` returns | `T!`, `f()!`, `catch` |
 | string formatting | `printf` | f-strings / `#{}` | template strings / `Sprintf` | `print(a, b)`: no interpolation |
 | memory | `malloc`, `free` | a garbage collector | a garbage collector | owners, released where their scope ends |

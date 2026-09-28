@@ -380,6 +380,9 @@ A few kinds serve more than one surface form:
   `variant_pattern` binding is a name, or `(kwarg field name)` for a
   field bound by name (`.rect(w: a)`), which the checker rejects as
   not supported yet.
+- `(pass)`, the statement `pass`, has no roles. The checker rejects it
+  where a value is needed, and the emitter writes it as `{}`, an empty
+  Zig block, which is a statement wherever Zig takes one.
 - `lambda`'s `captures` is a `(captures cap...)` node the Parser wrapper
   builds from the bar list (the one `@wrapper` kind), or `_`.
 - `weak` is both `~x` and the type `~T`; `member` is both `a.b` and the
