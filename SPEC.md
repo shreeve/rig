@@ -1695,8 +1695,8 @@ test "area"
 
 A binding at module level is a constant, `name = value` or
 `name: T = value`, and `pub` exports it. Its value must be known at
-compile time: a literal, `.variant`, an earlier constant, or operators
-and array literals over them. Every function and type in the module
+compile time: a literal, `.variant`, an earlier constant, or operators,
+ternaries (`a if c else b`), and array literals over them. Every function and type in the module
 reads it, wherever it is declared; nothing can reassign or move it,
 and a local or parameter may not reuse its name (`new` shadows it on
 purpose).

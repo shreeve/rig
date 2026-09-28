@@ -3128,7 +3128,7 @@ sub main
 
 **Constants.** A module-level binding is a constant, written with `=`
 and known at compile time: literals, `.variant`, earlier constants, and
-operators and arrays over them. There are no mutable globals, so a
+operators, ternaries, and arrays over them. There are no mutable globals, so a
 module-level binding needs no `=!` (and is rejected with one).
 
 ```rig

@@ -308,7 +308,7 @@ const Checker = struct {
         const value = ir.Set.value(node);
         if (self.isPoison(self.ctx.typeOf(target) orelse self.t().invalid_id)) return;
         if (!self.isConstExpr(value)) {
-            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators and arrays over them", .{});
+            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators, ternaries, and arrays over them", .{});
         }
     }
 
@@ -318,6 +318,8 @@ const Checker = struct {
             return true;
         }
         if (e.isKind(.array_fill)) return self.isConstExpr(ir.ArrayFill.value(e));
+        // A ternary `a if c else b` over constants.
+        if (e.isKind(.@"if")) return self.isConstExpr(ir.If.cond(e)) and self.isConstExpr(ir.If.then(e)) and self.isConstExpr(ir.If.@"else"(e));
         return self.isComptimeKnown(e);
     }
 
