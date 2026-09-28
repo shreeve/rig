@@ -174,14 +174,11 @@ borrow of a result is written around it, `?(p.m())`. `*`, `+`, `~`,
 and `-` do mean something on a result (share it, clone the handle it
 is, take a weak handle, negate it), so they keep the rule:
 `*Point.origin()` shares the new point. The exception comes with checks
-that keep it honest: `!` before a method that only reads its receiver
-is rejected, since it would read as negation (which is `not`), `<`
-before one that does not consume it is rejected, `?` before one that
-writes or consumes it is rejected, and a `!` call whose
-value is a `Bool` keeps the parentheses, `(!set).insert(k)`, where a
-leading `!` would read as "not": as a condition and as an operand of
-`and`, `or`, or `not`. Elsewhere, as in `added = !set.insert(k)`,
-nothing reads it as negation, so the short form stands.
+that keep it honest: a sigil before a method call must match the mode
+the method declares, so a `!` never stands before a method that only
+reads, where it would pass for negation, and a `!` call whose value is
+a `Bool` keeps its parentheses, `(!set).insert(k)`, wherever a leading
+`!` would read as "not" ([SPEC §3](../SPEC.md#structs)).
 
 **Absorption.** Operations that would add nothing are rejected rather
 than silently tolerated. Sharing a shared handle (`*x` when `x : *T`,
@@ -194,8 +191,9 @@ can always be read: a `!T` is accepted where a `?T` is expected.
 reuses the expression sigils for captures (`|+x|` clones, `|<x|` moves,
 `|?x|` and `|!x|` borrow, `|~x|` holds weakly). A loop over a Vec borrows its source
 (`for x in ?v`), and a `match` says the same of its subject (`match !e`
-writes the payload in place, `match <e` takes it). Receivers are `?self` and `!self`, the only place a
-sigil may prefix a parameter name. A move-assignment is `a = <b`.
+writes the payload in place, `match <e` takes it). Receivers are
+`?self`, `!self`, and `<self`, the only place a sigil may prefix a
+parameter name. A move-assignment is `a = <b`.
 The fixed binding `x =! e` is the one place `!` appears in an operator
 that is not about borrowing or failure.
 
@@ -304,10 +302,10 @@ per such binding, visible in the emitted code.
 or `let`. What Rig forbids is the classic accident of that style:
 implicit shadowing. A local may not reuse a visible name; `new x = e`
 shadows on purpose. `x =! e` marks a binding that never changes.
-Rig does not flip to immutable-by-default: the emitter already declares
-every binding that is never reassigned as a Zig `const`, and visible
-mutation is better expressed through types like `Cell` than through
-binding syntax.
+Rig does not flip to immutable-by-default: whether a binding is a Zig
+`const` or `var` is the emitter's choice, made from what the checker
+knows, and visible mutation is better expressed through types like
+`Cell` and the `!` at each write than through binding syntax.
 
 ### Private members by default
 
@@ -328,10 +326,8 @@ of code and review.
 Words read better than `&&` and `||`, and they free `!` for its two
 jobs, borrowing and failure. `&&` and `||` are rejected with a pointer
 to the words, and so is every `!` a C, Rust, or Zig reader would take
-for "not": a `!x` read as a `Bool`, a `!` before a method that only
-reads its receiver (`!q.is_empty()`), and a `!` call that returns a
-`Bool` without its parentheses. A habit can make a program fail to
-compile, never change what it means.
+for "not", such as `if !done` or `!q.is_empty()`. A habit can make a
+program fail to compile, never change what it means.
 
 ### Brackets for compile time
 
@@ -449,13 +445,15 @@ generator that emits one self-contained Zig file. Each grammar rule
 declares the S-expression node it produces, so there is no hand-written
 parser and no separate AST type: the grammar is the single source of
 truth for both syntax and IR shape, and every later pass walks the same
-tree by tag. The grammar has no LALR conflicts; the context-sensitive
-decisions (a sigil or an operator by its position, ternary versus
-guard, closure bars) are made in a small lexer rewriter that sees the
-token before and can look ahead on the line. Whitespace inside an
-expression decides none of them, and a prefix sigil touches its
-operand, so a spacing can be wrong but never mean something else. Lisp's influence on Rig is this IR,
-not its syntax.
+tree by tag. The grammar has no LALR conflicts. A character that both
+starts and continues an operand (`-x` and `a - b`, `f(x)` and `(x)`)
+is one token, which the parser tells apart by where it stands; the few
+decisions its state cannot make (ternary versus guard, closure bars, a
+drop statement) are made in a small lexer rewriter that sees the token
+before and can look ahead on the line. Whitespace inside an expression
+decides none of them, and a prefix sigil touches its operand, so a
+spacing can be wrong but never mean something else. Lisp's influence
+on Rig is this IR, not its syntax.
 
 ### Substrate, not a reactive framework
 

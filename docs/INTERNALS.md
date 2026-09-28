@@ -46,7 +46,10 @@ is replaced atomically, so concurrent builds of one program never read
 a partly written file, and the directory is not emptied. It holds the
 package's own Zig cache, `.zig-cache/`: Zig 0.16 keys a `zig run` cache
 entry by the root file's path relative to the working directory, so
-two packages sharing one cache could collide. The toolchain is `$ZIG`,
+two packages sharing one cache could collide. `run` and `test` go
+through `zig run`, which reuses a cached build of unchanged sources;
+`build` runs `zig build-exe -femit-bin=...`, which caches nothing, so
+it compiles the package in full every time. The toolchain is `$ZIG`,
 else `zig` on `PATH`, run with `-ODebug`, `-OReleaseSafe` (`--release`),
 or `-OReleaseFast` (`--release=fast`), and with `-lc` when a module
 declares an `extern`. `emit` prints the root module's Zig and names the
@@ -136,7 +139,7 @@ own rules: after a value (a name, a literal, `)`, `]`, or a `?` / `!`
 suffix) a character continues the value; anywhere else it starts an
 operand. A prefix sigil (`<` `+` `-` `*` `?` `!` `~`) must touch its
 operand, or the lexer rejects it (`detached_prefix`), so no spacing
-reads as another form: `a <- b` is an error, not `a < -b`. After a
+reads as another form: `a < - b` is an error, not `a < -b`. After a
 type's `]` (`[2]?Int`) the lexer cannot tell a prefix from a suffix, so
 the Parser wrapper checks the touch on the type's node.
 
@@ -144,6 +147,7 @@ the Parser wrapper checks the touch on the type's node.
 |---|---|---|
 | `-x` vs `a - b`, `-x + 1` | `DROP_STMT` vs `-` | `-name` as a whole statement (a line, after `=>`, `defer`, or `errdefer`, or after a label) is a drop |
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | after a value, bitwise or; otherwise a bar list, whose closing bar is the one the opening probe found |
+| `\|\| body` vs `a \|\| b` | `BAR_EMPTY` vs an error | where an operand starts, an empty bar list; after a value, rejected with a hint (`or`, or `??` before a literal) |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
 | `while c : step` vs `?? break :outer`, `break :outer` | `STEP_COLON` vs `:` | the first `:` at a `while` header's bracket depth starts its step; any other `:` after a jump names a label, and the grammar takes a label after every `break` and `continue` |
@@ -187,9 +191,9 @@ forms to `value`, an expression without blocks or closures (conditions,
   closed;
 - classifies keywords, the characters read by position, `if`, and
   closure bars as above;
-- rejects `&&`, `||` (pointing to `??` before a literal, to `or`
-  otherwise), `**`, `i++` and `i--`, `//` and `/*` comments, and the
-  reserved pin sigil `@x` with a hint, and malformed input where it is written: `=!` touching the
+- rejects `&&`, `||` after a value, `**`, `i++` and `i--`, `//` and
+  `/*` comments, and the reserved pin sigil `@x` with a hint, and
+  malformed input where it is written: `=!` touching the
   operand after it (the one place token boundaries could read two ways:
   a fixed binding of `y`, or `x = !y`), a number with a
   leading zero or an uppercase radix prefix, a control character in a
@@ -246,8 +250,8 @@ rewrites that need to inspect the tree:
   (`!x.v`), whose head is called (`!f(x).g()`), or that is
   parenthesized (`!(v.pop())`) keeps the sigil outside. The grammar
   drops parentheses, so the last is told by span: every node of the
-  chain must start at the token after the sigil (past any whitespace),
-  where a `(` stands instead when the chain is parenthesized. The wrapper records the new
+  chain must start at the token after the sigil, where a `(` stands
+  instead when the chain is parenthesized. The wrapper records the new
   node's id (`Parser.isReceiverSigil`), since the checker rejects some
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!self` (the habit of `!` as negation),
@@ -322,16 +326,17 @@ sub main
 ```
 
 `rig normalize` prints the IR on one line; here it is broken for
-reading. The suite pins the raw and semantic IR of a program for each
-area of the language in `test/ir/`.
+reading. The checked reference is `test/ir/`, where the suite pins the
+raw (`.raw.sexp`) and semantic (`.sem.sexp`) IR of a program for each
+area of the language.
 
 ```text
 $ rig normalize packet.rig
 (module
   (struct Packet (: size Int))
   (fun size_of _ ((: p (borrow_read Packet))) Int (block (member p size)))
-  (sub send _ ((: p Packet)) (block (call print (member p size))))
-  (sub main _ () (block
+  (sub send _ ((: p Packet)) _ (block (call print (member p size))))
+  (sub main _ _ _ (block
     (set _ p _ (call Packet (kwarg size 512)))
     (call print (call size_of (read p)))
     (set _ count _ 1)
@@ -346,18 +351,10 @@ $ rig normalize packet.rig
 The `@schema` block at the top of the parser section of `rig.grammar`
 is the complete list: one line per kind (or per group of kinds with the
 same roles), giving each role's name and type in slot order. `?` marks
-an optional role, `...` a role that takes the remaining children:
-
-```text
-fun         name:leaf tparams:group? params:group? returns? body:block
-sub         name:leaf tparams:group? params:group? body:block
-set         op:tag(fixed|shadow|move|"+="|...)? target type? value
-for         mode:tag(iter|read|write|move) var:leaf index:leaf? source body:block else:block?
-match       subject ...arms:arm
-arm         pattern guard? body
-call        callee ...args
-"+", "-", "*", "/", "%"   left right
-```
+an optional role and `...` a role that takes the remaining children.
+A `sub`'s roles are its name, compile-time parameters, parameters, the
+`fails` marker of `sub f()!`, and its body, so `sub main` above prints
+as `(sub main _ _ _ (block ...))`.
 
 A few kinds serve more than one surface form:
 
@@ -577,15 +574,22 @@ ownership:
 
 - **fallibility**: a call of type `T!` must be the operand of `!` or
   `catch`; `!` needs a fallible operand and an enclosing function or
-  test that can fail (`-> T!`, the root module's `sub main`, which is
-  then emitted as `anyerror!void`, or a `test`, whose error `rig test`
-  reports); closure bodies, `drop` bodies, and deferred code cannot
-  propagate; likewise `e?` (`propagate_none`) needs an optional operand
-  and a function returning `T?` (or `T?!`) to return `none` from;
+  test that can fail (`-> T!`, `sub f()!`, the root module's
+  `sub main`, which is then emitted as `anyerror!void`, or a `test`,
+  whose error `rig test` reports); likewise `e?` (`propagate_none`)
+  needs an optional operand and a function returning `T?` (or `T?!`)
+  to return `none` from. A closure body propagates only when the
+  closure's type can fail (`?fun(Int) -> Int!`), or, for `?`, returns
+  an optional; `drop` bodies and deferred code never propagate;
 - **the raw boundary**: builtins outside the safe list (`@sizeOf`,
   `@alignOf`, `@TypeOf`, `@typeName`), and calls to `extern` functions,
   must be inside a `raw` block. An `extern` function can only be
   called, so it cannot leave `raw` as a value.
+
+It also allows a borrow of a temporary (`?S(n: 1)`) only as an
+argument of a call whose result keeps no borrow, since the temporary
+ends with its statement, so the ownership checker, which tracks loans
+on named values, never meets one that outlives its value.
 
 Types are interned in a `TypeStore`, so two `TypeId`s are equal exactly
 when the types are. `unknown` and `invalid` are poison: they appear only
@@ -678,7 +682,10 @@ type's value parameters are detached `param` symbols among its
 function's integer value parameters are part of its instances
 (`FnInstance`) like its type parameters, and a call infers the ones its
 signature holds. A value takes at most `sema.max_value_bytes`
-(8 MiB), from `sema.minBytes`: an array type is checked where it is
+(8 MiB), from `sema.minBytes`, which counts what a value holds inline:
+a `Cell[T]` is its `T`, a `Signal[T]` its value twice (the current and
+a pending one) and its subscriber list, a `Vec` its buffer's slice and
+length, and a `Box` its pointer. An array type is checked where it is
 spelled or made (`checkArrayBytes`), or, when a generic call infers it
 from an argument, at that argument (`checkArraysIn`); a synthesis whose
 diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the
@@ -773,6 +780,16 @@ names that module (`Diagnostic.module`, `SemContext.noteIn`) and prints
 with its file's path and line. `test/cli/diagnostics.sh` checks the
 format.
 
+A name, type, field, or method that is not found names the closest
+one in scope or on the type (`sema.Suggest`: within one edit for a
+name of up to five characters and two for a longer one, a swap of
+neighbors counting as one), as in
+``use of unbound name `totla`; did you mean `total`?``, and another
+language's spelling of a Rig form (`null`, `True`, `this`,
+`println`, ...; `unboundHint` in typecheck) names Rig's. A local that
+is never read is reported as a *lint* (`Diagnostic.lint`), the one
+error that does not keep ownership from checking the module.
+
 ## Ownership
 
 `ownership.zig` checks one function body at a time as a flow-sensitive
@@ -828,11 +845,13 @@ the loans of all its captures, as a call's `!` arguments do with its
 arguments. This is sound because the only loans left to such a store
 are on values outside the closure that it captured, and the captured
 value's var now holds each of them for as long as it lives.
-A slice of an array (`?xs[a..b]`) points into the storage of the var
-the array is reached from, which may be a copy of the caller's (a
-borrowed parameter, a copied read borrow of a scalar, a loop or pattern
-binding), so it also holds a *frame* loan on that var: a local loan
-even when the var is a borrowed parameter. A write slice (`!xs[a..b]`)
+A slice of an array (`?xs[a..b]`) held in the storage of the var it is
+reached from, which may be the function's own (a parameter taken by
+value, a loop or pattern binding), also holds a *frame* loan on that
+var: a local loan even when the var is a parameter, so the slice cannot
+be returned. An array reached through a borrow (a `?[N]T` parameter is
+a `*const [N]T`) is behind a pointer, and its slices carry the borrow's
+loans, the caller's included. A write slice (`!xs[a..b]`)
 takes a write loan the same way; one of a `![]T` var reborrows it, as
 any borrow of a borrow does, while an array reached through an element
 of a read-only `[]T` is viewed as that `[]T` views it, with its loans.
@@ -883,7 +902,7 @@ not borrow a var declared after the `defer` (dropped before it runs).
 An `errdefer` body is re-checked only at the exits that fail: a `!`,
 and a `return` or final value whose type is, or may be, an error.
 
-**Rules** (SPEC §8 states them for users): no use of a moved or dropped
+**Rules** (SPEC §7 states them for users): no use of a moved or dropped
 value; read loans exclude writes, moves, drops, and reassignment, and
 write loans exclude everything; no loan outlives its root, including
 through `break` and error propagation; a returned or stored value
@@ -926,7 +945,11 @@ lower is an internal error: sema must have rejected it.
   (`@"var"`) and marks a name the emitter itself declares (`std`, `rig`,
   `panic`, anything starting with `__rig`) with a `'` no Rig name can
   contain (`@"rig'"`). Every generated name and label starts with
-  `__rig_`, and a local that would shadow a visible Zig name is renamed.
+  `__rig_` (a stack closure's `__rig_invoke`, a generic type's
+  `__rig_Self`, a guarded match's `__rig_arm_N`), so none can meet a Rig
+  name; the one exception is a closure environment's fields,
+  `cap_<name>`, in a struct that holds nothing else. A local that would
+  shadow a visible Zig name is renamed.
 - **Automatic drop.** An owning binding gets a `defer` that releases
   it. When the binding may be moved, dropped, or returned first, the
   defer is guarded by a flag, and the consuming site clears it:
@@ -1061,10 +1084,11 @@ reviewed.
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
-| `guardStack` | makes a stack overflow stop the program. Zig probes the stack as a frame grows only on x86, so elsewhere a frame larger than the guard below the stack can step over it. Linux maps nothing within 128 MiB of the top of the stack (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to 16 MiB (`stack_size`), leaving 112 MiB free below it; macOS guards the stack with one page and maps memory right below that once the address space fills, so there `guardStack` reserves 64 MiB (`stack_reserve`) below the guard. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main` runs. A frame holds at most 16 MiB of values (`checkFrames`), so with Zig's temporaries an overflowing one lands in the reserve. `test/cli/stack_guard.sh` checks it |
+| `guardStack` | called first in the emitted `main` and in `runTests`: makes a stack overflow stop the program rather than write past the stack. On x86 Zig probes the stack page by page as a frame grows, so the guard page catches every overflow and nothing more is needed. Elsewhere (aarch64) a frame steps down by its whole size, so one larger than the guard page could land in memory mapped below it; since a frame holds at most 16 MiB of values (`checkFrames`), 64 MiB kept unmapped below the stack catches it with room for Zig's temporaries. macOS guards the stack with one page and maps memory right below that once the address space fills, so `guardStack` reserves `stack_reserve` (64 MiB) below the guard page at start. Linux maps nothing within 128 MiB of the stack's top (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to `stack_size` (16 MiB), leaving 112 MiB free below it. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main`'s body runs. On other operating systems it does nothing. `test/cli/stack_guard.sh` checks it |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @sizeOf(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
-| `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
+| `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
+| `notNan` | wraps a float converted to an integer type: where safety checks run (Debug and ReleaseSafe), a NaN panics as an out-of-range value does, which `@intFromFloat`'s own check misses |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
 | `discard`, `isNone`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out |
