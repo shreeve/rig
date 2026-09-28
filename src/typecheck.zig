@@ -750,7 +750,10 @@ const Checker = struct {
             try self.errAt(target, "a borrowed callable `{s}` lives only as long as what it borrows, so it cannot be a module-level binding", .{try self.tyName(s.ty)});
             s.ty = self.t().invalid_id;
         }
-        if (kind == .fixed and self.isComptimeKnown(rhs)) s.flags.comptime_known = true;
+        // A module constant's ternary over constants is constant too, so
+        // a later constant may branch on it.
+        const ternary_const = s.scope == self.module_scope and rhs.isKind(.@"if") and self.isConstExpr(rhs);
+        if (kind == .fixed and (ternary_const or self.isComptimeKnown(rhs))) s.flags.comptime_known = true;
         // `k =! n` stands for the compile-time parameter `n` where an
         // array length or a compile-time argument names it.
         if (kind == .fixed and is_decl and s.kind == .local) if (try self.ctParamOf(rhs)) |ct| try self.ctx.ct_locals.put(self.ctx.allocator, sym_id, ct);
