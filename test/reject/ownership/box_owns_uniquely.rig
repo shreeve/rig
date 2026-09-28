@@ -15,12 +15,12 @@ struct Node
   next: Box[Node]?
 
 sub main
-  b = Box(value: H(r: Res(n: 1)))
+  b = Box(H(r: Res(n: 1)))
   c = +b
   d = b
   s = <b.r
   t = b.r
-  n = Box(value: Node(next: none))
+  n = Box(Node(next: none))
   if n.next as x
     print("next")
 

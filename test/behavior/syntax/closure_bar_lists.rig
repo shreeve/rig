@@ -6,7 +6,7 @@
 
 sub main()
   n = 10
-  cell: *Cell[Int] = *Cell(value: 0)
+  cell: *Cell[Int] = *Cell(0)
   v: Vec[Int] = Vec()
   !v.push(1)
 

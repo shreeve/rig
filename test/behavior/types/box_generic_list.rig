@@ -6,7 +6,7 @@ struct Node[T]
   next: Box[Node[T]]?
 
 fun push[T](top: Box[Node[T]]?, v: T) -> Box[Node[T]]?
-  Box(value: Node(value: v, next: <top))
+  Box(Node(value: v, next: <top))
 
 fun count[T](top: ?Box[Node[T]]?) -> Int
   n = 0

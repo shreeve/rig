@@ -13,15 +13,15 @@ enum Sh
   s(k: Int)
 
 sub main
-  h = Box(value: *R(n: 1))
+  h = Box(*R(n: 1))
   print(h)
-  b = Box(value: P(unbox: 4))
+  b = Box(P(unbox: 4))
   print(b.unbox)
   p = <b.unbox()
   print(p.unbox)
   v: Vec[Box[Sh]] = Vec()
-  !v.push(Box(value: Sh.s(k: 3)))
-  !v.push(Box(value: Sh.c(r: 2)))
+  !v.push(Box(Sh.s(k: 3)))
+  !v.push(Box(Sh.c(r: 2)))
   for x in ?v
     match x
       .c(r) => print("c", r)

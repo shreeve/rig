@@ -10,7 +10,7 @@ struct IntSource
   subs: *Cell[Subscribers]
 
   fun new(initial: Int) -> *IntSource
-    *IntSource(value: *Cell(value: initial), subs: *Cell(value: Vec()))
+    *IntSource(value: *Cell(initial), subs: *Cell(Vec()))
 
   fun get(self: ?IntSource) -> Int
     self.value.get()

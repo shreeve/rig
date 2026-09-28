@@ -9,13 +9,13 @@ sub eat(c: *Cell[Int])
   print(c.get())
 
 sub main()
-  e: E = .full(c: *Cell(value: 1))
+  e: E = .full(c: *Cell(1))
   f = |<e|
     match e
       .full(c) => eat(<c)
       .empty => print(0)
   f()
-  e2: E = .full(c: *Cell(value: 2))
+  e2: E = .full(c: *Cell(2))
   g = *|<e2|
     match e2
       .full(c)

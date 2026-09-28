@@ -19,26 +19,26 @@ fun swap(c: Cell[Int]) -> Int
   c.replace(2)
 
 fun made() -> Counter
-  Counter(hits: Cell(value: 0))
+  Counter(hits: Cell(0))
 
 fun fresh() -> Cell[Int]
-  Cell(value: 3)
+  Cell(3)
 
 sub touch(c: ?Cell[Int])
   print(c.get())
 
 sub main()
-  c: Cell[Int] = Cell(value: 0)
+  c: Cell[Int] = Cell(0)
   bump(c)
   print(swap(c))
-  cells: [2]Cell[Int] = [Cell(value: 1), Cell(value: 2)]
+  cells: [2]Cell[Int] = [Cell(1), Cell(2)]
   for x in cells
     x.set(5)
     touch(?x)
-  counters = [Counter(hits: Cell(value: 0))]
+  counters = [Counter(hits: Cell(0))]
   for k in counters
     k.hit()
-  wrapped: [1]Wrap = [Wrap(c: Counter(hits: Cell(value: 0)))]
+  wrapped: [1]Wrap = [Wrap(c: Counter(hits: Cell(0)))]
   for w in wrapped
     touch(?w.c.hits)
   fresh().set(4)

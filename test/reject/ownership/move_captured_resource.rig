@@ -5,7 +5,7 @@ fun consume_sig(s: *Signal[Int]) -> Int
   s.get()
 
 sub main()
-  sig: *Signal[Int] = *Signal(value: 0)
+  sig: *Signal[Int] = *Signal(0)
   cb: *sub() = *|+sig| consume_sig(<sig)
   cb()
 

@@ -4,7 +4,7 @@ struct H
   s: Signal[Int]
 
 sub main()
-  h = H(s: Signal(value: 1))
+  h = H(s: Signal(1))
   print(h.s.get())
 
 # error: stack-local `Signal[T]` is not supported

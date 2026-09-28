@@ -2,7 +2,7 @@
 # `set`, and `get` reads the stored value back.
 
 sub main()
-  rc: *Cell[Int] = *Cell(value: 0)
+  rc: *Cell[Int] = *Cell(0)
   rc.set(5)
   print(rc.get())
 

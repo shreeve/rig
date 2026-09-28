@@ -3,7 +3,7 @@
 # captured cell are all released.
 
 sub main()
-  count: *Cell[Int] = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(0)
   cb1: *sub() = *|+count| count.set(count.get() + 1)
   cb2: *sub() = *|+count| count.set(count.get() + 10)
 

@@ -6,7 +6,7 @@ struct User
 
 sub main()
   u: *User = *User(age: 30)
-  c1: Cell[*User] = Cell(value: <u)
+  c1: Cell[*User] = Cell(<u)
   c2: Cell[*User] = c1
   print(0)
 

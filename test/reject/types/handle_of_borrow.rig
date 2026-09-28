@@ -15,7 +15,7 @@ fun f(a: *(?Int), b: ~(!P)) -> Int
 sub main()
   y = 3
   h = *(?y)
-  c = Cell[*(?Int)](value: none)
+  c = Cell[*(?Int)](none)
 
 # error: 9:10: a handle holds a value, not a borrow; `?P` is a borrow: share an owned value instead
 # error: 12:10: a handle holds a value, not a borrow: `?Int` has no handle

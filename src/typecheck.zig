@@ -299,7 +299,7 @@ const Checker = struct {
 
     const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
     const discard_read = "`_` discards a value; it cannot be read";
-    const stack_signal = "stack-local `Signal[T]` is not supported: a Signal lives behind a shared handle; construct it with `*Signal(value: ...)`";
+    const stack_signal = "stack-local `Signal[T]` is not supported: a Signal lives behind a shared handle; construct it with `*Signal(...)`";
 
     /// A `struct`, `enum`, `errors`, `generic_struct`, or `generic_enum`.
     fn checkNominal(self: *Checker, node: Sexp) Error!void {
@@ -3559,10 +3559,14 @@ const Checker = struct {
             try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
             return self.t().invalid_id;
         }
-        // Fields are set by name; a positional argument binds nothing to
-        // infer from.
-        for (args) |a| if (!a.isKind(.kwarg)) return self.badCall(args, pos, "fields of `{s}` are set by name: `{s}(field: value)`", .{ name, name });
         const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
+        // Fields are set by name, but for one field given positionally.
+        if (!(args.len == 1 and soleField(fields) != null)) for (args) |a| if (!a.isKind(.kwarg)) {
+            const first = for (fields) |f| {
+                if (!f.is_method and !f.is_variant) break f.name;
+            } else "field";
+            return self.badCall(args, pos, "a type with more than one field sets them by name: `{s}({s}: ...)`", .{ name, first });
+        };
         const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = fields }, pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return self.skipCall(args);
         _ = try self.instantiate(sym_id, subst.args, pos);
         return self.construct(sym_id, args, pos, subst, null);
@@ -4174,12 +4178,11 @@ const Checker = struct {
                     },
                 };
             } else {
-                // A struct's fields are set only by name; a variant's one
-                // field may be given positionally.
+                // A struct's or variant's one field may be given
+                // positionally; more fields are set by name.
                 defer positional += 1;
                 pattern = switch (from) {
-                    .fields => null,
-                    .payload => |fs| if (positional == 0 and args.len == 1) if (soleField(fs)) |f| f.ty else null else null,
+                    .fields, .payload => |fs| if (positional == 0 and args.len == 1) if (soleField(fs)) |f| f.ty else null else null,
                     .params => |p| if (positional < p.params.len) p.params[positional] else null,
                 };
             }
@@ -4803,11 +4806,12 @@ const Checker = struct {
     };
 
     /// Keyword arguments against named fields: each names a real field
-    /// once, and every field without a default is given. A variant with
-    /// one field also takes it positionally: `.some(7)`.
+    /// once, and every field without a default is given. A type or
+    /// variant with one field also takes it positionally: `Box(x)`,
+    /// `.some(7)`.
     fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field, info: FieldArgs) Error!void {
         const noun = if (info.kind == .constructor) "constructor of" else "variant";
-        if (info.kind == .variant and args.len == 1 and !args[0].isKind(.kwarg)) {
+        if (args.len == 1 and !args[0].isKind(.kwarg)) {
             if (soleField(fields)) |f| return self.checkExpr(args[0], try self.fieldType(f, info));
         }
         for (args) |a| {
@@ -4822,7 +4826,10 @@ const Checker = struct {
                     try self.err(info.pos, "a variant with more than one field sets them by name: `.{s}({s}: ...)`", .{ info.owner, first });
                 }
             } else {
-                try self.err(info.pos, "fields of `{s}` are set by name: `{s}(field: value)`", .{ info.owner, info.owner });
+                const first = for (fields) |f| {
+                    if (!f.is_method and !f.is_variant) break f.name;
+                } else "field";
+                try self.err(info.pos, "a type with more than one field sets them by name: `{s}({s}: ...)`", .{ info.owner, first });
             }
             try self.synthArgs(args);
             return;

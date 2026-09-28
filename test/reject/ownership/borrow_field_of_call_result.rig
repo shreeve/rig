@@ -15,7 +15,7 @@ fun inner(h: ?H) -> ?H2
   ?h.h2
 
 sub main
-  h = H(h2: H2(r: R(n: 1), b: Box(value: R(n: 1))))
+  h = H(h2: H2(r: R(n: 1), b: Box(R(n: 1))))
   x = ?inner(?h).r
   h = H(h2: H2(r: R(n: 2), b: none))
   print(x.n)

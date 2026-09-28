@@ -5,7 +5,7 @@ enum Shape
   square(s: Int)
 
 sub main
-  b = Box(value: Shape.circle(r: 2))
+  b = Box(Shape.circle(r: 2))
   match b
     .circle(r) => print(r)
     .square(s) => print(s)

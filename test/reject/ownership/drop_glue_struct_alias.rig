@@ -5,7 +5,7 @@ struct Owner
   cell: *Cell[Int]
 
 sub main()
-  o1 = Owner(cell: *Cell(value: 0))
+  o1 = Owner(cell: *Cell(0))
   o2 = o1
   print(o2.cell.get())
 

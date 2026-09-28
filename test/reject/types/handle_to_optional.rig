@@ -9,12 +9,12 @@ struct Node
 
 sub main()
   c: *(Node?) = none
-  d = Cell[*(Node?)](value: none)
-  f = Cell[~(Node?)?](value: none)
+  d = Cell[*(Node?)](none)
+  f = Cell[~(Node?)?](none)
   e: ?*Node? = 1
-  g = Cell[*(~Node?)](value: none)
-  h = Cell[*~(Node?)](value: none)
-  i = Cell[*Node!](value: none)
+  g = Cell[*(~Node?)](none)
+  h = Cell[*~(Node?)](none)
+  i = Cell[*Node!](none)
 
 # error: 11:17: `none` needs an optional type; `*(Node?)` is not optional (write `*(Node?)?`)
 # error: 12:12: a handle to an optional has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead

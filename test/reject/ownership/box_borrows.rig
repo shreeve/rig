@@ -18,13 +18,13 @@ sub bad(slot: ?Box[Node]?)
     grow(!n.left)
 
 sub main
-  root: Box[Node]? = Box(value: Node(key: 1, left: none))
+  root: Box[Node]? = Box(Node(key: 1, left: none))
   if !root as n
     root = none
     print(n.key)
-  a = Box(value: Node(key: 1, left: none))
+  a = Box(Node(key: 1, left: none))
   f = first(?a)
-  a = Box(value: Node(key: 2, left: none))
+  a = Box(Node(key: 2, left: none))
   print(f.key)
   r = ?a
   -a

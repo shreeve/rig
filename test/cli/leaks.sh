@@ -8,7 +8,7 @@ struct Node
   next: *Cell[*Node?]
 
 sub main()
-  a = *Node(next: *Cell(value: none))
+  a = *Node(next: *Cell(none))
   a.next.set(+a)
   print("made a cycle")
 EOF

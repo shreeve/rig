@@ -5,6 +5,6 @@ struct User
   name: String
 
 sub main()
-  c: Cell[User] = Cell(value: User(name: "x"))
+  c: Cell[User] = Cell(User(name: "x"))
 
 # error: `Cell[T]` requires `T` to be a Copy primitive

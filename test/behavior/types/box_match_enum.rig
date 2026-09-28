@@ -15,12 +15,12 @@ fun name(b: !Box[Shape]) -> String
     .square(_) => "square"
 
 sub main
-  b = Box(value: Shape.circle(r: 2))
+  b = Box(Shape.circle(r: 2))
   match ?b
     .circle(r) => print("circle", r)
     .square(s) => print("square", s)
   print(area(?b), name(!b))
-  b = Box(value: Shape.square(s: 3))
+  b = Box(Shape.square(s: 3))
   print(b, area(?b))
 
 # expect:

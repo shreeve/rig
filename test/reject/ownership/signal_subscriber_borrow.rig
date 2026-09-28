@@ -8,7 +8,7 @@ struct Wrap
     print("drop")
 
 sub main()
-  sig: *Signal[Int] = *Signal(value: 0)
+  sig: *Signal[Int] = *Signal(0)
   a = Wrap(payload: 1)
   r = ?a
   cb: *sub() = *|<r| print(r.payload)

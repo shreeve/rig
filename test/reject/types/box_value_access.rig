@@ -18,14 +18,14 @@ sub f(b: ?Box[R])
   print(q.n)
 
 sub main
-  c = Box(value: 5)
+  c = Box(5)
   print(c.value + 1)
-  v = Box(value: Vec[Int]())
+  v = Box(Vec[Int]())
   !v.push(3)
   n = 3
-  w = Box(value: View(p: ?n))
-  a = Box(value: R(n: 1))
-  b = Box(value: R(n: 1))
+  w = Box(View(p: ?n))
+  a = Box(R(n: 1))
+  b = Box(R(n: 1))
   print(a == b)
   print(c + 1)
 

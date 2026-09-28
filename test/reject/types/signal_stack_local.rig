@@ -2,6 +2,6 @@
 # (`*Signal[T]`).
 
 sub main()
-  sig: Signal[Int] = Signal(value: 0)
+  sig: Signal[Int] = Signal(0)
 
 # error: stack-local `Signal[T]` is not supported

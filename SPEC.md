@@ -900,7 +900,10 @@ name.
 ### Structs
 
 A `struct` lists its fields, then its methods. It is constructed by
-naming its fields: `Point(x: 1, y: 2)`. A field may have a default
+naming its fields: `Point(x: 1, y: 2)`. A struct with exactly one field
+also takes it by position, as a one-field variant does:
+`Meters(3.5)` is `Meters(value: 3.5)`, and so are the built-ins
+`Box(x)`, `Cell(0)`, and `*Signal(0)`. A field may have a default
 value, which, like a parameter default, must be a literal (a number, a
 string, `true` / `false`, `none`, or `.variant`); a constructor may omit
 that field.
@@ -1166,8 +1169,8 @@ true
 A payload variant is constructed with keyword fields, like a struct:
 `.rect(w: 2, h: 5)`, `Shape.rect(w: 2, h: 5)`. A variant with exactly
 one field also takes it by position, as a pattern binds it:
-`.circle(2)` is `.circle(radius: 2)`. A variant with more fields sets
-them by name, and a struct's constructor always does. A pattern binds
+`.circle(2)` is `.circle(radius: 2)`. A variant or struct with more
+fields sets them by name. A pattern binds
 the fields in order (`.circle(r) =>`). Enums have no constructor call
 (`Shape(...)` is an error); enums compare with `==` ([§6](#operators)). A plain enum's variants may take
 explicit values (`ok = 200`): constant integers from 0 to 4294967295,
@@ -2425,7 +2428,7 @@ struct Stack
   top: Box[Node]?
 
   sub push(!self, v: Int)
-    self.top = Box(value: Node(value: v, next: <self.top))
+    self.top = Box(Node(value: v, next: <self.top))
 
   fun pop(!self) -> Int?
     if <self.top as n
@@ -2999,7 +3002,7 @@ mutable value.
 
 | Member | Meaning |
 |---|---|
-| `Cell(value: v)` | construct |
+| `Cell(v)` | construct |
 | `c.get()` | a copy of the value (Copy `T` only) |
 | `c.set(v)` | store `v`; the old value is dropped |
 | `c.replace(v)` | store `v` and return the old value |
@@ -3039,17 +3042,17 @@ sub bump(c: ?Cell[Int])
   c.set(c.get() + 10)
 
 sub main
-  count: *Cell[Int] = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(0)
   other = +count
   other.set(other.get() + 5)
-  local: Cell[Int] = Cell(value: 1)
+  local: Cell[Int] = Cell(1)
   bump(?local)
-  k = Counter(hits: Cell(value: 0))
+  k = Counter(hits: Cell(0))
   k.hit()
   k.hit()
   print(count.get(), local.get(), k.hits.get())
 
-  shared: *Cell[Vec[Int]] = *Cell(value: Vec())
+  shared: *Cell[Vec[Int]] = *Cell(Vec())
   shared.push(7)
   shared.push(8)
   shared[0] = shared[0] + 1
@@ -3098,7 +3101,7 @@ consume the elements ([§7](#for)).
 
 ```rig
 sub main
-  total: *Cell[Int] = *Cell(value: 0)
+  total: *Cell[Int] = *Cell(0)
   steps: Vec[*sub()] = Vec()
   !steps.push(*|+total| total.set(total.get() + 1))
   !steps.push(*|+total| total.set(total.get() + 10))
@@ -3158,7 +3161,7 @@ Long chains of boxes are released without deep recursion.
 
 | Member | Meaning |
 |---|---|
-| `Box(value: v)` | move `v` into a new box |
+| `Box(v)` | move `v` into a new box |
 | `b.f`, `b.m(...)` | a field or method of a boxed struct or enum, reached through the box |
 | `?b`, `!b` | lend the box, or, where a `?T` or `!T` is expected, the value inside it |
 | `<b.unbox()` | move the value out; the box is freed |
@@ -3189,7 +3192,7 @@ sub insert(slot: !Box[Node]?, key: Int)
     else
       insert(!n.right, key)
   else
-    slot = Box(value: Node(key: key, left: none, right: none))
+    slot = Box(Node(key: key, left: none, right: none))
 
 sub walk(slot: ?Box[Node]?)
   if slot as n
@@ -3219,7 +3222,7 @@ rejected.
 
 | Member | Meaning |
 |---|---|
-| `*Signal(value: v)` | construct |
+| `*Signal(v)` | construct |
 | `s.get()` | the current value |
 | `s.set(v)` | store `v`, then call every subscriber in subscription order |
 | `s.subscribe(cb)` | take ownership of the handle `cb` (pass `+cb` to keep yours) |
@@ -3231,7 +3234,7 @@ it weakly, or the signal and its subscriber keep each other alive.
 
 ```rig
 sub main
-  sig: *Signal[Int] = *Signal(value: 0)
+  sig: *Signal[Int] = *Signal(0)
   sig.subscribe(*|~sig|
     if sig.upgrade() as s
       print("now", s.get()))
@@ -3271,7 +3274,7 @@ arguments: it is the last one.
 ```rig
 sub main
   n = 10
-  cell: *Cell[Int] = *Cell(value: 0)
+  cell: *Cell[Int] = *Cell(0)
   plus_n = |+n, a: Int| a + n
   bump = |+cell| cell.set(cell.get() + 1)
   hello = || print("hello")
@@ -3356,7 +3359,7 @@ not move it (`|<x|`), since the outer closure may run again.
 
 ```rig
 sub main
-  total: *Cell[Int] = *Cell(value: 0)
+  total: *Cell[Int] = *Cell(0)
   add = |+total, k: Int|
     step = |+total, +k| total.set(total.get() + k)
     step()
@@ -3558,7 +3561,7 @@ held weakly, and dropped like any `*T`.
 
 ```rig
 fun make_counter(start: Int) -> *fun(Int) -> Int
-  count: *Cell[Int] = *Cell(value: start)
+  count: *Cell[Int] = *Cell(start)
   *|+count, step|
     count.set(count.get() + step)
     count.get()
@@ -3600,7 +3603,7 @@ sub each(n: Int, f: *sub(Int))
     f(i)
 
 sub main
-  total: *Cell[Int] = *Cell(value: 0)
+  total: *Cell[Int] = *Cell(0)
   each(3, *|+total, i|
     total.set(total.get() + i)
     print("saw", i))
@@ -4240,7 +4243,7 @@ a slice or array type has no expression spelling
 ```
 
 In an expression, `*T?` as a type argument is an optional handle, as
-in a type (`Cell[*Node?](value: none)`), and so is a chain of handles
+in a type (`Cell[*Node?](none)`), and so is a chain of handles
 such as `*~T?`. A handle to an optional,
 `*(T?)`, has no expression spelling; name it with a `type` alias:
 
@@ -4251,8 +4254,8 @@ struct Node
 type Held = *(Node?)
 
 sub main
-  a = Cell[*Node?](value: none)
-  b = Cell[Held](value: *none)
+  a = Cell[*Node?](none)
+  b = Cell[Held](*none)
   print(a.replace(none) == none)
   old = b.replace(*none)
   -old
@@ -4267,7 +4270,7 @@ struct Node
   value: Int
 
 sub main
-  b = Cell[*(Node?)](value: *none)
+  b = Cell[*(Node?)](*none)
 ```
 
 ```error

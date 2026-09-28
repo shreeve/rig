@@ -26,7 +26,7 @@ sub main()
   print(E.two(a: P(x: 1, y: 2), b: 3))
   xs: [3]U8 = [72, 105, 33]
   print(V(a: ?xs))
-  a = *N(id: 1, next: Cell(value: none))
+  a = *N(id: 1, next: Cell(none))
   (?a.next).set(+a)
   print(a)
   (?a.next).set(none)

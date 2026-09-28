@@ -14,7 +14,7 @@ sub insert(slot: !Box[Node]?, key: Int)
     else
       insert(!n.right, key)
   else
-    slot = Box(value: Node(key: key, left: none, right: none))
+    slot = Box(Node(key: key, left: none, right: none))
 
 fun contains(slot: ?Box[Node]?, key: Int) -> Bool
   if slot as n

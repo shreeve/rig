@@ -39,10 +39,10 @@ sub main
   cb = *|a: Int| a + 1
   print(h(), apply(cb, 1), apply(+cb, 1), apply(mk(), 1))
   v = keep(?f)
-  c = Cell(value: ?f)
+  c = Cell(?f)
   m = |?double| apply(double, 3)
   print(run(|a| a + 1), run(?f), v.len, m())
-  s = *Signal(value: 0)
+  s = *Signal(0)
   x = 1
   s.subscribe(|?x| print(x))
   r = Res(id: 1)

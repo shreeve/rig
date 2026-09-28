@@ -5,12 +5,12 @@ struct Owner
   cell: *Cell[Int]
 
   drop(!self)
-    fresh: *Cell[Int] = *Cell(value: 7)
+    fresh: *Cell[Int] = *Cell(7)
     self.cell = <fresh
     print("replaced", self.cell.get())
 
 sub main()
-  o = Owner(cell: *Cell(value: 0))
+  o = Owner(cell: *Cell(0))
   print("made", o.cell.get())
 
 # expect:

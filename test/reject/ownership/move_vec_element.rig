@@ -5,7 +5,7 @@ sub eat(c: *Cell[Int])
   print(c.get())
 
 sub main()
-  c1: *Cell[Int] = *Cell(value: 7)
+  c1: *Cell[Int] = *Cell(7)
   v: Vec[*Cell[Int]] = Vec()
   !v.push(<c1)
   eat(<v[0])

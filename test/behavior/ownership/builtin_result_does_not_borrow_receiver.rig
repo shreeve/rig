@@ -9,7 +9,7 @@ sub main()
   print(v.len)
   if <f as g
     g()
-  c: Cell[*sub()] = Cell(value: *|| print("three"))
+  c: Cell[*sub()] = Cell(*|| print("three"))
   h = c.replace(*|| print("four"))
   c.set(*|| print("five"))
   h()

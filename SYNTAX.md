@@ -208,7 +208,7 @@ supplies a fallback.
 
 ```rig
 sub main
-  count: *Cell[Int] = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(0)
   step = 5
   tick = |+count, +step| count.set(count.get() + step)
   tick()
@@ -2103,7 +2103,7 @@ struct Stack
   top: Box[Node]?
 
   sub push(!self, v: Int)
-    self.top = Box(value: Node(value: v, next: <self.top))
+    self.top = Box(Node(value: v, next: <self.top))
 
   fun pop(!self) -> Int?
     if <self.top as n
@@ -2432,10 +2432,10 @@ fun eval(e: ?Box[Expr]) -> Int
     .add(l, r) => eval(?l) + eval(?r)
 
 fun num(n: Int) -> Box[Expr]
-  Box(value: .num(n))
+  Box(.num(n))
 
 sub main
-  e = Box(value: Expr.add(l: num(2), r: num(3)))
+  e = Box(Expr.add(l: num(2), r: num(3)))
   print(eval(?e))
 ```
 
@@ -2453,7 +2453,7 @@ a borrow flag.
 
 ```rig
 sub main
-  log: *Cell[Vec[Int]] = *Cell(value: Vec())
+  log: *Cell[Vec[Int]] = *Cell(Vec())
   other = +log
   log.push(1)
   other.push(2)
@@ -2473,11 +2473,11 @@ put it back: `v = c.replace(Vec())`, `!v.push(x)`, `c.set(<v)`.
 
 **`Signal[T]`** holds a Copy value and a list of subscribers (owned
 closures) that run on every `set`. It lives behind a shared handle,
-`*Signal(value: v)`.
+`*Signal(v)`.
 
 ```rig
 sub main
-  clicks: *Signal[Int] = *Signal(value: 0)
+  clicks: *Signal[Int] = *Signal(0)
   clicks.subscribe(*|~clicks|
     if clicks.upgrade() as c
       print("clicked", c.get()))
@@ -2564,7 +2564,7 @@ cannot capture a borrow.
 
 ```rig
 fun make_counter(start: Int) -> *fun(Int) -> Int
-  count: *Cell[Int] = *Cell(value: start)
+  count: *Cell[Int] = *Cell(start)
   *|+count, step|
     count.set(count.get() + step)
     count.get()

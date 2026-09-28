@@ -15,12 +15,12 @@ fun first(a: ?[4]Int) -> Int
   a[0]
 
 sub main
-  b = Box(value: Vec[Int]())
+  b = Box(Vec[Int]())
   fill(!b)
   print(total(?b), b)
-  arr = Box(value: [4 of 7])
+  arr = Box([4 of 7])
   print(first(?arr))
-  s = Box(value: "hi")
+  s = Box("hi")
   print(s)
   v = <b.unbox()
   print(v.len)
