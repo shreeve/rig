@@ -2349,7 +2349,7 @@ pub const Checker = struct {
                 return;
             };
         }
-        try self.absorbThroughWrites(held, value, pos);
+        try self.absorbThroughWrites(held, value, pos, self.vars.items[id].name);
     }
 
     /// `p.f = e` / `v[i] = e`.
@@ -2511,10 +2511,10 @@ pub const Checker = struct {
         if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             if (recv_root) |id| {
                 const obj = ir.Member.object(callee);
-                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{});
+                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null);
             }
-            try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee));
-            for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a));
+            try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null);
+            for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null);
         }
 
         if (recv_root) |id| if (recv_mode == .write) {
@@ -2662,8 +2662,9 @@ pub const Checker = struct {
 
     /// Record that the values the write loans in `v` lead to may now hold
     /// the loans in `stored`. Those write loans are the path to them, not
-    /// something stored.
-    fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32) Error!void {
+    /// something stored. `via` names the write borrow an assignment
+    /// stores through; without it, a call stores them.
+    fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32, via: ?[]const u8) Error!void {
         var roots: std.ArrayListUnmanaged(VarId) = .empty;
         for (v.loans) |l| {
             if (l.kind == .write and std.mem.indexOfScalar(VarId, roots.items, l.root) == null) try roots.append(self.arena(), l.root);
@@ -2671,7 +2672,7 @@ pub const Checker = struct {
         for (roots.items) |r| {
             // Only a value that can hold a borrow can have one stored in it.
             if (!self.mayCarryBorrow(self.pointee(self.vars.items[r].ty))) continue;
-            try self.absorbLoans(r, stored, pos, roots.items);
+            try self.absorbLoans(r, stored, pos, roots.items, via);
         }
     }
 
@@ -2680,8 +2681,9 @@ pub const Checker = struct {
     /// there. `through` are the vars whose write borrows led to `id`;
     /// their own loans are the path, not something stored. A borrowed
     /// parameter or a module-level binding outlives this function's
-    /// values: storing a borrow of one into it is rejected.
-    fn absorbLoans(self: *Checker, id: VarId, v: Value, pos: u32, through: []const VarId) Error!void {
+    /// values: storing a borrow of one into it is rejected. `via` is as
+    /// for `absorbThroughWrites`.
+    fn absorbLoans(self: *Checker, id: VarId, v: Value, pos: u32, through: []const VarId, via: ?[]const u8) Error!void {
         var out: std.ArrayListUnmanaged(Loan) = .empty;
         for (v.loans) |l| {
             if (l.root != id and std.mem.indexOfScalar(VarId, through, l.root) == null) try out.append(self.arena(), l);
@@ -2693,7 +2695,10 @@ pub const Checker = struct {
             // of this function's own values cannot be stored. Nothing
             // borrowed may be stored in a module-level binding.
             for (out.items) |l| if (self.isLocalLoan(l) or self.isGlobal(id)) {
-                try self.err(pos, "cannot let this call store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, c.name, c.name });
+                const name = self.vars.items[l.root].name;
+                if (via) |w| {
+                    try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: `{s}` outlives it", .{ name, w, c.name });
+                } else try self.err(pos, "cannot let this call store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ name, c.name, c.name });
                 return;
             };
             return;
@@ -2705,7 +2710,7 @@ pub const Checker = struct {
         if (through.len > 16) return;
         const next = try std.mem.concat(self.arena(), VarId, &.{ through, &.{id} });
         for (held) |l| {
-            if (l.kind == .write and std.mem.indexOfScalar(VarId, next, l.root) == null) try self.absorbLoans(l.root, v, pos, next);
+            if (l.kind == .write and std.mem.indexOfScalar(VarId, next, l.root) == null) try self.absorbLoans(l.root, v, pos, next, via);
         }
     }
 
@@ -2774,7 +2779,7 @@ pub const Checker = struct {
         // captured write borrow leads to, as a call may with its
         // arguments: that value now holds those loans.
         if (!owned and caps.len > 1) for (caps, cap_values.items) |cap, cv| {
-            try self.absorbThroughWrites(cv, value, sema.captureNameNode(cap).?.src.pos);
+            try self.absorbThroughWrites(cv, value, sema.captureNameNode(cap).?.src.pos, null);
         };
 
         // The body is checked as its own function; it cannot affect the
