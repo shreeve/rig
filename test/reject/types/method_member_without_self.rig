@@ -1,0 +1,25 @@
+# Inside a method, a field or another method is reached through the
+# receiver: a bare name is unbound, and the message names `self.`.
+
+struct Person
+  age: Int
+
+  fun double(?self) -> Int
+    self.age * 2
+
+  fun older(?self) -> Int
+    age + 1
+
+  fun quad(?self) -> Int
+    double() * 2
+
+  fun get -> Int
+    self.age
+
+sub main
+  p = Person(age: 3)
+  print(p.older(), p.quad(), Person.get())
+
+# error: 11:5: use of unbound name `age`; did you mean `self.age`?
+# error: 14:5: use of unbound name `double`; did you mean `self.double(...)`?
+# error: 17:5: use of unbound name `self`; `get` declares no receiver: write `fun get(?self)`, `(!self)`, or `(<self)`

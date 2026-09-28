@@ -657,7 +657,7 @@ const Checker = struct {
         const sym = self.ctx.symbols.items[sym_id];
         const is_decl = sym.decl_pos == target.src.pos;
 
-        if (!is_decl and sym.kind == .param and self.ctx.types.get(sym.ty) != .borrow_write) {
+        if (!is_decl and sym.kind == .param and self.ctx.types.get(sym.ty) != .borrow_write and !self.isPoison(sym.ty)) {
             try self.errAt(target, "cannot assign to parameter `{s}`; parameters are immutable (bind a copy with `new {s} = {s}`, or take `{s}: !T` to write through to the caller)", .{ name, name, name, name });
         }
         // A captured write borrow writes through to what it borrows.
@@ -946,17 +946,14 @@ const Checker = struct {
     /// Whether binding `sym`, written `name` at `pos`, may be written:
     /// a parameter only when it is a `!T`, never a capture, a fixed
     /// binding, or a loop or pattern binding that copies. False after a
-    /// diagnostic.
-    fn checkBindingWritable(self: *Checker, sym: sema.Symbol, name: []const u8, pos: u32, verb: []const u8) Error!bool {
-        return self.checkSymbolWritable(null, sym, name, pos, verb);
-    }
-
-    /// `checkBindingWritable` for symbol `id` when known: a loop element
-    /// or `as` binding copied from a place is written through a write
-    /// borrow of the place instead.
+    /// diagnostic. With symbol `id` known, a loop element or `as`
+    /// binding copied from a place is written through a write borrow of
+    /// the place instead.
     fn checkSymbolWritable(self: *Checker, id: ?SymbolId, sym: sema.Symbol, name: []const u8, pos: u32, verb: []const u8) Error!bool {
         switch (sym.kind) {
-            .param => if (self.ctx.types.get(sym.ty) != .borrow_write) {
+            .param => if (self.isPoison(sym.ty)) {
+                return false;
+            } else if (self.ctx.types.get(sym.ty) != .borrow_write) {
                 if (std.mem.eql(u8, name, "self")) {
                     try self.err(pos, "cannot {s} parameter `self`; parameters are immutable (take `!self` to write through to the caller)", .{verb});
                 } else try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (take `{s}: !T` to write through to the caller)", .{ verb, name, name });
@@ -2106,6 +2103,24 @@ const Checker = struct {
         if (std.mem.eql(u8, name, "print")) {
             try self.errAt(leaf, "`print` is called with parentheses: `print(...)`", .{});
             return null;
+        }
+        // Inside a type's methods, a field or method is reached through
+        // the receiver.
+        if (!self.nominal.isEmpty()) {
+            const has_self = self.lookupAt(self.scope, "self", leaf.src.pos) != null;
+            const method = self.body.name;
+            if (std.mem.eql(u8, name, "self") and method != .nil) {
+                try self.errAt(leaf, "use of unbound name `self`; `{s}` declares no receiver: write `{s} {s}(?self)`, `(!self)`, or `(<self)`", .{ self.text(method), if (self.body.is_sub) "sub" else "fun", self.text(method) });
+                return null;
+            }
+            if (self.ctx.symbols.items[self.nominal.sym].fields) |members| for (members) |m| {
+                if (m.is_variant or !std.mem.eql(u8, m.name, name)) continue;
+                const call: []const u8 = if (m.is_method) "(...)" else "";
+                if (has_self) {
+                    try self.errAt(leaf, "use of unbound name `{s}`; did you mean `self.{s}{s}`?", .{ name, name, call });
+                } else try self.errAt(leaf, "use of unbound name `{s}`; `{s}` is a member of `{s}`, reached through a receiver: declare `(?self)` and write `self.{s}{s}`", .{ name, name, self.ctx.symbols.items[self.nominal.sym].name, name, call });
+                return null;
+            };
         }
         try self.errAt(leaf, "use of unbound name `{s}`", .{name});
         return null;
@@ -5694,7 +5709,11 @@ const Checker = struct {
         }
 
         if (receiver == .none) {
-            try self.err(pos, "method `{s}` has no `self` receiver; call as `{s}.{s}(...)`", .{ method, resolved.owner, method });
+            // A `self` without a sigil was reported where it is declared.
+            const names = resolved.field.param_names orelse &.{};
+            if (names.len == 0 or !std.mem.eql(u8, names[0], "self")) {
+                try self.err(pos, "method `{s}` has no `self` receiver; call as `{s}.{s}(...)`", .{ method, resolved.owner, method });
+            }
             try self.synthArgs(args);
             return resolved.fn_ty.returns;
         }
@@ -7241,7 +7260,7 @@ const Checker = struct {
             },
             else => {},
         }
-        if (kind == .write and !(try self.checkBindingWritable(sym, name, pos, "write-borrow"))) return self.t().invalid_id;
+        if (kind == .write and !(try self.checkSymbolWritable(null, sym, name, pos, "write-borrow"))) return self.t().invalid_id;
         if (kind == .read and sym.flags.pattern_bound and sema.holdsCellByValue(self.ctx, ty)) {
             try self.err(pos, "cannot capture `{s}{s}`: it holds a Cell, and `{s}` is a loop or match binding, a copy, so changes through the borrow would be lost", .{ sigil, name, name });
             return self.t().invalid_id;
