@@ -549,7 +549,17 @@ const Checker = struct {
                 defer self.body = saved;
                 self.body.fail_to = .deferred;
                 self.body.loops = null;
-                try self.checkStmt(ir.get(stmt, .body));
+                const body = ir.get(stmt, .body);
+                try self.checkStmt(body);
+                // The statement runs at scope exit: a name it declared
+                // would be visible to code that runs before it.
+                if (body.isKind(.set) and ir.Set.target(body) == .src) if (self.ctx.symbolOf(ir.Set.target(body))) |id| {
+                    const target = ir.Set.target(body);
+                    if (self.ctx.symbols.items[id].decl_pos == target.src.pos) {
+                        self.ctx.symbols.items[id].ty = self.t().invalid_id;
+                        try self.errAt(target, "a deferred statement runs at scope exit and cannot declare `{s}`; use an indented `{s}` block", .{ self.text(target), @tagName(stmt.kind().?) });
+                    }
+                };
             },
             .raw_block => {
                 self.raw_depth += 1;
