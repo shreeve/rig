@@ -29,6 +29,7 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 ## Libraries
 
 - **A standard library**: collections, strings, I/O, and allocators, written in Rig.
+  Settled so far: `String` stays a view and `Text` is the owned, growable text; iterators follow the convention `while !it.next() as x` (a `for` never calls user methods); containers of owning values lend elements as `?v[i]` and `!v[i]`; a generic method call on a `T` is checked at each use; a `[]U8` goes to C as a pointer plus a separate length, and a NUL-terminated copy is made explicitly.
 - **A reactive library** in userland, grown from `examples/memo_canary.rig`.
 
 ## Tooling
