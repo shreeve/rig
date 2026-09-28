@@ -1,0 +1,19 @@
+# A closure propagates with `!` only when its type can fail, and returns
+# `none` with `?` only when its type returns an optional; a closure
+# whose type is inferred can do neither.
+
+fun parse(s: String) -> Int!
+  s.len
+
+fun apply(f: ?fun(String) -> Int) -> Int
+  f("x")
+
+sub main()
+  print(apply(|l| parse(l)!))
+  g = |l: String| parse(l)!
+  k: fun(String) -> Int = |s| Int(s.get(0)?)
+  print(g("a"), k("b"))
+
+# error: 12:19: use of `!` propagation requires a fallible enclosing function; a closure body propagates failure only when its type can fail (`?fun(A) -> T!`), so handle it with `catch`
+# error: 13:19: use of `!` propagation requires a fallible enclosing function
+# error: 14:35: a closure body returns `none` with `?` only when its type returns an optional

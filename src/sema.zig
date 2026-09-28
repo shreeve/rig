@@ -2500,6 +2500,15 @@ pub fn isClosureValue(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// What an owned closure may return: a plain Copy value, or a fallible
+/// one (`Int!`).
+pub fn isClosureResult(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .fallible => |inner| isClosureValue(ctx, inner),
+        else => isClosureValue(ctx, ty),
+    };
+}
+
 /// A value of an error set, or any error: what a fallible function
 /// fails with.
 pub fn isErrorValue(ctx: *const SemContext, ty: TypeId) bool {

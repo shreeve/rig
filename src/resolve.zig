@@ -2027,7 +2027,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
 }
 
 /// `*fun(...) -> R` / `*sub(...)`: an owned closure passes plain Copy
-/// values through its type-erased form.
+/// values through its type-erased form, and may fail (`-> R!`).
 fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!void {
     const f = ctx.types.get(ty).function;
     const is_fun_type = fun_type.isKind(.fun_type);
@@ -2037,9 +2037,9 @@ fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!voi
         const pos = if (i < nodes.len) ctx.startOf(nodes[i]) else ctx.startOf(fun_type);
         try ctx.err(pos, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(ctx, p)});
     }
-    if (!f.is_sub and !sema.isClosureValue(ctx, f.returns)) {
+    if (!f.is_sub and !sema.isClosureResult(ctx, f.returns)) {
         const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ctx.startOf(ir.FunType.returns(fun_type)) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
+        try ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
     }
 }
 

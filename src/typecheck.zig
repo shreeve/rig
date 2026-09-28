@@ -2633,7 +2633,7 @@ const Checker = struct {
         switch (self.body.fail_to) {
             .caller, .module => {},
             .deferred => try self.errAt(operand, "cannot use `!` inside `defer`; a deferred expression cannot propagate failure, so handle it with `catch`", .{}),
-            .closure => try self.errAt(operand, "use of `!` propagation requires a fallible enclosing function; a closure body cannot propagate failure, so handle it with `catch`", .{}),
+            .closure => try self.errAt(operand, "use of `!` propagation requires a fallible enclosing function; a closure body propagates failure only when its type can fail (`?fun(A) -> T!`), so handle it with `catch`", .{}),
             .drop => try self.errAt(operand, "a `drop` body cannot propagate failure; handle it with `catch`", .{}),
             .infallible => |name| {
                 if (self.body.is_sub) {
@@ -2660,7 +2660,10 @@ const Checker = struct {
         const operand = ir.PropagateNone.value(e);
         switch (self.body.fail_to) {
             .deferred => try self.errAt(operand, "cannot use `?` inside `defer`; deferred code cannot return, so take the value out with `if x as v` or `??`", .{}),
-            .closure => try self.errAt(operand, "a closure body cannot return `none` with `?`; take the value out with `if x as v` or `??`", .{}),
+            // An inferred closure's type returns no optional.
+            .closure => if (self.body.returns != null or !self.returnsOptional(self.body.ret)) {
+                try self.errAt(operand, "a closure body returns `none` with `?` only when its type returns an optional (`?fun(A) -> T?`); take the value out with `if x as v` or `??`", .{});
+            },
             .drop => try self.errAt(operand, "a `drop` body cannot return `none` with `?`; take the value out with `if x as v` or `??`", .{}),
             .caller, .infallible, .module => if (!self.returnsOptional(self.body.ret)) {
                 const name = self.body.name;
@@ -6951,7 +6954,10 @@ const Checker = struct {
 
         const body = ir.Lambda.body(node);
         if (want) |w| {
-            try self.checkBody(body, .{ .ret = w.returns, .is_sub = w.is_sub, .fail_to = .closure });
+            // A closure whose type can fail sends a failure `!`
+            // propagates to its caller.
+            const fails = self.ctx.types.get(w.returns) == .fallible;
+            try self.checkBody(body, .{ .ret = w.returns, .is_sub = w.is_sub, .fail_to = if (fails) .caller else .closure });
             return expected.?;
         }
 
@@ -6980,8 +6986,8 @@ const Checker = struct {
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
         ret = try self.reconcileReturns(sites.items, ret, ends_in_return, body);
-        if (owned and ret != self.t().void_id and !sema.isClosureValue(self.ctx, ret)) {
-            try self.errAt(body, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); this one returns `{s}`", .{try self.tyName(ret)});
+        if (owned and ret != self.t().void_id and !sema.isClosureResult(self.ctx, ret)) {
+            try self.errAt(body, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; this one returns `{s}`", .{try self.tyName(ret)});
         }
 
         return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = sema.returnsNothing(self.ctx, ret) } });
@@ -8070,7 +8076,7 @@ test "check: `!` needs a fallible operand and a function that can fail" {
     try expectDiagnostic(&r.ctx, "needs a fallible operand");
     try expectDiagnostic(&r.ctx, "requires the enclosing function `two`");
     try expectDiagnostic(&r.ctx, "inside `defer`");
-    try expectDiagnostic(&r.ctx, "a closure body cannot propagate");
+    try expectDiagnostic(&r.ctx, "a closure body propagates failure only when its type can fail");
 }
 
 test "check: each distinct instance of a generic function is recorded once" {

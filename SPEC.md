@@ -3751,7 +3751,10 @@ annotation is allowed anywhere and must agree with the context; with no
 context, every parameter must be annotated. A closure takes exactly the
 parameters its type passes, and may ignore one by naming it `_`.
 
-With a type from context, the body is checked against its return type.
+With a type from context, the body is checked against its return type,
+and a body whose type can fail may propagate with `!`
+([§14](#14-errors)), as one whose type returns an optional may return
+`none` with `?` ([§13](#13-optionals)).
 Otherwise the closure returns the type of its last expression, or of
 its `return`s when it ends in one, and these give each other no type: a
 `return max(3, 4)` beside a `return x` of a `U8` is still an `Int`. A
@@ -4245,11 +4248,39 @@ must say what happens to the failure, visibly:
   `f() catch break`, `f() catch continue`.
 
 A bare call to a fallible function is rejected, and so is `!` on a call
-that cannot fail. A closure body, a `drop` body, and a `defer` cannot
-propagate. A fallible type is only allowed as the return type of a
-function or of a function type (`fun(Int) -> Int!`, `sub(Int)!`, not
-for an owned closure), and a plain `T` is accepted where `T!` is
-expected.
+that cannot fail. A `drop` body and a `defer` cannot propagate, and a
+closure propagates only when its type can fail: one checked against
+`?fun(String) -> Int!`, `?sub(String)!`, or `*fun(String) -> Int!`
+sends the failure of its `!` to whoever calls it, as a function does.
+A closure whose type cannot fail, or whose type is inferred from its
+body, handles failures with `catch`. A fallible type is only allowed as
+the return type of a function or of a function type
+(`fun(Int) -> Int!`, `sub(Int)!`, `*fun(Int) -> Int!`), and a plain `T`
+is accepted where `T!` is expected.
+
+```rig
+error Parse
+  empty
+
+fun parse(s: String) -> Int!
+  return Parse.empty if s.len == 0
+  s.len
+
+sub each(xs: []String, f: ?sub(String)!)!
+  for x in xs
+    f(x)!
+
+sub main
+  total = Cell(0)
+  each(["ab", "c"], |!total, l| total.set(total.get() + parse(l)!))!
+  each(["ab", ""], |!total, l| total.set(total.get() + parse(l)!)) catch |e| print("failed", e)
+  print(total.get())
+```
+
+```output
+failed .empty
+5
+```
 
 ```rig
 error SaveError

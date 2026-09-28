@@ -14,6 +14,6 @@ sub main()
 
 # error: an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `Vec[Int]` is not one
 # error: an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `*Cell[Int]` is not one
-# error: an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `*Cell[Int]` is not one
+# error: an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; `*Cell[Int]` is not one
 # error: parameter `cell` is `*Cell[Int]`
-# error: an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); this one returns `*Cell[Int]`
+# error: an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; this one returns `*Cell[Int]`

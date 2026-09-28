@@ -2913,7 +2913,9 @@ Functions do not declare which errors they return (every fallible type
 lowers to `anyerror!T`), so `err` may be any error; compare it with
 `err == E.name` or `match` it by the member's name alone, `.name =>`
 (with a `_` arm where the match gives a value). `sub main` and `test` blocks may
-propagate. Closures, `defer`, and `drop` bodies may not.
+propagate, and so may a closure whose type can fail
+(`f: ?fun(String) -> Int!` takes `|l| parse(l)! * 2`); its failure goes
+to its caller. Other closures, `defer`, and `drop` bodies may not.
 
 ## 22. Arrays, strings, and slices
 
