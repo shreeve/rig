@@ -2828,6 +2828,21 @@ sub main
 Pair(left: "c", right: "a") b
 ```
 
+Two elements of one collection are not two places: `swap(!a[i],
+!a[j])` write-borrows `a` twice, and is rejected with the collection's
+own `swap`, which exchanges them ([§3](#slices)):
+
+```rig reject
+sub main
+  a = [1, 2, 3]
+  swap(!a[0], !a[2])
+  print(a)
+```
+
+```error
+cannot take a second write borrow on `a`: to swap two elements of `a`, write `!a.swap(0, 2)`
+```
+
 A payload binding of `match <s` owns its field and may move it on
 (`.full(b) => eat(<b)`); a bare `match s` only reads `s`
 ([match](#match)).

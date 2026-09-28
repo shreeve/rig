@@ -1,0 +1,16 @@
+# `swap` of two elements of one collection write-borrows the collection
+# twice; the collection's own `swap` exchanges them.
+
+struct Deck
+  cards: Vec[Int]
+
+sub main()
+  a = [1, 2, 3]
+  i = 0
+  swap(!a[i], !a[i + 2])
+  d = Deck(cards: Vec())
+  swap(!d.cards[0], !d.cards[1])
+  print(a, d.cards.len)
+
+# error: 10:16: cannot take a second write borrow on `a`: to swap two elements of `a`, write `!a.swap(i, i + 2)`
+# error: 12:22: cannot take a second write borrow on `d.cards`: to swap two elements of `d.cards`, write `!d.cards.swap(0, 1)`

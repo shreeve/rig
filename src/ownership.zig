@@ -2578,7 +2578,13 @@ pub const Checker = struct {
         const lent = self.temps.items.len;
         var saved: std.ArrayListUnmanaged(Loan) = .empty;
         defer saved.deinit(self.gpa);
-        if (swap and self.disjointFields(args[0], args[1])) {
+        const elements = if (swap) self.sameCollection(args[0], args[1]) else null;
+        if (elements) |e| {
+            // Two elements of one collection: its own `swap` exchanges
+            // them.
+            try self.err(self.startOf(ir.Write.operand(args[1])), "cannot take a second write borrow on `{s}`: to swap two elements of `{s}`, write `!{s}.swap({s}, {s})`", .{ e.base, e.base, e.base, e.i, e.j });
+        }
+        if (swap and (elements != null or self.disjointFields(args[0], args[1]))) {
             try saved.appendSlice(self.gpa, self.temps.items[start..lent]);
             self.temps.shrinkRetainingCapacity(start);
         }
@@ -2586,6 +2592,23 @@ pub const Checker = struct {
         try self.temps.appendSlice(self.gpa, saved.items);
         self.temps.shrinkRetainingCapacity(start);
         return .{};
+    }
+
+    /// `!a[i]` and `!a[j]`: write borrows of two elements of the one
+    /// collection `a`, as the source spells them.
+    fn sameCollection(self: *const Checker, a: Sexp, b: Sexp) ?struct { base: []const u8, i: []const u8, j: []const u8 } {
+        if (!a.isKind(.write) or !b.isKind(.write)) return null;
+        const ea = ir.Write.operand(a);
+        const eb = ir.Write.operand(b);
+        if (!ea.isKind(.index) or !eb.isKind(.index) or rig.isRangeIndex(ea) or rig.isRangeIndex(eb)) return null;
+        const base = self.spanText(ir.Index.object(ea));
+        if (base.len == 0 or !std.mem.eql(u8, base, self.spanText(ir.Index.object(eb)))) return null;
+        return .{ .base = base, .i = self.spanText(ir.Index.index(ea)), .j = self.spanText(ir.Index.index(eb)) };
+    }
+
+    fn spanText(self: *const Checker, node: Sexp) []const u8 {
+        const sp = self.span(node);
+        return self.source[sp.start..sp.end];
     }
 
     /// `!a.x` and `!a.y`: write borrows of two fields of one binding,
