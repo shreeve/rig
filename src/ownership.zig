@@ -819,15 +819,12 @@ pub const Checker = struct {
         return .{ .temps = p.temps, .reachable = p.reachable };
     }
 
-    /// The current state relative to point `p`.
+    /// The current state relative to point `p`: of the vars in scope
+    /// there, and of the loans on them. A path that leaves the scopes
+    /// opened since carries nothing else (`leaveTo` reports what it
+    /// loses).
     fn capture(self: *Checker, p: Point) Error!State {
-        return self.captureBelow(p, p.vars);
-    }
-
-    /// The current state relative to point `p`, keeping only the first
-    /// `len` vars and the loans on them: the state a jump carries out of
-    /// the scopes above `len`.
-    fn captureBelow(self: *Checker, p: Point, len: u32) Error!State {
+        const len = p.vars;
         self.scratch.clearRetainingCapacity();
         for (self.trail.items[p.trail..]) |c| {
             if (c.id < len and c.id < self.flows.items.len) try self.scratch.append(self.gpa, c.id);
@@ -3386,21 +3383,14 @@ pub const Checker = struct {
         }
         if (target) |t| {
             t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
-            const s = try self.exitState(t.point, t.scope_depth);
+            try self.runDefersTo(t.scope_depth, false);
+            const s = try self.leaveTo(t.point);
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
                 .cont => try t.conts.append(self.arena(), s),
             }
         }
         self.reachable = false;
-    }
-
-    /// The state at a jump out to point `target` (leaving the scopes
-    /// above `scope_depth`), relative to it: the scopes' defers run, and
-    /// nothing that survives may borrow what is left behind.
-    fn exitState(self: *Checker, target: Point, scope_depth: usize) Error!State {
-        try self.runDefersTo(scope_depth, false);
-        return self.leaveTo(target);
     }
 
     /// The state of a path that leaves for point `target`, relative to
@@ -3412,7 +3402,7 @@ pub const Checker = struct {
             if (!hasLoanFrom(f.loans, depth) or !self.holderLive(@intCast(holder), null)) continue;
             for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, @intCast(holder));
         }
-        return self.captureBelow(target, depth);
+        return self.capture(target);
     }
 
     /// `e!` / `e?`: on failure or `none`, control leaves for the caller.
