@@ -727,6 +727,10 @@ pub const Requirement = union(enum) {
     /// An integer or float type: the body reads or writes one in bytes
     /// (`b.read[T, .big](at)`).
     bytes,
+    /// An integer: the body gives a value of the parameter's type a
+    /// division of whole-number literals (`1 / 2`), which divides
+    /// integers.
+    whole_division,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -741,6 +745,7 @@ pub const Requirement = union(enum) {
             .plain => "a value that owns no resource",
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
+            .whole_division => "a division of whole numbers",
         };
     }
 };

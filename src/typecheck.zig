@@ -2150,7 +2150,10 @@ const Checker = struct {
         // Constant operands are computed now, so the result must fit.
         if (self.ctx.types.get(ty) == .int) try self.checkLiteralFits(e, ty);
         // Literals default to `Float` unless a type is given them later.
-        if (ty == self.t().float_literal_id) try self.checkFloatConstant(e, self.t().float_id);
+        if (ty == self.t().float_literal_id) {
+            try self.checkWholeDivision(e);
+            try self.checkFloatConstant(e, self.t().float_id);
+        }
         return ty;
     }
 
@@ -2328,6 +2331,7 @@ const Checker = struct {
     fn requireHoldsLiteral(self: *Checker, param: SymbolId, lit_ty: TypeId, lit: Sexp, pos: u32, op: []const u8) Error!void {
         if (lit_ty == self.t().float_literal_id) try self.require(param, .float, pos, op);
         if (lit_ty == self.t().int_literal_id) if (self.constInt(lit)) |v| try self.require(param, .{ .fits = v }, pos, op);
+        if (wholeDivision(self.ctx.source, lit)) |div| try self.require(param, .whole_division, self.startOf(div), try self.sourceText(div));
     }
 
     fn synthNeg(self: *Checker, e: Sexp) Error!TypeId {
@@ -6388,7 +6392,30 @@ const Checker = struct {
         if (!sema.isNumeric(self.ctx, target)) return;
         try self.ctx.recordType(e, target);
         if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target);
+        if (self.ctx.types.get(target) == .float) try self.checkWholeDivision(e);
         try self.checkFloatConstant(e, target);
+    }
+
+    /// A division of whole-number literals, `7 / 2`, divides integers:
+    /// a literal's context reaches through `+`, `-`, and `*`, but not
+    /// through `/` or `%`. Where the literals' value is a float, reached
+    /// that way, it is rejected, since it would silently be `3.0`.
+    fn checkWholeDivision(self: *Checker, e: Sexp) Error!void {
+        const div = wholeDivision(self.ctx.source, e) orelse return;
+        const left = ir.get(div, .left);
+        const right = ir.get(div, .right);
+        const op = @tagName(div.kind().?);
+        const a = self.ctx.arena.allocator();
+        const fix = if (left == .src)
+            try std.fmt.allocPrint(a, "{s}.0 {s} {s}", .{ self.text(left), op, try self.sourceText(right) })
+        else
+            try std.fmt.allocPrint(a, "Float({s}) {s} {s}", .{ try self.sourceText(left), op, try self.sourceText(right) });
+        const whole: []const u8 = if (self.constInt(div)) |v| try std.fmt.allocPrint(a, " ({d})", .{v}) else "";
+        if (floatConstIn(f64, self.ctx.source, div)) |f| {
+            const shown = if (f == @trunc(f) and @abs(f) < 1e15) try std.fmt.allocPrint(a, "{d}.0", .{f}) else try std.fmt.allocPrint(a, "{d}", .{f});
+            return self.errAt(div, "`{s}` divides whole numbers{s}; for {s} write `{s}`", .{ try self.sourceText(div), whole, shown, fix });
+        }
+        try self.errAt(div, "`{s}` divides whole numbers{s}; for a float write `{s}`", .{ try self.sourceText(div), whole, fix });
     }
 
     /// The number literals of an expression given float type `target`
@@ -7338,6 +7365,38 @@ fn wideToFloat(comptime F: type, v: Wide) F {
     return @floatCast(@as(f64, @floatFromInt(hi)) * 0x1p128 + @as(f64, @floatFromInt(lo)));
 }
 
+/// The first division of whole-number literals (`7 / 2`, `9 % 4`) that
+/// a literal context reaches in `e`: through negation, a ternary's
+/// branches, `+`, `-`, `*`, and a division that is not one.
+fn wholeDivision(source: []const u8, e: Sexp) ?Sexp {
+    const h = e.kind() orelse return null;
+    return switch (h) {
+        .neg => wholeDivision(source, ir.Neg.operand(e)),
+        .@"if" => wholeDivision(source, ir.If.then(e)) orelse wholeDivision(source, ir.If.@"else"(e)),
+        .@"+", .@"-", .@"*" => wholeDivision(source, ir.get(e, .left)) orelse wholeDivision(source, ir.get(e, .right)),
+        .@"/", .@"%" => if (wholeLiterals(source, ir.get(e, .left)) and wholeLiterals(source, ir.get(e, .right)))
+            e
+        else
+            wholeDivision(source, ir.get(e, .left)) orelse wholeDivision(source, ir.get(e, .right)),
+        else => null,
+    };
+}
+
+/// An expression of whole-number literals: integer literals, and
+/// arithmetic and builtins (`@sizeOf(T)`) over them.
+fn wholeLiterals(source: []const u8, e: Sexp) bool {
+    return switch (e) {
+        .src => sema.isIntLiteralText(identAt(source, e) orelse ""),
+        .list => switch (e.kind() orelse return false) {
+            .neg => wholeLiterals(source, ir.Neg.operand(e)),
+            .@"+", .@"-", .@"*", .@"/", .@"%" => wholeLiterals(source, ir.get(e, .left)) and wholeLiterals(source, ir.get(e, .right)),
+            .builtin => true,
+            else => false,
+        },
+        else => false,
+    };
+}
+
 fn holdsInt(ctx: *const SemContext, ty: TypeId, v: Wide) bool {
     return switch (ctx.types.get(ty)) {
         .int => |info| v >= intBounds(info).min and v <= intBounds(info).max,
@@ -7686,6 +7745,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
+                .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
@@ -7693,7 +7753,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 .plain => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .bytes => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
-                .fits, .float, .shift => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
+                .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -7748,6 +7808,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
             else => false,
         },
         .equatable => sema.isEquatable(ctx, ty),
+        .whole_division => sema.isInteger(ctx, ty),
     };
 }
 

@@ -1759,11 +1759,40 @@ the place, `!v.push(x)` is `(!v).push(x)` and `!v.put[2](x)` is
 
 Arithmetic needs numeric operands of one type (a literal adapts to the
 other operand). Integer `/` truncates toward zero and `%` takes the sign
-of the dividend, so `(a / b) * b + a % b == a`. Integer literals in
-float arithmetic are floats, so `h: Float = 7 / 2` is `3.5`. In
-arithmetic over a type parameter `T` they take `T`'s type in each
-instance: `self.v + 1 / 2` adds `0.5` when `T` is `Float` and `0` when
-it is `Int`. Unsigned values cannot be negated. Bitwise operators need integers; a shift amount may be any
+of the dividend, so `(a / b) * b + a % b == a`. A literal takes the type
+its context expects through `+`, `-`, and `*`, so `h: Float = 2 * 3` is
+`6.0`, but not through `/` and `%`: a division of whole-number literals
+divides integers, `x = 7 / 2` is `3`, and where its value would be a
+float (`h: Float = 7 / 2`, `7 / 2 + 1.5`) it is rejected, since it would
+silently be `3.0`. A float literal makes it a float division:
+`7.0 / 2` is `3.5`. In arithmetic over a type parameter `T`, integer
+literals take `T`'s type in each instance, and an instance whose `T` is
+a float is rejected where the body gives a `T` a whole-number division
+(`self.v + 1 / 2`). Unsigned values cannot be negated.
+
+```rig
+sub main
+  x = 7 / 2
+  h: Float = 7.0 / 2
+  k: Float = 2 * 3
+  print(x, h, k, -7 % 3)
+```
+
+```output
+3 3.5 6.0 -1
+```
+
+```rig reject
+sub main
+  h: Float = 7 / 2
+  print(h)
+```
+
+```error
+`7 / 2` divides whole numbers (3); for 3.5 write `7.0 / 2`
+```
+
+Bitwise operators need integers; a shift amount may be any
 integer, from 0 up to the width of the shifted type. A left shift that
 loses bits (or the sign) overflows: a constant one is rejected, and one
 computed when the program runs panics, like `+` and `*`.

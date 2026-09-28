@@ -879,8 +879,10 @@ From lowest to highest precedence:
 - `+%` `-%` `*%` (and `+%=` `-%=` `*%=`) wrap around on overflow, as in
   Zig and like Rust's `wrapping_add`: `U8(250) +% 10` is `4`. They
   take integers only.
-- Integer literals in float arithmetic are floats: `h: Float = 7 / 2`
-  is `3.5`.
+- A literal takes its context's type through `+`, `-`, and `*`
+  (`h: Float = 2 * 3` is `6.0`), but not through `/` and `%`: `7 / 2`
+  divides whole numbers, so it is `3`, and where a float is expected it
+  is rejected (``for 3.5 write `7.0 / 2` ``).
 - `==` compares by content: numbers, `Bool`, `String`, enums, and,
   when all they hold compares, optionals, arrays, slices, structs
   (field by field), and payload enums. Floats inside compare as IEEE
@@ -898,7 +900,7 @@ sub main
   a = 7
   print(-7 / 2, -7 % 2, a & 3, a | 8, a ^ 1, a << 2, a >> 1)
   print(not a == 3, a > 3 and a < 10, false or true)
-  h: Float = 7 / 2
+  h: Float = 7.0 / 2
   print(h, "ab" == "ab", 1 if a > 5 else 2)
 ```
 
@@ -1752,7 +1754,8 @@ sub main
 ```
 
 A literal argument takes the type the call is given, so the body's
-arithmetic runs in that type, as `h: Float = 7 / 2` is `3.5`:
+arithmetic runs in that type: `half(7)` divides a `Float` where a
+`Float` is expected.
 
 ```rig
 fun half[T](x: T) -> T
