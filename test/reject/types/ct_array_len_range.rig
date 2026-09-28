@@ -2,8 +2,8 @@
 # used as one is checked at each instance: called directly, and through
 # a generic body that passes it on.
 
-NEG =! -1
-BIG =! 4294967296
+NEG = -1
+BIG = 4294967296
 
 fun zeros[n: Int] -> [n]Int
   [n of 0]

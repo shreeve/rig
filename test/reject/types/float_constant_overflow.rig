@@ -1,7 +1,7 @@
 # Arithmetic on number literals is computed in the float type it takes
 # and must not overflow it; an integer literal in it must be exact.
 
-k: F32 =! 1e38 * 10.0
+k: F32 = 1e38 * 10.0
 
 sub main()
   w: F32 = 1e38 * 10.0
@@ -12,7 +12,7 @@ sub main()
   u = 0.5 * 12345678901234567891
   print(k, w, v, x, y, z, u, 1e308 * 1e308)
 
-# error: 4:11: this constant expression overflows `F32`
+# error: 4:10: this constant expression overflows `F32`
 # error: 7:12: this constant expression overflows `F32`
 # error: 8:12: this constant expression overflows `F32`
 # error: 9:14: this constant expression overflows `Float`

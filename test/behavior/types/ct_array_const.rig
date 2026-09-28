@@ -1,10 +1,10 @@
 # An array's length is any compile-time integer: a literal, a constant,
 # or arithmetic on them. `[LIMIT]Int` is the same type as `[4]Int`.
 
-LIMIT =! 4
-DOUBLE =! LIMIT * 2
-A =! 1
-B =! 2
+LIMIT = 4
+DOUBLE = LIMIT * 2
+A = 1
+B = 2
 
 fun count[n: U8](xs: [n]Int) -> Int
   Int(n)

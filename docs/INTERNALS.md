@@ -194,6 +194,8 @@ stands where a value is expected: `x = twice 5`, or `b = a -1`, whose
 hint names both the operator and the call), and makes the only rewrites
 that need to inspect the tree:
 
+- a module-level binding, written `name = value`, is a constant: its
+  `set` gets the `fixed` op, and a module-level `=!` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a
   parameter list, and a capture after a parameter is an error;
 - a `for` source wrapped in `?`, `!`, or `<` moves into the mode slot:
@@ -344,7 +346,9 @@ A few kinds serve more than one surface form:
   Zig `if` per part, sharing the `else`.
 - `set`'s `op` is `_` for `=`, `fixed` for `=!`, `shadow` for
   `new x =`, and the operator for a compound
-  assignment.
+  assignment. A module-level binding is a constant written with `=`;
+  the Parser wrapper makes its `op` `fixed`, so every pass reads it as
+  the fixed binding it is, and rejects a module-level `=!`.
 - `for`'s `mode` is `iter` from the grammar; the Parser wrapper turns
   `for x in ?xs` / `!xs` / `<xs` into `read`, `write`, `move`.
 - `arm`'s `guard` is the condition of `pattern if cond =>`, or `_`; its
@@ -922,7 +926,7 @@ lower is an internal error: sema must have rejected it.
   needs the receiver first): `fun times[n: Int](?self)` is
   `fn times(self: P, comptime n: i64) i64`. A call passes its bracket
   arguments in the same place: `show[3]()` is `show(3)`.
-  A compile-time value, or a `=!` constant, read in run-time arithmetic
+  A compile-time value, or a module or `=!` constant, read in run-time arithmetic
   goes through `rig.rt(n)`, so Zig computes it when the program runs,
   with the overflow checks Rig specifies, rather than folding it. A
   generic type's value parameter is a `comptime n: i64` of its

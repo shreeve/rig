@@ -43,7 +43,7 @@ pub fn subFails(fun_or_sub: Sexp) bool {
     return fun_or_sub.isKind(.sub) and ir.Sub.fails(fun_or_sub) != .nil;
 }
 
-/// A module-level constant (`name =! value`, or `pub` one). Passes take
+/// A module-level constant (`name = value`, or a `pub` one). Passes take
 /// them before the other declarations, so functions anywhere in the
 /// module see them.
 pub fn isModuleConst(decl: Sexp) bool {
@@ -1514,6 +1514,7 @@ pub const Parser = struct {
         for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         switch (out.kind() orelse return out) {
+            .module => self.moduleConsts(out),
             .lambda => try self.splitBars(out, walked),
             .@"??" => return self.nearestFallback(out),
             .read, .write, .move => return self.receiverSigil(out),
@@ -1526,6 +1527,30 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// A module-level binding is a constant, written with `=`: its
+    /// `(set _ ...)` becomes `(set fixed ...)`, the fixed binding every
+    /// pass reads. A `=!` there is rejected, as it would say nothing more.
+    fn moduleConsts(self: *Parser, module: Sexp) void {
+        for (ir.Module.decls(module)) |decl| {
+            const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+            if (!set.isKind(.set)) continue;
+            switch (bindingKindOf(ir.Set.op(set))) {
+                .default => @constCast(set.items())[ir.slot(.set, .op)] = .{ .tag = .fixed },
+                .fixed => {
+                    const src = self.base.source;
+                    const target = self.span(ir.Set.target(set));
+                    const value = self.span(ir.Set.value(set));
+                    const ty = ir.Set.type(set);
+                    const annot = if (ty == .nil) "" else src[target.end..self.span(ty).end];
+                    const shown = src[value.start..value.end];
+                    const short = shown.len <= 40 and std.mem.indexOfScalar(u8, shown, '\n') == null;
+                    self.reject(set, self.format("a module-level binding is already a constant; write `{s}{s} = {s}`", .{ src[target.start..target.end], annot, if (short) shown else "..." }));
+                },
+                else => {},
+            }
+        }
     }
 
     /// `a ?? b ?? return v`: the grammar reads a jump fallback after the

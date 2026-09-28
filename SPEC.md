@@ -44,7 +44,7 @@ hello, rig
 ## 1. Programs
 
 A Rig program is a file of declarations: functions (`fun`, `sub`),
-types (`struct`, `enum`, `error`, `type`), constants (`name =! value`),
+types (`struct`, `enum`, `error`, `type`), constants (`name = value`),
 imports (`use`), `extern` declarations, and `test` blocks. Statements
 live inside functions. The file's name ends in `.rig`, and a program
 that runs declares its entry point as `sub main`, with no parameters.
@@ -372,12 +372,12 @@ parameter (`[n]T` in `fun zeros[n: Int] -> [n]Int`,
 [§17](#17-compile-time-parameters)), or arithmetic on integers and
 constants with `+`, `-`, `*`, `/`, `%`, and parentheses
 (`[LIMIT * 2 + 1]U8`). The arithmetic is checked as constant
-arithmetic is, in its constants' type: with `W: U8 =! 200`, `[W * 2]T`
+arithmetic is, in its constants' type: with `W: U8 = 200`, `[W * 2]T`
 overflows `U8`. A length runs from 0 to 4294967295, and one
 given by a compile-time parameter is checked at each instance.
 Arithmetic on a compile-time parameter (`[n + 1]T`) is rejected, as in
 a compile-time argument. The length is a value, however it is written:
-with `LIMIT =! 4`, `[LIMIT]Int`, `[2 + 2]Int`, and `[4]Int` are one
+with `LIMIT = 4`, `[LIMIT]Int`, `[2 + 2]Int`, and `[4]Int` are one
 type.
 
 An array literal `[a, b, c]` takes its element type from its elements
@@ -395,7 +395,7 @@ collection of resources is a `Vec`. An array of arrays is `[2][3]T`:
 two rows of three.
 
 ```rig
-LIMIT =! 4
+LIMIT = 4
 
 fun zeros[n: Int] -> [n]Int
   [n of 0]
@@ -1586,8 +1586,8 @@ test "area"
 
 ### Constants
 
-A binding at module level is a constant, `name =! value` or
-`name: T =! value`, and `pub` exports it. Its value must be known at
+A binding at module level is a constant, `name = value` or
+`name: T = value`, and `pub` exports it. Its value must be known at
 compile time: a literal, `.variant`, an earlier constant, or operators
 and array literals over them. Every function and type in the module
 reads it, wherever it is declared; nothing can reassign or move it,
@@ -1597,9 +1597,9 @@ Arithmetic on constants alone is checked at compile time; with a value
 known only when the program runs, it is checked then, like any other.
 
 ```rig
-limit =! 10
-half =! limit / 2
-names =! ["low", "high"]
+limit = 10
+half = limit / 2
+names = ["low", "high"]
 
 fun over(n: Int) -> Bool
   n > limit
@@ -1612,8 +1612,19 @@ sub main
 10 5 high true
 ```
 
-A plain `name = value` at module level is rejected: there are no
-mutable module-level variables.
+There are no mutable module-level variables, so a module-level binding
+needs no `=!`, and one written with it is rejected:
+
+```rig reject
+LIMIT =! 4
+
+sub main
+  print(LIMIT)
+```
+
+```error
+a module-level binding is already a constant; write `LIMIT = 4`
+```
 
 ### Other declarations
 
@@ -4483,7 +4494,7 @@ enum Mode
   strict
   loose
 
-LIMIT =! 5
+LIMIT = 5
 
 fun check[mode: Mode](n: Int) -> Bool
   if mode == .strict

@@ -2,9 +2,9 @@
 # its operands' type, whose range its value must fit, and a value
 # argument has its parameter's type.
 
-W: U8 =! 200
-N: I8 =! 4
-BIG =! 9223372036854775807
+W: U8 = 200
+N: I8 = 4
+BIG = 9223372036854775807
 
 struct Ring[T, n: Int]
   items: [n]T

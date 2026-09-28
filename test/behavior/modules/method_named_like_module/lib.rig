@@ -1,4 +1,4 @@
-pub limit =! 7
+pub limit = 7
 
 pub struct P
   x: Int

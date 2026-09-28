@@ -11,12 +11,13 @@ fun f() -> Int
   3
 
 k = 3
-h =! *B(n: 1)
-c =! f()
-d =! later
-later =! 1
-big =! 9223372036854775807
-over =! big + 1
+h = *B(n: 1)
+c = f()
+d = later
+later = 1
+big = 9223372036854775807
+over = big + 1
+k += 1
 
 fun uses(big: Int) -> Int
   big
@@ -27,12 +28,12 @@ sub main()
   print(y)
   over =! 2
 
-# error: 13:1: a module-level binding is a constant; write `k =! value`
-# error: 14:6: a module-level constant needs a value known at compile time
-# error: 15:6: a module-level constant needs a value known at compile time
-# error: 16:6: use of unbound name `later`
-# error: 19:9: does not fit in `Int`
-# error: 21:10: parameter `big` has the same name as the module-level declaration `big`
-# error: 25:3: cannot reassign fixed binding `later`
-# error: 26:8: cannot move module-level `big` inside a function
-# error: 28:3: local `over` has the same name as the module-level declaration `over`
+# error: 14:5: a module-level constant needs a value known at compile time
+# error: 15:5: a module-level constant needs a value known at compile time
+# error: 16:5: use of unbound name `later`
+# error: 19:8: does not fit in `Int`
+# error: 20:1: a module-level binding is a constant; write `k = value`
+# error: 22:10: parameter `big` has the same name as the module-level declaration `big`
+# error: 26:3: cannot reassign fixed binding `later`
+# error: 27:8: cannot move module-level `big` inside a function
+# error: 29:3: local `over` has the same name as the module-level declaration `over`

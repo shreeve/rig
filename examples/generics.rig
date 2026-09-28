@@ -5,7 +5,7 @@
 # ring buffer's capacity is part of its type, and a function's array
 # length is inferred from its argument.
 
-HISTORY =! 3
+HISTORY = 3
 
 struct Tape
   label: String

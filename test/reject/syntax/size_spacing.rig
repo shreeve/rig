@@ -1,7 +1,7 @@
 # In a size, as anywhere, an operator touching only what follows it is a
 # prefix: `[N -1]` is not `[N - 1]`.
 
-N =! 4
+N = 4
 
 sub main()
   a: [N -1]Int = [3 of 0]

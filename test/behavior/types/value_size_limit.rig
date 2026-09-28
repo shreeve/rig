@@ -2,8 +2,8 @@
 # values on its stack: an array local, a struct, and a module constant
 # at the limit all run, and so does a function keeping 12 MiB.
 
-BIG =! [1048576 of 7]
-HALF =! [524288 of 1]
+BIG = [1048576 of 7]
+HALF = [524288 of 1]
 
 struct Frame
   a: [524288]Int

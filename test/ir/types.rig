@@ -24,7 +24,7 @@ fun generic[T](x: T) -> T
 sub counted[n: Int, T](x: Int)
   print x
 
-N =! 2
+N = 2
 
 struct Ring[T, n: Int]
   items: [n]T

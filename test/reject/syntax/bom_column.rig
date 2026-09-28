@@ -1,9 +1,9 @@
-﻿x =! y
+﻿x = y
 
 # The file starts with a UTF-8 byte order mark, which takes no column:
-# `y` is at column 6 of line 1.
+# `y` is at column 5 of line 1.
 
 sub main()
   print(x)
 
-# error: 1:6: use of unbound name `y`
+# error: 1:5: use of unbound name `y`

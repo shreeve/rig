@@ -1,7 +1,7 @@
 # A size, or any operand in one, may be parenthesized.
 
-A =! 2
-B =! 3
+A = 2
+B = 3
 
 struct Ring[T, n: Int]
   items: [n]T

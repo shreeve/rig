@@ -3,7 +3,7 @@
 # (`Ring[Int, 4]`), or inferred from the fields. The same value, however
 # it is written, names the same type.
 
-LIMIT =! 2
+LIMIT = 2
 
 struct Ring[T, n: Int]
   items: [n]T

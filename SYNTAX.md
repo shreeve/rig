@@ -1624,7 +1624,7 @@ sub main
 ```
 
 ```rig
-LIMIT =! 2
+LIMIT = 2
 
 struct Ring[T, n: Int]
   items: [n]T
@@ -2001,7 +2001,7 @@ enum Mode
   strict
   loose
 
-limit =! 10
+limit = 10
 
 fun check[mode: Mode](n: Int) -> Bool
   n > limit if mode == .strict else n > 0
@@ -2902,7 +2902,7 @@ propagate. Closures, `defer`, and `drop` bodies may not.
 **Arrays** are fixed-size, `[N]T`, and hold plain data. The length is
 known at compile time: an integer, a constant, a compile-time
 parameter, or arithmetic on constants (`[LIMIT * 2 + 1]U8`). It is a
-value, so `[LIMIT]Int` is `[4]Int` when `LIMIT =! 4`. `xs.len` is the
+value, so `[LIMIT]Int` is `[4]Int` when `LIMIT = 4`. `xs.len` is the
 length, `xs[i]` a bounds-checked element, and `xs.get(i)` the element
 as a `T?`, `none` out of range (as for a `Vec`, a slice, and a `String`,
 whose `get` gives a `U8?`). `[2][3]Int` is two arrays of three, read as
@@ -2917,7 +2917,7 @@ length of its own. `of` is a keyword only there, after a value inside
 `[ ]`; anywhere else it is an ordinary name.
 
 ```rig
-LIMIT =! 4
+LIMIT = 4
 
 fun zeros[n: Int] -> [n]Int
   [n of 0]
@@ -3088,7 +3088,7 @@ pub struct Point
 pub fun origin -> Point
   Point(x: 0, y: 0)
 
-pub unit =! 10
+pub unit = 10
 ```
 
 ```rig
@@ -3141,14 +3141,15 @@ sub main
 4 2
 ```
 
-**Constants.** A module-level binding is a constant, written with `=!`
+**Constants.** A module-level binding is a constant, written with `=`
 and known at compile time: literals, `.variant`, earlier constants, and
-operators and arrays over them. There are no mutable globals.
+operators and arrays over them. There are no mutable globals, so a
+module-level binding needs no `=!` (and is rejected with one).
 
 ```rig
-limit =! 10
-half =! limit / 2
-names =! ["low", "high"]
+limit = 10
+half = limit / 2
+names = ["low", "high"]
 
 sub main
   print(limit, half, names[1])
@@ -3384,7 +3385,7 @@ enum      = "enum" name ["[" tparam, ... "]"] INDENT (variant | fun | sub)* DEDE
 variant   = name | name "=" integer | name "(" field, ... ")"
 errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type
-const     = name [":" type] "=!" expr
+const     = name [":" type] "=" expr   # at module level
 drop      = "drop" "(" param ")" block      # the receiver: `!self`
 test      = "test" string block
 extern    = "extern" ("fun" | "sub") name ["(" params ")"] ["->" type]

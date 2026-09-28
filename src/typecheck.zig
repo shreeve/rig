@@ -289,14 +289,14 @@ const Checker = struct {
         }
     }
 
-    /// A module-level binding is a constant, `name =! value`: its value
+    /// A module-level binding is a constant, `name = value`: its value
     /// is known at compile time and owns nothing, so no function can
     /// change it and nothing has to release it.
     fn checkModuleConst(self: *Checker, node: Sexp) Error!void {
         const target = ir.Set.target(node);
         if (target != .src) return self.errAt(node, not_at_module_level, .{});
         if (rig.bindingKindOf(ir.Set.op(node)) != .fixed) {
-            return self.errAt(node, "a module-level binding is a constant; write `{s} =! value`", .{self.text(target)});
+            return self.errAt(node, "a module-level binding is a constant; write `{s} = value`", .{self.text(target)});
         }
         self.const_before = target.src.pos;
         defer self.const_before = std.math.maxInt(u32);

@@ -1,6 +1,6 @@
 # A module-level constant is not captured; a closure reads it directly.
 
-k =! 5
+k = 5
 
 sub main()
   c = |+k| k + 1

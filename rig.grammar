@@ -450,8 +450,11 @@ decl     = defn
          | PUB decl:defn                            → (pub)
          | PUB decl:const                           → (pub)
 
-# A public module-level constant.
-const    = target:name "=!" value:rhs               → (set op:fixed)
+# A public module-level constant, `pub LIMIT = 4`. A `=!` parses too, so
+# that the Parser wrapper can say a module-level binding needs none.
+const    = target:name "="  value:rhs               → (set)
+         | target:name ":" type:type "="  value:rhs  → (set)
+         | target:name "=!" value:rhs               → (set op:fixed)
          | target:name ":" type:type "=!" value:rhs  → (set op:fixed)
 
 defn     = fun | sub | enum | struct | errors | typedef | test

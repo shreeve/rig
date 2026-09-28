@@ -304,7 +304,7 @@ pub const Emitter = struct {
         }
     }
 
-    /// A module-level constant, `name =! value`.
+    /// A module-level constant, `name = value`.
     fn emitConst(self: *Emitter, node: Sexp) Error!void {
         const target = ir.Set.target(node);
         try self.w.print("pub const {f}: ", .{ident(self.srcText(target))});

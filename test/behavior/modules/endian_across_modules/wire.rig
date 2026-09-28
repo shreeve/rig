@@ -1,4 +1,4 @@
-pub ORDER =! Endian.big
+pub ORDER = Endian.big
 
 pub fun order -> Endian
   .little
