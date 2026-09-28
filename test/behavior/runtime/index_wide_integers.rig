@@ -1,0 +1,28 @@
+# An index of any integer type, 128-bit ones included, is checked and
+# converted when the program runs.
+
+fun rt(n: I128) -> I128
+  n
+
+sub main()
+  xs = [10, 20, 30]
+  i: I128 = 1
+  j: U128 = 2
+  print(xs[i], xs[j])
+  v: Vec[Int] = Vec()
+  !v.push(5)
+  k: U128 = 0
+  print(v[k])
+  s = "abc"
+  print(s[j])
+  !xs.swap(i, j)
+  print(xs)
+  print(xs[rt(-1)])
+
+# expect-panic: index out of bounds
+
+# expect:
+# 20 30
+# 5
+# 99
+# [10, 30, 20]

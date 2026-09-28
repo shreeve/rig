@@ -1,0 +1,12 @@
+# A closure body may call a module-level function named `invoke`.
+
+fun invoke(x: Int) -> Int
+  x * 100
+
+sub main()
+  f = |a: Int| invoke(a) + 1
+  g = *|a: Int| invoke(a) + 2
+  print(f(2), g(3))
+
+# expect:
+# 201 302

@@ -903,8 +903,9 @@ types comes from the facts table, never from name matching, and every
 type it writes is spelled from a sema `TypeId`. A construct it cannot
 lower is an internal error: sema must have rejected it.
 
-- **Bindings** are `const` unless reassigned, written through, or of a
-  type whose methods take `*Self`. Every Rig name is written through
+- **Bindings** are `const` unless reassigned, written through, holding
+  a `Cell` or a value with drop glue (whose methods take `*Self`), or
+  initialized by a compile-time-known value, which Zig would fold. Every Rig name is written through
   `rig.writeZigIdent`, which quotes Zig keywords and primitives
   (`@"var"`) and marks a name the emitter itself declares (`std`, `rig`,
   `panic`, anything starting with `__rig`) with a `'` no Rig name can
@@ -926,16 +927,18 @@ lower is an internal error: sema must have rejected it.
   Zig's `defer` then releases the value on every exit path, in reverse
   order, including early returns, loop exits, and error propagation.
 - **Borrows.** `!T` parameters, `!self` receivers, and borrow bindings
-  are pointers, read through `.*`. A `?T` of plain data is a plain Zig
-  value: Zig parameters are immutable, and Zig passes large ones by
-  reference. A `?T` of a type with drop glue or one holding a `Cell` is
-  a `*const T`, since a copy of it would be dropped with whatever holds
-  it, and a borrowed `Cell` can change while it is borrowed. In a
-  generic type, where that depends on the type arguments (`?T`,
-  `?Self`), the borrow is a `rig.ReadBorrow(T)`, which applies the same
-  rule to each instance. A `[]T` is a `[]const T` and a `![]T` a Zig
-  `[]T`, not a pointer to one: the slice already points at its
-  elements, so it is passed and bound as it is.
+  are pointers, read through `.*`. A `?T` of a scalar or a view (a
+  number, `Bool`, a plain enum, an error, a slice or `String`, a
+  function, or an optional of one) is a copy: Zig parameters are
+  immutable. Any other `?T` (a struct, an array, an enum with
+  payloads) is a `*const T`, since a copy of a value with drop glue
+  would be dropped with whatever holds it, and a borrowed `Cell` can
+  change while it is borrowed. In a generic type, where that depends on
+  the type arguments (`?T`, `?Self`), the borrow is a
+  `rig.ReadBorrow(T)`, which applies the same rule to each instance.
+  A `[]T` is a `[]const T` and a `![]T` a Zig `[]T`, not a pointer to
+  one: the slice already points at its elements, so it is passed and
+  bound as it is.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`,
   `Box[T]` is `rig.Box(T)` (a pointer to the value, reached as
   `b.value.f`; `?b` lent as a `?T` is `b.value`), `T?`
@@ -997,7 +1000,7 @@ lower is an internal error: sema must have rejected it.
   after an owned value was already produced, which the temporary's
   guarded `defer` then drops.
 - **Closures.** A stack closure is a local struct holding its captures,
-  with an `invoke` method. An owned closure allocates an environment
+  with an `__rig_invoke` method. An owned closure allocates an environment
   struct per literal and erases it behind `rig.Closure(params, R)`, so
   every literal of one function type shares one runtime type; a call is
   `cb.value.invoke(.{ args })`. A borrowed callable `?fun(...)`, the

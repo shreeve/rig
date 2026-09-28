@@ -1,0 +1,11 @@
+# A number type's limit, named through the type or a local alias of it,
+# is a default in another module too.
+
+use lib
+
+sub main()
+  p = lib.P()
+  print(p.a > 3.0e38, p.b, p.c < -1.0e308, lib.f())
+
+# expect:
+# true 255 true true
