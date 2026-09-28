@@ -1,5 +1,6 @@
 # A box of a Vec, an array, or a String is lent as its value (`?b` as a
-# `?Vec[Int]`, `!b` as a `!Vec[Int]`) and taken apart with `unbox`.
+# `?Vec[Int]`, `!b` as a `!Vec[Int]`) and taken apart with `unbox`. It
+# prints as its value: a boxed String bare at the top, quoted inside.
 
 sub fill(v: !Vec[Int])
   !v.push(1)
@@ -22,11 +23,16 @@ sub main
   print(first(?arr))
   s = Box("hi")
   print(s)
+  bs = Vec[Box[String]]()
+  !bs.push(Box("a"))
+  bb = Box(Box("x"))
+  print(bs, bb)
   v = <b.unbox()
   print(v.len)
 
 # expect:
 # 3 [1, 2]
 # 7
-# "hi"
+# hi
+# ["a"] x
 # 2
