@@ -1,0 +1,24 @@
+# A borrow of an element of a `[]T` parameter points into the caller's
+# memory, so it may be returned; it keeps what the slice keeps.
+
+struct Val
+  n: Int
+
+fun first(xs: []Val) -> ?Val
+  ?xs[0]
+
+fun firsti(xs: []Int) -> ?Int
+  ?xs[0]
+
+fun inner(xs: []Val) -> ?Int
+  ?xs[1].n
+
+sub main
+  a = [Val(n: 1), Val(n: 2)]
+  print(first(?a).n, inner(?a))
+  b = [1, 2]
+  print(firsti(?b))
+
+# expect:
+# 1 2
+# 1

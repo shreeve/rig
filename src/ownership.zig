@@ -1611,6 +1611,9 @@ pub const Checker = struct {
 
     fn walkBorrow(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
         if (rig.isRangeIndex(inner)) return self.walkSlice(inner, kind);
+        // An element of a read-only `[]T` is in memory the slice views,
+        // not the var holding it: the borrow keeps what the slice keeps.
+        if (kind == .read and self.throughReadSlice(inner)) return self.walkBorrowedPath(inner);
         const place = self.resolvePlace(inner) orelse return self.walkBorrowedPath(inner);
         try self.walkPlaceIndices(inner);
         const id = place.root;
