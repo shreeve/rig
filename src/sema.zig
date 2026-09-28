@@ -1415,10 +1415,10 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try resolve.registerBuiltins(&ctx, module_scope);
     try resolve.resolveSymbols(&ctx, tree, module_scope);
     try resolve.resolveDeclarations(&ctx, tree, module_scope);
-    try computeContents(&ctx);
+    const order = try computeContents(&ctx);
     try checkInfiniteTypes(&ctx);
+    try checkTypeSizes(&ctx, order);
     try resolve.checkDeclarations(&ctx);
-    try checkTypeSizes(&ctx);
     try typecheck.checkModule(&ctx, tree, module_scope);
     try typecheck.checkFrames(&ctx, tree);
     try checkUnreadLocals(&ctx);
@@ -1752,7 +1752,7 @@ pub fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) 
 /// What the values of a nominal or generic type hold, from its data
 /// fields and variant payloads (`computeContents`).
 pub const Contents = struct {
-    state: enum { todo, busy, done } = .todo,
+    done: bool = false,
     /// Needs its destructor run whatever its type arguments: a user
     /// `drop`, or a field that owns a resource.
     glue: bool = false,
@@ -1766,6 +1766,9 @@ pub const Contents = struct {
     held: []const bool = &.{},
     /// Holds a borrow, or a write borrow (see `Borrows`).
     borrows: Borrows = .{},
+    /// Holds itself by value, which `checkInfiniteTypes` reports: it has
+    /// no size.
+    cyclic: bool = false,
 };
 
 /// Whether values hold a borrow (`?T`, `!T`, a slice) and whether they
@@ -1819,32 +1822,27 @@ fn isTypeDecl(sym: Symbol) bool {
 
 /// Compute what the values of every declared type hold, then the facts
 /// of every type interned so far. Types interned later get theirs as
-/// they are interned.
-fn computeContents(ctx: *SemContext) std.mem.Allocator.Error!void {
-    for (ctx.symbols.items, 0..) |sym, i| {
-        if (isTypeDecl(sym)) _ = try symbolContents(ctx, @intCast(i));
-    }
+/// they are interned. Each declared type is computed after those it
+/// holds, in the order returned, so no walk nests through the chain of
+/// types a value holds.
+fn computeContents(ctx: *SemContext) std.mem.Allocator.Error![]const SymbolId {
+    var c = try Components.run(ctx, true);
+    defer c.deinit();
+    for (c.order.items) |id| try symbolContents(ctx, id);
     try computeCells(ctx);
     try computeBorrows(ctx);
     ctx.contents_ready = true;
     ctx.type_info.clearRetainingCapacity();
     try ctx.syncTypeInfo();
+    return ctx.arena.allocator().dupe(SymbolId, c.order.items);
 }
 
-fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!Contents {
-    const current = ctx.symbols.items[id].contents;
-    switch (current.state) {
-        .done => return current,
-        // Reached again while computing its own contents: the type holds
-        // itself by value, which `checkInfiniteTypes` reports.
-        .busy => return .{},
-        .todo => {},
-    }
-    ctx.symbols.items[id].contents.state = .busy;
+fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
+    if (ctx.symbols.items[id].contents.done) return;
     const params = ctx.symbols.items[id].type_params orelse &.{};
     const held = try ctx.arena.allocator().alloc(bool, params.len);
     @memset(held, false);
-    var c: Contents = .{ .state = .done, .plain = true, .held = held };
+    var c: Contents = .{ .done = true, .plain = true, .held = held };
     for (ctx.symbols.items[id].fields orelse &.{}) |*f| {
         if (f.is_drop_method) c.glue = true;
         for (dataFields(f)) |d| {
@@ -1861,7 +1859,14 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!Conten
     if (id == ctx.vec_sym_id or id == ctx.box_sym_id) c.glue = true;
     if (id == ctx.vec_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id) c.plain = false;
     ctx.symbols.items[id].contents = c;
-    return c;
+}
+
+/// What the values of a declared type hold, once computed. A type not
+/// computed yet holds itself by value (`computeContents` computes each
+/// after those it holds), which `checkInfiniteTypes` reports.
+fn contentsOf(ctx: *const SemContext, id: SymbolId) Contents {
+    const c = ctx.symbols.items[id].contents;
+    return if (c.done) c else .{};
 }
 
 const Holds = struct { glue: bool = false, plain: bool = false, type_var: bool = false };
@@ -1882,7 +1887,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         .shared, .weak => .{ .glue = true },
         .nominal, .imported_nominal => blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk .{};
-            const c = if (decl.module_id == null) try symbolContents(ctx, decl.sym) else decl.symbol().contents;
+            const c = contentsOf(decl.ctx, decl.sym);
             break :blk .{ .glue = c.glue, .plain = c.plain };
         },
         .type_var => |sym| blk: {
@@ -1891,7 +1896,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
             break :blk .{ .plain = true, .type_var = true };
         },
         .parameterized_nominal => |pn| blk: {
-            const c = try symbolContents(ctx, pn.sym);
+            const c = contentsOf(ctx, pn.sym);
             var h: Holds = .{ .glue = c.glue, .plain = c.plain };
             for (pn.args, 0..) |a, i| {
                 if (i >= c.held.len or !c.held[i]) continue;
@@ -2097,42 +2102,36 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
 
 /// A struct or enum may not hold itself by value, directly or through
 /// the types it holds by value: it would have no finite size. One search
-/// of the by-value graph over the declared types finds every cycle
-/// (Tarjan's strongly connected components).
+/// of the by-value graph over the declared types finds every cycle.
 fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
-    const n = ctx.symbols.items.len;
-    const a = ctx.allocator;
-    var s: Components = .{
-        .ctx = ctx,
-        .index = try a.alloc(u32, n),
-        .low = try a.alloc(u32, n),
-        .on_stack = try a.alloc(bool, n),
-        .cyclic = try a.alloc(bool, n),
-    };
-    defer s.deinit();
-    @memset(s.index, 0);
-    @memset(s.on_stack, false);
-    @memset(s.cyclic, false);
-    for (ctx.symbols.items, 0..) |sym, i| {
-        if (isTypeDecl(sym) and s.index[i] == 0) try s.visit(@intCast(i));
-    }
+    var c = try Components.run(ctx, false);
+    defer c.deinit();
     var targets: std.ArrayListUnmanaged(SymbolId) = .empty;
-    defer targets.deinit(a);
+    defer targets.deinit(ctx.allocator);
     for (ctx.symbols.items, 0..) |sym, i| {
-        if (!s.cyclic[i] or sym.decl_pos >= imported_decl_pos) continue;
+        if (!c.cyclic[i]) continue;
+        ctx.symbols.items[i].contents.cyclic = true;
+        if (sym.decl_pos >= imported_decl_pos) continue;
         const f = fields: for (sym.fields orelse &.{}) |*f| {
             targets.clearRetainingCapacity();
-            for (dataFields(f)) |d| try byValueTargets(ctx, d.ty, &targets);
+            for (dataFields(f)) |d| try byValueTargets(ctx, d.ty, &targets, false);
             // `low` names the component after the search.
-            for (targets.items) |t| if (s.low[t] == s.low[i]) break :fields f;
+            for (targets.items) |t| if (c.low[t] == c.low[i]) break :fields f;
         } else continue;
         const shown = if (sym.kind == .generic_type) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}[...]", .{sym.name}) else sym.name;
         try ctx.err(f.decl_pos, "`{s}` contains itself by value through `{s}`, so it would have no finite size; hold it through a shared handle (`*{s}`)", .{ shown, f.name, shown });
     }
 }
 
+/// The strongly connected components of the graph of declared types, an
+/// edge going from a type to each one it holds by value (Tarjan's
+/// algorithm, with an explicit stack, so a long chain of types does not
+/// nest the search). Before what each type holds is known
+/// (`every_arg`), a generic instance counts as holding all its
+/// arguments, and a Vec or a Box its element.
 const Components = struct {
-    ctx: *SemContext,
+    ctx: *const SemContext,
+    every_arg: bool,
     next: u32 = 1,
     /// Visit order (0: not visited yet).
     index: []u32,
@@ -2142,7 +2141,35 @@ const Components = struct {
     on_stack: []bool,
     /// In a component with a cycle.
     cyclic: []bool,
+    /// The types in completed components, each component after every
+    /// one its members hold by value.
+    order: std.ArrayListUnmanaged(SymbolId) = .empty,
     stack: std.ArrayListUnmanaged(SymbolId) = .empty,
+    /// The types being visited, innermost last, each with its range of
+    /// `targets` and the next one to follow.
+    visiting: std.ArrayListUnmanaged(struct { v: SymbolId, start: u32, next: u32, end: u32 }) = .empty,
+    targets: std.ArrayListUnmanaged(SymbolId) = .empty,
+
+    fn run(ctx: *const SemContext, every_arg: bool) std.mem.Allocator.Error!Components {
+        const n = ctx.symbols.items.len;
+        const a = ctx.allocator;
+        var self: Components = .{
+            .ctx = ctx,
+            .every_arg = every_arg,
+            .index = try a.alloc(u32, n),
+            .low = try a.alloc(u32, n),
+            .on_stack = try a.alloc(bool, n),
+            .cyclic = try a.alloc(bool, n),
+        };
+        errdefer self.deinit();
+        @memset(self.index, 0);
+        @memset(self.on_stack, false);
+        @memset(self.cyclic, false);
+        for (ctx.symbols.items, 0..) |sym, i| {
+            if (isTypeDecl(sym) and self.index[i] == 0) try self.visit(@intCast(i));
+        }
+        return self;
+    }
 
     fn deinit(self: *Components) void {
         const a = self.ctx.allocator;
@@ -2150,37 +2177,57 @@ const Components = struct {
         a.free(self.low);
         a.free(self.on_stack);
         a.free(self.cyclic);
+        self.order.deinit(a);
         self.stack.deinit(a);
+        self.visiting.deinit(a);
+        self.targets.deinit(a);
     }
 
-    fn visit(self: *Components, v: SymbolId) std.mem.Allocator.Error!void {
+    fn visit(self: *Components, root: SymbolId) std.mem.Allocator.Error!void {
+        try self.enter(root);
+        while (self.visiting.items.len > 0) {
+            const top = &self.visiting.items[self.visiting.items.len - 1];
+            const v = top.v;
+            if (top.next < top.end) {
+                const w = self.targets.items[top.next];
+                top.next += 1;
+                if (w == v) self.cyclic[v] = true;
+                if (self.index[w] == 0) {
+                    try self.enter(w);
+                } else if (self.on_stack[w]) self.low[v] = @min(self.low[v], self.index[w]);
+                continue;
+            }
+            self.targets.shrinkRetainingCapacity(top.start);
+            _ = self.visiting.pop();
+            if (self.visiting.items.len > 0) {
+                const parent = self.visiting.items[self.visiting.items.len - 1].v;
+                self.low[parent] = @min(self.low[parent], self.low[v]);
+            }
+            if (self.low[v] != self.index[v]) continue;
+            const start = std.mem.lastIndexOfScalar(SymbolId, self.stack.items, v).?;
+            const members = self.stack.items[start..];
+            for (members) |m| {
+                self.on_stack[m] = false;
+                self.low[m] = self.index[v];
+                if (members.len > 1) self.cyclic[m] = true;
+            }
+            try self.order.appendSlice(self.ctx.allocator, members);
+            self.stack.shrinkRetainingCapacity(start);
+        }
+    }
+
+    fn enter(self: *Components, v: SymbolId) std.mem.Allocator.Error!void {
         const a = self.ctx.allocator;
         self.index[v] = self.next;
         self.low[v] = self.next;
         self.next += 1;
         try self.stack.append(a, v);
         self.on_stack[v] = true;
-        var targets: std.ArrayListUnmanaged(SymbolId) = .empty;
-        defer targets.deinit(a);
+        const start: u32 = @intCast(self.targets.items.len);
         for (self.ctx.symbols.items[v].fields orelse &.{}) |*f| {
-            for (dataFields(f)) |d| try byValueTargets(self.ctx, d.ty, &targets);
+            for (dataFields(f)) |d| try byValueTargets(self.ctx, d.ty, &self.targets, self.every_arg);
         }
-        for (targets.items) |w| {
-            if (w == v) self.cyclic[v] = true;
-            if (self.index[w] == 0) {
-                try self.visit(w);
-                self.low[v] = @min(self.low[v], self.low[w]);
-            } else if (self.on_stack[w]) self.low[v] = @min(self.low[v], self.index[w]);
-        }
-        if (self.low[v] != self.index[v]) return;
-        const start = std.mem.lastIndexOfScalar(SymbolId, self.stack.items, v).?;
-        const members = self.stack.items[start..];
-        for (members) |m| {
-            self.on_stack[m] = false;
-            self.low[m] = self.index[v];
-            if (members.len > 1) self.cyclic[m] = true;
-        }
-        self.stack.shrinkRetainingCapacity(start);
+        try self.visiting.append(a, .{ .v = v, .start = start, .next = start, .end = @intCast(self.targets.items.len) });
     }
 };
 
@@ -2207,18 +2254,19 @@ fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
 }
 
 /// The declared types a value of `ty` holds inline (not behind a handle,
-/// a borrow, or a Vec's heap buffer), appended to `out`.
-fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanaged(SymbolId)) std.mem.Allocator.Error!void {
+/// a borrow, or a Vec's or a Box's heap memory), appended to `out`; with
+/// `every_arg`, those of every argument of a generic instance as well.
+fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanaged(SymbolId), every_arg: bool) std.mem.Allocator.Error!void {
     switch (ctx.types.get(ty)) {
-        .optional, .fallible => |inner| try byValueTargets(ctx, inner, out),
-        .array => |a| try byValueTargets(ctx, a.elem, out),
+        .optional, .fallible => |inner| try byValueTargets(ctx, inner, out, every_arg),
+        .array => |a| try byValueTargets(ctx, a.elem, out, every_arg),
         .nominal => |s| try out.append(ctx.allocator, s),
         .parameterized_nominal => |pn| {
-            if (isHeapBuiltin(ctx, pn.sym)) return;
+            if (!every_arg and isHeapBuiltin(ctx, pn.sym)) return;
             try out.append(ctx.allocator, pn.sym);
             const held = ctx.symbols.items[pn.sym].contents.held;
             for (pn.args, 0..) |arg, i| {
-                if (i < held.len and held[i]) try byValueTargets(ctx, arg, out);
+                if (every_arg or (i < held.len and held[i])) try byValueTargets(ctx, arg, out, every_arg);
             }
         },
         else => {},
@@ -2330,6 +2378,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
 /// The bytes a struct's fields take at least, or an enum's tag and
 /// largest payload.
 fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!?u128 {
+    if (ctx.symbols.items[sym].contents.cyclic) return null;
     var total: u128 = 0;
     var variants: u128 = 0;
     for (ctx.symbols.items[sym].fields orelse &.{}) |f| {
@@ -2422,12 +2471,15 @@ pub fn oversizedByItself(ctx: *SemContext, ty: TypeId, sym: SymbolId, subst: Typ
 }
 
 /// Every declared struct and enum must fit `max_value_bytes`; a generic
-/// one is checked at each instance.
-fn checkTypeSizes(ctx: *SemContext) std.mem.Allocator.Error!void {
-    for (ctx.symbols.items, 0..) |sym, i| {
-        if (sym.kind != .nominal_type or sym.decl_pos == builtin_decl_pos) continue;
-        const ty = try ctx.intern(.{ .nominal = @intCast(i) });
-        const bytes = (try oversizedByItself(ctx, ty, @intCast(i), .empty)) orelse continue;
+/// one is checked at each instance. Each is sized after the types it
+/// holds (`order`, from `computeContents`), so sizing one does not nest
+/// through the chain of types it holds.
+fn checkTypeSizes(ctx: *SemContext, order: []const SymbolId) std.mem.Allocator.Error!void {
+    for (order) |id| {
+        const sym = ctx.symbols.items[id];
+        if (sym.kind != .nominal_type or sym.decl_pos >= imported_decl_pos) continue;
+        const ty = try ctx.intern(.{ .nominal = id });
+        const bytes = (try oversizedByItself(ctx, ty, id, .empty)) orelse continue;
         try reportOversized(ctx, sym.decl_pos, ty, bytes);
     }
 }
@@ -2609,82 +2661,117 @@ pub const NotEquatable = struct {
 /// the instances where it holds for them.
 pub fn notEquatable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayListUnmanaged(SymbolId)) std.mem.Allocator.Error!?NotEquatable {
     var walk: EquatableWalk = .{ .ctx = ctx, .params = params };
-    defer walk.visited.deinit(ctx.allocator);
-    return walk.check(ty, false);
+    defer walk.deinit();
+    try walk.items.append(ctx.allocator, .{ .ty = ty });
+    try walk.work.append(ctx.allocator, 0);
+    while (walk.work.pop()) |i| {
+        const why = (try walk.step(i)) orelse continue;
+        // The path of fields from the compared type to the one found.
+        var names: std.ArrayListUnmanaged([]const u8) = .empty;
+        defer names.deinit(ctx.allocator);
+        var at = i;
+        while (at != 0) : (at = walk.items.items[at].parent) {
+            const name = walk.items.items[at].name;
+            if (name.len > 0) try names.append(ctx.allocator, name);
+        }
+        std.mem.reverse([]const u8, names.items);
+        const path = try std.mem.join(ctx.arena.allocator(), ".", names.items);
+        return .{ .ctx = ctx, .ty = walk.items.items[i].ty, .path = path, .why = why };
+    }
+    return null;
 }
 
 pub fn isEquatable(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!bool {
     return (try notEquatable(ctx, ty, null)) == null;
 }
 
-/// Walks the types a value holds, each in `ctx`'s store: the field types
-/// of another module's struct are imported there, and a generic
-/// instance's have its type arguments applied.
+/// The types a compared value holds, walked depth first with an explicit
+/// stack, so a long chain of types does not nest the walk. Each is in
+/// `ctx`'s store: the field types of another module's struct are
+/// imported there, and a generic instance's have its type arguments
+/// applied.
 const EquatableWalk = struct {
     ctx: *SemContext,
     params: ?*std.ArrayListUnmanaged(SymbolId),
+    /// Every type reached: the compared one first, then each with the
+    /// one that holds it and, for a field or payload, its name
+    /// (`variant.field` for a payload field).
+    items: std.ArrayListUnmanaged(struct { ty: TypeId, parent: u32 = 0, name: []const u8 = "", in_decl: bool = false }) = .empty,
+    /// The items still to check, the next last.
+    work: std.ArrayListUnmanaged(u32) = .empty,
     /// Declared types checked or being checked: one reached again,
     /// through itself or another path, adds nothing new.
     visited: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
 
-    /// `in_decl` when a field or payload holds `ty`, where a slice is a
-    /// borrow.
-    fn check(self: *EquatableWalk, ty: TypeId, in_decl: bool) std.mem.Allocator.Error!?NotEquatable {
-        const ctx = self.ctx;
-        const fail: NotEquatable = .{ .ctx = ctx, .ty = ty, .path = "", .why = .handle };
-        switch (ctx.types.get(ty)) {
-            .optional => |inner| return self.check(inner, in_decl),
-            .array => |a| return self.check(a.elem, in_decl),
-            .slice => |s| return if (in_decl) with(fail, .borrow) else self.check(s.elem, in_decl),
-            .borrow_read, .borrow_write => return with(fail, .borrow),
-            .shared => |inner| return with(fail, if (ctx.types.get(inner) == .function) .closure else .handle),
-            .weak => return fail,
-            .function => return with(fail, .function),
-            // A parameter of another module's generic type is always
-            // bound by the instance that reaches it.
-            .type_var => |sym| {
-                if (self.params) |out| if (!isProxy(ctx.symbols.items[sym]) and std.mem.indexOfScalar(SymbolId, out.items, sym) == null) try out.append(ctx.allocator, sym);
-                return null;
-            },
-            .nominal, .imported_nominal, .parameterized_nominal => return self.checkDecl(ty),
-            .void, .fallible, .range => return with(fail, .no_eq),
-            else => return null,
-        }
+    fn deinit(self: *EquatableWalk) void {
+        self.items.deinit(self.ctx.allocator);
+        self.work.deinit(self.ctx.allocator);
+        self.visited.deinit(self.ctx.allocator);
     }
 
-    fn checkDecl(self: *EquatableWalk, ty: TypeId) std.mem.Allocator.Error!?NotEquatable {
+    /// Why item `i`'s type has no `==` itself, or null after queuing
+    /// what it holds. A slice held in a field or payload is a borrow.
+    fn step(self: *EquatableWalk, i: u32) std.mem.Allocator.Error!?NotEquatable.Why {
         const ctx = self.ctx;
-        const fail: NotEquatable = .{ .ctx = ctx, .ty = ty, .path = "", .why = .no_eq };
+        const item = self.items.items[i];
+        switch (ctx.types.get(item.ty)) {
+            .optional => |inner| try self.push(i, inner, ""),
+            .array => |a| try self.push(i, a.elem, ""),
+            .slice => |sl| if (item.in_decl) return .borrow else try self.push(i, sl.elem, ""),
+            .borrow_read, .borrow_write => return .borrow,
+            .shared => |inner| return if (ctx.types.get(inner) == .function) .closure else .handle,
+            .weak => return .handle,
+            .function => return .function,
+            // A parameter of another module's generic type is always
+            // bound by the instance that reaches it.
+            .type_var => |sym| if (self.params) |out| if (!isProxy(ctx.symbols.items[sym]) and std.mem.indexOfScalar(SymbolId, out.items, sym) == null) try out.append(ctx.allocator, sym),
+            .nominal, .imported_nominal, .parameterized_nominal => return self.stepDecl(i),
+            .void, .fallible, .range => return .no_eq,
+            else => {},
+        }
+        return null;
+    }
+
+    fn stepDecl(self: *EquatableWalk, i: u32) std.mem.Allocator.Error!?NotEquatable.Why {
+        const ctx = self.ctx;
+        const ty = self.items.items[i].ty;
         const decl = nominalDecl(ctx, ty) orelse return null;
-        if (isBuiltinGeneric(decl.ctx, decl.sym)) return fail;
+        if (isBuiltinGeneric(decl.ctx, decl.sym)) return .no_eq;
         const sym = decl.symbol();
         if (sym.flags.error_set) return null;
         if ((try self.visited.getOrPut(ctx.allocator, ty)).found_existing) return null;
         const fields = sym.fields orelse return null;
-        for (fields) |f| if (f.is_drop_method) return with(fail, .drop);
+        for (fields) |f| if (f.is_drop_method) return .drop;
         // An instance's field types name its generic type's parameters
         // (a proxy's, for another module's generic type).
         const subst: TypeSubst = switch (ctx.types.get(ty)) {
             .parameterized_nominal => |pn| .{ .params = sym.type_params orelse &.{}, .args = pn.args },
             else => .empty,
         };
-        for (fields) |*f| {
-            for (dataFields(f)) |d| {
+        // Queued last to first, so the first field is checked first.
+        var k = fields.len;
+        while (k > 0) {
+            k -= 1;
+            const f = &fields[k];
+            const held = dataFields(f);
+            var j = held.len;
+            while (j > 0) {
+                j -= 1;
+                const d = held[j];
                 const fty = if (decl.module_id) |m| try importType(ctx, decl.ctx, d.ty, m) else try substituteType(ctx, d.ty, subst);
-                var inner = (try self.check(fty, true)) orelse continue;
-                const a = ctx.arena.allocator();
-                const name = if (f.is_variant) try std.fmt.allocPrint(a, "{s}.{s}", .{ f.name, d.name }) else d.name;
-                inner.path = if (inner.path.len == 0) name else try std.fmt.allocPrint(a, "{s}.{s}", .{ name, inner.path });
-                return inner;
+                const name = if (f.is_variant) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}.{s}", .{ f.name, d.name }) else d.name;
+                try self.push(i, fty, name);
             }
         }
         return null;
     }
 
-    fn with(n: NotEquatable, why: NotEquatable.Why) NotEquatable {
-        var r = n;
-        r.why = why;
-        return r;
+    /// Queue `ty`, which item `parent` holds: in the field `name`, or
+    /// (with no name) as its value or element.
+    fn push(self: *EquatableWalk, parent: u32, ty: TypeId, name: []const u8) std.mem.Allocator.Error!void {
+        const in_decl = name.len > 0 or self.items.items[parent].in_decl;
+        try self.items.append(self.ctx.allocator, .{ .ty = ty, .parent = parent, .name = name, .in_decl = in_decl });
+        try self.work.append(self.ctx.allocator, @intCast(self.items.items.len - 1));
     }
 };
 
@@ -4403,6 +4490,21 @@ test "declarations: struct fields, methods, and enum variants" {
     try std.testing.expect(shape[1].payload == null);
     const net = r.ctx.symbols.items[r.ctx.lookup(1, "NetError").?].fields.?;
     try std.testing.expectEqualStrings("timeout", net[0].name);
+}
+
+test "check: a long chain of types each holding the next by value" {
+    // Each walk over what a type holds runs once per type, not nested
+    // once per link of the chain.
+    const n = 5000;
+    var src: std.ArrayListUnmanaged(u8) = .empty;
+    defer src.deinit(std.testing.allocator);
+    const a = std.testing.allocator;
+    for (0..n) |i| try src.print(a, "struct S{d}\n  x: S{d}\n\n", .{ i, i + 1 });
+    try src.print(a, "struct S{d}\n  x: Int\n\nfun same(a: ?S0, b: ?S0) -> Bool\n  a == b\n", .{n});
+    var r = try factsRun(src.items);
+    defer r.deinit();
+    const s0 = try r.ctx.intern(.{ .nominal = r.ctx.lookup(module_scope, "S0").? });
+    try std.testing.expectEqual(@as(?u128, 8), try minBytes(&r.ctx, s0));
 }
 
 /// Walk every expression position of a body and report nodes sema left

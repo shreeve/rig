@@ -515,8 +515,8 @@ rejected, so a chain of proxies always ends.
 id, and whether it is the root) and returns a `SemContext`, which every
 later pass reads. It runs these steps in order:
 
-1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `Vec[T]`, and
-   `Signal[T]` are registered as generic types whose methods are
+1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `Vec[T]`,
+   `Box[T]`, and `Signal[T]` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
    and substitution as user generics, and `Endian` as an enum. The
    methods on elements (`copy`, `fill`, `swap`, `read`, `write`) of
@@ -532,11 +532,16 @@ later pass reads. It runs these steps in order:
    are resolved: whether they need drop glue, hold a `Cell` inline,
    hold a borrow or a write borrow (even through a handle, and across
    modules), or are plain data (`Symbol.contents` for each nominal and generic type,
-   `TypeInfo` for each interned type). Then a type that holds itself by
-   value is rejected.
-5. **validation** (`resolve.checkDeclarations`): the rules on spelled
-   types that depend on contents (array and built-in element types,
-   owned-closure signatures).
+   `TypeInfo` for each interned type). Each declared type is computed
+   after the types it holds, in the order of the strongly connected
+   components of the by-value graph (`Components`, Tarjan's algorithm
+   with an explicit stack), so no walk nests once per link of a long
+   chain of types. Then a type that holds itself by value is rejected.
+5. **validation** (`checkTypeSizes`, then `resolve.checkDeclarations`):
+   every struct and enum fits `max_value_bytes`, each sized after the
+   types it holds; then the rules on spelled types that depend on
+   contents (array and built-in element types, owned-closure
+   signatures).
 6. **expressions** (`typecheck.checkModule`): bodies are type-checked
    bidirectionally. `synthExpr(e)` infers a type from `e` alone;
    `checkExpr(e, expected)` checks it against the type its context
@@ -638,10 +643,15 @@ binds a `ct_param` exactly to the value the argument's type holds.
 it folds integers, constants, and arithmetic on them with
 `sema.ctFoldBy` (in `sema.Wide`, an `i256`, which holds every `U128` and
 `I128` value and the checked results of operations on them, and wraps
-`+%`, `-%`, `*%` exactly), which reads each constant's value and type from
-`const_ints` (module constants are folded into it once, in declaration
-order, before any type is resolved: `resolve.foldModuleConsts`; `lib.N`
-comes from the other module's), and a compile-time parameter,
+`+%`, `-%`, `*%` exactly). That one evaluator folds module and local
+constants, array lengths, compile-time arguments, and enum values; it
+reads the program only through a names provider: `resolve.ConstNames`
+looks names up from a scope, and reads each constant's value and type
+from `const_ints` (module constants are folded into it once, in
+declaration order, before any type is resolved, their literals taking
+the declared type: `resolve.foldModuleConsts`; `lib.N` comes from the
+other module's, if it is public), and `sema.constInt` reads the facts
+of checked code. A compile-time parameter,
 or a `k =! n` binding of one (`ct_locals`), becomes its `ct_param`. A
 `ct_param` used as a length records the `array_len` requirement, so
 each instance's value is checked to be from 0 to 2^32 - 1. A generic
