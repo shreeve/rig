@@ -939,6 +939,13 @@ pub const SemContext = struct {
         return self.report(.@"error", .{ .start = pos, .end = pos }, fmt, args);
     }
 
+    /// An error marked `lint` (see `diag.Diagnostic.lint`).
+    pub fn lintErr(self: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        const n = self.diagnostics.items.len;
+        try self.err(pos, fmt, args);
+        if (self.diagnostics.items.len > n) self.diagnostics.items[n].lint = true;
+    }
+
     pub fn note(self: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
         return self.report(.note, .{ .start = pos, .end = pos }, fmt, args);
     }
@@ -1391,9 +1398,9 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
         }
         if (typeHasDropGlue(ctx, sym.ty) or maybeDropGlue(ctx, sym.ty)) continue;
         if (sym.flags.pattern_bound) {
-            try ctx.err(sym.decl_pos, "`{s}` is bound but never read; name it `_` to ignore the value", .{sym.name});
+            try ctx.lintErr(sym.decl_pos, "`{s}` is bound but never read; name it `_` to ignore the value", .{sym.name});
         } else {
-            try ctx.err(sym.decl_pos, "`{s}` is assigned but never read; use it, or discard the value with `_ = ...`", .{sym.name});
+            try ctx.lintErr(sym.decl_pos, "`{s}` is assigned but never read; use it, or discard the value with `_ = ...`", .{sym.name});
         }
     }
 }
