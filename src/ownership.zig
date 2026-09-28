@@ -1233,17 +1233,14 @@ pub const Checker = struct {
         const p = self.span(stmt);
         if (!p.isEmpty()) self.anchor = p.start;
         if (!self.reachable) return .{};
-        var saved: std.ArrayListUnmanaged(Loan) = .empty;
-        defer saved.deinit(self.gpa);
-        try saved.appendSlice(self.gpa, self.temps.items);
+        // The temporaries from before stay first: every state the
+        // statement reaches keeps them, and a scope it leaves is younger.
+        const temps_len = self.temps.items.len;
         const saved_stmt = self.cur_stmt;
         self.cur_stmt = stmt;
         defer self.cur_stmt = saved_stmt;
         const v = if (sink) |k| try self.walkConsumed(stmt, k) else try self.walk(stmt);
-        // The temporaries as they were before, less those on vars that
-        // have left scope since.
-        self.temps.clearRetainingCapacity();
-        for (saved.items) |l| if (l.root < self.vars.items.len) try self.temps.append(self.gpa, l);
+        self.temps.shrinkRetainingCapacity(@min(temps_len, self.temps.items.len));
         return v;
     }
 
