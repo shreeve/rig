@@ -340,7 +340,7 @@ one. One rule decides every case:
 | `f(x)`, `a[i]`, `a.b` | call, index or compile-time arguments (`Vec[Int]`, [§14](#index-or-compile-time-arguments)), member access |
 | `f (x)`, `f [1, 2]`, `f .red` | a paren-free call whose argument is `(x)`, `[1, 2]`, `.red` |
 | `T?`, `T!`, `e!`, `e?` | suffixes: optional, fallible, propagate |
-| `-x` alone on a line | drop `x` (negation where the line's value is used) |
+| `-x` as a statement | drop `x`; where a value is expected (the last line of a `fun`, an operand), negate |
 
 ```rig
 fun twice(n: Int) -> Int
@@ -388,8 +388,8 @@ sub main
 ```
 
 Two values may not touch with nothing between them (`t.5`, `print"x"`),
-and `=!` / `<-` may not touch the operand after them (`x =!y`), since
-each could be read two ways.
+and `=!` may not touch the operand after it (`x =!y`), since it could
+be read two ways.
 
 ## 6. Names, keywords, and literals
 
@@ -403,6 +403,7 @@ alone discards: `_ = f()`, or an ignored parameter.
 and  as  break  catch  continue  defer  drop  else  enum  errdefer
 error  extern  false  for  fun  if  in  match  not  or  pub  raw
 return  struct  sub  test  true  try  type  use  while  zig
+async  await  const  impl  trait  when  where  yield
 ```
 
 A keyword may still name a member, wherever the position makes that
@@ -428,7 +429,9 @@ sub main
 -1 true true
 ```
 
-Zig's `var`, `fn`, and `const` are ordinary names in Rig.
+Zig's `var` and `fn` are ordinary names in Rig. `async`, `await`,
+`const`, `impl`, `trait`, `when`, `where`, and `yield` are reserved for
+forms to come, and name only members until then.
 
 **Literals:**
 
@@ -547,7 +550,7 @@ glue**).
 | `x: T = e` | declare with a type |
 | `x =! e`, `x: T =! e` | declare a fixed `x`, which cannot be reassigned |
 | `new x = e` | declare a new `x` shadowing the old one; `e` may read the old |
-| `x <- y` | move-assign, the same as `x = <y` |
+| `x = <y` | move `y` into `x` |
 | `x += e`, and `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | compound assignment |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate and discard; an owning value is dropped now |
@@ -744,7 +747,7 @@ command: a statement, a match arm's body, a closure's body, or the last
 argument of another paren-free call. It takes the rest of the line as
 its arguments.
 
-The right side of `=` (and of `=!`, `<-`, `+=`, and the other binding
+The right side of `=` (and of `=!`, `+=`, and the other binding
 forms), a `return` or `break` value, an `if` or `while` condition, a
 `for` source, a `match` subject, and every argument inside `( )` are
 values, so a call there keeps its parentheses. Ruby's `x = twice 5` is
@@ -1319,8 +1322,9 @@ sub main
 `is_empty` does not write its receiver; for negation use `not`
 ```
 
-And a write-borrowing call whose value is a `Bool` takes the long form,
-so `!set.insert(k)` can never be read as "not inserted":
+And a write-borrowing call whose value is a `Bool` takes the long form
+as a condition or an operand of `and`, `or`, or `not`, so
+`if !set.insert(k)` can never be read as "if not inserted":
 
 ```rig reject
 struct Set
@@ -1358,12 +1362,18 @@ sub main
     print("new")
   if not (!set).insert(1)
     print("seen")
+  print(!set.insert(2))
 ```
 
 ```output
 new
 seen
+true
 ```
+
+Where the `!` cannot start a condition or a logical operand (a
+binding, an argument, a return value), the short form stands:
+`print(!set.insert(2))` above.
 
 For Zig, Rust, and C readers: in Rig, `!` never means "not"; `not`
 does, and every place where the habit would change a program's meaning
@@ -2241,7 +2251,8 @@ with `*` and clone the handle. `+p.a` clones the handle in a field.
 dropped automatically when its block ends, on every path (early
 `return`, `break`, error propagation), in reverse order of
 declaration. So `-x` is only for releasing something early, like
-Rust's `drop(x)`.
+Rust's `drop(x)`. Where a value is expected, as on the last line of a
+`fun`, which is the function's value, `-x` negates instead.
 
 ### Share and weak: `*x` and `~x`
 
@@ -2260,7 +2271,7 @@ The same sigils mean the same thing in every position:
 | method call | `p.m()` | `!p.m()` | `<p.m()` | | |
 | `for` source | `for x in ?v` | `for x in !v` | `for x in <v` | | |
 | closure capture | `\|?x\|` | `\|!x\|` | `\|<x\|` | `\|+x\|` | `\|~x\|` |
-| assignment | | | `a <- b` | | |
+| assignment | | | `a = <b` | | |
 
 In a method call the sigil goes on the receiver, `!p.m()` for
 `(!p).m()` ([§12](#receiver-sigils-vpushx-and-pclose)); before any
@@ -2362,14 +2373,15 @@ heap-owned, and reactive state.
 
 **`Cell[T]`** holds one value that can be replaced through any path,
 including a read borrow or a shared handle: `c.get()` copies it out
-(Copy `T`), `c.set(v)` stores, and `c.replace(v)` stores and returns the
+(a Copy or plain-data `T`: a number, a plain struct, enum, optional, or
+array), `c.set(v)` stores, and `c.replace(v)` stores and returns the
 old value. These calls need no `!`: a Cell's contents are never lent
 out, only replaced, so any holder may change them. That is also why
 there is no run-time borrow flag, unlike Rust's `RefCell`.
 
 **`Vec[T]`** is a growable array that owns its elements, like Rust's
 `Vec<T>`. Elements are numbers, `Bool`, `String`, plain structs, enums,
-and optionals, handles, or boxes.
+optionals, and arrays, handles, or boxes.
 
 | Member | Meaning |
 |---|---|
@@ -2471,7 +2483,7 @@ popped 2
 For anything else, take the value out with `replace`, change it, and
 put it back: `v = c.replace(Vec())`, `!v.push(x)`, `c.set(<v)`.
 
-**`Signal[T]`** holds a Copy value and a list of subscribers (owned
+**`Signal[T]`** holds a Copy or plain-data value and a list of subscribers (owned
 closures) that run on every `set`. It lives behind a shared handle,
 `*Signal(v)`.
 
@@ -2667,9 +2679,11 @@ expected.
 | Form | Meaning | Zig |
 |---|---|---|
 | `a ?? b` | the value in `a`, or `b` | `a orelse b` |
+| `a ?? return v`, `a ?? break`, `a ?? continue` | the value in `a`, or leave | `a orelse return v` |
 | `a == none` | test for absence | `a == null` |
 | `if a as x` | bind the value; `else` for `none` | `if (a) \|x\|` |
 | `while a as x` | loop while `a` has a value | `while (a) \|x\|` |
+| `if a as x and b as y`, `if a as x and x > 0` | bindings and conditions joined; `else` when any fails | nested `if`s |
 | `if ?a as x`, `if !a as x` | borrow the value in place | `if (a) \|*x\|` |
 | `a?` | the value, or return `none` from the function | `a orelse return null` |
 
@@ -2702,6 +2716,45 @@ grace
 true nobody
 ```
 
+Bindings join with `and`, with plain conditions among them, where Rust
+needs `if let ... && let ...` and Zig nested `if`s. Each binding is
+visible to the parts after it and to the body:
+
+```rig
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  if get(3) as x and x > 2 and get(x - 1) as y
+    print(x, y)
+  else
+    print("no")
+```
+
+```output
+3 2
+```
+
+The fallback may be a jump, as in Zig's `orelse return`: the common
+"get it or leave" line needs no `if`:
+
+```rig
+fun first_word(words: ?Vec[String]) -> Int
+  w = words.get(0) ?? return -1
+  w.len
+
+sub main
+  xs: Vec[String] = Vec()
+  print(first_word(?xs))
+  !xs.push("hello")
+  print(first_word(?xs))
+```
+
+```output
+-1
+5
+```
+
 Note the direction: `?x` (prefix) borrows, `x?` (suffix) unwraps.
 
 ## 21. Errors
@@ -2716,7 +2769,9 @@ it says what happens to the failure:
   of early exit it can take;
 - `f() catch v` handles it with a fallback;
 - `f() catch |err| handler` names the error for the handler, which may
-  be a block.
+  be a block;
+- the fallback may be a jump: `f() catch return -1`,
+  `f() catch |e| return e`, `f() catch break`, `f() catch continue`.
 
 ```rig
 error ParseError
@@ -2762,7 +2817,8 @@ must be wrapped with `!` (propagate) or `catch` (handle)
 
 Functions do not declare which errors they return (every fallible type
 lowers to `anyerror!T`), so `err` may be any error; compare it with
-`err == E.name` or `match` it by name. `sub main` and `test` blocks may
+`err == E.name` or `match` it by the member's name alone, `.name =>`
+(with a `_` arm where the match gives a value). `sub main` and `test` blocks may
 propagate. Closures, `defer`, and `drop` bodies may not.
 
 ## 22. Arrays, strings, and slices
@@ -2771,8 +2827,10 @@ propagate. Closures, `defer`, and `drop` bodies may not.
 known at compile time: an integer, a constant, a compile-time
 parameter, or arithmetic on constants (`[LIMIT * 2 + 1]U8`). It is a
 value, so `[LIMIT]Int` is `[4]Int` when `LIMIT =! 4`. `xs.len` is the
-length and `xs[i]` a bounds-checked element. `[2][3]Int` is two arrays
-of three, read as `grid[1][2]`.
+length, `xs[i]` a bounds-checked element, and `xs.get(i)` the element
+as a `T?`, `none` out of range (as for a `Vec`, a slice, and a `String`,
+whose `get` gives a `U8?`). `[2][3]Int` is two arrays of three, read as
+`grid[1][2]`.
 
 The **fill literal** `[n of x]` is `n` copies of `x`, count first as in
 the type `[n]T` (`page: [4096]U8 = [4096 of 0]`), where `n` is any
@@ -2794,10 +2852,12 @@ sub main
   grid = [2 of [3 of 0]]
   z = zeros[LIMIT * 2]()
   print(b, grid, z.len, [0 of 7].len)
+  print(a.get(3), a.get(4), "ok".get(1))
 ```
 
 ```output
 [1, 2, 3, 4] [[0, 0, 0], [0, 0, 0]] 8 0
+4 none 107
 ```
 
 An array, like any value, takes at most 8 MiB (`[1048576]Int`),
@@ -3166,8 +3226,8 @@ optional).
 **Array literals:** `[a, b, c]` elements, `[n of x]` `n` copies of `x`
 (`of` is a keyword only there; elsewhere it is a name).
 
-**Binding operators:** `=` bind or assign, `=!` fixed binding, `<-`
-move-assign, `new x =` shadow, compound `+=` `-=` `*=` `/=` `%=` `&=`
+**Binding operators:** `=` bind or assign (`a = <b` moves `b`), `=!`
+fixed binding, `new x =` shadow, compound `+=` `-=` `*=` `/=` `%=` `&=`
 `|=` `^=` `<<=` `>>=`.
 
 **Calls:** `f(a, b)` anywhere; `f a, b` only as a command: a
@@ -3191,7 +3251,7 @@ parentheses.
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
 | bindings | `new` (statement start only) |
 | boundaries | `raw` |
-| reserved | `try` `zig` |
+| reserved | `try` `zig` `async` `await` `const` `impl` `trait` `when` `where` `yield` |
 
 ## B. How Rig lowers to Zig
 
@@ -3268,7 +3328,7 @@ cunit     = integer | name | mod "." name | "(" cexp ")"
 
 stmt      = simple ["if" value] | ":" label stmt
 simple    = expr | command
-          | target ("=" | "=!" | "<-" | "+=" | ...) expr
+          | target ("=" | "=!" | "+=" | ...) expr
           | name ":" type ("=" | "=!") expr | "new" name "=" expr
           | "-" name | "return" [expr] | "break" [":" label] [expr]
           | "continue" [":" label] | "defer" (simple | block)
@@ -3278,16 +3338,18 @@ command   = ["!" | "<"] postfix (expr | command), ...  # a paren-free call; only
                                                       # its last argument is a command
 
 expr      = if | while | for | match | closure | value
-if        = "if" cond block ["else" (block | if)]
-cond      = value | value "as" name
-while     = "while" cond [":" step] block ["else" block]
+if        = "if" value block ["else" (block | if)]
+while     = "while" value [":" step] block ["else" block]
 for       = "for" name ["," name] "in" ["?" | "!" | "<"] value block ["else" block]
 match     = "match" value INDENT (pattern ("=>" simple | block))* DEDENT
 pattern   = "." name ["(" name, ... ")"] | integer | "-" integer
           | "true" | "false" | integer ".." integer | "_" | name
 closure   = ["*"] "|" (("+" | "<" | "~") name | name [":" type]), ... "|" (expr | command | block)
-value     = logic "if" logic "else" value | logic "catch" ["|" name "|"] value | logic
-logic     = logic "or" logic | logic "and" logic | "not" logic | infix
+value     = logic "if" logic "else" value | logic "catch" ["|" name "|"] (value | jump)
+          | logic "??" jump | logic
+jump      = "return" [value] | "break" [value] | "continue"
+logic     = logic "or" logic | logic "and" logic | "not" logic
+          | infix "as" name | infix   # `as` only in an `if` or `while` condition
 infix     = unary (op unary)*          # precedence table in section 10
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~") unary | postfix
 postfix   = postfix ("." name | "[" expr, ... "]" | "[" [expr] ".." [expr] "]"

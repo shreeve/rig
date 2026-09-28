@@ -136,6 +136,7 @@ These words are reserved:
 and  as  break  catch  continue  defer  drop  else  enum  errdefer
 error  extern  false  for  fun  if  in  match  not  or  pub  raw
 return  struct  sub  test  true  try  type  use  while  zig
+async  await  const  impl  trait  when  where  yield
 ```
 
 A keyword may still name a member, where it cannot be mistaken for
@@ -178,8 +179,11 @@ a method may be named `new`. `of` is a keyword only after a value
 directly inside `[ ]`, where it separates a fill literal's count from
 its element (`[n of x]`); anywhere else it is an ordinary name. `none`
 is a reserved
-name for the absent optional. Words that are keywords in Zig but not in
-Rig (`var`, `fn`, `const`) are ordinary names.
+name for the absent optional. `try` and `zig` start reserved forms
+([§19](#19-reserved-and-unsupported-forms)), and `async`, `await`,
+`const`, `impl`, `trait`, `when`, `where`, and `yield` are held for
+forms to come; no form uses them yet. Words that are keywords in Zig
+but not in Rig (`var`, `fn`) are ordinary names.
 
 ### Literals
 
@@ -224,16 +228,15 @@ Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
 | `f(x)`, `a[i]`, `a.b` | call, index or compile-time arguments ([§17](#17-compile-time-parameters)), member access |
 | `f (x)`, `f [1, 2]`, `f .red` | paren-free call with the argument `(x)`, `[1, 2]`, `.red` |
 | `f()!`, `x?` | propagate a failure ([§14](#14-errors)) or `none` ([§13](#13-optionals)) |
-| `-x` alone on a line | drops `x` ([§8](#drop)), except where the line's value is used |
+| `-x` as a statement | drops `x` ([§8](#drop)); where a value is expected, negates |
 
 The brackets of compile-time parameters and arguments touch the name
 before them (`struct Wrap[T]`, `show[3]()`); a declaration with a space
 there (`struct Wrap [T]`) is rejected.
 
 Two values may not touch with no operator between them: `t.5` and
-`print"hi"` are rejected, since neither is a call. Nor may `=!` and
-`<-` touch the operand after them (`x =!y`, `a <-b`), which could as
-well be `x = !y` and `a < -b`.
+`print"hi"` are rejected, since neither is a call. Nor may `=!` touch
+the operand after it (`x =!y`), which could as well be `x = !y`.
 
 A paren-free call is a command, never a value ([§6](#calls)), so
 where a value is expected `a -1` is neither a call nor a subtraction,
@@ -355,8 +358,9 @@ sub main
 integer value `256` does not fit in `U8`
 ```
 
-A `String` has a length `s.len` and can be indexed (`s[0]`), and a `for`
-loop over it yields its bytes as `U8`. Strings compare with `==` and
+A `String` has a length `s.len` and can be indexed (`s[0]`, or
+`s.get(i)`, a `U8?` that is `none` past the end), and a `for` loop over
+it yields its bytes as `U8`. Strings compare with `==` and
 `!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
 ([§6](#operators)).
 
@@ -384,6 +388,8 @@ included; it has the array type expected where it goes, or `[n]T` for
 built with it. `xs.len` is an array's length, and `xs[i]` reads or
 writes an element; an index outside the half-open range `0..xs.len`
 panics, and a constant one is rejected where the length is known.
+`xs.get(i)` reads one as a `T?`, `none` when `i` is out of range, as a
+Vec's does.
 Arrays hold plain data only, and `[n of x]` copies `x` into every slot; a
 collection of resources is a `Vec`. An array of arrays is `[2][3]T`:
 two rows of three.
@@ -406,11 +412,13 @@ sub main
   d = [3 of [2 of 0]]
   e: [0]Int = []
   print(b, c.len, d, e)
+  print(xs.get(1), xs.get(3), "hi".get(0))
 ```
 
 ```output
 [5, 20, 30] 3 30 [1, 2] 6
 [7, 7, 7, 7] 8 [[0, 0], [0, 0], [0, 0]] []
+20 none 104
 ```
 
 ```rig reject
@@ -489,8 +497,8 @@ sub main
 data it is written `?xs[a..b]`: a `[]T`, a read-only view that borrows
 `xs` like any `?` borrow ([§8](#8-ownership)), so `xs` cannot be
 written, moved, or dropped while the slice is in use, and the slice
-cannot outlive it. A `[]T` has `.len`, is indexed and iterated like an
-array, and is sliced again with `s[a..b]`, which views the same
+cannot outlive it. A `[]T` has `.len` and `get(i)`, is indexed and
+iterated like an array, and is sliced again with `s[a..b]`, which views the same
 elements. The bounds must satisfy `0 <= a <= b <= len`; constant bounds
 are checked at compile time, others when the slice is taken, which
 panics when they do not. A side may be left open: `xs[a..]` runs to the
@@ -985,7 +993,11 @@ does not take `!self` is rejected (it reads as negation, which is
 `not`), and so is `<` before one that does not take `<self`, or
 either before a function with no receiver (`Point.origin()`). A
 write-borrowing call whose value is a `Bool` is written in the long
-form, `(!set).insert(k)`, so it is never read as negation.
+form, `(!set).insert(k)`, where its `!` would start a condition (of
+`if`, `while`, a ternary, or a postfix guard) or an operand of `and`,
+`or`, or `not`, so it is never read as negation. Elsewhere (a binding,
+an argument, a return value) the short form is accepted:
+`added = !set.insert(k)`.
 
 ```rig
 struct Tally
@@ -1006,8 +1018,8 @@ struct Tally
 sub main
   t = Tally(seen: Vec())
   !t.seen.push(1)
-  added = (!t).insert(2)
-  print(added, (!t).insert(2))
+  added = !t.insert(2)
+  print(added, !t.insert(2))
   print(<t.total())
 ```
 
@@ -1595,7 +1607,7 @@ declaration ([§15](#15-modules)), and `extern` declares a C symbol
 | `x: T = e` | bind with a type annotation |
 | `x =! e`, `x: T =! e` | bind a fixed local, which cannot be reassigned |
 | `new x = e` | bind a new `x` that shadows the visible one; `e` may read the old `x` |
-| `x <- y` | move-assign: `x = <y` |
+| `x = <y` | move `y` into `x` (there is no `<-` operator) |
 | `x += e` (`-=` `*=` `/=` `%=` `<<=` `>>=` `&=` `\|=` `^=`) | compound assignment: `x = x op e`, with `x` evaluated once |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it; an owning value is dropped at once |
@@ -1687,7 +1699,7 @@ From lowest to highest precedence:
 
 | Operators | Notes |
 |---|---|
-| `a if c else b`, `e catch f` | ternary and error fallback; right-nested |
+| `a if c else b`, `e catch f` | ternary and error fallback; right-nested (`e catch return v` and `a ?? return v` take a jump at this level) |
 | `or` | Bool; short-circuit |
 | `and` | Bool; short-circuit |
 | `not` | Bool |
@@ -1964,9 +1976,25 @@ sub main
 negative 11
 ```
 
-`-x` as a whole line drops `x`, except where the line's value is used
-(the last line of a `fun`, or of a branch whose value is used): there
-it is negation.
+A statement `-x` drops `x`; `-x` where a value is expected negates.
+A value is expected in an operand, an argument, a binding's value, and
+on the last line of a `fun` (the function's value) or of a branch whose
+value is used, so `-x` there is negation, and one whose `x` is not a
+number is rejected with a pointer to dropping it before the last line.
+Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected.
+
+```rig reject
+struct S
+  r: Vec[Int]
+
+sub main
+  s = S(r: Vec())
+  -s.r
+```
+
+```error
+only a binding is dropped with `-x`
+```
 
 A statement must have some use. An expression whose value is used (the
 last line of a `fun`, a binding, an argument) may be anything, but one
@@ -2016,7 +2044,8 @@ medium
 ```
 
 Conditions must be `Bool`. `if e as name` tests an optional and binds
-its value ([§13](#13-optionals)).
+its value ([§13](#13-optionals)), and bindings join with `and`
+([Joined bindings](#joined-bindings)).
 
 ### Guards
 
@@ -2042,15 +2071,41 @@ sub main
 4
 ```
 
-A guard ends a statement; inside an expression, write the ternary
-`a if c else b`.
+A guard ends a statement and applies to all of it: in
+`n = parse(s) catch |e| f(e) if ready`, the guard covers the whole
+binding, `catch` included, not the handler alone. Inside an
+expression, write the ternary `a if c else b`.
+
+```rig
+error E
+  bad
+
+fun parse(s: String) -> Int!
+  return E.bad if s == "x"
+  s.len
+
+sub main
+  n = 5
+  n = parse("x") catch |e| (-1 if e == E.bad else -2) if false
+  print(n)
+  n = parse("x") catch |e| (-1 if e == E.bad else -2) if true
+  print(n)
+```
+
+```output
+5
+-1
+```
 
 ### while
 
 `while cond` repeats its block. `while cond : step` runs `step`, an
 assignment or a call (which may propagate, `f()!`), after each
 iteration (including after `continue`). `while e as x` repeats
-while the optional `e` has a value. An `else` block runs when the loop
+while the optional `e` has a value. A jump in the condition or the step
+(`?? break`, `catch continue`, [§13](#the-fallback-of-)) targets this
+loop: `break` leaves it, `continue` in the condition runs the step and
+tests again, and `continue` in the step ends the step. An `else` block runs when the loop
 ends without `break`, after the loop: a `break` or `continue` in it
 leaves the loop around this one. A loop can also yield a value
 ([Loops as values](#loops-as-values)).
@@ -3003,14 +3058,15 @@ mutable value.
 | Member | Meaning |
 |---|---|
 | `Cell(v)` | construct |
-| `c.get()` | a copy of the value (Copy `T` only) |
+| `c.get()` | a copy of the value (Copy or plain-data `T` only) |
 | `c.set(v)` | store `v`; the old value is dropped |
 | `c.replace(v)` | store `v` and return the old value |
 | `c.push(x)`, `c.pop()`, `c.clear()`, `c.len` | a `Cell[Vec[T]]`: its Vec's members |
 | `c[i]`, `c[i] = x`, `c.get(i)` | a `Cell[Vec[T]]` of Copy `T`: an element, bounds-checked, or `T?` |
 
-`T` is a Copy primitive or an owning type. An owning value is never
-copied out of a cell: it moves in with `set` / `replace` and moves out
+`T` is a Copy primitive, plain data (a struct, enum, optional, or array
+that owns nothing and holds no borrow), or an owning type. An owning
+value is never copied out of a cell: it moves in with `set` / `replace` and moves out
 with `replace`. What goes into a cell holds no borrow, since every
 handle to the cell reaches it.
 
@@ -3078,7 +3134,8 @@ sub main
 `Vec[T]` is a growable array that owns its elements. The binding is the
 buffer: a `Vec` is an owning value even when its elements are Copy.
 Elements are Copy primitives (numbers, `Bool`, `String`), plain data
-(structs, enums, and optionals that own nothing and hold no borrow),
+(structs, enums, optionals, and arrays that own nothing and hold no
+borrow),
 shared handles (including owned closures), weak handles, or boxes.
 
 | Member | Meaning |
@@ -3216,7 +3273,8 @@ sub main
 
 ### Signal
 
-`Signal[T]` holds a Copy value and a list of subscribers, owned closures
+`Signal[T]` holds a Copy or plain-data value (as a `Cell` does) and a
+list of subscribers, owned closures
 of type `*sub()`. It lives behind a shared handle: a stack `Signal` is
 rejected.
 
@@ -3637,6 +3695,7 @@ expected, and `none` needs a known optional type.
 | `if ?a as x`, `if !a as x` | the same, with `x` borrowing the value inside `a` |
 | `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§8](#moves)) |
 | `while a as x` | repeat while `a` produces a value |
+| `if a as x and b as y`, `if a as x and x > 0` | bindings and `Bool` conditions joined by `and`; `else` runs when any fails |
 | `a?` | the value inside `a`; when `a` is `none`, the enclosing function returns `none` |
 
 Fields and methods are not reachable through an optional; take the
@@ -3755,6 +3814,109 @@ sub main
 `User?`
 ```
 
+### Joined bindings
+
+An `if` or `while` condition may join several bindings, and `Bool`
+conditions among them, with `and`: `if a as x and b as y`,
+`if a as x and x > 3`, `while !q.pop() as n and n > 0`. `as` binds
+tighter than `and`, and the parts run in order, each only when the ones
+before it held. Each binding is visible to the parts after it and to
+the body, not to `else`, which runs when any part fails (and a loop
+ends then). Each binding takes its own form: `if ?o as x and !p as y`
+borrows from both. A binding made before a part that fails is dropped
+before `else` runs. A `while` step may read the bindings (it runs
+after the body, before they go) when every binding of the condition is
+plain data and no `continue` in the condition can skip one. `as` stands
+nowhere else: not under `or` or `not`, not in the condition of a
+ternary or a postfix guard (which have no block to see the name), and
+not in an expression.
+
+```rig
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+fun sum(a: Int, b: Int) -> Int
+  if get(a) as x and get(b) as y and x < y
+    x + y
+  else
+    0
+
+sub main
+  print(sum(1, 2), sum(2, 1), sum(0, 2))
+  xs: Vec[Int] = Vec()
+  for n in 1..6
+    !xs.push(n)
+  total = 0
+  while !xs.pop() as n and n > 2
+    total += n
+  print(total, xs.len)
+```
+
+```output
+3 0 0
+12 1
+```
+
+```rig reject
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  if get(1) as x or true
+    print(1)
+```
+
+```error
+`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`
+```
+
+### The fallback of `??`
+
+The fallback of `??` may be a jump: `a ?? return v`, `a ?? return`,
+`a ?? break`, `a ?? break v`, or `a ?? continue`. When `a` is `none`
+the jump runs, exactly as the statement would: `return` is checked
+against the function's result, `break` and `continue` apply to the
+innermost loop (a jump here takes no label), and leaving drops what the
+scope owns. The jump takes the rest of the expression as its value,
+and the left side of `?? return` is the whole expression before it, as
+for `catch` (`a and b ?? return` is `(a and b) ?? return`), except in a
+chain of `??`, where the jump belongs to the nearest one, as `??` is
+right-associative: `a ?? b ?? return v` is `a ?? (b ?? return v)`.
+With a jump as the fallback nothing is copied, so the optional may hold
+an owning value when it is a temporary (`make(k) ?? return`) or moved
+(`<o ?? return`, `<h.f ?? return`, which leaves `none`). Anything
+else on the right of `??` is a value of the optional's type, so a bare
+error value is no fallback: `?? E.missing` is rejected, and failing is
+written `?? return E.missing` in a fallible function.
+
+```rig
+error E
+  missing
+
+fun find(xs: ?Vec[Int], k: Int) -> Int?
+  for x, i in xs
+    return i if x == k
+  none
+
+fun index_of(xs: ?Vec[Int], k: Int) -> Int!
+  i = find(xs, k) ?? return E.missing
+  i + 1
+
+sub main
+  xs: Vec[Int] = Vec()
+  for n in 1..4
+    !xs.push(n * 10)
+  total = 0
+  for k in [10, 15, 30]
+    i = find(?xs, k) ?? continue
+    total += i
+  print(total, index_of(?xs, 20) catch 0, index_of(?xs, 25) catch 0)
+```
+
+```output
+2 2 0
+```
+
 ---
 
 ## 14. Errors
@@ -3767,7 +3929,9 @@ must say what happens to the failure, visibly:
   error. The enclosing function must itself return a `T!`, be a
   fallible `sub`, or be the top-level `sub main` or a `test`.
 - `f() catch fallback` handles it: the value of the call, or `fallback`
-  when it fails.
+  when it fails. The fallback may be a jump, as after `??`
+  ([§13](#13-optionals)): `f() catch return -1`, `f() catch |e| return e`,
+  `f() catch break`, `f() catch continue`.
 
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A closure body, a `drop` body, and a `defer` cannot
@@ -3828,6 +3992,31 @@ sub main
 
 ```error
 must be wrapped with `!` (propagate) or `catch` (handle)
+```
+
+A jump as the handler leaves instead of giving a value:
+
+```rig
+error E
+  bad
+
+fun parse(s: String) -> Int!
+  return E.bad if s == "x"
+  s.len
+
+fun size(s: String) -> Int
+  n = parse(s) catch return -1
+  n * 10
+
+sub main
+  seen = 0
+  for w in ["a", "bb", "x", "dddd"]
+    seen += parse(w) catch break
+  print(size("abc"), size("x"), seen)
+```
+
+```output
+30 -1 3
 ```
 
 ### Failing
@@ -4347,6 +4536,7 @@ not parse, and their words and sigils stay reserved:
 | `for *x in v` | `` `for *x in` is reserved `` |
 | `try` blocks | `` `try` blocks are reserved `` |
 | `zig "..."` | `` inline Zig is reserved `` |
+| `when`, `yield`, `const`, ... as a name | `` unexpected keyword `when` `` (every word held for later: `async` `await` `const` `impl` `trait` `when` `where` `yield`) |
 | string and float match patterns | `` a pattern is a name, an integer, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet

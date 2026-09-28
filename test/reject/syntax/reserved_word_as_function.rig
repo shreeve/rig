@@ -1,0 +1,9 @@
+# `yield` is reserved and cannot name a top-level function.
+
+fun yield() -> Int
+  1
+
+sub main()
+  print(1)
+
+# error: 3:5: unexpected keyword `yield`

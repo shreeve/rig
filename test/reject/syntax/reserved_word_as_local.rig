@@ -1,0 +1,7 @@
+# `when` is reserved for a later form and cannot name a local.
+
+sub main()
+  when = 3
+  print(when)
+
+# error: 4:3: unexpected keyword `when`

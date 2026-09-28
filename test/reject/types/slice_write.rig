@@ -28,5 +28,5 @@ sub main()
 # error: 11:8: cannot write-borrow a slice of a `[]Int`; a `[]T` is read-only
 # error: 16:8: cannot write-borrow a slice of a String; a String is read-only
 # error: 18:8: cannot write-borrow fixed binding `c`
-# error: 21:10: cannot write-borrow `row`; loop and pattern bindings are immutable
+# error: 21:10: cannot write-borrow `row`: it is a copy of an element of `rows`; to change the elements in place, loop with `for row in !rows`
 # error: 23:8: cannot write-borrow a temporary

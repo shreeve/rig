@@ -1,0 +1,49 @@
+# With a jump as its fallback, `??` takes an owning value out of a
+# temporary or a moved optional: nothing is copied, and on `none` the
+# jump leaves.
+
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun make(k: Int) -> Res?
+  Res(id: k) if k > 0 else none
+
+fun ident(k: Int) -> Int
+  r = make(k) ?? return -1
+  r.id
+
+fun take(k: Int) -> Int
+  o = make(k)
+  r = <o ?? return -2
+  r.id * 2
+
+struct Holder
+  r: Res?
+
+fun out(h: !Holder) -> Int
+  r = <h.r ?? return -3
+  r.id
+
+sub main
+  h = Holder(r: Res(id: 5))
+  print(out(!h), out(!h))
+  print(ident(1), ident(0))
+  print(take(3), take(0))
+  for k in 0..3
+    r = make(k) ?? continue
+    print("got", r.id)
+
+# expect:
+# drop 5
+# 5 -3
+# drop 1
+# 1 -1
+# drop 3
+# 6 -2
+# got 1
+# drop 1
+# got 2
+# drop 2

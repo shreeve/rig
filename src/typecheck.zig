@@ -65,11 +65,14 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
         .body = .{ .ret = ctx.types.void_id },
     };
     defer c.arg_types.deinit(ctx.allocator);
+    defer c.copied_from.deinit(ctx.allocator);
     defer c.literal_results.deinit(ctx.allocator);
     defer c.result_hints.deinit(ctx.allocator);
     for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
 }
+
+const CopySource = struct { place: Sexp, kind: enum { loop, as } };
 
 const Checker = struct {
     ctx: *SemContext,
@@ -95,6 +98,9 @@ const Checker = struct {
     handled: Sexp = .nil,
     /// The operand of the `*x` being checked.
     shared_operand: Sexp = .nil,
+    /// The condition, or operand of `and`, `or`, or `not`, being
+    /// checked: a `!` that starts it reads as negation.
+    negation_operand: Sexp = .nil,
     /// The `!x` being checked where a write borrow is expected, the one
     /// place a write borrow of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
@@ -121,6 +127,9 @@ const Checker = struct {
     loop_value: ?*LoopValue = null,
     /// The types inference found for arguments (`argType`).
     arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
+    /// A loop element or `as` binding that copies from a place: the
+    /// place, named when the binding is written (`checkBindingWritable`).
+    copied_from: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
     /// The call whose value goes where a `ty` is expected (`checkExpr`),
     /// directly or through `!`, `?`, `catch`, or `??` (`resultCall`):
     /// inference binds the type parameters its arguments leave open from
@@ -502,6 +511,13 @@ const Checker = struct {
     /// over (`!`, `?`), or handle a failure. One that only reads a value
     /// and drops it is a mistake; a function name was meant as a call.
     fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
+        // `-s.f` / `-v[i]` alone on a line reads like a drop, which only
+        // a binding takes.
+        if (stmt.isKind(.neg) and (ir.Neg.operand(stmt).isKind(.member) or ir.Neg.operand(stmt).isKind(.index))) {
+            const sp = self.ctx.span(ir.Neg.operand(stmt));
+            try self.errAt(stmt, "only a binding is dropped with `-x`; `{s}` is dropped with what holds it, or replaced by assigning to it", .{self.ctx.source[sp.start..sp.end]});
+            return;
+        }
         const ty = try self.synthExpr(stmt);
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
@@ -572,7 +588,7 @@ const Checker = struct {
             _ = try self.synthExpr(rhs);
             return;
         }
-        // `<-` and compound assignment name an existing binding.
+        // A compound assignment names an existing binding.
         const sym_id = self.ctx.symbolOf(target) orelse (try self.useName(target)) orelse {
             _ = try self.synthExpr(rhs);
             return;
@@ -742,6 +758,10 @@ const Checker = struct {
             _ = try self.synthExpr(rhs);
             return;
         }
+        if (try self.assignsIntoTemporary(target)) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
         if (head == .index and (try self.ownsResource(place_ty, self.startOf(target), "overwrites an element"))) {
             try self.errAt(target, "cannot replace an element of type `{s}` by assignment; the old handle would leak", .{try self.tyName(place_ty)});
             return;
@@ -797,6 +817,19 @@ const Checker = struct {
     /// fixed (`=!`), loop and pattern bindings, captures, and parameters
     /// other than `!T` ones are not. False after a diagnostic about the
     /// path.
+    /// `mk().x = 5`, `c.get().x = 9`: a place whose base is a value no
+    /// binding holds (a call's result that is not a write borrow) is
+    /// gone after the statement, so the assignment would change nothing.
+    fn assignsIntoTemporary(self: *Checker, target: Sexp) Error!bool {
+        var base = target;
+        while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+        if (base == .src or base.isKind(.read) or base.isKind(.write)) return false;
+        const ty = self.ctx.typeOf(base) orelse return false;
+        if (self.isPoison(ty) or self.ctx.types.get(ty) == .borrow_write) return false;
+        try self.errAt(target, "cannot assign to a field or element of a temporary; bind the value first (`t = ...`), then assign to `t`", .{});
+        return true;
+    }
+
     fn checkWritable(self: *Checker, place: Sexp, at: Sexp, verb: []const u8) Error!bool {
         const path = self.placePath(place);
         const assign = std.mem.eql(u8, verb, "assign to");
@@ -830,7 +863,7 @@ const Checker = struct {
             sym = foreign.symbols.items[foreign.lookupInScopeOnly(sema.module_scope, leaf) orelse return true];
             name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(root), leaf });
         }
-        _ = try self.checkBindingWritable(sym, name, pos, verb);
+        _ = try self.checkSymbolWritable(if (sym.kind == .module) null else id, sym, name, pos, verb);
         return true;
     }
 
@@ -839,6 +872,13 @@ const Checker = struct {
     /// binding, or a loop or pattern binding that copies. False after a
     /// diagnostic.
     fn checkBindingWritable(self: *Checker, sym: sema.Symbol, name: []const u8, pos: u32, verb: []const u8) Error!bool {
+        return self.checkSymbolWritable(null, sym, name, pos, verb);
+    }
+
+    /// `checkBindingWritable` for symbol `id` when known: a loop element
+    /// or `as` binding copied from a place is written through a write
+    /// borrow of the place instead.
+    fn checkSymbolWritable(self: *Checker, id: ?SymbolId, sym: sema.Symbol, name: []const u8, pos: u32, verb: []const u8) Error!bool {
         switch (sym.kind) {
             .param => if (self.ctx.types.get(sym.ty) != .borrow_write) {
                 if (std.mem.eql(u8, name, "self")) {
@@ -858,6 +898,15 @@ const Checker = struct {
                 // An `as` binding that owns a resource moved into it is
                 // not a copy: its fields can be written and taken.
                 if (sym.flags.as_bound and sema.typeHasDropGlue(self.ctx, sym.ty)) return true;
+                if (id) |i| if (self.copied_from.get(i)) |from| {
+                    const sp = self.ctx.span(from.place);
+                    const place = self.ctx.source[sp.start..sp.end];
+                    switch (from.kind) {
+                        .loop => try self.err(pos, "cannot {s} `{s}`: it is a copy of an element of `{s}`; to change the elements in place, loop with `for {s} in !{s}`", .{ verb, name, place, name, place }),
+                        .as => try self.err(pos, "cannot {s} `{s}`: it is a copy of the value inside `{s}`; to change that value in place, bind it with `!{s} as {s}`", .{ verb, name, place, place, name }),
+                    }
+                    return false;
+                };
                 try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb, name, name, name });
                 return false;
             },
@@ -970,7 +1019,10 @@ const Checker = struct {
         const else_node = ir.If.@"else"(node);
 
         const prev = self.scope;
-        try self.checkCondition(cond);
+        // A ternary or a postfix guard has no block to bind a name for.
+        if (!self.isBlockIf(node) and rig.bindsInCondition(cond)) {
+            try self.checkBoolOperand(cond);
+        } else try self.checkCondition(cond);
         const then_ty = try self.branch(then_node, expected, position);
         self.scope = prev;
 
@@ -1014,11 +1066,103 @@ const Checker = struct {
         return self.synthExpr(node);
     }
 
-    /// A Bool condition, or an optional binding `(as expr name)`, which
-    /// enters the scope binding `name`; the caller restores the scope.
+    /// A Bool condition, or one that binds (`rig.bindsInCondition`): its
+    /// parts in order, each `(as expr name)` entering the scope that
+    /// binds `name`; the caller restores the scope.
     fn checkCondition(self: *Checker, cond: Sexp) Error!void {
+        if (rig.isConditionJoin(cond)) {
+            try self.checkCondition(ir.get(cond, .left));
+            try self.checkCondition(ir.get(cond, .right));
+            return self.ctx.recordType(cond, self.t().bool_id);
+        }
         if (cond.isKind(.as)) return self.checkOptionalBinding(cond);
-        return self.checkExpr(cond, self.t().bool_id);
+        return self.checkBoolOperand(cond);
+    }
+
+    /// The step of `while cond: step` cannot use an owning binding of
+    /// `cond`: the body drops it before the step runs.
+    fn checkStepUses(self: *Checker, cond: Sexp, step: Sexp) Error!void {
+        if (rig.isConditionJoin(cond)) {
+            try self.checkStepUses(ir.get(cond, .left), step);
+            return self.checkStepUses(ir.get(cond, .right), step);
+        }
+        if (!cond.isKind(.as)) return;
+        const b = self.ctx.symbolOf(ir.As.name(cond)) orelse return;
+        const sym = self.ctx.symbols.items[b];
+        if (findUse(self.ctx, step, b)) |use| if (try self.ownsResource(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
+            try self.errAt(use, "the loop step cannot use `{s}`: it owns a `{s}`, which the body drops before the step runs", .{ sym.name, try self.tyName(sym.ty) });
+        };
+    }
+
+    /// A step that reads a binding of a joined condition runs inside the
+    /// `if`s that bind it, after the body, so every binding there stays
+    /// until the step is done: each must be plain data (neither a borrow
+    /// nor owning), and no `continue` in the condition may skip binding
+    /// one.
+    fn checkJoinedStep(self: *Checker, cond: Sexp, step: Sexp) Error!void {
+        var parts: std.ArrayListUnmanaged(Sexp) = .empty;
+        defer parts.deinit(self.ctx.allocator);
+        try collectConditionParts(self.ctx.allocator, cond, &parts);
+        var read: ?Sexp = null;
+        for (parts.items) |p| if (p.isKind(.as)) if (self.ctx.symbolOf(ir.As.name(p))) |b| {
+            if (findUse(self.ctx, step, b)) |use| read = use;
+        };
+        const use = read orelse return;
+        const name = self.text(use);
+        for (parts.items) |p| {
+            if (hasContinue(p)) return self.errAt(use, "the loop step reads `{s}`, a binding of the condition, which a `continue` in the condition leaves unbound", .{name});
+            if (!p.isKind(.as)) continue;
+            const b = self.ctx.symbolOf(ir.As.name(p)) orelse continue;
+            const sym = self.ctx.symbols.items[b];
+            if (self.isPoison(sym.ty)) continue;
+            if (isBorrow(self.ctx, sym.ty) or sema.typeHasDropGlue(self.ctx, sym.ty)) {
+                return self.errAt(use, "the loop step reads `{s}`, a binding of a joined condition, so each binding there must be plain data; `{s}` is a `{s}`", .{ name, sym.name, try self.tyName(sym.ty) });
+            }
+        }
+    }
+
+    /// Whether `node` is a block `if` (`if c` then a block), not a
+    /// ternary `a if c else b` or a postfix guard `stmt if c`, which
+    /// start with their value or statement.
+    fn isBlockIf(self: *Checker, node: Sexp) bool {
+        // Without the Parser wrapper's spans, every `if` is taken for a
+        // block.
+        if (self.ctx.parser == null) return true;
+        const at = self.ctx.span(node).start;
+        const src = self.ctx.source;
+        if (!std.mem.startsWith(u8, src[at..], "if")) return false;
+        return at + 2 >= src.len or !(std.ascii.isAlphanumeric(src[at + 2]) or src[at + 2] == '_');
+    }
+
+    /// A Bool where a leading `!` reads as negation: a condition, or an
+    /// operand of `and`, `or`, or `not`.
+    fn checkBoolOperand(self: *Checker, e: Sexp) Error!void {
+        const prev = self.negation_operand;
+        self.negation_operand = e;
+        defer self.negation_operand = prev;
+        return self.checkExpr(e, self.t().bool_id);
+    }
+
+    /// Whether `node` starts the condition or logical operand being
+    /// checked: it is that expression, or its leftmost part, reached
+    /// through the children that start where their parent does, or one
+    /// character on either side: a receiver sigil starts before the call
+    /// it was moved into, which starts after an operator's left side
+    /// (`!s.add(1) == x` starts at `!`, its call at `s`).
+    fn startsNegationOperand(self: *Checker, node: Sexp) bool {
+        var e = self.negation_operand;
+        outer: while (e == .list) {
+            if (e.list.id == node.list.id) return true;
+            const at = self.ctx.span(e).start;
+            for (rig.children(e)) |child| {
+                if (child == .list and self.ctx.span(child).start <= at + 1) {
+                    e = child;
+                    continue :outer;
+                }
+            }
+            return false;
+        }
+        return false;
     }
 
     /// `if expr as name` / `while expr as name`: `expr` is an optional,
@@ -1056,6 +1200,7 @@ const Checker = struct {
         if (self.ctx.symbolOf(name)) |sym| {
             self.ctx.symbols.items[sym].ty = inner;
             try self.ctx.recordType(name, inner);
+            if (!borrowed and isPlaceExpr(expr)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = expr, .kind = .as });
         }
     }
 
@@ -1090,13 +1235,8 @@ const Checker = struct {
             try self.errAt(step, "a `while` step is an assignment or a call", .{});
         } else if (step != .nil) {
             try self.checkStmt(step);
-            // The body drops an owning `as` binding before the step runs.
-            if (cond.isKind(.as)) if (self.ctx.symbolOf(ir.As.name(cond))) |b| {
-                const sym = self.ctx.symbols.items[b];
-                if (findUse(self.ctx, step, b)) |use| if (try self.ownsResource(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
-                    try self.errAt(use, "the loop step cannot use `{s}`: it owns a `{s}`, which the body drops before the step runs", .{ sym.name, try self.tyName(sym.ty) });
-                };
-            };
+            try self.checkStepUses(cond, step);
+            if (rig.isConditionJoin(cond)) try self.checkJoinedStep(cond, step);
         }
         try self.checkStmt(ir.While.body(node));
         self.scope = prev;
@@ -1136,6 +1276,7 @@ const Checker = struct {
             if (self.ctx.symbolOf(binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = elem_ty;
                 try self.ctx.recordType(binding, elem_ty);
+                if (mode == .iter and !source.isKind(.@"..") and isPlaceExpr(source)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = source, .kind = .loop });
             }
             if (self.ctx.symbolOf(index_binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = self.t().int_id;
@@ -1770,12 +1911,12 @@ const Checker = struct {
             .@"<", .@">", .@"<=", .@">=" => self.synthOrdering(e, @tagName(head)),
             .@"==", .@"!=" => self.synthEquality(e),
             .@"and", .@"or" => blk: {
-                try self.checkExpr(ir.get(e, .left), self.t().bool_id);
-                try self.checkExpr(ir.get(e, .right), self.t().bool_id);
+                try self.checkBoolOperand(ir.get(e, .left));
+                try self.checkBoolOperand(ir.get(e, .right));
                 break :blk self.t().bool_id;
             },
             .not => blk: {
-                try self.checkExpr(ir.Not.operand(e), self.t().bool_id);
+                try self.checkBoolOperand(ir.Not.operand(e));
                 break :blk self.t().bool_id;
             },
             .neg => self.synthNeg(e),
@@ -1806,6 +1947,11 @@ const Checker = struct {
             .@"break", .@"continue" => blk: {
                 try self.checkStmt(e);
                 break :blk self.t().noreturn_id;
+            },
+            .as => blk: {
+                try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
+                _ = try self.synthExpr(ir.As.value(e));
+                break :blk self.t().invalid_id;
             },
             .kwarg => blk: {
                 try self.errAt(e, "`name: value` is only allowed as a call argument", .{});
@@ -2027,6 +2173,13 @@ const Checker = struct {
             .float, .int_literal, .float_literal => {},
             .type_var => |tv| try self.require(tv, .signed, self.startOf(operand), "-"),
             else => {
+                // A `-name` line that gives a block's value negates; it
+                // reads like a drop.
+                if (self.ctx.parser) |p| if (p.valueTailOf(e)) |function| {
+                    const name = self.text(operand);
+                    try self.errAt(e, "`-{s}` here is {s}, and negation needs a number; to drop `{s}`, drop it before the last line", .{ name, if (function) "the function's value" else "the value of its block", name });
+                    return self.t().invalid_id;
+                };
                 try self.errAt(operand, "operator `-` requires a numeric operand; got `{s}`", .{try self.tyName(ty)});
                 return self.t().invalid_id;
             },
@@ -2192,8 +2345,14 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
         };
-        if ((try self.ownsResource(inner, self.startOf(left), "copies out with `??` a value"))) {
-            try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; take the handle out with `if x as h`", .{try self.tyName(opt)});
+        // With a jump as the fallback, a temporary or moved optional gives
+        // its value up whole: nothing is copied.
+        const takes_whole = isJump(right) and !isPlaceExpr(left);
+        if (!takes_whole and (try self.ownsResource(inner, self.startOf(left), "copies out with `??` a value"))) {
+            if (isJump(right)) {
+                const sp = self.ctx.span(left);
+                try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; move it out: `<{s} ?? ...`", .{ try self.tyName(opt), self.ctx.source[sp.start..sp.end] });
+            } else try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; take the handle out with `if x as h`", .{try self.tyName(opt)});
             return self.t().invalid_id;
         }
         _ = try self.readThrough(left, opt, sema.unwrapBorrows(self.ctx, opt));
@@ -4982,6 +5141,7 @@ const Checker = struct {
             if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "changes a Cell through any path to it");
             return ty;
         };
+        if (resolved_method == null and std.mem.eql(u8, method, "get")) if (try self.sequenceGet(obj_ty, pos, args)) |ty| return ty;
 
         const resolved = resolved_method orelse {
             // A data field holding a function or a closure handle is
@@ -5270,6 +5430,31 @@ const Checker = struct {
         return f.returns;
     }
 
+    /// `xs.get(i)` on an array, a slice, or a String: the element as
+    /// `T?` (a String's byte as `U8?`), `none` when `i` is out of range.
+    /// Null when `obj_ty` is none of these.
+    fn sequenceGet(self: *Checker, obj_ty: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
+        const seq = sema.unwrapBorrows(self.ctx, obj_ty);
+        const elem: TypeId = switch (self.ctx.types.get(seq)) {
+            .array => |a| a.elem,
+            .slice => |sl| sl.elem,
+            .string => try self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } }),
+            else => return null,
+        };
+        const recv = try self.ctx.intern(.{ .borrow_read = seq });
+        const f: FunctionType = .{
+            .params = try self.ctx.dupeIds(&.{ recv, self.t().int_id }),
+            .returns = try self.ctx.intern(.{ .optional = elem }),
+            .is_sub = false,
+        };
+        try self.noteCallee(f);
+        if (sema.holdsWriteBorrow(self.ctx, elem) or try self.ownsResource(elem, pos, "copies an element out of a sequence")) {
+            return try self.badCall(args, pos, "`get` would copy an element out of a `{s}`, whose elements a copy cannot share; index it (`xs[i]`) or iterate over it instead", .{try self.tyName(seq)});
+        }
+        try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "get", pos);
+        return f.returns;
+    }
+
     fn noteCallee(self: *Checker, f: FunctionType) Error!void {
         try self.noteCalleeType(try self.ctx.intern(.{ .function = f }));
     }
@@ -5537,7 +5722,7 @@ const Checker = struct {
             .write => {
                 const result = self.ctx.types.get(returns);
                 const value = if (result == .fallible) result.fallible else returns;
-                if (value != self.t().bool_id) return false;
+                if (value != self.t().bool_id or !self.startsNegationOperand(recv)) return false;
                 try self.errAt(recv, "a write-borrowing call that returns `Bool` is written `(!{s}).{s}(...)`, so it is never read as negation", .{ name, method });
             },
             else => try self.errAt(recv, "`{s}` does not write its receiver; for negation use `not`", .{method}),
@@ -5763,6 +5948,20 @@ const Checker = struct {
         }
         const head = e.kind() orelse return null;
         switch (head) {
+            // `?5` where a `?Int` is expected: the literal takes the
+            // borrowed type, as it would bare.
+            .read => {
+                const operand = ir.Read.operand(e);
+                const lit = if (operand.isKind(.neg)) ir.Neg.operand(operand) else operand;
+                if (lit != .src or !(sema.isIntLiteralText(self.text(lit)) or sema.isFloatLiteralText(self.text(lit)))) return null;
+                const inner = switch (self.ctx.types.get(expected)) {
+                    .borrow_read => |i| i,
+                    else => return null,
+                };
+                if (!sema.isNumeric(self.ctx, inner)) return null;
+                try self.checkExpr(operand, inner);
+                return expected;
+            },
             .neg => {
                 const operand = ir.Neg.operand(e);
                 if (operand != .src or !sema.isIntLiteralText(self.text(operand)) or !sema.isInteger(self.ctx, target)) return null;
@@ -6704,6 +6903,30 @@ fn vecElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
 
 /// Storage that already has an owner: a name, a field or element of
 /// one, or a borrow of one.
+fn collectConditionParts(a: std.mem.Allocator, cond: Sexp, out: *std.ArrayListUnmanaged(Sexp)) std.mem.Allocator.Error!void {
+    if (rig.isConditionJoin(cond)) {
+        try collectConditionParts(a, ir.get(cond, .left), out);
+        return collectConditionParts(a, ir.get(cond, .right), out);
+    }
+    try out.append(a, cond);
+}
+
+/// A `continue` in `e`, outside the closures in it.
+fn hasContinue(e: Sexp) bool {
+    const kind = e.kind() orelse return false;
+    switch (kind) {
+        .@"continue" => return true,
+        .lambda => return false,
+        else => {},
+    }
+    for (rig.children(e)) |c| if (hasContinue(c)) return true;
+    return false;
+}
+
+fn isJump(e: Sexp) bool {
+    return e.isKind(.@"return") or e.isKind(.@"break") or e.isKind(.@"continue");
+}
+
 fn isPlaceExpr(e: Sexp) bool {
     const h = e.kind() orelse return e == .src;
     return switch (h) {

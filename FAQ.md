@@ -9,9 +9,9 @@ No. Numbers, strings, structs, enums, and arrays are plain values, and
 borrows (`?T`, `!T`) are checked at compile time and cost nothing at
 run time. Counting happens only behind a shared handle `*T`, and every
 count change is written in the source: `*x` allocates, `+x` bumps, `-x`
-and scope exit release ([cost model](docs/DESIGN.md#cost-model)). The
-honest gap: there is no single-owner heap box yet, so a heap value with
-one owner still pays for a count.
+and scope exit release ([cost model](docs/DESIGN.md#cost-model)). A heap
+value with one owner goes in a `Box[T]`, which counts nothing: it moves,
+and dropping it frees the value.
 
 ## Is Rig safe like Rust?
 
@@ -114,7 +114,7 @@ one small reactive type in the runtime
 
 Not yet. Traits bring a large design space (dispatch, coherence, trait
 objects), and any design has to keep ownership visible at call sites
-and in the IR. Until then, Rig has methods, enums, `match`, and
+and in the IR; `trait`, `impl`, and `where` are reserved for it. Until then, Rig has methods, enums, `match`, and
 generic types and functions without bounds: a generic body may do with
 `T` whatever each instance supports, and each instance a program makes
 is checked, with an error at the call and a note at the body line

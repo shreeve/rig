@@ -1,0 +1,7 @@
+# A keyword cannot name a closure parameter; the error names it.
+
+sub main
+  f = |when: Int| when + 1
+  print(f(1))
+
+# error: 4:8: unexpected keyword `when`

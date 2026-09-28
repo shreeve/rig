@@ -1,0 +1,18 @@
+# `as` binds only in the condition of an `if` or `while` block, alone or joined to
+# the rest of it by `and`.
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  y = get(1) as x
+  if get(1) as x or true
+    print(1)
+  if not get(2) as x
+    print(2)
+  print(get(3) as z)
+
+# error: 8:7: `as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`
+# error: 9:6: `as` binds only in the condition of an `if` or `while` block
+# error: 11:10: `as` binds only in the condition of an `if` or `while` block
+# error: 13:9: `as` binds only in the condition of an `if` or `while` block

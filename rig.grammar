@@ -32,6 +32,7 @@
 #                                    arguments (vs `f (x)`, `f [1, 2]`,
 #                                    which pass a new operand to `f`)
 #       .red                         enum literal (vs member access a.b)
+#       ?? return                    `??` before a jump (vs the operator)
 #       T? T! x! x?                  type / propagation suffixes
 #       a if c else b                ternary vs postfix guard `stmt if c`
 #
@@ -84,6 +85,14 @@ tokens
     use
     while
     zig             # reserved; no form uses it
+    async           # reserved; no form uses it
+    await           # reserved; no form uses it
+    const           # reserved; no form uses it
+    impl            # reserved; no form uses it
+    trait           # reserved; no form uses it
+    when            # reserved; no form uses it
+    where           # reserved; no form uses it
+    yield           # reserved; no form uses it
 
     # Operators
     plus            # +
@@ -113,7 +122,6 @@ tokens
     at              # @
     assign          # =
     fixed_assign    # =!
-    move_assign     # <-
     plus_assign     # +=
     minus_assign    # -=
     star_assign     # *=
@@ -162,6 +170,7 @@ tokens
     suffix_bang     # T!  fallible type, x! propagate failure
     of              # of  after a value inside [ ]: a fill literal `[n of x]`
     dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
+    nullish_jump    # ??  directly before `return`, `break`, or `continue`
 
     # Misc
     comment
@@ -205,7 +214,6 @@ tokens
 "&&"                                        → and_sym
 "||"                                        → or_sym
 "=!"                                        → fixed_assign
-"<-"                                        → move_assign
 "+="                                        → plus_assign
 "-="                                        → minus_assign
 "*="                                        → star_assign
@@ -295,7 +303,7 @@ tokens
     variant                     name:leaf params:group
 
     # Bindings: `op` is the binding kind (see BindingKind in src/rig.zig)
-    set                         op:tag(fixed|shadow|move|"+="|"-="|"*="|"/="|"%="|"&="|"|="|"^="|"<<="|">>=")? target type? value
+    set                         op:tag(fixed|shadow|"+="|"-="|"*="|"/="|"%="|"&="|"|="|"^="|"<<="|">>=")? target type? value
     drop                        name:leaf
 
     # Control flow
@@ -363,16 +371,18 @@ tokens
     KWARG_NAME: "a keyword argument"
     MOVE_PFX: "`<`", CLONE_PFX: "`+`", READ_PFX: "`?`"
     WRITE_PFX: "`!`", SHARE_PFX: "`*`", DROP_STMT: "`-`", MINUS_PREFIX: "`-`"
-    SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`", OF: "`of`", DOTDOT_OPEN: "`..`"
+    SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`", OF: "`of`", DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
     MATCH: "`match`", NEW: "`new`", NOT: "`not`", OR: "`or`", PUB: "`pub`"
     RAW: "`raw`", RETURN: "`return`", STRUCT: "`struct`", SUB: "`sub`", TEST: "`test`", TRY: "`try`"
     TYPE: "`type`", USE: "`use`", WHILE: "`while`", ZIG: "`zig`"
+    ASYNC: "`async`", AWAIT: "`await`", CONST: "`const`", IMPL: "`impl`"
+    TRAIT: "`trait`", WHEN: "`when`", WHERE: "`where`", YIELD: "`yield`"
     "=": "`=`", "+=": "`+=`", "-=": "`-=`", "*=": "`*=`", "/=": "`/=`", "%=": "`%=`"
     "&=": "`&=`", "|=": "`|=`", "^=": "`^=`", "<<=": "`<<=`", ">>=": "`>>=`", "=!": "`=!`"
-    "<-": "`<-`", ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
+    ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
     "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
     "@": "`@`", "==": "`==`", "!=": "`!=`", "<": "`<`", ">": "`>`", "<=": "`<=`"
     ">=": "`>=`", "??": "`??`", "|": "`|`", "^": "`^`", "&": "`&`", "<<": "`<<`"
@@ -415,7 +425,6 @@ stmt     = use
 simple   = tail
          | assign
          | target:postfix "=!"  value:rhs           → (set op:fixed)
-         | target:postfix "<-"  value:rhs           → (set op:move)
          | target:name ":" type:type "="  value:rhs  → (set)
          | target:name ":" type:type "=!" value:rhs  → (set op:fixed)
          | NEW target:name "=" value:rhs            → (set op:shadow)
@@ -639,13 +648,25 @@ expr     = value
 
 value    = then:logic TERNARY_IF cond:logic ELSE else:value → (if)
          | value:logic CATCH [BAR_CAPTURE name:name BAR_CAPTURE] handler:value → (catch)
+         | value:logic CATCH [BAR_CAPTURE name:name BAR_CAPTURE] handler:jump → (catch)
+         | left:logic NULLISH_JUMP right:jump        → (??)
          | logic
+
+# A jump as the fallback of `??` or a `catch` handler: `get(k) ?? return
+# none`, `parse(s) catch break`. It takes the rest of the expression, so
+# its left side is a whole `logic`, as `catch`'s is; the rewriter marks a
+# `??` before a jump as NULLISH_JUMP. It takes no label: a `:` after it
+# may start a `while` step.
+jump     = RETURN [value:value]                     → (return)
+         | BREAK [value:value]                      → (break)
+         | CONTINUE                                 → (continue)
 
 logic    = left:logic OR right:conj                 → (or)
          | conj
 conj     = left:conj AND right:neg                  → (and)
          | neg
 neg      = NOT operand:neg                          → (not)
+         | value:@infix AS name:name                → (as)
          | @infix
 
 # --- Paren-free calls ---------------------------------------------------------
@@ -676,14 +697,13 @@ cmdtail  = cmd
 # --- Control flow -------------------------------------------------------------
 
 # `if e as name` / `while e as name`: `e` is an optional; the body runs
-# with `name` bound to the value inside it.
-ifcond   = value
-         | value:value AS name:name                 → (as)
+# with `name` bound to the value inside it. `as` binds tighter than
+# `and`, so bindings and Bool conditions join into one condition:
+# `if a as x and x > 0 and b as y`. The checker takes `as` only there.
+if       = IF cond:value then:block [ELSE else:block] → (if)
+         | IF cond:value then:block ELSE else:if    → (if)
 
-if       = IF cond:ifcond then:block [ELSE else:block] → (if)
-         | IF cond:ifcond then:block ELSE else:if   → (if)
-
-while    = WHILE cond:ifcond [":" step:step] body:block [ELSE else:block] → (while)
+while    = WHILE cond:value [":" step:step] body:block [ELSE else:block] → (while)
 
 # A `while` step runs after each iteration: an assignment, or a call,
 # which may propagate its failure (the checker rejects other forms). A

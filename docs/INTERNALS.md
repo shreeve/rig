@@ -130,6 +130,7 @@ parser distinct tokens:
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | the spacing rule; the closing bar is the one the opening probe found |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
+| `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
 | keywords | one token each | every keyword is reserved; `new` only at statement start |
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
 | `xs[a..]`, `xs[..]` vs `xs[a..b]` | `DOTDOT_OPEN` vs `..` | a `..` whose next token is `]` (past a line break, which is whitespace inside brackets) ends an open range, so `xs[a == b..]` reduces `a == b` before it; a `..` that starts an operand (`xs[..b]`) needs no mark, since no expression starts with one |
@@ -172,7 +173,7 @@ forms to `value`, an expression without blocks or closures (conditions,
   closure bars as above;
 - rejects `&&`, `||`, `**`, and the reserved pin sigil `@x` with a
   hint, and malformed input where it is written: two values touching
-  (`t.5`), `=!` or `<-` touching the operand after it, a number with a
+  (`t.5`), `=!` touching the operand after it, a number with a
   leading zero or an uppercase radix prefix, a control character in a
   string, and a carriage return without a line feed (a leading byte
   order mark is skipped);
@@ -200,6 +201,9 @@ that need to inspect the tree:
 - a `-name` statement whose value is used (the last line of a `fun`, or
   of a branch or arm whose value is used) becomes `(neg name)` instead
   of `(drop name)`;
+- a jump fallback moves to the nearest `??` of the chain before it:
+  `(?? (?? a b) (return v))` becomes `(?? a (?? b (return v)))`, since
+  the grammar reads the jump after the whole chain;
 - a `!` or `<` before a place (a name and the fields and elements after
   it) followed by a method call moves onto the place, the method's
   receiver: `!x.v.push(1)` parses as
@@ -219,7 +223,8 @@ that need to inspect the tree:
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!self` (the habit of `!` as negation),
   a `<` before one that does not take `<self`, and a `!` call whose
-  value is a `Bool`, written `(!set).insert(k)`. A `for` source sigil
+  value is a `Bool` where it starts a condition or an operand of
+  `and`, `or`, or `not`, written `(!set).insert(k)` there. A `for` source sigil
   is the loop's mode, moved before this rewrite sees it.
 
 It also rejects a tree nested more than 1000 deep, since every later
@@ -325,11 +330,18 @@ call        callee ...args
 
 A few kinds serve more than one surface form:
 
+- `return`, `break`, and `continue` are statements, and also the
+  right side of `??` and a `catch` handler (`get(k) ?? return none`),
+  where the checker types them `noreturn` and the emitter writes a Zig
+  block that leaves (`orelse { return null; }`).
 - `if` is the block `if`, the ternary `a if c else b`, and the guard
   `stmt if c` (whose `then` is a block holding the statement); its
-  `cond` may be `(as value name)`, as may a `while`'s.
+  `cond` may be `(as value name)`, as may a `while`'s, or an `and`
+  chain with `as` parts, `(and (as a x) (> x 0))`, whose parts every
+  pass takes in order (`rig.bindsInCondition`); the emitter nests one
+  Zig `if` per part, sharing the `else`.
 - `set`'s `op` is `_` for `=`, `fixed` for `=!`, `shadow` for
-  `new x =`, `move` for `<-`, and the operator for a compound
+  `new x =`, and the operator for a compound
   assignment.
 - `for`'s `mode` is `iter` from the grammar; the Parser wrapper turns
   `for x in ?xs` / `!xs` / `<xs` into `read`, `write`, `move`.

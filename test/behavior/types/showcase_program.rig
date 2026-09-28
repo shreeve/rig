@@ -55,7 +55,7 @@ sub main()
   user =! loadUser(1)!         # fixed binding of a propagated result
   print user.name
 
-  other <- user                # move-assignment: `other = <user`
+  other = <user                # a move: `user` is done
 
   u = loadUser(7)!
   p = loadProfile(u.id)!

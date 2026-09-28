@@ -1,19 +1,20 @@
-# A built-in generic constructed in a generic body (`Cell(self.v)`
-# in `Wrap[T]`) is checked for each instance: `Cell[Pt]` holds plain data
-# that is neither a Copy primitive nor has drop glue.
+# A built-in generic constructed in a generic body (`Cell(self.v)` in
+# `Wrap[T]`) is checked for each instance: `Cell[fun(Int) -> Int]` holds
+# a function, which is neither plain data nor has drop glue.
 
 struct Wrap[T]
   v: T
 
   fun peek(?self) -> Int
     c = Cell(self.v)
+    _ = c
     1
 
-struct Pt
-  x: Int
+fun inc(x: Int) -> Int
+  x + 1
 
 sub main()
-  b: Wrap[Pt] = Wrap(v: Pt(x: 1))
+  b: Wrap[fun(Int) -> Int] = Wrap(v: inc)
   print(b.peek())
 
-# error: `Wrap[Pt]` instantiates `Cell[Pt]`: `Cell[T]` requires `T` to be a Copy primitive
+# error: instantiates `Cell[fun(Int) -> Int]`: `Cell[T]` requires `T` to be a Copy type

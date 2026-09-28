@@ -1,0 +1,17 @@
+# `??` would copy an owning value out of an optional a binding still
+# holds; move it out with `<o ?? return`.
+
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun first(o: Res?) -> Int
+  r = o ?? return 0
+  r.id
+
+sub main
+  print(first(Res(id: 1)))
+
+# error: 11:7: `??` on an optional `Res?` would copy an owning handle out of it; move it out: `<o ?? ...`

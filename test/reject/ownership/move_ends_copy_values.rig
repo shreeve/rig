@@ -16,7 +16,7 @@ sub main()
   f()
   print(flag)
   s = "text"
-  t <- s
+  t = <s
   print(s)
   box = Wrap(n: 2)
   r = ?box

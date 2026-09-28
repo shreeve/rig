@@ -1,0 +1,85 @@
+# Optional bindings join with `and`, with Bool conditions among them:
+# each binding is visible in the conditions after it and in the body,
+# and `else` runs when any of them is `none` or false.
+
+struct Noisy
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+fun make(k: Int) -> Noisy?
+  Noisy(id: k) if k > 0 else none
+
+fun sum(a: Int, b: Int) -> Int
+  if get(a) as x and get(b) as y
+    x + y
+  else
+    0
+
+fun pick(a: Int, flag: Bool) -> String
+  if flag and get(a) as x and x > 3
+    "big"
+  else if get(a) as x and x > 0
+    "small"
+  else
+    "none"
+
+sub owned(a: Int, b: Int)
+  if make(a) as n and get(b) as y and y > n.id
+    print("both", n.id, y)
+  else
+    print("else", a, b)
+
+sub bump(o: !(Int?), p: !(Int?))
+  if ?o as x and !p as y
+    y += x
+
+sub main
+  print(sum(1, 2), sum(0, 2), sum(1, 0))
+  print(pick(5, true), pick(5, false), pick(2, true), pick(0, true))
+  owned(1, 2)
+  owned(3, 2)
+  owned(0, 2)
+  o: Int? = 10
+  p: Int? = 1
+  bump(!o, !p)
+  print(p)
+  v = if get(4) as x and x % 2 == 0
+    x / 2
+  else
+    -1
+  print(v)
+
+  xs: Vec[Int] = Vec()
+  for n in 1..8
+    !xs.push(n)
+  seen = 0
+  while !xs.pop() as x and x > 3
+    seen += x
+  else
+    print("stopped")
+  print(seen, xs.len)
+
+  first = while !xs.pop() as x and x > 0
+    break x if x == 2
+  else
+    0
+  print(first, xs.len)
+
+# expect:
+# 3 0 0
+# big small small none
+# both 1 2
+# drop 1
+# drop 3
+# else 3 2
+# else 0 2
+# 11
+# 2
+# stopped
+# 22 2
+# 2 1

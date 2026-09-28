@@ -172,8 +172,10 @@ is, take a weak handle, borrow it, negate it), so they keep the rule:
 that keep it honest: `!` before a method that only reads its receiver
 is rejected, since it would read as negation (which is `not`), `<`
 before one that does not consume it is rejected, and a `!` call whose
-value is a `Bool` keeps the parentheses, `(!set).insert(k)`, so no
-`!` in Rig ever reads as "not".
+value is a `Bool` keeps the parentheses, `(!set).insert(k)`, where a
+leading `!` would read as "not": as a condition and as an operand of
+`and`, `or`, or `not`. Elsewhere, as in `added = !set.insert(k)`,
+nothing reads it as negation, so the short form stands.
 
 **Absorption.** Operations that would add nothing are rejected rather
 than silently tolerated. Sharing a shared handle (`*x` when `x : *T`,
@@ -186,7 +188,7 @@ can always be read: a `!T` is accepted where a `?T` is expected.
 reuses the expression sigils for captures (`|+x|` clones, `|<x|` moves,
 `|?x|` and `|!x|` borrow, `|~x|` holds weakly). A loop over owning elements borrows its source
 (`for x in ?v`). Receivers are `?self` and `!self`, the only place a
-sigil may prefix a parameter name. Move-assignment `a <- b` is `a = <b`.
+sigil may prefix a parameter name. A move-assignment is `a = <b`.
 The fixed binding `x =! e` is the one place `!` appears in an operator
 that is not about borrowing or failure.
 

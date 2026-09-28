@@ -1,0 +1,17 @@
+# A statement `-x` drops a binding; a field or an element is not one.
+
+struct S
+  r: Vec[Int]
+  n: Int
+
+sub main
+  s = S(r: Vec(), n: 1)
+  v = [1, 2]
+  -s.r
+  -v[0]
+  -s.n
+  print(s.n, v)
+
+# error: 10:3: only a binding is dropped with `-x`; `s.r` is dropped with what holds it, or replaced by assigning to it
+# error: 11:3: only a binding is dropped with `-x`; `v[0]`
+# error: 12:3: only a binding is dropped with `-x`; `s.n`

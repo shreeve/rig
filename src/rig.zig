@@ -50,6 +50,24 @@ pub fn isModuleConst(decl: Sexp) bool {
     return (if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.set);
 }
 
+/// An `if` or `while` condition that binds: `a as x`, or parts joined by
+/// `and`, one of them `a as x`. `as` binds tighter than `and`, so
+/// `a as x and x > 0 and b as y` is
+/// `(and (and (as a x) (> x 0)) (as b y))`: its parts are the leaves of
+/// the left spine, checked in order, each binding visible to the parts
+/// after it and to the body.
+pub fn bindsInCondition(cond: Sexp) bool {
+    if (cond.isKind(.as)) return true;
+    if (!cond.isKind(.@"and")) return false;
+    return ir.get(cond, .right).isKind(.as) or bindsInCondition(ir.get(cond, .left));
+}
+
+/// Whether `cond` joins two parts of a binding condition: an `and` on
+/// its left spine.
+pub fn isConditionJoin(cond: Sexp) bool {
+    return cond.isKind(.@"and") and bindsInCondition(cond);
+}
+
 /// `x[...]`: an index, or compile-time arguments (sema tells which).
 pub fn isBracketList(e: Sexp) bool {
     return e.isKind(.index) or e.isKind(.inst);
@@ -73,15 +91,14 @@ pub fn children(node: Sexp) []const Sexp {
 // =============================================================================
 
 /// Exhaustive view of the op slot, so dispatch sites must handle every
-/// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), `move`
-/// (`<-`), and the compound assignments (`x op= e`, one per binary
+/// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), and the
+/// compound assignments (`x op= e`, one per binary
 /// arithmetic, bitwise, and shift operator). Every kind but `default` is
 /// named after its tag in the schema's `op:tag(...)` for `set`.
 pub const BindingKind = enum {
     default,
     fixed,
     shadow,
-    move,
     @"+=",
     @"-=",
     @"*=",
@@ -103,7 +120,7 @@ pub const BindingKind = enum {
     /// `+`), or null for a plain binding or assignment.
     pub fn operator(k: BindingKind) ?Tag {
         return switch (k) {
-            .default, .fixed, .shadow, .move => null,
+            .default, .fixed, .shadow => null,
             inline else => |c| @field(Tag, @tagName(c)[0 .. @tagName(c).len - 1]),
         };
     }
@@ -131,8 +148,11 @@ pub fn bindingKindOf(op: Sexp) BindingKind {
 const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "and", .@"and" },
     .{ "as", .as },
+    .{ "async", .@"async" },
+    .{ "await", .@"await" },
     .{ "break", .@"break" },
     .{ "catch", .@"catch" },
+    .{ "const", .@"const" },
     .{ "continue", .@"continue" },
     .{ "defer", .@"defer" },
     .{ "drop", .drop },
@@ -145,6 +165,7 @@ const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "for", .@"for" },
     .{ "fun", .fun },
     .{ "if", .@"if" },
+    .{ "impl", .impl },
     .{ "in", .in },
     .{ "match", .match },
     .{ "new", .new },
@@ -156,11 +177,15 @@ const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "struct", .@"struct" },
     .{ "sub", .sub },
     .{ "test", .@"test" },
+    .{ "trait", .trait },
     .{ "true", .true },
     .{ "try", .@"try" },
     .{ "type", .type },
     .{ "use", .use },
+    .{ "when", .when },
+    .{ "where", .where },
     .{ "while", .@"while" },
+    .{ "yield", .yield },
     .{ "zig", .zig },
 });
 
@@ -271,8 +296,8 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //   but `-name` is a drop; otherwise `-x` is negation.
 //
 //   Two operands never touch (`t.5`, `print"hi"`), and neither does a
-//   `=!` or `<-` and the operand after it (`x =!y`): the spacing would
-//   not say what was meant, so these are errors.
+//   `=!` and the operand after it (`x =!y`): the spacing would not say
+//   what was meant, so these are errors.
 //
 // `if`
 //   After `return`/`break`/`continue` or a value, `if` is a postfix guard
@@ -370,7 +395,6 @@ pub const Lexer = struct {
         bad_number,
         too_long,
         ambiguous_fixed,
-        ambiguous_move,
         missing_space,
         semicolon,
 
@@ -386,7 +410,6 @@ pub const Lexer = struct {
                 .bad_number => "malformed number; `_` may separate digits, and a space or an operator ends a number",
                 .too_long => "token is longer than 65535 bytes",
                 .ambiguous_fixed => "`=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` for a write borrow",
-                .ambiguous_move => "`<-` touches the operand after it: write `a <- b` to move-assign, or `a < -b` to compare",
                 .missing_space => "missing space or operator",
                 .semicolon => "unexpected `;`",
                 .tab_indent => "tab in indentation; indent with spaces",
@@ -690,9 +713,10 @@ pub const Lexer = struct {
             .power => return self.fail(.power_operator, tok.pos),
             // `x =!y`: a fixed binding of `y`, or a write borrow?
             .fixed_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_fixed, tok.pos) else tok.cat,
-            .move_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_move, tok.pos) else tok.cat,
             // `xs[a..]`: an open range ends at the `]`.
             .dotdot => if (self.nextJoinedCat() == .rbracket) .dotdot_open else .dotdot,
+            // `get(k) ?? return none`: a jump as the fallback.
+            .nullish => if (self.nextIsJump()) .nullish_jump else .nullish,
             .err => return self.lexError(tok),
             else => tok.cat,
         };
@@ -840,7 +864,9 @@ pub const Lexer = struct {
                 if (name.pre != 0) return false;
                 t = name;
             }
-            if (t.cat != .ident or keyword(self.base.text(t)) != null) return false;
+            // A keyword entry still makes a bar list, so that the parser
+            // reports the keyword (`|when: Int|`).
+            if (t.cat != .ident) return false;
             var sep = probe.matchRules();
             if (sep.cat == .colon) sep = skipType(&probe) orelse return false;
             switch (sep.cat) {
@@ -938,6 +964,15 @@ pub const Lexer = struct {
         }
     }
 
+    /// The next token is `return`, `break`, or `continue`.
+    fn nextIsJump(self: *const Lexer) bool {
+        var probe = self.base;
+        const t = probe.matchRules();
+        if (t.cat != .ident) return false;
+        const kw = keyword(self.base.text(t)) orelse return false;
+        return kw == .@"return" or kw == .@"break" or kw == .@"continue";
+    }
+
     fn nextIsName(self: *const Lexer) bool {
         var probe = self.base;
         const t = probe.matchRules();
@@ -1029,6 +1064,9 @@ pub const Parser = struct {
     /// The node ids of the `(write place)` and `(move place)` receivers
     /// written in front of the call (`!v.push(x)`), not in parentheses.
     receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The node ids of the `-name` lines rewritten to `(neg name)`
+    /// because their value is used, and whether it is a function's value.
+    value_tails: std.AutoHashMapUnmanaged(parser.NodeId, bool) = .empty,
     /// The node ids of the `(share x)` and `(weak x)` whose operand has a
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
@@ -1450,6 +1488,9 @@ pub const Parser = struct {
     //     the last statement of a `fun` body, or of a branch, arm, or
     //     `catch` handler whose value is used, becomes (neg name). (A
     //     closure has no declared result, so its body is not rewritten.)
+    //   * a jump fallback belongs to the nearest `??` (the grammar reads
+    //     it at the level of `catch`, after the chain before it):
+    //       (?? (?? a b) (return v))  →  (?? a (?? b (return v)))
     //   * `!` or `<` before a place followed by a method call is the
     //     receiver's mode:
     //       (write (call (member (member x v) push) 1))  →  (call (member (write (member x v)) push) 1)
@@ -1473,16 +1514,45 @@ pub const Parser = struct {
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         switch (out.kind() orelse return out) {
             .lambda => try self.splitBars(out, walked),
+            .@"??" => return self.nearestFallback(out),
             .write, .move => return self.receiverSigil(out),
             .share, .weak => try self.noteParenSuffix(out),
             // The body's value is returned.
-            .fun => if (ir.Fun.returns(out) != .nil) valueTail(ir.Fun.body(out)),
+            .fun => if (ir.Fun.returns(out) != .nil) try self.valueTail(ir.Fun.body(out), true),
             // The expression's value is bound or returned.
-            .set => valueTail(ir.Set.value(out)),
-            .@"return" => valueTail(ir.Return.value(out)),
+            .set => try self.valueTail(ir.Set.value(out), false),
+            .@"return" => try self.valueTail(ir.Return.value(out), false),
             else => {},
         }
         return out;
+    }
+
+    /// `a ?? b ?? return v`: the grammar reads a jump fallback after the
+    /// whole chain before it, `(a ?? b) ?? return v`; `??` is
+    /// right-associative, so the jump goes to the innermost right side,
+    /// `a ?? (b ?? return v)`. A parenthesized left side keeps its
+    /// grouping: it starts after the node that holds it.
+    fn nearestFallback(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+        const right = ir.@"??".right(node);
+        switch (right.kind() orelse return node) {
+            .@"return", .@"break", .@"continue" => {},
+            else => return node,
+        }
+        const left = ir.@"??".left(node);
+        if (!left.isKind(.@"??") or self.span(left).start != self.span(node).start) return node;
+        return self.attachFallback(left, right);
+    }
+
+    /// `chain ?? jump`, the jump attached to the last right side of the
+    /// `??` chain that is not parenthesized.
+    fn attachFallback(self: *Parser, chain: Sexp, jump: Sexp) std.mem.Allocator.Error!Sexp {
+        const inner = ir.@"??".right(chain);
+        const grouped = !inner.isKind(.@"??") or self.span(inner).end != self.span(chain).end;
+        const new_right = if (grouped)
+            try self.base.newNode(.@"??", &.{ inner, jump }, .{ .start = self.span(inner).start, .end = self.span(jump).end })
+        else
+            try self.attachFallback(inner, jump);
+        return self.base.newNode(.@"??", &.{ ir.@"??".left(chain), new_right }, .{ .start = self.span(chain).start, .end = self.span(jump).end });
     }
 
     /// `*(T?)`, `~(T?)`, `*(~T?)`: a `?` suffix sits inside parentheses
@@ -1616,24 +1686,35 @@ pub const Parser = struct {
     }
 
     /// `sexp` (already walked, so its lists are freshly allocated) is in
-    /// value position: a trailing `(drop x)` there is `(neg x)`.
-    fn valueTail(sexp: Sexp) void {
+    /// value position, `function` when it is a function's body: a
+    /// trailing `(drop x)` there is `(neg x)`.
+    fn valueTail(self: *Parser, sexp: Sexp, function: bool) std.mem.Allocator.Error!void {
         const kind = sexp.kind() orelse return;
         const items = @constCast(sexp.items());
         switch (kind) {
-            .drop => items[0] = .{ .tag = .neg },
+            .drop => {
+                items[0] = .{ .tag = .neg };
+                try self.value_tails.put(self.allocator(), sexp.list.id, function);
+            },
             .block => {
                 const stmts = ir.Block.stmts(sexp);
-                if (stmts.len > 0) valueTail(stmts[stmts.len - 1]);
+                if (stmts.len > 0) try self.valueTail(stmts[stmts.len - 1], function);
             },
             .@"if" => {
-                valueTail(ir.If.then(sexp));
-                valueTail(ir.If.@"else"(sexp));
+                try self.valueTail(ir.If.then(sexp), false);
+                try self.valueTail(ir.If.@"else"(sexp), false);
             },
-            .match => for (ir.Match.arms(sexp)) |arm| valueTail(ir.Arm.body(arm)),
-            .@"catch" => valueTail(ir.Catch.handler(sexp)),
+            .match => for (ir.Match.arms(sexp)) |arm| try self.valueTail(ir.Arm.body(arm), false),
+            .@"catch" => try self.valueTail(ir.Catch.handler(sexp), false),
             else => {},
         }
+    }
+
+    /// For a `-name` line that is a value (`valueTail`): whether it is a
+    /// function's value; null for any other node.
+    pub fn valueTailOf(self: *const Parser, node: Sexp) ?bool {
+        if (node != .list) return null;
+        return self.value_tails.get(node.list.id);
     }
 
     /// Promote the source's `?xs` / `!xs` / `<xs` wrapper into the mode.
@@ -1672,6 +1753,9 @@ fn expectCats(source: []const u8, expected: []const TokenCat) !void {
 test "keywords are reserved; `new` only at statement start" {
     try testing.expectEqual(TokenCat.@"else", keyword("else").?);
     try testing.expect(keyword("fn") == null);
+    for ([_][]const u8{ "trait", "impl", "where", "async", "await", "yield", "when", "const" }) |w| {
+        try testing.expect(keyword(w) != null);
+    }
     try testing.expect(keyword("var") == null);
     try expectCats("new x = 1", &.{ .new, .ident, .assign, .integer });
     try expectCats("p = Point.new(1)", &.{ .ident, .assign, .ident, .dot, .ident, .lparen_call, .integer, .rparen });
@@ -1866,7 +1950,7 @@ test "parser: every form parses" {
         \\  new x = x + 1
         \\  x += 1
         \\  x <<= 2
-        \\  z <- w
+        \\  z = <w
         \\  -z
         \\  if x > 1
         \\    print x, y

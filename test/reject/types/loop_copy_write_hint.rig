@@ -1,0 +1,25 @@
+# A loop element or an `as` binding of a place is a copy; writing it
+# would change nothing, so the error points at the write form.
+
+struct C
+  n: Int
+
+struct Box2
+  items: Vec[C]
+
+sub main
+  cs: Vec[C] = Vec()
+  !cs.push(C(n: 1))
+  for c in cs
+    c.n += 1
+  b = Box2(items: Vec())
+  for c in b.items
+    c.n = 0
+  o: C? = C(n: 2)
+  if o as x
+    x.n = 5
+  print(cs.len)
+
+# error: 14:5: cannot assign to `c`: it is a copy of an element of `cs`; to change the elements in place, loop with `for c in !cs`
+# error: 17:5: loop with `for c in !b.items`
+# error: 20:5: cannot assign to `x`: it is a copy of the value inside `o`; to change that value in place, bind it with `!o as x`

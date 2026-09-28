@@ -12,7 +12,7 @@ sub main()
     count += i
   p = P(n: 1)
   q = P(n: 2)
-  q <- p
+  q = <p
 
 # error: 8:3: `x` is assigned but never read
 # error: 10:3: `count` is assigned but never read

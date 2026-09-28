@@ -1,0 +1,11 @@
+# `get` copies an element out, so an array of write borrows has none:
+# the copy would be a second write borrow.
+
+sub main
+  a = 1
+  b = 2
+  xs = [!a, !b]
+  w = xs.get(0)
+  print(w == none)
+
+# error: 8:10: `get` would copy an element out of a `[2]!Int`, whose elements a copy cannot share

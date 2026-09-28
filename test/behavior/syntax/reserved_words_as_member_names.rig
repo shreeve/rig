@@ -1,0 +1,28 @@
+# The words reserved for later forms (`trait`, `impl`, `where`,
+# `async`, `await`, `yield`, `when`, `const`) still name members: a
+# field, a method, or a payload field.
+
+struct Job
+  when: Int
+  const: Bool
+  where: String
+
+  fun yield(?self) -> Int
+    self.when * 2
+
+  fun await(?self) -> Bool
+    self.const
+
+enum Ev
+  at(when: Int, async: Bool)
+  none_yet
+
+sub main
+  j = Job(when: 3, const: true, where: "here")
+  print(j.when, j.const, j.where, j.yield(), j.await())
+  e = Ev.at(when: 5, async: false)
+  print(e)
+
+# expect:
+# 3 true here 6 true
+# .at(when: 5, async: false)

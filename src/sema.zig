@@ -409,7 +409,7 @@ pub const SymbolFlags = packed struct(u16) {
     /// Bound by `if e as x` / `while e as x`: when it holds its own
     /// value, a field of it can be taken out (`<x.next`).
     as_bound: bool = false,
-    /// Assigned again after its declaration (`=`, `<-`, `+=`, ...):
+    /// Assigned again after its declaration (`=`, `+=`, ...):
     /// lowers to a Zig `var`.
     reassigned: bool = false,
     /// Written through: write-borrowed (`!x`), or a field or element of
@@ -540,7 +540,7 @@ pub const Facts = struct {
     /// Call of a generic function (or a statement `f[Int]` that is the
     /// call) -> its type arguments.
     generic_calls: std.AutoHashMapUnmanaged(NodeKey, GenericCall) = .empty,
-    /// Positions of names assigned to (`x = e`, `x <- e`, `x += e` after
+    /// Positions of names assigned to (`x = e`, `x += e` after
     /// `x` is declared): a use there writes the binding, not reads it.
     writes: std.AutoHashMapUnmanaged(u32, void) = .empty,
     /// Expressions that yield a borrow where their context reads the
@@ -2886,6 +2886,18 @@ pub fn mayHoldBorrow(ctx: *const SemContext, ty: TypeId) bool {
 /// Whether a value of `ty` holds a write borrow, which is unique.
 pub fn holdsWriteBorrow(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).borrows.write;
+}
+
+/// A value `Vec`, `Cell`, and `Signal` copy in and out like a number: a
+/// Copy primitive, or plain data (a struct, enum, optional, or array
+/// that owns nothing and holds no borrow).
+pub fn isCopyElement(ctx: *const SemContext, ty: TypeId) bool {
+    if (isCopyPrimitive(ctx, ty)) return true;
+    return switch (ctx.types.get(ty)) {
+        .nominal, .imported_nominal, .optional, .array => isPlainData(ctx, ty),
+        .parameterized_nominal => |pn| pn.sym != ctx.box_sym_id and isPlainData(ctx, ty),
+        else => false,
+    };
 }
 
 /// A value that owns nothing and holds no borrow or type parameter: it

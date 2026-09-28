@@ -207,6 +207,9 @@ pub const Emitter = struct {
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayListUnmanaged(struct { rig: []const u8, zig: []const u8 }) = .empty,
+    /// Where the `break` and `continue` of the `while` being emitted go
+    /// when Zig cannot reach its loop with them (`JumpRedirect`).
+    redirect: ?JumpRedirect = null,
     /// The loops used as values around the current point, innermost last.
     value_loops: std.ArrayListUnmanaged(ValueLoop) = .empty,
     /// The place being emitted is only read: a Vec element on its path
@@ -1005,12 +1008,11 @@ pub const Emitter = struct {
         const target = ir.Set.target(sexp);
         const type_node = ir.Set.type(sexp);
         const expr = ir.Set.value(sexp);
-        const is_move = kind == .move;
 
         if (kind.operator()) |op| return self.emitCompound(target, op, expr);
         if (target != .src) {
             return switch (kind) {
-                .default, .move => self.emitPlaceAssign(target, expr, is_move),
+                .default => self.emitPlaceAssign(target, expr),
                 else => self.unsupported(sexp, "this binding target"),
             };
         }
@@ -1018,20 +1020,20 @@ pub const Emitter = struct {
             // A discarded resource is dropped at once.
             if (self.typeOf(expr)) |t| if (self.kindOf(t) != null) {
                 try self.w.writeAll("rig.discard(");
-                try self.emitValueOf(expr, is_move);
+                try self.emitBare(expr);
                 return self.w.writeAll(");");
             };
             // A named place is discarded by address: it may be used
             // elsewhere, and Zig rejects discarding a used name.
             var place = expr;
             if (place.isKind(.read) or place.isKind(.write)) place = ir.get(place, .operand);
-            if (!is_move and isPlace(place) and !place.isKind(.index)) {
+            if (isPlace(place) and !place.isKind(.index)) {
                 try self.w.writeAll("_ = &");
                 try self.emitPlace(place);
                 return self.w.writeAll(";");
             }
             try self.w.writeAll("_ = ");
-            try self.emitValueOf(expr, is_move);
+            try self.emitBare(expr);
             try self.w.writeAll(";");
             return;
         }
@@ -1039,21 +1041,15 @@ pub const Emitter = struct {
         // reassigns one.
         const sym = self.sema.symbolOf(target) orelse return self.unsupported(target, "an unresolved binding");
         if (self.sema.symbols.items[sym].decl_pos == target.src.pos) {
-            try self.emitBind(target, sym, type_node, expr, is_move);
+            try self.emitBind(target, sym, type_node, expr);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
-            try self.emitRebind(local.*, expr, is_move);
+            try self.emitRebind(local.*, expr);
         }
     }
 
-    /// `expr`, or `<expr` when `is_move`.
-    fn emitValueOf(self: *Emitter, expr: Sexp, is_move: bool) Error!void {
-        if (is_move) return self.emitMoved(expr);
-        return self.emitBare(expr);
-    }
-
     /// A new binding.
-    fn emitBind(self: *Emitter, name_node: Sexp, sym: SymbolId, type_node: Sexp, expr: Sexp, is_move: bool) Error!void {
+    fn emitBind(self: *Emitter, name_node: Sexp, sym: SymbolId, type_node: Sexp, expr: Sexp) Error!void {
         if (expr.isKind(.lambda)) return self.emitClosureBinding(name_node, sym, expr);
 
         const s = self.sema.symbols.items[sym];
@@ -1062,7 +1058,7 @@ pub const Emitter = struct {
             .borrow_read, .borrow_write => true,
             else => false,
         } else true;
-        const is_borrow = !is_move and binds_borrow and (expr.isKind(.read) or expr.isKind(.write)) and
+        const is_borrow = binds_borrow and (expr.isKind(.read) or expr.isKind(.write)) and
             (ty == null or (sema.writeSliceElem(self.sema, ty.?) == null and sema.callableFn(self.sema, ty.?) == null));
         // A write borrow is held as a pointer however it was obtained.
         const holds_ptr = is_borrow or (ty != null and self.isPtrBorrowTy(ty.?));
@@ -1080,7 +1076,7 @@ pub const Emitter = struct {
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
         const is_var = s.flags.reassigned or (!holds_ptr and (s.flags.written or needs_ptr_self or
-            (!s.flags.comptime_known and !is_move and (isZigComptimeIn(self, expr, 0) or self.sema.const_ints.contains(sym)))));
+            (!s.flags.comptime_known and (isZigComptimeIn(self, expr, 0) or self.sema.const_ints.contains(sym)))));
 
         // Evaluate the value before the new name is visible, so a shadow
         // (`new x = x + 1`) reads the old binding.
@@ -1093,7 +1089,7 @@ pub const Emitter = struct {
                 try self.emitBorrowOf(expr);
             } else if (holds_ptr) {
                 try self.emitBorrowValue(expr);
-            } else try self.emitValueOf(expr, is_move);
+            } else try self.emitBare(expr);
         }
 
         const stored = try self.declare(local, self.srcText(name_node));
@@ -1136,7 +1132,7 @@ pub const Emitter = struct {
     /// Reassign an existing binding. A resource's old value is dropped
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
-    fn emitRebind(self: *Emitter, local: Local, value: Sexp, is_move: bool) Error!void {
+    fn emitRebind(self: *Emitter, local: Local, value: Sexp) Error!void {
         const s = self.sema.symbols.items[local.sym];
         const captured_write = s.kind == .capture and self.sema.types.get(s.ty) == .borrow_write;
         const writes_through = s.kind == .param or s.flags.pattern_bound or captured_write;
@@ -1150,18 +1146,18 @@ pub const Emitter = struct {
             // Through a `!T` parameter: the caller's value is replaced.
             const pointee = if (local.ty) |t| self.peelBorrows(t) else null;
             if (pointee != null and self.kindOf(pointee.?) != null) {
-                const id = try self.openNewValue(pointee, value, is_move);
+                const id = try self.openNewValue(pointee, value);
                 return self.w.print("; rig.drop({s}); {s}.* = __rig_new_{d}; }}", .{ local.zig_name, local.zig_name, id });
             }
         }
         const kind = local.kind orelse {
             try self.writeLocalPlace(&local);
             try self.w.writeAll(" = ");
-            try self.emitValueOf(value, is_move);
+            try self.emitBare(value);
             try self.w.writeAll(";");
             return;
         };
-        const id = try self.openNewValue(local.ty, value, is_move);
+        const id = try self.openNewValue(local.ty, value);
         try self.w.writeAll("; ");
         if (local.guard == .flag) try self.w.print("if ({s}) ", .{local.flag});
         try self.writeDrop(local.zig_name, kind);
@@ -1173,7 +1169,7 @@ pub const Emitter = struct {
     /// `{ const __rig_new_N: T = value`: a new value, computed before the
     /// one it replaces is dropped. The type lets a context-typed value
     /// (`Vec()`, `.variant(...)`) resolve. Returns `N`.
-    fn openNewValue(self: *Emitter, ty: ?TypeId, value: Sexp, is_move: bool) Error!u32 {
+    fn openNewValue(self: *Emitter, ty: ?TypeId, value: Sexp) Error!u32 {
         const id = self.nextId();
         try self.w.print("{{ const __rig_new_{d}", .{id});
         if (ty) |t| {
@@ -1181,20 +1177,20 @@ pub const Emitter = struct {
             try self.emitTypeTy(t);
         }
         try self.w.writeAll(" = ");
-        try self.emitValueOf(value, is_move);
+        try self.emitBare(value);
         return id;
     }
 
     /// Assignment to a field or element. When the place may hold a
     /// resource, the old value is dropped after the new one is computed.
-    fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp, is_move: bool) Error!void {
+    fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
         const place_ty = self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
             try self.emitCellPtr(ir.Index.object(target));
             try self.w.writeAll(".vecSet(");
             try self.emitBare(ir.Index.index(target));
             try self.w.writeAll(", ");
-            try self.emitValueOf(value, is_move);
+            try self.emitBare(value);
             return self.w.writeAll(");");
         };
         if (target != .src and self.isPtrBorrowExpr(target)) {
@@ -1208,11 +1204,11 @@ pub const Emitter = struct {
         if (!may_own) {
             try self.emitPlace(target);
             try self.w.writeAll(" = ");
-            try self.emitValueOf(value, is_move);
+            try self.emitBare(value);
             try self.w.writeAll(";");
             return;
         }
-        const id = try self.openNewValue(place_ty, value, is_move);
+        const id = try self.openNewValue(place_ty, value);
         try self.w.print("; const __rig_slot_{d} = &", .{id});
         try self.emitPlace(target);
         try self.w.print("; rig.drop(__rig_slot_{d}); __rig_slot_{d}.* = __rig_new_{d}; }}", .{ id, id, id });
@@ -1304,6 +1300,70 @@ pub const Emitter = struct {
     // Control flow
     // -------------------------------------------------------------------------
 
+    /// A `while` whose condition or step jumps to it, or whose step runs
+    /// inside its body, is written in a form where Zig's own `break` and
+    /// `continue` would go elsewhere: the jumps that target it are written
+    /// as `brk` / `cont` instead. Inside a loop nested in it, only a
+    /// jump naming its label (`rig_label`) targets it (`shielded`).
+    const JumpRedirect = struct {
+        rig_label: []const u8,
+        brk: ?[]const u8 = null,
+        cont: ?[]const u8 = null,
+        shielded: bool = false,
+    };
+
+    /// The redirected text of a jump `node` with Rig label `label`, if it
+    /// targets the `while` a redirect is set for.
+    fn redirected(self: *Emitter, label: Sexp, jump: enum { brk, cont }) ?[]const u8 {
+        const r = self.redirect orelse return null;
+        const targets = if (label == .nil) !r.shielded else r.rig_label.len > 0 and std.mem.eql(u8, self.srcText(label), r.rig_label);
+        if (!targets) return null;
+        return if (jump == .brk) r.brk else r.cont;
+    }
+
+    /// Entering a loop nested in the one a redirect is set for; returns
+    /// the redirect to restore.
+    fn shieldRedirect(self: *Emitter) ?JumpRedirect {
+        const saved = self.redirect;
+        if (self.redirect) |*r| r.shielded = true;
+        return saved;
+    }
+
+    /// Whether `node` holds a `break` (`brk`) or `continue` that targets
+    /// the loop labeled `rig_label` ("" when unlabeled) around it: one
+    /// with no label outside a nested loop, or one naming the label.
+    fn jumpsToLoop(self: *Emitter, node: Sexp, rig_label: []const u8, jump: enum { brk, cont }, nested: bool) bool {
+        if (node != .list) return false;
+        if (node.kind()) |k| switch (k) {
+            .@"break", .@"continue" => {
+                if ((k == .@"break") != (jump == .brk)) return false;
+                if (k == .@"break" and ir.Break.value(node) != .nil) return false;
+                const l = ir.get(node, .label);
+                if (l == .nil) return !nested;
+                return rig_label.len > 0 and std.mem.eql(u8, self.srcText(l), rig_label);
+            },
+            .@"while", .@"for" => {
+                for (rig.children(node)) |c| if (self.jumpsToLoop(c, rig_label, jump, true)) return true;
+                return false;
+            },
+            .lambda => return false,
+            else => {},
+        };
+        for (node.items()) |c| if (self.jumpsToLoop(c, rig_label, jump, nested)) return true;
+        return false;
+    }
+
+    /// The Rig label of the loop given Zig label `zig`, or "".
+    fn rigLabelOf(self: *Emitter, zig: ?[]const u8) []const u8 {
+        const z = zig orelse return "";
+        var i = self.labels.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (std.mem.eql(u8, self.labels.items[i].zig, z)) return self.labels.items[i].rig;
+        }
+        return "";
+    }
+
     /// `(return value?)`.
     fn emitReturn(self: *Emitter, node: Sexp) Error!void {
         const value = ir.Return.value(node);
@@ -1334,6 +1394,7 @@ pub const Emitter = struct {
             try self.emitValueAs(value, target.ty);
             return self.w.writeAll(";");
         }
+        if (self.redirected(ir.Break.label(node), .brk)) |text| return self.w.print("{s};", .{text});
         try self.w.writeAll("break");
         try self.writeJumpLabel(ir.Break.label(node));
         try self.w.writeAll(";");
@@ -1341,6 +1402,7 @@ pub const Emitter = struct {
 
     /// `(continue label?)`.
     fn emitContinue(self: *Emitter, node: Sexp) Error!void {
+        if (self.redirected(ir.Continue.label(node), .cont)) |text| return self.w.print("{s};", .{text});
         try self.w.writeAll("continue");
         try self.writeJumpLabel(ir.Continue.label(node));
         try self.w.writeAll(";");
@@ -1367,6 +1429,7 @@ pub const Emitter = struct {
     fn emitIf(self: *Emitter, sexp: Sexp) Error!void {
         const cond = ir.If.cond(sexp);
         const else_ = ir.If.@"else"(sexp);
+        if (rig.isConditionJoin(cond)) return self.emitIfJoined(sexp);
         try self.w.writeAll("if ");
         if (cond.isKind(.as)) {
             try self.pushScope();
@@ -1379,6 +1442,82 @@ pub const Emitter = struct {
         if (else_ != .nil) {
             try self.w.writeAll(" else ");
             if (else_.isKind(.@"if")) try self.emitIf(else_) else try self.emitBranchStmt(else_);
+        }
+    }
+
+    /// The parts of a binding condition (`rig.bindsInCondition`), in order.
+    fn conditionParts(self: *Emitter, cond: Sexp) Error![]const Sexp {
+        var parts: std.ArrayListUnmanaged(Sexp) = .empty;
+        try self.collectParts(cond, &parts);
+        return parts.items;
+    }
+
+    fn collectParts(self: *Emitter, cond: Sexp, parts: *std.ArrayListUnmanaged(Sexp)) Error!void {
+        if (rig.isConditionJoin(cond)) {
+            try self.collectParts(ir.get(cond, .left), parts);
+            return self.collectParts(ir.get(cond, .right), parts);
+        }
+        try parts.append(self.arena.allocator(), cond);
+    }
+
+    /// One nested `if` per part of a binding condition, each opening its
+    /// block and binding its name (`emitCond`); `fail`, when given, is the
+    /// `else` of each. The caller closes them with `closeParts`.
+    fn openParts(self: *Emitter, parts: []const Sexp) Error!void {
+        for (parts, 0..) |p, i| {
+            if (i > 0) try self.writeIndent(self.indent);
+            try self.w.writeAll("if ");
+            const prelude = try self.emitCond(p);
+            try self.openBrace();
+            try self.emitPrelude(prelude);
+        }
+    }
+
+    fn closeParts(self: *Emitter, n: usize, fail: ?[]const u8) Error!void {
+        for (0..n) |i| {
+            try self.closeBrace();
+            if (fail) |f| try self.w.print(" else {s}", .{f});
+            if (i + 1 < n) try self.w.writeAll("\n");
+        }
+    }
+
+    /// Statement `if a as x and ...`: nested `if`s, one per part, sharing
+    /// one `else`, which a flag cleared on the way into the body selects.
+    ///
+    ///     {
+    ///         var __rig_else_N = true;
+    ///         if (a) |x| { if (x > 0) { __rig_else_N = false; ... } }
+    ///         if (__rig_else_N) { ... }
+    ///     }
+    fn emitIfJoined(self: *Emitter, sexp: Sexp) Error!void {
+        const parts = try self.conditionParts(ir.If.cond(sexp));
+        const else_ = ir.If.@"else"(sexp);
+        try self.pushScope();
+        var flag: ?[]const u8 = null;
+        if (else_ != .nil) {
+            flag = try self.fmt("__rig_else_{d}", .{self.nextId()});
+            try self.openBrace();
+            try self.line("var {s} = true;", .{flag.?});
+            try self.writeIndent(self.indent);
+        }
+        try self.openParts(parts);
+        if (flag) |f| try self.line("{s} = false;", .{f});
+        try self.emitStmts(try self.stmtsOf(ir.If.then(sexp)));
+        try self.closeParts(parts.len, null);
+        try self.popScope();
+        if (flag) |f| {
+            try self.w.writeAll("\n");
+            try self.writeIndent(self.indent);
+            try self.w.print("if ({s}) ", .{f});
+            if (else_.isKind(.@"if")) {
+                try self.openBrace();
+                try self.writeIndent(self.indent);
+                try self.emitIf(else_);
+                try self.w.writeAll("\n");
+                try self.closeBrace();
+            } else try self.emitBranchStmt(else_);
+            try self.w.writeAll("\n");
+            try self.closeBrace();
         }
     }
 
@@ -1454,21 +1593,156 @@ pub const Emitter = struct {
 
     /// `(while cond continuation body else?)`.
     fn emitWhile(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+        const saved = self.shieldRedirect();
+        defer self.redirect = saved;
+        self.redirect = null;
         const cond = ir.While.cond(sexp);
         const step = ir.While.step(sexp);
-        try self.writeLabel(label);
+        const rig_label = self.rigLabelOf(label);
+        // A jump in the condition leaves or repeats this loop, which Zig
+        // cannot reach from its condition: the condition moves inside.
+        if (rig.isConditionJoin(cond) or self.jumpsToLoop(cond, rig_label, .brk, false) or self.jumpsToLoop(cond, rig_label, .cont, false))
+            return self.emitWhileJoined(sexp, label);
+        const zig_label = try self.stepLabel(step, rig_label, label);
+        try self.writeLabel(zig_label);
         try self.w.writeAll("while ");
         try self.pushScope();
         const prelude = try self.emitCond(cond);
-        if (step != .nil) {
-            // A statement, so an assignment drops the value it replaces.
-            try self.w.writeAll(": ({ ");
-            try self.emitStmt(step);
-            try self.w.writeAll(" }) ");
-        }
+        try self.emitStep(step, rig_label, zig_label);
         try self.emitBodyWith(ir.While.body(sexp), prelude);
         try self.popScope();
         try self.emitElse(ir.While.@"else"(sexp));
+    }
+
+    /// The Zig label of a `while` whose step jumps: its own, or a fresh
+    /// one, since a `break` in a Zig loop's continue expression must name
+    /// the loop.
+    fn stepLabel(self: *Emitter, step: Sexp, rig_label: []const u8, label: ?[]const u8) Error!?[]const u8 {
+        if (label != null or step == .nil or !self.jumpsToLoop(step, rig_label, .brk, false)) return label;
+        return try self.fmt("__rig_while_{d}", .{self.nextId()});
+    }
+
+    /// ` : ({ step }) ` of a `while`. A `break` in it leaves the loop by
+    /// its label, and a `continue` ends the step, leaving a block around
+    /// it.
+    fn emitStep(self: *Emitter, step: Sexp, rig_label: []const u8, zig_label: ?[]const u8) Error!void {
+        if (step == .nil) return;
+        const saved = self.redirect;
+        defer self.redirect = saved;
+        var r: JumpRedirect = .{ .rig_label = rig_label };
+        if (self.jumpsToLoop(step, rig_label, .brk, false)) r.brk = try self.fmt("break :{s}", .{zig_label.?});
+        var block: ?[]const u8 = null;
+        if (self.jumpsToLoop(step, rig_label, .cont, false)) {
+            block = try self.fmt("__rig_step_{d}", .{self.nextId()});
+            r.cont = try self.fmt("break :{s}", .{block.?});
+        }
+        self.redirect = r;
+        // A statement, so an assignment drops the value it replaces.
+        try self.w.writeAll(": ({ ");
+        if (block) |b| try self.w.print("{s}: {{ ", .{b});
+        try self.emitStmt(step);
+        if (block != null) try self.w.writeAll(" }");
+        try self.w.writeAll(" }) ");
+    }
+
+    /// `while a as x and ...`: a `while (true)` whose body is the nested
+    /// `if`s of the parts, each leaving the loop when its part fails. A
+    /// loop `else` runs after the loop when a part ended it, which a flag
+    /// set there tells from a `break`.
+    ///
+    ///     {
+    ///         var __rig_ended_N = false;
+    ///         while (true) : (step) {
+    ///             if (a) |x| { ... } else { __rig_ended_N = true; break; }
+    ///         }
+    ///         if (__rig_ended_N) { ... }
+    ///     }
+    fn emitWhileJoined(self: *Emitter, sexp: Sexp, label_in: ?[]const u8) Error!void {
+        const parts = try self.conditionParts(ir.While.cond(sexp));
+        const step = ir.While.step(sexp);
+        const body = ir.While.body(sexp);
+        const else_ = ir.While.@"else"(sexp);
+        const rig_label = self.rigLabelOf(label_in);
+        // A step that reads a binding of the condition runs inside the
+        // `if`s that bind it, after the body; a `continue` in the body
+        // then leaves a block around the body.
+        const step_inside = step != .nil and self.stepReadsBinding(ir.While.cond(sexp), step);
+        const label = if (step_inside) self.keptLabel(sexp, label_in, rig_label) else try self.stepLabel(step, rig_label, label_in);
+        const has_else = else_ != .nil and !sameNode(else_, self.value_else);
+        var fail: []const u8 = "break;";
+        var flag: []const u8 = "";
+        if (has_else) {
+            flag = try self.fmt("__rig_ended_{d}", .{self.nextId()});
+            fail = try self.fmt("{{ {s} = true; break; }}", .{flag});
+            try self.openBrace();
+            try self.line("var {s} = false;", .{flag});
+            try self.writeIndent(self.indent);
+        }
+        try self.writeLabel(label);
+        try self.w.writeAll("while (true) ");
+        if (!step_inside) try self.emitStep(step, rig_label, label);
+        try self.openBrace();
+        try self.writeIndent(self.indent);
+        try self.pushScope();
+        try self.openParts(parts);
+        if (step_inside) {
+            const saved = self.redirect;
+            defer self.redirect = saved;
+            if (self.jumpsToLoop(body, rig_label, .cont, false)) {
+                const block = try self.fmt("__rig_body_{d}", .{self.nextId()});
+                self.redirect = .{ .rig_label = rig_label, .cont = try self.fmt("break :{s}", .{block}) };
+                try self.writeIndent(self.indent);
+                try self.w.print("{s}: ", .{block});
+                try self.emitBlock(body);
+                try self.w.writeAll("\n");
+            } else try self.emitStmts(try self.stmtsOf(body));
+            self.redirect = saved;
+            try self.writeIndent(self.indent);
+            try self.w.writeAll("{ ");
+            try self.emitStmt(step);
+            try self.w.writeAll(" }\n");
+        } else try self.emitStmts(try self.stmtsOf(body));
+        try self.closeParts(parts.len, fail);
+        try self.popScope();
+        try self.w.writeAll("\n");
+        try self.closeBrace();
+        if (has_else) {
+            try self.w.writeAll("\n");
+            try self.writeIndent(self.indent);
+            try self.w.print("if ({s}) ", .{flag});
+            try self.emitBranchStmt(else_);
+            try self.w.writeAll("\n");
+            try self.closeBrace();
+        }
+    }
+
+    /// The Zig label of a `while` whose step runs inside its body, or
+    /// null when only its body's `continue`s named it, which leave a
+    /// block instead (Zig rejects an unused label).
+    fn keptLabel(self: *Emitter, sexp: Sexp, label: ?[]const u8, rig_label: []const u8) ?[]const u8 {
+        if (label == null) return null;
+        const cond = ir.While.cond(sexp);
+        const step = ir.While.step(sexp);
+        const body = ir.While.body(sexp);
+        const used = self.jumpsToLoop(cond, rig_label, .brk, true) or self.jumpsToLoop(body, rig_label, .brk, true) or
+            self.jumpsToLoop(step, rig_label, .brk, true) or self.jumpsToLoop(cond, rig_label, .cont, true) or
+            self.jumpsToLoop(step, rig_label, .cont, true);
+        return if (used) label else null;
+    }
+
+    /// Whether `step` reads a name an `as` part of `cond` binds.
+    fn stepReadsBinding(self: *Emitter, cond: Sexp, step: Sexp) bool {
+        if (rig.isConditionJoin(cond)) return self.stepReadsBinding(ir.get(cond, .left), step) or self.stepReadsBinding(ir.get(cond, .right), step);
+        if (!cond.isKind(.as)) return false;
+        const sym = self.sema.symbolOf(ir.As.name(cond)) orelse return false;
+        return self.usesSymbol(step, sym);
+    }
+
+    fn usesSymbol(self: *Emitter, node: Sexp, sym: SymbolId) bool {
+        if (node == .src) return if (self.sema.symbolOf(node)) |s| s == sym else false;
+        if (node != .list) return false;
+        for (node.items()) |c| if (self.usesSymbol(c, sym)) return true;
+        return false;
     }
 
     /// The innermost loop used as a value with Rig label `label`, or the
@@ -1538,6 +1812,8 @@ pub const Emitter = struct {
 
     /// `(for mode binding index-binding source body else?)`.
     fn emitFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+        const saved = self.shieldRedirect();
+        defer self.redirect = saved;
         const mode = ir.For.mode(sexp).tag;
         const binding = ir.For.@"var"(sexp);
         const source = ir.For.source(sexp);
@@ -2407,6 +2683,13 @@ pub const Emitter = struct {
             .@"while", .@"for", .labeled => if (sema.hasValueBreaks(self.source, sexp)) try self.emitLoopValue(sexp) else return self.unsupported(sexp, "a loop without a value in value position"),
             .array => try self.emitArray(sexp),
             .array_fill => try self.emitArrayFill(sexp),
+            // A jump as a fallback (`?? return`, `catch break`): a block
+            // that leaves, which Zig types as `noreturn`.
+            .@"return", .@"break", .@"continue" => {
+                try self.w.writeAll("{ ");
+                try self.emitStmt(sexp);
+                try self.w.writeAll(" }");
+            },
             else => return self.unsupported(sexp, "this expression"),
         }
     }
@@ -2800,6 +3083,29 @@ pub const Emitter = struct {
         const cond = ir.If.cond(sexp);
         const else_ = ir.If.@"else"(sexp);
         if (else_ == .nil) return self.unsupported(sexp, "an `if` without `else` in value position");
+        if (rig.isConditionJoin(cond)) {
+            // A labeled block: the nested `if`s of the parts break out
+            // with the then-value; falling through, the `else` value.
+            const parts = try self.conditionParts(cond);
+            const label = try self.fmt("__rig_if_{d}", .{self.nextId()});
+            try self.w.print("{s}: ", .{label});
+            try self.openBrace();
+            try self.writeIndent(self.indent);
+            try self.pushScope();
+            try self.openParts(parts);
+            try self.writeIndent(self.indent);
+            try self.w.print("break :{s} ", .{label});
+            try self.emitValueBlock(ir.If.then(sexp), .{}, self.typeOf(sexp));
+            try self.w.writeAll(";\n");
+            try self.closeParts(parts.len, null);
+            try self.popScope();
+            try self.w.writeAll("\n");
+            try self.writeIndent(self.indent);
+            try self.w.print("break :{s} ", .{label});
+            try self.emitValueBlock(else_, .{}, self.typeOf(sexp));
+            try self.w.writeAll(";\n");
+            return self.closeBrace();
+        }
         try self.w.writeAll("if ");
         try self.pushScope();
         const prelude = try self.emitCond(cond);
@@ -3010,6 +3316,14 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             }
         };
+        // `get` on an array, a slice, or a String.
+        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isSequence(t) and std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "get")) {
+            try self.w.writeAll("rig.elementAt(");
+            try self.emitBare(ir.Member.object(callee));
+            try self.w.writeAll(", ");
+            try self.emitArgs(sexp);
+            return self.w.writeAll(")");
+        };
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.sema.cell_sym_id)) {
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
@@ -3024,6 +3338,14 @@ pub const Emitter = struct {
         try self.w.writeAll("(");
         try self.emitArgs(sexp);
         try self.w.writeAll(")");
+    }
+
+    /// An array, a slice, or a String, or a borrow of one.
+    fn isSequence(self: *Emitter, ty: TypeId) bool {
+        return switch (self.sema.types.get(self.peelBorrows(ty))) {
+            .array, .slice, .string => true,
+            else => false,
+        };
     }
 
     /// A mutable pointer to the Cell `obj` denotes: a shared handle's
@@ -4320,7 +4642,6 @@ const Scan = struct {
             return;
         };
         switch (head) {
-            .set => if (rig.bindingKindOf(ir.Set.op(sexp)) == .move) try s.consume(ir.Set.value(sexp)),
             .move => try s.consume(ir.Move.operand(sexp)),
             .drop => try s.consume(ir.Drop.name(sexp)),
             .@"return" => try s.consumeTail(ir.Return.value(sexp)),
