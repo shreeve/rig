@@ -3495,8 +3495,9 @@ pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
 }
 
 /// The names of checked code: a constant binding's value is known once
-/// its declaration is checked. Their values are untyped here: the
-/// checker gives constant arithmetic its type.
+/// its declaration is checked, and an imported constant's (`lib.N`) is
+/// known. Their values are untyped here: the checker gives constant
+/// arithmetic its type.
 const CheckedNames = struct {
     ctx: *const SemContext,
 
@@ -3505,8 +3506,16 @@ const CheckedNames = struct {
         return if (self.ctx.const_ints.get(id)) |c| .{ .v = c.value } else null;
     }
 
-    pub fn member(_: CheckedNames, _: Sexp) ?TypedInt {
-        return null;
+    /// `lib.N`: another module's integer constant.
+    pub fn member(self: CheckedNames, e: Sexp) ?TypedInt {
+        const obj = ir.Member.object(e);
+        if (obj != .src) return null;
+        const id = self.ctx.symbolOf(obj) orelse self.ctx.lookupInScopeOnly(module_scope, identAt(self.ctx.source, obj) orelse return null) orelse return null;
+        if (self.ctx.symbols.items[id].kind != .module) return null;
+        const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
+        const fid = foreign.lookupInScopeOnly(module_scope, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+        const c = foreign.const_ints.get(fid) orelse return null;
+        return .{ .v = c.value };
     }
 };
 

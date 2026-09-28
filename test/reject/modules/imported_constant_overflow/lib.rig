@@ -1,0 +1,3 @@
+pub SMALL: U8 = 250
+pub HALF = 7 / 2
+pub BIG: U128 = U128.max
