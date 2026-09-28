@@ -3787,6 +3787,14 @@ pub const Emitter = struct {
         const target = self.typeOf(call) orelse return self.unsupported(call, "an untyped conversion");
         const arg = argValue(ir.Call.args(call)[0]);
         const arg_ty = self.typeOf(arg) orelse return self.unsupported(call, "this conversion");
+        // A plain enum's value, converted when the program runs, where
+        // Zig checks that it fits (the checker did for a constant one).
+        if (self.isEnumTy(self.peelBorrows(arg_ty))) {
+            try self.writeAsOpen(target);
+            try self.w.writeAll("@intCast(@intFromEnum(rig.rt(");
+            try self.emitBare(arg);
+            return self.w.writeAll("))))");
+        }
         const from = switch (self.sema.types.get(self.peelBorrows(arg_ty))) {
             .int, .float => self.peelBorrows(arg_ty),
             .int_literal => self.sema.types.int_id,

@@ -1133,7 +1133,7 @@ pub const TypeResolver = struct {
         self.ctx.symbols.items[sym_id].fields = owned;
 
         if (generic) try self.checkTypeParamNames(sym_id, members);
-        if (head == .@"enum" or head == .generic_enum) try self.checkEnumValues(members, generic);
+        if (head == .@"enum" or head == .generic_enum) try self.checkEnumValues(sym_id, members, generic);
         if (head == .@"struct") {
             for (members) |m| {
                 if (m.isKind(.drop_decl)) try self.enforceDropBody(ir.DropDecl.body(m));
@@ -1202,15 +1202,12 @@ pub const TypeResolver = struct {
     /// Explicit enum values are constant integers that fit the emitted
     /// `enum(u32)` tag, and no two variants share a value (a variant
     /// without one takes the value after the previous variant's). Only a
-    /// plain enum, without payloads or generic parameters, has values.
-    fn checkEnumValues(self: *TypeResolver, members: []const Sexp, generic: bool) Error!void {
-        var valued = false;
-        var payloads = false;
-        for (members) |m| {
-            if (m.isKind(.valued)) valued = true;
-            if (m.isKind(.variant)) payloads = true;
-        }
-        if (!valued) return;
+    /// plain enum, without payloads or generic parameters, has values,
+    /// which its variants' fields record (`Field.value`).
+    fn checkEnumValues(self: *TypeResolver, sym_id: SymbolId, members: []const Sexp, generic: bool) Error!void {
+        const payloads = for (members) |m| {
+            if (m.isKind(.variant)) break true;
+        } else false;
         if (generic or payloads) {
             for (members) |m| {
                 if (!m.isKind(.valued)) continue;
@@ -1240,6 +1237,9 @@ pub const TypeResolver = struct {
                 try self.ctx.noteAt(prev, "`{s}` declared here", .{identAt(self.ctx.source, prev).?});
             } else gop.value_ptr.* = name_node;
             next = value + 1;
+            for (@constCast(self.ctx.symbols.items[sym_id].fields orelse &.{})) |*f| {
+                if (f.is_variant and std.mem.eql(u8, f.name, name)) f.value = value;
+            }
         }
     }
 

@@ -4050,12 +4050,53 @@ const Checker = struct {
         const arg = args[0];
         const from = try self.synthValue(arg);
         if (self.isPoison(from)) return target;
+        if (self.enumValues(from)) |plain| {
+            const shown = try self.sourceText(arg);
+            if (!plain) {
+                try self.errAt(arg, "`{s}(x)` takes a plain enum's value; `{s}` has variants with payloads, which have no integer value", .{ name, try self.tyName(sema.unwrapBorrows(self.ctx, from)) });
+            } else if (self.ctx.types.get(target) != .int) {
+                try self.errAt(arg, "`{s}(x)` converts an enum's value to an integer type only; write `{s}(Int(...))`", .{ name, name });
+            } else if (try self.variantValue(arg)) |v| if (!holdsInt(self.ctx, target, v)) {
+                try self.errAt(arg, "`{s}` has the value {d}, which does not fit in `{s}`", .{ shown, v, try self.tyName(target) });
+            };
+            return target;
+        }
         if (!sema.isNumeric(self.ctx, from)) {
             try self.errAt(arg, "`{s}(x)` converts a number; `x` has type `{s}`", .{ name, try self.tyName(from) });
         } else if (self.ctx.types.get(target) == .int) {
             if (sema.isInteger(self.ctx, from)) try self.checkLiteralFits(arg, target) else try self.checkFloatFits(arg, target);
         }
         return target;
+    }
+
+    /// For an enum type (not an error set), whether its values are
+    /// integers: true for a plain enum, false for one with payload
+    /// variants or type parameters; null for any other type.
+    fn enumValues(self: *Checker, ty: TypeId) ?bool {
+        const peeled = sema.unwrapBorrows(self.ctx, ty);
+        const decl = sema.nominalDecl(self.ctx, peeled) orelse return null;
+        const sym = decl.symbol();
+        if (sym.flags.error_set) return null;
+        const fields = sym.fields orelse return null;
+        var any = false;
+        for (fields) |f| {
+            if (!f.is_variant) continue;
+            any = true;
+            if (f.value == null) return false;
+        }
+        return if (any) true else null;
+    }
+
+    /// The value of a variant named through its type, `Status.ok` or
+    /// `lib.Status.ok`; null for any other expression.
+    fn variantValue(self: *Checker, e: Sexp) Error!?Wide {
+        if (!e.isKind(.member)) return null;
+        const nt = (try self.namedType(ir.Member.object(e))) orelse return null;
+        const name = self.text(ir.Member.name(e));
+        for (nt.sym.fields orelse return null) |f| {
+            if (f.is_variant and std.mem.eql(u8, f.name, name)) return f.value;
+        }
+        return null;
     }
 
     /// A constant float converted to integer type `target`: its integer

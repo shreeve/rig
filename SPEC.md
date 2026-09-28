@@ -328,7 +328,8 @@ operands have different types `I32` and `Int`
 ### Numeric conversions
 
 A numeric type's name converts a number to that type: `I32(x)`,
-`U8(x)`, `Float(n)`, `Int(f)`. A conversion is checked. An integer that
+`U8(x)`, `Float(n)`, `Int(f)`. An integer type's name also converts a
+plain enum value to its integer value ([§4](#enums)). A conversion is checked. An integer that
 does not fit the target type panics when the program runs, and so does
 a float whose integer part does not fit; a float becomes an integer by
 truncating toward zero, and `F32(x)` rounds (to an infinity when `x` is
@@ -1211,7 +1212,47 @@ the fields in order (`.circle(r) =>`). Enums have no constructor call
 (`Shape(...)` is an error); enums compare with `==` ([§6](#operators)). A plain enum's variants may take
 explicit values (`ok = 200`): constant integers from 0 to 4294967295,
 no two the same, where a variant without one takes the value after the
-previous variant's. Payload and generic enums take no values.
+previous variant's (the first, 0). Payload and generic enums take no
+values.
+
+An integer type's name converts a plain enum value to its value, as it
+converts a number ([§3](#numeric-conversions)): `Int(st)`, `U16(d)`.
+The conversion is checked: a variant named through its type
+(`Status.missing`) must fit the target at compile time, and any other
+value that does not fit panics when the program runs. A payload enum
+has no integer values, and neither converts to a float directly.
+
+```rig
+enum Status
+  ok = 200
+  missing = 404
+
+enum Dir
+  north
+  east
+
+sub main
+  st: Status = .missing
+  print(Int(st), U16(Status.ok), U8(Dir.east))
+```
+
+```output
+404 200 1
+```
+
+```rig reject
+enum Shape
+  dot
+  circle(r: Int)
+
+sub main
+  s: Shape = .dot
+  print(Int(s))
+```
+
+```error
+`Int(x)` takes a plain enum's value; `Shape` has variants with payloads, which have no integer value
+```
 
 ### Error sets
 

@@ -1505,6 +1505,12 @@ binds the fields in order, under names of your choosing:
 `.circle(r) =>`. An enum with payloads is Rust's data-carrying enum and
 Zig's `union(enum)`.
 
+A plain enum's variants have integer values: declared (`ok = 200`), or
+one more than the previous variant's, from 0. An integer type's name
+converts a value to its number, checked like any conversion, as Zig's
+`@intFromEnum` and Rust's `as` do: `Int(st)` is `404` above, and
+`U8(Status.missing)` is rejected, since 404 does not fit.
+
 ### Error sets
 
 `error Name` declares a set of error values, used like the variants of
