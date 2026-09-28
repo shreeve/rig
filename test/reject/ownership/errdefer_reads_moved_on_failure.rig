@@ -1,0 +1,49 @@
+# An `errdefer` is checked at every exit that fails: `!`, and a return
+# of an error value, explicit or at the end of the function.
+
+error E
+  bad
+
+struct Tok
+  n: Int
+
+sub eat(t: Tok)
+  print("eat", t.n)
+
+fun check(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+fun propagated(k: Int) -> Int!
+  t = Tok(n: 1)
+  errdefer print(t.n)
+  eat(<t)
+  check(k)!
+
+fun returned(k: Int) -> Int!
+  t = Tok(n: 2)
+  errdefer print(t.n)
+  eat(<t)
+  return E.bad if k > 0
+  k
+
+fun tail(k: Int) -> Int!
+  t = Tok(n: 3)
+  errdefer print(t.n)
+  eat(<t)
+  E.bad if k > 0 else k
+
+fun caught(k: Int) -> Int!
+  t = Tok(n: 4)
+  errdefer print(t.n)
+  eat(<t)
+  n = check(k) catch |err| return err
+  n
+
+sub main
+  print(propagated(1) catch -1, returned(1) catch -1, tail(1) catch -1, caught(1) catch -1)
+
+# error: 19:18: use of `t` after move
+# error: 25:18: use of `t` after move
+# error: 32:18: use of `t` after move
+# error: 38:18: use of `t` after move

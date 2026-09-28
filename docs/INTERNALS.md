@@ -850,6 +850,8 @@ walk. `return`, `break`, and `continue` make
 the rest of their block unreachable. A `defer` body is re-checked
 against the state at every exit of its scope, where what it reads may
 not borrow a var declared after the `defer` (dropped before it runs).
+An `errdefer` body is re-checked only at the exits that fail: a `!`,
+and a `return` or final value whose type is, or may be, an error.
 
 **Rules** (SPEC §8 states them for users): no use of a moved or dropped
 value; read loans exclude writes, moves, drops, and reassignment, and

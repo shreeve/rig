@@ -83,7 +83,8 @@
 //!   captured into a closure are owned by its environment: the body may
 //!   use and clone them but not move, drop or reassign them.
 //! * A `defer` body cannot move or drop outer bindings, and is re-checked
-//!   against the state at every exit of its scope.
+//!   against the state at every exit of its scope; an `errdefer` body at
+//!   every exit that fails (`!`, or returning an error).
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -203,8 +204,9 @@ const Scope = struct {
 };
 
 /// A `defer` or `errdefer` body, and the number of vars declared before
-/// it: the rest are dropped before it runs.
-const Deferred = struct { body: Sexp, vars: u32 };
+/// it: the rest are dropped before it runs. An `errdefer` runs only at
+/// an exit that fails.
+const Deferred = struct { body: Sexp, vars: u32, err_only: bool };
 
 /// One change to a var's flow, kept so it can be undone.
 const Change = struct { id: VarId, old: Flow };
@@ -634,7 +636,7 @@ pub const Checker = struct {
     fn popScope(self: *Checker) Error!void {
         const idx = self.scopes.items.len - 1;
         if (self.reachable) {
-            try self.runDefers(idx);
+            try self.runDefers(idx, false);
             try self.checkDropOrder(self.scopes.items[idx].start);
         }
         var scope = self.scopes.pop().?;
@@ -1163,6 +1165,8 @@ pub const Checker = struct {
                 self.cur_stmt = stmt;
                 defer self.cur_stmt = saved_stmt;
                 try self.walkReturnValue(stmt);
+                // An error returned here runs the body's `errdefer`s.
+                if (self.reachable and self.mayFail(stmt)) try self.runDefers(self.scopes.items.len - 1, true);
             } else {
                 try self.walkStmt(stmt);
             }
@@ -2862,7 +2866,7 @@ pub const Checker = struct {
     fn walkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
         if (value != .nil) try self.walkReturnValue(value);
-        try self.runDefersTo(0);
+        try self.runDefersTo(0, value != .nil and self.mayFail(value));
         self.reachable = false;
     }
 
@@ -3419,7 +3423,7 @@ pub const Checker = struct {
     /// above `scope_depth`), relative to it: the scopes' defers run, and
     /// nothing that survives may borrow what is left behind.
     fn exitState(self: *Checker, target: Point, scope_depth: usize) Error!State {
-        try self.runDefersTo(scope_depth);
+        try self.runDefersTo(scope_depth, false);
         return self.leaveTo(target);
     }
 
@@ -3438,8 +3442,19 @@ pub const Checker = struct {
     /// `e!` / `e?`: on failure or `none`, control leaves for the caller.
     fn walkPropagate(self: *Checker, node: Sexp) Error!Value {
         const v = try self.walk(ir.get(node, .value));
-        if (self.reachable) try self.runDefersTo(0);
+        if (self.reachable) try self.runDefersTo(0, node.isKind(.propagate));
         return v;
+    }
+
+    /// Whether returning `e` may make the function fail, which runs its
+    /// `errdefer`s: `e` is an error, or may be one.
+    fn mayFail(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return true;
+        const ty = self.exprType(e) orelse return true;
+        return switch (ctx.types.get(ty)) {
+            .fallible, .any_error, .invalid, .unknown => true,
+            else => sema.isErrorSet(ctx, ty),
+        };
     }
 
     // -------------------------------------------------------------------------
@@ -3452,7 +3467,7 @@ pub const Checker = struct {
     fn walkDefer(self: *Checker, node: Sexp) Error!void {
         const body = ir.get(node, .body);
         try self.checkDeferBody(body, true);
-        try self.scopes.items[self.scopes.items.len - 1].defers.append(self.gpa, .{ .body = body, .vars = @intCast(self.vars.items.len) });
+        try self.scopes.items[self.scopes.items.len - 1].defers.append(self.gpa, .{ .body = body, .vars = @intCast(self.vars.items.len), .err_only = node.isKind(.@"errdefer") });
     }
 
     fn checkDeferBody(self: *Checker, body: Sexp, report_changes: bool) Error!void {
@@ -3475,7 +3490,9 @@ pub const Checker = struct {
         }
     }
 
-    fn runDefers(self: *Checker, scope_idx: usize) Error!void {
+    /// Re-check the defers of scope `scope_idx` at an exit, with its
+    /// `errdefer`s when the exit `fails`.
+    fn runDefers(self: *Checker, scope_idx: usize, fails: bool) Error!void {
         // The body sees the names of its own scope, not those of scopes
         // opened after the defer.
         const saved = self.hidden;
@@ -3487,6 +3504,7 @@ pub const Checker = struct {
         while (i > 0) {
             i -= 1;
             const d = self.scopes.items[scope_idx].defers.items[i];
+            if (d.err_only and !fails) continue;
             self.defer_floor = d.vars;
             try self.checkDeferBody(d.body, false);
         }
@@ -3495,13 +3513,13 @@ pub const Checker = struct {
     /// Run the defers of the scopes an early exit leaves (every scope at
     /// index `scope_depth` or above, up to the enclosing function), and
     /// check the order their vars are dropped in.
-    fn runDefersTo(self: *Checker, scope_depth: usize) Error!void {
+    fn runDefersTo(self: *Checker, scope_depth: usize, fails: bool) Error!void {
         // An exit from inside a deferred body leaves only that body.
         if (self.in_defer) return;
         var si = self.scopes.items.len;
         while (si > scope_depth) {
             si -= 1;
-            if (self.scopes.items[si].defers.items.len > 0) try self.runDefers(si);
+            if (self.scopes.items[si].defers.items.len > 0) try self.runDefers(si, fails);
             if (self.scopes.items[si].kind != .block) break;
         }
         if (si < self.scopes.items.len) try self.checkDropOrder(self.scopes.items[si].start);
