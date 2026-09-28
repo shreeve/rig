@@ -2274,7 +2274,7 @@ pub const Checker = struct {
         const writes_capture = v.kind == .capture and (v.ref == .write or self.isPoisonType(v.ty));
         if (!writes_capture and try self.rejectBorrowedView(id, pos, "reassign")) return;
         if (!self.isCopy(v.ty) and try self.rejectGlobal(id, pos, "reassign")) return;
-        if (v.alias_of != null and !self.isCopy(v.ty) and v.ref != .write) {
+        if (v.alias_of != null and !self.isCopy(v.ty) and v.ref != .write and !self.isPoisonType(v.ty)) {
             try self.err(pos, "cannot reassign match binding `{s}`; it views the matched value", .{v.name});
             return;
         }

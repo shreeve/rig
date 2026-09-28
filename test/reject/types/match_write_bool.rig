@@ -1,0 +1,14 @@
+# `!` before a Bool reads as negation, so a Bool subject is not matched
+# with `match !b`, nor bound with `w = !b`: the message says where a Bool
+# is write-borrowed.
+
+sub main
+  b = true
+  match !b
+    true => print("t")
+    _ => print("f")
+  w = !b
+  print(w)
+
+# error: 7:9: `!` is a write borrow; use `not` for negation (a `Bool` is write-borrowed only where a `!Bool` is expected: `f(!flag)`)
+# error: 10:7: `!` is a write borrow; use `not` for negation

@@ -2382,7 +2382,12 @@ source and `if … as` do:
 | `match <e` | own the fields: `e` is consumed, and what an arm does not move on is dropped at the end of the arm |
 
 A bare `match e` only reads `e`, so moving a payload out of it is
-rejected; that takes `match <e`. `match !e` needs a place that may be
+rejected; that takes `match <e`. Its bindings only read, too, even of a
+field or value that is itself a write borrow. A binding of `match <e`
+owns what it binds: a resource it holds may be written and lent for
+writing. A `Bool` is not matched with `!`: `match !flag` reads as
+negation and is rejected, as `!flag` is anywhere a `!Bool` is not
+expected. `match !e` needs a place that may be
 written, as `!e` does, and while one of its bindings is live `e` cannot
 be used otherwise. `match <e` needs a value `e` owns, not a borrow. A
 boxed enum is matched through a borrow of the box, `match ?b` or
