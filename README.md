@@ -31,8 +31,7 @@ hello, rig
 ```
 
 `sub` declares a routine that returns nothing; `fun` declares one that
-returns a value. A line that does something may drop its call
-parentheses; anywhere a value is expected, a call takes them.
+returns a value. Every call has its parentheses.
 
 ### Borrowing
 
@@ -188,8 +187,9 @@ libraries are written in Rig itself (see
 | `*` | `*x` share: move into a counted box | `*T` shared handle |
 | `~` | `~x` weak handle | `~T` weak handle |
 
-A sigil is a prefix when it touches its operand, so `a < b` is still a
-comparison and `a * b` a product. The [language reference](SPEC.md)
+A sigil is a prefix where an operand starts, and an operator after a
+value, so `a < b` is still a comparison and `a * b` a product, however
+they are spaced. The [language reference](SPEC.md)
 covers every rule; [docs/DESIGN.md](docs/DESIGN.md) explains how the
 sigils form a small algebra.
 

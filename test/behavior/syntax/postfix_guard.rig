@@ -1,5 +1,5 @@
 # `stmt if cond` runs the statement only when `cond` holds. Any simple
-# statement takes a guard: a paren-free call, a call, `return`, `break`.
+# statement takes a guard: a call, `return`, `break`.
 
 fun first_big(limit: Int) -> Int
   i = 0

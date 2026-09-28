@@ -1,7 +1,6 @@
-# A line that does something may drop its call parentheses; anywhere a
-# value is expected, a call takes parentheses. A paren-free call is a
-# statement, a match arm, a closure body, or the last argument of
-# another paren-free call.
+# A call takes its parentheses wherever it stands: a statement, an
+# argument, a binding, `return`, a condition, a source, a subject, a
+# match arm, and a closure body.
 
 fun twice(n: Int) -> Int
   n * 2
@@ -17,7 +16,7 @@ fun quad(n: Int) -> Int
   return twice(twice(n))
 
 sub main()
-  # Commands: a statement, and the last argument of a command.
+  # Statements and arguments.
   print(add(1, 2))
   print((1 + 2) * 3)
   print(add(1, 2), add(3, 4))
@@ -36,7 +35,7 @@ sub main()
   match twice(1)
     2 => print("two")
     _ => print("other")
-  # Closures: the body may be a command.
+  # Closure bodies.
   each(2, *|i| print(i * 10))
   (|+x| print(x))()
   print(x - 1)

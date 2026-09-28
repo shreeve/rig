@@ -4015,7 +4015,7 @@ const Checker = struct {
         if (self.isEntryPoint(sym)) return self.badCall(args, callee, entry_point_use, .{});
         if (self.isPoison(sym.ty)) return self.skipCall(args);
         const fty = self.ctx.types.get(sym.ty);
-        if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called{s}", .{ name, try self.tyName(sym.ty), try self.prefixHint(callee, name, args) });
+        if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
         if (sym.kind == .@"extern" and self.raw_depth == 0) {
             try self.errAt(callee, "call to extern function `{s}` requires `raw` block; extern functions are the FFI boundary and bypass Rig's ownership and effect checks", .{name});
         }
@@ -4046,25 +4046,7 @@ const Checker = struct {
             try self.checkArgs(args, fty.function, .{}, name, pos);
             return fty.function.returns;
         }
-        return self.badCall(args, pos, "`{s}` has type `{s}` and cannot be called{s}", .{ name, try self.tyName(ty), try self.prefixHint(callee, name, args) });
-    }
-
-    /// For a paren-free call `a -1` whose callee cannot be called: the
-    /// sigil touching the argument is a prefix, and the infix operator
-    /// it also spells takes a space on both sides.
-    fn prefixHint(self: *Checker, callee: Sexp, name: []const u8, args: []const Sexp) Error![]const u8 {
-        if (args.len == 0) return "";
-        const arg = args[0];
-        const op: []const u8, const verb: []const u8, const operand = switch (arg.kind() orelse return "") {
-            .neg => .{ "-", "subtract", ir.Neg.operand(arg) },
-            .move => .{ "<", "compare", ir.Move.operand(arg) },
-            .share => .{ "*", "multiply", ir.Share.operand(arg) },
-            .clone => .{ "+", "add", ir.Clone.operand(arg) },
-            else => return "",
-        };
-        const gap = self.ctx.source[self.ctx.span(callee).end..self.startOf(arg)];
-        if (gap.len == 0 or std.mem.indexOfNone(u8, gap, " ") != null) return "";
-        return std.fmt.allocPrint(self.ctx.arena.allocator(), "; a sigil touching its operand is a prefix: to {s}, write `{s} {s} {s}`", .{ verb, name, op, try self.sourceText(operand) });
+        return self.badCall(args, pos, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(ty) });
     }
 
     /// A call that cannot be checked: its arguments are still checked on
@@ -4536,11 +4518,11 @@ const Checker = struct {
             // A rejected parameter type may be what would have held it.
             for (f.params) |p| if (sema.containsPoison(self.ctx, p)) return null;
             const parens = if (f.params.len > skip) "(...)" else "()";
-            // `f [1, 2](...)` for `f[1, 2](...)`: the only argument is
+            // `f([1, 2])` for `f[1, 2]()`: the only argument is
             // an array, where the function takes none.
             if (f.params.len == skip and args.len == 1 and args[0].isKind(.array)) {
                 const arg = try self.sourceText(args[0]);
-                try self.err(pos, "compile-time arguments touch the name: `{s}{s}{s}`", .{ callee, arg, parens });
+                try self.err(pos, "compile-time arguments go in brackets after the name: `{s}{s}{s}`", .{ callee, arg, parens });
             } else {
                 try self.err(pos, "`{s}` takes {d} compile-time argument{s} in brackets: `{s}[...]{s}`", .{ callee, n, plural(n), callee, parens });
             }
@@ -6309,7 +6291,7 @@ const Checker = struct {
             const callee = ir.Call.callee(e);
             if (callee.isKind(.member) and ir.Member.object(callee).isKind(.read) and self.isReceiverSigil(ir.Member.object(callee))) {
                 const recv = ir.Member.object(callee);
-                const start = self.ctx.span(recv).start + 1;
+                const start = self.ctx.span(ir.Read.operand(recv)).start;
                 const end = self.ctx.span(e).end;
                 const call = self.ctx.source[start..end];
                 return self.errAt(recv, "type mismatch: expected `{s}`, got `{s}`: `?{s}` reads `{s}` for the call; write `?({s})` to borrow the call's result", .{ try self.tyName(expected), try self.tyName(actual), call, try self.sourceText(ir.Read.operand(recv)), call });

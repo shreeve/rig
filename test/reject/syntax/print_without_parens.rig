@@ -1,0 +1,8 @@
+# A statement that calls takes parentheses too: `print x` is a syntax
+# error, like any name followed by an operand.
+
+sub main()
+  x = 1
+  print x
+
+# error: 6:9: unexpected name `x`

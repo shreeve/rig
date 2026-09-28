@@ -210,61 +210,49 @@ sub main
 single: "no escapes\n" double: 'x'	y
 ```
 
-### The spacing rule
+### Prefixes and infix operators
 
-Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
-`!` `~`. One rule decides which, and it also governs `(`, `[`, and `.`:
+Whitespace inside an expression means nothing: `a - 1`, `a -1`, and
+`a-1` are one subtraction. Several characters are both operators and
+prefixes: `<` `+` `-` `*` `?` `!` `|`. Which one a character is depends
+on where it stands, and the same holds for `(`, `[`, and `.`:
 
-> A character that touches its operand and not the value before it is
-> a prefix. Otherwise it is an infix operator, or it continues the value
-> before it.
+> After a value (a name, a literal, `)`, `]`, or a `?` or `!` suffix),
+> a character continues that value: it is an infix operator, a suffix,
+> a call, an index, or member access. Anywhere else it starts an
+> operand, as a prefix.
 
 | Source | Reads as |
 |---|---|
-| `a < b`, `a<b` | comparison |
-| `f <x` | `f(<x)`: a paren-free call passing `x` moved ([§6](#calls)) |
-| `a - b`, `a-b` | subtraction |
-| `f -x` | `f(-x)`, as a paren-free call |
-| `f(x)`, `a[i]`, `a.b` | call, index or compile-time arguments ([§17](#17-compile-time-parameters)), member access |
-| `f (x)`, `f [1, 2]`, `f .red` | paren-free call with the argument `(x)`, `[1, 2]`, `.red` |
+| `a < b`, `a <b`, `a<b` | comparison |
+| `x = <y`, `f(<y)` | a move ([§8](#moves)) |
+| `a - b`, `a -b` | subtraction |
+| `-x`, `f(-x)` | negation; `-x` as a whole statement drops `x` ([§8](#drop)) |
+| `f(x)`, `f (x)`, `a[i]`, `a.b` | call, index or compile-time arguments ([§17](#17-compile-time-parameters)), member access |
+| `(x)`, `[1, 2]`, `.red` | grouping, an array literal, an enum literal |
 | `f()!`, `x?` | propagate a failure ([§14](#14-errors)) or `none` ([§13](#13-optionals)) |
-| `-x` as a statement | drops `x` ([§8](#drop)); where a value is expected, negates |
+| `a \| b` vs `\|x\| x + 1` | bitwise or, and a closure's bar list ([§12](#12-closures)) |
 
-The brackets of compile-time parameters and arguments touch the name
-before them (`struct Wrap[T]`, `show[3]()`); a declaration with a space
-there (`struct Wrap [T]`) is rejected.
+A sigil after the `]` of an array or slice type starts its element
+type: in `[2]?Int`, the `?` borrows each element.
 
-Two values may not touch with no operator between them: `t.5` and
-`print"hi"` are rejected, since neither is a call. Nor may `=!` touch
-the operand after it (`x =!y`), which could as well be `x = !y`.
-
-A paren-free call is a command, never a value ([§6](#calls)), so
-where a value is expected `a -1` is neither a call nor a subtraction,
-and it is rejected:
+Every call has parentheses: `print x` is not a call, and does not
+parse.
 
 ```rig reject
 sub main
-  a = 5
-  b = a -1
+  x = 1
+  print x
 ```
 
 ```error
-unexpected `-`; a sigil touching its operand is a prefix: to subtract, write `a - 1`; to call `a`, write `a(-1)`
+unexpected name `x`
 ```
 
-As a command's argument, where a paren-free call is legal, `print a -1`
-is `print(a(-1))`. When `a` cannot be called, the checker says so and
-names the fix:
-
-```rig reject
-sub main
-  a = 5
-  print a -1
-```
-
-```error
-`a` has type `Int` and cannot be called; a sigil touching its operand is a prefix: to subtract, write `a - 1`
-```
+Tokens are split as in Zig and C, by the longest match, so `a == b` is
+not `a = = b`. `=!` is one token, so `x =!y` could be a fixed binding
+of `y` or `x = !y`, a write borrow; a `=!` touching the operand after it
+is rejected.
 
 ---
 
@@ -784,7 +772,7 @@ no variant `native` on enum `Endian`
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§3](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
 
-The handle sigils `*` and `~` bind to the type they touch, tighter than
+The handle sigils `*` and `~` bind to the type after them, tighter than
 the suffixes: `*User?` is an optional shared handle and `~User?` an
 optional weak handle, while a handle to an optional `User` is written
 `*(User?)`. A borrow applies to the whole type after it, suffixes
@@ -1028,8 +1016,7 @@ write `!self.bump()`: the call writes `self`
 **Receiver sigils.** `?`, `!`, or `<` directly before a *place* (a
 name followed by any `.field` or `[index]` steps) that is followed by
 a method call applies to that place: `?P.m(args)` is `(?P).m(args)`,
-`!P.m(args)` is `(!P).m(args)`, and `<P.m(args)` is `(<P).m(args)`,
-with or without parentheses around the arguments (`!v.push 3`).
+`!P.m(args)` is `(!P).m(args)`, and `<P.m(args)` is `(<P).m(args)`.
 Postfixes after that call apply to its result: `!v.pop()?`, and
 `!a.b().c(x)` is `(!a).b().c(x)`. Writing `?` is optional, since a
 read receiver is lent without it. Every other prefix sigil (`+`, `-`,
@@ -2045,19 +2032,9 @@ sub main
 
 ### Calls
 
-`f(a, b)` calls `f`. A line that does something may drop its call
-parentheses; anywhere a value is expected, a call takes parentheses.
-A **paren-free call** is a command: it takes the rest of the line as
-its arguments, and it may stand as a statement, a match arm's body, a
-closure's body, or the last argument of another paren-free call:
-`print add 1, 2` is `print(add(1, 2))`.
-
-Everywhere else a call takes its parentheses: the right side of a
-binding or an assignment, `return` and `break` values, `if` and `while`
-conditions, `for` sources, `match` subjects, and every argument inside
-parentheses: `x = twice(5)`, `if ready(3)`, `print(1, twice(-3), 5)`.
-Only a closure body, which is a statement of its own, may be a
-paren-free call inside parentheses (`each(3, *|i| print i)`).
+`f(a, b)` calls `f`, wherever the call stands: a statement, a binding's
+right side, an argument, a condition. Every call has its parentheses,
+and a space before them changes nothing (`f (x)` is `f(x)`).
 
 ```rig
 fun add(a: Int, b: Int) -> Int
@@ -2072,7 +2049,7 @@ sub main
   print(add(1, 2), add(3, 4))
   x = twice(5)
   if twice(x) > 10
-    print(twice(x))
+    print(twice (x))
 ```
 
 ```output
@@ -2091,19 +2068,7 @@ sub main
 ```
 
 ```error
-unexpected `5`; a call where a value is expected takes parentheses: `twice(5)`
-```
-
-```rig reject
-fun twice(n: Int) -> Int
-  n * 2
-
-sub main
-  print(1, twice -3, 5)
-```
-
-```error
-a call inside parentheses needs its own parentheses: `twice(...)`
+unexpected `5`
 ```
 
 Keyword arguments name parameters (`scaled(by: 4, n: 5)`), and
@@ -3650,10 +3615,9 @@ the closure's **captures** and its **parameters**, captures first:
 - a bare name is a parameter, optionally annotated (`a`, `a: Int`);
 - `||` is an empty list.
 
-The body is an expression, a paren-free call, or an assignment on the
-same line (`|!total, n| total += n`), or an indented block. A closure
-whose body is a paren-free call or an assignment ends a call's
-arguments: it is the last one.
+The body is an expression or an assignment on the same line
+(`|!total, n| total += n`), or an indented block. A closure whose body
+is an assignment ends a call's arguments: it is the last one.
 
 ```rig
 sub main
@@ -3982,7 +3946,7 @@ A closure's body may be an indented block wherever the closure is
 written. When the bar list ends a line inside `( )`, the body below is
 laid out in blocks as anywhere else; it ends where the bracket closes,
 or where a line comes back to the indentation of the line the closure
-started on. A paren-free call takes a trailing closure the same way.
+started on.
 
 ```rig
 sub each(n: Int, f: *sub(Int))
@@ -4691,7 +4655,7 @@ call to extern function `abs` requires `raw` block
 
 Square brackets hold everything known at compile time, and
 parentheses what is known when the program runs. A declaration lists
-its compile-time parameters in brackets touching its name, before any
+its compile-time parameters in brackets after its name, before any
 run-time parameters. In the list, a bare name is a **type parameter**
 and `name: Type` a **compile-time value**:
 `fun check[mode: Mode](n: Int) -> Bool`, `fun max[T](a: T, b: T) -> T`,
@@ -4711,8 +4675,8 @@ of these, and it cannot mention a type parameter; on a generic type it
 is an integer. An integer compile-time value sizes arrays
 ([arrays](#arrays)).
 
-A call gives the compile-time arguments in brackets touching the
-callee, before its run-time arguments: `check[.strict](5)`,
+A call gives the compile-time arguments in brackets after the callee,
+before its run-time arguments: `check[.strict](5)`,
 `rep[String, 3]("hi")`, `s.times[5]()`, `Scale.unit[6]()`,
 `lib.scaled[3](5)`, `lib.zeros[3]()`. It gives all of them or none; a type argument, and
 an integer value that an array length or a generic type's argument in
@@ -4796,9 +4760,8 @@ the checker decides by what `x` names. When it names a generic type or
 a function, directly, through its module, through its type, or as a
 method of a value, the brackets are compile-time arguments; otherwise
 they index `x`. A bracket list of two or more is never an index, and
-empty brackets are rejected. Written with a space, `show [3]` is a
-paren-free call whose argument is the array `[3]`
-([§2](#the-spacing-rule)).
+empty brackets are rejected. A space changes nothing: `show [3]()` is
+`show[3]()` ([§2](#prefixes-and-infix-operators)).
 
 In an expression, a type argument is written as a type that is also an
 expression: a name, `module.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or an
@@ -4896,9 +4859,8 @@ a handle to an optional has no expression spelling
 ## 18. Printing
 
 `print(a, b, ...)` writes its values separated by single spaces, then a
-newline; `print()` writes an empty line. It also takes the paren-free
-form `print a, b`. `print` is only special as a direct call; it is not
-a value.
+newline; `print()` writes an empty line. `print` is only special as a
+direct call; it is not a value.
 
 | Value | Printed as |
 |---|---|

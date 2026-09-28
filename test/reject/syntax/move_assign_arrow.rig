@@ -1,5 +1,6 @@
-# Rig has no `<-` operator (a move-assignment is `a = <b`), so `a <- b`
-# does not parse.
+# Rig has no `<-` operator (a move-assignment is `a = <b`): whitespace
+# means nothing inside an expression, so `a <- b` is `a < -b`, which
+# compares, negating an array.
 
 sub main()
   a = [1]
@@ -7,4 +8,5 @@ sub main()
   a <- b
   print(a)
 
-# error: 7:6: unexpected `-`
+# error: 8:8: operator `-` requires a numeric operand; got `[1]Int`
+# error: 8:3: this expression does nothing as a statement

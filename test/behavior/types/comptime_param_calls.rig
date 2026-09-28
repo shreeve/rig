@@ -1,9 +1,8 @@
 # Compile-time arguments go in brackets before the run-time ones, for a
 # function, a method called on a value or through its type, and an
 # associated function. A compile-time parameter can be passed on to
-# another, and a function with no run-time parameters is called by a
-# statement `show[3]` as by `show[3]()`. A paren-free call takes its
-# compile-time arguments the same way.
+# another, and a function with no run-time parameters is called with
+# empty parentheses: `show[3]()`.
 
 enum Mode
   strict

@@ -1,6 +1,6 @@
 # `a if c else b` is an expression anywhere a value goes: a call
-# argument, a typed binding, a match arm, a paren-free argument, and
-# nested in its own `else` branch.
+# argument, a typed binding, a match arm, and nested in its own `else`
+# branch.
 
 enum Size
   small
