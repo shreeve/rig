@@ -2817,7 +2817,8 @@ must be wrapped with `!` (propagate) or `catch` (handle)
 
 Functions do not declare which errors they return (every fallible type
 lowers to `anyerror!T`), so `err` may be any error; compare it with
-`err == E.name` or `match` it by name. `sub main` and `test` blocks may
+`err == E.name` or `match` it by the member's name alone, `.name =>`
+(with a `_` arm where the match gives a value). `sub main` and `test` blocks may
 propagate. Closures, `defer`, and `drop` bodies may not.
 
 ## 22. Arrays, strings, and slices

@@ -264,7 +264,8 @@ and environment variable. The suite runs on Linux and macOS in
 **Not yet:** a standard library (there is a small runtime and `print`),
 concurrency, and async. [SPEC §19](SPEC.md#19-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
-passing a stack closure as an argument;
+storing or returning a stack closure (lending one to a call, as a
+`?fun`, works);
 [the roadmap](docs/ROADMAP.md) lists the plans.
 
 ## Learn more
