@@ -2,8 +2,8 @@
 # constructs values of a struct (declared in that module or one it
 # imports) or a generic instance, calls associated functions, names
 # variants, and converts to a number type. A local alias of an imported
-# alias does too, and a default through a float alias of another module
-# fills in here.
+# alias does too, and a default naming a limit through an alias, of
+# that module or one it imports, fills in here.
 
 use lib
 
@@ -28,10 +28,10 @@ sub main()
     .light => print("light")
     .dark(_) => print("dark")
   m = lib.Limits()
-  print(m.hi > 3.0e38, m.lo < -3.0e38)
+  print(m.hi > 3.0e38, m.lo < -3.0e38, m.small, m.wide > 1.0e308)
 
 # expect:
 # 1 0 2 4 5 7 0 1.5
 # 8
 # light
-# true true
+# true true -128 true

@@ -18,3 +18,5 @@ type R = F32
 pub struct Limits
   pub hi: R = R.max
   pub lo: Real = Real.min
+  pub small: util.Small = util.Small.min
+  pub wide: util.Wide = util.Wide.max

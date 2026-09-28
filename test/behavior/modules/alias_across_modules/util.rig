@@ -7,3 +7,6 @@ pub struct Point
 pub enum Shade
   light
   dark(n: Int)
+
+pub type Small = I8
+pub type Wide = F64
