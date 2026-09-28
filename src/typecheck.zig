@@ -1666,7 +1666,7 @@ const Checker = struct {
     const MatchCoverage = struct {
         variants: std.StringHashMapUnmanaged(u32) = .empty,
         bools: [2]bool = .{ false, false },
-        /// Inclusive integer intervals.
+        /// Inclusive integer intervals, disjoint and in order.
         ints: std.ArrayListUnmanaged([2]Wide) = .empty,
         has_default: bool = false,
 
@@ -1744,12 +1744,6 @@ const Checker = struct {
                 const bounds = intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
                 var next = bounds.min;
                 const max = bounds.max;
-                // Sweep the intervals in order of their low ends.
-                std.mem.sort([2]Wide, cov.ints.items, {}, struct {
-                    fn lt(_: void, a: [2]Wide, b: [2]Wide) bool {
-                        return a[0] < b[0];
-                    }
-                }.lt);
                 for (cov.ints.items) |iv| {
                     if (iv[0] > next) return false;
                     if (iv[1] >= next) next = iv[1] + 1;
@@ -1764,13 +1758,18 @@ const Checker = struct {
     /// Record an integer interval a pattern matches; it may not overlap
     /// an earlier one.
     fn coverInts(self: *Checker, cov: *MatchCoverage, lo: Wide, hi: Wide, pos: u32) Error!void {
-        for (cov.ints.items) |iv| {
-            if (hi >= iv[0] and lo <= iv[1]) {
-                try self.err(pos, "this pattern overlaps an earlier arm", .{});
-                return;
+        const ints = cov.ints.items;
+        // The first interval that starts after `lo`: only it and the one
+        // before it can overlap.
+        const at = std.sort.upperBound([2]Wide, ints, lo, struct {
+            fn order(key: Wide, iv: [2]Wide) std.math.Order {
+                return std.math.order(key, iv[0]);
             }
+        }.order);
+        if ((at > 0 and ints[at - 1][1] >= lo) or (at < ints.len and ints[at][0] <= hi)) {
+            return self.err(pos, "this pattern overlaps an earlier arm", .{});
         }
-        try cov.ints.append(self.ctx.allocator, .{ lo, hi });
+        try cov.ints.insert(self.ctx.allocator, at, .{ lo, hi });
     }
 
     fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage, mode: MatchMode) Error!void {
