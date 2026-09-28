@@ -1147,13 +1147,30 @@ pub const Parser = struct {
     }
 
     /// A note for a parse error inside a bracket opened on an earlier
-    /// line, which may be the one left unclosed.
+    /// line that nothing after the error closes: the innermost such
+    /// bracket, which is likely the one left open.
     pub fn unclosedBracket(self: *Parser) ?diag.Diagnostic {
         if (self.failure != null) return null;
         const lexer = &self.base.lexer;
-        if (lexer.nesting == 0) return null;
-        const open = lexer.brackets[lexer.nesting - 1];
         const src = self.base.source;
+        // How many of the open brackets the rest of the source closes.
+        var probe = BaseLexer.init(src);
+        probe.pos = self.base.current.pos;
+        var depth: u32 = 0;
+        var closed: u32 = 0;
+        while (closed < lexer.nesting) {
+            switch (probe.matchRules().cat) {
+                .lparen, .lbracket => depth += 1,
+                .rparen, .rbracket => if (depth > 0) {
+                    depth -= 1;
+                } else {
+                    closed += 1;
+                },
+                .eof => break,
+                else => {},
+            }
+        } else return null;
+        const open = lexer.brackets[lexer.nesting - 1 - closed];
         if (std.mem.indexOfScalar(u8, src[open..self.base.current.pos], '\n') == null) return null;
         return .{ .severity = .note, .pos = open, .end = open + 1, .message = self.format("the `{c}` opened here is not closed", .{src[open]}) };
     }

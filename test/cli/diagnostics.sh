@@ -39,6 +39,25 @@ expect_eq "$(cat out.txt)" "parse.rig:2:12: error: unexpected \`)\`; expected an
   x = (1 + )
            ^" "parse error at its token"
 
+# A bracket opened on an earlier line is noted only when nothing after
+# the error closes it.
+cat >closed.rig <<'EOF'
+sub main()
+  print(max(1,
+    2 3))
+EOF
+"$RIG" check closed.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a parse error in closed brackets"
+expect_eq "$(cat out.txt)" "closed.rig:3:7: error: unexpected \`3\`
+    2 3))
+      ^" "no note for a bracket that closes"
+cat >open.rig <<'EOF'
+sub main()
+  print(max(1,
+    2 3)
+EOF
+"$RIG" check open.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a parse error in an unclosed bracket"
+expect_has "$(cat out.txt)" "open.rig:2:8:   note: the \`(\` opened here is not closed" "note for the bracket left open"
+
 # At most 100 errors print; the rest are counted.
 { echo "sub main()"; for ((i = 0; i < 150; i++)); do echo "  print(missing$i)"; done; } >many.rig
 "$RIG" check many.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a program with many errors"
