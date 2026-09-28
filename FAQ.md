@@ -1,29 +1,27 @@
 # FAQ
 
 Short, honest answers, including to the skeptical questions. The
-reasoning behind each is in [docs/DESIGN.md](docs/DESIGN.md).
+reasoning behind each is in [docs/DESIGN.md](docs/DESIGN.md); if you
+are coming from another language, start with [WELCOME.md](WELCOME.md).
 
 ## Is everything reference-counted?
 
-No. Numbers, strings, structs, enums, and arrays are plain values, and
-borrows (`?T`, `!T`) are checked at compile time and cost nothing at
-run time. Counting happens only behind a shared handle `*T`, and every
-count change is written in the source: `*x` allocates, `+x` bumps, `-x`
-and scope exit release ([cost model](docs/DESIGN.md#cost-model)). A heap
-value with one owner goes in a `Box[T]`, which counts nothing: it moves,
-and dropping it frees the value.
+No. Numbers, strings, structs, enums, and arrays are plain values,
+and borrows (`?T`, `!T`) are checked at compile time and cost nothing
+at run time. Counting happens only behind a shared handle `*T`, where
+every count change is written (`*x`, `+x`, `-x`); a heap value with one
+owner is a `Box[T]`, which counts nothing
+([cost model](docs/DESIGN.md#cost-model)).
 
 ## Is Rig safe like Rust?
 
-That is the goal for the code it checks: use after move, double free,
-use after free, dangling borrows, and leaks in safe Rig are treated as
-compiler bugs, and `raw` blocks, `extern` calls, and the small runtime
-are the explicit trust boundaries. The one leak the compiler does not
-prevent is a cycle of strong handles, as in Rust and Swift. Rig is
-young and its guarantee is only as strong as its checker: every feature
-is tested with programs that run under a leak-checking allocator, known
-bugs are kept as failing tests in `test/known/`, and it is not ready
-for production code.
+That is the goal: use after move, double free, use after free,
+dangling borrows, and leaks in safe Rig are compiler bugs, and `raw`
+blocks, `extern` calls, and the small runtime are the trust boundaries;
+the one leak it does not prevent is a cycle of strong handles, as in
+Rust and Swift. The guarantee is only as strong as the checker, which
+is young: every feature is tested by programs run under a leak-checking
+allocator, and Rig is not ready for production code.
 
 ## Why sigils? Aren't they cryptic?
 
@@ -34,13 +32,13 @@ and most lines have none ([why](docs/DESIGN.md#sigils-rather-than-keywords),
 
 ## Why is `!` not logical negation?
 
-Because prefix `!` is a write borrow, and a sigil has one meaning.
-Negation is the word `not`, as in Python. `!v.push(x)` marks that
-`push` writes `v`; it never negates anything. Every place where the C,
-Rust, or Zig habit would change a program's meaning is a compile error
-instead: `if !done`, `!q.is_empty()`, and a `!` call returning a `Bool`
-without parentheses ([receiver sigils](SYNTAX.md#receiver-sigils-vpushx-and-pclose),
-[operators](SYNTAX.md#9-operators)).
+Because prefix `!` is a write borrow (`!v.push(x)` marks that `push`
+writes `v`), and a sigil has one meaning; negation is the word `not`.
+Where the C, Rust, or Zig habit would change a program's meaning, it is
+a compile error instead: `if !done`, `!q.is_empty()`, and a `!` call
+returning a `Bool` that starts a condition or is an operand of `and`,
+`or`, or `not` without parentheses
+([receiver sigils](SPEC.md#structs), [operators](SPEC.md#operators)).
 
 ## Why indentation?
 
@@ -72,9 +70,9 @@ it weakly (`|~owner|`).
 
 ## How do I share mutable state?
 
-Put it in a `Cell` behind a shared handle. Every holder can read and
-replace the value; nobody gets an exclusive reference that others could
-invalidate.
+Put it in a `Cell` behind a shared handle: every holder can read and
+replace the value, and nobody gets an exclusive reference that others
+could invalidate.
 
 ```rig
 sub main
@@ -112,12 +110,11 @@ one small reactive type in the runtime
 
 ## Why no traits or interfaces?
 
-Not yet. Traits bring a large design space (dispatch, coherence, trait
-objects), and any design has to keep ownership visible at call sites
-and in the IR; `trait`, `impl`, and `where` are reserved for it. Until then, Rig has methods, enums, `match`, and
-generic types and functions without bounds: a generic body may do with
-`T` whatever each instance supports, and each instance a program makes
-is checked, with an error at the call and a note at the body line
+Not yet: any design has to keep dispatch and ownership visible at call
+sites and in the IR, and `trait`, `impl`, and `where` are reserved for
+it. Until then, generics have no bounds: a generic body may do with `T`
+whatever each instance supports, and each instance a program makes is
+checked, with an error at the call and a note at the body line
 ([more](docs/DESIGN.md#per-instance-checking-instead-of-traits)).
 
 ## Why square brackets for generics?
@@ -133,7 +130,7 @@ Go uses for its generics ([more](docs/DESIGN.md#brackets-for-compile-time)).
 Yes: declare the function with `extern fun`, call it inside a `raw`
 block, and wrap that in a safe Rig function so callers need no `raw`.
 Only integers, floats, and `Bool` cross the boundary today
-([SPEC §16](SPEC.md#16-raw-code-and-ffi)).
+([SPEC §15](SPEC.md#15-raw-code-and-ffi)).
 
 ## Why Nexus instead of another parser generator?
 
