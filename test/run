@@ -133,8 +133,8 @@ check_reject() {
     # not the file paths, and not the source excerpts under them. Each
     # line of `msgs` is `L:C: message`; `# error: L:C: text` pins the
     # position too.
-    local want msgs pin
-    msgs=$(grep -E "$POS_RE" <<<"$out" | sed -E 's/^[^ ]*\.rig:([0-9]+:[0-9]+): (error|  note): /\1: /')
+    local want msgs pin count
+    msgs=$(sed -nE 's/^.*\.rig:([0-9]+:[0-9]+): (error|  note): /\1: /p' <<<"$out")
     while IFS= read -r want; do
         [[ -z "$want" ]] && continue
         pin=""
@@ -144,6 +144,16 @@ check_reject() {
             return 1
         fi
     done < <(directive error "$entry")
+    # `# errors: N` pins the number of errors, so a cascade fails the test.
+    want=$(directive errors "$entry" | head -1)
+    if [[ -n "$want" ]]; then
+        [[ $want =~ ^[0-9]+$ ]] || { REASON="\`# errors:\` takes a number, not \"$want\""; return 1; }
+        count=$(grep -cE '(^|\.rig:[0-9]+:[0-9]+: )error: ' <<<"$out")
+        if [[ $count -ne $want ]]; then
+            REASON="expected $want error(s), got $count: $(head -1 <<<"$out")"
+            return 1
+        fi
+    fi
     if ! grep -qE "$POS_RE" <<<"$out"; then
         REASON="diagnostic has no file:line:col: $(head -1 <<<"$out")"
         return 1

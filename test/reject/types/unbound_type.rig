@@ -5,3 +5,4 @@ sub main()
   print(x)
 
 # error: 4:6: use of unbound type `NopeType`
+# errors: 1

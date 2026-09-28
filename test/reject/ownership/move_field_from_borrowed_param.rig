@@ -19,3 +19,4 @@ sub main()
   print("back")
 
 # error: 14:8: cannot move out of `p.a`: `p` is borrowed; exchange it instead: `replace(!p.a, v)`
+# errors: 1

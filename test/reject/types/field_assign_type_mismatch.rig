@@ -9,3 +9,4 @@ sub main()
   print(u.name)
 
 # error: 8:12: type mismatch: expected `String`, got `Int`
+# errors: 1

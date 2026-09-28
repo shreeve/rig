@@ -22,7 +22,7 @@ emitted packages (see [Output](#output)).
 | Path | Contract |
 |---|---|
 | `test/behavior/<area>/<name>.rig` | `rig run` exits 0, no leaks, stdout equals the `# expect:` block |
-| `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text |
+| `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text (and, with `# errors: n`, exactly `n` errors) |
 | `test/known/<area>/<name>.rig` | a known bug, written as a behavior or reject test of the *correct* behavior |
 | `examples/<name>.rig` | curated showcase programs; same contract as `behavior/` |
 | `test/ir/<name>.rig` | raw and semantic IR snapshots (`<name>.raw.sexp`, `<name>.sem.sexp`) |
@@ -61,6 +61,9 @@ sub main
 - `# error: <text>` — makes the file a rejection test. Repeat the line to
   require several diagnostics. `# error: L:C: <text>` also requires the
   diagnostic to be at line `L`, column `C`.
+- `# errors: <n>` — the check must report exactly `n` errors (notes
+  aside), so a cascade of follow-on errors fails the test. Use it where
+  one mistake should get one error.
 - `# timeout: <seconds>` — raises this test's time limit above
   `RIG_TEST_TIMEOUT`, for a behavior test or CLI script that builds
   programs slowly when Zig's cache is cold.

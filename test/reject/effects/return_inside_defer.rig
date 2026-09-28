@@ -10,3 +10,4 @@ sub main()
   print(f(true))
 
 # error: 6:7: cannot `return` inside `defer`; the deferred code runs as the function exits
+# errors: 1

@@ -6,3 +6,4 @@ sub main()
 
 # error: 2:1: cannot read module `nope`
 # error: 2:1: no such file
+# errors: 1

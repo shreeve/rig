@@ -6,3 +6,4 @@ sub main()
   print(x)
 
 # error: 5:7: unterminated string
+# errors: 1

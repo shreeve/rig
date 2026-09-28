@@ -4,3 +4,4 @@ sub main()
   print(2 ** 3)
 
 # error: 4:11: `**` is not a Rig operator
+# errors: 1

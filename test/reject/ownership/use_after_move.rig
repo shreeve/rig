@@ -18,3 +18,4 @@ sub main()
   log(packet)
 
 # error: 18:7: use of `packet` after move
+# errors: 1

@@ -9,3 +9,4 @@ sub main()
   print(u.zzz)
 
 # error: 9:11: no field `zzz` on type `User`
+# errors: 1
