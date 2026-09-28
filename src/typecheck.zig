@@ -2927,6 +2927,10 @@ const Checker = struct {
         if (!operand.isKind(.member) and !operand.isKind(.index)) return ty;
         if (self.isPoison(ty) or self.ctx.types.get(ty) != .optional) return ty;
         try self.ctx.recordTake(e);
+        if (self.cellVecElementIn(operand) != null) {
+            try self.errAt(e, "an element of a Cell's Vec is read and written whole: copy it out with `c[i]`, then write `c[i] = none`", .{});
+            return ty;
+        }
         if (!try self.checkWritable(operand, e, "take")) return ty;
         const path = self.placePath(operand);
         const root = path.root orelse {
