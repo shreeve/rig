@@ -303,6 +303,8 @@ worker() {
 
 if [[ "${1:-}" == "--worker" ]]; then
     worker "$2" "$3"
+    # Whole seconds since this worker started, to schedule the next run.
+    printf '%s\t%s\n' "$2" "$SECONDS" >>"$RESULTS/durations"
     exit 0
 fi
 
@@ -506,9 +508,26 @@ if [[ -n "$DUPLICATES" ]]; then
     printf 'two tests have the id %s (a name.rig beside a name/ directory?)\n' $DUPLICATES >&2
     exit 1
 fi
+
+# Longest first, by each test's time in the last run that ran it, so the
+# run does not end waiting on one long test while the other jobs sit
+# idle. A test with no recorded time is guessed by kind: a CLI script
+# builds several programs; the rest take a second or less.
+DURATIONS="$OUTROOT/.durations"
+[[ -f "$DURATIONS" ]] || : >"$DURATIONS"
+awk -F'\t' -v OFS='\t' '
+    FILENAME == ARGV[1] { t[$1] = $2; next }
+    { d = ($1 in t) ? t[$1] : ($1 ~ /^cli\// ? 60 : 1); print d, FNR, $0 }
+' "$DURATIONS" "$LIST" | sort -t$'\t' -k1,1nr -k2,2n | cut -f3- >"$LIST.sorted"
+
 printf '%srunning %s tests (-j %s)%s\n' "$D" "$TOTAL" "$JOBS" "$X"
-while IFS=$'\t' read -r id path; do printf '%s\0%s\0' "$id" "$path"; done <"$LIST" |
+while IFS=$'\t' read -r id path; do printf '%s\0%s\0' "$id" "$path"; done <"$LIST.sorted" |
     xargs -0 -n 2 -P "$JOBS" "$SELF" --worker
+# Keep the times of the tests this run did not select.
+[[ -f "$RESULTS/durations" ]] &&
+    awk -F'\t' 'FILENAME == ARGV[1] { ran[$1] = 1; print; next } !($1 in ran)' \
+        "$RESULTS/durations" "$DURATIONS" >"$DURATIONS.new" &&
+    mv "$DURATIONS.new" "$DURATIONS"
 # A worker that died left no result.
 while IFS=$'\t' read -r id path; do
     [[ -f "$RESULTS/st/${id//\//__}" ]] || printf 'fail\t%s\tno result: the test runner died\n' "$id" >"$RESULTS/st/${id//\//__}"
