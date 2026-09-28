@@ -1360,6 +1360,7 @@ pub const Emitter = struct {
     fn emitIf(self: *Emitter, sexp: Sexp) Error!void {
         const cond = ir.If.cond(sexp);
         const else_ = ir.If.@"else"(sexp);
+        if (rig.isConditionJoin(cond)) return self.emitIfJoined(sexp);
         try self.w.writeAll("if ");
         if (cond.isKind(.as)) {
             try self.pushScope();
@@ -1372,6 +1373,82 @@ pub const Emitter = struct {
         if (else_ != .nil) {
             try self.w.writeAll(" else ");
             if (else_.isKind(.@"if")) try self.emitIf(else_) else try self.emitBranchStmt(else_);
+        }
+    }
+
+    /// The parts of a binding condition (`rig.bindsInCondition`), in order.
+    fn conditionParts(self: *Emitter, cond: Sexp) Error![]const Sexp {
+        var parts: std.ArrayListUnmanaged(Sexp) = .empty;
+        try self.collectParts(cond, &parts);
+        return parts.items;
+    }
+
+    fn collectParts(self: *Emitter, cond: Sexp, parts: *std.ArrayListUnmanaged(Sexp)) Error!void {
+        if (rig.isConditionJoin(cond)) {
+            try self.collectParts(ir.get(cond, .left), parts);
+            return self.collectParts(ir.get(cond, .right), parts);
+        }
+        try parts.append(self.arena.allocator(), cond);
+    }
+
+    /// One nested `if` per part of a binding condition, each opening its
+    /// block and binding its name (`emitCond`); `fail`, when given, is the
+    /// `else` of each. The caller closes them with `closeParts`.
+    fn openParts(self: *Emitter, parts: []const Sexp) Error!void {
+        for (parts, 0..) |p, i| {
+            if (i > 0) try self.writeIndent(self.indent);
+            try self.w.writeAll("if ");
+            const prelude = try self.emitCond(p);
+            try self.openBrace();
+            try self.emitPrelude(prelude);
+        }
+    }
+
+    fn closeParts(self: *Emitter, n: usize, fail: ?[]const u8) Error!void {
+        for (0..n) |i| {
+            try self.closeBrace();
+            if (fail) |f| try self.w.print(" else {s}", .{f});
+            if (i + 1 < n) try self.w.writeAll("\n");
+        }
+    }
+
+    /// Statement `if a as x and ...`: nested `if`s, one per part, sharing
+    /// one `else`, which a flag cleared on the way into the body selects.
+    ///
+    ///     {
+    ///         var __rig_else_N = true;
+    ///         if (a) |x| { if (x > 0) { __rig_else_N = false; ... } }
+    ///         if (__rig_else_N) { ... }
+    ///     }
+    fn emitIfJoined(self: *Emitter, sexp: Sexp) Error!void {
+        const parts = try self.conditionParts(ir.If.cond(sexp));
+        const else_ = ir.If.@"else"(sexp);
+        try self.pushScope();
+        var flag: ?[]const u8 = null;
+        if (else_ != .nil) {
+            flag = try self.fmt("__rig_else_{d}", .{self.nextId()});
+            try self.openBrace();
+            try self.line("var {s} = true;", .{flag.?});
+            try self.writeIndent(self.indent);
+        }
+        try self.openParts(parts);
+        if (flag) |f| try self.line("{s} = false;", .{f});
+        try self.emitStmts(try self.stmtsOf(ir.If.then(sexp)));
+        try self.closeParts(parts.len, null);
+        try self.popScope();
+        if (flag) |f| {
+            try self.w.writeAll("\n");
+            try self.writeIndent(self.indent);
+            try self.w.print("if ({s}) ", .{f});
+            if (else_.isKind(.@"if")) {
+                try self.openBrace();
+                try self.writeIndent(self.indent);
+                try self.emitIf(else_);
+                try self.w.writeAll("\n");
+                try self.closeBrace();
+            } else try self.emitBranchStmt(else_);
+            try self.w.writeAll("\n");
+            try self.closeBrace();
         }
     }
 
@@ -1449,6 +1526,7 @@ pub const Emitter = struct {
     fn emitWhile(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
         const cond = ir.While.cond(sexp);
         const step = ir.While.step(sexp);
+        if (rig.isConditionJoin(cond)) return self.emitWhileJoined(sexp, label);
         try self.writeLabel(label);
         try self.w.writeAll("while ");
         try self.pushScope();
@@ -1462,6 +1540,58 @@ pub const Emitter = struct {
         try self.emitBodyWith(ir.While.body(sexp), prelude);
         try self.popScope();
         try self.emitElse(ir.While.@"else"(sexp));
+    }
+
+    /// `while a as x and ...`: a `while (true)` whose body is the nested
+    /// `if`s of the parts, each leaving the loop when its part fails. A
+    /// loop `else` runs after the loop when a part ended it, which a flag
+    /// set there tells from a `break`.
+    ///
+    ///     {
+    ///         var __rig_ended_N = false;
+    ///         while (true) : (step) {
+    ///             if (a) |x| { ... } else { __rig_ended_N = true; break; }
+    ///         }
+    ///         if (__rig_ended_N) { ... }
+    ///     }
+    fn emitWhileJoined(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+        const parts = try self.conditionParts(ir.While.cond(sexp));
+        const step = ir.While.step(sexp);
+        const else_ = ir.While.@"else"(sexp);
+        const has_else = else_ != .nil and !sameNode(else_, self.value_else);
+        var fail: []const u8 = "break;";
+        var flag: []const u8 = "";
+        if (has_else) {
+            flag = try self.fmt("__rig_ended_{d}", .{self.nextId()});
+            fail = try self.fmt("{{ {s} = true; break; }}", .{flag});
+            try self.openBrace();
+            try self.line("var {s} = false;", .{flag});
+            try self.writeIndent(self.indent);
+        }
+        try self.writeLabel(label);
+        try self.w.writeAll("while (true) ");
+        if (step != .nil) {
+            try self.w.writeAll(": ({ ");
+            try self.emitStmt(step);
+            try self.w.writeAll(" }) ");
+        }
+        try self.openBrace();
+        try self.writeIndent(self.indent);
+        try self.pushScope();
+        try self.openParts(parts);
+        try self.emitStmts(try self.stmtsOf(ir.While.body(sexp)));
+        try self.closeParts(parts.len, fail);
+        try self.popScope();
+        try self.w.writeAll("\n");
+        try self.closeBrace();
+        if (has_else) {
+            try self.w.writeAll("\n");
+            try self.writeIndent(self.indent);
+            try self.w.print("if ({s}) ", .{flag});
+            try self.emitBranchStmt(else_);
+            try self.w.writeAll("\n");
+            try self.closeBrace();
+        }
     }
 
     /// The innermost loop used as a value with Rig label `label`, or the
@@ -2800,6 +2930,29 @@ pub const Emitter = struct {
         const cond = ir.If.cond(sexp);
         const else_ = ir.If.@"else"(sexp);
         if (else_ == .nil) return self.unsupported(sexp, "an `if` without `else` in value position");
+        if (rig.isConditionJoin(cond)) {
+            // A labeled block: the nested `if`s of the parts break out
+            // with the then-value; falling through, the `else` value.
+            const parts = try self.conditionParts(cond);
+            const label = try self.fmt("__rig_if_{d}", .{self.nextId()});
+            try self.w.print("{s}: ", .{label});
+            try self.openBrace();
+            try self.writeIndent(self.indent);
+            try self.pushScope();
+            try self.openParts(parts);
+            try self.writeIndent(self.indent);
+            try self.w.print("break :{s} ", .{label});
+            try self.emitValueBlock(ir.If.then(sexp), .{}, self.typeOf(sexp));
+            try self.w.writeAll(";\n");
+            try self.closeParts(parts.len, null);
+            try self.popScope();
+            try self.w.writeAll("\n");
+            try self.writeIndent(self.indent);
+            try self.w.print("break :{s} ", .{label});
+            try self.emitValueBlock(else_, .{}, self.typeOf(sexp));
+            try self.w.writeAll(";\n");
+            return self.closeBrace();
+        }
         try self.w.writeAll("if ");
         try self.pushScope();
         const prelude = try self.emitCond(cond);

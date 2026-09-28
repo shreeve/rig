@@ -656,6 +656,7 @@ logic    = left:logic OR right:conj                 → (or)
 conj     = left:conj AND right:neg                  → (and)
          | neg
 neg      = NOT operand:neg                          → (not)
+         | value:@infix AS name:name                → (as)
          | @infix
 
 # --- Paren-free calls ---------------------------------------------------------
@@ -686,14 +687,13 @@ cmdtail  = cmd
 # --- Control flow -------------------------------------------------------------
 
 # `if e as name` / `while e as name`: `e` is an optional; the body runs
-# with `name` bound to the value inside it.
-ifcond   = value
-         | value:value AS name:name                 → (as)
+# with `name` bound to the value inside it. `as` binds tighter than
+# `and`, so bindings and Bool conditions join into one condition:
+# `if a as x and x > 0 and b as y`. The checker takes `as` only there.
+if       = IF cond:value then:block [ELSE else:block] → (if)
+         | IF cond:value then:block ELSE else:if    → (if)
 
-if       = IF cond:ifcond then:block [ELSE else:block] → (if)
-         | IF cond:ifcond then:block ELSE else:if   → (if)
-
-while    = WHILE cond:ifcond [":" step:step] body:block [ELSE else:block] → (while)
+while    = WHILE cond:value [":" step:step] body:block [ELSE else:block] → (while)
 
 # A `while` step runs after each iteration: an assignment, or a call,
 # which may propagate its failure (the checker rejects other forms). A

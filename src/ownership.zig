@@ -2888,6 +2888,7 @@ pub const Checker = struct {
     fn walkIf(self: *Checker, node: Sexp) Error!Value {
         const t = self.takeTail(node);
         const cond = ir.If.cond(node);
+        if (rig.isConditionJoin(cond)) return self.walkIfJoined(node, t);
         const then_b = ir.If.then(node);
         const else_b = ir.If.@"else"(node);
         // `if expr as name`: the value inside the optional moves into
@@ -2912,6 +2913,50 @@ pub const Checker = struct {
         const s2 = try self.leave(base);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
+    }
+
+    /// `if a as x and ... ` (`rig.bindsInCondition`): the parts run in
+    /// order, each binding in a scope over the rest and the then-branch.
+    /// The `else` runs when a part fails, so it starts from the state
+    /// after the parts with their bindings gone.
+    fn walkIfJoined(self: *Checker, node: Sexp, t: ?Tail) Error!Value {
+        const then_b = ir.If.then(node);
+        const else_b = ir.If.@"else"(node);
+        const base = try self.here();
+        const depth = self.scopes.items.len;
+        try self.walkConditionParts(ir.If.cond(node), then_b);
+        const failed = try self.captureBelow(base, base.vars);
+        var v1 = try self.walkTailBranch(then_b, t);
+        while (self.scopes.items.len > depth) {
+            v1 = try self.checkValueEscapesScope(v1);
+            try self.popScope();
+        }
+        const s1 = try self.leave(base);
+        try self.apply(failed);
+        const v2 = if (else_b != .nil) try self.walkTailBranch(else_b, t) else Value{};
+        const s2 = try self.leave(base);
+        try self.apply(try self.join(s1, s2));
+        return self.valueUnion(v1, v2);
+    }
+
+    /// The parts of a binding condition, in order. Each `as` moves the
+    /// value inside its optional into a binding, in a new scope over
+    /// `body`, which the caller pops; the loans taken to compute the
+    /// value end there.
+    fn walkConditionParts(self: *Checker, cond: Sexp, body: Sexp) Error!void {
+        if (rig.isConditionJoin(cond)) {
+            try self.walkConditionParts(ir.get(cond, .left), body);
+            return self.walkConditionParts(ir.get(cond, .right), body);
+        }
+        if (!cond.isKind(.as)) {
+            _ = try self.walk(cond);
+            return;
+        }
+        const temps_start = self.temps.items.len;
+        const bound = try self.walkConsumed(ir.As.value(cond), .binding);
+        self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+        try self.pushScopeFor(.block, body);
+        try self.bindNew(ir.As.name(cond), false, false, bound);
     }
 
     /// `(catch expr name? handler)`: the handler runs when `expr` fails.
@@ -3046,6 +3091,8 @@ pub const Checker = struct {
         cond_always_true: bool = false,
         /// `while expr as name`: the binding the condition's value moves into.
         cond_binding: Sexp = .nil,
+        /// `while a as x and ...`: a condition of parts (`walkConditionParts`).
+        cond_joined: bool = false,
         cont: ?Sexp = null,
         body: Sexp,
         /// `for` loops: element bindings and the source loan.
@@ -3068,6 +3115,16 @@ pub const Checker = struct {
     }
 
     fn walkWhile(self: *Checker, node: Sexp) Error!Value {
+        if (rig.isConditionJoin(ir.While.cond(node))) {
+            const step = ir.While.step(node);
+            return self.walkLoop(.{
+                .node = node,
+                .cond = ir.While.cond(node),
+                .cond_joined = true,
+                .cont = if (step == .nil) null else step,
+                .body = ir.While.body(node),
+            });
+        }
         const as_cond = ir.While.cond(node).isKind(.as);
         const cond = if (as_cond) ir.As.value(ir.While.cond(node)) else ir.While.cond(node);
         const step = ir.While.step(node);
@@ -3181,6 +3238,18 @@ pub const Checker = struct {
         ctx.breaks.clearRetainingCapacity();
         ctx.conts.clearRetainingCapacity();
         ctx.value = .{};
+        if (spec.cond_joined) {
+            // The loop ends when a part fails, with the bindings before it
+            // gone.
+            const depth = self.scopes.items.len;
+            try self.walkConditionParts(spec.cond.?, spec.body);
+            const exit = try self.captureBelow(ctx.point, ctx.point.vars);
+            try self.walkStmt(spec.body);
+            while (self.scopes.items.len > depth) try self.popScope();
+            if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items);
+            if (spec.cont) |c| try self.walkStmt(c);
+            return .{ .back = try self.capture(ctx.point), .exit = exit };
+        }
         const bound: Value = if (spec.cond) |c| try self.walkStmtValue(c, if (spec.cond_binding != .nil) .binding else null) else .{};
         const exit: State = if (spec.cond_always_true) .{ .reachable = false } else try self.capture(ctx.point);
 

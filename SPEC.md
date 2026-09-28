@@ -2020,7 +2020,8 @@ medium
 ```
 
 Conditions must be `Bool`. `if e as name` tests an optional and binds
-its value ([§13](#13-optionals)).
+its value ([§13](#13-optionals)), and bindings join with `and`
+([Joined bindings](#joined-bindings)).
 
 ### Guards
 
@@ -3642,6 +3643,7 @@ expected, and `none` needs a known optional type.
 | `if ?a as x`, `if !a as x` | the same, with `x` borrowing the value inside `a` |
 | `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§8](#moves)) |
 | `while a as x` | repeat while `a` produces a value |
+| `if a as x and b as y`, `if a as x and x > 0` | bindings and `Bool` conditions joined by `and`; `else` runs when any fails |
 | `a?` | the value inside `a`; when `a` is `none`, the enclosing function returns `none` |
 
 Fields and methods are not reachable through an optional; take the
@@ -3669,46 +3671,6 @@ sub main
 ```output
 3 0
 8 0 true
-```
-
-The fallback of `??` may be a jump: `a ?? return v`, `a ?? return`,
-`a ?? break`, `a ?? break v`, or `a ?? continue`. When `a` is `none`
-the jump runs, exactly as the statement would: `return` is checked
-against the function's result, `break` and `continue` apply to the
-innermost loop (a jump here takes no label), and leaving drops what the
-scope owns. The jump takes the rest of the expression as its value,
-and the left side of `?? return` is the whole expression before it, as
-for `catch` (`a and b ?? return` is `(a and b) ?? return`). Anything
-else on the right of `??` is a value of the optional's type, so a bare
-error value is no fallback: `?? E.missing` is rejected, and failing is
-written `?? return E.missing` in a fallible function.
-
-```rig
-error E
-  missing
-
-fun find(xs: ?Vec[Int], k: Int) -> Int?
-  for x, i in xs
-    return i if x == k
-  none
-
-fun index_of(xs: ?Vec[Int], k: Int) -> Int!
-  i = find(xs, k) ?? return E.missing
-  i + 1
-
-sub main
-  xs: Vec[Int] = Vec()
-  for n in 1..4
-    !xs.push(n * 10)
-  total = 0
-  for k in [10, 15, 30]
-    i = find(?xs, k) ?? continue
-    total += i
-  print(total, index_of(?xs, 20) catch 0, index_of(?xs, 25) catch 0)
-```
-
-```output
-2 2 0
 ```
 
 `a?` mirrors `e!` ([§14](#14-errors)): it is allowed only in a
@@ -3798,6 +3760,100 @@ sub main
 
 ```error
 `User?`
+```
+
+### Joined bindings
+
+An `if` or `while` condition may join several bindings, and `Bool`
+conditions among them, with `and`: `if a as x and b as y`,
+`if a as x and x > 3`, `while !q.pop() as n and n > 0`. `as` binds
+tighter than `and`, and the parts run in order, each only when the ones
+before it held. Each binding is visible to the parts after it and to
+the body, not to `else`, which runs when any part fails (and a loop
+ends then). Each binding takes its own form: `if ?o as x and !p as y`
+borrows from both. A binding made before a part that fails is dropped
+before `else` runs. `as` stands nowhere else: not under `or` or `not`,
+and not in an expression.
+
+```rig
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+fun sum(a: Int, b: Int) -> Int
+  if get(a) as x and get(b) as y and x < y
+    x + y
+  else
+    0
+
+sub main
+  print(sum(1, 2), sum(2, 1), sum(0, 2))
+  xs: Vec[Int] = Vec()
+  for n in 1..6
+    !xs.push(n)
+  total = 0
+  while !xs.pop() as n and n > 2
+    total += n
+  print(total, xs.len)
+```
+
+```output
+3 0 0
+12 1
+```
+
+```rig reject
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  if get(1) as x or true
+    print(1)
+```
+
+```error
+`as` binds only in an `if` or `while` condition, alone or joined to the rest by `and`
+```
+
+### The fallback of `??`
+
+The fallback of `??` may be a jump: `a ?? return v`, `a ?? return`,
+`a ?? break`, `a ?? break v`, or `a ?? continue`. When `a` is `none`
+the jump runs, exactly as the statement would: `return` is checked
+against the function's result, `break` and `continue` apply to the
+innermost loop (a jump here takes no label), and leaving drops what the
+scope owns. The jump takes the rest of the expression as its value,
+and the left side of `?? return` is the whole expression before it, as
+for `catch` (`a and b ?? return` is `(a and b) ?? return`). Anything
+else on the right of `??` is a value of the optional's type, so a bare
+error value is no fallback: `?? E.missing` is rejected, and failing is
+written `?? return E.missing` in a fallible function.
+
+```rig
+error E
+  missing
+
+fun find(xs: ?Vec[Int], k: Int) -> Int?
+  for x, i in xs
+    return i if x == k
+  none
+
+fun index_of(xs: ?Vec[Int], k: Int) -> Int!
+  i = find(xs, k) ?? return E.missing
+  i + 1
+
+sub main
+  xs: Vec[Int] = Vec()
+  for n in 1..4
+    !xs.push(n * 10)
+  total = 0
+  for k in [10, 15, 30]
+    i = find(?xs, k) ?? continue
+    total += i
+  print(total, index_of(?xs, 20) catch 0, index_of(?xs, 25) catch 0)
+```
+
+```output
+2 2 0
 ```
 
 ---

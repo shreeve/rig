@@ -475,21 +475,34 @@ const SymbolResolver = struct {
         try self.walk(ir.For.@"else"(node));
     }
 
-    /// An `if` / `while`. A condition `(as expr name)` opens a scope
-    /// binding `name` over `bodies` (the branch or loop body the value
-    /// is present in); `else_` is outside it.
+    /// An `if` / `while`. Each `(as expr name)` in the condition opens a
+    /// scope binding `name` over the parts of the condition after it and
+    /// `bodies` (the branch or loop body the value is present in);
+    /// `else_` is outside them.
     fn walkConditional(self: *SymbolResolver, cond: Sexp, bodies: []const Sexp, else_: Sexp) Error!void {
-        if (cond.isKind(.as)) {
-            try self.walk(ir.As.value(cond));
-            const prev = try self.enter(cond, .block);
+        if (rig.bindsInCondition(cond)) {
+            const prev = self.scope;
             defer self.scope = prev;
-            if (try self.bindFresh(ir.As.name(cond), "optional binding")) |id| self.ctx.symbols.items[id].flags.as_bound = true;
+            try self.walkConditionParts(cond);
             for (bodies) |b| try self.walk(b);
         } else {
             try self.walk(cond);
             for (bodies) |b| try self.walk(b);
         }
         try self.walk(else_);
+    }
+
+    /// The parts of a binding condition, in order; each `as` enters the
+    /// scope of its binding, which the caller leaves.
+    fn walkConditionParts(self: *SymbolResolver, cond: Sexp) Error!void {
+        if (rig.isConditionJoin(cond)) {
+            try self.walkConditionParts(ir.get(cond, .left));
+            return self.walkConditionParts(ir.get(cond, .right));
+        }
+        if (!cond.isKind(.as)) return self.walk(cond);
+        try self.walk(ir.As.value(cond));
+        _ = try self.enter(cond, .block);
+        if (try self.bindFresh(ir.As.name(cond), "optional binding")) |id| self.ctx.symbols.items[id].flags.as_bound = true;
     }
 
     /// `(catch value name-or-_ handler)`.

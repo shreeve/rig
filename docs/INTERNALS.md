@@ -330,7 +330,10 @@ A few kinds serve more than one surface form:
   block that leaves (`orelse { return null; }`).
 - `if` is the block `if`, the ternary `a if c else b`, and the guard
   `stmt if c` (whose `then` is a block holding the statement); its
-  `cond` may be `(as value name)`, as may a `while`'s.
+  `cond` may be `(as value name)`, as may a `while`'s, or an `and`
+  chain with `as` parts, `(and (as a x) (> x 0))`, whose parts every
+  pass takes in order (`rig.bindsInCondition`); the emitter nests one
+  Zig `if` per part, sharing the `else`.
 - `set`'s `op` is `_` for `=`, `fixed` for `=!`, `shadow` for
   `new x =`, and the operator for a compound
   assignment.

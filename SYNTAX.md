@@ -2678,6 +2678,7 @@ expected.
 | `a == none` | test for absence | `a == null` |
 | `if a as x` | bind the value; `else` for `none` | `if (a) \|x\|` |
 | `while a as x` | loop while `a` has a value | `while (a) \|x\|` |
+| `if a as x and b as y`, `if a as x and x > 0` | bindings and conditions joined; `else` when any fails | nested `if`s |
 | `if ?a as x`, `if !a as x` | borrow the value in place | `if (a) \|*x\|` |
 | `a?` | the value, or return `none` from the function | `a orelse return null` |
 
@@ -2708,6 +2709,25 @@ sub main
 grace none
 grace
 true nobody
+```
+
+Bindings join with `and`, with plain conditions among them, where Rust
+needs `if let ... && let ...` and Zig nested `if`s. Each binding is
+visible to the parts after it and to the body:
+
+```rig
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  if get(3) as x and x > 2 and get(x - 1) as y
+    print(x, y)
+  else
+    print("no")
+```
+
+```output
+3 2
 ```
 
 The fallback may be a jump, as in Zig's `orelse return`: the common
@@ -3307,9 +3327,8 @@ command   = ["!" | "<"] postfix (expr | command), ...  # a paren-free call; only
                                                       # its last argument is a command
 
 expr      = if | while | for | match | closure | value
-if        = "if" cond block ["else" (block | if)]
-cond      = value | value "as" name
-while     = "while" cond [":" step] block ["else" block]
+if        = "if" value block ["else" (block | if)]
+while     = "while" value [":" step] block ["else" block]
 for       = "for" name ["," name] "in" ["?" | "!" | "<"] value block ["else" block]
 match     = "match" value INDENT (pattern ("=>" simple | block))* DEDENT
 pattern   = "." name ["(" name, ... ")"] | integer | "-" integer
@@ -3318,7 +3337,8 @@ closure   = ["*"] "|" (("+" | "<" | "~") name | name [":" type]), ... "|" (expr 
 value     = logic "if" logic "else" value | logic "catch" ["|" name "|"] (value | jump)
           | logic "??" jump | logic
 jump      = "return" [value] | "break" [value] | "continue"
-logic     = logic "or" logic | logic "and" logic | "not" logic | infix
+logic     = logic "or" logic | logic "and" logic | "not" logic
+          | infix "as" name | infix   # `as` only in an `if` or `while` condition
 infix     = unary (op unary)*          # precedence table in section 10
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~") unary | postfix
 postfix   = postfix ("." name | "[" expr, ... "]" | "[" [expr] ".." [expr] "]"

@@ -50,6 +50,24 @@ pub fn isModuleConst(decl: Sexp) bool {
     return (if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.set);
 }
 
+/// An `if` or `while` condition that binds: `a as x`, or parts joined by
+/// `and`, one of them `a as x`. `as` binds tighter than `and`, so
+/// `a as x and x > 0 and b as y` is
+/// `(and (and (as a x) (> x 0)) (as b y))`: its parts are the leaves of
+/// the left spine, checked in order, each binding visible to the parts
+/// after it and to the body.
+pub fn bindsInCondition(cond: Sexp) bool {
+    if (cond.isKind(.as)) return true;
+    if (!cond.isKind(.@"and")) return false;
+    return ir.get(cond, .right).isKind(.as) or bindsInCondition(ir.get(cond, .left));
+}
+
+/// Whether `cond` joins two parts of a binding condition: an `and` on
+/// its left spine.
+pub fn isConditionJoin(cond: Sexp) bool {
+    return cond.isKind(.@"and") and bindsInCondition(cond);
+}
+
 /// `x[...]`: an index, or compile-time arguments (sema tells which).
 pub fn isBracketList(e: Sexp) bool {
     return e.isKind(.index) or e.isKind(.inst);

@@ -1027,11 +1027,32 @@ const Checker = struct {
         return self.synthExpr(node);
     }
 
-    /// A Bool condition, or an optional binding `(as expr name)`, which
-    /// enters the scope binding `name`; the caller restores the scope.
+    /// A Bool condition, or one that binds (`rig.bindsInCondition`): its
+    /// parts in order, each `(as expr name)` entering the scope that
+    /// binds `name`; the caller restores the scope.
     fn checkCondition(self: *Checker, cond: Sexp) Error!void {
+        if (rig.isConditionJoin(cond)) {
+            try self.checkCondition(ir.get(cond, .left));
+            try self.checkCondition(ir.get(cond, .right));
+            return self.ctx.recordType(cond, self.t().bool_id);
+        }
         if (cond.isKind(.as)) return self.checkOptionalBinding(cond);
         return self.checkBoolOperand(cond);
+    }
+
+    /// The step of `while cond: step` cannot use an owning binding of
+    /// `cond`: the body drops it before the step runs.
+    fn checkStepUses(self: *Checker, cond: Sexp, step: Sexp) Error!void {
+        if (rig.isConditionJoin(cond)) {
+            try self.checkStepUses(ir.get(cond, .left), step);
+            return self.checkStepUses(ir.get(cond, .right), step);
+        }
+        if (!cond.isKind(.as)) return;
+        const b = self.ctx.symbolOf(ir.As.name(cond)) orelse return;
+        const sym = self.ctx.symbols.items[b];
+        if (findUse(self.ctx, step, b)) |use| if (try self.ownsResource(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
+            try self.errAt(use, "the loop step cannot use `{s}`: it owns a `{s}`, which the body drops before the step runs", .{ sym.name, try self.tyName(sym.ty) });
+        };
     }
 
     /// A Bool where a leading `!` reads as negation: a condition, or an
@@ -1133,13 +1154,7 @@ const Checker = struct {
             try self.errAt(step, "a `while` step is an assignment or a call", .{});
         } else if (step != .nil) {
             try self.checkStmt(step);
-            // The body drops an owning `as` binding before the step runs.
-            if (cond.isKind(.as)) if (self.ctx.symbolOf(ir.As.name(cond))) |b| {
-                const sym = self.ctx.symbols.items[b];
-                if (findUse(self.ctx, step, b)) |use| if (try self.ownsResource(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
-                    try self.errAt(use, "the loop step cannot use `{s}`: it owns a `{s}`, which the body drops before the step runs", .{ sym.name, try self.tyName(sym.ty) });
-                };
-            };
+            try self.checkStepUses(cond, step);
         }
         try self.checkStmt(ir.While.body(node));
         self.scope = prev;
@@ -1849,6 +1864,11 @@ const Checker = struct {
             .@"break", .@"continue" => blk: {
                 try self.checkStmt(e);
                 break :blk self.t().noreturn_id;
+            },
+            .as => blk: {
+                try self.errAt(e, "`as` binds only in an `if` or `while` condition, alone or joined to the rest by `and`", .{});
+                _ = try self.synthExpr(ir.As.value(e));
+                break :blk self.t().invalid_id;
             },
             .kwarg => blk: {
                 try self.errAt(e, "`name: value` is only allowed as a call argument", .{});
