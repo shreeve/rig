@@ -832,7 +832,12 @@ one), whose root stays borrowed while a payload binding views it (a
 write borrow for `match !x`, whose bindings write through like a local
 write borrow); moving a payload out of a match that reads its subject
 is rejected. `match <x` moves `x` first, and its bindings are owned
-vars holding what `x` held. Loops
+vars holding what `x` held. A guard that fails runs on the way to
+the later arms: they, and the path where no arm runs, start from the
+join of the entry state with what each failed guard left. That path,
+like the one where a part of `if a as x and ...` fails, leaves the
+scope of the bindings, so a borrow of one stored in a surviving value
+is reported as a jump out of the scope would be. Loops
 iterate to a fixpoint over the back edge: the loop-head state joins the
 entry, the end of the body, and every `continue`; the state after the
 loop joins the exit condition with every `break`. A loop's `else` is

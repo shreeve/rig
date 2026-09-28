@@ -38,7 +38,9 @@
 //! ------------
 //! * `if`, `match`, ternaries, `catch` and `??` walk every branch from the
 //!   same entry state and `join` the results: a value moved or dropped on any
-//!   path is moved or dropped afterwards, and loans are unioned. A match
+//!   path is moved or dropped afterwards, and loans are unioned. A guard
+//!   that fails runs on the way to the later arms, which start from the
+//!   join of the entry state with what each failed guard left. A match
 //!   without a catch-all arm also joins the state where no arm ran.
 //! * Loops iterate to a fixpoint over the back edge: the loop-head state
 //!   is the join of the entry state, the end of the body and every
@@ -3047,6 +3049,9 @@ pub const Checker = struct {
         const scrut_value = try self.walk(scrut);
 
         const base = try self.here();
+        // The state an arm starts from: the entry state joined with what
+        // each failed guard before it left.
+        var start = stateAt(base);
         var acc: ?State = null;
         var value: Value = .{};
         var catch_all = false;
@@ -3054,14 +3059,17 @@ pub const Checker = struct {
             const pattern = ir.Arm.pattern(arm);
             const guard = ir.Arm.guard(arm);
             const body = ir.Arm.body(arm);
+            try self.apply(start);
             try self.pushScopeFor(.block, arm);
             // A guarded arm may not run for the values its pattern
-            // matches. The guard reads; the borrows it takes end with it.
+            // matches. The borrows the guard takes end with it.
             if (try self.bindPattern(pattern, info, scrut_value) and guard == .nil) catch_all = true;
+            var failed: ?State = null;
             if (guard != .nil) {
                 const temps_start = self.temps.items.len;
                 _ = try self.walk(guard);
                 self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+                failed = try self.leaveTo(base);
             }
             var v = try self.walkTailBranch(body, tail_ctx);
             v = try self.checkValueEscapesScope(v);
@@ -3069,10 +3077,11 @@ pub const Checker = struct {
             value = try self.valueUnion(value, v);
             const s = try self.leave(base);
             acc = if (acc) |a| try self.join(a, s) else s;
+            if (failed) |f| start = try self.join(start, f);
         }
         // Without a catch-all arm, no arm may run.
-        if (!catch_all) acc = if (acc) |a| try self.join(a, stateAt(base)) else stateAt(base);
-        try self.apply(acc orelse stateAt(base));
+        if (!catch_all) acc = if (acc) |a| try self.join(a, start) else start;
+        try self.apply(acc orelse start);
         return value;
     }
 
