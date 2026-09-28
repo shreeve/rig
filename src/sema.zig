@@ -484,6 +484,67 @@ pub const Scope = struct {
 
 pub const Diagnostic = diag.Diagnostic;
 
+/// The name offered so far that is closest to `name`, a name not found:
+/// within one edit for a short name and two for a longer one (a swap
+/// of neighbors is one edit), so a typo finds its name and little else.
+pub const Suggest = struct {
+    name: []const u8,
+    best: ?[]const u8 = null,
+    dist: usize = std.math.maxInt(usize),
+
+    /// `; did you mean `best`?`, or nothing.
+    pub fn hint(s: Suggest, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
+        const best = s.best orelse return "";
+        return std.fmt.allocPrint(a, "; did you mean `{s}`?", .{best});
+    }
+
+    pub fn offer(s: *Suggest, candidate: []const u8) void {
+        if (candidate.len == 0 or std.mem.eql(u8, candidate, s.name) or std.mem.eql(u8, candidate, "_")) return;
+        const limit: usize = if (s.name.len >= 6) 2 else 1;
+        const d = editDistance(s.name, candidate, limit) orelse return;
+        if (d < s.dist) {
+            s.best = candidate;
+            s.dist = d;
+        }
+    }
+};
+
+/// The edit distance from `a` to `b` counting a swap of neighbors as one
+/// edit, or null when it is over `limit` (or a name is long).
+fn editDistance(a: []const u8, b: []const u8, limit: usize) ?usize {
+    const max = 32;
+    if (a.len > max or b.len > max) return null;
+    if ((if (a.len > b.len) a.len - b.len else b.len - a.len) > limit) return null;
+    // Row `i` of the table is `rows[i % 3]`: this one and two back.
+    var rows: [3][max + 1]usize = undefined;
+    for (0..b.len + 1) |j| rows[0][j] = j;
+    for (1..a.len + 1) |i| {
+        const cur = &rows[i % 3];
+        const prev = &rows[(i + 2) % 3];
+        const back = &rows[(i + 1) % 3];
+        cur[0] = i;
+        for (1..b.len + 1) |j| {
+            const cost: usize = if (a[i - 1] == b[j - 1]) 0 else 1;
+            var d = @min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+            if (i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]) d = @min(d, back[j - 2] + 1);
+            cur[j] = d;
+        }
+    }
+    const d = rows[a.len % 3][b.len];
+    return if (d <= limit) d else null;
+}
+
+test "suggest: a typo finds its name" {
+    var s: Suggest = .{ .name = "totla" };
+    for ([_][]const u8{ "total", "tot", "table", "x" }) |c| s.offer(c);
+    try std.testing.expectEqualStrings("total", s.best.?);
+    var t: Suggest = .{ .name = "Foo" };
+    for ([_][]const u8{ "Box", "Vec" }) |c| t.offer(c);
+    try std.testing.expect(t.best == null);
+    try std.testing.expectEqual(@as(?usize, 1), editDistance("ab", "ba", 1));
+    try std.testing.expectEqual(@as(?usize, 2), editDistance("counter", "conuter2", 2));
+}
+
 // =============================================================================
 // Facts
 // =============================================================================
@@ -1036,6 +1097,21 @@ pub const SemContext = struct {
             sid = self.scopes.items[s].parent;
         }
         return null;
+    }
+
+    /// Offer `s` each name visible from `from_scope` at `pos` whose
+    /// symbol `keep` accepts, for a diagnostic's "did you mean".
+    pub fn offerVisible(self: *const SemContext, s: *Suggest, from_scope: ScopeId, pos: u32, keep: *const fn (Symbol) bool) void {
+        var sid: ?ScopeId = from_scope;
+        while (sid) |id| {
+            if (id == scope_invalid or id >= self.scopes.items.len) break;
+            for (self.scopes.items[id].symbols.items) |sym_id| {
+                const sym = self.symbols.items[sym_id];
+                if (id != module_scope and sym.kind == .local and sym.decl_pos > pos) continue;
+                if (keep(sym)) s.offer(sym.name);
+            }
+            sid = self.scopes.items[id].parent;
+        }
     }
 
     /// Like `lookup`, but stops at the nearest function or lambda

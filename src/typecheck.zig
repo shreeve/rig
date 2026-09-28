@@ -740,8 +740,9 @@ const Checker = struct {
         }
 
         const s = &self.ctx.symbols.items[sym_id];
-        // A rejected annotation leaves the binding without a type.
-        if (s.ty == self.t().unknown_id) s.ty = if (type_node != .nil and self.isPoison(declared)) self.t().invalid_id else rhs_ty;
+        // A rejected annotation or initializer leaves the binding without
+        // a type, which later uses do not report again.
+        if (s.ty == self.t().unknown_id) s.ty = if ((type_node != .nil and self.isPoison(declared)) or rhs_ty == self.t().unknown_id) self.t().invalid_id else rhs_ty;
         if (is_decl and s.scope == self.module_scope and sema.holdsCallable(self.ctx, s.ty)) {
             try self.errAt(target, "a borrowed callable `{s}` lives only as long as what it borrows, so it cannot be a module-level binding", .{try self.tyName(s.ty)});
             s.ty = self.t().invalid_id;
@@ -2197,8 +2198,61 @@ const Checker = struct {
                 return null;
             };
         }
-        try self.errAt(leaf, "use of unbound name `{s}`", .{name});
+        try self.errAt(leaf, "use of unbound name `{s}`{s}", .{ name, try self.unboundHint(leaf, name) });
         return null;
+    }
+
+    /// The member of `members` a name not found among them is a typo
+    /// of: a data field, a method, or (called through the type) a
+    /// method or variant.
+    fn memberHint(self: *Checker, members: []const Field, name: []const u8, want: MemberKind) Error![]const u8 {
+        return memberSuggest(members, name, want).hint(self.ctx.arena.allocator());
+    }
+
+    const MemberKind = enum { field, method, associated };
+
+    fn memberSuggest(members: []const Field, name: []const u8, want: MemberKind) sema.Suggest {
+        var s: sema.Suggest = .{ .name = name };
+        for (members) |m| {
+            if (m.is_drop_method) continue;
+            const ok = switch (want) {
+                .field => !m.is_method and !m.is_variant,
+                .method => m.is_method,
+                .associated => m.is_method or m.is_variant,
+            };
+            if (ok) s.offer(m.name);
+        }
+        return s;
+    }
+
+    /// What a name not found here was likely meant as: another
+    /// language's spelling of a Rig one, or a visible name it is a typo
+    /// of.
+    fn unboundHint(self: *Checker, leaf: Sexp, name: []const u8) Error![]const u8 {
+        const Other = struct { []const u8, []const u8 };
+        const others = [_]Other{
+            .{ "null", "; Rig's absent value is `none`" },
+            .{ "nil", "; Rig's absent value is `none`" },
+            .{ "None", "; Rig's absent value is `none`" },
+            .{ "NULL", "; Rig's absent value is `none`" },
+            .{ "True", "; Rig writes `true`" },
+            .{ "False", "; Rig writes `false`" },
+            .{ "this", "; a method's receiver is `self`, declared as `(?self)`, `(!self)`, or `(<self)`" },
+            .{ "self", "; `self` is the receiver of a method that declares one: `(?self)`, `(!self)`, or `(<self)`" },
+            .{ "len", "; a length is a member: `x.len`" },
+            .{ "println", "; Rig prints a line with `print(...)`" },
+            .{ "puts", "; Rig prints a line with `print(...)`" },
+            .{ "printf", "; Rig prints a line with `print(...)`" },
+        };
+        for (others) |o| if (std.mem.eql(u8, name, o[0])) return o[1];
+        var s: sema.Suggest = .{ .name = name };
+        self.ctx.offerVisible(&s, self.scope, leaf.src.pos, struct {
+            fn keep(sym: sema.Symbol) bool {
+                return sym.decl_pos != sema.builtin_decl_pos or sym.kind != .local;
+            }
+        }.keep);
+        for ([_][]const u8{ "true", "false", "print" }) |w| s.offer(w);
+        return s.hint(self.ctx.arena.allocator());
     }
 
     /// The binding `name` denotes at `pos` among those declared directly
@@ -3329,7 +3383,7 @@ const Checker = struct {
         } else if (owner.fields == null) {
             try self.err(pos, "opaque type `{s}` has no accessible fields", .{owner.name});
         } else {
-            try self.err(pos, "no field `{s}` on type `{s}`", .{ field, owner.name });
+            try self.err(pos, "no field `{s}` on type `{s}`{s}", .{ field, owner.name, try self.memberHint(owner.fields.?, field, .field) });
             try self.noteDeclared(owner, decl.module_id == null);
         }
         return self.t().invalid_id;
@@ -5589,6 +5643,10 @@ const Checker = struct {
         }
         var seen: std.StringHashMapUnmanaged(u32) = .empty;
         defer seen.deinit(self.ctx.allocator);
+        // The fields an unknown name was likely meant as, which are not
+        // reported missing too.
+        var meant: std.StringHashMapUnmanaged(void) = .empty;
+        defer meant.deinit(self.ctx.allocator);
         for (args) |a| {
             const value = ir.Kwarg.value(a);
             const fname = self.text(ir.Kwarg.name(a));
@@ -5601,7 +5659,9 @@ const Checker = struct {
             }
             try seen.put(self.ctx.allocator, fname, fpos);
             const f = findDataField(fields, fname) orelse {
-                try self.err(fpos, "no field `{s}` on {s} `{s}`", .{ fname, if (info.kind == .constructor) "type" else "variant", info.owner });
+                const likely = memberSuggest(fields, fname, .field);
+                if (likely.best) |b| try meant.put(self.ctx.allocator, b, {});
+                try self.err(fpos, "no field `{s}` on {s} `{s}`{s}", .{ fname, if (info.kind == .constructor) "type" else "variant", info.owner, try likely.hint(self.ctx.arena.allocator()) });
                 if (info.foreign == null and info.decl_pos < sema.imported_decl_pos and info.decl_pos != 0) try self.ctx.noteIn(info.module_id, info.decl_pos, "`{s}` declared here", .{info.owner});
                 _ = try self.synthExpr(value);
                 continue;
@@ -5611,7 +5671,7 @@ const Checker = struct {
             try self.checkLendsVisibly(value, ty, "the field writes through");
         }
         for (fields) |f| {
-            if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name)) continue;
+            if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name) or meant.contains(f.name)) continue;
             try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
             if (info.foreign == null and f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(info.module_id, f.decl_pos, "field `{s}` declared here", .{f.name});
         }
@@ -5767,7 +5827,7 @@ const Checker = struct {
                 try self.err(pos, "a `{s}` reaches no methods of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.unbox()`", .{ try self.tyName(peeled), shown, shown, shown });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
-                try self.err(pos, "no method `{s}` on type `{s}`", .{ method, sym.name });
+                try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, try self.memberHint(sym.fields orelse &.{}, method, .method) });
                 try self.noteDeclared(sym, decl.module_id == null);
             } else if (self.ctx.types.get(peeled) == .weak) {
                 try self.weakReach(obj, peeled, pos);
@@ -6127,7 +6187,7 @@ const Checker = struct {
             try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
             return ty;
         }
-        try self.err(pos, "no method `{s}` on type `{s}`", .{ name, tname });
+        try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ name, tname, try self.memberHint(nt.sym.fields orelse &.{}, name, .associated) });
         try self.noteDeclared(nt.sym, nt.foreign == null);
         return self.skipCall(args);
     }
