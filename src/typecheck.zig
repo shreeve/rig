@@ -873,9 +873,22 @@ const Checker = struct {
             }
             return self.checkExpr(rhs, place_ty);
         }
+        // A field or element holding a `!T` is written through when it is
+        // given a `T` (or a compound assignment), as a `!T` binding is;
+        // given a `!T`, it is pointed elsewhere.
+        const through = try self.placeWritesThrough(place_ty, kind, rhs);
+        if (through and !(try self.checkUsesWriteBorrow(target, "write with"))) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
         if (!(try self.checkWritable(target, target, "assign to"))) {
             _ = try self.synthExpr(rhs);
             return;
+        }
+        if (through) {
+            const inner = sema.unwrapBorrows(self.ctx, place_ty);
+            if (kind.operator() != null) return self.checkCompound(kind, inner, rhs, self.startOf(target), "this place has type");
+            return self.checkExpr(rhs, inner);
         }
         if (try self.assignsIntoTemporary(target)) {
             _ = try self.synthExpr(rhs);
@@ -887,6 +900,18 @@ const Checker = struct {
         }
         if (kind.operator() != null) return self.checkCompound(kind, place_ty, rhs, self.startOf(target), "this place has type");
         try self.checkExpr(rhs, place_ty);
+    }
+
+    /// Whether assigning `rhs` to a place of type `place_ty` writes
+    /// through the `!T` the place holds: a compound assignment does, and
+    /// so does a value that is not itself a `!T`. (A `![]T` views
+    /// elements it does not own, and is never written whole.)
+    fn placeWritesThrough(self: *Checker, place_ty: TypeId, kind: rig.BindingKind, rhs: Sexp) Error!bool {
+        if (!sema.assignWritesThrough(self.ctx, place_ty) or sema.writeSliceElem(self.ctx, place_ty) != null) return false;
+        if (kind.operator() != null) return true;
+        if (rhs.isKind(.write)) return false;
+        const ty = try self.argType(rhs);
+        return self.ctx.types.get(ty) != .borrow_write;
     }
 
     /// `x op= e` is `x = x op e` with `x` evaluated once, and `x` keeps its
@@ -1060,15 +1085,19 @@ const Checker = struct {
 
     /// A write borrow held in a field or element (`b.t` with `t: !T`) is
     /// lent by `!b.t`, and by the place itself where a value holding a
-    /// write borrow is expected. Reached through a `?T` or `*T`, it is
-    /// read-only like the rest of what that path reaches: other borrows
-    /// or handles may reach the same write borrow. False after a
-    /// diagnostic.
+    /// write borrow is expected, and written with by `b.t = v` and
+    /// `b.t += v`. Reached through a `?T` or `*T`, it is read-only like
+    /// the rest of what that path reaches: other borrows or handles may
+    /// reach the same write borrow. False after a diagnostic.
     fn checkLendsWriteBorrow(self: *Checker, place: Sexp) Error!bool {
+        return self.checkUsesWriteBorrow(place, "lend");
+    }
+
+    fn checkUsesWriteBorrow(self: *Checker, place: Sexp, verb: []const u8) Error!bool {
         if (!place.isKind(.member) and !place.isKind(.index)) return true;
         const path = self.placePath(place);
         if (path.shared) {
-            try self.errAt(place, "cannot lend the write borrow held here through a shared handle (`*T`); other handles reach the same write borrow", .{});
+            try self.errAt(place, "cannot {s} the write borrow held here through a shared handle (`*T`); other handles reach the same write borrow", .{verb});
             return false;
         }
         if (path.read_only) |ro| {
@@ -1077,11 +1106,11 @@ const Checker = struct {
                 .string => "a String, which is read-only",
                 .len => "`.len`, which is read-only",
             };
-            try self.err(ro.pos, "cannot lend the write borrow held here through {s}", .{through});
+            try self.err(ro.pos, "cannot {s} the write borrow held here through {s}", .{ verb, through });
             return false;
         }
         if (path.read_borrow) |pos| {
-            try self.err(pos, "cannot lend the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow", .{});
+            try self.err(pos, "cannot {s} the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow", .{verb});
             return false;
         }
         return true;
@@ -6731,8 +6760,9 @@ const Checker = struct {
             }
         }
         // A place where a borrow of it is expected: the sigil is missing.
+        // (A literal is no place to lend.)
         switch (self.ctx.types.get(expected)) {
-            .borrow_read, .borrow_write => |inner| if (isStoragePath(e) and compatible(self.ctx, actual, inner)) {
+            .borrow_read, .borrow_write => |inner| if (isStoragePath(e) and self.ctx.symbolOf(pathRoot(e)) != null and compatible(self.ctx, actual, inner)) {
                 const write = self.ctx.types.get(expected) == .borrow_write;
                 return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; lend a {s} borrow: `{c}{s}`", .{ try self.tyName(expected), try self.tyName(actual), if (write) "write" else "read", @as(u8, if (write) '!' else '?'), self.sourceText(e) });
             },
@@ -8085,6 +8115,13 @@ fn isStoragePath(e: Sexp) bool {
     if (e.isKind(.member)) return isStoragePath(ir.Member.object(e));
     if (e.isKind(.index) and !rig.isRangeIndex(e)) return isStoragePath(ir.Index.object(e));
     return false;
+}
+
+/// The leaf a storage path starts from: `v` in `v.a[i].b`.
+fn pathRoot(e: Sexp) Sexp {
+    var p = e;
+    while (p.isKind(.member) or p.isKind(.index)) p = ir.get(p, .object);
+    return p;
 }
 
 /// A name or a chain of fields off one: `v`, `t.kids`, `a.b.c`.

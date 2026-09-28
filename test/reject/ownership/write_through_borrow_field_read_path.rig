@@ -1,0 +1,23 @@
+# Writing through a `!T` field changes what the field borrows, so the
+# path to the field must allow writing: a read borrow of the struct
+# does not, since other read borrows may reach the same write borrow.
+
+struct H
+  w: !Int
+
+sub peek(h: ?H)
+  h.w += 1
+  h.w = 2
+
+sub main
+  n = 1
+  h = H(w: !n)
+  peek(?h)
+  r = ?h
+  r.w += 1
+  print(r.w)
+
+# error: 9:3: cannot write with the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
+# error: 10:3: cannot write with the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
+# error: 17:3: cannot write with the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
+# errors: 3

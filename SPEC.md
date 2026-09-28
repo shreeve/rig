@@ -2727,13 +2727,16 @@ A write borrow is assignable, whether a `!T` parameter or a local
 holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
 borrowed value (the old value is dropped first). A new binding points
 a name at another place: `new w = !m` (`w = !m` is rejected, since it
-would write through `w`). A write borrow can be lent on, written `!p`
+would write through `w`). A field of type `!T` reads and writes
+through the same way: `h.w = 5` and `h.w += 1` write the value `h.w`
+borrows, while assigning another write borrow, `h.w = !m`, points the
+field at `m`. A write borrow can be lent on, written `!p`
 as an owned value's borrow is, or moved into a local with `<p`, but not
 copied. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
-that path reaches: it cannot be passed on from there, and a `match`
-through one cannot bind it. A loop walks elements holding write borrows
-with `for x in !xs`.
+that path reaches: it cannot be written with or passed on from there,
+and a `match` through one cannot bind it. A loop walks elements
+holding write borrows with `for x in !xs`.
 
 ```rig
 struct Counter
@@ -2772,6 +2775,46 @@ sub main
 
 ```output
 6 20
+```
+
+```rig
+struct Tally
+  count: !Int
+
+  sub add(!self, k: Int)
+    self.count += k
+
+sub main
+  n = 0
+  m = 100
+  t = Tally(count: !n)
+  t.count += 1
+  !t.add(2)
+  t.count = t.count * 10
+  t.count = !m
+  t.count += 1
+  print(n, m)
+```
+
+```output
+30 101
+```
+
+```rig reject
+struct Tally
+  count: !Int
+
+sub peek(t: ?Tally)
+  t.count += 1
+
+sub main
+  n = 0
+  t = Tally(count: !n)
+  peek(?t)
+```
+
+```error
+cannot write with the write borrow held here through a read borrow (`?T`)
 ```
 
 A `!x` borrow needs a binding that may change: a parameter (other than

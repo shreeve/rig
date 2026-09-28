@@ -1178,7 +1178,11 @@ pub const Emitter = struct {
     /// Assignment to a field or element. When the place may hold a
     /// resource, the old value is dropped after the new one is computed.
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
-        const place_ty = self.typeOf(target);
+        // A field or element holding a write borrow is written through
+        // when it is given a value, not another write borrow; the place
+        // is then the value it borrows.
+        const through = self.isPtrBorrowExpr(target) and !self.isPtrBorrowExpr(value);
+        const place_ty = if (through) self.peelBorrows(self.typeOf(target).?) else self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
             try self.emitCellPtr(ir.Index.object(target));
             try self.w.writeAll(".vecSet(");
@@ -1187,7 +1191,7 @@ pub const Emitter = struct {
             try self.emitBare(value);
             return self.w.writeAll(");");
         };
-        if (target != .src and self.isPtrBorrowExpr(target)) {
+        if (target != .src and self.isPtrBorrowExpr(target) and !through) {
             // A field or element holding a write borrow is rebound.
             try self.emitBorrowValue(target);
             try self.w.writeAll(" = ");
