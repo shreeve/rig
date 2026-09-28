@@ -1,0 +1,25 @@
+# A jump fallback ends a chain of `??`: `a ?? b ?? return v` tries `a`,
+# then `b`, and leaves when both are `none`.
+
+fun f(a: Int?, b: Int?) -> Int
+  a ?? b ?? return -1
+
+fun g(a: Int?, b: Int?, c: Int?) -> Int
+  n = a ?? b ?? c ?? return 0
+  n * 10
+
+fun odd(k: Int) -> Int?
+  k if k % 2 == 1 else none
+
+sub main
+  print(f(none, 2), f(none, none), f(1, none))
+  print(g(none, none, 3), g(none, none, none), g(1, 2, 3))
+  total = 0
+  for k in 0..4
+    total += odd(k) ?? odd(k + 2) ?? continue
+  print(total)
+
+# expect:
+# 2 -1 1
+# 30 0 10
+# 4

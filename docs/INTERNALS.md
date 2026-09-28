@@ -201,6 +201,9 @@ that need to inspect the tree:
 - a `-name` statement whose value is used (the last line of a `fun`, or
   of a branch or arm whose value is used) becomes `(neg name)` instead
   of `(drop name)`;
+- a jump fallback moves to the nearest `??` of the chain before it:
+  `(?? (?? a b) (return v))` becomes `(?? a (?? b (return v)))`, since
+  the grammar reads the jump after the whole chain;
 - a `!` or `<` before a place (a name and the fields and elements after
   it) followed by a method call moves onto the place, the method's
   receiver: `!x.v.push(1)` parses as

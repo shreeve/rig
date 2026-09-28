@@ -1486,6 +1486,9 @@ pub const Parser = struct {
     //     the last statement of a `fun` body, or of a branch, arm, or
     //     `catch` handler whose value is used, becomes (neg name). (A
     //     closure has no declared result, so its body is not rewritten.)
+    //   * a jump fallback belongs to the nearest `??` (the grammar reads
+    //     it at the level of `catch`, after the chain before it):
+    //       (?? (?? a b) (return v))  →  (?? a (?? b (return v)))
     //   * `!` or `<` before a place followed by a method call is the
     //     receiver's mode:
     //       (write (call (member (member x v) push) 1))  →  (call (member (write (member x v)) push) 1)
@@ -1509,6 +1512,7 @@ pub const Parser = struct {
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         switch (out.kind() orelse return out) {
             .lambda => try self.splitBars(out, walked),
+            .@"??" => return self.nearestFallback(out),
             .write, .move => return self.receiverSigil(out),
             .share, .weak => try self.noteParenSuffix(out),
             // The body's value is returned.
@@ -1519,6 +1523,34 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// `a ?? b ?? return v`: the grammar reads a jump fallback after the
+    /// whole chain before it, `(a ?? b) ?? return v`; `??` is
+    /// right-associative, so the jump goes to the innermost right side,
+    /// `a ?? (b ?? return v)`. A parenthesized left side keeps its
+    /// grouping: it starts after the node that holds it.
+    fn nearestFallback(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+        const right = ir.@"??".right(node);
+        switch (right.kind() orelse return node) {
+            .@"return", .@"break", .@"continue" => {},
+            else => return node,
+        }
+        const left = ir.@"??".left(node);
+        if (!left.isKind(.@"??") or self.span(left).start != self.span(node).start) return node;
+        return self.attachFallback(left, right);
+    }
+
+    /// `chain ?? jump`, the jump attached to the last right side of the
+    /// `??` chain that is not parenthesized.
+    fn attachFallback(self: *Parser, chain: Sexp, jump: Sexp) std.mem.Allocator.Error!Sexp {
+        const inner = ir.@"??".right(chain);
+        const grouped = !inner.isKind(.@"??") or self.span(inner).end != self.span(chain).end;
+        const new_right = if (grouped)
+            try self.base.newNode(.@"??", &.{ inner, jump }, .{ .start = self.span(inner).start, .end = self.span(jump).end })
+        else
+            try self.attachFallback(inner, jump);
+        return self.base.newNode(.@"??", &.{ ir.@"??".left(chain), new_right }, .{ .start = self.span(chain).start, .end = self.span(jump).end });
     }
 
     /// `*(T?)`, `~(T?)`, `*(~T?)`: a `?` suffix sits inside parentheses

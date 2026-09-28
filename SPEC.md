@@ -3856,7 +3856,9 @@ against the function's result, `break` and `continue` apply to the
 innermost loop (a jump here takes no label), and leaving drops what the
 scope owns. The jump takes the rest of the expression as its value,
 and the left side of `?? return` is the whole expression before it, as
-for `catch` (`a and b ?? return` is `(a and b) ?? return`). Anything
+for `catch` (`a and b ?? return` is `(a and b) ?? return`), except in a
+chain of `??`, where the jump belongs to the nearest one, as `??` is
+right-associative: `a ?? b ?? return v` is `a ?? (b ?? return v)`. Anything
 else on the right of `??` is a value of the optional's type, so a bare
 error value is no fallback: `?? E.missing` is rejected, and failing is
 written `?? return E.missing` in a fallible function.
