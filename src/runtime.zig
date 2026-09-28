@@ -583,7 +583,7 @@ pub fn Cell(comptime T: type) type {
 
 // An owned closure `*fun(A, B) -> R` / `*sub(A)` is a shared handle to a
 // `Closure(&.{ A, B }, R)`: a type-erased closure. Each closure literal
-// allocates its own environment `Env` (the captures plus an `invoke`
+// allocates its own environment `Env` (the captures plus an `__rig_invoke`
 // method taking the parameters); `init` erases it behind `ctx`, so every
 // literal with the same parameter and return types has the same type.
 // `drop_fn` releases the captures and frees the environment.
@@ -602,7 +602,7 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
             const erased = struct {
                 fn invoke(ctx: *anyopaque, args: Args) R {
                     const e: *Env = @ptrCast(@alignCast(ctx));
-                    return @call(.auto, Env.invoke, .{e} ++ args);
+                    return @call(.auto, Env.__rig_invoke, .{e} ++ args);
                 }
                 fn dropEnv(ctx: *anyopaque) void {
                     const e: *Env = @ptrCast(@alignCast(ctx));
@@ -644,13 +644,13 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         const Self = @This();
         pub const Args = std.meta.Tuple(params);
 
-        /// Lend `env`, a stack closure's environment, whose `invoke`
+        /// Lend `env`, a stack closure's environment, whose `__rig_invoke`
         /// takes the parameters.
         pub fn of(comptime Env: type, env: *Env) Self {
             const thunk = struct {
                 fn call(ctx: *anyopaque, args: Args) R {
                     const e: *Env = @ptrCast(@alignCast(ctx));
-                    return @call(.auto, Env.invoke, .{e} ++ args);
+                    return @call(.auto, Env.__rig_invoke, .{e} ++ args);
                 }
             };
             return .{ .ctx = env, .call_fn = thunk.call };
@@ -1586,7 +1586,7 @@ test "Signal takes ownership of subscribers and delivers reentrant sets" {
         sig: *Signal(i32),
         seen: *[4]i32,
         n: *usize,
-        pub fn invoke(self: *@This()) void {
+        pub fn __rig_invoke(self: *@This()) void {
             self.seen[self.n.*] = self.sig.value;
             self.n.* += 1;
             if (self.sig.value == 1) self.sig.set(2);
@@ -1608,7 +1608,7 @@ test "closures take any number of arguments and return values" {
     const before = usage();
     const Env = struct {
         base: i64,
-        pub fn invoke(self: *@This(), a: i64, b: i64, c: bool) i64 {
+        pub fn __rig_invoke(self: *@This(), a: i64, b: i64, c: bool) i64 {
             return if (c) self.base + a * b else self.base;
         }
     };
@@ -1630,7 +1630,7 @@ test "a borrowed callable calls a stack closure, a function, or an owned closure
     const Ref = FnRef(&.{i64}, i64);
     const Env = struct {
         k: i64,
-        pub fn invoke(self: *@This(), a: i64) i64 {
+        pub fn __rig_invoke(self: *@This(), a: i64) i64 {
             return a + self.k;
         }
     };
@@ -1734,7 +1734,7 @@ test "values print the way Rig writes them" {
     const h = rcNew(P{ .name = "b", .n = 1 });
     const weak = h.weakRef();
     const Env = struct {
-        pub fn invoke(_: *@This()) void {}
+        pub fn __rig_invoke(_: *@This()) void {}
     };
     var closure = Callback.init(Env, create(Env));
     const bytes = [3]u8{ 72, 105, 33 };

@@ -77,7 +77,7 @@ const Local = struct {
     guard: Guard = .none,
     /// `zig_name` holds a pointer to the Rig value.
     is_ptr: bool = false,
-    /// A closure literal bound to a name: calls lower to `.invoke(...)`.
+    /// A closure literal bound to a name: calls lower to `.__rig_invoke(...)`.
     stack_closure: bool = false,
     /// Name of the alive flag when `guard == .flag`.
     flag: []const u8 = "",
@@ -123,7 +123,7 @@ const FunState = struct {
 };
 
 const Nominal = struct {
-    /// How `Self` is spelled: the type name, or `Self` inside a generic.
+    /// How `Self` is spelled: the type name, or `__rig_Self` inside a generic.
     name: []const u8,
     sym: SymbolId,
     members: []const Sexp,
@@ -456,7 +456,7 @@ pub const Emitter = struct {
     fn enterNominal(self: *Emitter, name_node: Sexp, generic: bool, members: []const Sexp) Error!?Nominal {
         const prev = self.nominal;
         const sym = self.sema.symbolOf(name_node) orelse return self.unsupported(name_node, "an unresolved type");
-        const name = if (generic) "Self" else try self.fmt("{f}", .{ident(self.srcText(name_node))});
+        const name = if (generic) "__rig_Self" else try self.fmt("{f}", .{ident(self.srcText(name_node))});
         self.nominal = .{ .name = name, .sym = sym, .members = members };
         return prev;
     }
@@ -480,12 +480,12 @@ pub const Emitter = struct {
             } else false;
             if (!used) try self.w.print("    _ = {f};\n", .{ident(self.sema.symbols.items[tp].name)});
         }
-        try self.w.print("    return {s} {{\n        const Self = @This();\n\n", .{container});
+        try self.w.print("    return {s} {{\n        const __rig_Self = @This();\n\n", .{container});
     }
 
     /// Whether a leaf under `node` names `sym`, outside the type being
     /// emitted at its own parameters (`Tag[T]` in `Tag[T]`), which is
-    /// emitted as `Self`.
+    /// emitted as `__rig_Self`.
     fn mentions(self: *Emitter, node: Sexp, sym: SymbolId) bool {
         return switch (node) {
             .src => self.sema.symbolOf(node) == sym,
@@ -2038,7 +2038,7 @@ pub const Emitter = struct {
                         prelude.aliases = try self.wholeAlias(pattern, try self.fmt("&{s}", .{place}), .nil);
                     },
                     .consume => {
-                        const whole = try self.fresh("whole");
+                        const whole = try self.fresh("__rig_whole");
                         try self.w.print("|{s}| ", .{whole});
                         prelude = try self.ownedParts(&.{if (named) pattern else .nil}, &.{.{ .expr = whole }}, .nil);
                     },
@@ -2055,11 +2055,11 @@ pub const Emitter = struct {
                     if (vname.len == 0) {
                         // Alternatives: the value is dropped from where it
                         // was, copied before the arm can reassign it.
-                        const whole = try self.fresh("whole");
+                        const whole = try self.fresh("__rig_whole");
                         prelude = try self.ownedParts(&.{.nil}, &.{.{ .expr = whole }}, .nil);
                         prelude.head = try self.fmt("const {s} = {s};", .{ whole, place });
                     } else if (fields.len > 0) {
-                        const payload = try self.fresh("payload");
+                        const payload = try self.fresh("__rig_payload");
                         try self.w.print("|{s}| ", .{payload});
                         prelude = try self.consumedPayload(captures, fields, payload, .nil);
                     }
@@ -2311,7 +2311,7 @@ pub const Emitter = struct {
     fn armBindings(self: *Emitter, pattern: Sexp, body: Sexp, info: MatchInfo, subj: []const u8) Error!Prelude {
         if (info.mode == .consume) {
             // The arm takes the value: `x` is consumed now.
-            const whole = try self.fresh("whole");
+            const whole = try self.fresh("__rig_whole");
             var buf: Writer.Allocating = .init(self.arena.allocator());
             if (info.temp) try buf.writer.writeAll(info.reread) else {
                 const saved_w = self.w;
@@ -2436,7 +2436,7 @@ pub const Emitter = struct {
         for (captures, fields) |c, f| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
             const stored = try self.declare(local, self.srcText(c));
-            if (payload == null) payload = try self.fresh("payload");
+            if (payload == null) payload = try self.fresh("__rig_payload");
             try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = writes and fieldIsPointee(self.sema, f.ty) });
         }
         return out.items;
@@ -3674,7 +3674,7 @@ pub const Emitter = struct {
 
         if (callee == .src) {
             if (self.localOf(callee)) |local| if (local.stack_closure) {
-                try self.w.print("{s}.invoke(", .{local.zig_name});
+                try self.w.print("{s}.__rig_invoke(", .{local.zig_name});
                 try self.emitArgs(sexp);
                 return self.w.writeAll(")");
             };
@@ -3846,7 +3846,7 @@ pub const Emitter = struct {
         }
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
-        try self.w.print("break :__rig_inline_{d} {s}.invoke(", .{ id, name });
+        try self.w.print("break :__rig_inline_{d} {s}.__rig_invoke(", .{ id, name });
         try self.emitArgs(call);
         try self.w.writeAll(");\n");
         try self.closeBrace();
@@ -4395,7 +4395,7 @@ pub const Emitter = struct {
     }
 
     /// `f = |captures| body` → a struct holding the captures with an
-    /// `invoke` method; calls lower to `f.invoke(...)`. When a capture
+    /// `__rig_invoke` method; calls lower to `f.__rig_invoke(...)`. When a capture
     /// owns a resource, the closure is dropped at scope exit, which drops
     /// its fields.
     fn emitClosureBinding(self: *Emitter, name_node: Sexp, sym: SymbolId, lambda: Sexp) Error!void {
@@ -4415,7 +4415,7 @@ pub const Emitter = struct {
         }
     }
 
-    /// `var name = struct { captures, fn invoke }{ inits };`. Returns
+    /// `var name = struct { captures, fn __rig_invoke }{ inits };`. Returns
     /// whether a capture owns a resource.
     fn emitStackClosure(self: *Emitter, zig_name: []const u8, lambda: Sexp) Error!bool {
         const caps = try self.captureInfo(ir.Lambda.captures(lambda));
@@ -4427,10 +4427,10 @@ pub const Emitter = struct {
         return false;
     }
 
-    /// A closure's environment: its captures as fields and an `invoke`
+    /// A closure's environment: its captures as fields and a `__rig_invoke`
     /// method taking its parameters.
     ///
-    ///     struct { cap_x: T, pub fn invoke(__rig_self: *@This(), a: A) R { ... } }
+    ///     struct { cap_x: T, pub fn __rig_invoke(__rig_self: *@This(), a: A) R { ... } }
     fn emitClosureStruct(self: *Emitter, lambda: Sexp, caps: []const Capture) Error!void {
         const params = ir.Lambda.params(lambda);
         const ret = self.lambdaReturn(lambda);
@@ -4450,7 +4450,7 @@ pub const Emitter = struct {
         }
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
-        try self.w.print("pub fn invoke({s}: *@This()", .{env});
+        try self.w.print("pub fn __rig_invoke({s}: *@This()", .{env});
         self.closure_depth += 1;
         defer self.closure_depth -= 1;
         const saved_fun = self.fun;
@@ -4538,7 +4538,7 @@ pub const Emitter = struct {
     /// into the runtime closure and boxed:
     ///
     ///     __rig_closure_N: {
-    ///         const __rig_Env_N = struct { cap_x: T, pub fn invoke(...) R { ... } };
+    ///         const __rig_Env_N = struct { cap_x: T, pub fn __rig_invoke(...) R { ... } };
     ///         const __rig_env_N = rig.create(__rig_Env_N);
     ///         __rig_env_N.* = .{ .cap_x = ... };
     ///         break :__rig_closure_N rig.rcNew(rig.Closure(&.{ A }, R).init(__rig_Env_N, __rig_env_N));
@@ -4735,7 +4735,7 @@ pub const Emitter = struct {
                 try self.w.print(".{f}", .{ident(foreign.symbols.items[in.sym_id].name)});
             },
             .parameterized_nominal => |pn| {
-                if (self.isSelfInstance(pn)) return self.w.writeAll("Self");
+                if (self.isSelfInstance(pn)) return self.w.writeAll("__rig_Self");
                 try self.writeNominalName(pn.sym);
                 try self.w.writeAll("(");
                 try self.emitTypeList(pn.args);
@@ -4791,7 +4791,7 @@ pub const Emitter = struct {
     }
 
     /// The generic type being emitted, applied to its own parameters:
-    /// `Self` inside its body.
+    /// `__rig_Self` inside its body.
     fn isSelfInstance(self: *Emitter, pn: sema.ParamNominal) bool {
         const n = self.nominal orelse return false;
         if (pn.sym != n.sym) return false;

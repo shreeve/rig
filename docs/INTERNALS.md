@@ -985,7 +985,7 @@ lower is an internal error: sema must have rejected it.
   after an owned value was already produced, which the temporary's
   guarded `defer` then drops.
 - **Closures.** A stack closure is a local struct holding its captures,
-  with an `invoke` method. An owned closure allocates an environment
+  with an `__rig_invoke` method. An owned closure allocates an environment
   struct per literal and erases it behind `rig.Closure(params, R)`, so
   every literal of one function type shares one runtime type; a call is
   `cb.value.invoke(.{ args })`. A borrowed callable `?fun(...)`, the

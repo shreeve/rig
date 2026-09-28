@@ -1,0 +1,25 @@
+# Arm bindings may use the names the emitted code gives match captures.
+
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+enum Sh
+  c(r: R, k: Int)
+  d
+
+sub main()
+  s = Sh.c(r: R(n: 1), k: 2)
+  match <s
+    .c(_, k)
+      payload_1 = k + 1
+      whole_2 = k
+      payload_0 = 0
+      whole_0 = 0
+      print(payload_1, whole_2, payload_0, whole_0)
+    .d => print(0)
+
+# expect:
+# 3 2 0 0
+# drop 1
