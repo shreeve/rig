@@ -705,7 +705,7 @@ pub const Lexer = struct {
             // `x =!y`: a fixed binding of `y`, or a write borrow?
             .fixed_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_fixed, tok.pos) else tok.cat,
             // `xs[a..]`: an open range ends at the `]`.
-            .dotdot => if (self.nextJoinedCat() == .rbracket) .dotdot_open else .dotdot,
+            .dotdot => if (self.nextJoined().cat == .rbracket) .dotdot_open else .dotdot,
             // `get(k) ?? return none`: a jump as the fallback.
             .nullish => if (self.nextIsJump()) .nullish_jump else .nullish,
             .err => return self.lexError(tok),
@@ -899,25 +899,24 @@ pub const Lexer = struct {
         return probe.matchRules().cat;
     }
 
-    /// The category of the next token, past comments, and past line
-    /// breaks where they are whitespace (inside brackets).
-    fn nextJoinedCat(self: *const Lexer) TokenCat {
+    /// The next token, past comments, `\` line joins, and line breaks
+    /// where they are whitespace (inside brackets).
+    fn nextJoined(self: *const Lexer) Token {
         var probe = self.base;
         const joins = self.nesting > 0 and !self.inIsland();
         while (true) {
             const t = probe.matchRules();
             switch (t.cat) {
-                .comment => continue,
-                .newline, .skip => if (joins) continue else return t.cat,
-                else => return t.cat,
+                .comment, .skip => continue,
+                .newline => if (!joins) return t,
+                else => return t,
             }
         }
     }
 
     /// The next token is `return`, `break`, or `continue`.
     fn nextIsJump(self: *const Lexer) bool {
-        var probe = self.base;
-        const t = probe.matchRules();
+        const t = self.nextJoined();
         if (t.cat != .ident) return false;
         const kw = keyword(self.base.text(t)) orelse return false;
         return kw == .@"return" or kw == .@"break" or kw == .@"continue";
