@@ -3032,7 +3032,8 @@ pub const Checker = struct {
         const scrut = ir.Match.subject(match);
         var info: Scrutinee = .{};
         var node = scrut;
-        if (scrut.isKind(.read) or scrut.isKind(.write)) {
+        const lent = scrut.isKind(.read) or scrut.isKind(.write);
+        if (lent) {
             node = ir.get(scrut, .operand);
             info.via = .borrowed;
         }
@@ -3046,7 +3047,11 @@ pub const Checker = struct {
             };
             if (!p.whole) info.path = try self.placeText(node);
         }
+        const scrut_temps = self.temps.items.len;
         const scrut_value = try self.walk(scrut);
+        // A payload binding holds its own loan on the matched place, so
+        // the borrow of the subject ends with the bindings, not the match.
+        if (lent and info.root != null) self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
 
         const base = try self.here();
         // The state an arm starts from: the entry state joined with what
