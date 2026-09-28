@@ -5891,8 +5891,14 @@ const Checker = struct {
                     return self.callValue(callee, ty, args, method);
                 }
             }
+            const has_len = vecElementType(self.ctx, peeled) != null or switch (self.ctx.types.get(peeled)) {
+                .string, .array, .slice => true,
+                else => false,
+            };
             if (vecElementType(self.ctx, peeled) != null and std.mem.eql(u8, method, "length")) {
                 try self.err(pos, "a Vec has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
+            } else if (has_len and std.mem.eql(u8, method, "len")) {
+                try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), self.sourceText(unborrowedNode(obj)) });
             } else if (sema.boxedType(self.ctx, peeled) != null) {
                 const shown = self.sourceText(unborrowedNode(obj));
                 try self.err(pos, "a `{s}` reaches no methods of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.unbox()`", .{ try self.tyName(peeled), shown, shown, shown });
