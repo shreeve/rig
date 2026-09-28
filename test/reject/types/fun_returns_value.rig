@@ -1,0 +1,26 @@
+# A `fun` returns a value. One that returns nothing is a `sub`, and one
+# that returns nothing but may fail is `sub f(...)!`; function types and
+# `extern` declarations follow the same rule.
+
+fun f(x: Int)
+  print(x)
+
+fun g(x: Int) -> Void
+  print(x)
+
+fun h(x: Int) -> Void!
+  print(x)
+
+sub take(cb: fun(Int) -> Void)
+  cb(1)
+
+extern fun tick()
+
+sub main
+  f(1)
+
+# error: 5:5: a `fun` returns a value; declare `-> T`, or make `f` a `sub`
+# error: 8:18: a `fun` returning nothing is a `sub`: `sub g(...)`
+# error: 11:18: a `fun` that returns nothing but may fail is a fallible `sub`: `sub h(...)!`
+# error: 14:26: a function type that returns nothing is a `sub` type: `sub(...)`
+# error: 17:12: an `extern fun` returns a value; declare `-> T`, or make `tick` an `extern sub`

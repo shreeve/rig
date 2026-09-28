@@ -822,7 +822,11 @@ ownership rules of [§8](#8-ownership) apply to them.
 ### Functions
 
 `fun` declares a function that returns a value; `sub` declares one that
-does not. The return type follows `->`. A function's value is its last
+does not. The return type follows `->`, and a `fun` always has one: a
+`fun` without `->`, or returning `Void`, is rejected in favor of a
+`sub`. A `sub` that may fail is marked `!` after its parameters,
+`sub save(n: Int)!`, and its type is `sub(Int)!`
+([§14](#14-errors)). A function's value is its last
 expression, or the value of a `return`. A function with no parameters
 may leave out the empty `()`: `sub main` and `sub main()` are the same
 declaration, and this reference writes the shorter one. A call always
@@ -3752,20 +3756,46 @@ sub main
 
 ## 14. Errors
 
-A function whose return type is `T!` may fail. A call to it must say
-what happens to the failure, visibly:
+A function whose return type is `T!` may fail, and so may a `sub`
+marked `!` (`sub save(n: Int)!`, of type `sub(Int)!`). A call to it
+must say what happens to the failure, visibly:
 
 - `f()!` propagates it: the enclosing function fails with the same
-  error. The enclosing function must itself return a `T!`, or be
-  the top-level `sub main` or a `test`.
+  error. The enclosing function must itself return a `T!`, be a
+  fallible `sub`, or be the top-level `sub main` or a `test`.
 - `f() catch fallback` handles it: the value of the call, or `fallback`
   when it fails.
 
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A closure body, a `drop` body, and a `defer` cannot
 propagate. A fallible type is only allowed as the return type of a
-function or of a function type (`fun(Int) -> Int!`, not for an owned
-closure), and a plain `T` is accepted where `T!` is expected. `E!` for an error
+function or of a function type (`fun(Int) -> Int!`, `sub(Int)!`, not
+for an owned closure), and a plain `T` is accepted where `T!` is
+expected.
+
+```rig
+error SaveError
+  full
+
+sub save(n: Int, used: !Int)!
+  return SaveError.full if used >= 2
+  used += 1
+  print("saved", n)
+
+sub main
+  used = 0
+  save(1, !used)!
+  save(2, !used)!
+  save(3, !used) catch |e|
+    print("not saved:", e)
+```
+
+```output
+saved 1
+saved 2
+not saved: .full
+```
+ `E!` for an error
 set `E` is rejected: a failure and a success would both be `E` values.
 
 ```rig

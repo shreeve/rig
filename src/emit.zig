@@ -3763,7 +3763,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(p);
         }
         try self.w.writeAll(if (f.params.len > 0) " }, " else "}, ");
-        if (f.is_sub) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
+        if (f.is_sub and f.returns == self.sema.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
         try self.w.writeAll(")");
     }
 
@@ -3775,7 +3775,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(p);
         }
         try self.w.writeAll(if (f.params.len > 0) " }, " else "}, ");
-        if (f.is_sub) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
+        if (f.is_sub and f.returns == self.sema.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
         try self.w.writeAll(")");
     }
 

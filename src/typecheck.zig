@@ -352,8 +352,25 @@ const Checker = struct {
             try self.checkDefaultValue(ir.Default.value(p), ty, "parameter");
         };
         // `sub main` lowers to a fallible `main`.
-        const fallible = (is_main and is_sub) or rig.returnType(node).isKind(.error_union);
+        const fallible = (is_main and is_sub) or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
+        if (node.isKind(.fun)) try self.checkFunReturns(node, ret);
         try self.checkBody(ir.get(node, .body), .{ .ret = ret, .is_sub = is_sub, .fail_to = if (fallible) .caller else .{ .infallible = name }, .name = name });
+    }
+
+    /// A `fun` returns a value: one without `-> T`, or returning `Void`,
+    /// is a `sub` (`sub f(...)!` when it may fail).
+    fn checkFunReturns(self: *Checker, node: Sexp, ret: TypeId) Error!void {
+        const returns = rig.returnType(node);
+        const name = self.text(ir.get(node, .name));
+        if (returns == .nil) {
+            return self.errAt(ir.get(node, .name), "a `fun` returns a value; declare `-> T`, or make `{s}` a `sub`", .{name});
+        }
+        const r = self.ctx.types.get(ret);
+        if (ret == self.t().void_id) {
+            try self.errAt(returns, "a `fun` returning nothing is a `sub`: `sub {s}(...)`", .{name});
+        } else if (r == .fallible and r.fallible == self.t().void_id) {
+            try self.errAt(returns, "a `fun` that returns nothing but may fail is a fallible `sub`: `sub {s}(...)!`", .{name});
+        }
     }
 
     /// A parameter or field default: a literal of type `ty`, so it owns
@@ -6338,7 +6355,7 @@ const Checker = struct {
             try self.errAt(body, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); this one returns `{s}`", .{try self.tyName(ret)});
         }
 
-        return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = ret == self.t().void_id } });
+        return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = sema.returnsNothing(self.ctx, ret) } });
     }
 
     /// The return type of a closure inferred from its body's value `ret`

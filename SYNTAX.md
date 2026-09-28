@@ -634,6 +634,10 @@ sign -1
 
 - `fun name(params) -> R` returns an `R`; `sub name(params)` returns
   nothing. A `sub` is Rust's `fn` with no `->` and Zig's `fn ... void`.
+  The first word says which: a `fun` without `->` is an error.
+- A `sub` that may fail is marked `!`: `sub save(p: Page)!` (Rust's
+  `fn save(p: Page) -> Result<(), E>`, Zig's `fn save(p: Page) !void`).
+  Its type is `sub(Page)!`.
 - The body's last expression is its value, as in Rust. `return e`
   leaves early.
 - Declarations live only at module level: there are no nested

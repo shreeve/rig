@@ -19,7 +19,7 @@ struct Wrap[T]
     print(t, u)
     true
 
-  fun show(?self)
+  sub show(?self)
     r = self.get()
     print(r)
 

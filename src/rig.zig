@@ -38,6 +38,11 @@ pub fn returnType(fun_or_sub: Sexp) Sexp {
     return if (fun_or_sub.isKind(.fun)) ir.Fun.returns(fun_or_sub) else .nil;
 }
 
+/// A fallible `sub`: `sub save(p: Page)!`.
+pub fn subFails(fun_or_sub: Sexp) bool {
+    return fun_or_sub.isKind(.sub) and ir.Sub.fails(fun_or_sub) != .nil;
+}
+
 /// A module-level constant (`name =! value`, or `pub` one). Passes take
 /// them before the other declarations, so functions anywhere in the
 /// module see them.
