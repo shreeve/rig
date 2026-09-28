@@ -21,7 +21,8 @@
 #
 # Exit status is 1 if any test fails or a known-failing test starts
 # passing (move it out of test/known/ when that happens), 2 on a usage
-# error or when the filters select nothing (or only a skipped check).
+# error or when the filters select nothing (or only a skipped check),
+# unless they only name kinds, which may be empty.
 
 set -uo pipefail
 
@@ -411,15 +412,20 @@ PERL
 fi
 export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE
 
+is_kind() {
+    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|doc) return 0 ;; esac
+    return 1
+}
+
 selected() {
     [[ ${#FILTERS[@]} -eq 0 ]] && return 0
     local f
     for f in "${FILTERS[@]}"; do
-        case $f in # a bare kind name selects that kind only
-            behavior|reject|known|examples|ir|torture|cli|unit|parser|doc)
-                [[ "$1" == "$f" || "$1" == "$f/"* ]] && return 0 ;;
-            *) [[ "$1" == *"$f"* ]] && return 0 ;;
-        esac
+        if is_kind "$f"; then # a bare kind name selects that kind only
+            [[ "$1" == "$f" || "$1" == "$f/"* ]] && return 0
+        else
+            [[ "$1" == *"$f"* ]] && return 0
+        fi
     done
     return 1
 }
@@ -561,8 +567,11 @@ fi
 
 TOTAL=$(wc -l <"$LIST" | tr -d ' ')
 if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected parser; then
-    echo "no test matches ${FILTERS[*]}" >&2
-    exit 2
+    # Only kinds named (`./test/run known`) is not a mistyped filter: a
+    # kind can be empty, as test/known/ is when no bug is open.
+    for f in "${FILTERS[@]}"; do is_kind "$f" || { echo "no test matches ${FILTERS[*]}" >&2; exit 2; }; done
+    echo "no ${FILTERS[*]} tests"
+    exit 0
 fi
 DUPLICATES=$(cut -f1 "$LIST" | sort | uniq -d)
 if [[ -n "$DUPLICATES" ]]; then

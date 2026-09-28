@@ -10,7 +10,8 @@
 The summary line reads `N passed, M failed, K known`. The suite is green
 when nothing fails and no known-failing test has started passing. A
 filter that selects nothing, or only the `parser` check when Nexus is
-not built, exits 2. The runner works from any directory.
+not built, exits 2; naming only kinds that have no tests (`known`, when
+no bug is open) exits 0. The runner works from any directory.
 
 The runner needs bash and either GNU `timeout` or perl (stock macOS has
 perl). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the seconds
