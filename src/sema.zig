@@ -2975,6 +2975,31 @@ pub fn containsPoison(ctx: *const SemContext, ty_id: TypeId) bool {
     return ctx.typeInfo(ty_id).poison;
 }
 
+/// Whether a read borrow `?inner` is a copy of the value: a scalar or a
+/// view, which nothing can change while it is borrowed and which costs
+/// no more to copy than a pointer. Anything larger is lent by address,
+/// as is a value that owns resources (a copy would be dropped with
+/// whatever holds it) or holds a Cell (which can change while it is
+/// borrowed). `rig.ReadBorrow` applies the same rule to Zig types, for
+/// a generic `?T`.
+pub fn readBorrowCopies(ctx: *const SemContext, inner: TypeId) bool {
+    if (typeHasDropGlue(ctx, inner) or maybeDropGlue(ctx, inner) or holdsCellByValue(ctx, inner)) return false;
+    return copiedByBorrow(ctx, inner);
+}
+
+/// A type a read borrow copies: a number, `Bool`, `String`, a slice, a
+/// function or borrowed callable (a `rig.FnRef`), a plain enum, an
+/// error, or an optional of one of those.
+fn copiedByBorrow(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
+        .borrow_write => writeSliceElem(ctx, ty) != null,
+        .optional => |inner| copiedByBorrow(ctx, inner),
+        .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
+        else => false,
+    };
+}
+
 /// Whether a value of `ty` holds a `Cell` inline (not behind a handle,
 /// a borrow, or a Vec's buffer). A read borrow of such a value is held as
 /// a pointer, since the cell can change while it is borrowed.

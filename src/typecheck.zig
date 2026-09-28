@@ -2566,7 +2566,13 @@ const Checker = struct {
         const a_lit = a == self.t().int_literal_id or a == self.t().float_literal_id;
         const b_lit = b == self.t().int_literal_id or b == self.t().float_literal_id;
         if (a_lit and b_lit) {
-            return if (a == self.t().float_literal_id or b == self.t().float_literal_id) self.t().float_literal_id else self.t().int_literal_id;
+            if (a == self.t().int_literal_id and b == self.t().int_literal_id) return a;
+            // The integer literals become floats.
+            for ([_]TypeId{ a, b }, operands) |ty, o| if (ty == self.t().int_literal_id) if (integerOnlyOp(o)) |int_op| {
+                try self.errAt(int_op, "operator `{s}` is for integers, and its literal operands here take the type `Float`", .{@tagName(int_op.kind().?)});
+                return self.t().invalid_id;
+            };
+            return self.t().float_literal_id;
         }
         if (a_lit) {
             try self.checkExpr(operands[0], b);
@@ -2598,6 +2604,7 @@ const Checker = struct {
     /// `T` must hold it: a float literal needs a float `T`, an integer
     /// one a `T` that holds its value.
     fn requireHoldsLiteral(self: *Checker, param: SymbolId, lit_ty: TypeId, lit: Sexp, pos: u32, op: []const u8) Error!void {
+        if (integerOnlyOp(lit)) |int_op| try self.require(param, .integer, self.startOf(int_op), @tagName(int_op.kind().?));
         if (lit_ty == self.t().float_literal_id) try self.require(param, .float, pos, op);
         if (lit_ty == self.t().int_literal_id) if (self.constInt(lit)) |v| try self.require(param, .{ .fits = v }, pos, op);
         if (wholeDivision(self.ctx.source, lit)) |div| try self.require(param, .whole_division, self.startOf(div), self.sourceText(div));
@@ -6863,17 +6870,40 @@ const Checker = struct {
 
     /// Record how `e`, of type `actual`, adapts to the `expected` its
     /// context gives: a borrow of a Copy value is read through
-    /// (`recordRead`), and a literal takes a concrete type.
+    /// (`recordRead`), and so is a write borrow lent where a read borrow
+    /// that copies its value is expected; a literal takes a concrete type.
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
-        if (readValue(self.ctx, actual) != actual and !isBorrow(self.ctx, self.liftTarget(expected))) return self.ctx.recordRead(e);
+        const lifted = self.liftTarget(expected);
+        if (readValue(self.ctx, actual) != actual and !isBorrow(self.ctx, lifted)) return self.ctx.recordRead(e);
+        if (self.ctx.types.get(actual) == .borrow_write) switch (self.ctx.types.get(lifted)) {
+            .borrow_read => |inner| if (sema.readBorrowCopies(self.ctx, inner)) return self.ctx.recordRead(e),
+            else => {},
+        };
         if (actual != self.t().int_literal_id and actual != self.t().float_literal_id) return;
-        const target = self.liftTarget(expected);
+        const target = lifted;
         if (!sema.isNumeric(self.ctx, target)) return;
+        if (self.ctx.types.get(target) == .float) if (integerOnlyOp(e)) |op| {
+            return self.errAt(op, "operator `{s}` is for integers, and its literal operands here take the type `{s}`", .{ @tagName(op.kind().?), try self.tyName(target) });
+        };
         try self.ctx.recordType(e, target);
         try self.recordLiteralType(e, target);
         if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target);
         if (self.ctx.types.get(target) == .float) try self.checkWholeDivision(e);
         try self.checkFloatConstant(e, target);
+    }
+
+    /// An operator in literal arithmetic `e` that only integers have
+    /// (bitwise, shift, wrapping), whose literals cannot take a float
+    /// type.
+    fn integerOnlyOp(e: Sexp) ?Sexp {
+        const h = e.kind() orelse return null;
+        return switch (h) {
+            .neg => integerOnlyOp(ir.Neg.operand(e)),
+            .@"if" => integerOnlyOp(ir.If.then(e)) orelse integerOnlyOp(ir.If.@"else"(e)),
+            .@"+", .@"-", .@"*", .@"/", .@"%" => integerOnlyOp(ir.get(e, .left)) orelse integerOnlyOp(ir.get(e, .right)),
+            .@"+%", .@"-%", .@"*%", .@"&", .@"|", .@"^", .@"<<", .@">>" => e,
+            else => null,
+        };
     }
 
     /// Integer-literal arithmetic that takes no type from its context is
