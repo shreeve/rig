@@ -1701,10 +1701,6 @@ pub const Contents = struct {
 pub const Borrows = packed struct(u2) {
     any: bool = false,
     write: bool = false,
-
-    fn with(a: Borrows, b: Borrows) Borrows {
-        return .{ .any = a.any or b.any, .write = a.write or b.write };
-    }
 };
 
 /// Facts about an interned type, recorded when it is interned
@@ -1752,8 +1748,7 @@ fn computeContents(ctx: *SemContext) std.mem.Allocator.Error![]const SymbolId {
     var c = try Components.run(ctx, true);
     defer c.deinit();
     for (c.order.items) |id| try symbolContents(ctx, id);
-    try computeCells(ctx);
-    try computeBorrows(ctx);
+    try computeReach(ctx);
     ctx.contents_ready = true;
     ctx.type_info.clearRetainingCapacity();
     try ctx.syncTypeInfo();
@@ -1834,13 +1829,52 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
     };
 }
 
-/// A declared type holds a `Cell` inline when a field does: itself, or
-/// through a type it holds, or any argument of a generic instance it
-/// holds (as the emitter reads type expressions). Found by propagating
-/// backwards from the types that hold one directly, so each field type
-/// is walked once.
-fn computeCells(ctx: *SemContext) std.mem.Allocator.Error!void {
-    var edges: std.ArrayListUnmanaged(CellEdge) = .empty;
+/// What a value holds, of what it can hold through the declared types it
+/// holds: a `Cell` inline, a borrow, and a write borrow.
+const Reach = packed struct(u3) {
+    cell: bool = false,
+    borrows: Borrows = .{},
+
+    const all: Reach = .{ .cell = true, .borrows = .{ .any = true, .write = true } };
+    /// What reaches through a handle or heap memory: no Cell is inline.
+    const borrows_only: Reach = .{ .borrows = .{ .any = true, .write = true } };
+
+    fn with(a: Reach, b: Reach) Reach {
+        return @bitCast(@as(u3, @bitCast(a)) | @as(u3, @bitCast(b)));
+    }
+
+    fn within(a: Reach, mask: Reach) Reach {
+        return @bitCast(@as(u3, @bitCast(a)) & @as(u3, @bitCast(mask)));
+    }
+
+    fn of(c: Contents) Reach {
+        return .{ .cell = c.cell, .borrows = c.borrows };
+    }
+};
+
+/// `to` holds what `from` holds, as far as `mask` lets it reach.
+const ReachEdge = struct {
+    from: SymbolId,
+    to: SymbolId,
+    mask: Reach,
+
+    fn lessThan(_: void, a: ReachEdge, b: ReachEdge) bool {
+        return a.from < b.from;
+    }
+
+    fn before(from: SymbolId, e: ReachEdge) bool {
+        return e.from < from;
+    }
+};
+
+/// What each declared type's values hold (`Reach`): a type holds what
+/// the declared types it holds do, a borrow even through a handle, and
+/// what any argument of a generic instance it holds does (as the
+/// emitter reads type expressions). Found by propagating backwards from
+/// the types that hold something directly, so each field type is walked
+/// once.
+fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var edges: std.ArrayListUnmanaged(ReachEdge) = .empty;
     defer edges.deinit(ctx.allocator);
     var work: std.ArrayListUnmanaged(SymbolId) = .empty;
     defer work.deinit(ctx.allocator);
@@ -1848,125 +1882,62 @@ fn computeCells(ctx: *SemContext) std.mem.Allocator.Error!void {
         if (!isTypeDecl(sym)) continue;
         const id: SymbolId = @intCast(i);
         // A proxy's contents are its declaration's.
-        if (isProxy(sym)) {
-            if (sym.contents.cell) try work.append(ctx.allocator, id);
-            continue;
-        }
-        for (sym.fields orelse &.{}) |*f| {
-            for (dataFields(f)) |d| {
-                if (!try cellEdges(ctx, d.ty, id, &edges) or ctx.symbols.items[id].contents.cell) continue;
-                ctx.symbols.items[id].contents.cell = true;
-                try work.append(ctx.allocator, id);
-            }
-        }
+        var r: Reach = if (isProxy(sym)) Reach.of(sym.contents) else .{};
+        if (!isProxy(sym)) for (sym.fields orelse &.{}) |*f| {
+            for (dataFields(f)) |d| r = r.with(try reachOf(ctx, d.ty, .all, .{ .edges = &edges, .owner = id }));
+        };
+        ctx.symbols.items[id].contents.cell = r.cell;
+        ctx.symbols.items[id].contents.borrows = r.borrows;
+        if (r != Reach{}) try work.append(ctx.allocator, id);
     }
-    std.mem.sort(CellEdge, edges.items, {}, CellEdge.lessThan);
+    std.mem.sort(ReachEdge, edges.items, {}, ReachEdge.lessThan);
     while (work.pop()) |from| {
-        var i = std.sort.partitionPoint(CellEdge, edges.items, from, CellEdge.before);
+        const r = Reach.of(ctx.symbols.items[from].contents);
+        var i = std.sort.partitionPoint(ReachEdge, edges.items, from, ReachEdge.before);
         while (i < edges.items.len and edges.items[i].from == from) : (i += 1) {
-            const to = edges.items[i].to;
-            if (ctx.symbols.items[to].contents.cell) continue;
-            ctx.symbols.items[to].contents.cell = true;
-            try work.append(ctx.allocator, to);
-        }
-    }
-}
-
-/// `to` holds a `Cell` inline if `from` does.
-const CellEdge = struct {
-    from: SymbolId,
-    to: SymbolId,
-
-    fn lessThan(_: void, a: CellEdge, b: CellEdge) bool {
-        return a.from < b.from;
-    }
-
-    fn before(from: SymbolId, e: CellEdge) bool {
-        return e.from < from;
-    }
-};
-
-/// Whether a field of type `ty` of `owner` holds a `Cell` inline
-/// whatever the declared types it names hold; adds an edge from each of
-/// those to `owner`.
-fn cellEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayListUnmanaged(CellEdge)) std.mem.Allocator.Error!bool {
-    return switch (ctx.types.get(ty)) {
-        .optional, .fallible => |inner| cellEdges(ctx, inner, owner, edges),
-        .array => |a| cellEdges(ctx, a.elem, owner, edges),
-        .nominal => |s| blk: {
-            try edges.append(ctx.allocator, .{ .from = s, .to = owner });
-            break :blk false;
-        },
-        .imported_nominal => (nominalDecl(ctx, ty) orelse return false).symbol().contents.cell,
-        .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id) break :blk true;
-            if (isHeapBuiltin(ctx, pn.sym) or pn.sym == ctx.signal_sym_id) break :blk false;
-            try edges.append(ctx.allocator, .{ .from = pn.sym, .to = owner });
-            for (pn.args) |a| if (try cellEdges(ctx, a, owner, edges)) break :blk true;
-            break :blk false;
-        },
-        else => false,
-    };
-}
-
-/// What each declared type's values borrow. A type borrows what the
-/// declared types it holds borrow, even through a handle, so the answers
-/// are propagated backwards from the types that hold a borrow directly,
-/// like `computeCells`.
-fn computeBorrows(ctx: *SemContext) std.mem.Allocator.Error!void {
-    var edges: std.ArrayListUnmanaged(CellEdge) = .empty;
-    defer edges.deinit(ctx.allocator);
-    var work: std.ArrayListUnmanaged(SymbolId) = .empty;
-    defer work.deinit(ctx.allocator);
-    for (ctx.symbols.items, 0..) |sym, i| {
-        if (!isTypeDecl(sym)) continue;
-        const id: SymbolId = @intCast(i);
-        if (isProxy(sym)) {
-            if (sym.contents.borrows.any) try work.append(ctx.allocator, id);
-            continue;
-        }
-        var b: Borrows = .{};
-        for (sym.fields orelse &.{}) |*f| {
-            for (dataFields(f)) |d| b = b.with(try borrowEdges(ctx, d.ty, id, &edges));
-        }
-        ctx.symbols.items[id].contents.borrows = b;
-        if (b.any) try work.append(ctx.allocator, id);
-    }
-    std.mem.sort(CellEdge, edges.items, {}, CellEdge.lessThan);
-    while (work.pop()) |from| {
-        const b = ctx.symbols.items[from].contents.borrows;
-        var i = std.sort.partitionPoint(CellEdge, edges.items, from, CellEdge.before);
-        while (i < edges.items.len and edges.items[i].from == from) : (i += 1) {
-            const to = &ctx.symbols.items[edges.items[i].to].contents.borrows;
-            if (to.with(b) == to.*) continue;
-            to.* = to.with(b);
+            const to = &ctx.symbols.items[edges.items[i].to].contents;
+            const now = Reach.of(to.*).with(r.within(edges.items[i].mask));
+            if (now == Reach.of(to.*)) continue;
+            to.cell = now.cell;
+            to.borrows = now.borrows;
             try work.append(ctx.allocator, edges.items[i].to);
         }
     }
 }
 
-/// What a field of type `ty` of `owner` borrows whatever the declared
-/// types it names borrow; adds an edge from each of those to `owner`.
-fn borrowEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayListUnmanaged(CellEdge)) std.mem.Allocator.Error!Borrows {
-    return switch (ctx.types.get(ty)) {
-        .borrow_read, .slice => .{ .any = true },
-        .borrow_write => .{ .any = true, .write = true },
-        .optional, .fallible, .shared, .weak => |inner| borrowEdges(ctx, inner, owner, edges),
-        .array => |a| borrowEdges(ctx, a.elem, owner, edges),
-        .nominal => |s| blk: {
-            try edges.append(ctx.allocator, .{ .from = s, .to = owner });
+/// What a value of `ty` holds (`Reach`), as far as `mask` lets it
+/// reach: through a handle, or a Vec's or a Box's heap memory, only a
+/// borrow does, and a Cell's or Signal's value holds nothing that
+/// matters here. What a declared type `ty` names holds is read from its
+/// contents; while they are computed (`computeReach`), an edge from it
+/// to `into.owner` is added instead.
+fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edges: *std.ArrayListUnmanaged(ReachEdge), owner: SymbolId }) std.mem.Allocator.Error!Reach {
+    const r: Reach = switch (ctx.types.get(ty)) {
+        .borrow_read, .slice => .{ .borrows = .{ .any = true } },
+        .borrow_write => .{ .borrows = .{ .any = true, .write = true } },
+        .optional, .fallible => |inner| return reachOf(ctx, inner, mask, into),
+        .array => |a| return reachOf(ctx, a.elem, mask, into),
+        .shared, .weak => |inner| return reachOf(ctx, inner, mask.within(Reach.borrows_only), into),
+        .nominal => |sym| blk: {
+            const e = into orelse break :blk Reach.of(ctx.symbols.items[sym].contents);
+            try e.edges.append(ctx.allocator, .{ .from = sym, .to = e.owner, .mask = mask });
             break :blk .{};
         },
-        .imported_nominal => (nominalDecl(ctx, ty) orelse return .{}).symbol().contents.borrows,
+        .imported_nominal => Reach.of((nominalDecl(ctx, ty) orelse return .{}).symbol().contents),
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk .{};
-            try edges.append(ctx.allocator, .{ .from = pn.sym, .to = owner });
-            var b: Borrows = .{};
-            for (pn.args) |a| b = b.with(try borrowEdges(ctx, a, owner, edges));
-            break :blk b;
+            if (pn.sym == ctx.cell_sym_id) break :blk .{ .cell = true };
+            if (pn.sym == ctx.signal_sym_id) break :blk .{};
+            const m = if (isHeapBuiltin(ctx, pn.sym)) mask.within(Reach.borrows_only) else mask;
+            var r: Reach = .{};
+            if (into) |e| {
+                try e.edges.append(ctx.allocator, .{ .from = pn.sym, .to = e.owner, .mask = m });
+            } else r = Reach.of(ctx.symbols.items[pn.sym].contents);
+            for (pn.args) |a| r = r.with(try reachOf(ctx, a, m, into));
+            break :blk r;
         },
         else => .{},
     };
+    return r.within(mask);
 }
 
 /// The facts of a type, from those of the types it is built from, which
@@ -1993,33 +1964,9 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     info.glue = h.glue;
     info.plain = h.plain;
     info.holds_type_var = h.type_var;
-    info.cell = switch (ty) {
-        .optional, .fallible => |inner| ctx.type_info.items[inner].cell,
-        .array => |a| ctx.type_info.items[a.elem].cell,
-        .nominal, .imported_nominal => if (nominalDecl(ctx, id)) |decl| decl.symbol().contents.cell else false,
-        .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id) break :blk true;
-            if (isHeapBuiltin(ctx, pn.sym) or pn.sym == ctx.signal_sym_id) break :blk false;
-            if (ctx.symbols.items[pn.sym].contents.cell) break :blk true;
-            for (pn.args) |a| if (ctx.type_info.items[a].cell) break :blk true;
-            break :blk false;
-        },
-        else => false,
-    };
-    info.borrows = switch (ty) {
-        .borrow_read, .slice => .{ .any = true },
-        .borrow_write => .{ .any = true, .write = true },
-        .optional, .fallible, .shared, .weak => |inner| ctx.type_info.items[inner].borrows,
-        .array => |a| ctx.type_info.items[a.elem].borrows,
-        .nominal, .imported_nominal => if (nominalDecl(ctx, id)) |decl| decl.symbol().contents.borrows else .{},
-        .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk .{};
-            var b = ctx.symbols.items[pn.sym].contents.borrows;
-            for (pn.args) |a| b = b.with(ctx.type_info.items[a].borrows);
-            break :blk b;
-        },
-        else => .{},
-    };
+    const r = try reachOf(ctx, id, .all, null);
+    info.cell = r.cell;
+    info.borrows = r.borrows;
     return info;
 }
 
