@@ -184,7 +184,7 @@ const Checker = struct {
     const ReturnSite = struct { node: Sexp, ty: ?TypeId };
 
     const FailTarget = union(enum) {
-        /// The caller: in a `fun ... -> T!`, `sub main`, or a test.
+        /// The caller: in a `fun ... -> T!`, a `sub ...!`, `sub main`, or a test.
         caller,
         /// A `fun` or `sub` that cannot fail; its name.
         infallible: Sexp,
@@ -353,7 +353,7 @@ const Checker = struct {
         };
         // `sub main` lowers to a fallible `main`.
         const fallible = (is_main and is_sub) or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
-        if (node.isKind(.fun)) try self.checkFunReturns(node, ret);
+        if (node.isKind(.fun) and !is_main) try self.checkFunReturns(node, ret);
         try self.checkBody(ir.get(node, .body), .{ .ret = ret, .is_sub = is_sub, .fail_to = if (fallible) .caller else .{ .infallible = name }, .name = name });
     }
 
@@ -545,8 +545,11 @@ const Checker = struct {
             return;
         }
         if (self.body.is_sub and ret == self.t().void_id) {
-            try self.errAt(value, "a `sub` returns no value; remove the value or declare a `fun`", .{});
-            _ = try self.synthExpr(value);
+            const ty = try self.synthExpr(value);
+            if (sema.isErrorSet(self.ctx, ty)) {
+                const name = if (self.body.name != .nil) self.text(self.body.name) else "f";
+                try self.errAt(value, "a `sub` that cannot fail returns no error; declare it fallible to fail: `sub {s}(...)!`", .{name});
+            } else try self.errAt(value, "a `sub` returns no value; remove the value or declare a `fun`", .{});
             return;
         }
         try self.checkExpr(value, ret);
@@ -2253,7 +2256,9 @@ const Checker = struct {
             .closure => try self.errAt(operand, "use of `!` propagation requires a fallible enclosing function; a closure body cannot propagate failure, so handle it with `catch`", .{}),
             .drop => try self.errAt(operand, "a `drop` body cannot propagate failure; handle it with `catch`", .{}),
             .infallible => |name| {
-                try self.errAt(operand, "use of `!` propagation requires the enclosing function `{s}` to declare a fallible return type (`-> T!`)", .{self.text(name)});
+                if (self.body.is_sub) {
+                    try self.errAt(operand, "use of `!` propagation requires the enclosing `{s}` to be fallible: `sub {s}(...)!`", .{ self.text(name), self.text(name) });
+                } else try self.errAt(operand, "use of `!` propagation requires the enclosing function `{s}` to declare a fallible return type (`-> T!`)", .{self.text(name)});
                 try self.noteAt(name, "`{s}` declared here", .{self.text(name)});
             },
         }
@@ -3562,10 +3567,8 @@ const Checker = struct {
         const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
         // Fields are set by name, but for one field given positionally.
         if (!(args.len == 1 and soleField(fields) != null)) for (args) |a| if (!a.isKind(.kwarg)) {
-            const first = for (fields) |f| {
-                if (!f.is_method and !f.is_variant) break f.name;
-            } else "field";
-            return self.badCall(args, pos, "a type with more than one field sets them by name: `{s}({s}: ...)`", .{ name, first });
+            try self.positionalFieldsError(fields, name, pos);
+            return self.skipCall(args);
         };
         const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = fields }, pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return self.skipCall(args);
         _ = try self.instantiate(sym_id, subst.args, pos);
@@ -4825,12 +4828,7 @@ const Checker = struct {
                 } else {
                     try self.err(info.pos, "a variant with more than one field sets them by name: `.{s}({s}: ...)`", .{ info.owner, first });
                 }
-            } else {
-                const first = for (fields) |f| {
-                    if (!f.is_method and !f.is_variant) break f.name;
-                } else "field";
-                try self.err(info.pos, "a type with more than one field sets them by name: `{s}({s}: ...)`", .{ info.owner, first });
-            }
+            } else try self.positionalFieldsError(fields, info.owner, info.pos);
             try self.synthArgs(args);
             return;
         }
@@ -4859,6 +4857,24 @@ const Checker = struct {
             if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name)) continue;
             try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
             if (info.foreign == null and f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(info.module_id, f.decl_pos, "field `{s}` declared here", .{f.name});
+        }
+    }
+
+    /// A constructor given positional arguments it cannot take: a type
+    /// with one field takes exactly one, alone; one with more sets them
+    /// by name.
+    fn positionalFieldsError(self: *Checker, fields: []const Field, owner: []const u8, pos: u32) Error!void {
+        var count: usize = 0;
+        var first: []const u8 = "field";
+        for (fields) |f| {
+            if (f.is_method or f.is_variant) continue;
+            if (count == 0) first = f.name;
+            count += 1;
+        }
+        switch (count) {
+            0 => try self.err(pos, "`{s}` has no fields: `{s}()`", .{ owner, owner }),
+            1 => try self.err(pos, "`{s}` has one field, given by position alone (`{s}(x)`) or by name (`{s}({s}: x)`)", .{ owner, owner, owner, first }),
+            else => try self.err(pos, "a type with more than one field sets them by name: `{s}({s}: ...)`", .{ owner, first }),
         }
     }
 

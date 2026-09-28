@@ -634,7 +634,8 @@ pub const Emitter = struct {
             try self.w.writeAll(if (is_main and contains(body, &.{.propagate})) "anyerror!void" else "void");
         }
         try self.w.writeAll(" ");
-        if (return_ty != null) try self.emitValueBody(body) else try self.emitBlock(body);
+        // A `sub` yields no value, even one that may fail (`Void!`).
+        if (return_ty != null and !f.is_sub) try self.emitValueBody(body) else try self.emitBlock(body);
         try self.w.writeAll("\n");
     }
 
@@ -3663,7 +3664,7 @@ pub const Emitter = struct {
         if (ret) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
         try self.w.writeAll(" ");
         const body = ir.Lambda.body(lambda);
-        if (ret != null) try self.emitValueBody(body) else try self.emitBlock(body);
+        if (self.lambdaYields(lambda)) try self.emitValueBody(body) else try self.emitBlock(body);
         try self.w.writeAll("\n");
         try self.closeBrace();
     }
@@ -3843,6 +3844,13 @@ pub const Emitter = struct {
     }
 
     /// The value type a closure literal's body produces, or null.
+    /// Whether a closure's body yields its value: not a `sub`'s, even a
+    /// fallible one (`Void!`).
+    fn lambdaYields(self: *Emitter, lambda: Sexp) bool {
+        const f = self.fnType(self.typeOf(lambda)) orelse return false;
+        return self.lambdaReturn(lambda) != null and !f.is_sub;
+    }
+
     fn lambdaReturn(self: *Emitter, lambda: Sexp) ?TypeId {
         const f = self.fnType(self.typeOf(lambda)) orelse return null;
         return switch (self.sema.types.get(f.returns)) {
@@ -4343,7 +4351,7 @@ const Scan = struct {
                 return;
             },
             .fun => if (ir.Fun.returns(sexp) != .nil) try s.consumeTail(ir.Fun.body(sexp)),
-            .lambda => if (s.e.lambdaReturn(sexp) != null) try s.consumeTail(ir.Lambda.body(sexp)),
+            .lambda => if (s.e.lambdaYields(sexp)) try s.consumeTail(ir.Lambda.body(sexp)),
             else => {},
         }
         for (rig.children(sexp)) |c| try s.walk(c);

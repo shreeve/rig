@@ -1,0 +1,34 @@
+# A `sub` that is not fallible cannot propagate or return an error; the
+# fix is `sub f(...)!`. A type with one field takes one value.
+
+error Bad
+  neg
+
+fun g() -> Int!
+  return Bad.neg
+
+sub w()
+  g()!
+
+sub f(n: Int)
+  return Bad.neg if n > 0
+
+struct M
+  v: Int
+
+struct Empty
+  sub hi(?self)
+    print("hi")
+
+sub main
+  w()
+  f(1)
+  m = M(1, 2)
+  e = Empty(1)
+  print(m.v)
+  e.hi()
+
+# error: 11:3: use of `!` propagation requires the enclosing `w` to be fallible: `sub w(...)!`
+# error: 14:10: a `sub` that cannot fail returns no error; declare it fallible to fail: `sub f(...)!`
+# error: 26:7: `M` has one field, given by position alone (`M(x)`) or by name (`M(v: x)`)
+# error: 27:7: `Empty` has no fields: `Empty()`
