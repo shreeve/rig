@@ -1939,6 +1939,11 @@ pub const Emitter = struct {
     // Match
     // -------------------------------------------------------------------------
 
+    /// How a match reaches its subject (`checkMatch`): a bare or `?`
+    /// subject is read, `!` binds write borrows of the fields, and `<` of
+    /// a value that owns a resource hands the arm its fields.
+    const MatchMode = enum { read, write, consume };
+
     /// `(match scrutinee arm...)` → `switch`. In value position each arm
     /// yields a value.
     fn emitMatch(self: *Emitter, sexp: Sexp, value_pos: bool) Error!void {
@@ -1947,10 +1952,24 @@ pub const Emitter = struct {
         const boxed = if (self.typeOf(scrutinee)) |t| sema.boxedNominal(self.sema, t) else null;
         const scrut_ty = boxed orelse self.typeOf(scrutinee);
         const error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false;
+        const mode: MatchMode = if (scrutinee.isKind(.write))
+            .write
+        else if (scrutinee.isKind(.move) and scrut_ty != null and self.kindOf(scrut_ty.?) != null) .consume else .read;
 
         // `match ?t` / `match !t` switch on the value borrowed, and so
         // does a match on a call returning a borrow held by pointer.
         const subject = unborrowed(scrutinee);
+        // A `match !x` binding of the whole value points at the place.
+        var place: []const u8 = "";
+        if (mode == .write) {
+            var buf: Writer.Allocating = .init(self.arena.allocator());
+            const saved_w = self.w;
+            self.w = &buf.writer;
+            defer self.w = saved_w;
+            try self.emitPlace(subject);
+            if (boxed != null) try self.w.writeAll(".value.*");
+            place = buf.written();
+        }
         try self.w.writeAll("switch (");
         if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
         if (boxed != null) try self.w.writeAll(".value.*");
@@ -1965,7 +1984,7 @@ pub const Emitter = struct {
             try self.pushScope();
             defer self.popScope() catch {};
 
-            var aliases: []const Alias = &.{};
+            var prelude: Prelude = .{};
             switch (pattern) {
                 .src => {
                     const text_ = self.srcText(pattern);
@@ -1975,7 +1994,19 @@ pub const Emitter = struct {
                     } else {
                         has_default = true;
                         try self.w.writeAll("else => ");
-                        if (!std.mem.eql(u8, text_, "_")) try self.emitCapture(pattern);
+                        const named = !std.mem.eql(u8, text_, "_");
+                        switch (mode) {
+                            .read => if (named) try self.emitCapture(pattern),
+                            .write => if (named) if (self.payloadLocal(pattern)) |local| {
+                                const stored = try self.declare(local, text_);
+                                prelude.aliases = try self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = try self.fmt("&{s}", .{place}), .field = "" }});
+                            },
+                            .consume => {
+                                const whole = try self.fresh("whole");
+                                try self.w.print("|{s}| ", .{whole});
+                                prelude = try self.ownedParts(&.{if (named) pattern else .nil}, &.{.{ .expr = whole }});
+                            },
+                        }
                     }
                 },
                 .list => switch (pattern.kind().?) {
@@ -1983,9 +2014,24 @@ pub const Emitter = struct {
                         const vname = self.srcText(ir.get(pattern, .name));
                         try self.w.print("{s}{f} => ", .{ if (error_set) "error." else ".", ident(vname) });
                         const captures: []const Sexp = if (pattern.isKind(.variant_pattern)) ir.VariantPattern.bindings(pattern) else &.{};
-                        if (captures.len > 0) {
-                            aliases = try self.payloadAliases(captures, scrut_ty.?, vname);
-                            if (aliases.len > 0) try self.w.print("|{s}| ", .{aliases[0].payload});
+                        if (mode == .consume) {
+                            // The arm owns the payload: each field is bound or
+                            // dropped at the end of the arm.
+                            const fields = self.variantPayload(scrut_ty.?, vname) orelse &.{};
+                            if (fields.len > 0) {
+                                const payload = try self.fresh("payload");
+                                try self.w.print("|{s}| ", .{payload});
+                                if (captures.len == 0) {
+                                    prelude = try self.ownedParts(&.{.nil}, &.{.{ .expr = payload }});
+                                } else {
+                                    const parts = try self.arena.allocator().alloc(OwnedPart, fields.len);
+                                    for (fields, parts) |f, *part| part.* = .{ .expr = try self.fmt("{s}.{f}", .{ payload, ident(f.name) }) };
+                                    prelude = try self.ownedParts(captures, parts);
+                                }
+                            }
+                        } else if (captures.len > 0) {
+                            prelude.aliases = try self.payloadAliases(captures, scrut_ty.?, vname, mode == .write);
+                            if (prelude.aliases.len > 0) try self.w.print("|{s}{s}| ", .{ if (mode == .write) "*" else "", prelude.aliases[0].payload });
                         }
                     },
                     .range_pattern => {
@@ -2002,31 +2048,67 @@ pub const Emitter = struct {
                 },
                 else => return self.unsupported(arm, "this pattern"),
             }
-            const prelude: Prelude = .{ .aliases = aliases };
             if (value_pos) try self.emitValueBlock(body, prelude, self.typeOf(sexp)) else try self.emitBodyWith(body, prelude);
             try self.w.writeAll(",\n");
         }
         // A statement match whose arms leave some values out runs no arm
-        // for them (sema requires a value-position match to be complete).
+        // for them (sema requires a value-position match to be complete);
+        // one that consumes its subject drops it.
         if (!has_default and !self.sema.isExhaustive(sexp)) {
-            try self.line("else => {{}},", .{});
+            if (mode == .consume) try self.line("else => |__rig_rest| rig.discard(__rig_rest),", .{}) else try self.line("else => {{}},", .{});
         }
         try self.closeBrace();
     }
 
-    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8 };
+    /// A payload binding: `const zig_name = payload.field`, or of
+    /// `payload` itself when `field` is empty (`&place` for the whole
+    /// value of a `match !x`); `addr` takes the field's address, for a
+    /// `match !x` binding that writes it.
+    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false };
+
+    /// A part of a value a `match <x` arm owns: a field, or the whole
+    /// payload or value.
+    const OwnedPart = struct { expr: []const u8 };
+
+    /// The prelude of a `match <x` arm: each part named by a binding the
+    /// arm uses (`binds[i]`, `.nil` or `_` for none) becomes an owned
+    /// local, dropped at the end of the arm unless moved; every other
+    /// part is dropped at the end of the arm.
+    fn ownedParts(self: *Emitter, binds: []const Sexp, parts: []const OwnedPart) Error!Prelude {
+        var owned: std.ArrayListUnmanaged(OwnedBinding) = .empty;
+        var drops: std.ArrayListUnmanaged([]const u8) = .empty;
+        const a = self.arena.allocator();
+        for (binds, parts) |b, part| {
+            const used = if (b == .src and !std.mem.eql(u8, self.srcText(b), "_")) self.payloadLocal(b) else null;
+            if (used) |l| {
+                var local = l;
+                local.scrutinee = null;
+                if (local.kind != null) local.guard = self.resourceGuard(local.sym);
+                const stored = try self.declare(local, self.srcText(b));
+                try owned.append(a, .{ .local = stored.*, .expr = part.expr });
+            } else try drops.append(a, part.expr);
+        }
+        return .{ .owned = owned.items, .drops = drops.items };
+    }
+
+    /// An owned local a `match <x` arm binds from a part of the value.
+    const OwnedBinding = struct { local: Local, expr: []const u8 };
 
     /// Bindings a branch body starts with: payload field aliases,
     /// or the owning binding of `if expr as name`.
     const Prelude = struct {
         aliases: []const Alias = &.{},
+        /// The parts of a consumed value a `match <x` arm binds, and the
+        /// parts it drops at its end.
+        owned: []const OwnedBinding = &.{},
+        drops: []const []const u8 = &.{},
         optional: ?OptionalBinding = null,
         lent: ?OptionalBinding = null,
         /// The error a `catch |err|` handler names, captured as `tmp`.
         err_capture: ?struct { zig_name: []const u8, tmp: []const u8 } = null,
 
         fn isEmpty(p: Prelude) bool {
-            return p.aliases.len == 0 and p.optional == null and p.lent == null and p.err_capture == null;
+            return p.aliases.len == 0 and p.owned.len == 0 and p.drops.len == 0 and p.optional == null and p.lent == null and p.err_capture == null;
         }
     };
 
@@ -2049,8 +2131,10 @@ pub const Emitter = struct {
         try self.w.print("|{s}| ", .{stored.zig_name});
     }
 
-    /// Bindings for a payload's fields, declared in the arm's scope.
-    fn payloadAliases(self: *Emitter, captures: []const Sexp, scrut_ty: TypeId, variant: []const u8) Error![]const Alias {
+    /// Bindings for a payload's fields, declared in the arm's scope. A
+    /// `match !x` binding (`writes`) points at its field, unless the
+    /// field is itself a borrow, which is bound as it is.
+    fn payloadAliases(self: *Emitter, captures: []const Sexp, scrut_ty: TypeId, variant: []const u8, writes: bool) Error![]const Alias {
         const fields = self.variantPayload(scrut_ty, variant) orelse return self.unsupported(captures[0], "this payload pattern");
         var out: std.ArrayListUnmanaged(Alias) = .empty;
         var payload: ?[]const u8 = null;
@@ -2058,13 +2142,31 @@ pub const Emitter = struct {
             const local = self.payloadLocal(c) orelse continue;
             const stored = try self.declare(local, self.srcText(c));
             if (payload == null) payload = try self.fresh("payload");
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name });
+            const addr = writes and switch (self.sema.types.get(f.ty)) {
+                .borrow_read, .borrow_write, .slice => false,
+                else => true,
+            };
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr });
         }
         return out.items;
     }
 
     fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
-        for (prelude.aliases) |a| try self.line("const {s} = {s}.{f};", .{ a.zig_name, a.payload, ident(a.field) });
+        for (prelude.aliases) |a| {
+            if (a.field.len == 0) {
+                try self.line("const {s} = {s};", .{ a.zig_name, a.payload });
+            } else try self.line("const {s} = {s}{s}.{f};", .{ a.zig_name, if (a.addr) "&" else "", a.payload, ident(a.field) });
+        }
+        for (prelude.drops) |d| try self.line("defer rig.discard({s});", .{d});
+        for (prelude.owned) |o| {
+            const is_var = o.local.kind == .value or o.local.kind == .optional;
+            try self.line("{s} {s} = {s};", .{ if (is_var) "var" else "const", o.local.zig_name, o.expr });
+            if (o.local.guard != .none) {
+                try self.writeIndent(self.indent);
+                try self.emitGuard(&o.local);
+                try self.w.writeAll("\n");
+            } else if (is_var) try self.line("_ = &{s};", .{o.local.zig_name});
+        }
         if (prelude.optional) |o| try self.bindOptionalResource(o);
         if (prelude.lent) |o| try self.bindOptionalBorrow(o);
         if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });

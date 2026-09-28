@@ -1,5 +1,5 @@
-# A payload field may be moved out of a matched value when the variant's
-# other fields are plain data; the matched value is consumed.
+# A payload field of `match <s` may be moved out; the variant's other
+# fields are plain data.
 
 struct Wrap
   payload: Int
@@ -17,7 +17,7 @@ enum Slot
 sub main()
   rc = *Wrap(payload: 5)
   s: Slot = .tagged(box: <rc, tag: 9)
-  match s
+  match <s
     .tagged(box, tag)
       print(tag)
       eat(<box)

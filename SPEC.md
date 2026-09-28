@@ -2307,6 +2307,82 @@ small medium large
 something else: 7
 ```
 
+The subject takes the sigil of what the arms do with it, as a `for`
+source and `if … as` do:
+
+| Subject | Payload bindings |
+|---|---|
+| `match e`, `match ?e` | read the fields: a copy of plain data, a read view of anything else |
+| `match !e` | write borrows of the fields: assigning one writes the field in place |
+| `match <e` | own the fields: `e` is consumed, and what an arm does not move on is dropped at the end of the arm |
+
+A bare `match e` only reads `e`, so moving a payload out of it is
+rejected; that takes `match <e`. `match !e` needs a place that may be
+written, as `!e` does, and while one of its bindings is live `e` cannot
+be used otherwise. `match <e` needs a value `e` owns, not a borrow. A
+boxed enum is matched through a borrow of the box, `match ?b` or
+`match !b` ([§11](#box)).
+
+```rig
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B, uses: Int)
+  empty
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main
+  s: Slot = .full(b: *B(n: 1), uses: 0)
+  match !s
+    .full(_, uses) => uses += 1
+    .empty => print("empty")
+  match s
+    .full(b, uses) => print(b.n, uses)
+    .empty => print("empty")
+  match <s
+    .full(b, _) => keep(<b)
+    .empty => print("empty")
+  print("end")
+```
+
+```output
+1 1
+kept 1
+drop 1
+end
+```
+
+```rig reject
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main
+  s: Slot = .full(b: *B(n: 1))
+  match s
+    .full(b) => keep(<b)
+    .empty => print("empty")
+```
+
+```error
+cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fields
+```
+
 ### defer and errdefer
 
 `defer stmt` (or `defer` with a block) runs when the enclosing block
@@ -2539,9 +2615,9 @@ sub main
 Pair(left: "c", right: "a") b
 ```
 
-A `match` payload binding views the matched value; moving it out
-(`.full(b) => eat(<b)`) consumes the matched value, which must then be
-an owned local whose variant has no other owning field.
+A payload binding of `match <s` owns its field and may move it on
+(`.full(b) => eat(<b)`); a bare `match s` only reads `s`
+([match](#match)).
 
 ### Borrows
 

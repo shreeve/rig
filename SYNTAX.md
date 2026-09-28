@@ -1127,6 +1127,31 @@ first matching arm runs; there is no fallthrough.
 A `match` whose value is used must be exhaustive; a statement `match`
 need not be. Duplicate and unreachable arms are errors.
 
+The subject's sigil says what the arms may do with the payload, as it
+does for a `for` source: `match e` and `match ?e` read the fields,
+`match !e` binds write borrows of them (Rust's `match &mut e`, Zig's
+`|*p|` captures), and `match <e` consumes `e`, handing each field to
+its binding and dropping what the arm leaves at its end (Rust's
+`match e` on an owned value). Moving a payload out of a bare `match e`
+is an error that points at `match <e`.
+
+```rig
+enum Shape
+  circle(r: Int)
+  rect(w: Int, h: Int)
+
+sub main
+  s = Shape.circle(r: 1)
+  match !s
+    .circle(r) => r *= 10
+    .rect(w, h) => w = h
+  print(s)
+```
+
+```output
+.circle(r: 10)
+```
+
 ```rig
 enum Shape
   circle(r: Int)
@@ -2296,6 +2321,7 @@ The same sigils mean the same thing in every position:
 | receiver | `?self` | `!self` | `<self` | | |
 | method call | `p.m()` | `!p.m()` | `<p.m()` | | |
 | `for` source | `for x in ?v` | `for x in !v` | `for x in <v` | | |
+| `match` subject | `match ?e` | `match !e` | `match <e` | | |
 | closure capture | `\|?x\|` | `\|!x\|` | `\|<x\|` | `\|+x\|` | `\|~x\|` |
 | assignment | | | `a = <b` | | |
 

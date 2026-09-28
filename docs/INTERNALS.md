@@ -804,8 +804,11 @@ the same on every path, and conservative where paths differ.
 branch from the same entry state and join the results: moved or dropped
 on any path means moved or dropped after, and loans are unioned. A
 `match` scrutinee is resolved as a place (a var, or a field path in
-one), whose root stays borrowed while a payload binding views it;
-moving a payload out consumes an owned local scrutinee. Loops
+one), whose root stays borrowed while a payload binding views it (a
+write borrow for `match !x`, whose bindings write through like a local
+write borrow); moving a payload out of a match that reads its subject
+is rejected. `match <x` moves `x` first, and its bindings are owned
+vars holding what `x` held. Loops
 iterate to a fixpoint over the back edge: the loop-head state joins the
 entry, the end of the body, and every `continue`; the state after the
 loop joins the exit condition with every `break`. A loop's `else` is
@@ -895,7 +898,11 @@ lower is an internal error: sema must have rejected it.
   with drop glue gets a `__rig_drop` method: the user `drop` body, then
   the owning fields in reverse order.
 - **Values.** `if` and `match` in value position become labeled blocks
-  when a branch needs statements; `match` is a `switch`. A loop used as
+  when a branch needs statements; `match` is a `switch`, whose
+  captures copy the payload (`match e`, `match ?e`), point into it
+  (`|*p|` for `match !e`), or own it (`match <e`: each bound field
+  becomes an owned local with its drop guard, and the rest is dropped
+  by a `defer` in the prong). A loop used as
   a value (one a `break` leaves with a value) becomes a labeled block
   holding the loop without its `else`, then `break :block else_value`;
   each `break v` leaves the block, so the `else` value is reached only

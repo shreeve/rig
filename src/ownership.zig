@@ -70,8 +70,9 @@
 //!   still owns it, and an owned parent would drop it again.
 //! * Borrowed parameters cannot be dropped or move-captured. Functions may
 //!   read module-level constants but not move them.
-//! * A match payload binding views the scrutinee. Moving it out consumes
-//!   an owned local scrutinee and is rejected for a borrowed or shared one.
+//! * A match payload binding of `match x` or `match ?x` views the
+//!   scrutinee, and one of `match !x` write-borrows it: none can be moved
+//!   out. `match <x` moves `x`, and its bindings own what they bind.
 //! * A closure literal may only be bound (`f = |...|`), called in place,
 //!   lent to a call as a borrowed callable (its value carries its
 //!   captures' loans), or made owned with `*|...|`; closure bindings
@@ -180,10 +181,6 @@ const Var = struct {
     /// The var with the same name this one hides, for name lookup.
     shadows: ?VarId = null,
     via: Via = .owned,
-    /// Match payload binding whose variant has another field that owns
-    /// a resource: moving this one out would leave that one undropped.
-    /// Holds a position of such a field, for the diagnostic.
-    owning_sibling: ?u32 = null,
 };
 
 const ScopeKind = enum {
@@ -1872,16 +1869,12 @@ pub const Checker = struct {
     }
 
     /// Move (or drop, `op`) a match payload binding out of its
-    /// scrutinee. The value carries what the scrutinee held.
+    /// scrutinee: a view of a value the match does not consume, so it is
+    /// rejected, with the way to take it.
     fn movePayload(self: *Checker, id: VarId, pos: u32, op: []const u8) Error!Value {
         const v = self.vars.items[id];
         const root = v.alias_of.?;
         const r = self.vars.items[root];
-        if (v.owning_sibling) |sib| {
-            try self.err(pos, "cannot move `{s}` out of `{s}`: another field of the variant owns a resource that would never be dropped", .{ v.name, r.name });
-            try self.note(sib, "this field also owns a resource", .{});
-            return .{};
-        }
         switch (v.via) {
             .borrowed => {
                 try self.err(pos, "cannot move out of `{s}`: it is borrowed from `{s}`", .{ v.name, r.name });
@@ -1898,22 +1891,10 @@ pub const Checker = struct {
             try self.err(pos, "cannot {s} `{s}` out of `{s}`: `{s}` still owns it (partial moves are not supported)", .{ op, v.name, v.alias_path, r.name });
             return .{};
         }
-        if (!self.flowLive(root)) {
-            try self.err(pos, "cannot move `{s}` out of `{s}`: `{s}` was already moved", .{ v.name, r.name, r.name });
-            try self.noteInvalidated(root, pos);
-            return .{};
-        }
-        if (self.findLoan(root, .any, root)) |l| {
-            try self.err(pos, "cannot move `{s}` out of `{s}` while `{s}` is borrowed", .{ v.name, r.name, r.name });
-            try self.noteLoan(l);
-            return .{};
-        }
-        // Moving the payload consumes the scrutinee.
-        const value = self.varValue(root);
-        try self.markInvalid(root, .moved, pos);
-        try self.markInvalid(id, .moved, pos);
-        try self.holdMoved(value);
-        return value;
+        // A bare match reads what it matches; `match <x` hands its
+        // fields to the arm.
+        try self.err(pos, "cannot {s} `{s}` out of `{s}`: `match {s}` reads `{s}`; write `match <{s}` to take its fields", .{ op, v.name, r.name, r.name, r.name, r.name });
+        return .{};
     }
 
     /// `<p.a` / `<v[i]`: only Copy values can leave a field or element.
@@ -2293,7 +2274,7 @@ pub const Checker = struct {
         const writes_capture = v.kind == .capture and (v.ref == .write or self.isPoisonType(v.ty));
         if (!writes_capture and try self.rejectBorrowedView(id, pos, "reassign")) return;
         if (!self.isCopy(v.ty) and try self.rejectGlobal(id, pos, "reassign")) return;
-        if (v.alias_of != null and !self.isCopy(v.ty)) {
+        if (v.alias_of != null and !self.isCopy(v.ty) and v.ref != .write) {
             try self.err(pos, "cannot reassign match binding `{s}`; it views the matched value", .{v.name});
             return;
         }
@@ -2323,7 +2304,8 @@ pub const Checker = struct {
             // caller handed in; through a local, it lands in what the
             // local borrows, which then holds them.
             if (!try self.checkLive(id, pos)) return;
-            if (v.kind == .local and self.borrowedRoot(id) != null) return self.storeThroughLocal(id, pos, value);
+            // (A `match !x` binding borrows `x`, as a local write borrow does.)
+            if ((v.kind == .local or (v.kind == .pattern and v.alias_of != null)) and self.borrowedRoot(id) != null) return self.storeThroughLocal(id, pos, value);
             for (value.loans) |l| if (self.isLocalLoan(l)) {
                 try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: the caller's value outlives it", .{ self.vars.items[l.root].name, v.name });
                 return;
@@ -3060,14 +3042,8 @@ pub const Checker = struct {
             },
             .list => {
                 if (pattern.isKind(.variant_pattern)) {
-                    const binds = ir.VariantPattern.bindings(pattern);
-                    for (binds, 0..) |b, i| {
-                        if (b == .src and !std.mem.eql(u8, self.text(b), "_")) {
-                            const id = try self.bindPayload(b, info, scrut_value);
-                            for (binds, 0..) |other, j| {
-                                if (j != i and self.owningKind(self.exprType(other)) != null) self.vars.items[id].owning_sibling = self.startOf(other);
-                            }
-                        }
+                    for (ir.VariantPattern.bindings(pattern)) |b| {
+                        if (b == .src and !std.mem.eql(u8, self.text(b), "_")) _ = try self.bindPayload(b, info, scrut_value);
                     }
                 }
                 return false;

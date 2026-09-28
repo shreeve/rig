@@ -37,7 +37,7 @@ enum Opt[T]
   nothing
 
   fun or_else(self: Opt[T], d: T) -> T
-    match self
+    match <self
       .some(v) => v
       .nothing => <d
 

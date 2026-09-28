@@ -72,7 +72,15 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
 }
 
-const CopySource = struct { place: Sexp, kind: enum { loop, as } };
+/// Where a binding that cannot be written got its value: a loop element
+/// or `as` binding copied from a place, or a match binding of a field of
+/// the place a bare match copies (`match_copy`) or a `?` match reads
+/// (`match_read`).
+const CopySource = struct { place: Sexp, kind: enum { loop, as, match_copy, match_read } };
+
+/// How a match reaches its subject: `match e` and `match ?e` read it,
+/// `match !e` writes its fields in place, and `match <e` consumes it.
+const MatchMode = enum { read, write, consume };
 
 const Checker = struct {
     ctx: *SemContext,
@@ -626,7 +634,9 @@ const Checker = struct {
         // through a `!T` binding reaches the borrowed value.
         if (!is_decl and self.ctx.types.get(sym.ty) != .borrow_write) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
         if (!is_decl and sym.flags.pattern_bound and self.ctx.types.get(sym.ty) != .borrow_write) {
-            try self.errAt(target, "cannot assign to `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ name, name, name });
+            if (self.copied_from.contains(sym_id)) {
+                _ = try self.checkSymbolWritable(sym_id, sym, name, target.src.pos, "assign to");
+            } else try self.errAt(target, "cannot assign to `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ name, name, name });
         }
 
         var declared = self.t().unknown_id;
@@ -912,6 +922,7 @@ const Checker = struct {
                     switch (from.kind) {
                         .loop => try self.err(pos, "cannot {s} `{s}`: it is a copy of an element of `{s}`; to change the elements in place, loop with `for {s} in !{s}`", .{ verb, name, place, name, place }),
                         .as => try self.err(pos, "cannot {s} `{s}`: it is a copy of the value inside `{s}`; to change that value in place, bind it with `!{s} as {s}`", .{ verb, name, place, place, name }),
+                        .match_copy, .match_read => try self.err(pos, "cannot {s} `{s}`: it is {s} of a field of `{s}`; to change the field in place, match with `match !{s}`", .{ verb, name, if (from.kind == .match_copy) "a copy" else "a read view", place, place }),
                     }
                     return false;
                 };
@@ -1426,20 +1437,33 @@ const Checker = struct {
 
     fn checkMatch(self: *Checker, node: Sexp, position: Position, expected: ?TypeId) Error!TypeId {
         const subject = ir.Match.subject(node);
-        if (subject.isKind(.move)) {
-            try self.errAt(subject, "a `match` reads its scrutinee, so moving it in would leave nothing to drop it; match the binding itself (`match s`)", .{});
-        }
-        var scrutinee = try self.synthOperand(subject);
+        const mode: MatchMode = if (subject.isKind(.write)) .write else if (subject.isKind(.move)) .consume else .read;
+        // `<e` names the value it moves; a temporary is checked as one.
+        var scrutinee = if (mode == .consume) try self.synthExpr(subject) else try self.synthOperand(subject);
         const scrut_pos = self.startOf(subject);
+        // `match <e` takes the fields of a value `e` owns.
+        if (mode == .consume) if (self.ctx.typeOf(ir.Move.operand(subject))) |held| switch (self.ctx.types.get(held)) {
+            .borrow_read, .borrow_write => {
+                const shown = try self.sourceText(ir.Move.operand(subject));
+                try self.errAt(subject, "`match <{s}` consumes an owned value, and `{s}` is a borrow (`{s}`); match what it borrows with `match {s}`", .{ shown, shown, try self.tyName(held), shown });
+            },
+            else => {},
+        };
         // A boxed enum is matched where it is, through a borrow of the box.
         if (sema.boxedType(self.ctx, sema.unwrapBorrows(self.ctx, scrutinee)) != null) if (sema.boxedNominal(self.ctx, scrutinee)) |inner| {
             switch (self.ctx.types.get(scrutinee)) {
                 .borrow_read => scrutinee = try self.ctx.intern(.{ .borrow_read = inner }),
                 .borrow_write => scrutinee = try self.ctx.intern(.{ .borrow_write = inner }),
                 else => {
-                    const sp = self.ctx.span(subject);
-                    try self.errAt(subject, "a `match` reaches the value inside a box through a borrow: `match ?{s}`", .{self.ctx.source[sp.start..sp.end]});
-                    scrutinee = self.t().invalid_id;
+                    const place = if (mode == .consume) ir.Move.operand(subject) else subject;
+                    const shown = try self.sourceText(place);
+                    if (mode == .consume) {
+                        try self.errAt(subject, "a `match` reaches the value inside a box through a borrow: `match ?{s}` or `match !{s}`; to take the value out, bind it first: `v = <{s}.unbox()`", .{ shown, shown, shown });
+                        scrutinee = inner;
+                    } else {
+                        try self.errAt(subject, "a `match` reaches the value inside a box through a borrow: `match ?{s}`", .{shown});
+                        scrutinee = self.t().invalid_id;
+                    }
                 },
             }
         };
@@ -1456,6 +1480,11 @@ const Checker = struct {
         // A binding copies what it binds, so one holding a write borrow
         // would be a second writer when the matched value is only read.
         const read_only = subject.isKind(.read) or self.readOnlyPlace(subject);
+        // The place a binding that cannot be written views, for the
+        // diagnostic that says how to write it.
+        const viewed: ?CopySource = if (mode != .read) null else if (subject.isKind(.read) and isPlaceExpr(ir.Read.operand(subject)))
+            .{ .place = ir.Read.operand(subject), .kind = .match_read }
+        else if (isPlaceExpr(subject)) .{ .place = subject, .kind = .match_copy } else null;
         var cov: MatchCoverage = .{};
         var arm_values: std.ArrayListUnmanaged(Typed) = .empty;
         defer arm_values.deinit(self.ctx.allocator);
@@ -1469,7 +1498,10 @@ const Checker = struct {
             if (cov.has_default or self.coversAll(&cov, scrutinee)) {
                 try self.errAt(pattern, "this arm never runs: the arms before it cover every value", .{});
             }
-            try self.checkPattern(pattern, scrutinee, &cov);
+            try self.checkPattern(pattern, scrutinee, &cov, mode);
+            if (viewed) |v| if (pattern.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(pattern)) |b| {
+                if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
+            };
             if (read_only) try self.rejectWriteBorrowBindings(pattern);
             const body = ir.Arm.body(arm);
             switch (position) {
@@ -1549,7 +1581,7 @@ const Checker = struct {
         try cov.ints.append(self.ctx.allocator, .{ lo, hi });
     }
 
-    fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
+    fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage, mode: MatchMode) Error!void {
         const covered = &cov.variants;
         switch (pattern) {
             .src => {
@@ -1580,7 +1612,7 @@ const Checker = struct {
                         try self.ctx.recordType(pattern, scrutinee);
                         try self.recordCovered(self.text(name), self.startOf(pattern), covered);
                     },
-                    .variant_pattern => try self.checkVariantPattern(pattern, scrutinee, covered),
+                    .variant_pattern => try self.checkVariantPattern(pattern, scrutinee, covered, mode),
                     .range_pattern => try self.checkRangePattern(pattern, scrutinee, cov),
                     else => {
                         try self.checkExpr(pattern, scrutinee);
@@ -1647,7 +1679,7 @@ const Checker = struct {
         }
     }
 
-    fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, covered: *std.StringHashMapUnmanaged(u32)) Error!void {
+    fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, covered: *std.StringHashMapUnmanaged(u32), mode: MatchMode) Error!void {
         const name = ir.VariantPattern.name(pattern);
         const vname = self.text(name);
         const vpos = name.src.pos;
@@ -1672,8 +1704,11 @@ const Checker = struct {
             return;
         }
         for (bindings, resolved.payload) |b, f| {
-            try self.ctx.recordType(b, f.ty);
-            if (self.ctx.symbolOf(b)) |sym| self.ctx.symbols.items[sym].ty = f.ty;
+            // `match !e` binds a write borrow of each field; a field that
+            // is a borrow or a slice (a view) is bound as it is.
+            const ty = if (mode == .write and !isBorrow(self.ctx, f.ty) and self.ctx.types.get(f.ty) != .slice and !self.isPoison(f.ty)) try self.ctx.intern(.{ .borrow_write = f.ty }) else f.ty;
+            try self.ctx.recordType(b, ty);
+            if (self.ctx.symbolOf(b)) |sym| self.ctx.symbols.items[sym].ty = ty;
         }
     }
 

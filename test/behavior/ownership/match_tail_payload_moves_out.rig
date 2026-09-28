@@ -1,5 +1,5 @@
-# A match on an owned value may yield a payload as its value, returned
-# or bound: the payload moves out and the scrutinee is consumed.
+# `match <o` may yield a payload as its value, returned or bound: the
+# payload moves out of the consumed scrutinee.
 
 struct B
   n: Int
@@ -12,12 +12,12 @@ enum Opt
   nothing
 
 fun get(o: Opt, d: *B) -> *B
-  match o
+  match <o
     .some(v) => v
     .nothing => <d
 
 fun get2(o: Opt, d: *B) -> *B
-  x = match o
+  x = match <o
     .some(v) => v
     .nothing => <d
   <x
