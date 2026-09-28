@@ -1,0 +1,35 @@
+# Taking an optional out of a field writes the field: not while another
+# borrow of the value is live, and not twice in one call. A field that
+# is not optional still cannot be moved out; it is exchanged with
+# `replace`. A local is moved as a whole, and cannot be used after.
+
+struct N
+  v: Int
+  next: Box[N]?
+
+struct S
+  top: Box[N]?
+  n: N
+
+sub both(s: !S)
+  if ?s.top as t
+    y = <s.top
+    print(t.v)
+
+sub twice(s: !S)
+  a = replace(!s.top, <s.top)
+  print(a)
+
+sub main
+  s = S(top: none, n: N(v: 1, next: none))
+  nm = <s.n
+  msg: String? = "hi"
+  m = <msg
+  print(msg, m, nm)
+  both(!s)
+  twice(!s)
+
+# error: 16:10: cannot write-borrow `s` while a read borrow is live
+# error: 20:24: cannot take a second write borrow on `s`
+# error: 25:9: cannot move out of `s.n`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.n, v)`
+# error: 28:9: use of `msg` after move

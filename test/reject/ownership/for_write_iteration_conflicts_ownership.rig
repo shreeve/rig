@@ -1,0 +1,11 @@
+# `for x in !xs` write-borrows `xs` for the whole loop.
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  r = ?v
+  for x in !v
+    x = 2
+  print(r.len)
+
+# error: 7:13: cannot write-borrow `v` while a read borrow is live

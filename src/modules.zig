@@ -272,6 +272,13 @@ pub const ModuleGraph = struct {
             .is_root = id == 1,
         });
 
+        // Ownership reads the types sema settled, so a module whose types
+        // are wrong is not checked for ownership: its errors would follow
+        // from the type errors, or be about code that means nothing yet.
+        if (hasTypeErrors(m.sema.diagnostics.items)) {
+            m.state = .failed;
+            return;
+        }
         var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);
         defer own.deinit();
         try own.check(m.ir);
@@ -308,6 +315,17 @@ pub const ModuleGraph = struct {
         if (hidden > 0) try w.print("{d} more error{s} not shown\n", .{ hidden, if (hidden == 1) "" else "s" });
     }
 };
+
+/// Whether sema reported an error other than a local that is never
+/// read: that one is a lint on well-typed code, and the ownership errors
+/// of the same program are still worth reporting.
+fn hasTypeErrors(items: []const diag.Diagnostic) bool {
+    for (items) |d| {
+        if (d.severity == .@"error" and std.mem.indexOf(u8, d.message, "` is assigned but never read") == null and
+            std.mem.indexOf(u8, d.message, "` is bound but never read") == null) return true;
+    }
+    return false;
+}
 
 /// `dir/name.rig` → `name`.
 fn moduleName(path: []const u8) []const u8 {

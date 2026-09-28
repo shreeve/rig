@@ -710,17 +710,25 @@ cannot write-borrow `a` while a read borrow is live
 
 ```rig reject
 sub main
-  s = "text"
   v: Vec[Int] = Vec()
   !v.push(1)
   w = !v[..]
   !v.push(2)
   w[0] = 5
-  t = !s[1..]
 ```
 
 ```error
 use of `v` while a write borrow is live
+```
+
+```rig reject
+sub main
+  s = "text"
+  t = !s[1..]
+  t[0] = 65
+```
+
+```error
 cannot write-borrow a slice of a String; a String is read-only
 ```
 
@@ -1573,6 +1581,19 @@ methods of a `pub` type, whose instances other modules make, where it
 is declared.
 
 ```rig reject
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main
+  print(max(true, false))
+```
+
+```error
+`max[Bool]` cannot use `T = Bool`: the generic body applies `>` to `T`, which `Bool` does not support
+`>` used on `T` here (ordering comparison)
+```
+
+```rig reject
 struct Res
   n: Int
 
@@ -1583,9 +1604,6 @@ struct Pair[A, B]
   first: A
   second: B
 
-fun max[T](a: T, b: T) -> T
-  a if a > b else b
-
 fun twice[T](x: T) -> Pair[T, T]
   Pair(first: x, second: x)
 
@@ -1593,15 +1611,13 @@ fun same[T](x: T) -> T
   x
 
 sub main
-  print(max(true, false))
   p = twice(Res(n: 1))
   r = Res(n: 2)
   q = same(?r)
+  print(p.first.n, q.n)
 ```
 
 ```error
-`max[Bool]` cannot use `T = Bool`: the generic body applies `>` to `T`, which `Bool` does not support
-`>` used on `T` here (ordering comparison)
 `twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
 `T` copied here; move it with `<` instead
 `same[?Res]` cannot use `T = ?Res`: a generic function is checked for a `T` that holds no borrow
@@ -3943,19 +3959,28 @@ takes:
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
+sub main
+  print(apply(*|a| a + 1, 2))
+```
+
+```error
+borrows a closure for the call; write the closure without `*` (drop the `*`)
+```
+
+A closure lent to a call is checked with the call's other arguments:
+
+```rig reject
 sub each(xs: ?Vec[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
 sub main
-  print(apply(*|a| a + 1, 2))
   c: Vec[Int] = Vec()
   each(?c, |!c, n|
     !c.push(n))
 ```
 
 ```error
-borrows a closure for the call; write the closure without `*` (drop the `*`)
 cannot write-borrow `c` while a read borrow is live
 ```
 

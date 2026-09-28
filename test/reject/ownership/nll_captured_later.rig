@@ -15,6 +15,6 @@ sub main()
   w = !x
   f = |<r| print(r.n)
   f()
-  w.bump()
+  !w.bump()
 
 # error: cannot write-borrow `x` while a read borrow is live

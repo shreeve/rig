@@ -17,8 +17,8 @@ sub view()
 sub main()
   a = [1, 2]
   w = !a[..]
-  two(w, w)
+  two(!w, w)
   view()
 
 # error: 14:3: cannot assign to `w[...]` while `w` is borrowed
-# error: 20:10: cannot read-borrow `w` while a write borrow is live
+# error: 20:11: cannot read-borrow `w` while a write borrow is live

@@ -29,6 +29,10 @@ zig run / zig build-exe            Debug (leak-checked), ReleaseSafe, or Release
 `src/main.zig` is the CLI; `rig --help` is its reference. `check` runs
 every checker on the program and its imports, and `check --facts` then
 prints the root module's IR as flat facts ([Syntax facts](#syntax-facts)).
+A module whose sema reports an error (other than a local that is never
+read, a lint on well-typed code) is not ownership-checked: ownership
+reads the types sema settled, as Rust's borrow checker waits for its
+type checker.
 `tokens`, `parse`, and `normalize` print the lexer's tokens, the
 grammar's raw tree, and the semantic IR.
 

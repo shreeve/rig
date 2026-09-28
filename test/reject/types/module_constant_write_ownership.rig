@@ -1,0 +1,10 @@
+# A module constant cannot be reassigned from a function: it is named a
+# constant, not a `=!` binding, in what the checkers say.
+
+LIMIT = 4
+
+sub main()
+  LIMIT += 1
+  print(LIMIT)
+
+# error: 7:3: cannot reassign constant `LIMIT`

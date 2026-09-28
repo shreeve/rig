@@ -1,8 +1,5 @@
 # Taking an optional out of a field writes the field: not through a read
-# borrow or a shared handle, not while another borrow of the value is
-# live, and not twice in one call. A field that is not optional still
-# cannot be moved out; it is exchanged with `replace`. A local is moved
-# as a whole, and cannot be used after.
+# borrow or a shared handle.
 
 struct N
   v: Int
@@ -16,30 +13,12 @@ sub rd(s: ?S)
   x = <s.top
   print(x)
 
-sub both(s: !S)
-  if ?s.top as t
-    y = <s.top
-    print(t.v)
-
-sub twice(s: !S)
-  a = replace(!s.top, <s.top)
-  print(a)
-
 sub main
   h = *S(top: none, n: N(v: 1, next: none))
   z = <h.top
   s = S(top: none, n: N(v: 1, next: none))
-  nm = <s.n
-  msg: String? = "hi"
-  m = <msg
-  print(msg, m, z, nm)
+  print(z)
   rd(?s)
-  both(!s)
-  twice(!s)
 
-# error: 16:8: cannot take through a read borrow (`?T`)
-# error: 21:10: cannot write-borrow `s` while a read borrow is live
-# error: 25:24: cannot take a second write borrow on `s`
-# error: 30:7: cannot take through a shared handle (`*T`)
-# error: 32:9: cannot move out of `s.n`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.n, v)`
-# error: 35:9: use of `msg` after move
+# error: 13:8: cannot take through a read borrow (`?T`)
+# error: 18:7: cannot take through a shared handle (`*T`)

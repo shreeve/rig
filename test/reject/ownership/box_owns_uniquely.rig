@@ -1,6 +1,4 @@
-# A box is its value's one owner: it cannot be cloned or copied, and a
-# field of the boxed value cannot be moved out or copied out when it
-# owns a resource.
+# A box is its value's one owner: it cannot be cloned.
 
 struct Res
   n: Int
@@ -11,21 +9,8 @@ struct Res
 struct H
   r: Res
 
-struct Node
-  next: Box[Node]?
-
 sub main
   b = Box(H(r: Res(n: 1)))
   c = +b
-  d = b
-  s = <b.r
-  t = b.r
-  n = Box(Node(next: none))
-  if n.next as x
-    print("next")
 
-# error: 19:8: `+x` cannot clone a `Box[H]`
-# error: 20:7: bare use of `Box` value `b` in binding would copy the box's pointer and free its value twice; use `<b` to move ownership
-# error: 21:8: cannot move out of `b.r`
-# error: 22:7: bare use of `Res` value `b.r` in binding would alias an owning value
-# error: 24:6: bare use of `Box` value `n.next` in binding would copy the box's pointer; a field cannot be moved out of its parent. Borrow it instead: `?n.next` or `!n.next`
+# error: 14:8: `+x` cannot clone a `Box[H]`

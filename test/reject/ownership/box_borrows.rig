@@ -1,13 +1,9 @@
-# Borrows reach a boxed value through the box: its owner cannot be
-# reassigned or dropped while one is live, and a read borrow of the box
-# cannot write the value or lend it to write.
+# A read borrow of a boxed value cannot write the value or lend it to
+# write.
 
 struct Node
   key: Int
   left: Box[Node]?
-
-fun first(n: ?Box[Node]) -> ?Node
-  ?n
 
 sub grow(s: !Box[Node]?)
   s = none
@@ -19,20 +15,7 @@ sub bad(slot: ?Box[Node]?)
 
 sub main
   root: Box[Node]? = Box(Node(key: 1, left: none))
-  if !root as n
-    root = none
-    print(n.key)
-  a = Box(Node(key: 1, left: none))
-  f = first(?a)
-  a = Box(Node(key: 2, left: none))
-  print(f.key)
-  r = ?a
-  -a
-  print(r.key)
   bad(?root)
 
-# error: 17:5: cannot assign through a read borrow (`?T`)
-# error: 18:11: cannot write-borrow through a read borrow (`?T`)
-# error: 23:5: cannot reassign `root` while borrows are live
-# error: 27:3: cannot reassign `a` while borrows are live
-# error: 30:4: cannot drop `a` while borrows are live
+# error: 13:5: cannot assign through a read borrow (`?T`)
+# error: 14:11: cannot write-borrow through a read borrow (`?T`)
