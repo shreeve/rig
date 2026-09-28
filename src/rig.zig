@@ -1061,8 +1061,9 @@ pub const Parser = struct {
     base: BaseParser,
     /// Set when parsing succeeded but the tree was rejected.
     failure: ?diag.Diagnostic = null,
-    /// The node ids of the `(write place)` and `(move place)` receivers
-    /// written in front of the call (`!v.push(x)`), not in parentheses.
+    /// The node ids of the `(read place)`, `(write place)`, and
+    /// `(move place)` receivers written in front of the call
+    /// (`!v.push(x)`), not in parentheses.
     receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// The node ids of the `-name` lines rewritten to `(neg name)`
     /// because their value is used, and whether it is a function's value.
@@ -1491,7 +1492,7 @@ pub const Parser = struct {
     //   * a jump fallback belongs to the nearest `??` (the grammar reads
     //     it at the level of `catch`, after the chain before it):
     //       (?? (?? a b) (return v))  →  (?? a (?? b (return v)))
-    //   * `!` or `<` before a place followed by a method call is the
+    //   * `?`, `!`, or `<` before a place followed by a method call is the
     //     receiver's mode:
     //       (write (call (member (member x v) push) 1))  →  (call (member (write (member x v)) push) 1)
     //
@@ -1515,7 +1516,7 @@ pub const Parser = struct {
         switch (out.kind() orelse return out) {
             .lambda => try self.splitBars(out, walked),
             .@"??" => return self.nearestFallback(out),
-            .write, .move => return self.receiverSigil(out),
+            .read, .write, .move => return self.receiverSigil(out),
             .share, .weak => try self.noteParenSuffix(out),
             // The body's value is returned.
             .fun => if (ir.Fun.returns(out) != .nil) try self.valueTail(ir.Fun.body(out), true),
@@ -1597,7 +1598,7 @@ pub const Parser = struct {
     /// The longest postfix chain `receiverSigil` looks through.
     const max_spine = 256;
 
-    /// `!` and `<` before a place (a name and the fields and elements
+    /// `?`, `!`, and `<` before a place (a name and the fields and elements
     /// after it) followed by a method call apply to the place; the call
     /// and every postfix after it apply to the borrowed or moved place:
     ///   (write (propagate_none (call (member v pop))))
@@ -1859,7 +1860,7 @@ test "parser: for-source sigil moves into the mode slot" {
 }
 
 test "parser: a receiver sigil moves onto the place before the method" {
-    const source = "!x.v[0].push(1)\n(!v).push(2)\n!(v.pop())\n!f(x).g()\n";
+    const source = "!x.v[0].push(1)\n(!v).push(2)\n!(v.pop())\n!f(x).g()\n?p.m()\n?(p.m())\n";
     var p = Parser.init(testing.allocator, source);
     defer p.deinit();
     const tree = try p.parseProgram();
@@ -1876,6 +1877,10 @@ test "parser: a receiver sigil moves onto the place before the method" {
     try testing.expect(stmts[2].isKind(.write));
     // A called head is not a place.
     try testing.expect(stmts[3].isKind(.write));
+    // `?` reaches the receiver too, and borrows a parenthesized call.
+    const read = ir.Member.object(ir.Call.callee(stmts[4]));
+    try testing.expect(read.isKind(.read) and p.isReceiverSigil(read));
+    try testing.expect(stmts[5].isKind(.read));
 }
 
 test "parser: bar lists split into captures and parameters, all with node ids" {

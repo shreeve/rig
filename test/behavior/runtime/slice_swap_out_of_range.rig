@@ -6,6 +6,6 @@ fun rt(n: Int) -> Int
 sub main()
   a = [1, 2, 3]
   w = !a[1..]
-  w.swap(0, rt(2))
+  !w.swap(0, rt(2))
 
 # expect-panic: index out of bounds

@@ -204,8 +204,8 @@ that need to inspect the tree:
 - a jump fallback moves to the nearest `??` of the chain before it:
   `(?? (?? a b) (return v))` becomes `(?? a (?? b (return v)))`, since
   the grammar reads the jump after the whole chain;
-- a `!` or `<` before a place (a name and the fields and elements after
-  it) followed by a method call moves onto the place, the method's
+- a `?`, `!`, or `<` before a place (a name and the fields and elements
+  after it) followed by a method call moves onto the place, the method's
   receiver: `!x.v.push(1)` parses as
   `(write (call (member (member x v) push) 1))` and becomes
   `(call (member (write (member x v)) push) 1)`, the tree
@@ -222,7 +222,8 @@ that need to inspect the tree:
   node's id (`Parser.isReceiverSigil`), since the checker rejects some
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!self` (the habit of `!` as negation),
-  a `<` before one that does not take `<self`, and a `!` call whose
+  a `<` before one that does not take `<self`, a `?` before one that
+  takes `!self` or `<self`, and a `!` call whose
   value is a `Bool` where it starts a condition or an operand of
   `and`, `or`, or `not`, written `(!set).insert(k)` there. A `for` source sigil
   is the loop's mode, moved before this rewrite sees it.
@@ -231,7 +232,7 @@ It also rejects a tree nested more than 1000 deep, since every later
 pass walks the tree recursively.
 
 A rewritten node keeps its node id, and so its span; the `captures`
-node and a receiver sigil's `write` or `move` node are built with the
+node and a receiver sigil's `read`, `write`, or `move` node are built with the
 generated parser's `newNode`, which gives each a fresh id spanning its
 entries (for a receiver sigil, the sigil and the place). The wrapper
 places children by `ir.slot(.kind, .role)`, the compile-time slot of a
@@ -324,6 +325,7 @@ sub         name:leaf tparams:group? params:group? body:block
 set         op:tag(fixed|shadow|move|"+="|...)? target type? value
 for         mode:tag(iter|read|write|move) var:leaf index:leaf? source body:block else:block?
 match       subject ...arms:arm
+arm         pattern guard? body
 call        callee ...args
 "+", "-", "*", "/", "%"   left right
 ```
@@ -345,6 +347,11 @@ A few kinds serve more than one surface form:
   assignment.
 - `for`'s `mode` is `iter` from the grammar; the Parser wrapper turns
   `for x in ?xs` / `!xs` / `<xs` into `read`, `write`, `move`.
+- `arm`'s `guard` is the condition of `pattern if cond =>`, or `_`; its
+  `pattern` is `(alt_pattern p...)` for alternatives (`1, 2 =>`). A
+  `variant_pattern` binding is a name, or `(kwarg field name)` for a
+  field bound by name (`.rect(w: a)`), which the checker rejects as
+  not supported yet.
 - `lambda`'s `captures` is a `(captures cap...)` node the Parser wrapper
   builds from the bar list (the one `@wrapper` kind), or `_`.
 - `weak` is both `~x` and the type `~T`; `member` is both `a.b` and the
@@ -754,7 +761,9 @@ value is checked the same way);
 a call may store its arguments' loans into its receiver and into what
 its `!` arguments and other write borrows lead to, except a built-in
 element method (`!dst.copy(src)`) whose elements hold no borrow, which
-stores only plain elements. Cells, Signals, and
+stores only plain elements. Assigning a local write borrow (`w = v`)
+stores `v` in what `w` borrows the same way (`storeThroughLocal`).
+Cells, Signals, and
 owned closures hold no borrows (storing one there is rejected): every
 handle to one reaches what it holds, so loans kept per handle var would
 miss the other handles. A loan not stored anywhere is a temporary and
@@ -801,8 +810,11 @@ the same on every path, and conservative where paths differ.
 branch from the same entry state and join the results: moved or dropped
 on any path means moved or dropped after, and loans are unioned. A
 `match` scrutinee is resolved as a place (a var, or a field path in
-one), whose root stays borrowed while a payload binding views it;
-moving a payload out consumes an owned local scrutinee. Loops
+one), whose root stays borrowed while a payload binding views it (a
+write borrow for `match !x`, whose bindings write through like a local
+write borrow); moving a payload out of a match that reads its subject
+is rejected. `match <x` moves `x` first, and its bindings are owned
+vars holding what `x` held. Loops
 iterate to a fixpoint over the back edge: the loop-head state joins the
 entry, the end of the body, and every `continue`; the state after the
 loop joins the exit condition with every `break`. A loop's `else` is
@@ -892,7 +904,15 @@ lower is an internal error: sema must have rejected it.
   with drop glue gets a `__rig_drop` method: the user `drop` body, then
   the owning fields in reverse order.
 - **Values.** `if` and `match` in value position become labeled blocks
-  when a branch needs statements; `match` is a `switch`. A loop used as
+  when a branch needs statements; `match` is a `switch`, whose
+  captures copy the payload (`match e`, `match ?e`), point into it
+  (`|*p|` for `match !e`), or own it (`match <e`: each bound field
+  becomes an owned local with its drop guard, and the rest is dropped
+  by a `defer` in the prong). Alternatives are one prong's list of
+  items. A Zig `switch` has no guards, so a match with a guarded arm
+  first picks its arm in a labeled block (one `if` per arm, testing the
+  pattern with `==` or a range comparison, then the guard over the
+  bindings it names), then switches on the arm's index. A loop used as
   a value (one a `break` leaves with a value) becomes a labeled block
   holding the loop without its `else`, then `break :block else_value`;
   each `break v` leaves the block, so the `else` value is reached only

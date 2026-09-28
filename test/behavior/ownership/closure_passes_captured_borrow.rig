@@ -19,8 +19,8 @@ sub main()
   if true
     w = !x
     f = |<w|
-      poke(w)
-      w.bump()
+      poke(!w)
+      !w.bump()
     f()
     f()
   r = ?x

@@ -1,0 +1,16 @@
+# A `match !c` binding write-borrows `c` while it is live, so `c` cannot
+# be used then.
+
+enum Shape
+  circle(r: Int)
+  rect(w: Int, h: Int)
+
+sub main
+  c: Shape = .circle(r: 1)
+  match !c
+    .circle(r)
+      print(c)
+      r += 1
+    _ => print("x")
+
+# error: 12:13: use of `c` while a write borrow is live

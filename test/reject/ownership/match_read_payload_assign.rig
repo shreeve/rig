@@ -1,0 +1,23 @@
+# A payload binding of a bare or `?` match is a copy or read view:
+# writing the matched value in place takes `match !e`.
+
+enum Shape
+  circle(r: Int)
+  square(s: Int)
+
+sub main
+  c: Shape = .circle(r: 1)
+  match c
+    .circle(r)
+      r += 1
+      print(r)
+    .square(s) => print(s)
+  match ?c
+    .circle(r)
+      r = 5
+      print(r)
+    .square(s) => print(s)
+  print(c)
+
+# error: 12:7: cannot assign to `r`: it is a copy of a field of `c`; to change the field in place, match with `match !c`
+# error: 17:7: cannot assign to `r`: it is a read view of a field of `c`; to change the field in place, match with `match !c`

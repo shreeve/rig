@@ -1,0 +1,18 @@
+# An arm may repeat the pattern of a guarded arm before it, but not of
+# an unguarded one; an arm after a catch-all never runs, guarded or not.
+
+enum Shape
+  circle(r: Int)
+  point
+
+sub main
+  s = Shape.circle(r: 1)
+  match s
+    .circle(r) if r > 0 => print("positive")
+    .circle(r) => print(r)
+    .circle(_) if true => print("again")
+    _ => print("other")
+    .point if true => print("point")
+
+# error: 13:6: duplicate arm for variant `circle`
+# error: 15:5: this arm never runs

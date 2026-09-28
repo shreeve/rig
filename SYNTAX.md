@@ -83,8 +83,8 @@ The same characters prefix types: `?T` and `!T` are borrowed types,
 `*T` a shared handle, `~T` a weak one. As suffixes, `T?` is an optional
 and `T!` a fallible `T`. Suffix `?` and `!` always mean absence and
 failure; prefix `?` and `!` always mean borrowing, so `!` is never
-"not" (that is `not`). Before a method call, `!` and `<` mark the
-receiver: `!v.push(x)` write-borrows `v` for `push`
+"not" (that is `not`). Before a method call, `?`, `!`, and `<` mark
+the receiver: `!v.push(x)` write-borrows `v` for `push`
 ([§12](#receiver-sigils-vpushx-and-pclose)).
 
 The compiler checks every sigil: no use after move, no double free, no
@@ -546,7 +546,7 @@ glue**).
 
 | Form | Meaning |
 |---|---|
-| `x = e` | declare `x`, or assign the visible `x` |
+| `x = e` | declare `x`, or assign the visible `x` (through it, when `x` holds a write borrow) |
 | `x: T = e` | declare with a type |
 | `x =! e`, `x: T =! e` | declare a fixed `x`, which cannot be reassigned |
 | `new x = e` | declare a new `x` shadowing the old one; `e` may read the old |
@@ -870,8 +870,8 @@ From lowest to highest precedence:
   before a method call marks the receiver ([§12](#12-structs-and-methods)),
   and is rejected too when the method only reads it (`!q.is_empty()`).
 - Postfixes bind tighter than prefixes: `-a.len` is `-(a.len)`. The
-  one exception is `!` or `<` before a method call, which applies to
-  the receiver: `!v.push(x)` is `(!v).push(x)`.
+  one exception is `?`, `!`, or `<` before a method call, which applies
+  to the receiver: `!v.push(x)` is `(!v).push(x)`.
 - Arithmetic needs one numeric type on both sides. Integer `/`
   truncates toward zero and `%` takes the dividend's sign, like Zig's
   `@divTrunc` and `@rem`. Overflow panics in Debug and `--release`
@@ -1026,7 +1026,10 @@ done
 
 `for x in source` walks a range `a..b`, an array, a slice, a `Vec`, or a
 `String` (its bytes). `for x, i in xs` also binds the index. A range is
-half-open: `0..3` is 0, 1, 2.
+half-open: `0..3` is 0, 1, 2. A Vec is walked where it is, so the loop
+borrows it, visibly: `for x in ?v` (a bare `for x in v` is rejected
+with that fix). An array is copied, and a slice or String is a view,
+so they are walked bare.
 
 ```rig
 sub main
@@ -1054,8 +1057,8 @@ mean the same thing everywhere:
 
 | Loop | Element |
 |---|---|
-| `for x in xs` | a copy (Copy elements) |
-| `for x in ?v` | a read borrow of each slot (owning elements) |
+| `for x in xs` | a copy of each element of an array, slice, or String |
+| `for x in ?v` | each element of a Vec, read in place: a copy of a Copy element, a read borrow of an owning one |
 | `for x in !xs` | a write borrow: assigning `x` writes the element |
 | `for x in <v` | ownership of each element; `v` is consumed |
 
@@ -1123,9 +1126,54 @@ first matching arm runs; there is no fallthrough.
 | `lo..hi` | an integer in `lo` up to, not including, `hi` |
 | `_` | everything else |
 | a name | everything else, bound to that name |
+| `p, q` | either alternative (Rust's `p \| q`); they bind no names |
+| `p if cond` | `p`, when the guard `cond` holds (Rust's match guard) |
 
 A `match` whose value is used must be exhaustive; a statement `match`
-need not be. Duplicate and unreachable arms are errors.
+need not be. Duplicate and unreachable arms are errors. A guard may
+read the pattern's bindings; when it fails, matching goes on with the
+next arm, and a guarded arm does not count toward exhaustiveness.
+
+```rig
+fun kind(n: Int) -> String
+  match n
+    0, 1 => "unit"
+    k if k < 0 => "negative"
+    2..10 => "small"
+    _ => "large"
+
+sub main
+  print(kind(1), kind(-4), kind(7), kind(99))
+```
+
+```output
+unit negative small large
+```
+
+The subject's sigil says what the arms may do with the payload, as it
+does for a `for` source: `match e` and `match ?e` read the fields,
+`match !e` binds write borrows of them (Rust's `match &mut e`, Zig's
+`|*p|` captures), and `match <e` consumes `e`, handing each field to
+its binding and dropping what the arm leaves at its end (Rust's
+`match e` on an owned value). Moving a payload out of a bare `match e`
+is an error that points at `match <e`.
+
+```rig
+enum Shape
+  circle(r: Int)
+  rect(w: Int, h: Int)
+
+sub main
+  s = Shape.circle(r: 1)
+  match !s
+    .circle(r) => r *= 10
+    .rect(w, h) => w = h
+  print(s)
+```
+
+```output
+.circle(r: 10)
+```
 
 ```rig
 enum Shape
@@ -1146,7 +1194,8 @@ fun size(n: U8) -> String
     100..256 => "large"
 
 sub main
-  print(area(?Shape.rect(w: 2, h: 5)), size(42))
+  r = Shape.rect(w: 2, h: 5)
+  print(area(?r), size(42))
   match 7
     1 => print("one")
     other
@@ -1215,7 +1264,7 @@ Point(x: 13, y: 4) 25
 
 | Receiver | Rust | Meaning | Call |
 |---|---|---|---|
-| `?self` | `&self` | reads | `p.m()`: the read borrow is implicit |
+| `?self` | `&self` | reads | `p.m()`, or `?p.m()`: the read borrow may be left implicit |
 | `!self` | `&mut self` | writes | `!p.m()` |
 | `<self` | `self` | consumes | `<p.m()`, or on a temporary |
 | (none) | associated fn | | `Point.origin()` |
@@ -1224,13 +1273,14 @@ The sigils are short forms: `?self` is `self: ?Self`, `!self` is
 `self: !Self`, and `<self` is `self: Self`; the long forms are valid
 too. `Self` names the enclosing type. Inside a `!self` method, `self.f = v`
 and `self = v` write the caller's value. A binding that already holds a
-write borrow (a `!T` parameter, or `self` in a `!self` method) calls
-writing methods directly, `self.bump()`, because the borrow it holds is
-what it lends.
+write borrow (a `!T` parameter, or `self` in a `!self` method) lends it
+visibly too: `!self.bump()`, `bump(!p)`. Where Rust reborrows a
+`&mut` silently, Rig shows every write lending with `!`; a held read
+borrow is passed on bare, like a `&T` copy.
 
 ### Receiver sigils: `!v.push(x)` and `<p.close()`
 
-`!` or `<` directly before a place (a name, then any `.field` or
+`?`, `!`, or `<` directly before a place (a name, then any `.field` or
 `[index]` steps) that a method call follows applies to that place, the
 method's receiver; anything after the call applies to its result.
 
@@ -1241,12 +1291,16 @@ method's receiver; anything after the call applies to its result.
 | `(!grid[r]).bump()` | `!grid[r].bump()` | an element, changed in place |
 | `while (!q).pop() as j` | `while !q.pop() as j` | the loop binds what `pop` returns |
 | `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
+| `(?p).dist(q)` | `?p.dist(q)` | read-borrow `p`; the same as `p.dist(q)` |
 
-Only `!` and `<` reach the receiver, because they are exactly the
-receiver modes a method declares (`!self`, `<self`), and on a
-call's result they would mean nothing: a result is already a
-temporary the caller owns. The other sigils keep their meaning on the
-whole expression:
+Only `?`, `!`, and `<` reach the receiver, because they are exactly
+the receiver modes a method declares (`?self`, `!self`, `<self`). `?`
+is optional, since a read receiver is lent anyway; `?` before a method
+that writes or consumes its receiver is rejected. On a call's result
+`!` and `<` would mean nothing, a result being already a temporary the
+caller owns, and a borrow of a result is written around the call,
+`?(p.m())`. The other sigils keep their meaning on the whole
+expression:
 
 - `*Point.origin()` shares the new `Point` in a handle.
 - `+n.first()` clones the handle `first` returns.
@@ -1916,7 +1970,7 @@ sub main
 ```
 
 The same holds where a body takes an element from a loop that does not
-consume its collection (`for x in v`, then `<x`), or unwraps a `T` out
+consume its collection (`for x in ?v`, then `<x`), or unwraps a `T` out
 of a borrowed optional with `as`: the collection or the owner still
 holds the value.
 
@@ -2192,6 +2246,27 @@ cannot write-borrow `u` while a read borrow is live
 A borrow lasts until its last use (like Rust's non-lexical lifetimes),
 and a borrow passed to a call ends when the call returns.
 
+A local holding a write borrow is assigned like a `!T` parameter:
+`w = 5` and `w += 1` write through it, as `*w = 5` would in Rust or
+`w.* = 5` in Zig. To point the name at another place, bind it anew
+with `new w = !m`.
+
+```rig
+sub main
+  n = 1
+  w = !n
+  w = 5
+  w += 1
+  m = 10
+  new w = !m
+  w *= 2
+  print(n, m)
+```
+
+```output
+6 20
+```
+
 ### Borrows without lifetimes
 
 A borrow can be held by a local, a struct field (a **view**), a
@@ -2270,6 +2345,7 @@ The same sigils mean the same thing in every position:
 | receiver | `?self` | `!self` | `<self` | | |
 | method call | `p.m()` | `!p.m()` | `<p.m()` | | |
 | `for` source | `for x in ?v` | `for x in !v` | `for x in <v` | | |
+| `match` subject | `match ?e` | `match !e` | `match <e` | | |
 | closure capture | `\|?x\|` | `\|!x\|` | `\|<x\|` | `\|+x\|` | `\|~x\|` |
 | assignment | | | `a = <b` | | |
 
@@ -3045,7 +3121,7 @@ pub struct Bag[T]
 
 pub fun largest[T](b: ?Bag[T], start: T) -> T
   t = start
-  for x in b.items
+  for x in ?b.items
     if x > t
       t = x
   t
@@ -3334,14 +3410,14 @@ simple    = expr | command
           | "continue" [":" label] | "defer" (simple | block)
           | "errdefer" (simple | block) | "raw" block
 block     = INDENT stmt* DEDENT
-command   = ["!" | "<"] postfix (expr | command), ...  # a paren-free call; only
-                                                      # its last argument is a command
+command   = ["?" | "!" | "<"] postfix (expr | command), ...  # a paren-free call;
+                                                  # only its last argument is a command
 
 expr      = if | while | for | match | closure | value
 if        = "if" value block ["else" (block | if)]
 while     = "while" value [":" step] block ["else" block]
 for       = "for" name ["," name] "in" ["?" | "!" | "<"] value block ["else" block]
-match     = "match" value INDENT (pattern ("=>" simple | block))* DEDENT
+match     = "match" value INDENT (pattern, ... ["if" value] ("=>" simple | block))* DEDENT
 pattern   = "." name ["(" name, ... ")"] | integer | "-" integer
           | "true" | "false" | integer ".." integer | "_" | name
 closure   = ["*"] "|" (("+" | "<" | "~") name | name [":" type]), ... "|" (expr | command | block)
@@ -3360,8 +3436,8 @@ atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]
 ```
 
 The grammar reads `!v.push(x)` as `!` applied to `v.push(x)`, like any
-prefix; the compiler then moves a `!` or `<` before a place and a method
-call onto the place, giving the tree of `(!v).push(x)`
+prefix; the compiler then moves a `?`, `!`, or `<` before a place and a
+method call onto the place, giving the tree of `(!v).push(x)`
 ([§12](#receiver-sigils-vpushx-and-pclose)).
 
 ## D. Habits to unlearn

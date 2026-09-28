@@ -7,7 +7,7 @@ fun total() -> Int
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
-  for total in v
+  for total in ?v
     print(total)
 
 # error: has the same name as the module-level declaration `total`

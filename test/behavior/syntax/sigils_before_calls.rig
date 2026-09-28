@@ -1,6 +1,6 @@
-# Only `!` and `<` reach a method's receiver. The other prefix sigils,
-# and `!` / `<` before a place with no method call after it, apply to
-# the whole expression.
+# Only `?`, `!`, and `<` reach a method's receiver. The other prefix
+# sigils, and `?` / `!` / `<` before a place with no method call after
+# it, apply to the whole expression; `?(p.m())` borrows a call's result.
 
 struct Point
   x: Int
@@ -36,7 +36,7 @@ sub main
   print(copy.n, weak.upgrade() != none)
   p = Point(x: 4)
   print(-p.x, -p.shifted(1).x)
-  show(?p.shifted(2))
+  show(?(p.shifted(2)))
   pair = Pair(v: Vec(), name: "pair")
   fill(!pair.v)
   print(pair.v.len)

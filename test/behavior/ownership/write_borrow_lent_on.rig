@@ -1,5 +1,5 @@
 # Passing a held write borrow (a local or a view's field) on to a call
-# or a constructor lends it: the result writes through it.
+# or a constructor lends it, written `!w`: the result writes through it.
 
 struct Ed
   t: !Vec[Int]
@@ -11,11 +11,11 @@ sub main()
   v: Vec[Int] = Vec()
   if true
     w = !v
-    r = id(w)
+    r = id(!w)
     !r.push(4)
     e = Ed(t: <r)
     !e.t.push(5)
-    f = Ed(t: e.t)
+    f = Ed(t: !e.t)
     !f.t.push(6)
   print(v.len, v[0], v[2])
 

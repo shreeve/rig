@@ -2675,6 +2675,14 @@ pub fn isBorrowType(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// Whether assigning a binding of type `ty` after its declaration writes
+/// through to the value it borrows instead of rebinding it: every write
+/// borrow does, a `!T` parameter, local, capture, or loop or pattern
+/// binding alike (`new w = !m` binds a new one).
+pub fn assignWritesThrough(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.types.get(ty) == .borrow_write;
+}
+
 /// The element type of a writable slice `![]T`; null for any other type.
 pub fn writeSliceElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
@@ -4008,7 +4016,7 @@ test "facts: loop and pattern bindings" {
         \\sub main()
         \\  v: Vec[Int] = Vec()
         \\  !v.push(3)
-        \\  for x in v
+        \\  for x in ?v
         \\    print(x)
         \\  s: Shape = .circle(radius: 4)
         \\  match s
@@ -4281,6 +4289,7 @@ const Coverage = struct {
                     for (ir.Match.arms(e)) |arm| {
                         const pat = ir.Arm.pattern(arm);
                         if (pat.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(pat)) |b| self.expectName(b);
+                        if (ir.Arm.guard(arm) != .nil) self.expr(ir.Arm.guard(arm));
                         self.expr(ir.Arm.body(arm));
                     }
                 },
@@ -4375,7 +4384,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  total = 0
         \\  v: Vec[Int] = Vec()
         \\  !v.push(3)
-        \\  for x in v
+        \\  for x in ?v
         \\    total += x
         \\  print(total + moved.balance)
         \\  b: Wrap[Int] = Wrap(value: 4)

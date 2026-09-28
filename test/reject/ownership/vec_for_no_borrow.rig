@@ -1,5 +1,5 @@
-# Iterating a Vec of resources needs an explicit read borrow of the
-# source (`for x in ?vec`).
+# Iterating a Vec, here of resources, needs an explicit read borrow of
+# the source (`for x in ?vec`).
 
 sub main()
   count: *Cell[Int] = *Cell(0)
@@ -11,4 +11,4 @@ sub main()
   for cb in subs
     cb()
 
-# error: resource Vec[T] iteration requires an explicit read borrow
+# error: write `for cb in ?subs` to read the Vec's elements

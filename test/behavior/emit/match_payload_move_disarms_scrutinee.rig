@@ -1,5 +1,5 @@
-# Moving a match payload binding out of an owned local scrutinee is
-# allowed; it consumes the scrutinee.
+# Moving a payload binding of `match <s` out is allowed: `s` was
+# consumed by the match, so it is not dropped again.
 
 struct Wrap
   payload: Int
@@ -17,7 +17,7 @@ sub eat(rc: *Wrap)
 sub main()
   rc = *Wrap(payload: 5)
   s: Slot = .full(b: <rc)
-  match s
+  match <s
     .full(b) => eat(<b)
     .empty => print(0)
   print("end")

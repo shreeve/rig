@@ -1,6 +1,6 @@
 # A binding that already holds a write borrow (`x: !T`, `!self`, a local
-# `w = !v`) calls a `!self` method directly; `!x.m()` is only needed
-# on an owned binding.
+# `w = !v`) calls a `!self` method as an owned binding does, `!x.m()`:
+# lending a write borrow always shows its sigil.
 
 struct Counter
   n: Int
@@ -9,28 +9,28 @@ struct Counter
     self.n += 1
 
   sub bump_twice(!self)
-    self.bump()
-    self.bump()
+    !self.bump()
+    !self.bump()
 
 sub add_three(c: !Counter)
-  c.bump()
-  c.bump_twice()
+  !c.bump()
+  !c.bump_twice()
 
 sub fill(v: !Vec[Int])
-  v.push(1)
-  v.push(2)
+  !v.push(1)
+  !v.push(2)
 
 sub main()
   c = Counter(n: 0)
   add_three(!c)
   !c.bump()
   w = !c
-  w.bump()
+  !w.bump()
   print(c.n)
   v: Vec[Int] = Vec()
   fill(!v)
   b = !v
-  b.push(3)
+  !b.push(3)
   print(v.len, v[2])
 
 # expect:

@@ -15,7 +15,7 @@ sub main()
   !a.swap(0, 5)
   print(a)
   w = !a[1..]
-  w.swap(0, 1)
+  !w.swap(0, 1)
   !w.fill(4)
   print(a)
   v: Vec[Int] = Vec()

@@ -12,7 +12,7 @@ enum Option[T]
   nothing
 
   fun or(<self, fallback: T) -> T
-    match self
+    match <self
       .some(v) => v
       .nothing => fallback
 

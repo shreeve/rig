@@ -1,0 +1,91 @@
+# An arm may list alternatives (`1, 2 =>`) and take a guard (`p if c`),
+# which sees the pattern's bindings; an arm whose guard fails falls
+# through to the later arms. It works in value and statement position,
+# on enums, integers, ranges, and Bool, and for `match !e` and `match <e`.
+
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Shape
+  circle(r: Int)
+  square(s: Int)
+  rect(w: Int, h: Int)
+  point
+
+enum Slot
+  full(b: *B)
+  empty
+
+fun describe(s: ?Shape) -> String
+  match s
+    .circle(r) if r > 10 => "big circle"
+    .circle(_), .square(_) => "round or square"
+    .rect(w, h) if w == h => "square rect"
+    .rect(_, _) => "rect"
+    .point => "point"
+
+fun bucket(n: Int) -> String
+  match n
+    0, 1 => "tiny"
+    2..10 if n % 2 == 0 => "small even"
+    2..10 => "small odd"
+    k if k < 0 => "negative"
+    _ => "large"
+
+fun next() -> Int
+  print("next")
+  3
+
+sub main
+  shapes: [6]Shape = [.circle(r: 20), .circle(r: 1), .square(s: 2), .rect(w: 2, h: 2), .rect(w: 1, h: 3), .point]
+  for s in shapes
+    print(describe(?s))
+  for n in [0, 1, 4, 5, -3, 12]
+    print(n, bucket(n))
+  match true
+    b if not b => print("false")
+    true, false => print("any bool")
+  match next()
+    n if n > 2 => print("over two:", n)
+    _ => print("other")
+  c = Shape.circle(r: 4)
+  match !c
+    .circle(r) if r < 5
+      r *= 100
+    .circle(r) => r = 0
+    _ => print("no")
+  print(c)
+  s: Slot = .full(b: *B(n: 1))
+  match <s
+    .full(b) if b.n > 5 => print("big", b.n)
+    .full(b) => print("small", b.n)
+    .empty => print("empty")
+  t: Slot = .full(b: *B(n: 2))
+  match <t
+    .full(b) if b.n > 5 => print("big", b.n)
+  print("end")
+
+# expect:
+# big circle
+# round or square
+# round or square
+# square rect
+# rect
+# point
+# 0 tiny
+# 1 tiny
+# 4 small even
+# 5 small odd
+# -3 negative
+# 12 large
+# any bool
+# next
+# over two: 3
+# .circle(r: 400)
+# small 1
+# drop 1
+# drop 2
+# end

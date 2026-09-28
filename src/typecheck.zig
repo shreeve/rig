@@ -66,13 +66,22 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     };
     defer c.arg_types.deinit(ctx.allocator);
     defer c.copied_from.deinit(ctx.allocator);
+    defer c.owned_bindings.deinit(ctx.allocator);
     defer c.literal_results.deinit(ctx.allocator);
     defer c.result_hints.deinit(ctx.allocator);
     for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
 }
 
-const CopySource = struct { place: Sexp, kind: enum { loop, as } };
+/// Where a binding that cannot be written got its value: a loop element
+/// or `as` binding copied from a place, or a match binding of a field of
+/// the place a bare match copies (`match_copy`) or a `?` match reads
+/// (`match_read`).
+const CopySource = struct { place: Sexp, kind: enum { loop, as, match_copy, match_read }, whole: bool = false };
+
+/// How a match reaches its subject: `match e` and `match ?e` read it,
+/// `match !e` writes its fields in place, and `match <e` consumes it.
+const MatchMode = enum { read, write, consume };
 
 const Checker = struct {
     ctx: *SemContext,
@@ -130,6 +139,8 @@ const Checker = struct {
     /// A loop element or `as` binding that copies from a place: the
     /// place, named when the binding is written (`checkBindingWritable`).
     copied_from: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
+    /// The bindings of a `match <x` arm: each owns what it binds.
+    owned_bindings: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// The call whose value goes where a `ty` is expected (`checkExpr`),
     /// directly or through `!`, `?`, `catch`, or `??` (`resultCall`):
     /// inference binds the type parameters its arguments leave open from
@@ -606,19 +617,36 @@ const Checker = struct {
         if (!is_decl and sym.kind == .capture and !captured_write and !self.isPoison(sym.ty)) {
             try self.errAt(target, "cannot assign to captured `{s}`; captures are fixed when the closure is created", .{name});
         }
-        const writes_through = sym.kind == .param or sym.flags.pattern_bound or captured_write;
-        // A `![]T` parameter or pattern binding views the caller's
-        // elements; there is no whole value to write through to.
+        const writes_through = sema.assignWritesThrough(self.ctx, sym.ty);
+        // A `![]T` binding views elements it does not own; there is no
+        // whole value to write through to.
         if (!is_decl and writes_through and sema.writeSliceElem(self.ctx, sym.ty) != null) {
             try self.errAt(target, "cannot assign to `{s}`, a `{s}` {s}; write its elements with `{s}[i] = v` or `!{s}.copy(src)`", .{ name, try self.tyName(sym.ty), if (sym.kind == .param) "parameter" else "binding", name, name });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        // `w = !m` writes through `w`, so it would store a borrow where a
+        // value goes; a new binding points the name elsewhere.
+        if (!is_decl and writes_through and kind == .default and rhs.isKind(.write)) {
+            const src = try self.sourceText(rhs);
+            try self.errAt(rhs, "`{s} = {s}` would write through `{s}`; to point `{s}` at another place, write `new {s} = {s}`", .{ name, src, name, name, name, src });
             _ = try self.synthExpr(rhs);
             return;
         }
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the borrowed value.
         if (!is_decl and self.ctx.types.get(sym.ty) != .borrow_write) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
-        if (!is_decl and sym.flags.pattern_bound and self.ctx.types.get(sym.ty) != .borrow_write) {
-            try self.errAt(target, "cannot assign to `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ name, name, name });
+        if (!is_decl and sym.flags.pattern_bound and self.ctx.types.get(sym.ty) == .borrow_write) {
+            if (!try self.checkSymbolWritable(sym_id, sym, name, target.src.pos, "assign to")) {
+                if (kind.operator() == null) try self.checkExpr(rhs, sema.unwrapBorrows(self.ctx, sym.ty)) else _ = try self.synthExpr(rhs);
+                return;
+            }
+        } else if (!is_decl and sym.flags.pattern_bound and !self.isPoison(sym.ty)) {
+            if (self.copied_from.contains(sym_id)) {
+                _ = try self.checkSymbolWritable(sym_id, sym, name, target.src.pos, "assign to");
+            } else if (sema.typeHasDropGlue(self.ctx, sym.ty)) {
+                try self.errAt(target, "cannot assign to `{s}`; loop and pattern bindings are immutable (move it into a new binding with `new {s} = <{s}`)", .{ name, name, name });
+            } else try self.errAt(target, "cannot assign to `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ name, name, name });
         }
 
         var declared = self.t().unknown_id;
@@ -658,8 +686,10 @@ const Checker = struct {
         } else {
             rhs_ty = try self.synthExpr(rhs);
             // Binding a borrowed Copy value copies the value; an explicit
-            // `?x` / `!x` binds the borrow.
-            if (!rhs.isKind(.read) and !rhs.isKind(.write)) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
+            // `?x` / `!x` binds the borrow, and so does `<w`, which moves
+            // a write borrow.
+            const moves_borrow = rhs.isKind(.move) and self.ctx.types.get(rhs_ty) == .borrow_write;
+            if (!rhs.isKind(.read) and !rhs.isKind(.write) and !moves_borrow) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
 
@@ -891,23 +921,41 @@ const Checker = struct {
                 try self.err(pos, "cannot {s} captured `{s}`; captures are fixed when the closure is created", .{ verb, name });
                 return false;
             },
-            .local => if (sym.flags.fixed) {
+            // A fixed write borrow is lent and written through, never
+            // pointed elsewhere.
+            .local => if (sym.flags.fixed and self.ctx.types.get(sym.ty) != .borrow_write) {
                 try self.err(pos, "cannot {s} fixed binding `{s}` (bound with `=!`)", .{ verb, name });
                 return false;
-            } else if (sym.flags.pattern_bound and self.ctx.types.get(sym.ty) != .borrow_write) {
-                // An `as` binding that owns a resource moved into it is
-                // not a copy: its fields can be written and taken.
-                if (sym.flags.as_bound and sema.typeHasDropGlue(self.ctx, sym.ty)) return true;
+            } else if (sym.flags.pattern_bound and self.ctx.types.get(sym.ty) == .borrow_write) {
+                // A write borrow a match that only reads its subject binds
+                // is read through too.
+                if (id) |i| if (self.copied_from.get(i)) |from| switch (from.kind) {
+                    .match_copy, .match_read => {
+                        const sp = self.ctx.span(from.place);
+                        const place = self.ctx.source[sp.start..sp.end];
+                        try self.err(pos, "cannot {s} `{s}`: `match {s}{s}` reads `{s}`, and so do its bindings; to write through `{s}`, match with `match !{s}`", .{ verb, name, if (from.kind == .match_read) "?" else "", place, place, name, place });
+                        return false;
+                    },
+                    else => {},
+                };
+            } else if (sym.flags.pattern_bound and !self.isPoison(sym.ty)) {
+                // An `as` or `match <x` binding that owns a resource moved
+                // into it is not a copy: its fields can be written and taken.
+                const owned = sym.flags.as_bound or (if (id) |i| self.owned_bindings.contains(i) else false);
+                if (owned and sema.typeHasDropGlue(self.ctx, sym.ty)) return true;
                 if (id) |i| if (self.copied_from.get(i)) |from| {
                     const sp = self.ctx.span(from.place);
                     const place = self.ctx.source[sp.start..sp.end];
                     switch (from.kind) {
                         .loop => try self.err(pos, "cannot {s} `{s}`: it is a copy of an element of `{s}`; to change the elements in place, loop with `for {s} in !{s}`", .{ verb, name, place, name, place }),
                         .as => try self.err(pos, "cannot {s} `{s}`: it is a copy of the value inside `{s}`; to change that value in place, bind it with `!{s} as {s}`", .{ verb, name, place, place, name }),
+                        .match_copy, .match_read => try self.err(pos, "cannot {s} `{s}`: it is {s} of {s}`{s}`; to change {s} in place, match with `match !{s}`", .{ verb, name, if (from.kind == .match_copy and !sema.typeHasDropGlue(self.ctx, sym.ty)) "a copy" else "a read view", if (from.whole) "" else "a field of ", place, if (from.whole) "it" else "the field", place }),
                     }
                     return false;
                 };
-                try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb, name, name, name });
+                if (sema.typeHasDropGlue(self.ctx, sym.ty)) {
+                    try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (move it into a new binding with `new {s} = <{s}`)", .{ verb, name, name, name });
+                } else try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb, name, name, name });
                 return false;
             },
             else => {},
@@ -916,10 +964,11 @@ const Checker = struct {
     }
 
     /// A write borrow held in a field or element (`b.t` with `t: !T`) is
-    /// lent as it is when the place is used bare where a value holding a
-    /// write borrow is expected, or called with a `!self` method. Reached through a `?T` or `*T`, it is read-only
-    /// like the rest of what that path reaches: other borrows or handles
-    /// may reach the same write borrow. False after a diagnostic.
+    /// lent by `!b.t`, and by the place itself where a value holding a
+    /// write borrow is expected. Reached through a `?T` or `*T`, it is
+    /// read-only like the rest of what that path reaches: other borrows
+    /// or handles may reach the same write borrow. False after a
+    /// diagnostic.
     fn checkLendsWriteBorrow(self: *Checker, place: Sexp) Error!bool {
         if (!place.isKind(.member) and !place.isKind(.index)) return true;
         const path = self.placePath(place);
@@ -1267,6 +1316,11 @@ const Checker = struct {
                 try self.borrowSlice(source, if (mode == .read) .read else .write)
             else
                 try self.synthExpr(source);
+            // A loop borrows the Vec it walks, and says so: `for x in ?v`.
+            // (An array is copied, and a String or slice is a view.)
+            if (mode == .iter and isPlaceExpr(source) and vecElementType(self.ctx, source_ty) != null) {
+                try self.errAt(source, "write `for {s}{s}{s} in ?{s}` to read the Vec's elements", .{ self.text(binding), if (index_binding != .nil) ", " else "", if (index_binding != .nil) self.text(index_binding) else "", try self.sourceText(source) });
+            }
             elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, mode);
         }
 
@@ -1276,7 +1330,7 @@ const Checker = struct {
             if (self.ctx.symbolOf(binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = elem_ty;
                 try self.ctx.recordType(binding, elem_ty);
-                if (mode == .iter and !source.isKind(.@"..") and isPlaceExpr(source)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = source, .kind = .loop });
+                if ((mode == .iter or mode == .read) and !source.isKind(.@"..") and isPlaceExpr(source) and !isBorrow(self.ctx, elem_ty)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = source, .kind = .loop });
             }
             if (self.ctx.symbolOf(index_binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = self.t().int_id;
@@ -1375,7 +1429,8 @@ const Checker = struct {
                 // Handles and boxes; every other element is plain data.
                 const is_resource = sema.typeHasDropGlue(self.ctx, elem);
                 if (is_resource) {
-                    if (mode != .read and mode != .write and mode != .move) {
+                    // (A Vec place walked bare is reported by `checkFor`.)
+                    if (mode != .read and mode != .write and mode != .move and !(isPlaceExpr(inner_source) and vecElementType(self.ctx, source_ty) != null)) {
                         try self.err(pos, "resource Vec[T] iteration requires an explicit read borrow; write `for x in ?vec`", .{});
                     }
                     if (!isFieldPath(inner_source)) {
@@ -1418,20 +1473,35 @@ const Checker = struct {
 
     fn checkMatch(self: *Checker, node: Sexp, position: Position, expected: ?TypeId) Error!TypeId {
         const subject = ir.Match.subject(node);
-        if (subject.isKind(.move)) {
-            try self.errAt(subject, "a `match` reads its scrutinee, so moving it in would leave nothing to drop it; match the binding itself (`match s`)", .{});
-        }
-        var scrutinee = try self.synthOperand(subject);
+        const mode: MatchMode = if (subject.isKind(.write)) .write else if (subject.isKind(.move)) .consume else .read;
+        // `<e` names the value it moves; a temporary is checked as one.
+        var scrutinee = if (mode == .consume) try self.synthExpr(subject) else try self.synthOperand(subject);
         const scrut_pos = self.startOf(subject);
+        // `match <e` takes the fields of a value `e` owns.
+        if (mode == .consume) if (self.ctx.typeOf(ir.Move.operand(subject))) |held| switch (self.ctx.types.get(held)) {
+            .borrow_read, .borrow_write => {
+                const shown = try self.sourceText(ir.Move.operand(subject));
+                if (self.ctx.types.get(held) == .borrow_write) {
+                    try self.errAt(subject, "`match <{s}` consumes an owned value, and `{s}` is a write borrow (`{s}`); write the payload in place with `match !{s}`, or read it with `match {s}`", .{ shown, shown, try self.tyName(held), shown, shown });
+                } else try self.errAt(subject, "`match <{s}` consumes an owned value, and `{s}` is a borrow (`{s}`); match what it borrows with `match {s}`", .{ shown, shown, try self.tyName(held), shown });
+            },
+            else => {},
+        };
         // A boxed enum is matched where it is, through a borrow of the box.
         if (sema.boxedType(self.ctx, sema.unwrapBorrows(self.ctx, scrutinee)) != null) if (sema.boxedNominal(self.ctx, scrutinee)) |inner| {
             switch (self.ctx.types.get(scrutinee)) {
                 .borrow_read => scrutinee = try self.ctx.intern(.{ .borrow_read = inner }),
                 .borrow_write => scrutinee = try self.ctx.intern(.{ .borrow_write = inner }),
                 else => {
-                    const sp = self.ctx.span(subject);
-                    try self.errAt(subject, "a `match` reaches the value inside a box through a borrow: `match ?{s}`", .{self.ctx.source[sp.start..sp.end]});
-                    scrutinee = self.t().invalid_id;
+                    const place = if (mode == .consume) ir.Move.operand(subject) else subject;
+                    const shown = try self.sourceText(place);
+                    if (mode == .consume) {
+                        try self.errAt(subject, "a `match` reaches the value inside a box through a borrow: `match ?{s}` or `match !{s}`; to take the value out, bind it first: `v = <{s}.unbox()`", .{ shown, shown, shown });
+                        scrutinee = inner;
+                    } else {
+                        try self.errAt(subject, "a `match` reaches the value inside a box through a borrow: `match ?{s}`", .{shown});
+                        scrutinee = self.t().invalid_id;
+                    }
                 },
             }
         };
@@ -1448,6 +1518,11 @@ const Checker = struct {
         // A binding copies what it binds, so one holding a write borrow
         // would be a second writer when the matched value is only read.
         const read_only = subject.isKind(.read) or self.readOnlyPlace(subject);
+        // The place a binding that cannot be written views, for the
+        // diagnostic that says how to write it.
+        const viewed: ?CopySource = if (mode != .read) null else if (subject.isKind(.read) and isPlaceExpr(ir.Read.operand(subject)))
+            .{ .place = ir.Read.operand(subject), .kind = .match_read }
+        else if (isPlaceExpr(subject)) .{ .place = subject, .kind = .match_copy } else null;
         var cov: MatchCoverage = .{};
         var arm_values: std.ArrayListUnmanaged(Typed) = .empty;
         defer arm_values.deinit(self.ctx.allocator);
@@ -1458,11 +1533,37 @@ const Checker = struct {
             const prev = self.enter(arm);
             defer self.scope = prev;
             const pattern = ir.Arm.pattern(arm);
+            const guard = ir.Arm.guard(arm);
             if (cov.has_default or self.coversAll(&cov, scrutinee)) {
                 try self.errAt(pattern, "this arm never runs: the arms before it cover every value", .{});
             }
-            try self.checkPattern(pattern, scrutinee, &cov);
+            const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
+            if (alts.len > 1) try self.checkAlternatives(alts);
+            // A guarded arm may not run for the values its pattern
+            // matches, so it covers none of them; later arms may repeat
+            // its pattern.
+            var guarded: MatchCoverage = if (guard != .nil) try cov.clone(self.ctx.allocator) else .{};
+            defer guarded.deinit(self.ctx.allocator);
+            for (alts) |alt| try self.checkPattern(alt, scrutinee, if (guard != .nil) &guarded else &cov, mode);
+            if (viewed) |v| {
+                if (pattern.isKind(.variant_pattern)) {
+                    for (ir.VariantPattern.bindings(pattern)) |b| if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
+                } else if (pattern == .src) if (self.ctx.symbolOf(pattern)) |sym| {
+                    var whole = v;
+                    whole.whole = true;
+                    try self.copied_from.put(self.ctx.allocator, sym, whole);
+                };
+            }
+            if (mode == .consume) {
+                const binds: []const Sexp = if (pattern.isKind(.variant_pattern)) ir.VariantPattern.bindings(pattern) else (&pattern)[0..1];
+                for (binds) |b| if (self.ctx.symbolOf(b)) |sym| try self.owned_bindings.put(self.ctx.allocator, sym, {});
+            }
             if (read_only) try self.rejectWriteBorrowBindings(pattern);
+            if (guard != .nil) {
+                try self.checkBoolOperand(guard);
+                if (findMove(guard)) |m| try self.errAt(m, "a guard cannot move a value: when it fails, a later arm matches the same value", .{});
+                if (self.guardWrite(guard, subject, pattern)) |w| try self.errAt(w, "a guard cannot change the value being matched: when it fails, a later arm matches the same value", .{});
+            }
             const body = ir.Arm.body(arm);
             switch (position) {
                 .statement => try self.checkStmt(body),
@@ -1500,7 +1601,65 @@ const Checker = struct {
             c.variants.deinit(a);
             c.ints.deinit(a);
         }
+
+        fn clone(c: *const MatchCoverage, a: std.mem.Allocator) Error!MatchCoverage {
+            var variants = try c.variants.clone(a);
+            errdefer variants.deinit(a);
+            return .{ .variants = variants, .bools = c.bools, .ints = try c.ints.clone(a), .has_default = c.has_default };
+        }
     };
+
+    /// The first write borrow in guard `g` of what the match reaches: the
+    /// subject's binding, or a binding of the arm's `pattern`.
+    fn guardWrite(self: *Checker, g: Sexp, subject: Sexp, pattern: Sexp) ?Sexp {
+        if (g != .list) return null;
+        const written: ?Sexp = if (g.isKind(.write)) ir.Write.operand(g) else if (g.isKind(.cap_write)) ir.CapWrite.name(g) else null;
+        if (written) |w| if (placeRoot(w)) |leaf| if (self.ctx.symbolOf(leaf)) |sym| {
+            if (placeRoot(subject)) |s| if (self.ctx.symbolOf(s) == sym) return g;
+            if (patternBinds(self, pattern, sym)) return g;
+            if (self.ctx.symbols.items[sym].kind == .capture) {
+                const origin = self.ctx.symbols.items[sym].origin;
+                if (placeRoot(subject)) |s| if (self.ctx.symbolOf(s) == origin) return g;
+            }
+        };
+        for (g.items()) |c| if (self.guardWrite(c, subject, pattern)) |w| return w;
+        return null;
+    }
+
+    /// Whether `pattern` binds symbol `sym`.
+    fn patternBinds(self: *Checker, pattern: Sexp, sym: SymbolId) bool {
+        if (pattern == .src) return self.ctx.symbolOf(pattern) == sym;
+        if (!pattern.isKind(.variant_pattern)) return false;
+        for (ir.VariantPattern.bindings(pattern)) |b| if (b == .src and self.ctx.symbolOf(b) == sym) return true;
+        return false;
+    }
+
+    /// `a, b => ...`: each alternative is a literal, range, or variant;
+    /// none binds a name or matches everything.
+    fn checkAlternatives(self: *Checker, alts: []const Sexp) Error!void {
+        var named = false;
+        for (alts) |alt| {
+            if (alt == .src and !isLiteralText(self.text(alt))) {
+                try self.errAt(alt, "`{s}` matches every value, so the other alternatives never matter; give it an arm of its own", .{self.text(alt)});
+                self.poisonBinding(alt);
+                continue;
+            }
+            if (!alt.isKind(.variant_pattern)) continue;
+            for (ir.VariantPattern.bindings(alt)) |b| {
+                if (b == .src and std.mem.eql(u8, self.text(b), "_")) continue;
+                if (!named) try self.errAt(b, "an arm with alternatives cannot bind names: which alternative matched would decide what they hold; write `_`, or give each alternative an arm of its own", .{});
+                named = true;
+                self.poisonBinding(b);
+            }
+        }
+    }
+
+    /// Give a rejected pattern binding no type, so its uses report
+    /// nothing more.
+    fn poisonBinding(self: *Checker, b: Sexp) void {
+        const sym = self.ctx.symbolOf(b) orelse return;
+        self.ctx.symbols.items[sym].ty = self.t().invalid_id;
+    }
 
     /// Whether the arms so far match every value of the scrutinee type.
     fn coversAll(self: *Checker, cov: *MatchCoverage, scrutinee: TypeId) bool {
@@ -1541,7 +1700,7 @@ const Checker = struct {
         try cov.ints.append(self.ctx.allocator, .{ lo, hi });
     }
 
-    fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
+    fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage, mode: MatchMode) Error!void {
         const covered = &cov.variants;
         switch (pattern) {
             .src => {
@@ -1572,7 +1731,7 @@ const Checker = struct {
                         try self.ctx.recordType(pattern, scrutinee);
                         try self.recordCovered(self.text(name), self.startOf(pattern), covered);
                     },
-                    .variant_pattern => try self.checkVariantPattern(pattern, scrutinee, covered),
+                    .variant_pattern => try self.checkVariantPattern(pattern, scrutinee, covered, mode),
                     .range_pattern => try self.checkRangePattern(pattern, scrutinee, cov),
                     else => {
                         try self.checkExpr(pattern, scrutinee);
@@ -1639,10 +1798,19 @@ const Checker = struct {
         }
     }
 
-    fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, covered: *std.StringHashMapUnmanaged(u32)) Error!void {
+    fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, covered: *std.StringHashMapUnmanaged(u32), mode: MatchMode) Error!void {
         const name = ir.VariantPattern.name(pattern);
         const vname = self.text(name);
         const vpos = name.src.pos;
+        for (ir.VariantPattern.bindings(pattern)) |b| if (b.isKind(.kwarg)) {
+            try self.errAt(b, "binding a payload field by name is not supported yet; bind the fields in order: `.{s}(a, b)`", .{vname});
+            try self.recordCovered(vname, vpos, covered);
+            for (ir.VariantPattern.bindings(pattern)) |c| {
+                const leaf = if (c.isKind(.kwarg)) ir.Kwarg.value(c) else c;
+                if (self.ctx.symbolOf(leaf)) |sym| self.ctx.symbols.items[sym].ty = self.t().invalid_id;
+            }
+            return;
+        };
         try self.recordCovered(vname, vpos, covered);
         if (sema.unwrapBorrows(self.ctx, scrutinee) == self.t().any_error_id) {
             try self.err(vpos, "an error has no payload to destructure; match it as `.{s}`", .{vname});
@@ -1650,6 +1818,7 @@ const Checker = struct {
         }
         const resolved = (try sema.lookupVariant(self.ctx, scrutinee, vname)) orelse {
             try self.reportMissingVariant(scrutinee, vname, vpos);
+            for (ir.VariantPattern.bindings(pattern)) |b| self.poisonBinding(b);
             return;
         };
         const bindings = ir.VariantPattern.bindings(pattern);
@@ -1664,8 +1833,11 @@ const Checker = struct {
             return;
         }
         for (bindings, resolved.payload) |b, f| {
-            try self.ctx.recordType(b, f.ty);
-            if (self.ctx.symbolOf(b)) |sym| self.ctx.symbols.items[sym].ty = f.ty;
+            // `match !e` binds a write borrow of each field; a field that
+            // is a borrow or a slice (a view) is bound as it is.
+            const ty = if (mode == .write and !isBorrow(self.ctx, f.ty) and self.ctx.types.get(f.ty) != .slice and !self.isPoison(f.ty)) try self.ctx.intern(.{ .borrow_write = f.ty }) else f.ty;
+            try self.ctx.recordType(b, ty);
+            if (self.ctx.symbolOf(b)) |sym| self.ctx.symbols.items[sym].ty = ty;
         }
     }
 
@@ -2511,7 +2683,7 @@ const Checker = struct {
         // Anywhere but where a `!Bool` is expected, `!flag` is read as
         // a `Bool`: the habit of `!` as negation.
         if (kind == .write and readValue(self.ctx, inner) == self.t().bool_id and !sameNode(e, self.lent_write)) {
-            try self.errAt(e, "`!` is a write borrow; use `not` for negation", .{});
+            try self.errAt(e, "`!` is a write borrow; use `not` for negation (a `Bool` is write-borrowed only where a `!Bool` is expected: `f(!flag)`)", .{});
             return self.t().invalid_id;
         }
         // `![]T` is a writable slice, which a read-only `[]T` cannot give.
@@ -2523,7 +2695,16 @@ const Checker = struct {
             try self.errAt(operand, "cannot write-borrow a temporary: the change would be lost; bind it to a name first", .{});
             return self.t().invalid_id;
         }
-        if (kind == .write and !(try self.checkWritable(operand, operand, "write-borrow"))) return self.t().invalid_id;
+        if (kind == .write and self.ctx.types.get(inner) == .borrow_read) {
+            try self.errAt(operand, "cannot write-borrow through a read borrow `{s}`", .{try self.tyName(inner)});
+            return self.t().invalid_id;
+        }
+        if (kind == .write) {
+            // `!e.t` of a write borrow held in a field lends that borrow:
+            // it writes what `e.t` points to, not `e`.
+            const lends = self.ctx.types.get(inner) == .borrow_write and (operand.isKind(.member) or operand.isKind(.index));
+            if (!(if (lends) try self.checkLendsWriteBorrow(operand) else try self.checkWritable(operand, operand, "write-borrow"))) return self.t().invalid_id;
+        }
         // A borrow of a value holding a Cell can change the Cell, which a
         // loop or match binding only copies.
         if (kind == .read and sema.holdsCellByValue(self.ctx, inner)) {
@@ -3891,7 +4072,7 @@ const Checker = struct {
             try self.errAt(arg, "`{s}` moves values that hold no borrow; `{s}` may hold one", .{ what, try self.tyName(place) });
             return null;
         }
-        if (!arg.isKind(.write)) _ = try self.checkLendsWriteBorrow(arg);
+        if (!arg.isKind(.write)) try self.checkLendsVisibly(arg, ty, "the call writes through");
         return place;
     }
 
@@ -4075,6 +4256,19 @@ const Checker = struct {
         self.lent_callable = if (kept) .nil else arg;
         self.callable_kept = if (kept) arg else .nil;
         try self.checkExpr(arg, f.params[i]);
+        try self.checkLendsVisibly(arg, f.params[i], "the call writes through");
+    }
+
+    /// A write borrow a binding or field holds is lent on to a `!T`
+    /// visibly, `!w`, as an owned value is: the receiver of the lent
+    /// borrow writes through it. (A read borrow is lent on bare.)
+    fn checkLendsVisibly(self: *Checker, arg: Sexp, expected: TypeId, what: []const u8) Error!void {
+        if (self.ctx.types.get(expected) != .borrow_write) return;
+        if (arg != .src and !arg.isKind(.member) and !arg.isKind(.index)) return;
+        const ty = self.ctx.typeOf(arg) orelse return;
+        if (self.ctx.types.get(ty) != .borrow_write) return;
+        const src = try self.sourceText(arg);
+        try self.errAt(arg, "write `!{s}`: {s} `{s}`", .{ src, what, src });
     }
 
     /// Whether a call of `f` (with receiver parameter `recv`) may keep a
@@ -4974,7 +5168,11 @@ const Checker = struct {
     fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field, info: FieldArgs) Error!void {
         const noun = if (info.kind == .constructor) "constructor of" else "variant";
         if (args.len == 1 and !args[0].isKind(.kwarg)) {
-            if (soleField(fields)) |f| return self.checkExpr(args[0], try self.fieldType(f, info));
+            if (soleField(fields)) |f| {
+                const ty = try self.fieldType(f, info);
+                try self.checkExpr(args[0], ty);
+                return self.checkLendsVisibly(args[0], ty, "the field writes through");
+            }
         }
         for (args) |a| {
             if (a.isKind(.kwarg)) continue;
@@ -5010,7 +5208,9 @@ const Checker = struct {
                 _ = try self.synthExpr(value);
                 continue;
             };
-            try self.checkExpr(value, try self.fieldType(f, info));
+            const ty = try self.fieldType(f, info);
+            try self.checkExpr(value, ty);
+            try self.checkLendsVisibly(value, ty, "the field writes through");
         }
         for (fields) |f| {
             if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name)) continue;
@@ -5081,6 +5281,11 @@ const Checker = struct {
         if (self.isReceiverSigil(obj)) {
             const place = ir.get(obj, .operand);
             if ((try self.moduleNamed(place)) != null or (try self.namedType(place)) != null) {
+                if (obj.isKind(.read)) {
+                    try self.errAt(obj, "`{s}` is called through its type or module and has no receiver; to borrow the call's result, write `?({s}.{s}(...))`", .{ method, try self.sourceText(place), method });
+                    try self.synthArgs(args);
+                    return self.t().invalid_id;
+                }
                 try self.misplacedSigil(obj, method, "is called through its type or module and has no receiver");
                 obj = place;
             }
@@ -5113,7 +5318,7 @@ const Checker = struct {
         if (std.mem.eql(u8, method, "upgrade")) {
             switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, obj_ty))) {
                 .weak => |inner| {
-                    if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "only reads the weak handle");
+                    if (self.isReceiverSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, method, "only reads the weak handle");
                     try self.rejectResourceTemporary(obj, obj_ty);
                     if (args.len != 0) {
                         try self.err(pos, "weak `upgrade` takes no arguments; got {d}", .{args.len});
@@ -5211,7 +5416,7 @@ const Checker = struct {
             try self.synthArgs(args);
             return resolved.fn_ty.returns;
         }
-        if (!misplaced_sigil) try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos);
+        if (!misplaced_sigil) try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos, args.len > 0);
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
@@ -5304,7 +5509,7 @@ const Checker = struct {
         if (elem != byte) return self.badCall(args, obj, "`{s}` works on bytes: a `[]U8`, an `![]U8`, a `[N]U8`, a `Vec[U8]`, or a String; got `{s}`", .{ method, try self.tyName(obj_ty) });
         if (op == .write) {
             if (!try self.writesElements(obj, obj_ty, peeled, method)) return self.skipCall(args);
-        } else if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "only reads its receiver");
+        } else if (self.isReceiverSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, method, "only reads its receiver");
         const example = if (op == .read) "read[U32, .little](at)" else "write[U32, .little](at, value)";
         const b = ct orelse return self.badCall(args, pos, "`{s}` takes the type and the byte order in brackets: `{s}`", .{ method, example });
         try self.ctx.recordInstance(b, .function);
@@ -5381,8 +5586,6 @@ const Checker = struct {
         }
         // `!xs.fill(v)`: the write borrow took the checks.
         if (obj.isKind(.write)) return true;
-        // A binding that holds a write borrow lends it as it is.
-        if (self.ctx.types.get(obj_ty) == .borrow_write and !obj.isKind(.read)) return self.checkLendsWriteBorrow(obj);
         const place = if (obj.isKind(.read) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
         // A receiver `!` could not write (through a `*T` or `?T`, or of
         // a parameter) is reported as such, not with a `!` to add.
@@ -5681,17 +5884,18 @@ const Checker = struct {
         };
     }
 
-    /// Whether `node` is the `!p` or `<p` of `!p.m(...)` or `<p.m(...)`,
-    /// written before the call rather than in parentheses.
+    /// Whether `node` is the `?p`, `!p`, or `<p` of `?p.m(...)`,
+    /// `!p.m(...)`, or `<p.m(...)`, written before the call rather than
+    /// in parentheses.
     fn isReceiverSigil(self: *Checker, node: Sexp) bool {
         const p = self.ctx.parser orelse return false;
         return p.isReceiverSigil(node);
     }
 
-    /// `!p.m(...)` or `<p.m(...)` where `m` takes no receiver the sigil
-    /// could apply to.
+    /// `?p.m(...)`, `!p.m(...)`, or `<p.m(...)` where `m` takes no
+    /// receiver the sigil could apply to.
     fn misplacedSigil(self: *Checker, recv: Sexp, method: []const u8, why: []const u8) Error!void {
-        try self.errAt(recv, "`{s}` {s}; drop the `{s}`", .{ method, why, if (recv.isKind(.write)) "!" else "<" });
+        try self.errAt(recv, "`{s}` {s}; drop the `{s}`", .{ method, why, sigilText(recv) });
     }
 
     /// `!p.f(...)` or `<p.f[i](...)`, where `f` is a field holding
@@ -5705,20 +5909,29 @@ const Checker = struct {
         if (recv.isKind(.write) and returns == self.t().bool_id) {
             return self.errAt(recv, "`{s}` is {s}, not a method with a receiver; for negation use `not`", .{ field, what });
         }
-        try self.errAt(recv, "`{s}` is {s}, not a method with a receiver; drop the `{s}`", .{ field, what, if (recv.isKind(.write)) "!" else "<" });
+        if (recv.isKind(.read)) return self.errAt(recv, "`{s}` is {s}, not a method with a receiver; drop the `?`, or borrow the call's result with `?({s}.{s}(...))`", .{ field, what, try self.sourceText(ir.Read.operand(recv)), field });
+        try self.errAt(recv, "`{s}` is {s}, not a method with a receiver; drop the `{s}`", .{ field, what, sigilText(recv) });
     }
 
-    /// `!p.m(...)` and `<p.m(...)` (see `Parser.receiverSigil`): the sigil
-    /// is the receiver mode of `m`, so a `!` before a method that only
-    /// reads is the habit of `!` as negation, and a `!` call whose value
-    /// is a `Bool` is written `(!p).m(...)` so it never reads as one.
-    /// Returns whether it reported an error.
+    /// `?p.m(...)`, `!p.m(...)`, and `<p.m(...)` (see
+    /// `Parser.receiverSigil`): the sigil is the receiver mode of `m`, so
+    /// a `!` before a method that only reads is the habit of `!` as
+    /// negation, and a `!` call whose value is a `Bool` is written
+    /// `(!p).m(...)` so it never reads as one. A `?` spells out the read
+    /// receiver a call takes anyway. Returns whether it reported an
+    /// error.
     fn checkReceiverSigil(self: *Checker, recv: Sexp, mode: MethodReceiver, returns: TypeId, method: []const u8) Error!bool {
         if (!self.isReceiverSigil(recv)) return false;
         const place = ir.get(recv, .operand);
         const at = self.ctx.span(place);
         const name = self.ctx.source[at.start..at.end];
-        if (recv.isKind(.write)) switch (mode) {
+        if (recv.isKind(.read)) {
+            if (mode == .read) return false;
+            const hint = if (returns == self.t().void_id) "" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "; to borrow the call's result, write `?({s}.{s}(...))`", .{ name, method });
+            if (mode == .write) {
+                try self.errAt(recv, "`{s}` writes its receiver: write `!{s}.{s}(...)`{s}", .{ method, name, method, hint });
+            } else try self.errAt(recv, "`{s}` consumes its receiver: write `<{s}.{s}(...)`{s}", .{ method, name, method, hint });
+        } else if (recv.isKind(.write)) switch (mode) {
             .write => {
                 const result = self.ctx.types.get(returns);
                 const value = if (result == .fallible) result.fallible else returns;
@@ -5737,7 +5950,7 @@ const Checker = struct {
     /// Receiver rules: `?self` auto-borrows; `!self` needs an explicit
     /// `!x.m()`; a consuming `self` needs an explicit `<x.m()`. Write and
     /// consuming receivers are refused through `?T` and `*T`.
-    fn checkReceiverMode(self: *Checker, recv: Sexp, mode: MethodReceiver, kind: ReceiverTypeKind, method: []const u8, pos: u32) Error!void {
+    fn checkReceiverMode(self: *Checker, recv: Sexp, mode: MethodReceiver, kind: ReceiverTypeKind, method: []const u8, pos: u32, has_args: bool) Error!void {
         const shape = classifyReceiverShape(recv);
         switch (mode) {
             .read => if (shape == .move_explicit) {
@@ -5754,11 +5967,12 @@ const Checker = struct {
                     .read_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; got `?...`; use `!receiver.{s}(...)`", .{ method, method }),
                     .move_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; cannot move; use `!receiver.{s}(...)`", .{ method, method }),
                     // A binding that already holds a write borrow (`x: !T`,
-                    // `!self`) lends it to the call as it is.
+                    // `!self`) lends it visibly too.
                     .lvalue_bare => if (kind != .write_borrow) {
                         try self.err(pos, "method `{s}` requires a write-borrowed receiver; use `!receiver.{s}(...)`", .{ method, method });
                     } else {
-                        _ = try self.checkLendsWriteBorrow(recv);
+                        const name = try self.sourceText(recv);
+                        try self.errAt(recv, "write `!{s}.{s}({s})`: the call writes `{s}`", .{ name, method, if (has_args) "..." else "", name });
                     },
                 }
             },
@@ -5928,6 +6142,18 @@ const Checker = struct {
     }
 
     fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error!void {
+        // `?p.m()` reads `p`; where a borrow of the call's result is
+        // expected, the borrow goes around the call.
+        if (e.isKind(.call) and self.ctx.types.get(expected) == .borrow_read and compatible(self.ctx, actual, sema.unwrapBorrows(self.ctx, expected))) {
+            const callee = ir.Call.callee(e);
+            if (callee.isKind(.member) and ir.Member.object(callee).isKind(.read) and self.isReceiverSigil(ir.Member.object(callee))) {
+                const recv = ir.Member.object(callee);
+                const start = self.ctx.span(recv).start + 1;
+                const end = self.ctx.span(e).end;
+                const call = self.ctx.source[start..end];
+                return self.errAt(recv, "type mismatch: expected `{s}`, got `{s}`: `?{s}` reads `{s}` for the call; write `?({s})` to borrow the call's result", .{ try self.tyName(expected), try self.tyName(actual), call, try self.sourceText(ir.Read.operand(recv)), call });
+            }
+        }
         try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(expected), try self.tyName(actual) });
     }
 
@@ -6786,6 +7012,28 @@ fn unborrowedNode(e: Sexp) Sexp {
     return if (e.isKind(.read) or e.isKind(.write) or e.isKind(.move)) ir.get(e, .operand) else e;
 }
 
+/// The leaf a place starts from: `a` in `!a.b[i]`.
+fn placeRoot(e: Sexp) ?Sexp {
+    var x = e;
+    while (true) {
+        if (x == .src) return x;
+        const h = x.kind() orelse return null;
+        x = switch (h) {
+            .member, .index => ir.get(x, .object),
+            .read, .write, .move => ir.get(x, .operand),
+            else => return null,
+        };
+    }
+}
+
+/// The first `<x` in `e`, if any.
+fn findMove(e: Sexp) ?Sexp {
+    if (e != .list) return null;
+    if (e.isKind(.move)) return e;
+    for (e.items()) |c| if (findMove(c)) |m| return m;
+    return null;
+}
+
 fn isBorrow(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .borrow_read, .borrow_write => true,
@@ -6855,6 +7103,11 @@ const ReceiverShape = enum { read_explicit, write_explicit, move_explicit, rvalu
 
 /// How the receiver expression is written. Only heads that certainly
 /// produce a fresh value count as rvalues; everything else is a place.
+/// The sigil of a receiver sigil node, as written.
+fn sigilText(recv: Sexp) []const u8 {
+    return if (recv.isKind(.read)) "?" else if (recv.isKind(.write)) "!" else "<";
+}
+
 fn classifyReceiverShape(recv: Sexp) ReceiverShape {
     const h = recv.kind() orelse return .lvalue_bare;
     return switch (h) {

@@ -1,0 +1,29 @@
+# A guard changes nothing it matches: when it fails, a later arm matches
+# the same value, so it may not write-borrow the subject, a binding of
+# the arm, or anything reached from them.
+
+enum Shape
+  circle(r: Int)
+  point
+
+fun flip(s: !Shape) -> Bool
+  s = .point
+  false
+
+fun kind(s: !Shape) -> Int
+  match s
+    .point => 0
+    .circle(_) if flip(!s) => 1
+    .circle(_) => 2
+
+sub main
+  c: Shape = .circle(r: 1)
+  print(kind(!c))
+  n = match !c
+    .point => 0
+    w if flip(!w) => 1
+    .circle(r) => r
+  print(n)
+
+# error: 16:24: a guard cannot change the value being matched
+# error: 24:15: a guard cannot change the value being matched

@@ -1,0 +1,28 @@
+# `?p.m()` names a read receiver: a method that writes or consumes its
+# receiver is called with `!` or `<`, and a call's result is borrowed
+# with `?(p.m())`.
+
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  fun done(<self) -> Int
+    self.n
+
+  fun make -> Counter
+    Counter(n: 0)
+
+sub show(c: ?Counter)
+  print(c.n)
+
+sub main
+  c = Counter(n: 0)
+  ?c.bump()
+  print(?c.done())
+  show(?Counter.make())
+
+# error: 22:3: `bump` writes its receiver: write `!c.bump(...)`
+# error: 23:9: `done` consumes its receiver: write `<c.done(...)`
+# error: 24:8: `make` is called through its type or module and has no receiver; to borrow the call's result, write `?(Counter.make(...))`

@@ -1,10 +1,11 @@
-# Loop bindings are immutable.
+# Loop bindings are immutable: a copy of an element is written in place
+# through `for x in !xs`.
 
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
-  for n in v
+  for n in ?v
     n = n + 1
     print(n)
 
-# error: cannot assign to `n`; loop and pattern bindings are immutable
+# error: cannot assign to `n`: it is a copy of an element of `v`; to change the elements in place, loop with `for n in !v`

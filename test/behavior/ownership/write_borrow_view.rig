@@ -12,7 +12,7 @@ struct Outer
   e: Ed
 
 fun mk(b: !Wrap) -> Ed
-  Ed(t: b)
+  Ed(t: !b)
 
 sub bump(x: !Wrap)
   x.n += 10
@@ -26,7 +26,7 @@ sub main()
   if true
     e = Ed(t: !a)
     e.t.n = 5
-    bump(e.t)
+    bump(!e.t)
     bump(!e.t)
     e.t = !b
     e.t.n = 6

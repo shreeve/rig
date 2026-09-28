@@ -523,15 +523,33 @@ const SymbolResolver = struct {
         const prev = try self.enter(node, .block);
         defer self.scope = prev;
         const pattern = ir.Arm.pattern(node);
+        // Alternatives bind no names (the checker rejects them); a name
+        // is still bound once, for its uses.
+        if (pattern.isKind(.alt_pattern)) {
+            var seen: std.StringHashMapUnmanaged(void) = .empty;
+            defer seen.deinit(self.ctx.allocator);
+            for (ir.AltPattern.alts(pattern)) |alt| {
+                const binds: []const Sexp = if (alt.isKind(.variant_pattern)) ir.VariantPattern.bindings(alt) else if (patternBinds(self.ctx.source, alt)) (&alt)[0..1] else &.{};
+                for (binds) |b| {
+                    const name = identAt(self.ctx.source, b) orelse continue;
+                    if ((try seen.getOrPut(self.ctx.allocator, name)).found_existing) continue;
+                    _ = try self.bindFresh(b, "pattern binding");
+                }
+            }
+        }
         switch (pattern) {
             .src => if (patternBinds(self.ctx.source, pattern)) {
                 _ = try self.bindFresh(pattern, "pattern binding");
             },
             .list => if (pattern.isKind(.variant_pattern)) {
-                for (ir.VariantPattern.bindings(pattern)) |b| _ = try self.bindFresh(b, "pattern binding");
+                // A field bound by name (`w: a`, which the checker rejects)
+                // still binds its name.
+                for (ir.VariantPattern.bindings(pattern)) |b| _ = try self.bindFresh(if (b.isKind(.kwarg)) ir.Kwarg.value(b) else b, "pattern binding");
             },
             else => {},
         }
+        // A guard sees the pattern's bindings.
+        try self.walk(ir.Arm.guard(node));
         try self.walk(ir.Arm.body(node));
     }
 };

@@ -6,7 +6,7 @@ sub main()
   !nums.push(10)
   !nums.push(20)
   !nums.push(30)
-  for n in nums
+  for n in ?nums
     print(n)
 
 # expect:

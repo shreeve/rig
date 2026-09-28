@@ -1,0 +1,68 @@
+# `match !e` binds each payload field as a write borrow of the field:
+# assigning it writes the matched value in place (a resource replaced is
+# dropped), through a local, a `!T` parameter, a field, or a box.
+
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Shape
+  circle(r: Int)
+  rect(w: Int, h: Int)
+
+struct Holder
+  s: Shape
+
+enum Slot
+  full(b: *B, v: Vec[Int])
+  empty
+
+sub grow(s: !Shape)
+  match !s
+    .circle(r) => r += 1
+    .rect(w, h)
+      w *= 2
+      h = 10
+
+sub main
+  c: Shape = .circle(r: 1)
+  match !c
+    .circle(r) => r += 1
+    .rect(w, _) => w = 0
+  print(c)
+  grow(!c)
+  print(c)
+  x = Holder(s: .rect(w: 2, h: 3))
+  grow(!x.s)
+  print(x.s)
+  b = Box(Shape.circle(r: 5))
+  match !b
+    .circle(r) => r = 50
+    _ => print("other")
+  print(b)
+  s: Slot = .full(b: *B(n: 1), v: Vec())
+  match !s
+    .full(h, v)
+      h = *B(n: 2)
+      !v.push(7)
+    .empty => print("empty")
+  match s
+    .full(h, v) => print(h.n, v.len, v[0])
+    .empty => print("empty")
+  match !c
+    whole => whole = .rect(w: 1, h: 1)
+  print(c)
+  print("end")
+
+# expect:
+# .circle(r: 2)
+# .circle(r: 3)
+# .rect(w: 4, h: 10)
+# .circle(r: 50)
+# drop 1
+# 2 1 7
+# .rect(w: 1, h: 1)
+# end
+# drop 2

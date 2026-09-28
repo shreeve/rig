@@ -52,7 +52,7 @@ sub main()
   for x in !v[1..]
     x *= 5
   s = !v[..]
-  bump(s)
+  bump(!s)
   bump(!s[2..])
   print(total(s))
   print(v)

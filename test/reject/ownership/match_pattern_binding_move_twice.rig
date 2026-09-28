@@ -1,5 +1,5 @@
-# Moving a payload binding out consumes the matched value, so a second
-# match on `s` is a use after move.
+# `match <s` consumes the matched value, so a second match on `s` is a
+# use after move.
 
 struct Wrap
   payload: Int
@@ -14,7 +14,7 @@ sub eat(rc: *Wrap)
 sub main()
   rc = *Wrap(payload: 5)
   s: Slot = .full(b: <rc)
-  match s
+  match <s
     .full(b) => eat(<b)
     .empty => print(0)
   match s

@@ -1,0 +1,89 @@
+# A match evaluates its subject once, however its arms are tested: a
+# guarded match on a call, a borrow of a call's result, or an element
+# whose index has an effect runs the call once, and a `match <` of a
+# call owns and drops what the call made; so does a `match <` of a
+# call with alternatives, and a `match !` of an element bound whole.
+
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B, c: *B)
+  empty
+
+enum Shape
+  circle(r: Int)
+  point
+
+fun make(n: Int) -> Slot
+  print("make", n)
+  .full(b: *B(n: n), c: *B(n: n + 100))
+
+fun mk() -> Shape
+  print("mk")
+  .circle(r: 3)
+
+fun idx(c: ?Cell[Int]) -> Int
+  n = c.get()
+  c.set(n + 1)
+  n % 2
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main
+  match <make(1)
+    .full(b, _) if b.n > 5 => keep(<b)
+  match <make(2)
+    .full(b, c) if b.n > 5 => keep(<b)
+    .full(_, c) if c.n > 5 => keep(<c)
+    _ => print("other")
+  x = match <make(4)
+    .full(b, _) if b.n > 50 => <b
+    .full(_, c) => <c
+    .empty => *B(n: 0)
+  print(x.n)
+  match <make(5)
+    .full(_, _), .empty => print("either")
+  match ?(mk())
+    .circle(r) if r > 5 => print("big")
+    .circle(r) if r > 1 => print("mid", r)
+    _ => print("other")
+  k = Cell(0)
+  xs: [2]Shape = [.circle(r: 1), .circle(r: 2)]
+  match xs[idx(?k)]
+    .circle(r) if r == 1 => print("first, r =", r)
+    .circle(r) => print("second, r =", r)
+    _ => print("other")
+  print("idx calls:", k.get())
+  match !xs[idx(?k)]
+    .circle(r) if r > 5 => r = 0
+    w => w = .point
+  print(xs, "idx calls:", k.get())
+  print("end")
+
+# expect:
+# make 1
+# drop 101
+# drop 1
+# make 2
+# kept 102
+# drop 102
+# drop 2
+# make 4
+# drop 4
+# 104
+# make 5
+# either
+# drop 105
+# drop 5
+# mk
+# mid 3
+# first, r = 1
+# idx calls: 1
+# [.circle(r: 1), .point] idx calls: 2
+# end
+# drop 104

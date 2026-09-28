@@ -1,0 +1,40 @@
+# A bare `match e` on a value that owns a resource reads it: moving a
+# payload out takes `match <e`, which consumes `e`.
+
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  tagged(box: *B, tag: Int)
+  empty
+
+enum Opt
+  some(v: *B)
+  nothing
+
+sub eat(b: *B)
+  print(b.n)
+
+fun get(o: Opt, d: *B) -> *B
+  match o
+    .some(v) => v
+    .nothing => <d
+
+sub main
+  s: Slot = .tagged(box: *B(n: 1), tag: 2)
+  match s
+    .tagged(box, _) => eat(<box)
+    .empty => print(0)
+  t: Slot = .tagged(box: *B(n: 3), tag: 4)
+  match t
+    .tagged(box, _) => -box
+    .empty => print(0)
+  g = get(.some(v: *B(n: 5)), *B(n: 6))
+  print(g.n)
+
+# error: 23:17: cannot move `v` out of `o`: `match o` reads `o`; write `match <o` to take its fields
+# error: 29:29: cannot move `box` out of `s`: `match s` reads `s`; write `match <s` to take its fields
+# error: 33:25: cannot drop `box` out of `t`: `match t` reads `t`; write `match <t` to take its fields

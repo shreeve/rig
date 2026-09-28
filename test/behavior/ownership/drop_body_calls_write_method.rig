@@ -7,7 +7,7 @@ struct N
     self.id += 1
 
   drop(!self)
-    self.bump()
+    !self.bump()
     print("drop", self.id)
 
 sub main()

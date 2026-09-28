@@ -1,0 +1,30 @@
+# A binding of `match <s` owns what it binds: a resource it holds can
+# be written and lent for writing, like an owned `as` binding.
+
+struct B
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: B)
+  empty
+
+sub main
+  s: Slot = .full(b: B(n: 1))
+  match <s
+    .full(b)
+      !b.bump()
+      b.n += 10
+      print(b.n)
+    .empty => print("e")
+  print("end")
+
+# expect:
+# 12
+# drop 12
+# end

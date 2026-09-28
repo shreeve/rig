@@ -30,7 +30,7 @@ sub main()
   print("read", r.n)
   !x.bump()
   w = !x
-  w.bump()
+  !w.bump()
   print("x", x.n)
   v = View(box: ?x)
   print("view", v.box.n)

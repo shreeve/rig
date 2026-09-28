@@ -312,9 +312,10 @@ tokens
     while                       cond step? body:block else:block?
     for                         mode:tag(iter|read|write|move) var:leaf index:leaf? source body:block else:block?
     match                       subject ...arms:arm
-    arm                         pattern body
+    arm                         pattern guard? body
+    alt_pattern                 ...alts
     range_pattern               lo hi
-    variant_pattern             name:leaf ...bindings:leaf
+    variant_pattern             name:leaf ...bindings
     enum_lit                    name:leaf
     return                      value?
     break                       value? label:leaf?
@@ -674,11 +675,12 @@ neg      = NOT operand:neg                          → (not)
 # `print p.x` is print(p.x); `send encode <packet` is send(encode(<packet)).
 # A paren-free call is a command: a statement, a match arm, a closure
 # body, or the last argument of another paren-free call. Anywhere a
-# value is expected, a call takes parentheses. A leading `!` or `<` is
-# the receiver's mode, which the Parser wrapper moves onto the receiver:
-# `!v.push 3`.
+# value is expected, a call takes parentheses. A leading `?`, `!`, or
+# `<` is the receiver's mode, which the Parser wrapper moves onto the
+# receiver: `!v.push 3`.
 
 cmd      = callee:postfix args:cmdargs              → (call)
+         | READ_PFX  operand:cmd                    → (read)
          | WRITE_PFX operand:cmd                    → (write)
          | MOVE_PFX  operand:cmd                    → (move)
 
@@ -707,9 +709,10 @@ while    = WHILE cond:value [":" step:step] body:block [ELSE else:block] → (wh
 
 # A `while` step runs after each iteration: an assignment, or a call,
 # which may propagate its failure (the checker rejects other forms). A
-# call's receiver may take `!` or `<` (see the Parser wrapper).
+# call's receiver may take `?`, `!`, or `<` (see the Parser wrapper).
 step     = assign
          | postfix
+         | READ_PFX  operand:postfix                → (read)
          | WRITE_PFX operand:postfix                → (write)
          | MOVE_PFX  operand:postfix                → (move)
 
@@ -724,8 +727,21 @@ arms     = arm                                      → (1)
          | arms NEWLINE arm                         → (...1 3)
          | arms NEWLINE                             → 1
 
-arm      = pattern:pattern "=>" body:simple         → (arm)
-         | pattern:pattern body:block               → (arm)
+# An arm's pattern may list alternatives (`1, 2 =>`) and take a guard
+# (`.circle(r) if r > 0 =>`); the rewriter classifies an `if` after a
+# pattern as POST_IF, as after a statement.
+arm      = pattern:pats "=>" body:simple            → (arm)
+         | pattern:pats POST_IF guard:value "=>" body:simple → (arm)
+         | pattern:pats body:block                  → (arm)
+         | pattern:pats POST_IF guard:value body:block → (arm)
+
+pats     = pattern
+         | alts:palts                               → (alt_pattern)
+
+# Written out rather than `L(pattern)`, which conflicts with a trailing
+# comma.
+palts    = pattern "," pattern                      → (1 3)
+         | palts "," pattern                        → (...1 3)
 
 pattern  = patatom
          | lo:patatom ".." hi:patatom               → (range_pattern)
@@ -737,12 +753,16 @@ patatom  = name
          | FALSE
          | DOT_LIT name:name                        → (enum_lit)
          | DOT_LIT name:name LPAREN_CALL ")"        → (variant_pattern)
-         | DOT_LIT name:name LPAREN_CALL bindings:names [","] ")" → (variant_pattern)
+         | DOT_LIT name:name LPAREN_CALL bindings:pbinds [","] ")" → (variant_pattern)
 
-# Written out rather than `L(name)`, which conflicts with a trailing
-# comma.
-names    = name                                     → (1)
-         | names "," name                           → (...1 3)
+# A payload field is bound by position (`.rect(w, h)`) or, reserved for
+# the checker to reject, by name (`.rect(w: a)`). Written out rather
+# than `L(pbind)`, which conflicts with a trailing comma.
+pbinds   = pbind                                    → (1)
+         | pbinds "," pbind                         → (...1 3)
+
+pbind    = name
+         | name:KWARG_NAME ":" value:name           → (kwarg)
 
 # --- Closures -----------------------------------------------------------------
 #

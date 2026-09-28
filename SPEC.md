@@ -965,33 +965,57 @@ how the method uses the value, and the call site says the same thing:
 
 | Receiver | Meaning | Call |
 |---|---|---|
-| `?self` (= `self: ?Self`) | reads the value | `p.m()`: the read borrow is implicit |
+| `?self` (= `self: ?Self`) | reads the value | `p.m()`, or `?p.m()`: the read borrow may be left implicit |
 | `!self` (= `self: !Self`) | modifies the value | `!p.m()` |
 | `<self` (= `self: Self`) | consumes the value | `<p.m()`, or on a temporary |
 
 Write borrows and moves are never implicit, so calling a `!self` method
-as `p.m()` on an owned `p` is an error. A binding that already holds a
-write borrow (a `!T` parameter, `self` in a `!self` method, a local
-`w = !p`) calls it directly, `w.m()`: the borrow it holds is lent to the
-call.
+as `p.m()` is an error. That holds for a binding that already holds a
+write borrow too (a `!T` parameter, `self` in a `!self` method, a local
+`w = !p`): it lends that borrow visibly, `!w.m()` and `!self.m()`, as it
+lends it to a `!T` parameter or field with `!w`. Lending a write borrow
+always shows its sigil; a held read borrow is lent on bare, since
+another copy of it changes nothing.
 
-**Receiver sigils.** `!` or `<` directly before a *place* (a name
-followed by any `.field` or `[index]` steps) that is followed by a
-method call applies to that place: `!P.m(args)` is `(!P).m(args)` and
-`<P.m(args)` is `(<P).m(args)`, with or without parentheses around the
-arguments (`!v.push 3`). Postfixes after that call apply to its result:
-`!v.pop()?`, and `!a.b().c(x)` is `(!a).b().c(x)`. Every other prefix
-sigil (`?`, `+`, `-`, `*`, `~`), and `!` or `<` with no method call
-after the place, applies to the whole expression as before:
-`*Point.origin()` shares the result, `+n.first()` clones it, `-a.len`
-negates it, `!x.v` borrows the field, `<p.f` moves the field, and
-`?xs[0]` borrows the element. With parentheses, `!(v.pop())` borrows
-the call's result.
+```rig reject
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  sub twice(!self)
+    !self.bump()
+    self.bump()
+
+sub main
+  c = Counter(n: 0)
+  !c.twice()
+```
+
+```error
+write `!self.bump()`: the call writes `self`
+```
+
+**Receiver sigils.** `?`, `!`, or `<` directly before a *place* (a
+name followed by any `.field` or `[index]` steps) that is followed by
+a method call applies to that place: `?P.m(args)` is `(?P).m(args)`,
+`!P.m(args)` is `(!P).m(args)`, and `<P.m(args)` is `(<P).m(args)`,
+with or without parentheses around the arguments (`!v.push 3`).
+Postfixes after that call apply to its result: `!v.pop()?`, and
+`!a.b().c(x)` is `(!a).b().c(x)`. Writing `?` is optional, since a
+read receiver is lent without it. Every other prefix sigil (`+`, `-`,
+`*`, `~`), and `?`, `!`, or `<` with no method call after the place,
+applies to the whole expression as before: `*Point.origin()` shares
+the result, `+n.first()` clones it, `-a.len` negates it, `!x.v`
+borrows the field, `<p.f` moves the field, and `?xs[0]` borrows the
+element. With parentheses, `?(p.m())` borrows the call's result.
 
 The short form is checked against the method: `!` before a method that
 does not take `!self` is rejected (it reads as negation, which is
-`not`), and so is `<` before one that does not take `<self`, or
-either before a function with no receiver (`Point.origin()`). A
+`not`), `<` before one that does not take `<self`, `?` before one that
+takes `!self` or `<self`, and any of them before a function with no
+receiver (`Point.origin()`). A
 write-borrowing call whose value is a `Bool` is written in the long
 form, `(!set).insert(k)`, where its `!` would start a condition (of
 `if`, `while`, a ternary, or a postfix guard) or an operand of `and`,
@@ -1087,12 +1111,12 @@ struct Counter
     self.n += 1
 
   sub bump_twice(!self)
-    self.bump()
-    self.bump()
+    !self.bump()
+    !self.bump()
 
 sub add_three(c: !Counter)
-  c.bump()
-  c.bump_twice()
+  !c.bump()
+  !c.bump_twice()
 
 sub main
   c = Counter(n: 0)
@@ -1128,8 +1152,8 @@ struct Counter
     self.n
 
 sub twice(f: sub(!Counter), c: !Counter)
-  f(c)
-  f(c)
+  f(!c)
+  f(!c)
 
 sub main
   c = Counter(n: 0)
@@ -1444,7 +1468,7 @@ and holds no borrow. A `T` that owns a resource moves where the body
 moves it, and is dropped where the body lets it go. Where the body
 copies a `T`, every instance must be plain data; the same holds where it
 takes (moves, drops, or returns) an element of a loop that does not
-consume its collection (`for x in v`), or unwraps a `T` out of a
+consume its collection (`for x in ?v`), or unwraps a `T` out of a
 borrowed optional with `as`, since the collection or the owner still
 holds the value. A type argument cannot be a borrow or hold one, for a
 generic function or a generic type with methods: the parameter is
@@ -1603,7 +1627,7 @@ declaration ([§15](#15-modules)), and `extern` declares a C symbol
 
 | Form | Meaning |
 |---|---|
-| `x = e` | bind a new local `x`, or assign to the visible `x` |
+| `x = e` | bind a new local `x`, or assign to the visible `x` (through it, when `x` is a write borrow) |
 | `x: T = e` | bind with a type annotation |
 | `x =! e`, `x: T =! e` | bind a fixed local, which cannot be reassigned |
 | `new x = e` | bind a new `x` that shadows the visible one; `e` may read the old `x` |
@@ -1717,8 +1741,8 @@ From lowest to highest precedence:
 
 Postfixes bind tighter than prefixes, so `-a.len` is `-(a.len)` and
 `+n.first()` clones the result. The one exception is a receiver sigil:
-`!` or `<` before a place followed by a method call applies to the
-place, `!v.push(x)` is `(!v).push(x)` and `!v.put[2](x)` is
+`?`, `!`, or `<` before a place followed by a method call applies to
+the place, `!v.push(x)` is `(!v).push(x)` and `!v.put[2](x)` is
 `(!v).put[2](x)` ([§4](#structs)). A call of a field holding functions
 (`!p.f()`, `!p.fs[0]()`) has no receiver, so a sigil there is rejected.
 
@@ -2128,11 +2152,15 @@ done
 
 ### for
 
-`for x in source` walks an array, a `Vec` of Copy values, a `String`
-(bytes), or a range `a..b` (from `a` up to, not including, `b`; the
-bounds are evaluated once). `for x, i in xs` also binds the index (not
-for ranges). An `else` block runs when the loop ends without `break`.
-A `Vec` of owning values is walked with `for x in ?v` ([§11](#vec)).
+`for x in source` walks an array, a slice, a `String` (bytes), or a
+range `a..b` (from `a` up to, not including, `b`; the bounds are
+evaluated once). `for x, i in xs` also binds the index (not for
+ranges). An `else` block runs when the loop ends without `break`. A
+`Vec` is walked in place, so the loop borrows it and says so:
+`for x in ?v` ([§11](#vec)); a bare `for x in v` over a Vec binding or
+field is rejected with that fix. An array is copied, and a slice or
+String is a view, so they are walked bare, as is a Vec a call returns,
+which the loop owns and drops.
 
 ```rig
 sub find(xs: ?[4]Int, target: Int)
@@ -2278,11 +2306,50 @@ enums, integers, and `Bool`.
 | `lo..hi` | an integer from `lo` up to, not including, `hi` (constant bounds) |
 | `_` | everything else |
 | any other name | everything else, binding the value to the name |
+| `p, q` | any of the alternatives, which bind no names |
+| `p if cond` | what `p` matches, when `cond` holds |
 
 An arm is `pattern => statement` or a pattern followed by an indented
 block. A match whose value is used must cover every value; a statement
 match need not, and then runs no arm for the rest. Duplicate and
-unreachable arms are rejected. A range pattern is half-open like every
+unreachable arms are rejected.
+
+A guard `if cond` after a pattern is a `Bool` that may read the
+pattern's bindings; when it is false, the later arms are tried, as if
+the arm's pattern had not matched. A guard changes nothing it matches:
+it moves nothing, and write-borrows neither the matched value nor a
+binding of the arm (as Rust's guards do not). A guarded arm covers none
+of its values: a later arm may repeat its pattern, and
+a match whose value is used still needs arms for them. Alternatives
+are literals, ranges, or variants; since which one matched would decide
+what a name held, they bind none (`_` fills a payload field), and none
+may be a catch-all.
+
+```rig
+enum Shape
+  circle(r: Int)
+  square(s: Int)
+  point
+
+fun describe(s: Shape) -> String
+  match s
+    .circle(r) if r > 10 => "big circle"
+    .circle(_), .square(_) => "small shape"
+    .point => "point"
+
+sub main
+  print(describe(.circle(r: 20)), describe(.square(s: 1)), describe(.point))
+  match 4
+    1, 2, 3 => print("low")
+    n if n % 2 == 0 => print("even", n)
+    _ => print("other")
+```
+
+```output
+big circle small shape point
+even 4
+```
+ A range pattern is half-open like every
 range, so `0..10` matches 0 through 9, and its end may be one past the
 type's largest value: `100..256` covers the rest of a `U8`.
 
@@ -2303,6 +2370,87 @@ sub main
 ```output
 small medium large
 something else: 7
+```
+
+The subject takes the sigil of what the arms do with it, as a `for`
+source and `if … as` do:
+
+| Subject | Payload bindings |
+|---|---|
+| `match e`, `match ?e` | read the fields: a copy of plain data, a read view of anything else |
+| `match !e` | write borrows of the fields: assigning one writes the field in place |
+| `match <e` | own the fields: `e` is consumed, and what an arm does not move on is dropped at the end of the arm |
+
+A bare `match e` only reads `e`, so moving a payload out of it is
+rejected; that takes `match <e`. Its bindings only read, too, even of a
+field or value that is itself a write borrow. A binding of `match <e`
+owns what it binds: a resource it holds may be written and lent for
+writing. A `Bool` is not matched with `!`: `match !flag` reads as
+negation and is rejected, as `!flag` is anywhere a `!Bool` is not
+expected. `match !e` needs a place that may be
+written, as `!e` does, and while one of its bindings is live `e` cannot
+be used otherwise. `match <e` needs a value `e` owns, not a borrow. A
+boxed enum is matched through a borrow of the box, `match ?b` or
+`match !b` ([§11](#box)).
+
+```rig
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B, uses: Int)
+  empty
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main
+  s: Slot = .full(b: *B(n: 1), uses: 0)
+  match !s
+    .full(_, uses) => uses += 1
+    .empty => print("empty")
+  match s
+    .full(b, uses) => print(b.n, uses)
+    .empty => print("empty")
+  match <s
+    .full(b, _) => keep(<b)
+    .empty => print("empty")
+  print("end")
+```
+
+```output
+1 1
+kept 1
+drop 1
+end
+```
+
+```rig reject
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main
+  s: Slot = .full(b: *B(n: 1))
+  match s
+    .full(b) => keep(<b)
+    .empty => print("empty")
+```
+
+```error
+cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fields
 ```
 
 ### defer and errdefer
@@ -2537,9 +2685,9 @@ sub main
 Pair(left: "c", right: "a") b
 ```
 
-A `match` payload binding views the matched value; moving it out
-(`.full(b) => eat(<b)`) consumes the matched value, which must then be
-an owned local whose variant has no other owning field.
+A payload binding of `match <s` owns its field and may move it on
+(`.full(b) => eat(<b)`); a bare `match s` only reads `s`
+([match](#match)).
 
 ### Borrows
 
@@ -2649,9 +2797,13 @@ cannot write-borrow `x` while a read borrow is live
 
 #### Write borrows
 
-A `!T` parameter is assignable: `p.f = v` and `p = v` write through to
-the caller's value (the old value is dropped first). A write borrow can
-be passed on, or moved into a local with `<p`, but not copied. One held
+A write borrow is assignable, whether a `!T` parameter or a local
+holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
+borrowed value (the old value is dropped first). A new binding points
+a name at another place: `new w = !m` (`w = !m` is rejected, since it
+would write through `w`). A write borrow can be lent on, written `!p`
+as an owned value's borrow is, or moved into a local with `<p`, but not
+copied. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
 that path reaches: it cannot be passed on from there, and a `match`
 through one cannot bind it. A loop walks elements holding write borrows
@@ -2678,6 +2830,22 @@ sub main
 ```output
 6
 0
+```
+
+```rig
+sub main
+  n = 1
+  w = !n
+  w = 5
+  w += 1
+  m = 10
+  new w = !m
+  w *= 2
+  print(n, m)
+```
+
+```output
+6 20
 ```
 
 A `!x` borrow needs a binding that may change: a parameter (other than
@@ -3117,7 +3285,7 @@ sub main
   # Anything else: take the value out, use it, and put it back.
   v = shared.replace(Vec())
   sum = 0
-  for x in v
+  for x in ?v
     sum += x
   shared.set(<v)
   print(sum, shared.len)
@@ -3149,11 +3317,11 @@ shared handles (including owned closures), weak handles, or boxes.
 | `!v.clear()` | drop every element |
 
 A `for` loop borrows the Vec for the whole loop, so it cannot be
-modified inside it. A Vec of Copy values may be walked by value
-(`for x in v`). A Vec of owning values is walked by borrowed slot with
-`for x in ?v`, where `v` must be a binding or a field of one: the
-element can be read, called, and cloned (`+x` is a new handle), but not
-moved, dropped, or stored. `for x in !v` and `for x in <v` write and
+modified inside it, and the source says so: `for x in ?v`. Each element
+of Copy values is a copy; one of owning values is a borrowed slot,
+where `v` must be a binding or a field of one: the element can be
+read, called, and cloned (`+x` is a new handle), but not moved,
+dropped, or stored. `for x in !v` and `for x in <v` write and
 consume the elements ([§7](#for)).
 
 ```rig
@@ -3602,7 +3770,7 @@ sub main
   print(apply(*|a| a + 1, 2))
   c: Vec[Int] = Vec()
   each(?c, |!c, n|
-    c.push(n))
+    !c.push(n))
 ```
 
 ```error
@@ -4548,6 +4716,7 @@ The rest parse, and the checker rejects them as not supported yet
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |
 | an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |
+| a payload field bound by name, `.rect(w: a, h: b)` | `` binding a payload field by name is not supported yet `` |
 
 ```rig reject
 sub main

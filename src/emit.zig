@@ -1075,7 +1075,10 @@ pub const Emitter = struct {
         // A constant initializer would make a Zig `const` compile-time
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
-        const is_var = s.flags.reassigned or (!holds_ptr and (s.flags.written or needs_ptr_self or
+        // Assigning a write borrow writes through it, leaving the
+        // pointer as it is.
+        const rebound = s.flags.reassigned and !(ty != null and sema.assignWritesThrough(self.sema, ty.?));
+        const is_var = rebound or (!holds_ptr and (s.flags.written or needs_ptr_self or
             (!s.flags.comptime_known and (isZigComptimeIn(self, expr, 0) or self.sema.const_ints.contains(sym)))));
 
         // Evaluate the value before the new name is visible, so a shadow
@@ -1120,7 +1123,7 @@ pub const Emitter = struct {
             // through the binding, which may land behind a pointer
             // field, run-time arithmetic, a `*Self` method) needs the
             // discard.
-            if (!s.flags.reassigned) try self.w.print(" _ = &{s};", .{stored.zig_name});
+            if (!rebound) try self.w.print(" _ = &{s};", .{stored.zig_name});
         } else if (self.sema.const_ints.contains(sym) or self.sema.ct_locals.contains(sym)) {
             // A constant's uses may all be folded away, and an alias of a
             // compile-time parameter may be named only in types, which
@@ -1134,8 +1137,7 @@ pub const Emitter = struct {
     /// guard is re-armed.
     fn emitRebind(self: *Emitter, local: Local, value: Sexp) Error!void {
         const s = self.sema.symbols.items[local.sym];
-        const captured_write = s.kind == .capture and self.sema.types.get(s.ty) == .borrow_write;
-        const writes_through = s.kind == .param or s.flags.pattern_bound or captured_write;
+        const writes_through = sema.assignWritesThrough(self.sema, s.ty);
         if (local.is_ptr and !writes_through) {
             // A borrow local is rebound to borrow something else.
             try self.w.print("{s} = ", .{local.zig_name});
@@ -1937,21 +1939,82 @@ pub const Emitter = struct {
     // Match
     // -------------------------------------------------------------------------
 
+    /// How a match reaches its subject (`checkMatch`): a bare or `?`
+    /// subject is read, `!` binds write borrows of the fields, and `<` of
+    /// a value that owns a resource hands the arm its fields.
+    const MatchMode = enum { read, write, consume };
+
+    /// What `emitMatch` knows about a match's subject.
+    const MatchInfo = struct {
+        mode: MatchMode,
+        /// The type matched: the enum a boxed subject holds.
+        ty: ?TypeId,
+        error_set: bool,
+        /// The subject without its `?` / `!`.
+        subject: Sexp,
+        boxed: bool,
+        /// The subject as Zig that reads it again without evaluating it
+        /// again (`evalSubject`), or empty when nothing reads it twice.
+        reread: []const u8 = "",
+        /// A `match <x` of a value no binding holds: it was evaluated
+        /// into `reread`, which the arm then takes.
+        temp: bool = false,
+    };
+
     /// `(match scrutinee arm...)` → `switch`. In value position each arm
-    /// yields a value.
+    /// yields a value. A match with a guarded arm picks its arm first
+    /// (`emitGuardedMatch`).
     fn emitMatch(self: *Emitter, sexp: Sexp, value_pos: bool) Error!void {
         const scrutinee = ir.Match.subject(sexp);
         // A boxed enum is switched on where the box points.
         const boxed = if (self.typeOf(scrutinee)) |t| sema.boxedNominal(self.sema, t) else null;
         const scrut_ty = boxed orelse self.typeOf(scrutinee);
-        const error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false;
-
-        // `match ?t` / `match !t` switch on the value borrowed, and so
-        // does a match on a call returning a borrow held by pointer.
-        const subject = unborrowed(scrutinee);
+        var info: MatchInfo = .{
+            .mode = if (scrutinee.isKind(.write))
+                .write
+            else if (scrutinee.isKind(.move) and scrut_ty != null and self.kindOf(scrut_ty.?) != null) .consume else .read,
+            .ty = scrut_ty,
+            .error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false,
+            // `match ?t` / `match !t` switch on the value borrowed.
+            .subject = unborrowed(scrutinee),
+            .boxed = boxed != null,
+        };
+        var guarded = false;
+        // A `match !x` binding of the whole value points at the place, and
+        // a `match <x` arm with alternatives drops the value from it: the
+        // subject is read again.
+        var rereads = false;
+        for (ir.Match.arms(sexp)) |arm| {
+            const pattern = ir.Arm.pattern(arm);
+            if (ir.Arm.guard(arm) != .nil) guarded = true;
+            if (info.mode == .write and isCatchAll(self.source, pattern)) rereads = true;
+            if (info.mode == .consume and pattern.isKind(.alt_pattern)) rereads = true;
+        }
+        // Evaluating the subject first takes a block around the match.
+        const block = if (guarded or (rereads and !self.subjectRereadable(info))) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
+        if (block.len > 0) {
+            if (value_pos) try self.w.print("{s}: ", .{block});
+            try self.openBrace();
+            try self.evalSubject(&info);
+            if (guarded) {
+                try self.emitGuardedMatch(sexp, value_pos, info, block);
+                try self.w.writeAll("\n");
+                return self.closeBrace();
+            }
+            try self.writeIndent(self.indent);
+            if (value_pos) try self.w.print("break :{s} ", .{block});
+        } else if (rereads) info.reread = try self.placeText(info);
+        const place = info.reread;
+        const subject = info.subject;
         try self.w.writeAll("switch (");
-        if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
-        if (boxed != null) try self.w.writeAll(".value.*");
+        if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
+            try self.w.writeAll(info.reread);
+        } else {
+            // A match on a call returning a borrow held by pointer
+            // switches on the value it points to.
+            if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
+            if (info.boxed) try self.w.writeAll(".value.*");
+        }
         try self.w.writeAll(") ");
         try self.openBrace();
 
@@ -1963,74 +2026,387 @@ pub const Emitter = struct {
             try self.pushScope();
             defer self.popScope() catch {};
 
-            var aliases: []const Alias = &.{};
-            switch (pattern) {
-                .src => {
-                    const text_ = self.srcText(pattern);
-                    if (isLiteralText(text_)) {
-                        try self.emitExpr(pattern);
-                        try self.w.writeAll(" => ");
-                    } else {
-                        has_default = true;
-                        try self.w.writeAll("else => ");
-                        if (!std.mem.eql(u8, text_, "_")) try self.emitCapture(pattern);
+            var prelude: Prelude = .{};
+            if (isCatchAll(self.source, pattern)) {
+                has_default = true;
+                try self.w.writeAll("else => ");
+                const named = !std.mem.eql(u8, self.srcText(pattern), "_");
+                switch (info.mode) {
+                    .read => if (named) try self.emitCapture(pattern),
+                    .write => if (named) {
+                        prelude.aliases = try self.wholeAlias(pattern, try self.fmt("&{s}", .{place}), .nil);
+                    },
+                    .consume => {
+                        const whole = try self.fresh("whole");
+                        try self.w.print("|{s}| ", .{whole});
+                        prelude = try self.ownedParts(&.{if (named) pattern else .nil}, &.{.{ .expr = whole }}, .nil);
+                    },
+                }
+            } else {
+                try self.writePatternHead(pattern, info);
+                try self.w.writeAll(" => ");
+                const captures: []const Sexp = if (pattern.isKind(.variant_pattern)) ir.VariantPattern.bindings(pattern) else &.{};
+                const vname: []const u8 = if (pattern.isKind(.variant_pattern) or pattern.isKind(.enum_lit)) self.srcText(ir.get(pattern, .name)) else "";
+                if (info.mode == .consume) {
+                    // The arm owns the value: each field is bound or
+                    // dropped at the end of the arm.
+                    const fields = if (vname.len > 0) self.variantPayload(info.ty.?, vname) orelse &.{} else &.{};
+                    if (vname.len == 0) {
+                        // Alternatives: the value is dropped from where it
+                        // was, copied before the arm can reassign it.
+                        const whole = try self.fresh("whole");
+                        prelude = try self.ownedParts(&.{.nil}, &.{.{ .expr = whole }}, .nil);
+                        prelude.head = try self.fmt("const {s} = {s};", .{ whole, place });
+                    } else if (fields.len > 0) {
+                        const payload = try self.fresh("payload");
+                        try self.w.print("|{s}| ", .{payload});
+                        prelude = try self.consumedPayload(captures, fields, payload, .nil);
                     }
-                },
-                .list => switch (pattern.kind().?) {
-                    .enum_lit, .variant_pattern => {
-                        const vname = self.srcText(ir.get(pattern, .name));
-                        try self.w.print("{s}{f} => ", .{ if (error_set) "error." else ".", ident(vname) });
-                        const captures: []const Sexp = if (pattern.isKind(.variant_pattern)) ir.VariantPattern.bindings(pattern) else &.{};
-                        if (captures.len > 0) {
-                            aliases = try self.payloadAliases(captures, scrut_ty.?, vname);
-                            if (aliases.len > 0) try self.w.print("|{s}| ", .{aliases[0].payload});
-                        }
-                    },
-                    .range_pattern => {
-                        // `lo..hi` is half-open; Zig's `lo...hi` is inclusive.
-                        // Sema checked both bounds are constants.
-                        const lo = sema.constIntOf(self.sema, ir.RangePattern.lo(pattern)) orelse return self.unsupported(pattern, "this range pattern");
-                        const hi = sema.constIntOf(self.sema, ir.RangePattern.hi(pattern)) orelse return self.unsupported(pattern, "this range pattern");
-                        try self.w.print("{d}...{d} => ", .{ lo, hi - 1 });
-                    },
-                    else => {
-                        try self.emitExpr(pattern);
-                        try self.w.writeAll(" => ");
-                    },
-                },
-                else => return self.unsupported(arm, "this pattern"),
+                } else if (captures.len > 0) {
+                    prelude.aliases = try self.payloadAliases(captures, info.ty.?, vname, info.mode == .write, null, .nil);
+                    if (prelude.aliases.len > 0) try self.w.print("|{s}{s}| ", .{ if (info.mode == .write) "*" else "", prelude.aliases[0].payload });
+                }
             }
-            const prelude: Prelude = .{ .aliases = aliases };
             if (value_pos) try self.emitValueBlock(body, prelude, self.typeOf(sexp)) else try self.emitBodyWith(body, prelude);
             try self.w.writeAll(",\n");
         }
         // A statement match whose arms leave some values out runs no arm
-        // for them (sema requires a value-position match to be complete).
+        // for them (sema requires a value-position match to be complete);
+        // one that consumes its subject drops it.
         if (!has_default and !self.sema.isExhaustive(sexp)) {
-            try self.line("else => {{}},", .{});
+            if (info.mode == .consume) try self.line("else => |__rig_rest| rig.discard(__rig_rest),", .{}) else try self.line("else => {{}},", .{});
         }
         try self.closeBrace();
+        if (block.len > 0) {
+            if (value_pos) try self.w.writeAll(";");
+            try self.w.writeAll("\n");
+            try self.closeBrace();
+        }
     }
 
-    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8 };
+    /// Whether the subject can be read again as it is written: a name,
+    /// or a field of one. An element's index may have effects, and a
+    /// call makes a new value.
+    fn subjectRereadable(self: *Emitter, info: MatchInfo) bool {
+        _ = self;
+        var e = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
+        while (e.isKind(.member)) e = ir.Member.object(e);
+        return e == .src;
+    }
+
+    /// Evaluate the subject once, into `info.reread`: a field path as
+    /// it is, an element by its address, a value no binding holds (a
+    /// call's result, or what `match <` takes from one) into a local.
+    fn evalSubject(self: *Emitter, info: *MatchInfo) Error!void {
+        if (self.subjectRereadable(info.*)) {
+            info.reread = try self.placeText(info.*);
+            return;
+        }
+        const name = try self.fmt("__rig_subject_{d}", .{self.nextId()});
+        const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
+        if (isPlace(value) and !info.subject.isKind(.move)) {
+            try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
+            info.reread = try self.fmt("{s}.*", .{name});
+            return;
+        }
+        try self.writeIndent(self.indent);
+        try self.w.print("var {s}", .{name});
+        if (self.typeOf(value)) |t| {
+            try self.w.writeAll(": ");
+            try self.emitTypeTy(self.peelBorrows(t));
+        }
+        try self.w.writeAll(" = ");
+        if (self.isPtrBorrowExpr(value)) try self.emitDeref(value) else try self.emitBare(value);
+        try self.w.print("; _ = &{s};\n", .{name});
+        info.reread = name;
+        info.temp = info.mode == .consume;
+    }
+
+    /// The Zig place of a match's subject, for `match !x` and `match <x`
+    /// (whose subject is a binding).
+    fn placeText(self: *Emitter, info: MatchInfo) Error![]const u8 {
+        var buf: Writer.Allocating = .init(self.arena.allocator());
+        const saved_w = self.w;
+        self.w = &buf.writer;
+        defer self.w = saved_w;
+        try self.emitPlace(if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject);
+        if (info.boxed) try self.w.writeAll(".value.*");
+        return buf.written();
+    }
+
+    /// The prong head of a pattern that is not a catch-all: a literal, a
+    /// variant, a range, or alternatives.
+    fn writePatternHead(self: *Emitter, pattern: Sexp, info: MatchInfo) Error!void {
+        if (pattern.isKind(.alt_pattern)) {
+            for (ir.AltPattern.alts(pattern), 0..) |alt, i| {
+                if (i > 0) try self.w.writeAll(", ");
+                try self.writePatternHead(alt, info);
+            }
+            return;
+        }
+        if (pattern.isKind(.enum_lit) or pattern.isKind(.variant_pattern)) {
+            return self.w.print("{s}{f}", .{ if (info.error_set) "error." else ".", ident(self.srcText(ir.get(pattern, .name))) });
+        }
+        if (pattern.isKind(.range_pattern)) {
+            // `lo..hi` is half-open; Zig's `lo...hi` is inclusive. Sema
+            // checked both bounds are constants.
+            const b = try self.rangeBounds(pattern);
+            return self.w.print("{d}...{d}", .{ b[0], b[1] });
+        }
+        try self.emitExpr(pattern);
+    }
+
+    /// The inclusive bounds of range pattern `lo..hi`.
+    fn rangeBounds(self: *Emitter, pattern: Sexp) Error![2]i128 {
+        const lo = sema.constIntOf(self.sema, ir.RangePattern.lo(pattern)) orelse return self.unsupported(pattern, "this range pattern");
+        const hi = sema.constIntOf(self.sema, ir.RangePattern.hi(pattern)) orelse return self.unsupported(pattern, "this range pattern");
+        return .{ lo, hi - 1 };
+    }
+
+    /// A catch-all pattern: `_` or a name.
+    fn isCatchAll(source: []const u8, pattern: Sexp) bool {
+        return pattern == .src and !isLiteralText(source[pattern.src.pos..][0..pattern.src.len]);
+    }
+
+    /// `x => ...` binding the whole value as `expr`, when the arm uses it
+    /// (in `used_in`, when given).
+    fn wholeAlias(self: *Emitter, pattern: Sexp, expr: []const u8, used_in: Sexp) Error![]const Alias {
+        const local = self.usedPayloadLocal(pattern, used_in) orelse return &.{};
+        const stored = try self.declare(local, self.srcText(pattern));
+        return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
+    }
+
+    /// The prelude of a `match <x` arm on payload variant `fields`, held
+    /// in `payload`: bound fields become owned locals, and the rest is
+    /// dropped at the end of the arm.
+    fn consumedPayload(self: *Emitter, captures: []const Sexp, fields: []const sema.Field, payload: []const u8, used_in: Sexp) Error!Prelude {
+        if (captures.len == 0) return self.ownedParts(&.{.nil}, &.{.{ .expr = payload }}, used_in);
+        const parts = try self.arena.allocator().alloc(OwnedPart, fields.len);
+        for (fields, parts) |f, *part| part.* = .{ .expr = try self.fmt("{s}.{f}", .{ payload, ident(f.name) }) };
+        return self.ownedParts(captures, parts, used_in);
+    }
+
+    /// A match with a guarded arm. A Zig `switch` has no guards, so the
+    /// arm is picked first, trying each in order (a guard sees the
+    /// bindings it names), and a `switch` on its index runs it:
+    ///     { const arm = sel: { if (s == .a) { const r = s.a.r; if (r > 0) break :sel 0; } ... break :sel N; };
+    ///       switch (arm) { 0 => { const r = s.a.r; body }, ..., else => {} } }
+    /// The subject is read in place, or from a copy when it is not a
+    /// place (sema rejects a temporary that owns a resource).
+    fn emitGuardedMatch(self: *Emitter, sexp: Sexp, value_pos: bool, info: MatchInfo, block: []const u8) Error!void {
+        const id = self.nextId();
+        const arms = ir.Match.arms(sexp);
+        const subj = info.reread;
+
+        // Pick the arm.
+        const arm_var = try self.fmt("__rig_arm_{d}", .{id});
+        const sel = try self.fmt("__rig_select_{d}", .{id});
+        try self.line("const {s}: usize = {s}: {{", .{ arm_var, sel });
+        self.indent += 1;
+        var picked = false;
+        for (arms, 0..) |arm, i| {
+            const pattern = ir.Arm.pattern(arm);
+            const guard = ir.Arm.guard(arm);
+            const catch_all = isCatchAll(self.source, pattern);
+            try self.writeIndent(self.indent);
+            if (!catch_all) {
+                try self.w.writeAll("if (");
+                try self.writePatternTest(pattern, info, subj);
+                try self.w.writeAll(") ");
+            }
+            if (guard == .nil) {
+                try self.w.print("break :{s} @as(usize, {d});\n", .{ sel, i });
+                if (catch_all) {
+                    picked = true;
+                    break;
+                }
+                continue;
+            }
+            try self.openBrace();
+            try self.guardBindings(pattern, guard, info, subj);
+            try self.writeIndent(self.indent);
+            try self.w.writeAll("if (");
+            try self.emitBare(guard);
+            try self.w.print(") break :{s} @as(usize, {d});\n", .{ sel, i });
+            try self.closeBrace();
+            try self.w.writeAll("\n");
+        }
+        if (!picked) try self.line("break :{s} @as(usize, {d});", .{ sel, arms.len });
+        self.indent -= 1;
+        try self.line("}};", .{});
+
+        // Run it.
+        try self.writeIndent(self.indent);
+        if (value_pos) try self.w.print("break :{s} ", .{block});
+        try self.w.print("switch ({s}) ", .{arm_var});
+        try self.openBrace();
+        for (arms, 0..) |arm, i| {
+            const pattern = ir.Arm.pattern(arm);
+            try self.writeIndent(self.indent);
+            try self.w.print("{d} => ", .{i});
+            try self.pushScope();
+            defer self.popScope() catch {};
+            const prelude = try self.armBindings(pattern, ir.Arm.body(arm), info, subj);
+            if (value_pos) try self.emitValueBlock(ir.Arm.body(arm), prelude, self.typeOf(sexp)) else try self.emitBodyWith(ir.Arm.body(arm), prelude);
+            try self.w.writeAll(",\n");
+        }
+        // No arm ran: impossible when the arms cover every value.
+        if (value_pos or picked or self.sema.isExhaustive(sexp)) {
+            try self.line("else => unreachable,", .{});
+        } else if (info.mode == .consume) {
+            try self.writeIndent(self.indent);
+            try self.w.writeAll("else => rig.discard(");
+            if (info.temp) try self.w.writeAll(info.reread) else try self.emitBare(info.subject);
+            try self.w.writeAll("),\n");
+        } else try self.line("else => {{}},", .{});
+        try self.closeBrace();
+        if (value_pos) try self.w.writeAll(";");
+    }
+
+    /// A Zig condition that holds when `pattern`, not a catch-all,
+    /// matches `subj`.
+    fn writePatternTest(self: *Emitter, pattern: Sexp, info: MatchInfo, subj: []const u8) Error!void {
+        if (pattern.isKind(.alt_pattern)) {
+            try self.w.writeAll("(");
+            for (ir.AltPattern.alts(pattern), 0..) |alt, i| {
+                if (i > 0) try self.w.writeAll(" or ");
+                try self.writePatternTest(alt, info, subj);
+            }
+            return self.w.writeAll(")");
+        }
+        if (pattern.isKind(.range_pattern)) {
+            const b = try self.rangeBounds(pattern);
+            return self.w.print("({s} >= {d} and {s} <= {d})", .{ subj, b[0], subj, b[1] });
+        }
+        try self.w.print("{s} == ", .{subj});
+        try self.writePatternHead(pattern, info);
+    }
+
+    /// Before a guard: the bindings of `pattern` that `guard` names, read
+    /// from `subj` (for `match <x`, views of the value still in `x`).
+    fn guardBindings(self: *Emitter, pattern: Sexp, guard: Sexp, info: MatchInfo, subj: []const u8) Error!void {
+        const writes = info.mode == .write;
+        if (isCatchAll(self.source, pattern)) {
+            const sym = self.sema.symbolOf(pattern) orelse return;
+            if (!self.usesSymbol(guard, sym)) return;
+            const aliases = try self.wholeAlias(pattern, if (writes) try self.fmt("&{s}", .{subj}) else subj, .nil);
+            return self.emitPrelude(.{ .aliases = aliases });
+        }
+        if (!pattern.isKind(.variant_pattern)) return;
+        const vname = self.srcText(ir.VariantPattern.name(pattern));
+        const fields = self.variantPayload(info.ty.?, vname) orelse return self.unsupported(pattern, "this payload pattern");
+        for (ir.VariantPattern.bindings(pattern), fields) |b, f| {
+            const sym = self.sema.symbolOf(b) orelse continue;
+            if (!self.usesSymbol(guard, sym)) continue;
+            var local = self.payloadLocal(b) orelse continue;
+            local.scrutinee = null;
+            const stored = try self.declare(local, self.srcText(b));
+            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (writes and fieldIsPointee(self.sema, f.ty)) "&" else "", subj, ident(vname), ident(f.name) });
+        }
+    }
+
+    /// The prelude that binds the names of `pattern` that `body` uses,
+    /// for the arm picked by a guarded match, from `subj`.
+    fn armBindings(self: *Emitter, pattern: Sexp, body: Sexp, info: MatchInfo, subj: []const u8) Error!Prelude {
+        if (info.mode == .consume) {
+            // The arm takes the value: `x` is consumed now.
+            const whole = try self.fresh("whole");
+            var buf: Writer.Allocating = .init(self.arena.allocator());
+            if (info.temp) try buf.writer.writeAll(info.reread) else {
+                const saved_w = self.w;
+                self.w = &buf.writer;
+                defer self.w = saved_w;
+                try self.emitBare(info.subject);
+            }
+            const head = try self.fmt("const {s} = {s};", .{ whole, buf.written() });
+            var prelude: Prelude = undefined;
+            if (isCatchAll(self.source, pattern)) {
+                const named = !std.mem.eql(u8, self.srcText(pattern), "_");
+                prelude = try self.ownedParts(&.{if (named) pattern else .nil}, &.{.{ .expr = whole }}, body);
+            } else if (pattern.isKind(.variant_pattern)) {
+                const vname = self.srcText(ir.VariantPattern.name(pattern));
+                const fields = self.variantPayload(info.ty.?, vname) orelse &.{};
+                prelude = try self.consumedPayload(ir.VariantPattern.bindings(pattern), fields, try self.fmt("{s}.{f}", .{ whole, ident(vname) }), body);
+            } else prelude = try self.ownedParts(&.{.nil}, &.{.{ .expr = whole }}, body);
+            prelude.head = head;
+            return prelude;
+        }
+        const writes = info.mode == .write;
+        if (isCatchAll(self.source, pattern)) {
+            if (std.mem.eql(u8, self.srcText(pattern), "_")) return .{};
+            return .{ .aliases = try self.wholeAlias(pattern, if (writes) try self.fmt("&{s}", .{subj}) else subj, body) };
+        }
+        if (!pattern.isKind(.variant_pattern)) return .{};
+        const vname = self.srcText(ir.VariantPattern.name(pattern));
+        return .{ .aliases = try self.payloadAliases(ir.VariantPattern.bindings(pattern), info.ty.?, vname, writes, try self.fmt("{s}.{f}", .{ subj, ident(vname) }), body) };
+    }
+
+    /// A payload binding: `const zig_name = payload.field`, or of
+    /// `payload` itself when `field` is empty (`&place` for the whole
+    /// value of a `match !x`); `addr` takes the field's address, for a
+    /// `match !x` binding that writes it.
+    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8, addr: bool = false };
+
+    /// A part of a value a `match <x` arm owns: a field, or the whole
+    /// payload or value.
+    const OwnedPart = struct { expr: []const u8 };
+
+    /// The prelude of a `match <x` arm: each part named by a binding the
+    /// arm uses (in `used_in`, when given; `binds[i]` is `.nil` or `_`
+    /// for none) becomes an owned
+    /// local, dropped at the end of the arm unless moved; every other
+    /// part is dropped at the end of the arm.
+    fn ownedParts(self: *Emitter, binds: []const Sexp, parts: []const OwnedPart, used_in: Sexp) Error!Prelude {
+        var owned: std.ArrayListUnmanaged(OwnedBinding) = .empty;
+        var drops: std.ArrayListUnmanaged([]const u8) = .empty;
+        const a = self.arena.allocator();
+        for (binds, parts) |b, part| {
+            const used = if (b == .src and !std.mem.eql(u8, self.srcText(b), "_")) self.usedPayloadLocal(b, used_in) else null;
+            if (used) |l| {
+                var local = l;
+                local.scrutinee = null;
+                if (local.kind != null) local.guard = self.resourceGuard(local.sym);
+                const stored = try self.declare(local, self.srcText(b));
+                try owned.append(a, .{ .local = stored.*, .expr = part.expr });
+            } else try drops.append(a, part.expr);
+        }
+        return .{ .owned = owned.items, .drops = drops.items };
+    }
+
+    /// An owned local a `match <x` arm binds from a part of the value.
+    const OwnedBinding = struct { local: Local, expr: []const u8 };
 
     /// Bindings a branch body starts with: payload field aliases,
     /// or the owning binding of `if expr as name`.
     const Prelude = struct {
+        /// A line before the rest: the value a `match <x` arm takes.
+        head: []const u8 = "",
         aliases: []const Alias = &.{},
+        /// The parts of a consumed value a `match <x` arm binds, and the
+        /// parts it drops at its end.
+        owned: []const OwnedBinding = &.{},
+        drops: []const []const u8 = &.{},
         optional: ?OptionalBinding = null,
         lent: ?OptionalBinding = null,
         /// The error a `catch |err|` handler names, captured as `tmp`.
         err_capture: ?struct { zig_name: []const u8, tmp: []const u8 } = null,
 
         fn isEmpty(p: Prelude) bool {
-            return p.aliases.len == 0 and p.optional == null and p.lent == null and p.err_capture == null;
+            return p.head.len == 0 and p.aliases.len == 0 and p.owned.len == 0 and p.drops.len == 0 and p.optional == null and p.lent == null and p.err_capture == null;
         }
     };
 
     /// A resource bound by `as`: captured as `tmp`, then owned by a local
     /// declared at the top of the body (or dropped at once for `as _`).
     const OptionalBinding = struct { name: Sexp, tmp: []const u8 };
+
+    /// `payloadLocal` for a binding used in `used_in`, or anywhere when
+    /// it is `.nil`.
+    fn usedPayloadLocal(self: *Emitter, name_node: Sexp, used_in: Sexp) ?Local {
+        const local = self.payloadLocal(name_node) orelse return null;
+        if (used_in != .nil and !self.usesSymbol(used_in, local.sym)) return null;
+        return local;
+    }
 
     /// A payload binding local, viewing the scrutinee.
     fn payloadLocal(self: *Emitter, name_node: Sexp) ?Local {
@@ -2047,22 +2423,41 @@ pub const Emitter = struct {
         try self.w.print("|{s}| ", .{stored.zig_name});
     }
 
-    /// Bindings for a payload's fields, declared in the arm's scope.
-    fn payloadAliases(self: *Emitter, captures: []const Sexp, scrut_ty: TypeId, variant: []const u8) Error![]const Alias {
+    /// Bindings for a payload's fields that the arm uses (in `used_in`,
+    /// when given), declared in the arm's scope, read from
+    /// `payload_expr` or else from a capture named here. A
+    /// `match !x` binding (`writes`) points at its field, unless the
+    /// field is itself a borrow, which is bound as it is.
+    fn payloadAliases(self: *Emitter, captures: []const Sexp, scrut_ty: TypeId, variant: []const u8, writes: bool, payload_expr: ?[]const u8, used_in: Sexp) Error![]const Alias {
         const fields = self.variantPayload(scrut_ty, variant) orelse return self.unsupported(captures[0], "this payload pattern");
         var out: std.ArrayListUnmanaged(Alias) = .empty;
-        var payload: ?[]const u8 = null;
+        var payload: ?[]const u8 = payload_expr;
         for (captures, fields) |c, f| {
-            const local = self.payloadLocal(c) orelse continue;
+            const local = self.usedPayloadLocal(c, used_in) orelse continue;
             const stored = try self.declare(local, self.srcText(c));
             if (payload == null) payload = try self.fresh("payload");
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name });
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = writes and fieldIsPointee(self.sema, f.ty) });
         }
         return out.items;
     }
 
     fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
-        for (prelude.aliases) |a| try self.line("const {s} = {s}.{f};", .{ a.zig_name, a.payload, ident(a.field) });
+        if (prelude.head.len > 0) try self.line("{s}", .{prelude.head});
+        for (prelude.aliases) |a| {
+            if (a.field.len == 0) {
+                try self.line("const {s} = {s};", .{ a.zig_name, a.payload });
+            } else try self.line("const {s} = {s}{s}.{f};", .{ a.zig_name, if (a.addr) "&" else "", a.payload, ident(a.field) });
+        }
+        for (prelude.drops) |d| try self.line("defer rig.discard({s});", .{d});
+        for (prelude.owned) |o| {
+            const is_var = o.local.kind == .value or o.local.kind == .optional;
+            try self.line("{s} {s} = {s};", .{ if (is_var) "var" else "const", o.local.zig_name, o.expr });
+            if (o.local.guard != .none) {
+                try self.writeIndent(self.indent);
+                try self.emitGuard(&o.local);
+                try self.w.writeAll("\n");
+            } else if (is_var) try self.line("_ = &{s};", .{o.local.zig_name});
+        }
         if (prelude.optional) |o| try self.bindOptionalResource(o);
         if (prelude.lent) |o| try self.bindOptionalBorrow(o);
         if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });
@@ -4813,6 +5208,15 @@ fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
 }
 
 /// `e` without the borrow sigils around it.
+/// Whether a `match !x` binding of a field of type `ty` points at the
+/// field: every field but a borrow or slice, which is bound as it is.
+fn fieldIsPointee(ctx: *const sema.SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .borrow_write, .slice => false,
+        else => true,
+    };
+}
+
 fn unborrowed(e: Sexp) Sexp {
     var x = e;
     while (x.isKind(.read) or x.isKind(.write)) x = ir.get(x, .operand);
