@@ -4225,8 +4225,9 @@ The fallback of `??` may be a jump: `a ?? return v`, `a ?? return`,
 `a ?? break`, `a ?? break v`, or `a ?? continue`. When `a` is `none`
 the jump runs, exactly as the statement would: `return` is checked
 against the function's result, `break` and `continue` apply to the
-innermost loop (a jump here takes no label), and leaving drops what the
-scope owns. The jump takes the rest of the expression as its value,
+innermost loop or name a label (`a ?? continue :outer`), and leaving
+drops what the scope owns. In a `while` header the first `:` starts the
+step, so a jump there takes no label. The jump takes the rest of the expression as its value,
 and the left side of `?? return` is the whole expression before it, as
 for `catch` (`a and b ?? return` is `(a and b) ?? return`), except in a
 chain of `??`, where the jump belongs to the nearest one, as `??` is

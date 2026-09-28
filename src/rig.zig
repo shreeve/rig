@@ -354,6 +354,9 @@ pub const Lexer = struct {
     /// The last token is a statement's label: a statement starts after
     /// it, and it ends no operand.
     after_label: bool = false,
+    /// The bracket nesting of the `while` header being lexed, whose first
+    /// `:` there starts the step; null outside one.
+    while_header: ?u32 = null,
     /// Start and end of the last real (non-layout) token; an unexpected
     /// end of block or file is reported at its end.
     prev_pos: u32 = 0,
@@ -454,6 +457,11 @@ pub const Lexer = struct {
         self.label_colon = tok.cat == .colon and self.stmtStart();
         self.after_value = !self.after_label and (isValue(tok.cat) or (self.after_value and (tok.cat == .question or tok.cat == .not_sym)));
         self.last_cat = tok.cat;
+        switch (tok.cat) {
+            .@"while" => self.while_header = self.nesting,
+            .newline, .indent, .outdent, .eof, .step_colon => self.while_header = null,
+            else => {},
+        }
         if (tok.len > 0 and tok.cat != .err) { // a real token, not layout
             self.before_cat = self.prev_cat;
             self.before_pos = self.prev_pos;
@@ -706,6 +714,9 @@ pub const Lexer = struct {
             .fixed_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_fixed, tok.pos) else tok.cat,
             // `xs[a..]`: an open range ends at the `]`.
             .dotdot => if (self.nextJoined().cat == .rbracket) .dotdot_open else .dotdot,
+            // `while i < n : i += 1`: the step; any other `:` in the
+            // header, as after a jump (`?? break :outer`), is a label's.
+            .colon => if (self.while_header == self.nesting) .step_colon else .colon,
             // `get(k) ?? return none`: a jump as the fallback.
             .nullish => if (self.nextIsJump()) .nullish_jump else .nullish,
             .err => return self.lexError(tok),
@@ -1776,7 +1787,13 @@ test "`name:` is a keyword argument inside ( ), a name inside [ ]" {
 test "a statement label ends no operand" {
     try expectCats(":a if x", &.{ .colon, .ident, .@"if", .ident });
     try expectCats(":a -x", &.{ .colon, .ident, .drop_stmt, .ident });
-    try expectCats("while x : y", &.{ .@"while", .ident, .colon, .ident });
+}
+
+test "a `while` header's first `:` starts its step; another after a jump is a label's" {
+    try expectCats("while x : y", &.{ .@"while", .ident, .step_colon, .ident });
+    try expectCats("while f(a: 1) : y", &.{ .@"while", .ident, .lparen, .kwarg_name, .colon, .integer, .rparen, .step_colon, .ident });
+    try expectCats("while x : y = a ?? break :b", &.{ .@"while", .ident, .step_colon, .ident, .assign, .ident, .nullish_jump, .@"break", .colon, .ident });
+    try expectCats("x = a ?? break :b", &.{ .ident, .assign, .ident, .nullish_jump, .@"break", .colon, .ident });
 }
 
 test "minus: infix, negation, drop" {

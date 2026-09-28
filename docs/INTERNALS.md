@@ -142,6 +142,7 @@ the Parser wrapper checks the touch on the type's node.
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | after a value, bitwise or; otherwise a bar list, whose closing bar is the one the opening probe found |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
+| `while c : step` vs `?? break :outer`, `break :outer` | `STEP_COLON` vs `:` | the first `:` at a `while` header's bracket depth starts its step; any other `:` after a jump names a label, and the grammar takes a label after every `break` and `continue` |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
 | keywords | one token each | every keyword is reserved; `new` only at statement start |
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
