@@ -1,0 +1,47 @@
+# Deeply nested loops are checked in time that grows with the nesting,
+# not exponentially: each loop settles once for every walk of its body.
+
+struct Tok
+  n: Int
+
+sub eat(t: *Tok)
+  print(t.n)
+
+sub main
+  t = *Tok(n: 1)
+  s = 0
+  for _ in 0..1
+    for _ in 0..1
+      for _ in 0..1
+        for _ in 0..1
+          for _ in 0..1
+            for _ in 0..1
+              for _ in 0..1
+                for _ in 0..1
+                  for _ in 0..1
+                    for _ in 0..1
+                      for _ in 0..1
+                        for _ in 0..1
+                          for _ in 0..1
+                            for _ in 0..1
+                              for _ in 0..1
+                                for _ in 0..1
+                                  for _ in 0..1
+                                    for _ in 0..1
+                                      for _ in 0..1
+                                        for _ in 0..1
+                                          for _ in 0..1
+                                            for _ in 0..1
+                                              for _ in 0..1
+                                                for _ in 0..1
+                                                  for _ in 0..1
+                                                    for _ in 0..1
+                                                      u = +t
+                                                      s += u.n
+                                                      t = *Tok(n: s + 1)
+                                                      eat(<u)
+  print(s, t.n)
+
+# expect:
+# 1
+# 1 2

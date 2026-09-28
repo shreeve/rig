@@ -3269,14 +3269,19 @@ pub const Checker = struct {
         // The loop head: relative to the entry, the join of the entry, the
         // end of the body, and every `continue`.
         var head = stateAt(entry);
+        // Inside another loop's fixpoint nothing is reported, so the last
+        // round, which walked the body from the settled head, is the
+        // final walk.
+        const outer_quiet = self.quiet > 0;
         self.quiet += 1;
         // The join only grows the state, over finitely many variables and
         // loans, so this reaches a fixpoint. The bound is a backstop: a
         // loop the analysis cannot settle is rejected, never accepted.
         var rounds: usize = 0;
+        var it: Iteration = undefined;
         const converged = while (rounds < 100_000) : (rounds += 1) {
             try self.apply(head);
-            const it = try self.loopIteration(spec, &ctx);
+            it = try self.loopIteration(spec, &ctx);
             try self.rewind(entry);
             const next = try self.join(head, it.back);
             if (self.statesEql(next, head)) break true;
@@ -3285,9 +3290,11 @@ pub const Checker = struct {
         self.quiet -= 1;
         if (!converged) try self.errAt(spec.body, "this loop is too complex for the ownership checker; split it into smaller functions", .{});
 
-        try self.apply(head);
-        const it = try self.loopIteration(spec, &ctx);
-        try self.rewind(entry);
+        if (!outer_quiet or !converged) {
+            try self.apply(head);
+            it = try self.loopIteration(spec, &ctx);
+            try self.rewind(entry);
+        }
         try self.apply(it.exit);
         // The `else` runs after the loop: a jump in it leaves the loop
         // around this one. A loop used as a value yields the `else` value
@@ -3304,7 +3311,11 @@ pub const Checker = struct {
         return value;
     }
 
-    fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!struct { back: State, exit: State } {
+    /// One walk of a loop: the states at the back edge and where the
+    /// condition fails, relative to the loop entry.
+    const Iteration = struct { back: State, exit: State };
+
+    fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iteration {
         ctx.breaks.clearRetainingCapacity();
         ctx.conts.clearRetainingCapacity();
         ctx.value = .{};

@@ -846,7 +846,9 @@ walked after the loop, where a jump leaves the enclosing loop. The value
 of a loop used as a value is the union of its `break` values, each
 consumed like a returned value and checked not to borrow the loop's own
 vars, and its `else` value. Diagnostics are reported only on the final
-walk. `return`, `break`, and `continue` make
+walk; inside another loop's fixpoint, where nothing is reported, the
+round that settles is the final walk, so nested loops are not walked
+exponentially often. `return`, `break`, and `continue` make
 the rest of their block unreachable. A `defer` body is re-checked
 against the state at every exit of its scope, where what it reads may
 not borrow a var declared after the `defer` (dropped before it runs).
