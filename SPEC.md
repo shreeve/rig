@@ -560,9 +560,11 @@ sub main
 a range needs an end; only a slice leaves a side open
 ```
 
-A borrowed array parameter (`xs: ?[N]T`) is the function's own copy of
-the caller's array, so a slice of it cannot be returned; a function
-that returns part of its argument takes `xs: []T`.
+A borrowed array parameter (`xs: ?[N]T`) points at the caller's array,
+so a function may return a slice of it (`?xs[1..3]`) or a borrow of an
+element, as it may of a `[]T` parameter; the result borrows the
+caller's array. An array parameter taken by value (`xs: [N]T`) is the
+function's own, so a borrow of it cannot be returned.
 
 An array goes where a slice is expected in three ways. Where a `[]T`
 is expected, `?a` of a named array (or a field or element of one)
