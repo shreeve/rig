@@ -1,4 +1,4 @@
-# The `*T?` from `upgrade()` is an owning handle: `+m` clones it, `drop m`
+# The `*T?` from `upgrade()` is an owning handle: `+m` clones it, `-m`
 # drops it, and the clone keeps the value alive until it goes.
 
 struct Noisy
@@ -12,10 +12,10 @@ sub main()
   w = ~rc
   m = w.upgrade()
   n = +m
-  drop rc
-  drop m
+  -rc
+  -m
   print("n alive")
-  drop w
+  -w
   # scope exit drops `n`, the last strong handle: prints 1
 
 # expect:

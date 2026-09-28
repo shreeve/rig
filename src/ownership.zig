@@ -4007,7 +4007,7 @@ test "borrow chosen by if keeps both roots borrowed" {
         \\    ?a
         \\  else
         \\    ?b
-        \\  drop b
+        \\  -b
         \\  look(r)
         \\
     , "cannot drop `b` while borrows are live");
@@ -4021,7 +4021,7 @@ test "borrow returned from a call borrows the argument" {
         \\sub main()
         \\  h = make()
         \\  r = view(?h)
-        \\  drop h
+        \\  -h
         \\  look(r)
         \\
     , "cannot drop `h` while borrows are live");
@@ -4059,7 +4059,7 @@ test "method receiver is borrowed for the whole call" {
 test "dropping a borrowed parameter is rejected" {
     try expectError(
         \\sub kill(rc: ?Wrap)
-        \\  drop rc
+        \\  -rc
         \\
     , "cannot drop borrowed parameter `rc`");
 }

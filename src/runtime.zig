@@ -423,7 +423,7 @@ pub fn elementAt(items: anytype, i: Int) ?@TypeOf(items[0]) {
 }
 
 /// Drop a value nothing keeps: `_ = e`, `as _`, a match payload dropped
-/// with `drop x`.
+/// with `-x`.
 pub fn discard(value: anytype) void {
     var v = value;
     drop(&v);

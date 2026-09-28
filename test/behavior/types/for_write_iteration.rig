@@ -54,7 +54,7 @@ sub main()
   for b in ?bs
     print(b.n)
   for b in !bs
-    drop b
+    -b
   print("end")
 
 # expect:

@@ -19,7 +19,7 @@ sub main()
   g = *|<e2|
     match e2
       .full(c)
-        drop c
+        -c
       .empty => print(0)
   g()
 

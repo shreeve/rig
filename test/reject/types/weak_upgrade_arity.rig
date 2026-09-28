@@ -7,7 +7,7 @@ sub main()
   rc = *User(name: "x")
   w  = ~rc
   m  = w.upgrade(42)
-  drop rc
-  drop w
+  -rc
+  -w
 
 # error: weak `upgrade` takes no arguments

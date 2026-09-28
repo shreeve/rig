@@ -5,7 +5,7 @@ struct User
 
 sub main()
   user = User(name: "Steve")
-  drop user
+  -user
   print ?user
 
 # error: use of `user` after drop

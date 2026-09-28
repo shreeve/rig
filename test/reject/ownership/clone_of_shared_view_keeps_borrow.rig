@@ -14,8 +14,8 @@ sub main()
   a = Wrap(payload: 1)
   v = *View(b: ?a)
   keep = +v
-  drop v
-  drop a
+  -v
+  -a
   print(keep.b.payload)
 
 # error: cannot drop `a` while borrows are live

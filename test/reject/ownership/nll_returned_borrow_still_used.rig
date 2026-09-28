@@ -17,7 +17,7 @@ sub main()
   x = Wrap(n: 1)
   y = Wrap(n: 2)
   r = first(?x, ?y)
-  drop y
+  -y
   print(r.n)
 
 # error: cannot drop `y` while borrows are live

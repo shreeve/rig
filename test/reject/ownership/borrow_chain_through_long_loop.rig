@@ -223,7 +223,7 @@ sub main()
   r68 = ?a
   r69 = ?a
   r70 = ?a
-  drop b
+  -b
   print(r1.payload)
 
 # error: cannot drop `b` while borrows are live

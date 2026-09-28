@@ -505,11 +505,12 @@ const Checker = struct {
     /// over (`!`, `?`), or handle a failure. One that only reads a value
     /// and drops it is a mistake; a function name was meant as a call.
     fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
-        // `-x` only negates: an early drop is `drop x`.
-        if (stmt.isKind(.neg) and ir.Neg.operand(stmt).kind() == null and isNameText(self.text(ir.Neg.operand(stmt)))) {
-            const name = self.text(ir.Neg.operand(stmt));
-            _ = try self.synthExpr(ir.Neg.operand(stmt));
-            return self.errAt(stmt, "`-{s}` negates `{s}`, which does nothing as a statement; write `drop {s}` to drop it early", .{ name, name, name });
+        // `-s.f` / `-v[i]` alone on a line reads like a drop, which only
+        // a binding takes.
+        if (stmt.isKind(.neg) and (ir.Neg.operand(stmt).isKind(.member) or ir.Neg.operand(stmt).isKind(.index))) {
+            const sp = self.ctx.span(ir.Neg.operand(stmt));
+            try self.errAt(stmt, "only a binding is dropped with `-x`; `{s}` is dropped with what holds it, or replaced by assigning to it", .{self.ctx.source[sp.start..sp.end]});
+            return;
         }
         const ty = try self.synthExpr(stmt);
         // A closure literal alone is reported by the ownership checker.
@@ -522,10 +523,6 @@ const Checker = struct {
         if ((try self.ownsResource(ty, self.startOf(stmt), "discards a value"))) {
             try self.errAt(stmt, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
         }
-    }
-
-    fn isNameText(word: []const u8) bool {
-        return word.len > 0 and (std.ascii.isAlphabetic(word[0]) or word[0] == '_');
     }
 
     /// Whether evaluating `e` runs code or leaves: a call, a builtin, a
@@ -2090,6 +2087,13 @@ const Checker = struct {
             .float, .int_literal, .float_literal => {},
             .type_var => |tv| try self.require(tv, .signed, self.startOf(operand), "-"),
             else => {
+                // A `-name` line that gives a block's value negates; it
+                // reads like a drop.
+                if (self.ctx.parser) |p| if (p.valueTailOf(e)) |function| {
+                    const name = self.text(operand);
+                    try self.errAt(e, "`-{s}` here is {s}, and negation needs a number; to drop `{s}`, drop it before the last line", .{ name, if (function) "the function's value" else "the value of its block", name });
+                    return self.t().invalid_id;
+                };
                 try self.errAt(operand, "operator `-` requires a numeric operand; got `{s}`", .{try self.tyName(ty)});
                 return self.t().invalid_id;
             },

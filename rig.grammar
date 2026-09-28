@@ -26,8 +26,7 @@
 #     not the preceding value is a prefix; otherwise it is an infix
 #     operator or a suffix.
 #
-#       <x +x ?x !x *x ~x            ownership sigils
-#       -x                           negation
+#       <x +x ?x !x *x ~x -x         ownership sigils / negation
 #       |+a, b|  ||  *|a|            closure bar list (vs bitwise `|`)
 #       f(x) a[i] Vec[Int]           call / index or compile-time
 #                                    arguments (vs `f (x)`, `f [1, 2]`,
@@ -166,6 +165,7 @@ tokens
     read_pfx        # ?x  read borrow, ?T read-borrowed type
     write_pfx       # !x  write borrow, !T write-borrowed type
     share_pfx       # *x  share, *T shared type
+    drop_stmt       # -x  drop, as a whole statement
     suffix_q        # T?  optional type
     suffix_bang     # T!  fallible type, x! propagate failure
     of              # of  after a value inside [ ]: a fill literal `[n of x]`
@@ -370,7 +370,7 @@ tokens
     BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`", DOT_LIT: "`.`"
     KWARG_NAME: "a keyword argument"
     MOVE_PFX: "`<`", CLONE_PFX: "`+`", READ_PFX: "`?`"
-    WRITE_PFX: "`!`", SHARE_PFX: "`*`", MINUS_PREFIX: "`-`"
+    WRITE_PFX: "`!`", SHARE_PFX: "`*`", DROP_STMT: "`-`", MINUS_PREFIX: "`-`"
     SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`", OF: "`of`", DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
@@ -428,7 +428,7 @@ simple   = tail
          | target:name ":" type:type "="  value:rhs  → (set)
          | target:name ":" type:type "=!" value:rhs  → (set op:fixed)
          | NEW target:name "=" value:rhs            → (set op:shadow)
-         | DROP name:name                           → (drop)       # `drop x`
+         | DROP_STMT name:name                      → (drop)
          | RETURN [value:rhs]                       → (return)
          | BREAK [":" label:name] [value:rhs]       → (break)
          | CONTINUE [":" label:name]                → (continue)

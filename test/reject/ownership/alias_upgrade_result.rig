@@ -9,6 +9,6 @@ sub main()
   w = ~rc
   m = w.upgrade()
   n = m
-  drop w
+  -w
 
 # error: would alias the handle

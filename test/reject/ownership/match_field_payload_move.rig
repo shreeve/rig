@@ -25,7 +25,7 @@ sub main()
   o = Outer(h: Holder(s: .full(*Tok(n: 2))))
   match o.h.s
     .full(t)
-      drop t
+      -t
     .empty => print("empty")
 
 # error: cannot move `t` out of `h.s`

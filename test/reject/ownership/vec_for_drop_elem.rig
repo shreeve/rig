@@ -8,6 +8,6 @@ sub main()
   !subs.push(+cb1)
 
   for cb in ?subs
-    drop cb
+    -cb
 
 # error: cannot drop loop-borrow alias `cb`

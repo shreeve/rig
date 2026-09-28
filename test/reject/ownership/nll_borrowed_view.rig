@@ -17,7 +17,7 @@ sub main()
   x = Wrap(n: 1)
   v = View(box: ?x)
   rv = ?v
-  drop x
+  -x
   print(rv.box.n)
 
 # error: cannot drop `x` while borrows are live

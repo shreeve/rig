@@ -6,6 +6,6 @@ struct User
 sub main()
   rc = *User(age: 1)
   rc.age = 99
-  drop rc
+  -rc
 
 # error: cannot assign through shared handle

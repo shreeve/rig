@@ -228,6 +228,7 @@ Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
 | `f(x)`, `a[i]`, `a.b` | call, index or compile-time arguments ([§17](#17-compile-time-parameters)), member access |
 | `f (x)`, `f [1, 2]`, `f .red` | paren-free call with the argument `(x)`, `[1, 2]`, `.red` |
 | `f()!`, `x?` | propagate a failure ([§14](#14-errors)) or `none` ([§13](#13-optionals)) |
+| `-x` as a statement | drops `x` ([§8](#drop)); where a value is expected, negates |
 
 The brackets of compile-time parameters and arguments touch the name
 before them (`struct Wrap[T]`, `show[3]()`); a declaration with a space
@@ -1669,7 +1670,7 @@ loop bindings, and names bound by patterns and `as` are immutable.
 
 Every local must be read. Any use counts: an argument, an operand, a
 borrow `?x` or `!x`, a move `<x`, a clone, a field access, a closure
-capture, a drop `drop x`. Assigning does not: a local that is only ever
+capture, a drop `-x`. Assigning does not: a local that is only ever
 assigned, like a misspelled `totl = 5`, is rejected. A name bound by
 `for`, a match pattern, `as`, or `catch |e|` must be read too, or be
 `_`. Discard a value on purpose with `_ = e`. A value with drop glue
@@ -1975,11 +1976,25 @@ sub main
 negative 11
 ```
 
-`-x` is always negation; an early drop is the statement `drop x`
-([§8](#drop)). As a whole line, `-x` is negation where the line's value
-is used (the last line of a `fun`, or of a branch whose value is used);
-elsewhere it would do nothing, and it is rejected with a pointer to
-`drop x`.
+A statement `-x` drops `x`; `-x` where a value is expected negates.
+A value is expected in an operand, an argument, a binding's value, and
+on the last line of a `fun` (the function's value) or of a branch whose
+value is used, so `-x` there is negation, and one whose `x` is not a
+number is rejected with a pointer to dropping it before the last line.
+Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected.
+
+```rig reject
+struct S
+  r: Vec[Int]
+
+sub main
+  s = S(r: Vec())
+  -s.r
+```
+
+```error
+only a binding is dropped with `-x`
+```
 
 A statement must have some use. An expression whose value is used (the
 last line of a `fun`, a binding, an argument) may be anything, but one
@@ -2300,10 +2315,9 @@ happens:
 | `?x` | read borrow | a temporary read-only view; `x` keeps ownership |
 | `!x` | write borrow | a temporary exclusive, writable view |
 | `+x` | clone | a new owner: a refcount bump for a handle, a copy for a Copy value |
+| `-x` | drop | release `x` now |
 | `*x` | share | move `x` into a new shared box ([§10](#10-shared-and-weak-handles)) |
 | `~x` | weak | a weak handle to a shared value ([§10](#10-shared-and-weak-handles)) |
-
-Releasing a value early is the statement `drop x` ([Drop](#drop)).
 
 A Copy value can be used freely: a bare use copies it. `<x` always
 means "done with `x`", whatever its type: a Copy value or a borrow is
@@ -2558,7 +2572,7 @@ the binding was declared outside of (the next iteration runs it again),
 a closure that captured it (and every use of that closure), a binding
 that borrows the view in turn, deferred code, and the drop at scope
 exit of a value whose type has drop glue. The binding's block ending,
-`drop r`, or reassigning it also end the borrow.
+`-r`, or reassigning it also end the borrow.
 
 ```rig
 struct Wrap
@@ -2728,7 +2742,7 @@ sub main
   x = Wrap(payload: 1)
   y = Wrap(payload: 2)
   r = first(?x, ?y)
-  drop y
+  -y
   print(r.payload)
 ```
 
@@ -2768,11 +2782,11 @@ borrow cannot be cloned or weakly referenced: the borrow is unique.
 
 ### Drop
 
-The statement `drop x` releases `x` now; afterwards `x` cannot be used.
+`-x` as a statement releases `x` now; afterwards `x` cannot be used.
 Every owning local and parameter that is still live is dropped
 automatically when its block ends, including on early `return`,
-`break`, and `continue`, and on every path through branches. So
-`drop x` is only needed to release something early. A borrowed parameter cannot
+`break`, and `continue`, and on every path through branches. So `-x`
+is only needed to release something early. A borrowed parameter cannot
 be dropped: the caller owns it.
 
 ```rig
@@ -2786,7 +2800,7 @@ sub run(early: Bool)
   a = Noisy(id: 1)
   b = Noisy(id: 2)
   if early
-    drop b
+    -b
     print("dropped b early")
   print("end of run")
 
@@ -2919,7 +2933,7 @@ struct User
 sub main
   a = *User(name: "ada")
   b = +a
-  drop a
+  -a
   print(b.name)
   print("end")
 ```
@@ -2983,7 +2997,7 @@ sub main
   rc = *Node(id: 7)
   w = ~rc
   show(?w)
-  drop rc
+  -rc
   show(?w)
 ```
 
@@ -3450,7 +3464,7 @@ sub main
   w: ~fun(Int) -> Int = ~f
   if w.upgrade() as g
     print(g(1))
-  drop f
+  -f
   print(w.upgrade() == none)
 ```
 
@@ -4398,7 +4412,7 @@ sub main
   b = Cell[Held](*none)
   print(a.replace(none) == none)
   old = b.replace(*none)
-  drop old
+  -old
 ```
 
 ```output

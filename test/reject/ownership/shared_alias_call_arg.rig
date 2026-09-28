@@ -5,11 +5,11 @@ struct Wrap
   value: Int
 
 sub use_rc(rc: *Wrap)
-  drop rc
+  -rc
 
 sub main()
   rc = *Wrap(value: 1)
   use_rc(rc)
-  drop rc
+  -rc
 
 # error: bare use of shared (`*T`) handle `rc` in call argument would alias the handle

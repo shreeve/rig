@@ -8,8 +8,8 @@ sub main()
   rc = *Counter(value: 1)
   rc2 = +rc
   print(rc2.value)
-  drop rc2
-  drop rc
+  -rc2
+  -rc
   print "ok"
 
 # expect:

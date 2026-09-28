@@ -22,7 +22,7 @@ fun copyall[T](v: ?Vec[T]) -> Vec[T]
 
 sub dropall[T](v: ?Vec[T])
   for x in v
-    drop x
+    -x
 
 fun first[T](v: ?Vec[T], d: T) -> T
   for x in v
@@ -53,4 +53,4 @@ sub main()
 # error: 47:7: `first[*Res]` cannot use `T = *Res`
 # error: 48:6: `Bag[*Res]` cannot use `T = *Res`
 # error: 14:10: a `T` element is taken here while its collection still owns it
-# error: 25:10: a `T` element is taken here while its collection still owns it
+# error: 25:6: a `T` element is taken here while its collection still owns it

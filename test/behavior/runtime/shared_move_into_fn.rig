@@ -6,7 +6,7 @@ struct Wrap
 
 sub use_rc(rc: *Wrap)
   print(rc.payload)
-  drop rc
+  -rc
 
 sub main()
   rc = *Wrap(payload: 42)

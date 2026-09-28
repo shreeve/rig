@@ -124,7 +124,7 @@ parser distinct tokens:
 |---|---|---|
 | `f(x)`, `a[i]` vs `f (x)`, `f [1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | touching the preceding value continues it; in a type, an `LBRACKET_INDEX` after `[N]` or `[]` starts the element's own prefix (`[2][3]Int`), and an `LPAREN_CALL` a parenthesized element (`[2](Int?)?`) |
 | `a.b` vs `.red`, `f .red` | `.` vs `DOT_LIT` | `.name` touching a value is member access |
-| `a - b`, `a-b` vs `-x`, `f -x` | `MINUS` vs `MINUS_PREFIX` | a sigil touching its operand and not the value before it is a prefix |
+| `a - b`, `a-b` vs `-x`, `f -x` | `MINUS` vs `MINUS_PREFIX` / `DROP_STMT` | a sigil touching its operand and not the value before it is a prefix; `-name` as a whole statement is a drop |
 | `<x +x *x ?x !x` | `MOVE_PFX` ... `WRITE_PFX` | the same rule |
 | `T?`, `T!`, `f()!`, `f()?` | `SUFFIX_Q`, `SUFFIX_BANG` | touching the value before |
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | the spacing rule; the closing bar is the one the opening probe found |
@@ -198,6 +198,9 @@ that need to inspect the tree:
   parameter list, and a capture after a parameter is an error;
 - a `for` source wrapped in `?`, `!`, or `<` moves into the mode slot:
   `(for iter x _ (read xs) body _)` becomes `(for read x _ xs body _)`;
+- a `-name` statement whose value is used (the last line of a `fun`, or
+  of a branch or arm whose value is used) becomes `(neg name)` instead
+  of `(drop name)`;
 - a `!` or `<` before a place (a name and the fields and elements after
   it) followed by a method call moves onto the place, the method's
   receiver: `!x.v.push(1)` parses as

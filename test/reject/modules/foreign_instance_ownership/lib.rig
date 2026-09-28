@@ -1,6 +1,6 @@
 pub fun twice[T](x: T) -> T
   a = x
-  drop a
+  -a
   x
 
 pub fun same[T](x: T) -> T

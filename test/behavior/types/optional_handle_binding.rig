@@ -48,7 +48,7 @@ sub main()
   m: Node? = Node(value: 2)
   held = Cell[Held](*m)
   old = held.replace(*none)
-  drop old
+  -old
   print(p.replace(none) == none, q.replace(none) == none)
   nd = *Node(value: 3)
   sw: Cell[*~Node?] = Cell[*~Node?](*~nd)

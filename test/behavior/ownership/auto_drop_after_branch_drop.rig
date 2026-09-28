@@ -10,7 +10,7 @@ struct C
 sub run(cond: Bool)
   rc = *C(v: 7)
   if cond
-    drop rc
+    -rc
     print("dropped early")
   else
     print(rc.v)

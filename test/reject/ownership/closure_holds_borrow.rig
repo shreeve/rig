@@ -12,7 +12,7 @@ sub main()
   r = ?a
   f = |<r|
     print(r.payload)
-  drop a
+  -a
   f()
 
 # error: cannot drop `a` while borrows are live

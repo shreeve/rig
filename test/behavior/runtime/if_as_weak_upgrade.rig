@@ -17,7 +17,7 @@ sub main()
   rc = *Noisy(id: 7)
   w = ~rc
   show(?w)
-  drop rc
+  -rc
   show(?w)
 
 # expect:
