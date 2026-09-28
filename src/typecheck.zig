@@ -2939,11 +2939,14 @@ const Checker = struct {
         return self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
     }
 
-    /// Whether `e` names a stack closure binding.
+    /// Whether `e` names a stack closure binding: one bound to a closure
+    /// literal, whose type is that function type (a binding declared as
+    /// another type keeps that type, and the literal was rejected).
     fn closureBinding(self: *Checker, e: Sexp) bool {
         if (e != .src) return false;
         const id = self.ctx.symbolOf(e) orelse return false;
-        return self.ctx.symbols.items[id].flags.closure;
+        const sym = self.ctx.symbols.items[id];
+        return sym.flags.closure and self.ctx.types.get(sym.ty) == .function;
     }
 
     /// A value no binding holds, or a part of one: a borrow of it lives
