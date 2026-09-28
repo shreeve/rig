@@ -3356,7 +3356,8 @@ pub const Emitter = struct {
         const obj_ty = self.typeOf(obj);
         // `U8.max`, `F64.min`: a number type's limit.
         if (sema.intLimit(self.sema, sexp)) |limit| return self.emitIntConstant(sexp, limit.v);
-        if (obj == .src and self.sema.symbolOf(obj) == null and resolve.isNumericTypeName(self.srcText(obj))) if (self.typeOf(sexp)) |t| {
+        const number_type = obj == .src and if (self.sema.symbolOf(obj)) |id| self.sema.symbols.items[id].kind == .type_alias else resolve.isNumericTypeName(self.srcText(obj));
+        if (number_type) if (self.typeOf(sexp)) |t| if (self.sema.types.get(t) == .float) {
             try self.writeAsOpen(t);
             try self.w.writeAll(if (std.mem.eql(u8, field, "min")) "-std.math.floatMax(" else "std.math.floatMax(");
             try self.emitTypeTy(t);

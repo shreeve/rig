@@ -3662,12 +3662,21 @@ pub fn intTypeNamed(name: []const u8) ?IntInfo {
     };
 }
 
-/// `U8.max`, `Int.min`: an integer type's limit, a constant of it.
-/// Null for anything else, and where the type's name is shadowed.
+/// `U8.max`, `Int.min`: an integer type's limit, a constant of it, named
+/// through the type or an alias of it. Null for anything else.
 pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
     const obj = ir.Member.object(e);
-    if (obj != .src or ctx.symbolOf(obj) != null) return null;
-    const info = intTypeNamed(identAt(ctx.source, obj) orelse return null) orelse return null;
+    if (obj != .src) return null;
+    const name = identAt(ctx.source, obj) orelse return null;
+    // An alias of an integer type (`type Byte = U8`) names its limits.
+    const info = if (ctx.symbolOf(obj) orelse ctx.lookupInScopeOnly(module_scope, name)) |id| blk: {
+        const sym = ctx.symbols.items[id];
+        if (sym.kind != .type_alias) return null;
+        break :blk switch (ctx.types.get(sym.ty)) {
+            .int => |i| i,
+            else => return null,
+        };
+    } else intTypeNamed(name) orelse return null;
     const field = identAt(ctx.source, ir.Member.name(e)) orelse return null;
     const r = intRange(info);
     if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };

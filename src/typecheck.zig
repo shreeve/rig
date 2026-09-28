@@ -3055,7 +3055,7 @@ const Checker = struct {
         const pos = srcPos(field_node, self.startOf(obj));
 
         if (try self.moduleMember(obj, field, pos)) |ty| return ty;
-        if (obj == .src and self.lookupQuiet(obj) == null and resolve.isNumericTypeName(self.text(obj))) return self.numberLimit(obj, field, pos);
+        if (try self.numberType(obj)) |ty| return self.numberLimit(obj, ty, field, pos);
         if (try self.namedType(obj)) |nt| return self.typeMember(nt, field, pos);
         return self.memberOf(e, obj, try self.synthOperand(obj));
     }
@@ -3063,12 +3063,25 @@ const Checker = struct {
     /// `U8.max`, `Int.min`, `F64.max`: the greatest or least value of a
     /// number type, a constant of it. A float's least is the most
     /// negative finite value.
-    fn numberLimit(self: *Checker, obj: Sexp, field: []const u8, pos: u32) Error!TypeId {
-        var r = self.resolver();
-        const ty = try r.resolveType(obj);
+    fn numberLimit(self: *Checker, obj: Sexp, ty: TypeId, field: []const u8, pos: u32) Error!TypeId {
         if (std.mem.eql(u8, field, "min") or std.mem.eql(u8, field, "max")) return ty;
         try self.err(pos, "a number type has no member `{s}`; its limits are `{s}.min` and `{s}.max`", .{ field, self.text(obj), self.text(obj) });
         return self.t().invalid_id;
+    }
+
+    /// The number type `obj` names: a built-in one (`U8`), or an alias
+    /// of one (`type Byte = U8`); null for anything else.
+    fn numberType(self: *Checker, obj: Sexp) Error!?TypeId {
+        if (obj != .src) return null;
+        const id = self.lookupQuiet(obj) orelse {
+            if (!resolve.isNumericTypeName(self.text(obj))) return null;
+            var r = self.resolver();
+            return try r.resolveType(obj);
+        };
+        const sym = self.ctx.symbols.items[id];
+        if (sym.kind != .type_alias or !sema.isNumeric(self.ctx, sym.ty)) return null;
+        try self.ctx.recordName(obj, id);
+        return sym.ty;
     }
 
     /// Member `e` of `obj`, a value of type `obj_ty`.
@@ -5193,6 +5206,8 @@ const Checker = struct {
                         if (obj != .src) break :blk false;
                         const id = self.lookupQuiet(obj) orelse break :blk resolve.isNumericTypeName(self.text(obj));
                         const sym = self.ctx.symbols.items[id];
+                        // A number type's alias: its limits.
+                        if (sym.kind == .type_alias) break :blk sema.isNumeric(self.ctx, sym.ty);
                         if (sym.kind != .module) break :blk sym.kind == .nominal_type;
                         // An imported module's constant.
                         const foreign = self.foreignMember(e) orelse break :blk false;

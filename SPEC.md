@@ -298,7 +298,8 @@ run-time arithmetic and must not overflow it: `x: F32 = 1e38 * 10.0` is
 rejected.
 
 A number type's `.min` and `.max` are its least and greatest values,
-constants of that type: `U8.max` is `255`, `Int.min` is
+constants of that type, named through the type or an alias of it
+(`type Byte = U8`, `Byte.max`): `U8.max` is `255`, `Int.min` is
 `-9223372036854775808`, and `U128.max` is `2^128 - 1`. A float's `.max`
 is its greatest finite value and its `.min` the most negative one
 (`-F64.max`), as in Rust. Constant arithmetic on them is checked, so
