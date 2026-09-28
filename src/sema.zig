@@ -2345,6 +2345,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .int => |i| if (i.bits == 0) 8 else (i.bits + 7) / 8,
         .float => |f| if (f.bits == 0) 8 else f.bits / 8,
         .string, .slice => 16,
+        .any_error => 2,
         // A null handle or borrow is its null address; anything else
         // needs a flag.
         .optional => |inner| if (try minBytesOf(ctx, inner, false)) |b| b + @intFromBool(!isAddress(ctx, inner)) else null,
@@ -2397,10 +2398,11 @@ fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocat
     return total +| tag;
 }
 
-/// Whether a value of `ty` is an address, which is never 0.
+/// Whether a value of `ty` is or starts with an address, which is never
+/// 0: an optional of it is null there.
 fn isAddress(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .shared, .weak, .borrow_read, .borrow_write => true,
+        .shared, .weak, .borrow_read, .borrow_write, .string, .slice => true,
         else => false,
     };
 }

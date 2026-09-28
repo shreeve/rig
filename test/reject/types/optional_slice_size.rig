@@ -1,0 +1,11 @@
+# An optional String or slice takes no more room than the String or
+# slice: its absence is a null address.
+
+type Names = [600000]String?
+type Views = [600000]([]Int)?
+
+sub main()
+  print(1)
+
+# error: 4:14: `[600000]String?` takes 9600000 bytes
+# error: 5:14: `[600000]([]Int)?` takes 9600000 bytes
