@@ -1134,6 +1134,8 @@ const Checker = struct {
         const else_ty = try self.branch(else_node, expected, position);
         if (expected) |e| return e;
         const u = (try self.unify(then_ty, else_ty, self.startOf(else_node))) orelse return self.t().invalid_id;
+        // All-literal branches take their type from the context later.
+        if (u == self.t().int_literal_id or u == self.t().float_literal_id) return u;
         try self.adaptLiteral(then_node, then_ty, u);
         try self.adaptLiteral(else_node, else_ty, u);
         return u;
@@ -6564,7 +6566,7 @@ const Checker = struct {
         const target = self.liftTarget(expected);
         if (!sema.isNumeric(self.ctx, target)) return;
         try self.ctx.recordType(e, target);
-        if (actual == self.t().int_literal_id and self.ctx.types.get(target) == .int) try self.recordLiteralType(e, target);
+        try self.recordLiteralType(e, target);
         if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target);
         if (self.ctx.types.get(target) == .float) try self.checkWholeDivision(e);
         try self.checkFloatConstant(e, target);
@@ -6589,7 +6591,6 @@ const Checker = struct {
             .@"if" => {
                 try self.recordLiteralType(ir.If.then(e), target);
                 try self.recordLiteralType(ir.If.@"else"(e), target);
-                return;
             },
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"&", .@"|", .@"^" => {
                 try self.recordLiteralType(ir.get(e, .left), target);
@@ -6597,6 +6598,7 @@ const Checker = struct {
             },
             .@"<<", .@">>" => {
                 try self.recordLiteralType(ir.get(e, .left), target);
+                if (self.ctx.types.get(target) != .int) return;
                 const amount = ir.get(e, .right);
                 const bits = intBounds(self.ctx.types.get(target).int).bits;
                 if (self.constInt(amount)) |v| if (v >= bits) {
