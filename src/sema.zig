@@ -2856,7 +2856,7 @@ pub const TypeSubst = struct {
 
 /// Replace every `type_var` and `ct_param` in `ty_id` that `subst` maps.
 pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem.Allocator.Error!TypeId {
-    if (subst.isEmpty()) return ty_id;
+    if (subst.isEmpty() or !ctx.typeInfo(ty_id).has_type_var) return ty_id;
     const ty = ctx.types.get(ty_id);
     switch (ty) {
         .type_var, .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
@@ -2957,8 +2957,7 @@ pub fn holdsWriteBorrow(ctx: *const SemContext, ty: TypeId) bool {
 pub fn isCopyElement(ctx: *const SemContext, ty: TypeId) bool {
     if (isCopyPrimitive(ctx, ty)) return true;
     return switch (ctx.types.get(ty)) {
-        .nominal, .imported_nominal, .optional, .array => isPlainData(ctx, ty),
-        .parameterized_nominal => |pn| pn.sym != ctx.box_sym_id and isPlainData(ctx, ty),
+        .nominal, .imported_nominal, .parameterized_nominal, .optional, .array => isPlainData(ctx, ty),
         else => false,
     };
 }
