@@ -1953,6 +1953,12 @@ pub const Emitter = struct {
         /// The subject without its `?` / `!`.
         subject: Sexp,
         boxed: bool,
+        /// The subject as Zig that reads it again without evaluating it
+        /// again (`evalSubject`), or empty when nothing reads it twice.
+        reread: []const u8 = "",
+        /// A `match <x` of a value no binding holds: it was evaluated
+        /// into `reread`, which the arm then takes.
+        temp: bool = false,
     };
 
     /// `(match scrutinee arm...)` → `switch`. In value position each arm
@@ -1963,7 +1969,7 @@ pub const Emitter = struct {
         // A boxed enum is switched on where the box points.
         const boxed = if (self.typeOf(scrutinee)) |t| sema.boxedNominal(self.sema, t) else null;
         const scrut_ty = boxed orelse self.typeOf(scrutinee);
-        const info: MatchInfo = .{
+        var info: MatchInfo = .{
             .mode = if (scrutinee.isKind(.write))
                 .write
             else if (scrutinee.isKind(.move) and scrut_ty != null and self.kindOf(scrut_ty.?) != null) .consume else .read,
@@ -1973,16 +1979,42 @@ pub const Emitter = struct {
             .subject = unborrowed(scrutinee),
             .boxed = boxed != null,
         };
-        for (ir.Match.arms(sexp)) |arm| if (ir.Arm.guard(arm) != .nil) return self.emitGuardedMatch(sexp, value_pos, info);
-        const subject = info.subject;
+        var guarded = false;
         // A `match !x` binding of the whole value points at the place, and
-        // a `match <x` arm with alternatives drops the value from it.
-        const place: []const u8 = if (info.mode == .read) "" else try self.placeText(info);
+        // a `match <x` arm with alternatives drops the value from it: the
+        // subject is read again.
+        var rereads = false;
+        for (ir.Match.arms(sexp)) |arm| {
+            const pattern = ir.Arm.pattern(arm);
+            if (ir.Arm.guard(arm) != .nil) guarded = true;
+            if (info.mode == .write and isCatchAll(self.source, pattern)) rereads = true;
+            if (info.mode == .consume and pattern.isKind(.alt_pattern)) rereads = true;
+        }
+        // Evaluating the subject first takes a block around the match.
+        const block = if (guarded or (rereads and !self.subjectRereadable(info))) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
+        if (block.len > 0) {
+            if (value_pos) try self.w.print("{s}: ", .{block});
+            try self.openBrace();
+            try self.evalSubject(&info);
+            if (guarded) {
+                try self.emitGuardedMatch(sexp, value_pos, info, block);
+                try self.w.writeAll("\n");
+                return self.closeBrace();
+            }
+            try self.writeIndent(self.indent);
+            if (value_pos) try self.w.print("break :{s} ", .{block});
+        } else if (rereads) info.reread = try self.placeText(info);
+        const place = info.reread;
+        const subject = info.subject;
         try self.w.writeAll("switch (");
-        // A match on a call returning a borrow held by pointer switches
-        // on the value it points to.
-        if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
-        if (info.boxed) try self.w.writeAll(".value.*");
+        if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
+            try self.w.writeAll(info.reread);
+        } else {
+            // A match on a call returning a borrow held by pointer
+            // switches on the value it points to.
+            if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
+            if (info.boxed) try self.w.writeAll(".value.*");
+        }
         try self.w.writeAll(") ");
         try self.openBrace();
 
@@ -2045,6 +2077,49 @@ pub const Emitter = struct {
             if (info.mode == .consume) try self.line("else => |__rig_rest| rig.discard(__rig_rest),", .{}) else try self.line("else => {{}},", .{});
         }
         try self.closeBrace();
+        if (block.len > 0) {
+            if (value_pos) try self.w.writeAll(";");
+            try self.w.writeAll("\n");
+            try self.closeBrace();
+        }
+    }
+
+    /// Whether the subject can be read again as it is written: a name,
+    /// or a field of one. An element's index may have effects, and a
+    /// call makes a new value.
+    fn subjectRereadable(self: *Emitter, info: MatchInfo) bool {
+        _ = self;
+        var e = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
+        while (e.isKind(.member)) e = ir.Member.object(e);
+        return e == .src;
+    }
+
+    /// Evaluate the subject once, into `info.reread`: a field path as
+    /// it is, an element by its address, a value no binding holds (a
+    /// call's result, or what `match <` takes from one) into a local.
+    fn evalSubject(self: *Emitter, info: *MatchInfo) Error!void {
+        if (self.subjectRereadable(info.*)) {
+            info.reread = try self.placeText(info.*);
+            return;
+        }
+        const name = try self.fmt("__rig_subject_{d}", .{self.nextId()});
+        const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
+        if (isPlace(value) and !info.subject.isKind(.move)) {
+            try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
+            info.reread = try self.fmt("{s}.*", .{name});
+            return;
+        }
+        try self.writeIndent(self.indent);
+        try self.w.print("var {s}", .{name});
+        if (self.typeOf(value)) |t| {
+            try self.w.writeAll(": ");
+            try self.emitTypeTy(self.peelBorrows(t));
+        }
+        try self.w.writeAll(" = ");
+        if (self.isPtrBorrowExpr(value)) try self.emitDeref(value) else try self.emitBare(value);
+        try self.w.print("; _ = &{s};\n", .{name});
+        info.reread = name;
+        info.temp = info.mode == .consume;
     }
 
     /// The Zig place of a match's subject, for `match !x` and `match <x`
@@ -2118,28 +2193,10 @@ pub const Emitter = struct {
     ///       switch (arm) { 0 => { const r = s.a.r; body }, ..., else => {} } }
     /// The subject is read in place, or from a copy when it is not a
     /// place (sema rejects a temporary that owns a resource).
-    fn emitGuardedMatch(self: *Emitter, sexp: Sexp, value_pos: bool, info: MatchInfo) Error!void {
+    fn emitGuardedMatch(self: *Emitter, sexp: Sexp, value_pos: bool, info: MatchInfo, block: []const u8) Error!void {
         const id = self.nextId();
         const arms = ir.Match.arms(sexp);
-        const block = try self.fmt("__rig_match_{d}", .{id});
-        if (value_pos) try self.w.print("{s}: ", .{block});
-        try self.openBrace();
-        // The subject, as an expression that can be read more than once.
-        var subj: []const u8 = undefined;
-        if (info.mode != .read or isPlace(info.subject) or info.subject == .src) {
-            subj = try self.placeText(info);
-        } else {
-            subj = try self.fmt("__rig_subject_{d}", .{id});
-            try self.writeIndent(self.indent);
-            try self.w.print("var {s}", .{subj});
-            if (info.ty) |t| {
-                try self.w.writeAll(": ");
-                try self.emitTypeTy(t);
-            }
-            try self.w.writeAll(" = ");
-            if (self.isPtrBorrowExpr(info.subject)) try self.emitDeref(info.subject) else try self.emitBare(info.subject);
-            try self.w.print("; _ = &{s};\n", .{subj});
-        }
+        const subj = info.reread;
 
         // Pick the arm.
         const arm_var = try self.fmt("__rig_arm_{d}", .{id});
@@ -2199,13 +2256,11 @@ pub const Emitter = struct {
         } else if (info.mode == .consume) {
             try self.writeIndent(self.indent);
             try self.w.writeAll("else => rig.discard(");
-            try self.emitBare(info.subject);
+            if (info.temp) try self.w.writeAll(info.reread) else try self.emitBare(info.subject);
             try self.w.writeAll("),\n");
         } else try self.line("else => {{}},", .{});
         try self.closeBrace();
         if (value_pos) try self.w.writeAll(";");
-        try self.w.writeAll("\n");
-        try self.closeBrace();
     }
 
     /// A Zig condition that holds when `pattern`, not a catch-all,
@@ -2257,7 +2312,7 @@ pub const Emitter = struct {
             // The arm takes the value: `x` is consumed now.
             const whole = try self.fresh("whole");
             var buf: Writer.Allocating = .init(self.arena.allocator());
-            {
+            if (info.temp) try buf.writer.writeAll(info.reread) else {
                 const saved_w = self.w;
                 self.w = &buf.writer;
                 defer self.w = saved_w;
