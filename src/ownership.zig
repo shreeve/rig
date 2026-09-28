@@ -350,6 +350,10 @@ pub const Checker = struct {
     /// (bound, passed, returned): the tails of its branches leave them.
     /// Set just before walking that node; see `takeTail`.
     tail: ?Tail = null,
+    /// A branch block whose tail is the function's result, set just
+    /// before walking it: an error there fails the function, running
+    /// the block's `errdefer`s.
+    ret_block: parser.NodeId = 0,
     /// A source position at or before the statement being walked, for
     /// statements without one of their own (`break`, `continue`).
     anchor: u32 = 0,
@@ -1245,6 +1249,8 @@ pub const Checker = struct {
     /// its last statement, which may not borrow the block's own locals.
     fn walkBlock(self: *Checker, block: Sexp) Error!Value {
         const stmts = ir.Block.stmts(block);
+        const returns = self.ret_block != 0 and self.ret_block == block.list.id;
+        if (returns) self.ret_block = 0;
         try self.pushScopeFor(.block, block);
         var v: Value = .{};
         for (stmts, 0..) |s, i| {
@@ -1252,6 +1258,9 @@ pub const Checker = struct {
             if (!self.reachable) break;
             if (i == stmts.len - 1) v = try self.walkStmtValue(s, null) else try self.walkStmt(s);
         }
+        // An error the function returns from here runs the block's
+        // `errdefer`s.
+        if (returns and self.reachable and stmts.len > 0 and self.mayFail(stmts[stmts.len - 1])) try self.runDefers(self.scopes.items.len - 1, true);
         v = try self.checkValueEscapesScope(v);
         try self.popScope();
         return if (self.reachable) v else .{};
@@ -1398,6 +1407,7 @@ pub const Checker = struct {
         const ctx = t orelse return self.walk(body);
         const tail = tailOf(body);
         self.setTail(tail, ctx.sink);
+        if (ctx.sink == .ret and body.isKind(.block)) self.ret_block = body.list.id;
         const v = try self.walk(body);
         self.tail = null;
         if (tail == .src) try self.consumeTailName(tail, ctx.sink);
