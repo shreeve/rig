@@ -2577,10 +2577,14 @@ const Checker = struct {
             },
         };
         // With a jump as the fallback, a temporary or moved optional gives
-        // its value up whole: nothing is copied.
-        const takes_whole = isJump(right) and !isPlaceExpr(left);
+        // its value up whole: nothing is copied. A borrow of an optional
+        // gives up nothing; the value inside stays with the lender.
+        const borrowed = sema.unwrapBorrows(self.ctx, opt) != opt;
+        const takes_whole = isJump(right) and !isPlaceExpr(left) and !borrowed;
         if (!takes_whole and (try self.ownsResource(inner, self.startOf(left), "copies out with `??` a value"))) {
-            if (isJump(right)) {
+            if (borrowed) {
+                try self.errAt(left, "a borrow cannot give up the resource inside it; take a new handle with `+x` instead", .{});
+            } else if (isJump(right)) {
                 const sp = self.ctx.span(left);
                 try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; move it out: `<{s} ?? ...`", .{ try self.tyName(opt), self.ctx.source[sp.start..sp.end] });
             } else try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; take the handle out with `if x as h`", .{try self.tyName(opt)});
