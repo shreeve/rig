@@ -497,19 +497,42 @@ fn recordKey(node: Sexp) NodeKey {
     return nodeKey(node) orelse std.debug.panic("sema recorded a fact for a node without a node id: {s}", .{if (node.kind()) |k| @tagName(k) else @tagName(node)});
 }
 
+/// The key of a fact about an expression, leaf or list node: a leaf's
+/// source position, or a list node's id with bit 32 set. Null for any
+/// other node.
+fn exprKey(node: Sexp) ?u64 {
+    return switch (node) {
+        .src => |s| s.pos,
+        .list => @as(u64, nodeKey(node) orelse return null) | 1 << 32,
+        else => null,
+    };
+}
+
+/// `exprKey` of an expression a fact is recorded for: a list node the
+/// parser built (`recordKey`).
+fn recordExprKey(node: Sexp) ?u64 {
+    if (node == .list) _ = recordKey(node);
+    return exprKey(node);
+}
+
 pub const Facts = struct {
-    /// Expressions lent where a borrowed callable `?fun(...)` is
-    /// expected that are not one yet (a closure literal, a function, an
-    /// owned closure): the callable's function type. Leaves by position,
-    /// list nodes by id.
-    leaf_callables: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
-    node_callables: std.AutoHashMapUnmanaged(NodeKey, TypeId) = .empty,
     /// Identifier leaf position -> the symbol it names.
     names: std.AutoHashMapUnmanaged(u32, SymbolId) = .empty,
-    /// Leaf expression position -> type.
-    leaf_types: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
-    /// List expression node -> type.
-    node_types: std.AutoHashMapUnmanaged(NodeKey, TypeId) = .empty,
+    /// Expression (`exprKey`) -> its type.
+    types: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
+    /// Expressions lent where a borrowed callable `?fun(...)` is
+    /// expected that are not one yet (a closure literal, a function, an
+    /// owned closure) -> the callable's function type.
+    callables: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
+    /// Expressions that yield a borrow where their context reads the
+    /// value it reaches (`SemContext.recordRead`).
+    reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Expressions yielding a `![]T` where a `[]T` is expected, which
+    /// lend it only to read.
+    views: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Borrows of a `Box[T]` lent as borrows of its value (`?b` where a
+    /// `?T` is expected).
+    unboxed: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Scope-opening node -> the scope it opens.
     scopes: std.AutoHashMapUnmanaged(NodeKey, ScopeId) = .empty,
     /// Call node -> how its arguments fill the parameters, for calls
@@ -526,48 +549,16 @@ pub const Facts = struct {
     /// Positions of names assigned to (`x = e`, `x += e` after
     /// `x` is declared): a use there writes the binding, not reads it.
     writes: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    /// Expressions that yield a borrow where their context reads the
-    /// value it reaches (`SemContext.recordRead`): leaves by position,
-    /// list nodes by id.
-    leaf_reads: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    node_reads: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Callee (`member`) node -> the built-in element method it calls.
     elem_calls: std.AutoHashMapUnmanaged(NodeKey, ElemCall) = .empty,
     /// Array expressions lent as a slice (`ArrayView`).
     array_views: std.AutoHashMapUnmanaged(NodeKey, ArrayView) = .empty,
-    /// Expressions yielding a `![]T` where a `[]T` is expected, which
-    /// lend it only to read: leaves by position, list nodes by id.
-    leaf_views: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    node_views: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
-    /// Borrows of a `Box[T]` lent as borrows of its value (`?b` where a
-    /// `?T` is expected): leaves by position, list nodes by id.
-    leaf_unboxed: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    node_unboxed: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// `<place` nodes that take an optional out of a field or element
     /// (`SemContext.recordTake`).
     takes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
-        self.takes.deinit(allocator);
-        self.leaf_unboxed.deinit(allocator);
-        self.node_unboxed.deinit(allocator);
-        self.leaf_callables.deinit(allocator);
-        self.node_callables.deinit(allocator);
-        self.elem_calls.deinit(allocator);
-        self.array_views.deinit(allocator);
-        self.leaf_views.deinit(allocator);
-        self.node_views.deinit(allocator);
-        self.writes.deinit(allocator);
-        self.leaf_reads.deinit(allocator);
-        self.node_reads.deinit(allocator);
-        self.names.deinit(allocator);
-        self.leaf_types.deinit(allocator);
-        self.node_types.deinit(allocator);
-        self.scopes.deinit(allocator);
-        self.call_slots.deinit(allocator);
-        self.exhaustive.deinit(allocator);
-        self.instances.deinit(allocator);
-        self.generic_calls.deinit(allocator);
+        inline for (std.meta.fields(Facts)) |f| @field(self, f.name).deinit(allocator);
     }
 };
 
@@ -1066,11 +1057,7 @@ pub const SemContext = struct {
 
     /// The type of an expression node.
     pub fn typeOf(self: *const SemContext, node: Sexp) ?TypeId {
-        return switch (node) {
-            .src => |s| self.facts.leaf_types.get(s.pos),
-            .list => self.facts.node_types.get(nodeKey(node) orelse return null),
-            else => null,
-        };
+        return self.facts.types.get(exprKey(node) orelse return null);
     }
 
     /// The type of the symbol an identifier leaf names.
@@ -1082,11 +1069,7 @@ pub const SemContext = struct {
     /// Whether `node` yields a borrow whose value its context reads
     /// (`recordRead`).
     pub fn readsThrough(self: *const SemContext, node: Sexp) bool {
-        return switch (node) {
-            .src => |s| self.facts.leaf_reads.contains(s.pos),
-            .list => self.facts.node_reads.contains(nodeKey(node) orelse return false),
-            else => false,
-        };
+        return self.facts.reads.contains(exprKey(node) orelse return false);
     }
 
     /// The scope a scope-opening node opens.
@@ -1149,11 +1132,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
-        switch (node) {
-            .src => |s| try self.facts.leaf_types.put(self.allocator, s.pos, ty),
-            .list => try self.facts.node_types.put(self.allocator, recordKey(node), ty),
-            else => {},
-        }
+        try self.facts.types.put(self.allocator, recordExprKey(node) orelse return, ty);
     }
 
     /// `node` yields a borrow where its context reads the value it
@@ -1161,11 +1140,7 @@ pub const SemContext = struct {
     /// optional of `??`, `?`, or `as`, a String or slice indexed, or a
     /// clone.
     pub fn recordRead(self: *SemContext, node: Sexp) !void {
-        switch (node) {
-            .src => |s| try self.facts.leaf_reads.put(self.allocator, s.pos, {}),
-            .list => try self.facts.node_reads.put(self.allocator, recordKey(node), {}),
-            else => {},
-        }
+        try self.facts.reads.put(self.allocator, recordExprKey(node) orelse return, {});
     }
 
     pub fn recordArrayView(self: *SemContext, node: Sexp, view: ArrayView) !void {
@@ -1180,21 +1155,13 @@ pub const SemContext = struct {
     /// `node`, lent where a borrowed callable is expected, is lent as one
     /// of function type `fn_ty` (`callableOf`).
     pub fn recordCallable(self: *SemContext, node: Sexp, fn_ty: TypeId) !void {
-        switch (node) {
-            .src => |s| try self.facts.leaf_callables.put(self.allocator, s.pos, fn_ty),
-            .list => try self.facts.node_callables.put(self.allocator, recordKey(node), fn_ty),
-            else => {},
-        }
+        try self.facts.callables.put(self.allocator, recordExprKey(node) orelse return, fn_ty);
     }
 
     /// The function type `node` is lent as, where a borrowed callable is
     /// expected and `node` is not one yet (`recordCallable`).
     pub fn callableOf(self: *const SemContext, node: Sexp) ?TypeId {
-        return switch (node) {
-            .src => |s| self.facts.leaf_callables.get(s.pos),
-            .list => self.facts.node_callables.get(nodeKey(node) orelse return null),
-            else => null,
-        };
+        return self.facts.callables.get(exprKey(node) orelse return null);
     }
 
     /// `node` is `<place` taking an optional out of a field or element,
@@ -1209,37 +1176,21 @@ pub const SemContext = struct {
 
     /// `node`, a borrow of a `Box[T]`, is lent as a borrow of the `T`.
     pub fn recordUnboxed(self: *SemContext, node: Sexp) !void {
-        switch (node) {
-            .src => |s| try self.facts.leaf_unboxed.put(self.allocator, s.pos, {}),
-            .list => try self.facts.node_unboxed.put(self.allocator, recordKey(node), {}),
-            else => {},
-        }
+        try self.facts.unboxed.put(self.allocator, recordExprKey(node) orelse return, {});
     }
 
     pub fn unboxes(self: *const SemContext, node: Sexp) bool {
-        return switch (node) {
-            .src => |s| self.facts.leaf_unboxed.contains(s.pos),
-            .list => self.facts.node_unboxed.contains(nodeKey(node) orelse return false),
-            else => false,
-        };
+        return self.facts.unboxed.contains(exprKey(node) orelse return false);
     }
 
     /// `node` yields a `![]T` where a `[]T` is expected: it is lent to
     /// read only.
     pub fn recordReadView(self: *SemContext, node: Sexp) !void {
-        switch (node) {
-            .src => |s| try self.facts.leaf_views.put(self.allocator, s.pos, {}),
-            .list => try self.facts.node_views.put(self.allocator, recordKey(node), {}),
-            else => {},
-        }
+        try self.facts.views.put(self.allocator, recordExprKey(node) orelse return, {});
     }
 
     pub fn readsAsView(self: *const SemContext, node: Sexp) bool {
-        return switch (node) {
-            .src => |s| self.facts.leaf_views.contains(s.pos),
-            .list => self.facts.node_views.contains(nodeKey(node) orelse return false),
-            else => false,
-        };
+        return self.facts.views.contains(exprKey(node) orelse return false);
     }
 
     pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {
@@ -4047,7 +3998,7 @@ const FactsRun = struct {
     }
 
     fn leafType(self: *const FactsRun, needle: []const u8, nth: usize) ?TypeId {
-        return self.ctx.facts.leaf_types.get(self.at(needle, nth));
+        return self.ctx.facts.types.get(self.at(needle, nth));
     }
 };
 
