@@ -1027,7 +1027,16 @@ const Checker = struct {
             try self.errAt(place, "cannot lend the write borrow held here through a shared handle (`*T`); other handles reach the same write borrow", .{});
             return false;
         }
-        if (path.read_borrow orelse if (path.read_only) |ro| ro.pos else null) |pos| {
+        if (path.read_only) |ro| {
+            const through = switch (ro.what) {
+                .slice => "a slice (`[]T`), which is read-only",
+                .string => "a String, which is read-only",
+                .len => "`.len`, which is read-only",
+            };
+            try self.err(ro.pos, "cannot lend the write borrow held here through {s}", .{through});
+            return false;
+        }
+        if (path.read_borrow) |pos| {
             try self.err(pos, "cannot lend the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow", .{});
             return false;
         }
