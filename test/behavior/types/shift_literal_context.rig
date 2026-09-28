@@ -1,0 +1,12 @@
+# A literal shifted takes the type its context gives it, and the shift
+# amount is checked against that type's width.
+
+sub main()
+  a: U128 = 1 << 64
+  b: I128 = 1 << 100
+  c: U8 = 1 << 7
+  d = 1 << 62
+  print(a, b, c, d, 256 >> 4)
+
+# expect:
+# 18446744073709551616 1267650600228229401496703205376 128 4611686018427387904 16

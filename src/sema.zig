@@ -3582,7 +3582,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
             // A shift is in its left operand's type.
             const shift = h == .@"<<" or h == .@">>";
             if (!shift) if (a.int) |ai| if (b.int) |bi| if (!std.meta.eql(ai, bi)) return .{ .mismatch = .{ .node = e, .a = ai, .b = bi } };
-            const int = if (shift) a.int else a.int orelse b.int;
+            const int = if (shift) a.int orelse literalInt(ctx, e) else a.int orelse b.int;
             // Wrapping arithmetic keeps the low bits of the result in its
             // type, which a `Wide` computes exactly (its width is a
             // multiple of every integer type's). Untyped, the width is not
@@ -3609,11 +3609,13 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
                 // reported where the operator is checked.
                 .@"/" => if (b.v == 0) return .not_constant else std.math.divTrunc(Wide, a.v, b.v) catch null,
                 .@"%" => if (b.v == 0) return .not_constant else if (b.v == -1) 0 else @rem(a.v, b.v),
-                .@"<<" => if (b.v < 0) return .not_constant else if (b.v > 126) null else blk: {
+                // A shift by the width or more is reported where the
+                // operator is checked; one that loses bits overflows.
+                .@"<<" => if (b.v < 0 or b.v >= widthOf(int orelse literalInt(ctx, e) orelse IntInfo{})) return .not_constant else blk: {
                     const r = a.v << @intCast(b.v);
                     break :blk if (r >> @intCast(b.v) == a.v) r else null;
                 },
-                .@">>" => if (b.v < 0) return .not_constant else a.v >> @intCast(@min(b.v, 127)),
+                .@">>" => if (b.v < 0 or b.v >= widthOf(int orelse literalInt(ctx, e) orelse IntInfo{})) return .not_constant else a.v >> @intCast(b.v),
                 .@"&" => a.v & b.v,
                 .@"|" => a.v | b.v,
                 else => a.v ^ b.v,
@@ -3648,6 +3650,11 @@ pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
     if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };
     if (std.mem.eql(u8, field, "max")) return .{ .v = r.max, .int = info };
     return null;
+}
+
+/// The width of an integer type in bits.
+fn widthOf(info: IntInfo) Wide {
+    return if (info.bits == 0) 64 else info.bits;
 }
 
 /// The integer type the checker gave literal arithmetic `e`, if any.

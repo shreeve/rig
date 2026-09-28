@@ -765,7 +765,7 @@ const Checker = struct {
         const pos = self.startOf(rhs);
         switch (self.ctx.types.get(ty)) {
             .int_literal => {
-                try self.checkLiteralFits(rhs, self.t().int_id);
+                try self.defaultIntLiteral(rhs);
                 return self.t().int_id;
             },
             .float_literal => return self.t().float_id,
@@ -1550,7 +1550,7 @@ const Checker = struct {
                 },
             }
         };
-        if (scrutinee == self.t().int_literal_id) try self.checkLiteralFits(subject, self.t().int_id);
+        if (scrutinee == self.t().int_literal_id) try self.defaultIntLiteral(subject);
         const matchable = switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, scrutinee))) {
             .int, .int_literal, .bool, .invalid, .unknown, .any_error => true,
             .nominal, .parameterized_nominal, .imported_nominal => sema.enumVariantCount(self.ctx, scrutinee) != null,
@@ -2206,8 +2206,8 @@ const Checker = struct {
     fn checkIntDefaultOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement, synthesized: ?[2]TypeId) Error!TypeId {
         const ty = try self.checkNumericOperands(e, op, req, synthesized);
         if (ty != self.t().int_literal_id) return ty;
-        try self.checkLiteralFits(ir.get(e, .left), self.t().int_id);
-        try self.checkLiteralFits(ir.get(e, .right), self.t().int_id);
+        try self.defaultIntLiteral(ir.get(e, .left));
+        try self.defaultIntLiteral(ir.get(e, .right));
         return self.t().int_id;
     }
 
@@ -2275,7 +2275,8 @@ const Checker = struct {
     }
 
     /// A shift amount may be any integer; a constant one must be below
-    /// the width of the shifted type (`Int` for a literal).
+    /// the width of the shifted type. A literal's is checked when it
+    /// takes its type (`recordLiteralType`).
     fn checkShiftAmount(self: *Checker, amount: Sexp, shifted: TypeId, op: []const u8) Error!bool {
         const ty = try self.synthOperandValue(amount);
         if (self.isPoison(ty)) return false;
@@ -2293,7 +2294,7 @@ const Checker = struct {
                 if (v >= 0) try self.require(tv, .{ .shift = v }, self.startOf(amount), op);
                 break :blk null;
             },
-            else => 64,
+            else => null,
         };
         if (v >= 0 and (width == null or v < width.?)) return true;
         if (width) |w| {
@@ -2509,8 +2510,8 @@ const Checker = struct {
         if (b_lit and !a_lit) return self.checkExpr(r, a);
         // Two literal operands are compared as `Int`s.
         if (a == self.t().int_literal_id and b == self.t().int_literal_id) {
-            try self.checkLiteralFits(l, self.t().int_id);
-            try self.checkLiteralFits(r, self.t().int_id);
+            try self.defaultIntLiteral(l);
+            try self.defaultIntLiteral(r);
         }
         if (!a_lit and a != b) {
             try self.errAt(l, "cannot compare `{s}` with `{s}` using `{s}`", .{ try self.tyName(a), try self.tyName(b), op });
@@ -2902,7 +2903,7 @@ const Checker = struct {
         if (operand.isKind(.lambda)) return self.ownedClosure(operand, null);
         const ty = try self.shareOperand(operand, null);
         // A literal takes its default type.
-        if (ty == self.t().int_literal_id) try self.checkLiteralFits(operand, self.t().int_id);
+        if (ty == self.t().int_literal_id) try self.defaultIntLiteral(operand);
         const inner = self.canonical(ty);
         if (self.isPoison(inner)) return inner;
         if (self.ctx.types.get(inner) == .function) {
@@ -3677,7 +3678,7 @@ const Checker = struct {
         if (self.isPoison(idx_ty)) return idx_ty;
         if (!sema.isInteger(self.ctx, idx_ty)) {
             try self.errAt(index, "an index must be an integer; got `{s}`", .{try self.tyName(idx_ty)});
-        } else if (idx_ty == self.t().int_literal_id) try self.checkLiteralFits(index, self.t().int_id);
+        } else if (idx_ty == self.t().int_literal_id) try self.defaultIntLiteral(index);
         const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
             .array => |a| {
@@ -3782,7 +3783,7 @@ const Checker = struct {
         const ty = try self.synthOperandValue(bound);
         if (self.isPoison(ty)) return;
         if (!sema.isInteger(self.ctx, ty)) return self.errAt(bound, "a slice bound must be an integer; got `{s}`", .{try self.tyName(ty)});
-        if (ty == self.t().int_literal_id) try self.checkLiteralFits(bound, self.t().int_id);
+        if (ty == self.t().int_literal_id) try self.defaultIntLiteral(bound);
     }
 
     /// Constant bounds are checked now: `0 <= a <= b`, and `b <= len` for
@@ -4200,7 +4201,7 @@ const Checker = struct {
             }
             const ty = try self.synthOperand(a);
             // An integer literal prints as an `Int`, which must hold it.
-            if (ty == self.t().int_literal_id) try self.checkLiteralFits(a, self.t().int_id);
+            if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
             switch (self.ctx.types.get(ty)) {
                 .void => try self.errAt(a, "`print` needs a value; this expression produces no value (`Void`)", .{}),
                 .none_literal => try self.errAt(a, "cannot print a bare `none`", .{}),
@@ -5686,7 +5687,7 @@ const Checker = struct {
         const ty = try self.synthValue(a);
         if (self.isPoison(ty)) return;
         if (!sema.isInteger(self.ctx, ty)) return self.errAt(a, "an offset must be an integer; got `{s}`", .{try self.tyName(ty)});
-        if (ty == self.t().int_literal_id) try self.checkLiteralFits(a, self.t().int_id);
+        if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
         const at = self.constInt(a) orelse return;
         const size: Wide = switch (self.ctx.types.get(num)) {
             .int => |i| if (i.bits == 0) 8 else i.bits / 8,
@@ -5705,7 +5706,7 @@ const Checker = struct {
         const ty = try self.synthValue(a);
         if (self.isPoison(ty)) return;
         if (!sema.isInteger(self.ctx, ty)) return self.errAt(a, "an index must be an integer; got `{s}`", .{try self.tyName(ty)});
-        if (ty == self.t().int_literal_id) try self.checkLiteralFits(a, self.t().int_id);
+        if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
         if (len) |n| if (self.constInt(a)) |i| if (i < 0 or i >= n) {
             try self.errAt(a, "index `{d}` is out of bounds for an array of length {d}", .{ i, n });
         };
@@ -6479,10 +6480,18 @@ const Checker = struct {
         try self.checkFloatConstant(e, target);
     }
 
+    /// Integer-literal arithmetic that takes no type from its context is
+    /// an `Int`.
+    fn defaultIntLiteral(self: *Checker, e: Sexp) Error!void {
+        try self.recordLiteralType(e, self.t().int_id);
+        try self.checkLiteralFits(e, self.t().int_id);
+    }
+
     /// Integer-literal arithmetic given integer type `target` is
     /// computed in it: each operation in `e` records the type, so that a
-    /// wrapping one wraps there (`sema.ctFoldBy`) and the emitter types
-    /// it so.
+    /// wrapping one wraps there and a shift is folded in its width
+    /// (`sema.ctFoldBy`), and the emitter types it so. A constant shift
+    /// amount must be below that width.
     fn recordLiteralType(self: *Checker, e: Sexp, target: TypeId) Error!void {
         const h = e.kind() orelse return;
         switch (h) {
@@ -6496,7 +6505,14 @@ const Checker = struct {
                 try self.recordLiteralType(ir.get(e, .left), target);
                 try self.recordLiteralType(ir.get(e, .right), target);
             },
-            .@"<<", .@">>" => try self.recordLiteralType(ir.get(e, .left), target),
+            .@"<<", .@">>" => {
+                try self.recordLiteralType(ir.get(e, .left), target);
+                const amount = ir.get(e, .right);
+                const bits = intBounds(self.ctx.types.get(target).int).bits;
+                if (self.constInt(amount)) |v| if (v >= bits) {
+                    try self.errAt(amount, "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ v, try self.tyName(target), bits - 1 });
+                };
+            },
             else => return,
         }
         try self.ctx.recordType(e, target);
