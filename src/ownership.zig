@@ -36,8 +36,8 @@
 //!
 //! Control flow
 //! ------------
-//! * `if`, `match`, ternaries and `catch` walk every branch from the same
-//!   entry state and `join` the results: a value moved or dropped on any
+//! * `if`, `match`, ternaries, `catch` and `??` walk every branch from the
+//!   same entry state and `join` the results: a value moved or dropped on any
 //!   path is moved or dropped afterwards, and loans are unioned. A match
 //!   without a catch-all arm also joins the state where no arm ran.
 //! * Loops iterate to a fixpoint over the back edge: the loop-head state
@@ -1321,6 +1321,7 @@ pub const Checker = struct {
                 .labeled => self.walkLabeled(sexp),
                 .match => self.walkMatch(sexp),
                 .@"catch" => self.walkCatch(sexp),
+                .@"??" => self.walkNullish(sexp),
                 .propagate, .propagate_none => self.walkPropagate(sexp),
                 .call => self.walkCall(sexp),
                 .member, .index, .inst => if (self.isInstance(sexp)) .{} else self.walkMember(sexp),
@@ -3001,6 +3002,17 @@ pub const Checker = struct {
         var v2 = try self.walk(handler);
         v2 = try self.checkValueEscapesScope(v2);
         try self.popScope();
+        const s = try self.leave(base);
+        try self.apply(try self.join(stateAt(base), s));
+        return self.valueUnion(v1, v2);
+    }
+
+    /// `a ?? b`: `b` runs only when `a` is `none`. It may be a jump, which
+    /// leaves the rest of the code reachable through the other path.
+    fn walkNullish(self: *Checker, node: Sexp) Error!Value {
+        const v1 = try self.walk(ir.@"??".left(node));
+        const base = try self.here();
+        const v2 = try self.walk(ir.@"??".right(node));
         const s = try self.leave(base);
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);

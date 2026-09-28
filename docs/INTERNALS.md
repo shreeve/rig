@@ -823,9 +823,10 @@ conflict checks and the "does not live long enough" checks at scope ends
 and jumps skip loans whose holder is not live. This is textual, so it is
 the same on every path, and conservative where paths differ.
 
-**Control flow.** `if`, `match`, ternaries, and `catch` walk every
-branch from the same entry state and join the results: moved or dropped
-on any path means moved or dropped after, and loans are unioned. A
+**Control flow.** `if`, `match`, ternaries, `catch`, and the fallback of
+`??` walk every branch from the same entry state and join the results:
+moved or dropped on any path means moved or dropped after, and loans
+are unioned. A
 `match` scrutinee is resolved as a place (a var, or a field path in
 one), whose root stays borrowed while a payload binding views it (a
 write borrow for `match !x`, whose bindings write through like a local
