@@ -1,0 +1,55 @@
+# Each error belongs to its error set: `Net.timeout` and `Disk.timeout`
+# are different errors. They compare apart, a match arm for one does
+# not catch the other, and each prints with its set.
+
+error Net
+  timeout
+  refused
+
+error Disk
+  timeout
+  full
+
+fun fetch(n: Int) -> Int!
+  return Net.timeout if n == 1
+  return Disk.timeout if n == 2
+  return Disk.full if n == 3
+  return Net.refused if n == 4
+  n
+
+fun describe(n: Int) -> String
+  _ = fetch(n) catch |e|
+    match e
+      Net.timeout => return "net timeout"
+      Disk.timeout, .full => return "disk"
+      _ => return "other"
+  "ok"
+
+fun only_net(n: Int) -> String
+  _ = fetch(n) catch |e|
+    match e
+      Net.timeout => return "net timeout"
+      _ => return "not a net timeout"
+  "ok"
+
+sub main()
+  for n in 1..6
+    print(n, describe(n), only_net(n))
+  x = fetch(2) catch |e|
+    print(e, e == Net.timeout, e == Disk.timeout, e != Net.timeout)
+    0
+  d: Disk = .timeout
+  n: Net = .timeout
+  print(d, n, d == Disk.timeout, n == .timeout)
+  y = fetch(4) catch |e| 1 if e == .refused else 2
+  print(x, y)
+
+# expect:
+# 1 net timeout net timeout
+# 2 disk not a net timeout
+# 3 disk not a net timeout
+# 4 other not a net timeout
+# 5 ok ok
+# Disk.timeout false true true
+# Disk.timeout Net.timeout true true
+# 0 1

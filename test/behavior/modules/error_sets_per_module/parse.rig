@@ -1,0 +1,12 @@
+use io
+
+pub error ParseError
+  eof
+
+error Hidden
+  eof
+
+pub fun parse(n: Int) -> Int!
+  return ParseError.eof if n == 1
+  return Hidden.eof if n == 2
+  io.read(n)! * 10

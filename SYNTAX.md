@@ -599,6 +599,9 @@ position: `.circle(2)` is `.circle(radius: 2)`.
 ### Error sets
 
 `error Name` lists the error values a fallible function may fail with.
+A function fails with one by naming its set, `return NetError.timeout`,
+and each error belongs to its set: another set's `timeout` is a
+different error.
 
 ```rig
 error NetError
@@ -611,7 +614,7 @@ sub main
 ```
 
 ```output
-.timeout true
+NetError.timeout true
 ```
 
 ### Type aliases
@@ -1376,6 +1379,7 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | Pattern | Matches |
 |---|---|
 | `.name` | an enum variant, or an error value |
+| `E.name`, `m.E.name` | a member of error set `E` (of module `m`); a variant of an enum is written `.name` |
 | `.name(a, b)` | a payload variant, binding its fields in order |
 | `.name(_, b)` | a payload variant, ignoring a field |
 | `42`, `-1`, `true` | a literal |
@@ -1458,6 +1462,7 @@ arm       = pattern, ... ["if" value] ("=>" simple | block)
 pattern   = patom [".." patom]
 patom     = name | ["-"] integer | "true" | "false"
           | "." name ["(" [(name | name ":" name), ...] ")"]
+          | [name "."] name "." name
 closure   = ["*"] bars (expr | block)
 bars      = "|" (name [":" type] | ("+" | "<" | "~" | "?" | "!") name), ... "|" | "||"
 

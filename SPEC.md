@@ -1029,7 +1029,9 @@ sub main
 ### Error sets
 
 `error Name` declares a set of error values, which are used like the
-variants of a plain enum ([§13](#13-errors)).
+variants of a plain enum ([§13](#13-errors)). Each error belongs to its
+set: `A.timeout` and `B.timeout` of two sets, or of two modules, are
+different errors.
 
 ```rig
 error NetworkError
@@ -4117,7 +4119,7 @@ sub main
 ```
 
 ```output
-failed .empty
+failed Parse.empty
 5
 ```
 
@@ -4141,7 +4143,7 @@ sub main
 ```output
 saved 1
 saved 2
-not saved: .full
+not saved: SaveError.full
 ```
 
 ```rig
@@ -4252,14 +4254,18 @@ fun find(n: Int) -> Int!
 
 `f() catch |err| handler` names the error for the handler. Functions do
 not declare which errors they fail with, so `err` may be any error: it
-is compared with error-set members (`err == E.name`, `err == .name`),
-matched by their names (`.name =>`, with a `_` arm where the match
-gives a value), printed, and returned from a fallible function. Every
-`.name` it is compared or matched with must be a member of some error
-set the module can see. The handler may be a block. An error is
-identified by its name alone: `A.timeout` and `B.timeout` of two error
-sets are the same error, so `err == B.timeout` holds for a failure with
-`A.timeout`.
+is compared with error-set members (`err == E.name`), matched by them
+(`E.name =>`, with a `_` arm where the match gives a value), printed,
+and returned from a fallible function. The handler may be a block.
+
+An error is its set's member: a failure with `Net.timeout` is not
+`Disk.timeout`, so `err == Disk.timeout` is false for it and a
+`Disk.timeout =>` arm does not match it. A set of another module is
+named through the module: `io.IoError.eof`, also as a pattern. A bare
+`.name` compared or matched with `err` is the member of the one error
+set the module can see (its own, or one of a module it reaches through
+its imports) that has a member `name`. It is rejected when no set has
+one, and when several do: then the comparison or pattern names the set.
 
 ```rig
 error ParseError
@@ -4290,8 +4296,64 @@ sub main
 ```output
 3 -1
 empty too long length ok
-failed with .empty
+failed with ParseError.empty
 0
+```
+
+```rig
+error Net
+  timeout
+  refused
+
+error Disk
+  timeout
+
+fun fetch(n: Int) -> Int!
+  return Net.timeout if n == 1
+  return Disk.timeout if n == 2
+  return Net.refused if n == 3
+  n
+
+fun describe(n: Int) -> String
+  _ = fetch(n) catch |err|
+    match err
+      Net.timeout => return "network timeout"
+      Disk.timeout => return "disk timeout"
+      .refused => return "refused"
+      _ => return "other"
+  "ok"
+
+sub main
+  print(describe(1), describe(2), describe(3), describe(4))
+  x = fetch(2) catch |err|
+    print(err, err == Net.timeout, err == Disk.timeout)
+    0
+  print(x)
+```
+
+```output
+network timeout disk timeout refused ok
+Disk.timeout false true
+0
+```
+
+```rig reject
+error Net
+  timeout
+
+error Disk
+  timeout
+
+fun fetch() -> Int!
+  return Disk.timeout
+
+sub main
+  n = fetch() catch |err| 1 if err == .timeout else 2
+  print(n)
+```
+
+```error
+error sets `Net` and `Disk` both have a member `timeout`; name the set: `Net.timeout` or `Disk.timeout`
 ```
 
 ```rig reject
@@ -4663,6 +4725,7 @@ direct call; it is not a value.
 | `String` | its text; inside other values, quoted |
 | `none` | `none` |
 | enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, however it was built |
+| error | `Disk.timeout`: its set and its name, without the module |
 | struct | `User(name: "ada", age: 36)` |
 | array, slice, `Vec` | `[1, 2]` |
 | shared handle | the value it holds |

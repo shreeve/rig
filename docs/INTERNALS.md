@@ -63,8 +63,8 @@ module's `__rig_tests` table to `rig.runTests`. The emitter lowers a
 in that table; the tests of the root module run first, then those of
 its imports in load order. Each result is one line on stdout,
 `ok    test "name"` or `FAIL  test "name": <reason>`, where the reason
-is an error the test returned, a leak (Debug), or a panic, which ends
-the run. Imported modules' tests carry the module name:
+is the error the test returned (`E.name`), a leak (Debug), or a panic,
+which ends the run. Imported modules' tests carry the module name:
 `ok    test "double" (util)`. When every test finishes, the last line
 counts passes and failures, and the exit status is 1 if any test
 failed; after a panic it is non-zero, with no count.
@@ -379,7 +379,9 @@ A few kinds serve more than one surface form:
   `pattern` is `(alt_pattern p...)` for alternatives (`1, 2 =>`). A
   `variant_pattern` binding is a name, or `(kwarg field name)` for a
   field bound by name (`.rect(w: a)`), which the checker rejects as
-  not supported yet.
+  not supported yet. A pattern `E.name` or `m.E.name` is a `member`,
+  which the checker accepts only as a member of an error set the
+  subject can hold.
 - `(pass)`, the statement `pass`, has no roles. The checker rejects it
   where a value is needed, and the emitter writes it as `{}`, an empty
   Zig block, which is a statement wherever Zig takes one.
@@ -634,7 +636,11 @@ borrow of a Copy value where the value is expected. A bare `.name`
 where a `T!` is expected is checked as a variant of `T`
 (`checkContextual`), so an error value there always has its set's type.
 The error a `catch |err|` names has the type `error`: any error, since
-functions do not declare which errors they fail with.
+functions do not declare which errors they fail with. A bare `.name`
+compared or matched with one is the member of the one error set the
+module can see that has it (`sema.errorSetsWith`), and sema records that
+set as the literal's type, so every error value the emitter meets has
+its set.
 
 ### The facts table
 
@@ -1034,7 +1040,11 @@ lower is an internal error: sema must have rejected it.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`,
   `Box[T]` is `rig.Box(T)` (a pointer to the value, reached as
   `b.value.f`; `?b` lent as a `?T` is `b.value`), `T?`
-  is `?T`, `T!` is `anyerror!T`, enums with payloads are tagged unions
+  is `?T`, `T!` is `anyerror!T`, an error set's members are Zig errors
+  named with their set, `error.@"E.name"`, and in a module other than
+  the root with the module too, `error.@"m.E.name"` (Zig's errors share
+  one namespace, and each Rig error is its own set's; `rig.print` and
+  `rig test` show the last two parts), enums with payloads are tagged unions
   (each payload a struct of its fields), and generic types are Zig functions from types to types. A struct
   with drop glue gets a `__rig_drop` method: the user `drop` body, then
   the owning fields in reverse order.

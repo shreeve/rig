@@ -45,10 +45,10 @@ sub main
 # expect:
 # ok 1
 # ok 3
-# failed .neg
+# failed Bad.neg
 # ok 1
 # ok 2
-# stopped .neg
+# stopped Bad.neg
 # ok 4
-# add failed .full
+# add failed Bad.full
 # [1, 2]

@@ -58,6 +58,6 @@ sub main()
 # empty too long long enough short
 # 5 -9
 # 3 7
-# failed with .empty
+# failed with ParseError.empty
 # 0
 # 3

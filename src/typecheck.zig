@@ -2068,10 +2068,21 @@ const Checker = struct {
                 switch (h) {
                     .enum_lit => {
                         const name = ir.EnumLit.name(pattern);
-                        try self.checkVariantName(name, scrutinee);
+                        // Against any error, `.name` is the member of the
+                        // one error set that has it.
+                        if (sema.unwrapBorrows(self.ctx, scrutinee) == self.t().any_error_id) {
+                            const set = try self.resolveErrorName(name);
+                            try self.ctx.recordType(pattern, set);
+                            if (!self.isPoison(set)) try self.recordCovered(try self.errorArmKey(self.t().any_error_id, set, self.text(name)), self.startOf(pattern), covered);
+                            return;
+                        }
+                        if (!self.isPoison(scrutinee) and (try sema.lookupVariant(self.ctx, scrutinee, self.text(name))) == null) {
+                            try self.reportMissingVariant(scrutinee, self.text(name), srcPos(name, 0));
+                        }
                         try self.ctx.recordType(pattern, scrutinee);
                         try self.recordCovered(self.text(name), self.startOf(pattern), covered);
                     },
+                    .member => try self.checkQualifiedPattern(pattern, scrutinee, covered),
                     .variant_pattern => try self.checkVariantPattern(pattern, scrutinee, covered, mode),
                     .range_pattern => try self.checkRangePattern(pattern, scrutinee, cov),
                     else => {
@@ -6829,6 +6840,7 @@ const Checker = struct {
                 // Where a `T!` is expected, `.name` is a variant of `T`: a
                 // function fails only by naming the error set.
                 const name = ir.EnumLit.name(e);
+                if (target == self.t().any_error_id) return try self.resolveErrorName(name);
                 if (self.ctx.types.get(expected) == .fallible and !self.isPoison(target) and
                     (try sema.lookupVariant(self.ctx, target, self.text(name))) == null)
                 {
@@ -7151,18 +7163,60 @@ const Checker = struct {
         try self.errAt(name_node, "{s}; to fail, name the error set: {s}", .{ what, fix.items });
     }
 
-    /// `.name` where any error is expected: a member of some error set.
-    fn checkErrorName(self: *Checker, name_node: Sexp) Error!void {
+    /// `.name` where any error is expected: the member of the one error
+    /// set this module can see that has it. Its type is that set's, or
+    /// poison when no set or several have it.
+    fn resolveErrorName(self: *Checker, name_node: Sexp) Error!TypeId {
         const name = self.text(name_node);
-        if ((try sema.errorSetsWith(self.ctx, name)).count > 0) return;
-        try self.errAt(name_node, "no error set has a member `{s}`", .{name});
+        const sets = try sema.errorSetsWith(self.ctx, name);
+        if (sets.count == 1) return sets.first[0];
+        if (sets.count == 0) {
+            try self.errAt(name_node, "no error set has a member `{s}`", .{name});
+        } else {
+            const a = try self.tyName(sets.first[0]);
+            const b = try self.tyName(sets.first[1]);
+            if (sets.count == 2) {
+                try self.errAt(name_node, "error sets `{s}` and `{s}` both have a member `{s}`; name the set: `{s}.{s}` or `{s}.{s}`", .{ a, b, name, a, name, b, name });
+            } else try self.errAt(name_node, "{d} error sets have a member `{s}`, among them `{s}` and `{s}`; name the set: `{s}.{s}`", .{ sets.count, name, a, b, a, name });
+        }
+        return self.t().invalid_id;
+    }
+
+    /// What a pattern for member `name` of error set `set` covers: the
+    /// member alone where the subject is of that set, the set and the
+    /// member where it may be any error.
+    fn errorArmKey(self: *Checker, subject: TypeId, set: TypeId, name: []const u8) Error![]const u8 {
+        if (subject != self.t().any_error_id) return name;
+        return std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ try self.tyName(set), name });
+    }
+
+    /// `E.name` or `m.E.name` as a pattern: a member of error set `E`,
+    /// where the subject is of that set or is any error.
+    fn checkQualifiedPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, covered: *std.StringHashMapUnmanaged(u32)) Error!void {
+        const ty = try self.synthExpr(pattern);
+        const subject = sema.unwrapBorrows(self.ctx, scrutinee);
+        if (self.isPoison(ty) or self.isPoison(subject)) return;
+        const name = self.text(ir.Member.name(pattern));
+        // A value's field is not a constant to match.
+        if (self.ctx.typeOf(ir.Member.object(pattern)) != null) {
+            return self.errAt(pattern, "`{s}` is not a pattern; a qualified pattern names a member of an error set: `E.name`", .{self.sourceText(pattern)});
+        }
+        if (!sema.isErrorSet(self.ctx, ty)) {
+            if (sema.enumVariantCount(self.ctx, ty) != null) {
+                return self.errAt(pattern, "a pattern names a variant without its enum: `.{s}`; only an error's pattern names its set", .{name});
+            }
+            return self.errAt(pattern, "`{s}` is not a pattern; a qualified pattern names a member of an error set: `E.name`", .{self.sourceText(pattern)});
+        }
+        if (subject != self.t().any_error_id and subject != ty) {
+            return self.errAt(pattern, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(subject), try self.tyName(ty) });
+        }
+        try self.recordCovered(try self.errorArmKey(subject, ty, name), self.startOf(pattern), covered);
     }
 
     fn checkEnumLit(self: *Checker, name_node: Sexp, expected: TypeId) Error!void {
         const name = self.text(name_node);
         const pos = srcPos(name_node, 0);
         if (self.isPoison(expected)) return;
-        if (expected == self.t().any_error_id) return self.checkErrorName(name_node);
         if (try sema.lookupVariant(self.ctx, expected, name)) |v| {
             if (v.payload.len > 0) {
                 try self.err(pos, "variant `{s}` carries a payload; construct it with `.{s}(...)`", .{ name, name });
@@ -7170,16 +7224,6 @@ const Checker = struct {
             return;
         }
         try self.reportMissingVariant(expected, name, pos);
-    }
-
-    /// `.variant` as a pattern: any variant of the scrutinee's enum.
-    fn checkVariantName(self: *Checker, name_node: Sexp, scrutinee: TypeId) Error!void {
-        if (self.isPoison(scrutinee)) return;
-        if (sema.unwrapBorrows(self.ctx, scrutinee) == self.t().any_error_id) return self.checkErrorName(name_node);
-        const name = self.text(name_node);
-        if ((try sema.lookupVariant(self.ctx, scrutinee, name)) == null) {
-            try self.reportMissingVariant(scrutinee, name, srcPos(name_node, 0));
-        }
     }
 
     /// `.variant(payload...)` against an expected enum.

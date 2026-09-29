@@ -34,7 +34,7 @@ sub main()
 # expect:
 # 1
 # 3
-# caught .bad
-# caught .bad
+# caught E.bad
+# caught E.bad
 # 7
-# caught .bad
+# caught E.bad

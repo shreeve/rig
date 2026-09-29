@@ -1,0 +1,42 @@
+# Error sets of different modules are distinct, even with the same
+# member name: `io.IoError.eof` is not `parse.ParseError.eof`, nor the
+# `eof` of a set `parse` keeps private. A set is named through its
+# module in a comparison and a match arm, and a member only one set the
+# module can see has, as `.closed`, needs no set. An error prints with
+# its set.
+use io
+use parse
+
+fun describe(n: Int) -> String
+  _ = parse.parse(n) catch |e|
+    match e
+      io.IoError.eof => return "io eof"
+      parse.ParseError.eof => return "parse eof"
+      .closed => return "closed"
+      _ => return "other"
+  "ok"
+
+sub main()
+  for n in -1..4
+    print(n, describe(n))
+  a = parse.parse(0) catch |e|
+    print(e, e == io.IoError.eof, e == parse.ParseError.eof)
+    0
+  b = parse.parse(1) catch |e|
+    print(e, e == io.IoError.eof, e == parse.ParseError.eof)
+    0
+  c = parse.parse(2) catch |e|
+    print(e, e == io.IoError.eof, e == parse.ParseError.eof)
+    0
+  print(a + b + c, io.kind(), io.kind(io.IoError.eof))
+
+# expect:
+# -1 closed
+# 0 io eof
+# 1 parse eof
+# 2 other
+# 3 ok
+# IoError.eof true false
+# ParseError.eof false true
+# Hidden.eof false false
+# 0 closed eof
