@@ -1,0 +1,11 @@
+# `|!x|` write-borrows `x` as `!x` does: a loop binding that copies an
+# element is not written, and the diagnostic says how to loop instead.
+
+sub main
+  xs = [1, 2]
+  for x in xs
+    f = |!x| x += 1
+    f()
+
+# error: 7:11: cannot write-borrow `x`: it is a copy of an element of `xs`; to change the elements in place, loop with `for x in !xs`
+# errors: 1
