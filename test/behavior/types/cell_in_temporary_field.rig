@@ -1,0 +1,28 @@
+# A read borrow of a field of a temporary that holds a Cell, or a `?self`
+# method called on one, may change the Cell; the temporary lives until
+# the end of the statement, so the change is seen there.
+
+struct P
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+    print(self.c.get())
+
+struct Q
+  p: P
+
+fun mk() -> Q
+  Q(p: P(c: Cell(1)))
+
+sub bump(p: ?P)
+  p.c.set(p.c.get() + 10)
+  print(p.c.get())
+
+sub main
+  mk().p.hit()
+  bump(?mk().p)
+
+# expect:
+# 2
+# 11

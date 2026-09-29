@@ -1179,9 +1179,9 @@ pub const Emitter = struct {
     /// resource, the old value is dropped after the new one is computed.
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
         // A field or element holding a write borrow is written through
-        // when it is given a value, not another write borrow; the place
-        // is then the value it borrows.
-        const through = self.isPtrBorrowExpr(target) and !self.isPtrBorrowExpr(value);
+        // when it is given a value, not another write borrow (sema
+        // decides); the place is then the value it borrows.
+        const through = self.sema.writesThrough(target);
         const place_ty = if (through) self.peelBorrows(self.typeOf(target).?) else self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
             try self.emitCellPtr(ir.Index.object(target));
@@ -2405,7 +2405,9 @@ pub const Emitter = struct {
 
     /// A resource bound by `as`: captured as `tmp`, then owned by a local
     /// declared at the top of the body (or dropped at once for `as _`).
-    const OptionalBinding = struct { name: Sexp, tmp: []const u8 };
+    /// `copy`: a borrowed binding over a Cell-holding part of a
+    /// temporary, captured by value into a mutable local (`lendsCellTemp`).
+    const OptionalBinding = struct { name: Sexp, tmp: []const u8, copy: bool = false };
 
     /// `payloadLocal` for a binding used in `used_in`, or anywhere when
     /// it is `.nil`.
@@ -2491,8 +2493,9 @@ pub const Emitter = struct {
                 return .{};
             }
             const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
-            try self.w.print("|*{s}| ", .{tmp});
-            return .{ .lent = .{ .name = name, .tmp = tmp } };
+            const copy = value.isKind(.read) and self.sema.lendsCellTemp(ir.Read.operand(value));
+            try self.w.print("|{s}{s}| ", .{ if (copy) "" else "*", tmp });
+            return .{ .lent = .{ .name = name, .tmp = tmp, .copy = copy } };
         }
         try self.w.writeAll("(");
         try self.emitBare(value);
@@ -2529,6 +2532,10 @@ pub const Emitter = struct {
         const sym = self.sema.symbolOf(o.name).?;
         const ty = self.symType(sym).?;
         const local = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(o.name));
+        if (o.copy) {
+            try self.line("var {s}_v = {s};", .{ o.tmp, o.tmp });
+            return self.line("const {s} = &{s}_v;", .{ local.zig_name, o.tmp });
+        }
         try self.line("const {s} = {s}{s};", .{ local.zig_name, o.tmp, if (local.is_ptr) "" else ".*" });
     }
 
@@ -3112,6 +3119,7 @@ pub const Emitter = struct {
 
     /// `&place`, or the pointer itself when the place is already one.
     fn emitAddressOf(self: *Emitter, place: Sexp) Error!void {
+        if (self.hoistedOf(place)) |h| return self.w.print("&{s}", .{h.name});
         if (place == .src) if (self.localOf(place)) |local| {
             if (local.is_ptr) return self.w.writeAll(local.zig_name);
         };
@@ -4046,8 +4054,10 @@ pub const Emitter = struct {
             }
         }
         const callee = self.sema.calleeOf(call);
-        // Zig passes a temporary receiver to a `!self` method as a constant.
-        if (self.receiverOf(call)) |recv| if (!isPlace(recv) and recv.kind() != .move and self.receiverWrites(call)) return true;
+        // Zig passes a temporary receiver to a `!self` method as a constant,
+        // and a Cell a read borrow may change must not be in one.
+        if (self.receiverOf(call)) |recv| if ((!isPlace(recv) and recv.kind() != .move and self.receiverWrites(call)) or self.sema.lendsCellTemp(unborrowed(recv))) return true;
+        for (args) |a| if (argValue(a).isKind(.read) and self.sema.lendsCellTemp(ir.Read.operand(argValue(a)))) return true;
         var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or self.consumedTemporary(call) != null;
         for (args) |a| {
             const v = argValue(a);
@@ -4131,7 +4141,9 @@ pub const Emitter = struct {
         // Borrow sigils on a receiver are implicit in Zig's method calls.
         const recv = unborrowed(self.receiverOf(call) orelse return);
         const writes = self.receiverWrites(call);
-        const temporary = !isPlace(recv) and !recv.isKind(.move);
+        // A Cell-holding part of a temporary is copied into a mutable local.
+        const cell = self.sema.lendsCellTemp(recv);
+        const temporary = (!isPlace(recv) and !recv.isKind(.move)) or cell;
         if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return;
         const name = try self.fmt("__rig_recv_{d}", .{id});
         try self.writeIndent(self.indent);
@@ -4147,7 +4159,7 @@ pub const Emitter = struct {
         const ty = self.typeOf(recv);
         const ptr = if (ty) |t| self.isPtrBorrowTy(t) else false;
         const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
-        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or (writes and !ptr)) "var" else "const", name });
+        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or (writes and !ptr) or cell) "var" else "const", name });
         if (ty) |t| {
             try self.w.writeAll(": ");
             try self.emitTypeTy(t);
@@ -4155,6 +4167,7 @@ pub const Emitter = struct {
         try self.w.writeAll(" = ");
         try self.emitBare(recv);
         try self.w.writeAll(";\n");
+        if (cell) try self.line("_ = &{s};", .{name});
         // Sema rejects a borrowed temporary receiver that owns a resource
         // (a consumed one is hoisted by `consumedTemporary`), so only a
         // value holding a type parameter gets here (`self.twice()` of a
@@ -4225,6 +4238,17 @@ pub const Emitter = struct {
             try self.emitLentCallable(h.node, fn_ty);
             try self.w.writeAll(";\n");
             return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
+        }
+        // A Cell-holding part of a temporary a read borrow lends is copied
+        // into a mutable local, which the borrow points to.
+        if (h.node.isKind(.read) and self.sema.lendsCellTemp(ir.Read.operand(h.node))) {
+            const part = ir.Read.operand(h.node);
+            try self.writeIndent(self.indent);
+            try self.w.print("var {s} = ", .{h.name});
+            try self.emitBare(part);
+            try self.w.writeAll(";\n");
+            try self.line("_ = &{s};", .{h.name});
+            return self.hoisted.append(self.allocator, .{ .node = part, .name = h.name });
         }
         const ty = self.typeOf(h.node);
         const ptr = slot < params.len and self.isPtrBorrowTy(params[slot]);

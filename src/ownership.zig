@@ -2409,7 +2409,8 @@ pub const Checker = struct {
         if (value.loans.len == 0 or !self.mayCarryBorrow(self.exprType(target))) return;
         // A value stored through a `!T` field or element lands in what
         // the field borrows, which `v` holds a write loan on.
-        if (self.storesThroughPlace(target, expr)) return self.absorbThroughWrites(self.varValue(id), value, pos, v.name, self.placeDepth(target, true));
+        const through = if (self.sema) |ctx| ctx.writesThrough(target) else false;
+        if (through) return self.absorbThroughWrites(self.varValue(id), value, pos, v.name, self.placeDepth(target, true));
         if (v.kind == .capture and !place.through_shared) return self.storeThroughCapture(v, pos, value);
         if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, self.placeDepth(target, false));
         if (v.ref != .none or place.through_borrow or place.through_shared or self.isGlobal(id)) {
@@ -2431,17 +2432,6 @@ pub const Checker = struct {
         var f = self.flows.items[id];
         f.loans = try self.unionLoans(f.loans, value.loans);
         try self.setFlow(id, f);
-    }
-
-    /// Whether `target = expr` writes through the `!T` that field or
-    /// element `target` holds: `expr` is a value, not another `!T` the
-    /// place is pointed at.
-    fn storesThroughPlace(self: *const Checker, target: Sexp, expr: Sexp) bool {
-        const ty = self.exprType(target) orelse return false;
-        const ctx = self.sema orelse return false;
-        if (!sema.assignWritesThrough(ctx, ty) or sema.writeSliceElem(ctx, ty) != null) return false;
-        const vty = self.exprType(expr) orelse return !expr.isKind(.write);
-        return self.typeData(vty) != .borrow_write;
     }
 
     /// Store `value` into `target`, reached through capture `v` of the

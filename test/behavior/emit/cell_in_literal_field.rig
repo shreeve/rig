@@ -1,0 +1,50 @@
+# A Cell in a field or element of a temporary, a constructor literal
+# included, is changed through a read borrow lent to a call, a `?self`
+# receiver, or an `as` binding: the temporary's part is emitted into a
+# mutable local, never written where Zig keeps a constant.
+
+struct P
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+    print(self.c.get())
+
+struct Q
+  p: P
+  o: P?
+
+fun mk() -> Q
+  Q(p: P(c: Cell(1)), o: P(c: Cell(2)))
+
+sub bump(p: ?P)
+  p.c.set(p.c.get() + 10)
+  print(p.c.get())
+
+sub main
+  bump(?Q(p: P(c: Cell(1)), o: none).p)
+  bump(?[P(c: Cell(3)), P(c: Cell(4))][1])
+  Q(p: P(c: Cell(5)), o: none).p.hit()
+  if ?Q(p: P(c: Cell(1)), o: P(c: Cell(20))).o as p
+    p.c.set(p.c.get() + 1)
+    print(p.c.get())
+  bump(?mk().p)
+  mk().p.hit()
+  if ?mk().o as p
+    p.c.set(30)
+    print(p.c.get())
+  n = 0
+  while n < 2 : n += 1
+    if ?mk().o as p
+      p.hit()
+
+# expect:
+# 11
+# 14
+# 6
+# 21
+# 11
+# 2
+# 30
+# 3
+# 3

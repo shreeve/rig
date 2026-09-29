@@ -2733,8 +2733,9 @@ would write through `w`). A field or element of type `!T` reads and
 writes through too: `h.w = 5`, `h.w += 1`, and `xs[i] += 1` write the
 value the place borrows, while assigning another write borrow,
 `h.w = !m`, points the place at `m`. Writing through a borrow held in
-a field needs write access to the struct, as writing any field does,
-so a plain parameter `h: H` or a capture cannot. A write borrow can be
+a field, or lending it with `!h.w`, needs write access to the struct,
+as writing any field does, so a plain parameter `h: H`, a capture, or
+a temporary cannot. A write borrow can be
 lent on, written `!p` as an owned value's borrow is, or moved into a
 local with `<p`, but not copied. A bare `w` of type `!Int` where an
 `Int` goes copies the value it reaches (`x = w`); where a `!Int` goes

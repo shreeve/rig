@@ -1,0 +1,11 @@
+# `fill` writes the elements of its receiver in place; the elements of
+# a temporary would be gone after the statement.
+
+fun mk() -> [3]Int
+  [1, 2, 3]
+
+sub main
+  mk().fill(0)
+
+# error: 8:3: cannot write-borrow a temporary: the change would be lost; bind it to a name first
+# errors: 1
