@@ -703,9 +703,6 @@ const Checker = struct {
         const sym = self.ctx.symbols.items[sym_id];
         const is_decl = sym.decl_pos == target.src.pos;
 
-        // A `!T` parameter or captured write borrow writes through to what
-        // it borrows; any other is fixed.
-        if (!is_decl and (sym.kind == .param or sym.kind == .capture)) _ = try self.checkSymbolWritable(sym_id, sym, name, target.src.pos, "assign to");
         const writes_through = sema.assignWritesThrough(self.ctx, sym.ty);
         // A `![]T` binding views elements it does not own; there is no
         // whole value to write through to.
@@ -725,15 +722,10 @@ const Checker = struct {
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the borrowed value.
         if (!is_decl and self.ctx.types.get(sym.ty) != .borrow_write) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
-        if (!is_decl and sym.flags.pattern_bound and self.ctx.types.get(sym.ty) == .borrow_write) {
-            if (!try self.checkSymbolWritable(sym_id, sym, name, target.src.pos, "assign to")) {
-                if (kind.operator() == null) try self.checkExpr(rhs, sema.unwrapBorrows(self.ctx, sym.ty)) else _ = try self.synthExpr(rhs);
-                return;
-            }
-        } else if (!is_decl and sym.flags.pattern_bound and !self.isPoison(sym.ty)) {
-            if (self.copied_from.contains(sym_id)) {
-                _ = try self.checkSymbolWritable(sym_id, sym, name, target.src.pos, "assign to");
-            } else try self.immutableBinding(sym, name, target.src.pos, "assign to");
+        // The binding must be one that may change.
+        if (!is_decl and !try self.requireAccess(self.placeOf(target), .assign, target)) {
+            if (kind.operator() == null) try self.checkExpr(rhs, if (writes_through) sema.unwrapBorrows(self.ctx, sym.ty) else sym.ty) else _ = try self.synthExpr(rhs);
+            return;
         }
 
         var declared = self.t().unknown_id;
@@ -857,19 +849,14 @@ const Checker = struct {
             else => {},
         }
         const place_ty = try self.synthExpr(target);
-        if (self.cellVecElementIn(target) != null) {
-            const whole = target.isKind(.index) and cellVecElement(self.ctx, self.ctx.typeOf(ir.Index.object(target)) orelse self.t().invalid_id) != null;
-            if (!whole or kind.operator() != null) {
+        const place = self.placeOf(target);
+        if (place.cell_vec_elem) |elem| {
+            if (!sameNode(elem, target) or kind.operator() != null) {
                 try self.errAt(target, "an element of a Cell's Vec is written whole, with `c[i] = e`: copy it out, change the copy, and write it back", .{});
                 _ = try self.synthExpr(rhs);
                 return;
             }
-            if (self.isPoison(place_ty)) {
-                _ = try self.synthExpr(rhs);
-                return;
-            }
-            if (!self.cellSettable(ir.Index.object(target))) {
-                try self.errAt(target, cell_place, .{ "c[i] = e", "" });
+            if (self.isPoison(place_ty) or !try self.requireAccess(self.placeOf(ir.Index.object(target)), .set_cell, target)) {
                 _ = try self.synthExpr(rhs);
                 return;
             }
@@ -877,17 +864,16 @@ const Checker = struct {
         }
         // A field or element holding a `!T` is written through when it is
         // given a `T` (or a compound assignment), as a `!T` binding is;
-        // given a `!T`, it is pointed elsewhere.
-        const through = try self.placeWritesThrough(place_ty, kind, rhs);
-        if (through and !(try self.checkUsesWriteBorrow(target, "write through"))) {
-            _ = try self.synthExpr(rhs);
-            return;
-        }
-        if (!(try self.checkWritable(target, target, "assign to"))) {
+        // given a `!T`, it is pointed elsewhere. (A `![]T` views elements
+        // it does not own, and is never written whole.)
+        const through = sema.assignWritesThrough(self.ctx, place_ty) and sema.writeSliceElem(self.ctx, place_ty) == null and
+            (kind.operator() != null or (!rhs.isKind(.write) and self.ctx.types.get(try self.argType(rhs)) != .borrow_write));
+        if (!try self.requireAccess(place, if (through) .write_through else .assign, target)) {
             _ = try self.synthExpr(rhs);
             return;
         }
         if (through) {
+            try self.ctx.recordThroughWrite(target);
             const inner = sema.unwrapBorrows(self.ctx, place_ty);
             if (kind.operator() != null) return self.checkCompound(kind, inner, rhs, self.startOf(target), "this place has type");
             const before = self.ctx.diagnostics.items.len;
@@ -898,28 +884,12 @@ const Checker = struct {
             }
             return;
         }
-        if (try self.assignsIntoTemporary(target)) {
-            _ = try self.synthExpr(rhs);
-            return;
-        }
         if (head == .index and (try self.ownsResource(place_ty, self.startOf(target), "overwrites an element"))) {
             try self.errAt(target, "cannot replace an element of type `{s}` by assignment; the old handle would leak", .{try self.tyName(place_ty)});
             return;
         }
         if (kind.operator() != null) return self.checkCompound(kind, place_ty, rhs, self.startOf(target), "this place has type");
         try self.checkExpr(rhs, place_ty);
-    }
-
-    /// Whether assigning `rhs` to a place of type `place_ty` writes
-    /// through the `!T` the place holds: a compound assignment does, and
-    /// so does a value that is not itself a `!T`. (A `![]T` views
-    /// elements it does not own, and is never written whole.)
-    fn placeWritesThrough(self: *Checker, place_ty: TypeId, kind: rig.BindingKind, rhs: Sexp) Error!bool {
-        if (!sema.assignWritesThrough(self.ctx, place_ty) or sema.writeSliceElem(self.ctx, place_ty) != null) return false;
-        if (kind.operator() != null) return true;
-        if (rhs.isKind(.write)) return false;
-        const ty = try self.argType(rhs);
-        return self.ctx.types.get(ty) != .borrow_write;
     }
 
     /// `x op= e` is `x = x op e` with `x` evaluated once, and `x` keeps its
@@ -960,19 +930,6 @@ const Checker = struct {
             } else if (!self.isPoison(ty)) try self.mismatch(rhs, target_ty, ty);
         } else try self.checkExpr(rhs, target_ty);
         _ = try self.checkDivisor(op, target_ty, rhs);
-    }
-
-    /// `mk().x = 5`, `c.get().x = 9`: a place whose base is a value no
-    /// binding holds (a call's result that is not a write borrow) is
-    /// gone after the statement, so the assignment would change nothing.
-    fn assignsIntoTemporary(self: *Checker, target: Sexp) Error!bool {
-        var base = target;
-        while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
-        if (base == .src or base.isKind(.read) or base.isKind(.write)) return false;
-        const ty = self.ctx.typeOf(base) orelse return false;
-        if (self.isPoison(ty) or self.ctx.types.get(ty) == .borrow_write) return false;
-        try self.errAt(target, "cannot assign to a field or element of a temporary; bind the value first (`t = ...`), then assign to `t`", .{});
-        return true;
     }
 
     /// Writing to `place` (a name, or a field or element of one, already
@@ -1186,6 +1143,323 @@ const Checker = struct {
         }
         if (p == .src and !path.indirect) path.root = p;
         return path;
+    }
+
+    // ---- places -------------------------------------------------------------
+
+    /// What is done with a place: written by assignment, `!p`, or
+    /// `for x in !p`; emptied by `<p.f`; where it holds a `!T`, lent on
+    /// or written through; or, where it is a Cell, changed in place.
+    const Access = enum {
+        assign,
+        write_borrow,
+        write_iterate,
+        take,
+        lend_write,
+        write_through,
+        set_cell,
+
+        /// How a diagnostic names the access.
+        fn verb(a: Access) []const u8 {
+            return switch (a) {
+                .assign => "assign to",
+                .write_borrow, .set_cell => "write-borrow",
+                .write_iterate => "write-iterate",
+                .take => "take",
+                .lend_write => "lend",
+                .write_through => "write through",
+            };
+        }
+    };
+
+    /// Where a place starts.
+    const Root = enum {
+        /// A binding of the body being checked.
+        local,
+        param,
+        capture,
+        /// A loop or pattern binding that holds a value: a copy of what
+        /// it binds, unless a resource was moved into it.
+        pattern,
+        /// A module-level binding: fixed (`=!`), or not.
+        constant,
+        global,
+        /// An imported module, whose binding is `module.name`.
+        module,
+        /// A value no binding holds: a call's result, a literal.
+        temporary,
+        /// A borrow or handle a call or sigil yields: the place is its
+        /// owner's.
+        borrowed,
+        /// A name that is no binding, or a value of no known type.
+        other,
+    };
+
+    /// Why a place is read-only: a `*T` on the way, which other handles
+    /// may share; an element of a `[]T` or a String, or a `.len`; or a
+    /// `?T` on the way. Where several apply, the first in that order.
+    const Block = enum {
+        shared,
+        slice,
+        string,
+        len,
+        read_borrow,
+
+        fn rank(b: Block) u2 {
+            return switch (b) {
+                .shared => 0,
+                .slice, .string, .len => 1,
+                .read_borrow => 2,
+            };
+        }
+    };
+
+    /// A place expression (a name, or a field or element of one),
+    /// classified once from the recorded types of the objects along its
+    /// path (`a` and `a.b` in `a.b.c`).
+    const Place = struct {
+        node: Sexp = .nil,
+        /// The expression the path starts from, and where it starts.
+        base: Sexp = .nil,
+        pos: u32 = 0,
+        root: Root = .other,
+        /// The binding the base names.
+        sym: ?SymbolId = null,
+        /// `module.name`, when the base names an imported module.
+        module_member: ?Sexp = null,
+        /// The fields and elements on the path; whether all are fields.
+        steps: u32 = 0,
+        fields_only: bool = true,
+        /// A range index `xs[a..b]` is on the path.
+        sliced: bool = false,
+        /// A borrow or handle is on the way.
+        indirect: bool = false,
+        /// What makes the place read-only, and where: the outermost
+        /// step of the first kind that applies.
+        blocked: ?struct { why: Block, pos: u32 } = null,
+        /// The `c[i]` the path goes through where `c` is a
+        /// `Cell[Vec[E]]`: such an element is a copy, read or written
+        /// whole.
+        cell_vec_elem: ?Sexp = null,
+
+        /// A name, or a field or element of one: storage with an owner.
+        fn named(p: Place) bool {
+            return p.base == .src and !p.sliced;
+        }
+
+        fn block(p: *Place, why: Block, pos: u32) void {
+            if (p.blocked) |b| if (b.why.rank() <= why.rank()) return;
+            p.blocked = .{ .why = why, .pos = pos };
+        }
+    };
+
+    fn placeOf(self: *Checker, e: Sexp) Place {
+        var place: Place = .{ .node = e };
+        var p = e;
+        while (p.isKind(.member) or p.isKind(.index)) : (place.steps += 1) {
+            const step = p;
+            const index = step.isKind(.index);
+            p = ir.get(step, .object);
+            if (index) place.fields_only = false else place.module_member = step;
+            if (index and rig.isRangeIndex(step)) place.sliced = true;
+            const ty = self.ctx.typeOf(p) orelse continue;
+            const inner = sema.unwrapBorrows(self.ctx, ty);
+            const obj = self.ctx.types.get(inner);
+            if (index) {
+                if (place.cell_vec_elem == null and cellVecElement(self.ctx, ty) != null) place.cell_vec_elem = step;
+                if (obj == .string or (obj == .slice and sema.writeSliceElem(self.ctx, ty) == null)) place.block(if (obj == .string) .string else .slice, self.startOf(p));
+            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string or obj == .array or vecElementType(self.ctx, inner) != null or cellVecElement(self.ctx, inner) != null)) {
+                place.block(.len, self.startOf(ir.Member.name(step)));
+            }
+            switch (self.ctx.types.get(ty)) {
+                .borrow_read => {
+                    place.indirect = true;
+                    place.block(.read_borrow, self.startOf(p));
+                },
+                .borrow_write, .shared => place.indirect = true,
+                else => {},
+            }
+            if (obj == .shared) place.block(.shared, 0);
+        }
+        place.base = p;
+        place.pos = self.startOf(p);
+        if (p == .src) {
+            place.sym = self.ctx.symbolOf(p);
+            if (place.sym) |id| place.root = self.rootOf(self.ctx.symbols.items[id]);
+        } else if (self.ctx.typeOf(p)) |ty| if (!self.isPoison(ty)) {
+            place.root = switch (self.ctx.types.get(ty)) {
+                .borrow_read, .borrow_write, .shared => .borrowed,
+                else => .temporary,
+            };
+        };
+        return place;
+    }
+
+    fn rootOf(self: *Checker, sym: sema.Symbol) Root {
+        return switch (sym.kind) {
+            .param => .param,
+            .capture => .capture,
+            .module => .module,
+            .local => if (sym.scope == self.module_scope)
+                (if (sym.flags.fixed) .constant else .global)
+            else if (sym.flags.pattern_bound and self.ctx.types.get(sym.ty) != .borrow_write) .pattern else .local,
+            else => .other,
+        };
+    }
+
+    /// Whether `place` may be used as `access` asks. Nothing is written
+    /// through a `*T` or a `?T`, or into an element of a `[]T` or a
+    /// String, or a `.len`; a temporary would lose the change; and
+    /// without a borrow or handle on the way, the binding the path starts
+    /// from must be one that may change (`requireBinding`). A diagnostic
+    /// with no better position is at `at`. False after a diagnostic.
+    fn requireAccess(self: *Checker, place: Place, access: Access, at: Sexp) Error!bool {
+        if (access == .set_cell) return self.requireCellPlace(place, at);
+        // A name or value lent where a `!T` goes is the borrow itself.
+        if (access == .lend_write and place.steps == 0) return true;
+        const verb = access.verb();
+        if (place.blocked) |b| {
+            if (access == .lend_write or access == .write_through) switch (b.why) {
+                .shared => try self.errAt(at, "cannot {s} the write borrow held here through a shared handle (`*T`); other handles reach the same write borrow", .{verb}),
+                .read_borrow => try self.err(b.pos, "cannot {s} the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow", .{verb}),
+                .slice, .string, .len => try self.err(b.pos, "cannot {s} the write borrow held here through {s}", .{ verb, switch (b.why) {
+                    .slice => "a slice (`[]T`), which is read-only",
+                    .string => "a String, which is read-only",
+                    else => "`.len`, which is read-only",
+                } }),
+            } else {
+                const through = if (access == .assign) "assign" else verb;
+                switch (b.why) {
+                    // A Cell reached through the handle changes in place.
+                    .shared => if (access == .assign and cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
+                        const shown = self.sourceText(place.node);
+                        try self.errAt(at, "cannot assign through a shared handle (`*T`); other handles may exist. `{s}` is a Cell: change its value with `{s}.set(...)`", .{ shown, shown });
+                    } else try self.errAt(at, "cannot {s} through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{through}),
+                    .slice => try self.err(b.pos, "cannot {s} through a slice; a `[]T` is read-only", .{through}),
+                    .string => try self.err(b.pos, "cannot {s} a byte of a String; a String is read-only", .{verb}),
+                    .len => try self.err(b.pos, "cannot {s} `.len`; a length is read-only", .{verb}),
+                    .read_borrow => try self.err(b.pos, "cannot {s} through a read borrow (`?T`); take a write borrow (`!T`) to mutate", .{through}),
+                }
+            }
+            return false;
+        }
+        if (place.root == .temporary) {
+            switch (access) {
+                .assign, .write_through => try self.errAt(at, "cannot assign to a field or element of a temporary; bind the value first (`t = ...`), then assign to `t`", .{}),
+                .take => try self.errAt(at, "cannot take out of a temporary: nothing would see it emptied; bind it to a name first", .{}),
+                else => try self.errAt(at, "cannot write-borrow a temporary: the change would be lost; bind it to a name first", .{}),
+            }
+            return false;
+        }
+        if (place.indirect) return true;
+        return self.requireBinding(place, access);
+    }
+
+    /// Whether the binding `place` starts from may be written: a
+    /// parameter or capture only when it is a `!T`; a fixed binding or
+    /// constant never; a loop or pattern binding only when it holds a
+    /// write borrow of a place it may write, or owns a resource moved
+    /// into it, and never when assigned whole. (Reassigning a fixed
+    /// binding is the ownership checker's to report.) False after a
+    /// diagnostic.
+    fn requireBinding(self: *Checker, place: Place, access: Access) Error!bool {
+        var id: ?SymbolId = place.sym orelse return true;
+        var sym = self.ctx.symbols.items[id.?];
+        var name = sym.name;
+        var root = place.root;
+        if (root == .module) {
+            const leaf = self.text(ir.Member.name(place.module_member orelse return true));
+            sym = (self.foreignLookup(id.?, leaf) orelse return true).sym;
+            name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(place.base), leaf });
+            id = null;
+            root = self.rootOf(sym);
+        }
+        const verb = switch (access) {
+            .lend_write => "write-borrow",
+            .write_through => "assign to",
+            else => access.verb(),
+        };
+        const whole = access == .assign and place.steps == 0;
+        const pos = place.pos;
+        const writes = self.ctx.types.get(sym.ty) == .borrow_write;
+        const poison = self.isPoison(sym.ty);
+        switch (root) {
+            .param => if (poison) {
+                return false;
+            } else if (!writes) {
+                if (std.mem.eql(u8, name, "self")) {
+                    try self.err(pos, "cannot {s} parameter `self`; parameters are immutable (take `!self` to write through to the caller)", .{verb});
+                } else try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (bind a copy with `new {s} = {s}`, or take `{s}: !T` to write through to the caller)", .{ verb, name, name, name, name });
+                return false;
+            },
+            // A captured write borrow is lent on, as a `!T` parameter is.
+            .capture => if (!writes and !poison) {
+                try self.err(pos, "cannot {s} captured `{s}`; captures are fixed when the closure is created", .{ verb, name });
+                return false;
+            },
+            // A fixed write borrow is lent and written through, never
+            // pointed elsewhere.
+            .constant, .local => if (sym.flags.fixed and !writes) {
+                if (whole) return true;
+                if (root == .constant) {
+                    try self.err(pos, "cannot {s} constant `{s}`", .{ verb, name });
+                } else try self.err(pos, "cannot {s} fixed binding `{s}` (bound with `=!`)", .{ verb, name });
+                return false;
+            } else if (sym.flags.pattern_bound) {
+                // A write borrow a match that only reads its subject binds
+                // is read through too.
+                const from = self.copied_from.get(id orelse return true) orelse return true;
+                if (from.kind != .match_copy and from.kind != .match_read) return true;
+                const shown = self.sourceText(from.place);
+                try self.err(pos, "cannot {s} `{s}`: `match {s}{s}` reads `{s}`, and so do its bindings; to write through `{s}`, match with `match !{s}`", .{ verb, name, if (from.kind == .match_read) "?" else "", shown, shown, name, shown });
+                return false;
+            },
+            .pattern => if (!poison) {
+                // An `as` or `match <x` binding that owns a resource moved
+                // into it is not a copy: its fields can be written and taken.
+                const owned = sym.flags.as_bound or (if (id) |i| self.owned_bindings.contains(i) else false);
+                if (!whole and owned and sema.typeHasDropGlue(self.ctx, sym.ty)) return true;
+                if (id) |i| if (self.copied_from.get(i)) |from| {
+                    const shown = self.sourceText(from.place);
+                    switch (from.kind) {
+                        .loop => try self.err(pos, "cannot {s} `{s}`: it is a copy of an element of `{s}`; to change the elements in place, loop with `for {s} in !{s}`", .{ verb, name, shown, name, shown }),
+                        .as => try self.err(pos, "cannot {s} `{s}`: it is a copy of the value inside `{s}`; to change that value in place, bind it with `!{s} as {s}`", .{ verb, name, shown, shown, name }),
+                        .match_copy, .match_read => try self.err(pos, "cannot {s} `{s}`: it is {s} of {s}`{s}`; to change {s} in place, match with `match !{s}`", .{ verb, name, if (from.kind == .match_copy and !sema.typeHasDropGlue(self.ctx, sym.ty)) "a copy" else "a read view", if (from.whole) "" else "a field of ", shown, if (from.whole) "it" else "the field", shown }),
+                    }
+                    return false;
+                };
+                if (sema.typeHasDropGlue(self.ctx, sym.ty)) {
+                    try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (move it into a new binding with `new {s} = <{s}`)", .{ verb, name, name, name });
+                } else try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb, name, name, name });
+                return false;
+            },
+            else => {},
+        }
+        return true;
+    }
+
+    /// A Cell is interior-mutable: `set`, `replace`, and a `Cell[Vec[E]]`'s
+    /// `c[i] = e`, `push`, `pop`, and `clear` change it through any path
+    /// that reaches its storage, a read borrow or shared handle included:
+    /// a local binding or a field or element of one, a capture held by a
+    /// closure environment, or anything behind a borrow or handle. A
+    /// by-value parameter is immutable, and a loop or match binding is a
+    /// copy, so changing it would not change the value it came from.
+    /// `at` is the `c[i]` assigned, or the method's name.
+    fn requireCellPlace(self: *Checker, place: Place, at: Sexp) Error!bool {
+        const reached = if (self.ctx.typeOf(place.node)) |ty| switch (self.ctx.types.get(ty)) {
+            .borrow_read, .borrow_write, .shared => true,
+            else => false,
+        } else false;
+        if (reached or place.indirect) return true;
+        switch (place.root) {
+            .local, .constant, .global, .capture, .borrowed => return true,
+            else => {},
+        }
+        if (at.isKind(.index)) {
+            try self.errAt(at, cell_place, .{ "c[i] = e", "" });
+        } else try self.errAt(at, cell_place, .{ "Cell.", self.text(at) });
+        return false;
     }
 
     /// Synthesize without reporting diagnostics (the full check reports them).

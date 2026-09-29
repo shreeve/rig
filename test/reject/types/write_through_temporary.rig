@@ -1,0 +1,19 @@
+# A write borrow held in a field of a value no binding holds is used as
+# `!mk().w` is: writing through it, like lending it, needs the value
+# bound first.
+
+struct H
+  w: !Int
+
+fun mk(w: !Int) -> H
+  H(w: <w)
+
+sub main
+  n = 1
+  mk(!n).w = 5
+  mk(!n).w += 1
+  print(n)
+
+# error: 13:3: cannot assign to a field or element of a temporary; bind the value first
+# error: 14:3: cannot assign to a field or element of a temporary; bind the value first
+# errors: 2

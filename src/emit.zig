@@ -1179,9 +1179,9 @@ pub const Emitter = struct {
     /// resource, the old value is dropped after the new one is computed.
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
         // A field or element holding a write borrow is written through
-        // when it is given a value, not another write borrow; the place
-        // is then the value it borrows.
-        const through = self.isPtrBorrowExpr(target) and !self.isPtrBorrowExpr(value);
+        // when it is given a value, not another write borrow (sema
+        // decides); the place is then the value it borrows.
+        const through = self.sema.writesThrough(target);
         const place_ty = if (through) self.peelBorrows(self.typeOf(target).?) else self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
             try self.emitCellPtr(ir.Index.object(target));
