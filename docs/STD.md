@@ -170,16 +170,19 @@ true
 ## std.random
 
 `Rng` is a small, fast pseudorandom generator (splitmix64), written in
-Rig. Its whole state is one `U64`, so it is plain data; its methods
-change it, so they take `!self`. A seeded `Rng` gives the same sequence
-on every platform. It is not for cryptography.
+Rig. Its state is one `U64`, which its methods change, so they take
+`!self`. An `Rng` moves (`a = <r`) and is never copied, since a copy
+would draw the same numbers as the original; `fork` makes a second
+generator on purpose. A seeded `Rng` gives the same sequence on every
+platform. It is not for cryptography.
 
 | Member | Result |
 |---|---|
 | `Rng.seeded(seed: U64) -> Rng` | a generator whose sequence `seed` fixes |
 | `Rng.new() -> Rng` | a generator seeded from the operating system's entropy, different on each run |
 | `!r.next() -> U64` | the next 64 random bits |
-| `!r.int(lo: Int, hi: Int) -> Int` | an `Int` from `lo` up to but not including `hi`, each equally likely; panics unless `lo < hi`, and when `hi - lo` overflows |
+| `!r.fork() -> Rng` | a new generator, seeded from `r`'s next number |
+| `!r.int(lo: Int, hi: Int) -> Int` | an `Int` from `lo` up to but not including `hi`, each equally likely, for any range up to `Int.min` to `Int.max`; panics unless `lo < hi` |
 | `!r.float() -> Float` | a `Float` from 0 up to but not including 1 |
 | `!r.shuffle(!xs)` | put the elements of the slice `xs` in a random order, each order equally likely |
 

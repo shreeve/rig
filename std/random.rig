@@ -5,6 +5,12 @@
 pub struct Rng
   state: U64
 
+  # An Rng moves rather than copies: a copy would draw the same numbers
+  # as the original. The empty `drop` makes it an owning value; `fork`
+  # makes a second generator on purpose.
+  drop(!self)
+    pass
+
   # A generator whose sequence is fixed by `seed`.
   pub fun seeded(seed: U64) -> Rng
     Rng(state: seed)
@@ -22,18 +28,24 @@ pub struct Rng
     z = (z ^ (z >> 27)) *% 0x94d049bb133111eb
     z ^ (z >> 31)
 
+  # A new generator, seeded from this one's next number.
+  pub fun fork(!self) -> Rng
+    Rng(state: !self.next())
+
   # An `Int` from `lo` up to but not including `hi`, each equally
-  # likely. Panics unless `lo < hi`, and when `hi - lo` overflows.
+  # likely. Panics unless `lo < hi`.
   pub fun int(!self, lo: Int, hi: Int) -> Int
     check_range(lo, hi)
-    n = U64(hi - lo)
+    # The number of values, which fits a `U64` even for the widest range.
+    n = as_u64(hi -% lo)
     # Rejecting the few smallest values leaves a whole number of runs
     # of `n`, so every result is equally likely.
     t = (0 -% n) % n
     x = !self.next()
     while x < t
       x = !self.next()
-    lo + Int(x % n)
+    # `lo` plus less than `n` is below `hi`, so it fits an `Int`.
+    lo +% as_int(x % n)
 
   # A `Float` from 0 up to but not including 1.
   pub fun float(!self) -> Float
@@ -45,6 +57,15 @@ pub struct Rng
     i = xs.len - 1
     while i > 0 : i -= 1
       !xs.swap(i, !self.int(0, i + 1))
+
+# The same 64 bits as the other type.
+fun as_u64(n: Int) -> U64
+  raw
+    @bitCast(n)
+
+fun as_int(n: U64) -> Int
+  raw
+    @bitCast(n)
 
 extern zig "random.zig"
   # 64 bits from the operating system's entropy source.
