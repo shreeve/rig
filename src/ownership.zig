@@ -2552,7 +2552,8 @@ pub const Checker = struct {
         if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             if (recv_root) |id| {
                 const obj = ir.Member.object(callee);
-                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null, true);
+                // What the receiver is, not the borrow lending it.
+                if (self.mayCarryBorrow(self.pointee(self.exprType(obj)))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null, true);
             }
             try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
             for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);

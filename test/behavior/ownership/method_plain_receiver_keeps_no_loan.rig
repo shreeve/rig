@@ -1,0 +1,26 @@
+# A method taking `!self` may store what its arguments borrow in its
+# receiver only when the receiver's type can hold a borrow: a receiver
+# of plain data keeps none, so the argument's borrow ends with the call.
+
+struct Counter
+  n: Int
+
+  sub bump(!self, xs: ![]Int)
+    self.n += 1
+    !xs.swap(0, 1)
+
+  sub bump_each[T](!self, xs: ![]T)
+    self.n += 1
+    !xs.swap(0, 1)
+
+sub main()
+  c = Counter(n: 0)
+  a = [1, 2, 3]
+  !c.bump(!a)
+  print(a)
+  !c.bump_each(!a)
+  print(a, c.n)
+
+# expect:
+# [2, 1, 3]
+# [1, 2, 3] 2
