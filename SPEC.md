@@ -4255,17 +4255,21 @@ fun find(n: Int) -> Int!
 `f() catch |err| handler` names the error for the handler. Functions do
 not declare which errors they fail with, so `err` may be any error: it
 is compared with error-set members (`err == E.name`), matched by them
-(`E.name =>`, with a `_` arm where the match gives a value), printed,
-and returned from a fallible function. The handler may be a block.
+(`E.name =>`, with a `_` arm, since no arms name every error),
+printed, and returned from a fallible function. The handler may be a
+block.
 
 An error is its set's member: a failure with `Net.timeout` is not
 `Disk.timeout`, so `err == Disk.timeout` is false for it and a
 `Disk.timeout =>` arm does not match it. A set of another module is
 named through the module: `io.IoError.eof`, also as a pattern. A bare
 `.name` compared or matched with `err` is the member of the one error
-set the module can see (its own, or one of a module it reaches through
-its imports) that has a member `name`. It is rejected when no set has
-one, and when several do: then the comparison or pattern names the set.
+set that may mean it: the module's own sets, private ones included, and
+the `pub` sets of the modules it reaches through its imports; another
+module's private set never counts. It is rejected when no such set has
+a member `name`, and when several do: the error lists each as the
+module writes it, saying which module to import to name one it only
+reaches, and the comparison or pattern names the set.
 
 ```rig
 error ParseError

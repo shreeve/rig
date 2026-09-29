@@ -1,0 +1,6 @@
+error Hidden
+  timeout
+
+pub fun f(n: Int) -> Int!
+  return Hidden.timeout if n == 0
+  n

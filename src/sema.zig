@@ -632,6 +632,9 @@ pub const Facts = struct {
     /// Fields and elements of a temporary, holding a Cell, that a read
     /// borrow lends (`SemContext.recordCellTemp`).
     cell_temps: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// `E.name` nodes that name a member of an error set `E`, through
+    /// its module or an alias (`SemContext.recordErrorMember`).
+    error_members: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (std.meta.fields(Facts)) |f| @field(self, f.name).deinit(allocator);
@@ -1277,6 +1280,16 @@ pub const SemContext = struct {
 
     /// `node` is `<place` taking an optional out of a field or element,
     /// leaving `none` behind.
+    /// `node`, a `member`, names a member of an error set, not a
+    /// module's constant or a value's field.
+    pub fn recordErrorMember(self: *SemContext, node: Sexp) !void {
+        try self.facts.error_members.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn isErrorMember(self: *const SemContext, node: Sexp) bool {
+        return self.facts.error_members.contains(nodeKey(node) orelse return false);
+    }
+
     pub fn recordTake(self: *SemContext, node: Sexp) !void {
         try self.facts.takes.put(self.allocator, recordKey(node), {});
     }
@@ -2597,32 +2610,28 @@ pub fn isErrorSet(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
-/// The error sets this module can see (its own, and those declared in
-/// the modules it reaches through its imports) that have a member
-/// `name`: how many, and the first two as types of this module.
-pub const ErrorSets = struct {
-    count: usize = 0,
-    first: [2]TypeId = undefined,
-};
-
-pub fn errorSetsWith(ctx: *SemContext, name: []const u8) std.mem.Allocator.Error!ErrorSets {
-    var out: ErrorSets = .{};
-    try collectErrorSets(ctx, ctx, null, name, &out);
+/// The error sets a bare `.name` may mean in this module, as its types:
+/// its own sets, private ones included, then the `pub` sets of the
+/// modules it reaches through its imports, that have a member `name`.
+pub fn errorSetsWith(ctx: *SemContext, name: []const u8) std.mem.Allocator.Error![]const TypeId {
+    var out: std.ArrayListUnmanaged(TypeId) = .empty;
+    const a = ctx.arena.allocator();
+    try collectErrorSets(ctx, ctx, null, name, &out, a);
     var it = ctx.reach.iterator(.{});
-    while (it.next()) |id| try collectErrorSets(ctx, ctx.foreign_semas.get(@intCast(id)).?, @intCast(id), name, &out);
-    return out;
+    while (it.next()) |id| try collectErrorSets(ctx, ctx.foreign_semas.get(@intCast(id)).?, @intCast(id), name, &out, a);
+    return out.items;
 }
 
-fn collectErrorSets(ctx: *SemContext, in: *const SemContext, module_id: ?u32, name: []const u8, out: *ErrorSets) std.mem.Allocator.Error!void {
+fn collectErrorSets(ctx: *SemContext, in: *const SemContext, module_id: ?u32, name: []const u8, out: *std.ArrayListUnmanaged(TypeId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
     for (in.symbols.items, 0..) |sym, i| {
         if (!sym.flags.error_set or isProxy(sym)) continue;
+        if (module_id != null and !sym.flags.is_public) continue;
         for (sym.fields orelse &.{}) |f| {
             if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
-            if (out.count < 2) out.first[out.count] = if (module_id) |m|
+            try out.append(a, if (module_id) |m|
                 try ctx.intern(.{ .imported_nominal = .{ .module_id = m, .sym_id = @intCast(i) } })
             else
-                try ctx.intern(.{ .nominal = @intCast(i) });
-            out.count += 1;
+                try ctx.intern(.{ .nominal = @intCast(i) }));
             break;
         }
     }

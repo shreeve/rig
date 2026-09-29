@@ -1880,7 +1880,7 @@ const Checker = struct {
         if (result) |r| for (arm_values.items) |av| try self.adaptLiteral(av.node, av.ty, r);
         const exhaustive = self.coversAll(&cov, scrutinee);
         if (exhaustive) try self.ctx.recordExhaustive(node);
-        if (matchable and !cov.has_default and !exhaustive and !self.isPoison(scrutinee)) try self.notExhaustive(&cov, scrutinee, scrut_pos);
+        if (matchable and !cov.has_default and !cov.rejected and !exhaustive and !self.isPoison(scrutinee)) try self.notExhaustive(&cov, scrutinee, scrut_pos);
         if (position == .statement) return self.t().void_id;
         return result orelse self.t().invalid_id;
     }
@@ -1892,6 +1892,9 @@ const Checker = struct {
         /// Inclusive integer intervals, disjoint and in order.
         ints: std.ArrayListUnmanaged([2]Wide) = .empty,
         has_default: bool = false,
+        /// An arm's pattern was rejected without saying what it meant to
+        /// cover: whether the arms cover every value is not known.
+        rejected: bool = false,
         /// Variants only a guarded arm matches, which covers none.
         guarded: std.StringHashMapUnmanaged(void) = .empty,
 
@@ -2082,7 +2085,7 @@ const Checker = struct {
                         try self.ctx.recordType(pattern, scrutinee);
                         try self.recordCovered(self.text(name), self.startOf(pattern), covered);
                     },
-                    .member => try self.checkQualifiedPattern(pattern, scrutinee, covered),
+                    .member => try self.checkQualifiedPattern(pattern, scrutinee, cov),
                     .variant_pattern => try self.checkVariantPattern(pattern, scrutinee, covered, mode),
                     .range_pattern => try self.checkRangePattern(pattern, scrutinee, cov),
                     else => {
@@ -3466,7 +3469,11 @@ const Checker = struct {
 
         if (try self.moduleMember(obj, field, pos)) |ty| return ty;
         if (try self.numberType(obj)) |ty| return self.numberLimit(obj, ty, field, pos);
-        if (try self.namedType(obj)) |nt| return self.typeMember(nt, field, pos);
+        if (try self.namedType(obj)) |nt| {
+            const ty = try self.typeMember(nt, field, pos);
+            if (nt.sym.flags.error_set and !self.isPoison(ty)) try self.ctx.recordErrorMember(e);
+            return ty;
+        }
         return self.memberOf(e, obj, try self.synthOperand(obj));
     }
 
@@ -6845,7 +6852,7 @@ const Checker = struct {
                     (try sema.lookupVariant(self.ctx, target, self.text(name))) == null)
                 {
                     const sets = try sema.errorSetsWith(self.ctx, self.text(name));
-                    if (sets.count > 0) {
+                    if (sets.len > 0) {
                         try self.bareErrorName(name, target, sets);
                         return self.t().invalid_id;
                     }
@@ -7147,37 +7154,60 @@ const Checker = struct {
 
     /// `.name` where a `T!` is expected names no variant of `T` but a
     /// member of an error set: say how to fail with it.
-    fn bareErrorName(self: *Checker, name_node: Sexp, target: TypeId, sets: sema.ErrorSets) Error!void {
+    fn bareErrorName(self: *Checker, name_node: Sexp, target: TypeId, sets: []const TypeId) Error!void {
         const name = self.text(name_node);
         const a = self.ctx.arena.allocator();
-        var fix: std.ArrayListUnmanaged(u8) = .empty;
-        for (sets.first[0..@min(sets.count, 2)], 0..) |set, i| {
-            try fix.print(a, "{s}`{s}.{s}`", .{ if (i > 0) " or " else "", try self.tyName(set), name });
-        }
         const what = if (target == self.t().void_id)
             "a `sub` returns no value"
         else if (sema.enumVariantCount(self.ctx, target) != null)
             try std.fmt.allocPrint(a, "`.{s}` is not a variant of `{s}`", .{ name, try self.tyName(target) })
         else
             try std.fmt.allocPrint(a, "`.{s}` is not a value of `{s}`", .{ name, try self.tyName(target) });
-        try self.errAt(name_node, "{s}; to fail, name the error set: {s}", .{ what, fix.items });
+        try self.errAt(name_node, "{s}; to fail, name the error set: {s}", .{ what, try self.errorChoices(sets, name, true) });
+    }
+
+    /// Error set `set` as this module writes it: `E`, or `m.E` for one
+    /// of a module it imports as `m`, or of a module it only reaches,
+    /// which it names by that module's name, and `import` is then set.
+    const SetSpelling = struct { text: []const u8, import: ?[]const u8 = null };
+
+    fn setSpelling(self: *Checker, set: TypeId) Error!SetSpelling {
+        const a = self.ctx.arena.allocator();
+        const decl = sema.nominalDecl(self.ctx, set) orelse return .{ .text = try self.tyName(set) };
+        const sname = decl.symbol().name;
+        const module = decl.module_id orelse return .{ .text = sname };
+        for (self.ctx.imports) |imp| if (imp.module_id == module) return .{ .text = try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, sname }) };
+        return .{ .text = try std.fmt.allocPrint(a, "{s}.{s}", .{ decl.ctx.name, sname }), .import = decl.ctx.name };
+    }
+
+    /// `A.x`, `B.x`, or `C.x`: each of `sets` (with its member `name`,
+    /// when `members`), saying which modules must be imported to write it.
+    fn errorChoices(self: *Checker, sets: []const TypeId, name: []const u8, members: bool) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        var out: std.ArrayListUnmanaged(u8) = .empty;
+        const conj = if (members) "or" else "and";
+        for (sets, 0..) |set, i| {
+            if (i + 1 < sets.len) {
+                if (i > 0) try out.appendSlice(a, ", ");
+            } else if (i > 0) try out.print(a, "{s} {s} ", .{ if (sets.len > 2) "," else "", conj });
+            const sp = try self.setSpelling(set);
+            if (members) try out.print(a, "`{s}.{s}`", .{ sp.text, name }) else try out.print(a, "`{s}`", .{sp.text});
+            if (members) if (sp.import) |m| try out.print(a, " (import `{s}` to name it)", .{m});
+        }
+        return out.items;
     }
 
     /// `.name` where any error is expected: the member of the one error
-    /// set this module can see that has it. Its type is that set's, or
+    /// set it may mean (`sema.errorSetsWith`). Its type is that set's, or
     /// poison when no set or several have it.
     fn resolveErrorName(self: *Checker, name_node: Sexp) Error!TypeId {
         const name = self.text(name_node);
         const sets = try sema.errorSetsWith(self.ctx, name);
-        if (sets.count == 1) return sets.first[0];
-        if (sets.count == 0) {
+        if (sets.len == 1) return sets[0];
+        if (sets.len == 0) {
             try self.errAt(name_node, "no error set has a member `{s}`", .{name});
         } else {
-            const a = try self.tyName(sets.first[0]);
-            const b = try self.tyName(sets.first[1]);
-            if (sets.count == 2) {
-                try self.errAt(name_node, "error sets `{s}` and `{s}` both have a member `{s}`; name the set: `{s}.{s}` or `{s}.{s}`", .{ a, b, name, a, name, b, name });
-            } else try self.errAt(name_node, "{d} error sets have a member `{s}`, among them `{s}` and `{s}`; name the set: `{s}.{s}`", .{ sets.count, name, a, b, a, name });
+            try self.errAt(name_node, "error sets {s} {s} have a member `{s}`; name the set: {s}", .{ try self.errorChoices(sets, name, false), if (sets.len == 2) "both" else "all", name, try self.errorChoices(sets, name, true) });
         }
         return self.t().invalid_id;
     }
@@ -7192,25 +7222,35 @@ const Checker = struct {
 
     /// `E.name` or `m.E.name` as a pattern: a member of error set `E`,
     /// where the subject is of that set or is any error.
-    fn checkQualifiedPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, covered: *std.StringHashMapUnmanaged(u32)) Error!void {
+    fn checkQualifiedPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
         const ty = try self.synthExpr(pattern);
         const subject = sema.unwrapBorrows(self.ctx, scrutinee);
-        if (self.isPoison(ty) or self.isPoison(subject)) return;
+        const obj = ir.Member.object(pattern);
+        const shown = self.sourceText(pattern);
         const name = self.text(ir.Member.name(pattern));
-        // A value's field is not a constant to match.
-        if (self.ctx.typeOf(ir.Member.object(pattern)) != null) {
-            return self.errAt(pattern, "`{s}` is not a pattern; a qualified pattern names a member of an error set: `E.name`", .{self.sourceText(pattern)});
+        if (self.isPoison(ty) or self.isPoison(subject)) {
+            cov.rejected = true;
+            return;
         }
-        if (!sema.isErrorSet(self.ctx, ty)) {
-            if (sema.enumVariantCount(self.ctx, ty) != null) {
+        if (!self.ctx.isErrorMember(pattern)) {
+            const module = if (obj == .src) if (self.ctx.symbolOf(obj)) |id| self.ctx.symbols.items[id].kind == .module else false else false;
+            const value = module or self.ctx.typeOf(obj) != null;
+            // `Color.red` meant `.red`, which the arm covers; what any
+            // other rejected pattern meant is unknown.
+            if (!value and ty == subject and (try sema.lookupVariant(self.ctx, ty, name)) != null) {
+                try self.recordCovered(name, self.startOf(pattern), &cov.variants);
                 return self.errAt(pattern, "a pattern names a variant without its enum: `.{s}`; only an error's pattern names its set", .{name});
             }
-            return self.errAt(pattern, "`{s}` is not a pattern; a qualified pattern names a member of an error set: `E.name`", .{self.sourceText(pattern)});
+            cov.rejected = true;
+            if (module) return self.errAt(pattern, "`{s}` is a constant, which a pattern cannot name; compare with it in a guard: `x if x == {s} =>`", .{ shown, shown });
+            if (value) return self.errAt(pattern, "`{s}` is a value, which a pattern cannot name; compare with it in a guard: `x if x == {s} =>`", .{ shown, shown });
+            return self.errAt(pattern, "`{s}` is not a pattern; a qualified pattern names a member of an error set: `E.name`", .{shown});
         }
         if (subject != self.t().any_error_id and subject != ty) {
+            cov.rejected = true;
             return self.errAt(pattern, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(subject), try self.tyName(ty) });
         }
-        try self.recordCovered(try self.errorArmKey(subject, ty, name), self.startOf(pattern), covered);
+        try self.recordCovered(try self.errorArmKey(subject, ty, name), self.startOf(pattern), &cov.variants);
     }
 
     fn checkEnumLit(self: *Checker, name_node: Sexp, expected: TypeId) Error!void {

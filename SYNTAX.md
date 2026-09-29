@@ -1389,9 +1389,10 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | `p, q` | any of the alternatives, which bind no names |
 | `p if cond` | what `p` matches, when the guard `cond` holds |
 
-A pattern is one of these, never a string or a float. Binding a payload
-field by name (`.rect(w: a, h: b)`) is reserved, and rejected as not
-supported yet ([SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)).
+A pattern is one of these, never a string or a float, and never a
+module's constant (`lib.LIMIT`), which an arm compares with in a guard:
+`x if x == lib.LIMIT =>`. Binding a payload field by name
+(`.rect(w: a, h: b)`) is reserved, and rejected as not supported yet ([SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)).
 
 ---
 

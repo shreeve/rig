@@ -1,0 +1,9 @@
+use a
+
+pub error Mid
+  timeout
+
+pub fun h(n: Int) -> Int!
+  return a.Deep.timeout if n == 0
+  return Mid.timeout if n == 1
+  n

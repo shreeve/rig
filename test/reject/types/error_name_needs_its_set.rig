@@ -2,7 +2,8 @@
 # `.name` is the member of the one error set that has it; when two sets
 # have it, the match arm or comparison that one of them used to satisfy
 # must name the set. A qualified pattern names a member of an error set,
-# and only one the subject can hold.
+# and only one the subject can hold; a rejected `Color.red` arm still
+# covers `.red`, so it brings no second error.
 
 error Net
   timeout
@@ -39,7 +40,7 @@ sub main
   c = Color.red
   match c
     Color.red => print("red")
-    _ => print("other")
+    .green => print("green")
   s = S(err: .refused)
   match n
     s.err => print("same")
@@ -47,13 +48,13 @@ sub main
   d: Disk = Net.timeout
   print(a, b, n == Disk.timeout, d)
 
-# error: 28:8: error sets `Net` and `Disk` both have a member `timeout`; name the set: `Net.timeout` or `Disk.timeout`
-# error: 29:11: no member `bogus` on type `Net`
-# error: 31:7: duplicate arm for variant `Net.refused`
-# error: 33:37: error sets `Net` and `Disk` both have a member `timeout`; name the set: `Net.timeout` or `Disk.timeout`
-# error: 36:5: type mismatch: expected `Net`, got `Disk`
-# error: 41:5: a pattern names a variant without its enum: `.red`
-# error: 45:5: `s.err` is not a pattern
-# error: 47:13: type mismatch: expected `Disk`, got `Net`
-# error: 48:15: cannot compare `Net` with `Disk`
+# error: 29:8: error sets `Net` and `Disk` both have a member `timeout`; name the set: `Net.timeout` or `Disk.timeout`
+# error: 30:11: no member `bogus` on type `Net`
+# error: 32:7: duplicate arm for variant `Net.refused`
+# error: 34:37: error sets `Net` and `Disk` both have a member `timeout`; name the set: `Net.timeout` or `Disk.timeout`
+# error: 37:5: type mismatch: expected `Net`, got `Disk`
+# error: 42:5: a pattern names a variant without its enum: `.red`
+# error: 46:5: `s.err` is a value, which a pattern cannot name
+# error: 48:13: type mismatch: expected `Disk`, got `Net`
+# error: 49:15: cannot compare `Net` with `Disk`
 # errors: 9

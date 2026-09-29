@@ -380,8 +380,9 @@ A few kinds serve more than one surface form:
   `variant_pattern` binding is a name, or `(kwarg field name)` for a
   field bound by name (`.rect(w: a)`), which the checker rejects as
   not supported yet. A pattern `E.name` or `m.E.name` is a `member`,
-  which the checker accepts only as a member of an error set the
-  subject can hold.
+  which the checker accepts only when sema recorded it as a member of
+  an error set (`E` names the set, through a module or an alias; not a
+  module's constant or a value's field) that the subject can hold.
 - `(pass)`, the statement `pass`, has no roles. The checker rejects it
   where a value is needed, and the emitter writes it as `{}`, an empty
   Zig block, which is a statement wherever Zig takes one.
@@ -637,10 +638,13 @@ where a `T!` is expected is checked as a variant of `T`
 (`checkContextual`), so an error value there always has its set's type.
 The error a `catch |err|` names has the type `error`: any error, since
 functions do not declare which errors they fail with. A bare `.name`
-compared or matched with one is the member of the one error set the
-module can see that has it (`sema.errorSetsWith`), and sema records that
-set as the literal's type, so every error value the emitter meets has
-its set.
+compared or matched with one is the member of the one error set that
+may mean it (`sema.errorSetsWith`: the module's own sets and the `pub`
+sets of the modules it reaches), and sema records that set as the
+literal's type, so every error value the emitter meets has its set.
+`X.name` is an error value only where sema recorded it as a member of
+the error set `X` names (`isErrorMember`); a module's constant
+`m.NAME` of an error-set type is read as the constant.
 
 ### The facts table
 
@@ -663,6 +667,7 @@ instead of re-deriving it by name:
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
+| `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read borrow lending it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds borrows, rather than pointing the place elsewhere |
 | `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |

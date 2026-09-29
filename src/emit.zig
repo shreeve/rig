@@ -3382,7 +3382,7 @@ pub const Emitter = struct {
             return self.w.writeAll("))");
         };
         // `E.name` of an error set.
-        if (obj_ty == null and self.isTypeCallee(obj)) if (self.typeOf(sexp)) |t| if (sema.isErrorSet(self.sema, t)) return self.writeError(t, field, sexp);
+        if (self.sema.isErrorMember(sexp)) return self.writeError(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped error"), field, sexp);
         // `Shape.dot` of an enum with payloads names the tag; the value
         // is the union holding it.
         if (obj_ty == null and self.isTypeCallee(obj)) if (self.typeOf(sexp)) |t| if (self.hasPayloadVariants(t)) {
@@ -3928,7 +3928,7 @@ pub const Emitter = struct {
     /// the package can import.
     fn emitDefault(self: *Emitter, decl: *const sema.SemContext, e: Sexp) Error!void {
         // A member of an error set: `.name` or `E.name`.
-        if (e.isKind(.enum_lit) or e.isKind(.member)) if (decl.typeOf(e)) |t| if (sema.nominalDecl(decl, t)) |set| if (set.symbol().flags.error_set) {
+        if (e.isKind(.enum_lit) or decl.isErrorMember(e)) if (decl.typeOf(e)) |t| if (sema.nominalDecl(decl, t)) |set| if (set.symbol().flags.error_set) {
             const name = if (e.isKind(.member)) ir.Member.name(e) else ir.EnumLit.name(e);
             try self.w.writeAll("error.");
             return writeErrorName(self.w, set.ctx, set.symbol().name, decl.source[name.src.pos..][0..name.src.len]);
