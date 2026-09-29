@@ -1,0 +1,13 @@
+# A monotonic reading is an `Instant`, not a number: it cannot be mixed
+# with the wall clock, nor made from one.
+use std.time
+
+sub main()
+  start = time.now()
+  print(time.unix_ns() - start)
+  fake = time.Instant(ns: 5)
+  print(fake.elapsed())
+
+# error: 7:26: operator `-` requires numeric operands
+# error: 8:15: only the standard library's module `std.time` can construct `std.time.Instant`
+# errors: 2

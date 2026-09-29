@@ -8,11 +8,11 @@ fn nanoseconds(clock: std.Io.Clock) i64 {
     return @intCast(std.Io.Timestamp.now(rig.io(), clock).nanoseconds);
 }
 
-pub fn now() i64 {
+pub fn monotonic() i64 {
     return nanoseconds(.awake);
 }
 
-pub fn unix() i64 {
+pub fn unix_ns() i64 {
     return nanoseconds(.real);
 }
 

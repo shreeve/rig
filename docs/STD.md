@@ -151,15 +151,19 @@ nowhere
 
 ## std.time
 
-Time as an `Int` of nanoseconds, with the constants `NS`, `US`, `MS`,
-`SECOND`, and `MINUTE` to write durations: `250 * time.MS`.
+The monotonic clock, the wall clock, and sleeping. A duration is an
+`Int` of nanoseconds, with the constants `NS`, `US`, `MS`, `SECOND`,
+and `MINUTE` to write one: `250 * time.MS`. A reading of the monotonic
+clock is an `Instant`, which only gives the time between readings, so
+it cannot be mixed up with the wall clock's nanoseconds.
 
-| Function | Result |
+| Member | Result |
 |---|---|
-| `now() -> Int` | the monotonic clock, in nanoseconds since an unspecified moment: it never goes back, so the difference of two readings is the time between them |
-| `elapsed(start: Int) -> Int` | the nanoseconds since `start`, a reading of `now()` |
+| `now() -> Instant` | the monotonic clock now: it never goes back |
+| `t.since(earlier: Instant) -> Int` | the nanoseconds from `earlier` to `t`; negative when `earlier` is the later one |
+| `t.elapsed() -> Int` | the nanoseconds from `t` to now |
 | `sleep(ns: Int)` | wait at least `ns` nanoseconds; not at all when `ns` is not positive |
-| `unix() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
+| `unix_ns() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
 
 ```rig
 use std.time
@@ -167,11 +171,13 @@ use std.time
 sub main
   start = time.now()
   time.sleep(5 * time.MS)
-  print(time.elapsed(start) >= 5 * time.MS)
-  print(time.unix() / time.SECOND > 1_700_000_000)
+  print(start.elapsed() >= 5 * time.MS)
+  print(time.now().since(start) > 0)
+  print(time.unix_ns() / time.SECOND > 1_700_000_000)
 ```
 
 ```output
+true
 true
 true
 ```
