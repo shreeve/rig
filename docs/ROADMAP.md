@@ -28,7 +28,7 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 
 ## Libraries
 
-- **A standard library**: collections, strings, I/O, and allocators, written in Rig.
+- **The rest of the standard library** ([STD.md](STD.md) lists what exists): collections, strings, I/O, and allocators, written in Rig over small Zig files. Next for the Zig-backed declarations: Zig-backed types (`struct Text owns`, with the kinds `copy`, `owns`, and `view`), and generic ones with declared requirement bounds, which a body-less declaration needs since the checker cannot infer them.
   Settled so far: `String` stays a view and `Text` is the owned, growable text; iterators follow the convention `while !it.next() as x` (a `for` never calls user methods); containers of owning values lend elements as `?v[i]` and `!v[i]`; a generic method call on a `T` is checked at each use; a `[]U8` goes to C as a pointer plus a separate length, and a NUL-terminated copy is made explicitly.
 - **A reactive library** in userland, grown from `examples/memo_canary.rig`.
 

@@ -205,6 +205,7 @@ changes.
 
 ```bash
 bin/rig run hello.rig        # check, build, and run (Debug, leak-checked)
+bin/rig run hello.rig -- a b # the same, passing the program `a` and `b`
 bin/rig build -o hello hello.rig
 bin/rig test hello.rig       # run the program's `test` blocks
 bin/rig emit hello.rig       # print the Zig it generates
@@ -619,9 +620,10 @@ You will reach for these and not find them:
 - **heap strings and string building**: `String` is an immutable view,
   and there is no interpolation;
 - **concurrency and async**;
-- **a standard library** beyond `print`, `Cell`, `Vec`, `Box`,
+- **a large standard library**: beyond `print`, `Cell`, `Vec`, `Box`,
   `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
-  `write`);
+  `write`), [the standard library](docs/STD.md) has only `std.math`,
+  `std.os`, `std.time`, `std.random`, and `std.sort` so far;
 - **raw pointers**;
 - **macros**, which Rig does not plan to have.
 
@@ -634,6 +636,8 @@ the compiler rejects as reserved or not supported yet, and the
 - [SYNTAX.md](SYNTAX.md): how every form is written
 - [SPEC.md](SPEC.md): what every form means, and the rules the compiler
   enforces
+- [docs/STD.md](docs/STD.md): the standard library, imported with
+  `use std.NAME`
 - [examples/](examples/README.md): complete programs
 - [docs/DESIGN.md](docs/DESIGN.md): why Rig is the way it is
 - [FAQ.md](FAQ.md): common questions

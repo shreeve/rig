@@ -33,6 +33,9 @@ marked as rejected must fail with the errors shown.
 17. [Printing](#17-printing)
 18. [Reserved and unsupported forms](#18-reserved-and-unsupported-forms)
 
+The standard library, imported with `use std.NAME`, is described in
+[docs/STD.md](docs/STD.md).
+
 ---
 
 ## 1. Programs
