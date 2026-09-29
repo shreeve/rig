@@ -629,6 +629,9 @@ pub const Facts = struct {
     /// Field and element assignment targets that write through the `!T`
     /// the place holds (`SemContext.recordThroughWrite`).
     through_writes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Fields and elements of a temporary, holding a Cell, that a read
+    /// borrow lends (`SemContext.recordCellTemp`).
+    cell_temps: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (std.meta.fields(Facts)) |f| @field(self, f.name).deinit(allocator);
@@ -1290,6 +1293,18 @@ pub const SemContext = struct {
 
     pub fn writesThrough(self: *const SemContext, node: Sexp) bool {
         return self.facts.through_writes.contains(nodeKey(node) orelse return false);
+    }
+
+    /// `node`, a field or element of a temporary (`mk().p`), holds a Cell
+    /// that the read borrow lending it (`?mk().p`, or a `?self` receiver)
+    /// may change: the temporary is constant, so the part is copied into
+    /// a mutable local first.
+    pub fn recordCellTemp(self: *SemContext, node: Sexp) !void {
+        try self.facts.cell_temps.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn lendsCellTemp(self: *const SemContext, node: Sexp) bool {
+        return self.facts.cell_temps.contains(nodeKey(node) orelse return false);
     }
 
     /// `node`, a borrow of a `Box[T]`, is lent as a borrow of the `T`.

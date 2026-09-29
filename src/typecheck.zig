@@ -3191,6 +3191,7 @@ const Checker = struct {
                 try self.errAt(operand, "cannot borrow a temporary that holds a Cell: a change through the borrow would have no place; bind it to a name first", .{});
                 return self.t().invalid_id;
             }
+            if (place.root == .temporary) try self.ctx.recordCellTemp(operand);
         }
         if (kind == .read and !sameNode(e, self.lent_borrow) and self.isTemporary(operand)) {
             try self.errAt(e, "a borrow of a temporary lives only for the call it is lent to; bind the value to a name first", .{});
@@ -6051,7 +6052,7 @@ const Checker = struct {
                 try self.errAt(obj, "cannot call `{s}` here: the value holds a Cell the method may change, and `{s}` is a loop or match binding, a copy, so the change would be lost", .{ method, self.text(place.base) });
             } else if (place.root == .temporary and place.steps == 0) {
                 try self.errAt(obj, "cannot call `{s}` on a temporary that holds a Cell the method may change; bind it to a name first", .{method});
-            }
+            } else if (place.root == .temporary) try self.ctx.recordCellTemp(obj);
         }
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
             const stores = std.mem.eql(u8, method, "set") or std.mem.eql(u8, method, "replace");
