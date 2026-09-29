@@ -49,6 +49,50 @@ out=$("$RIG" check odd/imports.rig 2>&1); expect_rc $? 1 "unreadable modules"
 expect_has "$out" "error: cannot read module \`gone\` (odd/gone.rig): no such file" "missing module"
 expect_has "$out" "error: cannot read module \`dir\` (odd/dir.rig): it is a directory" "module that is a directory"
 
+# `RIG_STD` names a directory to read the standard library from, in
+# place of the copy embedded in the compiler.
+mkdir stdlib
+printf 'pub fun hello() -> Int\n  42\n' >stdlib/extra.rig
+printf 'use std.extra\n\nsub main()\n  print(extra.hello())\n' >odd/usestd.rig
+out=$(RIG_STD="$PWD/stdlib" rig run odd/usestd.rig 2>&1); expect_rc $? 0 "RIG_STD: $out"
+expect_eq "$out" "42" "RIG_STD module"
+out=$(RIG_STD="$PWD/stdlib" "$RIG" check odd/usestd.rig 2>&1); expect_rc $? 0 "RIG_STD check"
+printf 'use std.math\n\nsub main()\n  print(math.abs(-1))\n' >odd/nomath.rig
+out=$(RIG_STD="$PWD/stdlib" "$RIG" check odd/nomath.rig 2>&1); expect_rc $? 1 "RIG_STD without the module"
+expect_has "$out" "odd/nomath.rig:1:1: error: the standard library has no module \`math\`" "RIG_STD without the module"
+
+# A module of the standard library imports only `std.NAME`, never a
+# program's file.
+printf 'use helper\n\npub fun hello() -> Int\n  helper.one()\n' >stdlib/extra.rig
+printf 'pub fun one() -> Int\n  1\n' >odd/helper.rig
+out=$(RIG_STD="$PWD/stdlib" "$RIG" check odd/usestd.rig 2>&1); expect_rc $? 1 "std importing a program file"
+expect_has "$out" "stdlib/extra.rig:1:1: error: a module of the standard library imports only other modules of it: \`use std.helper\`" "std importing a program file"
+
+# `RIG_STD` naming the program's own directory still keeps its modules
+# and the standard library's apart: `std.shim` may bind Zig code, and
+# the same file imported as `shim` is the program's, which may not.
+mkdir both
+printf 'extern zig "shim.zig"\n  pub fun one -> Int\n' >both/shim.rig
+printf 'pub fn one() i64 {\n    return 1;\n}\n' >both/shim.zig
+printf 'use std.shim\n\nsub main()\n  print(shim.one())\n' >both/main.rig
+out=$(RIG_STD="$PWD/both" rig run both/main.rig 2>&1); expect_rc $? 0 "std module in the program's directory: $out"
+expect_eq "$out" "1" "std module in the program's directory"
+printf 'use std.shim\nuse shim as mine\n\nsub main()\n  print(shim.one())\n' >both/two.rig
+out=$(RIG_STD="$PWD/both" "$RIG" check both/two.rig 2>&1); expect_rc $? 1 "one file as std and as the program's"
+expect_has "$out" "both/shim.rig:1:1: error: only the standard library binds declarations to Zig code" "one file as std and as the program's"
+
+# Import mistakes: a missing `RIG_STD` directory, a module imported
+# twice, and `use std` with no `std.rig`.
+out=$(RIG_STD="$PWD/nowhere" "$RIG" check odd/nomath.rig 2>&1); expect_rc $? 1 "missing RIG_STD"
+expect_has "$out" "odd/nomath.rig:1:1: error: RIG_STD names \`$PWD/nowhere\`, which is not a directory" "missing RIG_STD"
+printf 'use std.math\nuse std.math\n\nsub main()\n  print(math.abs(-1))\n' >odd/twice.rig
+out=$("$RIG" check odd/twice.rig 2>&1); expect_rc $? 1 "imported twice"
+expect_has "$out" "odd/twice.rig:2:1: error: \`std.math\` is already imported as \`math\`" "imported twice"
+mkdir bare
+printf 'use std\n\nsub main()\n  print(1)\n' >bare/main.rig
+out=$("$RIG" check bare/main.rig 2>&1); expect_rc $? 1 "bare use std"
+expect_has "$out" "cannot read module \`std\` (bare/std.rig): no such file; a module of the standard library is \`use std.NAME\`" "bare use std"
+
 # A 3000-module import chain.
 mkdir chain
 for ((i = 0; i < 3000; i++)); do

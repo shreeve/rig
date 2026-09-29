@@ -1,0 +1,17 @@
+# `fun main -> Int!` returns the exit status, or fails; one that returns
+# 0 passes.
+
+error Oops
+  bad
+
+fun half(n: Int) -> Int!
+  if n % 2 != 0
+    return Oops.bad
+  n / 2
+
+fun main() -> Int!
+  print(half(8)!)
+  half(0)!
+
+# expect:
+# 4

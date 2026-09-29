@@ -4,4 +4,4 @@
 sub main[n: Int]
   print(n)
 
-# error: 4:5: `main` must be `sub main`: the program's entry point takes no parameters and returns no value
+# error: 4:5: `main` must be `sub main`, or `fun main -> Int` returning the exit status (`-> Int!` if it may fail): the program's entry point takes no parameters

@@ -1,0 +1,13 @@
+# `sort` orders with `<`, which a struct does not have: sort it with
+# `sort_by` and a comparator instead.
+use std.sort
+
+struct P
+  x: Int
+
+sub main()
+  ps = [P(x: 2), P(x: 1)]
+  sort.sort(!ps)
+
+# error: 10:8: `sort.sort[P]` cannot use `T = P`: the generic body applies `<` to `T`
+# error: `<` used on `T` here

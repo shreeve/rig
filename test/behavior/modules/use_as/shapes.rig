@@ -1,0 +1,4 @@
+use geo
+
+pub fun shifted(p: ?geo.Point) -> geo.Point
+  geo.Point.at(p.x + 1, p.y + 1)

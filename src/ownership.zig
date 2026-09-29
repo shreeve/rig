@@ -1129,7 +1129,7 @@ pub const Checker = struct {
             .@"struct", .@"enum", .errors, .generic_struct => for (ir.rest(sexp, .members)) |c| try self.walkDecl(c),
             .@"pub" => try self.walkDecl(ir.Pub.decl(sexp)),
             .@"test" => try self.walkFun(.nil, .nil, .nil, .nil, ir.Test.body(sexp)),
-            .use, .type, .@"extern", .extern_fun, .extern_sub, .variant, .@":" => {},
+            .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .variant, .@":" => {},
             else => try self.walkStmt(sexp),
         }
     }
@@ -2571,7 +2571,8 @@ pub const Checker = struct {
         if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             if (recv_root) |id| {
                 const obj = ir.Member.object(callee);
-                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null, true);
+                // What the receiver is, not the borrow lending it.
+                if (self.mayCarryBorrow(self.pointee(self.exprType(obj)))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null, true);
             }
             try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
             for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);

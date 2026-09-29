@@ -1,0 +1,75 @@
+# std.random: a small, fast pseudorandom generator (splitmix64). The
+# same seed gives the same sequence on every platform; it is not for
+# cryptography.
+
+pub struct Rng
+  state: U64
+
+  # An Rng moves rather than copies: a copy would draw the same numbers
+  # as the original. The empty `drop` makes it an owning value; `fork`
+  # makes a second generator on purpose.
+  drop(!self)
+    pass
+
+  # A generator whose sequence is fixed by `seed`.
+  pub fun seeded(seed: U64) -> Rng
+    Rng(state: seed)
+
+  # A generator seeded from the operating system's entropy, so each run
+  # differs.
+  pub fun new -> Rng
+    Rng(state: entropy())
+
+  # The next 64 random bits.
+  pub fun next(!self) -> U64
+    self.state = self.state +% 0x9e3779b97f4a7c15
+    z = self.state
+    z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9
+    z = (z ^ (z >> 27)) *% 0x94d049bb133111eb
+    z ^ (z >> 31)
+
+  # A new generator, seeded from this one's next number.
+  pub fun fork(!self) -> Rng
+    Rng(state: !self.next())
+
+  # An `Int` from `lo` up to but not including `hi`, each equally
+  # likely. Panics unless `lo < hi`.
+  pub fun int(!self, lo: Int, hi: Int) -> Int
+    check_range(lo, hi)
+    # The number of values, which fits a `U64` even for the widest range.
+    n = as_u64(hi -% lo)
+    # Rejecting the few smallest values leaves a whole number of runs
+    # of `n`, so every result is equally likely.
+    t = (0 -% n) % n
+    x = !self.next()
+    while x < t
+      x = !self.next()
+    # `lo` plus less than `n` is below `hi`, so it fits an `Int`.
+    lo +% as_int(x % n)
+
+  # A `Float` from 0 up to but not including 1.
+  pub fun float(!self) -> Float
+    Float(!self.next() >> 11) / 9007199254740992.0
+
+  # Put the elements of `xs` in a random order, each order equally
+  # likely (Fisher-Yates).
+  pub sub shuffle[T](!self, xs: ![]T)
+    i = xs.len - 1
+    while i > 0 : i -= 1
+      !xs.swap(i, !self.int(0, i + 1))
+
+# The same 64 bits as the other type.
+fun as_u64(n: Int) -> U64
+  raw
+    @bitCast(n)
+
+fun as_int(n: U64) -> Int
+  raw
+    @bitCast(n)
+
+extern zig "random.zig"
+  # 64 bits from the operating system's entropy source.
+  fun entropy -> U64
+
+  # Panics unless `lo < hi`.
+  sub check_range(lo: Int, hi: Int)

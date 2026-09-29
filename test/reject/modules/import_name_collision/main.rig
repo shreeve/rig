@@ -1,0 +1,11 @@
+# Two imports may not bind one name: `use std.math` binds `math`, as
+# `use math` does, so one of them needs `as`.
+use math
+use std.math
+
+sub main()
+  print(math.twice(1))
+
+# error: 4:9: two imports bind the name `math`; name one of them with `as`
+# error: first imported here
+# errors: 1

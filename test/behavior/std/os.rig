@@ -1,0 +1,17 @@
+# std.os: the arguments start with the program's name, and they and the
+# environment's values are Strings that live as long as the program.
+use std.os
+
+fun first_arg -> String
+  os.args()[0]
+
+sub main()
+  args = os.args()
+  print(args.len, first_arg().len > 0, args[0] == first_arg())
+  print(os.env("RIG_STD_SURELY_UNSET_VARIABLE") == none)
+  print(os.env("A=B") ?? "no names with =")
+
+# expect:
+# 1 true true
+# true
+# no names with =

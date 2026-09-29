@@ -1,0 +1,14 @@
+# A module of the standard library and a module beside the root with the
+# same last name are two modules, each emitted to its own file; `as`
+# names one of them here.
+
+use std.math
+use math as mine
+
+sub main()
+  print(math.abs(-3), mine.abs(-3))
+  print(mine.twice(4))
+
+# expect:
+# 3 -3
+# 8

@@ -1,0 +1,7 @@
+# `gcd` takes magnitudes, and `Int.min` has none an `Int` holds.
+use std.math
+
+sub main()
+  print(math.gcd(Int.min, 0))
+
+# expect-panic: integer overflow

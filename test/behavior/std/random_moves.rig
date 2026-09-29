@@ -1,0 +1,20 @@
+# An `Rng` moves, so no two owners draw the same stream by accident;
+# `fork` makes a second generator, seeded from the first, on purpose.
+use std.random
+
+fun roll(r: random.Rng) -> Int
+  g = <r
+  !g.int(1, 7)
+
+sub main()
+  r = random.Rng.seeded(5)
+  a = <r
+  first = !a.next()
+  child = !a.fork()
+  print(!child.next() != !a.next(), first != 0)
+  n = roll(<a)
+  print(n >= 1 and n <= 6)
+
+# expect:
+# true true
+# true

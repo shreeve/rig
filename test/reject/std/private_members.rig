@@ -1,0 +1,14 @@
+# The standard library's private declarations are named by their module,
+# `std.random`, with no hint to change the library.
+use std.random
+
+sub main()
+  r = random.Rng.seeded(1)
+  print(r.state, random.entropy())
+  s = random.Rng(state: 1)
+  print(!s.next())
+
+# error: 7:11: field `state` of `std.random.Rng` is private to the standard library's module `std.random`
+# error: 7:25: `random.entropy` is private to the standard library's module `std.random`
+# error: 8:14: only the standard library's module `std.random` can construct `std.random.Rng`: its field `state` is private; make one with its `pub` functions
+# errors: 3

@@ -1,0 +1,25 @@
+# std.time: `now()` is an Instant of the monotonic clock, which never
+# goes back; `sleep` waits at least as long as asked; the wall clock is
+# past 2023. Durations are `Int` nanoseconds.
+use std.time
+
+fun waited(start: time.Instant) -> Int
+  start.elapsed()
+
+sub main()
+  start = time.now()
+  time.sleep(3 * time.MS)
+  later = time.now()
+  took = later.since(start)
+  print(took >= 3 * time.MS, took < 10 * time.SECOND, start.since(later) == -took)
+  time.sleep(0)
+  time.sleep(-1)
+  print(waited(start) >= took, start.elapsed() >= took)
+  print(time.unix_ns() > 1_700_000_000 * time.SECOND)
+  print(time.NS, time.US, time.MS, time.SECOND, time.MINUTE)
+
+# expect:
+# true true true
+# true true
+# true
+# 1 1000 1000000 1000000000 60000000000

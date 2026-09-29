@@ -277,6 +277,7 @@ pub const Emitter = struct {
         try self.module_names.put(a, "std", {});
         try self.module_names.put(a, "rig", {});
         for (decls) |d0| {
+            if (d0.isKind(.zig_extern)) try self.collectModule(ir.ZigExtern.decls(d0));
             const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
             const kind = d.kind() orelse continue;
             const name = if (kind == .set) ir.Set.target(d) else if (ir.has(kind, .name)) ir.get(d, .name) else continue;
@@ -292,6 +293,7 @@ pub const Emitter = struct {
             .@"pub" => try self.emitDecl(ir.Pub.decl(sexp)),
             .fun, .sub => try self.emitFun(sexp),
             .extern_fun, .extern_sub => try self.emitExtern(ir.get(sexp, .name)),
+            .zig_extern => try self.emitZigExtern(sexp),
             .@"extern" => try self.emitExtern(ir.Extern.name(sexp)),
             .use => try self.emitUse(sexp),
             .@"struct" => try self.emitStruct(sexp),
@@ -319,9 +321,15 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
     }
 
+    /// `use` binds its local name to the module's emitted file.
     fn emitUse(self: *Emitter, node: Sexp) Error!void {
-        const name = self.srcText(ir.Use.name(node));
-        try self.w.print("const {f} = @import(\"{s}.zig\");\n", .{ ident(name), name });
+        const path = ir.Use.name(node);
+        const alias = ir.Use.alias(node);
+        const name = self.srcText(if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path);
+        for (self.sema.imports) |imp| if (std.mem.eql(u8, imp.local_name, name)) {
+            return self.w.print("const {f} = @import(\"{s}\");\n", .{ ident(name), imp.sema.zig_file });
+        };
+        return self.unsupported(node, "an unresolved `use`");
     }
 
     /// `extern_fun` / `extern_sub`, a C function, or `extern`, a C
@@ -339,6 +347,27 @@ pub const Emitter = struct {
         try self.w.writeAll(") ");
         try self.emitTypeTy(f.returns);
         try self.w.writeAll(";\n");
+    }
+
+    /// `extern zig "file.zig"`: each declaration is the function of the
+    /// same name in the standard library's Zig file, written beside the
+    /// runtime as `rig/std/file.zig`, and a compile-time check that its
+    /// Zig type is exactly the one the Rig signature lowers to.
+    fn emitZigExtern(self: *Emitter, node: Sexp) Error!void {
+        const file = self.srcText(ir.ZigExtern.file(node));
+        const shim = try self.fmt("__rig_shim_{d}", .{self.nextId()});
+        try self.w.print("const {s} = @import(\"rig/std/{s}\");\n", .{ shim, file[1 .. file.len - 1] });
+        for (ir.ZigExtern.decls(node)) |d0| {
+            const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
+            const name = ir.get(d, .name);
+            const f = self.fnType(try self.declType(name)) orelse return self.unsupported(name, "an untyped function");
+            try self.w.print("pub const {f} = {s}.{f};\n", .{ ident(self.srcText(name)), shim, ident(self.srcText(name)) });
+            try self.w.print("comptime {{\n    rig.expectShim({s}.{f}, fn (", .{ shim, ident(self.srcText(name)) });
+            try self.emitTypeList(f.params);
+            try self.w.writeAll(") ");
+            if (f.returns == self.sema.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
+            try self.w.print(", \"{s}.{s}\");\n}}\n", .{ self.sema.name, self.srcText(name) });
+        }
     }
 
     fn emitTypeAlias(self: *Emitter, node: Sexp) Error!void {
@@ -618,21 +647,31 @@ pub const Emitter = struct {
         const body = ir.get(node, .body);
         const f = self.fnType(self.sema.typeOf(name_node)) orelse return self.unsupported(name_node, "an untyped function");
         // Only the root module's `main` is the program's entry point.
-        const is_main = self.sema.is_root and self.nominal == null and node.isKind(.sub) and std.mem.eql(u8, name, "main");
+        const is_main = self.sema.is_root and self.nominal == null and std.mem.eql(u8, name, "main");
         const return_ty: ?TypeId = if (f.returns == self.sema.types.void_id) null else f.returns;
+        // `main` may fail out of the program (`!`, `sub main!`, `-> Int!`),
+        // and `fun main -> Int` returns its exit status.
+        const main_fails = is_main and (contains(body, &.{.propagate}) or rig.subFails(node) or (return_ty != null and self.sema.types.get(return_ty.?) == .fallible));
+        const main_status = is_main and !f.is_sub;
 
         const tparams = sema.tparamsOf(node);
         self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main };
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
-        // A `main` that may fail runs inside one that reports the failure
-        // as Rig shows errors (`rig.failMain`).
-        const fails = is_main and contains(body, &.{.propagate});
-        if (fails) {
-            try self.w.writeAll("pub fn main() void {\n    __rig_run_main() catch |err| rig.failMain(err);\n}\n\n");
+        // A `main` that may fail, or returns the exit status, is the body
+        // of a Zig `main` that reports the failure as Rig shows errors
+        // (`rig.failMain`) or sets the status (`rig.exitStatus`), after
+        // every drop and the leak check.
+        if (main_fails or main_status) {
+            const catches = if (main_fails) " catch |err| rig.failMain(err)" else "";
+            if (main_status) {
+                try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus(__rig_run_main(__rig_init){s});\n}}\n\n", .{catches});
+            } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    __rig_run_main(__rig_init){s};\n}}\n\n", .{catches});
             try self.w.writeAll("fn __rig_run_main(");
         } else try self.w.print("pub fn {f}(", .{ident(name)});
+        // Zig 0.16 hands the arguments and environment only to `main`.
+        if (is_main) try self.w.writeAll("__rig_init: std.process.Init.Minimal");
         try self.pushScope();
         defer self.popScope() catch {};
         // Compile-time parameters come first, after a method's receiver,
@@ -648,11 +687,11 @@ pub const Emitter = struct {
             try self.emitParam(p, g == 1);
         };
         try self.w.writeAll(") ");
-        if (return_ty) |r| {
-            try self.emitTypeTy(r);
-        } else {
-            try self.w.writeAll(if (fails) "anyerror!void" else "void");
-        }
+        if (main_fails) {
+            // `anyerror!void`, `anyerror!i64`: whether or not `-> Int!` says so.
+            try self.w.writeAll("anyerror!");
+            try self.emitTypeTy(if (main_status) self.sema.types.int_id else self.sema.types.void_id);
+        } else if (return_ty) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
         try self.w.writeAll(" ");
         // A `sub` yields no value, even one that may fail (`Void!`).
         if (return_ty != null and !f.is_sub) try self.emitValueBody(body) else try self.emitBlock(body);
@@ -715,6 +754,7 @@ pub const Emitter = struct {
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
             try self.line("rig.guardStack();", .{});
+            try self.line("rig.start(__rig_init);", .{});
             try self.line("defer rig.finish();", .{});
         }
         if (self.fun.unused_env.len > 0) {
@@ -3957,9 +3997,13 @@ pub const Emitter = struct {
                 return self.w.print("{s}std.math.floatMax(f{d})", .{ if (std.mem.eql(u8, name, "min")) "-" else "", if (bits == 0) 64 else bits });
             };
             if (obj != .src) return self.unsupported(e, "this default value");
-            return self.w.print("@import(\"{s}.zig\").{f}", .{ decl.source[obj.src.pos..][0..obj.src.len], ident(name) });
+            const local = decl.source[obj.src.pos..][0..obj.src.len];
+            for (decl.imports) |imp| if (std.mem.eql(u8, imp.local_name, local)) {
+                return self.w.print("@import(\"{s}\").{f}", .{ imp.sema.zig_file, ident(name) });
+            };
+            return self.unsupported(e, "a default from an unresolved module");
         }
-        return self.w.print("@import(\"{s}.zig\").{f}", .{ decl.name, ident(decl.source[e.src.pos..][0..e.src.len]) });
+        return self.w.print("@import(\"{s}\").{f}", .{ decl.zig_file, ident(decl.source[e.src.pos..][0..e.src.len]) });
     }
 
     /// The checked module whose source is `source`: this one, or one it
@@ -4855,7 +4899,7 @@ pub const Emitter = struct {
             if (imp.module_id == module_id) return self.writeModuleName(imp.local_name);
         }
         const foreign = self.sema.foreign_semas.get(module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
-        try self.w.print("@import(\"{s}.zig\")", .{foreign.name});
+        try self.w.print("@import(\"{s}\")", .{foreign.zig_file});
     }
 
     /// The generic type being emitted, applied to its own parameters:

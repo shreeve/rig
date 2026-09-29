@@ -823,6 +823,27 @@ pub fn Vec(comptime T: type) type {
             return self.buf[self.len];
         }
 
+        /// Insert `value` at `i`, moving the elements from `i` on up by
+        /// one; `i` may be `len`. Panics unless `0 <= i <= len`.
+        pub fn insert(self: *Self, i: Int, value: T) void {
+            const idx = index(i, self.len + 1);
+            self.reserve(self.len + 1);
+            std.mem.copyBackwards(T, self.buf[idx + 1 .. self.len + 1], self.buf[idx..self.len]);
+            self.buf[idx] = value;
+            self.len += 1;
+        }
+
+        /// Remove and return the element at `i`, moving the ones after
+        /// it down by one; the caller owns it. Panics unless
+        /// `0 <= i < len`.
+        pub fn remove(self: *Self, i: Int) T {
+            const idx = index(i, self.len);
+            const value = self.buf[idx];
+            std.mem.copyForwards(T, self.buf[idx .. self.len - 1], self.buf[idx + 1 .. self.len]);
+            self.len -= 1;
+            return value;
+        }
+
         /// `for x in <v`: the Vec's elements, each handed over in order.
         pub const IntoIter = struct {
             vec: Self,
@@ -865,6 +886,18 @@ pub fn Vec(comptime T: type) type {
             self.buf = &.{};
         }
     };
+}
+
+// -----------------------------------------------------------------------------
+// Zig-backed declarations
+// -----------------------------------------------------------------------------
+
+/// The check the emitter writes for each Zig-backed declaration of the
+/// standard library (`extern zig "file.zig"`): its function in the Zig
+/// file has exactly the type its Rig signature lowers to, so a call the
+/// checker accepts passes and returns what Rig says it does.
+pub fn expectShim(comptime f: anytype, comptime Rig: type, comptime name: []const u8) void {
+    if (@TypeOf(f) != Rig) @compileError("rig: the Zig function of `" ++ name ++ "` has type " ++ @typeName(@TypeOf(f)) ++ ", but its Rig signature lowers to " ++ @typeName(Rig));
 }
 
 // -----------------------------------------------------------------------------
@@ -1184,10 +1217,51 @@ fn reserveBelowStack() ?[*]align(std.heap.page_size_min) u8 {
     return @ptrCast(@alignCast(got));
 }
 
+/// What the process started with, which Zig 0.16 hands only to `main`:
+/// the arguments and environment, for the standard library.
+pub var process: ?std.process.Init.Minimal = null;
+var process_args: []const []const u8 = &.{};
+
+/// Called first in the emitted `main` (after `guardStack`) and in
+/// `rig test`'s: store what the process started with. The arguments are
+/// gathered into Strings once, freed by `finish`.
+pub fn start(init: std.process.Init.Minimal) void {
+    process = init;
+    if (@TypeOf(init.args.vector) != []const [*:0]const u8) return;
+    const list = defaultAllocator().alloc([]const u8, init.args.vector.len) catch oom();
+    for (list, init.args.vector) |*arg, c| arg.* = std.mem.sliceTo(c, 0);
+    process_args = list;
+}
+
+/// Free what `start` gathered, at the end of the program or its tests.
+fn releaseProcess() void {
+    defaultAllocator().free(process_args);
+    process_args = &.{};
+}
+
+/// The program's arguments, its name first; they live as long as the
+/// process.
+pub fn processArgs() []const []const u8 {
+    return process_args;
+}
+
+/// The `std.Io` the runtime and the standard library's Zig files do
+/// their I/O through: synchronous, on the calling thread.
+pub fn io() std.Io {
+    return std.Io.Threaded.global_single_threaded.io();
+}
+
+/// `fun main -> Int`: its result, which `finish` has already run after,
+/// as the process's exit status.
+pub fn exitStatus(n: Int) u8 {
+    return std.math.cast(u8, n) orelse std.debug.panic("exit status {d} is not in 0..255", .{n});
+}
+
 /// Deferred first in the emitted `main`, so it runs after all of `main`'s
 /// drops: flush `print` output, then exit non-zero if anything leaked, so
 /// a leaking program never passes.
 pub fn finish() void {
+    releaseProcess();
     flush();
     if (!reportLeaks(.{ .count = 0, .bytes = 0 })) return;
     if (leak_trace) _ = trace_allocator.deinit();
@@ -1212,10 +1286,9 @@ var stdout_is_tty = false;
 
 fn stdout() *std.Io.Writer {
     if (stdout_writer == null) {
-        const io = std.Io.Threaded.global_single_threaded.io();
         const file = std.Io.File.stdout();
-        stdout_is_tty = file.isTty(io) catch false;
-        stdout_writer = file.writerStreaming(io, &stdout_buffer);
+        stdout_is_tty = file.isTty(io()) catch false;
+        stdout_writer = file.writerStreaming(io(), &stdout_buffer);
     }
     return &stdout_writer.?.interface;
 }
@@ -1287,8 +1360,8 @@ var current_test: ?TestName = null;
 pub fn errorShown(err: anyerror) []const u8 {
     const full = @errorName(err);
     const dot = std.mem.lastIndexOfScalar(u8, full, '.') orelse return full;
-    const start = if (std.mem.lastIndexOfScalar(u8, full[0..dot], '.')) |d| d + 1 else 0;
-    return full[start..];
+    const begin = if (std.mem.lastIndexOfScalar(u8, full[0..dot], '.')) |d| d + 1 else 0;
+    return full[begin..];
 }
 
 pub fn runTests(modules: []const TestModule) void {
@@ -1319,6 +1392,7 @@ pub fn runTests(modules: []const TestModule) void {
     };
     w.print("{d} passed, {d} failed\n", .{ passed, failed }) catch {};
     flush();
+    releaseProcess();
     if (failed > 0) std.process.exit(1);
 }
 
@@ -1342,10 +1416,10 @@ fn isString(comptime T: type) bool {
 fn rigTypeName(comptime T: type) []const u8 {
     const full = @typeName(T);
     const end = comptime std.mem.indexOfScalar(u8, full, '(') orelse full.len;
-    const start = comptime if (std.mem.lastIndexOfScalar(u8, full[0..end], '.')) |d| d + 1 else 0;
+    const begin = comptime if (std.mem.lastIndexOfScalar(u8, full[0..end], '.')) |d| d + 1 else 0;
     // A Rig name the emitter reserves (`std`, `rig`) is spelled `@"std'"`.
-    const quoted = comptime end > start and full[end - 1] == '\'';
-    return full[start..if (quoted) end - 1 else end];
+    const quoted = comptime end > begin and full[end - 1] == '\'';
+    return full[begin..if (quoted) end - 1 else end];
 }
 
 /// Values nested deeper than this print as `...`: a structure that
@@ -1583,6 +1657,21 @@ test "Vec of plain data" {
     try testing.expectEqual(null, v.get(-1));
     try testing.expectEqual(16, v.pop().?);
     try testing.expectEqual(2, v.len);
+    v.__rig_drop();
+    try expectNoLeaks(before);
+}
+
+test "Vec insert and remove move the elements after the index" {
+    const before = usage();
+    var v: Vec(i32) = .empty;
+    v.insert(0, 3);
+    v.insert(0, 1);
+    v.insert(2, 4);
+    v.insert(1, 2);
+    try testing.expectEqualSlices(i32, &.{ 1, 2, 3, 4 }, v.items());
+    try testing.expectEqual(2, v.remove(1));
+    try testing.expectEqual(4, v.remove(2));
+    try testing.expectEqualSlices(i32, &.{ 1, 3 }, v.items());
     v.__rig_drop();
     try expectNoLeaks(before);
 }

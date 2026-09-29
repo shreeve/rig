@@ -1,0 +1,24 @@
+# std.slices: `reverse` in place, and the linear `contains` and
+# `index_of`, on arrays and on Vecs through a slice.
+use std.slices
+
+sub main()
+  a = [1, 2, 3, 4]
+  slices.reverse(!a)
+  print(a, slices.contains(?a, 3), slices.contains(?a, 5), slices.index_of(?a, 1), slices.index_of(?a, 9))
+  odd = [1, 2, 3]
+  slices.reverse(!odd)
+  empty: [0]Int = []
+  slices.reverse(!empty)
+  print(odd, slices.contains(?empty, 1), slices.index_of(?empty, 1))
+  v: Vec[String] = Vec()
+  !v.push("a")
+  !v.push("b")
+  !v.push("a")
+  slices.reverse(!v[..])
+  print(v, slices.index_of(?v[..], "a"), slices.contains(?v[..], "c"))
+
+# expect:
+# [4, 3, 2, 1] true false 3 none
+# [3, 2, 1] false none
+# ["a", "b", "a"] 0 false

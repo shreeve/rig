@@ -83,6 +83,10 @@ const SymbolResolver = struct {
             .@"struct", .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
             .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
+            .zig_extern => {
+                if (!self.ctx.is_std) try self.ctx.errAt(sexp, "only the standard library binds declarations to Zig code with `extern zig`; write the function in Rig, or declare a C function with `extern fun` and call it in a `raw` block", .{});
+                for (ir.ZigExtern.decls(sexp)) |d| try self.walk(d);
+            },
             .@"test" => try self.walkTest(sexp),
             .set => try self.walkSet(sexp),
             .block => {
@@ -140,6 +144,9 @@ const SymbolResolver = struct {
             const p = self.ctx.symbols.items[prev];
             if (p.decl_pos == sema.builtin_decl_pos) {
                 try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
+            } else if (kind == .module and p.kind == .module) {
+                try self.ctx.err(pos, "two imports bind the name `{s}`; name one of them with `as`: `use ... as other`", .{name});
+                try self.ctx.note(p.decl_pos, "`{s}` first imported here", .{name});
             } else {
                 try self.ctx.err(pos, "duplicate declaration of `{s}`", .{name});
                 try self.ctx.note(p.decl_pos, "`{s}` first declared here", .{name});
@@ -303,8 +310,12 @@ const SymbolResolver = struct {
         try self.checkShadowsDeclaration(name_node, "parameter");
     }
 
+    /// `use NAME`, `use std.NAME`, or either `as ALIAS`: the module's
+    /// symbol is named by the alias, else the path's last name.
     fn walkUse(self: *SymbolResolver, node: Sexp) Error!void {
-        const name_node = ir.Use.name(node);
+        const path = ir.Use.name(node);
+        const alias = ir.Use.alias(node);
+        const name_node = if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path;
         const id = (try self.declare(name_node, .module, .{})) orelse return;
         const name = identAt(self.ctx.source, name_node).?;
         for (self.ctx.imports) |imp| {
@@ -802,6 +813,10 @@ pub const TypeResolver = struct {
                 }
             },
             .extern_fun, .extern_sub => try self.resolveExternFun(sexp),
+            .zig_extern => for (ir.ZigExtern.decls(sexp)) |d| {
+                try self.resolveDecl(d);
+                try self.checkZigBacked(if (d.isKind(.@"pub")) ir.Pub.decl(d) else d);
+            },
             .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.resolveNominal(sexp),
             else => {},
         }
@@ -988,6 +1003,22 @@ pub const TypeResolver = struct {
                 return self.ctx.types.invalid_id;
             },
             else => return self.ctx.types.invalid_id,
+        }
+    }
+
+    /// A Zig-backed `fun` or `sub` has a signature the checker can
+    /// trust without a body: one with compile-time parameters would need
+    /// requirements it cannot infer, and one that fails, error names its
+    /// Zig code would have to share with Rig.
+    fn checkZigBacked(self: *TypeResolver, node: Sexp) Error!void {
+        const name = ir.get(node, .name);
+        const text = identAt(self.ctx.source, name) orelse "it";
+        if (sema.tparamsOf(node).items().len > 0) {
+            try self.ctx.errAt(name, "a Zig-backed function cannot take compile-time parameters: write `{s}` in Rig", .{text});
+        }
+        const f = self.ctx.types.get(self.ctx.symbols.items[self.ctx.symbolOf(name) orelse return].ty);
+        if (rig.subFails(node) or (f == .function and self.ctx.types.get(f.function.returns) == .fallible)) {
+            try self.ctx.errAt(name, "a Zig-backed function cannot fail: `{s}` must return its failure as a value", .{text});
         }
     }
 
@@ -1824,7 +1855,7 @@ pub const TypeResolver = struct {
         };
         const fsym = foreign.symbols.items[fid];
         if (!fsym.flags.is_public) {
-            try self.ctx.errAt(node, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, name, module_name });
+            try sema.notPublic(self.ctx, self.ctx.startOf(node), module_name, name, foreign);
             return true;
         }
         switch (fsym.kind) {
@@ -1951,7 +1982,7 @@ pub const TypeResolver = struct {
     /// Whether the declaration `d` names is public; reports it if not.
     fn checkPublic(self: *TypeResolver, d: ForeignDecl) Error!bool {
         if (d.sym.flags.is_public) return true;
-        try self.ctx.err(d.pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ d.module_name, d.name, d.module_name });
+        try sema.notPublic(self.ctx, d.pos, d.module_name, d.name, d.foreign);
         return false;
     }
 
@@ -2217,6 +2248,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id),
             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t),
             try method(ctx, "pop", .write, &.{write_self}, opt_t),
+            try method(ctx, "insert", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id),
+            try method(ctx, "remove", .write, &.{ write_self, ctx.types.int_id }, t),
         });
     }
 
@@ -2324,7 +2357,7 @@ test "builtins: registered with methods" {
     try registerBuiltins(&ctx, scope);
     const vec = ctx.lookup(scope, "Vec").?;
     try std.testing.expectEqual(ctx.vec_sym_id, vec);
-    try std.testing.expectEqual(@as(usize, 4), ctx.symbols.items[vec].fields.?.len);
+    try std.testing.expectEqual(@as(usize, 6), ctx.symbols.items[vec].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 

@@ -1,0 +1,43 @@
+# `!v.insert(i, x)` puts `x` at `i`, moving the elements from `i` on up;
+# `!v.remove(i)` hands the element at `i` over, moving the rest down.
+# An owning element moves in and out, and the Vec drops what is left.
+
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.insert(0, 3)
+  !v.insert(0, 1)
+  !v.insert(2, 5)
+  !v.insert(1, 2)
+  print(v)
+  first = !v.remove(0)
+  last = !v.remove(v.len - 1)
+  print(first, last, v)
+
+  bs: Vec[*B] = Vec()
+  !bs.push(*B(n: 1))
+  !bs.insert(0, *B(n: 2))
+  b = *B(n: 3)
+  !bs.insert(1, <b)
+  r = !bs.remove(1)
+  print("removed", r.n, bs.len)
+
+  boxes: Vec[Box[B]] = Vec()
+  !boxes.insert(0, Box(B(n: 9)))
+  y = !boxes.remove(0)
+  print("unboxed", y.n, boxes.len)
+
+# expect:
+# [1, 2, 3, 5]
+# 1 5 [2, 3]
+# removed 3 2
+# unboxed 9 0
+# drop 9
+# drop 3
+# drop 1
+# drop 2

@@ -218,6 +218,7 @@ it beside this checkout and build it there (`zig build
 
 ```bash
 bin/rig run examples/hello.rig         # check, build, and run (Debug)
+bin/rig run file.rig -- a b            # the same, passing the program arguments
 bin/rig run --release file.rig         # the same, optimized (ReleaseSafe)
 bin/rig build -o hello file.rig        # a native executable
 bin/rig build --release=fast file.rig  # ReleaseFast: no overflow checks
@@ -262,10 +263,13 @@ and environment variable. The suite runs on Linux and macOS in
 - optionals with `none`, `??`, `if x as v`, and `x?`; fallible functions
   that fail with error values, handled with `f()!`, `catch`, and
   `catch |err|`
-- modules with `pub`, `raw` blocks, C functions through `extern`, and
-  `test` blocks run by `rig test`
+- modules with `pub` and `as`, `raw` blocks, C functions through
+  `extern`, and `test` blocks run by `rig test`
+- `fun main -> Int` for an exit status, and the start of a
+  [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
+  environment), `std.time`, `std.random`, `std.sort`, and `std.slices`
 
-**Not yet:** a standard library (there is a small runtime and `print`),
+**Not yet:** most of a standard library (text, files, maps, formatting),
 concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
 storing or returning a stack closure (lending one to a call, as a
@@ -278,6 +282,7 @@ storing or returning a stack closure (lending one to a call, as a
   languages
 - [SYNTAX.md](SYNTAX.md): how every form is written
 - [SPEC.md](SPEC.md): the language reference, what every form means
+- [docs/STD.md](docs/STD.md): the standard library
 - [docs/DESIGN.md](docs/DESIGN.md): principles, the sigil algebra, and
   influences
 - [docs/INTERNALS.md](docs/INTERNALS.md): how the compiler works

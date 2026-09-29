@@ -1,0 +1,7 @@
+# std.math.pow is checked like `*`: it panics on overflow.
+use std.math
+
+sub main()
+  print(math.pow(2, 63))
+
+# expect-panic: integer overflow

@@ -1,0 +1,20 @@
+# A `!self` receiver whose type holds a borrow may keep what the
+# method's arguments borrow, so the borrow lives as long as it does,
+# even when the receiver is written through a write borrow.
+
+struct View
+  xs: []Int
+
+  sub point(!self, ys: []Int)
+    self.xs = ys
+
+sub main()
+  a = [1, 2, 3]
+  b = [4, 5]
+  v = View(xs: ?b)
+  !v.point(?a)
+  !a.swap(0, 1)
+  print(v.xs)
+
+# error: cannot write-borrow `a` while a read borrow is live
+# errors: 1

@@ -33,6 +33,9 @@ marked as rejected must fail with the errors shown.
 17. [Printing](#17-printing)
 18. [Reserved and unsupported forms](#18-reserved-and-unsupported-forms)
 
+The standard library, imported with `use std.NAME`, is described in
+[docs/STD.md](docs/STD.md).
+
 ---
 
 ## 1. Programs
@@ -42,8 +45,26 @@ types (`struct`, `enum`, `error`, `type`), constants (`name = value`),
 imports (`use`), `extern` declarations, and `test` blocks, written as
 [SYNTAX.md](SYNTAX.md) shows. Statements live inside functions. A
 program that runs declares its entry point as `sub main`, with no
-parameters. Only the program calls it: Rig code cannot call `main` or
-use it as a value.
+parameters, or as `fun main -> Int`, whose value is the process's exit
+status, from 0 to 255 (another value panics). Either may fail: `main`
+may propagate an error with `!`, and `sub main!` or `fun main -> Int!`
+may also return one; a failure that leaves `main` prints
+`error: Set.name` and ends the program with status 1
+([§13](#13-errors)). Everything `main` owns is dropped, its output
+flushed, and the leak check run before the program exits. Only the
+program calls `main`: Rig code cannot call it or use it as a value. The
+program's arguments and environment are read through
+[`std.os`](docs/STD.md#stdos).
+
+```rig
+fun main -> Int
+  print("nothing to do")
+  0
+```
+
+```output
+nothing to do
+```
 
 `rig check` checks a program, `rig run` checks, builds, and runs it,
 and `rig --help` lists the other commands (see also the
@@ -3376,6 +3397,8 @@ shared handles (including owned closures), weak handles, or boxes.
 | `v[i]`, `v[i] = x` | read or write an element, or a field of one (Copy `T`; bounds-checked) |
 | `v.get(i)` | the element as `T?` (Copy `T`) |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
+| `!v.insert(i, x)` | put `x` at index `i`, moving the elements from `i` on up by one; `i` may be `v.len`; panics past it |
+| `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
 
 A `for` loop borrows the Vec for the whole loop, so it cannot be
@@ -3404,6 +3427,20 @@ sub main
 
 ```output
 711 2
+```
+
+```rig
+sub main
+  v: Vec[String] = Vec()
+  !v.push("b")
+  !v.insert(0, "a")
+  !v.insert(v.len, "c")
+  gone = !v.remove(1)
+  print(gone, v)
+```
+
+```output
+b ["a", "c"]
 ```
 
 ```rig
@@ -4436,7 +4473,10 @@ type mismatch: expected `Int`, got `ParseError`
 `use name` imports `name.rig` from the directory of the program's root
 file, whichever module says it, so a name denotes one file. The file's
 name must be exactly `name.rig`, case included, and names starting with
-`__rig` are reserved for the compiler. The module's `pub` declarations
+`__rig` are reserved for the compiler. `use std.name` imports the
+standard library's module `name` ([STD.md](docs/STD.md)), which ships
+with the compiler; it is a different module from a `name.rig` beside
+the program. The module's `pub` declarations
 are then reached as `name.decl`, and its types are named `name.Type` in
 annotations. A type's members are named through the module too:
 `name.Type.function(...)` calls an associated function, and
@@ -4477,6 +4517,44 @@ sub main
 
 ```output
 3 0 7 .east
+```
+
+`use ... as other` names the module `other` in this file instead. Two
+imports may not bind one name, so a program that uses both
+`std.math` and its own `math.rig` names one of them with `as`:
+
+```rig file=math.rig
+pub fun twice(n: Int) -> Int
+  2 * n
+```
+
+```rig
+use std.math
+use math as mine
+
+sub main
+  print(math.gcd(12, 18), mine.twice(4))
+```
+
+```output
+6 8
+```
+
+```rig file=math.rig
+pub fun twice(n: Int) -> Int
+  2 * n
+```
+
+```rig reject
+use std.math
+use math
+
+sub main
+  print(math.twice(4))
+```
+
+```error
+two imports bind the name `math`; name one of them with `as`
 ```
 
 Only `pub` declarations are visible to importers. A `pub` function may
@@ -4668,6 +4746,33 @@ sub main
 
 ```error
 call to extern function `abs` requires `raw` block
+```
+
+### Zig-backed declarations
+
+The standard library binds declarations to Zig code: a `fun` or `sub`
+without a body inside `extern zig "file.zig"` is the function of the
+same name in that Zig file, which ships with the library. A call to one
+is checked exactly as a call to a Rig function with that signature
+(moves, borrows, and the loans its result carries) and needs no `raw`:
+the Zig file is trusted as the runtime is, and each function's Zig type
+is checked, when the program is compiled, to be the one its Rig
+signature lowers to. Such a function takes no compile-time parameters
+and cannot fail. Its signature is trusted where the checker cannot see
+a body: one that returns a borrow and takes no borrowed parameter, as
+`std.os.args() -> []String` does, returns something that lives as long
+as the program. Only the standard library may declare one:
+
+```rig reject
+extern zig "fast.zig"
+  pub fun twice(n: Int) -> Int
+
+sub main
+  print(twice(2))
+```
+
+```error
+only the standard library binds declarations to Zig code with `extern zig`
 ```
 
 ---

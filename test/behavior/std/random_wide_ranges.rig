@@ -1,0 +1,27 @@
+# `int(lo, hi)` takes any range with `lo < hi`, up to the whole of
+# `Int` but its maximum, and stays inside it.
+use std.random
+
+sub main()
+  r = random.Rng.seeded(9)
+  bad = 0
+  n = 0
+  while n < 2000 : n += 1
+    a = !r.int(-1, Int.max)
+    b = !r.int(Int.min, 1)
+    c = !r.int(Int.min, Int.max)
+    d = !r.int(Int.max - 1, Int.max)
+    e = !r.int(Int.min, Int.min + 1)
+    if a < -1 or b > 0 or c == Int.max or d != Int.max - 1 or e != Int.min
+      bad += 1
+  print(bad)
+  lows = 0
+  n = 0
+  while n < 1000 : n += 1
+    if !r.int(Int.min, Int.max) < 0
+      lows += 1
+  print(lows > 400 and lows < 600)
+
+# expect:
+# 0
+# true

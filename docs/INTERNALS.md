@@ -39,7 +39,8 @@ grammar's raw tree, and the semantic IR.
 `run`, `build`, `test`, and `emit` never emit a program the checkers
 reject. Each writes the whole package, which Zig builds with no other
 input: the root module as `__rig_main.zig`, every other module as
-`<module>.zig`, and the runtime as `rig/runtime.zig`. The package goes
+`<module>.zig` (a standard library module as `__rig_std_<module>.zig`),
+and the runtime as `rig/runtime.zig`. The package goes
 to `$RIG_OUT_DIR` when it is set, otherwise to
 `~/.cache/rig/<name>-<hash>/` (or under `$XDG_CACHE_HOME`). Each file
 is replaced atomically, so concurrent builds of one program never read
@@ -47,7 +48,8 @@ a partly written file, and the directory is not emptied. It holds the
 package's own Zig cache, `.zig-cache/`: Zig 0.16 keys a `zig run` cache
 entry by the root file's path relative to the working directory, so
 two packages sharing one cache could collide. `run` and `test` go
-through `zig run`, which reuses a cached build of unchanged sources;
+through `zig run` (`rig run file.rig -- args` passes the program its
+arguments after Zig's `--`), which reuses a cached build of unchanged sources;
 `build` runs `zig build-exe -femit-bin=...`, which caches nothing, so
 it compiles the package in full every time. The toolchain is `$ZIG`,
 else `zig` on `PATH`, run with `-ODebug`, `-OReleaseSafe` (`--release`),
@@ -441,6 +443,15 @@ A few kinds serve more than one surface form:
 An owned closure is `(share (lambda ...))`, and its type
 `(shared (fun_type ...))`.
 
+`(zig_extern "file.zig" decls...)` is an `extern zig` block of the
+standard library: its declarations are `fun` and `sub` nodes (or `pub`
+of one) whose `body` is `_`. Every pass reads them as the module-level
+functions they are, and skips the body that is not there: the resolver
+declares and types them (and rejects the block outside the standard
+library, a compile-time parameter, and a fallible signature), the type
+checker checks the signature and default values, the ownership checker
+has no body to walk, and calls to them are ordinary calls.
+
 ### Syntax facts
 
 `rig check --facts` checks the program and prints the root module's IR
@@ -484,7 +495,21 @@ exported yet (see [ROADMAP.md](ROADMAP.md)).
 
 `ModuleGraph` loads the root file, then each `use`d module from the
 root file's directory, whichever module names it: `use foo` is always
-the one file `foo.rig` there, loaded once. Its real name must be
+the one file `foo.rig` there, loaded once. `use std.foo` loads the
+standard library's `foo.rig`, from the table `std/embed.zig` embeds in
+the compiler (the build imports it as `rig_std`), or from `$RIG_STD`
+when that names a directory, a setting for developing the library;
+diagnostics name it `std/foo.rig`. A standard library module is keyed
+apart from every file of the program (`<std>/foo.rig`), so even a
+`$RIG_STD` naming the program's directory never makes one file both,
+and it imports only `std.` modules. A
+module is keyed by its qualified name (`foo`, `std.foo`), and its
+`Import` records the local name it is bound to (the alias of `as`, else
+the path's last name), which the resolver declares as a module symbol,
+so two imports binding one name are reported as a duplicate. Each
+module emits to its own file, `foo.zig` or `__rig_std_foo.zig`
+(`SemContext.zig_file`), which importers `@import` under their local
+name. Its real name must be
 exactly `foo.rig` (not another spelling on a case-insensitive
 filesystem, nor a symlink under another name), and names starting with
 `__rig` are the emitter's. Loading is a worklist, so import depth does
@@ -584,8 +609,8 @@ ownership:
 - **fallibility**: a call of type `T!` must be the operand of `!` or
   `catch`; `!` needs a fallible operand and an enclosing function or
   test that can fail (`-> T!`, `sub f()!`, the root module's
-  `sub main`, which is then emitted as `fn __rig_run_main() anyerror!void`
-  inside a `pub fn main() void` that reports a failure as Rig shows it,
+  `main`, which is then emitted as `fn __rig_run_main(init) anyerror!void`
+  (or `anyerror!i64`) inside a Zig `main` that reports a failure as Rig shows it,
   `error: E.name`, through `rig.failMain`, and exits 1, or a `test`,
   whose error `rig test` reports); likewise `e?` (`propagate_none`)
   needs an optional operand and a function returning `T?` (or `T?!`)
@@ -1134,9 +1159,28 @@ lower is an internal error: sema must have rejected it.
   of the call's block when it owns captures) and then the `FnRef` over
   it. Sema records which expressions are lent this way
   (`SemContext.callableOf`).
-- **`main`** of the root module calls `rig.guardStack()`, then defers
+- **Zig-backed declarations.** An `extern zig "file.zig"` block imports
+  the file, which `rig` writes into the package as `rig/std/file.zig`
+  from the module graph (`Module.shims`, read where the module is), and
+  binds each declaration to the Zig function of its name:
+  `pub const sqrt = __rig_shim_1.sqrt;`. Beside each it writes
+  `comptime { rig.expectShim(__rig_shim_1.sqrt, fn (f64) f64, "std.math.sqrt"); }`,
+  the Zig type spelled from the declaration's sema signature, as
+  `emitFun` spells a Rig function's, so a Zig function whose type
+  differs fails the package's build with a message naming the
+  declaration. The suite calls every declaration of the standard
+  library, so no such mismatch reaches a program.
+- **`main`** of the root module takes `std.process.Init.Minimal`, the
+  only way Zig 0.16 hands a program its arguments and environment. It
+  calls `rig.guardStack()` and `rig.start(init)`, then defers
   `rig.finish()`, so it runs after every other drop, and the root
-  module declares `pub const panic = rig.panic`.
+  module declares `pub const panic = rig.panic`. A `main` that may
+  fail (it propagates, or is `sub main!` or `fun main -> Int!`), and
+  `fun main -> Int`, are emitted as `fn __rig_run_main(init)`, returning
+  `void` or `i64` (with `anyerror!` when it may fail), under a Zig
+  `main` that calls it: `rig.failMain` reports a failure and exits 1,
+  and `rig.exitStatus` makes the `Int` the `u8` exit status. Both run
+  after `__rig_run_main` has returned, so after its drops and `finish`.
 - **Tests.** `test "name"` becomes `fn __rig_test_<n>() anyerror!void`,
   listed in the module's `pub const __rig_tests` table, which only
   `rig test` references.
@@ -1173,7 +1217,10 @@ reviewed.
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
 | `discard`, `isNone`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |
+| `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
+| `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
+| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; `exitStatus` checks the status of `fun main -> Int` |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `DebugAllocator`, which prints the stack trace of each leak. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |
 

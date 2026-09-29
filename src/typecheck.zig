@@ -293,6 +293,7 @@ const Checker = struct {
             },
             .set => try self.checkModuleConst(sexp),
             .use, .type, .@"extern", .extern_fun, .extern_sub => {},
+            .zig_extern => for (ir.ZigExtern.decls(sexp)) |d| try self.checkDecl(d),
             else => try self.errAt(sexp, not_at_module_level, .{}),
         }
     }
@@ -377,16 +378,21 @@ const Checker = struct {
         // The root module's `main` is the program's entry point; in any
         // other module `main` is an ordinary function.
         const is_main = self.ctx.is_root and self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
-        if (is_main and (!is_sub or ir.get(node, .params).items().len > 0 or sema.tparamsOf(node).items().len > 0)) {
-            try self.errAt(name, "`main` must be `sub main`: the program's entry point takes no parameters and returns no value", .{});
+        // It returns nothing, or the process's exit status (`-> Int`, or
+        // `-> Int!`).
+        const status = ret == self.t().int_id or (self.ctx.types.get(ret) == .fallible and self.ctx.types.get(ret).fallible == self.t().int_id);
+        if (is_main and ((!is_sub and !status) or ir.get(node, .params).items().len > 0 or sema.tparamsOf(node).items().len > 0)) {
+            try self.errAt(name, "`main` must be `sub main`, or `fun main -> Int` returning the exit status (`-> Int!` if it may fail): the program's entry point takes no parameters", .{});
         }
         for (ir.get(node, .params).items()) |p| if (p.isKind(.default)) {
             const ty = self.ctx.bindingTypeOf(ir.Default.name(p)) orelse self.t().unknown_id;
             try self.checkDefaultValue(ir.Default.value(p), ty, "parameter");
         };
-        // `sub main` lowers to a fallible `main`.
-        const fallible = (is_main and is_sub) or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
+        // `main` lowers to a fallible Zig `main`.
+        const fallible = is_main or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
         if (node.isKind(.fun) and !is_main) try self.checkFunReturns(node, ret);
+        // A Zig-backed declaration's body is its Zig function.
+        if (ir.get(node, .body) == .nil) return;
         try self.checkBody(ir.get(node, .body), .{ .ret = ret, .is_sub = is_sub, .fail_to = if (fallible) .caller else .{ .infallible = name }, .name = name });
     }
 
@@ -593,7 +599,7 @@ const Checker = struct {
                 defer self.body.loops = frame.parent;
                 try self.checkStmt(inner);
             },
-            .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_struct, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .@"test", .@"pub" => {
+            .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_struct, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .zig_extern, .@"test", .@"pub" => {
                 try self.errAt(stmt, "declarations are only allowed at module level", .{});
             },
             else => try self.checkExprStmt(stmt),
@@ -3626,7 +3632,11 @@ const Checker = struct {
                 else => false,
             };
             const kw = if (is_sub) "sub" else "fun";
-            try self.err(pos, "method `{s}` of `{s}` is private to module `{s}`; declare it `pub {s} {s}` there to call it from here", .{ f.name, tname, foreign.name, kw, f.name });
+            if (foreign.is_std) {
+                try self.err(pos, "method `{s}` of `{s}` is private to the standard library's module `{s}`", .{ f.name, tname, foreign.name });
+            } else try self.err(pos, "method `{s}` of `{s}` is private to module `{s}`; declare it `pub {s} {s}` there to call it from here", .{ f.name, tname, foreign.name, kw, f.name });
+        } else if (foreign.is_std) {
+            try self.err(pos, "field `{s}` of `{s}` is private to the standard library's module `{s}`", .{ f.name, tname, foreign.name });
         } else {
             try self.err(pos, "field `{s}` of `{s}` is private to module `{s}`; declare it `pub {s}: ...` there to use it from here", .{ f.name, tname, foreign.name, f.name });
         }
@@ -4107,7 +4117,7 @@ const Checker = struct {
             return null;
         };
         if (!found.sym.flags.is_public and found.sym.decl_pos != sema.builtin_decl_pos) {
-            try self.err(pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, name, module_name });
+            try sema.notPublic(self.ctx, pos, module_name, name, found.ctx);
             return null;
         }
         return found;
@@ -5806,7 +5816,10 @@ const Checker = struct {
         }
         if (count == 0) return;
         const tname = if (module != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ foreign.name, sym.name }) else sym.name;
-        try self.err(pos, "only module `{s}` can construct `{s}`: its {s} {s} {s} private; declare every field `pub` there, or make the value with a `pub` function of `{s}`", .{ foreign.name, tname, if (count == 1) "field" else "fields", private.items, if (count == 1) "is" else "are", foreign.name });
+        const which = .{ if (count == 1) "field" else "fields", private.items, if (count == 1) "is" else "are" };
+        if (foreign.is_std) {
+            try self.err(pos, "only the standard library's module `{s}` can construct `{s}`: its {s} {s} {s} private; make one with its `pub` functions", .{ foreign.name, tname } ++ which);
+        } else try self.err(pos, "only module `{s}` can construct `{s}`: its {s} {s} {s} private; declare every field `pub` there, or make the value with a `pub` function of `{s}`", .{ foreign.name, tname } ++ which ++ .{foreign.name});
         for (fields) |f| {
             if (f.is_method or f.is_variant or f.is_pub or f.decl_pos >= sema.imported_decl_pos) continue;
             try self.ctx.noteIn(m, f.decl_pos, "`{s}` declared here", .{f.name});

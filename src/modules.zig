@@ -2,14 +2,21 @@
 //! every checker on each.
 //!
 //!   use foo          # loads foo.rig from the root file's directory
+//!   use foo as f     # the same module, named `f` here
+//!   use std.os       # the standard library's `os`, named `os` here
 //!   foo.bar(...)     # qualified access to foo's `pub` declarations
 //!
 //! A program lives in one directory, the root file's: `use foo` names
 //! `foo.rig` there whichever module says it, and the file's real name
 //! must be exactly `foo.rig` (not a symlink under another name, nor
-//! another spelling on a case-insensitive filesystem). So a module name
-//! denotes one file, and each module emits to `<name>.zig` in one output
-//! directory. The root emits to `root_zig`, a name no module can have.
+//! another spelling on a case-insensitive filesystem). `use std.NAME`
+//! names the standard library's `NAME.rig`, embedded in the compiler
+//! (`std/` in the repository), or read from `$RIG_STD` when that is
+//! set. A module is keyed by its qualified name (`foo`, `std.os`), so a
+//! name denotes one file, and each module emits to its own file in one
+//! output directory: `<name>.zig`, or `__rig_std_<name>.zig` for the
+//! standard library's. The root emits to `root_zig`, a name no module
+//! can have.
 //!
 //! A module is checked after its imports. A cycle or a module that
 //! cannot be read is reported at the `use`. A module whose import has
@@ -22,6 +29,7 @@ const sema = @import("sema.zig");
 const ownership = @import("ownership.zig");
 const diag = @import("diag.zig");
 const ir = parser.ir;
+const std_lib = @import("rig_std");
 
 pub const max_source_bytes = 16 * 1024 * 1024;
 
@@ -37,6 +45,8 @@ pub const Import = struct {
     target: ModuleId,
 };
 
+pub const Shim = struct { name: []const u8, source: []const u8 };
+
 pub const Module = struct {
     /// 1-based; also the module's identity for cross-module nominal sema.
     id: ModuleId,
@@ -45,10 +55,17 @@ pub const Module = struct {
     /// The path as written by the user (or derived from the root's),
     /// used in diagnostics.
     display: []const u8,
-    /// Basename without `.rig`: the name other modules `use`.
+    /// The qualified name other modules `use`: the basename without
+    /// `.rig`, or `std.NAME` for the standard library's.
     name: []const u8,
-    /// Emitted file name: `<name>.zig`, or `root_zig`.
+    /// Emitted file name: `<name>.zig`, `__rig_std_<name>.zig`, or
+    /// `root_zig`.
     out_basename: []const u8,
+    /// A module of the standard library.
+    is_std: bool = false,
+    /// The Zig files its `extern zig` blocks name (standard library
+    /// modules only), which the package holds as `rig/std/<name>`.
+    shims: std.ArrayListUnmanaged(Shim) = .empty,
     source: []const u8,
     parser: *parser.Parser,
     /// Semantic IR; `.nil` if parsing failed.
@@ -70,6 +87,9 @@ pub const ModuleGraph = struct {
     modules: std.ArrayListUnmanaged(Module) = .empty,
     by_path: std.StringHashMapUnmanaged(ModuleId) = .empty,
     by_name: std.StringHashMapUnmanaged(ModuleId) = .empty,
+    /// `$RIG_STD`: the standard library's directory, in place of the
+    /// copy embedded in the compiler.
+    std_dir: ?[]const u8 = null,
     /// Every module's context by id, which each context shares. Allocated
     /// with the first module, so it stays put when the graph is moved.
     semas: ?*sema.ModuleMap = null,
@@ -89,6 +109,7 @@ pub const ModuleGraph = struct {
             m.parser.deinit();
             self.allocator.destroy(m.parser);
             m.imports.deinit(self.allocator);
+            m.shims.deinit(self.allocator);
         }
         self.modules.deinit(self.allocator);
         self.by_path.deinit(self.allocator);
@@ -153,25 +174,59 @@ pub const ModuleGraph = struct {
         }
     }
 
-    /// Resolve `use NAME` in module `id`: record the import, adding the
-    /// module to the graph if it is new, or report why it cannot be
-    /// imported.
+    /// Resolve `use NAME` or `use std.NAME` in module `id`: record the
+    /// import, adding the module to the graph if it is new, or report why
+    /// it cannot be imported.
     fn resolveUse(self: *ModuleGraph, id: ModuleId, decl: parser.Sexp) Error!union(enum) { failed, loaded, added: ModuleId } {
         const a = self.arena.allocator();
         const importer = self.get(id);
-        const name_node = ir.Use.name(decl);
-        const name = importer.source[name_node.src.pos..][0..name_node.src.len];
+        const path = ir.Use.name(decl);
+        const in_std = path.isKind(.member);
+        const name_node = if (in_std) ir.Member.name(path) else path;
+        const name = name_node.getText(importer.source);
+        const alias = ir.Use.alias(decl);
+        const local_name = if (alias == .nil) name else alias.getText(importer.source);
         const at = importer.parser.span(decl);
 
+        if (in_std) {
+            const head = ir.Member.object(path).getText(importer.source);
+            if (!std.mem.eql(u8, head, "std")) {
+                try self.errorAt(id, importer.parser.span(path), "`{s}.{s}` names no module: a dotted path names a module of the standard library, `std.{s}`, and a module beside this one is `use {s}`", .{ head, name, name, name });
+                return .failed;
+            }
+        }
         if (std.mem.startsWith(u8, name, reserved_prefix)) {
             try self.errorAt(id, at, "module names starting with `{s}` are reserved for the compiler", .{reserved_prefix});
             return .failed;
         }
-        const target = self.by_name.get(name) orelse blk: {
+        // The standard library is self-contained: it never reaches a
+        // program's files, whatever their names.
+        if (importer.is_std and !in_std) {
+            try self.errorAt(id, at, "a module of the standard library imports only other modules of it: `use std.{s}`", .{name});
+            return .failed;
+        }
+        const qualified = if (in_std) try std.fmt.allocPrint(a, "std.{s}", .{name}) else name;
+        const target = self.by_name.get(qualified) orelse blk: {
             const file = try std.fmt.allocPrint(a, "{s}.rig", .{name});
+            if (in_std) {
+                const found = self.readStd(file) catch |err| {
+                    try self.stdError(id, at, file, err);
+                    return .failed;
+                } orelse {
+                    try self.errorAt(id, at, "the standard library has no module `{s}`", .{name});
+                    return .failed;
+                };
+                const added = try self.add(found.key, found.display, qualified, found.source);
+                self.get(added).is_std = true;
+                self.get(added).out_basename = try std.fmt.allocPrint(a, "__rig_std_{s}.zig", .{name});
+                if (!try self.loadShims(added)) self.get(added).state = .failed;
+                try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = added });
+                return .{ .added = added };
+            }
             const display = if (std.fs.path.dirname(self.root().display)) |d| try std.fs.path.join(a, &.{ d, file }) else file;
             const source = self.read(display) catch |err| {
-                try self.errorAt(id, at, "cannot read module `{s}` ({s}): {s}", .{ name, display, fileError(err) });
+                const hint = if (std.mem.eql(u8, name, "std")) "; a module of the standard library is `use std.NAME`" else "";
+                try self.errorAt(id, at, "cannot read module `{s}` ({s}): {s}{s}", .{ name, display, fileError(err), hint });
                 return .failed;
             };
             const canonical = try self.realPath(display);
@@ -182,15 +237,83 @@ pub const ModuleGraph = struct {
             }
             if (self.by_path.get(canonical)) |existing| break :blk existing;
             const added = try self.add(canonical, display, name, source);
-            try self.get(id).imports.append(self.allocator, .{ .local_name = name, .target = added });
+            try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = added });
             return .{ .added = added };
         };
         if (self.get(target).state == .loading) {
-            try self.errorAt(id, at, "cyclic import: `{s}` is still being loaded when `{s}` imports it", .{ name, self.get(id).name });
+            try self.errorAt(id, at, "cyclic import: `{s}` is still being loaded when `{s}` imports it", .{ qualified, self.get(id).name });
             return .failed;
         }
-        try self.get(id).imports.append(self.allocator, .{ .local_name = name, .target = target });
+        for (self.get(id).imports.items) |imp| if (imp.target == target and std.mem.eql(u8, imp.local_name, local_name)) {
+            try self.errorAt(id, at, "`{s}` is already imported as `{s}`", .{ qualified, local_name });
+            return .failed;
+        };
+        try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = target });
         return .loaded;
+    }
+
+    /// Read the Zig file of each `extern zig` block of the standard
+    /// library's module `id`; false if one cannot be.
+    fn loadShims(self: *ModuleGraph, id: ModuleId) Error!bool {
+        const m = self.get(id);
+        if (m.ir == .nil) return true;
+        for (ir.Module.decls(m.ir)) |decl| {
+            if (!decl.isKind(.zig_extern)) continue;
+            const leaf = ir.ZigExtern.file(decl);
+            const at = m.parser.span(leaf);
+            const quoted = leaf.getText(m.source);
+            const file = quoted[1 .. quoted.len - 1];
+            const base = file[0 .. file.len -| 4];
+            const plain = std.mem.endsWith(u8, file, ".zig") and base.len > 0 and for (base) |c| {
+                if (!std.ascii.isAlphanumeric(c) and c != '_') break false;
+            } else true;
+            if (!plain) {
+                try self.errorAt(id, at, "`extern zig` names a Zig file of the standard library, `name.zig`", .{});
+                return false;
+            }
+            const found = self.readStd(file) catch |err| {
+                try self.stdError(id, at, file, err);
+                return false;
+            } orelse {
+                try self.errorAt(id, at, "the standard library has no Zig file `{s}`", .{file});
+                return false;
+            };
+            try self.get(id).shims.append(self.allocator, .{ .name = file, .source = found.source });
+        }
+        return true;
+    }
+
+    /// A file of the standard library: from `$RIG_STD` when it is set,
+    /// else embedded in the compiler (null when there is no such file).
+    /// `key` identifies the file in the graph, apart from every file of
+    /// the program, even when `$RIG_STD` names the program's directory:
+    /// a module is the standard library's or the program's, never both.
+    /// `display` names it in diagnostics.
+    fn readStd(self: *ModuleGraph, file: []const u8) !?struct { key: []const u8, display: []const u8, source: []const u8 } {
+        const a = self.arena.allocator();
+        const key = try std.fmt.allocPrint(a, "<std>/{s}", .{file});
+        const dir = self.std_dir orelse {
+            const source = std_lib.get(file) orelse return null;
+            return .{ .key = key, .display = try std.fs.path.join(a, &.{ "std", file }), .source = source };
+        };
+        const path = try std.fs.path.join(a, &.{ dir, file });
+        const source = self.read(path) catch |err| switch (err) {
+            error.FileNotFound => {
+                var d = std.Io.Dir.cwd().openDir(self.io, dir, .{}) catch return error.NoStdDir;
+                d.close(self.io);
+                return null;
+            },
+            else => |e| return e,
+        };
+        return .{ .key = key, .display = path, .source = source };
+    }
+
+    /// Why a file of the standard library named `$RIG_STD` cannot be read.
+    fn stdError(self: *ModuleGraph, id: ModuleId, at: parser.Span, file: []const u8, err: anyerror) Error!void {
+        if (err == error.OutOfMemory) return error.OutOfMemory;
+        const dir = self.std_dir.?;
+        if (err == error.NoStdDir) return self.errorAt(id, at, "RIG_STD names `{s}`, which is not a directory", .{dir});
+        try self.errorAt(id, at, "cannot read `{s}/{s}` (RIG_STD): {s}", .{ dir, file, fileError(err) });
     }
 
     /// Add a module and parse it; a module that does not parse is
@@ -281,6 +404,8 @@ pub const ModuleGraph = struct {
             .name = m.name,
             .module_id = id,
             .is_root = id == 1,
+            .zig_file = m.out_basename,
+            .is_std = m.is_std,
         });
 
         // Ownership reads the types sema settled, so a module whose types

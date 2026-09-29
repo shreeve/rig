@@ -155,8 +155,8 @@ not used.
 | declarations | `fun` `sub` `struct` `enum` `error` `type` `use` `pub` `extern` `test` `drop` |
 | control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` `pass` |
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
-| boundaries | `raw` |
-| reserved forms | `try` `zig` |
+| boundaries | `raw` `zig` (in `extern zig`) |
+| reserved forms | `try`, and `zig` elsewhere |
 | held for later | `async` `await` `const` `impl` `trait` `when` `where` `yield` |
 
 A keyword may still name a member, where it cannot be mistaken for the
@@ -706,9 +706,14 @@ never `=!` ([SPEC §3](SPEC.md#constants)).
 
 `use name` imports the module `name.rig`, whose `pub` declarations are
 then named `name.decl` and `name.Type`
-([SPEC §14](SPEC.md#14-modules)). `extern fun name(params) -> R`,
+([SPEC §14](SPEC.md#14-modules)). `use std.name` imports a module of
+the standard library ([STD.md](docs/STD.md)), named `name` here, and
+`as` names a module otherwise: `use geo as g`, `use std.os as o`. `extern fun name(params) -> R`,
 `extern sub name(params)`, and `extern name: T` declare C functions and
-data ([SPEC §15](SPEC.md#15-raw-code-and-ffi)).
+data ([SPEC §15](SPEC.md#15-raw-code-and-ffi)). In the standard library,
+`extern zig "file.zig"` holds an indented list of `fun` and `sub`
+declarations without bodies, which that Zig file implements
+([SPEC §15](SPEC.md#zig-backed-declarations)).
 
 ## 9. Bindings and assignment
 
@@ -1411,7 +1416,7 @@ block.
 program   = decl*
 decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | test | const)
           | use | extern
-use       = "use" name
+use       = "use" ["std" "."] name ["as" name]
 fun       = "fun" name [tparams] [params] "->" type block
 sub       = "sub" name [tparams] [params] ["!"] block
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
@@ -1429,6 +1434,9 @@ test      = "test" string block
 extern    = "extern" "fun" name [params] ["->" type]
           | "extern" "sub" name [params]
           | "extern" name ":" type
+          | "extern" "zig" string INDENT (["pub"] zdecl)* DEDENT
+zdecl     = "fun" name [tparams] [params] ["->" type]
+          | "sub" name [tparams] [params] ["!"]
 
 type      = ("?" | "!") type | ptype | tsuffix
 ptype     = ("*" | "~")* ("[" [dim] "]" type

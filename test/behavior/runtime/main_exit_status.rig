@@ -1,0 +1,19 @@
+# `fun main -> Int` returns the exit status; `main`'s drops run first,
+# and the status of 0 here lets the program pass.
+
+struct Guard
+  name: String
+
+  drop(!self)
+    print("drop", self.name)
+
+fun main() -> Int
+  g = Guard(name: "g")
+  print("body", g.name)
+  if g.name == "x"
+    return 1
+  0
+
+# expect:
+# body g
+# drop g

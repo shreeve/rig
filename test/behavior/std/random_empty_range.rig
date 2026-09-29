@@ -1,0 +1,8 @@
+# `int(lo, hi)` needs `lo < hi`: an empty range has no value to give.
+use std.random
+
+sub main()
+  r = random.Rng.seeded(1)
+  print(!r.int(4, 4))
+
+# expect-panic: random: empty range 4..4

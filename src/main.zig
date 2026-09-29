@@ -19,6 +19,7 @@ const usage =
     \\Rig: a systems language with visible ownership, compiled to Zig.
     \\
     \\Usage: rig <command> [options] <file.rig>
+    \\       rig run [options] <file.rig> -- <program arguments>
     \\
     \\Commands:
     \\  check     Check the program and its imports
@@ -50,6 +51,9 @@ const usage =
     \\                   under $XDG_CACHE_HOME/rig, or ~/.cache/rig)
     \\  RIG_LEAK_TRACE   Set to 1 when building to report each leaked
     \\                   allocation with its stack trace (slower)
+    \\  RIG_STD          For developing the standard library: a directory
+    \\                   to read it from, in place of the copy built into
+    \\                   rig
     \\  ZIG              The Zig 0.16 executable (default: zig on PATH)
     \\
 ;
@@ -77,6 +81,8 @@ const Options = struct {
     mode: Mode = .debug,
     out_path: ?[]const u8 = null,
     facts: bool = false,
+    /// `rig run file.rig -- args...`: the program's own arguments.
+    program_args: []const []const u8 = &.{},
 };
 
 const Env = struct {
@@ -116,7 +122,7 @@ pub fn main(init: std.process.Init) !void {
             }
         },
         .check => {
-            var graph = try loadProject(allocator, io, opts.path);
+            var graph = try loadProject(allocator, io, env, opts.path);
             defer graph.deinit();
             if (opts.facts) try printFacts(io, graph.root());
         },
@@ -131,9 +137,15 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var mode: Mode = .debug;
     var out_path: ?[]const u8 = null;
     var facts = false;
+    var program_args: []const []const u8 = &.{};
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
+        if (eql(arg, "--")) {
+            if (command != .run) usageError("arguments after `--` are for the program `rig run` runs", .{});
+            program_args = args[i + 1 ..];
+            break;
+        }
         // `help` and `version` are commands only in the command's place,
         // so a file may have either name.
         const first = command == null;
@@ -179,7 +191,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .program_args = program_args };
 }
 
 fn eql(a: []const u8, b: []const u8) bool {
@@ -271,9 +283,10 @@ fn printFacts(io: std.Io, m: *const modules.Module) !void {
 
 /// Load and check the project rooted at `path`; print every diagnostic
 /// and exit 1 if there are errors.
-fn loadProject(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !modules.ModuleGraph {
+fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !modules.ModuleGraph {
     var graph = modules.ModuleGraph.init(allocator, io);
     errdefer graph.deinit();
+    graph.std_dir = env.get("RIG_STD");
     try graph.loadRoot(path);
 
     var buffer: [4096]u8 = undefined;
@@ -287,7 +300,7 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !modu
 /// `rig emit`: the root module's Zig on stdout; the whole package
 /// (imports and runtime) is written to the output directory.
 fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !void {
-    var graph = try loadProject(allocator, io, path);
+    var graph = try loadProject(allocator, io, env, path);
     defer graph.deinit();
     const pkg = try emitPackage(allocator, io, env, &graph);
 
@@ -302,16 +315,16 @@ fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 /// Zig's own errors name the emitted files; any other failure of `run`
 /// or `test` is the program's.
 fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
-    var graph = try loadProject(allocator, io, opts.path);
+    var graph = try loadProject(allocator, io, env, opts.path);
     defer graph.deinit();
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     const pkg = try emitPackage(allocator, io, env, &graph);
     const zig = env.zig();
     const flag = opts.mode.zigFlag();
     const code = switch (opts.command) {
-        .run => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig }),
-        .build => try runZig(allocator, io, pkg, &.{ zig, "build-exe", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig, try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{opts.out_path orelse graph.root().name}) }),
-        else => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, try writeTestDriver(allocator, io, env, &graph, pkg.dir) }),
+        .run => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig }, opts.program_args),
+        .build => try runZig(allocator, io, pkg, &.{ zig, "build-exe", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig, try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{opts.out_path orelse graph.root().name}) }, &.{}),
+        else => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, try writeTestDriver(allocator, io, env, &graph, pkg.dir) }, &.{}),
     };
     if (code == 0) return;
     if (opts.command == .build) std.debug.print("note: emitted Zig is in {s}\n", .{pkg.dir});
@@ -337,11 +350,13 @@ fn writeTestDriver(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *c
         \\    return if (@hasDecl(module, "__rig_tests")) &module.__rig_tests else &.{};
         \\}
         \\
-        \\pub fn main() void {
+        \\pub fn main(init: @import("std").process.Init.Minimal) void {
+        \\    rig.start(init);
         \\    rig.runTests(&.{
         \\
     );
     for (graph.modules.items, 0..) |m, i| {
+        if (m.is_std) continue;
         try w.print("        .{{ .module = \"{s}\", .tests = testsOf(@import(\"{s}\")) }},\n", .{ if (i == 0) "" else m.name, m.out_basename });
     }
     try w.writeAll("    });\n}\n");
@@ -351,12 +366,14 @@ fn writeTestDriver(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *c
 }
 
 /// Run the Zig toolchain on `pkg` with inherited stdio, linking libc
-/// when the package needs it; return its exit code (128 + the signal
+/// when the package needs it, and passing `program_args` to the program
+/// `zig run` runs; return its exit code (128 + the signal
 /// number if a signal ended it).
-fn runZig(allocator: std.mem.Allocator, io: std.Io, pkg: Package, argv: []const []const u8) !u8 {
+fn runZig(allocator: std.mem.Allocator, io: std.Io, pkg: Package, argv: []const []const u8, program_args: []const []const u8) !u8 {
     const libc: []const []const u8 = if (pkg.links_libc) &.{"-lc"} else &.{};
+    const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
     var child = std.process.spawn(io, .{
-        .argv = try std.mem.concat(allocator, []const u8, &.{ argv, libc }),
+        .argv = try std.mem.concat(allocator, []const u8, &.{ argv, libc, dashes, program_args }),
         .stdin = .inherit,
         .stdout = .inherit,
         .stderr = .inherit,
@@ -416,6 +433,7 @@ fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modul
         links_libc = links_libc or em.links_libc;
         if (i == 0 and env.leakTrace()) try file_buffer.writer.writeAll("\npub const __rig_leak_trace = true;\n");
         try writeFile(io, try std.fs.path.join(allocator, &.{ dir, m.out_basename }), file_buffer.written());
+        for (m.shims.items) |shim| try writeFile(io, try std.fs.path.join(allocator, &.{ dir, "rig", "std", shim.name }), shim.source);
         if (i == 0) root_source = file_buffer.written();
     }
     return .{

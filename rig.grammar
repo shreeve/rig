@@ -85,7 +85,7 @@ tokens
     type
     use
     while
-    zig             # reserved; no form uses it
+    zig             # `extern zig "file.zig"`
     async           # reserved; no form uses it
     await           # reserved; no form uses it
     const           # reserved; no form uses it
@@ -283,9 +283,9 @@ tokens
 @schema
     # Declarations
     module                      ...decls
-    use                         name:leaf
-    fun                         name:leaf tparams:group? params:group? returns? body:block
-    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? body:block
+    use                         name alias:leaf?
+    fun                         name:leaf tparams:group? params:group? returns? body:block?
+    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? body:block?
     lambda                      captures:captures? params:group? body:block
     struct, enum, errors        name:leaf ...members
     generic_struct, generic_enum name:leaf tparams:group ...members
@@ -295,6 +295,7 @@ tokens
     extern                      name:leaf type
     extern_fun                  name:leaf params:group? returns?
     extern_sub                  name:leaf params:group?
+    zig_extern                  file:leaf ...decls
     drop_decl                   params:group body:block
     labeled                     label:leaf stmt
 
@@ -418,6 +419,7 @@ stmt     = use
          | extvar
          | ext_fun
          | ext_sub
+         | zig_ext
          | ":" label:name stmt:stmt                 → (labeled)
          | simple
          | simple POST_IF cond:value                → (if then:(block 1))
@@ -461,7 +463,13 @@ const    = target:name "="  value:tail              → (set)
 
 defn     = fun | sub | enum | struct | errors | typedef | test
 
-use      = USE name:name                            → (use)
+# `use geo`, `use geo as g`, `use std.os`, `use std.os as o`: a module
+# beside the root file, or one of the standard library.
+use      = USE name:mpath                           → (use)
+         | USE name:mpath AS alias:name             → (use)
+
+mpath    = name
+         | object:name "." name:name                → (member)
 
 fun      = FUN name:name [tparams:tparams] [params:params] [returns:returns] body:block → (fun)
 sub      = SUB name:name [tparams:tparams] [params:params] body:block → (sub)
@@ -526,6 +534,22 @@ extvar   = EXTERN name:name ":" type:type           → (extern)
 
 ext_fun  = EXTERN FUN name:name [params:params] [returns:returns] → (extern_fun)
 ext_sub  = EXTERN SUB name:name [params:params]     → (extern_sub)
+
+# Declarations the Zig file `file` implements (the standard library's
+# only): a `fun` or `sub` without a body, whose file declares a Zig
+# function of the type its signature lowers to.
+zig_ext  = EXTERN ZIG file:STRING_DQ INDENT decls:zdecls OUTDENT → (zig_extern)
+
+zdecls   = zdecl                                    → (1)
+         | zdecls NEWLINE zdecl                     → (...1 3)
+         | zdecls NEWLINE                           → 1
+
+zdecl    = zfun
+         | PUB decl:zfun                            → (pub)
+
+zfun     = FUN name:name [tparams:tparams] [params:params] [returns:returns] → (fun)
+         | SUB name:name [tparams:tparams] [params:params] → (sub)
+         | SUB name:name [tparams:tparams] [params:params] "!" → (sub fails:fails)
 
 # ==============================================================================
 # TYPES
