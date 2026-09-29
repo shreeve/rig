@@ -4080,7 +4080,9 @@ must say what happens to the failure, visibly:
 
 - `f()!` propagates it: the enclosing function fails with the same
   error. The enclosing function must itself return a `T!`, be a
-  fallible `sub`, or be the top-level `sub main` or a `test`.
+  fallible `sub`, or be the top-level `sub main` or a `test`. A failure
+  that leaves `main` ends the program after `main`'s drops: it writes
+  `error: E.name` to stderr and exits with status 1.
 - `f() catch fallback` handles it: the value of the call, or `fallback`
   when it fails. The fallback may be a jump, as after `??`
   ([§12](#12-optionals)): `f() catch return -1`, `f() catch |e| return e`,

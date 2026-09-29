@@ -584,7 +584,9 @@ ownership:
 - **fallibility**: a call of type `T!` must be the operand of `!` or
   `catch`; `!` needs a fallible operand and an enclosing function or
   test that can fail (`-> T!`, `sub f()!`, the root module's
-  `sub main`, which is then emitted as `anyerror!void`, or a `test`,
+  `sub main`, which is then emitted as `fn __rig_run_main() anyerror!void`
+  inside a `pub fn main() void` that reports a failure as Rig shows it,
+  `error: E.name`, through `rig.failMain`, and exits 1, or a `test`,
   whose error `rig test` reports); likewise `e?` (`propagate_none`)
   needs an optional operand and a function returning `T?` (or `T?!`)
   to return `none` from. A closure body propagates only when the

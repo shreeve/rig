@@ -1194,6 +1194,14 @@ pub fn finish() void {
     std.process.exit(1);
 }
 
+/// A failure that left `main`, after its drops and `finish`: report the
+/// error as a Rig program shows it and exit 1.
+pub fn failMain(err: anyerror) noreturn {
+    flush();
+    std.debug.print("error: {s}\n", .{errorShown(err)});
+    std.process.exit(1);
+}
+
 // Output. `print` writes to one process-wide buffer, flushed when the
 // program finishes, before a panic message, and after every `print`
 // when stdout is a terminal.

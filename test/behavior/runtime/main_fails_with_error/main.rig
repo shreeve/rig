@@ -1,0 +1,22 @@
+# A failure that leaves `main` ends the program: what it printed is
+# written out, what it owns is dropped and checked for leaks, and the
+# error is reported as Rig shows it, `IoErr.eof`, with exit status 1.
+use lib
+
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  t = Tok(n: 1)
+  names = ["a", "b"]
+  print(lib.read(2)!, names.len, t.n)
+  print(lib.read(0)!)
+  print("unreachable")
+
+# expect-panic: error: IoErr.eof
+# expect:
+# 2 2 1
+# drop 1

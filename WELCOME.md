@@ -319,7 +319,7 @@ correspondences:
 | `?fun(A) -> R` | `rig.FnRef`: a context pointer and a call function |
 | an owned closure | a counted, type-erased closure |
 | `defer`, `errdefer` | `defer`, `errdefer` |
-| `sub main` | `pub fn main() void`, or `anyerror!void` when it propagates; in Debug it checks for leaks on exit |
+| `sub main` | `pub fn main() void`, which reports a failure it propagates as `error: E.name` and exits 1; in Debug it checks for leaks on exit |
 
 The runtime, `src/runtime.zig`, is written next to every emitted
 program; [INTERNALS](docs/INTERNALS.md) describes it.

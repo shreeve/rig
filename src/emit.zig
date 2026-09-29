@@ -626,7 +626,13 @@ pub const Emitter = struct {
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
-        try self.w.print("pub fn {f}(", .{ident(name)});
+        // A `main` that may fail runs inside one that reports the failure
+        // as Rig shows errors (`rig.failMain`).
+        const fails = is_main and contains(body, &.{.propagate});
+        if (fails) {
+            try self.w.writeAll("pub fn main() void {\n    __rig_run_main() catch |err| rig.failMain(err);\n}\n\n");
+            try self.w.writeAll("fn __rig_run_main(");
+        } else try self.w.print("pub fn {f}(", .{ident(name)});
         try self.pushScope();
         defer self.popScope() catch {};
         // Compile-time parameters come first, after a method's receiver,
@@ -645,8 +651,7 @@ pub const Emitter = struct {
         if (return_ty) |r| {
             try self.emitTypeTy(r);
         } else {
-            // `main` may propagate a failure out of the program.
-            try self.w.writeAll(if (is_main and contains(body, &.{.propagate})) "anyerror!void" else "void");
+            try self.w.writeAll(if (fails) "anyerror!void" else "void");
         }
         try self.w.writeAll(" ");
         // A `sub` yields no value, even one that may fail (`Void!`).
