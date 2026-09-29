@@ -29,7 +29,7 @@ fun nested(k: Int) -> Int!
     errdefer print("nested outer", k)
     if k > 5
       errdefer print("nested inner", k)
-      .bad
+      E.bad
     else
       k
   else

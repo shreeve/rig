@@ -22,4 +22,4 @@ sub main()
 
 # expect:
 # empty bad digit empty ok
-# .bad_digit 1
+# ParseError.bad_digit 1

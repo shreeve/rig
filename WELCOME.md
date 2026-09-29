@@ -303,7 +303,7 @@ correspondences:
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `U8(x)`, `Int(e)` of a plain enum | `@as(u8, @intCast(x))`, `@as(i64, @intCast(@intFromEnum(e)))` |
 | `a +% b`, `U8.max` | `a +% b`, the constant `std.math.maxInt(u8)` |
-| `error E` | an error set |
+| `error E` | an error set, each member named with its set (`error.@"E.name"`), so two sets' members never coincide |
 | `struct Wrap[T]` | `fn Wrap(comptime T: type) type` |
 | `fun max[T](a: T, b: T) -> T`, `max(3, 7)` | `fn max(comptime T: type, a: T, b: T) T`, `max(i64, 3, 7)` |
 | `fun f[n: Int](x: Int)`, `f[3](x)` | `fn f(comptime n: i64, x: i64) i64`, `f(3, x)` |
@@ -320,7 +320,7 @@ correspondences:
 | `?fun(A) -> R` | `rig.FnRef`: a context pointer and a call function |
 | an owned closure | a counted, type-erased closure |
 | `defer`, `errdefer` | `defer`, `errdefer` |
-| `sub main` | `pub fn main() void`, or `anyerror!void` when it propagates; in Debug it checks for leaks on exit |
+| `sub main` | `pub fn main() void`, which reports a failure it propagates as `error: E.name` and exits 1; in Debug it checks for leaks on exit |
 
 The runtime, `src/runtime.zig`, is written next to every emitted
 program; [INTERNALS](docs/INTERNALS.md) describes it.

@@ -1,0 +1,15 @@
+# Two modules' error sets that share a member name are distinct: a bare
+# `.eof` against any error could be either, so it names its set.
+use io
+use lex
+
+sub main()
+  a = io.read(0) catch |e|
+    match e
+      .eof => 1
+      _ => 2
+  b = io.read(0) catch |e| 1 if e == io.IoError.eof else 2
+  print(a, b)
+
+# error: 9:8: error sets `io.IoError` and `lex.LexError` both have a member `eof`; name the set: `io.IoError.eof` or `lex.LexError.eof`
+# errors: 1

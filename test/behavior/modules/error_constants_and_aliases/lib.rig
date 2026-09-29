@@ -1,0 +1,11 @@
+pub error Disk
+  full
+  empty
+
+pub DEF = Disk.full
+pub type D = Disk
+
+pub fun fail(n: Int) -> Int!
+  return Disk.full if n == 0
+  return D.empty if n == 1
+  n

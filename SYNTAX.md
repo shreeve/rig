@@ -599,6 +599,9 @@ position: `.circle(2)` is `.circle(radius: 2)`.
 ### Error sets
 
 `error Name` lists the error values a fallible function may fail with.
+A function fails with one by naming its set, `return NetError.timeout`,
+and each error belongs to its set: another set's `timeout` is a
+different error.
 
 ```rig
 error NetError
@@ -611,7 +614,7 @@ sub main
 ```
 
 ```output
-.timeout true
+NetError.timeout true
 ```
 
 ### Type aliases
@@ -1381,6 +1384,7 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | Pattern | Matches |
 |---|---|
 | `.name` | an enum variant, or an error value |
+| `E.name`, `m.E.name` | a member of error set `E` (of module `m`); a variant of an enum is written `.name` |
 | `.name(a, b)` | a payload variant, binding its fields in order |
 | `.name(_, b)` | a payload variant, ignoring a field |
 | `42`, `-1`, `true` | a literal |
@@ -1390,9 +1394,10 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | `p, q` | any of the alternatives, which bind no names |
 | `p if cond` | what `p` matches, when the guard `cond` holds |
 
-A pattern is one of these, never a string or a float. Binding a payload
-field by name (`.rect(w: a, h: b)`) is reserved, and rejected as not
-supported yet ([SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)).
+A pattern is one of these, never a string or a float, and never a
+module's constant (`lib.LIMIT`), which an arm compares with in a guard:
+`x if x == lib.LIMIT =>`. Binding a payload field by name
+(`.rect(w: a, h: b)`) is reserved, and rejected as not supported yet ([SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)).
 
 ---
 
@@ -1466,6 +1471,7 @@ arm       = pattern, ... ["if" value] ("=>" simple | block)
 pattern   = patom [".." patom]
 patom     = name | ["-"] integer | "true" | "false"
           | "." name ["(" [(name | name ":" name), ...] ")"]
+          | [name "."] name "." name
 closure   = ["*"] bars (expr | block)
 bars      = "|" (name [":" type] | ("+" | "<" | "~" | "?" | "!") name), ... "|" | "||"
 

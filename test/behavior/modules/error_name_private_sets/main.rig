@@ -1,0 +1,24 @@
+# A bare error name against any error counts this module's own sets and
+# the `pub` sets of the modules it reaches, never another module's
+# private set: `.timeout` here is `Net.timeout`, and `a`'s private
+# `Hidden.timeout` is a different error.
+use a
+
+error Net
+  timeout
+
+fun g() -> Int!
+  return Net.timeout
+
+sub main()
+  x = g() catch |e| 1 if e == .timeout else 2
+  y = a.f(0) catch |e|
+    print(e)
+    match e
+      .timeout => 1
+      _ => 2
+  print(x, y)
+
+# expect:
+# Hidden.timeout
+# 1 2

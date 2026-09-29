@@ -1,0 +1,20 @@
+# A pattern cannot name a module's constant, of an error set or of an
+# enum: it is compared in a guard instead. The rejected arm covers
+# nothing, and the match reports no more than that arm.
+use lib
+
+fun k(d: lib.Disk) -> String
+  match d
+    lib.DEF => "def"
+
+fun c(x: lib.Color) -> String
+  match x
+    lib.RED => "red"
+    .green => "green"
+
+sub main()
+  print(k(lib.Disk.full), c(.red))
+
+# error: 8:5: `lib.DEF` is a constant, which a pattern cannot name; compare with it in a guard: `x if x == lib.DEF =>`
+# error: 12:5: `lib.RED` is a constant, which a pattern cannot name; compare with it in a guard: `x if x == lib.RED =>`
+# errors: 2

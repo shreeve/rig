@@ -1,0 +1,13 @@
+pub error IoError
+  eof
+  closed
+
+pub fun read(n: Int) -> Int!
+  return IoError.eof if n == 0
+  return IoError.closed if n < 0
+  n
+
+pub fun kind(e: IoError = .closed) -> String
+  match e
+    .eof => "eof"
+    IoError.closed => "closed"

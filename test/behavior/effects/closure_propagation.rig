@@ -37,7 +37,7 @@ sub main()
 
 # expect:
 # 3
-# failed .empty
+# failed Parse.empty
 # 6 -1
 # 3 0
 # 104 0

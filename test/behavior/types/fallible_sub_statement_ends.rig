@@ -49,6 +49,6 @@ sub main
 
 # expect:
 # zero
-# d failed .neg
+# d failed Bad.neg
 # big 3
 # 0

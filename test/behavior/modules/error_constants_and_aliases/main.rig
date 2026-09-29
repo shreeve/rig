@@ -1,0 +1,48 @@
+# A module's constant of an error-set type is that constant, read as a
+# value, passed, and used as a default; an alias of an error set, local,
+# of another module's set, or another module's own `pub type`, names the
+# set's members as the set does, in values and in patterns.
+use lib
+
+type L = lib.Disk
+
+error Net
+  timeout
+
+type N = Net
+
+struct H
+  e: lib.Disk = lib.DEF
+
+fun g(e: lib.Disk = lib.DEF) -> lib.Disk
+  e
+
+fun take(d: lib.Disk) -> Bool
+  d == lib.DEF
+
+fun net() -> Int!
+  return N.timeout
+
+sub main()
+  print(lib.DEF, take(lib.DEF), H(), g())
+  x = lib.fail(0) catch |e|
+    print(e == lib.DEF, e == L.full, e == lib.D.full, e == L.empty)
+    match e
+      L.empty => 1
+      lib.D.full => 2
+      _ => 3
+  y = lib.fail(1) catch |e|
+    match e
+      lib.D.full => 1
+      L.empty => 2
+      _ => 3
+  z = net() catch |e|
+    match e
+      N.timeout => 1
+      _ => 2
+  print(x, y, z, L.full, lib.D.empty, N.timeout)
+
+# expect:
+# Disk.full true H(e: Disk.full) Disk.full
+# true true true false
+# 2 2 1 Disk.full Disk.empty Net.timeout

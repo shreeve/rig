@@ -1,0 +1,18 @@
+# `sub main!` may fail; one that does not runs as `sub main` does.
+
+error Oops
+  bad
+
+fun half(n: Int) -> Int!
+  if n % 2 != 0
+    return Oops.bad
+  n / 2
+
+sub main()!
+  print(half(8)!)
+  x = half(3) catch 0
+  print(x)
+
+# expect:
+# 4
+# 0

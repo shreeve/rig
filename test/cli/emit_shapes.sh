@@ -46,7 +46,8 @@ EOF
 out=$("$RIG" emit fallible.rig 2>/dev/null) || fail "rig emit fallible.rig"
 expect_has "$out" 'try bar()' "propagate"
 expect_has "$out" 'pub fn foo() anyerror!i64' "fallible return type"
-expect_has "$out" 'pub fn main(__rig_init: std.process.Init.Minimal) anyerror!void' "fallible main"
+expect_has "$out" '__rig_run_main(__rig_init) catch |err| rig.failMain(err);' "fallible main"
+expect_has "$out" 'fn __rig_run_main(__rig_init: std.process.Init.Minimal) anyerror!void' "fallible main body"
 
 cat >names.rig <<'EOF'
 sub main()
