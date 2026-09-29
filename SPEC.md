@@ -4704,7 +4704,10 @@ is checked exactly as a call to a Rig function with that signature
 the Zig file is trusted as the runtime is, and each function's Zig type
 is checked, when the program is compiled, to be the one its Rig
 signature lowers to. Such a function takes no compile-time parameters
-and cannot fail. Only the standard library may declare one:
+and cannot fail. Its signature is trusted where the checker cannot see
+a body: one that returns a borrow and takes no borrowed parameter, as
+`std.os.args() -> []String` does, returns something that lives as long
+as the program. Only the standard library may declare one:
 
 ```rig reject
 extern zig "fast.zig"

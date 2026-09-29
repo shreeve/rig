@@ -1233,6 +1233,12 @@ pub fn start(init: std.process.Init.Minimal) void {
     process_args = list;
 }
 
+/// Free what `start` gathered, at the end of the program or its tests.
+fn releaseProcess() void {
+    defaultAllocator().free(process_args);
+    process_args = &.{};
+}
+
 /// The program's arguments, its name first; they live as long as the
 /// process.
 pub fn processArgs() []const []const u8 {
@@ -1255,8 +1261,7 @@ pub fn exitStatus(n: Int) u8 {
 /// drops: flush `print` output, then exit non-zero if anything leaked, so
 /// a leaking program never passes.
 pub fn finish() void {
-    defaultAllocator().free(process_args);
-    process_args = &.{};
+    releaseProcess();
     flush();
     if (!reportLeaks(.{ .count = 0, .bytes = 0 })) return;
     if (leak_trace) _ = trace_allocator.deinit();
@@ -1387,6 +1392,7 @@ pub fn runTests(modules: []const TestModule) void {
     };
     w.print("{d} passed, {d} failed\n", .{ passed, failed }) catch {};
     flush();
+    releaseProcess();
     if (failed > 0) std.process.exit(1);
 }
 

@@ -109,7 +109,8 @@ true -3.0 -2.0
 
 The arguments and environment the program started with. Their Strings
 live as long as the program, as a literal's do, so they can be kept,
-returned, and stored anywhere.
+returned, and stored anywhere. They hold the bytes the operating system
+gave, which are not checked to be UTF-8.
 
 | Function | Result |
 |---|---|
@@ -117,7 +118,9 @@ returned, and stored anywhere.
 | `env(name: String) -> String?` | the value of the environment variable `name`, or `none` when it is not set |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
-built executable takes its arguments as usual. With `fun main -> Int`
+built executable takes its arguments as usual. The first argument is
+the path the program was started by: under `rig run`, that of the
+executable `rig` built in its cache. With `fun main -> Int`
 ([SPEC §1](../SPEC.md#1-programs)), a program also reports an exit
 status:
 

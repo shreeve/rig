@@ -23,10 +23,16 @@ expect_eq "$out" "" "an empty variable is set, to nothing"
 rig build -o args args.rig >/dev/null 2>&1 || fail "build args.rig"
 out=$(./args -x "" 2>&1); expect_rc $? 2 "built program's arguments"
 expect_eq "$out" $'0 -x\n1 \nunset' "built program's arguments"
+out=$(./args $'\xff' 2>&1); expect_rc $? 1 "bytes that are not UTF-8"
+expect_eq "$out" $'0 \xff\nunset' "arguments are the bytes given, not checked as UTF-8"
 
-printf 'use std.os\n\nsub main()\n  print(os.args()[0].len > 0)\n' >name.rig
+# The first argument is the path the program was started by: under
+# `rig run`, the executable built in the package's cache.
+printf 'use std.os\n\nsub main()\n  print(os.args()[0])\n' >name.rig
 out=$(rig run name.rig 2>&1); expect_rc $? 0 "the program's name"
-expect_eq "$out" "true" "the program's name comes first"
+expect_has "$out" "$RIG_OUT_DIR/programs/name/.zig-cache/" "under rig run, the cached executable comes first"
+rig build -o named name.rig >/dev/null 2>&1 || fail "build name.rig"
+out=$(./named 2>&1); expect_eq "$out" "./named" "a built program's name comes first"
 
 out=$("$RIG" check args.rig -- x 2>&1); expect_rc $? 2 "arguments after -- for check"
 expect_has "$out" "arguments after \`--\` are for the program \`rig run\` runs" "arguments after -- for check"
