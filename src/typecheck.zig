@@ -1031,15 +1031,14 @@ const Checker = struct {
         /// whole.
         cell_vec_elem: ?Sexp = null,
 
-        /// Whether the path reaches storage that may change: nothing
-        /// read-only on the way, and not a temporary.
-        fn reachable(p: Place) bool {
-            return p.blocked == null and p.root != .temporary;
-        }
-
         /// A name, or a field or element of one: storage with an owner.
         fn named(p: Place) bool {
             return p.base == .src and !p.sliced;
+        }
+
+        /// A name, or a chain of fields off one: `v`, `t.kids`, `a.b.c`.
+        fn fieldPath(p: Place) bool {
+            return p.base == .src and p.fields_only;
         }
 
         fn block(p: *Place, why: Block, pos: u32) void {
@@ -1048,6 +1047,7 @@ const Checker = struct {
         }
     };
 
+    /// The place `e` names, read once (`Place`).
     fn placeOf(self: *Checker, e: Sexp) Place {
         var place: Place = .{ .node = e };
         var p = e;
@@ -1090,6 +1090,7 @@ const Checker = struct {
         return place;
     }
 
+    /// Where a place that starts at binding `sym` starts.
     fn rootOf(self: *Checker, sym: sema.Symbol) Root {
         return switch (sym.kind) {
             .param => .param,
@@ -1685,7 +1686,7 @@ const Checker = struct {
     /// source must be a place the loop may write.
     fn writeElement(self: *Checker, source: Sexp, inner_source: Sexp, elem: TypeId) Error!TypeId {
         const place = self.placeOf(inner_source);
-        if (place.base != .src or !place.fields_only) {
+        if (!place.fieldPath()) {
             try self.errAt(source, "`for x in !xs` writes each element in place; `xs` must be a binding or a field of one", .{});
         } else _ = try self.requireAccess(place, .write_iterate, source);
         return self.ctx.intern(.{ .borrow_write = elem });
@@ -1704,7 +1705,7 @@ const Checker = struct {
                     if (mode != .read and mode != .write and mode != .move and !(isPlaceExpr(inner_source) and vecElementType(self.ctx, source_ty) != null)) {
                         try self.err(pos, "resource Vec[T] iteration requires an explicit read borrow; write `for x in ?vec`", .{});
                     }
-                    if (!isFieldPath(inner_source)) {
+                    if (!self.placeOf(inner_source).fieldPath()) {
                         try self.err(pos, "resource Vec[T] iteration requires a Vec binding or a field of one as the source; got an expression. Bind the result to a `Vec[T]` local first.", .{});
                     }
                 }
@@ -3172,7 +3173,7 @@ const Checker = struct {
         // Where only the binding may not be written, the borrow keeps its
         // type, so what it is lent to is checked too.
         const lends = self.ctx.types.get(inner) == .borrow_write and place.steps > 0;
-        if (kind == .write and !try self.requireAccess(place, if (lends) .lend_write else .write_borrow, operand) and !place.reachable()) return self.t().invalid_id;
+        if (kind == .write and !try self.requireAccess(place, if (lends) .lend_write else .write_borrow, operand) and (place.blocked != null or place.root == .temporary)) return self.t().invalid_id;
         // A borrow of a value holding a Cell can change the Cell, which a
         // loop or match binding only copies.
         if (kind == .read and sema.holdsCellByValue(self.ctx, inner)) {
@@ -3218,14 +3219,9 @@ const Checker = struct {
     /// A value no binding holds, or a part of one: a borrow of it lives
     /// only until the end of its statement.
     fn isTemporary(self: *Checker, e: Sexp) bool {
-        var p = e;
-        while (p.kind()) |k| switch (k) {
-            .member => p = ir.Member.object(p),
-            .index => p = ir.Index.object(p),
-            else => break,
-        };
-        if (p == .src) return self.ctx.symbolOf(p) == null;
-        const ty = self.ctx.typeOf(p) orelse return false;
+        const place = self.placeOf(e);
+        if (place.base == .src) return place.sym == null;
+        const ty = self.ctx.typeOf(place.base) orelse return false;
         return !isBorrow(self.ctx, ty);
     }
 
@@ -4218,7 +4214,7 @@ const Checker = struct {
             try self.errAt(e, "a slice of an array or Vec borrows it; write `?{s}`", .{self.sourceText(e)});
             return self.t().invalid_id;
         }
-        if (!isStoragePath(object)) {
+        if (!self.placeOf(object).named()) {
             try self.errAt(object, slice_of_temporary, .{});
             return self.t().invalid_id;
         }
@@ -6704,12 +6700,12 @@ const Checker = struct {
             }
         }.f;
         switch (self.ctx.types.get(actual)) {
-            .borrow_read => |inner| if (!want_write and e.isKind(.read) and isStoragePath(ir.Read.operand(e)) and arr_of(self.ctx, inner, elem)) {
+            .borrow_read => |inner| if (!want_write and e.isKind(.read) and self.placeOf(ir.Read.operand(e)).named() and arr_of(self.ctx, inner, elem)) {
                 try self.ctx.recordType(e, expected);
                 try self.ctx.recordArrayView(e, .borrowed);
                 return true;
             },
-            .borrow_write => |inner| if (want_write and e.isKind(.write) and isStoragePath(ir.Write.operand(e)) and arr_of(self.ctx, inner, elem)) {
+            .borrow_write => |inner| if (want_write and e.isKind(.write) and self.placeOf(ir.Write.operand(e)).named() and arr_of(self.ctx, inner, elem)) {
                 try self.ctx.recordType(e, expected);
                 try self.ctx.recordArrayView(e, .borrowed);
                 return true;
@@ -6771,8 +6767,9 @@ const Checker = struct {
         }
         // A place where a borrow of it is expected: the sigil is missing.
         // (A literal is no place to lend.)
+        const place = self.placeOf(e);
         switch (self.ctx.types.get(expected)) {
-            .borrow_read, .borrow_write => |inner| if (isStoragePath(e) and self.ctx.symbolOf(pathRoot(e)) != null and compatible(self.ctx, actual, inner)) {
+            .borrow_read, .borrow_write => |inner| if (place.named() and place.sym != null and compatible(self.ctx, actual, inner)) {
                 const write = self.ctx.types.get(expected) == .borrow_write;
                 return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; lend a {s} borrow: `{c}{s}`", .{ try self.tyName(expected), try self.tyName(actual), if (write) "write" else "read", @as(u8, if (write) '!' else '?'), self.sourceText(e) });
             },
@@ -8118,28 +8115,6 @@ fn arrayElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// `a` and `b` are the same parsed node.
 fn sameNode(a: Sexp, b: Sexp) bool {
     return a == .list and b == .list and a.list.ptr == b.list.ptr;
-}
-
-/// A name, or a field or element of one: storage with an owner.
-fn isStoragePath(e: Sexp) bool {
-    if (e == .src) return true;
-    if (e.isKind(.member)) return isStoragePath(ir.Member.object(e));
-    if (e.isKind(.index) and !rig.isRangeIndex(e)) return isStoragePath(ir.Index.object(e));
-    return false;
-}
-
-/// The leaf a storage path starts from: `v` in `v.a[i].b`.
-fn pathRoot(e: Sexp) Sexp {
-    var p = e;
-    while (p.isKind(.member) or p.isKind(.index)) p = ir.get(p, .object);
-    return p;
-}
-
-/// A name or a chain of fields off one: `v`, `t.kids`, `a.b.c`.
-fn isFieldPath(e: Sexp) bool {
-    if (e == .src) return true;
-    if (!e.isKind(.member)) return false;
-    return isFieldPath(ir.Member.object(e));
 }
 
 /// Forms whose type comes from the other operand: `.variant`,
