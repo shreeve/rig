@@ -1,0 +1,22 @@
+# A `match <s` binding owns the resource moved into it, so a closure may
+# write-borrow it with `|!r|`, as `!r` and an `if <o as r` binding may.
+
+struct R
+  v: Vec[Int]
+
+enum S
+  a(r: R)
+  b
+
+sub main
+  s: S = .a(r: R(v: Vec()))
+  match <s
+    .a(r)
+      g = |!r| !r.v.push(1)
+      g()
+      !r.v.push(2)
+      print(r.v.len)
+    .b => print("b")
+
+# expect:
+# 2
