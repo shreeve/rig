@@ -1192,7 +1192,7 @@ const Checker = struct {
             } else if (!writes) {
                 if (std.mem.eql(u8, name, "self")) {
                     try self.err(pos, "cannot {s} parameter `self`; parameters are immutable (take `!self` to write through to the caller)", .{verb});
-                } else try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (bind a copy with `new {s} = {s}`, or take `{s}: !T` to write through to the caller)", .{ verb, name, name, name, name });
+                } else try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (bind a copy with `new {s} = {s}`, or take `{s}: !{s}` to write through to the caller)", .{ verb, name, name, name, name, try self.tyName(sema.unwrapBorrows(self.ctx, sym.ty)) });
                 return false;
             },
             // A captured write borrow is lent on, as a `!T` parameter is.
@@ -4863,6 +4863,8 @@ const Checker = struct {
         if (arg != .src and !arg.isKind(.member) and !arg.isKind(.index)) return;
         const ty = self.ctx.typeOf(arg) orelse return;
         if (self.ctx.types.get(ty) != .borrow_write) return;
+        // Where `!` could not lend it either, say what would.
+        if (arg != .src and !try self.requireAccess(self.placeOf(arg), .lend_write, arg)) return;
         const src = self.sourceText(arg);
         try self.errAt(arg, "write `!{s}`: {s} `{s}`", .{ src, what, src });
     }
