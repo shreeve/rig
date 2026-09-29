@@ -498,7 +498,11 @@ root file's directory, whichever module names it: `use foo` is always
 the one file `foo.rig` there, loaded once. `use std.foo` loads the
 standard library's `foo.rig`, from the table `std/embed.zig` embeds in
 the compiler (the build imports it as `rig_std`), or from `$RIG_STD`
-when that names a directory; diagnostics name it `std/foo.rig`. A
+when that names a directory, a setting for developing the library;
+diagnostics name it `std/foo.rig`. A standard library module is keyed
+apart from every file of the program (`<std>/foo.rig`), so even a
+`$RIG_STD` naming the program's directory never makes one file both,
+and it imports only `std.` modules. A
 module is keyed by its qualified name (`foo`, `std.foo`), and its
 `Import` records the local name it is bound to (the alias of `as`, else
 the path's last name), which the resolver declares as a module symbol,

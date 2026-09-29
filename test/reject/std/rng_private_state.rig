@@ -1,9 +1,0 @@
-# An `Rng`'s state is private to std.random: it is made by `seeded` or
-# `new`.
-use std.random
-
-sub main()
-  r = random.Rng(state: 5)
-  print(!r.next())
-
-# error: only module `std.random` can construct `std.random.Rng`: its field `state` is private

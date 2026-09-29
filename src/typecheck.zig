@@ -3632,7 +3632,11 @@ const Checker = struct {
                 else => false,
             };
             const kw = if (is_sub) "sub" else "fun";
-            try self.err(pos, "method `{s}` of `{s}` is private to module `{s}`; declare it `pub {s} {s}` there to call it from here", .{ f.name, tname, foreign.name, kw, f.name });
+            if (foreign.is_std) {
+                try self.err(pos, "method `{s}` of `{s}` is private to the standard library's module `{s}`", .{ f.name, tname, foreign.name });
+            } else try self.err(pos, "method `{s}` of `{s}` is private to module `{s}`; declare it `pub {s} {s}` there to call it from here", .{ f.name, tname, foreign.name, kw, f.name });
+        } else if (foreign.is_std) {
+            try self.err(pos, "field `{s}` of `{s}` is private to the standard library's module `{s}`", .{ f.name, tname, foreign.name });
         } else {
             try self.err(pos, "field `{s}` of `{s}` is private to module `{s}`; declare it `pub {s}: ...` there to use it from here", .{ f.name, tname, foreign.name, f.name });
         }
@@ -4113,7 +4117,7 @@ const Checker = struct {
             return null;
         };
         if (!found.sym.flags.is_public and found.sym.decl_pos != sema.builtin_decl_pos) {
-            try self.err(pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, name, module_name });
+            try sema.notPublic(self.ctx, pos, module_name, name, found.ctx);
             return null;
         }
         return found;
@@ -5812,7 +5816,10 @@ const Checker = struct {
         }
         if (count == 0) return;
         const tname = if (module != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ foreign.name, sym.name }) else sym.name;
-        try self.err(pos, "only module `{s}` can construct `{s}`: its {s} {s} {s} private; declare every field `pub` there, or make the value with a `pub` function of `{s}`", .{ foreign.name, tname, if (count == 1) "field" else "fields", private.items, if (count == 1) "is" else "are", foreign.name });
+        const which = .{ if (count == 1) "field" else "fields", private.items, if (count == 1) "is" else "are" };
+        if (foreign.is_std) {
+            try self.err(pos, "only the standard library's module `{s}` can construct `{s}`: its {s} {s} {s} private; make one with its `pub` functions", .{ foreign.name, tname } ++ which);
+        } else try self.err(pos, "only module `{s}` can construct `{s}`: its {s} {s} {s} private; declare every field `pub` there, or make the value with a `pub` function of `{s}`", .{ foreign.name, tname } ++ which ++ .{foreign.name});
         for (fields) |f| {
             if (f.is_method or f.is_variant or f.is_pub or f.decl_pos >= sema.imported_decl_pos) continue;
             try self.ctx.noteIn(m, f.decl_pos, "`{s}` declared here", .{f.name});

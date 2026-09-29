@@ -51,6 +51,9 @@ const usage =
     \\                   under $XDG_CACHE_HOME/rig, or ~/.cache/rig)
     \\  RIG_LEAK_TRACE   Set to 1 when building to report each leaked
     \\                   allocation with its stack trace (slower)
+    \\  RIG_STD          For developing the standard library: a directory
+    \\                   to read it from, in place of the copy built into
+    \\                   rig
     \\  ZIG              The Zig 0.16 executable (default: zig on PATH)
     \\
 ;

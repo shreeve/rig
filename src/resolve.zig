@@ -1855,7 +1855,7 @@ pub const TypeResolver = struct {
         };
         const fsym = foreign.symbols.items[fid];
         if (!fsym.flags.is_public) {
-            try self.ctx.errAt(node, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, name, module_name });
+            try sema.notPublic(self.ctx, self.ctx.startOf(node), module_name, name, foreign);
             return true;
         }
         switch (fsym.kind) {
@@ -1982,7 +1982,7 @@ pub const TypeResolver = struct {
     /// Whether the declaration `d` names is public; reports it if not.
     fn checkPublic(self: *TypeResolver, d: ForeignDecl) Error!bool {
         if (d.sym.flags.is_public) return true;
-        try self.ctx.err(d.pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ d.module_name, d.name, d.module_name });
+        try sema.notPublic(self.ctx, d.pos, d.module_name, d.name, d.foreign);
         return false;
     }
 

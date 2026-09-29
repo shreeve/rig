@@ -23,6 +23,11 @@ a small Zig file beside the module on Zig's standard library
 checked like any call. The standard library is new: this page lists
 everything it has.
 
+`RIG_STD=dir` makes `rig` read the standard library from `dir` in
+place of the copy built into it. It is a setting for developing the
+library, whose modules may bind Zig files; a program's own modules are
+never read as the library's.
+
 | Module | What it offers |
 |---|---|
 | [`std.math`](#stdmath) | integer helpers, and Float functions |

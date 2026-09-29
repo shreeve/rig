@@ -1466,6 +1466,14 @@ pub const CheckOptions = struct {
     is_std: bool = false,
 };
 
+/// Report that `module.name`, a declaration of the imported module
+/// `foreign`, is not public: a module of the program can mark it `pub`;
+/// the standard library's is not the program's to change.
+pub fn notPublic(ctx: *SemContext, pos: u32, module: []const u8, name: []const u8, foreign: *const SemContext) std.mem.Allocator.Error!void {
+    if (foreign.is_std) return ctx.err(pos, "`{s}.{s}` is private to the standard library's module `{s}`", .{ module, name, foreign.name });
+    try ctx.err(pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module, name, module });
+}
+
 /// Check one module.
 pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts: CheckOptions) !SemContext {
     var ctx = try SemContext.init(allocator, source);
