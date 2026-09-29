@@ -1,0 +1,137 @@
+# std.sort: sorting and searching slices, written in Rig. Every function
+# takes a slice, `![]T` to sort or `[]T` to search: pass an array as `!a`
+# or `?a`, and a Vec as `!v[..]` or `?v[..]`.
+
+# Sort `xs` in place, in the order of `<`, keeping equal elements in the
+# order they had. Allocates nothing.
+pub sub sort[T](xs: ![]T)
+  sort_by(!xs, |a, b| a < b)
+
+# Sort `xs` in place in the order `less` gives: `less(a, b)` says
+# whether `a` belongs before `b`. Keeps elements neither of which is
+# less than the other in the order they had, and allocates nothing.
+pub sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+  # Insertion-sort runs of 20, then merge runs of doubling width in
+  # place, by rotations (SymMerge).
+  n = xs.len
+  width = 20
+  a = 0
+  while a < n : a += width
+    insertion(!xs[a..min(a + width, n)], less)
+  while width < n : width *= 2
+    a = 0
+    while a + width < n : a += 2 * width
+      sym_merge(!xs, less, a, a + width, min(a + 2 * width, n))
+
+fun min(a: Int, b: Int) -> Int
+  a if a < b else b
+
+sub insertion[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+  i = 1
+  while i < xs.len : i += 1
+    j = i
+    while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
+      !xs.swap(j, j - 1)
+
+# Merge the sorted runs xs[a..m] and xs[m..b] in place.
+sub sym_merge[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool, a: Int, m: Int, b: Int)
+  if m - a == 1
+    # Insert xs[a] into xs[m..b] after the elements not above it.
+    i = m
+    j = b
+    while i < j
+      h = (i + j) / 2
+      if less(?xs[h], ?xs[a])
+        i = h + 1
+      else
+        j = h
+    k = a
+    while k < i - 1 : k += 1
+      !xs.swap(k, k + 1)
+    return
+  if b - m == 1
+    # Insert xs[m] into xs[a..m] after the elements not above it.
+    i = a
+    j = m
+    while i < j
+      h = (i + j) / 2
+      if not less(?xs[m], ?xs[h])
+        i = h + 1
+      else
+        j = h
+    k = m
+    while k > i : k -= 1
+      !xs.swap(k, k - 1)
+    return
+  mid = (a + b) / 2
+  n = mid + m
+  start = n - b if m > mid else a
+  r = mid if m > mid else m
+  p = n - 1
+  while start < r
+    c = (start + r) / 2
+    if not less(?xs[p - c], ?xs[c])
+      start = c + 1
+    else
+      r = c
+  end = n - start
+  if start < m and m < end
+    rotate(!xs, start, m, end)
+  if a < start and start < mid
+    sym_merge(!xs, less, a, start, mid)
+  if mid < end and end < b
+    sym_merge(!xs, less, mid, end, b)
+
+# Exchange xs[a..m] and xs[m..b], keeping the order within each.
+sub rotate[T](xs: ![]T, a: Int, m: Int, b: Int)
+  i = m - a
+  j = b - m
+  while i != j
+    if i > j
+      swap_range(!xs, m - i, m, j)
+      i -= j
+    else
+      swap_range(!xs, m - i, m + j - i, i)
+      j -= i
+  swap_range(!xs, m - i, m, i)
+
+sub swap_range[T](xs: ![]T, a: Int, b: Int, n: Int)
+  i = 0
+  while i < n : i += 1
+    !xs.swap(a + i, b + i)
+
+# Reverse the order of the elements of `xs` in place.
+pub sub reverse[T](xs: ![]T)
+  i = 0
+  j = xs.len - 1
+  while i < j
+    !xs.swap(i, j)
+    i += 1
+    j -= 1
+
+# The index of an element equal to `x` in `xs`, which is sorted in the
+# order of `<`, found by binary search: the first such element; `none`
+# when there is none.
+pub fun search[T](xs: []T, x: T) -> Int?
+  lo = 0
+  hi = xs.len
+  while lo < hi
+    mid = (lo + hi) / 2
+    if xs[mid] < x
+      lo = mid + 1
+    else
+      hi = mid
+  if lo < xs.len and xs[lo] == x
+    return lo
+  none
+
+# Whether some element of `xs` equals `x`.
+pub fun contains[T](xs: []T, x: T) -> Bool
+  index_of(xs, x) != none
+
+# The index of the first element of `xs` equal to `x`, or `none`.
+pub fun index_of[T](xs: []T, x: T) -> Int?
+  for e, i in xs
+    if e == x
+      return i
+  none

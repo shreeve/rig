@@ -1,0 +1,69 @@
+# std.sort: `sort` and `sort_by` sort in place and keep equal elements in
+# their order, at every size (runs of 20 merged in place), on arrays and
+# on Vecs through a slice; `reverse`, `search`, `contains`, `index_of`.
+use std.random
+use std.sort
+
+struct P
+  key: Int
+  id: Int
+
+fun sorted(xs: []Int) -> Bool
+  for x, i in xs
+    if i > 0 and xs[i - 1] > x
+      return false
+  true
+
+fun stable(ps: []P) -> Bool
+  for p, i in ps
+    if i > 0
+      q = ps[i - 1]
+      if q.key > p.key or (q.key == p.key and q.id > p.id)
+        return false
+  true
+
+sub main()
+  a = [5, 3, 9, 1, 7, 3]
+  sort.sort(!a)
+  print(a)
+  sort.sort_by(!a, |x, y| x > y)
+  print(a)
+  sort.reverse(!a)
+  print(a)
+  print(sort.search(?a, 3), sort.search(?a, 9), sort.search(?a, 4), sort.search(?a, 0))
+  print(sort.contains(?a, 7), sort.contains(?a, 8), sort.index_of(?a, 5), sort.index_of(?a, 6))
+  words = ["pear", "fig", "apple", "fig"]
+  sort.sort(!words)
+  print(words, sort.search(?words, "fig"), sort.search(?words, "kiwi"))
+  empty: [0]Int = []
+  sort.sort(!empty)
+  sort.reverse(!empty)
+  print(sort.search(?empty, 1), sort.contains(?empty, 1))
+
+  r = random.Rng.seeded(3)
+  ok = true
+  for n in [0, 1, 2, 19, 20, 21, 39, 40, 41, 100, 257, 1000]
+    v: Vec[Int] = Vec()
+    ps: Vec[P] = Vec()
+    for i in 0..n
+      !v.push(!r.int(-50, 50))
+      !ps.push(P(key: !r.int(0, 8), id: i))
+    sort.sort(!v[..])
+    sort.sort_by(!ps[..], |x, y| x.key < y.key)
+    ok = ok and sorted(?v[..]) and stable(?ps[..]) and v.len == n
+    sort.reverse(!v[..])
+    sort.reverse(!v[..])
+    ok = ok and sorted(?v[..])
+    if n > 0
+      ok = ok and sort.search(?v[..], v[n / 2]) != none
+  print(ok)
+
+# expect:
+# [1, 3, 3, 5, 7, 9]
+# [9, 7, 5, 3, 3, 1]
+# [1, 3, 3, 5, 7, 9]
+# 1 5 none none
+# true false 3 none
+# ["apple", "fig", "fig", "pear"] 1 none
+# none false
+# true

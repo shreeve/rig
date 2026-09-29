@@ -29,6 +29,7 @@ everything it has.
 | [`std.os`](#stdos) | the program's arguments and environment |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
+| [`std.sort`](#stdsort) | sorting and searching slices |
 
 ## std.math
 
@@ -203,4 +204,76 @@ sub main
 true
 true true
 15
+```
+
+## std.sort
+
+Sorting and searching, written in Rig over slices, so they work on
+arrays (`!a`, `?a`) and on Vecs (`!v[..]`, `?v[..]`) alike. The
+elements are plain data, as a slice's are. `sort` and `search` order
+elements with `<` (numbers and Strings), and `contains` and `index_of`
+compare them with `==`; each call is checked for its element type, as
+any generic call is.
+
+| Function | Result |
+|---|---|
+| `sort(xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements in the order they had; allocates nothing |
+| `sort_by(xs: ![]T, less: ?fun(?T, ?T) -> Bool)` | the same, in the order `less` gives: `less(a, b)` says whether `a` belongs before `b` |
+| `reverse(xs: ![]T)` | reverse the order of `xs` in place |
+| `search(xs: []T, x: T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
+| `contains(xs: []T, x: T) -> Bool` | whether some element equals `x` |
+| `index_of(xs: []T, x: T) -> Int?` | the index of the first element equal to `x`, or `none` |
+
+`sort` sorts runs of 20 elements by insertion, then merges them in
+place by rotations, so it takes O(n log² n) comparisons and no memory.
+
+```rig
+use std.sort
+
+struct Player
+  name: String
+  score: Int
+
+sub main
+  scores = [30, 10, 20, 10]
+  sort.sort(!scores)
+  print(scores, sort.search(?scores, 20), sort.contains(?scores, 5))
+
+  v: Vec[Player] = Vec()
+  !v.push(Player(name: "ann", score: 7))
+  !v.push(Player(name: "bob", score: 9))
+  !v.push(Player(name: "cy", score: 7))
+  sort.sort_by(!v[..], |a, b| a.score > b.score)
+  for p in ?v
+    print(p.name, p.score)
+
+  names = ["cy", "ann", "bob"]
+  sort.reverse(!names)
+  print(names, sort.index_of(?names, "ann"))
+```
+
+```output
+[10, 10, 20, 30] 2 false
+bob 9
+ann 7
+cy 7
+["bob", "ann", "cy"] 1
+```
+
+`sort` needs `<` on its elements:
+
+```rig reject
+use std.sort
+
+struct Player
+  name: String
+  score: Int
+
+sub main
+  team = [Player(name: "ann", score: 7)]
+  sort.sort(!team)
+```
+
+```error
+`sort.sort[Player]` cannot use `T = Player`: the generic body applies `<` to `T`
 ```
