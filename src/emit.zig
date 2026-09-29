@@ -634,15 +634,25 @@ pub const Emitter = struct {
         const body = ir.get(node, .body);
         const f = self.fnType(self.sema.typeOf(name_node)) orelse return self.unsupported(name_node, "an untyped function");
         // Only the root module's `main` is the program's entry point.
-        const is_main = self.sema.is_root and self.nominal == null and node.isKind(.sub) and std.mem.eql(u8, name, "main");
+        const is_main = self.sema.is_root and self.nominal == null and std.mem.eql(u8, name, "main");
         const return_ty: ?TypeId = if (f.returns == self.sema.types.void_id) null else f.returns;
+        // `main` may propagate a failure out of the program.
+        const main_fails = is_main and contains(body, &.{.propagate});
 
         const tparams = sema.tparamsOf(node);
         self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main };
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
-        try self.w.print("pub fn {f}(", .{ident(name)});
+        // `fun main -> Int` is the body of a Zig `main` that makes its
+        // result the exit status, after every drop and the leak check.
+        if (is_main and return_ty != null) {
+            try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) {s}u8 {{\n", .{if (main_fails) "anyerror!" else ""});
+            try self.w.print("    return rig.exitStatus({s}__rig_main(__rig_init));\n}}\n\n", .{if (main_fails) "try " else ""});
+            try self.w.writeAll("fn __rig_main(");
+        } else try self.w.print("pub fn {f}(", .{ident(name)});
+        // Zig 0.16 hands the arguments and environment only to `main`.
+        if (is_main) try self.w.writeAll("__rig_init: std.process.Init.Minimal");
         try self.pushScope();
         defer self.popScope() catch {};
         // Compile-time parameters come first, after a method's receiver,
@@ -658,12 +668,8 @@ pub const Emitter = struct {
             try self.emitParam(p, g == 1);
         };
         try self.w.writeAll(") ");
-        if (return_ty) |r| {
-            try self.emitTypeTy(r);
-        } else {
-            // `main` may propagate a failure out of the program.
-            try self.w.writeAll(if (is_main and contains(body, &.{.propagate})) "anyerror!void" else "void");
-        }
+        if (main_fails) try self.w.writeAll("anyerror!");
+        if (return_ty) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
         try self.w.writeAll(" ");
         // A `sub` yields no value, even one that may fail (`Void!`).
         if (return_ty != null and !f.is_sub) try self.emitValueBody(body) else try self.emitBlock(body);
@@ -726,6 +732,7 @@ pub const Emitter = struct {
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
             try self.line("rig.guardStack();", .{});
+            try self.line("rig.start(__rig_init);", .{});
             try self.line("defer rig.finish();", .{});
         }
         if (self.fun.unused_env.len > 0) {

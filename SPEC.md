@@ -42,8 +42,23 @@ types (`struct`, `enum`, `error`, `type`), constants (`name = value`),
 imports (`use`), `extern` declarations, and `test` blocks, written as
 [SYNTAX.md](SYNTAX.md) shows. Statements live inside functions. A
 program that runs declares its entry point as `sub main`, with no
-parameters. Only the program calls it: Rig code cannot call `main` or
-use it as a value.
+parameters, or as `fun main -> Int`, whose value is the process's exit
+status, from 0 to 255 (another value panics). Either may propagate an
+error with `!`, which ends the program with status 1. Everything `main`
+owns is dropped, its output flushed, and the leak check run before the
+program exits. Only the program calls `main`: Rig code cannot call it
+or use it as a value. The program's arguments and environment are read
+through [`std.os`](docs/STD.md#stdos).
+
+```rig
+fun main -> Int
+  print("nothing to do")
+  0
+```
+
+```output
+nothing to do
+```
 
 `rig check` checks a program, `rig run` checks, builds, and runs it,
 and `rig --help` lists the other commands (see also the

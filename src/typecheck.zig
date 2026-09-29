@@ -378,15 +378,16 @@ const Checker = struct {
         // The root module's `main` is the program's entry point; in any
         // other module `main` is an ordinary function.
         const is_main = self.ctx.is_root and self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
-        if (is_main and (!is_sub or ir.get(node, .params).items().len > 0 or sema.tparamsOf(node).items().len > 0)) {
-            try self.errAt(name, "`main` must be `sub main`: the program's entry point takes no parameters and returns no value", .{});
+        // It returns nothing, or the process's exit status.
+        if (is_main and ((!is_sub and ret != self.t().int_id) or ir.get(node, .params).items().len > 0 or sema.tparamsOf(node).items().len > 0)) {
+            try self.errAt(name, "`main` must be `sub main`, or `fun main -> Int` returning the exit status: the program's entry point takes no parameters", .{});
         }
         for (ir.get(node, .params).items()) |p| if (p.isKind(.default)) {
             const ty = self.ctx.bindingTypeOf(ir.Default.name(p)) orelse self.t().unknown_id;
             try self.checkDefaultValue(ir.Default.value(p), ty, "parameter");
         };
-        // `sub main` lowers to a fallible `main`.
-        const fallible = (is_main and is_sub) or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
+        // `main` lowers to a fallible Zig `main`.
+        const fallible = is_main or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
         if (node.isKind(.fun) and !is_main) try self.checkFunReturns(node, ret);
         // A Zig-backed declaration's body is its Zig function.
         if (ir.get(node, .body) == .nil) return;

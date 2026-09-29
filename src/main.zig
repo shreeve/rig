@@ -338,7 +338,8 @@ fn writeTestDriver(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *c
         \\    return if (@hasDecl(module, "__rig_tests")) &module.__rig_tests else &.{};
         \\}
         \\
-        \\pub fn main() void {
+        \\pub fn main(init: @import("std").process.Init.Minimal) void {
+        \\    rig.start(init);
         \\    rig.runTests(&.{
         \\
     );

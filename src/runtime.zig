@@ -1196,10 +1196,40 @@ fn reserveBelowStack() ?[*]align(std.heap.page_size_min) u8 {
     return @ptrCast(@alignCast(got));
 }
 
+/// What the process started with, which Zig 0.16 hands only to `main`:
+/// the arguments and environment, for the standard library.
+pub var process: ?std.process.Init.Minimal = null;
+var process_args: []const []const u8 = &.{};
+
+/// Called first in the emitted `main` (after `guardStack`) and in
+/// `rig test`'s: store what the process started with. The arguments are
+/// gathered into Strings once, freed by `finish`.
+pub fn start(init: std.process.Init.Minimal) void {
+    process = init;
+    if (@TypeOf(init.args.vector) != []const [*:0]const u8) return;
+    const list = defaultAllocator().alloc([]const u8, init.args.vector.len) catch oom();
+    for (list, init.args.vector) |*arg, c| arg.* = std.mem.sliceTo(c, 0);
+    process_args = list;
+}
+
+/// The program's arguments, its name first; they live as long as the
+/// process.
+pub fn processArgs() []const []const u8 {
+    return process_args;
+}
+
+/// `fun main -> Int`: its result, which `finish` has already run after,
+/// as the process's exit status.
+pub fn exitStatus(n: Int) u8 {
+    return std.math.cast(u8, n) orelse std.debug.panic("exit status {d} is not in 0..255", .{n});
+}
+
 /// Deferred first in the emitted `main`, so it runs after all of `main`'s
 /// drops: flush `print` output, then exit non-zero if anything leaked, so
 /// a leaking program never passes.
 pub fn finish() void {
+    defaultAllocator().free(process_args);
+    process_args = &.{};
     flush();
     if (!reportLeaks(.{ .count = 0, .bytes = 0 })) return;
     if (leak_trace) _ = trace_allocator.deinit();
@@ -1337,10 +1367,10 @@ fn isString(comptime T: type) bool {
 fn rigTypeName(comptime T: type) []const u8 {
     const full = @typeName(T);
     const end = comptime std.mem.indexOfScalar(u8, full, '(') orelse full.len;
-    const start = comptime if (std.mem.lastIndexOfScalar(u8, full[0..end], '.')) |d| d + 1 else 0;
+    const begin = comptime if (std.mem.lastIndexOfScalar(u8, full[0..end], '.')) |d| d + 1 else 0;
     // A Rig name the emitter reserves (`std`, `rig`) is spelled `@"std'"`.
-    const quoted = comptime end > start and full[end - 1] == '\'';
-    return full[start..if (quoted) end - 1 else end];
+    const quoted = comptime end > begin and full[end - 1] == '\'';
+    return full[begin..if (quoted) end - 1 else end];
 }
 
 /// Values nested deeper than this print as `...`: a structure that

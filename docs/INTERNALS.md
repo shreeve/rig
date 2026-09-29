@@ -1139,9 +1139,14 @@ lower is an internal error: sema must have rejected it.
   differs fails the package's build with a message naming the
   declaration. The suite calls every declaration of the standard
   library, so no such mismatch reaches a program.
-- **`main`** of the root module calls `rig.guardStack()`, then defers
+- **`main`** of the root module takes `std.process.Init.Minimal`, the
+  only way Zig 0.16 hands a program its arguments and environment. It
+  calls `rig.guardStack()` and `rig.start(init)`, then defers
   `rig.finish()`, so it runs after every other drop, and the root
-  module declares `pub const panic = rig.panic`.
+  module declares `pub const panic = rig.panic`. `fun main -> Int` is
+  emitted as `fn __rig_main(init) i64` under a Zig `main` that returns
+  `rig.exitStatus(__rig_main(init))` as a `u8`, so the status is set
+  after `finish`. A `main` whose body propagates returns `anyerror!`.
 - **Tests.** `test "name"` becomes `fn __rig_test_<n>() anyerror!void`,
   listed in the module's `pub const __rig_tests` table, which only
   `rig test` references.
@@ -1180,6 +1185,7 @@ reviewed.
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
+| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; `exitStatus` checks the status of `fun main -> Int` |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `DebugAllocator`, which prints the stack trace of each leak. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |
 

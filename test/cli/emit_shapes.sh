@@ -8,7 +8,7 @@ sub main()
   print("hello, rig")
 EOF
 out=$("$RIG" emit hello.rig 2>/dev/null) || fail "rig emit hello.rig"
-expect_has "$out" 'pub fn main() void' "hello"
+expect_has "$out" 'pub fn main(__rig_init: std.process.Init.Minimal) void' "hello"
 expect_has "$out" 'rig.print(.{ "hello, rig" })' "hello"
 
 cat >bindings.rig <<'EOF'
@@ -46,7 +46,7 @@ EOF
 out=$("$RIG" emit fallible.rig 2>/dev/null) || fail "rig emit fallible.rig"
 expect_has "$out" 'try bar()' "propagate"
 expect_has "$out" 'pub fn foo() anyerror!i64' "fallible return type"
-expect_has "$out" 'pub fn main() anyerror!void' "fallible main"
+expect_has "$out" 'pub fn main(__rig_init: std.process.Init.Minimal) anyerror!void' "fallible main"
 
 cat >names.rig <<'EOF'
 sub main()
