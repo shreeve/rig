@@ -1,0 +1,22 @@
+# Another module's constants cannot change: not by assignment, a write
+# borrow, a write loop, or an element method.
+use geo
+
+sub bump(x: ![3]Int)
+  x[0] += 1
+
+sub main
+  geo.KP[0] = 3
+  bump(!geo.KP)
+  for x in !geo.KP
+    x += 1
+  !geo.KP.fill(0)
+  geo.LIMIT = 11
+  print(geo.KP[0], geo.LIMIT)
+
+# error: 9:3: cannot assign to constant `geo.KP`
+# error: 10:9: cannot write-borrow constant `geo.KP`
+# error: 11:13: cannot write-iterate constant `geo.KP`
+# error: 13:4: cannot write-borrow constant `geo.KP`
+# error: 14:3: cannot assign to constant `geo.LIMIT`
+# errors: 5

@@ -1166,24 +1166,26 @@ const Checker = struct {
     /// binding is the ownership checker's to report.) False after a
     /// diagnostic.
     fn requireBinding(self: *Checker, place: Place, access: Access) Error!bool {
-        var id: ?SymbolId = place.sym orelse return true;
-        var sym = self.ctx.symbols.items[id.?];
-        var name = sym.name;
-        var root = place.root;
-        if (root == .module) {
-            const leaf = self.text(ir.Member.name(place.module_member orelse return true));
-            sym = (self.foreignLookup(id.?, leaf) orelse return true).sym;
-            name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(place.base), leaf });
-            id = null;
-            root = self.rootOf(sym);
-        }
+        const id = place.sym orelse return true;
+        const sym = self.ctx.symbols.items[id];
+        const name = sym.name;
+        const root = place.root;
         const verb = switch (access) {
             .lend_write => "write-borrow",
             .write_through => "assign to",
             else => access.verb(),
         };
-        const whole = access == .assign and place.steps == 0;
         const pos = place.pos;
+        // Another module's bindings are its constants. (Their types are
+        // in that module's store.)
+        if (root == .module) {
+            const leaf = self.text(ir.Member.name(place.module_member orelse return true));
+            const foreign = self.foreignLookup(id, leaf) orelse return true;
+            if (foreign.sym.kind != .local) return true;
+            try self.err(pos, "cannot {s} constant `{s}.{s}`", .{ verb, name, leaf });
+            return false;
+        }
+        const whole = access == .assign and place.steps == 0;
         const writes = self.ctx.types.get(sym.ty) == .borrow_write;
         const poison = self.isPoison(sym.ty);
         switch (root) {
@@ -1211,7 +1213,7 @@ const Checker = struct {
             } else if (sym.flags.pattern_bound) {
                 // A write borrow a match that only reads its subject binds
                 // is read through too.
-                const from = self.copied_from.get(id orelse return true) orelse return true;
+                const from = self.copied_from.get(id) orelse return true;
                 if (from.kind != .match_copy and from.kind != .match_read) return true;
                 const shown = self.sourceText(from.place);
                 try self.err(pos, "cannot {s} `{s}`: `match {s}{s}` reads `{s}`, and so do its bindings; to write through `{s}`, match with `match !{s}`", .{ verb, name, if (from.kind == .match_read) "?" else "", shown, shown, name, shown });
@@ -1220,9 +1222,9 @@ const Checker = struct {
             .pattern => if (!poison) {
                 // An `as` or `match <x` binding that owns a resource moved
                 // into it is not a copy: its fields can be written and taken.
-                const owned = sym.flags.as_bound or (if (id) |i| self.owned_bindings.contains(i) else false);
+                const owned = sym.flags.as_bound or self.owned_bindings.contains(id);
                 if (!whole and owned and sema.typeHasDropGlue(self.ctx, sym.ty)) return true;
-                if (id) |i| if (self.copied_from.get(i)) |from| {
+                if (self.copied_from.get(id)) |from| {
                     const shown = self.sourceText(from.place);
                     switch (from.kind) {
                         .loop => try self.err(pos, "cannot {s} `{s}`: it is a copy of an element of `{s}`; to change the elements in place, loop with `for {s} in !{s}`", .{ verb, name, shown, name, shown }),
@@ -1230,7 +1232,7 @@ const Checker = struct {
                         .match_copy, .match_read => try self.err(pos, "cannot {s} `{s}`: it is {s} of {s}`{s}`; to change {s} in place, match with `match !{s}`", .{ verb, name, if (from.kind == .match_copy and !sema.typeHasDropGlue(self.ctx, sym.ty)) "a copy" else "a read view", if (from.whole) "" else "a field of ", shown, if (from.whole) "it" else "the field", shown }),
                     }
                     return false;
-                };
+                }
                 if (sema.typeHasDropGlue(self.ctx, sym.ty)) {
                     try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (move it into a new binding with `new {s} = <{s}`)", .{ verb, name, name, name });
                 } else try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb, name, name, name });
