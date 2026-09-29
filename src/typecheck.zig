@@ -975,10 +975,11 @@ const Checker = struct {
         global,
         /// An imported module, whose binding is `module.name`.
         module,
-        /// A value no binding holds: a call's result, a literal.
+        /// A value no binding holds: a call's result, a literal, a
+        /// moved or cloned handle.
         temporary,
-        /// A borrow or handle a call or sigil yields: the place is its
-        /// owner's.
+        /// A borrow a call or sigil yields, or a handle one yields that
+        /// the path reaches through: the place is its owner's.
         borrowed,
         /// A name that is no binding, or a value of no known type.
         other,
@@ -1082,8 +1083,11 @@ const Checker = struct {
             place.sym = self.ctx.symbolOf(p);
             if (place.sym) |id| place.root = self.rootOf(self.ctx.symbols.items[id]);
         } else if (self.ctx.typeOf(p)) |ty| if (!self.isPoison(ty)) {
+            // A handle reaches its owner's value; one no binding holds is
+            // itself the temporary a borrow of it would change.
             place.root = switch (self.ctx.types.get(ty)) {
-                .borrow_read, .borrow_write, .shared => .borrowed,
+                .borrow_read, .borrow_write => .borrowed,
+                .shared => if (place.steps == 0) .temporary else .borrowed,
                 else => .temporary,
             };
         };
