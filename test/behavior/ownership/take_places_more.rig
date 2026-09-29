@@ -45,7 +45,9 @@ sub peek(slot: !Int?)
 sub main
   places()
   h = H(a: Box(N(v: 3)))
-  print(first(!h), h, first(!h))
+  n = first(!h)
+  print(n, h)
+  print(first(!h))
   x: Int? = 4
   peek(!x)
   print(x)
@@ -55,6 +57,7 @@ sub main
 # S(a: 5)
 # S(a: 6)
 # 6 [S(a: 5), S(a: none)]
-# 3 H(a: none) none
+# 3 H(a: none)
+# none
 # got 4
 # 4

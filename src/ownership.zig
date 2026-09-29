@@ -55,7 +55,10 @@
 //!   Reassigning a binding makes it live again.
 //! * Read borrows exclude writes, moves, drops and reassignment of their
 //!   root; write borrows exclude every other use. A method call borrows
-//!   its receiver for the whole call (`rc.show(<rc)` is rejected).
+//!   its receiver for the whole call (`rc.show(<rc)` is rejected), and
+//!   an argument that reads a value sharing storage its place owns
+//!   holds that place read until the call ends (`print(v, grow(!v))`
+//!   is rejected).
 //! * A borrow may not outlive its root: when a scope ends (normally or by
 //!   `break`, `continue` or `!`), no surviving value may hold a loan on a
 //!   var declared in it. A returned value, or one stored into something
@@ -126,6 +129,9 @@ const Loan = struct {
     /// into this function's frame even when the root is a parameter
     /// that carries the caller's borrows.
     frame: bool = false,
+    /// A call argument's read of the root by value, which shares storage
+    /// the root owns (see `holdArgRead`).
+    arg_read: bool = false,
 
     fn sameAs(a: Loan, b: Loan) bool {
         return a.root == b.root and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
@@ -608,7 +614,9 @@ pub const Checker = struct {
     }
 
     fn noteLoan(self: *Checker, loan: Loan) Error!void {
-        try self.note(loan.pos, "{s} borrow taken here", .{@tagName(loan.kind)});
+        if (loan.arg_read) {
+            try self.note(loan.pos, "`{s}` read here: the value shares its storage, and the call uses it after its later arguments run", .{self.vars.items[loan.root].name});
+        } else try self.note(loan.pos, "{s} borrow taken here", .{@tagName(loan.kind)});
     }
 
     /// What is done to a var, for a borrow conflict.
@@ -625,13 +633,17 @@ pub const Checker = struct {
     fn conflicts(self: *Checker, id: VarId, access: Access, pos: u32) Error!bool {
         const l = self.findLoan(id, if (access == .read) .write else .any, null) orelse return false;
         const name = self.vars.items[id].name;
+        const earlier = "while an earlier argument's read of it is in use";
         switch (access) {
             .read => try self.err(pos, "cannot read-borrow `{s}` while a write borrow is live", .{name}),
-            .write => switch (l.kind) {
+            .write => if (l.arg_read) try self.err(pos, "cannot write-borrow `{s}` " ++ earlier, .{name}) else switch (l.kind) {
                 .read => try self.err(pos, "cannot write-borrow `{s}` while a read borrow is live", .{name}),
                 .write => try self.err(pos, "cannot take a second write borrow on `{s}`", .{name}),
             },
-            .consume => |verb| try self.err(pos, "cannot {s} `{s}` while it is {s}-borrowed", .{ verb, name, @tagName(l.kind) }),
+            .consume => |verb| if (l.arg_read)
+                try self.err(pos, "cannot {s} `{s}` " ++ earlier, .{ verb, name })
+            else
+                try self.err(pos, "cannot {s} `{s}` while it is {s}-borrowed", .{ verb, name, @tagName(l.kind) }),
         }
         try self.noteLoan(l);
         return true;
@@ -2509,9 +2521,14 @@ pub const Checker = struct {
             result = try self.walk(callee);
         }
 
-        // `print` only reads its arguments.
+        // `print` only reads its arguments, and holds none of them past
+        // the call.
         if (self.isPrint(callee)) {
-            for (args) |a| _ = try self.walk(a);
+            for (args) |a| {
+                _ = try self.walk(a);
+                try self.holdArgRead(a);
+            }
+            self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
             return .{};
         }
         // Every handle to a Cell or Signal reaches what it holds, so what
@@ -2531,7 +2548,9 @@ pub const Checker = struct {
         defer self.in_rejected_call = saved_rejected;
         for (args, arg_values) |a, *v| {
             self.in_rejected_call = self.rejected(node);
+            const found = self.errors_found;
             v.* = try self.walkConsumed(a, .argument);
+            if (self.errors_found == found) try self.holdArgRead(a);
             if (cell != null and v.loans.len > 0 and !self.rejected(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a)) {
                 const loans = v.loans;
                 v.* = .{};
@@ -2573,6 +2592,26 @@ pub const Checker = struct {
             return .{};
         }
         return result;
+    }
+
+    /// A call argument that reads a place by value whose value shares
+    /// storage the place owns (a Vec's buffer, a box, a shared handle, a
+    /// struct holding one; through a write borrow, what it reaches): the
+    /// call uses that value only after its later arguments run, so until
+    /// the call ends the place's root holds a read loan, and a later
+    /// argument cannot write-borrow or move it. Plain data is copied whole
+    /// when it is read, and what a read borrow reaches is covered by its
+    /// own loans.
+    fn holdArgRead(self: *Checker, arg: Sexp) Error!void {
+        const ctx = self.sema orelse return;
+        const e = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
+        const place = self.resolvePlace(e) orelse return;
+        const v = self.vars.items[place.root];
+        if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
+        var ty = self.exprType(e) orelse return;
+        while (ctx.types.get(ty) == .borrow_write) ty = ctx.types.get(ty).borrow_write;
+        if (self.owningKind(ty) == null) return;
+        try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(e), .arg_read = true });
     }
 
     /// Whether call `call` may keep what argument `arg` borrows. No value

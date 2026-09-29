@@ -2746,6 +2746,60 @@ sub main
 cannot write-borrow `x` while a read borrow is live
 ```
 
+**Evaluation order within a call.** A call evaluates its arguments
+left to right and uses them all when it runs, so what an earlier
+argument holds is still in use while the later ones are evaluated. A
+borrow (`?v`) or a slice (`?v[..]`) in an earlier argument keeps its
+loan until the call ends. So does an argument that reads a place by
+value when that value shares storage the place owns: a Vec, a `Box`, a
+`*T` or `~T` handle, a struct holding one, or what a write borrow
+reaches, as `print(v)` reads it. A later argument of the same call
+(`print` included) cannot write-borrow or move that place, since the
+call would see a stale value, or memory already freed. Plain data is
+copied whole when it is read, so `print(v.len, grow(!v))` and
+`print(p, bump(!p))` for a Copy struct `p` are accepted, and print the
+values as they were read. A write receiver's arguments may read it,
+`!v.push(v.len)`, since they finish before the call writes.
+
+```rig
+struct P
+  x: Int
+
+fun grow(v: !Vec[Int]) -> Int
+  !v.push(7)
+  v.len
+
+fun bump(p: !P) -> Int
+  p.x += 1
+  p.x
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(v.len)
+  print(v.len, grow(!v), v)
+  p = P(x: 1)
+  print(p, bump(!p), p)
+```
+
+```output
+1 2 [0, 7]
+P(x: 1) 2 P(x: 2)
+```
+
+```rig reject
+fun grow(v: !Vec[Int]) -> Int
+  !v.push(7)
+  v.len
+
+sub main
+  v: Vec[Int] = Vec()
+  print(v, grow(!v))
+```
+
+```error
+cannot write-borrow `v` while an earlier argument's read of it is in use
+```
+
 #### Write borrows
 
 A write borrow is assignable, whether a `!T` parameter or a local
