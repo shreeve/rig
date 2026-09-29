@@ -30,6 +30,10 @@ pub fn cos(x: f64) f64 {
     return @cos(x);
 }
 
-pub fn pow_f(x: f64, y: f64) f64 {
+pub fn powf(x: f64, y: f64) f64 {
     return std.math.pow(f64, x, y);
+}
+
+pub fn clamp_bounds() void {
+    @panic("math.clamp: the low bound is above the high bound");
 }

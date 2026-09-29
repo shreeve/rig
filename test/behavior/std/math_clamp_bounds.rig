@@ -1,0 +1,8 @@
+# `clamp(x, lo, hi)` needs `lo <= hi`: no value lies between bounds the
+# wrong way round.
+use std.math
+
+sub main()
+  print(math.clamp(5, 10, 1))
+
+# expect-panic: math.clamp: the low bound is above the high bound

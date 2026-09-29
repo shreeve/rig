@@ -4,17 +4,28 @@
 pub PI = 3.141592653589793
 pub E = 2.718281828459045
 
-# `n` without its sign; panics on `Int.min`, whose magnitude no `Int`
-# holds.
-pub fun abs(n: Int) -> Int
-  n if n >= 0 else -n
+# `x` without its sign, for a signed number type or `Float`; panics on
+# a type's minimum integer, whose magnitude the type does not hold.
+pub fun abs[T](x: T) -> T
+  x if x >= 0 else -x
+
+# The smaller of `a` and `b`, by `<`; `a` when they are equal.
+pub fun min[T](a: T, b: T) -> T
+  b if b < a else a
+
+# The larger of `a` and `b`, by `<`; `a` when they are equal.
+pub fun max[T](a: T, b: T) -> T
+  b if a < b else a
 
 # `x` limited to `lo..hi`, both ends included: `lo` when `x < lo`, `hi`
-# when `x > hi`.
-pub fun clamp(x: Int, lo: Int, hi: Int) -> Int
-  lo if x < lo else (hi if x > hi else x)
+# when `x > hi`. Panics when `hi < lo`.
+pub fun clamp[T](x: T, lo: T, hi: T) -> T
+  if hi < lo
+    clamp_bounds()
+  lo if x < lo else (hi if hi < x else x)
 
-# The greatest common divisor, never negative; `gcd(0, 0)` is 0.
+# The greatest common divisor, never negative; `gcd(0, 0)` is 0. Panics
+# when `a` or `b` is `Int.min`, whose magnitude no `Int` holds.
 pub fun gcd(a: Int, b: Int) -> Int
   x = abs(a)
   y = abs(b)
@@ -24,14 +35,20 @@ pub fun gcd(a: Int, b: Int) -> Int
     y = t
   x
 
-# `base` to the power `exp`, checked: panics on overflow. A negative
-# `exp` gives `1 / base ** -exp`, truncated as `/` truncates.
-pub fun pow(base: Int, exp: Int) -> Int
-  if exp < 0
-    return 1 / pow(base, -exp)
+# `base` to the power `power`, checked: panics on overflow. A negative
+# `power` gives 1 divided by `base` to the power `-power`, truncated as
+# `/` truncates: 1 for `base` 1, 1 or -1 for `base` -1, 0 for any other
+# `base` but 0, which panics as dividing by zero does.
+pub fun pow(base: Int, power: Int) -> Int
+  if power < 0
+    if base == 1 or base == 0
+      return 1 / base
+    if base == -1
+      return 1 if power % 2 == 0 else -1
+    return 0
   result = 1
   b = base
-  e = exp
+  e = power
   while e > 0
     if e % 2 == 1
       result *= b
@@ -47,6 +64,9 @@ pub fun mod(a: Int, b: Int) -> Int
   r + b if r != 0 and (r < 0) != (b < 0) else r
 
 extern zig "math.zig"
+  # Panics: `clamp`'s bounds are the wrong way round.
+  sub clamp_bounds()
+
   # The square root; NaN for a negative `x`.
   pub fun sqrt(x: Float) -> Float
   # The largest whole number not above `x`.
@@ -62,4 +82,4 @@ extern zig "math.zig"
   # The cosine of `x` radians.
   pub fun cos(x: Float) -> Float
   # `x` to the power `y`.
-  pub fun pow_f(x: Float, y: Float) -> Float
+  pub fun powf(x: Float, y: Float) -> Float

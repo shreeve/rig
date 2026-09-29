@@ -30,7 +30,7 @@ never read as the library's.
 
 | Module | What it offers |
 |---|---|
-| [`std.math`](#stdmath) | integer helpers, and Float functions |
+| [`std.math`](#stdmath) | number helpers, and Float functions |
 | [`std.os`](#stdos) | the program's arguments and environment |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
@@ -38,15 +38,17 @@ never read as the library's.
 
 ## std.math
 
-Integer helpers, written in Rig. Like the operators, they panic on
-overflow.
+Number helpers, written in Rig. Like the operators, they panic on
+overflow. `abs`, `min`, `max`, and `clamp` are generic: each call is
+checked for its type, as any generic call is.
 
 | Function | Result |
 |---|---|
-| `abs(n: Int) -> Int` | `n` without its sign; panics on `Int.min` |
-| `clamp(x: Int, lo: Int, hi: Int) -> Int` | `lo` when `x < lo`, `hi` when `x > hi`, else `x` |
-| `gcd(a: Int, b: Int) -> Int` | the greatest common divisor, never negative; `gcd(0, 0)` is 0 |
-| `pow(base: Int, exp: Int) -> Int` | `base` to the power `exp`; a negative `exp` gives 1 divided by `base` to the power `-exp`, truncated as `/` truncates |
+| `abs[T](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; panics on a type's minimum integer (`Int.min`) |
+| `min[T](a: T, b: T) -> T`, `max[T](a: T, b: T) -> T` | the smaller or larger of `a` and `b`, by `<`; `a` when they are equal |
+| `clamp[T](x: T, lo: T, hi: T) -> T` | `lo` when `x < lo`, `hi` when `x > hi`, else `x`; panics when `hi < lo` |
+| `gcd(a: Int, b: Int) -> Int` | the greatest common divisor, never negative; `gcd(0, 0)` is 0; panics when `a` or `b` is `Int.min` |
+| `pow(base: Int, power: Int) -> Int` | `base` to the power `power`; a negative `power` gives 1 divided by `base` to the power `-power`, truncated as `/` truncates: 1 for `base` 1, 1 or -1 for `base` -1, and 0 for any other but 0, which panics as dividing by 0 does |
 | `mod(a: Int, b: Int) -> Int` | the floored remainder, with the sign of `b`; panics when `b` is 0 |
 | `PI`, `E` | the Float constants |
 
@@ -54,7 +56,8 @@ overflow.
 use std.math
 
 sub main
-  print(math.abs(-7), math.clamp(15, 0, 10), math.clamp(-3, 0, 10))
+  print(math.abs(-7), math.abs(-0.5), math.clamp(15, 0, 10), math.clamp(-3, 0, 10))
+  print(math.min(4, 2), math.max(1.5, 2.5), math.min("pear", "fig"))
   print(math.gcd(-12, 18), math.gcd(0, 0))
   print(math.pow(3, 4), math.pow(2, -1), math.pow(-1, -3))
   print(-7 % 3, math.mod(-7, 3), math.mod(7, -3))
@@ -62,7 +65,8 @@ sub main
 ```
 
 ```output
-7 10 0
+7 0.5 10 0
+2 2.5 fig
 6 0
 81 0 -1
 -1 2 -2
@@ -81,7 +85,7 @@ negative number) is NaN, which equals nothing, itself included.
 | `exp(x: Float) -> Float` | e to the power `x` |
 | `ln(x: Float) -> Float` | the natural logarithm |
 | `sin(x: Float) -> Float`, `cos(x: Float) -> Float` | the sine and cosine of `x` radians |
-| `pow_f(x: Float, y: Float) -> Float` | `x` to the power `y` |
+| `powf(x: Float, y: Float) -> Float` | `x` to the power `y` |
 
 ```rig
 use std.math
@@ -89,7 +93,7 @@ use std.math
 sub main
   print(math.sqrt(2.0) > 1.414, math.floor(-2.5), math.ceil(-2.5))
   print(math.exp(0.0), math.ln(math.E))
-  print(math.cos(math.PI), math.pow_f(2.0, 0.5) == math.sqrt(2.0))
+  print(math.cos(math.PI), math.powf(2.0, 0.5) == math.sqrt(2.0))
   print(Int(math.floor(7.9)))
 ```
 

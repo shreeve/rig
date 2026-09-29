@@ -1,0 +1,7 @@
+# 0 to a negative power is 1 divided by 0.
+use std.math
+
+sub main()
+  print(math.pow(0, -1))
+
+# expect-panic: division by zero
