@@ -15,7 +15,7 @@ fun step(n: Int) -> Int!
   errdefer print("errdefer", n)
   if n > 10
     errdefer print("inner errdefer", n)
-    return .bad
+    return E.bad
   check(n)! + 1
 
 fun twice(n: Int) -> Int!

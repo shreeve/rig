@@ -1029,7 +1029,9 @@ sub main
 ### Error sets
 
 `error Name` declares a set of error values, which are used like the
-variants of a plain enum ([§13](#13-errors)).
+variants of a plain enum ([§13](#13-errors)). Each error belongs to its
+set: `A.timeout` and `B.timeout` of two sets, or of two modules, are
+different errors.
 
 ```rig
 error NetworkError
@@ -4078,7 +4080,9 @@ must say what happens to the failure, visibly:
 
 - `f()!` propagates it: the enclosing function fails with the same
   error. The enclosing function must itself return a `T!`, be a
-  fallible `sub`, or be the top-level `sub main` or a `test`.
+  fallible `sub`, or be the top-level `sub main` or a `test`. A failure
+  that leaves `main` ends the program after `main`'s drops: it writes
+  `error: E.name` to stderr and exits with status 1.
 - `f() catch fallback` handles it: the value of the call, or `fallback`
   when it fails. The fallback may be a jump, as after `??`
   ([§12](#12-optionals)): `f() catch return -1`, `f() catch |e| return e`,
@@ -4117,7 +4121,7 @@ sub main
 ```
 
 ```output
-failed .empty
+failed Parse.empty
 5
 ```
 
@@ -4141,7 +4145,7 @@ sub main
 ```output
 saved 1
 saved 2
-not saved: .full
+not saved: SaveError.full
 ```
 
 ```rig
@@ -4202,25 +4206,72 @@ sub main
 
 A fallible function fails by producing an error value where its `T` is
 expected: `return E.name` (a member of an error set,
-[§3](#error-sets)), a binding of an error set's type, an error it
-caught, or `.name` when `T` has no variant of that name. The failure
-leaves the function the way `!` does: every `defer` and `errdefer` of
-the scopes it leaves runs, including when the error is the final value
-of an `if` or `match` branch block. Only a function returning `T!` can
-fail.
+[§3](#error-sets)), a binding of an error set's type, or an error it
+caught. The failure leaves the function the way `!` does: every `defer`
+and `errdefer` of the scopes it leaves runs, including when the error
+is the final value of an `if` or `match` branch block. Only a function
+returning `T!` can fail.
+
+Failing always names the error set. Where a `T!` is expected, a bare
+`.name` is a variant of `T`, even when an error set has a member of the
+same name, and it is rejected when `T` has no such variant: in a
+`return`, a function's last expression, a branch or arm value, and a
+closure whose type can fail.
+
+```rig
+enum Color
+  red
+  missing
+
+error Lookup
+  missing
+
+fun pick(n: Int) -> Color!
+  return Lookup.missing if n < 0
+  return .missing if n == 0
+  .red
+
+sub main
+  print(pick(1) catch .red, pick(0) catch .red, pick(-1) catch .red)
+```
+
+```output
+.red .missing .red
+```
+
+```rig reject
+error Lookup
+  missing
+
+fun find(n: Int) -> Int!
+  return .missing if n < 0
+  n
+```
+
+```error
+`.missing` is not a value of `Int`; to fail, name the error set: `Lookup.missing`
+```
 
 ### Naming the error
 
 `f() catch |err| handler` names the error for the handler. Functions do
 not declare which errors they fail with, so `err` may be any error: it
-is compared with error-set members (`err == E.name`, `err == .name`),
-matched by their names (`.name =>`, with a `_` arm where the match
-gives a value), printed, and returned from a fallible function. Every
-`.name` it is compared or matched with must be a member of some error
-set the module can see. The handler may be a block. An error is
-identified by its name alone: `A.timeout` and `B.timeout` of two error
-sets are the same error, so `err == B.timeout` holds for a failure with
-`A.timeout`.
+is compared with error-set members (`err == E.name`), matched by them
+(`E.name =>`, with a `_` arm, since no arms name every error),
+printed, and returned from a fallible function. The handler may be a
+block.
+
+An error is its set's member: a failure with `Net.timeout` is not
+`Disk.timeout`, so `err == Disk.timeout` is false for it and a
+`Disk.timeout =>` arm does not match it. A set of another module is
+named through the module: `io.IoError.eof`, also as a pattern. A bare
+`.name` compared or matched with `err` is the member of the one error
+set that may mean it: the module's own sets, private ones included, and
+the `pub` sets of the modules it reaches through its imports; another
+module's private set never counts. It is rejected when no such set has
+a member `name`, and when several do: the error lists each as the
+module writes it, saying which module to import to name one it only
+reaches, and the comparison or pattern names the set.
 
 ```rig
 error ParseError
@@ -4229,7 +4280,7 @@ error ParseError
 
 fun parse_len(s: String) -> Int!
   return ParseError.empty if s == ""
-  return .too_long if s.len > 5
+  return ParseError.too_long if s.len > 5
   s.len
 
 fun describe(s: String) -> String
@@ -4251,8 +4302,64 @@ sub main
 ```output
 3 -1
 empty too long length ok
-failed with .empty
+failed with ParseError.empty
 0
+```
+
+```rig
+error Net
+  timeout
+  refused
+
+error Disk
+  timeout
+
+fun fetch(n: Int) -> Int!
+  return Net.timeout if n == 1
+  return Disk.timeout if n == 2
+  return Net.refused if n == 3
+  n
+
+fun describe(n: Int) -> String
+  _ = fetch(n) catch |err|
+    match err
+      Net.timeout => return "network timeout"
+      Disk.timeout => return "disk timeout"
+      .refused => return "refused"
+      _ => return "other"
+  "ok"
+
+sub main
+  print(describe(1), describe(2), describe(3), describe(4))
+  x = fetch(2) catch |err|
+    print(err, err == Net.timeout, err == Disk.timeout)
+    0
+  print(x)
+```
+
+```output
+network timeout disk timeout refused ok
+Disk.timeout false true
+0
+```
+
+```rig reject
+error Net
+  timeout
+
+error Disk
+  timeout
+
+fun fetch() -> Int!
+  return Disk.timeout
+
+sub main
+  n = fetch() catch |err| 1 if err == .timeout else 2
+  print(n)
+```
+
+```error
+error sets `Net` and `Disk` both have a member `timeout`; name the set: `Net.timeout` or `Disk.timeout`
 ```
 
 ```rig reject
@@ -4624,6 +4731,7 @@ direct call; it is not a value.
 | `String` | its text; inside other values, quoted |
 | `none` | `none` |
 | enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, however it was built |
+| error | `Disk.timeout`: its set and its name, without the module |
 | struct | `User(name: "ada", age: 36)` |
 | array, slice, `Vec` | `[1, 2]` |
 | shared handle | the value it holds |

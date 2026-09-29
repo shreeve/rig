@@ -3,6 +3,6 @@ pub error ParseError
   bad_digit
 
 pub fun parse(s: String) -> Int!
-  return .empty if s == ""
+  return ParseError.empty if s == ""
   return ParseError.bad_digit if s == "x"
   s.len

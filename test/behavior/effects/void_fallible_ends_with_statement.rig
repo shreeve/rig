@@ -13,7 +13,7 @@ sub block_guard(i: Int)!
     return E.bad
 
 sub ends_in_set(c: !Int, i: Int)!
-  return .bad if i == 3
+  return E.bad if i == 3
   c = i
 
 sub ends_in_loop(i: Int)!
@@ -34,7 +34,7 @@ sub main()
 # expect:
 # 1
 # 3
-# caught .bad
-# caught .bad
+# caught E.bad
+# caught E.bad
 # 7
-# caught .bad
+# caught E.bad

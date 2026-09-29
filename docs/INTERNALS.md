@@ -63,8 +63,8 @@ module's `__rig_tests` table to `rig.runTests`. The emitter lowers a
 in that table; the tests of the root module run first, then those of
 its imports in load order. Each result is one line on stdout,
 `ok    test "name"` or `FAIL  test "name": <reason>`, where the reason
-is an error the test returned, a leak (Debug), or a panic, which ends
-the run. Imported modules' tests carry the module name:
+is the error the test returned (`E.name`), a leak (Debug), or a panic,
+which ends the run. Imported modules' tests carry the module name:
 `ok    test "double" (util)`. When every test finishes, the last line
 counts passes and failures, and the exit status is 1 if any test
 failed; after a panic it is non-zero, with no count.
@@ -379,7 +379,10 @@ A few kinds serve more than one surface form:
   `pattern` is `(alt_pattern p...)` for alternatives (`1, 2 =>`). A
   `variant_pattern` binding is a name, or `(kwarg field name)` for a
   field bound by name (`.rect(w: a)`), which the checker rejects as
-  not supported yet.
+  not supported yet. A pattern `E.name` or `m.E.name` is a `member`,
+  which the checker accepts only when sema recorded it as a member of
+  an error set (`E` names the set, through a module or an alias; not a
+  module's constant or a value's field) that the subject can hold.
 - `(pass)`, the statement `pass`, has no roles. The checker rejects it
   where a value is needed, and the emitter writes it as `{}`, an empty
   Zig block, which is a statement wherever Zig takes one.
@@ -581,7 +584,9 @@ ownership:
 - **fallibility**: a call of type `T!` must be the operand of `!` or
   `catch`; `!` needs a fallible operand and an enclosing function or
   test that can fail (`-> T!`, `sub f()!`, the root module's
-  `sub main`, which is then emitted as `anyerror!void`, or a `test`,
+  `sub main`, which is then emitted as `fn __rig_run_main() anyerror!void`
+  inside a `pub fn main() void` that reports a failure as Rig shows it,
+  `error: E.name`, through `rig.failMain`, and exits 1, or a `test`,
   whose error `rig test` reports); likewise `e?` (`propagate_none`)
   needs an optional operand and a function returning `T?` (or `T?!`)
   to return `none` from. A closure body propagates only when the
@@ -630,9 +635,18 @@ after a diagnostic and are compatible with everything, so one mistake
 does not cascade. `compatible` also accepts a literal where a numeric
 type is expected, `none` or a `T` where `T?` is expected, a `T` or an
 error value where `T!` is expected, `!T` where `?T` is expected, and a
-borrow of a Copy value where the value is expected. The error a
-`catch |err|` names has the type `error`: any error, since functions do
-not declare which errors they fail with.
+borrow of a Copy value where the value is expected. A bare `.name`
+where a `T!` is expected is checked as a variant of `T`
+(`checkContextual`), so an error value there always has its set's type.
+The error a `catch |err|` names has the type `error`: any error, since
+functions do not declare which errors they fail with. A bare `.name`
+compared or matched with one is the member of the one error set that
+may mean it (`sema.errorSetsWith`: the module's own sets and the `pub`
+sets of the modules it reaches), and sema records that set as the
+literal's type, so every error value the emitter meets has its set.
+`X.name` is an error value only where sema recorded it as a member of
+the error set `X` names (`isErrorMember`); a module's constant
+`m.NAME` of an error-set type is read as the constant.
 
 ### The facts table
 
@@ -655,6 +669,7 @@ instead of re-deriving it by name:
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
+| `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read borrow lending it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds borrows, rather than pointing the place elsewhere |
 | `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |
@@ -1032,7 +1047,11 @@ lower is an internal error: sema must have rejected it.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`,
   `Box[T]` is `rig.Box(T)` (a pointer to the value, reached as
   `b.value.f`; `?b` lent as a `?T` is `b.value`), `T?`
-  is `?T`, `T!` is `anyerror!T`, enums with payloads are tagged unions
+  is `?T`, `T!` is `anyerror!T`, an error set's members are Zig errors
+  named with their set, `error.@"E.name"`, and in a module other than
+  the root with the module too, `error.@"m.E.name"` (Zig's errors share
+  one namespace, and each Rig error is its own set's; `rig.print` and
+  `rig test` show the last two parts), enums with payloads are tagged unions
   (each payload a struct of its fields), and generic types are Zig functions from types to types. A struct
   with drop glue gets a `__rig_drop` method: the user `drop` body, then
   the owning fields in reverse order.

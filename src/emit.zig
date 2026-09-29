@@ -444,11 +444,24 @@ pub const Emitter = struct {
         try self.w.writeAll("    };\n}\n");
     }
 
-    /// `(errors Name v...)` → a Zig error set.
+    /// `(errors Name v...)` → a Zig error set of its members' Zig names
+    /// (`writeErrorName`).
     fn emitErrorSet(self: *Emitter, node: Sexp) Error!void {
-        try self.w.print("pub const {f} = error{{\n", .{ident(self.srcText(ir.Errors.name(node)))});
-        for (ir.Errors.members(node)) |v| if (v == .src) try self.w.print("    {f},\n", .{ident(self.srcText(v))});
+        const set = self.srcText(ir.Errors.name(node));
+        try self.w.print("pub const {f} = error{{\n", .{ident(set)});
+        for (ir.Errors.members(node)) |v| if (v == .src) {
+            try self.w.writeAll("    ");
+            try writeErrorName(self.w, self.sema, set, self.srcText(v));
+            try self.w.writeAll(",\n");
+        };
         try self.w.writeAll("};\n");
+    }
+
+    /// Member `name` of error set `set` as a Zig error value.
+    fn writeError(self: *Emitter, set: TypeId, name: []const u8, at: Sexp) Error!void {
+        const decl = sema.nominalDecl(self.sema, set) orelse return self.unsupported(at, "an error of no error set");
+        try self.w.writeAll("error.");
+        try writeErrorName(self.w, decl.ctx, decl.symbol().name, name);
     }
 
     fn enterNominal(self: *Emitter, name_node: Sexp, generic: bool, members: []const Sexp) Error!?Nominal {
@@ -613,7 +626,13 @@ pub const Emitter = struct {
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
-        try self.w.print("pub fn {f}(", .{ident(name)});
+        // A `main` that may fail runs inside one that reports the failure
+        // as Rig shows errors (`rig.failMain`).
+        const fails = is_main and contains(body, &.{.propagate});
+        if (fails) {
+            try self.w.writeAll("pub fn main() void {\n    __rig_run_main() catch |err| rig.failMain(err);\n}\n\n");
+            try self.w.writeAll("fn __rig_run_main(");
+        } else try self.w.print("pub fn {f}(", .{ident(name)});
         try self.pushScope();
         defer self.popScope() catch {};
         // Compile-time parameters come first, after a method's receiver,
@@ -632,8 +651,7 @@ pub const Emitter = struct {
         if (return_ty) |r| {
             try self.emitTypeTy(r);
         } else {
-            // `main` may propagate a failure out of the program.
-            try self.w.writeAll(if (is_main and contains(body, &.{.propagate})) "anyerror!void" else "void");
+            try self.w.writeAll(if (fails) "anyerror!void" else "void");
         }
         try self.w.writeAll(" ");
         // A `sub` yields no value, even one that may fail (`Void!`).
@@ -2159,8 +2177,12 @@ pub const Emitter = struct {
             }
             return;
         }
+        if (pattern.isKind(.enum_lit) and info.error_set) {
+            // Sema gave `.name` against an error the type of its set.
+            return self.writeError(self.typeOf(pattern) orelse return self.unsupported(pattern, "an untyped error"), self.srcText(ir.EnumLit.name(pattern)), pattern);
+        }
         if (pattern.isKind(.enum_lit) or pattern.isKind(.variant_pattern)) {
-            return self.w.print("{s}{f}", .{ if (info.error_set) "error." else ".", ident(self.srcText(ir.get(pattern, .name))) });
+            return self.w.print(".{f}", .{ident(self.srcText(ir.get(pattern, .name)))});
         }
         if (pattern.isKind(.range_pattern)) {
             // `lo..hi` is half-open; Zig's `lo...hi` is inclusive. Sema
@@ -3017,8 +3039,9 @@ pub const Emitter = struct {
                 try self.emitExpr(ir.Not.operand(sexp));
             },
             .enum_lit => {
-                const in_error_set = if (self.typeOf(sexp)) |t| self.isErrorSetTy(t) else false;
-                try self.w.print("{s}{f}", .{ if (in_error_set) "error." else ".", ident(self.srcText(ir.EnumLit.name(sexp))) });
+                const name = self.srcText(ir.EnumLit.name(sexp));
+                if (self.typeOf(sexp)) |t| if (self.isErrorSetTy(t)) return self.writeError(self.peelBorrows(t), name, sexp);
+                try self.w.print(".{f}", .{ident(name)});
             },
             .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^" => try self.emitInfix(sexp, bare),
             .@"+%", .@"-%", .@"*%" => {
@@ -3363,6 +3386,8 @@ pub const Emitter = struct {
             try self.emitTypeTy(t);
             return self.w.writeAll("))");
         };
+        // `E.name` of an error set.
+        if (self.sema.isErrorMember(sexp)) return self.writeError(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped error"), field, sexp);
         // `Shape.dot` of an enum with payloads names the tag; the value
         // is the union holding it.
         if (obj_ty == null and self.isTypeCallee(obj)) if (self.typeOf(sexp)) |t| if (self.hasPayloadVariants(t)) {
@@ -3907,6 +3932,12 @@ pub const Emitter = struct {
     /// being emitted is reached through its file, which every module of
     /// the package can import.
     fn emitDefault(self: *Emitter, decl: *const sema.SemContext, e: Sexp) Error!void {
+        // A member of an error set: `.name` or `E.name`.
+        if (e.isKind(.enum_lit) or decl.isErrorMember(e)) if (decl.typeOf(e)) |t| if (sema.nominalDecl(decl, t)) |set| if (set.symbol().flags.error_set) {
+            const name = if (e.isKind(.member)) ir.Member.name(e) else ir.EnumLit.name(e);
+            try self.w.writeAll("error.");
+            return writeErrorName(self.w, set.ctx, set.symbol().name, decl.source[name.src.pos..][0..name.src.len]);
+        };
         if (isDefaultLiteralNode(decl.source, e)) return writeLiteral(self.w, decl.source, e);
         if (decl == self.sema) {
             const saved = self.keep_comptime;
@@ -5197,6 +5228,15 @@ const Ident = struct {
 
 fn ident(name: []const u8) Ident {
     return .{ .name = name };
+}
+
+/// The Zig name of member `name` of error set `set`, declared in the
+/// module `owner`: `@"Set.name"`, or `@"mod.Set.name"` for a module other
+/// than the root. Zig's errors share one namespace, so each carries its
+/// set and module; `rig.print` shows the last two parts.
+fn writeErrorName(w: *Writer, owner: *const sema.SemContext, set: []const u8, name: []const u8) Error!void {
+    if (owner.is_root or owner.name.len == 0) return w.print("@\"{s}.{s}\"", .{ set, name });
+    try w.print("@\"{s}.{s}.{s}\"", .{ owner.name, set, name });
 }
 
 /// A literal default value: a number, a string, `true` / `false`,

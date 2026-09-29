@@ -1,0 +1,10 @@
+pub error Disk
+  full
+  empty
+
+pub enum Color
+  red
+  green
+
+pub DEF = Disk.full
+pub RED = Color.red

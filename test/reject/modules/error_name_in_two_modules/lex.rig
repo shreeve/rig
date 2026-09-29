@@ -1,0 +1,2 @@
+pub error LexError
+  eof

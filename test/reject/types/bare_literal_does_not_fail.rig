@@ -1,0 +1,53 @@
+# A bare `.name` where a `T!` is expected is always a variant of `T`: a
+# fallible function fails only by naming the error set (`E.missing`),
+# so `.missing` is rejected wherever `T` has no such variant, with a
+# hint that names the set.
+
+enum Color
+  red
+  green
+
+error E
+  missing
+
+fun tail(n: Int) -> Color!
+  .missing
+
+fun early(n: Int) -> Color!
+  return .missing if n < 0
+  .red
+
+fun branch(n: Int) -> Int!
+  if n > 0
+    n
+  else
+    .missing
+
+fun arm(n: Int) -> Color!
+  match n
+    0 => .red
+    _ => .missing
+
+fun ternary(n: Int) -> Color!
+  .red if n > 0 else .missing
+
+sub save(n: Int)!
+  return .missing if n < 0
+  print(n)
+
+sub each(f: ?fun(Int) -> Color!)
+  print(f(1) catch .red)
+
+sub main
+  each(|n| .missing)
+  print(tail(1) catch .red, early(1) catch .red, branch(1) catch 0, arm(1) catch .red, ternary(1) catch .red)
+  save(1)!
+
+# error: 14:4: `.missing` is not a variant of `Color`; to fail, name the error set: `E.missing`
+# error: 17:11: `.missing` is not a variant of `Color`; to fail, name the error set: `E.missing`
+# error: 24:6: `.missing` is not a value of `Int`; to fail, name the error set: `E.missing`
+# error: 29:11: `.missing` is not a variant of `Color`; to fail, name the error set: `E.missing`
+# error: 32:23: `.missing` is not a variant of `Color`; to fail, name the error set: `E.missing`
+# error: 35:11: a `sub` returns no value; to fail, name the error set: `E.missing`
+# error: 42:13: `.missing` is not a variant of `Color`; to fail, name the error set: `E.missing`
+# errors: 7

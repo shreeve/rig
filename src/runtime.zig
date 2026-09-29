@@ -1194,6 +1194,14 @@ pub fn finish() void {
     std.process.exit(1);
 }
 
+/// A failure that left `main`, after its drops and `finish`: report the
+/// error as a Rig program shows it and exit 1.
+pub fn failMain(err: anyerror) noreturn {
+    flush();
+    std.debug.print("error: {s}\n", .{errorShown(err)});
+    std.process.exit(1);
+}
+
 // Output. `print` writes to one process-wide buffer, flushed when the
 // program finishes, before a panic message, and after every `print`
 // when stdout is a terminal.
@@ -1274,6 +1282,15 @@ const TestName = struct {
 var current_test: ?TestName = null;
 
 /// Run every test, reporting each on stdout; exit 1 if any failed.
+/// An error as a program shows it, `Set.name`: the emitter names each
+/// error `Set.name`, or `module.Set.name` outside the root module.
+pub fn errorShown(err: anyerror) []const u8 {
+    const full = @errorName(err);
+    const dot = std.mem.lastIndexOfScalar(u8, full, '.') orelse return full;
+    const start = if (std.mem.lastIndexOfScalar(u8, full[0..dot], '.')) |d| d + 1 else 0;
+    return full[start..];
+}
+
 pub fn runTests(modules: []const TestModule) void {
     guardStack();
     const w = stdout();
@@ -1295,7 +1312,7 @@ pub fn runTests(modules: []const TestModule) void {
                 passed += 1;
             }
         } else |err| {
-            w.print("FAIL  {f}: error.{s}\n", .{ name, @errorName(err) }) catch {};
+            w.print("FAIL  {f}: {s}\n", .{ name, errorShown(err) }) catch {};
             failed += 1;
         }
         flush();
@@ -1366,7 +1383,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
             if (p.size != .slice) return writeValue(w, value.*, top);
         },
         .@"enum" => return w.print(".{s}", .{@tagName(value)}),
-        .error_set => return w.print(".{s}", .{@errorName(value)}),
+        .error_set => return w.writeAll(errorShown(value)),
         else => {},
     }
     if (print_depth >= max_print_depth) return w.writeAll("...");

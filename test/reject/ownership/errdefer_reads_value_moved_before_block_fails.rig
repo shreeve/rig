@@ -29,7 +29,7 @@ fun arm(k: Int) -> Int!
       t = Tok(n: 2)
       errdefer print("errdefer", t.n)
       eat(<t)
-      .bad
+      E.bad
 
 sub main
   print(branch(1) catch -1, arm(1) catch -1)
