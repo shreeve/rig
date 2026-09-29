@@ -26,6 +26,8 @@ everything it has.
 | Module | What it offers |
 |---|---|
 | [`std.math`](#stdmath) | integer helpers, and Float functions |
+| [`std.os`](#stdos) | the program's arguments and environment |
+| [`std.time`](#stdtime) | clocks and sleeping |
 
 ## std.math
 
@@ -89,4 +91,76 @@ true -3.0 -2.0
 1.0 1.0
 -1.0 true
 7
+```
+
+## std.os
+
+The arguments and environment the program started with. Their Strings
+live as long as the program, as a literal's do, so they can be kept,
+returned, and stored anywhere.
+
+| Function | Result |
+|---|---|
+| `args() -> []String` | every argument, the program's name first |
+| `env(name: String) -> String?` | the value of the environment variable `name`, or `none` when it is not set |
+
+`rig run file.rig -- a b` passes `a` and `b` to the program, and a
+built executable takes its arguments as usual. With `fun main -> Int`
+([SPEC §1](../SPEC.md#1-programs)), a program also reports an exit
+status:
+
+```rig
+use std.os
+
+fun main -> Int
+  args = os.args()
+  if args.len < 2
+    print("usage: greet NAME")
+    return 0
+  for name in args[1..]
+    print("hello", name)
+  0
+```
+
+```output
+usage: greet NAME
+```
+
+```rig
+use std.os
+
+sub main
+  home = os.env("RIG_EXAMPLE_UNSET") ?? "nowhere"
+  print(home)
+```
+
+```output
+nowhere
+```
+
+## std.time
+
+Time as an `Int` of nanoseconds, with the constants `NS`, `US`, `MS`,
+`SECOND`, and `MINUTE` to write durations: `250 * time.MS`.
+
+| Function | Result |
+|---|---|
+| `now() -> Int` | the monotonic clock, in nanoseconds since an unspecified moment: it never goes back, so the difference of two readings is the time between them |
+| `elapsed(start: Int) -> Int` | the nanoseconds since `start`, a reading of `now()` |
+| `sleep(ns: Int)` | wait at least `ns` nanoseconds; not at all when `ns` is not positive |
+| `unix() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
+
+```rig
+use std.time
+
+sub main
+  start = time.now()
+  time.sleep(5 * time.MS)
+  print(time.elapsed(start) >= 5 * time.MS)
+  print(time.unix() / time.SECOND > 1_700_000_000)
+```
+
+```output
+true
+true
 ```

@@ -1,0 +1,20 @@
+# std.time: the monotonic clock never goes back, `sleep` waits at least
+# as long as asked, and the wall clock is past 2023.
+use std.time
+
+sub main()
+  start = time.now()
+  time.sleep(3 * time.MS)
+  waited = time.elapsed(start)
+  print(waited >= 3 * time.MS, waited < 10 * time.SECOND)
+  time.sleep(0)
+  time.sleep(-1)
+  print(time.now() >= start + waited)
+  print(time.unix() > 1_700_000_000 * time.SECOND)
+  print(time.NS, time.US, time.MS, time.SECOND, time.MINUTE)
+
+# expect:
+# true true
+# true
+# true
+# 1 1000 1000000 1000000000 60000000000

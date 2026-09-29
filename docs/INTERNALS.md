@@ -48,7 +48,8 @@ a partly written file, and the directory is not emptied. It holds the
 package's own Zig cache, `.zig-cache/`: Zig 0.16 keys a `zig run` cache
 entry by the root file's path relative to the working directory, so
 two packages sharing one cache could collide. `run` and `test` go
-through `zig run`, which reuses a cached build of unchanged sources;
+through `zig run` (`rig run file.rig -- args` passes the program its
+arguments after Zig's `--`), which reuses a cached build of unchanged sources;
 `build` runs `zig build-exe -femit-bin=...`, which caches nothing, so
 it compiles the package in full every time. The toolchain is `$ZIG`,
 else `zig` on `PATH`, run with `-ODebug`, `-OReleaseSafe` (`--release`),
@@ -1185,6 +1186,7 @@ reviewed.
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
+| `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; `exitStatus` checks the status of `fun main -> Int` |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `DebugAllocator`, which prints the stack trace of each leak. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |

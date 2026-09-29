@@ -218,6 +218,7 @@ it beside this checkout and build it there (`zig build
 
 ```bash
 bin/rig run examples/hello.rig         # check, build, and run (Debug)
+bin/rig run file.rig -- a b            # the same, passing the program arguments
 bin/rig run --release file.rig         # the same, optimized (ReleaseSafe)
 bin/rig build -o hello file.rig        # a native executable
 bin/rig build --release=fast file.rig  # ReleaseFast: no overflow checks

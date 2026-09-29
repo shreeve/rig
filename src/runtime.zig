@@ -1239,6 +1239,12 @@ pub fn processArgs() []const []const u8 {
     return process_args;
 }
 
+/// The `std.Io` the runtime and the standard library's Zig files do
+/// their I/O through: synchronous, on the calling thread.
+pub fn io() std.Io {
+    return std.Io.Threaded.global_single_threaded.io();
+}
+
 /// `fun main -> Int`: its result, which `finish` has already run after,
 /// as the process's exit status.
 pub fn exitStatus(n: Int) u8 {
@@ -1267,10 +1273,9 @@ var stdout_is_tty = false;
 
 fn stdout() *std.Io.Writer {
     if (stdout_writer == null) {
-        const io = std.Io.Threaded.global_single_threaded.io();
         const file = std.Io.File.stdout();
-        stdout_is_tty = file.isTty(io) catch false;
-        stdout_writer = file.writerStreaming(io, &stdout_buffer);
+        stdout_is_tty = file.isTty(io()) catch false;
+        stdout_writer = file.writerStreaming(io(), &stdout_buffer);
     }
     return &stdout_writer.?.interface;
 }

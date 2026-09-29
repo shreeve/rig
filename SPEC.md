@@ -48,6 +48,7 @@ error with `!`, which ends the program with status 1. Everything `main`
 owns is dropped, its output flushed, and the leak check run before the
 program exits. Only the program calls `main`: Rig code cannot call it
 or use it as a value. The program's arguments and environment are read
+through [`std.os`](docs/STD.md#stdos). The program's arguments and environment are read
 through [`std.os`](docs/STD.md#stdos).
 
 ```rig

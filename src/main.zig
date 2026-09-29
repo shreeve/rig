@@ -19,6 +19,7 @@ const usage =
     \\Rig: a systems language with visible ownership, compiled to Zig.
     \\
     \\Usage: rig <command> [options] <file.rig>
+    \\       rig run [options] <file.rig> -- <program arguments>
     \\
     \\Commands:
     \\  check     Check the program and its imports
@@ -77,6 +78,8 @@ const Options = struct {
     mode: Mode = .debug,
     out_path: ?[]const u8 = null,
     facts: bool = false,
+    /// `rig run file.rig -- args...`: the program's own arguments.
+    program_args: []const []const u8 = &.{},
 };
 
 const Env = struct {
@@ -131,9 +134,15 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var mode: Mode = .debug;
     var out_path: ?[]const u8 = null;
     var facts = false;
+    var program_args: []const []const u8 = &.{};
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
+        if (eql(arg, "--")) {
+            if (command != .run) usageError("arguments after `--` are for the program `rig run` runs", .{});
+            program_args = args[i + 1 ..];
+            break;
+        }
         // `help` and `version` are commands only in the command's place,
         // so a file may have either name.
         const first = command == null;
@@ -179,7 +188,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .program_args = program_args };
 }
 
 fn eql(a: []const u8, b: []const u8) bool {
@@ -310,9 +319,9 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const zig = env.zig();
     const flag = opts.mode.zigFlag();
     const code = switch (opts.command) {
-        .run => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig }),
-        .build => try runZig(allocator, io, pkg, &.{ zig, "build-exe", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig, try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{opts.out_path orelse graph.root().name}) }),
-        else => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, try writeTestDriver(allocator, io, env, &graph, pkg.dir) }),
+        .run => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig }, opts.program_args),
+        .build => try runZig(allocator, io, pkg, &.{ zig, "build-exe", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig, try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{opts.out_path orelse graph.root().name}) }, &.{}),
+        else => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, try writeTestDriver(allocator, io, env, &graph, pkg.dir) }, &.{}),
     };
     if (code == 0) return;
     if (opts.command == .build) std.debug.print("note: emitted Zig is in {s}\n", .{pkg.dir});
@@ -354,12 +363,14 @@ fn writeTestDriver(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *c
 }
 
 /// Run the Zig toolchain on `pkg` with inherited stdio, linking libc
-/// when the package needs it; return its exit code (128 + the signal
+/// when the package needs it, and passing `program_args` to the program
+/// `zig run` runs; return its exit code (128 + the signal
 /// number if a signal ended it).
-fn runZig(allocator: std.mem.Allocator, io: std.Io, pkg: Package, argv: []const []const u8) !u8 {
+fn runZig(allocator: std.mem.Allocator, io: std.Io, pkg: Package, argv: []const []const u8, program_args: []const []const u8) !u8 {
     const libc: []const []const u8 = if (pkg.links_libc) &.{"-lc"} else &.{};
+    const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
     var child = std.process.spawn(io, .{
-        .argv = try std.mem.concat(allocator, []const u8, &.{ argv, libc }),
+        .argv = try std.mem.concat(allocator, []const u8, &.{ argv, libc, dashes, program_args }),
         .stdin = .inherit,
         .stdout = .inherit,
         .stderr = .inherit,
