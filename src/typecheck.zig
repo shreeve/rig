@@ -293,6 +293,7 @@ const Checker = struct {
             },
             .set => try self.checkModuleConst(sexp),
             .use, .type, .@"extern", .extern_fun, .extern_sub => {},
+            .zig_extern => for (ir.ZigExtern.decls(sexp)) |d| try self.checkDecl(d),
             else => try self.errAt(sexp, not_at_module_level, .{}),
         }
     }
@@ -387,6 +388,8 @@ const Checker = struct {
         // `sub main` lowers to a fallible `main`.
         const fallible = (is_main and is_sub) or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
         if (node.isKind(.fun) and !is_main) try self.checkFunReturns(node, ret);
+        // A Zig-backed declaration's body is its Zig function.
+        if (ir.get(node, .body) == .nil) return;
         try self.checkBody(ir.get(node, .body), .{ .ret = ret, .is_sub = is_sub, .fail_to = if (fallible) .caller else .{ .infallible = name }, .name = name });
     }
 
@@ -593,7 +596,7 @@ const Checker = struct {
                 defer self.body.loops = frame.parent;
                 try self.checkStmt(inner);
             },
-            .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_struct, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .@"test", .@"pub" => {
+            .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_struct, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .zig_extern, .@"test", .@"pub" => {
                 try self.errAt(stmt, "declarations are only allowed at module level", .{});
             },
             else => try self.checkExprStmt(stmt),

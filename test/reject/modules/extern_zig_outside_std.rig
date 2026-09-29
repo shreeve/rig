@@ -1,0 +1,9 @@
+# Only the standard library binds declarations to Zig code.
+extern zig "fast.zig"
+  pub fun twice(n: Int) -> Int
+
+sub main()
+  print(twice(2))
+
+# error: 2:1: only the standard library binds declarations to Zig code with `extern zig`
+# errors: 1

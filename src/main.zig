@@ -418,6 +418,7 @@ fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modul
         links_libc = links_libc or em.links_libc;
         if (i == 0 and env.leakTrace()) try file_buffer.writer.writeAll("\npub const __rig_leak_trace = true;\n");
         try writeFile(io, try std.fs.path.join(allocator, &.{ dir, m.out_basename }), file_buffer.written());
+        for (m.shims.items) |shim| try writeFile(io, try std.fs.path.join(allocator, &.{ dir, "rig", "std", shim.name }), shim.source);
         if (i == 0) root_source = file_buffer.written();
     }
     return .{

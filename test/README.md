@@ -33,7 +33,8 @@ emitted packages (see [Output](#output)).
 | `parser` | `src/parser.zig` matches what Nexus generates from `rig.grammar` |
 | `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
 
-Areas: `syntax`, `types`, `effects`, `ownership`, `emit`, `runtime`, `modules`.
+Areas: `syntax`, `types`, `effects`, `ownership`, `emit`, `runtime`, `modules`,
+`std` (the standard library).
 A multi-file test is a directory `<name>/` with an entry `main.rig`; the
 directives go in `main.rig`.
 

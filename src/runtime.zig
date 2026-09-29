@@ -868,6 +868,18 @@ pub fn Vec(comptime T: type) type {
 }
 
 // -----------------------------------------------------------------------------
+// Zig-backed declarations
+// -----------------------------------------------------------------------------
+
+/// The check the emitter writes for each Zig-backed declaration of the
+/// standard library (`extern zig "file.zig"`): its function in the Zig
+/// file has exactly the type its Rig signature lowers to, so a call the
+/// checker accepts passes and returns what Rig says it does.
+pub fn expectShim(comptime f: anytype, comptime Rig: type, comptime name: []const u8) void {
+    if (@TypeOf(f) != Rig) @compileError("rig: the Zig function of `" ++ name ++ "` has type " ++ @typeName(@TypeOf(f)) ++ ", but its Rig signature lowers to " ++ @typeName(Rig));
+}
+
+// -----------------------------------------------------------------------------
 // Integers and indexing
 // -----------------------------------------------------------------------------
 

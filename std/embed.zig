@@ -4,6 +4,7 @@
 
 pub const files = [_]struct { []const u8, []const u8 }{
     .{ "math.rig", @embedFile("math.rig") },
+    .{ "math.zig", @embedFile("math.zig") },
 };
 
 pub fn get(name: []const u8) ?[]const u8 {

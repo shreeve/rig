@@ -1,4 +1,5 @@
-# std.math: integer helpers.
+# std.math: integer helpers written in Rig, and Float functions from
+# Zig's.
 
 pub PI = 3.141592653589793
 pub E = 2.718281828459045
@@ -44,3 +45,21 @@ pub fun pow(base: Int, exp: Int) -> Int
 pub fun mod(a: Int, b: Int) -> Int
   r = a % b
   r + b if r != 0 and (r < 0) != (b < 0) else r
+
+extern zig "math.zig"
+  # The square root; NaN for a negative `x`.
+  pub fun sqrt(x: Float) -> Float
+  # The largest whole number not above `x`.
+  pub fun floor(x: Float) -> Float
+  # The smallest whole number not below `x`.
+  pub fun ceil(x: Float) -> Float
+  # e to the power `x`.
+  pub fun exp(x: Float) -> Float
+  # The natural logarithm; -inf at 0 and NaN below it.
+  pub fun ln(x: Float) -> Float
+  # The sine of `x` radians.
+  pub fun sin(x: Float) -> Float
+  # The cosine of `x` radians.
+  pub fun cos(x: Float) -> Float
+  # `x` to the power `y`.
+  pub fun pow_f(x: Float, y: Float) -> Float

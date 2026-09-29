@@ -45,6 +45,8 @@ pub const Import = struct {
     target: ModuleId,
 };
 
+pub const Shim = struct { name: []const u8, source: []const u8 };
+
 pub const Module = struct {
     /// 1-based; also the module's identity for cross-module nominal sema.
     id: ModuleId,
@@ -61,6 +63,9 @@ pub const Module = struct {
     out_basename: []const u8,
     /// A module of the standard library.
     is_std: bool = false,
+    /// The Zig files its `extern zig` blocks name (standard library
+    /// modules only), which the package holds as `rig/std/<name>`.
+    shims: std.ArrayListUnmanaged(Shim) = .empty,
     source: []const u8,
     parser: *parser.Parser,
     /// Semantic IR; `.nil` if parsing failed.
@@ -104,6 +109,7 @@ pub const ModuleGraph = struct {
             m.parser.deinit();
             self.allocator.destroy(m.parser);
             m.imports.deinit(self.allocator);
+            m.shims.deinit(self.allocator);
         }
         self.modules.deinit(self.allocator);
         self.by_path.deinit(self.allocator);
@@ -208,6 +214,7 @@ pub const ModuleGraph = struct {
                 const added = try self.add(found.key, found.display, qualified, found.source);
                 self.get(added).is_std = true;
                 self.get(added).out_basename = try std.fmt.allocPrint(a, "__rig_std_{s}.zig", .{name});
+                if (!try self.loadShims(added)) self.get(added).state = .failed;
                 try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = added });
                 return .{ .added = added };
             }
@@ -233,6 +240,37 @@ pub const ModuleGraph = struct {
         }
         try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = target });
         return .loaded;
+    }
+
+    /// Read the Zig file of each `extern zig` block of the standard
+    /// library's module `id`; false if one cannot be.
+    fn loadShims(self: *ModuleGraph, id: ModuleId) Error!bool {
+        const m = self.get(id);
+        if (m.ir == .nil) return true;
+        for (ir.Module.decls(m.ir)) |decl| {
+            if (!decl.isKind(.zig_extern)) continue;
+            const leaf = ir.ZigExtern.file(decl);
+            const at = m.parser.span(leaf);
+            const quoted = leaf.getText(m.source);
+            const file = quoted[1 .. quoted.len - 1];
+            const base = file[0 .. file.len -| 4];
+            const plain = std.mem.endsWith(u8, file, ".zig") and base.len > 0 and for (base) |c| {
+                if (!std.ascii.isAlphanumeric(c) and c != '_') break false;
+            } else true;
+            if (!plain) {
+                try self.errorAt(id, at, "`extern zig` names a Zig file of the standard library, `name.zig`", .{});
+                return false;
+            }
+            const found = self.readStd(file) catch |err| {
+                try self.errorAt(id, at, "cannot read `{s}/{s}`: {s}", .{ self.std_dir.?, file, fileError(err) });
+                return false;
+            } orelse {
+                try self.errorAt(id, at, "the standard library has no Zig file `{s}`", .{file});
+                return false;
+            };
+            try self.get(id).shims.append(self.allocator, .{ .name = file, .source = found.source });
+        }
+        return true;
     }
 
     /// A file of the standard library: from `$RIG_STD` when it is set,

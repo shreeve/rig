@@ -1117,7 +1117,7 @@ pub const Checker = struct {
             .@"struct", .@"enum", .errors, .generic_struct => for (ir.rest(sexp, .members)) |c| try self.walkDecl(c),
             .@"pub" => try self.walkDecl(ir.Pub.decl(sexp)),
             .@"test" => try self.walkFun(.nil, .nil, .nil, .nil, ir.Test.body(sexp)),
-            .use, .type, .@"extern", .extern_fun, .extern_sub, .variant, .@":" => {},
+            .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .variant, .@":" => {},
             else => try self.walkStmt(sexp),
         }
     }

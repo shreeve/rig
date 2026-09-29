@@ -277,6 +277,7 @@ pub const Emitter = struct {
         try self.module_names.put(a, "std", {});
         try self.module_names.put(a, "rig", {});
         for (decls) |d0| {
+            if (d0.isKind(.zig_extern)) try self.collectModule(ir.ZigExtern.decls(d0));
             const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
             const kind = d.kind() orelse continue;
             const name = if (kind == .set) ir.Set.target(d) else if (ir.has(kind, .name)) ir.get(d, .name) else continue;
@@ -292,6 +293,7 @@ pub const Emitter = struct {
             .@"pub" => try self.emitDecl(ir.Pub.decl(sexp)),
             .fun, .sub => try self.emitFun(sexp),
             .extern_fun, .extern_sub => try self.emitExtern(ir.get(sexp, .name)),
+            .zig_extern => try self.emitZigExtern(sexp),
             .@"extern" => try self.emitExtern(ir.Extern.name(sexp)),
             .use => try self.emitUse(sexp),
             .@"struct" => try self.emitStruct(sexp),
@@ -345,6 +347,27 @@ pub const Emitter = struct {
         try self.w.writeAll(") ");
         try self.emitTypeTy(f.returns);
         try self.w.writeAll(";\n");
+    }
+
+    /// `extern zig "file.zig"`: each declaration is the function of the
+    /// same name in the standard library's Zig file, written beside the
+    /// runtime as `rig/std/file.zig`, and a compile-time check that its
+    /// Zig type is exactly the one the Rig signature lowers to.
+    fn emitZigExtern(self: *Emitter, node: Sexp) Error!void {
+        const file = self.srcText(ir.ZigExtern.file(node));
+        const shim = try self.fmt("__rig_shim_{d}", .{self.nextId()});
+        try self.w.print("const {s} = @import(\"rig/std/{s}\");\n", .{ shim, file[1 .. file.len - 1] });
+        for (ir.ZigExtern.decls(node)) |d0| {
+            const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
+            const name = ir.get(d, .name);
+            const f = self.fnType(try self.declType(name)) orelse return self.unsupported(name, "an untyped function");
+            try self.w.print("pub const {f} = {s}.{f};\n", .{ ident(self.srcText(name)), shim, ident(self.srcText(name)) });
+            try self.w.print("comptime {{\n    rig.expectShim({s}.{f}, fn (", .{ shim, ident(self.srcText(name)) });
+            try self.emitTypeList(f.params);
+            try self.w.writeAll(") ");
+            if (f.returns == self.sema.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
+            try self.w.print(", \"{s}.{s}\");\n}}\n", .{ self.sema.name, self.srcText(name) });
+        }
     }
 
     fn emitTypeAlias(self: *Emitter, node: Sexp) Error!void {

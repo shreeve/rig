@@ -4550,6 +4550,30 @@ sub main
 call to extern function `abs` requires `raw` block
 ```
 
+### Zig-backed declarations
+
+The standard library binds declarations to Zig code: a `fun` or `sub`
+without a body inside `extern zig "file.zig"` is the function of the
+same name in that Zig file, which ships with the library. A call to one
+is checked exactly as a call to a Rig function with that signature
+(moves, borrows, and the loans its result carries) and needs no `raw`:
+the Zig file is trusted as the runtime is, and each function's Zig type
+is checked, when the program is compiled, to be the one its Rig
+signature lowers to. Such a function takes no compile-time parameters
+and cannot fail. Only the standard library may declare one:
+
+```rig reject
+extern zig "fast.zig"
+  pub fun twice(n: Int) -> Int
+
+sub main
+  print(twice(2))
+```
+
+```error
+only the standard library binds declarations to Zig code with `extern zig`
+```
+
 ---
 
 ## 16. Compile-time parameters

@@ -16,12 +16,16 @@ sub main
 ```
 
 Its modules are Rig code, under `std/` in the repository, checked like
-any other module. The standard library is new: this page lists
+any other module. What Rig cannot do itself, a module declares in an
+`extern zig` block: functions with full Rig signatures, implemented by
+a small Zig file beside the module on Zig's standard library
+([SPEC §15](../SPEC.md#zig-backed-declarations)). A call to one is
+checked like any call. The standard library is new: this page lists
 everything it has.
 
 | Module | What it offers |
 |---|---|
-| [`std.math`](#stdmath) | integer helpers |
+| [`std.math`](#stdmath) | integer helpers, and Float functions |
 
 ## std.math
 
@@ -54,4 +58,35 @@ sub main
 81 0 -1
 -1 2 -2
 true true
+```
+
+Float functions, from Zig's. They follow IEEE 754: a result out of
+range is an infinity, and an undefined one (the square root of a
+negative number) is NaN, which equals nothing, itself included.
+
+| Function | Result |
+|---|---|
+| `sqrt(x: Float) -> Float` | the square root |
+| `floor(x: Float) -> Float` | the largest whole number not above `x` |
+| `ceil(x: Float) -> Float` | the smallest whole number not below `x` |
+| `exp(x: Float) -> Float` | e to the power `x` |
+| `ln(x: Float) -> Float` | the natural logarithm |
+| `sin(x: Float) -> Float`, `cos(x: Float) -> Float` | the sine and cosine of `x` radians |
+| `pow_f(x: Float, y: Float) -> Float` | `x` to the power `y` |
+
+```rig
+use std.math
+
+sub main
+  print(math.sqrt(2.0) > 1.414, math.floor(-2.5), math.ceil(-2.5))
+  print(math.exp(0.0), math.ln(math.E))
+  print(math.cos(math.PI), math.pow_f(2.0, 0.5) == math.sqrt(2.0))
+  print(Int(math.floor(7.9)))
+```
+
+```output
+true -3.0 -2.0
+1.0 1.0
+-1.0 true
+7
 ```

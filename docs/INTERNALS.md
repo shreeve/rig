@@ -439,6 +439,15 @@ A few kinds serve more than one surface form:
 An owned closure is `(share (lambda ...))`, and its type
 `(shared (fun_type ...))`.
 
+`(zig_extern "file.zig" decls...)` is an `extern zig` block of the
+standard library: its declarations are `fun` and `sub` nodes (or `pub`
+of one) whose `body` is `_`. Every pass reads them as the module-level
+functions they are, and skips the body that is not there: the resolver
+declares and types them (and rejects the block outside the standard
+library, a compile-time parameter, and a fallible signature), the type
+checker checks the signature and default values, the ownership checker
+has no body to walk, and calls to them are ordinary calls.
+
 ### Syntax facts
 
 `rig check --facts` checks the program and prints the root module's IR
@@ -1119,6 +1128,17 @@ lower is an internal error: sema must have rejected it.
   of the call's block when it owns captures) and then the `FnRef` over
   it. Sema records which expressions are lent this way
   (`SemContext.callableOf`).
+- **Zig-backed declarations.** An `extern zig "file.zig"` block imports
+  the file, which `rig` writes into the package as `rig/std/file.zig`
+  from the module graph (`Module.shims`, read where the module is), and
+  binds each declaration to the Zig function of its name:
+  `pub const sqrt = __rig_shim_1.sqrt;`. Beside each it writes
+  `comptime { rig.expectShim(__rig_shim_1.sqrt, fn (f64) f64, "std.math.sqrt"); }`,
+  the Zig type spelled from the declaration's sema signature, as
+  `emitFun` spells a Rig function's, so a Zig function whose type
+  differs fails the package's build with a message naming the
+  declaration. The suite calls every declaration of the standard
+  library, so no such mismatch reaches a program.
 - **`main`** of the root module calls `rig.guardStack()`, then defers
   `rig.finish()`, so it runs after every other drop, and the root
   module declares `pub const panic = rig.panic`.
@@ -1158,6 +1178,7 @@ reviewed.
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
 | `discard`, `isNone`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |
+| `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `DebugAllocator`, which prints the stack trace of each leak. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |

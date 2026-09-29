@@ -83,6 +83,10 @@ const SymbolResolver = struct {
             .@"struct", .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
             .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
+            .zig_extern => {
+                if (!self.ctx.is_std) try self.ctx.errAt(sexp, "only the standard library binds declarations to Zig code with `extern zig`; write the function in Rig, or declare a C function with `extern fun` and call it in a `raw` block", .{});
+                for (ir.ZigExtern.decls(sexp)) |d| try self.walk(d);
+            },
             .@"test" => try self.walkTest(sexp),
             .set => try self.walkSet(sexp),
             .block => {
@@ -809,6 +813,10 @@ pub const TypeResolver = struct {
                 }
             },
             .extern_fun, .extern_sub => try self.resolveExternFun(sexp),
+            .zig_extern => for (ir.ZigExtern.decls(sexp)) |d| {
+                try self.resolveDecl(d);
+                try self.checkZigBacked(if (d.isKind(.@"pub")) ir.Pub.decl(d) else d);
+            },
             .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.resolveNominal(sexp),
             else => {},
         }
@@ -995,6 +1003,22 @@ pub const TypeResolver = struct {
                 return self.ctx.types.invalid_id;
             },
             else => return self.ctx.types.invalid_id,
+        }
+    }
+
+    /// A Zig-backed `fun` or `sub` has a signature the checker can
+    /// trust without a body: one with compile-time parameters would need
+    /// requirements it cannot infer, and one that fails, error names its
+    /// Zig code would have to share with Rig.
+    fn checkZigBacked(self: *TypeResolver, node: Sexp) Error!void {
+        const name = ir.get(node, .name);
+        const text = identAt(self.ctx.source, name) orelse "it";
+        if (sema.tparamsOf(node).items().len > 0) {
+            try self.ctx.errAt(name, "a Zig-backed function cannot take compile-time parameters: write `{s}` in Rig", .{text});
+        }
+        const f = self.ctx.types.get(self.ctx.symbols.items[self.ctx.symbolOf(name) orelse return].ty);
+        if (rig.subFails(node) or (f == .function and self.ctx.types.get(f.function.returns) == .fallible)) {
+            try self.ctx.errAt(name, "a Zig-backed function cannot fail: `{s}` must return its failure as a value", .{text});
         }
     }
 
