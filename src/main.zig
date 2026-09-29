@@ -116,7 +116,7 @@ pub fn main(init: std.process.Init) !void {
             }
         },
         .check => {
-            var graph = try loadProject(allocator, io, opts.path);
+            var graph = try loadProject(allocator, io, env, opts.path);
             defer graph.deinit();
             if (opts.facts) try printFacts(io, graph.root());
         },
@@ -271,9 +271,10 @@ fn printFacts(io: std.Io, m: *const modules.Module) !void {
 
 /// Load and check the project rooted at `path`; print every diagnostic
 /// and exit 1 if there are errors.
-fn loadProject(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !modules.ModuleGraph {
+fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !modules.ModuleGraph {
     var graph = modules.ModuleGraph.init(allocator, io);
     errdefer graph.deinit();
+    graph.std_dir = env.get("RIG_STD");
     try graph.loadRoot(path);
 
     var buffer: [4096]u8 = undefined;
@@ -287,7 +288,7 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !modu
 /// `rig emit`: the root module's Zig on stdout; the whole package
 /// (imports and runtime) is written to the output directory.
 fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !void {
-    var graph = try loadProject(allocator, io, path);
+    var graph = try loadProject(allocator, io, env, path);
     defer graph.deinit();
     const pkg = try emitPackage(allocator, io, env, &graph);
 
@@ -302,7 +303,7 @@ fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 /// Zig's own errors name the emitted files; any other failure of `run`
 /// or `test` is the program's.
 fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
-    var graph = try loadProject(allocator, io, opts.path);
+    var graph = try loadProject(allocator, io, env, opts.path);
     defer graph.deinit();
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     const pkg = try emitPackage(allocator, io, env, &graph);
@@ -342,6 +343,7 @@ fn writeTestDriver(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *c
         \\
     );
     for (graph.modules.items, 0..) |m, i| {
+        if (m.is_std) continue;
         try w.print("        .{{ .module = \"{s}\", .tests = testsOf(@import(\"{s}\")) }},\n", .{ if (i == 0) "" else m.name, m.out_basename });
     }
     try w.writeAll("    });\n}\n");

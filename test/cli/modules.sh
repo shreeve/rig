@@ -49,6 +49,18 @@ out=$("$RIG" check odd/imports.rig 2>&1); expect_rc $? 1 "unreadable modules"
 expect_has "$out" "error: cannot read module \`gone\` (odd/gone.rig): no such file" "missing module"
 expect_has "$out" "error: cannot read module \`dir\` (odd/dir.rig): it is a directory" "module that is a directory"
 
+# `RIG_STD` names a directory to read the standard library from, in
+# place of the copy embedded in the compiler.
+mkdir stdlib
+printf 'pub fun hello() -> Int\n  42\n' >stdlib/extra.rig
+printf 'use std.extra\n\nsub main()\n  print(extra.hello())\n' >odd/usestd.rig
+out=$(RIG_STD="$PWD/stdlib" rig run odd/usestd.rig 2>&1); expect_rc $? 0 "RIG_STD: $out"
+expect_eq "$out" "42" "RIG_STD module"
+out=$(RIG_STD="$PWD/stdlib" "$RIG" check odd/usestd.rig 2>&1); expect_rc $? 0 "RIG_STD check"
+printf 'use std.math\n\nsub main()\n  print(math.abs(-1))\n' >odd/nomath.rig
+out=$(RIG_STD="$PWD/stdlib" "$RIG" check odd/nomath.rig 2>&1); expect_rc $? 1 "RIG_STD without the module"
+expect_has "$out" "odd/nomath.rig:1:1: error: the standard library has no module \`math\`" "RIG_STD without the module"
+
 # A 3000-module import chain.
 mkdir chain
 for ((i = 0; i < 3000; i++)); do

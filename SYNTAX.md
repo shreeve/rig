@@ -703,7 +703,9 @@ never `=!` ([SPEC §3](SPEC.md#constants)).
 
 `use name` imports the module `name.rig`, whose `pub` declarations are
 then named `name.decl` and `name.Type`
-([SPEC §14](SPEC.md#14-modules)). `extern fun name(params) -> R`,
+([SPEC §14](SPEC.md#14-modules)). `use std.name` imports a module of
+the standard library ([STD.md](docs/STD.md)), named `name` here, and
+`as` names a module otherwise: `use geo as g`, `use std.os as o`. `extern fun name(params) -> R`,
 `extern sub name(params)`, and `extern name: T` declare C functions and
 data ([SPEC §15](SPEC.md#15-raw-code-and-ffi)).
 
@@ -1406,7 +1408,7 @@ block.
 program   = decl*
 decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | test | const)
           | use | extern
-use       = "use" name
+use       = "use" ["std" "."] name ["as" name]
 fun       = "fun" name [tparams] [params] "->" type block
 sub       = "sub" name [tparams] [params] ["!"] block
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value

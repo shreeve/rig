@@ -319,9 +319,15 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
     }
 
+    /// `use` binds its local name to the module's emitted file.
     fn emitUse(self: *Emitter, node: Sexp) Error!void {
-        const name = self.srcText(ir.Use.name(node));
-        try self.w.print("const {f} = @import(\"{s}.zig\");\n", .{ ident(name), name });
+        const path = ir.Use.name(node);
+        const alias = ir.Use.alias(node);
+        const name = self.srcText(if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path);
+        for (self.sema.imports) |imp| if (std.mem.eql(u8, imp.local_name, name)) {
+            return self.w.print("const {f} = @import(\"{s}\");\n", .{ ident(name), imp.sema.zig_file });
+        };
+        return self.unsupported(node, "an unresolved `use`");
     }
 
     /// `extern_fun` / `extern_sub`, a C function, or `extern`, a C
@@ -3926,9 +3932,13 @@ pub const Emitter = struct {
                 return self.w.print("{s}std.math.floatMax(f{d})", .{ if (std.mem.eql(u8, name, "min")) "-" else "", if (bits == 0) 64 else bits });
             };
             if (obj != .src) return self.unsupported(e, "this default value");
-            return self.w.print("@import(\"{s}.zig\").{f}", .{ decl.source[obj.src.pos..][0..obj.src.len], ident(name) });
+            const local = decl.source[obj.src.pos..][0..obj.src.len];
+            for (decl.imports) |imp| if (std.mem.eql(u8, imp.local_name, local)) {
+                return self.w.print("@import(\"{s}\").{f}", .{ imp.sema.zig_file, ident(name) });
+            };
+            return self.unsupported(e, "a default from an unresolved module");
         }
-        return self.w.print("@import(\"{s}.zig\").{f}", .{ decl.name, ident(decl.source[e.src.pos..][0..e.src.len]) });
+        return self.w.print("@import(\"{s}\").{f}", .{ decl.zig_file, ident(decl.source[e.src.pos..][0..e.src.len]) });
     }
 
     /// The checked module whose source is `source`: this one, or one it
@@ -4824,7 +4834,7 @@ pub const Emitter = struct {
             if (imp.module_id == module_id) return self.writeModuleName(imp.local_name);
         }
         const foreign = self.sema.foreign_semas.get(module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
-        try self.w.print("@import(\"{s}.zig\")", .{foreign.name});
+        try self.w.print("@import(\"{s}\")", .{foreign.zig_file});
     }
 
     /// The generic type being emitted, applied to its own parameters:

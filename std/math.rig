@@ -1,0 +1,46 @@
+# std.math: integer helpers.
+
+pub PI = 3.141592653589793
+pub E = 2.718281828459045
+
+# `n` without its sign; panics on `Int.min`, whose magnitude no `Int`
+# holds.
+pub fun abs(n: Int) -> Int
+  n if n >= 0 else -n
+
+# `x` limited to `lo..hi`, both ends included: `lo` when `x < lo`, `hi`
+# when `x > hi`.
+pub fun clamp(x: Int, lo: Int, hi: Int) -> Int
+  lo if x < lo else (hi if x > hi else x)
+
+# The greatest common divisor, never negative; `gcd(0, 0)` is 0.
+pub fun gcd(a: Int, b: Int) -> Int
+  x = abs(a)
+  y = abs(b)
+  while y != 0
+    t = x % y
+    x = y
+    y = t
+  x
+
+# `base` to the power `exp`, checked: panics on overflow. A negative
+# `exp` gives `1 / base ** -exp`, truncated as `/` truncates.
+pub fun pow(base: Int, exp: Int) -> Int
+  if exp < 0
+    return 1 / pow(base, -exp)
+  result = 1
+  b = base
+  e = exp
+  while e > 0
+    if e % 2 == 1
+      result *= b
+    e /= 2
+    if e > 0
+      b *= b
+  result
+
+# The floored remainder: it has the sign of `b`, so `mod(-1, 3)` is 2
+# where `-1 % 3` is -1. Panics when `b` is 0.
+pub fun mod(a: Int, b: Int) -> Int
+  r = a % b
+  r + b if r != 0 and (r < 0) != (b < 0) else r

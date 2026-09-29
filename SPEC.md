@@ -4275,7 +4275,10 @@ type mismatch: expected `Int`, got `ParseError`
 `use name` imports `name.rig` from the directory of the program's root
 file, whichever module says it, so a name denotes one file. The file's
 name must be exactly `name.rig`, case included, and names starting with
-`__rig` are reserved for the compiler. The module's `pub` declarations
+`__rig` are reserved for the compiler. `use std.name` imports the
+standard library's module `name` ([STD.md](docs/STD.md)), which ships
+with the compiler; it is a different module from a `name.rig` beside
+the program. The module's `pub` declarations
 are then reached as `name.decl`, and its types are named `name.Type` in
 annotations. A type's members are named through the module too:
 `name.Type.function(...)` calls an associated function, and
@@ -4316,6 +4319,44 @@ sub main
 
 ```output
 3 0 7 .east
+```
+
+`use ... as other` names the module `other` in this file instead. Two
+imports may not bind one name, so a program that uses both
+`std.math` and its own `math.rig` names one of them with `as`:
+
+```rig file=math.rig
+pub fun twice(n: Int) -> Int
+  2 * n
+```
+
+```rig
+use std.math
+use math as mine
+
+sub main
+  print(math.gcd(12, 18), mine.twice(4))
+```
+
+```output
+6 8
+```
+
+```rig file=math.rig
+pub fun twice(n: Int) -> Int
+  2 * n
+```
+
+```rig reject
+use std.math
+use math
+
+sub main
+  print(math.twice(4))
+```
+
+```error
+two imports bind the name `math`; name one of them with `as`
 ```
 
 Only `pub` declarations are visible to importers. A `pub` function may

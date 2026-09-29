@@ -283,7 +283,7 @@ tokens
 @schema
     # Declarations
     module                      ...decls
-    use                         name:leaf
+    use                         name alias:leaf?
     fun                         name:leaf tparams:group? params:group? returns? body:block
     sub                         name:leaf tparams:group? params:group? fails:tag(fails)? body:block
     lambda                      captures:captures? params:group? body:block
@@ -461,7 +461,13 @@ const    = target:name "="  value:tail              → (set)
 
 defn     = fun | sub | enum | struct | errors | typedef | test
 
-use      = USE name:name                            → (use)
+# `use geo`, `use geo as g`, `use std.os`, `use std.os as o`: a module
+# beside the root file, or one of the standard library.
+use      = USE name:mpath                           → (use)
+         | USE name:mpath AS alias:name             → (use)
+
+mpath    = name
+         | object:name "." name:name                → (member)
 
 fun      = FUN name:name [tparams:tparams] [params:params] [returns:returns] body:block → (fun)
 sub      = SUB name:name [tparams:tparams] [params:params] body:block → (sub)

@@ -869,8 +869,12 @@ pub const SemContext = struct {
     module_id: u32 = 0,
     /// The program's root module, whose `main` is the entry point.
     is_root: bool = false,
-    /// The name other modules `use`, and of the module's emitted file.
+    /// The name other modules `use`, qualified (`geo`, `std.os`).
     name: []const u8 = "",
+    /// The module's emitted file, which other modules `@import`.
+    zig_file: []const u8 = "",
+    /// A module of the standard library.
+    is_std: bool = false,
     imports: []const ImportEntry = &.{},
     /// `use NAME` symbol -> origin module id.
     module_refs: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
@@ -1443,6 +1447,10 @@ pub const CheckOptions = struct {
     module_id: u32 = 0,
     /// The program's root module, whose `main` is the entry point.
     is_root: bool = false,
+    /// The module's emitted file.
+    zig_file: []const u8 = "",
+    /// A module of the standard library.
+    is_std: bool = false,
 };
 
 /// Check one module.
@@ -1454,6 +1462,8 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     ctx.module_id = opts.module_id;
     ctx.is_root = opts.is_root;
     ctx.name = opts.name;
+    ctx.zig_file = opts.zig_file;
+    ctx.is_std = opts.is_std;
     // The caller's slice is temporary; the emitter reads the imports later.
     ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, opts.imports);
     ctx.foreign_semas = opts.modules;

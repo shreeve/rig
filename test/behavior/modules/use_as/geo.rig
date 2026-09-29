@@ -1,0 +1,14 @@
+pub LIMIT = 10
+
+pub struct Point
+  pub x: Int
+  pub y: Int
+
+  pub fun at(x: Int, y: Int) -> Point
+    Point(x: x, y: y)
+
+  pub fun sum(?self) -> Int
+    self.x + self.y
+
+pub fun scaled(n: Int, by: Int = LIMIT) -> Int
+  n * by

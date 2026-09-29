@@ -140,6 +140,9 @@ const SymbolResolver = struct {
             const p = self.ctx.symbols.items[prev];
             if (p.decl_pos == sema.builtin_decl_pos) {
                 try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
+            } else if (kind == .module and p.kind == .module) {
+                try self.ctx.err(pos, "two imports bind the name `{s}`; name one of them with `as`: `use ... as other`", .{name});
+                try self.ctx.note(p.decl_pos, "`{s}` first imported here", .{name});
             } else {
                 try self.ctx.err(pos, "duplicate declaration of `{s}`", .{name});
                 try self.ctx.note(p.decl_pos, "`{s}` first declared here", .{name});
@@ -303,8 +306,12 @@ const SymbolResolver = struct {
         try self.checkShadowsDeclaration(name_node, "parameter");
     }
 
+    /// `use NAME`, `use std.NAME`, or either `as ALIAS`: the module's
+    /// symbol is named by the alias, else the path's last name.
     fn walkUse(self: *SymbolResolver, node: Sexp) Error!void {
-        const name_node = ir.Use.name(node);
+        const path = ir.Use.name(node);
+        const alias = ir.Use.alias(node);
+        const name_node = if (alias != .nil) alias else if (path.isKind(.member)) ir.Member.name(path) else path;
         const id = (try self.declare(name_node, .module, .{})) orelse return;
         const name = identAt(self.ctx.source, name_node).?;
         for (self.ctx.imports) |imp| {

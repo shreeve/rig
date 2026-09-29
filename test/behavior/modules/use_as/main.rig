@@ -1,0 +1,14 @@
+# `use NAME as ALIAS` names a module here by the alias, for calls,
+# types, members, and defaults; another module may import it under its
+# own name, and it is still one module.
+
+use geo as g
+use shapes
+
+sub main()
+  p: g.Point = g.Point.at(1, 2)
+  q = shapes.shifted(?p)
+  print(p.sum(), q.sum(), g.LIMIT, g.scaled(3))
+
+# expect:
+# 3 5 10 30

@@ -44,6 +44,8 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption([]const u8, "version", version);
     main_mod.addOptions("build_options", options);
+    // The standard library's sources, embedded in the compiler.
+    main_mod.addImport("rig_std", b.createModule(.{ .root_source_file = b.path("std/embed.zig") }));
 
     const exe = b.addExecutable(.{
         .name = "rig",

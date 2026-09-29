@@ -39,7 +39,8 @@ grammar's raw tree, and the semantic IR.
 `run`, `build`, `test`, and `emit` never emit a program the checkers
 reject. Each writes the whole package, which Zig builds with no other
 input: the root module as `__rig_main.zig`, every other module as
-`<module>.zig`, and the runtime as `rig/runtime.zig`. The package goes
+`<module>.zig` (a standard library module as `__rig_std_<module>.zig`),
+and the runtime as `rig/runtime.zig`. The package goes
 to `$RIG_OUT_DIR` when it is set, otherwise to
 `~/.cache/rig/<name>-<hash>/` (or under `$XDG_CACHE_HOME`). Each file
 is replaced atomically, so concurrent builds of one program never read
@@ -481,7 +482,17 @@ exported yet (see [ROADMAP.md](ROADMAP.md)).
 
 `ModuleGraph` loads the root file, then each `use`d module from the
 root file's directory, whichever module names it: `use foo` is always
-the one file `foo.rig` there, loaded once. Its real name must be
+the one file `foo.rig` there, loaded once. `use std.foo` loads the
+standard library's `foo.rig`, from the table `std/embed.zig` embeds in
+the compiler (the build imports it as `rig_std`), or from `$RIG_STD`
+when that names a directory; diagnostics name it `std/foo.rig`. A
+module is keyed by its qualified name (`foo`, `std.foo`), and its
+`Import` records the local name it is bound to (the alias of `as`, else
+the path's last name), which the resolver declares as a module symbol,
+so two imports binding one name are reported as a duplicate. Each
+module emits to its own file, `foo.zig` or `__rig_std_foo.zig`
+(`SemContext.zig_file`), which importers `@import` under their local
+name. Its real name must be
 exactly `foo.rig` (not another spelling on a case-insensitive
 filesystem, nor a symlink under another name), and names starting with
 `__rig` are the emitter's. Loading is a worklist, so import depth does
