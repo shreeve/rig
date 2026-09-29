@@ -1,0 +1,24 @@
+# Where a `T!` is expected, a bare `.name` is a variant of `T` even when
+# an error set has a member of the same name: the function succeeds with
+# it. Failing names the set.
+
+enum Color
+  red
+  missing
+
+error E
+  missing
+
+fun pick(n: Int) -> Color!
+  return E.missing if n < 0
+  return .missing if n == 0
+  .red
+
+sub main
+  print(pick(1) catch .red, pick(0) catch .red, pick(-1) catch .red)
+  e = pick(-1) catch |err| .red if err == E.missing else .missing
+  print(e)
+
+# expect:
+# .red .missing .red
+# .red

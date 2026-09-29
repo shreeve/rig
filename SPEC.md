@@ -4202,12 +4202,51 @@ sub main
 
 A fallible function fails by producing an error value where its `T` is
 expected: `return E.name` (a member of an error set,
-[§3](#error-sets)), a binding of an error set's type, an error it
-caught, or `.name` when `T` has no variant of that name. The failure
-leaves the function the way `!` does: every `defer` and `errdefer` of
-the scopes it leaves runs, including when the error is the final value
-of an `if` or `match` branch block. Only a function returning `T!` can
-fail.
+[§3](#error-sets)), a binding of an error set's type, or an error it
+caught. The failure leaves the function the way `!` does: every `defer`
+and `errdefer` of the scopes it leaves runs, including when the error
+is the final value of an `if` or `match` branch block. Only a function
+returning `T!` can fail.
+
+Failing always names the error set. Where a `T!` is expected, a bare
+`.name` is a variant of `T`, even when an error set has a member of the
+same name, and it is rejected when `T` has no such variant: in a
+`return`, a function's last expression, a branch or arm value, and a
+closure whose type can fail.
+
+```rig
+enum Color
+  red
+  missing
+
+error Lookup
+  missing
+
+fun pick(n: Int) -> Color!
+  return Lookup.missing if n < 0
+  return .missing if n == 0
+  .red
+
+sub main
+  print(pick(1) catch .red, pick(0) catch .red, pick(-1) catch .red)
+```
+
+```output
+.red .missing .red
+```
+
+```rig reject
+error Lookup
+  missing
+
+fun find(n: Int) -> Int!
+  return .missing if n < 0
+  n
+```
+
+```error
+`.missing` is not a value of `Int`; to fail, name the error set: `Lookup.missing`
+```
 
 ### Naming the error
 
@@ -4229,7 +4268,7 @@ error ParseError
 
 fun parse_len(s: String) -> Int!
   return ParseError.empty if s == ""
-  return .too_long if s.len > 5
+  return ParseError.too_long if s.len > 5
   s.len
 
 fun describe(s: String) -> String

@@ -6826,14 +6826,17 @@ const Checker = struct {
                 return target;
             },
             .enum_lit => {
-                // Where a `T!` is expected, `.name` that is not a variant
-                // of `T` is an error value.
+                // Where a `T!` is expected, `.name` is a variant of `T`: a
+                // function fails only by naming the error set.
                 const name = ir.EnumLit.name(e);
-                if (self.ctx.types.get(expected) == .fallible and
-                    (try sema.lookupVariant(self.ctx, target, self.text(name))) == null and
-                    sema.errorNameExists(self.ctx, self.text(name)))
+                if (self.ctx.types.get(expected) == .fallible and !self.isPoison(target) and
+                    (try sema.lookupVariant(self.ctx, target, self.text(name))) == null)
                 {
-                    return self.t().any_error_id;
+                    const sets = try sema.errorSetsWith(self.ctx, self.text(name));
+                    if (sets.count > 0) {
+                        try self.bareErrorName(name, target, sets);
+                        return self.t().invalid_id;
+                    }
                 }
                 try self.checkEnumLit(name, target);
                 return target;
@@ -7130,10 +7133,28 @@ const Checker = struct {
         }
     }
 
+    /// `.name` where a `T!` is expected names no variant of `T` but a
+    /// member of an error set: say how to fail with it.
+    fn bareErrorName(self: *Checker, name_node: Sexp, target: TypeId, sets: sema.ErrorSets) Error!void {
+        const name = self.text(name_node);
+        const a = self.ctx.arena.allocator();
+        var fix: std.ArrayListUnmanaged(u8) = .empty;
+        for (sets.first[0..@min(sets.count, 2)], 0..) |set, i| {
+            try fix.print(a, "{s}`{s}.{s}`", .{ if (i > 0) " or " else "", try self.tyName(set), name });
+        }
+        const what = if (target == self.t().void_id)
+            "a `sub` returns no value"
+        else if (sema.enumVariantCount(self.ctx, target) != null)
+            try std.fmt.allocPrint(a, "`.{s}` is not a variant of `{s}`", .{ name, try self.tyName(target) })
+        else
+            try std.fmt.allocPrint(a, "`.{s}` is not a value of `{s}`", .{ name, try self.tyName(target) });
+        try self.errAt(name_node, "{s}; to fail, name the error set: {s}", .{ what, fix.items });
+    }
+
     /// `.name` where any error is expected: a member of some error set.
     fn checkErrorName(self: *Checker, name_node: Sexp) Error!void {
         const name = self.text(name_node);
-        if (sema.errorNameExists(self.ctx, name)) return;
+        if ((try sema.errorSetsWith(self.ctx, name)).count > 0) return;
         try self.errAt(name_node, "no error set has a member `{s}`", .{name});
     }
 

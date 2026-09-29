@@ -2597,23 +2597,35 @@ pub fn isErrorSet(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
-/// Whether some error set this module can see (its own, or one declared
-/// in a module it imports) has a member named `name`.
-pub fn errorNameExists(ctx: *const SemContext, name: []const u8) bool {
-    if (errorNameIn(ctx, name)) return true;
+/// The error sets this module can see (its own, and those declared in
+/// the modules it reaches through its imports) that have a member
+/// `name`: how many, and the first two as types of this module.
+pub const ErrorSets = struct {
+    count: usize = 0,
+    first: [2]TypeId = undefined,
+};
+
+pub fn errorSetsWith(ctx: *SemContext, name: []const u8) std.mem.Allocator.Error!ErrorSets {
+    var out: ErrorSets = .{};
+    try collectErrorSets(ctx, ctx, null, name, &out);
     var it = ctx.reach.iterator(.{});
-    while (it.next()) |id| if (errorNameIn(ctx.foreign_semas.get(@intCast(id)).?, name)) return true;
-    return false;
+    while (it.next()) |id| try collectErrorSets(ctx, ctx.foreign_semas.get(@intCast(id)).?, @intCast(id), name, &out);
+    return out;
 }
 
-fn errorNameIn(ctx: *const SemContext, name: []const u8) bool {
-    for (ctx.symbols.items) |sym| {
-        if (!sym.flags.error_set) continue;
+fn collectErrorSets(ctx: *SemContext, in: *const SemContext, module_id: ?u32, name: []const u8, out: *ErrorSets) std.mem.Allocator.Error!void {
+    for (in.symbols.items, 0..) |sym, i| {
+        if (!sym.flags.error_set or isProxy(sym)) continue;
         for (sym.fields orelse &.{}) |f| {
-            if (f.is_variant and std.mem.eql(u8, f.name, name)) return true;
+            if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
+            if (out.count < 2) out.first[out.count] = if (module_id) |m|
+                try ctx.intern(.{ .imported_nominal = .{ .module_id = m, .sym_id = @intCast(i) } })
+            else
+                try ctx.intern(.{ .nominal = @intCast(i) });
+            out.count += 1;
+            break;
         }
     }
-    return false;
 }
 
 /// An enum all of whose variants are bare (no payloads): comparable

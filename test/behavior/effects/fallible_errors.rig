@@ -1,7 +1,7 @@
 # A `-> T!` function fails by returning an error value: a member of an
-# error set (`return E.name`, or `.name` where it is not a variant of
-# `T`), or an error it caught. `catch |err|` names the error, which may
-# be any error: it is matched and compared with error-set members.
+# error set, named with its set (`return E.name`), or an error it
+# caught. `catch |err|` names the error, which may be any error: it is
+# matched and compared with error-set members.
 
 error ParseError
   empty
@@ -14,7 +14,7 @@ fun parse_len(s: String) -> Int!
   if s == ""
     return ParseError.empty
   if s.len > 5
-    return .too_long
+    return ParseError.too_long
   s.len
 
 fun fetch(n: Int) -> Int!
