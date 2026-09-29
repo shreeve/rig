@@ -1,0 +1,23 @@
+# A Cell moved out of its binding (`<c`) is a temporary: a change to it
+# through `set`, `replace`, or its Vec's `push`, `pop`, or `clear`
+# would be lost with it.
+
+sub main
+  c: Cell[Vec[Int]] = Cell(Vec[Int]())
+  (<c).push(1)
+  d: Cell[Vec[Int]] = Cell(Vec[Int]())
+  x = (<d).pop()
+  e: Cell[Vec[Int]] = Cell(Vec[Int]())
+  (<e).clear()
+  n: Cell[Int] = Cell(1)
+  (<n).set(2)
+  m: Cell[Int] = Cell(1)
+  y = (<m).replace(2)
+  print(x ?? 0, y)
+
+# error: 7:8: `Cell.push` needs a Cell that has a place
+# error: 9:12: `Cell.pop` needs a Cell that has a place
+# error: 11:8: `Cell.clear` needs a Cell that has a place
+# error: 13:8: `Cell.set` needs a Cell that has a place
+# error: 15:12: `Cell.replace` needs a Cell that has a place
+# errors: 5

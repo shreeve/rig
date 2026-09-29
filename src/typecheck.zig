@@ -3181,7 +3181,7 @@ const Checker = struct {
                 try self.errAt(operand, "cannot borrow this: it holds a Cell, and `{s}` is a loop or match binding, a copy, so changes through the borrow would be lost", .{self.text(place.base)});
                 return self.t().invalid_id;
             }
-            if (place.root == .temporary) {
+            if (place.root == .temporary and place.steps == 0) {
                 try self.errAt(operand, "cannot borrow a temporary that holds a Cell: a change through the borrow would have no place; bind it to a name first", .{});
                 return self.t().invalid_id;
             }
@@ -6041,13 +6041,13 @@ const Checker = struct {
             const place = self.placeOf(obj);
             if (place.root == .pattern and !place.indirect) {
                 try self.errAt(obj, "cannot call `{s}` here: the value holds a Cell the method may change, and `{s}` is a loop or match binding, a copy, so the change would be lost", .{ method, self.text(place.base) });
-            } else if (place.root == .temporary) {
+            } else if (place.root == .temporary and place.steps == 0) {
                 try self.errAt(obj, "cannot call `{s}` on a temporary that holds a Cell the method may change; bind it to a name first", .{method});
             }
         }
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
             const stores = std.mem.eql(u8, method, "set") or std.mem.eql(u8, method, "replace");
-            if (stores and !try self.requireAccess(self.placeOf(unborrowedNode(obj)), .set_cell, name_node)) {
+            if (stores and !try self.requireAccess(self.placeOf(lentPlace(obj)), .set_cell, name_node)) {
                 try self.synthArgs(args);
                 return if (std.mem.eql(u8, method, "set")) self.t().void_id else resolved.fn_ty.returns;
             }
@@ -6283,7 +6283,7 @@ const Checker = struct {
                 _ = try self.badCall(args, pos, cell_vec_handle, .{try self.tyName(sema.unwrapReadAccess(self.ctx, obj_ty))});
                 return f.returns;
             }
-        } else if (!try self.requireAccess(self.placeOf(unborrowedNode(ir.Member.object(callee))), .set_cell, ir.Member.name(callee))) {
+        } else if (!try self.requireAccess(self.placeOf(lentPlace(ir.Member.object(callee))), .set_cell, ir.Member.name(callee))) {
             try self.synthArgs(args);
             return f.returns;
         }
@@ -7722,6 +7722,14 @@ fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
 /// `x` of `?x`, `!x`, or `<x`; any other node as it is.
 fn unborrowedNode(e: Sexp) Sexp {
     return if (e.isKind(.read) or e.isKind(.write) or e.isKind(.move)) ir.get(e, .operand) else e;
+}
+
+/// The place `?x` or `!x` lends (through any number of them); any other
+/// node, `<x` among them, as it is.
+fn lentPlace(e: Sexp) Sexp {
+    var p = e;
+    while (p.isKind(.read) or p.isKind(.write)) p = ir.get(p, .operand);
+    return p;
 }
 
 /// The leaf a place starts from: `a` in `!a.b[i]`.
