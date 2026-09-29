@@ -45,7 +45,6 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 ## Compiler
 
 - **Traces in Rig terms**: a panic, or an error that leaves `main`, prints Zig's stack trace, whose lines are in the emitted Zig (in the package directory `rig run` names); mapping them to `.rig` lines would need a source map.
-- **One place-access analysis in typecheck**: about a dozen predicates each work out whether a place is writable, borrowed, or boxed; one walk over the place (`Checker.placePath`) followed by one access check would replace them.
 - **An explicit emitter context**: the emitter keeps per-function state in `Emitter.fun`, swapped out around a closure's body; passing it explicitly would make what each helper reads visible.
 - **Tighter generated code**: Debug builds pay for round trips such as `rig.lend(&rig.elemPtr(xs, j).*)` and `rig.eql((&p).*, (&q).*)`, and a generic `for x in xs` copies each element it only lends. Release builds optimize these away.
 - **Runtime tests outside the runtime**: `src/runtime.zig` carries its unit tests into every emitted package; they could move to their own file.

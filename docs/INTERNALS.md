@@ -601,6 +601,29 @@ binds, since the temporary
 ends with its statement, so the ownership checker, which tracks loans
 on named values, never meets one that outlives its value.
 
+What may be done with a place is decided in one place. `placeOf(e)`
+reads a place expression (a name, or a field or element of one) once,
+into a `Place`: the expression its path starts from and what that is
+(`Root`: a local, parameter, capture, loop or pattern binding, module
+constant or global, imported module, temporary, or a borrow a call or
+sigil yields), the fields and elements on the way, whether a borrow or
+handle is on the way, the step that makes it read-only and why
+(`Block`: a `*T`, an element of a `[]T` or String, a `.len`, a `?T`),
+and the element of a `Cell[Vec[E]]` it goes through. Every consumer
+then asks `requireAccess(place, access, at)`, which owns the
+diagnostics, for one `Access`: `assign` (`p = v`, `p op= v`),
+`write_borrow` (`!p`, `!xs[a..b]`, an element method's receiver,
+`|!x|`), `write_iterate` (`for x in !p`), `take` (`<p.f`),
+`lend_write` (`!p.f` of a held `!T`), `pass_write` (a place holding a
+`!T` where a value holding one goes), `write_through` (`p.f = v`
+writing the value a held `!T` borrows), or `set_cell` (a Cell's `set`,
+`replace`, and its Vec's `c[i] = e`, `push`, `pop`, `clear`). The path
+must be writable, a temporary is never written, and without a borrow
+or handle on the way the binding it starts from must be one that may
+change (`requireBinding`). Which field and element assignments write
+through a held `!T` is recorded (`writesThrough`) for the ownership
+checker and emit.
+
 Types are interned in a `TypeStore`, so two `TypeId`s are equal exactly
 when the types are. `unknown` and `invalid` are poison: they appear only
 after a diagnostic and are compatible with everything, so one mistake
@@ -632,6 +655,7 @@ instead of re-deriving it by name:
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
+| `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds borrows, rather than pointing the place elsewhere |
 | `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
@@ -838,7 +862,7 @@ stores only plain elements. Assigning a local write borrow, or a field
 or element through one (`w = v`, `w.f = v`), stores `v` in what `w`
 borrows (`storeThroughLocal`), and so does assigning a value to a
 field or element that holds a `!T` (`h.w = v`, which writes through
-it): `v` lands in what the struct write-borrows (`storesThroughPlace`).
+it): `v` lands in what the struct write-borrows (`writesThrough`).
 Unlike a call, an assignment knows how many write borrows it goes
 through (`placeDepth`: `o.i = v` one, `o.i.x = v` two), so only the
 values within that many write loans may hold what `v` borrows, a write
