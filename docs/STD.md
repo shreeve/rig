@@ -28,6 +28,7 @@ everything it has.
 | [`std.math`](#stdmath) | integer helpers, and Float functions |
 | [`std.os`](#stdos) | the program's arguments and environment |
 | [`std.time`](#stdtime) | clocks and sleeping |
+| [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 
 ## std.math
 
@@ -163,4 +164,43 @@ sub main
 ```output
 true
 true
+```
+
+## std.random
+
+`Rng` is a small, fast pseudorandom generator (splitmix64), written in
+Rig. Its whole state is one `U64`, so it is plain data; its methods
+change it, so they take `!self`. A seeded `Rng` gives the same sequence
+on every platform. It is not for cryptography.
+
+| Member | Result |
+|---|---|
+| `Rng.seeded(seed: U64) -> Rng` | a generator whose sequence `seed` fixes |
+| `Rng.new() -> Rng` | a generator seeded from the operating system's entropy, different on each run |
+| `!r.next() -> U64` | the next 64 random bits |
+| `!r.int(lo: Int, hi: Int) -> Int` | an `Int` from `lo` up to but not including `hi`, each equally likely; panics unless `lo < hi`, and when `hi - lo` overflows |
+| `!r.float() -> Float` | a `Float` from 0 up to but not including 1 |
+| `!r.shuffle(!xs)` | put the elements of the slice `xs` in a random order, each order equally likely |
+
+```rig
+use std.random
+
+sub main
+  r = random.Rng.seeded(2024)
+  again = random.Rng.seeded(2024)
+  print(!r.next() == !again.next())
+  roll = !r.int(1, 7)
+  print(roll >= 1 and roll <= 6, !r.float() < 1.0)
+  deck = [1, 2, 3, 4, 5]
+  !r.shuffle(!deck)
+  total = 0
+  for card in deck
+    total += card
+  print(total)
+```
+
+```output
+true
+true true
+15
 ```

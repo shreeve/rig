@@ -1,0 +1,59 @@
+# std.random: a seeded Rng gives the same sequence everywhere (splitmix64:
+# seed 0 starts with 16294208416658607535); `int` stays in its range and
+# reaches every value; `float` is in [0, 1); `shuffle` permutes; and
+# `Rng.new` is seeded from the operating system.
+use std.random
+
+sub main()
+  r = random.Rng.seeded(0)
+  print(!r.next())
+  a = random.Rng.seeded(7)
+  b = random.Rng.seeded(7)
+  print(!a.next() == !b.next(), !a.int(0, 1000) == !b.int(0, 1000))
+
+  seen = [6 of 0]
+  bad = 0
+  n = 0
+  while n < 6000 : n += 1
+    k = !r.int(-3, 3)
+    if k < -3 or k >= 3
+      bad += 1
+    else
+      seen[k + 3] += 1
+  print(bad, seen[0] > 800, seen[5] > 800)
+  print(!r.int(5, 6), !r.int(Int.min, Int.min + 1))
+
+  f_bad = 0
+  n = 0
+  while n < 1000 : n += 1
+    f = !r.float()
+    if f < 0.0 or f >= 1.0
+      f_bad += 1
+  print(f_bad)
+
+  xs = [1, 2, 3, 4, 5, 6, 7, 8]
+  !r.shuffle(!xs)
+  total = 0
+  for x in xs
+    total += x
+  print(total, xs != [1, 2, 3, 4, 5, 6, 7, 8])
+  none_left: [0]Int = []
+  !r.shuffle(!none_left)
+  v: Vec[Int] = Vec()
+  !v.push(9)
+  !r.shuffle(!v[..])
+  print(v)
+
+  o = random.Rng.new()
+  d = !o.int(1, 7)
+  print(d >= 1 and d <= 6)
+
+# expect:
+# 16294208416658607535
+# true true
+# 0 true true
+# 5 -9223372036854775808
+# 0
+# 36 true
+# [9]
+# true
