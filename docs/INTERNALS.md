@@ -891,7 +891,14 @@ handle to one reaches what it holds, so loans kept per handle var would
 miss the other handles. A loan not stored anywhere is a temporary and
 ends with its statement; the loans of a moved value stay in force
 until the call or statement that consumes it ends, so a later argument
-of the same call cannot borrow or move their roots. A borrowed parameter holds an
+of the same call cannot borrow or move their roots. Likewise, an
+argument that reads a place by value whose value shares storage the
+place owns (a Vec, a box, a handle, a struct holding one, or what a
+write borrow reaches: `print(v, grow(!v))`) leaves a read loan on the
+place's root, marked as an argument's read, until the call ends
+(`holdArgRead`), so a later argument cannot write-borrow or move it.
+Plain data is copied whole when it is read and leaves none, so
+`print(v.len, grow(!v))` is accepted. A borrowed parameter holds an
 *external* loan on itself: a borrow from the caller, which may be
 returned or stored into other borrowed parameters and never conflicts.
 A closure's parameters are not: a borrow a closure receives lives only

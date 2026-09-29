@@ -1,0 +1,74 @@
+# A call's arguments run left to right. An argument that reads plain
+# data (a number, a String, a Copy struct) holds a finished value, so a
+# later argument may write the place it came from, and the call sees
+# the value as it was read. A write that finishes before the read, a
+# read receiver whose call ends before the write, and a write receiver
+# whose argument reads it are fine too.
+
+struct P
+  x: Int
+  y: Int
+
+struct S
+  a: Vec[Int]
+  b: Int
+
+  fun count(?self, n: Int) -> Int
+    self.a.len + n
+
+  sub add(!self, n: Int)
+    !self.a.push(n)
+
+struct Q
+  p: P
+  n: Int
+
+fun grow(v: !Vec[Int]) -> Int
+  !v.push(7)
+  2
+
+fun bump(p: !P) -> Int
+  p.x += 1
+  0
+
+fun sum(p: P, n: Int) -> Int
+  p.x + p.y + n
+
+fun clears(ss: !Vec[String]) -> Int
+  ss = Vec()
+  0
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  print(v.len, grow(!v), v.len)
+  print(v[0], grow(!v), v)
+  print(grow(!v), v)
+  !v.push(v.len)
+  print(v)
+  p = P(x: 1, y: 2)
+  print(p, bump(!p), p)
+  print(sum(p, bump(!p)), p)
+  s = S(a: Vec(), b: 5)
+  print(s.b, grow(!s.a), s.a)
+  print(s.count(0), grow(!s.a), s.count(0))
+  !s.add(s.count(0))
+  print(s.a)
+  q = Q(p: p, n: bump(!p))
+  print(q, p)
+  ss: Vec[String] = Vec()
+  !ss.push("hi")
+  print(ss[0], clears(!ss), ss.len)
+
+# expect:
+# 1 2 2
+# 0 2 [0, 7, 7]
+# 2 [0, 7, 7, 7]
+# [0, 7, 7, 7, 4]
+# P(x: 1, y: 2) 0 P(x: 2, y: 2)
+# 4 P(x: 3, y: 2)
+# 5 2 [7]
+# 1 2 2
+# [7, 7, 2]
+# Q(p: P(x: 3, y: 2), n: 0) P(x: 4, y: 2)
+# hi 0 0
