@@ -3335,6 +3335,8 @@ shared handles (including owned closures), weak handles, or boxes.
 | `v[i]`, `v[i] = x` | read or write an element, or a field of one (Copy `T`; bounds-checked) |
 | `v.get(i)` | the element as `T?` (Copy `T`) |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
+| `!v.insert(i, x)` | put `x` at index `i`, moving the elements from `i` on up by one; `i` may be `v.len`; panics past it |
+| `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
 
 A `for` loop borrows the Vec for the whole loop, so it cannot be
@@ -3363,6 +3365,20 @@ sub main
 
 ```output
 711 2
+```
+
+```rig
+sub main
+  v: Vec[String] = Vec()
+  !v.push("b")
+  !v.insert(0, "a")
+  !v.insert(v.len, "c")
+  gone = !v.remove(1)
+  print(gone, v)
+```
+
+```output
+b ["a", "c"]
 ```
 
 ```rig

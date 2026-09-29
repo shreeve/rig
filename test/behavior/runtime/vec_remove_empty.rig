@@ -1,0 +1,7 @@
+# `remove` takes an index of an element; on an empty Vec it panics.
+
+sub main()
+  v: Vec[Int] = Vec()
+  print(!v.remove(0))
+
+# expect-panic: index out of bounds

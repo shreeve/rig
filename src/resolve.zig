@@ -2248,6 +2248,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id),
             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t),
             try method(ctx, "pop", .write, &.{write_self}, opt_t),
+            try method(ctx, "insert", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id),
+            try method(ctx, "remove", .write, &.{ write_self, ctx.types.int_id }, t),
         });
     }
 
@@ -2355,7 +2357,7 @@ test "builtins: registered with methods" {
     try registerBuiltins(&ctx, scope);
     const vec = ctx.lookup(scope, "Vec").?;
     try std.testing.expectEqual(ctx.vec_sym_id, vec);
-    try std.testing.expectEqual(@as(usize, 4), ctx.symbols.items[vec].fields.?.len);
+    try std.testing.expectEqual(@as(usize, 6), ctx.symbols.items[vec].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 

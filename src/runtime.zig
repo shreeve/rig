@@ -823,6 +823,27 @@ pub fn Vec(comptime T: type) type {
             return self.buf[self.len];
         }
 
+        /// Insert `value` at `i`, moving the elements from `i` on up by
+        /// one; `i` may be `len`. Panics unless `0 <= i <= len`.
+        pub fn insert(self: *Self, i: Int, value: T) void {
+            const idx = index(i, self.len + 1);
+            self.reserve(self.len + 1);
+            std.mem.copyBackwards(T, self.buf[idx + 1 .. self.len + 1], self.buf[idx..self.len]);
+            self.buf[idx] = value;
+            self.len += 1;
+        }
+
+        /// Remove and return the element at `i`, moving the ones after
+        /// it down by one; the caller owns it. Panics unless
+        /// `0 <= i < len`.
+        pub fn remove(self: *Self, i: Int) T {
+            const idx = index(i, self.len);
+            const value = self.buf[idx];
+            std.mem.copyForwards(T, self.buf[idx .. self.len - 1], self.buf[idx + 1 .. self.len]);
+            self.len -= 1;
+            return value;
+        }
+
         /// `for x in <v`: the Vec's elements, each handed over in order.
         pub const IntoIter = struct {
             vec: Self,
@@ -1608,6 +1629,21 @@ test "Vec of plain data" {
     try testing.expectEqual(null, v.get(-1));
     try testing.expectEqual(16, v.pop().?);
     try testing.expectEqual(2, v.len);
+    v.__rig_drop();
+    try expectNoLeaks(before);
+}
+
+test "Vec insert and remove move the elements after the index" {
+    const before = usage();
+    var v: Vec(i32) = .empty;
+    v.insert(0, 3);
+    v.insert(0, 1);
+    v.insert(2, 4);
+    v.insert(1, 2);
+    try testing.expectEqualSlices(i32, &.{ 1, 2, 3, 4 }, v.items());
+    try testing.expectEqual(2, v.remove(1));
+    try testing.expectEqual(4, v.remove(2));
+    try testing.expectEqualSlices(i32, &.{ 1, 3 }, v.items());
     v.__rig_drop();
     try expectNoLeaks(before);
 }
