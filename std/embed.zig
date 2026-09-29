@@ -9,6 +9,7 @@ pub const files = [_]struct { []const u8, []const u8 }{
     .{ "os.zig", @embedFile("os.zig") },
     .{ "random.rig", @embedFile("random.rig") },
     .{ "random.zig", @embedFile("random.zig") },
+    .{ "slices.rig", @embedFile("slices.rig") },
     .{ "sort.rig", @embedFile("sort.rig") },
     .{ "time.rig", @embedFile("time.rig") },
     .{ "time.zig", @embedFile("time.zig") },

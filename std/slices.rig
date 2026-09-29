@@ -1,0 +1,23 @@
+# std.slices: linear operations on slices, written in Rig. Every
+# function takes a slice: pass an array as `!a` or `?a`, and a Vec as
+# `!v[..]` or `?v[..]`.
+
+# Reverse the order of the elements of `xs` in place.
+pub sub reverse[T](xs: ![]T)
+  i = 0
+  j = xs.len - 1
+  while i < j
+    !xs.swap(i, j)
+    i += 1
+    j -= 1
+
+# Whether some element of `xs` equals `x`.
+pub fun contains[T](xs: []T, x: T) -> Bool
+  index_of(xs, x) != none
+
+# The index of the first element of `xs` equal to `x`, or `none`.
+pub fun index_of[T](xs: []T, x: T) -> Int?
+  for e, i in xs
+    if e == x
+      return i
+  none

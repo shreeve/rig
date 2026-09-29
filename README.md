@@ -267,7 +267,7 @@ and environment variable. The suite runs on Linux and macOS in
   `extern`, and `test` blocks run by `rig test`
 - `fun main -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
-  environment), `std.time`, `std.random`, and `std.sort`
+  environment), `std.time`, `std.random`, `std.sort`, and `std.slices`
 
 **Not yet:** most of a standard library (text, files, maps, formatting),
 concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)

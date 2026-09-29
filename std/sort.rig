@@ -1,6 +1,8 @@
-# std.sort: sorting and searching slices, written in Rig. Every function
-# takes a slice, `![]T` to sort or `[]T` to search: pass an array as `!a`
-# or `?a`, and a Vec as `!v[..]` or `?v[..]`.
+# std.sort: sorting slices and searching sorted ones, written in Rig.
+# Every function takes a slice, `![]T` to sort or `[]T` to search: pass
+# an array as `!a` or `?a`, and a Vec as `!v[..]` or `?v[..]`. Order is
+# `<`'s, or a comparator's: a NaN is not ordered by `<`, so sort Floats
+# that may be NaN with `sort_by` and a comparator that orders it.
 
 # Sort `xs` in place, in the order of `<`, keeping equal elements in the
 # order they had. Allocates nothing.
@@ -100,38 +102,25 @@ sub swap_range[T](xs: ![]T, a: Int, b: Int, n: Int)
   while i < n : i += 1
     !xs.swap(a + i, b + i)
 
-# Reverse the order of the elements of `xs` in place.
-pub sub reverse[T](xs: ![]T)
-  i = 0
-  j = xs.len - 1
-  while i < j
-    !xs.swap(i, j)
-    i += 1
-    j -= 1
+# The index where `x` belongs in `xs`, which is sorted in the order of
+# `<`: the first element not less than `x`, or `xs.len` when there is
+# none. Inserting `x` there keeps `xs` sorted.
+pub fun lower_bound[T](xs: []T, x: T) -> Int
+  lo = 0
+  hi = xs.len
+  while lo < hi
+    mid = lo + (hi - lo) / 2
+    if xs[mid] < x
+      lo = mid + 1
+    else
+      hi = mid
+  lo
 
 # The index of an element equal to `x` in `xs`, which is sorted in the
 # order of `<`, found by binary search: the first such element; `none`
 # when there is none.
 pub fun search[T](xs: []T, x: T) -> Int?
-  lo = 0
-  hi = xs.len
-  while lo < hi
-    mid = (lo + hi) / 2
-    if xs[mid] < x
-      lo = mid + 1
-    else
-      hi = mid
-  if lo < xs.len and xs[lo] == x
-    return lo
-  none
-
-# Whether some element of `xs` equals `x`.
-pub fun contains[T](xs: []T, x: T) -> Bool
-  index_of(xs, x) != none
-
-# The index of the first element of `xs` equal to `x`, or `none`.
-pub fun index_of[T](xs: []T, x: T) -> Int?
-  for e, i in xs
-    if e == x
-      return i
+  i = lower_bound(xs, x)
+  if i < xs.len and xs[i] == x
+    return i
   none

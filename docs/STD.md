@@ -34,7 +34,8 @@ never read as the library's.
 | [`std.os`](#stdos) | the program's arguments and environment |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
-| [`std.sort`](#stdsort) | sorting and searching slices |
+| [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
+| [`std.slices`](#stdslices) | reversing and linear search |
 
 ## std.math
 
@@ -226,24 +227,23 @@ true true
 
 ## std.sort
 
-Sorting and searching, written in Rig over slices, so they work on
-arrays (`!a`, `?a`) and on Vecs (`!v[..]`, `?v[..]`) alike. The
-elements are plain data, as a slice's are. `sort` and `search` order
-elements with `<` (numbers and Strings), and `contains` and `index_of`
-compare them with `==`; each call is checked for its element type, as
-any generic call is.
+Sorting, and searching sorted slices, written in Rig over slices, so
+they work on arrays (`!a`, `?a`) and on Vecs (`!v[..]`, `?v[..]`)
+alike. The elements are plain data, as a slice's are. `sort`,
+`lower_bound`, and `search` order elements with `<` (numbers and
+Strings), and `search` compares them with `==`; each call is checked
+for its element type, as any generic call is.
 
 | Function | Result |
 |---|---|
 | `sort(xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements in the order they had; allocates nothing |
 | `sort_by(xs: ![]T, less: ?fun(?T, ?T) -> Bool)` | the same, in the order `less` gives: `less(a, b)` says whether `a` belongs before `b` |
-| `reverse(xs: ![]T)` | reverse the order of `xs` in place |
+| `lower_bound(xs: []T, x: T) -> Int` | in `xs` sorted by `<`, the index where `x` belongs: the first element not less than `x`, or `xs.len` |
 | `search(xs: []T, x: T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
-| `contains(xs: []T, x: T) -> Bool` | whether some element equals `x` |
-| `index_of(xs: []T, x: T) -> Int?` | the index of the first element equal to `x`, or `none` |
 
 `sort` sorts runs of 20 elements by insertion, then merges them in
-place by rotations, so it takes O(n log² n) comparisons and no memory.
+place by rotations: O(n log n) comparisons, O(n log² n) swaps, and
+O(log n) stack, with no other memory.
 
 ```rig
 use std.sort
@@ -255,7 +255,8 @@ struct Player
 sub main
   scores = [30, 10, 20, 10]
   sort.sort(!scores)
-  print(scores, sort.search(?scores, 20), sort.contains(?scores, 5))
+  print(scores, sort.search(?scores, 20), sort.search(?scores, 5))
+  print(sort.lower_bound(?scores, 15), sort.lower_bound(?scores, 99))
 
   v: Vec[Player] = Vec()
   !v.push(Player(name: "ann", score: 7))
@@ -264,18 +265,33 @@ sub main
   sort.sort_by(!v[..], |a, b| a.score > b.score)
   for p in ?v
     print(p.name, p.score)
-
-  names = ["cy", "ann", "bob"]
-  sort.reverse(!names)
-  print(names, sort.index_of(?names, "ann"))
 ```
 
 ```output
-[10, 10, 20, 30] 2 false
+[10, 10, 20, 30] 2 none
+2 4
 bob 9
 ann 7
 cy 7
-["bob", "ann", "cy"] 1
+```
+
+A NaN is not ordered by `<`: no comparison with one is true, so `sort`
+leaves Floats that may be NaN in no particular order. Sort them with
+`sort_by` and a comparator that orders every value, here putting NaN
+last:
+
+```rig
+use std.sort
+
+sub main
+  zero = 0.0
+  xs = [2.0, zero / zero, 1.0]
+  sort.sort_by(!xs, |a, b| a == a and (b != b or a < b))
+  print(xs)
+```
+
+```output
+[1.0, 2.0, nan]
 ```
 
 `sort` needs `<` on its elements:
@@ -294,4 +310,28 @@ sub main
 
 ```error
 `sort.sort[Player]` cannot use `T = Player`: the generic body applies `<` to `T`
+```
+
+## std.slices
+
+Linear operations on slices, written in Rig, on arrays and on Vecs
+through a slice. `contains` and `index_of` compare elements with `==`.
+
+| Function | Result |
+|---|---|
+| `reverse(xs: ![]T)` | reverse the order of `xs` in place |
+| `contains(xs: []T, x: T) -> Bool` | whether some element equals `x` |
+| `index_of(xs: []T, x: T) -> Int?` | the index of the first element equal to `x`, or `none` |
+
+```rig
+use std.slices
+
+sub main
+  names = ["cy", "ann", "bob"]
+  slices.reverse(!names)
+  print(names, slices.index_of(?names, "ann"), slices.contains(?names, "dee"))
+```
+
+```output
+["bob", "ann", "cy"] 1 false
 ```
