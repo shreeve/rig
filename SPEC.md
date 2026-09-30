@@ -3143,25 +3143,55 @@ sub main
 bind it to a name first
 ```
 
-A borrow of a temporary (`?S(n: 1)`, `?make()`) lives only as long as
-its statement, so it may be an argument of a call whose result keeps
-no borrow (a String result may keep one: it may view a Text it was
-lent) or of `print`, a `match` subject, a `for` source, or the optional
-an `if` or `while` binds with `as`. Bound to a name, stored in a field,
-sliced, or passed to a call whose result may borrow it, it would
-outlive the value, and it is rejected.
+A borrow of a temporary (`?S(n: 1)`, `?make()`, `?make()[1..]`), and
+any view made from one (a call's result that borrows it), may be used
+anywhere in its statement: the temporary lives until the statement
+ends. It may not outlive the statement: held by a binding, a field, a
+Vec, or a returned value, it is rejected. As in Rust, the temporaries
+of an `if` header, a `match` subject, and a `for` source live through
+the whole statement, so an `as` binding may hold such a borrow in the
+body. A `while` header is evaluated again on each pass, so its
+temporaries live through one pass: a borrow of one kept for a later
+pass is rejected.
+
+```rig
+use std.text
+
+sub main
+  print(text.trim(?Text("  padded  ")) == "padded")
+  n = text.find(?Text("abc"), "b") ?? -1
+  if text.starts_with(?Text("x", n), "x1")
+    print("starts")
+  if text.cut(?Text("k=v"), "=") as kv
+    print(kv.before, kv.after)
+```
+
+```output
+true
+starts
+k v
+```
 
 ```rig reject
+use std.text
+
 struct S
   n: Int
 
 sub main
   r = ?S(n: 1)
-  print(r.n)
+  s = text.trim(?Text(" a "))
+  last = ""
+  while text.cut(?Text("k=v"), "=") as kv
+    print(last)
+    last = kv.after
+  print(r.n, s)
 ```
 
 ```error
-a borrow of a temporary lives only for the call it is lent to; bind the value to a name first
+a borrow of the temporary `S(n: 1)` outlives its statement, which drops it; bind the value to a name first
+a borrow of the temporary `Text(" a ")` outlives its statement
+a borrow of the temporary `Text("k=v")` outlives its statement
 ```
 
 ---

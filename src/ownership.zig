@@ -1293,7 +1293,7 @@ pub const Checker = struct {
         const drops = self.stmt_drops.items.len;
         const v = if (sink) |k| try self.walkConsumed(stmt, k) else try self.walk(stmt);
         self.temps.shrinkRetainingCapacity(@min(temps_len, self.temps.items.len));
-        try self.dropStmtTemps(drops);
+        try self.dropStmtTemps(drops, null);
         return v;
     }
 
@@ -1309,7 +1309,7 @@ pub const Checker = struct {
     /// Drop the temporaries statement-held since `start`: a value that
     /// still borrows one after the statement would outlive it. One whose
     /// scope already ended (a branch's) was released there.
-    fn dropStmtTemps(self: *Checker, start: usize) Error!void {
+    fn dropStmtTemps(self: *Checker, start: usize, at: ?u32) Error!void {
         var i = self.stmt_drops.items.len;
         while (i > start) {
             i -= 1;
@@ -1325,8 +1325,10 @@ pub const Checker = struct {
                 for (f.loans) |l| {
                     if (l.root != d.id) {
                         try kept.append(self.arena(), l);
-                    } else if (!reported and self.holderLive(@intCast(holder), null)) {
-                        try self.reportShortLived(l, @intCast(holder));
+                    } else if (!reported and self.holderLive(@intCast(holder), at)) {
+                        try self.err(l.pos, "a borrow of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{t.name});
+                        const hv = self.vars.items[holder];
+                        if (hv.name.len > 0) try self.note(hv.decl, "`{s}` still holds it after the statement", .{hv.name});
                         reported = true;
                     }
                 }
@@ -3627,6 +3629,9 @@ pub const Checker = struct {
         // The loop ends when its condition fails: for a binding
         // condition, when a part fails, with the bindings before it gone.
         var exit: State = .{ .reachable = false };
+        // The temporaries of a binding header live through the pass it
+        // starts: the next pass evaluates the header again.
+        const drops = self.stmt_drops.items.len;
         if (spec.cond_binds) {
             try self.walkConditionParts(spec.cond.?, spec.body);
             // A failing part leaves the loop for its `else`, or past it.
@@ -3640,6 +3645,8 @@ pub const Checker = struct {
         try self.pushScopeFor(.block, spec.body);
         try self.bindLoopElems(spec);
         try self.walkStmt(spec.body);
+        const body_end = extent(spec.body).hi;
+        try self.dropStmtTemps(drops, body_end +| 1);
         while (self.scopes.items.len > depth) try self.popScope();
 
         if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items);

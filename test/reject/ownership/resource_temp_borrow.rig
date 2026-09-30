@@ -5,5 +5,5 @@ sub main()
   c = ?(*Cell(0))
   print(c.get())
 
-# error: 5:7: a borrow of a temporary lives only for the call it is lent to; bind the value to a name first
+# error: 5:9: a borrow of the temporary `*Cell(0)` outlives its statement, which drops it; bind the value to a name first
 # errors: 1

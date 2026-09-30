@@ -26,8 +26,9 @@ sub main
     .b => print("b")
   print(w, s, e, r, o)
 
-# error: 19:10: a borrow of a temporary lives only for the call it is lent to
-# error: 20:8: only a named array, Vec, or Text, or a field or element of one, can be sliced
-# error: 21:12: a borrow of a temporary lives only for the call it is lent to
-# error: 22:7: a borrow of a temporary lives only for the call it is lent to
-# errors: 4
+# error: 19:11: a borrow of the temporary `Text("abc")` outlives its statement
+# error: 20:8: a borrow of the temporary `Text("x")` outlives its statement
+# error: 21:13: a borrow of the temporary `Text("abc")` outlives its statement
+# error: 22:8: a borrow of the temporary `Text("r")` outlives its statement
+# error: 25:19: `t` does not live long enough
+# errors: 5

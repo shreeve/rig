@@ -1,7 +1,6 @@
-# A borrow of a temporary lives only for the call it is lent to, so it
-# may be an argument only to a call whose result keeps no borrow. Held
-# in a binding, a field, or a returned value, it would outlive the
-# temporary it points to.
+# A borrow of a temporary lives only until its statement ends. Held in
+# a binding, a field, or a returned value, it would outlive the
+# temporary it points to; used within the statement, it is fine.
 
 struct S
   n: Int
@@ -29,8 +28,8 @@ sub main()
   print(first(?S(n: 2)))
   print(h.s.n, r.n, q.n, c.s.n)
 
-# error: 19:8: a borrow of a temporary lives only for the call it is lent to; bind the value to a name first
-# error: 25:12: a borrow of a temporary lives only for the call it is lent to
-# error: 26:7: a borrow of a temporary lives only for the call it is lent to
-# error: 27:12: a borrow of a temporary lives only for the call it is lent to
-# error: 28:7: a borrow of a temporary lives only for the call it is lent to
+# error: 18:9: returned borrow of `S(n: rt(n))` does not originate from a borrowed parameter
+# error: 24:13: a borrow of the temporary `S(n: rt(7))` outlives its statement
+# error: 25:8: a borrow of the temporary `S(n: 1)` outlives its statement
+# error: 26:13: a borrow of the temporary `S(n: rt(7))` outlives its statement
+# error: 27:8: a borrow of the temporary `mk(3)` outlives its statement

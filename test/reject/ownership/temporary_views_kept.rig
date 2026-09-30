@@ -1,0 +1,32 @@
+# A view of a temporary cannot outlive its statement, which drops the
+# temporary: not in a binding, a field, a Vec, or a result. A `while`
+# header's temporaries last one pass, since the next pass evaluates the
+# header again, so a view kept for a later pass is rejected.
+
+use std.text
+
+struct E
+  s: String
+
+fun f -> String
+  text.trim(?Text(" x "))
+
+sub main
+  s = text.trim(?Text(" a "))
+  e = E(s: text.trim(?Text(" b ")))
+  v: Vec[String] = Vec()
+  !v.push(text.trim(?Text(" c ")))
+  r = ?Text("d")
+  last = "none"
+  while text.cut(?Text("k=v"), "=") as kw
+    print(last)
+    last = kw.after
+  print(s, e, v, r, f())
+
+# error: 12:14: returned borrow of `Text(" x ")` does not originate from a borrowed parameter
+# error: 15:18: a borrow of the temporary `Text(" a ")` outlives its statement
+# error: 16:23: a borrow of the temporary `Text(" b ")` outlives its statement
+# error: 18:22: a borrow of the temporary `Text(" c ")` outlives its statement
+# error: 19:8: a borrow of the temporary `Text("d")` outlives its statement
+# error: 21:19: a borrow of the temporary `Text("k=v")` outlives its statement
+# errors: 6

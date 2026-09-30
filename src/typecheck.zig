@@ -118,9 +118,6 @@ const Checker = struct {
     /// The argument being checked, when the call keeps no borrow of its
     /// arguments: a temporary array there may be lent as a `[]T`.
     lent_temp: Sexp = .nil,
-    /// The argument being checked, when the call's result keeps no
-    /// borrow of its arguments: a borrow of a temporary may be lent there.
-    lent_borrow: Sexp = .nil,
     /// The argument being checked, where a closure literal may be lent
     /// as a borrowed callable, and the call when its result could hold
     /// the literal instead.
@@ -1455,12 +1452,7 @@ const Checker = struct {
     fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         const expr = ir.As.value(node);
         const name = ir.As.name(node);
-        // A borrowed temporary lives as long as the statement, as a match
-        // subject's does.
-        const saved_borrow = self.lent_borrow;
-        self.lent_borrow = expr;
         const ty = try self.synthExpr(expr);
-        self.lent_borrow = saved_borrow;
         var inner = self.t().invalid_id;
         if (!self.isPoison(ty)) switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
             .optional => |i| inner = i,
@@ -1773,11 +1765,8 @@ const Checker = struct {
         const subject = ir.Match.subject(node);
         const mode: MatchMode = if (subject.isKind(.write)) .write else if (subject.isKind(.move)) .consume else .read;
         // `<e` names the value it moves; a temporary is checked as one.
-        // A borrowed temporary lives as long as the match.
-        const saved_borrow = self.lent_borrow;
-        self.lent_borrow = subject;
+        // A temporary read lives as long as the match.
         var scrutinee = if (mode == .consume) try self.synthExpr(subject) else if (mode == .read) try self.synthReadTemp(subject) else try self.synthOperand(subject);
-        self.lent_borrow = saved_borrow;
         const scrut_pos = self.startOf(subject);
         // `match <e` takes the fields of a value `e` owns.
         if (mode == .consume) if (self.ctx.typeOf(ir.Move.operand(subject))) |held| switch (self.ctx.types.get(held)) {
@@ -3180,12 +3169,10 @@ const Checker = struct {
     fn synthBorrow(self: *Checker, e: Sexp, kind: BorrowKind) Error!TypeId {
         const operand = ir.get(e, .operand);
         if (rig.isRangeIndex(operand)) return self.borrowSlice(operand, kind);
-        // A temporary lent to read where a borrowed one may go lives to
-        // the end of its statement, which drops it; anywhere else its
-        // borrow is rejected below, once.
-        const inner = if (kind == .read and sameNode(e, self.lent_borrow))
-            try self.synthReadTemp(operand)
-        else if (kind == .read and !isPlaceExpr(operand))
+        // A temporary lent to read lives until its statement ends, which
+        // drops it; the ownership checker keeps a borrow of it from
+        // outliving the statement.
+        const inner = if (kind == .read and !isPlaceExpr(operand))
             try self.synthExpr(operand)
         else
             try self.synthOperand(operand);
@@ -3235,10 +3222,7 @@ const Checker = struct {
             }
             if (place.root == .temporary) try self.ctx.recordCellTemp(operand);
         }
-        if (kind == .read and !sameNode(e, self.lent_borrow) and self.isTemporary(operand)) {
-            try self.errAt(e, "a borrow of a temporary lives only for the call it is lent to; bind the value to a name first", .{});
-            return self.t().invalid_id;
-        }
+        if (kind == .read and self.isTemporary(operand)) try self.lendTemp(operand);
         switch (self.ctx.types.get(inner)) {
             // (A write borrow of a `?T` was rejected above.)
             .borrow_read => return inner,
@@ -3483,6 +3467,15 @@ const Checker = struct {
         try sema.heldTypeVars(self.ctx, ty, &held, self.ctx.allocator);
         for (held.items) |param| try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = param, .req = .plain, .pos = pos, .op = op });
         return false;
+    }
+
+    /// The temporary a read borrow of `operand` (or a slice of it) lends,
+    /// the value itself or the value a field path starts from: it lives
+    /// in a slot until its statement ends.
+    fn lendTemp(self: *Checker, operand: Sexp) Error!void {
+        const base = if (isPlaceExpr(operand)) self.placeOf(operand).base else operand;
+        if (base != .list) return;
+        try self.ctx.recordTempDrop(base);
     }
 
     /// Synthesize `operand` where its value is only read: an owning
@@ -4305,10 +4298,7 @@ const Checker = struct {
                     try self.errAt(e, "a slice of a Text borrows it; write `?{s}`", .{self.sourceText(e)});
                     return self.t().invalid_id;
                 }
-                if (!self.placeOf(object).named()) {
-                    try self.errAt(object, slice_of_temporary, .{});
-                    return self.t().invalid_id;
-                }
+                if (!self.placeOf(object).named()) try self.lendTemp(object);
                 return self.t().string_id;
             },
             else => (try self.vecSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
@@ -4319,10 +4309,7 @@ const Checker = struct {
             try self.errAt(e, "a slice of an array or Vec borrows it; write `?{s}`", .{self.sourceText(e)});
             return self.t().invalid_id;
         }
-        if (!self.placeOf(object).named()) {
-            try self.errAt(object, slice_of_temporary, .{});
-            return self.t().invalid_id;
-        }
+        if (!self.placeOf(object).named()) try self.lendTemp(object);
         return self.ctx.intern(.{ .slice = .{ .elem = elem } });
     }
 
@@ -4783,10 +4770,7 @@ const Checker = struct {
                 _ = try self.synthQuiet(ir.Kwarg.value(a));
                 continue;
             }
-            const saved_borrow = self.lent_borrow;
-            self.lent_borrow = a;
             const ty = try self.synthReadTemp(a);
-            self.lent_borrow = saved_borrow;
             // An integer literal is written as an `Int`, which must hold it.
             if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
             switch (self.ctx.types.get(ty)) {
@@ -4943,7 +4927,7 @@ const Checker = struct {
         @memset(slots, null);
         for (positional, 0..) |a, i| {
             slots[i] = .{ .arg = @intCast(i) };
-            try self.checkArg(a, f, i, lends, retains);
+            try self.checkArg(a, f, i, lends);
         }
         for (keyword, positional.len..) |kw, ai| {
             const kname_node = ir.Kwarg.name(kw);
@@ -4961,7 +4945,7 @@ const Checker = struct {
                 continue;
             }
             slots[idx] = .{ .arg = @intCast(ai) };
-            try self.checkArg(ir.Kwarg.value(kw), f, idx, lends, retains);
+            try self.checkArg(ir.Kwarg.value(kw), f, idx, lends);
         }
         var complete = true;
         for (slots, 0..) |*slot, i| {
@@ -4981,19 +4965,16 @@ const Checker = struct {
         try self.ctx.recordCallSlots(call_node, out);
     }
 
-    fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, lends: bool, retains: bool) Error!void {
+    fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, lends: bool) Error!void {
         const saved = self.lent_temp;
-        const saved_borrow = self.lent_borrow;
         const saved_callable = self.lent_callable;
         const saved_kept = self.callable_kept;
         defer {
             self.lent_temp = saved;
-            self.lent_borrow = saved_borrow;
             self.lent_callable = saved_callable;
             self.callable_kept = saved_kept;
         }
         self.lent_temp = if (lends) arg else .nil;
-        self.lent_borrow = if (retains) .nil else arg;
         // A closure literal lives for the call, so the call's result may
         // not hold it.
         const kept = sema.holdsCallable(self.ctx, f.returns);
@@ -5021,8 +5002,7 @@ const Checker = struct {
     /// borrow of an argument past the call: in its result, or through a
     /// write borrow into something that can hold one.
     fn callRetains(self: *Checker, f: FunctionType, recv: ?TypeId) bool {
-        // A String result may view a Text it was lent.
-        if (sema.mayHoldBorrow(self.ctx, f.returns) or sema.mayHoldView(self.ctx, f.returns)) return true;
+        if (sema.mayHoldBorrow(self.ctx, f.returns)) return true;
         for (f.params) |p| if (self.storesBorrow(p)) return true;
         return if (recv) |r| self.storesBorrow(r) else false;
     }
@@ -5034,7 +5014,7 @@ const Checker = struct {
             else => return false,
         };
         const held = if (sema.writeSliceElem(self.ctx, param)) |elem| elem else inner;
-        return sema.mayHoldBorrow(self.ctx, held) or sema.mayHoldView(self.ctx, held);
+        return sema.mayHoldBorrow(self.ctx, held);
     }
 
     /// Whether `e` is a name that names a type.
@@ -6906,10 +6886,7 @@ const Checker = struct {
                 }
                 // A Text made here, which its statement drops, or a named
                 // one; a borrowed temporary elsewhere was reported.
-                if (!self.placeOf(ir.Read.operand(e)).named() and !self.ctx.dropsTemp(ir.Read.operand(e))) {
-                    if (isPlaceExpr(ir.Read.operand(e))) try self.errAt(e, "only a named Text, or a field or element of one, is lent as a String; bind this value to a name first", .{});
-                    return true;
-                }
+                if (!self.placeOf(ir.Read.operand(e)).named()) try self.lendTemp(ir.Read.operand(e));
                 try self.ctx.recordType(e, expected);
                 try self.ctx.recordArrayView(e, .borrowed);
                 return true;

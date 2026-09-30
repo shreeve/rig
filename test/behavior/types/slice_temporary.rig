@@ -1,0 +1,17 @@
+# A slice of a temporary array views the temporary, which lives until
+# its statement ends: it can be used anywhere in the statement.
+
+fun make() -> [3]Int
+  [1, 2, 3]
+
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+sub main()
+  print(?make()[0..2], total(?make()[1..]))
+
+# expect:
+# [1, 2] 5

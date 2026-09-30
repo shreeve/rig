@@ -628,12 +628,13 @@ ownership:
   must be inside a `raw` block. An `extern` function can only be
   called, so it cannot leave `raw` as a value.
 
-It also allows a borrow of a temporary (`?S(n: 1)`) only as an
-argument of a call whose result keeps no borrow, a `print` argument, a
-`match` subject, a `for` source, or the optional an `if`/`while ... as`
-binds, since the temporary
-ends with its statement, so the ownership checker, which tracks loans
-on named values, never meets one that outlives its value.
+A read borrow of a temporary (`?S(n: 1)`, `?make()`, a slice of one)
+records the temporary as one its statement holds (`dropsTemp`), owning
+or not: it lives in a slot until the statement ends, and the ownership
+checker reports a borrow of it, or a view made from one, that a value
+still holds after the statement. A `while` whose header binds with
+`as` drops its header's temporaries after each pass of the body, and
+reports one a value keeps for a later pass.
 
 What may be done with a place is decided in one place. `placeOf(e)`
 reads a place expression (a name, or a field or element of one) once,
