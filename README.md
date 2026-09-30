@@ -272,7 +272,7 @@ and environment variable. The suite runs on Linux and macOS in
   environment), `std.time`, `std.random`, `std.sort`, `std.slices`, and
   `std.text` (searching, splitting, and parsing Strings)
 
-**Not yet:** most of a standard library (owned text, files, maps, formatting),
+**Not yet:** most of a standard library (files, maps, number formatting),
 concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
 storing or returning a stack closure (lending one to a call, as a
