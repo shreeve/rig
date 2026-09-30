@@ -203,8 +203,8 @@ where it separates a fill literal's count from its element
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
-The built-in types `Cell`, `Vec`, `Box`, `Signal`, and `Endian` are
-reserved names. The built-in functions `print`, `replace`, and `swap`
+The built-in types `Cell`, `Vec`, `Box`, `Text`, `Signal`, and
+`Endian` are reserved names. The built-in functions `print`, `replace`, and `swap`
 are names a declaration may hide.
 
 ## 4. Literals
@@ -410,7 +410,8 @@ operator does, and which types it takes, is in
 The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),
 `F32`, `Bool`, `String`, and `Void`; [SPEC §2](SPEC.md#2-types) lists
-what each holds.
+what each holds. `Text`, owned text, is a built-in type
+([SPEC §10](SPEC.md#text)).
 
 **How the sigils combine.** The handle sigils `*` and `~` bind to the
 type after them, tighter than the suffixes: `*User?` is an optional
@@ -1169,7 +1170,8 @@ is built the same way, `.rect(w: 2, h: 5)` or `Shape.circle(2)`, and a
 generic type's arguments may be given in brackets:
 `Pair[Int, Float](first: 1, second: 2.5)`, `Vec[Int]()`,
 `Option[Int].some(7)`. A `Vec` is built empty, `Vec()` or
-`Vec(capacity: 16)`.
+`Vec(capacity: 16)`. A `Text` is built from any values, each written
+as `print` writes it: `Text("n=", n)`, or `Text()` for an empty one.
 
 ### Members, indexes, and slices
 
@@ -1179,8 +1181,10 @@ generic type's arguments may be given in brackets:
 | `xs[i]` | an element, bounds-checked |
 | `s[a..b]` | a slice of a String, itself a String |
 | `?xs[a..b]`, `!xs[a..b]` | a read or write slice of an array or Vec |
+| `?t[a..b]` | a String viewing a Text, which it borrows |
 | `xs[a..]`, `xs[..b]`, `xs[..]` | a slice with an open side |
 | `?a` where a `[]T` is expected | `?a[..]`; `!a` where a `![]T` is |
+| `?t` where a String is expected | `?t[..]` of a Text |
 | `xs.len`, `s.len`, `v.len` | a length, a field |
 | `mod.name`, `mod.Type.name` | a module's declaration or a type's member |
 

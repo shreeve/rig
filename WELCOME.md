@@ -300,6 +300,7 @@ correspondences:
 | Rig | Zig |
 |---|---|
 | `Int`, `U8`, `Float`, `String` | `i64`, `u8`, `f64`, `[]const u8` |
+| `Text` | `rig.Text`, a growable byte buffer the runtime frees |
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `U8(x)`, `Int(e)` of a plain enum | `@as(u8, @intCast(x))`, `@as(i64, @intCast(@intFromEnum(e)))` |
 | `a +% b`, `U8.max` | `a +% b`, the constant `std.math.maxInt(u8)` |
@@ -346,7 +347,7 @@ program; [INTERNALS](docs/INTERNALS.md) describes it.
 | switch | `switch` | `match` / `case` | `switch` | `match` |
 | do nothing | `;` | `pass` / `nil` | `{}` | `pass` |
 | exceptions | error codes | `raise` / `try` | `throw` / `error` returns | `T!`, `f()!`, `catch` |
-| string formatting | `printf` | f-strings / `#{}` | template strings / `Sprintf` | `print(a, b)`: no interpolation |
+| string formatting | `printf` | f-strings / `#{}` | template strings / `Sprintf` | `print(a, b)`, `Text(a, b)`: no interpolation |
 | memory | `malloc`, `free` | a garbage collector | a garbage collector | owners, released where their scope ends |
 
 A Rig program frees what it allocates at a point you can see: when its
@@ -555,6 +556,33 @@ fun twice(s: String) -> Int!
 `?` propagates `none`, and `parse(s)` fails with an error instead: propagate the failure with `parse(s)!`, or handle it with `catch`
 ```
 
+**`+` on strings.** A `String` is a view of text it does not own, so
+there is nothing for `+` to write into. Text is built in a `Text`,
+which owns its bytes: `Text(a, b)` writes each value as `print` would,
+and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
+
+```rig reject
+sub main
+  name = "ada"
+  print("hi " + name)
+```
+
+```error
+Rig has no `+` on text: build it with `Text(a, b)` or `!t.add(...)`
+```
+
+```rig
+sub main
+  name = "ada"
+  t = Text("hi ", name)
+  !t.add(", you are ", 36)
+  print(t)
+```
+
+```output
+hi ada, you are 36
+```
+
 **Inclusive ranges.** A range excludes its end, and there is no `..=`:
 
 ```rig reject
@@ -617,11 +645,11 @@ You will reach for these and not find them:
 
 - **traits and bounds**: a generic body may do with `T` only what each
   instance supports;
-- **heap strings and string building**: `String` is an immutable view,
-  and there is no interpolation;
+- **string interpolation**: text is built with `Text(...)` and
+  `!t.add(...)`, which write values as `print` does;
 - **concurrency and async**;
 - **a large standard library**: beyond `print`, `Cell`, `Vec`, `Box`,
-  `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
+  `Text`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
   `write`), [the standard library](docs/STD.md) has only `std.math`,
   `std.os`, `std.time`, `std.random`, `std.sort`, and `std.slices` so far;
 - **raw pointers**;

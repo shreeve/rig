@@ -81,7 +81,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/diag.zig` | diagnostics: source ranges, line and column, the printed format |
 | `src/modules.zig` | the module graph: loads each `use`d file and checks modules in dependency order |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
-| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Box`, `Signal` as built-in generics and `Endian` as a built-in enum, symbol resolution, declaration types and their checks |
+| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Box`, `Signal` as built-in generics, `Endian` as a built-in enum, and the built-in type names (`Int`, `String`, `Text`, ...), symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/ownership.zig` | the ownership checker |
 | `src/emit.zig` | Zig code generation |
@@ -568,7 +568,10 @@ later pass reads. It runs these steps in order:
    and substitution as user generics, and `Endian` as an enum. The
    methods on elements (`copy`, `fill`, `swap`, `read`, `write`) of
    slices, arrays, Vecs, and Strings, which have no symbol, are checked
-   by `elemsCall` and recorded as `elemCallOf` facts.
+   by `elemsCall` and recorded as `elemCallOf` facts. `Text` is a
+   built-in type like `String` (the `text` type, with drop glue), and
+   its operations, which have no symbol either, are checked by
+   `checkTextNew` and `textCall` and recorded as `textCallOf` facts.
 2. **symbols** (`resolve.resolveSymbols`): one walk creates a `Symbol`
    for every declaration and binding, and a `Scope` for every node that
    opens one, recorded under that node.
@@ -698,6 +701,7 @@ instead of re-deriving it by name:
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read borrow lending it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds borrows, rather than pointing the place elsewhere |
 | `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |
+| `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is recorded as an `arrayViewOf` `borrowed`, walked as `?t[..]` |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 Leaves are keyed by source position and list nodes by their node id:
@@ -936,6 +940,29 @@ the loans of all its captures, as a call's `!` arguments do with its
 arguments. This is sound because the only loans left to such a store
 are on values outside the closure that it captured, and the captured
 value's var now holds each of them for as long as it lives.
+**Strings are views.** A String points into a literal, the process's
+arguments and environment, or a Text's buffer, so the contents pass
+treats it as a borrow the value may or may not hold: `String` sets a
+`view` bit in a type's `Borrows` (reaching through optionals, fields,
+handles, and a Vec's or Box's elements, but not into a Cell or Signal),
+and the checker tracks the loans of any value whose type has it, while
+sema's type-level `holdsBorrow` ignores it (a struct holding a String
+is not a view type, and `Vec[String]` is plain data). `?t[a..b]` of a
+Text borrows the Text as a slice borrows a Vec; a literal carries no
+loan, and a String parameter, like a borrowed one, holds an external
+loan on itself, so a function's String result borrows what its
+arguments do. A value that holds Strings but no borrow
+(`sema.holdsViewOnly`) keeps only the loans that lead to a Text
+(`viewLoans`): its bytes lie in no value without drop glue, so a loan
+on a var whose value has none stands for that var's own loans, read
+loans at that (a String never writes). So `!it.next()` of an iterator
+holding Strings borrows what `it` views, not `it`, and a String read
+through a `!String` keeps what the String views. A value whose loans
+the checker cannot follow per var (a Cell's or Signal's contents, an
+owned closure's captures) holds no String with a loan, which rejects
+a String parameter stored there; a generic body that stores a `T`
+there records a `view` requirement (`PlainRequirement.view`), and an
+instance whose `T` holds a String is rejected (`checkViews`).
 A slice of an array (`?xs[a..b]`) held in the storage of the var it is
 reached from, which may be the function's own (a parameter taken by
 value, a loop or pattern binding), also holds a *frame* loan on that
@@ -1203,6 +1230,7 @@ reviewed.
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |
 | `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read borrow of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readBorrowIsPtr` applies the same rule to a known `T`. `lend` borrows through a pointer, `borrowed` reads the value |
 | `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place |
+| `Text` | `Text`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `Text(...)` and `print` agree exactly; `bytes` is the String view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a Text's or a String's |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a borrowed callable: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |

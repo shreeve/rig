@@ -23,7 +23,7 @@ marked as rejected must fail with the errors shown.
 7. [Ownership](#7-ownership)
 8. [Drop and drop glue](#8-drop-and-drop-glue)
 9. [Shared and weak handles](#9-shared-and-weak-handles)
-10. [Cell, Vec, Box, and Signal](#10-cell-vec-box-and-signal)
+10. [Cell, Vec, Box, Text, and Signal](#10-cell-vec-box-text-and-signal)
 11. [Closures](#11-closures)
 12. [Optionals](#12-optionals)
 13. [Errors](#13-errors)
@@ -94,7 +94,7 @@ every mode.
 | `U8` `U16` `U32` `U64` `U128` | unsigned integers | `u8` ... `u128` |
 | `F32` `F64` | floats | `f32`, `f64` |
 | `Bool` | `true` or `false` | `bool` |
-| `String` | immutable UTF-8 bytes; a Copy value | `[]const u8` |
+| `String` | a view of text: bytes, UTF-8 by convention, that it does not own; a Copy value | `[]const u8` |
 | `Void` | no value (what a `sub` returns) | `void` |
 
 `Int` is `I64` and `Float` is `F64`: one type under two names. Every
@@ -221,6 +221,15 @@ A `String` has a length `s.len` and can be indexed (`s[0]`, or
 it yields its bytes as `U8`. Strings compare with `==` and
 `!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
 ([§5](#operators)).
+
+A String is a view: it points at bytes it does not own. Those of a
+literal, a module constant, or the program's arguments and environment
+([std.os](docs/STD.md)) last as long as the program, so such a String
+is free to copy anywhere. One taken from a `Text` (`?t[..]`) borrows
+the Text, and carries that borrow wherever it goes
+([§10](#text)). The bytes are UTF-8 by convention, and nothing checks
+it: lengths and indexes count bytes, and a slice checks only its
+bounds.
 
 ### Arrays
 
@@ -666,7 +675,8 @@ no variant `native` on enum `Endian`
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§11](#11-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§11](#11-closures) |
 | `?fun(A) -> R`, `?sub(A)` | borrowed callable: a closure, function, or owned closure lent to a call | [§11](#closure-parameters) |
-| `Cell[T]`, `Vec[T]`, `Box[T]`, `Signal[T]` | built-in generic types | [§10](#10-cell-vec-box-and-signal) |
+| `Cell[T]`, `Vec[T]`, `Box[T]`, `Signal[T]` | built-in generic types | [§10](#10-cell-vec-box-text-and-signal) |
+| `Text` | owned, growable text | [§10](#text) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
 
@@ -679,11 +689,12 @@ borrow: `*(?User)` is rejected.
 
 A **Copy** value is plain data: numbers, `Bool`, `String`, plain enums,
 and optionals, arrays, structs, and `Cell`s that hold only Copy values.
-Using one copies it.
+Using one copies it. A copy of a String that views a Text carries the
+Text's borrow ([§10](#text)).
 
 An **owning** value holds a resource that must be released exactly
-once: a `*T` or `~T` handle, a `Vec`, a `Box`, a `Signal`, an owned
-closure, and any struct, enum, or generic instance that contains one or
+once: a `*T` or `~T` handle, a `Vec`, a `Box`, a `Text`, a `Signal`, an
+owned closure, and any struct, enum, or generic instance that contains one or
 declares a `drop` body. Owning values have **drop glue**: code the compiler
 generates to release them. They move instead of copying, and the
 ownership rules of [§7](#7-ownership) apply to them.
@@ -2936,7 +2947,8 @@ struct field (a **view**), or a function's result, and the checker
 tracks where every one came from.
 
 - A function may return a borrow only of something its caller lent it.
-  The result then borrows from every borrowed argument of the call.
+  The result then borrows from every borrowed argument of the call,
+  a String argument included: it may view a Text ([§10](#text)).
 - A struct holding a borrow keeps the borrowed value borrowed while the
   struct is alive. So does a stack closure that captured a borrow, and
   a value a call may have stored a borrow into (its receiver, and what
@@ -3292,10 +3304,10 @@ leak-free under the checking allocator.
 
 ---
 
-## 10. Cell, Vec, Box, and Signal
+## 10. Cell, Vec, Box, Text, and Signal
 
-These built-in generic types are part of the language's substrate.
-Their names are reserved.
+These built-in types are part of the language's substrate. Their names
+are reserved.
 
 ### Cell
 
@@ -3561,6 +3573,135 @@ sub main
 2
 5
 8
+```
+
+### Text
+
+`Text` is owned, growable text: bytes on the heap, UTF-8 by convention,
+released when the Text is dropped. It is an owning value, so a bare
+name moves nothing: `<t` moves it and `+t` copies its bytes into a new
+Text. A `String` is the view of text; a Text is where text is built.
+
+| Member | Meaning |
+|---|---|
+| `Text()` | an empty Text; nothing is allocated until text is added |
+| `Text(a, b, ...)` | a Text holding each value as `print` writes it ([§17](#17-printing)), with no separators |
+| `!t.add(a, b, ...)` | append each value the same way |
+| `!t.clear()` | empty it, keeping its buffer |
+| `t.len` | its length in bytes, read-only |
+| `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
+| `?t` where a String is expected | `?t[..]` |
+| `+t` | a new Text holding the same bytes |
+| `t == u`, `t == s` | compares its bytes with a Text's or a String's |
+
+Each value is written as `print` writes it at the top level: a String
+or a Text as its text, a number as `print` shows it, a struct, enum,
+optional, array, or Vec as `print` writes it, with the Strings inside
+it quoted. Rig has no `+` on text and no interpolation: text is built
+with `Text(...)` and `!t.add(...)`, and every change to a Text is
+written with `!`.
+
+```rig
+struct Point
+  x: Int
+  y: Float
+
+sub main
+  t = Text("n=", 42, " p=", Point(x: 1, y: 2.5))
+  !t.add(" ok=", true, " ", ["a", "b"])
+  print(t)
+  print(t.len, t == "n=42", ?t[..4])
+  u = +t
+  !u.clear()
+  !u.add("fresh")
+  print(u, u.len)
+```
+
+```output
+n=42 p=Point(x: 1, y: 2.5) ok=true ["a", "b"]
+45 false n=42
+fresh 5
+```
+
+**A view borrows its Text.** A String taken from a Text, `?t[a..b]`,
+is a read borrow of it, as a slice of an array is: while the String is
+in use, the Text cannot be changed, moved, or dropped, and the String
+cannot outlive it. The borrow goes wherever the String goes: into a
+binding, a struct field, a `Vec[String]`, an optional, a closure's
+captures, and a call's result, since a function returning a String may
+return a view of a String it was passed ([§7](#second-class-borrows)).
+Once the last use of the String, and of every value holding it, is
+past, the Text is free again; a Vec holding one is in use until it is
+dropped.
+
+```rig
+fun first_word(s: String) -> String
+  i = 0
+  while i < s.len and s[i] != 32
+    i += 1
+  s[..i]
+
+struct Entry
+  name: String
+
+sub main
+  t = Text("hello world")
+  w = first_word(?t)
+  e = Entry(name: ?t[6..])
+  names: Vec[String] = Vec()
+  !names.push(w)
+  print(w, e, names)
+  -names
+  !t.add("!")
+  print(t)
+```
+
+```output
+hello Entry(name: "world") ["hello"]
+hello world!
+```
+
+```rig reject
+fun first_word(s: String) -> String
+  s[..5]
+
+fun local -> String
+  t = Text("gone")
+  ?t[..]
+
+sub main
+  t = Text("hello world")
+  w = first_word(?t)
+  !t.add("!")
+  print(w, local())
+```
+
+```error
+cannot write-borrow `t` while a read borrow is live
+returned borrow of `t` does not originate from a borrowed parameter
+```
+
+A String whose origin a function cannot see, a parameter or a value
+built from one, may view a Text, so it stays where borrows are
+followed. It cannot be stored in a `Cell` or a `Signal`, or captured by
+an owned closure, since every handle to those reaches what they hold;
+nor can a closure store its String parameter through a capture. A
+generic body that stores a `T` in a `Cell`, a `Signal`, or an owned
+closure cannot be instantiated with a `T` that holds a String. Where a
+String must outlive the Text it came from, copy it into a Text of its
+own: `Text(s)`.
+
+```rig reject
+sub keep(c: ?Cell[String], s: String)
+  c.set(s)
+
+sub main
+  c = Cell("")
+  keep(?c, "a")
+```
+
+```error
+cannot store a borrow of `s` in a `Cell`
 ```
 
 ### Signal
@@ -4887,7 +5028,7 @@ direct call; it is not a value.
 | Value | Printed as |
 |---|---|
 | numbers, `Bool` | `42`, `-3`, `2.5`, `true`; a whole `Float` keeps its point, `1.0`, and a NaN is `nan` on every platform |
-| `String` | its text; inside other values, quoted |
+| `String`, `Text` | its text; inside other values, quoted |
 | `none` | `none` |
 | enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, however it was built |
 | error | `Disk.timeout`: its set and its name, without the module |

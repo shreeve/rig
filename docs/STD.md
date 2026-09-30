@@ -108,9 +108,12 @@ true -3.0 -2.0
 ## std.os
 
 The arguments and environment the program started with. Their Strings
-live as long as the program, as a literal's do, so they can be kept,
-returned, and stored anywhere. They hold the bytes the operating system
-gave, which are not checked to be UTF-8.
+live as long as the program, as a literal's do, and view no `Text`.
+They hold the bytes the operating system gave, which are not checked
+to be UTF-8. Like any function returning a String, `env(name)` counts
+as a view of its argument ([SPEC §7](../SPEC.md#second-class-borrows)),
+so its result is as free as `name` is: with a literal name, it can be
+kept, returned, and stored anywhere.
 
 | Function | Result |
 |---|---|
