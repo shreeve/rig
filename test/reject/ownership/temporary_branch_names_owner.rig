@@ -1,0 +1,32 @@
+# A value whose branch is an owner a name holds is no temporary: reading
+# it where it stands would move that owner, which the name still holds.
+# Borrow each branch instead.
+
+struct N
+  id: Int
+  v: Vec[Int]
+
+  drop(!self)
+    print("drop", self.id)
+
+fun size(s: String) -> Int
+  s.len
+
+sub main
+  a = Text("aaaa")
+  b = Text("bb")
+  c = true
+  print(a if c else b)
+  print(size(?(a if c else b)))
+  print((a if c else b) == "aaaa")
+  m = N(id: 1, v: Vec())
+  n = N(id: 2, v: Vec())
+  print(m if c else n)
+  print(?a if c else ?b, size(?a if c else ?b))
+  print(a, b, m.id)
+
+# error: 19:9: a branch of this value is an owner a name holds, which it would move
+# error: 20:16: a branch of this value is an owner a name holds
+# error: 21:10: a branch of this value is an owner a name holds
+# error: 24:9: a branch of this value is an owner a name holds
+# errors: 4

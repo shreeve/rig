@@ -1,0 +1,66 @@
+# The temporaries of a statement are dropped last made first, on every
+# path: after the statement, when it fails, and before a loop's
+# condition runs again. A value whose `drop` body reads a temporary it
+# borrows is dropped before that temporary.
+
+struct N
+  id: Int
+  v: Vec[Int]
+
+  drop(!self)
+    print("drop N", self.id)
+    self.id = -99
+
+struct R
+  n: ?N
+
+  drop(!self)
+    print("drop R of", self.n.id)
+
+struct B
+  s: String
+  v: Vec[Int]
+
+  drop(!self)
+    print("drop B", self.s)
+
+error Bad
+  no
+
+fun f -> Int!
+  Bad.no
+
+fun run -> Int!
+  print(R(n: ?N(id: 1, v: Vec())).n.id, f()!)
+  0
+
+fun mkb(s: String) -> B
+  B(s: s, v: Vec())
+
+sub main
+  print(R(n: ?N(id: 2, v: Vec())).n.id)
+  print(run() catch -1)
+  i = 0
+  while mkb(?Text("pass", i)).s.len < 6
+    i += 1
+  print(i)
+
+# expect:
+# 2
+# drop R of 2
+# drop N 2
+# drop R of 1
+# drop N 1
+# -1
+# drop B pass0
+# drop B pass1
+# drop B pass2
+# drop B pass3
+# drop B pass4
+# drop B pass5
+# drop B pass6
+# drop B pass7
+# drop B pass8
+# drop B pass9
+# drop B pass10
+# 10

@@ -1,0 +1,22 @@
+# A view of a `while` header's temporary kept past the pass, whether the
+# pass ends, breaks, or continues an outer loop, is one mistake and gets
+# one error.
+
+use std.text
+
+sub main
+  o = "init"
+  while text.cut(?Text("k=v"), "=") as kv
+    o = kv.after
+    break
+  print(o)
+  p = "init"
+  :outer for _ in 0..2
+    while text.cut(?Text("a=b"), "=") as kv
+      p = kv.after
+      continue :outer
+  print(p)
+
+# error: 9:19: a borrow of the temporary `Text("k=v")` outlives its statement
+# error: 15:21: a borrow of the temporary `Text("a=b")` outlives its statement
+# errors: 2

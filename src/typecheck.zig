@@ -3475,7 +3475,16 @@ const Checker = struct {
     fn lendTemp(self: *Checker, operand: Sexp) Error!void {
         const base = if (isPlaceExpr(operand)) self.placeOf(operand).base else operand;
         if (base != .list) return;
+        if (try self.rejectNamedBranch(base, self.ctx.typeOf(base) orelse return)) return;
         try self.ctx.recordTempDrop(base);
+    }
+
+    /// A value whose branch is an owner a name holds (`a if c else b`)
+    /// would move it into a temporary: rejected, as a bare owner is.
+    fn rejectNamedBranch(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
+        if (!branchNamesPlace(e) or !sema.typeHasDropGlue(self.ctx, ty)) return false;
+        try self.errAt(e, "a branch of this value is an owner a name holds, which it would move; bind the value to a name first, or borrow each branch (`?a if c else ?b`)", .{});
+        return true;
     }
 
     /// Synthesize `operand` where its value is only read: an owning
@@ -3490,6 +3499,7 @@ const Checker = struct {
     /// when it is one that owns a resource.
     fn readTemp(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
         if (isPlaceExpr(operand) or operand != .list or self.isPoison(ty)) return;
+        if (try self.rejectNamedBranch(operand, ty)) return;
         if (try self.ownsResource(ty, self.startOf(operand), "leaves a temporary")) try self.ctx.recordTempDrop(operand);
     }
 
@@ -8167,6 +8177,25 @@ fn isArithmetic(e: Sexp) bool {
         .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => true,
         else => false,
     };
+}
+
+/// Whether a branch of `e` (an `if`, `match`, or block value) yields a
+/// place: a name, or a field or element of one.
+fn branchNamesPlace(e: Sexp) bool {
+    if (isPlaceExpr(e)) return true;
+    const kind = e.kind() orelse return false;
+    switch (kind) {
+        .@"if" => return branchNamesPlace(ir.If.then(e)) or branchNamesPlace(ir.If.@"else"(e)),
+        .match => {
+            for (ir.Match.arms(e)) |arm| if (branchNamesPlace(ir.Arm.body(arm))) return true;
+            return false;
+        },
+        .block => {
+            const stmts = ir.Block.stmts(e);
+            return stmts.len > 0 and branchNamesPlace(stmts[stmts.len - 1]);
+        },
+        else => return false,
+    }
 }
 
 fn isPlaceExpr(e: Sexp) bool {

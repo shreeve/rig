@@ -1,0 +1,30 @@
+# A `match` over a temporary reads it, and its statement drops it: an
+# arm cannot move a payload out, which would free it twice. `match <e`
+# takes the payloads.
+
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+enum M
+  a(n: N)
+  b
+
+fun mk -> M
+  M.a(n: N(id: 1))
+
+sub take(n: N)
+  print("took", n.id)
+
+sub main
+  match mk()
+    .a(n) => take(<n)
+    .b => print("b")
+  match <mk()
+    .a(n) => take(<n)
+    .b => print("b")
+
+# error: 23:20: cannot move `n` out of `mk()`: `match mk()` reads `mk()`; write `match <mk()` to take its fields
+# errors: 1

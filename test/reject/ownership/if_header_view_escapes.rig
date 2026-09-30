@@ -1,0 +1,37 @@
+# The temporaries of an `if` header live through the `if`, and no
+# longer: a view of one the body leaves in a binding, a Vec, or through
+# a borrow outlives them.
+
+use std.text
+
+struct N
+  v: Vec[Int]
+
+fun mk -> N
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  N(v: <v)
+
+fun idp(n: ?N) -> (?Vec[Int])?
+  ?n.v
+
+sub main
+  o = "init"
+  if text.strip_prefix(?Text("pre-fix"), "pre-") as rest
+    o = rest
+  v: Vec[String] = Vec()
+  if text.cut(?Text("q,r"), ",") as kv
+    !v.push(kv.before)
+  if text.cut(?Text("s,t"), ",") as kv and kv.before.len > 0
+    o = kv.after
+  keep: Vec[Int] = Vec()
+  p = ?keep
+  if idp(?mk()) as r
+    p = r
+  print(o, v, p)
+
+# error: 20:25: a borrow of the temporary `Text("pre-fix")` outlives its statement
+# error: 23:16: a borrow of the temporary `Text("q,r")` outlives its statement
+# error: 25:16: a borrow of the temporary `Text("s,t")` outlives its statement
+# error: 29:11: a borrow of the temporary `mk()` outlives its statement
+# errors: 4

@@ -101,7 +101,13 @@ const Hoisted = struct { node: Sexp, name: []const u8, flag: []const u8 = "" };
 
 /// The slot an owning temporary is kept in until its statement ends,
 /// and the flag saying it holds one.
-const TempSlot = struct { node: parser.NodeId, name: []const u8 };
+const TempSlot = struct {
+    node: parser.NodeId,
+    name: []const u8,
+    /// For the first temporary a loop's condition makes: the slots of
+    /// that condition, last first, dropped before it runs again.
+    resets: []const []const u8 = &.{},
+};
 
 /// A loop used as a value: its Rig label (empty when it has none), the
 /// Zig block its `break` values leave, and its type.
@@ -1035,9 +1041,16 @@ pub const Emitter = struct {
         defer self.temp_slots.shrinkRetainingCapacity(first);
         try self.emitStmtOnly(sexp);
         if (isTerminatingStmt(sexp)) return;
-        for (self.temp_slots.items[first..]) |t| {
-            try self.w.print(" if ({s}_live) {{ {s}_live = false; rig.drop(&{s}); }}", .{ t.name, t.name, t.name });
+        // The last made is dropped first, as the `defer`s would.
+        var i = self.temp_slots.items.len;
+        while (i > first) {
+            i -= 1;
+            try self.writeTempDrop(self.temp_slots.items[i].name);
         }
+    }
+
+    fn writeTempDrop(self: *Emitter, name: []const u8) Error!void {
+        try self.w.print(" if ({s}_live) {{ {s}_live = false; rig.drop(&{s}); }}", .{ name, name, name });
     }
 
     /// Declare a slot for each owning temporary in statement `stmt` (not
@@ -1045,6 +1058,21 @@ pub const Emitter = struct {
     /// on their own) that has none yet, inline before the statement.
     fn emitTempSlots(self: *Emitter, stmt: Sexp) Error!void {
         if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
+        // The parts first: they are made first, so their `defer`s run
+        // after those of what holds them.
+        if (stmt.isKind(.@"while")) {
+            // A condition's temporaries are dropped, last first, before
+            // it runs again.
+            const start = self.temp_slots.items.len;
+            try self.emitTempSlots(ir.While.cond(stmt));
+            const made = self.temp_slots.items[start..];
+            if (made.len > 0) {
+                const names = try self.arena.allocator().alloc([]const u8, made.len);
+                for (made, 0..) |t, k| names[made.len - 1 - k] = t.name;
+                made[0].resets = names;
+            }
+            for (rig.children(stmt)) |c| if (!sameNode(c, ir.While.cond(stmt))) try self.emitTempSlots(c);
+        } else for (rig.children(stmt)) |c| try self.emitTempSlots(c);
         if (self.sema.dropsTemp(stmt) and self.tempSlot(stmt) == null) {
             const name = try self.fmt("__rig_tmp_{d}", .{self.nextId()});
             try self.w.print("var {s}: ", .{name});
@@ -1052,12 +1080,11 @@ pub const Emitter = struct {
             try self.w.print(" = undefined; var {s}_live = false; defer if ({s}_live) rig.drop(&{s}); ", .{ name, name, name });
             try self.temp_slots.append(self.allocator, .{ .node = stmt.list.id, .name = name });
         }
-        for (rig.children(stmt)) |c| try self.emitTempSlots(c);
     }
 
-    fn tempSlot(self: *Emitter, node: Sexp) ?[]const u8 {
+    fn tempSlot(self: *Emitter, node: Sexp) ?TempSlot {
         if (node != .list) return null;
-        for (self.temp_slots.items) |t| if (t.node == node.list.id) return t.name;
+        for (self.temp_slots.items) |t| if (t.node == node.list.id) return t;
         return null;
     }
 
@@ -2732,9 +2759,17 @@ pub const Emitter = struct {
             const saved = self.keeping;
             defer self.keeping = saved;
             self.keeping = sexp;
-            try self.w.print("rig.keep(&{s}, &{s}_live, ", .{ slot, slot });
+            try self.w.print("rig.keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
+            var label: []const u8 = "";
+            if (slot.resets.len > 0) {
+                label = try self.fmt("__rig_reset_{d}", .{self.nextId()});
+                try self.w.print("{s}: {{", .{label});
+                for (slot.resets) |r| try self.writeTempDrop(r);
+                try self.w.print(" break :{s} ", .{label});
+            }
             self.bare = true;
             try self.emitValue(sexp, tail);
+            if (label.len > 0) try self.w.writeAll("; }");
             return self.w.writeAll(").*");
         }
         // A temporary holds the value its context reads (`hoist`).

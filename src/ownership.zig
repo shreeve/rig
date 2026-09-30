@@ -728,6 +728,7 @@ pub const Checker = struct {
 
     fn reportShortLived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
         const root = self.vars.items[l.root];
+        if (root.kind == .hidden and root.name.len > 0) return self.reportTempOutlived(l, holder);
         try self.err(l.pos, "`{s}` does not live long enough", .{root.name});
         if (holder) |h| {
             const hv = self.vars.items[h];
@@ -737,6 +738,16 @@ pub const Checker = struct {
             }
         }
         try self.note(root.decl, "`{s}` goes out of scope while still borrowed", .{root.name});
+    }
+
+    /// A borrow `l` of a statement's temporary that `holder` keeps past
+    /// the statement.
+    fn reportTempOutlived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
+        try self.err(l.pos, "a borrow of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{self.vars.items[l.root].name});
+        if (!self.last_err_kept) return;
+        const h = holder orelse return;
+        const hv = self.vars.items[h];
+        if (hv.name.len > 0) try self.note(hv.decl, "`{s}` still holds it after the statement", .{hv.name});
     }
 
     fn addVar(self: *Checker, var_: Var, flow: Flow) Error!VarId {
@@ -1326,9 +1337,7 @@ pub const Checker = struct {
                     if (l.root != d.id) {
                         try kept.append(self.arena(), l);
                     } else if (!reported and self.holderLive(@intCast(holder), at)) {
-                        try self.err(l.pos, "a borrow of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{t.name});
-                        const hv = self.vars.items[holder];
-                        if (hv.name.len > 0) try self.note(hv.decl, "`{s}` still holds it after the statement", .{hv.name});
+                        try self.reportTempOutlived(l, @intCast(holder));
                         reported = true;
                     }
                 }
@@ -2567,6 +2576,14 @@ pub const Checker = struct {
             try self.noteLoan(l);
             return;
         }
+        // An element of a Cell's Vec, or a field of one, is stored in
+        // the Cell, which every handle to it reaches: it may hold no loan.
+        if (self.inCellVec(target)) {
+            try self.requireNoView(pos, self.exprType(target));
+            const loans = (try self.viewLoans(self.exprType(target), value)).loans;
+            if (loans.len > 0) try self.err(pos, "cannot store a borrow of `{s}` in a `Cell`: every handle to it could reach the borrow; a value stored in a Cell or Signal may not hold one", .{self.vars.items[loans[0].root].name});
+            return;
+        }
         if (value.loans.len == 0 or !self.mayCarryBorrow(self.exprType(target))) return;
         // A value stored through a `!T` field or element lands in what
         // the field borrows, which `v` holds a write loan on.
@@ -2593,6 +2610,22 @@ pub const Checker = struct {
         var f = self.flows.items[id];
         f.loans = try self.unionLoans(f.loans, value.loans);
         try self.setFlow(id, f);
+    }
+
+    /// Whether place `target` is, or is a field of, an element of the Vec
+    /// a Cell holds (`c[i] = v`, `c[i].f = v`).
+    fn inCellVec(self: *const Checker, target: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        var e = target;
+        while (e.isKind(.member) or e.isKind(.index)) : (e = ir.get(e, .object)) {
+            if (!e.isKind(.index)) continue;
+            const ty = self.exprType(ir.Index.object(e)) orelse continue;
+            switch (ctx.types.get(sema.unwrapReadAccess(ctx, ty))) {
+                .parameterized_nominal => |pn| if (pn.sym == ctx.cell_sym_id) return true,
+                else => {},
+            }
+        }
+        return false;
     }
 
     /// Store `value` into `target`, reached through capture `v` of the
@@ -3271,10 +3304,14 @@ pub const Checker = struct {
         const else_b = ir.If.@"else"(node);
         const base = try self.here();
         const depth = self.scopes.items.len;
+        const drops = self.stmt_drops.items.len;
         try self.walkConditionParts(ir.If.cond(node), then_b);
         // A failing part goes on to the `else`, or past the `if`.
         const failed = try self.leaveTo(base, resumeAt(else_b, node));
         var v1 = try self.walkTailBranch(then_b, t);
+        // The header's temporaries live through the `if`: what the body
+        // leaves holding one after it is reported here, while they exist.
+        try self.dropStmtTemps(drops, extent(node).hi +| 1);
         while (self.scopes.items.len > depth) {
             v1 = try self.checkValueEscapesScope(v1);
             try self.popScope();
@@ -3366,6 +3403,11 @@ pub const Checker = struct {
         }
         const scrut_temps = self.temps.items.len;
         const scrut_value = try self.walk(scrut);
+        // A temporary subject is held in a hidden var its statement drops:
+        // the payload bindings view it as they would a named one.
+        if (info.root == null) if (self.sema) |ctx| if (ctx.dropsTemp(node) and scrut_value.loans.len == 1) {
+            info.root = scrut_value.loans[0].root;
+        };
         // A payload binding holds its own loan on the matched place, so
         // the borrow of the subject ends with the bindings, not the match.
         if (lent and info.root != null) self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));

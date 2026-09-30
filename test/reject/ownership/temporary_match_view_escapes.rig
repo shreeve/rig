@@ -15,5 +15,5 @@ sub main
     .b => print("b")
   print(o)
 
-# error: 14:19: `t` does not live long enough
+# error: 14:8: a borrow of the temporary `mk()` outlives its statement
 # errors: 1
