@@ -1235,6 +1235,8 @@ pub const Emitter = struct {
 
     /// Assignment to a field or element. When the place may hold a
     /// resource, the old value is dropped after the new one is computed.
+    /// The value and the target's indices are evaluated first
+    /// (`openAssign`).
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
         // A field or element holding a write borrow is written through
         // when it is given a value, not another write borrow (sema
@@ -1242,38 +1244,123 @@ pub const Emitter = struct {
         const through = self.sema.writesThrough(target);
         const place_ty = if (through) self.peelBorrows(self.typeOf(target).?) else self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
+            const order = try self.openAssign(target, value, self.typeOf(target), .value);
             try self.emitCellPtr(ir.Index.object(target));
             try self.w.writeAll(".vecSet(");
             try self.emitBare(ir.Index.index(target));
             try self.w.writeAll(", ");
             try self.emitBare(value);
-            return self.w.writeAll(");");
+            try self.w.writeAll(");");
+            return self.closeAssign(order);
         };
         if (target != .src and self.isPtrBorrowExpr(target) and !through) {
             // A field or element holding a write borrow is rebound.
+            const order = try self.openAssign(target, value, null, .borrow);
             try self.emitBorrowValue(target);
             try self.w.writeAll(" = ");
             try self.emitBorrowValue(value);
-            return self.w.writeAll(";");
+            try self.w.writeAll(";");
+            return self.closeAssign(order);
         }
         const may_own = if (place_ty) |t| self.kindOf(t) != null else true;
         if (!may_own) {
+            const order = try self.openAssign(target, value, place_ty, .value);
             try self.emitPlace(target);
             try self.w.writeAll(" = ");
             try self.emitBare(value);
             try self.w.writeAll(";");
-            return;
+            return self.closeAssign(order);
         }
         const id = try self.openNewValue(place_ty, value);
-        try self.w.print("; const __rig_slot_{d} = &", .{id});
+        try self.w.writeAll("; ");
+        const first = self.hoisted.items.len;
+        if (actsBeforeStore(target, value)) try self.hoistIndices(target, id);
+        try self.w.print("const __rig_slot_{d} = &", .{id});
         try self.emitPlace(target);
+        self.hoisted.shrinkRetainingCapacity(first);
         try self.w.print("; rig.drop(__rig_slot_{d}); __rig_slot_{d}.* = __rig_new_{d}; }}", .{ id, id, id });
     }
 
-    /// `x op= e` on a name or place, with the place evaluated once. The
-    /// operators that lower to a builtin (`@divTrunc` for integer `/`,
-    /// `@rem`, `@shlExact`) assign the builtin's result; the others use
-    /// Zig's own compound assignment.
+    /// How `openAssign` evaluates an assignment's value: as a value, as
+    /// the borrow a borrow-holding place is pointed at, or not at all
+    /// (the caller evaluated it).
+    const AssignValue = enum { value, borrow, none };
+
+    /// Every assignment evaluates its value first, then its target's
+    /// index expressions from the outside in, and only then finds the
+    /// place and stores (SPEC §4), which is the order the ownership
+    /// checker walks it in: a call in the value that grows, replaces, or
+    /// frees what the target lies in cannot leave the store pointing
+    /// into freed memory. When the value or an index can act (a call,
+    /// an assignment, a drop, or a jump), this opens a block and
+    /// evaluates the value into `__rig_new_N` and each index into
+    /// `__rig_ix_N_k`, unless it is pure; the store written next names
+    /// them. Returns what `closeAssign` needs, or null when nothing can
+    /// act and the order is unobservable.
+    fn openAssign(self: *Emitter, target: Sexp, value: Sexp, ty: ?TypeId, how: AssignValue) Error!?usize {
+        if (!actsBeforeStore(target, value)) return null;
+        const first = self.hoisted.items.len;
+        const id = self.nextId();
+        try self.w.writeAll("{ ");
+        if (how != .none and !self.isPureArg(value)) {
+            const name = try self.fmt("__rig_new_{d}", .{id});
+            try self.w.print("const {s}", .{name});
+            if (ty) |t| {
+                try self.w.writeAll(": ");
+                try self.emitTypeTy(t);
+            }
+            try self.w.writeAll(" = ");
+            if (how == .borrow) try self.emitBorrowValue(value) else try self.emitBare(value);
+            try self.w.writeAll("; ");
+            try self.hoisted.append(self.allocator, .{ .node = value, .name = name });
+        }
+        try self.hoistIndices(target, id);
+        return first;
+    }
+
+    fn closeAssign(self: *Emitter, order: ?usize) Error!void {
+        const first = order orelse return;
+        self.hoisted.shrinkRetainingCapacity(first);
+        try self.w.writeAll(" }");
+    }
+
+    /// Evaluate each index of place `e` that is not pure into
+    /// `__rig_ix_<id>_<k>`, from the outside in, as `openAssign`
+    /// describes.
+    fn hoistIndices(self: *Emitter, e: Sexp, id: u32) Error!void {
+        switch (e.kind() orelse return) {
+            .member => try self.hoistIndices(ir.Member.object(e), id),
+            .index => {
+                try self.hoistIndices(ir.Index.object(e), id);
+                const index = ir.Index.index(e);
+                if (!index.isKind(.@"..")) return self.hoistIndex(index, id);
+                for ([2]Sexp{ ir.@"..".left(index), ir.@"..".right(index) }) |bound| if (bound != .nil) try self.hoistIndex(bound, id);
+            },
+            else => {},
+        }
+    }
+
+    fn hoistIndex(self: *Emitter, index: Sexp, id: u32) Error!void {
+        if (self.isPureArg(index)) return;
+        const name = try self.fmt("__rig_ix_{d}_{d}", .{ id, self.hoisted.items.len });
+        try self.w.print("const {s}", .{name});
+        if (self.typeOf(index)) |t| {
+            try self.w.writeAll(": ");
+            try self.emitTypeTy(t);
+        }
+        try self.w.writeAll(" = ");
+        const saved = self.place_chain;
+        defer self.place_chain = saved;
+        self.place_chain = false;
+        try self.emitBare(index);
+        try self.w.writeAll("; ");
+        try self.hoisted.append(self.allocator, .{ .node = index, .name = name });
+    }
+
+    /// `x op= e` on a name or place, with the place evaluated once, after
+    /// `e` (`openAssign`). The operators that lower to a builtin
+    /// (`@divTrunc` for integer `/`, `@rem`, `@shlExact`) assign the
+    /// builtin's result; the others use Zig's own compound assignment.
     fn emitCompound(self: *Emitter, target: Sexp, op: Tag, value: Sexp) Error!void {
         const builtin: ?[]const u8 = switch (op) {
             .@"/", .@"%" => self.divBuiltin(op, target, value),
@@ -1281,6 +1368,9 @@ pub const Emitter = struct {
             else => null,
         };
         const shift = op == .@"<<" or op == .@">>";
+        // The value of a shift is its amount, of any integer type.
+        const value_ty = self.typeOf(if (shift) value else target);
+        const order = try self.openAssign(target, value, if (value_ty) |t| self.peelBorrows(t) else null, .value);
         if (builtin) |b| {
             var slot: []const u8 = "";
             if (target == .src) {
@@ -1298,7 +1388,7 @@ pub const Emitter = struct {
             try self.emitBare(value);
             if (shift) try self.w.writeAll(")");
             try self.w.writeAll(if (target == .src) ");" else "); }");
-            return;
+            return self.closeAssign(order);
         }
         try self.emitPlace(target);
         try self.w.print(" {s}= ", .{@tagName(op)});
@@ -1306,6 +1396,7 @@ pub const Emitter = struct {
         try self.emitBare(value);
         if (shift) try self.w.writeAll(")");
         try self.w.writeAll(";");
+        return self.closeAssign(order);
     }
 
     /// An assignable place: a binding, field, or element.
@@ -5436,6 +5527,23 @@ fn argValue(a: Sexp) Sexp {
 }
 
 /// Whether `e` holds a node of one of `kinds`, outside the closures in it.
+/// The value of an assignment, or an index of its target, can act when
+/// it runs: it calls, assigns, drops, or leaves. Then the order of the
+/// value, the indices, and the store is observable (`openAssign`).
+fn actsBeforeStore(target: Sexp, value: Sexp) bool {
+    const acts = &[_]Tag{ .call, .builtin, .set, .drop, .@"return", .@"break", .@"continue", .propagate, .propagate_none };
+    if (contains(value, acts)) return true;
+    var e = target;
+    while (true) switch (e.kind() orelse return false) {
+        .member => e = ir.Member.object(e),
+        .index => {
+            if (contains(ir.Index.index(e), acts)) return true;
+            e = ir.Index.object(e);
+        },
+        else => return false,
+    };
+}
+
 fn contains(e: Sexp, kinds: []const Tag) bool {
     if (e != .list) return false;
     if (e.kind()) |h| {

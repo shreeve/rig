@@ -1144,6 +1144,15 @@ lower is an internal error: sema must have rejected it.
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's
   guarded `defer` then drops.
+- **Assignments.** Zig finds the address of `place.* = f()` before it
+  calls `f`, so an assignment to a field or element whose value or
+  indexes can act (a call, an assignment, a drop, a jump) evaluates the
+  value into `__rig_new_N` and each index into `__rig_ix_N_k` first,
+  then stores (`openAssign`): the order the ownership checker walks it
+  in (`walkFieldAssign`), and the order SPEC §4 gives. A borrow, a
+  slice, or a receiver takes its place's address up to each index
+  before the index runs, so there the checker holds the root read while
+  the indexes are walked (`walkIndicesHeld`).
 - **Closures.** A stack closure is a local struct holding its captures,
   with an `__rig_invoke` method. An owned closure allocates an environment
   struct per literal and erases it behind `rig.Closure(params, R)`, so

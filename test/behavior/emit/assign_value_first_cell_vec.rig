@@ -1,0 +1,22 @@
+# An element of a Cell's Vec is stored after the right-hand side runs,
+# into the Cell the field holds then.
+
+struct B
+  c: *Cell[Vec[Int]]
+
+fun renew(b: !B) -> Int
+  xs: Vec[Int] = Vec()
+  !xs.push(0)
+  !xs.push(0)
+  b.c = *Cell(<xs)
+  3
+
+sub main
+  xs: Vec[Int] = Vec()
+  !xs.push(1)
+  b = B(c: *Cell(<xs))
+  b.c[1] = renew(!b)
+  print(b.c[0], b.c[1])
+
+# expect:
+# 0 3

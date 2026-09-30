@@ -1621,8 +1621,8 @@ reassigned. `_ = e` evaluates `e` and discards it, and an owning value
 discarded so is dropped at once. A binding's type comes from its
 annotation or its value.
 
-A compound assignment `x op= e` is `x = x op e`, with `x` evaluated
-once, and keeps its target's type: an arithmetic operator
+A compound assignment `x op= e` stores `x op e` in `x`, finding the
+place `x` once, and keeps its target's type: an arithmetic operator
 needs a number, a bitwise operator or shift an integer, and a shift
 amount may be any integer. Each behaves like its operator
 ([§5](#operators)): `/=` truncates, `%=` takes the dividend's sign, and
@@ -1639,6 +1639,38 @@ sub main
 
 ```output
 21
+```
+
+An assignment evaluates its value first, then the indexes of its
+target from the outside in, and only then finds the place and stores
+into it; a compound assignment reads the place there, combines, and
+writes it back. A call on the right that grows the Vec an element is
+in, or replaces the value a field is in, is safe: the store lands in
+the value as the call left it, and panics if the element is gone.
+
+```rig
+fun grow(v: !Vec[Int]) -> Int
+  !v.push(v.len)
+  v.len
+
+fun at(i: Int, what: String) -> Int
+  print(what)
+  i
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  v[0] = grow(!v)
+  v[at(1, "index")] += at(10, "value")
+  n = 1
+  n += grow(!v)
+  print(v, n)
+```
+
+```output
+value
+index
+[2, 11, 2] 4
 ```
 
 There is no implicit shadowing. A local may not reuse the name of a
@@ -2799,6 +2831,34 @@ sub main
 
 ```error
 cannot write-borrow `v` while an earlier argument's read of it is in use
+```
+
+A borrow of a place (`!v[i]`, `?p.xs[i]`, a slice `!v[i..]`, or the
+receiver of a method call) finds the place up to each index before the
+index runs, so an index cannot write-borrow or move the place's root:
+it could grow or free the memory the place is in. An assignment finds
+its target only after the indexes run ([§4](#4-bindings-and-assignment)),
+so `v[grow(!v)] = 1` is accepted.
+
+```rig reject
+struct P
+  a: [4]Int
+
+fun grow(v: !Vec[P]) -> Int
+  !v.push(P(a: [0, 0, 0, 0]))
+  1
+
+sub set(n: !Int)
+  n = 9
+
+sub main
+  ps: Vec[P] = Vec()
+  !ps.push(P(a: [1, 2, 3, 4]))
+  set(!ps[0].a[grow(!ps)])
+```
+
+```error
+cannot write-borrow `ps` in an index of a place borrowed from it
 ```
 
 #### Write borrows

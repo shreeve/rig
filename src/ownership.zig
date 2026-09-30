@@ -58,7 +58,11 @@
 //!   its receiver for the whole call (`rc.show(<rc)` is rejected), and
 //!   an argument that reads a value sharing storage its place owns
 //!   holds that place read until the call ends (`print(v, grow(!v))`
-//!   is rejected).
+//!   is rejected). The indexes of a borrowed place (a borrow, a slice,
+//!   a receiver) cannot write-borrow or move its root, whose address is
+//!   found before they run (`!ps[0].a[grow(!ps)]` is rejected); an
+//!   assignment evaluates its value, then its target's indexes, then
+//!   stores, so there they may.
 //! * A borrow may not outlive its root: when a scope ends (normally or by
 //!   `break`, `continue` or `!`), no surviving value may hold a loan on a
 //!   var declared in it. A returned value, or one stored into something
@@ -132,6 +136,9 @@ const Loan = struct {
     /// A call argument's read of the root by value, which shares storage
     /// the root owns (see `holdArgRead`).
     arg_read: bool = false,
+    /// The root of a place whose address is being found while its
+    /// indices run (see `walkIndicesHeld`).
+    place_hold: bool = false,
 
     fn sameAs(a: Loan, b: Loan) bool {
         return a.root == b.root and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
@@ -614,7 +621,9 @@ pub const Checker = struct {
     }
 
     fn noteLoan(self: *Checker, loan: Loan) Error!void {
-        if (loan.arg_read) {
+        if (loan.place_hold) {
+            try self.note(loan.pos, "`{s}` is borrowed here, and the place is found up to each index before the index runs", .{self.vars.items[loan.root].name});
+        } else if (loan.arg_read) {
             try self.note(loan.pos, "`{s}` read here: the value shares its storage, and the call uses it after its later arguments run", .{self.vars.items[loan.root].name});
         } else try self.note(loan.pos, "{s} borrow taken here", .{@tagName(loan.kind)});
     }
@@ -634,13 +643,16 @@ pub const Checker = struct {
         const l = self.findLoan(id, if (access == .read) .write else .any, null) orelse return false;
         const name = self.vars.items[id].name;
         const earlier = "while an earlier argument's read of it is in use";
+        const in_index = "in an index of a place borrowed from it";
         switch (access) {
             .read => try self.err(pos, "cannot read-borrow `{s}` while a write borrow is live", .{name}),
-            .write => if (l.arg_read) try self.err(pos, "cannot write-borrow `{s}` " ++ earlier, .{name}) else switch (l.kind) {
+            .write => if (l.place_hold) try self.err(pos, "cannot write-borrow `{s}` " ++ in_index, .{name}) else if (l.arg_read) try self.err(pos, "cannot write-borrow `{s}` " ++ earlier, .{name}) else switch (l.kind) {
                 .read => try self.err(pos, "cannot write-borrow `{s}` while a read borrow is live", .{name}),
                 .write => try self.err(pos, "cannot take a second write borrow on `{s}`", .{name}),
             },
-            .consume => |verb| if (l.arg_read)
+            .consume => |verb| if (l.place_hold)
+                try self.err(pos, "cannot {s} `{s}` " ++ in_index, .{ verb, name })
+            else if (l.arg_read)
                 try self.err(pos, "cannot {s} `{s}` " ++ earlier, .{ verb, name })
             else
                 try self.err(pos, "cannot {s} `{s}` while it is {s}-borrowed", .{ verb, name, @tagName(l.kind) }),
@@ -1612,6 +1624,20 @@ pub const Checker = struct {
         }
     }
 
+    /// The indices of place `e`, whose address is taken (a borrow, a
+    /// slice, a method's receiver): the place up to each index is found
+    /// before the index runs, so while the indices run, `root` is held
+    /// read, and an index cannot write-borrow or move it
+    /// (`!ps[0].a[grow(!ps)]` would write into the buffer `grow` freed).
+    /// An assignment finds its target only after its indices run
+    /// (`walkFieldAssign`).
+    fn walkIndicesHeld(self: *Checker, e: Sexp, root: VarId) Error!void {
+        const mark = self.temps.items.len;
+        try self.addTemp(.{ .root = root, .kind = .read, .pos = self.startOf(e), .place_hold = true });
+        try self.walkPlaceIndices(e);
+        if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
+    }
+
     /// A `member` or `index`.
     fn walkMember(self: *Checker, e: Sexp) Error!Value {
         const obj = try self.walk(ir.get(e, .object));
@@ -1648,7 +1674,7 @@ pub const Checker = struct {
         // not the var holding it: the borrow keeps what the slice keeps.
         if (kind == .read and self.throughReadSlice(inner)) return self.walkBorrowedPath(inner);
         const place = self.resolvePlace(inner) orelse return self.walkBorrowedPath(inner);
-        try self.walkPlaceIndices(inner);
+        try self.walkIndicesHeld(inner, place.root);
         const id = place.root;
         const v = self.vars.items[id];
         const pos = self.startOf(inner);
@@ -1711,7 +1737,7 @@ pub const Checker = struct {
         // views it.
         if (self.throughReadSlice(object)) return self.walkOperand(slice, object);
         const place = self.resolvePlace(object) orelse return self.walkOperand(slice, object);
-        try self.walkPlaceIndices(indices);
+        try self.walkIndicesHeld(indices, place.root);
         const id = place.root;
         const pos = self.startOf(slice);
         const v = (try self.borrowVar(id, kind, pos)) orelse return .{};
@@ -2493,7 +2519,12 @@ pub const Checker = struct {
             const place = if (recv_mode == .value) null else self.resolvePlace(obj);
             if (place) |p| {
                 const found = self.errors_found;
+                // The receiver is passed by address: its indices are held
+                // as a borrowed place's are.
+                const mark = self.temps.items.len;
+                try self.addTemp(.{ .root = p.root, .kind = .read, .pos = self.startOf(obj), .place_hold = true });
                 const recv_val = try self.walk(obj);
+                if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
                 const id = p.root;
                 // A receiver already reported (used while write-borrowed)
                 // is not reported again as a conflicting write borrow.
