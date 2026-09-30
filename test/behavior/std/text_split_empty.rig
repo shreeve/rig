@@ -1,0 +1,9 @@
+# `split` needs a separator: the parts between occurrences of "" would
+# split the String inside its UTF-8 sequences.
+use std.text
+
+sub main()
+  it = text.split("abc", "")
+  print(!it.next())
+
+# expect-panic: text.split: the separator is empty

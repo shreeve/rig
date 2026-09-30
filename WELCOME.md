@@ -651,7 +651,8 @@ You will reach for these and not find them:
 - **a large standard library**: beyond `print`, `Cell`, `Vec`, `Box`,
   `Text`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
   `write`), [the standard library](docs/STD.md) has only `std.math`,
-  `std.os`, `std.time`, `std.random`, `std.sort`, and `std.slices` so far;
+  `std.os`, `std.time`, `std.random`, `std.sort`, `std.slices`, and
+  `std.text` so far;
 - **raw pointers**;
 - **macros**, which Rig does not plan to have.
 

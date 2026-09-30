@@ -1,0 +1,35 @@
+# std.text's searches: byte indexes, the empty pattern, patterns at the
+# ends of the String, and overlapping occurrences.
+use std.text
+
+sub main()
+  s = "abcabc"
+  print(text.find(s, "bc"), text.find_last(s, "bc"), text.find(s, "x"), text.find_last(s, "x"))
+  print(text.find(s, "abc"), text.find_last(s, "abc"), text.find(s, "c"), text.find_last(s, "a"))
+  print(text.find(s, ""), text.find_last(s, ""), text.find("", ""), text.find_last("", ""))
+  print(text.find("", "a"), text.find("ab", "abc"), text.find_last("ab", "abc"))
+  print(text.find("aaaa", "aa"), text.find_last("aaaa", "aa"), text.find("héllo", "l"))
+
+  print(text.contains(s, "ca"), text.contains(s, "cb"), text.contains(s, ""), text.contains("", ""), text.contains("", "a"))
+  print(text.starts_with(s, "ab"), text.starts_with(s, "bc"), text.starts_with(s, s), text.starts_with(s, ""), text.starts_with("ab", "abc"))
+  print(text.ends_with(s, "bc"), text.ends_with(s, "ab"), text.ends_with(s, s), text.ends_with(s, ""), text.ends_with("bc", "abc"))
+
+  print(text.count(s, "bc"), text.count(s, "x"), text.count("aaaa", "aa"), text.count("aaa", "aa"), text.count("aaaa", "a"))
+  print(text.count("abc", ""), text.count("", ""), text.count("", "a"), text.count("abab", "abab"))
+
+  # Every search on a long String, where Zig searches by skip tables.
+  long = "the quick brown fox jumps over the lazy dog, then the quick brown fox naps"
+  print(text.find(long, "quick brown"), text.find_last(long, "quick brown"), text.count(long, "the"), text.find(long, "zebra"))
+
+# expect:
+# 1 4 none none
+# 0 3 2 3
+# 0 6 0 0
+# none none none
+# 0 2 3
+# true false true true false
+# true false true true false
+# true false true true false
+# 2 0 2 1 4
+# 4 1 0 1
+# 4 54 4 none

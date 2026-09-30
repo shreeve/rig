@@ -448,7 +448,8 @@ standard library: its declarations are `fun` and `sub` nodes (or `pub`
 of one) whose `body` is `_`. Every pass reads them as the module-level
 functions they are, and skips the body that is not there: the resolver
 declares and types them (and rejects the block outside the standard
-library, a compile-time parameter, and a fallible signature), the type
+library, a compile-time parameter, and a fallible signature in a module
+that declares no error set), the type
 checker checks the signature and default values, the ownership checker
 has no body to walk, and calls to them are ordinary calls.
 
@@ -1191,12 +1192,26 @@ lower is an internal error: sema must have rejected it.
   from the module graph (`Module.shims`, read where the module is), and
   binds each declaration to the Zig function of its name:
   `pub const sqrt = __rig_shim_1.sqrt;`. Beside each it writes
-  `comptime { rig.expectShim(__rig_shim_1.sqrt, fn (f64) f64, "std.math.sqrt"); }`,
+  `comptime { rig.expectShim(__rig_shim_1.sqrt, fn (f64) f64, error{}, "std.math.sqrt"); }`,
   the Zig type spelled from the declaration's sema signature, as
   `emitFun` spells a Rig function's, so a Zig function whose type
   differs fails the package's build with a message naming the
   declaration. The suite calls every declaration of the standard
   library, so no such mismatch reaches a program.
+  A fallible declaration lowers to `anyerror!T`, but its Zig function
+  returns `E!T` for an error set `E` it spells out, not `anyerror`.
+  The third argument of `expectShim` is every error of the module's
+  error sets (`ParseError || ...`, as `emitErrorSet` wrote them), and
+  each error of `E` must be one of them, so a shim cannot fail with an
+  error Rig does not know. A shim names a Rig error by its Zig name,
+  `error.@"std.text.ParseError.invalid"`: the module, the set, and
+  the member (Zig cannot build an error set from names computed at
+  compile time, so the shim spells its set out). A misspelled or undeclared
+  name fails the build, naming the declaration and the error. The
+  declaration is then a function of its Rig type that calls the shim,
+  `pub fn parse_int(__rig_a0: []const u8) anyerror!i64 { return __rig_shim_1.parse_int(__rig_a0); }`,
+  so it is a value of that type, and a `match` on its error sees every
+  error, as for a Rig function.
 - **`main`** of the root module takes `std.process.Init.Minimal`, the
   only way Zig 0.16 hands a program its arguments and environment. It
   calls `rig.guardStack()` and `rig.start(init)`, then defers
@@ -1245,7 +1260,7 @@ reviewed.
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
 | `discard`, `isNone`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |
-| `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to |
+| `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; `exitStatus` checks the status of `fun main -> Int` |

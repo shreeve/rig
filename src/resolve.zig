@@ -579,6 +579,9 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
     if (!tree.isKind(.module)) return;
     try foldModuleConsts(ctx, tree);
     var tr: TypeResolver = .{ .ctx = ctx, .scope = module_scope };
+    for (ir.Module.decls(tree)) |decl| {
+        if ((if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.errors)) tr.declares_errors = true;
+    }
     for (ir.Module.decls(tree)) |decl| try tr.resolveDecl(decl);
 }
 
@@ -766,6 +769,9 @@ pub const TypeResolver = struct {
     nominal: NominalContext = NominalContext.none,
     /// In a module constant's declaration, its position (`ConstNames.before`).
     const_before: u32 = std.math.maxInt(u32),
+    /// The module declares an error set, which its fallible Zig-backed
+    /// functions fail with.
+    declares_errors: bool = false,
 
     /// The type a type name not found here was likely meant as: a
     /// built-in one written in lower case (`i32`, `string`), or a type
@@ -1011,8 +1017,9 @@ pub const TypeResolver = struct {
 
     /// A Zig-backed `fun` or `sub` has a signature the checker can
     /// trust without a body: one with compile-time parameters would need
-    /// requirements it cannot infer, and one that fails, error names its
-    /// Zig code would have to share with Rig.
+    /// requirements it cannot infer. One that fails returns errors of its
+    /// module's error sets, which the emitter hands `rig.expectShim` to
+    /// check its Zig function against, so the module must declare one.
     fn checkZigBacked(self: *TypeResolver, node: Sexp) Error!void {
         const name = ir.get(node, .name);
         const text = identAt(self.ctx.source, name) orelse "it";
@@ -1020,8 +1027,9 @@ pub const TypeResolver = struct {
             try self.ctx.errAt(name, "a Zig-backed function cannot take compile-time parameters: write `{s}` in Rig", .{text});
         }
         const f = self.ctx.types.get(self.ctx.symbols.items[self.ctx.symbolOf(name) orelse return].ty);
-        if (rig.subFails(node) or (f == .function and self.ctx.types.get(f.function.returns) == .fallible)) {
-            try self.ctx.errAt(name, "a Zig-backed function cannot fail: `{s}` must return its failure as a value", .{text});
+        const fails = rig.subFails(node) or (f == .function and self.ctx.types.get(f.function.returns) == .fallible);
+        if (fails and !self.declares_errors) {
+            try self.ctx.errAt(name, "`{s}` can fail, so its module must declare the errors its Zig function returns: add an error set, `error Name`, with a member for each", .{text});
         }
     }
 

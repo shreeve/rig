@@ -223,6 +223,9 @@ pub const Emitter = struct {
     uses_module: bool = false,
     /// The module declares an `extern "c"`, so the program links libc.
     links_libc: bool = false,
+    /// The Zig error set of every error of the module's error sets,
+    /// which its fallible Zig-backed functions may return.
+    module_errors: []const u8 = "error{}",
     /// The statement or declaration being emitted, where an internal
     /// error about a node without a position is reported.
     stmt: Sexp = .nil,
@@ -258,6 +261,12 @@ pub const Emitter = struct {
         if (!sexp.isKind(.module)) return;
         const decls = ir.Module.decls(sexp);
         try self.collectModule(decls);
+        for (decls) |d0| {
+            const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
+            if (!d.isKind(.errors)) continue;
+            const set = try self.fmt("{f}", .{ident(self.srcText(ir.Errors.name(d)))});
+            self.module_errors = if (std.mem.eql(u8, self.module_errors, "error{}")) set else try self.fmt("{s} || {s}", .{ self.module_errors, set });
+        }
         var scan: Scan = .{ .e = self };
         try scan.walk(sexp);
         for (decls) |decl| {
@@ -352,7 +361,10 @@ pub const Emitter = struct {
     /// `extern zig "file.zig"`: each declaration is the function of the
     /// same name in the standard library's Zig file, written beside the
     /// runtime as `rig/std/file.zig`, and a compile-time check that its
-    /// Zig type is exactly the one the Rig signature lowers to.
+    /// Zig type is exactly the one the Rig signature lowers to. A
+    /// fallible one's Zig function returns a narrower error set, only of
+    /// the module's errors (`rig.expectShim`), so the declaration is a
+    /// function of the Rig type that calls it.
     fn emitZigExtern(self: *Emitter, node: Sexp) Error!void {
         const file = self.srcText(ir.ZigExtern.file(node));
         const shim = try self.fmt("__rig_shim_{d}", .{self.nextId()});
@@ -361,12 +373,26 @@ pub const Emitter = struct {
             const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
             const name = ir.get(d, .name);
             const f = self.fnType(try self.declType(name)) orelse return self.unsupported(name, "an untyped function");
-            try self.w.print("pub const {f} = {s}.{f};\n", .{ ident(self.srcText(name)), shim, ident(self.srcText(name)) });
+            if (self.sema.types.get(f.returns) == .fallible) {
+                try self.w.print("pub fn {f}(", .{ident(self.srcText(name))});
+                for (f.params, 0..) |p, i| {
+                    if (i > 0) try self.w.writeAll(", ");
+                    try self.w.print("__rig_a{d}: ", .{i});
+                    try self.emitTypeTy(p);
+                }
+                try self.w.writeAll(") ");
+                try self.emitTypeTy(f.returns);
+                try self.w.print(" {{\n    return {s}.{f}(", .{ shim, ident(self.srcText(name)) });
+                for (0..f.params.len) |i| try self.w.print("{s}__rig_a{d}", .{ if (i > 0) ", " else "", i });
+                try self.w.writeAll(");\n}\n");
+            } else {
+                try self.w.print("pub const {f} = {s}.{f};\n", .{ ident(self.srcText(name)), shim, ident(self.srcText(name)) });
+            }
             try self.w.print("comptime {{\n    rig.expectShim({s}.{f}, fn (", .{ shim, ident(self.srcText(name)) });
             try self.emitTypeList(f.params);
             try self.w.writeAll(") ");
             if (f.returns == self.sema.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
-            try self.w.print(", \"{s}.{s}\");\n}}\n", .{ self.sema.name, self.srcText(name) });
+            try self.w.print(", {s}, \"{s}.{s}\");\n}}\n", .{ self.module_errors, self.sema.name, self.srcText(name) });
         }
     }
 
