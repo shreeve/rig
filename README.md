@@ -267,9 +267,10 @@ and environment variable. The suite runs on Linux and macOS in
   `extern`, and `test` blocks run by `rig test`
 - `fun main -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
-  environment), `std.time`, `std.random`, `std.sort`, and `std.slices`
+  environment), `std.time`, `std.random`, `std.sort`, `std.slices`, and
+  `std.text` (searching, splitting, and parsing Strings)
 
-**Not yet:** most of a standard library (text, files, maps, formatting),
+**Not yet:** most of a standard library (owned text, files, maps, formatting),
 concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
 storing or returning a stack closure (lending one to a call, as a

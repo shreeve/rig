@@ -4768,7 +4768,22 @@ A Zig-backed function may fail, returning `T!` or declared
 ([§3](#error-sets)): it fails only with their errors, since its Zig
 function's type must name the errors it returns, each one of those
 sets' members. Its failures are errors like any other
-([§13](#13-errors)), named through the module.
+([§13](#13-errors)), named through the module:
+
+```rig
+use std.text
+
+sub main
+  n = text.parse_int("12x") catch |err|
+    print(err, err == text.ParseError.invalid)
+    0
+  print(n + text.parse_int("-30")!)
+```
+
+```output
+ParseError.invalid true
+-30
+```
 
 Only the standard library may declare a Zig-backed function:
 

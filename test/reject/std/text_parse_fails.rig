@@ -1,0 +1,15 @@
+# std.text's parsers can fail, and say so: a call handles the failure or
+# propagates it, a search that cannot fail takes neither, and the
+# errors are `ParseError`'s.
+use std.text
+
+sub main()
+  n = text.parse_int("1")
+  at = text.find("abc", "b")!
+  ok = text.parse_bool("yes") catch |e| e == text.ParseError.empty
+  print(n, at, ok)
+
+# error: 7:7: fallible call to `text.parse_int` must be wrapped with `!` (propagate) or `catch` (handle)
+# error: 8:8: `!` needs a fallible operand; this expression has type `Int?` and cannot fail
+# error: 9:62: no member `empty` on type `std.text.ParseError`
+# errors: 3

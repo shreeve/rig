@@ -11,6 +11,8 @@ pub const files = [_]struct { []const u8, []const u8 }{
     .{ "random.zig", @embedFile("random.zig") },
     .{ "slices.rig", @embedFile("slices.rig") },
     .{ "sort.rig", @embedFile("sort.rig") },
+    .{ "text.rig", @embedFile("text.rig") },
+    .{ "text.zig", @embedFile("text.zig") },
     .{ "time.rig", @embedFile("time.rig") },
     .{ "time.zig", @embedFile("time.zig") },
 };

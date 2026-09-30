@@ -1,0 +1,117 @@
+# std.text's parsers: an optional sign, `-0`, the ends of `Int`'s
+# range, overflow, and the Strings that are not numbers, which include
+# any with whitespace.
+use std.text
+
+sub int(s: String)
+  n = text.parse_int(s) catch |e|
+    print("[", s, "]", e)
+    return
+  print("[", s, "]", n)
+
+sub float(s: String)
+  x = text.parse_float(s) catch |e|
+    print("[", s, "]", e)
+    return
+  print("[", s, "]", x)
+
+sub boolean(s: String)
+  b = text.parse_bool(s) catch |e|
+    print("[", s, "]", e)
+    return
+  print("[", s, "]", b)
+
+fun sum(xs: []String) -> Int!
+  total = 0
+  for x in xs
+    total += text.parse_int(x)!
+  total
+
+sub main!
+  for s in ["42", "-17", "+8", "-0", "+0", "007", "9223372036854775807", "-9223372036854775808"]
+    int(s)
+  for s in ["9223372036854775808", "-9223372036854775809", "99999999999999999999999"]
+    int(s)
+  for s in ["", "+", "-", " 1", "1 ", "1_000", "0x10", "1.5", "--1", "+-1", "12a", "١"]
+    int(s)
+
+  for s in ["2.5", "-0.75", "+3", "-0", "1.", ".5", "1e3", "2.5E-3", "1e+2", "007.50"]
+    float(s)
+  for s in ["inf", "-Infinity", "NaN", "1.8e308", "-1e400", "1e-400"]
+    float(s)
+  for s in ["", ".", "e5", "1e", "1.2.3", " 1.0", "1.0 ", "1_0.0", "0x1p3", "infinit", "+-1"]
+    float(s)
+
+  for s in ["true", "false", "True", "", " true", "1"]
+    boolean(s)
+
+  print(text.parse_float("1e308")! == 1e308, text.parse_float("1.7976931348623157e308")! == Float.max)
+  print(sum(["1", "2", "3"])!, sum(["1", "x"]) catch -1)
+  n = text.parse_int("12") catch |e|
+    match e
+      text.ParseError.invalid => -1
+      text.ParseError.overflow => -2
+      _ => -3
+  over = text.parse_int("1x") catch |e| 0 if e == text.ParseError.overflow else 1
+  print(n, over, text.parse_int(text.trim("  64\n"))!)
+
+# expect:
+# [ 42 ] 42
+# [ -17 ] -17
+# [ +8 ] 8
+# [ -0 ] 0
+# [ +0 ] 0
+# [ 007 ] 7
+# [ 9223372036854775807 ] 9223372036854775807
+# [ -9223372036854775808 ] -9223372036854775808
+# [ 9223372036854775808 ] ParseError.overflow
+# [ -9223372036854775809 ] ParseError.overflow
+# [ 99999999999999999999999 ] ParseError.overflow
+# [  ] ParseError.invalid
+# [ + ] ParseError.invalid
+# [ - ] ParseError.invalid
+# [  1 ] ParseError.invalid
+# [ 1  ] ParseError.invalid
+# [ 1_000 ] ParseError.invalid
+# [ 0x10 ] ParseError.invalid
+# [ 1.5 ] ParseError.invalid
+# [ --1 ] ParseError.invalid
+# [ +-1 ] ParseError.invalid
+# [ 12a ] ParseError.invalid
+# [ ١ ] ParseError.invalid
+# [ 2.5 ] 2.5
+# [ -0.75 ] -0.75
+# [ +3 ] 3.0
+# [ -0 ] -0.0
+# [ 1. ] 1.0
+# [ .5 ] 0.5
+# [ 1e3 ] 1000.0
+# [ 2.5E-3 ] 0.0025
+# [ 1e+2 ] 100.0
+# [ 007.50 ] 7.5
+# [ inf ] inf
+# [ -Infinity ] -inf
+# [ NaN ] nan
+# [ 1.8e308 ] ParseError.overflow
+# [ -1e400 ] ParseError.overflow
+# [ 1e-400 ] 0.0
+# [  ] ParseError.invalid
+# [ . ] ParseError.invalid
+# [ e5 ] ParseError.invalid
+# [ 1e ] ParseError.invalid
+# [ 1.2.3 ] ParseError.invalid
+# [  1.0 ] ParseError.invalid
+# [ 1.0  ] ParseError.invalid
+# [ 1_0.0 ] ParseError.invalid
+# [ 0x1p3 ] ParseError.invalid
+# [ infinit ] ParseError.invalid
+# [ +-1 ] ParseError.invalid
+# [ true ] true
+# [ false ] false
+# [ True ] ParseError.invalid
+# [  ] ParseError.invalid
+# [  true ] ParseError.invalid
+# [ 1 ] ParseError.invalid
+# true true
+# 6 -1
+# 12 1 64
