@@ -1,0 +1,27 @@
+# A String copied out of a Vec or a slice of one borrows the Text it
+# views, not the Vec: dropping the Vec is fine, changing the Text is not,
+# and the Text must outlive the copy.
+
+fun first[T](xs: ?Vec[T]) -> T
+  xs[0]
+
+sub main
+  v: Vec[String] = Vec()
+  t = Text("scoped text here")
+  !v.push(?t[..])
+  s = first(?v)
+  -v
+  !t.add("more")
+  print(s)
+  o = "x"
+  if true
+    u = Text("abcdefghijklmnop")
+    w: Vec[String] = Vec()
+    !w.push(?u[..])
+    sl = ?w[..]
+    o = sl[0]
+  print(o)
+
+# error: 14:3: cannot write-borrow `t` while a read borrow is live
+# error: 20:14: `u` does not live long enough
+# errors: 2

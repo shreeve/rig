@@ -1685,14 +1685,16 @@ pub const Checker = struct {
         for (self.flows.items[l.root].loans) |h| try self.addViewLoan(out, h, depth + 1);
     }
 
-    /// Whether var `id`'s value may own a Text a String could view: it
-    /// has drop glue, or its type is not known.
+    /// Whether var `id`'s value may reach a Text a String could view:
+    /// one it owns, shares, or borrows (so a `!Text` it holds could
+    /// change it), or its type is not known.
     fn mayOwnText(self: *const Checker, id: VarId) bool {
         const ctx = self.sema orelse return true;
         const v = self.vars.items[id];
         if (v.closure) return true;
-        const t = sema.unwrapBorrows(ctx, v.ty orelse return true);
-        return self.isPoisonType(t) or sema.typeHasDropGlue(ctx, t) or sema.maybeDropGlue(ctx, t) or ctx.types.get(t) == .unknown;
+        const t = v.ty orelse return true;
+        if (self.isPoisonType(t) or ctx.types.get(t) == .unknown) return true;
+        return sema.reachesText(ctx, t) or sema.containsTypeVar(ctx, t);
     }
 
     // -------------------------------------------------------------------------
@@ -2391,7 +2393,7 @@ pub const Checker = struct {
             .ref = self.refOfType(ty),
             .fixed = fixed or closure,
             .closure = closure,
-        }, .{ .loans = if (closure or self.mayCarryBorrow(ty)) value.loans else &.{} });
+        }, .{ .loans = if (closure) value.loans else if (self.mayCarryBorrow(ty)) (try self.viewLoans(ty, value)).loans else &.{} });
     }
 
     /// Checks shared by reassignment and compound assignment.
@@ -2459,7 +2461,7 @@ pub const Checker = struct {
         }
         // The old value is dropped (if still owned) and the binding is
         // live again with the new value.
-        try self.setFlow(id, .{ .loans = if (self.mayCarryBorrow(v.ty)) value.loans else &.{} });
+        try self.setFlow(id, .{ .loans = if (self.mayCarryBorrow(v.ty)) (try self.viewLoans(v.ty, value)).loans else &.{} });
     }
 
     /// The var a borrow held by var `id` borrows, when it holds one of
@@ -2657,9 +2659,14 @@ pub const Checker = struct {
             // may be a String viewing a Text.
             if (cell != null) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a));
             if (cell != null and v.loans.len > 0 and !self.rejected(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a)) {
-                const loans = v.loans;
+                const held = v.*;
                 v.* = .{};
                 if (self.readsPlainValue(a)) continue;
+                // A borrow of a String stores the String it reaches: what
+                // it views, not the borrow.
+                const arg_ty = self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a);
+                const loans = (try self.viewLoans(self.reachedType(arg_ty), held)).loans;
+                if (loans.len == 0) continue;
                 try self.errAt(a, "cannot store a borrow of `{s}` in a `{s}`: every handle to it could reach the borrow; a value stored in a Cell or Signal may not hold one", .{ self.vars.items[loans[0].root].name, cell.? });
                 continue;
             }
@@ -2752,7 +2759,7 @@ pub const Checker = struct {
         const ctx = self.sema orelse return false;
         const arg = if (e.isKind(.kwarg)) ir.Kwarg.value(e) else e;
         return switch (self.typeData(self.exprType(arg) orelse return false)) {
-            .borrow_read, .borrow_write => |inner| sema.isPlainData(ctx, inner),
+            .borrow_read, .borrow_write => |inner| sema.isPlainData(ctx, inner) and !self.mayCarryBorrow(inner),
             else => false,
         };
     }
@@ -3420,7 +3427,7 @@ pub const Checker = struct {
         elem2: Sexp = .nil,
         source_root: ?VarId = null,
         /// `for x in <v`: the loans the moved collection held, which its
-        /// elements carry.
+        /// elements carry; likewise those of a source no binding holds.
         moved: []const Loan = &.{},
         source_loan: LoanKind = .read,
         source_pos: u32 = 0,
@@ -3461,7 +3468,10 @@ pub const Checker = struct {
         } else {
             spec.elem_view = true;
             const found = self.errors_found;
-            _ = try self.walk(source);
+            const value = try self.walk(source);
+            // The elements of a value no binding holds (a literal, a
+            // call's result) hold what it borrows.
+            if (self.resolvePlace(source) == null) spec.moved = value.loans;
             // A source already reported (used while write-borrowed) is
             // not reported again as a conflicting borrow.
             if (self.errors_found == found) if (self.resolvePlace(source)) |p| {
@@ -3736,6 +3746,16 @@ pub const Checker = struct {
                     break;
                 }
             }
+            return;
+        }
+        // Run at an exit: the borrows it stored stay, so the scope's end
+        // checks that they do not outlive what they borrow.
+        for (after.changes) |e| {
+            var f = self.flows.items[e.id];
+            const loans = try self.unionLoans(f.loans, e.flow.loans);
+            if (loans.len == f.loans.len) continue;
+            f.loans = loans;
+            try self.setFlow(e.id, f);
         }
     }
 
@@ -3975,6 +3995,12 @@ pub const Checker = struct {
     fn mayCarryBorrow(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return true;
         return sema.mayHoldView(ctx, ty orelse return true);
+    }
+
+    /// The type a value of type `ty` reaches through its borrows.
+    fn reachedType(self: *const Checker, ty: ?TypeId) ?TypeId {
+        const ctx = self.sema orelse return ty;
+        return sema.unwrapBorrows(ctx, ty orelse return null);
     }
 
     /// Whether a value of this type holds a borrow, a String aside.

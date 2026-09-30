@@ -1,0 +1,32 @@
+# A borrow of a String is read as the String it reaches, so storing one
+# in a Cell or Signal stores that view: rejected when it views a Text or
+# may (a parameter), and accepted for a literal.
+
+sub stash(c: ?Cell[String], s: ?String)
+  c.set(s)
+
+sub main
+  t = Text("abcdefghijklmnop")
+  s = ?t[..]
+  c = Cell("x")
+  c.set(?s)
+  d = Cell(?s)
+  sig = *Signal("x")
+  sig.set(?s)
+  old = c.replace(?s)
+  cv: Cell[Vec[String]] = Cell(Vec())
+  cv.push(?s)
+  f = |?s| s
+  c.set(f())
+  lit = "free"
+  c.set(?lit)
+  print(c.get(), d.get(), sig.get(), old, cv.len)
+
+# error: 6:9: cannot store a borrow of `s` in a `Cell`
+# error: 12:9: cannot store a borrow of `t` in a `Cell`
+# error: 13:12: cannot store a borrow of `t` in a `Cell`
+# error: 15:11: cannot store a borrow of `t` in a `Signal`
+# error: 16:19: cannot store a borrow of `t` in a `Cell`
+# error: 18:11: cannot store a borrow of `t` in a `Cell`
+# error: 20:9: cannot store a borrow of `t` in a `Cell`
+# errors: 7

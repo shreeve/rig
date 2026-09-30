@@ -1,0 +1,77 @@
+# A String copied out of a borrow, a struct, or a Vec views what the
+# String views, not the place it was read from: the place is free again,
+# and a String a function copies out of its parameter can be returned.
+# A value borrows a Text only where it can reach one.
+
+struct Person
+  name: String
+  tags: Vec[Int]
+
+  fun label(?self) -> String
+    self.name
+
+struct Reg
+  names: Vec[String]
+
+  sub add(!self, n: String)
+    !self.names.push(n)
+
+  fun first(?self) -> String
+    self.names[0]
+
+enum E
+  a(c: String)
+  b
+
+fun copy(s: String) -> String
+  r = ?s
+  x: String = r
+  x
+
+fun pick(e: E) -> String
+  match e
+    .a(c)
+      r = ?c
+      x: String = r
+      return x
+    .b
+      return "b"
+
+sub main
+  s = "lit"
+  r = ?s
+  o = r
+  s = "other"
+  print(o, s)
+  t = Text("abcdefghijklmnop")
+  v = ?t[..]
+  w = !v
+  x: String = w
+  v = "free"
+  print(x, v, copy(?t), pick(E.a(?t[..3])))
+  p = Person(name: "Ann", tags: Vec())
+  l = p.label()
+  !p.tags.push(1)
+  print(l, p.tags)
+  reg = Reg(names: Vec())
+  !reg.add("x")
+  f = reg.first()
+  !reg.add("y")
+  print(f, reg.names)
+  lits: Vec[String] = Vec()
+  !lits.push("a")
+  last = "z"
+  for n in ?lits
+    last = n
+  c = Cell("b")
+  for n in ?lits
+    c.set(n)
+  -lits
+  print(last, c.get())
+
+# expect:
+# lit other
+# abcdefghijklmnop free abcdefghijklmnop abc
+# Ann [1]
+# x ["x", "y"]
+# a a

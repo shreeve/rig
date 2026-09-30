@@ -1892,16 +1892,19 @@ pub const Contents = struct {
 /// instance. What a Cell or Signal holds holds no borrow. A String is no
 /// borrow to the type rules (`holdsBorrow`); the ownership checker
 /// follows the loans its values carry (`mayHoldView`).
-pub const Borrows = packed struct(u3) {
+pub const Borrows = packed struct(u4) {
     any: bool = false,
     write: bool = false,
     view: bool = false,
+    /// Reaches a Text, which a String may view: by value, through a
+    /// handle, a Vec's, Box's, Cell's, or Signal's value, or a borrow.
+    text: bool = false,
 };
 
 /// Facts about an interned type, recorded when it is interned
 /// (`SemContext.intern`). The structural facts are always known; the
 /// rest once declarations are resolved (`SemContext.contents_ready`).
-pub const TypeInfo = packed struct(u17) {
+pub const TypeInfo = packed struct(u18) {
     /// Mentions a generic parameter anywhere.
     has_type_var: bool = false,
     /// Holds a generic parameter by value, so whether it owns a resource
@@ -2027,20 +2030,23 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
 
 /// What a value holds, of what it can hold through the declared types it
 /// holds: a `Cell` inline, a borrow, and a write borrow.
-const Reach = packed struct(u4) {
+const Reach = packed struct(u5) {
     cell: bool = false,
     borrows: Borrows = .{},
 
-    const all: Reach = .{ .cell = true, .borrows = .{ .any = true, .write = true, .view = true } };
+    const all: Reach = .{ .cell = true, .borrows = .{ .any = true, .write = true, .view = true, .text = true } };
     /// What reaches through a handle or heap memory: no Cell is inline.
-    const borrows_only: Reach = .{ .borrows = .{ .any = true, .write = true, .view = true } };
+    const borrows_only: Reach = .{ .borrows = .{ .any = true, .write = true, .view = true, .text = true } };
+    /// What reaches through a borrow, or into a Cell's or Signal's value:
+    /// only a Text matters.
+    const text_only: Reach = .{ .borrows = .{ .text = true } };
 
     fn with(a: Reach, b: Reach) Reach {
-        return @bitCast(@as(u4, @bitCast(a)) | @as(u4, @bitCast(b)));
+        return @bitCast(@as(u5, @bitCast(a)) | @as(u5, @bitCast(b)));
     }
 
     fn within(a: Reach, mask: Reach) Reach {
-        return @bitCast(@as(u4, @bitCast(a)) & @as(u4, @bitCast(mask)));
+        return @bitCast(@as(u5, @bitCast(a)) & @as(u5, @bitCast(mask)));
     }
 
     fn of(c: Contents) Reach {
@@ -2109,9 +2115,11 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// to `into.owner` is added instead.
 fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edges: *std.ArrayListUnmanaged(ReachEdge), owner: SymbolId }) std.mem.Allocator.Error!Reach {
     const r: Reach = switch (ctx.types.get(ty)) {
-        .borrow_read, .slice => .{ .borrows = .{ .any = true } },
-        .borrow_write => .{ .borrows = .{ .any = true, .write = true } },
+        .slice => .{ .borrows = .{ .any = true } },
+        .borrow_read => |inner| (Reach{ .borrows = .{ .any = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
+        .borrow_write => |inner| (Reach{ .borrows = .{ .any = true, .write = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
         .string => .{ .borrows = .{ .view = true } },
+        .text => .{ .borrows = .{ .text = true } },
         .optional, .fallible => |inner| return reachOf(ctx, inner, mask, into),
         .array => |a| return reachOf(ctx, a.elem, mask, into),
         .shared, .weak => |inner| return reachOf(ctx, inner, mask.within(Reach.borrows_only), into),
@@ -2122,8 +2130,11 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
         },
         .imported_nominal => Reach.of((nominalDecl(ctx, ty) orelse return .{}).symbol().contents),
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id) break :blk .{ .cell = true };
-            if (pn.sym == ctx.signal_sym_id) break :blk .{};
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) {
+                var r: Reach = .{ .cell = pn.sym == ctx.cell_sym_id };
+                for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask.within(Reach.text_only), into));
+                break :blk r;
+            }
             const m = if (isHeapBuiltin(ctx, pn.sym)) mask.within(Reach.borrows_only) else mask;
             var r: Reach = .{};
             if (into) |e| {
@@ -3129,6 +3140,12 @@ pub fn mayHoldBorrow(ctx: *const SemContext, ty: TypeId) bool {
 pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
     const b = ctx.holds(ty).borrows;
     return b.any or b.view;
+}
+
+/// Whether a value of `ty` reaches a Text (`Borrows.text`), which a
+/// String may view.
+pub fn reachesText(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.holds(ty).borrows.text;
 }
 
 /// Whether a value of `ty` holds a String but no borrow or type
