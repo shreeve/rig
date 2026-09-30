@@ -1955,6 +1955,33 @@ test "values print the way Rig writes them" {
     try expectNoLeaks(before);
 }
 
+test "Text writes values as print does, and compares and frees its bytes" {
+    const before = usage();
+    const P = struct { name: []const u8, n: ?i64 };
+    var t = Text.of(.{ "n=", @as(i64, 42), " ", P{ .name = "a", .n = null }, " ", @as(f64, 2.0) });
+    try testing.expectEqualStrings("n=42 P(name: \"a\", n: none) 2.0", t.bytes());
+    var i: usize = 0;
+    while (i < 1000) : (i += 1) t.add(.{ @as(i64, @intCast(i % 10)), "," });
+    try testing.expectEqual(@as(Int, 2030), t.length());
+    var u = t.clone();
+    try testing.expect(eql(t, u) and !eql(t, "n=42"));
+    u.clear();
+    u.add(.{ "hi", true });
+    try testing.expect(eql(u, "hi" ++ "true") and eql("hitrue", &u));
+    const Holder = struct { t: Text };
+    var h = Holder{ .t = Text.of(.{"in"}) };
+    var buf: [64]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try writeValue(&w, h, true);
+    try w.writeAll(" ");
+    try writeValue(&w, h.t, true);
+    try testing.expectEqualStrings("Holder(t: \"in\") in", w.buffered());
+    drop(&h);
+    u.__rig_drop();
+    t.__rig_drop();
+    try expectNoLeaks(before);
+}
+
 test "printing stops past a nesting depth" {
     const before = usage();
     const Node = struct { next: ?*RcBox(@This()) };

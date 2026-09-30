@@ -258,6 +258,8 @@ and environment variable. The suite runs on Linux and macOS in
   functions and held in structs) that end at their last use, clones,
   drops, automatic drop on every path, drop glue, user `drop` bodies
 - shared `*T` and weak `~T` handles, `Cell`, `Vec`, `Box`, and `Signal`
+- `Text`, owned text built with `Text(a, b)` and `!t.add(...)`, whose
+  Strings (`?t[a..b]`) borrow it
 - stack and owned closures with explicit captures, any arity, inferred
   parameter types, and return values
 - optionals with `none`, `??`, `if x as v`, and `x?`; fallible functions
