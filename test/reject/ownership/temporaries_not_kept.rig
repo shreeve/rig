@@ -1,0 +1,33 @@
+# An owning temporary lives until its statement ends, so nothing may
+# keep a borrow of it: not a binding, a field, a call's String result,
+# a slice, or a view taken from a `match` over it.
+
+enum M
+  a(t: Text)
+  b
+
+struct E
+  s: String
+
+fun mk -> M
+  M.a(t: Text("in m"))
+
+fun id(s: String) -> String
+  s
+
+sub main
+  w = id(?Text("abc"))
+  s = ?Text("x")[0..1]
+  e = E(s: ?Text("abc"))
+  r = ?Text("r")
+  o = "x"
+  match mk()
+    .a(t) => o = ?t[..]
+    .b => print("b")
+  print(w, s, e, r, o)
+
+# error: 19:10: a borrow of a temporary lives only for the call it is lent to
+# error: 20:8: only a named array, Vec, or Text, or a field or element of one, can be sliced
+# error: 21:12: a borrow of a temporary lives only for the call it is lent to
+# error: 22:7: a borrow of a temporary lives only for the call it is lent to
+# errors: 4

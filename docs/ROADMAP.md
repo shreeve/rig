@@ -11,6 +11,7 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 - **More compile-time values on generic types**: `Bool` and enum value parameters (`struct Ring[T, n: Int]` takes integers only).
 - **Owning values in more places**: arrays of owning values, and owned closures that take or return them.
 - **Strings**: matching on them.
+- **Static Strings**: a String known to view only static bytes (a literal, an argument), which could go into a Cell, a Signal, an owned closure, or a generic `T` stored there, where a String that may view a Text cannot.
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `String`).
 - **A labeled value loop on the right of a binding** (`x = :l for ...`), which needs a grammar change without conflicts.
 - **Traits or bounds** whose dispatch and ownership stay visible in the IR, so a generic signature says what its type parameters support; `[T: Trait]` is kept free for them, told from a value parameter by what the name after `:` denotes.

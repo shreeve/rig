@@ -1,0 +1,12 @@
+# A field read from a fresh `*User(...)` reads the temporary handle,
+# which its statement drops.
+
+struct User
+  age: Int
+
+sub main()
+  a = (*User(age: 5)).age
+  print(a)
+
+# expect:
+# 5

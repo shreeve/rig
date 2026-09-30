@@ -9,7 +9,7 @@ sub main
   t.add("x")
   u = Text(first: "x")
   !t.push("y")
-  print(a, b, u, Text("a") == "a")
+  print(a, b, u)
 
 # error: 6:7: a slice of a Text borrows it; write `?t[0..1]`
 # error: 7:8: cannot write-borrow a slice of a Text
@@ -17,4 +17,3 @@ sub main
 # error: 9:5: method `add` requires a write-borrowed receiver; use `!receiver.add(...)`
 # error: 10:12: `Text(...)` takes no keyword arguments
 # error: 11:6: has no method `push`
-# error: 12:18: this `Text` is a temporary that owns a resource, and nothing would drop it; bind it to a name first

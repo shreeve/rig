@@ -166,6 +166,16 @@ pub fn takeOut(place: anytype) @TypeOf(place.*) {
     return value;
 }
 
+/// Keep `value`, an owning temporary, in `slot` until its statement
+/// ends and drops it; a value left there by an earlier run of the
+/// statement (a loop's condition) is dropped first.
+pub fn keep(slot: anytype, live: *bool, value: @TypeOf(slot.*)) @TypeOf(slot) {
+    if (live.*) drop(slot);
+    slot.* = value;
+    live.* = true;
+    return slot;
+}
+
 /// Yield `value` after clearing its binding's alive flag: the value has
 /// been moved out, so the binding's scope-exit drop must not run.
 pub fn take(alive: *bool, value: anytype) @TypeOf(value) {

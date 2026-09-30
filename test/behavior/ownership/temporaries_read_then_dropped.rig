@@ -1,0 +1,74 @@
+# An owning temporary that is only read (a `print` or `Text` argument,
+# a borrow lent to a call that keeps none, an `==` operand, a `match`
+# subject) is dropped when its statement ends, also when the statement
+# fails or leaves early, and each time a loop's condition runs again.
+
+struct Noisy
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+enum M
+  a(t: Text)
+  b
+
+error Bad
+  no
+
+fun mk -> M
+  M.a(t: Text("in m"))
+
+fun len(s: String) -> Int
+  s.len
+
+fun tlen(t: ?Text) -> Int
+  t.len
+
+fun fails(x: Int) -> Int!
+  if x > 0
+    return Bad.no
+  x
+
+fun run(x: Int) -> Int!
+  print(Text("before ", x), fails(x)!)
+  0
+
+fun early(o: Int?) -> Int
+  print(Noisy(id: 9), o ?? return -1)
+  1
+
+sub main
+  n = 3
+  print(Text("parsed ", n))
+  print(len(?Text("a", n)), tlen(?Text("bc")))
+  s = "a"
+  print(Text("a") == s, s == Text("b"))
+  match mk()
+    .a(t) => print("got", t)
+    .b => print("b")
+  print(Noisy(id: 1), "x")
+  print("after")
+  i = 0
+  while Text(i) != "3"
+    i += 1
+  print(i)
+  print(run(1) catch 7)
+  print(early(none), early(2))
+  print(Vec[Int](), *Cell(5), Box(Text("boxed")))
+
+# expect:
+# parsed 3
+# 2 2
+# true false
+# got in m
+# Noisy(id: 1) x
+# drop 1
+# after
+# 3
+# 7
+# drop 9
+# Noisy(id: 9) 2
+# drop 9
+# -1 1
+# [] Cell(value: 5) boxed

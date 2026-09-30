@@ -1,6 +1,6 @@
 # A named Text is lent where a String is expected with a visible `?`:
 # `?t` means `?t[..]`. A bare Text, or a borrow of one held by a name,
-# says what to write, and a Text made in place has no name to lend.
+# says what to write.
 
 fun n(s: String) -> Int
   s.len
@@ -17,5 +17,4 @@ sub main
 
 # error: 12:5: type mismatch: expected `String`, got `?Text`; view it as a String with `?p[..]`
 # error: 16:18: type mismatch: expected `String`, got `Text`; lend it as a String with `?t` or `?t[..]`
-# error: 16:25: this `Text` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
-# errors: 3
+# errors: 2

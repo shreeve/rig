@@ -3094,16 +3094,49 @@ value declared after it: that value is dropped first.
 A value that owns a resource must have an owner. It may be bound,
 returned, passed to a call (which takes ownership), discarded with
 `_ = e` (which drops it), used as the receiver of a consuming method,
-or compared with `none`. Anywhere else (a field read, a borrow, a
-method receiver, a `print` argument, an expression statement) nothing
-would release it, so it must be bound to a name first.
+or compared with `none`. Where it is only read, as a `print` or
+`Text(...)` argument, an `==` operand, a `match` subject, the value
+whose field that owns nothing is read (`make().len`), or lent with `?`
+where a borrow of a temporary may go (below), it lives until its
+statement ends, which drops it, as Rust does. The drop runs also when
+the statement fails (`!`) or leaves early (`?? return`), and each time
+a loop's condition is evaluated again. Anywhere else (a method
+receiver, a field that owns a resource, an expression statement)
+nothing would release it, so it must be bound to a name first.
 
-```rig reject
-struct User
-  age: Int
+```rig
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun size(s: String) -> Int
+  s.len
 
 sub main
-  print((*User(age: 5)).age)
+  print(B(n: 1), size(?Text("four")))
+  print("next")
+```
+
+```output
+B(n: 1) 4
+drop 1
+next
+```
+
+```rig reject
+struct Log
+  lines: Vec[Int]
+
+  fun count(?self) -> Int
+    self.lines.len
+
+fun make -> Log
+  Log(lines: Vec())
+
+sub main
+  print(make().count())
 ```
 
 ```error
@@ -3111,11 +3144,12 @@ bind it to a name first
 ```
 
 A borrow of a temporary (`?S(n: 1)`, `?make()`) lives only as long as
-the call it is lent to, so it may be an argument of a call whose result
-keeps no borrow or of `print`, a `match` subject, a `for` source, or
-the optional an `if` or `while` binds with `as`. Bound to a name, stored in a
-field, or passed to a call whose result may borrow it, it would outlive
-the value, and it is rejected.
+its statement, so it may be an argument of a call whose result keeps
+no borrow (a String result may keep one: it may view a Text it was
+lent) or of `print`, a `match` subject, a `for` source, or the optional
+an `if` or `while` binds with `as`. Bound to a name, stored in a field,
+sliced, or passed to a call whose result may borrow it, it would
+outlive the value, and it is rejected.
 
 ```rig reject
 struct S
@@ -3687,9 +3721,33 @@ followed. It cannot be stored in a `Cell` or a `Signal`, or captured by
 an owned closure, since every handle to those reaches what they hold;
 nor can a closure store its String parameter through a capture. A
 generic body that stores a `T` in a `Cell`, a `Signal`, or an owned
-closure cannot be instantiated with a `T` that holds a String. Where a
-String must outlive the Text it came from, copy it into a Text of its
-own: `Text(s)`.
+closure cannot be instantiated with a `T` that holds a String, even
+when every String passed is a literal. Where a String must outlive the
+Text it came from, copy it into a Text of its own: `Text(s)`.
+
+A Text owns its bytes, so it is not the plain data a `Vec` holds:
+`Vec[Text]` is rejected, and `Vec[Box[Text]]` holds Texts. A Vec that
+holds views keeps their Texts borrowed until it is dropped, since it is
+in use until then; drop it early with `-v` to change them sooner.
+
+```rig
+sub main
+  owned: Vec[Box[Text]] = Vec()
+  !owned.push(Box(Text("one")))
+  !owned.push(Box(Text("two")))
+  t = Text("a b")
+  views: Vec[String] = Vec()
+  !views.push(?t[..1])
+  print(owned, views)
+  -views
+  !t.add("!")
+  print(t)
+```
+
+```output
+["one", "two"] ["a"]
+a b!
+```
 
 ```rig reject
 sub keep(c: ?Cell[String], s: String)
@@ -5066,7 +5124,8 @@ direct call; it is not a value.
 | function | `<fun>` |
 
 A value nested more than 64 levels deep prints its deeper parts as
-`...`. A `[]U8` and a `String` are the same bytes at run time, so
+`...`. A temporary printed, `print(Text("n=", n))` or `print(make())`,
+is dropped when the statement ends ([§7](#temporaries)). A `[]U8` and a `String` are the same bytes at run time, so
 `print` rejects a value that holds a `[]U8`; print its bytes one by one.
 
 ```rig

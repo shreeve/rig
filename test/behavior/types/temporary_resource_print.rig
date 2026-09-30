@@ -1,0 +1,20 @@
+# A temporary that owns a resource and is only read, as a `print`
+# argument is, is dropped when its statement ends.
+
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> B
+  B(n: n)
+
+sub main()
+  print(mk(1))
+  print("next")
+
+# expect:
+# B(n: 1)
+# drop 1
+# next

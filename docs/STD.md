@@ -349,9 +349,10 @@ Searching, slicing, splitting, and parsing Strings. A String is UTF-8
 bytes by convention, and nothing here checks that it is: every index
 and length is in bytes, and whitespace and case are ASCII's. A function
 that returns a String returns a part of the String it was given, a
-view of the same bytes, so nothing here allocates. Functions that build
-new text, such as an upper-case copy, need the owned text type Rig does
-not have yet.
+view of the same bytes, so nothing here allocates. A String taken from
+a `Text` ([SPEC §10](../SPEC.md#text)) keeps it borrowed through every
+part these functions return. Functions that build new text into a
+`Text`, such as an upper-case copy, a replacement, or a join, are next.
 
 | Function | Result |
 |---|---|

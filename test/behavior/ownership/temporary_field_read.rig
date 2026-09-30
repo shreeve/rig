@@ -1,0 +1,39 @@
+# A field that owns nothing is read from an owning temporary where it
+# stands; the statement drops the temporary. A `?` borrow of one lent to
+# a `for` or an `as` lives through that statement.
+
+struct User
+  age: Int
+  name: Text
+
+  drop(!self)
+    print("drop user")
+
+fun mv -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  v
+
+fun mo -> Text?
+  Text("opt")
+
+sub main
+  print(Text("bye").len, (*User(age: 5, name: Text("u"))).age)
+  x = User(age: 1, name: Text("n")).age
+  print(x)
+  for n in ?mv()
+    print(n)
+  if ?mo() as t
+    print(t.len)
+  print("end")
+
+# expect:
+# 3 5
+# drop user
+# drop user
+# 1
+# 1
+# 2
+# 3
+# end

@@ -1,0 +1,19 @@
+# A view of a `match` subject that is a temporary cannot outlive the
+# statement, which drops the subject.
+
+enum M
+  a(t: Text)
+  b
+
+fun mk -> M
+  M.a(t: Text("in m"))
+
+sub main
+  o = "x"
+  match mk()
+    .a(t) => o = ?t[..]
+    .b => print("b")
+  print(o)
+
+# error: 14:19: `t` does not live long enough
+# errors: 1

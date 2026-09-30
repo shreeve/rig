@@ -627,6 +627,10 @@ pub const Facts = struct {
     elem_calls: std.AutoHashMapUnmanaged(NodeKey, ElemCall) = .empty,
     /// Array expressions lent as a slice (`ArrayView`).
     array_views: std.AutoHashMapUnmanaged(NodeKey, ArrayView) = .empty,
+    /// Owning temporaries only read where they stand (a `print`
+    /// argument, a borrow lent to a call, an `==` operand, a `match`
+    /// subject): each is dropped at the end of its statement.
+    temp_drops: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// `Text(...)` call node, or `t.add` / `t.clear` callee node -> the
     /// built-in Text operation it is (`TextCall`).
     text_calls: std.AutoHashMapUnmanaged(NodeKey, TextCall) = .empty,
@@ -1378,6 +1382,16 @@ pub const SemContext = struct {
     /// The built-in element method a call's callee (`member`) names.
     pub fn elemCallOf(self: *const SemContext, callee: Sexp) ?ElemCall {
         return self.facts.elem_calls.get(nodeKey(callee) orelse return null);
+    }
+
+    pub fn recordTempDrop(self: *SemContext, node: Sexp) !void {
+        try self.facts.temp_drops.put(self.allocator, recordKey(node), {});
+    }
+
+    /// Whether `node` is an owning temporary its statement drops at its
+    /// end (`recordTempDrop`).
+    pub fn dropsTemp(self: *const SemContext, node: Sexp) bool {
+        return self.facts.temp_drops.contains(nodeKey(node) orelse return false);
     }
 
     pub fn recordTextCall(self: *SemContext, call: Sexp, op: TextCall) !void {

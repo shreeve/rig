@@ -1762,7 +1762,8 @@ const Checker = struct {
             },
             else => {},
         }
-        try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a String, or a `Vec`", .{try self.tyName(source_ty)});
+        const text_hint = if (sema.unwrapBorrows(self.ctx, source_ty) == self.t().text_id) "; walk a Text's bytes through a String view: `for b in ?t[..]`" else "";
+        try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a String, or a `Vec`{s}", .{ try self.tyName(source_ty), text_hint });
         return self.t().invalid_id;
     }
 
@@ -1775,7 +1776,7 @@ const Checker = struct {
         // A borrowed temporary lives as long as the match.
         const saved_borrow = self.lent_borrow;
         self.lent_borrow = subject;
-        var scrutinee = if (mode == .consume) try self.synthExpr(subject) else try self.synthOperand(subject);
+        var scrutinee = if (mode == .consume) try self.synthExpr(subject) else if (mode == .read) try self.synthReadTemp(subject) else try self.synthOperand(subject);
         self.lent_borrow = saved_borrow;
         const scrut_pos = self.startOf(subject);
         // `match <e` takes the fields of a value `e` owns.
@@ -2859,10 +2860,9 @@ const Checker = struct {
             b = try self.synthReached(r);
         }
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
-        // A Text, or a value holding one, compares where it is: a
-        // temporary one would never be dropped.
+        // An owning temporary compared is dropped with its statement.
         for ([2]Sexp{ l, r }, [2]TypeId{ a, b }) |operand, ty| {
-            if (sema.typeHasDropGlue(self.ctx, ty)) try self.rejectResourceTemporary(operand, ty);
+            if (sema.typeHasDropGlue(self.ctx, ty)) try self.readTemp(operand, ty);
         }
         if (sema.isNumeric(self.ctx, a) and sema.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(l, r, a, b, op);
@@ -3180,7 +3180,15 @@ const Checker = struct {
     fn synthBorrow(self: *Checker, e: Sexp, kind: BorrowKind) Error!TypeId {
         const operand = ir.get(e, .operand);
         if (rig.isRangeIndex(operand)) return self.borrowSlice(operand, kind);
-        const inner = try self.synthOperand(operand);
+        // A temporary lent to read where a borrowed one may go lives to
+        // the end of its statement, which drops it; anywhere else its
+        // borrow is rejected below, once.
+        const inner = if (kind == .read and sameNode(e, self.lent_borrow))
+            try self.synthReadTemp(operand)
+        else if (kind == .read and !isPlaceExpr(operand))
+            try self.synthExpr(operand)
+        else
+            try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
         const place = self.placeOf(operand);
         if (place.cell_vec_elem != null) {
@@ -3477,6 +3485,21 @@ const Checker = struct {
         return false;
     }
 
+    /// Synthesize `operand` where its value is only read: an owning
+    /// temporary there is dropped at the end of its statement.
+    fn synthReadTemp(self: *Checker, operand: Sexp) Error!TypeId {
+        const ty = try self.synthExpr(operand);
+        try self.readTemp(operand, ty);
+        return ty;
+    }
+
+    /// Record `operand`, of type `ty`, as a temporary its statement drops
+    /// when it is one that owns a resource.
+    fn readTemp(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
+        if (isPlaceExpr(operand) or operand != .list or self.isPoison(ty)) return;
+        if (try self.ownsResource(ty, self.startOf(operand), "leaves a temporary")) try self.ctx.recordTempDrop(operand);
+    }
+
     /// A fresh value (a call result, `*x`, `+x`, `<x`, ...) that owns a
     /// resource, where nothing takes ownership of it.
     fn rejectResourceTemporary(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
@@ -3497,6 +3520,16 @@ const Checker = struct {
         if (try self.namedType(obj)) |nt| {
             const ty = try self.typeMember(nt, field, pos);
             if (nt.sym.flags.error_set and !self.isPoison(ty)) try self.ctx.recordErrorMember(e);
+            return ty;
+        }
+        // A field of an owning temporary is read where it stands, and the
+        // statement drops the temporary; an owning field cannot leave it.
+        if (!isPlaceExpr(obj)) {
+            const obj_ty = try self.synthExpr(obj);
+            const ty = try self.memberOf(e, obj, obj_ty);
+            if (self.isPoison(ty) or try self.ownsResource(ty, self.startOf(e), "reads a field of a temporary")) {
+                try self.rejectResourceTemporary(obj, obj_ty);
+            } else try self.readTemp(obj, obj_ty);
             return ty;
         }
         return self.memberOf(e, obj, try self.synthOperand(obj));
@@ -4216,6 +4249,10 @@ const Checker = struct {
             },
             else => {},
         }
+        if (sema.unwrapBorrows(self.ctx, obj_ty) == self.t().text_id) {
+            try self.errAt(object, "cannot index a value of type `{s}`; index its String view: `(?{s}[..])[i]`", .{ try self.tyName(obj_ty), self.sourceText(unborrowedNode(object)) });
+            return self.t().invalid_id;
+        }
         try self.errAt(object, "cannot index a value of type `{s}`", .{try self.tyName(obj_ty)});
         return self.t().invalid_id;
     }
@@ -4243,7 +4280,8 @@ const Checker = struct {
     fn synthSlice(self: *Checker, e: Sexp, borrowed: bool) Error!TypeId {
         const object = ir.Index.object(e);
         const range = ir.Index.index(e);
-        const obj_ty = try self.synthOperand(object);
+        // A slice of a temporary is reported below, once.
+        const obj_ty = if (borrowed and !isPlaceExpr(object)) try self.synthExpr(object) else try self.synthOperand(object);
         try self.checkSliceRange(range);
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
@@ -4747,7 +4785,7 @@ const Checker = struct {
             }
             const saved_borrow = self.lent_borrow;
             self.lent_borrow = a;
-            const ty = try self.synthOperand(a);
+            const ty = try self.synthReadTemp(a);
             self.lent_borrow = saved_borrow;
             // An integer literal is written as an `Int`, which must hold it.
             if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
@@ -4983,7 +5021,8 @@ const Checker = struct {
     /// borrow of an argument past the call: in its result, or through a
     /// write borrow into something that can hold one.
     fn callRetains(self: *Checker, f: FunctionType, recv: ?TypeId) bool {
-        if (sema.mayHoldBorrow(self.ctx, f.returns)) return true;
+        // A String result may view a Text it was lent.
+        if (sema.mayHoldBorrow(self.ctx, f.returns) or sema.mayHoldView(self.ctx, f.returns)) return true;
         for (f.params) |p| if (self.storesBorrow(p)) return true;
         return if (recv) |r| self.storesBorrow(r) else false;
     }
@@ -4995,7 +5034,7 @@ const Checker = struct {
             else => return false,
         };
         const held = if (sema.writeSliceElem(self.ctx, param)) |elem| elem else inner;
-        return sema.mayHoldBorrow(self.ctx, held);
+        return sema.mayHoldBorrow(self.ctx, held) or sema.mayHoldView(self.ctx, held);
     }
 
     /// Whether `e` is a name that names a type.
@@ -6865,8 +6904,9 @@ const Checker = struct {
                     try self.errAt(e, "type mismatch: expected `String`, got `{s}`; view it as a String with `?{s}[..]`", .{ try self.tyName(actual), shown });
                     return true;
                 }
-                if (!self.placeOf(ir.Read.operand(e)).named()) {
-                    // A Text made here was reported as a temporary.
+                // A Text made here, which its statement drops, or a named
+                // one; a borrowed temporary elsewhere was reported.
+                if (!self.placeOf(ir.Read.operand(e)).named() and !self.ctx.dropsTemp(ir.Read.operand(e))) {
                     if (isPlaceExpr(ir.Read.operand(e))) try self.errAt(e, "only a named Text, or a field or element of one, is lent as a String; bind this value to a name first", .{});
                     return true;
                 }
@@ -6875,7 +6915,7 @@ const Checker = struct {
                 return true;
             },
             .text, .borrow_write => if (actual == text_ty or self.ctx.types.get(actual).borrow_write == text_ty) {
-                const shown = self.sourceText(e);
+                const shown = self.sourceText(unborrowedNode(e));
                 try self.errAt(e, "type mismatch: expected `String`, got `{s}`; lend it as a String with `?{s}` or `?{s}[..]`", .{ try self.tyName(actual), shown, shown });
                 return true;
             },

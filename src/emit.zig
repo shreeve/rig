@@ -99,6 +99,10 @@ const LocalRef = struct { scope: u32, index: u32 };
 /// dropped at scope exit while `flag` is set; the call clears it.
 const Hoisted = struct { node: Sexp, name: []const u8, flag: []const u8 = "" };
 
+/// The slot an owning temporary is kept in until its statement ends,
+/// and the flag saying it holds one.
+const TempSlot = struct { node: parser.NodeId, name: []const u8 };
+
 /// A loop used as a value: its Rig label (empty when it has none), the
 /// Zig block its `break` values leave, and its type.
 const ValueLoop = struct { rig: []const u8, block: []const u8, ty: TypeId };
@@ -201,6 +205,11 @@ pub const Emitter = struct {
     /// evaluated into temporaries first (`emitHoistedCall`), innermost
     /// call last.
     hoisted: std.ArrayListUnmanaged(Hoisted) = .empty,
+    /// The owning temporaries of the statements being emitted, each held
+    /// in a slot its statement drops (`sema.dropsTemp`).
+    temp_slots: std.ArrayListUnmanaged(TempSlot) = .empty,
+    /// The temporary whose value is being written into its slot.
+    keeping: Sexp = .nil,
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayListUnmanaged(struct { rig: []const u8, zig: []const u8 }) = .empty,
@@ -249,6 +258,7 @@ pub const Emitter = struct {
         self.usage.deinit(self.allocator);
         self.tests.deinit(self.allocator);
         self.hoisted.deinit(self.allocator);
+        self.temp_slots.deinit(self.allocator);
         self.labels.deinit(self.allocator);
         self.returning.deinit(self.allocator);
         self.value_loops.deinit(self.allocator);
@@ -1003,6 +1013,9 @@ pub const Emitter = struct {
         try self.emitStmts(stmts[0..last]);
         try self.writeIndent(self.indent);
         if (self.yieldsValue(stmts[last])) {
+            const first = self.temp_slots.items.len;
+            defer self.temp_slots.shrinkRetainingCapacity(first);
+            try self.emitTempSlots(stmts[last]);
             try self.w.writeAll("return ");
             try self.emitReturnValue(stmts[last]);
             try self.w.writeAll(";");
@@ -1013,7 +1026,50 @@ pub const Emitter = struct {
         try self.closeBrace();
     }
 
+    /// A statement, with the slots of the owning temporaries it drops at
+    /// its end: declared before it, each with a `defer` for an exit from
+    /// inside it (a failure, a jump), and dropped right after it.
     fn emitStmt(self: *Emitter, sexp: Sexp) Error!void {
+        const first = self.temp_slots.items.len;
+        try self.emitTempSlots(sexp);
+        defer self.temp_slots.shrinkRetainingCapacity(first);
+        try self.emitStmtOnly(sexp);
+        if (isTerminatingStmt(sexp)) return;
+        for (self.temp_slots.items[first..]) |t| {
+            try self.w.print(" if ({s}_live) {{ {s}_live = false; rig.drop(&{s}); }}", .{ t.name, t.name, t.name });
+        }
+    }
+
+    /// Declare a slot for each owning temporary in statement `stmt` (not
+    /// in the blocks or closures it holds, whose statements are emitted
+    /// on their own) that has none yet, inline before the statement.
+    fn emitTempSlots(self: *Emitter, stmt: Sexp) Error!void {
+        if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
+        if (self.sema.dropsTemp(stmt) and self.tempSlot(stmt) == null) {
+            const name = try self.fmt("__rig_tmp_{d}", .{self.nextId()});
+            try self.w.print("var {s}: ", .{name});
+            try self.emitTypeTy(self.typeOf(stmt) orelse return self.unsupported(stmt, "an untyped temporary"));
+            try self.w.print(" = undefined; var {s}_live = false; defer if ({s}_live) rig.drop(&{s}); ", .{ name, name, name });
+            try self.temp_slots.append(self.allocator, .{ .node = stmt.list.id, .name = name });
+        }
+        for (rig.children(stmt)) |c| try self.emitTempSlots(c);
+    }
+
+    fn tempSlot(self: *Emitter, node: Sexp) ?[]const u8 {
+        if (node != .list) return null;
+        for (self.temp_slots.items) |t| if (t.node == node.list.id) return t.name;
+        return null;
+    }
+
+    /// Whether statement `stmt` holds an owning temporary its end drops.
+    fn hasTemps(self: *Emitter, stmt: Sexp) bool {
+        if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return false;
+        if (self.sema.dropsTemp(stmt)) return true;
+        for (rig.children(stmt)) |c| if (self.hasTemps(c)) return true;
+        return false;
+    }
+
+    fn emitStmtOnly(self: *Emitter, sexp: Sexp) Error!void {
         self.stmt = sexp;
         const head = sexp.kind() orelse {
             try self.w.writeAll("_ = ");
@@ -2669,6 +2725,18 @@ pub const Emitter = struct {
         self.want_ptr = false;
         const bare = self.bare;
         self.bare = false;
+        // An owning temporary is kept in its statement's slot, which
+        // drops it at the statement's end.
+        if (self.sema.dropsTemp(sexp) and !sameNode(sexp, self.keeping)) {
+            const slot = self.tempSlot(sexp) orelse return self.unsupported(sexp, "a temporary outside a statement");
+            const saved = self.keeping;
+            defer self.keeping = saved;
+            self.keeping = sexp;
+            try self.w.print("rig.keep(&{s}, &{s}_live, ", .{ slot, slot });
+            self.bare = true;
+            try self.emitValue(sexp, tail);
+            return self.w.writeAll(").*");
+        }
         // A temporary holds the value its context reads (`hoist`).
         if (self.hoistedOf(sexp)) |h| {
             if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
@@ -3660,7 +3728,7 @@ pub const Emitter = struct {
         const stmts = try self.stmtsOf(body);
         if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
         const last = stmts[stmts.len - 1];
-        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last)) return self.emitValueAs(last, result);
+        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and !self.hasTemps(last)) return self.emitValueAs(last, result);
 
         const terminates = isTerminatingStmt(last);
         if (!terminates and !self.yieldsValue(last)) return self.unsupported(last, "a block without a value in value position");
@@ -3678,6 +3746,9 @@ pub const Emitter = struct {
         if (terminates) {
             try self.emitStmt(last);
         } else {
+            const first = self.temp_slots.items.len;
+            defer self.temp_slots.shrinkRetainingCapacity(first);
+            try self.emitTempSlots(last);
             if (returns) try self.w.writeAll("return ") else try self.w.print("break :{s} ", .{label});
             self.bare = true;
             try self.emitValueAs(last, result);

@@ -392,6 +392,10 @@ pub const Checker = struct {
     scopes: std.ArrayListUnmanaged(Scope) = .empty,
     /// Loans taken by the current statement and not stored in a var.
     temps: std.ArrayListUnmanaged(Loan) = .empty,
+    /// The hidden vars holding the owning temporaries of the statements
+    /// being walked (`sema.dropsTemp`), each with its position: dropped
+    /// when its statement ends.
+    stmt_drops: std.ArrayListUnmanaged(struct { id: VarId, pos: u32 }) = .empty,
     reachable: bool = true,
     /// Non-zero while computing a loop fixpoint: diagnostics suppressed.
     quiet: u32 = 0,
@@ -459,6 +463,7 @@ pub const Checker = struct {
         self.vars.deinit(self.gpa);
         self.names.deinit(self.gpa);
         self.plain_reqs.deinit(self.gpa);
+        self.stmt_drops.deinit(self.gpa);
         self.flows.deinit(self.gpa);
         self.loan_counts.deinit(self.gpa);
         self.trail.deinit(self.gpa);
@@ -1285,9 +1290,53 @@ pub const Checker = struct {
         const saved_stmt = self.cur_stmt;
         self.cur_stmt = stmt;
         defer self.cur_stmt = saved_stmt;
+        const drops = self.stmt_drops.items.len;
         const v = if (sink) |k| try self.walkConsumed(stmt, k) else try self.walk(stmt);
         self.temps.shrinkRetainingCapacity(@min(temps_len, self.temps.items.len));
+        try self.dropStmtTemps(drops);
         return v;
+    }
+
+    /// An owning temporary only read where it stands lives in a hidden
+    /// var until its statement ends; what borrows it borrows that var.
+    fn holdTemp(self: *Checker, node: Sexp, v: Value) Error!Value {
+        const pos = self.startOf(node);
+        const id = try self.addVar(.{ .name = self.spanText(node), .decl = pos, .ty = self.exprType(node), .kind = .hidden }, .{ .loans = v.loans });
+        try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
+        return .{ .loans = try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos }) };
+    }
+
+    /// Drop the temporaries statement-held since `start`: a value that
+    /// still borrows one after the statement would outlive it. One whose
+    /// scope already ended (a branch's) was released there.
+    fn dropStmtTemps(self: *Checker, start: usize) Error!void {
+        var i = self.stmt_drops.items.len;
+        while (i > start) {
+            i -= 1;
+            const d = self.stmt_drops.items[i];
+            if (d.id >= self.vars.items.len) continue;
+            const t = self.vars.items[d.id];
+            if (t.kind != .hidden or t.decl != d.pos) continue;
+            if (self.isBorrowed(d.id)) for (0..self.flows.items.len) |holder| {
+                if (holder == d.id) continue;
+                var f = self.flows.items[holder];
+                var reported = false;
+                var kept: std.ArrayListUnmanaged(Loan) = .empty;
+                for (f.loans) |l| {
+                    if (l.root != d.id) {
+                        try kept.append(self.arena(), l);
+                    } else if (!reported and self.holderLive(@intCast(holder), null)) {
+                        try self.reportShortLived(l, @intCast(holder));
+                        reported = true;
+                    }
+                }
+                if (kept.items.len == f.loans.len) continue;
+                f.loans = kept.items;
+                try self.setFlow(@intCast(holder), f);
+            };
+            try self.setFlow(d.id, .{ .status = .dropped, .at = d.pos });
+        }
+        self.stmt_drops.shrinkRetainingCapacity(start);
     }
 
     /// Walk a `(block ...)` in its own scope; its value is the value of
@@ -1335,6 +1384,7 @@ pub const Checker = struct {
             else => return .{},
         }
         const kind = sexp.kind() orelse return .{};
+        if (self.sema) |ctx| if (ctx.dropsTemp(sexp)) return self.holdTemp(sexp, try self.walkList(sexp, kind));
         // A borrow its context reads through gives the value it reaches;
         // when that holds no borrow, the loans taken to reach it end here.
         if (self.sema) |ctx| if (ctx.readsThrough(sexp)) if (ctx.typeOf(sexp)) |ty| {
@@ -2454,7 +2504,7 @@ pub const Checker = struct {
                 const stored = self.vars.items[l.root].name;
                 if (self.borrowedRoot(id)) |root| {
                     try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: `{s}` borrows `{s}`, which outlives it", .{ stored, v.name, v.name, self.vars.items[root].name });
-                } else try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: the caller's value outlives it", .{ stored, v.name });
+                } else try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: what `{s}` borrows outlives it", .{ stored, v.name, v.name });
                 return;
             };
             return;

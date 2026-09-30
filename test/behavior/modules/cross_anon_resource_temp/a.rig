@@ -1,5 +1,5 @@
 pub struct Wrap
-  value: Int
+  pub value: Int
 
 pub fun make_box() -> *Wrap
   *Wrap(value: 7)

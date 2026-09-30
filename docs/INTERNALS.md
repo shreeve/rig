@@ -702,6 +702,7 @@ instead of re-deriving it by name:
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read borrow lending it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds borrows, rather than pointing the place elsewhere |
 | `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |
+| `dropsTemp(node)` | whether the node is an owning temporary only read where it stands (a `print` or `Text` argument, a borrow lent where a borrowed temporary may go, an `==` operand, a `match` subject, the value whose field that owns nothing is read), which its statement drops at its end. The ownership checker holds it in a hidden var named by its source, borrowed by what reads it, and drops that var when the statement ends (`dropStmtTemps`), so a borrow of it kept past the statement is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement, writes `rig.keep(&slot, &flag, value).*` where it stands (`keep` drops a value a loop's condition left there first), and drops it after the statement |
 | `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is recorded as an `arrayViewOf` `borrowed`, walked as `?t[..]` |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
@@ -954,11 +955,17 @@ loan, and a String parameter, like a borrowed one, holds an external
 loan on itself, so a function's String result borrows what its
 arguments do. A value that holds Strings but no borrow
 (`sema.holdsViewOnly`) keeps only the loans that lead to a Text
-(`viewLoans`): its bytes lie in no value without drop glue, so a loan
-on a var whose value has none stands for that var's own loans, read
-loans at that (a String never writes). So `!it.next()` of an iterator
-holding Strings borrows what `it` views, not `it`, and a String read
-through a `!String` keeps what the String views. A value whose loans
+(`viewLoans`): its bytes lie in no value that reaches no Text
+(`Borrows.text`: a Text by value, through a handle, a Vec's, Box's,
+Cell's, or Signal's value, or a borrow, so a struct holding `!Text`
+reaches one), so a loan on a var whose type reaches none stands for
+that var's own loans, read loans at that (a String never writes). So
+`!it.next()` of an iterator holding Strings borrows what `it` views,
+not `it`, and a String read through a `!String`, copied into a
+binding, or read out of a `Vec[String]` keeps what the String views.
+The loans of a `for` source no binding holds go to its elements, and
+the borrows deferred code stores stay when it runs at a scope's exit,
+so that exit checks them. A value whose loans
 the checker cannot follow per var (a Cell's or Signal's contents, an
 owned closure's captures) holds no String with a loan, which rejects
 a String parameter stored there; a generic body that stores a `T`
@@ -1258,7 +1265,7 @@ reviewed.
 | `notNan` | wraps a float converted to an integer type: where safety checks run (Debug and ReleaseSafe), a NaN panics as an out-of-range value does, which `@intFromFloat`'s own check misses |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
-| `discard`, `isNone`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out |
+| `discard`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |

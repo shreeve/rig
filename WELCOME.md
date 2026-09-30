@@ -577,11 +577,16 @@ sub main
   t = Text("hi ", name)
   !t.add(", you are ", 36)
   print(t)
+  print(Text("bye ", name).len)
 ```
 
 ```output
 hi ada, you are 36
+7
 ```
+
+A Text built only to be read, as that last one is, is dropped when its
+statement ends.
 
 **Inclusive ranges.** A range excludes its end, and there is no `..=`:
 
