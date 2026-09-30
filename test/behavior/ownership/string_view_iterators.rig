@@ -51,6 +51,8 @@ sub main
   print(a, b)
   while !it.next() as line
     print(line)
+  more = lines("x\ny\nz")
+  print(!more.next() ?? "?", !more.next() ?? "?", !more.next() ?? "?", !more.next() ?? "done")
   c = cut(?t, "\n") ?? Cut(before: "", after: "")
   print(c.before.len, c.after)
   !t.add("!")
@@ -60,6 +62,7 @@ sub main
 # expect:
 # one two
 # three
+# x y z done
 # 4 two
 # three
 # 15 15 one

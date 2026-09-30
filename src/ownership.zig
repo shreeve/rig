@@ -1349,10 +1349,7 @@ pub const Checker = struct {
             // keeps what the view keeps, not the borrow that reached it.
             if (sema.holdsViewOnly(ctx, reached)) {
                 const temps_start = self.temps.items.len;
-                const v = try self.viewLoans(reached, try self.walkList(sexp, kind));
-                self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
-                for (v.loans) |l| if (!l.ext) try self.addTemp(l);
-                return v;
+                return self.keepViewTemps(temps_start, try self.viewLoans(reached, try self.walkList(sexp, kind)));
             }
         };
         return self.walkList(sexp, kind);
@@ -1667,6 +1664,14 @@ pub const Checker = struct {
         var out: std.ArrayListUnmanaged(Loan) = .empty;
         for (v.loans) |l| try self.addViewLoan(&out, l, 0);
         return .{ .loans = out.items };
+    }
+
+    /// The borrows taken since `temps_start` to compute view `v` end,
+    /// but for those `v` keeps: `!it.next()` twice in one statement.
+    fn keepViewTemps(self: *Checker, temps_start: usize, v: Value) Error!Value {
+        self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+        for (v.loans) |l| if (!l.ext) try self.addTemp(l);
+        return v;
     }
 
     fn addViewLoan(self: *Checker, out: *std.ArrayListUnmanaged(Loan), l: Loan, depth: u8) Error!void {
@@ -2691,7 +2696,10 @@ pub const Checker = struct {
             self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
             return .{};
         }
-        return self.viewLoans(self.exprType(node), result);
+        if (self.sema) |ctx| if (self.exprType(node)) |ty| if (sema.holdsViewOnly(ctx, ty)) {
+            return self.keepViewTemps(temps_start, try self.viewLoans(ty, result));
+        };
+        return result;
     }
 
     /// A call argument that reads a place by value whose value shares
