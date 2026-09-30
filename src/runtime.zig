@@ -895,9 +895,48 @@ pub fn Vec(comptime T: type) type {
 /// The check the emitter writes for each Zig-backed declaration of the
 /// standard library (`extern zig "file.zig"`): its function in the Zig
 /// file has exactly the type its Rig signature lowers to, so a call the
-/// checker accepts passes and returns what Rig says it does.
-pub fn expectShim(comptime f: anytype, comptime Rig: type, comptime name: []const u8) void {
-    if (@TypeOf(f) != Rig) @compileError("rig: the Zig function of `" ++ name ++ "` has type " ++ @typeName(@TypeOf(f)) ++ ", but its Rig signature lowers to " ++ @typeName(Rig));
+/// checker accepts passes and returns what Rig says it does. `Errors` is
+/// every error of the module's error sets. Where the Rig signature can
+/// fail (`anyerror!T`), the Zig function returns `E!T` instead, for an
+/// error set `E` it names, each error of which is in `Errors`: so a
+/// failure is always one of the module's Rig errors.
+pub fn expectShim(comptime f: anytype, comptime Rig: type, comptime Errors: type, comptime name: []const u8) void {
+    const F = @TypeOf(f);
+    const rig_ret = @typeInfo(Rig).@"fn".return_type.?;
+    if (@typeInfo(rig_ret) != .error_union) {
+        if (F != Rig) shimMismatch(F, @typeName(Rig), name);
+        return;
+    }
+    const rig_name = @typeName(Rig);
+    const lowered = rig_name[0 .. rig_name.len - @typeName(rig_ret).len] ++ "E!" ++ @typeName(@typeInfo(rig_ret).error_union.payload) ++ ", for an error set E of module `" ++ moduleOf(name) ++ "`";
+    const fi = switch (@typeInfo(F)) {
+        .@"fn" => |fi| fi,
+        else => shimMismatch(F, lowered, name),
+    };
+    const ri = @typeInfo(Rig).@"fn";
+    const ret = fi.return_type orelse shimMismatch(F, lowered, name);
+    if (@typeInfo(ret) != .error_union or fi.is_var_args or fi.params.len != ri.params.len or
+        @typeInfo(ret).error_union.payload != @typeInfo(rig_ret).error_union.payload or
+        !std.meta.eql(fi.calling_convention, ri.calling_convention)) shimMismatch(F, lowered, name);
+    for (fi.params, ri.params) |p, q| if (p.type != q.type or p.is_noalias != q.is_noalias) shimMismatch(F, lowered, name);
+    const set = @typeInfo(@typeInfo(ret).error_union.error_set).error_set orelse
+        @compileError("rig: the Zig function of `" ++ name ++ "` returns `anyerror`; it must name the errors it returns, each an error of module `" ++ moduleOf(name) ++ "`");
+    const allowed = @typeInfo(Errors).error_set.?;
+    for (set) |e| {
+        const known = for (allowed) |a| {
+            if (std.mem.eql(u8, a.name, e.name)) break true;
+        } else false;
+        if (!known) @compileError("rig: the Zig function of `" ++ name ++ "` returns `error." ++ e.name ++ "`, which is not an error of module `" ++ moduleOf(name) ++ "`: its errors are named `error.@\"" ++ moduleOf(name) ++ ".Set.name\"`");
+    }
+}
+
+fn shimMismatch(comptime F: type, comptime lowered: []const u8, comptime name: []const u8) noreturn {
+    @compileError("rig: the Zig function of `" ++ name ++ "` has type " ++ @typeName(F) ++ ", but its Rig signature lowers to " ++ lowered);
+}
+
+/// The module of the declaration `std.NAME.decl`.
+fn moduleOf(comptime name: []const u8) []const u8 {
+    return name[0 .. std.mem.lastIndexOfScalar(u8, name, '.') orelse 0];
 }
 
 // -----------------------------------------------------------------------------

@@ -4757,11 +4757,20 @@ is checked exactly as a call to a Rig function with that signature
 (moves, borrows, and the loans its result carries) and needs no `raw`:
 the Zig file is trusted as the runtime is, and each function's Zig type
 is checked, when the program is compiled, to be the one its Rig
-signature lowers to. Such a function takes no compile-time parameters
-and cannot fail. Its signature is trusted where the checker cannot see
-a body: one that returns a borrow and takes no borrowed parameter, as
+signature lowers to. Such a function takes no compile-time parameters.
+Its signature is trusted where the checker cannot see a body: one that
+returns a borrow and takes no borrowed parameter, as
 `std.os.args() -> []String` does, returns something that lives as long
-as the program. Only the standard library may declare one:
+as the program.
+
+A Zig-backed function may fail, returning `T!` or declared
+`sub name(...)!`, when its module declares error sets
+([§3](#error-sets)): it fails only with their errors, since its Zig
+function's type must name the errors it returns, each one of those
+sets' members. Its failures are errors like any other
+([§13](#13-errors)), named through the module.
+
+Only the standard library may declare a Zig-backed function:
 
 ```rig reject
 extern zig "fast.zig"
