@@ -71,6 +71,7 @@ bin/rig emit file.rig      # the emitted Zig
 bin/rig test file.rig      # run the program's `test` blocks
 bin/rig build --release -o prog file.rig   # optimized executable (ReleaseSafe)
 RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
+RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 ```
 
 - Nexus: `zig build parser` and `./test/run` (whose parser check

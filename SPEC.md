@@ -71,7 +71,8 @@ and `rig --help` lists the other commands (see also the
 [README](README.md#build-and-run)).
 
 `rig run` builds in Debug mode with a leak-checking allocator: a program
-that leaks memory reports it and exits with an error. `--release` builds
+that leaks memory reports it and exits with an error. Built with
+`RIG_SANITIZE=1`, it also crashes at any use of freed memory. `--release` builds
 with Zig's ReleaseSafe, and `--release=fast` with ReleaseFast. Integer
 overflow, out-of-bounds indexing and slicing, and a numeric conversion
 whose value does not fit panic in Debug and ReleaseSafe builds.
@@ -3288,7 +3289,7 @@ Swift. This is the one leak the compiler does not prevent. Break cycles
 with weak handles: a child holds its parent weakly, and a callback
 that refers back to its owner captures it weakly (`|~owner|`,
 [§11](#captures)). Every test and example in this repository runs
-leak-free under the checking allocator.
+leak-free, with no use of freed memory, under the sanitizing allocator.
 
 ---
 

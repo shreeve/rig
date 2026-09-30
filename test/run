@@ -17,7 +17,8 @@
 # RIG_TEST_TIMEOUT (seconds per test, default 120; a test's own
 # `# timeout: N` line can raise its limit), RIG_TEST_OUT (where emitted
 # packages go, default .zig-cache/rig-test; one run at a time uses a
-# directory).
+# directory), RIG_SANITIZE (0 builds the programs tests run on the plain
+# leak checker instead of the sanitizing allocator).
 #
 # Exit status is 1 if any test fails or a known-failing test starts
 # passing (move it out of test/known/ when that happens), 2 on a usage
@@ -46,6 +47,8 @@ NEXUS=${NEXUS:-$(find_nexus)}
 PANIC_RE='Segmentation fault|panic:|panic at|reached unreachable|index out of bounds|General protection|GENERAL PROTECTION|Bus error|Illegal instruction'
 POS_RE='\.rig:[0-9]+:[0-9]+'
 LEAK_RE='rig: memory leak detected'
+# Programs run under the sanitizing allocator unless RIG_SANITIZE=0.
+SANITIZE=${RIG_SANITIZE:-1}
 TIMEOUT=${RIG_TEST_TIMEOUT:-120}
 ZIG=${ZIG:-zig}
 
@@ -77,7 +80,7 @@ check_behavior() {
     local out="$outdir.stdout" err="$outdir.stderr"
     mkdir -p "$outdir"
     # The braces keep bash's own "Abort trap" job notice out of the output.
-    { RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$out" 2>"$err" </dev/null; } 2>/dev/null
+    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$out" 2>"$err" </dev/null; } 2>/dev/null
     local rc=$?
     local panic_want
     panic_want=$(directive expect-panic "$entry" | head -1)
@@ -114,7 +117,8 @@ classify_failure() { # <stderr file> <rc>
     if line=$(grep -m1 -E '\.rig:[0-9]+:[0-9]+: error' "$err"); then echo "rejected: ${line#*: error: }"; return; fi
     if grep -qE 'parse error|unexpected' "$err" && ! grep -q '\.zig:' "$err"; then echo "rejected: $(head -1 "$err")"; return; fi
     if line=$(grep -m1 -E '\.zig:[0-9]+:[0-9]+: error' "$err"); then echo "zig compile error: ${line#*: error: }"; return; fi
-    if grep -qE 'Double free|Invalid free' "$err"; then echo "double free"; return; fi
+    if grep -qE 'Double free|Invalid free|rig: double free' "$err"; then echo "double free"; return; fi
+    if line=$(grep -m1 -E 'rig: (use of freed memory|access past the end)' "$err"); then echo "${line#error: rig: }"; return; fi
     if grep -qE 'Segmentation fault|General protection|GENERAL PROTECTION|Bus error' "$err"; then echo "crash (segfault)"; return; fi
     if line=$(grep -m1 -E 'panic' "$err"); then echo "panic: ${line#*panic: }"; return; fi
     echo "exit $rc: $(head -1 "$err")"
@@ -421,7 +425,7 @@ exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
 PERL
     chmod +x "$TIMEOUT_CMD"
 fi
-export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE
+export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE
 
 is_kind() {
     case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|doc) return 0 ;; esac

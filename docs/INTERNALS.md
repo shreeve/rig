@@ -57,7 +57,8 @@ or `-OReleaseFast` (`--release=fast`), and with `-lc` when a module
 declares an `extern`. `emit` prints the root module's Zig and names the
 package directory on stderr; `build` names it when Zig fails.
 `RIG_LEAK_TRACE=1` at build time adds `__rig_leak_trace` to the root
-module (see [the runtime](#the-runtime)).
+module, and `RIG_SANITIZE=1` adds `__rig_sanitize` (see
+[the runtime](#the-runtime)).
 
 `rig test` adds a driver, `__rig_test.zig`, whose `main` passes each
 module's `__rig_tests` table to `rig.runTests`. The emitter lowers a
@@ -1221,13 +1222,13 @@ reviewed.
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; `exitStatus` checks the status of `fun main -> Int` |
-| `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `DebugAllocator`, which prints the stack trace of each leak. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
+| `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `DebugAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |
 
 ## Tests
 
 `./test/run` is the whole suite: behavior tests (run, compare stdout,
-leak-checked), rejection tests, known bugs, IR snapshots, torture
+leak-checked under the sanitizing allocator), rejection tests, known bugs, IR snapshots, torture
 inputs, CLI scripts, the Zig unit tests, a parser-freshness check, and
 every `rig` example in the documentation. [test/README.md](../test/README.md)
 describes each kind and its directives.

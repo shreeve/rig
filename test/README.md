@@ -15,14 +15,15 @@ no bug is open) exits 0. The runner works from any directory.
 
 The runner needs bash and either GNU `timeout` or perl (stock macOS has
 perl). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the seconds
-each test may take (default 120), and `RIG_TEST_OUT` the directory for
-emitted packages (see [Output](#output)).
+each test may take (default 120), `RIG_TEST_OUT` the directory for
+emitted packages (see [Output](#output)), and `RIG_SANITIZE=0` turns
+off the sanitizer (see [below](#leak-checking-and-the-sanitizer)).
 
 ## Layout
 
 | Path | Contract |
 |---|---|
-| `test/behavior/<area>/<name>.rig` | `rig run` exits 0, no leaks, stdout equals the `# expect:` block |
+| `test/behavior/<area>/<name>.rig` | `rig run` exits 0, no leaks or use of freed memory, stdout equals the `# expect:` block |
 | `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text (and, with `# errors: n`, exactly `n` errors) |
 | `test/known/<area>/<name>.rig` | a known bug, written as a behavior or reject test of the *correct* behavior |
 | `examples/<name>.rig` | curated showcase programs; same contract as `behavior/` |
@@ -89,18 +90,33 @@ Blank lines may separate a block from its `output` or `error` block. A
 failure is reported with the id `doc/<file>/L<line>`, naming the line of
 the opening fence; `./test/run doc` runs only the doc examples.
 
-## Leak checking
+## Leak checking and the sanitizer
 
 `rig run` builds in Debug mode, where the runtime records every live
 allocation (address and size, no stack traces). The emitted `main`
 defers `rig.finish()`, which prints
 `error: rig: memory leak detected: N allocations (B bytes) never freed`
 and exits 1 if anything is still allocated. A double free or a free of
-memory that was never allocated panics. A behavior test therefore fails
-on any leak or double free. To see where leaked memory was allocated,
-run the test again by hand with `RIG_LEAK_TRACE=1 bin/rig run file.rig`:
-the runtime then allocates through Zig's `DebugAllocator`, which prints
-a stack trace for each leak.
+memory that was never allocated panics. To see where leaked memory was
+allocated, run the test again by hand with
+`RIG_LEAK_TRACE=1 bin/rig run file.rig`: the runtime then allocates
+through Zig's `DebugAllocator`, which prints a stack trace for each
+leak.
+
+The suite also builds every program it runs (behavior tests, examples,
+known bugs, doc examples with output, the corpus) with `RIG_SANITIZE=1`,
+which puts the sanitizing allocator under the leak checker. Each block
+gets pages of its own, a free makes them inaccessible, and no address
+is handed out twice, so reading or writing freed memory, or past the end
+of a block, crashes at once with
+`error: rig: use of freed memory at address 0x...` and a stack trace.
+A behavior test therefore fails on any leak, double free, or use of
+freed memory. Run a failing program by hand with
+`RIG_SANITIZE=1 bin/rig run file.rig`. The sanitizer costs a few
+system calls and two pages of address space per allocation: the suite
+takes about 15% longer, and an allocation-heavy program runs several
+times slower, so a plain `rig run` keeps only the leak checker.
+`RIG_SANITIZE=0 ./test/run` runs the suite without it.
 
 ## CLI tests
 
