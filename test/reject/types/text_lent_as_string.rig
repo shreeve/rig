@@ -1,5 +1,5 @@
 # A named Text is lent where a String is expected with a visible `?`:
-# `?t` means `?t[..]`. A bare Text, or a borrow of one held by a name,
+# `?t` means `?t[..]`, and a borrow of one lends it as is. A bare Text
 # says what to write.
 
 fun n(s: String) -> Int
@@ -15,6 +15,5 @@ sub main
   t = Text("abc")
   print(a(?t), n(t), n(?Text("x")))
 
-# error: 12:5: type mismatch: expected `String`, got `?Text`; view it as a String with `?p[..]`
 # error: 16:18: type mismatch: expected `String`, got `Text`; lend it as a String with `?t` or `?t[..]`
-# errors: 2
+# errors: 1

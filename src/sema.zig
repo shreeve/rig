@@ -631,6 +631,9 @@ pub const Facts = struct {
     /// argument, a borrow lent to a call, an `==` operand, a `match`
     /// subject): each is dropped at the end of its statement.
     temp_drops: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Borrows of a Text (`?Text` call results and names) lent as a
+    /// String where one is expected (`SemContext.lendsText`).
+    text_lends: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// `Text(...)` call node, or `t.add` / `t.clear` callee node -> the
     /// built-in Text operation it is (`TextCall`).
     text_calls: std.AutoHashMapUnmanaged(NodeKey, TextCall) = .empty,
@@ -1383,6 +1386,16 @@ pub const SemContext = struct {
     /// The built-in element method a call's callee (`member`) names.
     pub fn elemCallOf(self: *const SemContext, callee: Sexp) ?ElemCall {
         return self.facts.elem_calls.get(nodeKey(callee) orelse return null);
+    }
+
+    pub fn recordTextLend(self: *SemContext, node: Sexp) !void {
+        try self.facts.text_lends.put(self.allocator, recordExprKey(node) orelse return, {});
+    }
+
+    /// Whether `node`, a borrow of a Text that is not written `?t`, is
+    /// lent as a String: its bytes.
+    pub fn lendsText(self: *const SemContext, node: Sexp) bool {
+        return self.facts.text_lends.contains(exprKey(node) orelse return false);
     }
 
     pub fn recordTempDrop(self: *SemContext, node: Sexp) !void {

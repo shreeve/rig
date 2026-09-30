@@ -1761,7 +1761,12 @@ const Checker = struct {
             try self.err(pos, "cannot iterate over `{s}`: `for` walks arrays, slices, Strings, and Vecs, and calls no method; to walk an iterator, bind it and loop: `it = {s}` then `while !it.next() as x`", .{ try self.tyName(source_ty), self.sourceText(unborrowedNode(source)) });
             return self.t().invalid_id;
         }
-        const text_hint = if (sema.unwrapBorrows(self.ctx, source_ty) == self.t().text_id) "; walk a Text's bytes through a String view: `for b in ?t[..]`" else "";
+        // `for b in ?t` walks the bytes of the String `?t` lends.
+        if (mode == .read and textOrBoxed(self.ctx, peeled) == self.t().text_id) {
+            if (!self.placeOf(source).named()) try self.lendTemp(source);
+            return self.byteType();
+        }
+        const text_hint = if (sema.unwrapBorrows(self.ctx, source_ty) == self.t().text_id) "; walk a Text's bytes through its String view: `for b in ?t`" else "";
         try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a String, or a `Vec`{s}", .{ try self.tyName(source_ty), text_hint });
         return self.t().invalid_id;
     }
@@ -2856,9 +2861,11 @@ const Checker = struct {
             b = try self.synthReached(r);
         }
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
-        // An owning temporary compared is dropped with its statement.
-        for ([2]Sexp{ l, r }, [2]TypeId{ a, b }) |operand, ty| {
-            if (sema.typeHasDropGlue(self.ctx, ty)) try self.readTemp(operand, ty);
+        // An owning temporary compared is dropped with its statement; a
+        // borrow compared owns nothing.
+        for ([2]Sexp{ l, r }) |operand| {
+            const own = self.ctx.typeOf(operand) orelse continue;
+            if (sema.typeHasDropGlue(self.ctx, own)) try self.readTemp(operand, own);
         }
         if (sema.isNumeric(self.ctx, a) and sema.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(l, r, a, b, op);
@@ -2997,9 +3004,16 @@ const Checker = struct {
         const borrowed = sema.unwrapBorrows(self.ctx, opt) != opt;
         // A temporary or moved optional is consumed whole: its value, or
         // the fallback, is the result, and nothing is copied.
-        const takes_whole = !borrowed and self.handsOverFresh(left) and (isJump(right) or self.handsOverFresh(right));
+        // A named owner as the fallback is moved or reported as a bare
+        // owner where it stands (`<d`).
+        const takes_whole = !borrowed and self.handsOverFresh(left) and (isJump(right) or self.handsOverFresh(right) or isPlaceExpr(right));
         if (!takes_whole and (try self.ownsResource(inner, self.startOf(left), "copies out with `??` a value"))) {
-            if (borrowed) {
+            if (!borrowed and self.handsOverFresh(left)) {
+                // The fallback is what would be moved out of a name.
+                _ = try self.synthQuiet(right);
+                try self.errAt(right, "`{s}` is not a fresh value: it reaches an owner a name holds, which `??` would move out; move the owner with `<`, or bind the value first", .{self.sourceText(right)});
+                return self.t().invalid_id;
+            } else if (borrowed) {
                 try self.borrowGivesUp(left, opt);
             } else if (isJump(right)) {
                 try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; move it out: `<{s} ?? ...`", .{ try self.tyName(opt), self.sourceText(left) });
@@ -3496,7 +3510,7 @@ const Checker = struct {
     /// temporary: rejected, as a bare owner is.
     fn rejectNotFresh(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
         if (self.handsOverFresh(e) or !sema.typeHasDropGlue(self.ctx, ty)) return false;
-        try self.errAt(e, "`{s}` is not a fresh value: it reaches an owner a name holds, which reading it here would move; borrow what it reaches (`?a if c else ?b`), or take the owner out first (`if o as x`, `<o`)", .{self.sourceText(e)});
+        try self.errAt(e, "`{s}` is not a fresh value: it reaches an owner a name holds, which reading it here would move; borrow what it reaches (`?a if c else ?b`), or read an optional through `if ?o as x`, or take it with `if <o as x`", .{self.sourceText(e)});
         return true;
     }
 
@@ -3543,7 +3557,7 @@ const Checker = struct {
     /// Record `operand`, of type `ty`, as a temporary its statement drops
     /// when it is one that owns a resource.
     fn readTemp(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
-        if (isPlaceExpr(operand) or operand != .list or self.isPoison(ty)) return;
+        if (isPlaceExpr(operand) or operand != .list or self.isPoison(ty) or isBorrow(self.ctx, ty)) return;
         if (try self.rejectNotFresh(operand, ty)) return;
         if (try self.ownsResource(ty, self.startOf(operand), "leaves a temporary")) try self.ctx.recordTempDrop(operand);
     }
@@ -4400,11 +4414,13 @@ const Checker = struct {
             // A view of a Text is a String that borrows it.
             .text => {
                 try self.checkSliceBounds(range, null);
-                if (!borrowed) {
+                // A slice of a borrow of a Text views what it lends, as a
+                // slice of a String does.
+                if (!borrowed and !isBorrow(self.ctx, obj_ty)) {
                     try self.errAt(e, "a slice of a Text borrows it; write `?{s}`", .{self.sourceText(e)});
                     return self.t().invalid_id;
                 }
-                if (!self.placeOf(object).named()) try self.lendTemp(object);
+                if (borrowed and !self.placeOf(object).named()) try self.lendTemp(object);
                 return self.t().string_id;
             },
             else => (try self.vecSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
@@ -6191,8 +6207,9 @@ const Checker = struct {
         if (try self.namedType(obj)) |nt| return self.associatedCall(obj, nt, method, pos, args, ct);
 
         // A consuming (`<self`) method may take a temporary; any
-        // other receiver must already have an owner.
-        const obj_ty = try self.synthExpr(obj);
+        // other receiver must already have an owner. A receiver that is a
+        // part of a temporary (`mk().items.get(0)`) is read through it.
+        const obj_ty = if (obj.isKind(.member) or obj.isKind(.index)) try self.synthPath(obj) else try self.synthExpr(obj);
         if (self.isPoison(obj_ty)) {
             try self.synthArgs(args);
             return obj_ty;
@@ -6989,19 +7006,25 @@ const Checker = struct {
     /// Text as a String, as `?t[..]` does; a bare Text there is rejected
     /// with the borrow to write. True when handled.
     fn textAsString(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
-        if (expected != self.t().string_id) return false;
+        // Where a `String?` is expected, too: the view is lifted.
+        const want = switch (self.ctx.types.get(expected)) {
+            .optional => |inner| inner,
+            else => expected,
+        };
+        if (want != self.t().string_id) return false;
         const text_ty = self.t().text_id;
         switch (self.ctx.types.get(actual)) {
             .borrow_read => |inner| if (textOrBoxed(self.ctx, inner) == text_ty) {
+                // A borrow already made (a `?Text` a call returns, or a
+                // name holds) lends its Text's bytes.
                 if (!e.isKind(.read)) {
-                    const shown = self.sourceText(e);
-                    try self.errAt(e, "type mismatch: expected `String`, got `{s}`; view it as a String with `?{s}[..]`", .{ try self.tyName(actual), shown });
+                    try self.ctx.recordTextLend(e);
                     return true;
                 }
                 // A Text made here, which its statement drops, or a named
                 // one; a borrowed temporary elsewhere was reported.
                 if (!self.placeOf(ir.Read.operand(e)).named()) try self.lendTemp(ir.Read.operand(e));
-                try self.ctx.recordType(e, expected);
+                try self.ctx.recordType(e, want);
                 try self.ctx.recordArrayView(e, .borrowed);
                 return true;
             },

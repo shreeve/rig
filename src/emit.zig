@@ -216,6 +216,8 @@ pub const Emitter = struct {
     temp_slots: std.ArrayListUnmanaged(TempSlot) = .empty,
     /// The temporary whose value is being written into its slot.
     keeping: Sexp = .nil,
+    /// The Text borrow being emitted before its `.bytes()`.
+    lending_text: Sexp = .nil,
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayListUnmanaged(struct { rig: []const u8, zig: []const u8 }) = .empty,
@@ -2029,6 +2031,8 @@ pub const Emitter = struct {
         const array_ptr = by_ptr and !is_vec and src_ty != null and self.sema.types.get(self.peelBorrows(src_ty.?)) == .array;
         if (array_ptr) try self.emitAddressOf(source) else try self.emitExpr(source);
         if (is_vec) try self.w.writeAll(".items()");
+        // `for b in ?t` walks the bytes of a Text, boxed or not.
+        if (src_ty) |t| if (self.textReach(t)) |reach| try self.w.print("{s}.bytes()", .{reach});
         const counter = try self.fmt("__rig_i_{d}", .{self.nextId()});
         // An index nobody reads needs no counter.
         const indexed = self.loopIndex(sexp) != null;
@@ -2752,6 +2756,17 @@ pub const Emitter = struct {
         self.want_ptr = false;
         const bare = self.bare;
         self.bare = false;
+        // A borrow of a Text lent as a String: its bytes.
+        if (self.sema.lendsText(sexp) and !sameNode(sexp, self.lending_text)) {
+            const saved = self.lending_text;
+            defer self.lending_text = saved;
+            self.lending_text = sexp;
+            const reach = self.textReach(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped Text")) orelse return self.unsupported(sexp, "a Text lent as a String");
+            try self.w.writeAll("(");
+            self.bare = true;
+            try self.emitValue(sexp, tail);
+            return self.w.print("){s}.bytes()", .{reach});
+        }
         // An owning temporary is kept in its statement's slot, which
         // drops it at the statement's end.
         if (self.sema.dropsTemp(sexp) and !sameNode(sexp, self.keeping)) {
@@ -3027,6 +3042,16 @@ pub const Emitter = struct {
     /// borrow or an optional borrow goes stays a borrow.
     fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
         if (ty) |t| if (self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptional(t))) return self.emitBorrowValue(e);
+        // A branch's String is a slice, so a literal in one branch and a
+        // slice in another have one Zig type.
+        if (ty) |t| if (self.unwrapOptional(t) == self.sema.types.string_id) {
+            try self.w.writeAll("@as(");
+            try self.emitTypeTy(t);
+            try self.w.writeAll(", ");
+            self.bare = true;
+            try self.emitValue(e, true);
+            return self.w.writeAll(")");
+        };
         try self.emitValue(e, true);
     }
 

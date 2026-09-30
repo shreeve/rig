@@ -3101,7 +3101,8 @@ all of whose branches are fresh. `??` on a fresh optional consumes it,
 giving its value or the fallback. Where a fresh value is only read, as
 a `print` or `Text(...)` argument, an `==` operand, a `match` subject,
 the value whose part that owns nothing is read (`make().len`,
-`make()[0]`, `make().items[0]`), or lent with `?` (below), it lives
+`make()[0]`, `make().items[0]`, `make().items.get(0)`), or lent with
+`?` (below), it lives
 until its statement ends, which drops it, as Rust does. The drop runs also when the
 statement fails (`!`) or leaves early (`?? return`), and before a
 loop's condition is evaluated again; a statement's temporaries are
@@ -3666,7 +3667,9 @@ Text. A `String` is the view of text; a Text is where text is built.
 | `!t.clear()` | empty it, keeping its buffer |
 | `t.len` | its length in bytes, read-only |
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
-| `?t` where a String is expected | `?t[..]` |
+| `?t` where a String or `String?` is expected | `?t[..]` |
+| a borrow `p: ?Text` (a name, or a call's result) where a String is expected | its bytes; `p[a..b]` is a view of them, with no further `?` |
+| `for b in ?t` | its bytes, as `U8`s |
 | `?b[a..b]`, `?b` of a `Box[Text]` | the same, through the box |
 | `+t` | a new Text holding the same bytes |
 | `t == u`, `t == s` | compares its bytes with a Text's or a String's; a boxed Text too |
