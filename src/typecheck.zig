@@ -3627,7 +3627,9 @@ const Checker = struct {
         // A proxy is named as this module spells it already: `lib.Wrap`.
         const tname = if (module != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ foreign.name, owner.name }) else owner.name;
         if (f.is_method) {
-            const is_sub = switch (foreign.types.get(f.ty)) {
+            // A proxy's methods have this module's types.
+            const types = if (module != null) &foreign.types else self.t();
+            const is_sub = switch (types.get(f.ty)) {
                 .function => |fty| fty.is_sub,
                 else => false,
             };

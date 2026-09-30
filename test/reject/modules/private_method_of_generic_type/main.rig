@@ -1,0 +1,32 @@
+# A private method of another module's generic type cannot be called,
+# through an instance or the type. The method's type is looked up in
+# this module's types, which here outnumber the other module's.
+
+use lib
+
+struct Many
+  a: [1]Int
+  b: [2]Int
+  c: [3]Int
+  d: [4]Int
+  e: [5]Int
+  f: [6]Int
+  g: [7]Int
+  h: [8]Int
+  i: Int?
+  j: Bool?
+  k: String?
+  l: [2]String
+  m: [3]Bool
+  n: [4]Bool
+  o: [5]Bool
+
+sub main()
+  b = lib.Wrap[Int].make(2)
+  w = lib.Wrap[Int](v: 1)
+  w.show()
+  print(b.v)
+
+# error: 25:21: method `make` of `lib.Wrap` is private to module `lib`; declare it `pub fun make` there
+# error: 27:5: method `show` of `lib.Wrap` is private to module `lib`; declare it `pub sub show` there
+# errors: 2
