@@ -3117,9 +3117,9 @@ pub const Emitter = struct {
             // which Zig takes as a slice.
             .read, .write => if (self.sema.arrayViewOf(sexp) == .borrowed) {
                 // `?t` of a Text lent as a String: its bytes.
-                if (self.typeOf(ir.get(sexp, .operand))) |t| if (self.peelBorrows(t) == self.sema.types.text_id) {
+                if (self.typeOf(ir.get(sexp, .operand))) |t| if (self.textReach(t)) |reach| {
                     try self.emitExpr(ir.get(sexp, .operand));
-                    return self.w.writeAll(".bytes()");
+                    return self.w.print("{s}.bytes()", .{reach});
                 };
                 const saved_read = self.read_place;
                 defer self.read_place = saved_read;
@@ -3530,9 +3530,9 @@ pub const Emitter = struct {
         if (self.isVecTy(ty)) {
             try self.emitExpr(base);
             try self.w.writeAll(".items()");
-        } else if (ty == self.sema.types.text_id) {
+        } else if (self.textReach(ty)) |reach| {
             try self.emitExpr(base);
-            try self.w.writeAll(".bytes()");
+            try self.w.print("{s}.bytes()", .{reach});
         } else if (self.sema.types.get(ty) == .array) {
             // A read slice only reads through: a Vec element on the way
             // is reached through a read-only slot.
@@ -3818,6 +3818,15 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
+    /// How a value of type `ty` (borrowed or not) reaches the Text it
+    /// views: directly, or through a `Box[Text]`; null for anything else.
+    fn textReach(self: *Emitter, ty: TypeId) ?[]const u8 {
+        const t = self.peelBorrows(ty);
+        if (t == self.sema.types.text_id) return "";
+        if (sema.boxedType(self.sema, t) == self.sema.types.text_id) return ".value";
+        return null;
+    }
+
     /// The built-in Text operation `call` is: `Text(...)`, `!t.add(...)`,
     /// or `!t.clear()`.
     fn textCall(self: *Emitter, call: Sexp) ?sema.TextCall {
@@ -3832,10 +3841,15 @@ pub const Emitter = struct {
         const args = ir.Call.args(call);
         switch (op) {
             .new => try self.w.writeAll("rig.Text.of(.{"),
-            .add, .clear => {
+            .add, .push, .clear => {
                 const recv = ir.Member.object(self.sema.calleeOf(call));
                 try self.emitMemberBase(recv, self.typeOf(recv));
                 if (op == .clear) return self.w.writeAll(".clear()");
+                if (op == .push) {
+                    try self.w.writeAll(".push(");
+                    try self.emitBare(args[0]);
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll(".add(.{");
             },
         }

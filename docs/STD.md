@@ -351,8 +351,7 @@ and length is in bytes, and whitespace and case are ASCII's. A function
 that returns a String returns a part of the String it was given, a
 view of the same bytes, so nothing here allocates. A String taken from
 a `Text` ([SPEC §10](../SPEC.md#text)) keeps it borrowed through every
-part these functions return. Functions that build new text into a
-`Text`, such as an upper-case copy, a replacement, or a join, are next.
+part these functions return.
 
 | Function | Result |
 |---|---|

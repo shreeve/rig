@@ -3094,15 +3094,21 @@ value declared after it: that value is dropped first.
 A value that owns a resource must have an owner. It may be bound,
 returned, passed to a call (which takes ownership), discarded with
 `_ = e` (which drops it), used as the receiver of a consuming method,
-or compared with `none`. Where it is only read, as a `print` or
-`Text(...)` argument, an `==` operand, a `match` subject, the value
-whose field that owns nothing is read (`make().len`), or lent with `?`
-where a borrow of a temporary may go (below), it lives until its
-statement ends, which drops it, as Rust does. The drop runs also when
-the statement fails (`!`) or leaves early (`?? return`), and each time
-a loop's condition is evaluated again. Anywhere else (a method
-receiver, a field that owns a resource, an expression statement)
-nothing would release it, so it must be bound to a name first.
+or compared with `none`; `??` on a temporary optional consumes it,
+giving its value or the fallback. Where it is only read, as a `print`
+or `Text(...)` argument, an `==` operand, a `match` subject, the value
+whose field or element that owns nothing is read (`make().len`,
+`make()[0]`), or lent with `?` (below), it lives until its statement
+ends, which drops it, as Rust does. The drop runs also when the
+statement fails (`!`) or leaves early (`?? return`), and before a
+loop's condition is evaluated again; a statement's temporaries are
+dropped last made first. A `match` over a temporary reads it, so an
+arm cannot move a payload out; `match <e` takes the payloads. Anywhere
+else (a method receiver, a field that owns a resource, an expression
+statement) nothing would release it, so it must be bound to a name
+first. A value whose branch is an owner a name holds (`a if c else b`)
+is no temporary: reading it would move that owner, so it is rejected;
+borrow each branch instead (`?a if c else ?b`).
 
 ```rig
 struct B
@@ -3150,9 +3156,9 @@ ends. It may not outlive the statement: held by a binding, a field, a
 Vec, or a returned value, it is rejected. As in Rust, the temporaries
 of an `if` header, a `match` subject, and a `for` source live through
 the whole statement, so an `as` binding may hold such a borrow in the
-body. A `while` header is evaluated again on each pass, so its
-temporaries live through one pass: a borrow of one kept for a later
-pass is rejected.
+body, but nothing may keep it past the statement. A `while` header is
+evaluated again on each pass, so its temporaries live through one
+pass: a borrow of one kept for a later pass is rejected.
 
 ```rig
 use std.text
@@ -3391,8 +3397,9 @@ mutable value.
 `T` is a Copy primitive, plain data (a struct, enum, optional, or array
 that owns nothing and holds no borrow), or an owning type. An owning
 value is never copied out of a cell: it moves in with `set` / `replace` and moves out
-with `replace`. What goes into a cell holds no borrow, since every
-handle to the cell reaches it.
+with `replace`. What goes into a cell, by any of its members or
+`c[i] = x`, holds no borrow, nor a String that may view a Text
+([§10](#text)), since every handle to the cell reaches it.
 
 A `Cell[Vec[T]]` answers its Vec's members as `set` does, without `!`:
 `push` moves or clones an owning element in (`<x`, `+x`), `pop` hands
@@ -3650,11 +3657,13 @@ Text. A `String` is the view of text; a Text is where text is built.
 |---|---|
 | `Text()` | an empty Text; nothing is allocated until text is added |
 | `Text(a, b, ...)` | a Text holding each value as `print` writes it ([§17](#17-printing)), with no separators |
-| `!t.add(a, b, ...)` | append each value the same way |
+| `!t.add(a, b, ...)` | append each value the same way; a `U8` is written as a number |
+| `!t.push(b)` | append one byte `b`, a `U8` |
 | `!t.clear()` | empty it, keeping its buffer |
 | `t.len` | its length in bytes, read-only |
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
 | `?t` where a String is expected | `?t[..]` |
+| `?b[a..b]`, `?b` of a `Box[Text]` | the same, through the box |
 | `+t` | a new Text holding the same bytes |
 | `t == u`, `t == s` | compares its bytes with a Text's or a String's |
 
@@ -3747,8 +3756,9 @@ returned borrow of `t` does not originate from a borrowed parameter
 
 A String whose origin a function cannot see, a parameter or a value
 built from one, may view a Text, so it stays where borrows are
-followed. It cannot be stored in a `Cell` or a `Signal`, or captured by
-an owned closure, since every handle to those reaches what they hold;
+followed. It cannot be stored in a `Cell` or a `Signal` (by `Cell(v)`,
+`set`, `replace`, `push`, or `c[i] = v`), or captured by an owned
+closure, since every handle to those reaches what they hold;
 nor can a closure store its String parameter through a capture. A
 generic body that stores a `T` in a `Cell`, a `Signal`, or an owned
 closure cannot be instantiated with a `T` that holds a String, even

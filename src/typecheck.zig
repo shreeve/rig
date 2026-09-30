@@ -1754,6 +1754,10 @@ const Checker = struct {
             },
             else => {},
         }
+        if ((try self.findMethod(source_ty, "next")) != null) {
+            try self.err(pos, "cannot iterate over `{s}`: `for` walks arrays, slices, Strings, and Vecs, and calls no method; to walk an iterator, bind it and loop: `it = {s}` then `while !it.next() as x`", .{ try self.tyName(source_ty), self.sourceText(unborrowedNode(source)) });
+            return self.t().invalid_id;
+        }
         const text_hint = if (sema.unwrapBorrows(self.ctx, source_ty) == self.t().text_id) "; walk a Text's bytes through a String view: `for b in ?t[..]`" else "";
         try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a String, or a `Vec`{s}", .{ try self.tyName(source_ty), text_hint });
         return self.t().invalid_id;
@@ -2985,7 +2989,9 @@ const Checker = struct {
         // its value up whole: nothing is copied. A borrow of an optional
         // gives up nothing; the value inside stays with the lender.
         const borrowed = sema.unwrapBorrows(self.ctx, opt) != opt;
-        const takes_whole = isJump(right) and !isPlaceExpr(left) and !borrowed;
+        // A temporary or moved optional is consumed whole: its value, or
+        // the fallback, is the result, and nothing is copied.
+        const takes_whole = !isPlaceExpr(left) and !borrowed;
         if (!takes_whole and (try self.ownsResource(inner, self.startOf(left), "copies out with `??` a value"))) {
             if (borrowed) {
                 try self.borrowGivesUp(left, opt);
@@ -3283,7 +3289,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
             .text => {
-                try self.errAt(object, "cannot write-borrow a slice of a Text; a Text changes only through its methods (`!t.add(...)`, `!t.clear()`)", .{});
+                try self.errAt(object, "cannot write-borrow a slice of a Text; a Text changes only through its methods (`!t.add(...)`, `!t.push(b)`, `!t.clear()`)", .{});
                 return self.t().invalid_id;
             },
             .slice => |s| blk: {
@@ -4197,6 +4203,16 @@ const Checker = struct {
             try self.ctx.recordType(object, field_ty);
             return self.indexInto(e, field_ty);
         }
+        // A plain element of an owning temporary is read where it stands,
+        // and the statement drops the temporary.
+        if (!isPlaceExpr(object) and e.isKind(.index)) {
+            const obj_ty = try self.synthExpr(object);
+            const ty = try self.indexInto(e, obj_ty);
+            if (self.isPoison(ty) or try self.ownsResource(ty, self.startOf(e), "reads an element of a temporary")) {
+                try self.rejectResourceTemporary(object, obj_ty);
+            } else try self.readTemp(object, obj_ty);
+            return ty;
+        }
         return self.indexInto(e, try self.synthOperand(object));
     }
 
@@ -4287,7 +4303,8 @@ const Checker = struct {
         const obj_ty = if (borrowed and !isPlaceExpr(object)) try self.synthExpr(object) else try self.synthOperand(object);
         try self.checkSliceRange(range);
         if (self.isPoison(obj_ty)) return obj_ty;
-        const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
+        // A boxed Text is sliced through its box.
+        const peeled = textOrBoxed(self.ctx, sema.unwrapBorrows(self.ctx, obj_ty));
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
             .string, .slice => {
                 _ = try self.readThrough(object, obj_ty, peeled);
@@ -4827,6 +4844,11 @@ const Checker = struct {
         }
         switch (op) {
             .add => try self.checkFormatArgs(args, "`add`", "write"),
+            // One byte, as a Vec's `push` takes one element.
+            .push => if (args.len != 1 or args[0].isKind(.kwarg)) {
+                try self.err(pos, "`push` takes one byte, a `U8`; got {d} arguments", .{args.len});
+                try self.synthArgs(args);
+            } else try self.checkExpr(args[0], try self.byteType()),
             else => if (args.len > 0) {
                 try self.err(pos, "`clear` takes no arguments; got {d}", .{args.len});
                 try self.synthArgs(args);
@@ -6888,7 +6910,7 @@ const Checker = struct {
         if (expected != self.t().string_id) return false;
         const text_ty = self.t().text_id;
         switch (self.ctx.types.get(actual)) {
-            .borrow_read => |inner| if (inner == text_ty) {
+            .borrow_read => |inner| if (textOrBoxed(self.ctx, inner) == text_ty) {
                 if (!e.isKind(.read)) {
                     const shown = self.sourceText(e);
                     try self.errAt(e, "type mismatch: expected `String`, got `{s}`; view it as a String with `?{s}[..]`", .{ try self.tyName(actual), shown });
@@ -8177,6 +8199,12 @@ fn isArithmetic(e: Sexp) bool {
         .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => true,
         else => false,
     };
+}
+
+/// `Text` for a `Box[Text]`, which is viewed through its box; any other
+/// type as it is.
+fn textOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
+    return if (sema.boxedType(ctx, ty) == ctx.types.text_id) ctx.types.text_id else ty;
 }
 
 /// Whether a branch of `e` (an `if`, `match`, or block value) yields a

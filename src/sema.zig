@@ -676,9 +676,10 @@ pub const ElemCall = struct {
 pub const ElemOp = enum { copy, fill, swap, read, write };
 
 /// A call of a built-in Text operation: `Text(a, b, ...)`, which builds
-/// one, and the methods `!t.add(a, b, ...)` and `!t.clear()`. `new` and
-/// `add` format their arguments as `print` does, reading them.
-pub const TextCall = enum { new, add, clear };
+/// one, and the methods `!t.add(a, b, ...)`, `!t.push(b)`, and
+/// `!t.clear()`. `new` and `add` format their arguments as `print` does,
+/// reading them; `push` appends one byte.
+pub const TextCall = enum { new, add, push, clear };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`

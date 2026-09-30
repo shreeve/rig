@@ -947,6 +947,11 @@ pub const Text = struct {
         inline for (std.meta.fields(@TypeOf(parts))) |f| writeValue(&out.writer, @field(parts, f.name), true) catch oom();
     }
 
+    /// `!t.push(b)`: append one byte.
+    pub fn push(self: *Text, b: u8) void {
+        self.list.append(defaultAllocator(), b) catch oom();
+    }
+
     /// `!t.clear()`: empty, keeping the buffer.
     pub fn clear(self: *Text) void {
         self.list.clearRetainingCapacity();

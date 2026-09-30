@@ -4051,7 +4051,8 @@ pub const Checker = struct {
     /// A `Text`, whose bytes a String may view.
     fn isText(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
-        return ty == ctx.types.text_id;
+        const t = ty orelse return false;
+        return t == ctx.types.text_id or sema.boxedType(ctx, t) == ctx.types.text_id;
     }
 
     /// A `Vec[T]`.

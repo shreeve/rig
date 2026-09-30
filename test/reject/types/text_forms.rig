@@ -8,7 +8,7 @@ sub main
   t.len = 2
   t.add("x")
   u = Text(first: "x")
-  !t.push("y")
+  !t.pop()
   print(a, b, u)
 
 # error: 6:7: a slice of a Text borrows it; write `?t[0..1]`
@@ -16,4 +16,4 @@ sub main
 # error: 8:5: cannot assign to `.len`; a length is read-only
 # error: 9:5: method `add` requires a write-borrowed receiver; use `!receiver.add(...)`
 # error: 10:12: `Text(...)` takes no keyword arguments
-# error: 11:6: has no method `push`
+# error: 11:6: has no method `pop`
