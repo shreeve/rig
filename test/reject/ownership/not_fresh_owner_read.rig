@@ -1,0 +1,50 @@
+# Only a fresh owned value, one no name holds, is a temporary its
+# statement drops: a call's result, a constructor, a literal, a move, or
+# a branching value all of whose branches are fresh. `o?`, a branch
+# naming an owner, or a `??` over one reaches an owner a name holds,
+# which reading it where it stands would move.
+
+use std.text
+
+struct N
+  id: Int
+  t: Text
+
+fun mk -> N
+  N(id: 9, t: Text("m"))
+
+fun f(o: N?, c: Bool) -> Int?
+  print(mk() if c else o?)
+  print(o?)
+  1
+
+fun g(o: Text?) -> Int?
+  print(o?.len)
+  print(text.trim(?o?))
+  print(o? == "hi")
+  1
+
+fun h(o: Vec[Int]?) -> Int?
+  print(o?[0])
+  1
+
+fun k(o: (N?)?) -> Int?
+  print(o? ?? N(id: 5, t: Text("e")))
+  1
+
+sub main
+  oa: N? = N(id: 1, t: Text("a"))
+  ob: N? = N(id: 2, t: Text("b"))
+  c = true
+  print((oa if c else ob) ?? N(id: 3, t: Text("c")))
+  print(f(none, c), g(none), h(none), k(none))
+
+# error: 17:9: is not a fresh value
+# error: 18:9: is not a fresh value
+# error: 22:9: is not a fresh value
+# error: 23:20: is not a fresh value
+# error: 24:9: is not a fresh value
+# error: 28:9: is not a fresh value
+# error: 32:9: `??` on an optional `N?` would copy an owning handle out of it
+# error: 39:10: `??` on an optional `N?` would copy an owning handle out of it
+# errors: 8

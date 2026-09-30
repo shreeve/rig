@@ -3094,21 +3094,25 @@ value declared after it: that value is dropped first.
 A value that owns a resource must have an owner. It may be bound,
 returned, passed to a call (which takes ownership), discarded with
 `_ = e` (which drops it), used as the receiver of a consuming method,
-or compared with `none`; `??` on a temporary optional consumes it,
-giving its value or the fallback. Where it is only read, as a `print`
-or `Text(...)` argument, an `==` operand, a `match` subject, the value
-whose field or element that owns nothing is read (`make().len`,
-`make()[0]`), or lent with `?` (below), it lives until its statement
-ends, which drops it, as Rust does. The drop runs also when the
+or compared with `none`. A temporary is a **fresh** value, one no name
+holds: a call's result (a constructor's included), `*x`, `+x`, `<x`, a
+literal, or an `if`, `match`, `??`, `catch`, block, `e!`, or `e?` value
+all of whose branches are fresh. `??` on a fresh optional consumes it,
+giving its value or the fallback. Where a fresh value is only read, as
+a `print` or `Text(...)` argument, an `==` operand, a `match` subject,
+the value whose part that owns nothing is read (`make().len`,
+`make()[0]`, `make().items[0]`), or lent with `?` (below), it lives
+until its statement ends, which drops it, as Rust does. The drop runs also when the
 statement fails (`!`) or leaves early (`?? return`), and before a
 loop's condition is evaluated again; a statement's temporaries are
 dropped last made first. A `match` over a temporary reads it, so an
 arm cannot move a payload out; `match <e` takes the payloads. Anywhere
 else (a method receiver, a field that owns a resource, an expression
 statement) nothing would release it, so it must be bound to a name
-first. A value whose branch is an owner a name holds (`a if c else b`)
-is no temporary: reading it would move that owner, so it is rejected;
-borrow each branch instead (`?a if c else ?b`).
+first. A value that is not fresh but reaches an owner a name holds (`o?`
+of an optional parameter, `a if c else b`) is no temporary: reading it
+where it stands would move that owner, so it is rejected; borrow what
+it reaches instead (`?a if c else ?b`), or take the owner out first.
 
 ```rig
 struct B
@@ -3658,14 +3662,14 @@ Text. A `String` is the view of text; a Text is where text is built.
 | `Text()` | an empty Text; nothing is allocated until text is added |
 | `Text(a, b, ...)` | a Text holding each value as `print` writes it ([§17](#17-printing)), with no separators |
 | `!t.add(a, b, ...)` | append each value the same way; a `U8` is written as a number |
-| `!t.push(b)` | append one byte `b`, a `U8` |
+| `!t.push(b)` | append one byte `b`, a `U8`, given by position |
 | `!t.clear()` | empty it, keeping its buffer |
 | `t.len` | its length in bytes, read-only |
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
 | `?t` where a String is expected | `?t[..]` |
 | `?b[a..b]`, `?b` of a `Box[Text]` | the same, through the box |
 | `+t` | a new Text holding the same bytes |
-| `t == u`, `t == s` | compares its bytes with a Text's or a String's |
+| `t == u`, `t == s` | compares its bytes with a Text's or a String's; a boxed Text too |
 
 Each value is written as `print` writes it at the top level: a String
 or a Text as its text, a number as `print` shows it, a struct, enum,

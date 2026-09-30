@@ -118,6 +118,9 @@ const Checker = struct {
     /// The argument being checked, when the call keeps no borrow of its
     /// arguments: a temporary array there may be lent as a `[]T`.
     lent_temp: Sexp = .nil,
+    /// The path being synthesized is read through to a part of it
+    /// (`synthPath`): a temporary it starts from may hold an owning part.
+    through_temp: bool = false,
     /// The argument being checked, where a closure literal may be lent
     /// as a borrowed callable, and the call when its result could hold
     /// the literal instead.
@@ -2886,10 +2889,13 @@ const Checker = struct {
         // Any error compares with a member of any error set.
         const any_err = self.t().any_error_id;
         if ((a == any_err and sema.isErrorValue(self.ctx, b)) or (b == any_err and sema.isErrorValue(self.ctx, a))) return self.t().bool_id;
-        // A Text compares with a String by content.
+        // A Text, boxed or not, compares with a String or a Text by
+        // content.
         const text_ty = self.t().text_id;
         const string_ty = self.t().string_id;
-        if ((a == text_ty and b == string_ty) or (a == string_ty and b == text_ty)) return self.t().bool_id;
+        const ta_text = textOrBoxed(self.ctx, a);
+        const tb_text = textOrBoxed(self.ctx, b);
+        if ((ta_text == text_ty or tb_text == text_ty) and (ta_text == text_ty or ta_text == string_ty) and (tb_text == text_ty or tb_text == string_ty)) return self.t().bool_id;
         if (a != b) {
             try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().bool_id;
@@ -2991,7 +2997,7 @@ const Checker = struct {
         const borrowed = sema.unwrapBorrows(self.ctx, opt) != opt;
         // A temporary or moved optional is consumed whole: its value, or
         // the fallback, is the result, and nothing is copied.
-        const takes_whole = !isPlaceExpr(left) and !borrowed;
+        const takes_whole = !borrowed and self.handsOverFresh(left) and (isJump(right) or self.handsOverFresh(right));
         if (!takes_whole and (try self.ownsResource(inner, self.startOf(left), "copies out with `??` a value"))) {
             if (borrowed) {
                 try self.borrowGivesUp(left, opt);
@@ -3481,16 +3487,49 @@ const Checker = struct {
     fn lendTemp(self: *Checker, operand: Sexp) Error!void {
         const base = if (isPlaceExpr(operand)) self.placeOf(operand).base else operand;
         if (base != .list) return;
-        if (try self.rejectNamedBranch(base, self.ctx.typeOf(base) orelse return)) return;
+        if (try self.rejectNotFresh(base, self.ctx.typeOf(base) orelse return)) return;
         try self.ctx.recordTempDrop(base);
     }
 
-    /// A value whose branch is an owner a name holds (`a if c else b`)
-    /// would move it into a temporary: rejected, as a bare owner is.
-    fn rejectNamedBranch(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
-        if (!branchNamesPlace(e) or !sema.typeHasDropGlue(self.ctx, ty)) return false;
-        try self.errAt(e, "a branch of this value is an owner a name holds, which it would move; bind the value to a name first, or borrow each branch (`?a if c else ?b`)", .{});
+    /// An owning value read where it stands that is not fresh (`o?`, a
+    /// branch naming an owner) would move an owner a name holds into a
+    /// temporary: rejected, as a bare owner is.
+    fn rejectNotFresh(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
+        if (self.handsOverFresh(e) or !sema.typeHasDropGlue(self.ctx, ty)) return false;
+        try self.errAt(e, "`{s}` is not a fresh value: it reaches an owner a name holds, which reading it here would move; borrow what it reaches (`?a if c else ?b`), or take the owner out first (`if o as x`, `<o`)", .{self.sourceText(e)});
         return true;
+    }
+
+    /// Whether `e` hands over a fresh owned value, one no name holds: a
+    /// call's result (a method's, a constructor's, `Text(...)`, `Vec()`,
+    /// `Box(v)`), a share `*x`, a clone `+x`, a move `<x`, a literal, a
+    /// jump (which hands over nothing), or a `??`, `catch`, `if`,
+    /// `match`, or block value, or `!` or `?` of one, all of whose
+    /// branches are fresh. Anything else (a name, a field path, `o?`)
+    /// reaches an owner a name holds.
+    fn handsOverFresh(self: *Checker, e: Sexp) bool {
+        const kind = e.kind() orelse {
+            if (e != .src) return false;
+            const word = self.text(e);
+            return sema.isIntLiteralText(word) or sema.isFloatLiteralText(word) or word[0] == '"' or word[0] == '\'' or
+                std.mem.eql(u8, word, "none") or std.mem.eql(u8, word, "true") or std.mem.eql(u8, word, "false");
+        };
+        return switch (kind) {
+            .call, .share, .clone, .move, .array, .array_fill, .@"return", .@"break", .@"continue" => true,
+            .@"if" => self.handsOverFresh(ir.If.then(e)) and self.handsOverFresh(ir.If.@"else"(e)),
+            .match => for (ir.Match.arms(e)) |arm| {
+                if (!self.handsOverFresh(ir.Arm.body(arm))) break false;
+            } else true,
+            .block => blk: {
+                const stmts = ir.Block.stmts(e);
+                break :blk stmts.len > 0 and self.handsOverFresh(stmts[stmts.len - 1]);
+            },
+            .@"??" => self.handsOverFresh(ir.@"??".left(e)) and self.handsOverFresh(ir.@"??".right(e)),
+            .@"catch" => self.handsOverFresh(ir.Catch.value(e)) and self.handsOverFresh(ir.Catch.handler(e)),
+            .propagate => self.handsOverFresh(ir.Propagate.value(e)),
+            .propagate_none => self.handsOverFresh(ir.PropagateNone.value(e)),
+            else => false,
+        };
     }
 
     /// Synthesize `operand` where its value is only read: an owning
@@ -3505,7 +3544,7 @@ const Checker = struct {
     /// when it is one that owns a resource.
     fn readTemp(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
         if (isPlaceExpr(operand) or operand != .list or self.isPoison(ty)) return;
-        if (try self.rejectNamedBranch(operand, ty)) return;
+        if (try self.rejectNotFresh(operand, ty)) return;
         if (try self.ownsResource(ty, self.startOf(operand), "leaves a temporary")) try self.ctx.recordTempDrop(operand);
     }
 
@@ -3532,16 +3571,41 @@ const Checker = struct {
             return ty;
         }
         // A field of an owning temporary is read where it stands, and the
-        // statement drops the temporary; an owning field cannot leave it.
+        // statement drops the temporary; an owning field cannot leave it,
+        // though a plain part of it may be read through it.
+        const through = self.through_temp;
+        self.through_temp = false;
         if (!isPlaceExpr(obj)) {
             const obj_ty = try self.synthExpr(obj);
             const ty = try self.memberOf(e, obj, obj_ty);
-            if (self.isPoison(ty) or try self.ownsResource(ty, self.startOf(e), "reads a field of a temporary")) {
+            if (self.isPoison(ty) or (!through and try self.ownsResource(ty, self.startOf(e), "reads a field of a temporary"))) {
                 try self.rejectResourceTemporary(obj, obj_ty);
             } else try self.readTemp(obj, obj_ty);
             return ty;
         }
-        return self.memberOf(e, obj, try self.synthOperand(obj));
+        const ty = try self.memberOf(e, obj, try self.synthPath(obj));
+        try self.checkPartOfTemp(e, obj, ty, through);
+        return ty;
+    }
+
+    /// Synthesize a field or element path `obj` whose part is read
+    /// through it: a temporary it starts from may hold an owning part
+    /// on the way (`mk().v[0]`), since only the plain end is read.
+    fn synthPath(self: *Checker, obj: Sexp) Error!TypeId {
+        const saved = self.through_temp;
+        defer self.through_temp = saved;
+        self.through_temp = obj.isKind(.member) or obj.isKind(.index);
+        return self.synthOperand(obj);
+    }
+
+    /// The part `e` of path `obj`, of type `ty`, where `obj` starts from
+    /// a temporary: an owning part would leave it, unless read through.
+    fn checkPartOfTemp(self: *Checker, e: Sexp, obj: Sexp, ty: TypeId, through: bool) Error!void {
+        if (through or !(obj.isKind(.member) or obj.isKind(.index))) return;
+        const base = self.placeOf(obj).base;
+        if (base != .list or isPlaceExpr(base) or !self.ctx.dropsTemp(base)) return;
+        if (self.isPoison(ty) or !(try self.ownsResource(ty, self.startOf(e), "reads a part of a temporary"))) return;
+        try self.errAt(e, "this `{s}` is part of a temporary that owns a resource, and nothing would drop it; bind the temporary to a name first", .{try self.tyName(ty)});
     }
 
     /// `U8.max`, `Int.min`, `F64.max`: the greatest or least value of a
@@ -4192,7 +4256,10 @@ const Checker = struct {
             // `value.name[...]`: a method's compile-time arguments, which
             // only a call takes, or an element of a field.
             const inner = ir.Member.object(object);
-            const inner_ty = try self.synthOperand(inner);
+            const through = self.through_temp;
+            self.through_temp = false;
+            const temp = !isPlaceExpr(inner);
+            const inner_ty = if (temp) try self.synthExpr(inner) else try self.synthPath(inner);
             if (!self.isPoison(inner_ty)) if (try self.findMethod(inner_ty, self.text(ir.Member.name(object)))) |m| {
                 const call = self.sourceText(e);
                 const takes_args = m.fn_ty.params.len > @intFromBool(m.field.receiver != .none);
@@ -4201,19 +4268,31 @@ const Checker = struct {
             };
             const field_ty = try self.memberOf(object, inner, inner_ty);
             try self.ctx.recordType(object, field_ty);
-            return self.indexInto(e, field_ty);
+            const ty = try self.indexInto(e, field_ty);
+            // An element of a temporary's field is read through it.
+            if (temp) {
+                if (self.isPoison(ty) or (!through and try self.ownsResource(ty, self.startOf(e), "reads an element of a temporary"))) {
+                    try self.rejectResourceTemporary(inner, inner_ty);
+                } else try self.readTemp(inner, inner_ty);
+            } else try self.checkPartOfTemp(e, object, ty, through);
+            return ty;
         }
         // A plain element of an owning temporary is read where it stands,
         // and the statement drops the temporary.
+        const through = self.through_temp;
+        self.through_temp = false;
         if (!isPlaceExpr(object) and e.isKind(.index)) {
             const obj_ty = try self.synthExpr(object);
             const ty = try self.indexInto(e, obj_ty);
-            if (self.isPoison(ty) or try self.ownsResource(ty, self.startOf(e), "reads an element of a temporary")) {
+            if (self.isPoison(ty) or (!through and try self.ownsResource(ty, self.startOf(e), "reads an element of a temporary"))) {
                 try self.rejectResourceTemporary(object, obj_ty);
             } else try self.readTemp(object, obj_ty);
             return ty;
         }
-        return self.indexInto(e, try self.synthOperand(object));
+        if (!e.isKind(.index)) return self.indexInto(e, try self.synthOperand(object));
+        const ty = try self.indexInto(e, try self.synthPath(object));
+        try self.checkPartOfTemp(e, object, ty, through);
+        return ty;
     }
 
     /// Element `e` (an `index` node) of a value of type `obj_ty`.
@@ -4845,7 +4924,10 @@ const Checker = struct {
         switch (op) {
             .add => try self.checkFormatArgs(args, "`add`", "write"),
             // One byte, as a Vec's `push` takes one element.
-            .push => if (args.len != 1 or args[0].isKind(.kwarg)) {
+            .push => if (args.len == 1 and args[0].isKind(.kwarg)) {
+                try self.errAt(args[0], "`push` takes its byte by position, not by name: `!t.push({s})`", .{self.sourceText(ir.Kwarg.value(args[0]))});
+                try self.synthArgs(args);
+            } else if (args.len != 1) {
                 try self.err(pos, "`push` takes one byte, a `U8`; got {d} arguments", .{args.len});
                 try self.synthArgs(args);
             } else try self.checkExpr(args[0], try self.byteType()),
@@ -8205,25 +8287,6 @@ fn isArithmetic(e: Sexp) bool {
 /// type as it is.
 fn textOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
     return if (sema.boxedType(ctx, ty) == ctx.types.text_id) ctx.types.text_id else ty;
-}
-
-/// Whether a branch of `e` (an `if`, `match`, or block value) yields a
-/// place: a name, or a field or element of one.
-fn branchNamesPlace(e: Sexp) bool {
-    if (isPlaceExpr(e)) return true;
-    const kind = e.kind() orelse return false;
-    switch (kind) {
-        .@"if" => return branchNamesPlace(ir.If.then(e)) or branchNamesPlace(ir.If.@"else"(e)),
-        .match => {
-            for (ir.Match.arms(e)) |arm| if (branchNamesPlace(ir.Arm.body(arm))) return true;
-            return false;
-        },
-        .block => {
-            const stmts = ir.Block.stmts(e);
-            return stmts.len > 0 and branchNamesPlace(stmts[stmts.len - 1]);
-        },
-        else => return false,
-    }
 }
 
 fn isPlaceExpr(e: Sexp) bool {

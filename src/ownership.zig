@@ -740,6 +740,13 @@ pub const Checker = struct {
         try self.note(root.decl, "`{s}` goes out of scope while still borrowed", .{root.name});
     }
 
+    /// Whether var `id` holds a statement's temporary (`holdTemp`).
+    fn isStmtTemp(self: *const Checker, id: VarId) bool {
+        if (id >= self.vars.items.len) return false;
+        const v = self.vars.items[id];
+        return v.kind == .hidden and v.name.len > 0;
+    }
+
     /// A borrow `l` of a statement's temporary that `holder` keeps past
     /// the statement.
     fn reportTempOutlived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
@@ -901,6 +908,13 @@ pub const Checker = struct {
             if (prev == id) continue;
             prev = id;
             var f = self.flows.items[id];
+            // A statement's temporary made since `p` is out of the state:
+            // a value that still holds one after the statement outlives it.
+            if (hasLoanFrom(f.loans, len)) for (f.loans) |l| {
+                if (l.root < len or !self.isStmtTemp(l.root)) continue;
+                if (self.holderLive(id, extent(self.cur_stmt).hi +| 1)) try self.reportTempOutlived(l, id);
+                break;
+            };
             f.loans = try self.filterLoansBelow(f.loans, len);
             try entries.append(self.arena(), .{ .id = id, .flow = f });
         }
@@ -3304,14 +3318,10 @@ pub const Checker = struct {
         const else_b = ir.If.@"else"(node);
         const base = try self.here();
         const depth = self.scopes.items.len;
-        const drops = self.stmt_drops.items.len;
         try self.walkConditionParts(ir.If.cond(node), then_b);
         // A failing part goes on to the `else`, or past the `if`.
         const failed = try self.leaveTo(base, resumeAt(else_b, node));
         var v1 = try self.walkTailBranch(then_b, t);
-        // The header's temporaries live through the `if`: what the body
-        // leaves holding one after it is reported here, while they exist.
-        try self.dropStmtTemps(drops, extent(node).hi +| 1);
         while (self.scopes.items.len > depth) {
             v1 = try self.checkValueEscapesScope(v1);
             try self.popScope();

@@ -25,8 +25,8 @@ sub main
   print(?a if c else ?b, size(?a if c else ?b))
   print(a, b, m.id)
 
-# error: 19:9: a branch of this value is an owner a name holds, which it would move
-# error: 20:16: a branch of this value is an owner a name holds
-# error: 21:10: a branch of this value is an owner a name holds
-# error: 24:9: a branch of this value is an owner a name holds
+# error: 19:9: is not a fresh value
+# error: 20:16: is not a fresh value
+# error: 21:10: is not a fresh value
+# error: 24:9: is not a fresh value
 # errors: 4

@@ -28,10 +28,15 @@ sub main
   p = ?keep
   if idp(?mk()) as r
     p = r
+  if false
+    print("x")
+  else if text.cut(?Text("u,w"), ",") as kv
+    o = kv.before
   print(o, v, p)
 
 # error: 20:25: a borrow of the temporary `Text("pre-fix")` outlives its statement
 # error: 23:16: a borrow of the temporary `Text("q,r")` outlives its statement
 # error: 25:16: a borrow of the temporary `Text("s,t")` outlives its statement
 # error: 29:11: a borrow of the temporary `mk()` outlives its statement
-# errors: 4
+# error: 33:21: a borrow of the temporary `Text("u,w")` outlives its statement
+# errors: 5
