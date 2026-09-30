@@ -7,4 +7,4 @@ fun make() -> [3]Int
 sub main()
   print(?make()[0..2])
 
-# error: 8:10: only a named array or Vec, or a field or element of one, can be sliced
+# error: 8:10: only a named array, Vec, or Text, or a field or element of one, can be sliced

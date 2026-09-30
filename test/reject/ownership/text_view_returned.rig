@@ -1,0 +1,22 @@
+# A view of a local Text, or of a Text parameter taken by value, cannot
+# leave the function: the Text ends with it.
+
+fun local_view -> String
+  t = Text("abc")
+  ?t[..]
+
+fun param_view(t: Text) -> String
+  ?t[1..]
+
+fun lent(t: Text) -> String
+  first(?t)
+
+fun first(s: String) -> String
+  s
+
+sub main
+  print(local_view(), param_view(Text("x")), lent(Text("y")))
+
+# error: 6:4: returned borrow of `t` does not originate from a borrowed parameter
+# error: 9:4: cannot return a borrow of `t`
+# error: 12:9: cannot return a borrow of `t`

@@ -1070,7 +1070,7 @@ const Checker = struct {
             if (index) {
                 if (place.cell_vec_elem == null and cellVecElement(self.ctx, ty) != null) place.cell_vec_elem = step;
                 if (obj == .string or (obj == .slice and sema.writeSliceElem(self.ctx, ty) == null)) place.block(if (obj == .string) .string else .slice, self.startOf(p));
-            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string or obj == .array or vecElementType(self.ctx, inner) != null or cellVecElement(self.ctx, inner) != null)) {
+            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string or obj == .text or obj == .array or vecElementType(self.ctx, inner) != null or cellVecElement(self.ctx, inner) != null)) {
                 place.block(.len, self.startOf(ir.Member.name(step)));
             }
             switch (self.ctx.types.get(ty)) {
@@ -2736,7 +2736,12 @@ const Checker = struct {
             if (!ok) {
                 if (req == .ordered) {
                     try self.errAt(operands[i], "operator `{s}` orders numbers, Strings, and `[]U8` slices; got `{s}`", .{ op, try self.tyName(ty) });
-                } else try self.errAt(operands[i], "operator `{s}` requires {s} operands; got `{s}`", .{ op, if (want_int) "integer" else "numeric", try self.tyName(ty) });
+                } else {
+                    // Text is built, not added: `Text(a, b)`, `!t.add(b)`.
+                    const is_text = ty == self.t().string_id or ty == self.t().text_id;
+                    const hint = if (is_text and std.mem.eql(u8, op, "+")) "; Rig has no `+` on text: build it with `Text(a, b)` or `!t.add(...)`" else "";
+                    try self.errAt(operands[i], "operator `{s}` requires {s} operands; got `{s}`{s}", .{ op, if (want_int) "integer" else "numeric", try self.tyName(ty), hint });
+                }
                 return self.t().invalid_id;
             }
         }
@@ -2854,6 +2859,11 @@ const Checker = struct {
             b = try self.synthReached(r);
         }
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
+        // A Text, or a value holding one, compares where it is: a
+        // temporary one would never be dropped.
+        for ([2]Sexp{ l, r }, [2]TypeId{ a, b }) |operand, ty| {
+            if (sema.typeHasDropGlue(self.ctx, ty)) try self.rejectResourceTemporary(operand, ty);
+        }
         if (sema.isNumeric(self.ctx, a) and sema.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(l, r, a, b, op);
             return self.t().bool_id;
@@ -2883,6 +2893,10 @@ const Checker = struct {
         // Any error compares with a member of any error set.
         const any_err = self.t().any_error_id;
         if ((a == any_err and sema.isErrorValue(self.ctx, b)) or (b == any_err and sema.isErrorValue(self.ctx, a))) return self.t().bool_id;
+        // A Text compares with a String by content.
+        const text_ty = self.t().text_id;
+        const string_ty = self.t().string_id;
+        if ((a == text_ty and b == string_ty) or (a == string_ty and b == text_ty)) return self.t().bool_id;
         if (a != b) {
             try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().bool_id;
@@ -3276,6 +3290,10 @@ const Checker = struct {
                 try self.errAt(object, "cannot write-borrow a slice of a String; a String is read-only", .{});
                 return self.t().invalid_id;
             },
+            .text => {
+                try self.errAt(object, "cannot write-borrow a slice of a Text; a Text changes only through its methods (`!t.add(...)`, `!t.clear()`)", .{});
+                return self.t().invalid_id;
+            },
             .slice => |s| blk: {
                 if (sema.writeSliceElem(self.ctx, obj_ty) == null) {
                     try self.errAt(object, "cannot write-borrow a slice of a `{s}`; a `[]T` is read-only (a writable slice is a `![]T`)", .{try self.tyName(obj_ty)});
@@ -3389,7 +3407,8 @@ const Checker = struct {
         // A clone reads the value a borrow reaches.
         const value = try self.readThrough(operand, inner, sema.unwrapBorrows(self.ctx, inner));
         switch (self.ctx.types.get(value)) {
-            .shared, .weak => return value,
+            // `+t` copies a Text's bytes into a new one.
+            .shared, .weak, .text => return value,
             // An optional handle clones to another optional handle.
             .optional => |o| switch (self.ctx.types.get(o)) {
                 .shared, .weak => return value,
@@ -3539,7 +3558,7 @@ const Checker = struct {
                 try self.err(pos, "cannot access `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ field, try self.tyName(peeled) });
                 return self.t().invalid_id;
             },
-            .array, .slice, .string => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
+            .array, .slice, .string, .text => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
             .parameterized_nominal => if ((vecElementType(self.ctx, peeled) != null or cellVecElement(self.ctx, peeled) != null) and std.mem.eql(u8, field, "len")) return self.t().int_id,
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no fields; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
@@ -4217,10 +4236,10 @@ const Checker = struct {
     }
 
     /// `xs[a..b]`: the elements from `a` up to, not including, `b`. A
-    /// String gives a String, which borrows nothing: every String is a
-    /// static literal. A `[]T` gives a `[]T` viewing the same elements.
-    /// An array or a `Vec` of plain data gives a `[]T` only as
-    /// `?xs[a..b]` (`borrowed`): the slice is a read borrow of `xs`.
+    /// String gives a String viewing what it views, and a `[]T` a `[]T`
+    /// viewing the same elements. An array or a `Vec` of plain data gives
+    /// a `[]T`, and a Text a String, only as `?xs[a..b]` (`borrowed`):
+    /// the slice is a read borrow of `xs`.
     fn synthSlice(self: *Checker, e: Sexp, borrowed: bool) Error!TypeId {
         const object = ir.Index.object(e);
         const range = ir.Index.index(e);
@@ -4241,6 +4260,19 @@ const Checker = struct {
                 return peeled;
             },
             .array => |a| a.elem,
+            // A view of a Text is a String that borrows it.
+            .text => {
+                try self.checkSliceBounds(range, null);
+                if (!borrowed) {
+                    try self.errAt(e, "a slice of a Text borrows it; write `?{s}`", .{self.sourceText(e)});
+                    return self.t().invalid_id;
+                }
+                if (!self.placeOf(object).named()) {
+                    try self.errAt(object, slice_of_temporary, .{});
+                    return self.t().invalid_id;
+                }
+                return self.t().string_id;
+            },
             else => (try self.vecSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
         };
         const len: ?u64 = if (self.ctx.types.get(peeled) == .array) sema.arrayLen(self.ctx, self.ctx.types.get(peeled).array) else null;
@@ -4439,6 +4471,7 @@ const Checker = struct {
             const name = self.text(callee);
             if (self.lookupQuiet(callee) == null) {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
+                if (std.mem.eql(u8, name, "Text")) return self.checkTextNew(node, args);
                 if (std.mem.eql(u8, name, "replace")) return self.checkReplace(callee, args);
                 if (std.mem.eql(u8, name, "swap")) return self.checkSwap(callee, args);
                 if (resolve.isNumericTypeName(name)) {
@@ -4480,6 +4513,7 @@ const Checker = struct {
     fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty: TypeId, args: []const Sexp, pos: u32) Error!TypeId {
         if (self.isPoison(ty)) return self.skipCall(args);
         if (sema.isNumeric(self.ctx, ty)) return self.checkConversion(ty, name, args, pos);
+        if (ty == self.t().text_id) return self.checkTextNew(call, args);
         const nt = self.aliasNamedType(ty) orelse return self.badCall(args, callee, "`{s}` is a type alias for `{s}`, which has no constructor", .{ name, try self.tyName(ty) });
         if (nt.foreign) |fo| return self.construct(nt.id, args, pos, TypeSubst.empty, fo);
         if (nt.args) |targs| {
@@ -4695,33 +4729,78 @@ const Checker = struct {
 
     /// `print(a, b, ...)`: any number of values, printed on one line.
     fn checkPrint(self: *Checker, args: []const Sexp) Error!TypeId {
+        try self.checkFormatArgs(args, "`print`", "print");
+        return self.t().void_id;
+    }
+
+    /// The values `print`, `Text(...)`, and `!t.add(...)` (`who`) write
+    /// as text, each as `print` writes it: any value but a `Void`, a
+    /// bare `none`, or one holding a `[]U8`, positionally. They are only
+    /// read, and kept by nothing, so a borrowed temporary lives long
+    /// enough.
+    fn checkFormatArgs(self: *Checker, args: []const Sexp, who: []const u8, verb: []const u8) Error!void {
         for (args) |a| {
             if (a.isKind(.kwarg)) {
-                try self.errAt(a, "`print` takes no keyword arguments", .{});
+                try self.errAt(a, "{s} takes no keyword arguments", .{who});
+                _ = try self.synthQuiet(ir.Kwarg.value(a));
                 continue;
             }
-            // `print` keeps nothing, so a borrowed temporary lives long
-            // enough.
             const saved_borrow = self.lent_borrow;
             self.lent_borrow = a;
             const ty = try self.synthOperand(a);
             self.lent_borrow = saved_borrow;
-            // An integer literal prints as an `Int`, which must hold it.
+            // An integer literal is written as an `Int`, which must hold it.
             if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
             switch (self.ctx.types.get(ty)) {
-                .void => try self.errAt(a, "`print` needs a value; this expression produces no value (`Void`)", .{}),
-                .none_literal => try self.errAt(a, "cannot print a bare `none`", .{}),
+                .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
+                .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
                 else => {
                     var seen: std.ArrayListUnmanaged(ByteSliceVisit) = .empty;
                     defer seen.deinit(self.ctx.allocator);
                     if (try holdsByteSlice(self.ctx, ty, &seen, self.ctx.allocator)) {
                         const name = try self.tyName(ty);
                         const direct = std.mem.eql(u8, name, "[]U8");
-                        try self.errAt(a, "cannot print a `{s}`: {s}would print as text, like a String; print the bytes one by one", .{ name, if (direct) "it " else "the `[]U8` it holds " });
+                        try self.errAt(a, "cannot {s} a `{s}`: {s}would {s} as text, like a String; {s} the bytes one by one", .{ verb, name, if (direct) "it " else "the `[]U8` it holds ", verb, verb });
                     }
                 },
             }
         }
+    }
+
+    /// `Text(a, b, ...)`: a new Text holding each value as `print` writes
+    /// it, with no separators; `Text()` is empty.
+    fn checkTextNew(self: *Checker, call: Sexp, args: []const Sexp) Error!TypeId {
+        try self.checkFormatArgs(args, "`Text(...)`", "write");
+        try self.ctx.recordTextCall(call, .new);
+        return self.t().text_id;
+    }
+
+    /// `!t.add(a, b, ...)`, which appends each value as `print` writes
+    /// it, and `!t.clear()`, on a Text receiver written `!t`, recorded
+    /// on the callee. Null when the receiver is no Text or the method
+    /// none of these.
+    fn textCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        if (sema.unwrapBorrows(self.ctx, obj_ty) != self.t().text_id) return null;
+        const op = std.meta.stringToEnum(sema.TextCall, method) orelse return null;
+        if (op == .new) return null;
+        const recv = try self.ctx.intern(.{ .borrow_write = self.t().text_id });
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{recv}), .returns = self.t().void_id, .is_sub = true });
+        if (!try self.checkReceiverSigil(obj, .write, self.t().void_id, method)) {
+            const kind: ReceiverTypeKind = switch (self.ctx.types.get(obj_ty)) {
+                .borrow_read => .read_borrow,
+                .borrow_write => .write_borrow,
+                else => .owned_nominal,
+            };
+            try self.checkReceiverMode(obj, .write, kind, method, pos, args.len > 0);
+        }
+        switch (op) {
+            .add => try self.checkFormatArgs(args, "`add`", "write"),
+            else => if (args.len > 0) {
+                try self.err(pos, "`clear` takes no arguments; got {d}", .{args.len});
+                try self.synthArgs(args);
+            },
+        }
+        try self.ctx.recordTextCall(callee, op);
         return self.t().void_id;
     }
 
@@ -5987,6 +6066,7 @@ const Checker = struct {
         }
 
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return ty;
+        if (ct == null) if (try self.textCall(callee, obj, obj_ty, method, pos, args)) |ty| return ty;
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.f[i](args)` where `f` is a field: its element is called.
         if (ct != null and resolved_method == null) {
@@ -6671,6 +6751,7 @@ const Checker = struct {
 
         const actual = try self.synthExpr(e);
         if (try self.arrayAsSlice(e, actual, expected)) return;
+        if (try self.textAsString(e, actual, expected)) return;
         if (try self.boxLent(e, actual, expected)) return;
         if (sema.callableFn(self.ctx, expected) != null and try self.lendCallable(e, actual, expected)) return;
         if (self.ctx.types.get(expected) == .function and sema.callableFnTy(self.ctx, actual) == expected) {
@@ -6765,6 +6846,38 @@ const Checker = struct {
                     try self.errAt(e, "a temporary array is lent as a `{s}` only to a call that keeps no borrow of it; bind it to a name and pass `?name`", .{try self.tyName(expected)});
                     return true;
                 }
+            },
+            else => {},
+        }
+        return false;
+    }
+
+    /// `?t` of a named Text where a String is expected lends the whole
+    /// Text as a String, as `?t[..]` does; a bare Text there is rejected
+    /// with the borrow to write. True when handled.
+    fn textAsString(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
+        if (expected != self.t().string_id) return false;
+        const text_ty = self.t().text_id;
+        switch (self.ctx.types.get(actual)) {
+            .borrow_read => |inner| if (inner == text_ty) {
+                if (!e.isKind(.read)) {
+                    const shown = self.sourceText(e);
+                    try self.errAt(e, "type mismatch: expected `String`, got `{s}`; view it as a String with `?{s}[..]`", .{ try self.tyName(actual), shown });
+                    return true;
+                }
+                if (!self.placeOf(ir.Read.operand(e)).named()) {
+                    // A Text made here was reported as a temporary.
+                    if (isPlaceExpr(ir.Read.operand(e))) try self.errAt(e, "only a named Text, or a field or element of one, is lent as a String; bind this value to a name first", .{});
+                    return true;
+                }
+                try self.ctx.recordType(e, expected);
+                try self.ctx.recordArrayView(e, .borrowed);
+                return true;
+            },
+            .text, .borrow_write => if (actual == text_ty or self.ctx.types.get(actual).borrow_write == text_ty) {
+                const shown = self.sourceText(e);
+                try self.errAt(e, "type mismatch: expected `String`, got `{s}`; lend it as a String with `?{s}` or `?{s}[..]`", .{ try self.tyName(actual), shown, shown });
+                return true;
             },
             else => {},
         }
@@ -7983,7 +8096,7 @@ fn cellVecElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
 
 const cell_place = "`{s}{s}` needs a Cell that has a place: a local binding, a field of one, or one reached through a borrow (`?T` or `!T`) or a shared handle (`*T`). A by-value parameter, a loop or match binding (a copy), or a temporary cannot be changed.";
 
-const slice_of_temporary = "only a named array or Vec, or a field or element of one, can be sliced; bind this value to a name first";
+const slice_of_temporary = "only a named array, Vec, or Text, or a field or element of one, can be sliced; bind this value to a name first";
 
 const cell_vec_handle = "cannot read or overwrite an element of a `{s}` in place: its elements are handles, which would be copied out or released while the cell holds them; `pop` the element, or `replace` the Vec to work on it";
 

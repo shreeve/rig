@@ -158,6 +158,8 @@ pub const Type = union(enum) {
     void,
     bool,
     string,
+    /// `Text`: owned, growable UTF-8 bytes; `String` is its view.
+    text,
     int: IntInfo,
     float: FloatInfo,
 
@@ -244,6 +246,7 @@ pub const TypeStore = struct {
     void_id: TypeId = type_invalid,
     bool_id: TypeId = type_invalid,
     string_id: TypeId = type_invalid,
+    text_id: TypeId = type_invalid,
     int_id: TypeId = type_invalid,
     float_id: TypeId = type_invalid,
     int_literal_id: TypeId = type_invalid,
@@ -280,6 +283,7 @@ pub const TypeStore = struct {
         s.void_id = try s.intern(allocator, .void);
         s.bool_id = try s.intern(allocator, .bool);
         s.string_id = try s.intern(allocator, .string);
+        s.text_id = try s.intern(allocator, .text);
         s.int_id = try s.intern(allocator, .{ .int = .{} });
         s.float_id = try s.intern(allocator, .{ .float = .{} });
         s.int_literal_id = try s.intern(allocator, .int_literal);
@@ -335,7 +339,7 @@ pub const TypeStore = struct {
     fn typeEqual(a: Type, b: Type) bool {
         if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
         return switch (a) {
-            .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
+            .invalid, .unknown, .void, .bool, .string, .text, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
             .function => |af| af.is_sub == b.function.is_sub and
                 af.returns == b.function.returns and
                 std.mem.eql(TypeId, af.ct_params, b.function.ct_params) and
@@ -623,6 +627,9 @@ pub const Facts = struct {
     elem_calls: std.AutoHashMapUnmanaged(NodeKey, ElemCall) = .empty,
     /// Array expressions lent as a slice (`ArrayView`).
     array_views: std.AutoHashMapUnmanaged(NodeKey, ArrayView) = .empty,
+    /// `Text(...)` call node, or `t.add` / `t.clear` callee node -> the
+    /// built-in Text operation it is (`TextCall`).
+    text_calls: std.AutoHashMapUnmanaged(NodeKey, TextCall) = .empty,
     /// `<place` nodes that take an optional out of a field or element
     /// (`SemContext.recordTake`).
     takes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -663,6 +670,11 @@ pub const ElemCall = struct {
 };
 
 pub const ElemOp = enum { copy, fill, swap, read, write };
+
+/// A call of a built-in Text operation: `Text(a, b, ...)`, which builds
+/// one, and the methods `!t.add(a, b, ...)` and `!t.clear()`. `new` and
+/// `add` format their arguments as `print` does, reading them.
+pub const TextCall = enum { new, add, clear };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`
@@ -818,6 +830,10 @@ pub const PlainRequirement = struct {
     /// The value is an element its collection still owns, taken out
     /// (moved, dropped, reassigned) rather than copied.
     element: bool = false,
+    /// Not a copy: the value is stored where no loan is tracked (a Cell,
+    /// a Signal, an owned closure), so each instance's argument must
+    /// hold no String, which may view a Text.
+    view: bool = false,
     /// The module whose source `pos` is in; 0 for this one.
     module_id: u32 = 0,
 };
@@ -1364,6 +1380,16 @@ pub const SemContext = struct {
         return self.facts.elem_calls.get(nodeKey(callee) orelse return null);
     }
 
+    pub fn recordTextCall(self: *SemContext, call: Sexp, op: TextCall) !void {
+        try self.facts.text_calls.put(self.allocator, recordKey(call), op);
+    }
+
+    /// The built-in Text operation a `Text(...)` call or a method's
+    /// callee (`member`) is.
+    pub fn textCallOf(self: *const SemContext, node: Sexp) ?TextCall {
+        return self.facts.text_calls.get(nodeKey(node) orelse return null);
+    }
+
     pub fn recordInstance(self: *SemContext, node: Sexp, inst: Instance) !void {
         try self.facts.instances.put(self.allocator, recordKey(node), inst);
     }
@@ -1859,19 +1885,23 @@ pub const Contents = struct {
     cyclic: bool = false,
 };
 
-/// Whether values hold a borrow (`?T`, `!T`, a slice) and whether they
-/// hold a write borrow (`!T`), directly or through an optional, array,
-/// field, variant payload, shared or weak handle, or any argument of a
-/// generic instance. What a Cell or Signal holds holds no borrow.
-pub const Borrows = packed struct(u2) {
+/// Whether values hold a borrow (`?T`, `!T`, a slice), whether they
+/// hold a write borrow (`!T`), and whether they hold a String, which may
+/// view a Text, directly or through an optional, array, field, variant
+/// payload, shared or weak handle, or any argument of a generic
+/// instance. What a Cell or Signal holds holds no borrow. A String is no
+/// borrow to the type rules (`holdsBorrow`); the ownership checker
+/// follows the loans its values carry (`mayHoldView`).
+pub const Borrows = packed struct(u3) {
     any: bool = false,
     write: bool = false,
+    view: bool = false,
 };
 
 /// Facts about an interned type, recorded when it is interned
 /// (`SemContext.intern`). The structural facts are always known; the
 /// rest once declarations are resolved (`SemContext.contents_ready`).
-pub const TypeInfo = packed struct(u16) {
+pub const TypeInfo = packed struct(u17) {
     /// Mentions a generic parameter anywhere.
     has_type_var: bool = false,
     /// Holds a generic parameter by value, so whether it owns a resource
@@ -1964,6 +1994,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
     }
     return switch (ctx.types.get(ty)) {
         .bool, .int, .float, .string, .any_error, .ct_value, .ct_param => .{ .plain = true },
+        .text => .{ .glue = true },
         .optional => |inner| holdsIn(ctx, inner, params, held),
         .array => |a| holdsIn(ctx, a.elem, params, held),
         .fallible => |inner| .{ .type_var = (try holdsIn(ctx, inner, params, held)).type_var },
@@ -1996,20 +2027,20 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
 
 /// What a value holds, of what it can hold through the declared types it
 /// holds: a `Cell` inline, a borrow, and a write borrow.
-const Reach = packed struct(u3) {
+const Reach = packed struct(u4) {
     cell: bool = false,
     borrows: Borrows = .{},
 
-    const all: Reach = .{ .cell = true, .borrows = .{ .any = true, .write = true } };
+    const all: Reach = .{ .cell = true, .borrows = .{ .any = true, .write = true, .view = true } };
     /// What reaches through a handle or heap memory: no Cell is inline.
-    const borrows_only: Reach = .{ .borrows = .{ .any = true, .write = true } };
+    const borrows_only: Reach = .{ .borrows = .{ .any = true, .write = true, .view = true } };
 
     fn with(a: Reach, b: Reach) Reach {
-        return @bitCast(@as(u3, @bitCast(a)) | @as(u3, @bitCast(b)));
+        return @bitCast(@as(u4, @bitCast(a)) | @as(u4, @bitCast(b)));
     }
 
     fn within(a: Reach, mask: Reach) Reach {
-        return @bitCast(@as(u3, @bitCast(a)) & @as(u3, @bitCast(mask)));
+        return @bitCast(@as(u4, @bitCast(a)) & @as(u4, @bitCast(mask)));
     }
 
     fn of(c: Contents) Reach {
@@ -2080,6 +2111,7 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
     const r: Reach = switch (ctx.types.get(ty)) {
         .borrow_read, .slice => .{ .borrows = .{ .any = true } },
         .borrow_write => .{ .borrows = .{ .any = true, .write = true } },
+        .string => .{ .borrows = .{ .view = true } },
         .optional, .fallible => |inner| return reachOf(ctx, inner, mask, into),
         .array => |a| return reachOf(ctx, a.elem, mask, into),
         .shared, .weak => |inner| return reachOf(ctx, inner, mask.within(Reach.borrows_only), into),
@@ -2380,6 +2412,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .int => |i| i.width() / 8,
         .float => |f| if (f.bits == 0) 8 else f.bits / 8,
         .string, .slice => 16,
+        .text => 24,
         .any_error => 2,
         // A null handle or borrow is its null address; anything else
         // needs a flag.
@@ -3091,6 +3124,20 @@ pub fn mayHoldBorrow(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// Whether a value of `ty` holds a write borrow, which is unique.
+/// Whether a value of `ty` holds a borrow or a String, which may view a
+/// Text: the ownership checker tracks the loans such a value carries.
+pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
+    const b = ctx.holds(ty).borrows;
+    return b.any or b.view;
+}
+
+/// Whether a value of `ty` holds a String but no borrow or type
+/// parameter: it may view a Text, and nothing else.
+pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
+    const info = ctx.holds(ty);
+    return info.borrows.view and !info.borrows.any and !info.holds_type_var and !info.poison;
+}
+
 pub fn holdsWriteBorrow(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).borrows.write;
 }
@@ -3149,7 +3196,7 @@ pub fn importType(
 ) std.mem.Allocator.Error!TypeId {
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
-        .invalid, .unknown, .void, .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
+        .invalid, .unknown, .void, .bool, .string, .text, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
         inline .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range, .callable => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
@@ -3280,7 +3327,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         try ctx.generic_requirements.append(ctx.allocator, .{ .param = proxy, .req = r.req, .pos = r.pos, .op = r.op, .module_id = if (r.module_id == 0) m else r.module_id });
     };
     for (foreign.plain_reqs.items) |r| if (r.param == origin.sym) {
-        try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .module_id = if (r.module_id == 0) m else r.module_id });
+        try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .view = r.view, .module_id = if (r.module_id == 0) m else r.module_id });
     };
     for (foreign.generic_arrays.items, 0..) |g, i| {
         if (!usesParams(foreign, g.ty, &here) or !try firstImport(ctx, m, .arrays, i)) continue;
@@ -3515,6 +3562,7 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .void => "Void",
         .bool => "Bool",
         .string => "String",
+        .text => "Text",
         .int => |info| if (info.bits == 0) "Int" else try std.fmt.allocPrint(a, "{c}{d}", .{ @as(u8, if (info.signed) 'I' else 'U'), info.bits }),
         .float => |info| if (info.bits == 0) "Float" else try std.fmt.allocPrint(a, "F{d}", .{info.bits}),
         .int_literal => "Int",

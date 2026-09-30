@@ -1,0 +1,45 @@
+# A String viewing a Text carries the Text's loan wherever it goes: into
+# a binding, a struct, a Vec[String], a call's result, and a closure.
+# Each holds the Text borrowed until its last use; then the Text can be
+# changed, moved, or dropped again. Strings from literals hold no loan.
+
+struct Span
+  label: String
+  width: Int
+
+fun longer(a: String, b: String) -> String
+  if a.len >= b.len
+    a
+  else
+    b
+
+fun head(t: ?Text, n: Int) -> String
+  ?t[..n]
+
+sub main
+  t = Text("alpha beta")
+  s = Span(label: ?t[..5], width: 5)
+  print(s)
+  !t.add(" gamma")
+  words: Vec[String] = Vec()
+  !words.push(?t[..5])
+  !words.push(?t[6..10])
+  !words.push("literal")
+  print(words, words.len)
+  -words
+  !t.add("!")
+  l = longer(head(?t, 3), "zz")
+  show = |+l| print("show", l)
+  show()
+  u = <t
+  print(u)
+  free = longer("x", "yy")
+  -u
+  print(free)
+
+# expect:
+# Span(label: "alpha", width: 5)
+# ["alpha", "beta", "literal"] 3
+# show alp
+# alpha beta gamma!
+# yy

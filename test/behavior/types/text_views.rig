@@ -1,0 +1,36 @@
+# `?t[a..b]` and `?t[..]` view a Text's bytes as a String, and `?t`
+# lends the whole Text where a String is expected. A view borrows the
+# Text: once the view's last use is past, the Text can change again.
+
+fun first_word(s: String) -> String
+  i = 0
+  while i < s.len and s[i] != 32
+    i += 1
+  s[..i]
+
+fun count(s: String, b: U8) -> Int
+  n = 0
+  for c in s
+    if c == b
+      n += 1
+  n
+
+sub main
+  t = Text("hello world")
+  w = ?t[0..5]
+  rest = ?t[6..]
+  print(w, rest, w.len, ?t[..] == "hello world")
+  print(first_word(?t), count(?t, 111), first_word(?t[6..]))
+  print(t.len)
+  !t.add("!")
+  f = first_word(?t)
+  print(f, t)
+  !t.clear()
+  print(t.len)
+
+# expect:
+# hello world 5 true
+# hello 2 world
+# 11
+# hello hello world!
+# 0

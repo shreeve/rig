@@ -199,9 +199,26 @@ pub fn create(comptime T: type) *T {
 pub fn eql(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
+    // A Text compares with a Text or a String by its bytes.
+    if (comptime isText(A) or isText(B)) return std.mem.eql(u8, textBytes(a), textBytes(b));
     // The peer type of an optional error and an error is an error union.
     const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
     return eqlAs(T, a, b);
+}
+
+/// A `Text`, or a pointer to one (a borrowed Text).
+fn isText(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct" => @hasDecl(T, "__rig_text"),
+        .pointer => |p| p.size == .one and @typeInfo(p.child) == .@"struct" and @hasDecl(p.child, "__rig_text"),
+        else => false,
+    };
+}
+
+/// The bytes of a Text, a borrowed Text, or a String.
+fn textBytes(x: anytype) []const u8 {
+    if (comptime isText(@TypeOf(x))) return x.list.items;
+    return x;
 }
 
 fn eqlAs(comptime T: type, a: T, b: T) bool {
@@ -224,6 +241,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
             return true;
         },
         .@"struct" => |s| {
+            if (@hasDecl(T, "__rig_text")) return std.mem.eql(u8, a.list.items, b.list.items);
             inline for (s.fields) |f| if (!eqlAs(f.type, @field(a, f.name), @field(b, f.name))) return false;
             return true;
         },
@@ -889,6 +907,65 @@ pub fn Vec(comptime T: type) type {
 }
 
 // -----------------------------------------------------------------------------
+// Text
+// -----------------------------------------------------------------------------
+
+/// `Text`: owned, growable bytes, UTF-8 by convention. `Text(a, b)` and
+/// `!t.add(a, b)` write each value as `print` does at the top level
+/// (`writeValue`), with no separators; a String taken from a Text views
+/// its buffer, which the ownership checker keeps from changing while a
+/// view is in use.
+pub const Text = struct {
+    list: std.ArrayList(u8) = .empty,
+
+    /// Printed as its bytes (`writeValue`), compared by them (`eql`).
+    pub const __rig_text = {};
+
+    pub const empty: Text = .{};
+
+    /// `Text(a, b, ...)`.
+    pub fn of(parts: anytype) Text {
+        var t: Text = .empty;
+        t.add(parts);
+        return t;
+    }
+
+    /// `!t.add(a, b, ...)`.
+    pub fn add(self: *Text, parts: anytype) void {
+        var out: std.Io.Writer.Allocating = .fromArrayList(defaultAllocator(), &self.list);
+        defer self.list = out.toArrayList();
+        inline for (std.meta.fields(@TypeOf(parts))) |f| writeValue(&out.writer, @field(parts, f.name), true) catch oom();
+    }
+
+    /// `!t.clear()`: empty, keeping the buffer.
+    pub fn clear(self: *Text) void {
+        self.list.clearRetainingCapacity();
+    }
+
+    /// The bytes, as a String: `?t[..]`, `?t` where a String goes.
+    pub fn bytes(self: Text) []const u8 {
+        return self.list.items;
+    }
+
+    /// `t.len`.
+    pub fn length(self: Text) Int {
+        return @intCast(self.list.items.len);
+    }
+
+    /// `+t`: a new Text holding the same bytes.
+    pub fn clone(self: Text) Text {
+        var t: Text = .empty;
+        t.list.appendSlice(defaultAllocator(), self.list.items) catch oom();
+        return t;
+    }
+
+    pub fn __rig_drop(self: *Text) void {
+        self.list.deinit(defaultAllocator());
+        self.list = .empty;
+    }
+};
+
+// -----------------------------------------------------------------------------
 // Zig-backed declarations
 // -----------------------------------------------------------------------------
 
@@ -1449,7 +1526,10 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         },
         .bool => return w.writeAll(if (value) "true" else "false"),
         .@"fn" => return w.writeAll("<fun>"),
-        .@"struct" => if (@hasDecl(T, "__rig_box")) return writeValue(w, value.value.*, top),
+        .@"struct" => {
+            if (@hasDecl(T, "__rig_box")) return writeValue(w, value.value.*, top);
+            if (@hasDecl(T, "__rig_text")) return writeValue(w, value.list.items, top);
+        },
         .optional => return if (value) |v| writeValue(w, v, top) else w.writeAll("none"),
         .pointer => |p| {
             if (comptime isStrongHandle(T)) return writeValue(w, value.value, top);

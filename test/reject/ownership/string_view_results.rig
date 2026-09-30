@@ -1,0 +1,48 @@
+# A function returning a String, a `String?`, or a struct holding
+# Strings may return a view of a String it was passed: its result keeps
+# borrowed every Text its arguments view, and so does an iterator built
+# from one, and each part it gives.
+
+fun trim(s: String) -> String
+  s
+
+fun strip(s: String) -> String?
+  s[1..]
+
+struct Cut
+  before: String
+
+fun cut(s: String) -> Cut?
+  Cut(before: s[..1])
+
+struct Split
+  rest: String
+
+  fun next(!self) -> String?
+    return none if self.rest.len == 0
+    part = self.rest[..1]
+    self.rest = self.rest[1..]
+    part
+
+fun split(s: String) -> Split
+  Split(rest: s)
+
+sub main
+  t = Text("abc")
+  a = trim(?t)
+  !t.add("x")
+  b = strip(?t)
+  !t.add("y")
+  c = cut(?t)
+  !t.add("z")
+  it = split(?t)
+  d = !it.next()
+  -it
+  !t.clear()
+  print(a, b, c, d)
+
+# error: 33:3: cannot write-borrow `t` while a read borrow is live
+# error: 35:3: cannot write-borrow `t` while a read borrow is live
+# error: 37:3: cannot write-borrow `t` while a read borrow is live
+# error: 41:3: cannot write-borrow `t` while a read borrow is live
+# errors: 4

@@ -1,0 +1,21 @@
+# A named Text is lent where a String is expected with a visible `?`:
+# `?t` means `?t[..]`. A bare Text, or a borrow of one held by a name,
+# says what to write, and a Text made in place has no name to lend.
+
+fun n(s: String) -> Int
+  s.len
+
+fun a(p: ?Text) -> Int
+  n(?p) + n(?p[1..])
+
+fun b(p: ?Text) -> Int
+  n(p)
+
+sub main
+  t = Text("abc")
+  print(a(?t), n(t), n(?Text("x")))
+
+# error: 12:5: type mismatch: expected `String`, got `?Text`; view it as a String with `?p[..]`
+# error: 16:18: type mismatch: expected `String`, got `Text`; lend it as a String with `?t` or `?t[..]`
+# error: 16:25: this `Text` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+# errors: 3

@@ -25,6 +25,10 @@
 //! * Cells, Signals and owned closures hold no borrows: every handle to
 //!   one reaches what it holds, so tracking loans per handle var would
 //!   miss the other handles.
+//! * A String is a view: one taken from a Text (`?t[a..b]`) borrows it,
+//!   and any value whose type holds a String carries loans as a borrow
+//!   does. A value holding Strings but no borrow keeps only the loans
+//!   that lead to a Text (`viewLoans`).
 //! * Borrowed parameters hold an *external* loan on themselves: it marks
 //!   a borrow that came from the caller, which may be returned or stored
 //!   into other borrowed parameters, and it never conflicts.
@@ -315,6 +319,7 @@ const Owning = union(enum) {
     weak,
     vec,
     box,
+    text,
     drop_glue: []const u8, // type name
     /// A value inside a generic body whose type holds type parameters:
     /// it owns a resource if an instantiation's argument does.
@@ -487,8 +492,9 @@ pub const Checker = struct {
         for (ctx.fn_instances.items) |f| {
             const shown = try sema.formatFnInstanceIn(ctx, self.arena(), f.inst);
             for (f.inst.ownParams(), f.inst.ownArgs()) |param, arg| {
-                if (!self.mayCarryBorrow(arg)) {
+                if (!self.holdsBorrowType(arg)) {
                     try self.checkCopies(f.site, shown, param, arg);
+                    try self.checkViews(f.site, shown, param, arg);
                     continue;
                 }
                 const pname = ctx.symbols.items[param].name;
@@ -515,12 +521,28 @@ pub const Checker = struct {
                 const arg = pn.args[i];
                 const pname = ctx.symbols.items[param].name;
                 const aname = try sema.formatTypeIn(ctx, self.arena(), arg);
-                if (has_methods and self.mayCarryBorrow(arg)) {
+                if (has_methods and self.holdsBorrowType(arg)) {
                     try self.err(site, "`{s}` cannot use `{s} = {s}`: the methods of `{s}` are checked for a `{s}` that holds no borrow", .{ shown, pname, aname, base.name, pname });
                     continue;
                 }
                 try self.checkCopies(site, shown, param, arg);
+                try self.checkViews(site, shown, param, arg);
             }
+        }
+    }
+
+    /// An instance whose argument for `param` holds a String, which may
+    /// view a Text, where a generic body stores a `param` where no loan
+    /// is tracked.
+    fn checkViews(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId) Error!void {
+        const ctx = self.sema orelse return;
+        if (!self.mayCarryBorrow(arg) or sema.holdsBorrow(ctx, arg)) return;
+        const pname = ctx.symbols.items[param].name;
+        for (self.plain_reqs.items) |r| {
+            if (r.param != param or !r.view) continue;
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body stores a `{s}` in a Cell, a Signal, or an owned closure, which holds no borrow, and a String may view a Text", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname });
+            try self.noteIn(r.module_id, r.pos, "`{s}` stored here", .{pname});
+            return;
         }
     }
 
@@ -531,7 +553,7 @@ pub const Checker = struct {
         if (!sema.typeHasDropGlue(ctx, arg)) return;
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
-            if (r.param != param) continue;
+            if (r.param != param or r.view) continue;
             try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
             if (r.element) {
                 try self.noteIn(r.module_id, r.pos, "a `{s}` element is taken here while its collection still owns it; take the elements with `for x in <v`", .{pname});
@@ -1315,11 +1337,23 @@ pub const Checker = struct {
         const kind = sexp.kind() orelse return .{};
         // A borrow its context reads through gives the value it reaches;
         // when that holds no borrow, the loans taken to reach it end here.
-        if (self.sema) |ctx| if (ctx.readsThrough(sexp)) if (ctx.typeOf(sexp)) |ty| if (!self.mayCarryBorrow(sema.unwrapBorrows(ctx, ty))) {
-            const temps_start = self.temps.items.len;
-            _ = try self.walkList(sexp, kind);
-            self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
-            return .{};
+        if (self.sema) |ctx| if (ctx.readsThrough(sexp)) if (ctx.typeOf(sexp)) |ty| {
+            const reached = sema.unwrapBorrows(ctx, ty);
+            if (!self.mayCarryBorrow(reached)) {
+                const temps_start = self.temps.items.len;
+                _ = try self.walkList(sexp, kind);
+                self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+                return .{};
+            }
+            // A String read through a borrow is a copy of the view: it
+            // keeps what the view keeps, not the borrow that reached it.
+            if (sema.holdsViewOnly(ctx, reached)) {
+                const temps_start = self.temps.items.len;
+                const v = try self.viewLoans(reached, try self.walkList(sexp, kind));
+                self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+                for (v.loans) |l| if (!l.ext) try self.addTemp(l);
+                return v;
+            }
         };
         return self.walkList(sexp, kind);
     }
@@ -1617,7 +1651,43 @@ pub const Checker = struct {
         const obj = try self.walk(ir.get(e, .object));
         if (e.isKind(.index)) _ = try self.walk(ir.Index.index(e));
         if (!self.mayCarryBorrow(self.exprType(e))) return .{};
-        return obj;
+        return self.viewLoans(self.exprType(e), obj);
+    }
+
+    /// The loans a value of type `ty` needs, from those `v` carries. A
+    /// String points into a literal or into a Text's bytes, so where
+    /// `ty` holds Strings but no borrow, a loan on a var whose value owns
+    /// nothing (no drop glue, so no Text) stands for what that var's
+    /// value views: `it.next()` of a `!it` iterator holding Strings
+    /// borrows what `it` views, not `it`.
+    fn viewLoans(self: *Checker, ty: ?TypeId, v: Value) Error!Value {
+        const ctx = self.sema orelse return v;
+        const t = ty orelse return v;
+        if (v.loans.len == 0 or !sema.holdsViewOnly(ctx, t)) return v;
+        var out: std.ArrayListUnmanaged(Loan) = .empty;
+        for (v.loans) |l| try self.addViewLoan(&out, l, 0);
+        return .{ .loans = out.items };
+    }
+
+    fn addViewLoan(self: *Checker, out: *std.ArrayListUnmanaged(Loan), l: Loan, depth: u8) Error!void {
+        if (l.ext or depth >= 16 or self.mayOwnText(l.root)) {
+            // A String only reads what it views.
+            var kept = l;
+            if (!l.ext) kept.kind = .read;
+            if (!containsLoan(out.items, kept)) try out.append(self.arena(), kept);
+            return;
+        }
+        for (self.flows.items[l.root].loans) |h| try self.addViewLoan(out, h, depth + 1);
+    }
+
+    /// Whether var `id`'s value may own a Text a String could view: it
+    /// has drop glue, or its type is not known.
+    fn mayOwnText(self: *const Checker, id: VarId) bool {
+        const ctx = self.sema orelse return true;
+        const v = self.vars.items[id];
+        if (v.closure) return true;
+        const t = sema.unwrapBorrows(ctx, v.ty orelse return true);
+        return self.isPoisonType(t) or sema.typeHasDropGlue(ctx, t) or sema.maybeDropGlue(ctx, t) or ctx.types.get(t) == .unknown;
     }
 
     // -------------------------------------------------------------------------
@@ -1706,7 +1776,7 @@ pub const Checker = struct {
         const ty = self.exprType(object) orelse return self.walkOperand(slice, object);
         const peeled = self.pointee(ty) orelse ty;
         const of_write_slice = if (self.sema) |ctx| sema.writeSliceElem(ctx, ty) != null else false;
-        if (self.typeData(peeled) != .array and !self.isVec(peeled) and !of_write_slice) return self.walkOperand(slice, object);
+        if (self.typeData(peeled) != .array and !self.isVec(peeled) and !self.isText(peeled) and !of_write_slice) return self.walkOperand(slice, object);
         // An array inside an element of a `[]T` is viewed as the `[]T`
         // views it.
         if (self.throughReadSlice(object)) return self.walkOperand(slice, object);
@@ -2189,13 +2259,28 @@ pub const Checker = struct {
     /// Every type parameter `ty` holds must be plain data in each
     /// instance, because the value is copied (or taken as an `element`).
     fn requirePlain(self: *Checker, pos: u32, ty: TypeId, element: bool) Error!void {
+        return self.addRequirement(pos, ty, .{ .param = 0, .pos = pos, .element = element });
+    }
+
+    /// Every type parameter `ty` holds must hold no String in each
+    /// instance, because the value is stored where no loan is tracked:
+    /// in a Cell, a Signal, or an owned closure.
+    fn requireNoView(self: *Checker, pos: u32, ty: ?TypeId) Error!void {
+        return self.addRequirement(pos, ty orelse return, .{ .param = 0, .pos = pos, .view = true });
+    }
+
+    fn addRequirement(self: *Checker, pos: u32, ty: TypeId, req: PlainRequirement) Error!void {
         const ctx = self.sema orelse return;
         var held: std.ArrayListUnmanaged(SymbolId) = .empty;
         try sema.heldTypeVars(ctx, ty, &held, self.arena());
         for (held.items) |param| {
             for (self.plain_reqs.items) |r| {
-                if (r.param == param and r.pos == pos) break;
-            } else try self.plain_reqs.append(self.gpa, .{ .param = param, .pos = pos, .element = element });
+                if (r.param == param and r.pos == pos and r.view == req.view) break;
+            } else {
+                var r = req;
+                r.param = param;
+                try self.plain_reqs.append(self.gpa, r);
+            }
         }
     }
 
@@ -2221,6 +2306,11 @@ pub const Checker = struct {
                 try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer and free its value twice; use `<{s}` to move ownership", .{ what, where, what });
             } else {
                 try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer; a field cannot be moved out of its parent. Borrow it instead: `?{s}` or `!{s}`", .{ what, where, what, what });
+            },
+            .text => if (is_name) {
+                try self.err(pos, "bare use of `Text` value `{s}` in {s} would copy the buffer pointer and free it twice; use `<{s}` to move ownership, or `+{s}` to copy the text", .{ what, where, what, what });
+            } else {
+                try self.err(pos, "bare use of `Text` value `{s}` in {s} would copy the buffer pointer; a field cannot be moved out of its parent. Borrow it (`?{s}`) or copy the text (`+{s}`)", .{ what, where, what, what });
             },
             .drop_glue => |tname| if (is_name) {
                 try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<{s}` to move ownership", .{ tname, what, where, tname, what });
@@ -2521,13 +2611,20 @@ pub const Checker = struct {
             result = try self.walk(callee);
         }
 
-        // `print` only reads its arguments, and holds none of them past
-        // the call.
-        if (self.isPrint(callee)) {
+        // `print`, `Text(...)`, and `!t.add(...)` only read their
+        // arguments, and hold none of them past the call: a Text keeps
+        // their text, not them.
+        const text_op = if (self.sema) |ctx| ctx.textCallOf(node) orelse ctx.textCallOf(callee) else null;
+        if (self.isPrint(callee) or text_op != null) {
             for (args) |a| {
                 _ = try self.walk(a);
                 try self.holdArgRead(a);
             }
+            if (recv_root) |id| if (recv_mode == .write) {
+                const reserved = self.temps.orderedRemove(reservation);
+                _ = try self.conflicts(id, .write, self.startOf(ir.Member.object(callee)));
+                try self.temps.insert(self.gpa, reservation, reserved);
+            };
             self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
             return .{};
         }
@@ -2551,6 +2648,9 @@ pub const Checker = struct {
             const found = self.errors_found;
             v.* = try self.walkConsumed(a, .argument);
             if (self.errors_found == found) try self.holdArgRead(a);
+            // A generic body's `T` holds no loan here, but an instance's
+            // may be a String viewing a Text.
+            if (cell != null) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a));
             if (cell != null and v.loans.len > 0 and !self.rejected(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a)) {
                 const loans = v.loans;
                 v.* = .{};
@@ -2591,7 +2691,7 @@ pub const Checker = struct {
             self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
             return .{};
         }
-        return result;
+        return self.viewLoans(self.exprType(node), result);
     }
 
     /// A call argument that reads a place by value whose value shares
@@ -2635,7 +2735,7 @@ pub const Checker = struct {
     fn storesNothing(self: *const Checker, callee: Sexp) bool {
         const ctx = self.sema orelse return false;
         const ec = ctx.elemCallOf(callee) orelse return false;
-        return !sema.holdsBorrow(ctx, ec.elem);
+        return !self.mayCarryBorrow(ec.elem);
     }
 
     /// A borrow of plain data (`k` with `k: ?Int`) passed where a value
@@ -2666,7 +2766,7 @@ pub const Checker = struct {
     /// may hold the other. The result holds no borrow.
     fn walkSwapCall(self: *Checker, args: []const Sexp, swap: bool) Error!Value {
         const start = self.temps.items.len;
-        _ = try self.walkConsumed(args[0], .argument);
+        const first = try self.walkConsumed(args[0], .argument);
         const lent = self.temps.items.len;
         var saved: std.ArrayListUnmanaged(Loan) = .empty;
         defer saved.deinit(self.gpa);
@@ -2680,10 +2780,18 @@ pub const Checker = struct {
             try saved.appendSlice(self.gpa, self.temps.items[start..lent]);
             self.temps.shrinkRetainingCapacity(start);
         }
-        _ = try self.walkConsumed(args[1], .argument);
+        const second = try self.walkConsumed(args[1], .argument);
         try self.temps.appendSlice(self.gpa, saved.items);
+        // The places hold no borrow, but may hold Strings: what `replace`
+        // hands back views what the place viewed, and each place now
+        // views what went in.
+        var result: Value = .{};
+        const ty = self.exprType(args[1]);
+        if (!swap and self.mayCarryBorrow(ty)) result = try self.viewLoans(ty, first);
+        try self.absorbThroughWrites(first, second, self.startOf(args[1]), null, null);
+        if (swap) try self.absorbThroughWrites(second, first, self.startOf(args[0]), null, null);
         self.temps.shrinkRetainingCapacity(start);
-        return .{};
+        return result;
     }
 
     /// `!a[i]` and `!a[j]`: write borrows of two elements of the one
@@ -2825,7 +2933,9 @@ pub const Checker = struct {
     /// parameter or a module-level binding outlives this function's
     /// values: storing a borrow of one into it is rejected. `via` is as
     /// for `absorbThroughWrites`.
-    fn absorbLoans(self: *Checker, id: VarId, v: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool) Error!void {
+    fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool) Error!void {
+        // A value that holds only Strings keeps only what leads to a Text.
+        const v = try self.viewLoans(self.pointee(self.vars.items[id].ty), v_in);
         var out: std.ArrayListUnmanaged(Loan) = .empty;
         for (v.loans) |l| {
             if (l.root != id and std.mem.indexOfScalar(VarId, through, l.root) == null) try out.append(self.arena(), l);
@@ -2896,6 +3006,7 @@ pub const Checker = struct {
         for (caps) |cap| {
             const cv = try self.applyCapture(cap);
             try cap_values.append(self.arena(), cv);
+            if (owned) try self.requireNoView(sema.captureNameNode(cap).?.src.pos, self.symType(sema.captureNameNode(cap).?.src.pos));
             // An owned closure is a shared handle that may be stored
             // anywhere, including in a Cell or Signal: it holds no borrow.
             if (owned and cv.loans.len > 0) {
@@ -3260,7 +3371,11 @@ pub const Checker = struct {
         const ty = self.symType(pos);
         var v: Var = .{ .name = self.text(node), .decl = pos, .ty = ty, .kind = .pattern, .ref = self.refOfType(ty) };
         var loans: []const Loan = &.{};
-        if (!self.isCopy(ty)) {
+        // A String copied out of the matched value views what it views.
+        if (self.isCopy(ty) and self.mayCarryBorrow(ty)) {
+            const r_loans: []const Loan = if (info.root) |r| self.flows.items[r].loans else &.{};
+            loans = (try self.viewLoans(ty, .{ .loans = try self.unionLoans(scrut_value.loans, r_loans) })).loans;
+        } else if (!self.isCopy(ty)) {
             if (info.root) |r| {
                 v.alias_of = r;
                 v.alias_path = info.path;
@@ -3806,6 +3921,12 @@ pub const Checker = struct {
         return sema.isCopyPrimitive(ctx, t) or ctx.types.get(t) == .any_error;
     }
 
+    /// A `Text`, whose bytes a String may view.
+    fn isText(self: *const Checker, ty: ?TypeId) bool {
+        const ctx = self.sema orelse return false;
+        return ty == ctx.types.text_id;
+    }
+
     /// A `Vec[T]`.
     fn isVec(self: *const Checker, ty: TypeId) bool {
         const ctx = self.sema orelse return false;
@@ -3835,16 +3956,23 @@ pub const Checker = struct {
         return switch (ctx.types.get(inner)) {
             .shared => .shared,
             .weak => .weak,
+            .text => .text,
             .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) .vec else if (pn.sym == ctx.box_sym_id) .box else .{ .drop_glue = ctx.symbols.items[pn.sym].name },
             else => .{ .drop_glue = if (sema.nominalDecl(ctx, inner)) |d| d.symbol().name else "value" },
         };
     }
 
-    /// Whether a value of this type can hold a borrow. Unknown types are
-    /// assumed to.
+    /// Whether a value of this type can hold a borrow, or a String that
+    /// may view a Text. Unknown types are assumed to.
     fn mayCarryBorrow(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return true;
-        return sema.holdsBorrow(ctx, ty orelse return true);
+        return sema.mayHoldView(ctx, ty orelse return true);
+    }
+
+    /// Whether a value of this type holds a borrow, a String aside.
+    fn holdsBorrowType(self: *const Checker, ty: TypeId) bool {
+        const ctx = self.sema orelse return true;
+        return sema.holdsBorrow(ctx, ty);
     }
 
     /// Whether a value of this type holds a write borrow, which must not

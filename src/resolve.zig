@@ -140,6 +140,9 @@ const SymbolResolver = struct {
             .flags = flags,
         };
         const dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
+        // `Text` is a built-in type, like `Vec`, though no symbol holds it.
+        const reserved = self.scope == self.module_scope and std.mem.eql(u8, name, "Text");
+        if (reserved) try self.ctx.err(pos, "`Text` is a reserved built-in nominal name and cannot be redefined", .{});
         if (dup) |prev| {
             const p = self.ctx.symbols.items[prev];
             if (p.decl_pos == sema.builtin_decl_pos) {
@@ -155,7 +158,7 @@ const SymbolResolver = struct {
         const id = try self.ctx.addSymbol(sym);
         // A duplicate is still resolved and checked, under a symbol no
         // name reaches, so errors inside it are reported too.
-        if (dup == null) try self.ctx.addToScope(self.scope, id);
+        if (dup == null and !reserved) try self.ctx.addToScope(self.scope, id);
         try self.ctx.recordName(name_node, id);
         return id;
     }
@@ -785,7 +788,7 @@ pub const TypeResolver = struct {
             }
         }.keep);
         for (self.nominal.type_params) |tp| s.offer(self.ctx.symbols.items[tp].name);
-        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Void" }) |p| s.offer(p);
+        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Text", "Void" }) |p| s.offer(p);
         return s.hint(a);
     }
 
@@ -2162,6 +2165,7 @@ fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
         .{ "Float", t.float_id },
         .{ "Bool", t.bool_id },
         .{ "String", t.string_id },
+        .{ "Text", t.text_id },
         .{ "Void", t.void_id },
     };
     for (table) |e| {

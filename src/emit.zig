@@ -1030,7 +1030,7 @@ pub const Emitter = struct {
         var e = expr;
         while (e.isKind(.propagate)) e = ir.Propagate.value(e);
         if (!e.isKind(.call)) return true;
-        if (self.isPrintCall(e)) return false;
+        if (self.isPrintCall(e) or self.textCall(e) != null) return false;
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
         if (self.sema.calleeOf(e).isKind(.lambda)) return true;
@@ -2987,6 +2987,11 @@ pub const Emitter = struct {
             // `?a` / `!a` of an array lent as a slice: the array's address,
             // which Zig takes as a slice.
             .read, .write => if (self.sema.arrayViewOf(sexp) == .borrowed) {
+                // `?t` of a Text lent as a String: its bytes.
+                if (self.typeOf(ir.get(sexp, .operand))) |t| if (self.peelBorrows(t) == self.sema.types.text_id) {
+                    try self.emitExpr(ir.get(sexp, .operand));
+                    return self.w.writeAll(".bytes()");
+                };
                 const saved_read = self.read_place;
                 defer self.read_place = saved_read;
                 self.read_place = head == .read;
@@ -3025,6 +3030,11 @@ pub const Emitter = struct {
                     try self.w.writeAll("rig.cloneOptional(");
                     try self.emitBare(operand);
                     return self.w.writeAll(")");
+                }
+                // `+t` of a Text copies its bytes.
+                if (self.peelBorrows(self.typeOf(operand).?) == self.sema.types.text_id) {
+                    try self.emitExpr(operand);
+                    return self.w.writeAll(".clone()");
                 }
                 // A generic `T` is cloned only where each instance is plain
                 // data, so it is copied.
@@ -3391,6 +3401,9 @@ pub const Emitter = struct {
         if (self.isVecTy(ty)) {
             try self.emitExpr(base);
             try self.w.writeAll(".items()");
+        } else if (ty == self.sema.types.text_id) {
+            try self.emitExpr(base);
+            try self.w.writeAll(".bytes()");
         } else if (self.sema.types.get(ty) == .array) {
             // A read slice only reads through: a Vec element on the way
             // is reached through a read-only slot.
@@ -3438,6 +3451,11 @@ pub const Emitter = struct {
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.isCellVecTy(obj_ty.?)) {
             try self.emitCellPtr(obj);
             return self.w.writeAll(".vecLen()");
+        }
+        if (std.mem.eql(u8, field, "len") and obj_ty != null and sema.unwrapAccess(self.sema, obj_ty.?) == self.sema.types.text_id) {
+            try self.emitMemberBase(obj, obj_ty);
+            try self.writeReach(obj_ty.?);
+            return self.w.writeAll(".length()");
         }
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLen(obj_ty.?)) {
             try self.w.writeAll("rig.len(");
@@ -3668,6 +3686,34 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
+    /// The built-in Text operation `call` is: `Text(...)`, `!t.add(...)`,
+    /// or `!t.clear()`.
+    fn textCall(self: *Emitter, call: Sexp) ?sema.TextCall {
+        if (!call.isKind(.call)) return null;
+        return self.sema.textCallOf(call) orelse self.sema.textCallOf(self.sema.calleeOf(call));
+    }
+
+    /// `Text(a, b)` → `rig.Text.of(.{ a, b })`; `!t.add(a, b)` →
+    /// `t.add(.{ a, b })`, the arguments written as `print`'s are;
+    /// `!t.clear()` → `t.clear()`.
+    fn emitTextCall(self: *Emitter, call: Sexp, op: sema.TextCall) Error!void {
+        const args = ir.Call.args(call);
+        switch (op) {
+            .new => try self.w.writeAll("rig.Text.of(.{"),
+            .add, .clear => {
+                const recv = ir.Member.object(self.sema.calleeOf(call));
+                try self.emitMemberBase(recv, self.typeOf(recv));
+                if (op == .clear) return self.w.writeAll(".clear()");
+                try self.w.writeAll(".add(.{");
+            },
+        }
+        for (args, 0..) |a, i| {
+            try self.w.writeAll(if (i == 0) " " else ", ");
+            try self.emitBare(a);
+        }
+        try self.w.writeAll(if (args.len > 0) " })" else "})");
+    }
+
     fn isPrintCall(self: *Emitter, call: Sexp) bool {
         const callee = self.sema.calleeOf(call);
         return callee == .src and self.sema.symbolOf(callee) == null and std.mem.eql(u8, self.srcText(callee), "print");
@@ -3734,6 +3780,7 @@ pub const Emitter = struct {
         const args = ir.Call.args(sexp);
 
         if (self.isPrintCall(sexp)) return self.emitPrint(args);
+        if (self.textCall(sexp)) |op| return self.emitTextCall(sexp, op);
         if (self.builtinCall(sexp)) |name| return self.emitSwapCall(name, args);
         if (callee == .src and self.sema.symbolOf(callee) == null and resolve.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
         // A call through an alias: a conversion to the number type it
@@ -4112,7 +4159,7 @@ pub const Emitter = struct {
     /// effects, or when an argument may leave (`!`, a `catch` that
     /// returns) after an owned value was produced, which would be lost.
     fn hoistsArgs(self: *Emitter, call: Sexp) bool {
-        if (!call.isKind(.call) or self.isPrintCall(call)) return false;
+        if (!call.isKind(.call) or self.isPrintCall(call) or self.textCall(call) != null) return false;
         const args = ir.Call.args(call);
         // A closure literal lent to the call gets an environment first.
         for (args) |a| if (self.lentLiteral(argValue(a))) return true;
@@ -4784,6 +4831,7 @@ pub const Emitter = struct {
             .any_error => try self.w.writeAll("anyerror"),
             .bool => try self.w.writeAll("bool"),
             .string => try self.w.writeAll("[]const u8"),
+            .text => try self.w.writeAll("rig.Text"),
             .int_literal => try self.w.writeAll(int_zig),
             .float_literal => try self.w.writeAll(float_zig),
             .int => |i| if (i.bits == 0) try self.w.writeAll(int_zig) else try self.w.print("{c}{d}", .{ @as(u8, if (i.signed) 'i' else 'u'), i.bits }),

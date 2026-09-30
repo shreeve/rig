@@ -1,0 +1,13 @@
+# A Text cannot be moved while a String views it.
+
+sub eat(t: Text)
+  print(t)
+
+sub main
+  t = Text("abc")
+  s = ?t[1..]
+  eat(<t)
+  print(s)
+
+# error: 9:8: cannot move `t` while it is read-borrowed
+# errors: 1
