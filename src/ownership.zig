@@ -3327,8 +3327,8 @@ pub const Checker = struct {
         elem1: Sexp = .nil,
         elem2: Sexp = .nil,
         source_root: ?VarId = null,
-        /// `for x in <v`: the loans the moved collection held, which its
-        /// elements carry.
+        /// `for x in <v`, or a collection the source makes: the loans it
+        /// held, which its elements carry.
         moved: []const Loan = &.{},
         source_loan: LoanKind = .read,
         source_pos: u32 = 0,
@@ -3369,7 +3369,10 @@ pub const Checker = struct {
         } else {
             spec.elem_view = true;
             const found = self.errors_found;
-            _ = try self.walk(source);
+            const value = try self.walk(source);
+            // The elements of a collection the source makes (an array of
+            // borrows) carry the borrows it holds.
+            if (self.resolvePlace(source) == null) spec.moved = value.loans;
             // A source already reported (used while write-borrowed) is
             // not reported again as a conflicting borrow.
             if (self.errors_found == found) if (self.resolvePlace(source)) |p| {
@@ -3627,6 +3630,8 @@ pub const Checker = struct {
         try self.scopes.items[self.scopes.items.len - 1].defers.append(self.gpa, .{ .body = body, .vars = @intCast(self.vars.items.len), .err_only = node.isKind(.@"errdefer") });
     }
 
+    /// Walk a `defer` body: where it is written (`report_changes`), and
+    /// its effects undone; at an exit, where it runs, and they stay.
     fn checkDeferBody(self: *Checker, body: Sexp, report_changes: bool) Error!void {
         const snap = try self.here();
         const saved_loop = self.loop;
@@ -3636,13 +3641,15 @@ pub const Checker = struct {
         try self.walkStmt(body);
         self.loop = saved_loop;
         self.in_defer = saved_in_defer;
+        // At an exit the body runs: what it stores, a borrow among them,
+        // stays, so leaving the scope reports a borrow of one of its vars
+        // that the body stored outside it.
+        if (!report_changes) return;
         const after = try self.leave(snap);
-        if (report_changes) {
-            for (after.changes) |e| {
-                if (e.flow.status != self.flows.items[e.id].status) {
-                    try self.errAt(body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
-                    break;
-                }
+        for (after.changes) |e| {
+            if (e.flow.status != self.flows.items[e.id].status) {
+                try self.errAt(body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
+                break;
             }
         }
     }
