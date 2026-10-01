@@ -1,0 +1,13 @@
+use mid
+
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  v: Vec[*Tok] = Vec()
+  !v.push(*Tok(n: 1))
+  if mid.first(?v) as t
+    print(t.n)

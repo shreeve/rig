@@ -1,0 +1,4 @@
+use std
+
+sub main
+  print(std.hello())

@@ -1,0 +1,8 @@
+fun lo(x: U64) -> U8
+  raw
+    @truncate(x)
+sub main
+  x: U64 = 0x1234
+  print(lo(x), x >> 8, x & 0xff, Float(x) / 3.0)
+  f = 2.0
+  print(f.sqrt(), Int(f).abs())

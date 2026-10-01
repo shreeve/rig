@@ -1,0 +1,13 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop R", self.n)
+
+fun mk -> R
+  R(n: 9)
+
+sub main
+  a = R(n: 1)
+  h = *R(n: 2)
+  Vec[Int]()
+  print("end")

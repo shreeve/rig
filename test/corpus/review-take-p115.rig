@@ -1,0 +1,12 @@
+struct N
+  v: Int
+
+struct S
+  a: Box[N]
+  b: Box[N]
+
+sub main
+  s = S(a: Box(value: N(v: 1)), b: Box(value: N(v: 2)))
+  c = true
+  x = <(s.a if c else s.b)
+  print(x, s)

@@ -1,0 +1,51 @@
+error Bad
+  neg
+
+sub t1()!
+  print("t1")
+  defer print("t1 defer")
+
+sub t2()!
+  v = Vec[Int]()
+  !v.push(1)
+  -v
+
+sub t3(n: Int)!
+  i = 0
+  while i < n
+    i += 1
+
+sub t4(n: Int)!
+  match n
+    0 => print("zero")
+    _ => return Bad.neg
+
+sub t5(n: Int)!
+  return Bad.neg if n < 0
+  errdefer print("t5 errdefer")
+
+sub t6(c: !Int)!
+  c = 3
+
+sub t7(n: Int)!
+  raise_it = n < 0
+  if raise_it
+    return Bad.neg
+  else if n == 0
+    print("zero7")
+
+sub t8()!
+  for i in 0..3
+    break if i == 1
+
+sub main
+  t1()!
+  t2()!
+  t3(3)!
+  t4(0)!
+  t5(1)!
+  c = 0
+  t6(!c)!
+  t7(0)!
+  t8()!
+  print("done", c)

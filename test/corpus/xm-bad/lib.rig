@@ -1,0 +1,25 @@
+use util
+
+pub struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+  fun map[U](?self, u: U) -> Wrap[U]
+    Wrap(v: u)
+
+pub struct Ring[T, n: Int]
+  items: [n]T
+
+pub fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+pub fun double[T](x: T) -> T
+  util.twice(x)
+
+pub fun zeros[n: Int] -> [n]Int
+  [0; n]
+
+pub fun make() -> Wrap[Int]
+  Wrap(v: 41)

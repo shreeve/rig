@@ -1,0 +1,43 @@
+struct Bag[T]
+  items: Vec[T]
+
+  sub each(?self, f: ?sub(T))
+    for x in ?self.items
+      f(x)
+
+  fun map[U](?self, f: ?fun(T) -> U) -> Vec[U]
+    out: Vec[U] = Vec()
+    for x in ?self.items
+      !out.push(f(x))
+    out
+
+  sub mutate(!self, f: ?fun(T) -> T)
+    i = 0
+    while i < self.items.len
+      self.items[i] = f(self.items[i])
+      i += 1
+
+struct Counter
+  n: Int
+
+  sub bump(!self, f: ?fun(Int) -> Int)
+    self.n = f(self.n)
+
+sub main
+  b = Bag[Int](items: Vec())
+  !b.items.push(1)
+  !b.items.push(2)
+  total = 0
+  b.each(|!total, x|
+    total += x)
+  print(total)
+  m = b.map(|x| x * 10)
+  print(m.len, m[1])
+  k = 5
+  !b.mutate(|+k, x| x + k)
+  print(b.items[0])
+  c = Counter(n: 1)
+  !c.bump(|a| a + 41)
+  print(c.n)
+  s = b.map(|x| "s")
+  print(s[0])

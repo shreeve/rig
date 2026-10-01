@@ -1,0 +1,31 @@
+struct P
+  x: Int
+  s: String
+
+struct Bag
+  items: Vec[P]
+
+  fun first(?self) -> ?P
+    ?self.items[0]
+
+fun pick(a: ?P, b: ?P, f: Bool) -> ?P
+  a if f else b
+
+fun slot(a: !P) -> !P
+  a
+
+fun pickS(a: ?String, b: ?String) -> ?String
+  a
+
+sub main()
+  p = P(x: 1, s: "a")
+  q = P(x: 1, s: "a")
+  r = P(x: 2, s: "b")
+  print(pick(?p, ?r, true) == pick(?q, ?r, true), pick(?p, ?r, false) == q, p == pick(?p, ?r, false))
+  print(slot(!p) == q, q != slot(!r))
+  u = "u"
+  v = "v"
+  print(pickS(?u, ?v) < pickS(?v, ?u), pickS(?u, ?v) == "u")
+  bag = Bag(items: Vec[P]())
+  !bag.items.push(P(x: 1, s: "a"))
+  print(bag.first() == p, bag.items[0] == p, ?bag.items[0] == ?p)

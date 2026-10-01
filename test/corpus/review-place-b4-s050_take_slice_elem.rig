@@ -1,0 +1,7 @@
+sub f(s: ![]String?)
+  x = <s[0]
+  print(x ?? "-")
+
+sub main
+  a: [2]String? = ["a", none]
+  f(!a[0..2])

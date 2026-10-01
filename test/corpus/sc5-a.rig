@@ -1,0 +1,39 @@
+LIMIT = 4
+
+enum Status
+  ok = 200
+  missing = 404
+
+struct Buf
+  size: Int = LIMIT
+  items: Vec[Int] = Vec()
+
+fun fnv(s: String) -> U64
+  h: U64 = 14695981039346656037
+  for b in s
+    h = (h ^ U64(b)) *% 1099511628211
+  h
+
+sub each(xs: []Int, f: ?sub(Int)!)!
+  for x in xs
+    f(x)!
+
+error Bad
+  neg
+
+fun check(n: Int) -> Int!
+  return Bad.neg if n < 0
+  n
+
+sub main
+  b = Buf()
+  c = Buf()
+  !b.items.push(1)
+  print(b.size, b.items, c.items)
+  print(fnv("hello"), U8.max, Int(Status.missing), 7 / 2)
+  x: U8 = 250
+  print(x +% 10, U128.max)
+  a = [1, 2, -3]
+  each(?a, |n| print(check(n)!)) catch |e|
+    print("stopped", e)
+  print(3 -1, 3-1, 3 - 1)

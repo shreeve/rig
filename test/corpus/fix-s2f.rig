@@ -1,0 +1,9 @@
+fun peek(m: ?Int) -> Int
+  m + 0
+
+sub main()
+  x: Int = 3
+  y: Int = 4
+  print(peek(!x))
+  g: [2]?Int = [!x, !y]
+  print(g[0])

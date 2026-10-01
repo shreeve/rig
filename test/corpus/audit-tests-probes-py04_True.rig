@@ -1,0 +1,3 @@
+sub main
+  ok = True
+  print(ok)

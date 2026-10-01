@@ -1,0 +1,10 @@
+struct Wrap[T]
+  v: T
+  fun get(?self) -> T
+    __rig_Self = 1
+    print(__rig_Self)
+    self.v
+sub main
+  __rig_invoke = 3
+  f = |+__rig_invoke| __rig_invoke + 1
+  print(f(), Wrap(v: 2).get())

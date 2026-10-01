@@ -1,0 +1,10 @@
+fun empty[T] -> Vec[T]
+  Vec()
+
+fun id[T](a: T) -> T
+  a
+
+sub main
+  z: Vec[Foo] = empty()
+  x = id(id(id(empty())))
+  print(z.len, x.len)

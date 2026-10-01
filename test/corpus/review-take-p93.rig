@@ -1,0 +1,19 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub put(r: !R)
+  old = replace(!r, R(n: 9))
+  print(old)
+  q = R(n: 7)
+  swap(!r, !q)
+  print(q)
+
+sub main
+  x = R(n: 1)
+  w = !x
+  old = replace(!w, R(n: 2))
+  print(old)
+  put(!x)
+  print(x)

@@ -1,0 +1,5 @@
+sub f(s: ![]Int)
+  s.len += 5
+sub main()
+  a = [1, 2]
+  f(!a[..])

@@ -1,0 +1,8 @@
+fun f(x: Int, c: Bool) -> Int
+  y = x
+  if c
+    -y
+  y
+
+sub main
+  print(f(1, true))

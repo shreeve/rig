@@ -1,0 +1,9 @@
+fun f[T](a: T, p: ?lib.P, q: ?lib.P) -> Bool
+  p == q
+
+use lib
+
+sub main
+  x = lib.P.make()
+  y = lib.P.make()
+  print(f(*1, ?x, ?y))

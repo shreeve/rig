@@ -1,0 +1,17 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+struct Box
+  r: Res
+
+sub main
+  b = Box(r: Res(id: 1))
+  b = Box(r: Res(id: 2))
+  g = |!b|
+    x = <b.r
+    print(x.id)
+  g()
+  print("end")

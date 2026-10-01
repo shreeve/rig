@@ -1,0 +1,33 @@
+sub sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+  i = 1
+  while i < xs.len
+    j = i
+    while j > 0 and less(?xs[j], ?xs[j - 1])
+      !xs.swap(j, j - 1)
+      j -= 1
+    i += 1
+
+sub each(xs: []Int, f: ?sub(Int))
+  for x in xs
+    f(x)
+
+fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
+  out = Vec[U]()
+  for x in xs
+    !out.push(f(?x))
+  out
+
+fun desc(a: ?Int, b: ?Int) -> Bool
+  a > b
+
+sub main
+  v = [5, 3, 9, 1]
+  sort(!v, |a, b| a < b)
+  names = ["pear", "apple", "fig"]
+  sort(!names, |a, b| a < b)
+  w = [2, 8, 4]
+  sort(!w, desc)
+  total = 0
+  each(?v, |!total, n| total += n)
+  lens = map(?names, |s| s.len)
+  print(v, names, w, total, lens)

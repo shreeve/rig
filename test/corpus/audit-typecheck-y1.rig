@@ -1,0 +1,9 @@
+struct S
+  f: Int?
+  g: Int
+
+sub main()
+  b = Box(S(f: 3, g: 1))
+  y = <b.f
+  b.g = 5
+  print(y ?? 0, b.f ?? 9, b.g)

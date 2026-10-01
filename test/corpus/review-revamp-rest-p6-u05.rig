@@ -1,0 +1,5 @@
+enum E
+  a
+  pub pub b
+sub main()
+  print(1)

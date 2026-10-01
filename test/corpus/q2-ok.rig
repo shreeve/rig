@@ -1,0 +1,7 @@
+sub main
+  x = 33
+  z = 35
+  if x == 33
+    print("x equal")
+  if z != 33
+    print("z not equal")

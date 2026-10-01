@@ -1,0 +1,7 @@
+struct M
+  v: Float
+
+sub main
+  a = M(1.5)
+  b = M(v: 1.5)
+  print(a == b, a != M(2.0))

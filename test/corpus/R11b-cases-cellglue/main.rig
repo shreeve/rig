@@ -1,0 +1,11 @@
+use lib
+
+struct Wrap2[T]
+  v: T
+
+sub main()
+  c: Cell[lib.Wrap[Vec[Int]]] = Cell(value: lib.Wrap(v: Vec[Int]()))
+  d: Cell[Wrap2[Vec[Int]]] = Cell(value: Wrap2(v: Vec[Int]()))
+  e: Cell[lib.Wrap[Int]] = Cell(value: lib.Wrap(v: 1))
+  f: Cell[Wrap2[Int]] = Cell(value: Wrap2(v: 1))
+  print(c.get().v.len(), d.get().v.len())

@@ -1,0 +1,7 @@
+sub load(a: ![2]Int)
+  c = [7, 8]
+  !a.copy(?c[..])
+sub main()
+  a = [1, 2]
+  load(!a)
+  print(a)

@@ -1,0 +1,10 @@
+sub main
+  cv: *Cell[Vec[String]] = *Cell(Vec())
+  cv.push("lit")
+  keep = +cv
+  if true
+    t = Text("abcdefghijklmnop")
+    s = ?t[..3]
+    f = |+cv, s| cv[0] = s
+    f(s)
+  print(keep[0])

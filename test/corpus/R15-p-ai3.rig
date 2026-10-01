@@ -1,0 +1,7 @@
+struct V
+  s: ![]Int
+sub main()
+  c = [5, 6]
+  xs = [V(s: !c[..])]
+  ys = xs
+  print(ys.len)

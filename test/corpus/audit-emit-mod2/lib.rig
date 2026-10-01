@@ -1,0 +1,13 @@
+pub limit = 10
+
+pub fun neg(x: Int, by: Int = -limit) -> Int
+  x + by
+
+pub fun dbl(x: Int, by: Int = limit * 2) -> Int
+  x + by
+
+pub fun paren(x: Int, by: Int = (limit)) -> Int
+  x + by
+
+pub fun notb(x: Bool, y: Bool = not true) -> Bool
+  x and y

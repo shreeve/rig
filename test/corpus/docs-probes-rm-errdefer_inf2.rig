@@ -1,0 +1,6 @@
+fun f() -> Int
+  errdefer print(1)
+  2
+
+sub main
+  print(f())

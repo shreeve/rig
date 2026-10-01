@@ -1,0 +1,4 @@
+use util
+
+pub fun m[T](x: T) -> Bool
+  util.deep(x)

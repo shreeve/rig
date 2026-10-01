@@ -1,0 +1,10 @@
+error E
+  bad
+
+fun f(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+sub main
+  x = f(1) catch |e| return e
+  print(x)

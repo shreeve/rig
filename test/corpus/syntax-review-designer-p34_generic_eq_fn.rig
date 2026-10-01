@@ -1,0 +1,18 @@
+struct Map[K, V]
+  keys: Vec[K]
+  vals: Vec[V]
+
+  fun get(?self, k: K) -> V?
+    for key, i in self.keys
+      if key == k
+        return self.vals[i]
+    none
+
+  sub put(!self, k: K, v: V)
+    !self.keys.push(k)
+    !self.vals.push(v)
+
+sub main
+  m = Map[String, Int](keys: Vec(), vals: Vec())
+  !m.put("a", 1)
+  print(m.get("a"), m.get("b"))

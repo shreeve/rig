@@ -1,0 +1,15 @@
+pub error Disk
+  full
+  empty
+
+pub struct Bx[T]
+  pub v: T
+  pub e: Disk = .full
+
+pub enum R
+  ok(v: Int)
+  bad(e: Disk)
+
+pub fun mk(n: Int) -> R
+  return .bad(.empty) if n == 0
+  .ok(n)

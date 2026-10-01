@@ -1,0 +1,16 @@
+struct P
+  a: Int
+  b: Int
+
+  sub swap(!self)
+    t = self.a
+    self.a = self.b
+    self.b = t
+
+  fun replace(?self, v: Int) -> Int
+    v
+
+sub main
+  p = P(a: 1, b: 2)
+  !p.swap()
+  print(p, p.replace(3))

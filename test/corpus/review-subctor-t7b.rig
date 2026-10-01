@@ -1,0 +1,14 @@
+error Bad
+  neg
+
+fun t7(n: Int) -> Void!
+  if n < 0
+    return Bad.neg
+  else if n == 0
+    print("zero7")
+
+sub main
+  t7(0)!
+  t7(1)!
+  t7(-1) catch |e|
+    print("e", e)

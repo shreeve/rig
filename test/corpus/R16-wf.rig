@@ -1,0 +1,13 @@
+fun double(n: Int) -> Int
+  n * 2
+
+fun inc(n: Int) -> Int
+  n + 1
+
+sub set(dst: !fun(Int) -> Int, v: fun(Int) -> Int)
+  dst = v
+
+sub main
+  g: fun(Int) -> Int = double
+  set(!g, inc)
+  print(g(1))

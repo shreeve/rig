@@ -1,0 +1,6 @@
+sub main()
+  x = 3
+  y = 2
+  z = x < y
+  w = x <y
+  print(z, w)

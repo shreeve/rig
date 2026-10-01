@@ -1,0 +1,12 @@
+fun f(a: Int, b: Int) -> Int
+  a / b + a % b + Int(Float(a))
+
+sub main
+  a = 5
+  b: U8 = 7
+  c = U8(a)
+  x = 3
+  x += 1
+  s = "hi"
+  p = f(a, 2)
+  print(f(7, 2), b, c, x, s, p)

@@ -1,0 +1,6 @@
+K: I32 = 3
+
+sub main()
+  v: I32 = 5
+  x: I32 = (((K & v) / 1) >> 31)
+  print(x, v, K)

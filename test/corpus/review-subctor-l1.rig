@@ -1,0 +1,42 @@
+error Bad
+  neg
+
+struct Node
+  v: Int
+
+struct Bag
+  items: Vec[*Node]
+
+  sub eat(<self, k: Int)!
+    return Bad.neg if k < 0
+    print("ate", self.items.len)
+
+sub chk(n: Int)!
+  return Bad.neg if n < 0
+
+sub f(n: Int, keep: Vec[Int])!
+  v = Vec[*Node]()
+  !v.push(*Node(1))
+  return Bad.neg if n < 0
+  chk(n - 5)!
+  print("f ok", v.len, keep.len)
+
+sub main
+  k = Vec[Int]()
+  !k.push(1)
+  f(-1, <k) catch |e|
+    print("e", e)
+  k2 = Vec[Int]()
+  f(1, <k2) catch |e|
+    print("e", e)
+  k3 = Vec[Int]()
+  f(9, <k3)!
+  b = Bag(Vec())
+  !b.items.push(*Node(2))
+  <b.eat(-1) catch |e|
+    print("e", e)
+  b2 = Bag(Vec())
+  <b2.eat(1)!
+  x = Box(*Node(3))
+  y = Box(Bag(Vec()))
+  print(x, y)

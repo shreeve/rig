@@ -1,0 +1,10 @@
+sub main
+  a: Vec[Int] = Vec()
+  !a.push(1)
+  r = ?a
+  if true
+    c: Vec[Int] = Vec()
+    !c.push(42)
+    l = |?c| c
+    r = (?l)()
+  print(r.len)

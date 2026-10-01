@@ -1,0 +1,9 @@
+# returned from ![N] param: ok; returned from a local array param copy of !
+fun g(a: ![2]Int) -> ![]Int
+  b = a
+  !b[..]
+sub main()
+  a = [1, 2]
+  w = g(!a)
+  w[0] = 9
+  print(w)

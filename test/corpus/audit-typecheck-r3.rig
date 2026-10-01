@@ -1,0 +1,12 @@
+struct N
+  v: Int
+
+sub main()
+  h = *N(v: 1)
+  w = ~h
+  print(h, w)
+  c = Cell(3)
+  print(c)
+  v = Vec[Int]()
+  (!v).push(1)
+  print(v)

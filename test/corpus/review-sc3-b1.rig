@@ -1,0 +1,13 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun eat(r: Res?) -> Bool
+  true
+
+sub main
+  o: Res? = Res(id: 1)
+  if ?o as x and eat(<o)
+    print(x.id)

@@ -1,0 +1,9 @@
+sub show(n: ?Int)
+  print("n", n)
+
+sub main
+  b = Box(value: 5)
+  print(b)
+  show(?b)
+  x = <b.take()
+  print(x + 1)

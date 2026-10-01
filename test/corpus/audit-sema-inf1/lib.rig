@@ -1,0 +1,2 @@
+pub struct Wrap[T]
+  pub v: T

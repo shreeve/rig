@@ -1,0 +1,17 @@
+pub struct Bag
+  items: Vec[Int]
+
+  fun new() -> Bag
+    Bag(items: Vec[Int]())
+
+  fun count(<self) -> Int
+    self.items.len
+
+pub enum Opt[T]
+  some(v: T)
+  no
+
+  fun or(<self, d: T) -> T
+    match self
+      .some(v) => v
+      .no => d

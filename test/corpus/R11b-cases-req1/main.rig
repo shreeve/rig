@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  print(lib.twice(true))
+  print(lib.thrice(false))
+  print(lib.twice(true))

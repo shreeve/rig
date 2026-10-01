@@ -1,0 +1,5 @@
+sub main()
+  x: U8 = 5
+  match x
+    0..128 => print(1)
+    128..256 => print(2)

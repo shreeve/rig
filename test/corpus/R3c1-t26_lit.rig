@@ -1,0 +1,12 @@
+struct B
+  b: U8
+
+sub main()
+  o: U8? = 5
+  print(o == 5, 5 == o, o == none)
+  f: Float? = 1.0
+  print(f == 1, 1 == f)
+  bb = B(b: 7)
+  print(bb == B(b: 7))
+  arr = [bb]
+  print(arr == [B(b: 7)])

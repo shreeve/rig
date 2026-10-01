@@ -1,0 +1,13 @@
+struct Node
+  value: Int
+
+type Held = *(Node?)
+
+sub main()
+  a = Cell[*(Node)?](value: none)
+  w = Cell[~Node?](value: none)
+  n: Node? = Node(value: 2)
+  h: Held = *n
+  held = Cell[Held](value: +h)
+  old = held.replace(*n)
+  print(a.replace(none) == none, w.replace(none) == none, old != none)

@@ -1,0 +1,14 @@
+struct P
+  n: Int
+
+struct Q
+  p: P
+
+fun mk() -> Q
+  Q(p: P(n: 1))
+
+sub show(p: ?P)
+  print(p.n)
+
+sub main
+  show(?mk().p)

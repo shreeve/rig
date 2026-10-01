@@ -1,0 +1,8 @@
+struct C
+  hits: Cell[Int]
+
+sub main
+  o: C? = C(hits: Cell(value: 0))
+  if ?o as y
+    y.hits.set(y.hits.get() + 1)
+  print(o)

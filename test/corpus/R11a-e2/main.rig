@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  print(lib.Wrap[Int].make(1), lib.Wrap.make(2.5), lib.Wrap(v: 1).with(true))
+  w = lib.Wrap(v: 3)
+  print(w.with[Int](1), w.with(u: 2))

@@ -1,0 +1,7 @@
+W: U8 =! 200
+BIG =! 9223372036854775807
+
+sub main()
+  x: Int = W * 2
+  y = BIG * 4 - BIG * 4
+  print(x, y)

@@ -1,0 +1,5 @@
+sub main
+  a = [1, 2]
+  s: []Int = ?a
+  a[0] = 5
+  print(s)

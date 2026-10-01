@@ -1,0 +1,6 @@
+G = 1
+
+sub main
+  g = |!G| G += 1
+  g()
+  print(G)

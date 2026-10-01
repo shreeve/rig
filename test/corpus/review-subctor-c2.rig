@@ -1,0 +1,13 @@
+error Bad
+  neg
+
+sub chk(n: Int)!
+  return Bad.neg if n < 0
+  print("chk", n)
+
+fun pick() -> sub(Int)!
+  chk
+
+sub main
+  f = pick()
+  f(1)!

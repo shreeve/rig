@@ -1,0 +1,14 @@
+use lib
+
+sub go(c: !lib.Counter)
+  lib.bump(!c)
+  !c.bump()
+
+sub main
+  c = lib.Counter(n: 0)
+  go(!c)
+  s: lib.Slot = .full(c: lib.Counter(n: 3))
+  match !s
+    .full(k) if k.n > 1 => !k.bump()
+    _ => print("e")
+  print(c.n, s)

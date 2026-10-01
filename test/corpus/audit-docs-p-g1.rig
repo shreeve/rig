@@ -1,0 +1,11 @@
+struct A
+  n: Int
+  fun get(?self) -> Int
+    self.n
+
+fun show[T](x: ?T) -> Int
+  x.get()
+
+sub main
+  a = A(n: 3)
+  print(show(?a))

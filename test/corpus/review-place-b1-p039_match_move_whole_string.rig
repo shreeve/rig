@@ -1,0 +1,11 @@
+enum S
+  a(s: String)
+  b
+
+sub main
+  e: S = .a(s: "x")
+  match <e
+    .a(s)
+      s = "y"
+      print(s)
+    .b => print("b")

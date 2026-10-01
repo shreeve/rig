@@ -1,0 +1,5 @@
+sub main()
+  x = 1
+  print(x)
+  defer new x = 3
+  print(x)

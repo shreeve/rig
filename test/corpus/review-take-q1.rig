@@ -1,0 +1,14 @@
+struct N
+  v: Int
+
+struct S
+  a: Box[N]?
+
+fun f(s: !S) -> Int?
+  b = <s.a?
+  c = (<s.a)?
+  b.v + c.v
+
+sub main
+  s = S(a: none)
+  print(f(!s))

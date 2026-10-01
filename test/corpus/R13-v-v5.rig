@@ -1,0 +1,12 @@
+struct N
+  a: Int
+
+enum Hold
+  sh(h: *N)
+  maybe(m: *N?)
+
+sub main
+  n = *N(a: 2)
+  b: Hold = .maybe(n)
+  c: Hold = .sh(n)
+  print(b, c, n)

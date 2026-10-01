@@ -1,0 +1,11 @@
+struct R
+  n: Int
+  drop(!self)
+    print("d")
+sub main
+  v: Vec[*R] = Vec()
+  !v.push(*R(n: 1))
+  x = ?v[0]
+  print(x.n)
+  y = +v[0]
+  print(y.n)

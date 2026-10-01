@@ -1,0 +1,24 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun hold[T](x: T) -> Int
+  apply(|<x, a| a + 1, 1)
+
+fun peek[T](x: ?T, f: ?fun(?T) -> Int) -> Int
+  f(x)
+
+fun look[T](x: T) -> Int
+  n = peek(?x, |v| 7)
+  n
+
+sub main
+  print(hold(Res(id: 1)))
+  print(hold(5))
+  print(look(Res(id: 2)))
+  print(peek(?[1, 2], |a| a.len))

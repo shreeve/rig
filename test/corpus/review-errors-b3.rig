@@ -1,0 +1,21 @@
+error Disk
+  full
+
+fun f -> Int!
+  return Disk.full
+
+struct Holder
+  e: Disk
+  n: Int
+
+sub main
+  x = f() catch |e|
+    print([e, e], e)
+    0
+  h = Holder(e: .full, n: 1)
+  v: Vec[Disk?] = Vec()
+  !v.push(.full)
+  !v.push(none)
+  print(h, v, [Disk.full])
+  -v
+  print(x)

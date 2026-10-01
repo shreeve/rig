@@ -1,0 +1,9 @@
+struct S
+  n: Int
+
+sub main()
+  c: Cell[?S] = Cell(?S(n: 1))
+  s = S(n: 5)
+  c2 = Cell(?s)
+  c2.set(?S(n: 2))
+  print(c2.get().n)

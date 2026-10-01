@@ -1,0 +1,20 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+  b: R?
+
+sub eat(x: R?, s: !S)
+  print(x, s)
+
+sub eat2(s: !S, x: R?)
+  print(x, s)
+
+sub main
+  s = S(a: R(n: 1), b: R(n: 2))
+  eat(<s.a, !s)
+  eat2(!s, <s.b)
+  print("end")

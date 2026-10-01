@@ -1,0 +1,8 @@
+fun lt[T](a: T) -> Bool
+  a < "m"
+
+fun eqs[T](a: T) -> Bool
+  a == "m"
+
+sub main()
+  print(lt("a"), eqs("m"))

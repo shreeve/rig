@@ -1,0 +1,8 @@
+K = 3
+L = 200 if K > 3 else 100
+N: Int = 5 if K < 10 else 1
+P: U8 = 5
+Q: Int = 1 + 2
+
+sub main()
+  print(K, L, N, P, Q)

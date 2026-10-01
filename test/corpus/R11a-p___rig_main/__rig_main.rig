@@ -1,0 +1,5 @@
+pub struct Wrap[T]
+  v: T
+
+pub fun one() -> Int
+  1

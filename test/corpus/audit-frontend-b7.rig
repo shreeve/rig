@@ -1,0 +1,5 @@
+sub main()
+  y = 3
+  x = while true
+    break if y > 2
+  print(x)

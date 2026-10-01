@@ -1,0 +1,7 @@
+pub error Disk
+  full
+
+pub type D = Disk
+
+pub fun f -> Int!
+  return D.full

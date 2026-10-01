@@ -1,0 +1,20 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+sub main
+  xs: Vec[*Res] = Vec()
+  for n in 1..8
+    !xs.push(*Res(id: n))
+  keep: Vec[*Res] = Vec()
+  found = while !xs.pop() as r and r.id > 1
+    if r.id == 6
+      continue
+    if r.id == 3
+      break r.id * 10
+    !keep.push(<r)
+  else
+    -1
+  print("found", found, xs.len, keep.len)

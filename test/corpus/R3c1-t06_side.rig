@@ -1,0 +1,43 @@
+error E
+  bad
+
+struct P
+  x: Int
+  s: String
+
+fun mk(tag: String, x: Int) -> P
+  print("mk", tag)
+  P(x: x, s: tag)
+
+fun name(tag: String) -> String
+  print("name", tag)
+  tag
+
+fun get(n: Int) -> P!
+  return E.bad if n < 0
+  P(x: n, s: "g")
+
+fun getS(n: Int) -> String!
+  return E.bad if n < 0
+  "s"
+
+fun getO(n: Int) -> P?
+  return none if n < 0
+  P(x: n, s: "g")
+
+fun run() -> Bool!
+  a = get(1)! == get(1)!
+  b = getS(1)! <= getS(2)!
+  c = get(1)! != P(x: 1, s: "g")
+  a and b and not c
+
+fun runo() -> Bool?
+  getO(1)? == getO(1)?
+
+sub main()
+  print(mk("a", 1) == mk("b", 1))
+  print(name("x") < name("y"), name("p") != name("q"))
+  print(run() catch false)
+  print(runo() == true)
+  print((get(1) catch P(x: 0, s: "")) == P(x: 1, s: "g"))
+  print(getO(2) == P(x: 2, s: "g"), getO(-1) == none, getO(-1) == P(x: 1, s: "g"))

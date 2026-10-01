@@ -1,0 +1,5 @@
+struct P
+  x: Int
+ORIGIN = P(x: 0)
+sub main
+  print(ORIGIN)

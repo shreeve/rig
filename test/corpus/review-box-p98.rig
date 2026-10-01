@@ -1,0 +1,43 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+error Bad
+  oops
+
+fun f(k: Int) -> Int!
+  b = Box(value: R(n: k))
+  o: Box[R]? = Box(value: R(n: k + 10))
+  if !o as x
+    defer print("deferred", x.n)
+    return Bad.oops if k > 1
+    x.n = 99
+  b.n
+
+fun h(k: Int) -> Int!
+  o: Box[R]? = Box(value: R(n: k + 20))
+  if !o as x
+    x.n = f(k)!
+    return x.n
+  0
+
+fun mkopt(k: Int) -> Box[R]?
+  return none if k > 1
+  Box(value: R(n: 5))
+
+fun g(k: Int) -> Int?
+  b = Box(value: R(n: k))
+  o = mkopt(k)
+  if ?o as y
+    q = mkopt(k)?
+    return y.n + q.n + b.n
+  0
+
+sub main
+  print(f(1) catch -1)
+  print(f(2) catch -1)
+  print(h(2) catch -1)
+  print(g(1) ?? -1)
+  print(g(2) ?? -1)

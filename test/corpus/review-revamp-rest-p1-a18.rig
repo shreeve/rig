@@ -1,0 +1,5 @@
+sub main()
+  s = "hi"
+  t = +s
+  print(t)
+  -t

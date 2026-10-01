@@ -1,0 +1,7 @@
+sub main
+  x = 1
+  w = !x
+  w2 = !w
+  w = 5
+  w2 = 6
+  print(x)

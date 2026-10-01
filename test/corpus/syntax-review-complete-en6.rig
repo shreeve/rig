@@ -1,0 +1,8 @@
+enum Status
+  ok = 200
+  missing = 404
+fun of(n: Int) -> Status
+  raw
+    @enumFromInt(n)
+sub main
+  print(of(404))

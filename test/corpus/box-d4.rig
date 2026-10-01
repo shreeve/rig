@@ -1,0 +1,9 @@
+struct Node
+  key: Int
+  next: Box[Node]?
+
+sub main
+  a = Box(value: Node(key: 1, next: none))
+  r = ?a
+  -a
+  print(r.key)

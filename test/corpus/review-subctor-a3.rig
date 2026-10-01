@@ -1,0 +1,5 @@
+error Bad
+  neg
+
+sub main!
+  print("hi")

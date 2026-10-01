@@ -1,0 +1,6 @@
+fun hs(s: ?String) -> U64
+  U64(s.len)
+sub main
+  print(hs(?"abc"))
+  k = "abc"
+  print(hs(?k))

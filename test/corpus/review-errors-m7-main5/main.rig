@@ -1,0 +1,9 @@
+use lib
+
+type D = lib.Disk
+
+fun g -> Int!
+  return D.full
+
+sub main
+  print(g() catch 0)

@@ -1,0 +1,7 @@
+fun f(p: ?Int) -> Int
+  g(p)
+fun g(p: ?Int) -> Int
+  p + 1
+sub main
+  x = 1
+  print(f(?x))

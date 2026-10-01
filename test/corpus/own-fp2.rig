@@ -1,0 +1,18 @@
+struct Big
+  v: Vec[Int]
+
+struct View
+  b: ?Big
+
+fun put(v: !View, t: ?Big) -> Bool
+  v.b = t
+  true
+
+sub main
+  x0 = Big(v: Vec())
+  vw = View(b: ?x0)
+  o: Big? = Big(v: Vec())
+  while <o as x and put(!vw, ?x)
+    print(vw.b.v.len)
+    return
+  print("done")

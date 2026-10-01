@@ -1,0 +1,12 @@
+struct N
+  v: Int
+  next: Box[N]?
+
+struct S
+  top: Box[N]?
+  n: N
+
+sub main
+  s = S(top: none, n: N(v: 1, next: none))
+  nm = <s.n
+  print(nm)

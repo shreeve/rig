@@ -1,0 +1,6 @@
+use std.time
+
+T0 = time.now()
+
+sub main
+  print(T0 > 0)

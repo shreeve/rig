@@ -1,0 +1,15 @@
+fun sqrt(x: Float) -> Float
+  raw
+    @sqrt(x)
+
+fun floor(x: Float) -> Float
+  raw
+    @floor(x)
+
+extern fun time(t: Int) -> Int
+extern fun getpid() -> I32
+
+sub main
+  print(sqrt(2.0), floor(2.7))
+  raw
+    print(time(0) > 0, getpid() > 0)

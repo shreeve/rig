@@ -1,0 +1,17 @@
+struct Fmt
+  e: Endian
+  n: Int
+sub main()
+  f = Fmt(e: .big, n: 2)
+  v: Vec[Endian] = Vec()
+  !v.push(f.e)
+  !v.push(Endian.little)
+  for e in v
+    match e
+      .little => print("L")
+      .big => print("B")
+  x: Endian? = none
+  print(x, f)
+  b: [2]U8 = [1, 2]
+  print(b.read[U16, Endian.big](0))
+  print(b.read[U16, f.e](0))

@@ -1,0 +1,18 @@
+struct P
+  x: Int
+
+  sub bump(!self)
+    self.x += 1
+
+fun read(p: ?P) -> Int
+  p.x
+
+sub write(p: !P)
+  p.x += 10
+
+sub main
+  b = Box(P(x: 1))
+  b.x = 5
+  !b.bump()
+  write(!b)
+  print(read(?b), b.x)

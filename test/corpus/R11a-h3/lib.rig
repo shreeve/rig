@@ -1,0 +1,10 @@
+pub enum Opt[T]
+  some(value: T)
+  none
+
+pub fun wrap[T](x: T) -> Opt[T]
+  .some(value: <x)
+
+pub struct Two[A, B]
+  a: A
+  b: B

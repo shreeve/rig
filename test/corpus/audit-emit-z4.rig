@@ -1,0 +1,19 @@
+struct C
+  n: Int
+
+  fun sub2(!self, a: Int, b: Int) -> Int
+    self.n += 100
+    a * 10 + b
+
+fun bump(k: !Int) -> Int
+  k += 1
+  7
+
+fun two -> Int
+  2
+
+sub main
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  print(cs[k].n + bump(!k))
+  print(cs[0].n, cs[1].n, k)

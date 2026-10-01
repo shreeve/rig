@@ -1,0 +1,8 @@
+use geo
+
+sub main
+  n = 1
+  h = geo.H(w: !n)
+  h.w = 4
+  h.w += 1
+  print(n)

@@ -1,0 +1,23 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+enum M
+  a(n: N)
+  b
+
+fun mk -> M
+  M.a(n: N(id: 1))
+
+fun maybe -> N?
+  N(id: 2)
+
+sub main
+  print(mk() == .b)
+  if mk() != .b
+    print("is a")
+  print(maybe() == none, maybe() != none)
+  x = mk() == .b
+  print(x)

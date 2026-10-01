@@ -1,0 +1,134 @@
+# An assignment evaluates its right-hand side first, then its target's
+# index expressions, and only then finds the place it stores into. A
+# call on the right, or in an index, may grow, replace, or free what the
+# target lies in (through a Vec, a field, a Box, or a write borrow held
+# in a field), and the store lands in the value as the call left it.
+
+struct Acc
+  total: Int
+
+struct P
+  a: [4]Int
+
+struct B
+  xs: Vec[Int]
+
+struct H
+  w: !Vec[Int]
+
+struct N
+  w: !Int
+
+fun grow(v: !Vec[Int]) -> Int
+  for i in 0..100
+    !v.push(i)
+  5
+
+fun at0(v: !Vec[Int]) -> Int
+  for i in 0..100
+    !v.push(i)
+  0
+
+fun spill(v: !Vec[Acc]) -> Int
+  for i in 0..100
+    !v.push(Acc(total: i))
+  1
+
+fun grow_p(v: !Vec[P]) -> Int
+  for _ in 0..100
+    !v.push(P(a: [0, 0, 0, 0]))
+  1
+
+fun renew(b: !B) -> Int
+  b.xs = Vec()
+  !b.xs.push(100)
+  3
+
+fun rebox(b: !Box[B]) -> Int
+  b = Box(B(xs: Vec()))
+  !b.xs.push(4)
+  3
+
+fun bump(n: !Int) -> Int
+  n += 1
+  10
+
+fun grow_s(v: !Vec[String]) -> String
+  for _ in 0..100
+    !v.push("x")
+  "new"
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  v[0] = grow(!v)
+  print(v[0], v.len)
+  v[at0(!v)] = 9
+  v[at0(!v)] += grow(!v)
+  print(v[0], v.len)
+
+  w: Vec[Int] = Vec()
+  !w.push(1)
+  w[0] += grow(!w)
+  print(w[0])
+
+  accs: Vec[Acc] = Vec()
+  !accs.push(Acc(total: 10))
+  accs[0].total += spill(!accs)
+  print(accs[0].total)
+
+  ps: Vec[P] = Vec()
+  !ps.push(P(a: [1, 2, 3, 4]))
+  ps[0].a[grow_p(!ps)] = 9
+  print(ps[0])
+
+  b = B(xs: Vec())
+  !b.xs.push(1)
+  b.xs[0] += renew(!b)
+  print(b.xs)
+
+  bx: Box[B] = Box(B(xs: Vec()))
+  !bx.xs.push(1)
+  bx.xs[0] = rebox(!bx)
+  print(bx.xs)
+
+  held: Vec[Int] = Vec()
+  !held.push(7)
+  h = H(w: !held)
+  h.w[0] = grow(!h.w)
+  print(held[0], held.len)
+
+  n = 1
+  m = N(w: !n)
+  m.w = bump(!m.w)
+  m.w += bump(!m.w)
+  print(n)
+  k = 1
+  k += bump(!k)
+  print(k)
+
+  q: Vec[Int] = Vec()
+  !q.push(70)
+  !q.push(3)
+  q[0] /= grow(!q)
+  q[1] <<= grow(!q)
+  print(q[0], q[1])
+
+  s: Vec[String] = Vec()
+  !s.push("old")
+  s[0] = grow_s(!s)
+  print(s[0], s.len)
+
+# expect:
+# 5 101
+# 14 401
+# 6
+# 11
+# P(a: [1, 9, 3, 4])
+# [103]
+# [3]
+# 5 101
+# 21
+# 12
+# 14 96
+# new 101

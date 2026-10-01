@@ -1,0 +1,4 @@
+sub main()
+  a = [1, 2]
+  b = a[0]-1
+  print(b, a[1] -1)

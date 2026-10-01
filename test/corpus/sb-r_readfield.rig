@@ -1,0 +1,10 @@
+struct V
+  s: ![]Int
+
+sub f(v: ?V)
+  v.s[0] = 1
+
+sub main
+  a = [1, 2]
+  v = V(s: !a[..])
+  f(?v)

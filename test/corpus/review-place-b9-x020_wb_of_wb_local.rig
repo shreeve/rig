@@ -1,0 +1,12 @@
+struct P
+  x: Int
+
+sub g(p: !P)
+  p.x = 4
+
+sub main
+  p = P(x: 1)
+  w = !p
+  g(!w)
+  w.x += 1
+  print(p.x)

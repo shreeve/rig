@@ -1,0 +1,6 @@
+sub main
+  a = [1, 2]
+  out = a
+  for x in !out
+    x += 1
+  print(out, a)

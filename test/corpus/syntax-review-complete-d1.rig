@@ -1,0 +1,10 @@
+LIMIT =! 8
+struct C
+  n: Int = LIMIT
+  xs: Vec[Int] = Vec()
+  a: [4]Int = [4 of 0]
+  m: Int = -1
+
+sub main
+  c = C()
+  print(c.n, c.xs.len, c.a, c.m)

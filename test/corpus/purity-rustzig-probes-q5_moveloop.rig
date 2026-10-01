@@ -1,0 +1,14 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(r: R)
+  print("ate", r.n)
+
+sub main
+  r = R(n: 1)
+  i = 0
+  while i < 2 : i += 1
+    eat(<r)

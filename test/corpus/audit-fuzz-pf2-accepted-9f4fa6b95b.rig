@@ -1,0 +1,105 @@
+fun f0(a0: Int) -> Int
+  new a0 = a0
+  b0 = -4
+  c0 = -1
+  w1 = 0
+  :l1 while w1 < 3 : w1 += 1
+    b0 = ((a0 + 5) + (17 - w1)) % 1000
+    a0 = ((a0 + 1) % 2) % 1000
+  v2 = for i3 in 0..5
+    break 7 if (i3 >= 2) and ((a0 / 1) > (20 - 0))
+  else
+    b0
+  print("lv", v2)
+  match b0
+    m4 if m4 < (-3)
+      print((-5))
+      for i5 in (-1)..0
+        print(i5)
+        o6: Int? = i5 if (7 + c0) != (b0 + m4) else none
+        if o6 as o6x
+          print("some", o6x)
+        else
+          print("none", o6 ?? c0)
+        o7: Int? = ((-4) + m4) if (i5 + 9) <= 3 else none
+        if o7 as o7x
+          print("someerror", o7x)
+        else
+          print("none", o7 ?? (m4 - m4))
+      o8: Int? = b0 if (a0 / 5) <= (17 % 9) else none
+      if o8 as o8x
+        print("some", o8x)
+      else
+        print("none", o8 ?? (7 % 9))
+      for i9 in (-2)..5
+        print(i9)
+        w10 = 0
+        while w10 < 2 : w10 += 1
+          b0 -= (c0 / 7)
+          b0 = b0 % 1000
+          b0 -= (4 * (8 * (-5)))
+          b0 = b0 % 1000
+          c0 += (((-1) + m4) % 7)
+          c0 = c0 % 1000
+        defer print("defer", (m4 % 8))
+        w11 = 0
+        while w11 < 0 : w11 += 1
+          c0 = ((17 / 7) / 5) % 1000
+          print(((4 + (-2)) + (b0 - 8)))
+    _
+      w12 = 0
+      while w12 < 2 : w12 += 1
+        w13 = 0
+        while w13 < 5 : w13 += 1
+          b0 = (a0 + w12) % 1000
+          c0 += ((c0 - a0) - ((-3) / 1))
+          c0 = c0 % 1000
+          print(((w12 + c0) / 3))
+        else
+          c0 = ((-3) % 6) % 1000
+          b0 -= (-9)
+          b0 = b0 % 1000
+          a0 -= 19
+          a0 = a0 % 1000
+          print((9 + ((-7) / 8)), (w12 - ((-2) % 6)), ((8 * 6) * (a0 * 0)))
+        a0 = w12 % 1000
+        c0 = ((a0 + b0) * (b0 % 2)) % 1000
+      print(((c0 * b0) - (b0 + b0)))
+      match (a0 + 18)
+        7, 10
+          match (a0 / 7)
+            7..8
+              c0 += ((-9) - a0)
+              c0 = c0 % 1000
+              a0 += (-6)
+              a0 = a0 % 1000
+            -3
+              b0 += (0 * b0)
+              b0 = b0 % 1000
+              b0 -= (a0 * ((-6) - a0))
+              b0 = b0 % 1000
+            m14 if m14 < 12
+              print(((c0 / 7) - c0))
+              c0 = (m14 * (a0 * b0)) % 1000
+            _
+              b0 += c0
+              b0 = b0 % 1000
+              print(((c0 * b0) + (3 - b0)))
+              b0 += ((b0 - (-5)) + (b0 + (-6)))
+              b0 = b0 % 1000
+              print(b0)
+        _
+          match (b0 / 8)
+            m15 if m15 > 14
+              return 5 if (13 % 1) < (m15 + b0)
+            _
+              print((((-9) * 15) - (-2)), c0)
+              print(a0)
+              return ((9 / 5) - a0) if (-8) >= (-2)
+              c0 -= a0
+              c0 = c0 % 1000
+          print(b0, a0, ((3 * 19) / 1))
+  a0 + b0 + c0
+
+sub main
+  print("ret", f0(4))

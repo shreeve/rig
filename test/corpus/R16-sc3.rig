@@ -1,0 +1,11 @@
+fun ret(f: ?fun(Int) -> Int) -> ?fun(Int) -> Int
+  f
+
+fun twice(g: fun(?fun(Int) -> Int) -> ?fun(Int) -> Int) -> Int
+  k = 1
+  l = |+k, a: Int| a + k
+  h = g(?l)
+  h(1)
+
+sub main
+  print(twice(ret))

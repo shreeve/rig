@@ -1,0 +1,15 @@
+struct Inner
+  x: !Int
+
+struct Outer
+  i: !Inner
+
+sub main
+  n = 0
+  inn = Inner(x: !n)
+  if true
+    k = 7
+    o = Outer(i: !inn)
+    o.i.x = !k
+  inn.x += 5
+  print(inn.x)

@@ -1,0 +1,17 @@
+struct N
+  k: Int
+
+  drop(!self)
+    print("drop", self.k)
+
+fun peek(o: ?N?) -> Int
+  if o as n
+    n.k
+  else
+    0
+
+sub main
+  o: N? = N(k: 1)
+  if ?o as n
+    print(n.k)
+  print(peek(?o))

@@ -1,0 +1,22 @@
+error Bad
+  neg
+
+sub check(n: Int)!
+  return Bad.neg if n < 0
+  print("ok", n)
+
+sub apply[T](x: T, f: ?sub(T)!)!
+  f(x)!
+
+sub wrap[T](x: T)!
+  print("wrap", x)
+
+sub main
+  apply(3, check)!
+  apply(-3, check) catch |e|
+    print("e", e)
+  apply("s", |s|
+    print("lam", s)
+  )!
+  wrap(1)!
+  wrap[String]("x")!

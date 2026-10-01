@@ -1,0 +1,7 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = !v[..]
+  x = !v.pop()
+  w[0] = 5
+  print(x)

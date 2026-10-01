@@ -1,0 +1,8 @@
+sub f(s: ![]Int)
+  s[0] = 5
+  s[1] += 1
+
+sub main
+  a = [1, 2]
+  f(!a[0..2])
+  print(a[0], a[1])

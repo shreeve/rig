@@ -1,0 +1,34 @@
+error E
+  bad
+  worse
+
+error F
+  bad
+
+struct R
+  e: E
+  oe: E?
+
+fun fail(n: Int) -> Int!
+  return E.bad if n < 0
+  return F.bad if n == 0
+  n
+
+sub main()
+  a: E = .bad
+  b: E? = .bad
+  c: E? = none
+  print(a == b, b == a, b == c, c == none, b == .bad, b == E.worse)
+  r1 = R(e: .bad, oe: .worse)
+  r2 = R(e: .bad, oe: .worse)
+  r3 = R(e: .bad, oe: none)
+  print(r1 == r2, r1 == r3, r3 == R(e: .bad, oe: none))
+  x = fail(-1) catch |err|
+    print(err == E.bad, err == F.bad, err == .worse, err != a)
+    0
+  y = fail(0) catch |err|
+    print(err == E.bad, err == a, a == err)
+    0
+  opts = [b, c]
+  print(opts == [b, c], opts == [c, b])
+  print(x, y)

@@ -1,0 +1,11 @@
+struct P
+  n: Int
+
+sub main()
+  o: P? = P(n: 1)
+  new t = 0
+  while ?o as x and t < 3 : t += x.n
+    print(t)
+  while ?o as y : t = y.n
+    print(t)
+    break

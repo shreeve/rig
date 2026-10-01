@@ -1,0 +1,32 @@
+# Bank, part 2: transfer between accounts held in a Vec
+error BankError
+  insufficient_funds
+
+struct Account
+  owner: String
+  balance: Int = 0
+
+  sub deposit(!self, amount: Int)
+    self.balance += amount
+
+  sub withdraw(!self, amount: Int)!
+    return BankError.insufficient_funds if amount > self.balance
+    self.balance -= amount
+
+sub transfer(from: !Account, to: !Account, amount: Int)!
+  !from.withdraw(amount)!
+  !to.deposit(amount)
+
+sub main
+  accounts: Vec[Account] = Vec()
+  !accounts.push(Account(owner: "ada", balance: 100))
+  !accounts.push(Account(owner: "bob"))
+  !accounts[0].deposit(5)
+  # two write borrows into one Vec are rejected, so copy out and back
+  a = accounts[0]
+  b = accounts[1]
+  transfer(!a, !b, 40)!
+  accounts[0] = a
+  accounts[1] = b
+  for acct in ?accounts
+    print(acct.owner, acct.balance)

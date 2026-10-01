@@ -1,0 +1,24 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.insert(0, 3)
+  !v.insert(0, 1)
+  !v.insert(2, 5)
+  !v.insert(1, 2)
+  print(v, !v.remove(0), v)
+  bs: Vec[*B] = Vec()
+  !bs.push(*B(n: 1))
+  !bs.insert(0, *B(n: 2))
+  b = *B(n: 3)
+  !bs.insert(1, <b)
+  r = !bs.remove(1)
+  print("removed", r.n, bs.len)
+  xs: Vec[Box[B]] = Vec()
+  !xs.insert(0, Box(B(n: 9)))
+  y = !xs.remove(0)
+  print(y.n)

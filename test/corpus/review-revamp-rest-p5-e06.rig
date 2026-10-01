@@ -1,0 +1,2 @@
+sub main()
+  print(Int(2.7), I8(-3.9))

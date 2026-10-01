@@ -1,0 +1,24 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun make(k: Int) -> Res?
+  Res(id: k) if k > 0 else none
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+fun t(k: Int) -> Int
+  keep = Res(id: 100)
+  n = 3
+  while make(n) as r and (get(n - k) ?? return -r.id) > 0 : n -= 1
+    print("loop", r.id, keep.id)
+  else
+    print("else")
+  0
+
+sub main
+  print(t(0))
+  print(t(2))

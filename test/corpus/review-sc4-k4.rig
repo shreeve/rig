@@ -1,0 +1,19 @@
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+struct Ed
+  c: !Counter
+
+  sub go(!self)
+    !self.c.bump()
+    !self.c.bump()
+
+sub main
+  c = Counter(n: 1)
+  e = Ed(c: !c)
+  !e.go()
+  !e.c.bump()
+  print(c.n)

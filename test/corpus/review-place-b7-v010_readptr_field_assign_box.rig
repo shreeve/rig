@@ -1,0 +1,13 @@
+struct Big
+  v: Vec[Int]
+
+struct H
+  r: ?Big
+
+sub main
+  a = Big(v: Vec())
+  bx = Box(Big(v: Vec()))
+  !bx.v.push(1)
+  h = H(r: ?a)
+  h.r = ?bx
+  print(h.r.v.len)

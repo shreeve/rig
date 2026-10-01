@@ -1,0 +1,14 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun first[T](xs: ?[]T) -> T?
+  xs.get(0)
+
+sub main
+  v: Vec[*Res] = Vec()
+  !v.push(*Res(id: 1))
+  if first(?v[..]) as h
+    print(h.id)

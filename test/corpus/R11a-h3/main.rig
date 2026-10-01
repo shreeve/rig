@@ -1,0 +1,27 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun unwrap(o: lib.Opt[Res]) -> Res
+  match o
+    .some(value) => <value
+    .none => Res(n: 0)
+
+sub main()
+  o = lib.wrap(Res(n: 1))
+  r = unwrap(<o)
+  print("got", r.n)
+  p = lib.Opt[Res].some(value: Res(n: 2))
+  match p
+    .some(value) => print("peek", value.n)
+    .none => print("none")
+  q: lib.Opt[Res] = .none
+  t = lib.Two(a: Res(n: 3), b: Vec[Int]())
+  !t.b.push(1)
+  u = <t
+  print(u.a.n, u.b.len)
+  print("end")

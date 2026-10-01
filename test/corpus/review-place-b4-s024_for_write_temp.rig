@@ -1,0 +1,6 @@
+fun mk() -> [3]Int
+  [1, 2, 3]
+
+sub main
+  for x in !mk()
+    x += 1

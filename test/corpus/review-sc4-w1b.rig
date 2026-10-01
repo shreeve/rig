@@ -1,0 +1,16 @@
+enum Shape
+  circle(r: Int)
+  point
+
+struct Hold
+  p: !Int
+
+sub main
+  c2: Shape = .circle(r: 4)
+  z = 0
+  h = match !c2
+    .circle(r) => Hold(p: !r)
+    .point => Hold(p: !z)
+  c2 = .point
+  h.p = 11
+  print(c2)

@@ -1,0 +1,14 @@
+enum E
+  a(v: Vec[Int])
+  b
+
+sub main()
+  vs: Vec[E] = Vec()
+  v0: Vec[Int] = Vec()
+  !v0.push(1)
+  !vs.push(.a(v: <v0))
+  match ?vs[0]
+    .a(x) 
+      !vs.push(.b)
+      print(x.len)
+    .b => print("b")

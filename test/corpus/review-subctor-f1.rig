@@ -1,0 +1,40 @@
+error Bad
+  neg
+
+struct Wrap[T]
+  item: T
+
+struct Inner
+  n: Int
+
+struct Outer
+  inner: Inner
+
+struct H
+  cb: *sub(Int)!
+
+fun get(n: Int) -> Int!
+  return Bad.neg if n < 0
+  n
+
+sub main
+  a = Wrap(Wrap(1))
+  print(a)
+  o = Outer(Inner(2))
+  print(o, o.inner.n)
+  v = Vec[Int]()
+  !v.push(1)
+
+  w2 = Wrap(<v)
+  print(w2)
+  w3 = Wrap(get(3)!)
+  print(w3)
+  h = H(*|x: Int|
+    return Bad.neg if x < 0
+    print("cb", x)
+  )
+  h.cb(1)!
+  s = *Wrap("shared")
+  print(s)
+  x: Wrap[Int?] = Wrap(none)
+  print(x)

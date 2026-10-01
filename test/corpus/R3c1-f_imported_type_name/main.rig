@@ -1,0 +1,12 @@
+use geo
+
+struct Point
+  y: Int
+
+struct L
+  g: geo.Tagged
+  p: Point
+
+sub main()
+  l = L(g: geo.Tagged(id: 1, h: *geo.Point(x: 1)), p: Point(y: 1))
+  print(l == l)

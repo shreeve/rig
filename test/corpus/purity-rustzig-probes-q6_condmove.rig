@@ -1,0 +1,15 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(r: R)
+  print("ate", r.n)
+
+sub main
+  r = R(n: 1)
+  flag = 3 > 2
+  if flag
+    eat(<r)
+  print("end")

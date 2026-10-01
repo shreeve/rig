@@ -1,0 +1,33 @@
+error E
+  bad
+  worse
+
+struct P
+  x: Int
+  s: String
+
+enum K
+  a(p: P)
+  b
+
+fun same[T](a: T, b: T) -> Bool
+  a == b and not (a != b)
+
+fun sameB[T](a: ?T, b: !T) -> Bool
+  a == b
+
+sub main()
+  k1: K = .a(p: P(x: 1, s: "q"))
+  k2: K = .a(p: P(x: 1, s: "r"))
+  print(same(k1, k1), same(k1, k2))
+  o1: P? = P(x: 1, s: "q")
+  o2: P? = none
+  print(same(o1, o1), same(o1, o2), same(o2, o2))
+  print(same(["a", "b"], ["a", "b"]), same(["a"], ["b"]))
+  e1: E = .bad
+  e2: E = .worse
+  print(same(e1, e1), same(e1, e2))
+  ee: E? = .bad
+  print(same(ee, ee), same(true, false), same(1.5, 1.5))
+  z = k1
+  print(sameB(?k1, !z))

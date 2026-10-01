@@ -1,0 +1,20 @@
+struct P
+  x: Int
+  ys: [2]Int
+
+fun fx(p: ?P) -> ?Int
+  ?p.x
+
+fun el(xs: ![]Int) -> !Int
+  !xs[0]
+
+fun inner(p: ?P) -> []Int
+  ?p.ys[..]
+
+sub main
+  p = P(x: 4, ys: [1, 2])
+  print(fx(?p))
+  a = [1, 2]
+  w = el(!a[..])
+  w = 5
+  print(a)

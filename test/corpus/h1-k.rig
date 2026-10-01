@@ -1,0 +1,10 @@
+sub f(w2: !Int)
+  x = w2
+  x += 1
+  print(x, w2 + 0)
+  y: Int = w2
+  print(y)
+sub main
+  m = 3
+  f(!m)
+  print(m)

@@ -1,0 +1,20 @@
+# Recursive expression evaluator with an enum, TS/Python habits
+enum Expr
+  num(value: Float)
+  add(left: Expr, right: Expr)
+  mul(left: Expr, right: Expr)
+  neg(inner: Expr)
+  div(left: Expr, right: Expr)
+
+fun eval(e: Expr) -> Float
+  match e
+    .num(v) => v
+    .add(l, r) => eval(l) + eval(r)
+    .mul(l, r) => eval(l) * eval(r)
+    .neg(x) => -eval(x)
+    .div(l, r) => eval(l) / eval(r)
+
+sub main
+  # (2 + 3) * -4
+  e = Expr.mul(Expr.add(Expr.num(2), Expr.num(3)), Expr.neg(Expr.num(4)))
+  print(eval(e))

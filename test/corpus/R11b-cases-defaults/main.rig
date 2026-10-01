@@ -1,0 +1,13 @@
+use lib
+
+sub main()
+  w = lib.Wrap(v: 1)
+  print(w.scaled(), w.scaled(k: 2), w.tag("x"), w.tag[Bool](true, times: 7), lib.rep("s"), lib.rep[Int](1, n: 9))
+  o = lib.Opt[Int].some(value: 1, extra: 5)
+  p: lib.Opt[Int] = .some(value: 2, extra: 6)
+  match o
+    .some(value, extra) => print(value, extra)
+    .none => print("none")
+  match p
+    .some(value, extra) => print(value, extra)
+    .none => print("none")

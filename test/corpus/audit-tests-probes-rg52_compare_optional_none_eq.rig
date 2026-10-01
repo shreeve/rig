@@ -1,0 +1,6 @@
+fun f -> Int?
+  none
+
+sub main
+  if f() == none
+    print("none")

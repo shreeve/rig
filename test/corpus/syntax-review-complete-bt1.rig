@@ -1,0 +1,20 @@
+struct Node
+  keys: Vec[Int]
+  kids: Vec[Box[Node]]
+
+fun count(n: ?Node) -> Int
+  total = n.keys.len
+  for k in ?n.kids
+    total += count(?k)
+  total
+
+sub add(n: !Node, i: Int, key: Int)
+  for k, j in !n.kids
+    if j == i
+      !k.keys.push(key)
+
+sub main
+  root = Node(keys: Vec(), kids: Vec())
+  !root.kids.push(Box(value: Node(keys: Vec(), kids: Vec())))
+  add(!root, 0, 5)
+  print(count(?root))

@@ -1,0 +1,14 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun first[T](v: ?Vec[T]) -> T
+  v[0]
+
+sub main
+  v: Vec[Box[R]] = Vec()
+  !v.push(Box(value: R(n: 1)))
+  b = first(?v)
+  print(b.n)

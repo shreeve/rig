@@ -1,0 +1,5 @@
+sub main
+  a: Int? = 1
+  b: Int? = 2
+  if a as x and b as y
+    print(x + y)

@@ -1,0 +1,22 @@
+struct Bag[T]
+  items: Vec[T]
+
+struct Opt[T]
+  o: T?
+
+struct Sh[T]
+  h: *T
+
+struct Node
+  v: Int
+
+sub main
+  a = Bag(Vec[Int]())
+  b: Bag[String] = Bag(Vec())
+  c = Opt(3)
+  d: Opt[Int] = Opt(none)
+  e = Sh(*Node(1))
+  f: Bag[Int] = Bag(items: Vec())
+  print(a, b, c, d, e, f)
+  g: Box[Opt[Int]] = Box(Opt(none))
+  print(g)

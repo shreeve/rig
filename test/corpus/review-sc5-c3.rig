@@ -1,0 +1,25 @@
+error E
+  bad
+
+fun first(s: String) -> U8?
+  s.get(0)
+
+fun fail(n: Int) -> Int!
+  if n == 0
+    return E.bad
+  n
+
+fun a(f: ?fun(String) -> Int!) -> Int
+  f("x") catch 0
+
+fun b(f: ?fun(String) -> Int?) -> Int
+  f("x") ?? 0
+
+fun c(f: ?fun(String) -> Int!?) -> Int
+  0
+
+sub main()
+  print(a(|s| Int(first(s)?)))
+  print(b(|s| fail(s.len)!))
+  g = |s: String| fail(s.len)!
+  h: *fun(String) -> Int = *|s| fail(s.len)!

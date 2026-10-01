@@ -1,0 +1,11 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  w = lib.wrap(Res(n: 1))
+  print(w.c.v.n)

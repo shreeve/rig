@@ -1,0 +1,11 @@
+struct V
+  n: Int
+
+sub main
+  a = V(n: 1)
+  p: ?V = ?a
+  w = !p
+  b = V(n: 2)
+  w = ?b
+  -b
+  print(p.n)

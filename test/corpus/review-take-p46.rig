@@ -1,0 +1,25 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+
+fun peek(s: ?S) -> Int
+  if ?s.a as r
+    return r.n
+  0
+
+sub f(x: R?, y: Int)
+  print(x, y)
+
+sub main
+  s = S(a: R(n: 1))
+  f(y: peek(?s), x: <s.a)
+  print(s)
+  s.a = R(n: 2)
+  f(y: 0, x: <s.a)
+  s.a = R(n: 3)
+  f(x: <s.a, y: peek(?s))
+  print(s)

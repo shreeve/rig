@@ -1,0 +1,13 @@
+struct Node
+  id: Int
+
+sub main
+  hs: Vec[*fun(Int) -> Int] = Vec()
+  !hs.push(*|x| x * 10)
+  for h in ?hs
+    print(h(3))
+  ns: Vec[*Node] = Vec()
+  !ns.push(*Node(id: 1))
+  for n in ?ns
+    k = +n
+    print(k.id)

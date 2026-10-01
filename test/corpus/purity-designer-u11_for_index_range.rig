@@ -1,0 +1,3 @@
+sub main
+  for i, j in 0..3
+    print(i, j)

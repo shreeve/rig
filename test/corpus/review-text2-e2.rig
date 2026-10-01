@@ -1,0 +1,18 @@
+struct W
+  t: !Text
+
+fun grab(o: ?W?) -> String
+  if o as w
+    return ?w.t[..3]
+  ""
+
+sub grow(o: !W?)
+  if o as w
+    !w.t.add("more more more more more more more more more")
+
+sub main
+  t = Text("abcdefghijklmnop")
+  o: W? = W(t: !t)
+  s = grab(?o)
+  grow(!o)
+  print(s)

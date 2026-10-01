@@ -1,0 +1,7 @@
+sub main()
+  a = [1, 2, 3, 4]
+  !a.swap(1, 1)
+  w = !a[..]
+  !w.swap(0, 0)
+  w.swap(2, 2)
+  print(a)

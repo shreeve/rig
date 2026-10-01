@@ -1,0 +1,17 @@
+struct P
+  v: Vec[Int]
+
+enum E
+  a(p: P)
+  b
+
+sub main()
+  v0: Vec[Int] = Vec()
+  !v0.push(1)
+  e: E = .a(p: P(v: <v0))
+  w = !e
+  match ?w
+    .a(x)
+      w = .b
+      print(x.v.len)
+    .b => print("b")

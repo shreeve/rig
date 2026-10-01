@@ -1,0 +1,9 @@
+enum S
+  c(r: Int = 1)
+  d(a: Int, b: Int = 2)
+sub main
+  x: S = .c()
+  y: S = .c(5)
+  z: S = .d(a: 1)
+  w: S = .d(3)
+  print(x, y, z, w)

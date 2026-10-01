@@ -1,0 +1,26 @@
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+struct H
+  cb: *fun(Int) -> Int
+
+fun viaparam(g: fun(Int) -> Int) -> Int
+  apply(g, 1) + apply(?g, 2)
+
+fun viaref(f: ?fun(Int) -> Int) -> Int
+  apply(f, 1) + apply(?f, 2)
+
+fun viahandle(c: ?*fun(Int) -> Int) -> Int
+  apply(?c, 3)
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  h = H(cb: *|a| a + 100)
+  print(apply(?h.cb, 1))
+  print(viaparam(double))
+  print(viaref(double))
+  print(viahandle(?h.cb))
+  w = ~h.cb
+  print(1)

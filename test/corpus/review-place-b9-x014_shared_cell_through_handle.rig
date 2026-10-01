@@ -1,0 +1,10 @@
+struct P
+  c: Cell[Int]
+
+sub f(h: *P)
+  h.c.set(3)
+
+sub main
+  h = *P(c: Cell(1))
+  f(+h)
+  print(h.c.get())

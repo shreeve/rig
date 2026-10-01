@@ -1,0 +1,20 @@
+struct H
+  w: !Vec[Int]
+sub f(a: !H, b: !H)
+  t = !a.w[..]
+  !b.w.push(2)
+  !b.w.push(3)
+  !b.w.push(4)
+  !b.w.push(5)
+  t[0] = 99
+  print(t)
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  d: Vec[Int] = Vec()
+  e: Vec[Int] = Vec()
+  ys = [H(w: !d), H(w: !e)]
+  !ys.fill(H(w: !v))
+  for h in !ys[..1]
+    for k in !ys[1..]
+      f(h, k)

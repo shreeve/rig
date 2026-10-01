@@ -1,0 +1,22 @@
+# A resource may be moved in each of two match arms: the arms are
+# alternatives, anéd whichever runs consumes it.
+
+struct Wrap
+  payload: Int
+
+sub eat(rc: *Wrap)
+  print(rc.payload)
+
+sub go(n: Int)
+  rc = *Wrap(payload: n)
+  match n
+    1 => eat(<rc)
+    _ => eat(<rc)
+
+sub main()
+  go(1)
+  go(2)
+
+# expect:
+# 1
+# 2

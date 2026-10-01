@@ -1,0 +1,31 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+  sub bump(!self)
+    self.n += 1
+
+sub wr(r: !R)
+  r.n = 50
+
+sub wrb(r: !Box[R])
+  r = Box(value: R(n: 60))
+
+sub f(v: ?Vec[Box[R]])
+  for x in v
+    !x.bump()
+    wr(!x)
+    wrb(!x)
+
+sub main
+  v: Vec[Box[R]] = Vec()
+  !v.push(Box(value: R(n: 1)))
+  f(?v)
+  for x in ?v
+    !x.bump()
+    wr(!x)
+    wrb(!x)
+    x.n = 3
+  print(v)

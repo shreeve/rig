@@ -1,0 +1,23 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop tok", self.n)
+
+struct Bx
+  v: Vec[*Tok]
+
+struct Ed
+  t: !Bx
+
+fun dup(e: Ed) -> Ed
+  <e
+
+sub main
+  x = Bx(v: Vec())
+  !x.v.push(*Tok(n: 1))
+  e = Ed(t: !x)
+  r = dup(e)
+  for tk in ?r.t.v
+    e.t.v = Vec()
+    print("still reading", tk.n)

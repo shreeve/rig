@@ -1,0 +1,14 @@
+A =! "ab"
+B =! "abc"
+NAMES =! ["x", "yy"]
+OPT =! 3
+
+struct W
+  s: String
+
+sub main()
+  print("ab" == "abc", A == B, A != B, NAMES[0] == NAMES[1], A == "ab", NAMES == ["x", "yy"])
+  o: String? = A
+  print(o == B, o == A, W(s: A) == W(s: "ab"))
+  c: String? = none
+  print(c == A, A == c)

@@ -1,0 +1,17 @@
+pub struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+  fun twice(?self) -> T
+    self.v + self.v
+
+pub fun make[T](x: T) -> Wrap[T]
+  Wrap(v: x)
+
+pub fun vsum(v: ?Vec[Wrap[Int]]) -> Int
+  t = 0
+  for w in v
+    t += w.v
+  t

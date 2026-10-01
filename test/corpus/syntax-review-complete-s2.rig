@@ -1,0 +1,7 @@
+sub main
+  v: Vec[U8] = Vec()
+  for b in "hey"
+    !v.push(b)
+  s = ?v[..]
+  t: String = String(s)
+  print(t)

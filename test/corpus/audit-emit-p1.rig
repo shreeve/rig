@@ -1,0 +1,57 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop R", self.n)
+
+struct Stack[T]
+  items: Vec[T]
+
+  sub push(!self, x: T)
+    !self.items.push(<x)
+
+  fun pop(!self) -> T?
+    !self.items.pop()
+
+  fun size(?self) -> Int
+    self.items.len
+
+fun keep[T](x: T) -> T
+  x
+
+fun choose[T](a: T, b: T, first: Bool) -> T
+  if first
+    <a
+  else
+    <b
+
+fun largest[T](xs: ?Vec[T]) -> T?
+  best: T? = none
+  for x in xs
+    if best as b
+      best = x if x > b else b
+    else
+      best = x
+  best
+
+sub main
+  s = Stack[Box[R]](items: Vec())
+  !s.push(Box(R(n: 1)))
+  !s.push(Box(R(n: 2)))
+  if !s.pop() as top
+    print("popped", top.n)
+  print(s.size())
+  k = keep(R(n: 3))
+  print(k.n)
+  c = choose(R(n: 4), R(n: 5), false)
+  print(c.n)
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  !v.push(9)
+  !v.push(4)
+  print(largest(?v))
+  w: Vec[String] = Vec()
+  !w.push("b")
+  !w.push("a")
+  print(largest(?w))
+  f = choose(1.5, 2, true)
+  print(f)

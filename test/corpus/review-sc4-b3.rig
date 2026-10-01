@@ -1,0 +1,7 @@
+sub main
+  x = 1
+  w = !x
+  f = |!w| w = 3
+  w = 5
+  f()
+  print(x)

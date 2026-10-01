@@ -1,0 +1,10 @@
+struct P
+  n: Int
+
+sub eat(p: P)
+  print(p.n)
+
+sub main()
+  v: Vec[P] = Vec()
+  !v.push(P(n: 7))
+  eat(<v[0])

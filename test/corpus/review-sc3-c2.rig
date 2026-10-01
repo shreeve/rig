@@ -1,0 +1,33 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun make(k: Int) -> Res?
+  Res(id: k) if k > 0 else none
+
+fun eat(r: Res) -> Bool
+  print("eat", r.id)
+  r.id > 1
+
+sub t(k: Int, j: Int)
+  if make(k) as a and eat(<a) and make(j) as b
+    print("body", b.id)
+  else
+    print("else")
+
+sub u(k: Int)
+  p: Res? = make(k)
+  if <p as a and a.id > 2
+    print("u body", a.id)
+  else
+    print("u else")
+
+sub main
+  t(1, 3)
+  t(2, 3)
+  t(2, 0)
+  u(1)
+  u(5)
+  u(0)

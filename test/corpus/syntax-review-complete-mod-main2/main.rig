@@ -1,0 +1,3 @@
+use coll2
+sub main
+  print(1)

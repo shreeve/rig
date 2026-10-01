@@ -1,0 +1,4 @@
+pub struct P
+  pub x: Int
+  y: Int
+pub type Q = P

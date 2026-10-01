@@ -1,0 +1,25 @@
+error Disk
+  full
+  empty
+
+fun f -> Int!
+  return Disk.full
+
+fun g(n: Int) -> Int!
+  x = f() catch |e|
+    return e if n == 0 else .empty
+  x
+
+fun h(n: Int) -> Int!
+  x = f() catch |e|
+    y = e if n == 0 else Disk.empty
+    return y
+  x
+
+sub main
+  x = f() catch |e|
+    a = [e, .empty]
+    b = e if true else .empty
+    print(a, b)
+    0
+  print(x, g(0) catch |e| e == .full, h(1) catch |e| e == .empty)

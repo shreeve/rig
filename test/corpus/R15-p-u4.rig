@@ -1,0 +1,8 @@
+sub load(s: ![]Int)
+  c = [7, 8]
+  t = !s[..]
+  !t.copy(?c[..])
+sub main()
+  a = [1, 2]
+  load(!a[..])
+  print(a)

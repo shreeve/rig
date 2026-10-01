@@ -1,0 +1,10 @@
+struct H
+  w: !Int
+sub f(w2: !Int)
+  h = H(w: w2)
+  h.w += 1
+  w2 += 1
+sub main
+  m = 3
+  f(!m)
+  print(m)

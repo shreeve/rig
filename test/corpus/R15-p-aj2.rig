@@ -1,0 +1,14 @@
+struct H
+  w: !Vec[Int]
+sub f(y: ![2]H)
+  t = !y[0].w[..]
+  !y[1].w.push(2)
+  t[0] = 99
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  d: Vec[Int] = Vec()
+  e: Vec[Int] = Vec()
+  ys = [H(w: !d), H(w: !e)]
+  !ys.fill(H(w: !v))
+  f(!ys)

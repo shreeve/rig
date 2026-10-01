@@ -1,0 +1,11 @@
+sub main
+  :fn for i in 0..3
+    :u8 for j in 0..3
+      continue :fn if j > i
+      break :u8 if j == 1
+      print(i, j)
+  var = 1
+  fn = 2
+  comptime = 3
+  i32 = 4
+  print(var + fn + comptime + i32)

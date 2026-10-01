@@ -1,0 +1,15 @@
+error Bad
+  neg
+
+sub check(n: Int)!
+  return Bad.neg if n < 0
+
+fun num(n: Int) -> Int!
+  return Bad.neg if n < 0
+  n
+
+sub main
+  h: fun(Int) -> Int! = check
+  k: sub(Int)! = num
+  j: sub(Int) = check
+  m: sub(Int)! = print

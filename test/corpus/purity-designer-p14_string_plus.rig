@@ -1,0 +1,3 @@
+sub main
+  s = "a" + "b"
+  print(s)

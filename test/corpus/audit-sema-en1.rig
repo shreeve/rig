@@ -1,0 +1,8 @@
+K = 5
+
+enum E
+  a = K
+  b
+
+sub main
+  print(Int(E.b))

@@ -1,0 +1,13 @@
+struct H
+  w: !Int
+
+fun pick(a: !Int) -> !Int
+  <a
+
+sub main
+  n = 1
+  m = 2
+  h = H(w: !n)
+  h.w = pick(!m)
+  h.w = 11
+  print(n, m)

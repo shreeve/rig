@@ -1,0 +1,19 @@
+struct Entry
+  k: String
+  v: Int
+
+struct Map
+  es: Vec[Entry]
+
+  fun get(?self, k: String) -> (?Int)?
+    for e in ?self.es
+      if e.k == k
+        return ?e.v
+    none
+
+sub main
+  m = Map(es: Vec())
+  !m.es.push(Entry(k: "a", v: 1))
+  if m.get("a") as v
+    print(v)
+  print(m.get("b") == none)

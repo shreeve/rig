@@ -1,0 +1,13 @@
+struct P
+  v: Vec[Int]
+
+sub main
+  b = Box(value: P(v: Vec()))
+  !b.v.push(1)
+  r = ?b.v
+  w = <b.take()
+  print(r.len)
+  c = Box(value: P(v: Vec()))
+  s = !c.v
+  -c
+  !s.push(3)

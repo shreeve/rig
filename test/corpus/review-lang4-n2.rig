@@ -1,0 +1,14 @@
+struct Inner
+  x: !Vec[Int]
+
+struct Outer
+  i: !Inner
+
+sub main
+  v: Vec[Int] = Vec()
+  v2: Vec[Int] = Vec()
+  inn = Inner(x: !v)
+  inn2 = Inner(x: !v2)
+  o = Outer(i: !inn)
+  o.i = <inn2
+  print(v.len)

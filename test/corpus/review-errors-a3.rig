@@ -1,0 +1,35 @@
+error Disk
+  timeout
+  full
+
+error Net
+  timeout
+  refused
+
+fun fetch(n: Int) -> Int!
+  return Net.refused if n == 3
+  n
+
+fun cls(n: Int) -> String
+  _ = fetch(n) catch |e|
+    s = match e
+      Net.timeout, Net.refused => "net"
+      Disk.timeout, Disk.full => "disk"
+    return s
+  "ok"
+
+fun dup(n: Int) -> String
+  _ = fetch(n) catch |e|
+    match e
+      .refused => return "a"
+      Net.refused => return "b"
+      _ => return "c"
+  "ok"
+
+fun mism(d: Disk) -> String
+  match d
+    Net.timeout => "x"
+    _ => "y"
+
+sub main
+  print(cls(1), dup(3), mism(.full))

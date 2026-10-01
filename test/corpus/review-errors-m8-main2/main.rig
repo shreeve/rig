@@ -1,0 +1,7 @@
+use b
+
+sub main
+  x = b.g() catch |e|
+    print(e == a.E.eof)
+    0
+  print(x)

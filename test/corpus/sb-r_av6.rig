@@ -1,0 +1,10 @@
+struct B
+  xs: []Int
+  sub set(!self, s: []Int)
+    self.xs = s
+
+sub main
+  a = [1]
+  b = B(xs: ?a)
+  !b.set([7])
+  print(b.xs)

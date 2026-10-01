@@ -1,0 +1,5 @@
+fun g(a: ?[2]Int) -> ![]Int
+  !a[..]
+sub main()
+  a = [1, 2]
+  print(g(?a))

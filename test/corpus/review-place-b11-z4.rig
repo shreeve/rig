@@ -1,0 +1,5 @@
+sub f(c: Cell[Vec[Int]])
+  (<c).push(1)
+
+sub main
+  f(Cell(Vec()))

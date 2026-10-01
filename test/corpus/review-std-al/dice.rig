@@ -1,0 +1,11 @@
+use std.random as rnd
+use std.time as t
+
+pub fun roll(r: !rnd.Rng, n: Int = 6) -> Int
+  !r.int(1, n + 1)
+
+pub sub wait(ns: Int = t.MS)
+  t.sleep(ns)
+
+pub fun fresh -> rnd.Rng
+  rnd.Rng.seeded(1)

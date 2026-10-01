@@ -1,0 +1,5 @@
+fun get[T](b: []U8) -> T
+  b.read[T, .big](0)
+sub main()
+  buf: [8]U8 = [8 of 0]
+  print(get[Bool](?buf[..]))

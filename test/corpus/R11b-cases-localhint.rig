@@ -1,0 +1,10 @@
+struct Wrap[T]
+  v: T
+
+  fun empty2[U]() -> Vec[U]
+    Vec()
+
+sub main()
+  x = Wrap.empty2[Int]()
+  y = Wrap[Int].empty2()
+  print(x, y)

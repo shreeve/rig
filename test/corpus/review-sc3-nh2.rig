@@ -1,0 +1,8 @@
+sub f(x: Int, c: Bool)
+  if c
+    -x
+  else
+    x + 1
+
+sub main
+  f(3, true)

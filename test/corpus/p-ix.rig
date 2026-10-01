@@ -1,0 +1,5 @@
+sub main
+  t = Text("abc")
+  print((?t[..])[0])
+  for b in ?t[..]
+    print(b)

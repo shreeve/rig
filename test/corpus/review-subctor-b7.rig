@@ -1,0 +1,12 @@
+error Bad
+  neg
+
+sub run(f: ?sub(Int)!)!
+  f(3)!
+
+sub plain(n: Int)
+  print("plain", n)
+
+sub main
+  run(plain)!
+  run(|x| print("lam", x))!

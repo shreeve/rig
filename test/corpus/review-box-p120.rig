@@ -1,0 +1,13 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  c: Cell[Vec[Box[R]]] = Cell(value: Vec())
+  c.push(Box(value: R(n: 1)))
+  if c.pop() as b
+    print(b.n)
+  c.push(Box(value: R(n: 2)))
+  print(c[0].n)

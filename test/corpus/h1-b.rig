@@ -1,0 +1,8 @@
+sub f(w2: !Int)
+  new w = w2
+  w += 1
+  w2 += 1
+  print(w, w2)
+sub main
+  m = 3
+  f(!m)

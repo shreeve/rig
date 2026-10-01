@@ -1,0 +1,11 @@
+pub struct Wrap[T]
+  v: T
+
+  fun make(v: T) -> Self
+    Wrap(v: v)
+
+  fun get(?self) -> T
+    self.v
+
+pub fun id[T](x: T) -> T
+  x

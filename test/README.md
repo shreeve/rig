@@ -5,6 +5,8 @@
 ./test/run ownership       # only tests whose id contains "ownership"
 ./test/run -v known        # list each result of the known bugs
 ./test/run --update ir     # rewrite IR snapshots after an intended grammar change
+./test/run corpus          # every corpus program (a plain run takes a sample)
+test/matrix.py             # generate and run the form x context x type matrix
 ```
 
 The summary line reads `N passed, M failed, K known`. The suite is green
@@ -15,20 +17,22 @@ no bug is open) exits 0. The runner works from any directory.
 
 The runner needs bash and either GNU `timeout` or perl (stock macOS has
 perl). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the seconds
-each test may take (default 120), and `RIG_TEST_OUT` the directory for
-emitted packages (see [Output](#output)).
+each test may take (default 120), `RIG_TEST_OUT` the directory for
+emitted packages (see [Output](#output)), and `RIG_SANITIZE=0` turns
+off the sanitizer (see [below](#leak-checking-and-the-sanitizer)).
 
 ## Layout
 
 | Path | Contract |
 |---|---|
-| `test/behavior/<area>/<name>.rig` | `rig run` exits 0, no leaks, stdout equals the `# expect:` block |
+| `test/behavior/<area>/<name>.rig` | `rig run` exits 0, no leaks or use of freed memory, stdout equals the `# expect:` block |
 | `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text (and, with `# errors: n`, exactly `n` errors) |
 | `test/known/<area>/<name>.rig` | a known bug, written as a behavior or reject test of the *correct* behavior |
 | `examples/<name>.rig` | curated showcase programs; same contract as `behavior/` |
 | `test/ir/<name>.rig` | raw and semantic IR snapshots (`<name>.raw.sexp`, `<name>.sem.sexp`) |
 | `test/torture/<name>.rig` | bad input: `rig run` must reject it with a `file:line:col` diagnostic, never crash |
 | `test/cli/<name>.sh` | a bash script exercising the `rig` commands; passes when it exits 0 (see below) |
+| `test/corpus/<name>.rig` | a reviewer's probe: `rig check` rejects it with a `file:line:col` diagnostic, or it runs sanitizer-clean (see below) |
 | `unit` | `zig build test` |
 | `parser` | `src/parser.zig` matches what Nexus generates from `rig.grammar` |
 | `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
@@ -89,18 +93,39 @@ Blank lines may separate a block from its `output` or `error` block. A
 failure is reported with the id `doc/<file>/L<line>`, naming the line of
 the opening fence; `./test/run doc` runs only the doc examples.
 
-## Leak checking
+## Leak checking and the sanitizer
 
 `rig run` builds in Debug mode, where the runtime records every live
 allocation (address and size, no stack traces). The emitted `main`
 defers `rig.finish()`, which prints
 `error: rig: memory leak detected: N allocations (B bytes) never freed`
 and exits 1 if anything is still allocated. A double free or a free of
-memory that was never allocated panics. A behavior test therefore fails
-on any leak or double free. To see where leaked memory was allocated,
-run the test again by hand with `RIG_LEAK_TRACE=1 bin/rig run file.rig`:
-the runtime then allocates through Zig's `DebugAllocator`, which prints
-a stack trace for each leak.
+memory that was never allocated panics. To see where leaked memory was
+allocated, run the test again by hand with
+`RIG_LEAK_TRACE=1 bin/rig run file.rig`: the runtime then allocates
+through Zig's `DebugAllocator`, which prints a stack trace for each
+leak.
+
+The suite also builds every program it runs (behavior tests, examples,
+known bugs, doc examples with output, the corpus) with `RIG_SANITIZE=1`,
+which puts the sanitizing allocator under the leak checker. Each block
+gets pages of its own, a free makes them inaccessible, and no address
+is handed out twice, so reading or writing freed memory, or past the end
+of a block, crashes at once with
+`error: rig: use of freed memory at address 0x...` and a stack trace.
+A behavior test therefore fails on any leak, double free, or use of
+freed memory. Run a failing program by hand with
+`RIG_SANITIZE=1 bin/rig run file.rig`. The sanitizer costs a few
+system calls and two pages of address space per allocation: the suite
+takes about 15% longer, and an allocation-heavy program runs several
+times slower, so a plain `rig run` keeps only the leak checker.
+`RIG_SANITIZE=0 ./test/run` runs the suite without it. Each live
+guarded block is a memory mapping, and Linux caps those per process
+(`vm.max_map_count`); past about half that many live blocks (or
+`RIG_SANITIZE_BLOCKS`, which tests set to reach the cap), the sanitizer
+prints `rig: sanitizer: mapping limit reached; further allocations are
+not guarded` once and allocates the rest normally, poisoning them when
+freed. Leak checking still covers every block.
 
 ## CLI tests
 
@@ -120,6 +145,38 @@ caches nothing, so `rig build` is always cold; prefer `rig run` when the
 executable itself is not under test.) Call `"$RIG"` directly for
 commands that build nothing (`check`, `emit`, usage errors) and when
 the output directory is what the test is about.
+
+## The corpus
+
+`test/corpus/` keeps the probe programs written by past reviews and
+audits, deduplicated by content. Each program either is rejected by
+`rig check` with a `file:line:col` diagnostic, or runs under the
+sanitizer with no leak, no use of freed memory, no Zig compile error,
+no crash, and no Zig safety check that means emitted code went wrong
+(`reached unreachable`, a wrong union field, ...). A probe need not
+succeed: Rig's own panics (bounds, overflow) and exit statuses are
+fine, and nothing checks its output. A multi-module probe is a
+directory with `main.rig`. Probes that need a module we no longer
+have, loop forever, or leak through a cycle of strong handles (the one
+leak Rig allows) are left out, and so are those rejected only by the
+parser.
+
+Running every accepted probe builds hundreds of programs, several
+minutes of work, so a plain `./test/run` takes a fixed sample, one
+program in 16 by a hash of its name; `./test/run corpus` (or any filter
+that names corpus programs) takes all of them, as CI should nightly or
+before a merge that touches the checkers or the emitter. A corpus run
+removes each passing program's build, so the corpus leaves no cache
+behind. Add new review probes here, named `<review>-<probe>.rig`.
+
+`test/matrix.py` generates the programs where one expression form (a
+place, a ternary, `o?`, `??`, `catch`, `if … as`, `match`, a call, a
+constructor, `<x`, `+x`) stands in one context (a `print` argument, a
+`?T` argument, `==`, a binding, a field store, a Vec push, `return`, an
+element assignment, a `match` subject, a `for` source) for each of
+several types (Int, String, Vec, `*T`, Box, a struct with a `drop`),
+and holds each to the corpus's rule. It writes to a temporary directory
+and commits nothing; `-k` picks cells by id and `-v` lists every result.
 
 ## Known bugs
 

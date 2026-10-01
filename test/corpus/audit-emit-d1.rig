@@ -1,0 +1,35 @@
+enum Sh
+  circle(r: Int)
+  rect(w: Int, h: Int)
+  dot
+
+struct Box2
+  s: Sh
+  tag: String
+
+fun mk(k: Int) -> Sh
+  print("mk", k)
+  .circle(r: k) if k > 0 else .rect(w: 2, h: 3)
+
+sub main
+  res = match mk(1)
+    .circle(r) if r > 5 => "big"
+    .circle(r) if r > 0 => "small"
+    .rect(w, h) if w == h => "square"
+    _ => "other"
+  print(res)
+  match mk(0)
+    .circle(r) if r > 5 => print("big")
+    .rect(w, h) if w < h => print("tall", w, h)
+    _ => print("other")
+  b = Box2(s: .circle(r: 9), tag: "t")
+  b.s = .rect(w: 1, h: 1)
+  match !b.s
+    .rect(w, _) if w == 1 => w = 10
+    _ => print("x")
+  print(b.s)
+  xs = [1, 2, 3]
+  i = 0
+  match xs[i]
+    x if x > 0 => print("pos", x)
+    _ => print("np")

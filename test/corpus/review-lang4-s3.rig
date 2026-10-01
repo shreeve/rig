@@ -1,0 +1,12 @@
+struct H
+  w: !Box[Vec[Int]]
+
+sub main
+  b = Box(Vec[Int]())
+  h = H(w: !b)
+  h.w = Box(Vec[Int]())
+  i = 0
+  while i < 3
+    h.w = Box(Vec[Int]())
+    i += 1
+  print(b)

@@ -1,0 +1,41 @@
+struct Button
+  label: String
+  handlers: Vec[*sub(Int)]
+
+  sub on_click(!self, h: *sub(Int))
+    !self.handlers.push(<h)
+
+  sub click(?self, times: Int)
+    for h in ?self.handlers
+      h(times)
+
+fun count_if(xs: []Int, keep: ?fun(Int) -> Bool) -> Int
+  n = 0
+  for x in xs
+    n += 1 if keep(x)
+  n
+
+fun sum_by(xs: []Int, f: ?fun(Int) -> Int) -> Int
+  total = 0
+  for x in xs
+    total += f(x)
+  total
+
+sub main
+  clicks: *Cell[Int] = *Cell(value: 0)
+  b = Button(label: "ok", handlers: Vec())
+  !b.on_click(*|+clicks, n| clicks.set(clicks.get() + n))
+  !b.on_click(*|n| print("clicked", n))
+  b.click(2)
+  b.click(3)
+  print(b.label, clicks.get())
+
+  xs = [3, 8, 1, 9, 4]
+  limit = 4
+  print(count_if(?xs, |+limit, x| x > limit))
+  print(sum_by(?xs, |x| x * x))
+  seen = 0
+  _ = sum_by(?xs, |!seen, x|
+    seen += 1
+    x)
+  print(seen)

@@ -1,0 +1,48 @@
+# Recursive expression evaluator with an enum.
+# The compiler suggested `*Expr`, but a shared handle cannot be matched,
+# so this follows SPEC §10 Box instead.
+error EvalError
+  divide_by_zero
+
+enum Expr
+  num(value: Float)
+  add(left: Box[Expr], right: Box[Expr])
+  mul(left: Box[Expr], right: Box[Expr])
+  div(left: Box[Expr], right: Box[Expr])
+  neg(inner: Box[Expr])
+
+fun eval(e: ?Box[Expr]) -> Float!
+  match e
+    .num(v) => v
+    .add(l, r) => eval(?l)! + eval(?r)!
+    .mul(l, r) => eval(?l)! * eval(?r)!
+    .neg(x) => -eval(?x)!
+    .div(l, r)
+      d = eval(?r)!
+      return EvalError.divide_by_zero if d == 0.0
+      eval(?l)! / d
+
+fun num(v: Float) -> Box[Expr]
+  Box(.num(v))
+
+fun add(l: Box[Expr], r: Box[Expr]) -> Box[Expr]
+  Box(.add(left: <l, right: <r))
+
+fun mul(l: Box[Expr], r: Box[Expr]) -> Box[Expr]
+  Box(.mul(left: <l, right: <r))
+
+fun div(l: Box[Expr], r: Box[Expr]) -> Box[Expr]
+  Box(.div(left: <l, right: <r))
+
+fun neg(x: Box[Expr]) -> Box[Expr]
+  Box(.neg(inner: <x))
+
+sub main
+  # (2 + 3) * -4
+  e = mul(add(num(2), num(3)), neg(num(4)))
+  print(eval(?e)!)
+  bad = div(num(1), add(num(2), neg(num(2))))
+  result = eval(?bad) catch |err|
+    print("error:", err)
+    0.0
+  print(result)

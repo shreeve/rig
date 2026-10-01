@@ -1,0 +1,19 @@
+struct B
+  n: Int
+
+enum E
+  one(b: *B)
+  none_
+
+fun mk() -> E
+  .one(b: *B(n: 4))
+
+fun pick(e: ?E) -> ?*B
+  match e
+    .one(b) => b
+    _ => b
+
+sub main
+  match ?(mk())
+    .one(b) => print(b.n)
+    _ => print(0)

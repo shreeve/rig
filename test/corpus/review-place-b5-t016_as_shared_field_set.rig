@@ -1,0 +1,8 @@
+struct P
+  c: Cell[Int]
+
+sub main
+  o: *P? = *P(c: Cell(1))
+  if o as h
+    h.c.set(3)
+  print(o?.c.get() ?? 0)

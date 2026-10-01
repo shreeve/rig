@@ -1,0 +1,9 @@
+use lib
+struct Wrap2[T]
+  v: T
+fun mx[T](a: T, b: T) -> T
+  a
+
+sub main()
+  x = mx [Int](1, 2)
+  print(x)

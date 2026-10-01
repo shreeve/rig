@@ -1,0 +1,10 @@
+fun g(v: !Vec[Int]) -> ![]Int
+  x = !v[..]
+  y = <x
+  y
+sub main()
+  b: Vec[Int] = Vec()
+  !b.push(1)
+  it = g(!b)
+  it[0] = 3
+  print(b)

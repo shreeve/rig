@@ -1,0 +1,21 @@
+struct Bag
+  items: [4]Int
+
+struct Iter
+  bag: ?Bag
+  i: Int
+
+  fun next(!self) -> Int?
+    if self.i >= 4
+      return none
+    self.i += 1
+    self.bag.items[self.i - 1]
+
+fun iter(b: ?Bag) -> Iter
+  Iter(bag: b, i: 0)
+
+sub main
+  b = Bag(items: [1, 2, 3, 4])
+  it = iter(?b)
+  while !it.next() as x
+    print(x)

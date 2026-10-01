@@ -1,0 +1,16 @@
+fun sq(n: Int) -> Int
+  print("sq", n)
+  n * n
+
+sub a(n: Int)!
+  sq(n)
+
+sub b(v: !Vec[Int])!
+  !v.push(1)
+  !v.pop()
+
+sub main
+  a(3)!
+  v = Vec[Int]()
+  b(!v)!
+  print(v)

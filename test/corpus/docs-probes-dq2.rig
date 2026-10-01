@@ -1,0 +1,10 @@
+fun half(n: Int) -> Int?
+  return none if n % 2 == 1
+  n / 2
+
+fun g(n: Int) -> Int?
+  defer print(half(n)?)
+  n
+
+sub main
+  print(g(3))

@@ -1,0 +1,8 @@
+fun id(s: []Int) -> []Int
+  s
+sub main()
+  a = [1, 2, 3]
+  w = !a[..]
+  r = id(?w[..])
+  print(w[0])
+  print(r)

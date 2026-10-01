@@ -1,0 +1,12 @@
+use lib
+
+fun f(x: lib.IntWrap) -> Int
+  x.v
+
+sub main()
+  a: lib.IntWrap = lib.Wrap(v: 3)
+  b: lib.Wrap[Int] = a
+  h: lib.H = lib.mkh()
+  v: lib.VW = Vec()
+  !v.push(lib.Wrap(v: "q"))
+  print(f(b), h.get(), v[0].v)

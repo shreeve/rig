@@ -1,0 +1,4 @@
+sub main
+  a = undefined_one
+  b = undefined_two
+  print(a, b)

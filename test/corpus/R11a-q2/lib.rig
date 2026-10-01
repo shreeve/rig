@@ -1,0 +1,7 @@
+pub fun cap[T](x: T) -> Int
+  c = |+x| 1
+  c()
+
+pub fun cap3[T](x: T) -> Int
+  c = |<x| 1
+  c() + c()

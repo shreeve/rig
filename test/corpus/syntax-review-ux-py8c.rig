@@ -1,0 +1,21 @@
+extern fun putchar(c: I32) -> I32
+
+sub puts(bytes: []U8)
+  for b in bytes
+    raw
+      _ = putchar(I32(b))
+  raw
+    _ = putchar(10)
+
+fun upper(s: String) -> Vec[U8]
+  out: Vec[U8] = Vec()
+  for b in s
+    !out.push(b - 32 if b >= 97 and b <= 122 else b)
+  out
+
+sub main
+  u = upper("hello, rig")
+  puts(?u[..])
+  print("after")
+  puts(?u[..3])
+  print("end")

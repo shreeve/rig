@@ -1,0 +1,16 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct H
+  r: R?
+
+fun mk() -> H
+  H(r: R(n: 1))
+
+sub main
+  if ?mk().r as x
+    print(x.n)
+  print("end")

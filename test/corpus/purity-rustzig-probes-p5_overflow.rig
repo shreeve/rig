@@ -1,0 +1,6 @@
+sub main
+  x: U8 = 250
+  i = 0
+  while i < 10 : i += 1
+    x += 1
+  print(x)

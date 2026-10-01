@@ -1,0 +1,26 @@
+sub qsort(xs: ![]Int)
+  return if xs.len < 2
+  p = xs[xs.len - 1]
+  i = 0
+  j = 0
+  while j < xs.len - 1
+    if xs[j] < p
+      !xs.swap(i, j)
+      i += 1
+    j += 1
+  !xs.swap(i, xs.len - 1)
+  qsort(!xs[..i])
+  qsort(!xs[i + 1..])
+sub main
+  a = [5, 3, 9, 1, 7, 2, 8]
+  qsort(!a[..])
+  page: [64]U8 = [64 of 0]
+  !page.write[U32, .little](0, 0xDEADBEEF)
+  !page.write[U16, .big](4, 0x1234)
+  print(a, page.read[U32, .little](0) == 0xDEADBEEF, page.read[U16, .big](4), page[4], page[5])
+  s = "hello world"
+  print(s[6..], s[..5], a.len)
+  b = [0, 0, 0]
+  !b[1..].fill(7)
+  !b[..1].copy([9])
+  print(b)

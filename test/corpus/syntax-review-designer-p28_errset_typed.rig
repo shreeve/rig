@@ -1,0 +1,14 @@
+error A
+  timeout
+error B
+  timeout
+
+fun f -> Int!
+  return A.timeout
+
+sub main
+  x = f() catch |e|
+    match e
+      .timeout => 1
+      .other => 2
+  print(x)

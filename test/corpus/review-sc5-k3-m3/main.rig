@@ -1,0 +1,3 @@
+use lib
+sub main()
+  print(lib.BIG + 1, lib.NEG - 1, lib.ARR[0] + 255)

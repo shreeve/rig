@@ -1,0 +1,19 @@
+# An optional error compares with an error, a contextual `.name`,
+# `none`, and another optional error.
+
+error E
+  bad
+  worse
+
+sub main()
+  e: E? = E.bad
+  n: E? = none
+  print(e == E.bad)
+  print(e == .worse)
+  print(e == n)
+  print(n == none)
+  print(e != none)
+  print(n != E.bad)
+
+# expect:
+# 

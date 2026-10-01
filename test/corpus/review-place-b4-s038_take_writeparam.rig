@@ -1,0 +1,9 @@
+struct P
+  o: String?
+
+fun f(p: !P) -> String?
+  <p.o
+
+sub main
+  p = P(o: "a")
+  print(f(!p) ?? "-", p.o ?? "-")

@@ -1,0 +1,2 @@
+sub main
+  :a print(1)

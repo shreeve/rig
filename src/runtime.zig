@@ -1056,14 +1056,20 @@ fn oom() noreturn {
 // declares `__rig_leak_trace`, and the checker sits on Zig's
 // `DebugAllocator`, which prints the stack trace of every leaked
 // allocation (and of double frees) at the cost of capturing one per
-// allocation. Release builds allocate from `smp_allocator` directly.
+// allocation. Built with `RIG_SANITIZE=1`, the root module declares
+// `__rig_sanitize`, and the checker sits on `Sanitizer`, which makes any
+// use of freed memory crash where it happens (it takes precedence over
+// `RIG_LEAK_TRACE`). Release builds allocate from `smp_allocator`
+// directly.
 
 const builtin = @import("builtin");
 const root = @import("root");
 const leak_checked = builtin.mode == .Debug;
 const leak_trace = leak_checked and @hasDecl(root, "__rig_leak_trace") and root.__rig_leak_trace;
+const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_sanitize") and root.__rig_sanitize;
 
 var trace_allocator: std.heap.DebugAllocator(.{}) = .init;
+var sanitizer: Sanitizer = .{};
 var leak_checker: LeakChecker = .{};
 
 /// The allocator behind every runtime allocation.
@@ -1080,6 +1086,7 @@ const LeakChecker = struct {
     const table_allocator = std.heap.smp_allocator;
 
     fn backing() std.mem.Allocator {
+        if (sanitize) return sanitizer.allocator();
         return if (leak_trace) trace_allocator.allocator() else std.heap.smp_allocator;
     }
 
@@ -1126,11 +1133,214 @@ const LeakChecker = struct {
         const self: *LeakChecker = @ptrCast(@alignCast(ctx));
         // Under RIG_LEAK_TRACE, let DebugAllocator report a bad free
         // with its stack traces first.
-        if (leak_trace and !self.live.contains(@intFromPtr(memory.ptr))) backing().rawFree(memory, alignment, ret_addr);
+        if (leak_trace and !sanitize and !self.live.contains(@intFromPtr(memory.ptr))) backing().rawFree(memory, alignment, ret_addr);
         _ = self.entry(memory);
         _ = self.live.remove(@intFromPtr(memory.ptr));
         self.bytes -= memory.len;
         backing().rawFree(memory, alignment, ret_addr);
+    }
+};
+
+/// Page-per-block allocation that turns every use of freed memory into a
+/// crash at the access, in the manner of Electric Fence:
+///
+/// - each block gets pages of its own, carved from spans of address
+///   space reserved inaccessible (`PROT_NONE`), and ends where they end,
+///   so the next page, which stays inaccessible, catches a read or write
+///   past its end;
+/// - a free maps fresh inaccessible pages over the block's, which gives
+///   the memory back and leaves the addresses reserved;
+/// - addresses are never reused: blocks are carved in order, and a span
+///   is never released.
+///
+/// A fault inside a span prints what was touched and then falls through
+/// to Zig's own handler for the stack trace (`onFault`). Each block costs
+/// two system calls and at least two pages of address space, one of them
+/// resident while the block lives, so it is for test runs, not programs.
+///
+/// Each live block is a mapping of its own, and Linux allows a process
+/// only so many (`vm.max_map_count`). Past `max_live` live blocks, or when
+/// a block cannot be mapped, the sanitizer degrades rather than fail:
+/// it says so once, and hands further blocks to `smp_allocator`, poisoning
+/// each when it is freed. The leak checker above still sees every block.
+const Sanitizer = struct {
+    /// The rest of the newest span, where the next block goes.
+    next: usize = 0,
+    end: usize = 0,
+    spans: [max_spans]usize = undefined,
+    span_count: usize = 0,
+    /// Guarded blocks live now, and how many may be.
+    live: usize = 0,
+    max_live: usize = default_max_live,
+    /// The note that blocks are no longer guarded has been printed.
+    noted: bool = false,
+
+    const supported = builtin.os.tag == .macos or builtin.os.tag == .linux;
+    /// Address space reserved at a time: 64 GiB, which holds a million
+    /// blocks at the largest page size (16 KiB, plus a guard page).
+    const span_size: usize = 64 << 30;
+    const max_spans = 64;
+    const none: std.posix.PROT = .{};
+    const read_write: std.posix.PROT = .{ .READ = true, .WRITE = true };
+    /// Where nothing smaller is known: a million blocks, 16 GiB of pages
+    /// at 16 KiB each.
+    const default_max_live: usize = 1 << 20;
+    /// Mappings left for everything else in the process (its code, its
+    /// stack, the allocator's own).
+    const map_headroom: usize = 4096;
+    const fallback = std.heap.smp_allocator;
+    const poison: u8 = 0xdd;
+
+    fn allocator(self: *Sanitizer) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
+    }
+
+    /// Set `max_live` when the program starts: `RIG_SANITIZE_BLOCKS` if
+    /// set (which tests use to reach the limit), else on Linux half the
+    /// mappings `vm.max_map_count` allows less some headroom, since a
+    /// live block and the guard space after it may be two mappings.
+    fn configure(self: *Sanitizer, environ: std.process.Environ) void {
+        if (environ.getPosix("RIG_SANITIZE_BLOCKS")) |text| {
+            if (std.fmt.parseInt(usize, text, 10)) |n| return self.setMaxLive(n) else |_| {}
+        }
+        if (builtin.os.tag != .linux) return;
+        var buf: [32]u8 = undefined;
+        const text = std.Io.Dir.cwd().readFile(io(), "/proc/sys/vm/max_map_count", &buf) catch return;
+        const maps = std.fmt.parseInt(usize, std.mem.trim(u8, text, " \n"), 10) catch return;
+        self.setMaxLive(if (maps > 2 * map_headroom) (maps - map_headroom) / 2 else maps / 4);
+    }
+
+    fn setMaxLive(self: *Sanitizer, n: usize) void {
+        self.max_live = @min(n, default_max_live);
+    }
+
+    /// Hand blocks to `fallback` from now on, saying so once.
+    fn degrade(self: *Sanitizer) void {
+        self.max_live = self.live;
+        if (self.noted) return;
+        self.noted = true;
+        const note = "rig: sanitizer: mapping limit reached; further allocations are not guarded\n";
+        _ = std.posix.system.write(std.posix.STDERR_FILENO, note.ptr, note.len);
+    }
+
+    /// Map inaccessible pages at `addr` (a new span when null).
+    fn mapNone(addr: ?usize, size: usize) ?usize {
+        const hint: ?[*]align(std.heap.page_size_min) u8 = if (addr) |a| @ptrFromInt(a) else null;
+        const got = std.posix.mmap(hint, size, none, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true, .FIXED = addr != null }, -1, 0) catch return null;
+        return @intFromPtr(got.ptr);
+    }
+
+    fn alloc(ctx: *anyopaque, n: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *Sanitizer = @ptrCast(@alignCast(ctx));
+        if (self.live >= self.max_live) {
+            self.degrade();
+            return fallback.rawAlloc(n, alignment, ret_addr);
+        }
+        const page = std.heap.pageSize();
+        const size = std.mem.alignForward(usize, @max(n, 1), page);
+        const block_align = @max(alignment.toByteUnits(), page);
+        var base = std.mem.alignForward(usize, self.next, block_align);
+        // The block, then one guard page.
+        if (self.next == 0 or base + size + page > self.end) {
+            if (size + page + block_align > span_size) return null;
+            if (self.span_count == max_spans) @panic("rig: sanitizer: address space exhausted");
+            const span = mapNone(null, span_size) orelse return null;
+            self.spans[self.span_count] = span;
+            self.span_count += 1;
+            self.end = span + span_size;
+            base = std.mem.alignForward(usize, span, block_align);
+        }
+        if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(base), size, read_write)) != .SUCCESS) {
+            self.degrade();
+            return fallback.rawAlloc(n, alignment, ret_addr);
+        }
+        self.next = base + size + page;
+        self.live += 1;
+        return @ptrFromInt(alignment.backward(base + size - n));
+    }
+
+    /// Guarded blocks never grow or shrink in place: every size change
+    /// moves the block, so the old addresses become inaccessible.
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self: *Sanitizer = @ptrCast(@alignCast(ctx));
+        if (!self.owns(@intFromPtr(memory.ptr))) return fallback.rawResize(memory, alignment, new_len, ret_addr);
+        return new_len == memory.len;
+    }
+
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *Sanitizer = @ptrCast(@alignCast(ctx));
+        if (!self.owns(@intFromPtr(memory.ptr))) return fallback.rawRemap(memory, alignment, new_len, ret_addr);
+        return null;
+    }
+
+    /// A guarded block's pages become inaccessible; if even that cannot
+    /// be mapped, they are poisoned and left. An unguarded block is
+    /// poisoned and freed.
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *Sanitizer = @ptrCast(@alignCast(ctx));
+        if (!self.owns(@intFromPtr(memory.ptr))) {
+            @memset(memory, poison);
+            return fallback.rawFree(memory, alignment, ret_addr);
+        }
+        self.live -= 1;
+        const page = std.heap.pageSize();
+        const first = std.mem.alignBackward(usize, @intFromPtr(memory.ptr), page);
+        const stop = std.mem.alignForward(usize, @intFromPtr(memory.ptr) + @max(memory.len, 1), page);
+        if (mapNone(first, stop - first) != null) return;
+        if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(first), stop - first, none)) == .SUCCESS) return;
+        @memset(memory, poison);
+    }
+
+    /// Whether `addr` lies in address space the sanitizer reserved.
+    fn owns(self: *const Sanitizer, addr: usize) bool {
+        for (self.spans[0..self.span_count]) |span| if (addr >= span and addr - span < span_size) return true;
+        return false;
+    }
+
+    // The fault handler. It runs before Zig's, which it restores and
+    // returns to: the access runs again and faults into Zig's handler,
+    // which prints the stack trace.
+
+    var previous: [2]std.posix.Sigaction = undefined;
+    const signals = [2]std.posix.SIG{ .SEGV, .BUS };
+
+    /// Called by `start` in a program built with `RIG_SANITIZE=1`.
+    fn installHandler() void {
+        const act: std.posix.Sigaction = .{
+            .handler = .{ .sigaction = onFault },
+            .mask = std.posix.sigemptyset(),
+            .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK,
+        };
+        for (signals, &previous) |sig, *old| std.posix.sigaction(sig, &act, old);
+    }
+
+    fn onFault(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {
+        for (signals, &previous) |sig, *old| std.posix.sigaction(sig, old, null);
+        const addr = switch (builtin.os.tag) {
+            .linux => @intFromPtr(info.fields.sigfault.addr),
+            else => @intFromPtr(info.addr),
+        };
+        if (!sanitizer.owns(addr)) return;
+        flush();
+        var buf: [256]u8 = undefined;
+        const msg = if (sanitizer.blockBefore(addr)) |b|
+            std.fmt.bufPrint(&buf, "error: rig: access past the end of a {d}-byte block at 0x{x} (address 0x{x})\n", .{ b.len, b.start, addr })
+        else
+            std.fmt.bufPrint(&buf, "error: rig: use of freed memory at address 0x{x}\n", .{addr});
+        const text = msg catch return;
+        _ = std.posix.system.write(std.posix.STDERR_FILENO, text.ptr, text.len);
+    }
+
+    /// The live block whose guard page holds `addr`, if any.
+    fn blockBefore(_: *const Sanitizer, addr: usize) ?struct { start: usize, len: usize } {
+        const page = std.heap.pageSize();
+        var it = leak_checker.live.iterator();
+        while (it.next()) |e| {
+            const stop = e.key_ptr.* + e.value_ptr.*;
+            const guard = std.mem.alignForward(usize, stop, page);
+            if (addr >= stop and addr < guard + page) return .{ .start = e.key_ptr.*, .len = e.value_ptr.* };
+        }
+        return null;
     }
 };
 
@@ -1227,6 +1437,10 @@ var process_args: []const []const u8 = &.{};
 /// gathered into Strings once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process = init;
+    if (sanitize) {
+        sanitizer.configure(init.environ);
+        Sanitizer.installHandler();
+    }
     if (@TypeOf(init.args.vector) != []const [*:0]const u8) return;
     const list = defaultAllocator().alloc([]const u8, init.args.vector.len) catch oom();
     for (list, init.args.vector) |*arg, c| arg.* = std.mem.sliceTo(c, 0);
@@ -1899,6 +2113,117 @@ test "the leak checker counts live allocations" {
     try testing.expectEqual(before.bytes + 4000, usage().bytes);
     a.free(grown);
     try expectNoLeaks(before);
+}
+
+/// Run `touch(addr)` in a child process, with the sanitizer's fault
+/// handler when `handler` is set; true when a signal ended it, false
+/// when it returned. What the child writes to stderr goes to `err`.
+fn faultsInChild(addr: usize, comptime touch: fn (usize) void, handler: bool, err: []u8) !struct { faulted: bool, stderr: []u8 } {
+    const sys = std.posix.system;
+    var fds: [2]std.posix.fd_t = undefined;
+    if (std.posix.errno(sys.pipe(&fds)) != .SUCCESS) return error.PipeFailed;
+    const pid = sys.fork();
+    if (pid == 0) {
+        _ = sys.dup2(fds[1], std.posix.STDERR_FILENO);
+        // Die of the fault itself, with no stack trace on the way.
+        const dfl: std.posix.Sigaction = .{ .handler = .{ .handler = std.posix.SIG.DFL }, .mask = std.posix.sigemptyset(), .flags = 0 };
+        std.posix.sigaction(.SEGV, &dfl, null);
+        std.posix.sigaction(.BUS, &dfl, null);
+        if (handler) Sanitizer.installHandler();
+        touch(addr);
+        sys.exit(0);
+    }
+    _ = sys.close(fds[1]);
+    var n: usize = 0;
+    while (n < err.len) {
+        const got = std.posix.read(fds[0], err[n..]) catch break;
+        if (got == 0) break;
+        n += got;
+    }
+    _ = sys.close(fds[0]);
+    const signaled = if (builtin.os.tag == .linux) blk: {
+        var status: u32 = 0;
+        if (std.posix.errno(sys.waitpid(@intCast(pid), &status, 0)) != .SUCCESS) return error.WaitFailed;
+        break :blk status & 0x7f != 0;
+    } else blk: {
+        var status: c_int = 0;
+        if (sys.waitpid(pid, &status, 0) != pid) return error.WaitFailed;
+        break :blk status & 0x7f != 0;
+    };
+    return .{ .faulted = signaled, .stderr = err[0..n] };
+}
+
+fn faults(addr: usize, comptime touch: fn (usize) void) !bool {
+    var buf: [256]u8 = undefined;
+    return (try faultsInChild(addr, touch, false, &buf)).faulted;
+}
+
+fn writeByte(addr: usize) void {
+    @as(*volatile u8, @ptrFromInt(addr)).* = 1;
+}
+
+fn readByte(addr: usize) void {
+    std.mem.doNotOptimizeAway(@as(*volatile u8, @ptrFromInt(addr)).*);
+}
+
+test "the sanitizer faults on freed memory and past a block's end" {
+    if (!Sanitizer.supported) return error.SkipZigTest;
+    var s: Sanitizer = .{};
+    const a = s.allocator();
+    const block = try a.alloc(u8, 100);
+    @memset(block, 7);
+    try testing.expect(!try faults(@intFromPtr(&block[99]), readByte));
+    try testing.expect(try faults(@intFromPtr(&block[99]) + 1, readByte));
+    try testing.expect(s.owns(@intFromPtr(block.ptr)));
+    const freed = @intFromPtr(block.ptr);
+    a.free(block);
+    try testing.expect(try faults(freed, writeByte));
+    try testing.expect(try faults(freed + 50, readByte));
+    // Addresses are never handed out again.
+    const again = try a.alloc(u8, 100);
+    defer a.free(again);
+    try testing.expect(@intFromPtr(again.ptr) > freed + 100);
+    // Alignment is kept, and a block never resizes in place.
+    const aligned = try a.alignedAlloc(u64, .@"64", 3);
+    defer a.free(aligned);
+    try testing.expect(std.mem.isAligned(@intFromPtr(aligned.ptr), 64));
+    try testing.expect(!a.resize(aligned, 4));
+    const page = try a.alignedAlloc(u8, .fromByteUnits(std.heap.page_size_max * 2), 10);
+    defer a.free(page);
+    try testing.expect(std.mem.isAligned(@intFromPtr(page.ptr), std.heap.page_size_max * 2));
+}
+
+test "past its limit the sanitizer hands out unguarded blocks" {
+    if (!Sanitizer.supported) return error.SkipZigTest;
+    var s: Sanitizer = .{ .max_live = 2, .noted = true };
+    const a = s.allocator();
+    const one = try a.alloc(u8, 8);
+    const two = try a.alloc(u8, 8);
+    const three = try a.alloc(u8, 8);
+    try testing.expect(s.owns(@intFromPtr(one.ptr)) and s.owns(@intFromPtr(two.ptr)));
+    try testing.expect(!s.owns(@intFromPtr(three.ptr)));
+    // An unguarded block grows like any other.
+    const grown = try a.realloc(three, 4000);
+    @memset(grown, 1);
+    a.free(grown);
+    const freed = @intFromPtr(one.ptr);
+    a.free(one);
+    try testing.expect(try faults(freed, readByte));
+    a.free(two);
+    try testing.expectEqual(0, s.live);
+}
+
+test "a fault in freed memory names it" {
+    if (!Sanitizer.supported) return error.SkipZigTest;
+    const a = sanitizer.allocator();
+    const block = try a.alloc(u8, 16);
+    const freed = @intFromPtr(block.ptr);
+    a.free(block);
+    var buf: [256]u8 = undefined;
+    const got = try faultsInChild(freed, writeByte, true, &buf);
+    try testing.expect(got.faulted);
+    var want: [64]u8 = undefined;
+    try testing.expectEqualStrings(try std.fmt.bufPrint(&want, "error: rig: use of freed memory at address 0x{x}\n", .{freed}), got.stderr);
 }
 
 test "take clears the alive flag" {

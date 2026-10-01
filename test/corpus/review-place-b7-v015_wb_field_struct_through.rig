@@ -1,0 +1,11 @@
+struct Q
+  s: String
+
+struct H
+  q: !Q
+
+sub main
+  x = Q(s: "a")
+  h = H(q: !x)
+  h.q = Q(s: "b")
+  print(x.s)

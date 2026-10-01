@@ -1,0 +1,23 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+struct H
+  s: Slot
+  t: Slot
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main
+  h = H(s: .full(b: *B(n: 1)), t: .full(b: *B(n: 2)))
+  match <h.s
+    .full(b) => keep(<b)
+    .empty => print("e")
+  print("mid")

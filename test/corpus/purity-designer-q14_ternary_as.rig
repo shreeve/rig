@@ -1,0 +1,4 @@
+fun g(k: Int) -> Int?
+  k if k > 0 else none
+sub main
+  print(1 if g(1) as x else 2)

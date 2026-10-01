@@ -1,0 +1,28 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+struct R
+  t: *Tok
+
+  sub done(<self)
+    print("done", self.t.n)
+
+sub main
+  b = Box(R(t: *Tok(n: 1)))
+  <b.done()
+  print("end")

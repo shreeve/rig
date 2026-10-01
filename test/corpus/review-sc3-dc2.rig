@@ -1,0 +1,7 @@
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  for i in 0..3
+    f = |+i| get(i) ?? continue
+    print(f())

@@ -1,0 +1,22 @@
+struct P
+  x: Float
+
+fun f() -> Float
+  7 / 2
+
+fun g() -> Float
+  return 1 / 2
+
+fun h(c: Bool) -> Float
+  if c
+    1 / 2
+  else
+    0.5
+
+sub main()
+  p = P(x: 7 / 2)
+  q: Float = match true
+    true => 1 / 2
+    false => 0.0
+  o: Float? = none
+  print(f(), g(), h(true), p.x, q, o ?? 1 / 2)

@@ -1,0 +1,26 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+struct P
+  a: *Tok
+  b: *Tok
+
+sub main
+  p = P(a: *Tok(n: 1), b: *Tok(n: 2))
+  old = replace(!p.a, +p.b)
+  print(old.n, p.a.n, p.b.n)

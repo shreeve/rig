@@ -1,0 +1,4 @@
+sub main
+  cb = *|a: Int| a + 1
+  p: ?fun(Int) -> Int = ?cb
+  print(p(1))

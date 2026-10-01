@@ -1,0 +1,8 @@
+struct R
+  n: Int
+  drop(!self)
+    print("d")
+sub main
+  m: R? = R(n: 1)
+  if m as x
+    print(x.n)

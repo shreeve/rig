@@ -1,0 +1,13 @@
+use lib
+
+struct Loop
+  w: lib.Wrap[Loop?]
+
+type Arr = [1_000_000]Int
+
+struct Big
+  a: lib.Wrap[Arr]
+  b: lib.Wrap[Arr]
+
+sub main
+  print(1)

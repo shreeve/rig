@@ -1,0 +1,38 @@
+struct P
+  x: Int
+  y: Int
+
+struct W[T]
+  v: T
+
+  fun with(?self, f: ?fun(?T) -> Int) -> Int
+    f(?self.v)
+
+fun apply[T](xs: []T, f: ?fun(?T) -> Int) -> Int
+  t = 0
+  for x in xs
+    t += f(?x)
+  t
+
+fun twice[T](x: T, f: ?fun(T) -> T) -> T
+  g = |?f, a: T| f(f(a))
+  g(x)
+
+sub main
+  arr = [P(x: 1, y: 2), P(x: 3, y: 4)]
+  print(apply(?arr[..], |p| p.x + p.y))
+  nums = [1, 2, 3]
+  k = 10
+  print(apply(?nums[..], |+k, n| n * k))
+  w = W(v: P(x: 5, y: 6))
+  print(w.with(|p| p.x * p.y))
+  wi = W(v: 7)
+  print(wi.with(|n| n + 1))
+  print(twice(3, |n| n * 5), twice(1.5, |f| f * 2))
+  buf = [0, 0, 0]
+  s = !buf[..]
+  fill = |!s, v: Int|
+    for i in 0..s.len
+      s[i] = v + i
+  fill(7)
+  print(buf)

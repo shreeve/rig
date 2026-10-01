@@ -1,0 +1,5 @@
+pub struct Wrap[T]
+  v: T
+
+  fun nest[U](?self, u: U) -> Int
+    self.nest(Wrap(v: u))

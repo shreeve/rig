@@ -1,0 +1,11 @@
+struct H
+  w: !Int
+
+fun mk(w: !Int) -> H
+  H(w: <w)
+
+sub main
+  n = 1
+  mk(!n).w = 5
+  mk(!n).w += 1
+  print(n)

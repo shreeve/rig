@@ -1,0 +1,17 @@
+struct Count
+  word: String
+  n: Int
+
+sub main
+  words = ["apple", "banana", "cherry", "apple", "date", "banana", "apple"]
+  counts = Vec()
+  for w in words
+    found = false
+    for c in counts
+      if c.word == w
+        c.n += 1
+        found = true
+    if not found
+      counts.push(Count(word: w, n: 1))
+  for c in counts
+    print(c.word, c.n)

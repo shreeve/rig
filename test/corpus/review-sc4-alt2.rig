@@ -1,0 +1,31 @@
+enum S
+  a(n: Int)
+  b(n: Int)
+  c
+
+fun f(s: S) -> Int
+  match s
+    .a(y), .b(y) => y
+    .c => 0
+
+fun g(s: S) -> Int
+  match s
+    _, .c => 1
+
+fun h(n: Int) -> Int
+  match n
+    1, k => 1
+    _ => 0
+
+fun i(s: S) -> Int
+  match s
+    .a, .c => 1
+    _ => 0
+
+fun j(n: Int) -> Int
+  match n
+    1, .a(_) => 1
+    _ => 0
+
+sub main
+  print(f(.c), g(.c), h(1), i(.c), j(1))

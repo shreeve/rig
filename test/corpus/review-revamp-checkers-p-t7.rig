@@ -1,0 +1,26 @@
+struct P
+  x: Int
+  y: Int
+  z: [8]Int
+
+enum E
+  a(p: P)
+  b
+
+fun mk(n: Int) -> E
+  .a(p: P(x: n, y: n + 1, z: [n of 8]))
+
+fun other(n: Int) -> ?P
+  none
+
+sub clobber(n: Int)
+  arr = [n of 64]
+  print(arr[0])
+
+sub main()
+  d = P(x: 0, y: 0, z: [0 of 8])
+  r = match ?mk(5)
+    .a(p) => p
+    .b => ?d
+  clobber(99)
+  print(r.x, r.y, r.z)

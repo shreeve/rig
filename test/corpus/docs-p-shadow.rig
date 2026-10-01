@@ -1,0 +1,4 @@
+sub main
+  x = 1
+  x: Int = 2
+  print(x)

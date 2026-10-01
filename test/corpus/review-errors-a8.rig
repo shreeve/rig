@@ -1,0 +1,23 @@
+error Bad
+  bad
+
+fun f(n: Int) -> Int!
+  if n > 0
+    .bad
+  else
+    n
+
+fun g(n: Int) -> Int!
+  match n
+    0 => .bad
+    _ => n
+
+fun h(n: Int) -> Int!
+  x: Int! = .bad if n > 0 else n
+  x
+
+sub s(n: Int)!
+  return .bad
+
+sub main
+  print(f(1) catch 0)

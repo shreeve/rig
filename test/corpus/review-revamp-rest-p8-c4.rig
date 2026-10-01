@@ -1,0 +1,17 @@
+struct P
+  n: Int
+  fun plus(?self, k: Int) -> Int
+    self.n + k
+
+fun grow(v: !Vec[P]) -> Int?
+  for i in 0..10000
+    !v.push(P(n: i))
+  1
+
+fun run(v: !Vec[P]) -> Int?
+  v[0].plus(grow(!v)?)
+
+sub main()
+  v = Vec[P]()
+  !v.push(P(n: 41))
+  print(run(!v) ?? 0)

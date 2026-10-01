@@ -1,0 +1,14 @@
+pub struct Wrap[T]
+  pub v: T
+
+pub struct P
+  pub x: Int
+  pub v: Vec[Int]
+
+pub type IW = Wrap[Int]
+pub type PP = P
+pub type IV = Vec[Int]
+pub type Byte = U8
+pub type BS = Box[P]
+type Hidden = P
+pub type AA = PP

@@ -1,0 +1,28 @@
+fun f(x: Int) -> Int
+  errdefer print("e")
+  x + 1
+
+sub g
+  errdefer print("e")
+
+struct D
+  n: Int
+  drop(!self)
+    errdefer print("d")
+
+fun h() -> Int!
+  defer
+    errdefer print("in defer")
+  1
+
+sub main
+  errdefer print("m")
+  k = ||
+    errdefer print("c")
+  k()
+  c: sub() = ||
+    errdefer print("typed")
+  c()
+  print(f(1), h()!)
+  g()
+  d = D(n: 1)

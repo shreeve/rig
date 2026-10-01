@@ -1,0 +1,6 @@
+K: I32 = 3
+
+sub main()
+  v: I32 = 5
+  x: I32 = (I32.max & (I32.max / 65535))
+  print(x, v, K)

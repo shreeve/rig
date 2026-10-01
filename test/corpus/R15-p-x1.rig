@@ -1,0 +1,21 @@
+struct Pkt
+  hdr: [4]U8
+  body: Vec[U8]
+  fun len(?self) -> U16
+    self.hdr.read[U16, .big](0)
+  fun tag(?self) -> U8
+    self.body.read[U8, .big](0)
+  sub set(!self, n: U16)
+    !self.hdr.write[U16, .big](0, n)
+    !self.body.write[U8, .little](0, 7)
+    !self.hdr.fill(1)
+    !self.body.swap(0, 0)
+fun peek(p: ?Pkt) -> U16
+  p.hdr.read[U16, .little](2)
+sub main()
+  b: Vec[U8] = Vec()
+  !b.push(3)
+  p = Pkt(hdr: [0, 5, 0, 0], body: <b)
+  print(p.len(), p.tag(), peek(?p))
+  !p.set(258)
+  print(p.len(), p.tag(), p.hdr)

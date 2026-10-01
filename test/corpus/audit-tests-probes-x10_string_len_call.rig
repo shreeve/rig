@@ -1,0 +1,3 @@
+sub main
+  s = "abc"
+  print(s.len())

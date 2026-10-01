@@ -1,0 +1,10 @@
+struct Node
+  v: Int
+
+struct Holder
+  h: *Node
+
+sub main
+  n = *Node(1)
+  c = Holder(<n)
+  print(c, n)

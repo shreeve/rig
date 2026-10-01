@@ -1,0 +1,24 @@
+enum E
+  a(n: Int)
+  b
+
+  fun get(?self) -> Int
+    match self
+      .a(n) => n
+      .b => 0
+
+  sub set(!self, k: Int)
+    self = .a(n: k)
+
+  fun eat(<self) -> Int
+    3
+
+fun g(e: ?Box[E]) -> Int
+  e.get()
+
+sub main
+  e = Box(value: E.b)
+  print(e.get(), g(?e))
+  !e.set(5)
+  print(e.get(), e)
+  print(<e.eat())

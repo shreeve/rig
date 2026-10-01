@@ -1,0 +1,10 @@
+struct S
+  a: Int?
+
+fun mk() -> S
+  S(a: 1)
+
+sub main
+  s = mk()
+  t = <s.a
+  print(t, s)

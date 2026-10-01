@@ -1,0 +1,8 @@
+sub f(w2: !Int)
+  xs = [w2, w2]
+  xs[0] += 1
+  w2 += 1
+sub main
+  m = 3
+  f(!m)
+  print(m)

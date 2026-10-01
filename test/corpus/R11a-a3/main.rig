@@ -1,0 +1,17 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  r1 = Res(n: 1)
+  r2 = Res(n: 2)
+  x = lib.f(<r1, <r2)
+  print(x.n)
+  y = lib.g(Res(n: 3))
+  print(y.n)
+  print(lib.h(Res(n: 4)))
+  print(lib.viaType(Res(n: 5)))

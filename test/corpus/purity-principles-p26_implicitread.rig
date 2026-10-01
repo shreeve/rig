@@ -1,0 +1,21 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: B)
+  empty
+
+sub main
+  s: Slot = .full(b: B(n: 1))
+  match s
+    .full(b) => print("match reads", b.n)
+    .empty => pass
+  m: B? = B(n: 2)
+  if ?m as x
+    print("as reads", x.n)
+  v: Vec[Int] = Vec()
+  for x in ?v
+    print(x)

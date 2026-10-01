@@ -1,0 +1,7 @@
+fun mk(a: ![3]Int) -> ![3]Int
+  <a
+
+sub main
+  a = [1, 2, 3]
+  !mk(!a).fill(0)
+  print(a[0])

@@ -1,0 +1,4 @@
+fun f(n: Int) -> Void
+  print(n)
+sub main
+  f(1)

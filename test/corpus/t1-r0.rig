@@ -1,0 +1,6 @@
+use std.random
+
+sub main
+  r = random.Rng.seeded(0)
+  print(!r.next())
+  !r.int(3, 3)

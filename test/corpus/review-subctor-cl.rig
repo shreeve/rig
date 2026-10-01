@@ -1,0 +1,13 @@
+error Bad
+  neg
+
+sub run(f: ?sub(Int)!)!
+  f(0)!
+
+sub main
+  run(|n|
+    if n < 0
+      print("neg")
+    else if n == 0
+      print("zero")
+  )!

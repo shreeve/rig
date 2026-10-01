@@ -1,0 +1,4 @@
+use geo
+
+sub main
+  geo.K = 3

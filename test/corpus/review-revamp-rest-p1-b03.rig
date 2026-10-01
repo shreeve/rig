@@ -1,0 +1,6 @@
+sub main()
+  x = "a"
+  match 1
+    1 => new x = "b"
+    _ => print(0)
+  print(x)

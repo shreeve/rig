@@ -1,0 +1,14 @@
+fun c(k: Int) -> Bool
+  k > 0
+
+sub main()
+  x: U8 = (1 if c(1) else 2) + 3
+  y: F32 = (1 if c(0) else 2) * 0.5
+  z = 1 if c(1) else 2
+  v: I8 = -(1 if c(1) else 127)
+  q = (1 if c(1) else 2) << 3
+  f = 1.5 if c(1) else 2
+  g: F64 = (1 if c(1) else 2) / 4.0
+  h: U8 = 7 if c(1) else 2 if c(0) else 250
+  arr: [2]U16 = [1 if c(1) else 2, 3]
+  print(x, y, z, v, q, f, g, h, arr, 1 if c(1) else 2)

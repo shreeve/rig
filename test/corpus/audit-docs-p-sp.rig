@@ -1,0 +1,5 @@
+sub show[n: Int]
+  print(n)
+sub main
+  show [3]()
+  b: []U8 = "hi".bytes

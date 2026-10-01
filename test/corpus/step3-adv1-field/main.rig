@@ -1,0 +1,24 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Holder
+  s: lib.Stack[*Res]
+  c: lib.Slot[Int]
+
+enum Maybe
+  has(s: lib.Stack[*Res])
+  empty
+
+sub main()
+  h = Holder(s: lib.Stack[*Res].new_stack(), c: lib.Slot(c: Cell(value: 1)))
+  !h.s.push(*Res(n: 1))
+  print(h.s.size(), h.c.swap(5), h.c.swap(6))
+  m = Maybe.has(s: lib.wrap(*Res(n: 2)))
+  match m
+    .has(s) => print("has", s.size())
+    .empty => print("empty")

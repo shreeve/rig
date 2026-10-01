@@ -1,0 +1,10 @@
+struct N
+  n: Int
+
+fun same[T](a: ?T, b: ?T) -> Bool
+  a == b and a != b and [a] == [b]
+
+sub main()
+  h = *N(n: 1)
+  print(same(?h, ?h))
+  print(same(?h, ?h))

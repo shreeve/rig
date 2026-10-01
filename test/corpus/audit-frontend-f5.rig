@@ -1,0 +1,5 @@
+sub main()
+  x = [1, 2]
+  print(x[0]) # ok
+  y = -x[0] if true else 0
+  print(y)

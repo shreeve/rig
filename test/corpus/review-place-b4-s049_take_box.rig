@@ -1,0 +1,7 @@
+struct P
+  o: String?
+
+sub main
+  b = Box(P(o: "a"))
+  x = <b.o
+  print(x ?? "-")

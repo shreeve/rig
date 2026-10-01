@@ -1,0 +1,22 @@
+struct Node
+  n: Int
+  next: *Node?
+
+  fun total(<self) -> Int
+    self.n
+
+enum Opt
+  some(value: Int)
+  nothing
+
+fun zeros[n: Int] -> [n]Int
+  [n of 0]
+
+sub main
+  tail = *Node(n: 2, next: none)
+  head = Node(n: 1, next: +tail)
+  grid: [2][3]Int = [2 of [3 of 7]]
+  o: Opt = .some(5)
+  of = 9
+  xs = [3 of of]
+  print(head.next != none, grid, zeros[2](), o == .some(5), xs, <head.total())

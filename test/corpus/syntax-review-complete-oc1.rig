@@ -1,0 +1,5 @@
+fun f(a: Int?) -> Int
+  x = a ?? return 0
+  x
+sub main
+  print(f(3))

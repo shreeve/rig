@@ -1,0 +1,27 @@
+struct Node
+  n: Int
+struct Bag
+  items: Vec[*Node]
+
+  fun iter(?self) -> BagIter
+    BagIter(bag: self, i: 0)
+
+struct BagIter
+  bag: ?Bag
+  i: Int
+
+  fun next(!self) -> (?*Node)?
+    j = 0
+    for x in ?self.bag.items
+      if j == self.i
+        self.i += 1
+        return x
+      j += 1
+    none
+
+sub main
+  b = Bag(items: Vec())
+  !b.items.push(*Node(n: 4))
+  it = b.iter()
+  while !it.next() as x
+    print(x.n)

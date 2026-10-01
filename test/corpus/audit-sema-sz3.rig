@@ -1,0 +1,7 @@
+error E
+  bad
+
+type A = [2_000_000]E?
+
+sub main
+  print(1)

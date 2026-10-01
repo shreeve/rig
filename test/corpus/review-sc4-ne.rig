@@ -1,0 +1,21 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Pair
+  two(a: *B, b: *B)
+  one(a: *B)
+
+sub f(p: Pair)
+  match <p
+    .two(a, _) => print(a.n)
+
+sub main
+  r: Pair = .one(a: *B(n: 5))
+  match <r
+    .two(a, b) => print("two", a.n, b.n)
+  f(.one(a: *B(n: 6)))
+  f(.two(a: *B(n: 7), b: *B(n: 8)))
+  print("end")

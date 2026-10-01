@@ -1,0 +1,32 @@
+struct F
+  v: Float
+  w: F32
+
+struct B
+  b: U8
+  i: I64
+
+enum Val
+  num(x: Float)
+  pair(a: U8, b: U8)
+
+sub main()
+  nan = 0.0 / 0.0
+  z = 0.0
+  nz = -0.0
+  print(F(v: z, w: 0.0) == F(v: nz, w: -0.0), F(v: nan, w: 1.0) != F(v: nan, w: 1.0))
+  fa = [nan, 1.0]
+  print(fa == fa, fa != fa, [z] == [nz])
+  print(?fa[0..2] == ?fa[0..2], ?fa[1..2] == ?fa[1..2])
+  o: Float? = nan
+  print(o == o, o == nan, o != o)
+  bb = B(b: 255, i: -1)
+  print(bb == B(b: 255, i: -1), bb == B(b: 254, i: -1))
+  v1: Val = .num(x: nan)
+  print(v1 == v1, v1 == .num(x: nan))
+  p1: Val = .pair(a: 1, b: 2)
+  p2: Val = .pair(a: 1, b: 3)
+  p3: Val = .pair(a: 1, b: 2)
+  print(p1 == p2, p1 == p3, p1 == .pair(a: 1, b: 2), p1 != .pair(a: 2, b: 1))
+  n0: Val = .num(x: 0.0)
+  print(n0 == .num(x: -0.0))

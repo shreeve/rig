@@ -1,0 +1,15 @@
+struct Reg
+  names: Vec[String]
+
+  sub add(!self, n: String)
+    !self.names.push(n)
+
+  fun first(?self) -> String
+    self.names[0]
+
+sub main
+  r = Reg(names: Vec())
+  !r.add("x")
+  f = r.first()
+  !r.add("y")
+  print(f, r.names)

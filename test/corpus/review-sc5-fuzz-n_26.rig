@@ -1,0 +1,6 @@
+K: U8 = 3
+
+sub main()
+  v: U8 = 5
+  x: U8 = (((K << 3) << 64) + K)
+  print(x)

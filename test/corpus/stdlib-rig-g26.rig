@@ -1,0 +1,8 @@
+struct P
+  x: Int
+sub main
+  c = Cell(3)
+  b = Box(P(x: 1))
+  print(c.value, b.value, b.x)
+  v = Vec[Int](capacity: 4)
+  print(v.len)

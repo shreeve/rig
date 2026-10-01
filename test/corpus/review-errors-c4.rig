@@ -1,0 +1,15 @@
+error Bad
+  one
+  two
+
+fun f -> Int!
+  return Bad.one
+
+fun g -> Int!
+  x = f() catch Bad.two
+  x
+
+sub main
+  _ = g() catch |e|
+    print(e)
+    0

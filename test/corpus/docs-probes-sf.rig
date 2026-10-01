@@ -1,0 +1,9 @@
+error E
+  bad
+
+sub f(n: Int)!
+  return E.bad if n < 0
+  print(n)
+
+sub main
+  f(1)!

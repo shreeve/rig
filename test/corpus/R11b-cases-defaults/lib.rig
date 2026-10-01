@@ -1,0 +1,19 @@
+# some padding so positions differ from main
+# more padding
+# and more
+pub struct Wrap[T]
+  v: T
+  count: Int = 10
+
+  fun scaled(?self, k: Int = 3) -> Int
+    self.count * k
+
+  fun tag[U](?self, u: U, times: Int = 2) -> Int
+    times
+
+pub fun rep[T](x: T, n: Int = 4) -> Int
+  n
+
+pub enum Opt[T]
+  some(value: T, extra: Int)
+  none

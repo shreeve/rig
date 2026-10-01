@@ -1,0 +1,14 @@
+# An element cannot be moved out of a Vec: the Vec still owns the slot.
+
+struct P
+  n: Int
+
+sub eat(p: P)
+  print(p.n)
+
+sub main()
+  v: Vec[P] = Vec()
+  !v.push(P(n: 7))
+  eat(v[0])
+
+# error: 12:8: cannot move out of

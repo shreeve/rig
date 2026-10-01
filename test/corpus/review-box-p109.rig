@@ -1,0 +1,18 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(b: Box[R])
+  print("eat", b.n)
+
+sub main
+  v: Vec[Box[R]] = Vec()
+  !v.push(Box(value: R(n: 1)))
+  for x in ?v
+    eat(<x)
+  for x in v
+    print(x.n)
+  for x in !v
+    eat(<x)

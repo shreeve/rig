@@ -1,0 +1,33 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+error E
+  bad
+
+fun fail(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+fun run(k: Int, out: !Vec[*Tok]) -> Int!
+  t = *Tok(n: 1)
+  errdefer !out.push(+t)
+  fail(k)!
+
+sub main
+  v: Vec[*Tok] = Vec()
+  print(run(1, !v) catch -1)
+  print(v.len)

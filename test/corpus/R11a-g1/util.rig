@@ -1,0 +1,2 @@
+pub fun g[T](x: T) -> Int
+  1

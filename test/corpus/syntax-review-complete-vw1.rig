@@ -1,0 +1,22 @@
+struct Bag[T]
+  items: Vec[T]
+
+  fun iter(?self) -> BagIter[T]
+    BagIter(bag: self, i: 0)
+
+struct BagIter[T]
+  bag: ?Bag[T]
+  i: Int
+
+  fun next(!self) -> T?
+    return none if self.i >= self.bag.items.len
+    self.i += 1
+    self.bag.items[self.i - 1]
+
+sub main
+  b = Bag[Int](items: Vec())
+  !b.items.push(4)
+  !b.items.push(5)
+  it = b.iter()
+  while !it.next() as x
+    print(x)

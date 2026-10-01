@@ -1,0 +1,10 @@
+error Bad
+  neg
+
+sub run(f: ?sub(Int)!)!
+  f(3)!
+
+sub main
+  g: *sub(Int) = *|x: Int| print("g", x)
+  run(?g)!
+  run(g)!

@@ -1,0 +1,6 @@
+use lib
+
+limit = 3
+
+sub main
+  print(lib.neg(1), lib.dbl(1), lib.paren(1), lib.notb(true))

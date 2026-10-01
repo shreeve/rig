@@ -1,0 +1,13 @@
+struct View
+  w: ?Vec[Int]
+
+sub run[T](x: ?T, f: ?sub(?T))
+  f(x)
+
+sub main
+  a: Vec[Int] = Vec()
+  v = View(w: ?a)
+  if true
+    local: Vec[Int] = Vec()
+    run(?local, |!v, w| v.w = w)
+  print(v.w.len)

@@ -1,0 +1,12 @@
+struct Holder
+  f: *fun() -> Int
+
+  sub set(!self, g: *fun() -> Int)
+    self.f = <g
+
+sub main
+  h = Holder(f: *|| 1)
+  if true
+    y = 42
+    !h.set(*|?y| y)
+  print((h.f)())

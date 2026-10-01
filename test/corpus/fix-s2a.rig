@@ -1,0 +1,15 @@
+struct P
+  n: Int
+
+sub main()
+  x = 1
+  _ = +x
+  s = "a"
+  _ = +s
+  p = P(n: 1)
+  _ = +p.n
+  _ = +p
+  y = 2
+  _ = <y
+  y = 3
+  print(x, s, p.n, y)

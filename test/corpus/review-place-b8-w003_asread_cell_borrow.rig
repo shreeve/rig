@@ -1,0 +1,12 @@
+struct P
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+sub main
+  o: P? = P(c: Cell(1))
+  if ?o as p
+    p.hit()
+  if ?o as p
+    print(p.c.get())

@@ -1,0 +1,10 @@
+E =! Endian.big
+
+fun get[e: Endian](b: []U8) -> U16
+  b.read[U16, e](0)
+
+sub main
+  b: [2]U8 = [1, 2]
+  print(get[.little](?b[..]), get[E](?b[..]))
+  k =! Endian.little
+  print(b.read[U16, k](0))

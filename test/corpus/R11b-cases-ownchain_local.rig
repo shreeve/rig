@@ -1,0 +1,17 @@
+fun dup[T](x: T) -> T
+  a = x
+  -a
+  x
+
+fun f[T](x: T) -> T
+  dup(<x)
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  r = f(Res(n: 1))
+  print(r.n)

@@ -1,0 +1,25 @@
+struct View
+  w: ?Vec[Int]
+
+  sub set(!self, w: ?Vec[Int])
+    self.w = w
+
+sub fill(out: !View, f: ?sub(!View))
+  f(out)
+
+sub put(o: !View, w: ?Vec[Int])
+  o.w = w
+
+sub main
+  a: Vec[Int] = Vec()
+  v = View(w: ?a)
+  v = View(w: ?a)
+  if true
+    b: Vec[Int] = Vec()
+    !b.push(1)
+    !b.push(2)
+    fill(!v, |?b, o|
+      !o.set(b))
+    fill(!v, |?b, o|
+      put(o, b))
+  print(v.w.len)

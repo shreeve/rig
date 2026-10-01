@@ -1,0 +1,20 @@
+struct Node[T]
+  value: T
+  next: Box[Node[T]]?
+
+fun push[T](top: Box[Node[T]]?, v: T) -> Box[Node[T]]?
+  Box(value: Node(value: v, next: <top))
+
+fun count[T](top: ?Box[Node[T]]?) -> Int
+  n = 0
+  cur = top
+  while cur as node
+    n += 1
+    cur = ?node.next
+  n
+
+sub main
+  s: Box[Node[String]]? = none
+  s = push(<s, "a")
+  s = push(<s, "b")
+  print(count(?s), s)

@@ -1,0 +1,28 @@
+fun mkv -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  v
+
+fun mks -> Vec[String]
+  v: Vec[String] = Vec()
+  !v.push("a")
+  v
+
+sub main
+  for x in mkv()
+    print(x)
+  for x in ?mkv()
+    print(x)
+  for s in mks()
+    print(s)
+  n = 0
+  while n < mkv().len
+    n += 1
+  print(n)
+  i = 0
+  for x in mkv()
+    i += x
+    if i > 0
+      break
+  print(i)

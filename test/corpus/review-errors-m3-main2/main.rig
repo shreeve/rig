@@ -1,0 +1,5 @@
+use a
+
+sub main
+  x = a.f(0) catch |e| 1 if e == a.Hidden.timeout else 2
+  print(x)

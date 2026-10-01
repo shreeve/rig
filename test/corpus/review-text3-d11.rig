@@ -1,0 +1,9 @@
+fun f(o: Text?) -> Int?
+  print(o?)
+  print(o?.len)
+  1
+
+sub main
+  x: Text? = Text("hello world")
+  print(f(<x) ?? 0)
+  print("end")

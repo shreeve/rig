@@ -1,0 +1,17 @@
+use geo
+
+struct Wrap[T]
+  item: T
+
+fun eqT[T](a: ?T, b: ?T) -> Bool
+  a == b
+
+fun wrapEq[T](a: ?T, b: ?T) -> Bool
+  x: T? = none
+  x == none and [a] == [b]
+
+sub main()
+  t = geo.Tagged(id: 1, h: *geo.Node(n: 1))
+  print(eqT(?t, ?t))
+  n = *geo.Node(n: 1)
+  print(wrapEq(?n, ?n))

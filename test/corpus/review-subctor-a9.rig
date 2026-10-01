@@ -1,0 +1,20 @@
+error Bad
+  neg
+
+sub rec(n: Int)!
+  return Bad.neg if n < 0
+  return if n == 0
+  print(n)
+  defer print("defer", n)
+  errdefer print("errdefer", n)
+  rec(n - 1)!
+
+sub rec2(n: Int)!
+  errdefer print("errdefer2", n)
+  return Bad.neg if n == 0
+  rec2(n - 1)!
+
+sub main
+  rec(2)!
+  rec2(2) catch |e|
+    print("e", e)

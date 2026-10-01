@@ -1,0 +1,14 @@
+struct Node
+  key: Int
+  left: Box[Node]?
+
+fun find(cur: ?Box[Node]?, k: Int) -> (?Node)?
+  if cur as n
+    if n.key == k
+      return ?n
+  none
+
+sub main
+  root: Box[Node]? = Box(value: Node(key: 1, left: none))
+  if find(?root, 1) as f
+    print(f.key)

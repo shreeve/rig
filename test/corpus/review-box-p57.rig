@@ -1,0 +1,13 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  m: Int
+
+sub main
+  s = S(m: 1)
+  r: ?R = ?s
+  print(r.n)

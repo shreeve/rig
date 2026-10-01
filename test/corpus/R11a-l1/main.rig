@@ -1,0 +1,8 @@
+use a
+use b
+use util
+
+sub main()
+  x = a.mk(3)
+  y: util.Box[Int] = util.Box(v: 4)
+  print(b.unbox(?x), b.unbox(?y), a.top(1, 2), b.cmp(2, 1))

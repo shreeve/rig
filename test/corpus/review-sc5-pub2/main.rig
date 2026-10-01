@@ -1,0 +1,12 @@
+use lib
+
+sub main()
+  h = lib.hidden()
+  print(h.shown, h.secret, h.peek())
+  w = lib.wrap()
+  print(w.w, w.v, w.get())
+  for x in lib.hiddens()
+    print(x.secret)
+  hs = lib.hiddens()
+  print(hs[0].secret)
+  print(h)

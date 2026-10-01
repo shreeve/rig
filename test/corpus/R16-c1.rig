@@ -1,0 +1,8 @@
+sub main
+  x = 1
+  f = |!x|
+    x += 1
+  g = |?f| f()
+  g()
+  g()
+  print(x)

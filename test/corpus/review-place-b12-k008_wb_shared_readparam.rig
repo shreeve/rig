@@ -1,0 +1,12 @@
+struct P
+  x: Int
+
+sub g(h: !*P)
+  h = *P(x: 7)
+
+sub f(h: ?*P)
+  g(!h)
+
+sub main
+  h = *P(x: 1)
+  f(?h)

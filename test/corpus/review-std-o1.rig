@@ -1,0 +1,18 @@
+use std.os
+
+struct Keep
+  a: []String
+
+  drop(!self)
+    print("drop sees", self.a.len, self.a[self.a.len - 1])
+
+sub main
+  k = Keep(a: os.args())
+  for a, i in os.args()
+    print(i, a)
+  print(os.env("HOME") != none, os.env("NOPE_NOT_SET_XYZ"))
+  s = os.args()[0]
+  print(s.len > 0)
+
+test "args in test"
+  print(os.args().len)

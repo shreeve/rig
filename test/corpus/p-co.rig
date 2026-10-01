@@ -1,0 +1,19 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun maybe(k: Int) -> N?
+  N(id: k) if k > 0 else none
+
+sub main
+  a = maybe(1) ?? N(id: 10)
+  b = maybe(0) ?? N(id: 20)
+  o = maybe(3)
+  c = <o ?? N(id: 30)
+  y = N(id: 40)
+  d = maybe(0) ?? <y
+  print(a.id, b.id, c.id, d.id)
+  e = maybe(5) ?? N(id: 50)
+  print(e.id)

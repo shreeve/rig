@@ -1,0 +1,7 @@
+sub run(f: ?sub())
+  f()
+
+sub main
+  if false
+    run(main)
+  print("x")

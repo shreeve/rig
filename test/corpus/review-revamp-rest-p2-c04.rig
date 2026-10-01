@@ -1,0 +1,6 @@
+K: U8 = 200
+enum E
+  a = K
+  b = K + 100
+sub main()
+  print(Int(E.a), Int(E.b))

@@ -1,0 +1,16 @@
+struct Node
+  v: Int
+
+sub main
+  a: *Cell[*Node?] = *Cell(none)
+  old = a.replace(*Node(3))
+  print(old)
+  w: *Cell[~Node?] = *Cell(none)
+  c = Cell[Vec[Int]](Vec())
+  print(c)
+  d: Cell[Vec[Int]] = Cell(Vec())
+  print(d)
+  n = *Node(4)
+  e = Cell(<n)
+  f = Cell(e.replace(*Node(1)))
+  print(f)

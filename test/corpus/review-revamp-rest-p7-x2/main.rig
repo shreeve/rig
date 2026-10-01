@@ -1,0 +1,4 @@
+use lib
+sub main()
+  w = lib.Q(x: 8, y: 3)
+  print(w.x)

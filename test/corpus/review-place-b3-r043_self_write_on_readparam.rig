@@ -1,0 +1,12 @@
+struct P
+  x: Int
+
+  sub inc(!self)
+    self.x += 1
+
+sub f(p: ?P)
+  !p.inc()
+
+sub main
+  q = P(x: 1)
+  f(?q)

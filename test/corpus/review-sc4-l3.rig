@@ -1,0 +1,14 @@
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+sub bump(c: !Counter)
+  !c.bump()
+
+sub main
+  c = Counter(n: 0)
+  w = !c
+  bump((w))
+  print(c.n)

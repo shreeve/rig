@@ -1,0 +1,4 @@
+sub main
+  x: U8 = 200
+  x <<= 1
+  print(x)

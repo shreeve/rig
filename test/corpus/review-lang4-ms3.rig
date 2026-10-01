@@ -1,0 +1,25 @@
+struct V
+  r: ?Int
+
+struct H
+  w: !V
+
+sub setp(h: !H, r: ?Int)
+  h.w = V(r: r)
+
+sub via(f: ?sub(!H, ?Int), h: !H, r: ?Int)
+  f(!h, r)
+
+fun clobber(k: Int) -> Int
+  a = [k, k + 1, k + 2, k + 3, k + 4, k + 5, k + 6, k + 7]
+  a[1] + a[6]
+
+sub main
+  a = 1
+  x = V(r: ?a)
+  h = H(w: !x)
+  if true
+    b = 77
+    via(?setp, !h, ?b)
+  y = clobber(5)
+  print(x.r, y)

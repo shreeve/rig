@@ -1,0 +1,7 @@
+fun mk() -> Int?
+  1
+
+sub main
+  if mk() as n
+    n = 5
+    print(n)

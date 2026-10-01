@@ -1,0 +1,10 @@
+fun double(n: Int) -> Int
+  n * 2
+
+fun use_it[T](x: ?T) -> Int
+  1
+
+sub main
+  print(use_it(?double))
+  g: fun(Int) -> Int = double
+  print(use_it(?g))

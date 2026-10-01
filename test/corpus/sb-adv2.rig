@@ -1,0 +1,23 @@
+struct P
+  x: Int
+
+  sub bump(!self)
+    self.x += 1
+
+sub inc(n: !Int)
+  n += 1
+
+sub go(s: ![]P)
+  s[0].x = 5
+  !s[1].bump()
+  inc(!s[2].x)
+  for p in !s[1..]
+    p.x *= 10
+
+sub main
+  ps = [P(x: 1), P(x: 2), P(x: 3)]
+  go(!ps[..])
+  print(ps[0].x, ps[1].x, ps[2].x)
+  w = !ps[..]
+  w[2] = P(x: 7)
+  print(w[2].x)

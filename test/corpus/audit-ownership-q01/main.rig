@@ -1,0 +1,13 @@
+use lib
+
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  v: Vec[*Tok] = Vec()
+  !v.push(*Tok(n: 1))
+  t = lib.get(?v, 0)
+  print(t.n)

@@ -1,0 +1,17 @@
+# Any module constant may be a default: an array or a string as well as
+# a number.
+
+ARR = [1, 2, 3]
+NAME = "x"
+
+struct S
+  a: [3]Int = ARR
+
+fun g(a: [3]I32 = ARR, n: String = NAME) -> Int
+  a[0] + n.len
+
+sub main()
+  print(g(), S().a)
+
+# expect:
+# 2 [1, 2, 3]

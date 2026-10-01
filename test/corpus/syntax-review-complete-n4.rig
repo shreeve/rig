@@ -1,0 +1,4 @@
+fun mx -> U64
+  U64.max
+sub main
+  print(mx(), Int.min)

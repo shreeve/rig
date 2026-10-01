@@ -1,0 +1,8 @@
+fun x -> Int
+  1
+
+fun f(x: Int) -> Int
+  x + 1
+
+sub main
+  print(f(2), x())

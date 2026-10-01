@@ -1,0 +1,9 @@
+error E
+  bad
+
+fun f -> Int!
+  return .bad
+  1
+
+sub main
+  print(f() catch 0)

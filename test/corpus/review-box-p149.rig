@@ -1,0 +1,13 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(b: Box[R])
+  print("eat", b.n)
+
+sub main
+  b = Box(value: R(n: 5))
+  defer print("deferred", b.n)
+  eat(<b)

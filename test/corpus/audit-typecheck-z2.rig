@@ -1,0 +1,4 @@
+sub main()
+  f = |n: Int|
+    break
+  f(1)

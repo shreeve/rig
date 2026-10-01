@@ -1,0 +1,16 @@
+struct Wrap
+  n: Int
+
+struct View
+  w: ?Wrap
+
+sub main
+  a = Wrap(n: 1)
+  v = View(w: ?a)
+  if true
+    b = Wrap(n: 2)
+    pv = !v
+    set = |+pv, ?b|
+      pv.w = b
+    set()
+  print(v.w.n)

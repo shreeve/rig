@@ -1,0 +1,8 @@
+fun mk -> *sub()
+  a = [1, 2]
+  w = !a[..]
+  *|<w|
+    w[0] = 5
+sub main()
+  f = mk()
+  f()

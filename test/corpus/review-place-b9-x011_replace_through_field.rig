@@ -1,0 +1,8 @@
+struct H
+  w: !Int
+
+sub main
+  a = 1
+  h = H(w: !a)
+  old = replace(!h.w, 5)
+  print(old, a)

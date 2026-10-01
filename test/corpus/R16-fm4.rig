@@ -1,0 +1,20 @@
+struct C
+  n: Int
+
+  sub inc(!self)
+    self.n += 1
+
+sub main
+  c = C(n: 0)
+  c = C(n: 0)
+  f = |!c|
+    c.inc()
+  f()
+  g = |!c|
+    !c.inc()
+  g()
+  v: Vec[Int] = Vec()
+  h = |!v|
+    !v.push(1)
+  h()
+  print(c.n, v.len)

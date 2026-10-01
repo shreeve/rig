@@ -1,0 +1,13 @@
+fun get(i: Int) -> Int?
+  none if i == 2 else i
+
+sub eat(v: Vec[Int])
+  print(v.len)
+
+sub main()
+  a: Vec[Int] = Vec()
+  :outer for i in 0..3
+    for j in 0..3
+      n = get(j) ?? break :outer
+      eat(<a)
+      print(n)

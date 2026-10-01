@@ -1,0 +1,2 @@
+extern zig "nope.zig"
+  pub fun half(x: Int) -> Int

@@ -1,0 +1,11 @@
+struct S
+  arr: [2]Int
+  v: Vec[Int]
+sub main()
+  h: *S = *S(arr: [1, 2], v: Vec())
+  h2 = +h
+  w = !h.arr[..]
+  t = !h2.arr[..]
+  w[0] = 5
+  t[0] = 6
+  print(h.arr)

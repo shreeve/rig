@@ -1,0 +1,12 @@
+use std.random
+
+sub main
+  r = random.Rng.seeded(1)
+  xs: [0]Int = []
+  !r.shuffle(!xs)
+  n = 0
+  seen = [10 of 0]
+  while n < 10000 : n += 1
+    k = !r.int(0, 10)
+    seen[k] += 1
+  print(seen)

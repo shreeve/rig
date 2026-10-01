@@ -1,0 +1,38 @@
+fun trim(s: String) -> String
+  s
+
+struct Split
+  rest: String
+
+  fun next(!self) -> String?
+    return none if self.rest.len == 0
+    part = self.rest[..1]
+    self.rest = self.rest[1..]
+    part
+
+struct Cut
+  before: String
+
+fun cut(s: String) -> Cut?
+  Cut(before: s[..1])
+
+sub main
+  t = Text("abc")
+  w = trim(?t)
+  !t.add("x")
+  print(w)
+  u = Text("abc")
+  it = Split(rest: ?u[..])
+  a = !it.next()
+  -it
+  !u.clear()
+  print(a)
+  v = Text("v")
+  c = cut(?v)
+  -v
+  print(c)
+  x = Text("xyz")
+  o: String? = ?x[1..]
+  if o as s
+    -x
+    print(s)

@@ -1,0 +1,10 @@
+struct P
+  n: Int
+  v: Vec[Int]
+
+sub main()
+  o: P? = P(n: 1, v: Vec())
+  new t = 0
+  while ?o as y : t += y.n
+    print(t)
+    break if t > 2

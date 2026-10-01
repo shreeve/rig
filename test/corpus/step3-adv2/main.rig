@@ -1,0 +1,15 @@
+use lib
+
+struct A
+  b: lib.Box[A]
+
+sub main()
+  t = lib.Tagger(label: "x")
+  print(t.add("s"))
+  d = lib.Deep[Int](v: 1)
+  x: Int = 3
+  y: Float = 2.5
+  print(lib.max(x, y), d.v)
+  bx: lib.IntBox = lib.Box(v: 2)
+  print(lib.Box[Int].get(?bx))
+  u: lib.Box[U8] = lib.Box(v: 300)

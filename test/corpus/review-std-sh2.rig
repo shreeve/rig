@@ -1,0 +1,8 @@
+fun pow(base: Int, exp: Int) -> Int
+  base + exp
+
+fun exp(x: Float) -> Float
+  x
+
+sub main
+  print(pow(1, 2), exp(1.0))

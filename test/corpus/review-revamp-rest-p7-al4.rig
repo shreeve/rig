@@ -1,0 +1,4 @@
+type O = Int?
+sub main()
+  a = O(3)
+  print(a)

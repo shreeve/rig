@@ -1,0 +1,299 @@
+pub fun f0[T](a: T, b: T) -> Int
+  1
+
+pub fun f1[T](a: T, b: T) -> Int
+  f0(a, b) + 1
+
+pub fun f2[T](a: T, b: T) -> Int
+  f1(a, b) + 1
+
+pub fun f3[T](a: T, b: T) -> Int
+  f2(a, b) + 1
+
+pub fun f4[T](a: T, b: T) -> Int
+  f3(a, b) + 1
+
+pub fun f5[T](a: T, b: T) -> Int
+  f4(a, b) + 1
+
+pub fun f6[T](a: T, b: T) -> Int
+  f5(a, b) + 1
+
+pub fun f7[T](a: T, b: T) -> Int
+  f6(a, b) + 1
+
+pub fun f8[T](a: T, b: T) -> Int
+  f7(a, b) + 1
+
+pub fun f9[T](a: T, b: T) -> Int
+  f8(a, b) + 1
+
+pub fun f10[T](a: T, b: T) -> Int
+  f9(a, b) + 1
+
+pub fun f11[T](a: T, b: T) -> Int
+  f10(a, b) + 1
+
+pub fun f12[T](a: T, b: T) -> Int
+  f11(a, b) + 1
+
+pub fun f13[T](a: T, b: T) -> Int
+  f12(a, b) + 1
+
+pub fun f14[T](a: T, b: T) -> Int
+  f13(a, b) + 1
+
+pub fun f15[T](a: T, b: T) -> Int
+  f14(a, b) + 1
+
+pub fun f16[T](a: T, b: T) -> Int
+  f15(a, b) + 1
+
+pub fun f17[T](a: T, b: T) -> Int
+  f16(a, b) + 1
+
+pub fun f18[T](a: T, b: T) -> Int
+  f17(a, b) + 1
+
+pub fun f19[T](a: T, b: T) -> Int
+  f18(a, b) + 1
+
+pub fun f20[T](a: T, b: T) -> Int
+  f19(a, b) + 1
+
+pub fun f21[T](a: T, b: T) -> Int
+  f20(a, b) + 1
+
+pub fun f22[T](a: T, b: T) -> Int
+  f21(a, b) + 1
+
+pub fun f23[T](a: T, b: T) -> Int
+  f22(a, b) + 1
+
+pub fun f24[T](a: T, b: T) -> Int
+  f23(a, b) + 1
+
+pub fun f25[T](a: T, b: T) -> Int
+  f24(a, b) + 1
+
+pub fun f26[T](a: T, b: T) -> Int
+  f25(a, b) + 1
+
+pub fun f27[T](a: T, b: T) -> Int
+  f26(a, b) + 1
+
+pub fun f28[T](a: T, b: T) -> Int
+  f27(a, b) + 1
+
+pub fun f29[T](a: T, b: T) -> Int
+  f28(a, b) + 1
+
+pub fun f30[T](a: T, b: T) -> Int
+  f29(a, b) + 1
+
+pub fun f31[T](a: T, b: T) -> Int
+  f30(a, b) + 1
+
+pub fun f32[T](a: T, b: T) -> Int
+  f31(a, b) + 1
+
+pub fun f33[T](a: T, b: T) -> Int
+  f32(a, b) + 1
+
+pub fun f34[T](a: T, b: T) -> Int
+  f33(a, b) + 1
+
+pub fun f35[T](a: T, b: T) -> Int
+  f34(a, b) + 1
+
+pub fun f36[T](a: T, b: T) -> Int
+  f35(a, b) + 1
+
+pub fun f37[T](a: T, b: T) -> Int
+  f36(a, b) + 1
+
+pub fun f38[T](a: T, b: T) -> Int
+  f37(a, b) + 1
+
+pub fun f39[T](a: T, b: T) -> Int
+  f38(a, b) + 1
+
+pub fun f40[T](a: T, b: T) -> Int
+  f39(a, b) + 1
+
+pub fun f41[T](a: T, b: T) -> Int
+  f40(a, b) + 1
+
+pub fun f42[T](a: T, b: T) -> Int
+  f41(a, b) + 1
+
+pub fun f43[T](a: T, b: T) -> Int
+  f42(a, b) + 1
+
+pub fun f44[T](a: T, b: T) -> Int
+  f43(a, b) + 1
+
+pub fun f45[T](a: T, b: T) -> Int
+  f44(a, b) + 1
+
+pub fun f46[T](a: T, b: T) -> Int
+  f45(a, b) + 1
+
+pub fun f47[T](a: T, b: T) -> Int
+  f46(a, b) + 1
+
+pub fun f48[T](a: T, b: T) -> Int
+  f47(a, b) + 1
+
+pub fun f49[T](a: T, b: T) -> Int
+  f48(a, b) + 1
+
+pub fun f50[T](a: T, b: T) -> Int
+  f49(a, b) + 1
+
+pub fun f51[T](a: T, b: T) -> Int
+  f50(a, b) + 1
+
+pub fun f52[T](a: T, b: T) -> Int
+  f51(a, b) + 1
+
+pub fun f53[T](a: T, b: T) -> Int
+  f52(a, b) + 1
+
+pub fun f54[T](a: T, b: T) -> Int
+  f53(a, b) + 1
+
+pub fun f55[T](a: T, b: T) -> Int
+  f54(a, b) + 1
+
+pub fun f56[T](a: T, b: T) -> Int
+  f55(a, b) + 1
+
+pub fun f57[T](a: T, b: T) -> Int
+  f56(a, b) + 1
+
+pub fun f58[T](a: T, b: T) -> Int
+  f57(a, b) + 1
+
+pub fun f59[T](a: T, b: T) -> Int
+  f58(a, b) + 1
+
+pub fun f60[T](a: T, b: T) -> Int
+  f59(a, b) + 1
+
+pub fun f61[T](a: T, b: T) -> Int
+  f60(a, b) + 1
+
+pub fun f62[T](a: T, b: T) -> Int
+  f61(a, b) + 1
+
+pub fun f63[T](a: T, b: T) -> Int
+  f62(a, b) + 1
+
+pub fun f64[T](a: T, b: T) -> Int
+  f63(a, b) + 1
+
+pub fun f65[T](a: T, b: T) -> Int
+  f64(a, b) + 1
+
+pub fun f66[T](a: T, b: T) -> Int
+  f65(a, b) + 1
+
+pub fun f67[T](a: T, b: T) -> Int
+  f66(a, b) + 1
+
+pub fun f68[T](a: T, b: T) -> Int
+  f67(a, b) + 1
+
+pub fun f69[T](a: T, b: T) -> Int
+  f68(a, b) + 1
+
+pub fun f70[T](a: T, b: T) -> Int
+  f69(a, b) + 1
+
+pub fun f71[T](a: T, b: T) -> Int
+  f70(a, b) + 1
+
+pub fun f72[T](a: T, b: T) -> Int
+  f71(a, b) + 1
+
+pub fun f73[T](a: T, b: T) -> Int
+  f72(a, b) + 1
+
+pub fun f74[T](a: T, b: T) -> Int
+  f73(a, b) + 1
+
+pub fun f75[T](a: T, b: T) -> Int
+  f74(a, b) + 1
+
+pub fun f76[T](a: T, b: T) -> Int
+  f75(a, b) + 1
+
+pub fun f77[T](a: T, b: T) -> Int
+  f76(a, b) + 1
+
+pub fun f78[T](a: T, b: T) -> Int
+  f77(a, b) + 1
+
+pub fun f79[T](a: T, b: T) -> Int
+  f78(a, b) + 1
+
+pub fun f80[T](a: T, b: T) -> Int
+  f79(a, b) + 1
+
+pub fun f81[T](a: T, b: T) -> Int
+  f80(a, b) + 1
+
+pub fun f82[T](a: T, b: T) -> Int
+  f81(a, b) + 1
+
+pub fun f83[T](a: T, b: T) -> Int
+  f82(a, b) + 1
+
+pub fun f84[T](a: T, b: T) -> Int
+  f83(a, b) + 1
+
+pub fun f85[T](a: T, b: T) -> Int
+  f84(a, b) + 1
+
+pub fun f86[T](a: T, b: T) -> Int
+  f85(a, b) + 1
+
+pub fun f87[T](a: T, b: T) -> Int
+  f86(a, b) + 1
+
+pub fun f88[T](a: T, b: T) -> Int
+  f87(a, b) + 1
+
+pub fun f89[T](a: T, b: T) -> Int
+  f88(a, b) + 1
+
+pub fun f90[T](a: T, b: T) -> Int
+  f89(a, b) + 1
+
+pub fun f91[T](a: T, b: T) -> Int
+  f90(a, b) + 1
+
+pub fun f92[T](a: T, b: T) -> Int
+  f91(a, b) + 1
+
+pub fun f93[T](a: T, b: T) -> Int
+  f92(a, b) + 1
+
+pub fun f94[T](a: T, b: T) -> Int
+  f93(a, b) + 1
+
+pub fun f95[T](a: T, b: T) -> Int
+  f94(a, b) + 1
+
+pub fun f96[T](a: T, b: T) -> Int
+  f95(a, b) + 1
+
+pub fun f97[T](a: T, b: T) -> Int
+  f96(a, b) + 1
+
+pub fun f98[T](a: T, b: T) -> Int
+  f97(a, b) + 1
+
+pub fun f99[T](a: T, b: T) -> Int
+  f98(a, b) + 1

@@ -1,0 +1,8 @@
+use lib
+
+enum E
+  a = lib.J
+  b
+
+sub main
+  print(Int(E.a), Int(E.b))

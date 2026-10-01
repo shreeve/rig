@@ -1,0 +1,12 @@
+SECRET = 7
+pub BIG = 300
+pub NAME = "lib"
+
+pub struct Thing
+  pub n: Int = SECRET
+
+  pub fun m(?self, k: Int = SECRET) -> Int
+    self.n + k
+
+pub fun gen[T](x: T, k: Int = SECRET) -> Int
+  k

@@ -1,0 +1,15 @@
+use std.random
+
+sub main
+  r = random.Rng.seeded(1)
+  print(!r.int(-1, 0), !r.int(Int.max - 1, Int.max), !r.int(Int.min, Int.min + 1))
+  e: [0]Int = []
+  !r.shuffle(!e)
+  one = [7]
+  !r.shuffle(!one)
+  print(one)
+  v = Vec[Int]()
+  !r.shuffle(!v[..])
+  print(v.len)
+  f = !r.float()
+  print(f >= 0.0 and f < 1.0)

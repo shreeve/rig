@@ -1,0 +1,7 @@
+sub f(v: !Vec[Int])
+  v.push(1)
+  !v.push(2)
+  print(v.len)
+sub main
+  v: Vec[Int] = Vec()
+  f(!v)

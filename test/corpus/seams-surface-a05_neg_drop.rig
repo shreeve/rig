@@ -1,0 +1,14 @@
+struct R
+  n: Int
+
+fun f(r: Int) -> Int
+  -r
+
+sub g(r: Int)
+  -r
+
+sub main
+  n = 3
+  -n
+  print(f(2))
+  g(1)

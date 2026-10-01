@@ -1,0 +1,12 @@
+struct Holder[V]
+  one: V?
+
+  fun val(?self) -> (?V)?
+    if ?self.one as v
+      return v
+    none
+
+sub main
+  h = Holder[Int](one: 3)
+  if h.val() as v
+    print(v)

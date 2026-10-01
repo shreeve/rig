@@ -1,0 +1,12 @@
+K: I128 = 5
+M: U8 = 7
+
+enum E
+  a = K
+  b = M + 1
+  c = -1 + 3
+  d = I8.max
+  e = (1 << 20) - 1
+
+sub main()
+  print(Int(E.a), Int(E.b), Int(E.c), Int(E.d), Int(E.e))

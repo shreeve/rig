@@ -1,0 +1,5 @@
+fun rot(h: U64) -> U64
+  (h << 5) | (h >> 59)
+sub main
+  x: U64 = 0xF000_0000_0000_0001
+  print(rot(x))

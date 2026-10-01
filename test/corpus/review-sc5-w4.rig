@@ -1,0 +1,9 @@
+fun wr[T](a: T, b: T) -> T
+  a +% b
+
+fun wm[T](a: T) -> T
+  a *% 3
+
+sub main()
+  a: U8 = 200
+  print(wr(a, 100), wr(I128.max, 1), wm(a))

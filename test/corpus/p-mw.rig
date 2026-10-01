@@ -1,0 +1,14 @@
+struct W
+  v: Vec[Int]
+  t: Text
+
+fun mkw -> W
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  W(v: <v, t: Text("wt"))
+
+sub keep(v: Vec[Int])
+  print(v)
+
+sub main
+  print(mkw().v[0], mkw().v.len, mkw().t.len)

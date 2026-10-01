@@ -1,0 +1,7 @@
+sub main
+  both = |a: ?sub(Int), b: ?sub(Int)|
+    a(1)
+    b(2)
+  total = 0
+  both(|n| print(n), |!total, n| print(n * 10))
+  (|f: ?fun(Int) -> Int| print(f(4)))(|x| x + 1)

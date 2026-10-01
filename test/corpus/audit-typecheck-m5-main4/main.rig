@@ -1,0 +1,5 @@
+use util2
+
+sub main()
+  p = util2.PP
+  print(p.n)

@@ -1,0 +1,11 @@
+struct R
+  n: Int
+
+sub put(b: !Box[R])
+  b.n = 5
+
+sub main
+  b: Vec[Box[R]] = Vec()
+  !b.push(Box(value: R(n: 2)))
+  put(!b[0])
+  print(b)

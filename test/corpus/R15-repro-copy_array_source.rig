@@ -1,0 +1,4 @@
+sub main()
+  b = [1, 2, 3]
+  !b[..1].copy([9])
+  print(b)

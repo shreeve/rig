@@ -1,0 +1,15 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun has[T](o: ?T?) -> Bool
+  if o as _
+    true
+  else
+    false
+
+sub main
+  r: R? = R(n: 1)
+  print(has(?r))

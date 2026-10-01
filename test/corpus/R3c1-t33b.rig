@@ -1,0 +1,3 @@
+sub main()
+  a = 0..3
+  print(a == 0..3)

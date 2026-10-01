@@ -1,0 +1,10 @@
+sub sw(a: !String, b: !String)
+  swap(a, b)
+  old = replace(a, "z")
+  print(old)
+
+sub main
+  x = "x"
+  y = "y"
+  sw(!x, !y)
+  print(x, y)

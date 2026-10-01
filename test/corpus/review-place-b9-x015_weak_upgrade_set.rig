@@ -1,0 +1,9 @@
+struct P
+  c: Cell[Int]
+
+sub main
+  h = *P(c: Cell(1))
+  w = ~h
+  if w.get() as s
+    s.c.set(9)
+  print(h.c.get())

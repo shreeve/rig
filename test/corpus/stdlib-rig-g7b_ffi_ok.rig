@@ -1,0 +1,5 @@
+extern fun getpid -> I32
+extern fun abs(n: I32) -> I32
+sub main
+  raw
+    print(abs(-3), getpid() > 0)

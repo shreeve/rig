@@ -1,0 +1,4 @@
+sub main()
+  v: Vec[Int] = Vec()
+  s = !v[1..]
+  print(s.len)

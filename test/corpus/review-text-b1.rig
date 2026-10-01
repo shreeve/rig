@@ -1,0 +1,8 @@
+struct H
+  t: Text
+
+sub main
+  p = *H(t: Text("abcdefghijklmnop"))
+  q = p
+  !p.t.add(?q.t[..])
+  print(p.t)

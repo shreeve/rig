@@ -1,0 +1,3 @@
+sub main
+  b = Box(value: 1)
+  w = ~b

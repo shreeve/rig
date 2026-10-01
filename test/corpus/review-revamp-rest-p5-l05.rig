@@ -1,0 +1,6 @@
+sub main()
+  while true
+    :x if true
+      break :x
+    print(2)
+    break

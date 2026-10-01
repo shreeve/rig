@@ -1,0 +1,8 @@
+sub main
+  v = Vec[Int]()
+  !v.push(1)
+  !v.push(2)
+  !v.insert(0, v[1])
+  !v.insert(0, !v.remove(2))
+  !v.insert(v.len, v.len)
+  print(v)

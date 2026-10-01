@@ -1,0 +1,7 @@
+use lib
+
+struct lib[T]
+  v: T
+
+sub main()
+  print(1)

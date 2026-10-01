@@ -1,0 +1,12 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  r = lib.f(Res(n: 1))
+  v: Vec[Res] = Vec()
+  print(r.n, lib.g(?v))

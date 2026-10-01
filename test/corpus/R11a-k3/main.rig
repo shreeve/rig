@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  u: U8 = 3
+  i: I32 = 3
+  print(lib.half(3), lib.negate(u), lib.low(1.5), lib.sh(i), lib.neg(u))

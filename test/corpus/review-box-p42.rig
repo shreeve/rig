@@ -1,0 +1,12 @@
+struct W[T]
+  v: T
+
+struct P
+  x: Int
+
+fun mk() -> Box[W[?P]]
+  p = P(x: 1)
+  Box(value: W(v: ?p))
+
+sub main
+  b = mk()

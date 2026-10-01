@@ -1,0 +1,17 @@
+struct P
+  n: Int
+
+sub show(a: [1]Int)
+  print(a[0])
+
+sub take(p: P)
+  print(p.n)
+
+sub neg(n: Int)
+  print(n)
+
+sub main()
+  x = P(n: 1)
+  take <x
+  show [3]
+  neg -1

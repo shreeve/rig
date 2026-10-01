@@ -1,0 +1,12 @@
+struct R
+  s: []Int
+fun t() -> Bool
+  true
+sub main()
+  a = [1, 2]
+  rs = [R(s: ?a[..])]
+  if t()
+    loc = [7, 7]
+    w = !rs[..]
+    w[0] = R(s: ?loc[..])
+  print(rs[0].s)

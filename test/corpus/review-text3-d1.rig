@@ -1,0 +1,14 @@
+fun size(s: String) -> Int
+  s.len
+
+fun mk -> Text
+  Text("made")
+
+sub main
+  a = Text("aaaa")
+  b = Text("bb")
+  c = true
+  d = false
+  print(mk() if c else (a if d else mk()))
+  print(size(?(mk() if c else (mk() if d else b))))
+  print(a, b)

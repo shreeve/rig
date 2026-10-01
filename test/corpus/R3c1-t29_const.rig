@@ -1,0 +1,24 @@
+struct P
+  x: Int
+  s: String
+
+LESS =! "a" < "b"
+SAME =! "a" == "a"
+NAME =! "rig"
+ARR =! [1, 2]
+ORD =! NAME >= "ri"
+
+fun f(p: ?P) -> Bool
+  r = ?p.s
+  r < "z" and ?p.s >= "a" and p == P(x: 0, s: "o")
+
+sub main()
+  print(LESS, SAME, NAME < "zz", NAME == "rig", ORD)
+  o = P(x: 0, s: "o")
+  print(f(?o))
+  ws = ["b", "a"]
+  print(ws[0] < ws[1], ws[1] < ws[0])
+  w = ?ws[0]
+  print(w > "a", w == "b")
+  c: [2]Int = ARR
+  print(c == ARR)

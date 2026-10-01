@@ -1,0 +1,47 @@
+use lib
+
+type W = lib.Wrap[Int]
+
+struct Holder
+  w: lib.Wrap[Int]
+  o: lib.Wrap[Int]?
+  arr: [2]lib.Wrap[Int]
+
+fun p1(w: ?lib.Wrap[Int]) -> Int
+  w.v
+
+sub p2(w: !lib.Wrap[Int])
+  w.v = w.v + 1
+
+fun ret() -> lib.Wrap[Int]
+  lib.Wrap[Int](v: 4)
+
+fun opt(b: Bool) -> lib.Wrap[Int]?
+  if b
+    lib.Wrap(v: 1)
+  else
+    none
+
+fun takesfn(f: fun(lib.Wrap[Int]) -> Int, w: lib.Wrap[Int]) -> Int
+  f(w)
+
+fun getv(w: lib.Wrap[Int]) -> Int
+  w.v
+
+sub main()
+  a: W = lib.Wrap[Int].make(3)
+  h = Holder(w: a, o: lib.Wrap(v: 2), arr: [lib.Wrap(v: 5), lib.Wrap(v: 6)])
+  print(p1(?h.w))
+  b = ret()
+  p2(!b)
+  print(b.v)
+  o = opt(true)
+  if o as w
+    print(w.v)
+  s: *lib.Wrap[Int] = *lib.Wrap(v: 9)
+  print(s.v)
+  v: Vec[lib.Wrap[Int]] = Vec()
+  !v.push(lib.Wrap(v: 1))
+  print(takesfn(getv, lib.Wrap(v: 7)))
+  print(lib.max(3, 7), lib.max[Float](1, 2))
+  print(h.arr[1].v)

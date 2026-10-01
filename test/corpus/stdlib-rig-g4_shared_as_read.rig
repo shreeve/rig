@@ -1,0 +1,10 @@
+struct U
+  n: Int
+
+fun peek(u: ?U) -> Int
+  u.n
+
+sub main
+  h = *U(n: 5)
+  print(peek(?h))
+  print(peek(h))

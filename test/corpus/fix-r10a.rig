@@ -1,0 +1,35 @@
+error E
+  bad
+
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(t: Tok)
+  print("eat", t.n)
+
+fun h(k: Int) -> Int!
+  t = Tok(n: 1)
+  errdefer print("errdefer", t.n)
+  eat(<t)
+  E.bad
+
+fun i(k: Int) -> Int!
+  t = Tok(n: 1)
+  errdefer print("errdefer", t.n)
+  eat(<t)
+  return E.bad
+
+fun j(k: Int) -> Int!
+  if k > 0
+    t = Tok(n: 1)
+    errdefer print("errdefer", t.n)
+    eat(<t)
+    E.bad
+  else
+    0
+
+sub main
+  print(h(1) catch -1, i(1) catch -1, j(1) catch -1)

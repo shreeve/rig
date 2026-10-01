@@ -1,0 +1,13 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  o: R? = R(n: 1)
+  p = R(n: 2)
+  if !o as x
+    x = !p
+    x.n = 9
+  print(o, p)

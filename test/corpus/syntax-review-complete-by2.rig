@@ -1,0 +1,16 @@
+struct Page
+  buf: Vec[U8]
+
+  fun bytes(?self, a: Int, b: Int) -> []U8
+    ?self.buf[a..b]
+
+  fun wbytes(!self, a: Int, b: Int) -> ![]U8
+    !self.buf[a..b]
+
+sub main
+  p = Page(buf: Vec())
+  for _ in 0..16
+    !p.buf.push(1)
+  w = !p.wbytes(0, 4)
+  w[0] = 9
+  print(p.bytes(0, 4).len, p.buf[0])

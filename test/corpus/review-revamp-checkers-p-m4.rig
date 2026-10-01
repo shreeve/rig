@@ -1,0 +1,18 @@
+enum Color
+  red
+  green
+  blue
+
+fun cond(k: Int) -> Bool
+  k > 1
+
+sub show(c: Color, k: Int)
+  match c
+    .red if cond(k) => print("red big")
+    .red => print("red")
+    .green, .blue => print("gb")
+
+sub main()
+  show(.red, 2)
+  show(.red, 0)
+  show(.blue, 0)

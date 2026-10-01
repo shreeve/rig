@@ -1,0 +1,18 @@
+sub f(v: ![]Int?)
+  t = <v[0]
+  u = replace(!v[1], 9)
+  print(t, u)
+
+sub main
+  a: [3]Int? = [1, 2, 3]
+  f(!a[..])
+  print(a)
+  w: Vec[String?] = Vec()
+  !w.push("a")
+  !w.push("b")
+  f2(!w)
+  print(w)
+
+sub f2(w: !Vec[String?])
+  x = <w[0]
+  print(x)

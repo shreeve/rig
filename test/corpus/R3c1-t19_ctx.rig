@@ -1,0 +1,47 @@
+struct P
+  x: Int
+  s: String
+
+struct Flags
+  same: Bool
+  less: Bool
+
+enum K
+  a(p: P)
+  b
+
+sub main()
+  p = P(x: 1, s: "a")
+  q = P(x: 1, s: "a")
+  if p == q
+    print("if-eq")
+  if p != q
+    print("bad")
+  else if "a" < "b"
+    print("elif-lt")
+  s = "a"
+  n = 0
+  while s <= "c" and n < 3 : n += 1
+    s = "d" if n == 1 else "b"
+  print(n, s)
+  print("guard") if [p] == [q]
+  t = "yes" if p == q and not ("x" >= "y") else "no"
+  print(t)
+  f = Flags(same: p == q, less: p.s < q.s)
+  print(f.same, f.less, f == Flags(same: true, less: false))
+  print((p == q) == ("a" < "b"), not p == q)
+  eq: fun(P, P) -> Bool = |a, b| a == b
+  print(eq(p, q))
+  k: K = .a(p: p)
+  print(k == .a(p: q) and k != .b)
+  m = match k
+    .a(r) => r == p
+    .b => false
+  print(m)
+  cnt = 0
+  for c in [p, q, P(x: 2, s: "z")]
+    cnt += 1 if c == p else 0
+  print(cnt)
+  xs = [P(x: 0, s: "")]
+  xs[0] = p if xs[0] == P(x: 0, s: "") else q
+  print(xs[0] == p)

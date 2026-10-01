@@ -1,0 +1,20 @@
+error E
+  bad
+
+struct Tok
+  n: Int
+  v: Vec[Int]
+
+sub eat(t: Tok)
+  print("eat", t.n)
+
+fun id[T](x: T) -> T!
+  t = Tok(n: 4, v: Vec())
+  errdefer print(t.v.len)
+  eat(<t)
+  x
+
+sub main
+  e: E = E.bad
+  r = id(e) catch E.bad
+  print(r)

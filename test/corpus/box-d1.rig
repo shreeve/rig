@@ -1,0 +1,9 @@
+struct Node
+  key: Int
+  left: Box[Node]?
+
+sub main
+  root: Box[Node]? = Box(value: Node(key: 1, left: none))
+  if !root as n
+    root = none
+    print(n.key)

@@ -1,0 +1,21 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop R", self.n)
+
+enum Msg
+  data(r: R, n: Int)
+  other
+
+sub take(r: R)
+  print("took", r.n)
+
+sub take2(m: Msg)
+  print("took2")
+
+sub main
+  m = Msg.data(r: R(n: 1), n: 2)
+  match !m
+    x => -x
+    _ => print("o")
+  print("end")

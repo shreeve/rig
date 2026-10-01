@@ -1,0 +1,9 @@
+sub main()
+  a = [1, 2, 3]
+  b = [0, 0, 0]
+  w = !b[..]
+  !w.copy(?a[..])
+  a[0] = 9
+  print(a)
+  w[0] = 1
+  print(b)

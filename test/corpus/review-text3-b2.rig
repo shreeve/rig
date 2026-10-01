@@ -1,0 +1,23 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+enum M
+  a(n: N)
+  b(n: N)
+  c
+
+fun mk -> M
+  M.a(n: N(id: 1))
+
+sub take(n: N)
+  print("took", n.id)
+
+sub main
+  match mk()
+    .a(n) if n.id > 5 => print("big")
+    .a(n) => take(<n)
+    .b(_), .c => print("b")
+  print("end")

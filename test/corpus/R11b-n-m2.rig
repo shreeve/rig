@@ -1,0 +1,9 @@
+struct Wrap2[T]
+  v: T
+enum Opt2[T]
+  some(value: T)
+  none
+
+sub main()
+  x = Opt2[Int].some(val: 1)
+  print(x)

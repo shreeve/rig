@@ -1,0 +1,11 @@
+struct Bx
+  v: Vec[Int]
+
+struct View
+  b: ?Bx
+
+sub main
+  x = Bx(v: Vec())
+  !x.v.push(1)
+  s = *View(b: ?x)
+  print(s.b.v[0])

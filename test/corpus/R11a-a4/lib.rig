@@ -1,0 +1,10 @@
+use util
+
+pub struct Wrap[T]
+  c: util.Cell2[T]
+
+pub struct Ord[T]
+  v: T
+
+  fun bigger(?self, o: ?Self) -> Bool
+    util.big(self.v, o.v) == self.v

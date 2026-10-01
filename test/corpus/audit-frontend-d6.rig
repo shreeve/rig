@@ -1,0 +1,4 @@
+fun g(a: Int?) -> Int
+  x = f(a ?? \
+    return 3)
+  x

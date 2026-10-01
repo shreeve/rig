@@ -1,0 +1,21 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun mkv -> Vec[N]
+  v: Vec[N] = Vec()
+  !v.push(N(id: 1))
+  !v.push(N(id: 2))
+  v
+
+sub take(n: N)
+  print("took", n.id)
+
+sub main
+  for n in mkv()
+    take(<n)
+  for n in ?mkv()
+    print(n.id)
+  print("end")

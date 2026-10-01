@@ -1,0 +1,10 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+sub main
+  x = 3
+  f = || -x
+  print(f())

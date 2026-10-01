@@ -1,0 +1,13 @@
+enum Opt[T]
+  some(v: ?T)
+  nothing
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  g: fun(Int) -> Int = double
+  o = Opt.some(v: ?g)
+  match o
+    .some(v) => print(v(2))
+    .nothing => print(0)

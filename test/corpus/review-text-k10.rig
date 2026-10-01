@@ -1,0 +1,6 @@
+sub main
+  s = 5
+  r = ?s
+  o = r
+  s = 6
+  print(o, s)

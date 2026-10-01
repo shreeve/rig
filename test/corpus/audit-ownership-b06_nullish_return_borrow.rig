@@ -1,0 +1,17 @@
+struct W
+  v: Vec[Int]
+
+fun make(k: Int) -> Int?
+  k if k > 0 else none
+
+fun f(k: Int) -> Int
+  w = W(v: Vec())
+  !w.v.push(5)
+  r = ?w
+  n = make(k) ?? return -1
+  w = W(v: Vec())
+  print(r.v[0])
+  n
+
+sub main
+  print(f(3))

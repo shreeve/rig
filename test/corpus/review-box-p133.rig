@@ -1,0 +1,43 @@
+struct T
+  k: Int
+  kids: Vec[Box[T]]
+
+struct Q
+  k: Int
+  a: Box[Q]?
+  s: *Q2?
+
+  drop(!self)
+    if self.k % 100000 == 0
+      print("drop q", self.k)
+
+struct Q2
+  q: Box[Q]?
+
+sub main
+  root = Box(value: T(k: 0, kids: Vec()))
+  i = 1
+  while i < 300000
+    root = Box(value: T(k: i, kids: Vec()))
+    i += 1
+  deep: Box[T]? = none
+  i = 0
+  while i < 300000
+    kids: Vec[Box[T]] = Vec()
+    if <deep as d
+      !kids.push(<d)
+    deep = Box(value: T(k: i, kids: <kids))
+    i += 1
+  print("built")
+  deep = none
+  print("dropped")
+  q: Box[Q]? = none
+  i = 0
+  while i < 300000
+    if i % 2 == 0
+      q = Box(value: Q(k: i, a: <q, s: none))
+    else
+      q = Box(value: Q(k: i, a: none, s: *Q2(q: <q)))
+    i += 1
+  q = none
+  print("done")

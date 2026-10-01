@@ -1,0 +1,12 @@
+struct H
+  w: !Box[Vec[Int]]
+
+fun inner(b: ?Box[Vec[Int]]) -> ?Vec[Int]
+  ?b.value
+
+sub main
+  b = Box(Vec[Int]())
+  h = H(w: !b)
+  s = inner(?h.w)
+  h.w = Box(Vec[Int]())
+  print(s)

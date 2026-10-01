@@ -1,0 +1,14 @@
+sub main
+  n = 5
+  match !n
+    k if k > 3 => k = 0
+    k => k = 1
+  print(n)
+  b = true
+  match !b
+    true => print("t")
+    x => x = true
+  print(b)
+  m = 2
+  match m
+    k => k = 9

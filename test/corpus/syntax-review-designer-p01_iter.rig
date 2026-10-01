@@ -1,0 +1,7 @@
+struct Range3
+  n: Int
+
+sub main
+  r = Range3(n: 3)
+  for x in r
+    print(x)

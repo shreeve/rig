@@ -1,0 +1,17 @@
+fun bump(k: !Int) -> Int
+  k += 10
+  k
+
+fun apply2(x: Int, f: ?fun(Int) -> Int) -> Int
+  f(x)
+
+fun trace(n: Int) -> Int
+  print("arg", n)
+  n
+
+sub main
+  k = 1
+  print(apply2(bump(!k), |+k, a| a + k))
+  print(apply2(trace(5), |a|
+    print("body")
+    a))

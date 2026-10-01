@@ -1,0 +1,12 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  a: [2]R? = [R(n: 1), R(n: 2)]
+  i = 0
+  if !a[i] as x
+    a[0] = none
+    print(x.n)

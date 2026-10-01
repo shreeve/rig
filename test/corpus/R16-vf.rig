@@ -1,0 +1,14 @@
+fun double(n: Int) -> Int
+  n * 2
+
+fun inc(n: Int) -> Int
+  n + 1
+
+sub main
+  v: Vec[fun(Int) -> Int] = Vec()
+  !v.push(double)
+  !v.push(inc)
+  for f in ?v
+    print(f(10))
+  g = ?v[1]
+  print(g(1))

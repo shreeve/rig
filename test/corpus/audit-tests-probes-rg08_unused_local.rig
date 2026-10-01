@@ -1,0 +1,3 @@
+sub main
+  x = 1
+  print(2)

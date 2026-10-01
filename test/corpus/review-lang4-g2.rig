@@ -1,0 +1,12 @@
+struct G[T]
+  w: !T
+
+  sub set(!self, x: T)
+    self.w = x
+
+sub main
+  n = 1
+  gi = G(w: !n)
+  !gi.set(9)
+  gi.w = 3
+  print(n)

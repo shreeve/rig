@@ -1,0 +1,9 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+sub g(r: R)
+  -r
+sub main
+  g(R(n: 1))
+  print("after")

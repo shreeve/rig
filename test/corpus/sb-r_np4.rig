@@ -1,0 +1,5 @@
+sub f(s: ?[]Vec[Int])
+  print(1)
+
+sub main
+  print(1)

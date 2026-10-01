@@ -1,0 +1,11 @@
+struct H
+  w: !Int
+
+sub main
+  a = 1
+  b = 2
+  h = H(w: !a)
+  k = H(w: !b)
+  swap(!h.w, !k.w)
+  h.w = 10
+  print(a, b)

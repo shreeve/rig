@@ -1,0 +1,14 @@
+use a
+use b
+
+struct Wrap[T]
+  v: T
+
+sub take(x: a.Wrap[Int])
+  print(x.v)
+
+sub main()
+  take(b.mk())
+  take(Wrap(v: 1))
+  take(a.Wrap(v: "s"))
+  x: a.Wrap[Int] = b.Wrap(v: 2)

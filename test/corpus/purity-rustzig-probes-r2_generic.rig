@@ -1,0 +1,13 @@
+struct P
+  x: Int
+
+fun biggest[T](xs: []T) -> T
+  best = xs[0]
+  for x in xs
+    best = x if x > best else best
+  best
+
+sub main
+  print(biggest([3, 9, 2]))
+  ps = [P(x: 1), P(x: 2)]
+  print(biggest(?ps))

@@ -1,0 +1,12 @@
+struct Log
+  lines: Vec[Int]
+
+  fun count(?self) -> Int
+    self.lines.len
+
+fun make -> Log
+  Log(lines: Vec())
+
+sub main
+  print(Log.count(?make()))
+  print((?make()).count())

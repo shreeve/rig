@@ -1,0 +1,8 @@
+n = 3
+
+struct R[n: Int]
+  a: [n]Int
+
+sub main
+  r = R[2](a: [2 of 0])
+  print(r.a, n)

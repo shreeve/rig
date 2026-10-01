@@ -1,0 +1,7 @@
+fun half[T](x: T) -> T
+  x / (2 +% 1)
+
+sub main()
+  print(half(9), 7 / (2 +% 1))
+  u: U8 = 200 +% 100
+  print(u)

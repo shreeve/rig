@@ -1,0 +1,37 @@
+SECRET = 7
+pub OPEN = 3
+
+pub struct Counter
+  pub label: String
+  count: Int
+
+  pub fun make(label: String) -> Counter
+    Counter(label: label, count: SECRET)
+
+  fun peek(?self) -> Int
+    self.count
+
+  pub fun twice[T](?self, t: T) -> Int
+    self.peek() * 2
+
+pub struct Pair[T]
+  pub a: T
+  b: T
+
+  pub fun both(?self) -> T
+    self.second()
+
+  fun second(?self) -> T
+    self.b
+
+pub fun pair[T](a: T, b: T) -> Pair[T]
+  Pair(a: a, b: b)
+
+pub fun peekof[T](c: ?Counter, t: T) -> Int
+  c.count + c.peek()
+
+pub fun scaled(x: Int, k: Int = SECRET) -> Int
+  x * k
+
+pub fun opened(x: Int, k: Int = OPEN) -> Int
+  x * k

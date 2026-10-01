@@ -1,0 +1,5 @@
+type Byte = U8
+
+sub main()
+  x = Byte
+  print(Byte.max)

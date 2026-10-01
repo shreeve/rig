@@ -1,0 +1,5 @@
+pub struct Wrap[T]
+  pub v: T
+
+pub type IW = Wrap[Int]
+pub type Byte = U8

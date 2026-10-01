@@ -1,0 +1,8 @@
+use std.random
+
+R = random.Rng.seeded(5)
+N = random.Rng.new()
+
+sub main
+  r = R
+  print(!r.next() > 0)

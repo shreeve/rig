@@ -1,0 +1,13 @@
+struct C
+  c: Cell[Int]
+
+struct H
+  r: ?C
+
+sub main
+  a = C(c: Cell(1))
+  b = C(c: Cell(2))
+  h = H(r: ?a)
+  h.r = ?b
+  h.r.c.set(9)
+  print(a.c.get(), b.c.get())

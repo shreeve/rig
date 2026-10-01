@@ -1,0 +1,10 @@
+struct P
+  x: Int
+  s: String
+
+  sub inc(<self)
+    self.x += 1
+
+sub main
+  p = P(x: 1, s: "a")
+  <p.inc()

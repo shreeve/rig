@@ -1,0 +1,28 @@
+struct Val
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct Map
+  es: Vec[Box[Val]]
+
+  fun find(?self, n: Int) -> (?Val)?
+    for e in ?self.es
+      if e.n == n
+        return ?e
+    none
+
+  fun find_mut(!self, n: Int) -> (!Val)?
+    for e in !self.es
+      if e.n == n
+        return !e
+    none
+
+sub main
+  m = Map(es: Vec())
+  !m.es.push(Box(value: Val(n: 1)))
+  if m.find(1) as v
+    print(v.n)
+  if !m.find_mut(1) as w
+    w.n = 7
+  print(m.es.len)

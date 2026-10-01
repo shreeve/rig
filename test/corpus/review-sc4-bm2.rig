@@ -1,0 +1,18 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: B)
+  empty
+
+fun get(s: Slot) -> B
+  match s
+    .full(b) => b
+    .empty => B(n: 0)
+
+sub main
+  x = get(.full(b: B(n: 1)))
+  print(x.n)

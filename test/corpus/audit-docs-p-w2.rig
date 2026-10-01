@@ -1,0 +1,2 @@
+sub main
+  print(U8(250) +% 10)

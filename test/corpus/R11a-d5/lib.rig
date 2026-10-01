@@ -1,0 +1,12 @@
+pub struct Pair[A, B]
+  first: A
+  second: B
+
+pub struct View[T]
+  r: ?T
+
+pub fun view[T](x: ?T) -> View[T]
+  View(r: x)
+
+pub fun pairs[T](x: ?T, y: T) -> Pair[?T, T]
+  Pair(first: x, second: <y)

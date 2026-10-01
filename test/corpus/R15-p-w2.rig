@@ -1,0 +1,17 @@
+struct H
+  w: !Vec[Int]
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  d: Vec[Int] = Vec()
+  xs = [H(w: !v)]
+  ys = [H(w: !d)]
+  !ys.copy(?xs[..])
+  t = !ys[0].w[..]
+  xs[0].w.push(2)
+  xs[0].w.push(3)
+  xs[0].w.push(4)
+  xs[0].w.push(5)
+  xs[0].w.push(6)
+  t[0] = 99
+  print(t)

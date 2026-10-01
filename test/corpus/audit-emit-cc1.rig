@@ -1,0 +1,7 @@
+sub main
+  b = Box("hi")
+  s = *"hi"
+  o: String? = "hi"
+  print(b, s, o, "hi")
+  c = Cell(1)
+  print(c)

@@ -1,0 +1,4 @@
+extern fun abs(n: I32) -> I32
+sub main
+  raw
+    f = abs

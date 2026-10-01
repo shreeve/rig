@@ -1,0 +1,13 @@
+struct Node
+  key: Int
+  left: Box[Node]?
+
+fun leftmost(n: ?Node) -> ?Node
+  if ?n.left as l
+    return leftmost(?l)
+  n
+
+sub main
+  root = Box(value: Node(key: 1, left: Box(value: Node(key: 0, left: none))))
+  m = leftmost(?root)
+  print(m.key)

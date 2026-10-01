@@ -1,0 +1,38 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+  b: R?
+
+error Bad
+  no
+
+fun f(s: !S, fail: Bool) -> Int!
+  x = <s.a
+  return Bad.no if fail
+  s.a = <x
+  1
+
+fun g(s: !S) -> Int?
+  y = <s.b
+  z: Int? = none
+  n = z?
+  n
+
+sub main
+  s = S(a: R(n: 1), b: R(n: 2))
+  print(f(!s, true) catch 0)
+  print(s)
+  print(g(!s))
+  print(s)
+  i = 0
+  s.a = R(n: 3)
+  while true
+    t = <s.a
+    i += 1
+    break if i > 1
+  print(s.a)

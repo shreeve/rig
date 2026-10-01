@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+sub f(p: ?P, q: P)
+  q = P(x: 2)
+  p.x = 3
+
+sub main
+  a = P(x: 1)
+  f(?a, a)

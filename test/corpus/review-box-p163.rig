@@ -1,0 +1,22 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub f(p: !R?)
+  if ?p as x
+    print("f", x.n)
+  if !p as y
+    y.n += 1
+
+fun g(p: ?R?) -> Int
+  if ?p as x
+    x.n
+  else
+    0
+
+sub main
+  o: R? = R(n: 1)
+  f(!o)
+  print(g(?o))

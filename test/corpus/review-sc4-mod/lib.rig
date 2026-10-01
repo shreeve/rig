@@ -1,0 +1,12 @@
+pub struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+pub sub bump(c: !Counter)
+  !c.bump()
+
+pub enum Slot
+  full(c: Counter)
+  empty

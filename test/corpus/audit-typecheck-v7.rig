@@ -1,0 +1,10 @@
+struct N
+  v: Int
+
+fun mk(o: ?*N?) -> ?*N?
+  o
+
+sub main()
+  h: *N? = *N(v: 1)
+  n = mk(?h) ?? return
+  print(n.v)

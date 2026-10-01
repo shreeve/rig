@@ -1,0 +1,22 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub via(c: Counter)
+  c.hit()
+  c.hit()
+  print("param changed to", c.hits.get())
+
+sub main
+  a = Counter(hits: Cell(0))
+  b = a
+  b.hit()
+  a.hit()
+  via(a)
+  r = ?a
+  r.hit()
+  f =! Counter(hits: Cell(0))
+  f.hit()
+  print(a.hits.get(), b.hits.get(), f.hits.get())

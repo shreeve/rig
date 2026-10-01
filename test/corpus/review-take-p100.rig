@@ -1,0 +1,21 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct W[T]
+  x: T?
+
+fun first[T](o: W[T]?) -> T?
+  if <o as w
+    return <w.x
+  none
+
+fun second[T](o: W[T]?) -> T?
+  if o as w
+    return <w.x
+  none
+
+sub main
+  print(first(W[R](x: R(n: 1))))
+  print(second(W[R](x: R(n: 2))))

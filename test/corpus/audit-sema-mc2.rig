@@ -1,0 +1,5 @@
+K: I128 = 1 << 70
+M = K >> 60
+sub main
+  a: [M]Int = [M of 1]
+  print(K, M, a.len)

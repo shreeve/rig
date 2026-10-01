@@ -1,0 +1,15 @@
+fun f[n: Int](a: [n]Int, b: [n]Int) -> Bool
+  a == b
+
+fun g[T, n: Int](a: [n]T, b: [n]T) -> Bool
+  a != b
+
+fun h[T](a: T?, b: T) -> Bool
+  a != none
+
+sub main()
+  print(f([1, 2], [1, 2]), f([1], [2]))
+  print(g(["a", "b"], ["a", "b"]), g([1.5], [2.5]))
+  x: Int? = 3
+  s: String? = "s"
+  print(h(x, 3), h(s, "s"), h(s, "t"))

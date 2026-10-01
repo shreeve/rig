@@ -1,0 +1,8 @@
+error E
+  bad
+fun p(s: String) -> Int!
+  return E.bad if s == ""
+  s.len
+sub main
+  if p("x") as n
+    print(n)

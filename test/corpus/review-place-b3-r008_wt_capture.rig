@@ -1,0 +1,9 @@
+struct H
+  w: !Int
+
+sub main
+  n = 1
+  h = H(w: !n)
+  f = |!h| h.w = 9
+  f()
+  print(n)

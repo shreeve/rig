@@ -1,0 +1,28 @@
+struct P
+  x: Int
+
+sub bump(p: !P)
+  p.x += 1
+
+sub bumpi(n: !Int)
+  n += 1
+
+sub f(q: ?P, qs: ?Vec[Int])
+  bump(!q)
+  w = !q
+  !qs.push(1)
+
+sub main()
+  p = P(x: 1)
+  r = ?p
+  bump(!r)
+  v: Vec[Int] = Vec()
+  f(?p, ?v)
+  a = [1, 2]
+  s = ?a[..]
+  bumpi(!s[0])
+  o: P? = P(x: 3)
+  ro = ?o
+  if !ro as z
+    z.x = 4
+  print(p.x, r.x)

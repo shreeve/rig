@@ -1,0 +1,21 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  o: R? = none
+  p: R? = R(n: 5)
+  n = if ?o as x
+    x.n
+  else
+    0
+  if !o as x
+    x.n = 1
+  else if !p as y
+    o = R(n: y.n + 1)
+    y.n = 50
+  else
+    o = R(n: 3)
+  print(n, o, p)

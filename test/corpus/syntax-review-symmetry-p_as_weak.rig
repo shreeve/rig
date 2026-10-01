@@ -1,0 +1,7 @@
+struct P
+  x: Int
+sub main
+  a = *P(x: 1)
+  o: *P? = +a
+  if ~o as w
+    print(w.upgrade() != none)

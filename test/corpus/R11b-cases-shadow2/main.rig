@@ -1,0 +1,16 @@
+use lib
+
+struct Wrap[T]
+  w: T
+
+struct S
+  Wrap: Vec[Int]
+
+fun f(lib: Int) -> Int
+  x: lib.Wrap[Int] = lib.Wrap(v: 3)
+  x.v + lib
+
+sub main()
+  a: Wrap[Int] = Wrap(w: 1)
+  b: lib.Wrap[Int] = lib.Wrap(v: 2)
+  print(a.w, b.v, f(4))

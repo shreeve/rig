@@ -1,0 +1,24 @@
+enum Status
+  ok = 200
+  missing = 404
+  big = 4294967295
+
+enum Small
+  a
+  b = 200
+
+fun conv(s: ?Status) -> Int
+  Int(s)
+
+fun convw(s: !Small) -> U8
+  U8(s)
+
+sub main()
+  st: Status = .missing
+  print(Int(st), U16(Status.ok), U32(Status.big), U128(Status.big), I64(Status.big))
+  sm: Small = .b
+  print(U8(sm), I16(sm), conv(?st), convw(!sm))
+  print(I8(Small.a), Int(Small.b) + 1)
+  o: Small? = .b
+  print(Int(o ?? .a))
+  print(U8(st))

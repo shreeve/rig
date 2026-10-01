@@ -1,0 +1,10 @@
+struct Holder[T]
+  c: Cell[T]
+
+  sub put(?self, x: T)
+    self.c.set(x)
+
+sub main
+  h = Holder[String](c: Cell(""))
+  h.put("a")
+  print(h.c.get())

@@ -1,0 +1,3 @@
+sub main
+  s = Signal(value: 1)
+  print(s.get())

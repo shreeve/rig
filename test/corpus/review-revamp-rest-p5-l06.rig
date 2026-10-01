@@ -1,0 +1,5 @@
+sub main()
+  :x match 1
+    1 => break :x
+    _ => print(0)
+  print(2)

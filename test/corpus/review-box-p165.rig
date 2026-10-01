@@ -1,0 +1,21 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun rs(r: ?*R) -> Int
+  r.n
+
+sub main
+  o: *R? = *R(n: 1)
+  if ?o as x
+    print(x.n, rs(x))
+    y = +x
+    print(y.n)
+  if !o as z
+    z = *R(n: 7)
+  print(o)
+  f: (*fun() -> Int)? = *|| 42
+  if ?f as g
+    print(g())

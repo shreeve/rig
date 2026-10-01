@@ -1,0 +1,11 @@
+Self = 3
+
+struct W[T]
+  v: T
+
+  fun get(?self) -> Int
+    Self
+
+sub main
+  w = W(v: 1)
+  print(w.get())

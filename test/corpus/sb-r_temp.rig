@@ -1,0 +1,8 @@
+fun f(a: ![2]Int) -> ![]Int
+  !a[..]
+
+sub main
+  a = [1, 2]
+  w = !f(!a)[1..]
+  w[0] = 5
+  print(a)

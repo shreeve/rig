@@ -1,0 +1,30 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun pick(c: Bool) -> Res
+  a = Res(n: 1)
+  b = Res(n: 2)
+  if c
+    a
+  else
+    b
+
+fun pick2(c: Bool) -> Res
+  a = Res(n: 3)
+  b = Res(n: 4)
+  a if c else b
+
+fun loopy -> Res
+  a = Res(n: 5)
+  r = while true
+    break <a
+  r
+
+sub main
+  x = pick(true)
+  y = pick2(false)
+  z = loopy()
+  print(x.n, y.n, z.n)

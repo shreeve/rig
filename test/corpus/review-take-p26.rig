@@ -1,0 +1,11 @@
+struct S
+  a: Int?
+
+fun make() -> S?
+  S(a: 1)
+
+sub main
+  while make() as z
+    w = <z.a
+    print(w, z)
+    break

@@ -1,0 +1,9 @@
+LO2 = 1
+
+fun c(n: Int) -> String
+  match n
+    LO2 => "one"
+    _ => "other"
+
+sub main
+  print(c(1), c(2))

@@ -1,0 +1,22 @@
+struct Ring[T, n: Int]
+  items: [n]T
+  len: Int
+
+  fun same(?self, o: ?Self) -> Bool
+    self == o and self.items == o.items
+
+enum Res[T, E]
+  ok(v: T)
+  err(e: E)
+
+error Bad
+  no
+
+sub main()
+  a = Ring(items: [1, 2, 3], len: 3)
+  b = Ring(items: [1, 2, 3], len: 3)
+  c = Ring(items: ["x", "y"], len: 2)
+  print(a == b, a.same(?b), c == Ring(items: ["x", "z"], len: 2), c.same(?c))
+  r: Res[Int, Bad] = .ok(v: 1)
+  s: Res[Int, Bad] = .err(e: .no)
+  print(r == s, s == .err(e: Bad.no), r != .ok(v: 2))

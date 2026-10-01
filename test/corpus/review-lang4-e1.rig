@@ -1,0 +1,31 @@
+error Bad
+  oops
+
+fun f(n: Int) -> Int!
+  errdefer print("f failed")
+  if n > 0
+    errdefer
+      print("inner failed")
+    raise .oops if n > 5
+  n
+
+sub g(n: Int)!
+  errdefer print("g failed")
+  _ = f(n)!
+
+fun h() -> Int?!
+  errdefer print("h failed")
+  none
+
+test "errdefer in a test"
+  errdefer print("test failed")
+  _ = f(1)!
+
+sub main
+  errdefer print("main failed")
+  cb: ?fun(Int) -> Int! = |x: Int|
+    errdefer print("cb failed")
+    f(x)!
+  print(f(1) catch 0, f(9) catch 0, cb(9) catch 0)
+  g(9) catch |e| print(e)
+  print(h() catch 1)

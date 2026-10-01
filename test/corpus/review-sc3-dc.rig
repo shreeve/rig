@@ -1,0 +1,4 @@
+sub main
+  for i in 0..3
+    defer print(i)
+    defer continue if i > 0

@@ -1,0 +1,17 @@
+enum Shape
+  circle(r: Int)
+  point
+
+fun flip(s: !Shape) -> Bool
+  s = .point
+  false
+
+fun kind(s: !Shape) -> Int
+  match s
+    .point => 0
+    .circle(_) if flip(!s) => 1
+    .circle(_) => 2
+
+sub main
+  c: Shape = .circle(r: 1)
+  print(kind(!c))

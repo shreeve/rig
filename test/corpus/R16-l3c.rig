@@ -1,0 +1,7 @@
+sub main
+  x = 0
+  f = |!x|
+    x += 1
+  for _ in 0..3
+    f()
+    print(x)

@@ -1,0 +1,23 @@
+struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+enum Shape
+  circle(r: Int)
+  rect(w: Int, h: Int)
+
+fun area(s: ?Shape) -> Int
+  match s
+    .circle(r) => r * r * 3
+    .rect(w, h) if w > 0 => w * h
+    .rect(_, _) => 0
+
+sub main
+  w = Wrap(v: 3)
+  print(w.get(), area(?(Shape.rect(w: 2, h: 3))))
+  total = 0
+  f = |!total, n: Int| total += n
+  f(2)
+  print(total)

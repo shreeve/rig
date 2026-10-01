@@ -1,0 +1,12 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun f(o: R?) -> Int?
+  x = <o?
+  x.n
+
+sub main
+  print(f(R(n: 1)))

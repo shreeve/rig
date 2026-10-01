@@ -1,0 +1,11 @@
+fun seed(n: Int) -> Int
+  n + 1
+
+sub run(f: ?sub())
+  f()
+
+sub main
+  x = seed(1)
+  run(|!x|
+    x += 1)
+  print(x)

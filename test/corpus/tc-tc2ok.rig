@@ -1,0 +1,15 @@
+struct N
+  v: Int
+
+sub drain_write(w: !Vec[*N])
+  for x in ?w
+    print(x.v)
+  for x in !w
+    x.v += 1
+
+sub main()
+  v = Vec[*N]()
+  (!v).push(*N(v: 1))
+  drain_write(!v)
+  drain_write(!v)
+  print(v.len)

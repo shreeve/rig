@@ -1,0 +1,13 @@
+enum C
+  a
+  b
+
+struct P
+  a: I32
+  b: I32
+
+sub main
+  x = 300
+  raw
+    y: [8]U8 = @bitCast(x)
+    print(y)

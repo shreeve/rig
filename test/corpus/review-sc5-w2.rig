@@ -1,0 +1,27 @@
+struct S
+  n: U8
+
+fun sh(x: U128, n: Int) -> U128
+  x << n
+
+fun shi(x: I128, n: U8) -> I128
+  x >> n
+
+sub main()
+  x: U8 = 200 +% 100
+  print(x)
+  s = S(n: 255)
+  s.n +%= 2
+  print(s.n)
+  arr = [U8(250), 251]
+  arr[1] +%= 10
+  print(arr[1])
+  print(sh(1, 127))
+  print(shi(I128.min, 127))
+  y: I128 = 5
+  print(y * y, y - 10, -y, y / 2, Float(y) / 2.0)
+  z: I128 = 12345678901234567890123456789
+  print(z)
+  w: U128 = 18446744073709551616
+  print(w, w / 3, w % 1000)
+  print(I128(-5) % 3, I128(-7) / 2)

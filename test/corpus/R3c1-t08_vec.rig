@@ -1,0 +1,24 @@
+struct P
+  x: Int
+  s: String
+
+sub main()
+  v = Vec[P]()
+  !v.push(P(x: 1, s: "a"))
+  !v.push(P(x: 1, s: "a"))
+  w = Vec[String]()
+  !w.push("hi")
+  !w.push("hi")
+  b = Vec[U8]()
+  !b.push(1)
+  !b.push(2)
+  print(?v[0..1] == ?v[1..2], ?w[0..1] == ?w[1..2], ?b[0..1] < ?b[1..2], ?b[0..2] == ?b[0..2])
+  s = "hello"
+  t = s[1..3]
+  k = P(x: 0, s: t)
+  print(k == P(x: 0, s: "el"), t < s, s[0..0] == "", s[0..5] == s)
+  e: [0]Int = []
+  f: [0]Int = []
+  print(e == f, ?e[0..0] == ?f[0..0])
+  empty = Vec[P]()
+  print(?empty[0..0] == ?v[0..0])

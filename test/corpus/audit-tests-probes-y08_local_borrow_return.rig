@@ -1,0 +1,13 @@
+struct S
+  n: Int
+
+struct H
+  s: ?S
+
+fun mk(n: Int) -> H
+  s = S(n: n)
+  H(s: ?s)
+
+sub main
+  h = mk(7)
+  print(h.s.n)

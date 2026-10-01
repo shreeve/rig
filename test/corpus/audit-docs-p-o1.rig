@@ -1,0 +1,8 @@
+fun half(n: Int) -> Int?
+  n / 2 if n % 2 == 0 else none
+
+fun apply(f: ?fun(Int) -> Int?, x: Int) -> Int?
+  f(x)
+
+sub main
+  print(apply(|n| half(n)? + 1, 4), apply(|n| half(n)? + 1, 3))

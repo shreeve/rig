@@ -1,0 +1,16 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+  fun get(?self) -> Int
+    self.n
+
+fun mk() -> Box[R]
+  Box(value: R(n: 4))
+
+sub main
+  print(mk().get())
+  x = mk().n
+  print(x)

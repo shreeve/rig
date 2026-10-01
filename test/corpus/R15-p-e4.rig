@@ -1,0 +1,9 @@
+sub main()
+  a = [1, 2]
+  w = !a[..]
+  f = |<w| w
+  x = f()
+  y = f()
+  x[0] = 1
+  y[0] = 2
+  print(x, y)

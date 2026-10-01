@@ -1,0 +1,4 @@
+sub main
+  a: [2]U8 = [1, 2]
+  s = ?a[..]
+  print(s)

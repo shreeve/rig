@@ -1,0 +1,40 @@
+error Bad
+  neg
+
+fun get(n: Int) -> Int!
+  return Bad.neg if n < 0
+  n
+
+sub a(n: Int)!
+  get(n)!
+
+sub b(n: Int)!
+  _ = get(n)!
+
+sub c(n: Int)!
+  get(n) catch 0
+
+sub d(n: Int)!
+  if n > 0
+    print("pos")
+  else
+    return Bad.neg
+
+sub e(n: Int)!
+  match n
+    0 => return Bad.neg
+    _ => print("e", n)
+
+
+sub main
+  b(1)!
+  d(1)!
+  e(1)!
+  d(-1) catch |x|
+    print("d", x)
+  e(0) catch |x|
+    print("e", x)
+  a(2)!
+  a(-2) catch |x|
+    print("a", x)
+  c(-1)!

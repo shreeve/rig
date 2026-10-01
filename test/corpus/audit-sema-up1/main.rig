@@ -1,0 +1,13 @@
+use lib
+
+struct Q
+  n: Int
+
+  fun upgrade(?self) -> Int
+    self.n + 1
+
+sub main
+  q = *Q(n: 1)
+  print(q.upgrade())
+  p = *lib.P(n: 1)
+  print(p.upgrade())

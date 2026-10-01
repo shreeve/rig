@@ -1,0 +1,10 @@
+sub main()
+  v: Vec[*Cell[Int]] = Vec()
+  !v.push(*Cell(value: 1))
+  !v.push(*Cell(value: 2))
+  !v.swap(0, 1)
+  for c in ?v
+    print(c.get())
+  !v.swap(1, 1)
+  for c in ?v
+    print(c.get())

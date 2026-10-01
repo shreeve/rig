@@ -1,0 +1,11 @@
+sub main
+  xs = [10, 20, 30]
+  i: I128 = 1
+  j: U128 = 2
+  print(xs[i], xs[j])
+  v: Vec[Int] = Vec()
+  !v.push(5)
+  k: U128 = 0
+  print(v[k])
+  s = "abc"
+  print(s[j])

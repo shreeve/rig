@@ -1,0 +1,7 @@
+use lib
+
+pub fun get[T](w: ?lib.Wrap[T]) -> T
+  w.get()
+
+pub fun build[T](x: T) -> lib.Wrap[T]
+  lib.make(x)

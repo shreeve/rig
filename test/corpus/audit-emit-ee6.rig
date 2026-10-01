@@ -1,0 +1,6 @@
+fun invoke(x: Int) -> Int
+  x * 100
+
+sub main
+  f = |a: Int| invoke(a) + 1
+  print(f(2))

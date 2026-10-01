@@ -1,0 +1,13 @@
+sub main()
+  a = [1, 2, 3]
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  !v.push(0)
+  !v.push(0)
+  !v.copy(?a[..])
+  print(v)
+  !a.copy(?v[..])
+  print(a)
+  !a[..].copy(?v[..])
+  !v[..2].copy(?a[1..])
+  print(v)

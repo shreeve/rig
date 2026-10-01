@@ -1,0 +1,43 @@
+sub zero(s: ![]Int)
+  for x in !s
+    x = 0
+
+sub bump(s: ![]Int)
+  i = 0
+  while i < s.len : i += 1
+    s[i] += 10
+
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+fun rest(s: ![]Int) -> ![]Int
+  !s[1..]
+
+sub main
+  a = [1, 2, 3, 4]
+  zero(!a[0..2])
+  print(a)
+  bump(!a[1..])
+  print(a)
+  w = !a[..]
+  w[0] = 7
+  print(w, w.len, total(w))
+  print(a)
+  r = rest(!a[..])
+  r[0] = 99
+  print(a)
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  for x in !v[1..]
+    x *= 5
+  print(v)
+  s = !v[..]
+  bump(s)
+  bump(!s[2..])
+  print(total(?s[..]))
+  print(v)

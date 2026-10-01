@@ -1,0 +1,7 @@
+fun keep(v: !Vec[Int], xs: []Int)
+  !v.push(xs[0])
+
+sub main
+  v: Vec[Int] = Vec()
+  keep(!v, [4, 5])
+  print(v)

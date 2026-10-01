@@ -1,0 +1,7 @@
+sub main
+  a: [2][3]Int? = [2 of [3 of none]]
+  c = [[1, 2], [3, 4]][1][0]
+  n = 7
+  d: [2]?Int = [?n, ?n]
+  e: [2][3]?Int = [2 of [3 of ?n]]
+  print(a[1][2], c, d[0], e[1][2])

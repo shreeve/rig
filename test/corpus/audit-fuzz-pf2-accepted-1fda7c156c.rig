@@ -1,0 +1,26 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main
+  xs = [1, 2, 3]
+  for x in !xs
+    x *= 10
+  print(xs)
+  v: Vec[*B] = Vec()
+
+  print("after")
+  for i in 0..3
+    !v.push(*B(n: i))
+  for b, i in <v
+    if i == 1
+      keep(<b)
+      continue
+# expect:
+    print("saw", b.n)
+  print("after")

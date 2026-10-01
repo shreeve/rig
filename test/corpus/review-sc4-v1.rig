@@ -1,0 +1,29 @@
+struct H
+  v: Vec[Int]
+
+fun mk -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  v
+
+sub walk(h: ?H, w: !Vec[Int])
+  for x in h.v
+    print(x)
+  for x in w
+    print(x)
+
+sub main
+  h = H(v: Vec())
+  !h.v.push(1)
+  for x in ?h.v
+    print(x)
+  for i, x in ?h.v
+    print(i, x)
+  for x in mk()
+    print(x)
+  for x in h.v[..]
+    print(x)
+  sh: *H = *H(v: Vec())
+  for x in sh.v
+    print(x)
+  walk(?h, !h.v)

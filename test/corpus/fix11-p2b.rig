@@ -1,0 +1,11 @@
+enum Tag[T]
+  on
+  off
+
+  fun other(?self) -> Bool
+    x = Tag[T].on
+    x == .on
+
+sub main()
+  t: Tag[Int] = .off
+  print(t.other())

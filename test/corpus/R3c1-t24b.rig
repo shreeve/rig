@@ -1,0 +1,7 @@
+enum K
+  a(v: Int)
+  b
+
+sub main()
+  k: K = .a(w: 1)
+  print(k == .b)

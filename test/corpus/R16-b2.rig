@@ -1,0 +1,10 @@
+struct P
+  n: Int
+
+sub main
+  x = P(n: 0)
+  f = |!x|
+    x.n += 1
+  f()
+  print(x.n)
+  f()

@@ -1,0 +1,18 @@
+use util
+
+K = util.Byte.max - 250
+M = util.Byte.max
+F = util.Real.min
+
+struct D
+  b: util.Byte = util.Byte.max
+  r: util.Real = util.Real.max
+
+fun f(x: util.Byte = util.Byte.min) -> Int
+  Int(x)
+
+sub main()
+  a: [K]Bool? = [5 of none]
+  print(K, a.len, M, F < -3.0e38, util.Byte.min, util.Real.max > 3.0e38)
+  d = D()
+  print(d.b, d.r > 3.0e38, f())

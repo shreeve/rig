@@ -1,0 +1,13 @@
+struct G[T]
+  w: T
+
+  sub set(!self, x: T)
+    self.w = x
+
+sub main
+  n = 1
+  m = 5
+  gi = G[!Int](w: !n)
+  gi.w += 1
+  gi.w = 40
+  print(n)

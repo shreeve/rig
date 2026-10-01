@@ -1,0 +1,8 @@
+error Bad
+  neg
+
+sub f(n: Int)
+  return Bad.neg if n > 0
+
+sub main
+  f(1)

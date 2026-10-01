@@ -1,0 +1,25 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+
+struct H
+  w: !S
+
+sub go(h: ?H)
+  x = <h.w.a
+  print(x)
+
+sub go2(h: ?H)
+  x = replace(!h.w.a, none)
+  print(x)
+
+sub main
+  s = S(a: R(n: 1))
+  h = H(w: !s)
+  go(?h)
+  go2(?h)
+  print(s)

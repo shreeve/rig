@@ -1,0 +1,10 @@
+sub drain(w: ?Vec[Int])
+  for x in <w
+    print(x)
+
+sub main()
+  v = Vec[Int]()
+  (!v).push(7)
+  drain(?v)
+  (!v).push(8)
+  print(v.len)

@@ -1,0 +1,4 @@
+type A = [493_450]String?
+
+sub main
+  print(1)

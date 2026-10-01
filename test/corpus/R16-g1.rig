@@ -1,0 +1,10 @@
+fun keep[T](x: T) -> Vec[T]
+  v: Vec[T] = Vec()
+  !v.push(x)
+  v
+
+sub main
+  k = 5
+  f = |+k, a: Int| a + k
+  v = keep(?f)
+  print(v.len)

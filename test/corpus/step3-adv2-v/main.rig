@@ -1,0 +1,6 @@
+use lib3
+
+sub main()
+  o: lib3.Opt[Int] = .some(value: 3)
+  p = lib3.Opt[Int].some(value: 1)
+  print(o, p)

@@ -1,0 +1,14 @@
+error TestError
+  mismatch
+
+fun area(w: Int, h: Int) -> Int
+  w * h
+
+test "manual"
+  return TestError.mismatch if area(2, 3) != 7
+
+test "panic"
+  panic("boom")
+
+sub main
+  print(1)

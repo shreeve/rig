@@ -1,0 +1,7 @@
+fun find(k: Int) -> Int?
+  k if k > 0 else none
+sub show(k: Int)
+  v = find(k)?
+  print(v)
+sub main
+  show(1)

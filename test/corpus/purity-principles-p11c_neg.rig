@@ -1,0 +1,4 @@
+sub main
+  n = 5
+  -n
+  print("ok")

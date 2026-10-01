@@ -1,0 +1,37 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun maybe(i: Int) -> N?
+  if i > 0
+    return N(id: i)
+  none
+
+sub consume(n: N)
+  print("consume", n.id)
+
+sub main
+  if maybe(1) as n
+    consume(<n)
+  print("a")
+  if maybe(2) as n
+    print(n.id)
+  print("b")
+  i = 3
+  while maybe(i) as n
+    consume(<n)
+    i -= 1
+  print("c")
+  j = 5
+  while maybe(j) as n
+    print(n.id)
+    j -= 1
+    if j == 3
+      break
+  print("d")
+  v: Vec[Box[N]] = Vec()
+  if maybe(7) as n
+    !v.push(Box(<n))
+  print("e")

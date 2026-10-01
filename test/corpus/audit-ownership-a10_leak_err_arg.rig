@@ -1,0 +1,20 @@
+error E
+  bad
+
+struct B
+  n: Int
+
+fun fail(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+sub take(b: *B, n: Int)
+  print("take", b.n, n)
+
+fun run -> Int!
+  a = *B(n: 1)
+  take(<a, fail(1)!)
+  0
+
+sub main
+  print(run() catch -1)

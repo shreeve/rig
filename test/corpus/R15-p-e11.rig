@@ -1,0 +1,9 @@
+# aliasing: closure returns its ![]T param; caller keeps both
+sub main()
+  a = [1, 2]
+  w = !a[..]
+  f = |s: ![]Int| s
+  t = f(w)
+  w[1] = 4
+  t[0] = 3
+  print(t)

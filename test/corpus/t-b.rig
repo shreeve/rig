@@ -1,0 +1,16 @@
+# A `break` value may not borrow what the loop declared: it goes out of
+# scope as the loop ends.
+
+struct P
+  n: Int
+
+sub main()
+  q = P(n: 0)
+  x = for i in 0..3
+    p = P(n: i)
+    break ?q if i == 2
+  else
+    ?q
+  print(x.n)
+
+# error: 11:12: `p` does not live long enough

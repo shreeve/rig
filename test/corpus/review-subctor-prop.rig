@@ -1,0 +1,11 @@
+error E
+  x
+
+fun g() -> Int!
+  return E.x
+
+sub w()
+  g()!
+
+sub main
+  w()

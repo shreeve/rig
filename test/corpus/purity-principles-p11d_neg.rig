@@ -1,0 +1,16 @@
+fun f(x: Int, c: Bool) -> Int
+  r = if c
+    -x
+  else
+    x
+  r
+
+fun g(x: Int, c: Bool) -> Int
+  if c
+    -x
+  else
+    x
+  0
+
+sub main
+  print(f(1, true), g(1, true))

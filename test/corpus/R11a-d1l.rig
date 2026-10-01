@@ -1,0 +1,14 @@
+
+fun first[T](v: ?Vec[T]) -> ?T
+  ?v[0]
+
+struct P
+  n: Int
+
+sub main()
+  v = Vec[P]()
+  !v.push(P(n: 1))
+  f = first(?v)
+  for i in 0..100
+    !v.push(P(n: i))
+  print(f.n)

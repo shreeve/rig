@@ -1,0 +1,18 @@
+struct Stats
+  hits: Cell[Int]
+
+sub run(f: ?sub())
+  f()
+
+sub main
+  s = Stats(hits: Cell(value: 0))
+  f = |?s| s.hits.set(s.hits.get() + 1)
+  f()
+  f()
+  print(s.hits.get())
+  run(|?s| s.hits.set(10))
+  print(s.hits.get())
+  c = Cell(value: 1)
+  g = |?c| c.set(7)
+  g()
+  print(c.get())

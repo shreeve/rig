@@ -1,0 +1,27 @@
+pub error Bad
+  neg
+
+pub sub check(n: Int)!
+  return Bad.neg if n < 0
+  print("ok", n)
+
+pub struct M
+  v: Int
+
+  sub bump(!self, k: Int)!
+    return Bad.neg if k < 0
+    self.v += k
+
+pub struct W[T]
+  item: T
+
+pub struct Res
+  items: Vec[Int]
+
+pub struct D
+  n: Int = 7
+
+pub fun each(xs: []Int, f: ?sub(Int)!) -> Int!
+  for x in xs
+    f(x)!
+  xs.len

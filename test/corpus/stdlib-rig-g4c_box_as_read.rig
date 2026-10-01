@@ -1,0 +1,7 @@
+struct U
+  n: Int
+fun peek(u: ?U) -> Int
+  u.n
+sub main
+  b = Box(U(n: 5))
+  print(peek(?b))

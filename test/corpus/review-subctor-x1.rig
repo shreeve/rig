@@ -1,0 +1,19 @@
+error Bad
+  neg
+
+struct Node
+  v: Int
+
+sub main
+  n = *Node(1)
+  v = Vec[Int]()
+  f: *sub(Int)! = *|+n, <v, x: Int|
+    tmp = *Node(x)
+    return Bad.neg if x < 0
+    print("f", n.v, v.len, tmp.v)
+  f(1)!
+  f(-1) catch |e|
+    print("e", e)
+  g = +f
+  -f
+  g(2)!

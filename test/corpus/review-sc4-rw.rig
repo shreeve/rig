@@ -1,0 +1,14 @@
+struct Counter
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+fun peek(c: ?Counter) -> Int
+  c.n
+
+sub main
+  c = Counter(n: 3)
+  w = !c
+  print(peek(w), peek(?w), w.get(), ?w.get())
+  print(peek(!w))

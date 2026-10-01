@@ -1,0 +1,21 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun make(k: Int) -> Int?
+  k if k > 0 else none
+
+sub eat(r: Res)
+  print("eat", r.id)
+
+fun f(k: Int) -> Int
+  a = Res(id: 1)
+  n = make(k) ?? return -1
+  eat(<a)
+  eat(<a)
+  n
+
+sub main
+  print(f(3))

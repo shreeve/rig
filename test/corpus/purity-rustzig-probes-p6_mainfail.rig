@@ -1,0 +1,10 @@
+error E
+  boom
+
+fun f(n: Int) -> Int!
+  return E.boom if n > 1
+  n
+
+sub main
+  print(f(1)!)
+  print(f(2)!)

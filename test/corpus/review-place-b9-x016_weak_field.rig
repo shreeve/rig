@@ -1,0 +1,11 @@
+struct P
+  x: Int
+
+struct N
+  back: ~P
+
+sub main
+  h = *P(x: 1)
+  n = N(back: ~h)
+  n.back = ~h
+  print(h.x)

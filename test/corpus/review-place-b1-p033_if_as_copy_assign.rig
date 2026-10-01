@@ -1,0 +1,5 @@
+sub main
+  o: Int? = 3
+  if o as v
+    v = 4
+    print(v)

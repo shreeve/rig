@@ -1,0 +1,9 @@
+use lib
+
+sub main()
+  m = lib.Meters(3.5)
+  w = lib.Wrap(5)
+  w2 = lib.Wrap[Int](v: 5)
+  p = lib.Pt(x: 1)
+  f = m.get
+  print(m.get(), w.v, p.x, w2.v)

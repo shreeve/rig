@@ -1,0 +1,13 @@
+struct H
+  v: Vec[Int]
+
+fun f(h: !H) -> Vec[Int]
+  !h.v.push(1)
+  n: Vec[Int] = Vec()
+  !n.push(h.v.len)
+  n
+
+sub main
+  h = H(v: Vec())
+  h.v = f(!h)
+  print(h.v[0])

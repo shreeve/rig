@@ -1,0 +1,18 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun pick(a: R, b: R, c: Bool) -> R
+  if c
+    a
+  else
+    b
+
+fun tern(a: R, b: R, c: Bool) -> R
+  a if c else b
+
+sub main
+  print(pick(R(n: 1), R(n: 2), true).n)
+  x = tern(R(n: 3), R(n: 4), false)
+  print(x.n)

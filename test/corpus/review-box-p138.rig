@@ -1,0 +1,28 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun rd(r: ?R) -> Int
+  r.n
+
+fun pick(k: Int, b: ?Box[R], c: ?Box[R]) -> ?R
+  if k > 0
+    ?b
+  else
+    ?c
+
+fun pick2(k: Int, b: ?Box[R], c: ?R) -> ?R
+  match k
+    1 => ?b
+    _ => c
+
+sub main
+  b = Box(value: R(n: 1))
+  c = Box(value: R(n: 2))
+  print(pick(1, ?b, ?c).n, pick(0, ?b, ?c).n, pick2(1, ?b, ?c).n)
+  k = 1
+  print(rd(?b if k > 0 else ?c))
+  r: ?R = ?b if k > 0 else ?c
+  print(r.n)

@@ -1,0 +1,6 @@
+fun big() -> Float
+  1e39
+
+sub main()
+  print(U128(1e38), I128(-1.5e38))
+  print(U128(big()))

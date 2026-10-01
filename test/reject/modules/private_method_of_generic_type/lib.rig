@@ -1,0 +1,8 @@
+pub struct Wrap[T]
+  pub v: T
+
+  fun make(v: T) -> Self
+    Wrap(v: v)
+
+  sub show(?self)
+    print(self.v)

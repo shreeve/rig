@@ -1,0 +1,6 @@
+use lib
+struct Holder
+  bs: [40]lib.Big
+sub main()
+  h = Holder(bs: [40 of lib.Big(a: [300000 of 0])])
+  print(h.bs.len)

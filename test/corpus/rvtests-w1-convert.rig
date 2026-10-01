@@ -1,0 +1,5 @@
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  print(I8(rt(300)))

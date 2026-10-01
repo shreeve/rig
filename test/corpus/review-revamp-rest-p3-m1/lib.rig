@@ -1,0 +1,10 @@
+pub type Byte = U8
+pub type F = F32
+pub type P = Point
+pub struct Point
+  pub x: Int
+  pub y: Int
+type Priv = U16
+pub N: Byte = 7
+pub type Nums = [3]Int
+pub type Opt = Int?

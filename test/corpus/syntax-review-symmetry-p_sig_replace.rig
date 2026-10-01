@@ -1,0 +1,4 @@
+sub main
+  s = *Signal(value: 1)
+  old = s.replace(2)
+  print(old)

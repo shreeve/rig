@@ -1,0 +1,43 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun get(i: Int) -> R?
+  return none if i > 3
+  R(n: i)
+
+fun num(i: Int) -> Int?
+  return none if i % 2 == 1
+  i
+
+sub main
+  i = 0
+  while get(i) as r and num(r.n) as k and k < 3
+    print("got", r.n, k)
+    i += 2
+  else
+    print("ended", i)
+  print("--")
+  j = 0
+  while (num(j) ?? break) < 10
+    print("j", j)
+    j += 2
+  print("--")
+  m = 0
+  while get(m) as r : m += 1
+    print("m", r.n)
+    continue if m == 1
+    break if m == 2
+  else
+    print("never")
+  print("--")
+  if get(1) as a and get(2) as b and a.n < b.n
+    print("both", a.n, b.n)
+  else
+    print("no")
+  v = if get(1) as a and a.n == 1
+    "yes"
+  else
+    "no"
+  print(v)

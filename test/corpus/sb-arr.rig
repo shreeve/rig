@@ -1,0 +1,15 @@
+sub main
+  x = 1
+  y = 2
+  ps = [!x, !y]
+  for p in !ps
+    p += 10
+  print(x, y)
+  a = [1, 2]
+  b = [3, 4]
+  ws = [!a[..], !b[..]]
+  for w in !ws
+    w[0] = 9
+  for w in ?ws
+    print(w[1])
+  print(a, b)

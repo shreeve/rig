@@ -1,0 +1,14 @@
+struct S
+  n: Int
+
+struct V
+  r: ?S
+
+sub main()
+  a = S(n: 1)
+  v = V(r: ?a)
+  if true
+    t = S(n: 99)
+    match !v
+      x => x.r = ?t
+  print(v.r.n)

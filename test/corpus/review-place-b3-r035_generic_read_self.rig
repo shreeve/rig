@@ -1,0 +1,8 @@
+struct W[T]
+  x: T
+
+  sub bad(?self, v: T)
+    self.x = v
+
+sub main
+  w = W[Int](x: 1)

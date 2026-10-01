@@ -1,0 +1,13 @@
+error E
+  bad
+
+struct R
+  n: Int
+  drop(!self)
+    print("drop R", self.n)
+
+sub main!
+  r = R(n: 1)
+  print("m", r.n)
+  return E.bad if r.n > 0
+  print("x")

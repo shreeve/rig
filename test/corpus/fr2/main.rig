@@ -1,0 +1,9 @@
+use util
+
+sub main()
+  p = util.P()
+  print(p.a, p.b, p.c)
+  print(util.f())
+
+sub g()
+  print(util.Real.max)

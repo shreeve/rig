@@ -1,0 +1,7 @@
+fun mk(k: Int) -> Box[fun(Int) -> Int]
+  f = |x: Int| x + k
+  Box(value: f)
+
+sub main
+  b = mk(3)
+  print("ok")

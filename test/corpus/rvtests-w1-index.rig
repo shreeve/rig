@@ -1,0 +1,6 @@
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  a = [1, 2, 3]
+  print(a[rt(3)])

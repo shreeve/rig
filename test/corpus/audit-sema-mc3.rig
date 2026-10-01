@@ -1,0 +1,4 @@
+sub main
+  k: U8 =! 250 +% 10
+  a: [k]Int = [k of 1]
+  print(k, a.len)

@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  v: Vec[?P] = Vec()
+  !v.push(?a)
+  !v.push(?b)
+  print(v.len)

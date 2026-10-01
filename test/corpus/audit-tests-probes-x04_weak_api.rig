@@ -1,0 +1,8 @@
+struct S
+  n: Int
+
+sub main
+  s = *S(n: 1)
+  w = ~s
+  if w.get() as t
+    print(t.n)

@@ -1,0 +1,4 @@
+sub main
+  s = "hello"
+  t = ?s[0..2]
+  print(t)

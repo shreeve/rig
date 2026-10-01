@@ -1,0 +1,30 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun mk(i: Int) -> N
+  N(id: i)
+
+fun get(n: ?N) -> Int
+  n.id
+
+sub main
+  i = 0
+  while get(?mk(i)) < 5
+    i += 1
+    if i == 2
+      continue
+    if i == 3
+      break
+  print("i", i)
+  :outer for k in 0..2
+    j = 0
+    while get(?mk(10 + j)) < 12
+      j += 1
+      if k == 1
+        break :outer
+      if j == 1
+        continue :outer
+  print("end")

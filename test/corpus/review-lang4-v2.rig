@@ -1,0 +1,30 @@
+fun a() -> Int
+  pass
+
+fun b(c: Bool) -> Int
+  if c
+    1
+  else
+    pass
+
+fun d() -> Int?
+  pass
+
+fun e() -> Int
+  x = 1
+  pass
+
+sub main
+  z = match 1
+    1 => 2
+    _ => pass
+  y = if true
+    3
+  else
+    pass
+  v = loop()
+  print(a(), b(true), d(), z, y, e())
+
+fun loop() -> Int
+  for i in 0..3
+    pass

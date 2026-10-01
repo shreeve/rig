@@ -1,0 +1,9 @@
+struct Person
+  age: Int
+
+  fun older(?self) -> Int
+    age + 1
+
+sub main
+  p = Person(age: 3)
+  print(p.older())

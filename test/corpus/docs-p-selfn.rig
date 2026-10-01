@@ -1,0 +1,5 @@
+struct Counter
+  n: Int
+
+  fun twice(?self) -> Int
+    n * 2

@@ -1,0 +1,36 @@
+struct Split
+  rest: String
+  sep: String
+  done: Bool
+
+  pub fun next(!self) -> String?
+    if self.done
+      return none
+    i = find(self.rest, self.sep) ?? -1
+    if i < 0
+      self.done = true
+      return self.rest
+    part = self.rest[0..i]
+    self.rest = self.rest[i + self.sep.len..]
+    part
+
+fun find(s: String, pat: String) -> Int?
+  if pat.len > s.len
+    return none
+  i = 0
+  while i + pat.len <= s.len : i += 1
+    if s[i..i + pat.len] == pat
+      return i
+  none
+
+fun split(s: String, sep: String) -> Split
+  Split(rest: s, sep: sep, done: false)
+
+sub main
+  b: U8 = "abc"[1]
+  print(b, find("hello", "ll"), find("x", "yy"))
+  it = split("a,b,,c", ",")
+  while !it.next() as part
+    print(part)
+  x = "héllo"
+  print(x.len, x < "i", 'a')

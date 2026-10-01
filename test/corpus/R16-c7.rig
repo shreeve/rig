@@ -1,0 +1,5 @@
+sub main
+  k = 2
+  f = |+k, a: Int| a * k
+  h = |+f| f(1)
+  print(h())

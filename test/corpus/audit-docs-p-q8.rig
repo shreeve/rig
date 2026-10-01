@@ -1,0 +1,5 @@
+fun g(k: Int) -> Int?
+  k if k > 0 else none
+sub main
+  if g(1) as _
+    print("some")

@@ -1,0 +1,16 @@
+fun f(n: ?Int, m: !U8) -> Bool
+  n < 3 and m >= 2 and 1 < n and n <= 9
+
+fun g[T](a: ?T, b: T) -> Bool
+  a < b and b > a and a <= 5
+
+sub main()
+  x: U8 = 3
+  y: I8 = -3
+  print(x < 4, 2 < x, y < 0, 3 < 4, 3.5 > 2)
+  k = 3
+  z: U8 = 2
+  print(f(?k, !z))
+  print(g(?k, 7), g(?x, x))
+  big: U64 = 18446744073709551615
+  print(big > 1, big == 18446744073709551615)

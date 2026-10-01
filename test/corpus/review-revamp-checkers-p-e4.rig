@@ -1,0 +1,33 @@
+error E
+  bad
+
+struct Tok
+  n: Int
+  v: Vec[Int]
+
+sub eat(t: Tok)
+  print("eat", t.n, t.v.len)
+
+fun f(k: Int) -> Int!
+  if k > 0
+    t = Tok(n: 1, v: Vec())
+    !t.v.push(5)
+    errdefer print("errdefer", t.v.len, t.v[0])
+    eat(<t)
+    E.bad
+  else
+    0
+
+fun g(k: Int) -> Int!
+  match k
+    0 => 0
+    _
+      t = Tok(n: 2, v: Vec())
+      !t.v.push(6)
+      errdefer print("errdefer", t.v.len, t.v[0])
+      eat(<t)
+      E.bad
+
+sub main
+  print(f(1) catch -1)
+  print(g(1) catch -1)

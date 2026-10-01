@@ -1,0 +1,9 @@
+fun hash_str(s: String) -> U64
+  h: U64 = 14695981039346656037
+  for b in s
+    h ^= U64(b)
+    h *= 1099511628211
+  h
+
+sub main
+  print(hash_str("abc"))

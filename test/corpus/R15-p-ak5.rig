@@ -1,0 +1,11 @@
+struct View
+  s: ![]U8
+sub f(v: ?View)
+  v.s.write[U8, .big](0, 1)
+sub g(v: ?View)
+  v.s.swap(0, 1)
+sub main()
+  a: [2]U8 = [0, 0]
+  view = View(s: !a[..])
+  f(?view)
+  g(?view)

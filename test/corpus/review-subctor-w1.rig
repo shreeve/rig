@@ -1,0 +1,4 @@
+extern fun puts(s: String) -> Void!
+
+sub main
+  print(1)

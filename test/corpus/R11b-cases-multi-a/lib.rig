@@ -1,0 +1,8 @@
+pub fun dbl[T](x: T) -> T
+  x + x
+
+pub struct W[T]
+  v: T
+
+  fun d(?self) -> T
+    self.v + self.v

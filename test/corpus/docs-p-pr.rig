@@ -1,0 +1,11 @@
+struct U
+  name: String
+sub main
+  h = *U(name: "bo")
+  b = Box(U(name: "al"))
+  c = Cell("x")
+  bs = Box("s")
+  z = 0.0
+  f: Float = z / z
+  print(h, b, c, bs, f, [f])
+  print("s")

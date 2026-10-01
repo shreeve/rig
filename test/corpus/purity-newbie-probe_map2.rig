@@ -1,0 +1,3 @@
+sub main
+  balances: Map[String, Int] = Map()
+  print(balances.len)

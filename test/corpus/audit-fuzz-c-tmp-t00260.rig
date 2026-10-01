@@ -1,0 +1,130 @@
+struct R
+  id: Int
+
+  drop(!self)
+    print("rel", self.id)
+
+  fun look(?self) -> Int
+    print("use", self.id)
+    self.id
+
+struct P
+  a: R
+  b: R
+
+struct Q
+  h: *R
+  o: R?
+
+enum HR
+  one(r: R)
+  two(a: R, b: *R)
+  empty
+
+struct M
+  r: R
+
+  fun with(<self, n: Int) -> Int
+    print("use", self.r.id)
+    n + self.r.id
+
+  fun peek(?self, n: Int) -> Int
+    print("use", self.r.id)
+    n
+
+  sub put(!self, r: R)
+    self.r = <r
+
+error E
+  bad
+
+fun mk(id: Int) -> R
+  print("new", id)
+  R(id: id)
+
+fun mkm(id: Int) -> M
+  M(r: mk(id))
+
+fun mayr(k: Int) -> R!
+  return E.bad if k == 0
+  mk(k)
+
+fun may(k: Int) -> Int!
+  return E.bad if k == 0
+  k
+
+fun optr(k: Int) -> R?
+  return none if k == 0
+  mk(k)
+
+fun opt(k: Int) -> Int?
+  return none if k == 0
+  k
+
+fun two(a: R, b: R) -> Int
+  print("use", a.id)
+  print("use", b.id)
+  a.id + b.id
+
+fun one(a: R, n: Int) -> Int
+  print("use", a.id)
+  a.id + n
+
+fun take3(a: R, n: Int, b: R) -> Int
+  print("use", a.id)
+  print("use", b.id)
+  n
+
+fun hand(h: *R, n: Int) -> Int
+  print("use", h.id)
+  n
+
+fun bx(b: Box[R], n: Int) -> Int
+  print("use", b.id)
+  n
+
+fun pp(p: P) -> Int
+  print("use", p.a.id)
+  print("use", p.b.id)
+  1
+
+fun qq(q: Q) -> Int
+  print("use", q.h.id)
+  2
+
+fun hr(e: HR) -> Int
+  match <e
+    .one(r) => r.look()
+    .two(a, b)
+      print("use", b.id)
+      a.look()
+    .empty => 0
+
+fun ints(xs: [2]Int) -> Int
+  xs[0] + xs[1]
+
+fun rt_int(n: Int) -> Int
+  n
+
+sub h0()!
+  p0 = P(a: mayr(rt_int(4001))!, b: mk(2))
+  v1: Vec[*R] = Vec()
+  !v1.push(*mk(3))
+  !v1.push(*mayr(rt_int(0))!)
+  v4: Vec[*R] = Vec()
+  !v4.push(*mk(5))
+  !v4.push(*mk(6))
+  !v4.push(*mk(7))
+  print("val", ints([hr(HR.two(a: mk(8), b: *mk(9))), pp(P(a: mk(10), b: mk(11)))]))
+  x9 = mk(12)
+
+sub h1()!
+  p0 = P(a: mk(23), b: mayr(rt_int(0))!)
+  b1 = [may(rt_int(2))!, ints([7, qq(Q(h: *mk(25), o: mk(26)))])]
+  print("val", b1[0])
+  b3 = [M(r: mk(27)).with(qq(Q(h: *mk(28), o: mk(29)))), 0]
+  print("val", b3[0])
+
+sub main
+  h0() catch |e| print("caught", e)
+  h1() catch |e| print("caught", e)

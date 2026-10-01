@@ -1,0 +1,11 @@
+error A
+  x
+  y
+fun f() -> Int!
+  return A.x
+sub main
+  n = f() catch |e|
+    match e
+      .x => 1
+      .y => 2
+  print(n)

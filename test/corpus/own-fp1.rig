@@ -1,0 +1,34 @@
+struct Big
+  v: Vec[Int]
+
+struct View
+  b: ?Big
+
+enum O
+  some(x: Big)
+  nothing
+
+fun put(v: !View, t: ?Big) -> Bool
+  v.b = t
+  true
+
+sub viaIf
+  x0 = Big(v: Vec())
+  vw = View(b: ?x0)
+  o: Big? = Big(v: Vec())
+  if <o as x and put(!vw, ?x)
+    print(vw.b.v.len)
+  print("done")
+
+sub viaMatch
+  x0 = Big(v: Vec())
+  vw = View(b: ?x0)
+  o: O = .some(x: Big(v: Vec()))
+  match <o
+    .some(x) if put(!vw, ?x) => print(vw.b.v.len)
+    _ => print("other")
+  print("done")
+
+sub main
+  viaIf()
+  viaMatch()

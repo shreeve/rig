@@ -1,0 +1,16 @@
+error E
+  bad
+fun f(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+struct P
+  x: Int
+fun rd(p: ?P, a: ?[3]Int, n: ?Int) -> Int
+  p.x + a[0] + n
+sub main
+  k = 2
+  g = |+k, a: Int| a + k
+  p = P(x: 1)
+  a = [1, 2, 3]
+  n = 3
+  print(g(1), f(1)!, rd(?p, ?a, ?n))

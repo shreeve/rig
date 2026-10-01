@@ -1,0 +1,204 @@
+# Stand-ins for a Zig-backed standard library. Every declaration here
+# has the Rig signature the real API would have; its body is a
+# placeholder so the program compiles today. The emitted Zig is then
+# hand-edited so each stand-in resolves to rig/std/text.zig or
+# rig/std/map.zig, which wrap Zig 0.16 std.
+
+error StdError
+  not_found
+  access_denied
+  io_failed
+  invalid
+  overflow
+
+struct Text
+  bytes: Vec[U8]
+
+  fun new -> Text
+    Text(bytes: Vec())
+
+  sub push(!self, s: String)
+    for b in s
+      !self.bytes.push(b)
+
+  sub push_view(!self, s: []U8)
+    for b in s
+      !self.bytes.push(b)
+
+  sub push_int(!self, n: Int)
+    !self.bytes.push(48)
+
+  fun len(?self) -> Int
+    self.bytes.len
+
+  fun view(?self) -> []U8
+    ?self.bytes[..]
+
+  fun lines(?self) -> Lines
+    Lines(rest: ?self.bytes[..], done: false)
+
+struct Lines
+  rest: []U8
+  done: Bool
+
+  fun next(!self) -> ([]U8)?
+    none
+
+fun trim(s: String) -> String
+  s
+
+fun trim_view(s: []U8) -> []U8
+  s
+
+fun split(s: String, sep: String) -> Vec[String]
+  v: Vec[String] = Vec()
+  !v.push(s)
+  v
+
+fun parse_int(s: []U8) -> Int!
+  return StdError.invalid if s.len == 0
+  s.len
+
+fun read_file(path: String) -> Text!
+  return StdError.not_found if path.len == 0
+  Text.new()
+
+fun read_line -> Text?!
+  return StdError.io_failed if false
+  none
+
+sub sort_by[T](v: !Vec[T], less: ?fun(T, T) -> Bool)
+  if v.len > 1
+    print(less(v[0], v[1]))
+
+fun args -> Vec[String]
+  Vec()
+
+fun env(name: String) -> String?
+  none
+
+struct Map[K, V]
+  keys: Vec[Box[K]]
+  vals: Vec[V]
+
+  fun new -> Map[K, V]
+    Map[K, V](keys: Vec(), vals: Vec())
+
+  fun put(!self, k: K, v: V) -> V?
+    !self.keys.push(Box(<k))
+    !self.vals.push(<v)
+    none
+
+  fun get(?self, k: ?K) -> V?
+    none
+
+  fun contains(?self, k: ?K) -> Bool
+    false
+
+  fun remove(!self, k: ?K) -> V?
+    none
+
+  fun len(?self) -> Int
+    self.keys.len
+
+fun sorted_keys[K, V](m: ?Map[K, V]) -> Vec[K]
+  Vec()
+
+struct Node
+  id: Int
+
+  drop(!self)
+    print("drop node", self.id)
+
+sub main
+  # Process arguments and environment: process-lifetime bytes, so Strings.
+  argv = args()
+  print("args", argv.len, argv.get(1), env("RIG_PROTO"), env("RIG_PROTO_UNSET"))
+
+  # Text: an owned, growable byte string.
+  t = Text.new()
+  !t.push("total=")
+  !t.push_int(-42)
+  !t.push(", ok")
+  print(t, t.len())
+
+  # String helpers over static Strings.
+  for p in split(" a, b ,c ", ",")
+    print("[" , trim(p), "]")
+
+  # Parsing, with Zig errors mapped to Rig error names.
+  print(parse_int(trim_view(t.view()[6..9])) catch -1)
+  bad = Text.new()
+  !bad.push("12x")
+  print(parse_int(bad.view()) catch -1)
+  n = parse_int(bad.view()) catch |e|
+    print("failed", e)
+    0
+  print(n)
+
+  # Whole-file read through std.Io, then its lines.
+  src = read_file("input.txt") catch |e|
+    print("read failed", e)
+    Text.new()
+  words = 0
+  it = src.lines()
+  while !it.next() as line
+    if trim_view(line).len > 0
+      words += 1
+  print("nonblank lines", words)
+  missing = read_file("no/such/file") catch |e|
+    print("read failed", e)
+    Text.new()
+  print(missing.len())
+
+  # Lines from stdin, through one process-wide std.Io reader.
+  count = 0
+  longest = Text.new()
+  while read_line()! as line
+    count += 1
+    if line.len() > longest.len()
+      longest = <line
+  print("stdin lines", count, "longest", longest)
+
+  # A Rig closure called back from Zig's std.mem.sort.
+  nums: Vec[Int] = Vec()
+  for x in [5, 3, 9, 1]
+    !nums.push(x)
+  sort_by(!nums, |a, b| a > b)
+  print(nums)
+
+  # Map[String, Int] and Map[Int, *Node] (owned values, drop glue).
+  counts: Map[String, Int] = Map[String, Int].new()
+  for w in split("a b a c b a", " ")
+    _ = !counts.put(w, (counts.get(?w) ?? 0) + 1)
+  a = "a"
+  zz = "zz"
+  c = "c"
+  print(counts.len(), counts.get(?a), counts.get(?zz), counts.contains(?c))
+  for k in sorted_keys(?counts)
+    print(k, counts.get(?k))
+
+  nodes: Map[Int, *Node] = Map[Int, *Node].new()
+  _ = !nodes.put(1, *Node(id: 1))
+  _ = !nodes.put(2, *Node(id: 2))
+  if !nodes.put(1, *Node(id: 10)) as replaced
+    print("replaced", replaced.id)
+  two = 2
+  if !nodes.remove(?two) as gone
+    print("removed", gone.id)
+  one = 1
+  if nodes.get(?one) as copy
+    print("copied", copy.id)
+  print("left", nodes.len())
+
+  # Owned keys: Map[Text, Int] hashes a Text by its bytes.
+  byname: Map[Text, Int] = Map[Text, Int].new()
+  for w in split("x y x", " ")
+    key = Text.new()
+    !key.push(w)
+    probe = Text.new()
+    !probe.push(w)
+    _ = !byname.put(<key, (byname.get(?probe) ?? 0) + 1)
+  probe = Text.new()
+  !probe.push("x")
+  print(byname.len(), byname.get(?probe))

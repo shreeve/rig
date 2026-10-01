@@ -1,0 +1,9 @@
+enum C
+  red
+  blue
+
+
+sub main()
+  o: C? = .red
+  n: C? = none
+  print(o == .red, .blue == o, n == .red, n != .blue, o == C.red)

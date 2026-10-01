@@ -1,0 +1,5 @@
+sub main
+  c: U8 = 5
+  match c
+    1, 2, 3 => print("low")
+    _ => print("x")

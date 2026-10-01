@@ -1,0 +1,19 @@
+struct R
+  s: U64
+
+  sub touch(!self, xs: ![]Int)
+    self.s += 1
+    !xs.swap(0, 1)
+
+  sub gtouch[T](!self, xs: ![]T)
+    self.s += 1
+    !xs.swap(0, 1)
+
+sub main
+  r = R(s: 1)
+  a = [1, 2, 3]
+  !r.touch(!a)
+  print(a)
+  !r.gtouch(!a)
+  print(a)
+  print(r.s)

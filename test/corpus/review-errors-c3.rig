@@ -1,0 +1,19 @@
+error Disk
+  full
+
+enum Color
+  red
+
+fun f -> Int!
+  return Disk.full
+
+sub main
+  c: Color = .red
+  x = f() catch |e|
+    match e
+      Disk.bogus => 1
+      Color.red => 3
+      _ => 2
+  match c
+    Color.red => print(1)
+  print(x, c)

@@ -1,0 +1,20 @@
+struct Wrap
+  n: Int
+
+sub main
+  total = 0
+  add = |!total, k: Int|
+    total += k
+  add(3)
+  add(4)
+  print(total)
+  w = Wrap(n: 5)
+  peek = |?w| w.n + 1
+  print(peek(), peek())
+  bump = |!w|
+    w.n *= 10
+  bump()
+  print(w.n)
+  name = "rig"
+  greet = |?name, p: String| print(p, name)
+  greet("hi")

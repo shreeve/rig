@@ -1,0 +1,9 @@
+use lib
+
+type B2 = U8
+type LB = lib.Byte
+
+sub main()
+  x = 300
+  print(B2(255), LB(7), lib.Byte(x - 100))
+  print(lib.Byte(x))

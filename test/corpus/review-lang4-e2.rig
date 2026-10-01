@@ -1,0 +1,22 @@
+error E
+  bad
+
+fun parse(k: Int) -> Int!
+  return E.bad if k < 0
+  k
+
+sub each(xs: []Int, f: ?sub(Int)!)!
+  for x in xs
+    f(x)!
+
+sub main
+  each([1, -1], |k|
+    errdefer print("arg closure failed")
+    _ = parse(k)!
+  ) catch print("caught")
+  g: *fun(Int) -> Int! = *|k|
+    errdefer print("shared failed")
+    parse(k)!
+  print(g(-1) catch 0)
+  raw
+    errdefer print("raw")

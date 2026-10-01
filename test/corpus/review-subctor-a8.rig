@@ -1,0 +1,15 @@
+error Bad
+  neg
+
+sub run(f: ?sub(Int)!)!
+  f(3)!
+
+sub check(n: Int)!
+  return Bad.neg if n < 0
+  print("ok", n)
+
+sub main
+  run(|x| check(x))!
+  run(check)!
+  k = 5
+  run(|x| print(x + k))!

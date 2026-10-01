@@ -1,0 +1,4 @@
+sub main
+  a: [2]U8 = [104, 105]
+  b: []U8 = ?a
+  print(b)

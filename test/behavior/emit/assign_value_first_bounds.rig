@@ -1,0 +1,18 @@
+# The right-hand side runs before the target's place is found: here it
+# empties the Vec, so the store is out of bounds, and panics.
+
+struct B
+  xs: Vec[Int]
+
+fun empty(b: !B) -> Int
+  !b.xs.push(9)
+  b.xs = Vec()
+  3
+
+sub main
+  b = B(xs: Vec())
+  !b.xs.push(1)
+  b.xs[0] = empty(!b)
+  print(b.xs.len)
+
+# expect-panic: index out of bounds

@@ -1,0 +1,23 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop tok", self.n)
+
+struct Bx
+  v: Vec[*Tok]
+
+struct Ed
+  t: !Bx
+
+struct Outer
+  e: Ed
+
+sub main
+  x = Bx(v: Vec())
+  !x.v.push(*Tok(n: 1))
+  e = Ed(t: !x)
+  o = Outer(e: e)
+  for tk in ?o.e.t.v
+    e.t.v = Vec()
+    print("still reading", tk.n)

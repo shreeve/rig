@@ -1,0 +1,41 @@
+enum Shape
+  circle(r: Int)
+  point
+
+fun a(s: Shape) -> Int
+  match s
+    .circle(r) if r > 1 => 1
+    .point => 0
+
+fun b(n: Int) -> Int
+  match n
+    k if k > 0 => 1
+    k if k <= 0 => 0
+
+fun c(x: Bool) -> Int
+  match x
+    true, false => 1
+    _ => 2
+
+fun d(n: U8) -> Int
+  match n
+    0..128, 128..256 => 1
+    5 => 2
+
+fun e(s: Shape) -> Int
+  match s
+    .point, .point => 1
+    .circle(_) => 2
+
+fun f(n: Int) -> Int
+  match n
+    1, 1 => 1
+    _ => 2
+
+fun g(n: Int) -> Int
+  match n
+    0..10, 5 => 1
+    _ => 2
+
+sub main
+  print(a(.point), b(1), c(true), d(1), e(.point), f(1), g(1))

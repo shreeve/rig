@@ -1,0 +1,4 @@
+sub main()
+  i = 0
+  new x = 1
+  print(x)

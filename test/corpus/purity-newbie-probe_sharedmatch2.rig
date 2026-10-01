@@ -1,0 +1,12 @@
+enum Expr
+  num(value: Float)
+  neg(inner: *Expr)
+
+fun eval(e: ?Expr) -> Float
+  match e
+    .num(v) => v
+    .neg(x) => -eval(x)
+
+sub main
+  e = Expr.neg(*Expr.num(4))
+  print(eval(?e))

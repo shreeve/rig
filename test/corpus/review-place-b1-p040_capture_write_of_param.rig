@@ -1,0 +1,6 @@
+sub f(n: Int)
+  g = |!n| n += 1
+  g()
+
+sub main
+  f(1)

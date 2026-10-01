@@ -1,0 +1,5 @@
+struct P
+  x: Int
+  ZERO = 0
+sub main
+  print(P.ZERO)

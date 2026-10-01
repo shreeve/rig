@@ -1,0 +1,30 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop R", self.n)
+
+struct S
+  a: Box[R]
+  b: R?
+  xs: Vec[Box[R]]
+
+sub main
+  s = S(a: Box(R(n: 1)), b: R(n: 2), xs: Vec())
+  !s.xs.push(Box(R(n: 3)))
+  !s.xs.push(Box(R(n: 4)))
+  old = replace(!s.a, Box(R(n: 10)))
+  print(old.n, s.a.n)
+  !s.xs.swap(0, 1)
+  for e in ?s.xs
+    print(e.n)
+  t = <s.b
+  print(t == none, s.b == none)
+  u = Box(R(n: 20))
+  swap(!s.a, !u)
+  print(s.a.n, u.n)
+  x = 1
+  y = 2
+  swap(!x, !y)
+  print(x, y)
+  q = replace(!s.b, R(n: 12))
+  print(q == none)

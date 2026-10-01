@@ -1,0 +1,4 @@
+sub main()
+  Endian = 3
+  b: [2]U8 = [1, 2]
+  print(b.read[U16, Endian.big](0))

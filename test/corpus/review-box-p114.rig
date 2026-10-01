@@ -1,0 +1,15 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk() -> Vec[Box[R]]
+  v: Vec[Box[R]] = Vec()
+  !v.push(Box(value: R(n: 1)))
+  v
+
+sub main
+  for x in ?mk()
+    print(x.n)
+  print("end")

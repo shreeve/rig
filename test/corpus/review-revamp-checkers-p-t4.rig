@@ -1,0 +1,11 @@
+struct S
+  v: Vec[Int]
+
+fun mk(n: Int) -> S
+  s = S(v: Vec())
+  !s.v.push(n)
+  s
+
+sub main()
+  for x in ?mk(4).v
+    print(x)

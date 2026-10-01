@@ -1,0 +1,11 @@
+sub main
+  a = 0
+  b = 0
+  add = |!a|
+    a += 1
+  add()
+  add = |!b|
+    b += 1
+  print(a)
+  add()
+  print(b)

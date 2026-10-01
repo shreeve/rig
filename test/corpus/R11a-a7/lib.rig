@@ -1,0 +1,22 @@
+pub fun three[n: Int] -> Int
+  a = [0; n]
+  b = [1; n]
+  c = [2; n]
+  a[0] + b[0] + c[0]
+
+pub struct Ring[T, n: Int]
+  items: [n]T
+
+pub fun ring[T, n: Int](x: T) -> Int
+  r = Ring[T, n](items: [x; n])
+  n
+
+pub fun apply[T](x: T) -> T
+  f = |a: T| a + a
+  f(x)
+
+pub fun frame[T](x: T) -> Int
+  a = [x; 1000000]
+  b = [x; 1000000]
+  c = [x; 1000000]
+  1

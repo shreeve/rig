@@ -1,0 +1,18 @@
+struct S
+  n: Int
+  v: Vec[Int]
+
+struct V
+  r: ?S
+
+sub eat(s: S)
+  print("eat", s.n)
+
+sub main()
+  a = S(n: 1, v: Vec())
+  v = V(r: ?a)
+  w = !v
+  b = S(n: 2, v: Vec())
+  w.r = ?b
+  eat(<b)
+  print(v.r.n)

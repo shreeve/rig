@@ -1,0 +1,11 @@
+struct Q
+  n: Int
+
+struct P
+  q: Q
+
+sub f(p: P)
+  p.q.n = 5
+
+sub main
+  f(P(q: Q(n: 1)))

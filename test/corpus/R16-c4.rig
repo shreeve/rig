@@ -1,0 +1,9 @@
+fun double(n: Int) -> Int
+  n * 2
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main
+  g = |?double| apply(double, 3)
+  print(g())

@@ -1,0 +1,7 @@
+error E
+  bad
+
+fun main -> Int
+  if 1 > 0
+    return E.bad
+  0

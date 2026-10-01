@@ -1,0 +1,39 @@
+error E
+  bad
+
+struct Tok
+  n: Int
+  v: Vec[Int]
+
+sub eat(t: Tok)
+  print("eat", t.n)
+
+fun id[T](x: T) -> T!
+  x
+
+fun tailmatch(k: Int) -> Int!
+  t = Tok(n: 1, v: Vec())
+  errdefer print(t.n)
+  eat(<t)
+  match k
+    0 => 0
+    _ => E.bad
+
+fun tailif(k: Int) -> Int!
+  t = Tok(n: 2, v: Vec())
+  errdefer print(t.n)
+  eat(<t)
+  if k == 0
+    0
+  else
+    E.bad
+
+sub s(k: Int)!
+  t = Tok(n: 3, v: Vec())
+  errdefer print(t.v.len)
+  eat(<t)
+  return E.bad if k > 0
+
+sub main
+  print(tailmatch(1) catch -1, tailif(1) catch -1)
+  s(1) catch print("s failed")

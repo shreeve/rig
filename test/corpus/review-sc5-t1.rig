@@ -1,0 +1,17 @@
+fun a(x: [2]Int?) -> Int
+  (x ?? [0, 0])[1]
+
+fun b(x: [2]?Int) -> Int
+  1
+
+fun c(x: []Int?) -> Int
+  1
+
+fun d(x: [] ? Int) -> Int
+  1
+
+fun e(x: [ 2 ] * Int) -> Int
+  1
+
+sub main()
+  print(a([1, 2]), a(none))

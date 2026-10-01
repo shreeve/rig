@@ -1,0 +1,12 @@
+struct Person
+  name: String
+  age: Int
+
+fun greet(p: ?Person) -> String
+  p.name
+
+sub main
+  p = Person(name: "Ann", age: 3)
+  n = greet(?p)
+  p = Person(name: "Bob", age: 4)
+  print(n, p.name)

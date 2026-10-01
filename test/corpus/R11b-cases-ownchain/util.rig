@@ -1,0 +1,9 @@
+pub fun dup[T](x: T) -> T
+  a = x
+  -a
+  x
+
+pub fun firsts[T](v: ?Vec[T]) -> Int
+  for x in v
+    -x
+  1

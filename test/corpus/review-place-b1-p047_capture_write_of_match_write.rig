@@ -1,0 +1,12 @@
+enum S
+  a(n: Int)
+  b
+
+sub main
+  s: S = .a(n: 1)
+  match !s
+    .a(n)
+      g = |!n| n += 1
+      g()
+    .b => print("b")
+  print(s)

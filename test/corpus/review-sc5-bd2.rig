@@ -1,0 +1,13 @@
+ARR = [1, 2, 3]
+NAME = "x"
+LIST: []Int = [1, 2]
+
+struct S
+  a: [3]Int = ARR
+  l: []Int = LIST
+
+fun g(a: [3]Int = ARR, n: String = NAME) -> Int
+  a[0] + n.len
+
+sub main()
+  print(g(), S().a, S().l)

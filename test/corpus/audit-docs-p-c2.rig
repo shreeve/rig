@@ -1,0 +1,5 @@
+sub main
+  v: Vec[Int] = Vec()
+  add = |!v, x: Int| !v.push(x)
+  add(1)
+  print(v.len)

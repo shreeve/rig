@@ -1,0 +1,41 @@
+use std.sort
+
+struct P
+  k: Int
+  id: Int
+
+sub main
+  e: [0]Int = []
+  sort.sort(!e)
+  one = [3]
+  sort.sort(!one)
+  print(e, one)
+  f = [3.0, 0.0 / 0.0, 1.0, 2.0, 0.0 / 0.0, -1.0]
+  sort.sort(!f)
+  print(f)
+  # stability with many elements
+  v = Vec[P]()
+  i = 0
+  while i < 200 : i += 1
+    !v.push(P(k: (i * 7) % 5, id: i))
+  sort.sort_by(!v[..], |a, b| a.k < b.k)
+  ok = true
+  j = 1
+  while j < v.len : j += 1
+    if v[j - 1].k > v[j].k or (v[j - 1].k == v[j].k and v[j - 1].id > v[j].id)
+      ok = false
+  print("stable", ok)
+  # closure that captures
+  desc = true
+  xs = [5, 1, 4, 2, 3]
+  sort.sort_by(!xs, |?desc, a, b| a > b if desc else a < b)
+  print(xs)
+  print(sort.search(?xs[..], 4), sort.contains(?xs, 9), sort.index_of(?xs, 1))
+  ys = [1, 2, 2, 2, 3]
+  print(sort.search(?ys, 2), sort.search(?ys, 0), sort.search(?ys, 4))
+  e2: [0]Int = []
+  sort.reverse(!e2)
+  print(sort.search(?e2, 1))
+  s = ["pear", "apple", "fig"]
+  sort.sort(!s)
+  print(s)

@@ -1,0 +1,9 @@
+struct Self
+  x: Int
+struct Box2[T]
+  v: T
+  fun get(?self) -> Self
+    Self(x: 1)
+sub main()
+  b = Box2[Int](v: 3)
+  print(b.get().x)

@@ -1,0 +1,27 @@
+error Parse
+  empty
+
+struct R
+  n: Int
+  drop(!self)
+    print("drop R", self.n)
+
+fun parse(s: String) -> Int!
+  if s.len == 0
+    return Parse.empty
+  s.len
+
+sub each(xs: []String, f: ?sub(String)!)!
+  for x in xs
+    f(x)!
+
+sub run()!
+  r = R(n: 7)
+  each(["a", "", "c"], |<r, s| print("see", r.n, parse(s)!))!
+  print("unreachable")
+
+sub main()
+  run() catch |e| print("run failed", e)
+  r2 = R(n: 8)
+  each(["a", "bb"], |?r2, s| print("see2", r2.n, parse(s)!)) catch print("no")
+  print("end")

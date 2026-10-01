@@ -1,0 +1,32 @@
+error Disk
+  timeout
+  full
+
+error Net
+  timeout
+  refused
+
+fun name(d: Disk) -> String
+  match d
+    Disk.timeout => "t"
+    .full => "f"
+
+fun fetch(n: Int) -> Int!
+  return Net.timeout if n == 1
+  return Disk.timeout if n == 2
+  return Net.refused if n == 3
+  n
+
+fun cls(n: Int, flag: Bool) -> String
+  _ = fetch(n) catch |e|
+    s = match e
+      Net.timeout if flag => "nt-flag"
+      Net.timeout, Net.refused => "net"
+      Disk.timeout, Disk.full => "disk"
+      _ => "?"
+    return s
+  "ok"
+
+sub main
+  print(name(.full), name(Disk.timeout))
+  print(cls(1, true), cls(1, false), cls(2, true), cls(3, false), cls(4, false))

@@ -1,0 +1,30 @@
+pub struct Wrap[T]
+  v: T
+
+pub enum Opt[T]
+  some(value: T)
+  none
+
+pub struct Ring[T, n: Int]
+  items: [n]T
+
+  fun cap(?self) -> Int
+    n
+
+pub fun make(x: Int) -> Wrap[Int]
+  Wrap(v: x)
+
+pub fun unwrap(w: Wrap[Int]) -> Int
+  w.v
+
+pub fun nest(x: Int) -> Wrap[Wrap[Int]]
+  Wrap(v: Wrap(v: x))
+
+pub fun opt(x: Int) -> Opt[Int]
+  .some(value: x) if x > 0 else .none
+
+pub fun ring4() -> Ring[Int, 4]
+  Ring(items: [1, 2, 3, 4])
+
+pub fun ringcap(r: Ring[Int, 2 + 2]) -> Int
+  r.cap()

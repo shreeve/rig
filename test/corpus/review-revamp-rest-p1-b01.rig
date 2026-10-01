@@ -1,0 +1,6 @@
+sub main()
+  x = 1
+  match x
+    1 => new x = x + 5
+    _ => print(0)
+  print(x)

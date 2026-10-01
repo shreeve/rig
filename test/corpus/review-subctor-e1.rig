@@ -1,0 +1,22 @@
+struct D
+  n: Int = 7
+
+struct R
+  items: Vec[Int]
+
+  fun total(?self) -> Int
+    t = 0
+    for x in ?self.items
+      t += x
+    t
+
+
+sub main
+  d = D(9)
+  d2 = D()
+  print(d, d2)
+  v = Vec[Int]()
+  !v.push(1)
+  !v.push(2)
+  r = R(<v)
+  print(r.total(), r)

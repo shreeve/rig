@@ -1,0 +1,10 @@
+error Bad
+  bad
+
+fun cb(f: ?fun(Int) -> Int!) -> Int
+  f(1) catch 0
+
+sub main
+  print(cb(|x| .bad))
+  g: *fun(Int) -> Int! = *|x| .bad
+  print(g(1) catch 0)

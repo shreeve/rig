@@ -1,0 +1,8 @@
+struct S
+  arr: [2]Int
+sub main()
+  h: *S = *S(arr: [1, 2])
+  !h.arr.fill(4)
+  !h.arr.swap(0, 1)
+  h.arr.fill(4)
+  !h.arr.write[U8, .big](0, 1)

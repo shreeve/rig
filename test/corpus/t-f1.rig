@@ -1,0 +1,4 @@
+sub main
+  print(F32(16777217))
+  n = 16777217
+  print(F32(n))

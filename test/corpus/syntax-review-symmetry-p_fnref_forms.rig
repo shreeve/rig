@@ -1,0 +1,7 @@
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+fun double(n: Int) -> Int
+  n * 2
+sub main
+  g = double
+  print(apply(double, 1), apply(g, 2), apply(?g, 3))

@@ -1,0 +1,21 @@
+struct Set
+  items: Vec[Int]
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.items
+      return false if x == k
+    !self.items.push(k)
+    true
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  set = Set(items: Vec())
+  a = true == !set.insert(1)
+  print(a)
+  match !set.insert(4)
+    true => print("m true")
+    false => print("m false")
+  v = [!set.insert(5), !set.insert(5)]
+  print(v)
+  print(set.items.len)

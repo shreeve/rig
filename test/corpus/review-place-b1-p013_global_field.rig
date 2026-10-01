@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+G = P(x: 1)
+
+sub main
+  G.x = 4
+  G.x += 1
+  print(G.x)

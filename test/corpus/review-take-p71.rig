@@ -1,0 +1,28 @@
+struct Tree
+  key: Int
+  left: Box[Tree]?
+  right: Box[Tree]?
+
+  drop(!self)
+    print("drop", self.key)
+
+fun leaf(k: Int) -> Box[Tree]?
+  Box(value: Tree(key: k, left: none, right: none))
+
+fun cut(b: !Box[Tree]) -> Box[Tree]?
+  <b.left
+
+fun cut2(slot: !Box[Tree]?) -> Box[Tree]?
+  if !slot as t
+    return <t.right
+  none
+
+sub main
+  b = Box(value: Tree(key: 2, left: leaf(1), right: leaf(3)))
+  l = cut(!b)
+  print(l)
+  swap(!b.left, !b.right)
+  print(b)
+  o: Box[Tree]? = <b
+  r = cut2(!o)
+  print(r, o)

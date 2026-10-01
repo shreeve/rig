@@ -1,0 +1,10 @@
+enum Tag[T]
+  on
+  off
+
+  fun flip(?self) -> Tag[T]
+    .on
+
+sub main()
+  t: Tag[Int] = .off
+  print(t.flip() == .on)

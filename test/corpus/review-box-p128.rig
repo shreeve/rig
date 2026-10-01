@@ -1,0 +1,32 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun peek[T](b: ?Box[T]) -> ?T
+  ?b
+
+sub show[T](x: ?T)
+  print(x)
+
+sub showb[T](b: ?Box[T])
+  show(?b)
+  show(b)
+
+sub wr[T](p: !T, v: T)
+  p = <v
+
+sub setb[T](b: !Box[T], v: T)
+  wr[T](!b, <v)
+
+sub main
+  i = Box(value: 5)
+  print(peek(?i))
+  showb(?i)
+  r = Box(value: R(n: 1))
+  print(peek(?r).n)
+  showb(?r)
+  setb(!i, 6)
+  setb(!r, R(n: 2))
+  print(i, r)

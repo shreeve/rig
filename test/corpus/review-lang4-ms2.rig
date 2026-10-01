@@ -1,0 +1,17 @@
+struct V
+  r: ?Int
+
+struct H
+  w: !V
+
+sub setp(h: !H, r: ?Int)
+  h.w = V(r: r)
+
+sub main
+  a = 1
+  x = V(r: ?a)
+  h = H(w: !x)
+  if true
+    b = 77
+    setp(!h, ?b)
+  print(x.r)

@@ -1,0 +1,9 @@
+fun f(o: Text?) -> Int
+  if ?o as x
+    print(x)
+  if <o as y
+    print(y)
+  1
+
+sub main
+  print(f(Text("a")))

@@ -1,0 +1,11 @@
+error E
+  bad
+
+fun f -> Int!
+  1
+
+fun g -> Int?
+  f()?
+
+sub main
+  print(g() ?? 0)

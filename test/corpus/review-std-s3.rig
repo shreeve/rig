@@ -1,0 +1,14 @@
+use std.sort
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  xs = [Box(Res(n: 3)), Box(Res(n: 1)), Box(Res(n: 2))]
+  sort.sort_by(!xs, |a, b| a.n < b.n)
+  for x in ?xs
+    print(x.n)
+  print(sort.index_of(?xs, Box(Res(n: 1))))

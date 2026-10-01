@@ -1,0 +1,5 @@
+fun total(xs: List[Int]) -> Int
+  0
+
+sub main
+  print(0)

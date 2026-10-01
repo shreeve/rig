@@ -1,0 +1,22 @@
+struct R
+  s: []Int
+
+struct In
+  n: Int
+
+struct V
+  b: ?In
+
+sub main()
+  a = [1, 2]
+  loc = [7, 8]
+  rs = [R(s: ?a[..])]
+  w = !rs[..]
+  w[0] = R(s: ?loc[..])
+  print(rs[0].s[1])
+  x = In(n: 1)
+  y = In(n: 5)
+  vs = [V(b: ?x), V(b: ?x)]
+  wv = !vs
+  wv[1].b = ?y
+  print(vs[1].b.n)

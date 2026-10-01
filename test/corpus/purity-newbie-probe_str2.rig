@@ -1,0 +1,6 @@
+sub main
+  a = "foo"
+  print(a[0], a.len, a[1..], a == "foo")
+  for c in a
+    print(c)
+  print(3 / 2, 7.0 / 2)

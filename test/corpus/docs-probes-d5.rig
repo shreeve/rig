@@ -1,0 +1,3 @@
+sub main
+  f = || print(1)
+  f()

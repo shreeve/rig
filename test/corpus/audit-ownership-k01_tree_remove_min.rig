@@ -1,0 +1,39 @@
+struct Node
+  key: Int
+  left: Box[Node]?
+  right: Box[Node]?
+
+  drop(!self)
+    print("drop", self.key)
+
+sub insert(slot: !Box[Node]?, key: Int)
+  if !slot as n
+    if key < n.key
+      insert(!n.left, key)
+    else
+      insert(!n.right, key)
+  else
+    slot = Box(Node(key: key, left: none, right: none))
+
+sub walk(slot: ?Box[Node]?)
+  if slot as n
+    walk(?n.left)
+    print(n.key)
+    walk(?n.right)
+
+fun take_min(slot: !Box[Node]?) -> Box[Node]?
+  if !slot as n
+    if n.left != none
+      return take_min(!n.left)
+  if <slot as m
+    slot = <m.right
+    return <m
+  none
+
+sub main
+  root: Box[Node]? = none
+  for k in [5, 2, 8, 1, 3]
+    insert(!root, k)
+  if take_min(!root) as m
+    print("min", m.key)
+  walk(?root)

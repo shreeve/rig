@@ -1,0 +1,4 @@
+sub main()
+  a = 2
+  b = [3][0]*a
+  print(b)

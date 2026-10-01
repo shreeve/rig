@@ -1,0 +1,32 @@
+struct Node
+  key: Int
+  left: Box[Node]?
+  right: Box[Node]?
+
+  drop(!self)
+    print("drop", self.key)
+
+sub insert(slot: !Box[Node]?, key: Int)
+  if !slot as n
+    if key < n.key
+      insert(!n.left, key)
+    else
+      insert(!n.right, key)
+  else
+    slot = Box(Node(key: key, left: none, right: none))
+
+sub walk(slot: ?Box[Node]?)
+  if slot as n
+    walk(?n.left)
+    print(n.key)
+    walk(?n.right)
+
+sub main
+  v: Vec[Box[Node]] = Vec()
+  !v.push(Box(Node(key: 1, left: none, right: none)))
+  !v.push(Box(Node(key: 2, left: none, right: none)))
+  keep: Box[Node]? = none
+  for b in <v
+    if b.key == 1
+      keep = <b
+  print("kept", keep != none)

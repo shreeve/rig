@@ -1,0 +1,8 @@
+struct P
+  x: Int
+
+sub main
+  h = *P(x: 1)
+  w = ~h
+  if w.get() as s
+    s.x = 5

@@ -1,0 +1,11 @@
+struct W
+  n: Int
+
+sub main
+  total = 0
+  add = |!total, k: Int| total += k
+  add(3)
+  w = W(n: 1)
+  set = |!w, k: Int| w.n = k
+  set(9)
+  print(total, w.n)

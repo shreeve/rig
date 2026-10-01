@@ -1,0 +1,20 @@
+struct V
+  r: ?Int
+
+struct H
+  w: !V
+
+fun clobber(k: Int) -> Int
+  a = [k, k + 1, k + 2, k + 3, k + 4, k + 5, k + 6, k + 7]
+  a[1] + a[6]
+
+sub main
+  a = 1
+  x = V(r: ?a)
+  h = H(w: !x)
+  f = |!h, k: Int|
+    c = k * 2
+    h.w = V(r: ?c)
+  f(21)
+  y = clobber(1000)
+  print(x.r, y)

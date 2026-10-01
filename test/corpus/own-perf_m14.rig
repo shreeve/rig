@@ -1,0 +1,28 @@
+struct Tok
+  n: Int
+
+sub eat(t: *Tok)
+  print(t.n)
+
+sub main
+  t = *Tok(n: 0)
+  s = 0
+  for _ in 0..2
+    for _ in 0..2
+      for _ in 0..2
+        for _ in 0..2
+          for _ in 0..2
+            for _ in 0..2
+              for _ in 0..2
+                for _ in 0..2
+                  for _ in 0..2
+                    for _ in 0..2
+                      for _ in 0..2
+                        for _ in 0..2
+                          for _ in 0..2
+                            for _ in 0..2
+                              u = +t
+                              s += u.n
+                              t = *Tok(n: s)
+                              eat(<u)
+  print(s)

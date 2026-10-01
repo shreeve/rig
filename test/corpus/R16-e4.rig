@@ -1,0 +1,11 @@
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  h: ?fun(Int) -> Int = double
+  if true
+    x = 5
+    l = |?x, a: Int| a + x
+    g: ?fun(Int) -> Int = ?l
+    h = g
+  print(h(1))

@@ -1,0 +1,9 @@
+struct Point
+  x: Int
+
+  fun double(?self) -> Int
+    self.x * 2
+
+sub main
+  p = Point(x: 1)
+  print(p.dubble())

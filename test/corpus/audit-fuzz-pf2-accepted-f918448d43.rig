@@ -1,0 +1,10 @@
+# the divisor is computed.
+
+sub main()
+  a = -129.0
+  b = -1.5
+
+  print(a / 0, b / 0)
+
+# expect:
+# inf -inf

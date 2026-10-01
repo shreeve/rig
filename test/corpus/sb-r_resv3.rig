@@ -1,0 +1,5 @@
+enum Cell
+  a
+
+sub main
+  print(1)

@@ -1,0 +1,12 @@
+fun mko(k: Int) -> Text?
+  Text("o") if k > 0 else none
+
+sub main
+  d = Text("d")
+  x = mko(0) ?? <d
+  print(x)
+  e = Text("e")
+  f = Text("f")
+  c = true
+  y = mko(0) ?? (e if c else f)
+  print(y)

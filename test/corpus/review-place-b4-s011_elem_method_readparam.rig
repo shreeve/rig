@@ -1,0 +1,6 @@
+sub f(a: ?[3]Int)
+  !a.fill(0)
+
+sub main
+  x = [1, 2, 3]
+  f(?x)

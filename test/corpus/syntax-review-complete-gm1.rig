@@ -1,0 +1,35 @@
+struct Entry[K, V]
+  k: K
+  v: V
+
+struct Map[K, V]
+  es: Vec[Box[Entry[K, V]]]
+
+  sub put(!self, k: K, v: V)
+    for e in !self.es
+      if e.k == k
+        e.v = <v
+        return
+    !self.es.push(Box(value: Entry(k: k, v: <v)))
+
+  sub each(?self, f: ?sub(?K, ?V))
+    for e in ?self.es
+      f(?e.k, ?e.v)
+
+  fun has(?self, k: ?K) -> Bool
+    for e in ?self.es
+      return true if e.k == k
+    false
+
+struct Node
+  id: Int
+  drop(!self)
+    print("drop", self.id)
+
+sub main
+  m = Map[String, *Node](es: Vec())
+  !m.put("a", *Node(id: 1))
+  !m.put("b", *Node(id: 2))
+  !m.put("a", *Node(id: 3))
+  m.each(|k, v| print(k, v.id))
+  print(m.has(?"b"))

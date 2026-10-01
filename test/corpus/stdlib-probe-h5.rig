@@ -1,0 +1,12 @@
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  !v.push(1)
+  !v.push(2)
+  s = !v[..]
+  !s.swap(0, 1)
+  print(v)
+  x = v.get(5)
+  print(x)
+  w: Vec[Box[Int]] = Vec()
+  print(w.len)

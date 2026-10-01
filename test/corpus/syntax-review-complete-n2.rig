@@ -1,0 +1,4 @@
+sub main
+  x: I64 = -5
+  y: U64 = 3
+  print(U64(x))

@@ -1,0 +1,12 @@
+fun size(s: String) -> Int
+  s.len
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  n = for x in ?v
+    if size(?Text("abc")) == 3
+      break x
+  else
+    0
+  print(n)

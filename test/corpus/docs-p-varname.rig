@@ -1,0 +1,5 @@
+fun fn(var: Int) -> Int
+  var + 1
+sub main
+  var = 1
+  print(fn(var))

@@ -1,0 +1,12 @@
+struct U
+  name: String
+  n: Int
+
+fun peek(u: ?U) -> ?U
+  u
+
+sub main
+  h = *U(name: "a", n: 1)
+  r = peek(?h)
+  -h
+  print(r.n)

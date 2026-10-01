@@ -1,0 +1,5 @@
+B = "a" == "b"
+C = "a" != "a"
+
+sub main()
+  print(B, C)

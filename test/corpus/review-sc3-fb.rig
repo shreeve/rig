@@ -1,0 +1,20 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun get(k: Int) -> Int?
+  k if k != 2 else none
+
+sub main
+  xs: Vec[Box[Res]] = Vec()
+  for i in 1..5
+    !xs.push(Box(Res(id: i)))
+  keep = Res(id: 99)
+  out = for b in <xs
+    n = get(b.id) ?? break <keep
+    print("n", n)
+  else
+    Res(id: -1)
+  print("out", out.id)

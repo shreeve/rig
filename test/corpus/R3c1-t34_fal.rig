@@ -1,0 +1,12 @@
+error E
+  bad
+
+struct P
+  x: Int
+
+fun fail(n: Int) -> P!
+  return E.bad if n < 0
+  P(x: n)
+
+sub main()
+  print(fail(1) == fail(1))

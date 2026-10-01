@@ -1,0 +1,14 @@
+pub enum Shape
+  circle(r: Float)
+  dot
+
+pub struct circle
+  r: Float
+
+pub struct W[T]
+  item: T
+
+pub type Km = circle
+
+pub struct Bag[T]
+  items: Vec[T]

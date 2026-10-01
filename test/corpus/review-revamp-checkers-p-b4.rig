@@ -1,0 +1,14 @@
+fun get(i: Int) -> Int?
+  none if i == 2 else i
+
+fun eat(v: Vec[Int]) -> Int
+  v.len
+
+fun f(k: Int) -> Int
+  a: Vec[Int] = Vec()
+  x = get(k) ?? get(k + 1) ?? return eat(<a)
+  eat(<a)
+  x
+
+sub main()
+  print(f(1), f(2))

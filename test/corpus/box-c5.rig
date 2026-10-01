@@ -1,0 +1,11 @@
+fun wrap[T](x: T) -> Box[T]
+  Box(value: <x)
+
+fun unwrap[T](b: Box[T]) -> T
+  <b.take()
+
+sub main
+  b = wrap(3)
+  print(unwrap(<b))
+  s = wrap("hi")
+  print(s)

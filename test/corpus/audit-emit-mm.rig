@@ -1,0 +1,17 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+enum Sh
+  c(r: R, k: Int)
+  d
+
+sub main
+  s = Sh.c(r: R(n: 1), k: 2)
+  match <s
+    .c(_, k)
+      payload_1 = k + 1
+      whole_2 = k
+      print(payload_1, whole_2)
+    .d => print(0)

@@ -1,0 +1,12 @@
+use lib
+
+sub main()
+  t = lib.Tagger(label: "x")
+  print(t.add(1), t.add[Float](1.5))
+  x: Int = 3
+  print(lib.max(x, 9))
+  bx: lib.IntBox = lib.Box(v: 2)
+  print(lib.Box[Int].get(?bx), bx.nest())
+  u: lib.Box[U8] = lib.Box(v: 200)
+  w = lib.Box.get(?u)
+  print(w + 55)

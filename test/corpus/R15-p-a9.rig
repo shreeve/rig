@@ -1,0 +1,9 @@
+# same field twice
+struct P
+  x: [2]Int
+sub main()
+  p = P(x: [1, 2])
+  w = !p.x[..]
+  u = !p.x[..]
+  w[0] = 5
+  u[0] = 6

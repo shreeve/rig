@@ -1,0 +1,6 @@
+pub enum Code
+  a = 7
+  b = 300
+
+pub fun get() -> Code
+  Code.b

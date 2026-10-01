@@ -1,0 +1,8 @@
+sub main
+  a = [1, 2]
+  b: [2]U8 = [1, 2]
+  !a.copy(?b[..])
+  !a.fill("x")
+  !a.swap(0, 2)
+  !a.swap(1)
+  !a.swap(true, 0)

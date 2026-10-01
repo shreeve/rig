@@ -1,0 +1,7 @@
+fun run(f: fun(Int) -> Int) -> Int
+  f(1)
+
+sub main
+  k = 2
+  print(run(|+k, a| a + k))
+  print(run(|a| a + 1))

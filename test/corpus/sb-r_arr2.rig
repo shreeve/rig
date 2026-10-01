@@ -1,0 +1,5 @@
+struct W
+  s: [2]*W
+
+sub main
+  print(1)

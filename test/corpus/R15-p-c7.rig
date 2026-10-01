@@ -1,0 +1,6 @@
+# stored in a Vec
+sub main()
+  a = [1, 2]
+  vs: Vec[![]Int] = Vec()
+  !vs.push(!a[..])
+  print(vs)

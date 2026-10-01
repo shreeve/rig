@@ -1,0 +1,18 @@
+use lib
+
+fun g[k: Int] -> Int
+  z = lib.zeros[k]()
+  z.len
+
+struct Mine[T, m: Int]
+  r: lib.Ring[T, m]
+
+  fun cap(?self) -> Int
+    self.r.cap()
+
+N =! 3
+
+sub main()
+  print(g[2](), lib.zeros[N]().len)
+  x = Mine[Int, 2](r: lib.Ring(items: [1, 2]))
+  print(x.cap())

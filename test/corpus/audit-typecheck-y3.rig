@@ -1,0 +1,7 @@
+struct S
+  f: Int?
+
+sub main()
+  h = *S(f: 3)
+  y = <h.f
+  print(y ?? 0)

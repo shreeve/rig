@@ -1,0 +1,7 @@
+sub g(xs: ![3]Int)
+  for x in xs
+    x = 5
+sub main
+  a = [1, 2, 3]
+  g(!a)
+  print(a)

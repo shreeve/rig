@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+  fun mk() -> P
+    P(x: 1)
+
+sub main()
+  k =! P.mk
+  print(k().x)

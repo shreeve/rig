@@ -1,0 +1,3 @@
+use M2
+sub main()
+  print(M2.K)

@@ -1,0 +1,5 @@
+sub main
+  a = [1, 2, 3]
+  !a.fill(0)
+  !a.swap(0, 2)
+  print(a[0])

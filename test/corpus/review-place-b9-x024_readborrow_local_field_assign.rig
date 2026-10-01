@@ -1,0 +1,7 @@
+struct P
+  x: Int
+
+sub main
+  p = P(x: 1)
+  r = ?p
+  r.x = 5

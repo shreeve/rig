@@ -1,0 +1,17 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: B, v: Vec[Int])
+  empty
+
+sub main
+  s: Slot = .full(b: B(n: 1), v: Vec())
+  z: Vec[Int] = Vec()
+  x = match <s
+    .full(b, v) if b.n > 0 => ?v[..]
+    _ => ?z[..]
+  print(x.len)

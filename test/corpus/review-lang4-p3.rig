@@ -1,0 +1,8 @@
+struct H
+  w: !Int
+
+sub main
+  n = 1
+  s = *H(w: !n)
+  s.w += 1
+  print(n)

@@ -1,0 +1,6 @@
+sub main()
+  v: Vec[*Cell[Int]] = Vec()
+  !v.push(*Cell(value: 1))
+  v2: Vec[*Cell[Int]] = Vec()
+  !v2.push(*Cell(value: 1))
+  !v.copy(?v2[..])

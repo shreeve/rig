@@ -1,0 +1,6 @@
+enum S
+  rect(w: Int, h: Int)
+sub main
+  s = S.rect(w: 2, h: 3)
+  match s
+    .rect(h: a, w: b) => print(a, b)

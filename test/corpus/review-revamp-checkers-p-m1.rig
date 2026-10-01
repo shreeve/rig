@@ -1,0 +1,24 @@
+enum Color
+  red
+  green
+  blue
+
+sub show(n: U8, c: Color, b: Bool, i: I8)
+  match n
+    0..100 => print("small")
+    200..256 => print("big")
+    100..200 => print("mid")
+  match c
+    .red => print("r")
+    .green, .blue => print("gb")
+  match b
+    true => print("t")
+    false => print("f")
+  match i
+    -128..0 => print("neg")
+    0 => print("zero")
+    1..128 => print("pos")
+
+sub main()
+  show(150, .blue, false, -3)
+  show(250, .red, true, 0)

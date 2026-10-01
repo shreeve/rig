@@ -1,0 +1,22 @@
+error Disk
+  full
+  empty
+
+struct H
+  e: Disk
+  o: Disk? = .empty
+
+fun first(xs: []Disk) -> Disk
+  xs[0]
+
+sub main
+  a: [2]Disk = [.full, .empty]
+  b = [Disk.full, Disk.empty]
+  h = H(e: .full)
+  p: *Disk = *.empty
+  print(a, b, h, first(?a[..]), p)
+  if h.o == .empty
+    print("yes")
+  c = Cell(Disk.full)
+  c.set(.empty)
+  print(c.get())
