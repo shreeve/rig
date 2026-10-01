@@ -1,0 +1,8 @@
+enum E
+  a = 3
+
+K = Int(E.a)
+
+sub main
+  x: [K]Int = [K of 0]
+  print(K, x.len)

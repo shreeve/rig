@@ -1,0 +1,5 @@
+fun h[T](x: T) -> Int
+  x.len
+
+sub main
+  print(h("abc"))

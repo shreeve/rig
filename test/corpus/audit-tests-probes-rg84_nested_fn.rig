@@ -1,0 +1,4 @@
+sub main
+  fun inner(n: Int) -> Int
+    n
+  print(inner(1))

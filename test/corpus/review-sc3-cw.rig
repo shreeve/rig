@@ -1,0 +1,14 @@
+error E
+  bad
+
+fun p(k: Int) -> Int!
+  return E.bad if k == 0
+  k
+
+sub main
+  for i in 0..3
+    n = 3
+    while (p(n) catch break) > i
+      n -= 1
+    print("i", i, n)
+  print("done")

@@ -1,0 +1,17 @@
+struct Wrap
+  n: Int
+
+struct View
+  w: ?Wrap
+
+sub fill(out: !View, f: ?sub(!View))
+  f(out)
+
+sub main
+  a = Wrap(n: 1)
+  v = View(w: ?a)
+  if true
+    b = Wrap(n: 2)
+    fill(!v, |?b, o|
+      o.w = b)
+  print(v.w.n)

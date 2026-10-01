@@ -1,0 +1,8 @@
+use lib
+
+sub main()
+  v = Vec[String]()
+  !v.push("a")
+  f = lib.first(?v)
+  !v.push("b")
+  print(f)

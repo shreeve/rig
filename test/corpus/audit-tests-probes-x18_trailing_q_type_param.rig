@@ -1,0 +1,9 @@
+struct S
+  n: Int
+
+fun f(s: S?) -> Int
+  s.n
+
+sub main
+  s = S(n: 1)
+  print(f(?s))

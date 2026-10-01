@@ -1,0 +1,27 @@
+struct P
+  x: Int
+  y: Int
+
+struct Q
+  name: String
+  v: Vec[Int]
+
+fun same(a: ?P, b: ?P) -> Bool
+  a == b
+
+fun sameq(a: ?Q, b: ?Q) -> Bool
+  a.name == b.name
+
+fun eqopt(a: ?P?, b: ?P?) -> Bool
+  a == b
+
+sub main
+  p = P(x: 1, y: 2)
+  q = P(x: 1, y: 2)
+  print(same(?p, ?q), p == q, ?p == ?q)
+  o: P? = p
+  n: P? = none
+  print(eqopt(?o, ?n), o == n, o == none)
+  a = Q(name: "a", v: Vec())
+  b = Q(name: "a", v: Vec())
+  print(sameq(?a, ?b))

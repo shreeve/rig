@@ -1,0 +1,6 @@
+K: I32 = 3
+C: I32 = 65535
+
+sub main()
+  v: I32 = 5
+  print(C, v)

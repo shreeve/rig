@@ -1,0 +1,5 @@
+sub main()
+  x = 1
+  match x
+    1 => new y = 2
+    _ => print(0)

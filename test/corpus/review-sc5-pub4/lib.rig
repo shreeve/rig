@@ -1,0 +1,25 @@
+pub struct Res
+  pub n: Int
+  secret: Int = 9
+
+  drop(!self)
+    self.log()
+
+  sub log(?self)
+    print("drop", self.n, self.secret)
+
+pub fun mk(n: Int) -> Res
+  Res(n: n)
+
+pub struct Holder[T]
+  pub v: T
+  hidden: Int = 0
+
+  pub fun peek(?self) -> Int
+    self.hidden + self.bump()
+
+  fun bump(?self) -> Int
+    1
+
+pub fun hold[T](v: T) -> Holder[T]
+  Holder(v: <v)

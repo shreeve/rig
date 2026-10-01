@@ -1,0 +1,17 @@
+pub struct Point
+  pub x: Int
+  pub y: Int
+  pub c: Cell[Int]
+  pub o: Int?
+
+  pub sub bump(!self)
+    self.x += 1
+
+pub struct H
+  pub w: !Int
+
+pub K = 5
+pub KP = [1, 2, 3]
+
+pub fun mk() -> Point
+  Point(x: 0, y: 0, c: Cell(0), o: 1)

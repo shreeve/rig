@@ -1,0 +1,13 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun isnil(o: ?Box[R]?) -> Bool
+  o == none
+
+sub main
+  o: Box[R]? = Box(value: R(n: 1))
+  print(o == none, o != none, isnil(?o))
+  x = o ?? Box(value: R(n: 2))

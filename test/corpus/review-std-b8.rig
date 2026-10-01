@@ -1,0 +1,16 @@
+struct View
+  xs: []Int
+
+struct Holder
+  b: Box[View]
+
+  sub put(!self, ys: []Int)
+    self.b.xs = ys
+
+sub main
+  q = [9]
+  h = Holder(b: Box(View(xs: ?q)))
+  if true
+    a = [1, 2, 3]
+    !h.put(?a)
+  print(h.b.xs)

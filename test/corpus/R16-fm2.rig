@@ -1,0 +1,9 @@
+struct Bag
+  items: Vec[Int]
+
+sub main
+  b = Bag(items: Vec())
+  add = |!b, n: Int|
+    b.items.push(n)
+  add(1)
+  print(b.items.len)

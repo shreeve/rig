@@ -1,0 +1,9 @@
+pub struct Point
+  pub x: Int
+
+  pub fun origin() -> Point
+    Point(x: 0)
+
+pub enum Shade
+  light
+  dark(n: Int)

@@ -1,0 +1,5 @@
+test "tab\there"
+  print("x")
+
+sub main
+  print('it''s "q" \n')

@@ -1,0 +1,12 @@
+error E
+  bad
+
+fun f(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+fun g -> Int!
+  f(1)? + 1
+
+sub main
+  print(g()!)

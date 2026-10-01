@@ -1,0 +1,15 @@
+fun head(t: ?Text) -> String
+  t[0..2]
+
+fun head2(t: ?Text) -> String
+  ?t[0..2]
+
+fun whole(t: ?Text) -> String
+  t
+
+fun len_of(s: String) -> Int
+  s.len
+
+sub main
+  t = Text("hello")
+  print(head(?t), head2(?t), whole(?t), len_of(?t))

@@ -1,0 +1,14 @@
+error Disk
+  full
+
+error Net
+  down
+
+fun f -> Int!
+  return Disk.full
+
+sub main
+  x = f() catch |e|
+    print(.full == e, Disk.full == e, Net.down == e, .down != e)
+    0
+  print(x)

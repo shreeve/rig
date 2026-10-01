@@ -1,0 +1,12 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  o: Box[R]? = Box(value: R(n: 5))
+  if !o as x
+    defer print("deferred", x.n)
+    x = Box(value: R(n: 6))
+  print("end")

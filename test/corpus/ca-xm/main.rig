@@ -1,0 +1,10 @@
+use lib
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  k = 1
+  f = |+k, a: Int| a + k
+  g: fun(Int) -> Int = double
+  print(lib.peek(?g), lib.call(?f), lib.call(g))

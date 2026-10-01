@@ -1,0 +1,23 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct H
+  r: Box[R]?
+
+  sub clear(!self)
+    self.r = none
+
+  sub put(!self, x: !R)
+    self.r = none
+    x.n = 3
+
+sub main
+  h = H(r: Box(value: R(n: 1)))
+  if !h.r as x
+    !h.clear()
+    x.n = 1
+  if !h.r as y
+    !h.put(y)

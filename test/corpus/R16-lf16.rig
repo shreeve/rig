@@ -1,0 +1,12 @@
+fun bad(a: ?Vec[Int]) -> ?Vec[Int]
+  c: Vec[Int] = Vec()
+  !c.push(42)
+  !c.push(43)
+  l = |?c| c
+  g = ?l
+  g()
+
+sub main
+  a: Vec[Int] = Vec()
+  r = bad(?a)
+  print(r.len)

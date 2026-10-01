@@ -1,0 +1,24 @@
+sub main
+  page: [4096]U8 = [4096 of 0]
+  !page.write[U32, .little](0, 0xdeadbeef)
+  !page.write[U16, .big](4, 0x1234)
+  print(page[0], page[1], page[2], page[3], page[4], page[5])
+  print(page.read[U32, .little](0), page.read[U16, .big](4), page.read[U16, .little](4))
+  x: F64 = 3.5
+  !page.write[F64, .big](8, x)
+  print(page.read[F64, .big](8))
+  w = !page[100..]
+  !w.write[I32, .little](0, -2)
+  print(w.read[I32, .little](0), w.read[U32, .little](0))
+  e: Endian = .big
+  print(e, Endian.little)
+  s = "\x01\x02\x03\x04"
+  print(s.read[U32, .big](0))
+  v: Vec[U8] = Vec()
+  bs: [4]U8 = [1, 0, 0, 0]
+  for b in bs
+    !v.push(b)
+  print(v.read[U32, .little](0))
+  !v.write[U16, .big](2, 258)
+  print(v)
+  print(page.read[U8, .big](4095))

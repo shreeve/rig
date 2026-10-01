@@ -1,0 +1,9 @@
+pub error U
+  bad
+
+pub fun f(n: Int) -> Int!
+  return U.bad if n == 0
+  n
+
+test "util fails"
+  f(0)!

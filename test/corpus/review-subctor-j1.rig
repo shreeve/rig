@@ -1,0 +1,17 @@
+struct Meters
+  v: Float
+
+struct Wrap[T]
+  item: T
+
+type Km = Meters
+type IW = Wrap[Int]
+type BI = Box[Int]
+type CI = Cell[Int]
+
+sub main
+  a = Km(3.0)
+  b = IW(4)
+  c = BI(5)
+  d = CI(6)
+  print(a, b, c, d.get())

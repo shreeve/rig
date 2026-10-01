@@ -1,0 +1,8 @@
+sub main
+  v: Vec[String] = Vec()
+  !v.push("a")
+  s = "z"
+  for x in ?v
+    s = x
+  -v
+  print(s)

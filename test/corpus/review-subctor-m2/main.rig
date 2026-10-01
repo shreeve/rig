@@ -1,0 +1,10 @@
+use lib
+
+sub main
+  s = lib.Shape.circle(2.0)
+  c = lib.circle(3.0)
+  x: lib.W[Int?] = lib.W(none)
+  b = Box(lib.circle(5.0))
+  bg: lib.Bag[Int] = lib.Bag(Vec())
+  bw = lib.W(lib.W(1))
+  print(s, c, x, b, bg, bw)

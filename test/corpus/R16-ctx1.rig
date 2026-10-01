@@ -1,0 +1,40 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun chk(f: ?fun(Int) -> Bool, x: Int) -> Bool
+  print("chk", x)
+  f(x)
+
+fun val(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun pos(n: Int) -> Int?
+  n if n > 0 else none
+
+fun first -> Int
+  r = Res(id: 1)
+  return val(|<r, a| a + r.id, 1)
+
+sub main
+  n = 0
+  while chk(|a| a < 3, n)
+    n += 1
+  print(n)
+  if false and chk(|a| a > 0, 99)
+    print("no")
+  b = true or chk(|a| a > 0, 98)
+  print(b)
+  o = pos(-1) ?? val(|a| a * 3, 2)
+  print(o)
+  match val(|a| a + 1, 1)
+    2 => print("two")
+    _ => print("other")
+  print(first())
+  defer print(val(|a| a + 7, 0))
+  x = 5
+  c = Res(id: 9)
+  y = val(|<c, a| a + c.id, x) if x > 3 else 0
+  print(y)

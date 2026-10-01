@@ -1,0 +1,7 @@
+sub main
+  n = 1
+  m = 2
+  r = ?n
+  print(r)
+  r = ?m
+  print(r)

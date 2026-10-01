@@ -1,0 +1,17 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct H
+  r: R?
+
+  fun get(!self) -> !R?
+    !self.r
+
+sub main
+  h = H(r: R(n: 1))
+  if !(!h.get()) as x
+    x.n = 5
+  print(h)

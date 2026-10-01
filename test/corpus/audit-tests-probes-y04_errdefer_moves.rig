@@ -1,0 +1,13 @@
+error E
+  bad
+
+struct R
+  v: Vec[Int]
+
+sub eat(r: R)
+  print(r.v.len)
+
+fun f -> Int!
+  r = R(v: Vec())
+  errdefer eat(<r)
+  return E.bad

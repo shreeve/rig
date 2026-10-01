@@ -1,0 +1,12 @@
+fun dbl(x: Int) -> Int
+  x * 2
+
+struct Op
+  f: fun(Int) -> Int
+
+sub main
+  print(dbl)
+  o = Op(f: dbl)
+  print(o)
+  h = dbl
+  print(h)

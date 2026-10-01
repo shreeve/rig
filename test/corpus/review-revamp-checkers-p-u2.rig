@@ -1,0 +1,10 @@
+fun f() -> Int
+  x = g
+  s: String = x(1)
+  s.len
+
+fun g(n: Int) -> Int
+  n
+
+sub main()
+  print(f())

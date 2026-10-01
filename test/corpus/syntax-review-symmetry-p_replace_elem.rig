@@ -1,0 +1,4 @@
+sub main
+  a = [1, 2]
+  old = replace(!a[0], 9)
+  print(old, a)

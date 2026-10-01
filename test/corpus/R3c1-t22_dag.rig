@@ -1,0 +1,76 @@
+struct D0
+  v: Int
+
+struct D1
+  l: D0
+  r: D0
+
+struct D2
+  l: D1
+  r: D1
+
+struct D3
+  l: D2
+  r: D2
+
+struct D4
+  l: D3
+  r: D3
+
+struct D5
+  l: D4
+  r: D4
+
+struct D6
+  l: D5
+  r: D5
+
+struct D7
+  l: D6
+  r: D6
+
+struct D8
+  l: D7
+  r: D7
+
+struct D9
+  l: D8
+  r: D8
+
+struct D10
+  l: D9
+  r: D9
+
+struct D11
+  l: D10
+  r: D10
+
+struct D12
+  l: D11
+  r: D11
+
+struct D13
+  l: D12
+  r: D12
+
+struct D14
+  l: D13
+  r: D13
+
+struct D15
+  l: D14
+  r: D14
+
+struct D16
+  l: D15
+  r: D15
+
+struct D17
+  l: D16
+  r: D16
+
+fun same(a: ?D17, b: ?D17) -> Bool
+  a == b
+
+sub main()
+  print("ok")

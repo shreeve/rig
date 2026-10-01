@@ -1,0 +1,14 @@
+pub fun half[T](x: T) -> T
+  x * 0.5
+
+pub fun neg[T](x: T) -> T
+  0 - x
+
+pub fun negate[T](x: T) -> T
+  -x
+
+pub fun low[T](x: T) -> T
+  x & 1
+
+pub fun sh[T](x: T) -> T
+  x << 40

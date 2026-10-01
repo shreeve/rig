@@ -1,0 +1,14 @@
+struct R
+  v: Vec[Int]
+
+fun a(o: ?R?) -> Int
+  if <o as x
+    return x.v.len
+  0
+
+sub main()
+  o: R? = R(v: Vec())
+  if !o as w
+    !w.v.push(3)
+  print(a(?o))
+  print(a(?o))

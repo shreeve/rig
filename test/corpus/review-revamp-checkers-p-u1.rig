@@ -1,0 +1,6 @@
+sub main()
+  x = K
+  s: String = x
+  print(s)
+
+K = 5

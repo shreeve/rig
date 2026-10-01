@@ -1,0 +1,18 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  v: Vec[*R]
+
+sub drain(p: !S)
+  for x in <p.v
+    print(x.n)
+
+sub main()
+  s = S(v: Vec())
+  !s.v.push(*R(n: 1))
+  drain(!s)
+  print(s.v.len)

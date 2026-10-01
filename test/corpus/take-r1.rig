@@ -1,0 +1,33 @@
+struct N
+  v: Int
+  next: Box[N]?
+
+struct S
+  top: Box[N]?
+  name: String
+  n: N
+
+sub rd(s: ?S)
+  x = <s.top
+  print(x)
+
+sub both(s: !S)
+  if ?s.top as t
+    y = <s.top
+    print(t.v)
+
+sub alias(s: !S)
+  a = replace(!s.top, <s.top)
+  swap(!s.n, !s.n.next)
+  swap(!s, !s.n.next)
+
+sub main
+  h = *S(top: none, name: "a", n: N(v: 1, next: none))
+  z = <h.top
+  s = S(top: none, name: "a", n: N(v: 1, next: none))
+  nm = <s.n
+  q = replace(s.top, none)
+  swap(!s.top, !s.name)
+  rd(?s)
+  both(!s)
+  alias(!s)

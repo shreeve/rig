@@ -1,0 +1,33 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+struct H
+  o: *Tok?
+
+enum E
+  one(h: H)
+  none_
+
+sub main
+  e: E = .one(h: H(o: *Tok(n: 1)))
+  match e
+    .one(h)
+      if <h.o as t
+        eat(<t)
+    _ => print("x")
+  print("end")

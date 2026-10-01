@@ -1,0 +1,18 @@
+enum E
+  w(p: !Vec[Int])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e: E = .w(p: !v)
+  match e
+    .w(p)
+      match e
+        .w(q)
+          for x in p
+            !q.push(x)
+            print(x)
+        .none => print("n")
+    .none => print("n")
+  print(v.len)

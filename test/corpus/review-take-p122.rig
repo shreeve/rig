@@ -1,0 +1,26 @@
+struct Tree
+  key: Int
+  left: Box[Tree]?
+  right: Box[Tree]?
+
+  drop(!self)
+    print("drop", self.key)
+
+fun leaf(k: Int) -> Box[Tree]?
+  Box(value: Tree(key: k, left: none, right: none))
+
+# rotate right: the left child becomes the root
+sub rot2(slot: !Box[Tree]?)
+  top = replace(slot, none)
+  if <top as t
+    if <t.left as l
+      t.left = <l.right
+      l.right = <t
+      slot = <l
+    else
+      slot = <t
+
+sub main
+  root: Box[Tree]? = Box(value: Tree(key: 2, left: leaf(1), right: leaf(3)))
+  rot2(!root)
+  print(root)

@@ -1,0 +1,14 @@
+fun lo(x: U64) -> U32
+  raw
+    @truncate(x)
+sub main
+  big: U64 = 0x1_0000_0005
+  print(lo(big))
+  z = if true
+    1
+  else
+    2
+  w = match z
+    1 => "a"
+    _ => "b"
+  print(w)

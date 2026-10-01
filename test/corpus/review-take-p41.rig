@@ -1,0 +1,5 @@
+sub main
+  x = 1
+  w = !x
+  swap(w, w)
+  print(w)

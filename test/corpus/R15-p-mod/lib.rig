@@ -1,0 +1,23 @@
+pub struct View
+  s: ![]Int
+
+pub fun tail(s: ![]Int) -> ![]Int
+  !s[1..]
+
+pub sub rev[T](s: ![]T)
+  i = 0
+  j = s.len - 1
+  while i < j
+    !s.swap(i, j)
+    i += 1
+    j -= 1
+
+pub fun mk(a: ![3]Int) -> View
+  View(s: !a[..])
+
+pub sub fillv(v: !View, x: Int)
+  !v.s.fill(x)
+
+pub fun le[T](b: []U8) -> U32
+  b.read[U32, .little](0)
+

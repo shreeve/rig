@@ -1,0 +1,5 @@
+use lib
+X = lib.J +% 10
+Y: [lib.J]Int = [lib.J of 0]
+sub main()
+  print(X, Y.len)

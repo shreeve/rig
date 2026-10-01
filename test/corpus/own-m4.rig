@@ -1,0 +1,20 @@
+error E
+  bad
+
+fun fail(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+fun c(k: Int) -> Int!
+  E.bad if k > 0 else k
+
+fun d(k: Int) -> Int!
+  return .bad if k > 0
+  3
+
+fun e(k: Int) -> Int!
+  x = fail(k) catch |err| return err
+  x
+
+sub main
+  print(c(1) catch -1, d(0) catch -1, e(1) catch -2)

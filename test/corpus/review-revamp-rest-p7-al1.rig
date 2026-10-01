@@ -1,0 +1,15 @@
+struct Pair[A, B]
+  a: A
+  b: B
+type IP = Pair[Int, String]
+type CI = Cell[Int]
+type BI = Box[Int]
+type VI = Vec[Int]
+type SI = *Signal[Int]
+sub main()
+  p = IP(a: 1, b: "x")
+  c = CI(5)
+  b = BI(6)
+  v = VI()
+  !v.push(3)
+  print(p.a, p.b, c.get(), b, v[0])

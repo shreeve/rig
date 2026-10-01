@@ -1,0 +1,3 @@
+sub main()
+  f = *|n: Int| n + 1
+  print(f)

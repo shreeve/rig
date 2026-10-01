@@ -1,0 +1,6 @@
+fun mulw(a: U64, b: U64) -> U64
+  raw
+    @mulWithOverflow(a, b)[0]
+
+sub main
+  print(mulw(0xcbf29ce484222325, 0x100000001b3))

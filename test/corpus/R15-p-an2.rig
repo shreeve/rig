@@ -1,0 +1,6 @@
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = !v[..]
+  defer print(w[0])
+  w[0] = 7

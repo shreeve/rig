@@ -1,0 +1,4 @@
+sub main()
+  y = "s"
+  :x -y
+  print(1)

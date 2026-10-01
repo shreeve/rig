@@ -1,0 +1,6 @@
+pub LO = 1
+pub HI = 5
+
+pub error E
+  a
+  b

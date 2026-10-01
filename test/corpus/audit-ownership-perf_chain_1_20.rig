@@ -1,0 +1,48 @@
+struct Tok
+  n: Int
+
+sub main
+  a = Tok(n: 1)
+  b = Tok(n: 2)
+  r0: ?Tok = ?a
+  r1: ?Tok = ?a
+  r2: ?Tok = ?a
+  r3: ?Tok = ?a
+  r4: ?Tok = ?a
+  r5: ?Tok = ?a
+  r6: ?Tok = ?a
+  r7: ?Tok = ?a
+  r8: ?Tok = ?a
+  r9: ?Tok = ?a
+  r10: ?Tok = ?a
+  r11: ?Tok = ?a
+  r12: ?Tok = ?a
+  r13: ?Tok = ?a
+  r14: ?Tok = ?a
+  r15: ?Tok = ?a
+  r16: ?Tok = ?a
+  r17: ?Tok = ?a
+  r18: ?Tok = ?a
+  r19: ?Tok = ?a
+  for _ in 0..2
+    r19 = r18
+    r18 = r17
+    r17 = r16
+    r16 = r15
+    r15 = r14
+    r14 = r13
+    r13 = r12
+    r12 = r11
+    r11 = r10
+    r10 = r9
+    r9 = r8
+    r8 = r7
+    r7 = r6
+    r6 = r5
+    r5 = r4
+    r4 = r3
+    r3 = r2
+    r2 = r1
+    r1 = r0
+    r0 = ?b
+    print(r19.n)

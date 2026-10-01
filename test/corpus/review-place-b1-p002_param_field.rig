@@ -1,0 +1,8 @@
+struct P
+  x: Int
+
+sub f(p: P)
+  p.x = 5
+
+sub main
+  f(P(x: 1))

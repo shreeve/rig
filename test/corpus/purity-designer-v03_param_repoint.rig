@@ -1,0 +1,8 @@
+sub f(w: !Int, m: !Int)
+  w = <m
+  w += 1
+sub main
+  a = 1
+  b = 2
+  f(!a, !b)
+  print(a, b)

@@ -1,0 +1,18 @@
+struct H
+  w: !Int
+
+sub byval(h: H)
+  h.w += 1
+
+sub bylocal(w: !Int)
+  w += 1
+
+sub main
+  n = 1
+  new w = !n
+  k = |<w| w += 5
+  k()
+  h =! H(w: !n)
+  h.w += 1
+  byval(<h)
+  print(n)

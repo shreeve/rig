@@ -1,0 +1,14 @@
+enum E
+  w(p: !Int)
+  none
+
+sub poke(e: ?E)
+  match e
+    .w(p) => p += 5
+    .none => print("n")
+
+sub main
+  a = 1
+  e: E = .w(p: !a)
+  poke(?e)
+  print(a)

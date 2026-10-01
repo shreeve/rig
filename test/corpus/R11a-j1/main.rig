@@ -1,0 +1,21 @@
+use lib
+
+fun dbl(x: ?Int) -> Int
+  x * 2
+
+sub main()
+  s = lib.Stack[Int](items: Vec())
+  !s.push(1)
+  !s.push(2)
+  m = s.map(dbl)
+  print(m.items)
+  n = *lib.Node(v: 1, next: none)
+  n2 = lib.Node(v: 2, next: <n)
+  print(n2.len())
+  p = lib.Pair(a: 1, b: "x").swap()
+  print(p.a, p.b)
+  t = lib.Wrap(v: 3).twin()
+  print(t.a.v, t.b.v)
+  print(lib.even(4, 1.5), lib.odd(4, "s"))
+  g = lib.grid[Int, 3](7)
+  print(g.row(1))

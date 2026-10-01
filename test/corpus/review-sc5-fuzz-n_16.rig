@@ -1,0 +1,6 @@
+K: Int = 3
+C: Int = K
+
+sub main()
+  v: Int = 5
+  print(C, v)

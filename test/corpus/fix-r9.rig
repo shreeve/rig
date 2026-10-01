@@ -1,0 +1,8 @@
+error E
+  bad
+
+fun f(x: E) -> E!
+  x
+
+sub main()
+  print(f(E.bad) catch E.bad)

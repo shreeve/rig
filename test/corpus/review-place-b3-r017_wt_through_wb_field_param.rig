@@ -1,0 +1,13 @@
+struct Q
+  n: Int
+
+struct H
+  q: !Q
+
+sub f(h: H)
+  h.q.n = 7
+
+sub main
+  x = Q(n: 1)
+  f(H(q: !x))
+  print(x.n)

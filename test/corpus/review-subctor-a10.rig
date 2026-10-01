@@ -1,0 +1,11 @@
+error Bad
+  neg
+
+sub check(n: Int)!
+  return Bad.neg if n < 0
+
+sub main
+  h: sub(Int)! = check
+  g = check
+  print(h == g)
+  print(h)

@@ -1,0 +1,12 @@
+use lib
+
+fun local_len[T, n: Int](a: [n]T) -> Int
+  n
+
+sub main()
+  r = lib.Ring(items: [1, 2, 3])
+  print(lib.cap_of(?r), r.grow([7, 8]), lib.lens(r.items), local_len(r.items))
+  s: lib.Ring[Int, 5] = lib.mk()
+  print(s.cap(), lib.cap_of(?lib.mk[2]()))
+  t = lib.mk[0]()
+  print(t.cap())

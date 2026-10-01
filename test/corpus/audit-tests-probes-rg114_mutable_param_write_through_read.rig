@@ -1,0 +1,7 @@
+sub set(n: ?Int)
+  n = 5
+
+sub main
+  x = 1
+  set(?x)
+  print(x)

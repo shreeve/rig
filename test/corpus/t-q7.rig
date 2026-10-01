@@ -1,0 +1,34 @@
+struct P
+  x: Int
+  y: Int
+
+struct S
+  a: Vec[Int]
+  b: Int
+
+struct Q
+  a: P
+  b: Int
+
+fun grow(v: !Vec[Int]) -> Int
+  !v.push(7)
+  2
+
+fun bump(p: !P) -> Int
+  p.x += 1
+  0
+
+fun rd(v: ?Vec[Int], n: Int) -> Int
+  v.len + n
+
+fun rp(p: P, n: Int) -> Int
+  p.x + n
+
+fun rs(s: []Int, n: Int) -> Int
+  s.len + n
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  w = !v
+  print(w, grow(!w), w)

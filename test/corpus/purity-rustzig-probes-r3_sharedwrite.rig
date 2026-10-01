@@ -1,0 +1,9 @@
+struct Acct
+  bal: Int
+
+  sub dep(!self, n: Int)
+    self.bal += n
+
+sub main
+  a = *Acct(bal: 1)
+  !a.dep(5)

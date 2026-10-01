@@ -1,0 +1,11 @@
+pub struct P
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+pub struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v

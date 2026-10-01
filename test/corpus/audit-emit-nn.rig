@@ -1,0 +1,44 @@
+enum Res[T]
+  ok(v: T)
+  err(code: Int)
+
+  fun get_or(?self, d: T) -> T
+    match self
+      .ok(v) if v != d => v
+      _ => d
+
+  fun code_of(?self) -> Int
+    match self
+      .err(c) if c > 3 => c
+      .err(c) => -c
+      .ok(_) => 0
+
+fun total[T](rs: ?Vec[Res[T]], zero: T) -> T
+  t = zero
+  for r in rs
+    match r
+      .ok(v) if v > zero => t = t + v
+      .ok(_) => print("skip")
+      .err(c) if c > 1 => print("err", c)
+      .err(_) => print("minor")
+  t
+
+sub main
+  v: Vec[Res[Int]] = Vec()
+  !v.push(.ok(v: 3))
+  !v.push(.err(code: 2))
+  !v.push(.ok(v: -1))
+  !v.push(.err(code: 0))
+  !v.push(Res[Int].ok(v: 4))
+  print(total(?v, 0))
+  r = Res[Float].ok(v: 2.5)
+  print(r.get_or(2.5), r.get_or(1.0))
+  e = Res[String].err(code: 1)
+  print(e.get_or("dflt"), e)
+  p = Res[P].ok(v: P(x: 1))
+  print(p.get_or(P(x: 9)), p.get_or(P(x: 1)))
+  b = Res[P].err(code: 5)
+  print(b.code_of())
+
+struct P
+  x: Int

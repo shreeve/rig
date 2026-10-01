@@ -1,0 +1,11 @@
+struct S
+  n: Int
+  fun bump(!self) -> Int
+    self.n += 1
+    self.n
+  fun ok(!self) -> Bool
+    true
+sub main
+  s = S(n: 0)
+  print(!s.bump())
+  print(not !s.ok())

@@ -1,0 +1,11 @@
+enum K
+  a
+  b
+
+fun f(k: K, n: Int) -> Int
+  match k
+    .a => -n
+    .b => n
+
+sub main()
+  print(f(.a, 3), f(.b, 3))

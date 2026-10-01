@@ -1,0 +1,12 @@
+struct Row
+  cells: Vec[Int]
+
+sub main
+  rows: Vec[Box[Row]] = Vec()
+  !rows.push(Box(Row(cells: Vec())))
+  for r in !rows
+    !r.cells.push(4)
+  for r in ?rows
+    print(r.cells)
+  if !rows.pop() as last
+    print(last.cells.len)

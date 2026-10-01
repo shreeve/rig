@@ -1,0 +1,9 @@
+struct S
+  n: Int
+
+struct H
+  s: ?S
+
+sub main
+  h = H(s: ?S(n: 1))
+  print(h.s.n)

@@ -1,0 +1,16 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+enum E
+  full(r: R)
+  empty
+sub eat(r: R)
+  print("ate", r.n)
+
+sub main
+  e = E.full(R(n: 1))
+  match e
+    .full(r) => eat(<r)
+    .empty => print("none")
+  print("after")

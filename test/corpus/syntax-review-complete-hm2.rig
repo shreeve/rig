@@ -1,0 +1,15 @@
+struct H[K]
+  hash: fun(?K) -> U64
+  n: Int
+
+  sub put(!self, k: K)
+    x = self.hash(?k)
+    self.n = Int(x)
+
+fun hs(s: ?String) -> U64
+  U64(s.len)
+
+sub main
+  h = H[String](hash: hs, n: 0)
+  !h.put("abc")
+  print(h.n)

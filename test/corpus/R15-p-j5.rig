@@ -1,0 +1,8 @@
+fun n(x: Int) -> Int
+  x
+sub main()
+  b = [1, 2, 3]
+  c = [1, 2]
+  w = !b[..n(3)]
+  !w.copy(?c[..])
+  print(b)

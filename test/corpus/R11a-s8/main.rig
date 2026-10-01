@@ -1,0 +1,10 @@
+use lib
+
+sub main()
+  a = lib.Opt.some(value: 1)
+  b: lib.Opt[String] = .none
+  c: lib.Opt[Int] = lib.Opt[Int].none
+  match a
+    .some(value) => print(value)
+    .none => print("none")
+  print(b, c)

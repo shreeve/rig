@@ -1,0 +1,16 @@
+struct Frame
+  buf: Vec[U8]
+
+sub put(f: !Frame, v: U32)
+  !f.buf.write[U32, .big](0, v)
+
+sub main
+  f = Frame(buf: Vec())
+  for i in 0..4
+    !f.buf.push(U8(i))
+  put(!f, 0x01020304)
+  print(f.buf, f.buf.read[U32, .little](0))
+  page: [8]U8 = [8 of 0]
+  for i in 0..8
+    !page.write[U8, .big](i, U8(i * 16))
+  print(page)

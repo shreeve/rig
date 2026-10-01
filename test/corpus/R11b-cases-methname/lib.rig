@@ -1,0 +1,14 @@
+pub struct Wrap[T]
+  v: T
+
+  fun conv[U](?self, u: U) -> U
+    u + u
+
+  fun make[U](u: U) -> U
+    u * u
+
+pub struct Plain
+  x: Int
+
+  fun sq[U](?self, u: U) -> U
+    u * u

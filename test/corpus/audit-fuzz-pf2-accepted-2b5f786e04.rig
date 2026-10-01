@@ -1,0 +1,22 @@
+# Reassigning a moved binding makes it usable again.
+
+struct Wrap
+  payload: Int
+
+  drop(!self)
+    print(self.payload)
+
+sub eat(rc: *Wrap)
+  print(rc.payload + 100)
+
+sub main()
+  rc = *Wrap(payload: 1)
+  eat(<rc)
+  rc = *Wrap(payload: 2)
+  print(rc.payload)
+
+# expect:
+# 101
+# 1
+# 2
+# ??2

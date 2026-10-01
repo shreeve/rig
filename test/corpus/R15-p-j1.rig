@@ -1,0 +1,7 @@
+fun n(x: Int) -> Int
+  x
+sub main()
+  b: [8]U8 = [8 of 0]
+  w = !b[2..]
+  !w.write[U32, .little](n(3), 1)
+  print(b)

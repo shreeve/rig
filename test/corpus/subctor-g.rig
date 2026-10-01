@@ -1,0 +1,15 @@
+error Bad
+  neg
+
+sub check(n: Int)!
+  return Bad.neg if n < 0
+  print("ok", n)
+
+sub twice(n: Int)!
+  check(n)!
+  check(n - 5)!
+
+sub main
+  check(1)!
+  twice(3) catch |e|
+    print("failed", e)

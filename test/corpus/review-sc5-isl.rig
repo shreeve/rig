@@ -1,0 +1,27 @@
+fun apply(n: Int, f: ?fun(Int) -> Int) -> Int
+  f(n)
+
+fun two(a: Int, b: Int) -> Int
+  a * 10 + b
+
+sub main()
+  x = 5
+  r = apply(3, |i|
+    k = i * 2
+    0 - k
+  )
+  print(r)
+  s = two(apply(1, |i|
+    i + 1
+  ), -x)
+  print(s)
+  t = two(apply(1, |i|
+    y = i
+    y
+  )
+  -1, 2)
+  print(t)
+  u = apply(2, |i|
+    i
+  ) -1
+  print(u)

@@ -1,0 +1,17 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+enum E
+  one(s: R?)
+  two
+
+sub main
+  e = E.one(s: R(n: 1))
+  match !e
+    .one(s)
+      y = <s
+      print(y)
+    .two => print("two")
+  print(e)

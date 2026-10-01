@@ -1,0 +1,7 @@
+sub main
+  b: [2]U8 = [1, 2]
+  f = b.read[U16, .big]
+  g = b.read
+  print(1)
+  x = 3
+  print(x.read)

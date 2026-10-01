@@ -1,0 +1,9 @@
+struct H
+  w: !Int
+
+sub main
+  n = 1
+  b = Box(H(w: !n))
+  b.w = 6
+  b.w += 1
+  print(n)

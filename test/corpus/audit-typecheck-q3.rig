@@ -1,0 +1,6 @@
+sub main()
+  a = 1
+  swap(!a, !a)
+  v = [1, 2, 3]
+  swap(!v[0], !v[1])
+  print(a, v[0])

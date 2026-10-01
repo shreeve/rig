@@ -1,0 +1,7 @@
+# closure captures write slice
+sub main()
+  a = [1, 2]
+  w = !a[..]
+  f = |!w| w[0] = 5
+  f()
+  print(a)

@@ -1,0 +1,16 @@
+struct Wrap
+  n: Int
+
+fun get(w: ?Wrap) -> ?Wrap
+  w
+
+sub main
+  a = Wrap(n: 1)
+  b = Wrap(n: 2)
+  r = ?a
+  r = get(?b)
+  print(r.n)
+  l = |?b| b
+  s = ?a
+  s = l()
+  print(s.n)

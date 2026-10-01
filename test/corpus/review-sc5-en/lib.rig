@@ -1,0 +1,3 @@
+pub enum Code
+  a = 10
+  b = 300

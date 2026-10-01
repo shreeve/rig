@@ -1,0 +1,36 @@
+use lib
+
+N = 2
+WORD = "hi"
+enum Color
+  red
+  blue
+DEF = Color.blue
+
+struct Inner
+  xs: Vec[String] = Vec()
+  c: Cell[String] = Cell("x")
+
+struct Outer
+  inner: Inner
+  names: Vec[Box[Inner]] = Vec()
+  words: [N]String = [N of WORD]
+  col: Color = DEF
+  hs: Vec[*Inner] = Vec()
+
+sub main()
+  t = lib.Thing()
+  print(t.n, t.m(), t.m(1), lib.gen("a"), lib.gen(1, 2))
+  a = Outer(inner: Inner())
+  b = Outer(inner: Inner())
+  !a.inner.xs.push("one")
+  a.inner.c.set("changed")
+  !a.names.push(Box(Inner()))
+  !a.hs.push(*Inner())
+  print(a.inner.xs.len, b.inner.xs.len, a.inner.c.get(), b.inner.c.get(), a.names.len, b.names.len, a.words, b.col == Color.blue, a.hs.len)
+  moved = <a
+  print(moved.inner.xs[0])
+  for _ in 0..3
+    o = Outer(inner: Inner())
+    !o.inner.xs.push("t")
+    print(o.inner.xs.len)

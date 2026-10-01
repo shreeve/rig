@@ -1,0 +1,18 @@
+error E
+  bad
+
+fun half(n: Int) -> Int?
+  return none if n % 2 == 1
+  n / 2
+
+fun p(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+fun apply(f: ?fun(Int) -> Int?, x: Int) -> Int?
+  f(x)
+
+sub main
+  print(apply(|n| half(n)? + 1, 4), apply(|n| half(n)? + 1, 3))
+  g: *fun(Int) -> Int! = *|n| p(n)! + 1
+  print(g(1)!)

@@ -1,0 +1,19 @@
+error Bad
+  neg
+
+sub run(f: ?sub(Int)!)!
+  f(3)!
+  f(-3)!
+
+sub main
+  g: *sub(Int)! = *|x: Int|
+    return Bad.neg if x < 0
+    print("g", x)
+  run(?g) catch |e|
+    print("e1", e)
+  k = 10
+  run(|?k, x|
+    return Bad.neg if x < 0
+    print("lam", x + k)
+  ) catch |e|
+    print("e3", e)

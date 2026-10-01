@@ -1,0 +1,157 @@
+struct R
+  id: Int
+
+  drop(!self)
+    print("rel", self.id)
+
+struct P
+  a: R
+  b: R
+
+enum HR
+  one(r: R)
+  empty
+
+error E
+  bad
+
+fun mk(id: Int) -> R
+  print("new", id)
+  R(id: id)
+
+fun optr(id: Int) -> R?
+  return none if id % 3 == 0
+  mk(id)
+
+sub look(r: ?R)
+  print("use", r.id)
+
+fun rt_bool(b: Bool) -> Bool
+  b
+
+fun rt_int(n: Int) -> Int
+  n
+
+fun pick[T](a: T, b: T, first: Bool) -> T
+  if first
+    return <a
+  <b
+
+fun keep_first[T](a: T, b: T) -> T
+  a
+
+fun ident[T](x: T) -> T
+  x
+
+fun cycle[T](x: T, n: Int) -> T
+  cur = <x
+  for _ in 0..n
+    cur = ident(<cur)
+  cur
+
+fun wrap[T](x: T) -> T?
+  x
+
+fun unwrap_or[T](o: T?, d: T) -> T
+  if <o as v
+    return <v
+  <d
+
+fun first_some[T](a: T?, b: T?) -> T?
+  if <a as x
+    return <x
+  <b
+
+fun must[T](o: T?) -> T!
+  if <o as x
+    return <x
+  E.bad
+
+fun chain[T](o: T?) -> T?
+  x = (<o)?
+  x
+
+sub swap_gen[T](a: !T, b: !T)
+  swap(!a, !b)
+
+fun first_ref[T, U](p: ?Pair[T, U]) -> ?T
+  ?p.first
+
+struct Pair[T, U]
+  first: T
+  second: U
+
+  fun left(?self) -> ?T
+    ?self.first
+
+struct Shelf[T]
+  items: Vec[T]
+
+  sub add(!self, x: T)
+    !self.items.push(<x)
+
+  fun take(!self) -> T?
+    !self.items.pop()
+  a11: String? = none
+
+enum Maybe[T]
+  just(v: T)
+  nada
+
+fun get_or[T](m: Maybe[T], d: T) -> T
+  match <m
+    .just(v) => v
+    .nada => d
+
+fun fill_shelf[T](a: T, b: T) -> Shelf[T]
+  s = Shelf[T](items: Vec())
+  !s.add(<a)
+  !s.add(<b)
+  s
+
+sub h0
+  o1: R? = none
+  r1 = unwrap_or(<o1, mk(10))
+  look(?r1)
+  m3: Maybe[Int] = .just(20)
+  r3 = get_or(<m3, 30)
+  print("int", r3)
+  o5: P? = P(a: mk(40), b: mk(41))
+  r5 = unwrap_or(<o5, P(a: mk(50), b: mk(51)))
+  look(?r5.a)
+  look(?r5.b)
+  r7 = ident(ident(HR.one(r: mk(60))))
+  match ?r7
+    .one(z8) => look(?z8)
+    .empty => print("empty")
+  o9: *R? = *mk(70)
+  r9 = unwrap_or(<o9, *mk(80))
+  print("use", r9.id)
+  a11: String? = none
+  b11: String? = "s90"
+  r11 = first_some(<a11, <b11)
+  if ?r11 as w12
+    print("str", w12)
+
+sub h1
+  r14 = cycle(Box(mk(100)), rt_int(2))
+  print("use", r14.id)
+  r16 = pick(Box(mk(110)), Box(mk(120)), rt_bool(true))
+  print("use", r16.id)
+  r18 = Pair(first: *mk(130), second: "s140")
+  f18 = first_ref(?r18)
+  print("use", f18.id)
+  print("str", r18.second)
+  r21 = keep_first(mk(150), mk(160))
+  look(?r21)
+  r23 = wrap(170)
+  if ?r23 as w24
+    print("int", w24)
+  r26 = ident(ident(HR.one(r: mk(180))))
+  match ?r26
+    .one(z27) => look(?z27)
+    .empty => print("empty")
+
+sub main
+  h0()
+  h1()

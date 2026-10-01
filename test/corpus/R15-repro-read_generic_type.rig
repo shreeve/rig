@@ -1,0 +1,6 @@
+# `read[T, e]` takes `e` as a compile-time parameter but not `T`.
+fun get[T](b: []U8) -> T
+  b.read[T, .big](0)
+sub main()
+  buf: [2]U8 = [1, 2]
+  print(get[U16](?buf[..]))

@@ -1,0 +1,19 @@
+use lib
+
+fun rd(x: ?Int) -> Int
+  x
+
+sub main()
+  c = lib.Counter.make("a")
+  c.count += 1
+  print(rd(?c.count))
+  n = 0
+  swap(!c.count, !n)
+  h = *lib.Counter.make("h")
+  print(h.count)
+  b = Box(lib.Counter.make("b"))
+  print(b.count, b.peek())
+  f = |x: ?lib.Counter| x.count
+  print(f(?c))
+  cc = Cell(lib.Counter.make("z"))
+  print(c == c)

@@ -1,0 +1,5 @@
+pub fun apply[T](x: T) -> Int
+  step[T, Int](x, 0)
+
+fun step[T, U](x: T, u: U) -> Int
+  1

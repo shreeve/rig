@@ -1,0 +1,25 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop tok", self.n)
+
+enum Slot
+  empty
+  full(t: *Tok)
+
+struct Holder
+  s: Slot
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+sub peek(h: ?Holder)
+  match h.s
+    .full(t) => eat(<t)
+    .empty => print("empty")
+
+sub main
+  h = Holder(s: .full(t: *Tok(n: 1)))
+  peek(?h)
+  peek(?h)

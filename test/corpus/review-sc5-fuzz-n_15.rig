@@ -1,0 +1,6 @@
+K: U8 = 3
+C: U8 = (U8.max -% ((U8.min << 64) ^ 4294967296))
+
+sub main()
+  v: U8 = 5
+  print(C, v)

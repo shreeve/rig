@@ -1,0 +1,12 @@
+struct S
+  a: Int?
+
+sub main
+  o: S? = S(a: 1)
+  i = 0
+  while o as x
+    y = <x.a
+    print(y, x)
+    i += 1
+    o = none if i > 1
+  print(o)

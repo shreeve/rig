@@ -1,0 +1,14 @@
+struct Bag
+  items: Vec[Int]
+
+  fun slice(?self) -> []Int
+    ?self.items[..]
+
+sub main
+  b = Bag(items: Vec())
+  !b.items.push(1)
+  !b.items.push(2)
+  for x in b.slice()
+    print(x)
+  for x in b.items
+    print(x)

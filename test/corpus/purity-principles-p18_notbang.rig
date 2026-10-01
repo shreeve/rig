@@ -1,0 +1,14 @@
+struct Set
+  items: Vec[Int]
+
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.items
+      return false if x == k
+    !self.items.push(k)
+    true
+
+sub main
+  s = Set(items: Vec())
+  dup = !s.insert(1)
+  print("dup?", dup)
+  print("dup?", !s.insert(1))

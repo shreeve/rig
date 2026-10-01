@@ -1,0 +1,16 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+sub eat(r: Res)
+  print("ate", r.id)
+
+sub main
+  r = Res(id: 1)
+  r = Res(id: 2)
+  f = |!r|
+    eat(<r)
+  f()
+  print("end")

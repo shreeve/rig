@@ -1,0 +1,22 @@
+struct Meters
+  value: Float
+
+struct Wrap[T]
+  item: T
+
+struct Node
+  key: Int
+  next: Box[Node]?
+
+sub main
+  b = Box(5)
+  n = Box(Node(key: 1, next: Box(Node(key: 2, next: none))))
+  c = Cell(0)
+  c.set(c.get() + 3)
+  s = *Signal(7)
+  sh: *Cell[Int] = *Cell(9)
+  m = Meters(3.5)
+  w = Wrap(4)
+  w2 = Wrap[String]("hi")
+  named = Box(value: 6)
+  print(b, n, c.get(), s.get(), sh.get(), m, w, w2, named)

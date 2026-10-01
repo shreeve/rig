@@ -1,0 +1,3 @@
+sub main
+  arr = [2 of Vec[Int]()]
+  print(arr[0].len)

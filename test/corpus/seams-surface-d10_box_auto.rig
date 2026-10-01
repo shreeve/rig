@@ -1,0 +1,17 @@
+struct P
+  x: Int
+  sub bump(!self)
+    self.x += 1
+  fun get(?self) -> Int
+    self.x
+
+fun rd(p: ?P) -> Int
+  p.x
+
+sub main
+  b = Box(P(x: 1))
+  !b.bump()
+  print(b.x, b.get(), rd(?b))
+  bi = Box(5)
+  print(bi)
+  print(bi + 1)

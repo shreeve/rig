@@ -1,0 +1,152 @@
+struct R
+  id: Int
+
+  drop(!self)
+    print("rel", self.id)
+
+  fun look(?self) -> Int
+    print("use", self.id)
+    self.id
+
+struct P
+  a: R
+  b: R
+
+struct Q
+  h: *R
+  o: R?
+
+enum HR
+  one(r: R)
+  two(a: R, b: *R)
+  empty
+
+struct M
+  r: R
+
+  fun with(<self, n: Int) -> Int
+    print("use", self.r.id)
+    n + self.r.id
+
+  fun peek(?self, n: Int) -> Int
+    print("use", self.r.id)
+    n
+
+  sub put(!self, r: R)
+    self.r = <r
+
+error E
+  bad
+
+fun mk(id: Int) -> R
+  print("new", id)
+  R(id: id)
+
+fun mkm(id: Int) -> M
+  M(r: mk(id))
+
+fun mayr(k: Int) -> R!
+  return E.bad if k == 0
+  mk(k)
+
+fun may(k: Int) -> Int!
+  return E.bad if k == 0
+  k
+
+fun optr(k: Int) -> R?
+  return none if k == 0
+  mk(k)
+
+fun opt(k: Int) -> Int?
+  return none if k == 0
+  k
+
+fun two(a: R, b: R) -> Int
+  print("use", a.id)
+  print("use", b.id)
+  a.id + b.id
+
+fun one(a: R, n: Int) -> Int
+  print("use", a.id)
+  a.id + n
+
+fun take3(a: R, n: Int, b: R) -> Int
+  print("use", a.id)
+  print("use", b.id)
+  n
+
+fun hand(h: *R, n: Int) -> Int
+  print("use", h.id)
+  n
+
+fun bx(b: Box[R], n: Int) -> Int
+  print("use", b.id)
+  n
+
+fun pp(p: P) -> Int
+  print("use", p.a.id)
+  print("use", p.b.id)
+  1
+
+fun qq(q: Q) -> Int
+  print("use", q.h.id)
+  2
+
+fun hr(e: HR) -> Int
+  match <e
+    .one(r) => r.look()
+    .two(a, b)
+      print("use", b.id)
+      a.look()
+    .empty => 0
+
+fun ints(xs: [2]Int) -> Int
+  xs[0] + xs[1]
+
+fun rt_int(n: Int) -> Int
+  n
+
+fun h0 -> Int?
+  b0 = [1, opt(rt_int(5))?]
+  print("val", b0[0])
+  print("val", opt(rt_int(2))?)
+  print("val", qq(Q(h: *mk(1), o: mk(2))))
+  m4 = M(r: mk(3))
+  !m4.put(optr(rt_int(3004))?)
+  print("val", m4.peek(one(mk(5), bx(Box(mk(6)), 7))))
+  0
+
+fun h1 -> Int?
+  m0 = M(r: mk(17))
+  !m0.put(mk(18))
+  print("val", m0.peek(hr(HR.two(a: mk(19), b: *mk(20)))))
+  v3: Vec[*R] = Vec()
+  !v3.push(*mk(21))
+  !v3.push(*mk(22))
+  !v3.push(*mk(23))
+  print("val", take3(mk(24), take3(mk(25), qq(Q(h: *mk(26), o: mk(27))), optr(rt_int(3028))?), mk(29)))
+  0
+
+fun h2 -> Int?
+  x0 = mk(40)
+  q1 = Q(h: *mk(41), o: optr(rt_int(4042))?)
+  print("val", opt(rt_int(2))?)
+  p3 = P(a: mk(43), b: mk(44))
+  x4 = optr(rt_int(3045))?
+  0
+
+fun h3 -> Int?
+  v0: Vec[*R] = Vec()
+  !v0.push(*mk(56))
+  x2 = optr(rt_int(4057))?
+  print("val", opt(rt_int(2))?)
+  p4 = P(a: mk(58), b: mk(59))
+  print("val", 3)
+  print("val", one(mk(60), one(optr(rt_int(0))?, 5)))
+  0
+
+sub main
+  print("got", h0())
+  print("got", h1())
+  print("got", h2())
+  print("got", h3())

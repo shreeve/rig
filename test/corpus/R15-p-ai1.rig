@@ -1,0 +1,13 @@
+struct V
+  s: ![]Int
+sub fillall[T](s: ![]T, v: T)
+  !s.fill(v)
+sub main()
+  a = [1, 2]
+  b = [3, 4]
+  c = [5, 6]
+  vs = [V(s: !a[..]), V(s: !b[..])]
+  fillall(!vs[..], V(s: !c[..]))
+  vs[0].s[0] = 9
+  vs[1].s[1] = 10
+  print(vs.len)

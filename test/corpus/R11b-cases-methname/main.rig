@@ -1,0 +1,9 @@
+use lib
+
+sub main()
+  w = lib.Wrap(v: 1)
+  print(w.conv(true))
+  print(lib.Wrap[Int].make("s"))
+  p = lib.Plain(x: 1)
+  print(p.sq(false))
+  print(lib.Plain.sq)

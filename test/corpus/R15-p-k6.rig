@@ -1,0 +1,6 @@
+fun get[e: Endian](b: []U8) -> U16
+  b.read[U16, e](0)
+sub main()
+  buf: [8]U8 = [1, 2, 0, 0, 0, 0, 0, 0]
+  x = Endian.little
+  print(get[x](?buf[..]))

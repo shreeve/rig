@@ -1,0 +1,9 @@
+fun rows(g: ?[2][2]Int) -> []Int
+  s = ?g[0][0..1]
+  for row in g
+    s = ?row[0..2]
+  s
+
+sub main()
+  g = [[1, 2], [3, 4]]
+  print(rows(?g))

@@ -1,0 +1,12 @@
+sub main()
+  e: [0]Int = []
+  w = !e[..]
+  t = !w[..]
+  u = !t[0..]
+  z = !u[..0]
+  print(z.len)
+  v: Vec[Int] = Vec()
+  s = !v[..]
+  print(s.len)
+  s2 = !s[0..0]
+  print(s2.len)

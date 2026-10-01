@@ -1,0 +1,11 @@
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  xs: Vec[Int?] = Vec()
+  !xs.push(1)
+  !xs.push(none)
+  !xs.push(3)
+  while !xs.pop() as o and (o ?? continue) > 0
+    print(o)
+  print("done")

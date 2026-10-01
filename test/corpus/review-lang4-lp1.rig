@@ -1,0 +1,23 @@
+struct H
+  w: !Int
+
+enum E
+  one(h: H)
+  none_
+
+sub main
+  n = 1
+  m = 2
+  hs = [H(w: !n), H(w: !m)]
+  for x in !hs
+    x.w *= 10
+  print(hs[0].w, hs[1].w)
+  k = 5
+  e: E = .one(h: H(w: !k))
+  match !e
+    .one(h) => h.w += 1
+    _ => pass
+  match e
+    .one(h) => print(h.w)
+    _ => pass
+  print(n, m, k)

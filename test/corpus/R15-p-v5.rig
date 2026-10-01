@@ -1,0 +1,10 @@
+struct R
+  s: []Int
+sub f(rs: ![]R)
+  loc = [7, 7]
+  rs[0] = R(s: ?loc[..])
+sub main()
+  a = [1, 2]
+  rs = [R(s: ?a[..]), R(s: ?a[..])]
+  f(!rs[..])
+  print(rs[0].s)

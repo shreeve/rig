@@ -1,0 +1,171 @@
+fun rt_bool(b: Bool) -> Bool
+  b
+
+fun rt_int(n: Int) -> Int
+  n
+
+fun gid[T](a: T) -> T
+  a
+
+fun gmax[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun gsome[T](a: T) -> T?
+  a
+
+fun id_u8(x: U8) -> U8
+  x
+
+fun id_i8(x: I8) -> I8
+  x
+
+fun id_i16(x: I16) -> I16
+  x
+
+fun id_u16(x: U16) -> U16
+  x
+
+fun id_i32(x: I32) -> I32
+  x
+
+fun id_u32(x: U32) -> U32
+  x
+
+fun id_int(x: Int) -> Int
+  x
+
+fun id_u64(x: U64) -> U64
+  x
+
+fun id_i128(x: I128) -> I128
+  x
+
+fun id_u128(x: U128) -> U128
+  x
+
+fun id_float(x: Float) -> Float
+  x
+
+fun id_f32(x: F32) -> F32
+  x
+
+fun cf3469(ok: Bool) -> U32!
+  return CE3469.no if not ok
+  1380
+
+error CE3469
+  no
+
+fun fal1202(ok: Bool) -> U64!
+  return Err1202.bad if not ok
+  18446744073709551566
+
+error Err1202
+  bad
+
+fun ret1251 -> I32
+  ce1251: Cell[I32] = Cell((-3))
+  ce1251.get()
+
+fun fal2545(ok: Bool) -> U32!
+  return Err2545.bad if not ok
+  17
+
+error Err2545
+  bad
+
+struct GP4344[T]
+  f: T
+
+sub t3469
+  print(cf3469(false) catch (gsome(14) ?? 20))
+
+sub t2391
+  cc2391: Cell[I8] = Cell(0)
+  cc2391.set(95)
+  print(cc2391.get())
+
+sub t1639
+  cst1639: U8 =! 15
+  mk1639 = rt_int(1)
+  mz1639: U8 = match mk1639
+    1 => cst1639
+    _ => 37
+  print(mz1639)
+
+
+sub t1202
+  b1202: U64 = id_u64(49)
+  print(b1202 + (fal1202(true) catch 11668861460143548616), (fal1202(true) catch 11668861460143548616) + b1202)
+
+sub t1251
+  print(ret1251())
+
+sub t4938
+  op4938: I8? = gmax((-19), 4)
+  print(op4938, op4938 ?? 0)
+
+sub t5674
+  vec5674: Vec[Float] = Vec()
+  !vec5674.push((|| 10.25)())
+  print(vec5674)
+
+sub t5396
+  vv5396: Vec[F32] = Vec()
+  !vv5396.push(0)
+  x5396: F32 = vv5396[0]
+  print(x5396)
+
+sub t2545
+  cmp2545: U32 = id_u32(11)
+  print(cmp2545 == (fal2545(false) catch 20), (fal2545(false) catch 20) < cmp2545, (fal2545(false) catch 20) >= cmp2545)
+
+sub t773
+  cst773: U64 =! 14
+  vw773: Vec[U64] = Vec()
+  pushit773 = |!vw773, x: U64| !vw773.push(x)
+  pushit773(cst773)
+  print(vw773)
+
+sub t4344
+  gp4344: GP4344[Int] = GP4344(f: (|| 8)())
+  print(gp4344.f)
+
+sub t324
+  xs324: [2]F32 = [1, 0]
+  print(xs324)
+
+sub t2001
+  flag2001 = rt_bool(true)
+  tv2001: Int = id_int((-2))
+  op2001: Int? = ((-6) if flag2001 else tv2001)
+  print(op2001, op2001 ?? 0)
+
+sub t3121
+  mk3121 = rt_int(0)
+  mz3121: F32 = match mk3121
+    1 => gid((-2))
+    _ => 1
+  print(mz3121)
+
+sub t2851
+  ce2851: Cell[I32] = Cell((-1788325601))
+  op2851: I32? = ce2851.get()
+  print(op2851, op2851 ?? 0)
+
+sub main
+  t3469()
+  t2391()
+  t1639()
+  t1202()
+  t1251()
+  t4938()
+  t5674()
+  t5396()
+  t2545()
+  t773()
+  t4344()
+  t324()
+  t2001()
+  t3121()
+  t2851()

@@ -1,0 +1,10 @@
+struct H
+  w: !?Int
+
+sub main
+  a = 1
+  b = 2
+  r = ?a
+  h = H(w: !r)
+  h.w = ?b
+  print(r)

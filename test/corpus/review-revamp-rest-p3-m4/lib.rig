@@ -1,0 +1,3 @@
+pub type Byte = U8
+pub type Sh = *Int
+pub type Fn = fun(Int) -> Int

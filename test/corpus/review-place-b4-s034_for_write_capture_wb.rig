@@ -1,0 +1,7 @@
+sub main
+  xs = [1, 2]
+  f = |!xs|
+    for x in !xs
+      x += 1
+  f()
+  print(xs[0])

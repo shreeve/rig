@@ -1,0 +1,5 @@
+fun n(x: Int) -> Int
+  x
+sub main()
+  s = "ab"
+  print(s.read[U32, .little](n(0)))

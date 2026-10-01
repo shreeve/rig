@@ -1,0 +1,12 @@
+pub struct Tree
+  key: Int
+  kids: Vec[Box[Tree]]
+
+  fun total(?self) -> Int
+    t = self.key
+    for k in ?self.kids
+      t += k.total()
+    t
+
+pub fun leaf(key: Int) -> Box[Tree]
+  Box(value: Tree(key: key, kids: Vec()))

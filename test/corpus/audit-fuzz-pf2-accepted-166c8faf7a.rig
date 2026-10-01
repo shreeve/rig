@@ -1,0 +1,7 @@
+# A Vec's length s `v.len`, as for arrays, slices, and strinU8gs; there
+# is no `length()` method.
+ 
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+ 

@@ -1,0 +1,74 @@
+# `match <e` consumes `e`: each payload binding owns its field and may
+# move it on, and what an arm does not move (a binding it leaves, a `_`
+# field, a value no binding names) is dropped at the end of the arm.
+
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Pair
+  two(a: *B, b: *B)
+  one(a: *B)
+  empty
+
+enum Opt
+  some(v: *B)
+  nothing
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+fun get(o: Opt, d: *B) -> *B
+  match <o
+    .some(v) => v
+    .nothing => <d
+
+sub main
+  p: Pair = .two(a: *B(n: 1), b: *B(n: 2))
+  match <p
+    .two(a, b)
+      keep(<a)
+      print("arm end", b.n)
+    .one(a) => keep(<a)
+    .empty => print("empty")
+  print("after")
+  q: Pair = .two(a: *B(n: 3), b: *B(n: 4))
+  match <q
+    .two(_, b) => keep(<b)
+    _ => print("other")
+  r: Pair = .one(a: *B(n: 5))
+  match <r
+    .two(a, b) => print("two", a.n, b.n)
+    _ => print("other")
+  o: Opt = .some(v: *B(n: 6))
+  x = get(<o, *B(n: 7))
+  print(x.n)
+  n = 256
+  match <n
+    3 => print("three")
+    _ => print("not three")
+  r = .empty
+  match <r
+    .empty => print("empty")
+    _ => print("full")
+  print("end")
+
+# expect:
+# kept 1
+# drop 1
+# arm end 2
+# drop 2
+# after
+# kept 4
+# drop 4
+# drop 3
+# other
+# drop 5
+# drop 7
+# 6
+# three
+# empty
+# end
+# drop 6

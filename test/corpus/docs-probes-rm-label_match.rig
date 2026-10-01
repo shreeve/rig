@@ -1,0 +1,6 @@
+sub main
+  x = 1
+  :m match x
+    1 => break :m
+    _ => print(0)
+  print(2)

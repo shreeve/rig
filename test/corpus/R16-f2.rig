@@ -1,0 +1,15 @@
+struct View[T]
+  w: ?T
+
+fun get[T](v: ?View[T]) -> ?T
+  v.w
+
+fun mk -> Int
+  k = 4
+  f = |+k, a: Int| a + k
+  v = View(w: ?f)
+  h = get(?v)
+  h(3)
+
+sub main
+  print(mk())

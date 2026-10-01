@@ -1,0 +1,15 @@
+struct Inner
+  x: !Vec[Int]
+
+struct Outer
+  i: !Inner
+
+sub put(h: !Outer)
+  k: Vec[Int] = Vec()
+  h.i = Inner(x: !k)
+
+sub main
+  v: Vec[Int] = Vec()
+  inn = Inner(x: !v)
+  o = Outer(i: !inn)
+  put(!o)

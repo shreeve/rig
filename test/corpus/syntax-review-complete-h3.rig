@@ -1,0 +1,19 @@
+struct Map[K, V]
+  keys: Vec[K?]
+  vals: Vec[V?]
+  hash: fun(?K) -> U64
+
+  fun new(h: fun(?K) -> U64) -> Self
+    Map(keys: Vec(), vals: Vec(), hash: h)
+
+  fun slot(?self, k: ?K) -> Int
+    h = self.hash(k)
+    Int(h % 16)
+
+fun hash_int(k: ?Int) -> U64
+  U64(k) if k >= 0 else 0
+
+sub main
+  m = Map[Int, String].new(hash_int)
+  five = 5
+  print(m.slot(?five))

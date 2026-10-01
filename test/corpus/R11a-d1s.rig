@@ -1,0 +1,10 @@
+fun first[T](v: ?Vec[T]) -> ?T
+  ?v[0]
+
+sub main()
+  v = Vec[String]()
+  !v.push("a")
+  f = first(?v)
+  for _ in 0..100
+    !v.push("b")
+  print(f)

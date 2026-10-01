@@ -1,0 +1,17 @@
+struct Val
+  n: Int
+
+fun first(xs: []Val) -> ?Val
+  ?xs[0]
+
+fun firsti(xs: []Int) -> ?Int
+  ?xs[0]
+
+fun sub1(xs: []Int) -> []Int
+  xs[1..]
+
+sub main
+  a = [Val(n: 1)]
+  print(first(?a).n)
+  b = [1, 2]
+  print(firsti(?b), sub1(?b))

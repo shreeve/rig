@@ -1,0 +1,8 @@
+N = 3
+fun f() -> Int
+  N =! 4
+  N
+enum E
+  a = N
+sub main()
+  print(Int(E.a), f())

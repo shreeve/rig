@@ -1,0 +1,11 @@
+struct P
+  xs: [3]Int
+
+fun mk(p: !P) -> !P
+  <p
+
+sub main
+  p = P(xs: [1, 2, 3])
+  for x in !mk(!p).xs
+    x = 0
+  print(p.xs[0])

@@ -1,0 +1,16 @@
+use lib
+
+limit = 3
+
+fun local(x: Int, by: Int = limit) -> Int
+  x + by
+
+sub main
+  c = lib.Cfg()
+  print(c.n, c.c, c.s, c.f, c.v, c.m)
+  print(lib.scale(2), lib.scale(2, by: 1), local(1))
+  print(lib.ident(4), lib.ident("s"))
+  p = lib.Pair(a: 1, b: 2)
+  print(p.sum(), lib.Pair[Float](a: 1, b: 2).sum())
+  k: U8 = U8(lib.Color.blue)
+  print(k, lib.limit + limit)

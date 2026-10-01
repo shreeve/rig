@@ -1,0 +1,9 @@
+struct S
+  a: Int?
+
+sub main
+  arr: [2]S = [S(a: 1), S(a: 2)]
+  t = <arr[0].a
+  u = <[S(a: 3)][0].a
+  v = <S(a: 4).a
+  print(t, u, v, arr)

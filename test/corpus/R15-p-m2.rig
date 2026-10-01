@@ -1,0 +1,11 @@
+struct S
+  arr: [2]Int
+sub main()
+  vs: Vec[S] = Vec()
+  !vs.push(S(arr: [1, 2]))
+  a = [0, 0]
+  w = !a[..]
+  for s in !vs
+    w = !s.arr[..]
+  w[0] = 9
+  print(vs[0].arr)

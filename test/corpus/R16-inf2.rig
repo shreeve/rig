@@ -1,0 +1,13 @@
+struct Wrap
+  n: Int
+
+fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
+  out: Vec[U] = Vec()
+  for x in xs
+    !out.push(f(?x))
+  out
+
+sub main
+  ws = [Wrap(n: 1), Wrap(n: 2)]
+  m = map(?ws[..], |w| w)
+  print(m.len)

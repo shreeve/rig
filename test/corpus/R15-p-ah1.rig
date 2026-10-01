@@ -1,0 +1,9 @@
+fun n(x: Int) -> Int
+  x
+sub inc(x: !Int)
+  x += 1
+sub main()
+  a = [1, 2]
+  w = !a[..]
+  inc(!w[n(5)])
+  print(a)

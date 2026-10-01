@@ -1,0 +1,17 @@
+struct R
+  n: Int
+
+  fun take(!self) -> Int
+    self.n = 0
+    7
+
+  fun unbox(<self) -> Int
+    self.n
+
+sub main
+  b = Box(value: R(n: 3))
+  print(!b.take(), b)
+  r = <b.unbox()
+  print(r)
+  c = Box(value: 5)
+  print(<c.unbox())

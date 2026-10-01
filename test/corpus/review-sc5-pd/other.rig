@@ -1,0 +1,5 @@
+pub K = 11
+PRIV = 5
+pub enum Mode
+  fast
+  slow

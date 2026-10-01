@@ -1,0 +1,150 @@
+fun rt_bool(b: Bool) -> Bool
+  b
+
+fun rt_int(n: Int) -> Int
+  n
+
+fun gid[T](a: T) -> T
+  a
+
+fun gmax[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun gsome[T](a: T) -> T?
+  a
+
+fun id_u8(x: U8) -> U8
+  x
+
+fun id_i8(x: I8) -> I8
+  x
+
+fun id_i16(x: I16) -> I16
+  x
+
+fun id_u16(x: U16) -> U16
+  x
+
+fun id_i32(x: I32) -> I32
+  x
+
+fun id_u32(x: U32) -> U32
+  x
+
+fun id_int(x: Int) -> Int
+  x
+
+fun id_u64(x: U64) -> U64
+  x
+
+fun id_i128(x: I128) -> I128
+  x
+
+fun id_u128(x: U128) -> U128
+  x
+
+fun id_float(x: Float) -> Float
+  x
+
+fun id_f32(x: F32) -> F32
+  x
+
+struct W1996
+  f: I8
+  g: Int = 1
+
+enum Op425
+  some(v: U32)
+  nothing
+
+enum Op1517
+  some(v: U32)
+  nothing
+
+fun take277(a: Float) -> Float
+  a
+
+sub t427
+  ce427: Cell[U32] = Cell(5)
+  qo427: U32? = id_u32(0)
+  print(qo427 ?? ce427.get())
+
+sub t1996
+  w1996 = W1996(f: gid((-84)))
+  print(w1996.f, w1996)
+
+sub t1787
+  k1787 = rt_int(2)
+  mk1787 = rt_int(1)
+  mz1787: U8 = match mk1787
+    1
+      match k1787
+        1 => 141
+        2, 3 => 55
+        _ => 6
+    _ => 12
+  print(mz1787)
+
+sub t404
+  cst404: I16 =! 8237
+  cc404: Cell[I16] = Cell(0)
+  cc404.set(cst404)
+  print(cc404.get())
+
+sub t425
+  cl425 = |x: U32| x
+  en425: Op425 = .some(cl425(9))
+  print(en425)
+
+sub t176
+  arr176: [2]I32 = [2147483647, (-1890134535)]
+  vec176: Vec[I32] = Vec()
+  !vec176.push(arr176[1])
+  print(vec176)
+
+sub t721
+  cst721: I128 =! (-12)
+  op721: I128? = cst721
+  print(op721, op721 ?? 0)
+
+sub t854
+  o854: U64? = none
+  flag854 = rt_bool(true)
+  b854: U64 = id_u64(12)
+  print(b854 + (o854 ?? (18446744073709551603 if flag854 else 12)), (o854 ?? (18446744073709551603 if flag854 else 12)) + b854)
+
+sub t469
+  cl469 = |x: F32| x
+  cmp469: F32 = id_f32(1.0)
+  print(cmp469 == cl469(0), cl469(0) < cmp469, cl469(0) >= cmp469)
+
+sub t1517
+  flag1517 = rt_bool(true)
+  en1517: Op1517 = .some(((450549679 if flag1517 else 9) + 0))
+  print(en1517)
+
+sub t277
+  o277: Float? = none
+  flag277 = rt_bool(false)
+  y277 = take277((o277 ?? (0 if flag277 else 3)))
+  print(y277)
+
+sub t669
+  vv669: Vec[I16] = Vec()
+  !vv669.push((-7))
+  op669: I16? = vv669[0]
+  print(op669, op669 ?? 0)
+
+sub main
+  t427()
+  t1996()
+  t1787()
+  t404()
+  t425()
+  t176()
+  t721()
+  t854()
+  t469()
+  t1517()
+  t277()
+  t669()

@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+sub g(p: !P)
+  p.x = 3
+
+sub main
+  p =! P(x: 1)
+  g(!p)

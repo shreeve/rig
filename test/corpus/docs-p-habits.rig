@@ -1,0 +1,9 @@
+struct Counter
+  n: Int
+  fun get(?self) -> Int
+    this.n
+sub main
+  x: Int? = null
+  ok = True
+  c = Counter(n: 0)
+  println(c.get())

@@ -1,0 +1,35 @@
+struct Node
+  val: Int
+  next: Box[Node]?
+
+struct List
+  head: Box[Node]?
+  len: Int = 0
+
+  sub push(!self, v: Int)
+    old = <self.head
+    self.head = Box(value: Node(val: v, next: <old))
+    self.len += 1
+
+  fun pop(!self) -> Int?
+    if <self.head as b
+      n = <b.unbox()
+      self.head = <n.next
+      self.len -= 1
+      return n.val
+    none
+
+  fun sum(?self) -> Int
+    total = 0
+    cur = ?self.head
+    while cur as n
+      total += n.val
+      cur = ?n.next
+    total
+
+sub main
+  l = List(head: none)
+  for i in 0..5
+    !l.push(i)
+  print(l.len, l.sum())
+  print(!l.pop() ?? -1, l.len)

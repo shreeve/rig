@@ -1,0 +1,10 @@
+pub struct Pair[A, B]
+  pub a: A
+  pub b: B
+pub struct P
+  pub x: Int
+  pub y: Int = 2
+pub type IP = Pair[Int, String]
+pub type CI = Cell[Int]
+pub type VP = Vec[P]
+pub type Q = P

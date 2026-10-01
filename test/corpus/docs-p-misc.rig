@@ -1,0 +1,19 @@
+struct V
+  items: Vec[Int]
+  sub put[k: Int](!self, x: Int)
+    !self.items.push(x * k)
+fun top(v: !Vec[Int]) -> Int?
+  a = ((!v).pop())?
+  b = !v.pop()?
+  a + b
+sub main
+  v: Vec[Int] = Vec(capacity: 16)
+  w = V(items: Vec())
+  (!w).put[2](3)
+  !w.put[3](1)
+  !v.push(1)
+  !v.push(2)
+  print(top(!v), w.items.len, w.items[0], w.items[1])
+  x: Int? = 1
+  if x as _
+    print("has")

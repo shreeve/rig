@@ -1,0 +1,6 @@
+fun f(a: ?[2]Int) -> ![]Int
+  !a[..]
+
+sub main
+  b = [1, 2]
+  print(f(?b).len)

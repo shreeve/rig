@@ -1,0 +1,24 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+enum M
+  a(n: N)
+  c
+
+fun mk -> M
+  M.a(n: N(id: 1))
+
+sub keep(m: M)
+  print("kept")
+
+sub main
+  match mk()
+    .c => print("c")
+    other => keep(<other)
+  x = match mk()
+    .c => M.c
+    other => other
+  print("end")

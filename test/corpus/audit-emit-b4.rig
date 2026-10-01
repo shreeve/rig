@@ -1,0 +1,10 @@
+sub main
+  xs = [10, 20, 30]
+  i: I128 = 1
+  print(?xs[i..])
+  j: U128 = 2
+  print(?xs[0..j])
+  b: [8]U8 = [0, 0, 0, 0, 0, 0, 0, 0]
+  !b.write[U16, .big](j, 258)
+  print(b.read[U16, .big](i))
+  !b.swap(i, j)

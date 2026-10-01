@@ -1,0 +1,27 @@
+pub struct Point
+  x: Int
+
+pub struct HasVec
+  v: Vec[Int]
+
+pub struct HasCell
+  c: Cell[Int]
+
+pub struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+pub struct HasRes
+  r: Res
+
+pub enum HasFn
+  f(g: fun(Int) -> Int)
+  none_
+
+pub struct Clos
+  k: *fun(Int) -> Int
+
+pub struct Weak
+  w: ~Point

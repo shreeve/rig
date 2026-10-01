@@ -1,0 +1,8 @@
+use std
+use rig
+
+pub fun f(x: Int = std.K, y: Int = rig.K) -> Int
+  x + y
+
+pub struct T
+  pub v: Int = std.K

@@ -1,0 +1,10 @@
+use lib
+
+sub main
+  b = lib.Bx[Int](v: 1)
+  print(b)
+  r: lib.R = .bad(.full)
+  print(r, lib.mk(0))
+  match lib.mk(0)
+    .bad(e) => print(e == .empty, e == lib.Disk.empty)
+    .ok(v) => print(v)

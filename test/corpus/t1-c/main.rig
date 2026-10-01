@@ -1,0 +1,5 @@
+use math
+use std.math
+
+sub main
+  print(math.twice(1))

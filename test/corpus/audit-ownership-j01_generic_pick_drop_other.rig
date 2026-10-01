@@ -1,0 +1,29 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+fun pick[T](a: T, b: T, first: Bool) -> T
+  if first
+    <a
+  else
+    <b
+
+sub main
+  t = pick(*Tok(n: 1), *Tok(n: 2), true)
+  print(t.n)
+  v = pick(Vec[Int](), Vec[Int](), false)
+  print(v.len)

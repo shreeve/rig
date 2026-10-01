@@ -1,0 +1,13 @@
+fun find(xs: ?Vec[String], t: String) -> Int?
+  for x, i in xs
+    return i if x == t
+  none
+
+sub main
+  v: Vec[String] = Vec()
+  !v.push("a")
+  i = find(?v, "a")
+  if i
+    print("truthy")
+  print(i + 1)
+  print(i or 0)

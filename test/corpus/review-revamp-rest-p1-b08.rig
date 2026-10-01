@@ -1,0 +1,5 @@
+sub main()
+  x = 1
+  print(x)
+  defer y = 3
+  print(x)

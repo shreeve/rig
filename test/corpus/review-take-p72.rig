@@ -1,0 +1,17 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+
+fun f() -> Int?
+  o: S? = S(a: R(n: 1))
+  t = <o?.a
+  print(t)
+  print(o)
+  1
+
+sub main
+  print(f())

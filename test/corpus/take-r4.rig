@@ -1,0 +1,12 @@
+struct Q
+  x: Int
+
+struct P
+  a: Q
+  b: Q
+
+sub main
+  p = P(a: Q(x: 1), b: Q(x: 2))
+  swap(!p.a, !p.b)
+  swap(!p.a.x, !p.b.x)
+  print(p)

@@ -1,0 +1,8 @@
+struct P
+  x: Int
+
+sub main
+  b = Box(P(x: 1))
+  b.x = 5
+  b.x += 1
+  print(b.x)

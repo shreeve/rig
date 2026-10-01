@@ -1,0 +1,34 @@
+struct Wrap[T]
+  item: T
+
+  fun rewrap(?self) -> Wrap[T]
+    Wrap(self.item)
+
+
+struct M
+  v: Int
+
+  fun twice(?self) -> M
+    M(self.v * 2)
+
+
+fun mk[T](x: T) -> Wrap[T]
+  Wrap(x)
+
+fun mk2[T](x: T) -> Wrap[T]
+  Wrap[T](x)
+
+fun boxit[T](x: T) -> Box[T]
+  Box(x)
+
+sub main
+  w = mk(3)
+  print(w, mk2("a"), w.rewrap())
+  m = M(2)
+  print(m.twice())
+  b = boxit(9)
+  print(b)
+  sm = *M(4)
+  print(sm.twice())
+  bm = Box(M(5))
+  print(bm)

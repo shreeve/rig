@@ -1,0 +1,5 @@
+use lib
+
+sub main()
+  c = lib.Code.b
+  print(U8(c))

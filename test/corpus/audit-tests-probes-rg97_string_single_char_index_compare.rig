@@ -1,0 +1,4 @@
+sub main
+  s = "abc"
+  if s[0] == "a"
+    print(1)

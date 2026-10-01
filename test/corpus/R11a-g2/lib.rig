@@ -1,0 +1,15 @@
+fun helper[m: Int] -> Int
+  a = [0; m]
+  a.len
+
+pub sub show[k: Int]
+  print(helper[k]())
+
+pub struct Grid[T, n: Int]
+  cells: [n]T
+
+  fun make(x: T) -> Self
+    Grid(cells: [x; n])
+
+pub fun grid[T, n: Int](x: T) -> Grid[T, n]
+  Grid[T, n].make(x)

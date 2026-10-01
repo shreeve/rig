@@ -1,0 +1,8 @@
+use lib
+
+sub main()
+  a = lib.fill(7)
+  b = lib.buf(true)
+  c = lib.Buf[Int](items: [1, 2, 3, 4])
+  z = lib.zeros()
+  print(a, b.first(), c.first(), z.len, a.len)

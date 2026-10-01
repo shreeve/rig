@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+fun rd(p: ?P) -> Int
+  p.x
+
+sub main
+  h = *P(x: 1)
+  for q in [1]
+    print(rd(?h), q)

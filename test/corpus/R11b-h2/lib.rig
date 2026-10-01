@@ -1,0 +1,17 @@
+pub struct Wrap[T]
+  v: T
+
+  fun conv2[U](?self) -> Vec[U]
+    Vec()
+
+  fun empty2[U]() -> Vec[U]
+    Vec()
+
+pub struct Plain
+  x: Int
+
+  fun empty3[U]() -> Vec[U]
+    Vec()
+
+pub fun max[T](a: T, b: T) -> T
+  a

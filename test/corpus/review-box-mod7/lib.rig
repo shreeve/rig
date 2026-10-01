@@ -1,0 +1,3 @@
+pub struct P
+  x: Int
+  take: Int

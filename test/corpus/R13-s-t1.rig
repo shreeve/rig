@@ -1,0 +1,19 @@
+enum Opt[T]
+  some(v: T)
+  no
+
+  fun or(self: Self, d: T) -> T
+    match self
+      .some(v) => v
+      .no => d
+
+enum C
+  a
+  b
+
+  fun n(self: Self) -> Int
+    1
+
+sub main
+  print <Opt[Int].no.or(9)
+  print <C.a.n()

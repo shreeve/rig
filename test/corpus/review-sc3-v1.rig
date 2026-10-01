@@ -1,0 +1,23 @@
+struct P
+  x: Int
+  y: Int
+
+sub main
+  vs: Vec[[2]Int] = Vec()
+  !vs.push([1, 2])
+  !vs.push([3, 4])
+  vs[0][1] = 9
+  print(vs)
+  for row in ?vs
+    print(row[0] + row[1], row.get(1))
+  for row in !vs
+    row[0] = 100
+  print(vs)
+  r = vs[1]
+  print(r)
+  print(!vs.pop())
+  c: Cell[P] = Cell(P(x: 1, y: 2))
+  print(c.get().x)
+  c.set(P(x: 5, y: 6))
+  d = c.replace(P(x: 7, y: 8))
+  print(d.x, c.get().y)

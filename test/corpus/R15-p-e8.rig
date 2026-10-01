@@ -1,0 +1,7 @@
+sub main()
+  f = |n: Int|
+    a = [n, n]
+    !a[..]
+  w = f(1)
+  w[0] = 9
+  print(w)

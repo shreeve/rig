@@ -1,0 +1,10 @@
+pub type Real = F32
+pub type Byte = U8
+
+pub struct P
+  pub a: F32 = F32.max
+  pub b: U8 = Byte.max
+  pub c: F32 = F32.min
+
+pub fun f(x: U8 = Byte.min) -> U8
+  x

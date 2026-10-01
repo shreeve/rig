@@ -1,0 +1,28 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+sub main
+  v: Vec[Slot] = Vec()
+  i = 0
+  while i < 3 : i += 1
+    s: Slot = .full(t: *Tok(n: i))
+    match <s
+      .full(t) if t.n == 1 => eat(<t)
+      .full(t) => print("keep", t.n)
+      _ => print("other")
+  print("end")

@@ -1,0 +1,18 @@
+pub error Disk
+  timeout
+  full
+
+pub struct Rec
+  pub e: Disk = .full
+  pub g: Disk? = .timeout
+
+pub fun dflt(e: Disk = .timeout) -> Disk
+  e
+
+pub fun opt(n: Int) -> Disk?
+  return .timeout if n == 0
+  none
+
+pub fun fail(n: Int) -> Int!
+  return Disk.full if n == 0
+  1

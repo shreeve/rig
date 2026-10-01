@@ -1,0 +1,19 @@
+struct Bx
+  c: Cell[Int]
+  v: Vec[Int]
+
+struct View
+  b: ?Bx
+
+sub main
+  outer: Vec[*sub()] = Vec()
+  if true
+    y = Bx(c: Cell(0), v: Vec())
+    !y.v.push(42)
+    vw = View(b: ?y)
+    v: Vec[*sub()] = Vec()
+    !v.push(*|<vw| print("read after free:", vw.b.v[0]))
+    for f in <v
+      !outer.push(<f)
+  for g in ?outer
+    g()

@@ -1,0 +1,11 @@
+fun grow(v: !Vec[Int?]) -> Int
+  i = 0
+  while i < 100 : i += 1
+    !v.push(i)
+  0
+
+sub main
+  v: Vec[Int?] = Vec()
+  !v.push(7)
+  t = replace(!v[grow(!v)], 5)
+  print(t, v.len)

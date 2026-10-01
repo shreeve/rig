@@ -1,0 +1,13 @@
+struct Bx
+  n: Int
+
+  drop(!self)
+    print("drop box", self.n)
+
+sub main
+  h = *Bx(n: 7)
+  r = ?h
+  f = *|<r| print("in closure", r.n)
+  f()
+  -f
+  print("after", h.n)

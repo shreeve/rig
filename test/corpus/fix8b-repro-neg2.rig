@@ -1,0 +1,3 @@
+sub main()
+  a: [-1]Int = []
+  print(a)

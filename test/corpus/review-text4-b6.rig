@@ -1,0 +1,16 @@
+struct N
+  id: Int
+  drop(!self)
+    print("drop", self.id)
+
+struct W
+  h: *N
+  c: Cell[Int]
+
+fun mkw(k: Int) -> W
+  W(h: *N(id: k), c: Cell(k))
+
+sub main
+  print(mkw(2).c.get())
+  y = mkw(3).c.get()
+  print(y)

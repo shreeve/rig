@@ -1,0 +1,5 @@
+use lib
+
+sub main
+  b = lib.mk(1)
+  print(<b.eat())

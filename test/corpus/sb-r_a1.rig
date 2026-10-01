@@ -1,0 +1,9 @@
+struct V
+  s: ![]Int
+
+sub main
+  a = [1, 2, 3]
+  v = V(s: !a[..])
+  t = !v.s[1..]
+  v.s[0] = 1
+  t[0] = 2

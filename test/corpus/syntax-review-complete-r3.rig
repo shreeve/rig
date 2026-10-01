@@ -1,0 +1,6 @@
+sub main
+  x = for i in 0..3
+    break i if i == 2
+  else
+    -1
+  print(x)

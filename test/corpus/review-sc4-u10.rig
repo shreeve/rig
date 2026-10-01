@@ -1,0 +1,19 @@
+struct C
+  n: Int
+
+sub set(a: !C)
+  w = <a
+  w = C(n: 5)
+  print(w.n)
+
+sub seti(a: !Int)
+  w: !Int = <a
+  w = 5
+
+sub main
+  z = C(n: 0)
+  set(!z)
+  print(z.n)
+  i = 0
+  seti(!i)
+  print(i)

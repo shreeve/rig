@@ -1,0 +1,33 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+struct W
+  b: *B
+
+fun get(s: Slot, d: *B) -> *B
+  match s
+    .full(b) => b
+    .empty => <d
+
+fun get2(s: Slot) -> W
+  match s
+    .full(b) => W(b: b)
+    .empty => W(b: *B(n: 0))
+
+fun get3(s: Slot) -> Vec[*B]
+  v: Vec[*B] = Vec()
+  match s
+    .full(b) => !v.push(b)
+    .empty => print("e")
+  v
+
+sub main
+  x = get(.full(b: *B(n: 1)), *B(n: 2))
+  print(x.n)

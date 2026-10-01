@@ -1,0 +1,17 @@
+pub struct Ring[T, n: Int]
+  items: [n]T
+
+  fun cap(?self) -> Int
+    n
+
+  fun grow[m: Int](?self, extra: [m]T) -> Int
+    n + m
+
+pub fun cap_of[T, n: Int](r: ?Ring[T, n]) -> Int
+  n
+
+pub fun lens[T, n: Int](a: [n]T) -> Int
+  n
+
+pub fun mk[n: Int]() -> Ring[Int, n]
+  Ring(items: [0; n])

@@ -1,0 +1,4 @@
+sub main
+  a = Box(value: 5)
+  b = Box(value: 5)
+  print(a == b)

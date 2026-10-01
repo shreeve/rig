@@ -1,0 +1,13 @@
+struct H
+  w: !Vec[Int]
+
+fun first(v: ?Vec[Int]) -> ?Int
+  ?v[0]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = H(w: !v)
+  r = first(?h.w)
+  h.w = Vec[Int]()
+  print(r)

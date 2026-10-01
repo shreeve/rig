@@ -1,0 +1,21 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+  sub bump(!self)
+    self.n += 10
+
+sub main
+  v: Vec[Box[R]] = Vec()
+  !v.push(Box(value: R(n: 1)))
+  b = Box(value: R(n: 2))
+  !v.push(<b)
+  for x in ?v
+    print("see", x.n)
+  for x in !v
+    !x.bump()
+  if !v.pop() as last
+    print("popped", last.n)
+  print(v.len)

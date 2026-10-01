@@ -1,0 +1,11 @@
+use util
+
+type R = F32
+
+pub struct S
+  pub b: util.Byte = util.Byte.max
+  pub r: util.Real = util.Real.min
+  pub q: R = R.max
+
+pub fun f(x: util.Byte = util.Byte.max, y: R = R.min) -> Bool
+  x == 255 and y < -3.0e38

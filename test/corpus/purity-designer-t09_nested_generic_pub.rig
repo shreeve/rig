@@ -1,0 +1,7 @@
+struct W[T]
+  v: T
+  fun map[U](?self, f: ?fun(T) -> U) -> W[U]
+    W(v: f(self.v))
+sub main
+  w = W(v: 2)
+  print(w.map(|x| x * 3).v)

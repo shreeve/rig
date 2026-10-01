@@ -1,0 +1,41 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Inner
+  one(b: *B)
+  zero
+
+enum Outer
+  wrap(i: Inner, k: Int)
+  nada
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main
+  o: Outer = .wrap(i: .one(b: *B(n: 1)), k: 0)
+  match !o
+    .wrap(i, k)
+      k += 1
+      match !i
+        .one(b) => b = *B(n: 2)
+        .zero => print("z")
+    .nada => print("n")
+  match o
+    .wrap(i, k)
+      match i
+        .one(b) => print(b.n, k)
+        .zero => print("z")
+    .nada => print("n")
+  match <o
+    .wrap(i, _)
+      match <i
+        .one(b) if b.n > 5 => keep(<b)
+        .one(b) => print("small", b.n)
+        .zero => print("z")
+      print("after inner")
+    .nada => print("n")
+  print("end")

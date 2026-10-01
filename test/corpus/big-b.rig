@@ -1,0 +1,6 @@
+fun first(x: ?[1000000]Int) -> Int
+  x[0]
+
+sub main
+  a: [1000000]Int = [1000000 of 7]
+  print(first(?a))

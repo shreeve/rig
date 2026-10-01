@@ -1,0 +1,9 @@
+enum C
+  red
+  blue
+sub main()
+  c = C.red
+  match c
+    .red if false => print(1)
+    .red => print(3)
+    .blue => print(2)

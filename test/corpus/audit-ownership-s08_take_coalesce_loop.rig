@@ -1,0 +1,36 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+error E
+  bad
+
+fun fail(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+struct H
+  o: *Tok?
+
+sub main
+  hs: Vec[Box[H]] = Vec()
+  !hs.push(Box(H(o: *Tok(n: 1))))
+  !hs.push(Box(H(o: none)))
+  !hs.push(Box(H(o: *Tok(n: 3))))
+  for h in !hs
+    t = <h.o ?? continue
+    eat(<t)
+  print("end")

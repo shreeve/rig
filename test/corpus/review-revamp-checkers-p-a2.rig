@@ -1,0 +1,5 @@
+# optional array: if ?o as a
+sub main()
+  o: [3]Int? = [1, 2, 3]
+  s = ?[9][0..0]
+  t: []Int = ?o_dummy

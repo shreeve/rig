@@ -1,0 +1,13 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  b = Box(value: R(n: 1))
+  r: ?R = ?b
+  print(r.n, b.n)
+  s: !R = !b
+  s.n = 4
+  print(b.n)

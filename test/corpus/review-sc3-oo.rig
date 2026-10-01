@@ -1,0 +1,19 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+sub t(k: Int)
+  o: N? = N(id: k) if k > 0 else none
+  r = o ?? return
+  print(r.id)
+
+sub u(k: Int)
+  o: N? = N(id: k) if k > 0 else none
+  r = <o ?? return
+  print(r.id)
+
+sub main
+  u(1)
+  u(0)

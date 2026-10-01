@@ -1,0 +1,8 @@
+fun cmp(b: ?Box[Text]) -> Bool
+  b == "boxed"
+
+sub main
+  b = Box(Text("boxed"))
+  c = Box(Text("boxed"))
+  t = Text("boxed")
+  print(?b == "boxed", b == "no", b == c, t == b, cmp(?b))

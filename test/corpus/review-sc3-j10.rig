@@ -1,0 +1,8 @@
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  n = 3
+  while n > -5 : n = get(n - 1) ?? break
+    print(n)
+  print("done", n)

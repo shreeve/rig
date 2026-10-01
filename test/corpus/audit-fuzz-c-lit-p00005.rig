@@ -1,0 +1,213 @@
+fun gid[T](a: T) -> T
+  a
+
+fun gmax[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun gmin[T](a: T, b: T) -> T
+  a if a < b else b
+
+fun gadd[T](a: T, b: T) -> T
+  a + b
+
+fun gdbl[T](a: T) -> T
+  a * 2
+
+fun ghalf[T](a: T) -> T
+  a / 2
+
+fun gsome[T](a: T) -> T?
+  a
+
+fun gnone[T] -> T?
+  none
+
+fun gpick[T](a: T, b: T, first: Bool) -> T
+  a if first else b
+
+fun gfail[T](a: T, ok: Bool) -> T!
+  return GE.bad if not ok
+  a
+
+error GE
+  bad
+
+struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+  fun make(x: T) -> Wrap[T]
+    Wrap(v: x)
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+  fun or(?self, d: T) -> T
+    match self
+      .some(v) => v
+      .nothing => d
+
+struct Pair[T, U]
+  a: T
+  b: U
+
+fun rt_bool(b: Bool) -> Bool
+  b
+
+fun take_u8(x: U8) -> U8
+  x
+
+fun take_i8(x: I8) -> I8
+  x
+
+fun take_i16(x: I16) -> I16
+  x
+
+fun take_u16(x: U16) -> U16
+  x
+
+fun take_i32(x: I32) -> I32
+  x
+
+fun take_u32(x: U32) -> U32
+  x
+
+fun take_int(x: Int) -> Int
+  x
+
+fun take_u64(x: U64) -> U64
+  x
+
+fun take_i128(x: I128) -> I128
+  x
+
+fun take_u128(x: U128) -> U128
+  x
+
+fun take_float(x: Float) -> Float
+  x
+
+fun take_f32(x: F32) -> F32
+  x
+
+fun id_u8(x: U8) -> U8
+  x
+
+fun id_i8(x: I8) -> I8
+  x
+
+fun id_i16(x: I16) -> I16
+  x
+
+fun id_u16(x: U16) -> U16
+  x
+
+fun id_i32(x: I32) -> I32
+  x
+
+fun id_u32(x: U32) -> U32
+  x
+
+fun id_int(x: Int) -> Int
+  x
+
+fun id_u64(x: U64) -> U64
+  x
+
+fun id_i128(x: I128) -> I128
+  x
+
+fun id_u128(x: U128) -> U128
+  x
+
+fun id_float(x: Float) -> Float
+  x
+
+fun id_f32(x: F32) -> F32
+  x
+
+fun ret24 -> U32
+  2
+
+fun ret2197 -> F32
+  gid(gid((gnone() ?? 3)))
+
+fun ret1473 -> I16
+  (gsome(100) ?? 255)
+
+sub t2276
+  p2276: Pair[I16, Int] = Pair(a: gmax(0, 200), b: 1)
+  print(p2276.a)
+
+sub t2099
+  p2099: Pair[I128, Int] = Pair(a: gadd(7, 100), b: 1)
+  print(p2099.a)
+
+sub t1742
+  xs1742: [2]U64 = [gdbl(255), gdbl(255)]
+  print(xs1742)
+
+sub t2266
+  o2266: Opt[I128] = .some(gid((-1)))
+  print(o2266.or((-170141183460469231731687303715884105728)))
+
+sub t2173
+  w2173: Wrap[U64] = Wrap(v: 0)
+  print(w2173.v, w2173)
+
+sub t24
+  print(ret24())
+
+sub t17
+  w17: Wrap[U64] = Wrap(v: ghalf(gid(200)))
+  print(w17.v, w17)
+
+sub t1959
+  print(take_float((gfail(3, false) catch 3)))
+
+sub t1411
+  v1411: Vec[Float] = Vec()
+  !v1411.push(4)
+  print(v1411[0])
+
+sub t1721
+  x1721: I128 = 170141183460469231731687303715884105727
+  print(x1721)
+
+sub t2197
+  print(ret2197())
+
+sub t162
+  b162: I128 = id_i128(0)
+  print(b162 + 127)
+
+sub t254
+  q254: I8? = (gnone() ?? (-100))
+  print(q254)
+
+sub t1849
+  p1849: Pair[I32, Int] = Pair(a: gmax(gpick((-1), 2147483647, rt_bool(true)), gid(100)), b: 1)
+  print(p1849.a)
+
+sub t1473
+  print(ret1473())
+
+sub main
+  t2276()
+  t2099()
+  t1742()
+  t2266()
+  t2173()
+  t24()
+  t17()
+  t1959()
+  t1411()
+  t1721()
+  t2197()
+  t162()
+  t254()
+  t1849()
+  t1473()

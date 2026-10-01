@@ -1,0 +1,15 @@
+struct Bag
+  items: Vec[Int]
+
+  sub grow(!self, f: ?fun(Int) -> Int)
+    n = self.items.len
+    i = 0
+    while i < n
+      !self.items.push(f(i))
+      i += 1
+
+sub main
+  b = Bag(items: Vec())
+  !b.items.push(1)
+  !b.grow(|?b, n| b.items.len + n)
+  print(b.items.len)

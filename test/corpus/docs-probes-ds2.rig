@@ -1,0 +1,12 @@
+sub each(v: ?Vec[Int], f: ?sub(Int))
+  for x in ?v
+    f(x)
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  total = 0
+  each(?v, |!total, n| total += n)
+  print(total)
+  each(?total, |!total, n| total += n)

@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  w = lib.Wrap(v: 1)
+  print(w.n, w.add(), w.more(true), w.col(), lib.f(1), lib.g("x"))
+  print(w)

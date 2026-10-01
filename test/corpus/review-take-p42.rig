@@ -1,0 +1,8 @@
+sub main
+  x = 1
+  y = 2
+  w = !x
+  swap(w, !y)
+  old = replace(w, 5)
+  print(w, old, y)
+  print(x)

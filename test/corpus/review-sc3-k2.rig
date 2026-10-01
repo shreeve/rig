@@ -1,0 +1,11 @@
+enum Ev
+  at(when: Int, async: Bool)
+  none_yet
+
+sub main
+  e = Ev.at(when: 5, async: false)
+  match e
+    .at(w, a) => print(w, a)
+    .none_yet => print("n")
+  if e as x
+    print(1)

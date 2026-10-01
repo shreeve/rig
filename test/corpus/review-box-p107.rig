@@ -1,0 +1,27 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(b: Box[R])
+  print("eat", b.n)
+
+sub main
+  b = Box(value: R(n: 1))
+  -b
+  b = Box(value: R(n: 2))
+  flag = b.n > 1
+  if flag
+    eat(<b)
+  c = Box(value: R(n: 3))
+  i = 0
+  while i < 3
+    if i == 1
+      eat(<c)
+      c = Box(value: R(n: 30))
+    i += 1
+  o: Box[R]? = Box(value: R(n: 4))
+  if flag
+    x = <o
+  print("end")

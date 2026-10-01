@@ -1,0 +1,14 @@
+error E
+  bad
+
+fun p(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+struct S
+  n: Int
+  drop(!self)
+    print(p(self.n)!)
+
+sub main
+  s = S(n: 1)

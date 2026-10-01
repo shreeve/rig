@@ -1,0 +1,8 @@
+fun keep(f: fun(![]Int) -> ![]Int, s: ![]Int) -> ![]Int
+  f(s)
+sub main()
+  a = [1, 2]
+  g = |s| !s[1..]
+  w = keep(g, !a[..])
+  w[0] = 9
+  print(a)

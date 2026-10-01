@@ -1,0 +1,5 @@
+use std.os as o
+use std.math as o
+
+sub main
+  print(1)

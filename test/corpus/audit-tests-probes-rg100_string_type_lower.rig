@@ -1,0 +1,5 @@
+fun f(s: string) -> Int
+  s.len
+
+sub main
+  print(f("a"))

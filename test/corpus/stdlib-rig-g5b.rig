@@ -1,0 +1,8 @@
+error A
+  x
+fun f -> Int!
+  return A.x
+sub main
+  e = f() catch |err|
+    m: A = err
+    0

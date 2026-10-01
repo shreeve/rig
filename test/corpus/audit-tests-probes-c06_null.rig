@@ -1,0 +1,6 @@
+fun f(n: Int) -> Int?
+  return null if n < 0
+  n
+
+sub main
+  print(f(1) ?? 0)

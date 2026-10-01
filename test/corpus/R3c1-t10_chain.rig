@@ -1,0 +1,27 @@
+struct N
+  n: Int
+
+struct Wrap[T]
+  item: T
+
+enum Opt[T]
+  some(value: T)
+  none_
+
+fun inner[U](a: ?U, b: ?U) -> Bool
+  a == b
+
+fun mid[T](a: T, b: T) -> Bool
+  inner(?Wrap(item: a), ?Wrap(item: b))
+
+fun outer[V](a: V) -> Bool
+  o: Opt[Wrap[V]] = .some(value: Wrap(item: a))
+  o == .none_
+
+sub main()
+  print(mid(1, 1), mid("a", "b"))
+  h = *N(n: 1)
+  print(mid(+h, +h))
+  print(outer(*N(n: 2)))
+  v = Vec[Int]()
+  print(outer(<v))

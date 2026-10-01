@@ -1,0 +1,9 @@
+fun f -> Vec[Int]
+  v: Vec[Int] = Vec()
+  defer print(v.len)
+  !v.push(1)
+  v
+
+sub main
+  x = f()
+  print(x)

@@ -1,0 +1,30 @@
+struct Node
+  key: Int
+  left: Box[Node]?
+  right: Box[Node]?
+
+  drop(!self)
+    print("drop", self.key)
+
+sub insert(slot: !Box[Node]?, key: Int)
+  if !slot as n
+    if key < n.key
+      insert(!n.left, key)
+    else
+      insert(!n.right, key)
+  else
+    slot = Box(Node(key: key, left: none, right: none))
+
+sub walk(slot: ?Box[Node]?)
+  if slot as n
+    walk(?n.left)
+    print(n.key)
+    walk(?n.right)
+
+sub main
+  root: Box[Node]? = none
+  for k in [5, 2, 8]
+    insert(!root, k)
+  if !root as n
+    n = Node(key: 42, left: none, right: none)
+  walk(?root)

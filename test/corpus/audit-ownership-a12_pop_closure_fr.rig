@@ -1,0 +1,7 @@
+sub main
+  v: Vec[*sub()] = Vec()
+  !v.push(*|| print("hi"))
+  f = !v.pop()
+  print(v.len)
+  if <f as g
+    g()

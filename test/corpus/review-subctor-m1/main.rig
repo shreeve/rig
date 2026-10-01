@@ -1,0 +1,21 @@
+use lib
+
+sub main
+  lib.check(1)!
+  lib.check(-1) catch |e|
+    print("e", e)
+  m = lib.M(3)
+  !m.bump(2)!
+  print(m)
+  w = lib.W(4)
+  w2 = lib.W[String]("s")
+  print(w, w2)
+  r = lib.Res(Vec())
+  print(r)
+  d = lib.D(9)
+  print(d)
+  a = [1, 2]
+  n = lib.each(?a, lib.check)!
+  print(n)
+  h: sub(Int)! = lib.check
+  h(5)!

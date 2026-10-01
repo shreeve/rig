@@ -1,0 +1,7 @@
+sub main()
+  grid = [[1, 2], [3, 4]]
+  for row in !grid
+    !row.fill(7)
+    w = !row[1..]
+    w[0] = 8
+  print(grid)

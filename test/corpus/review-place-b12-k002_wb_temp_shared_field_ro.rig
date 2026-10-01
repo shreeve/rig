@@ -1,0 +1,11 @@
+struct P
+  x: Int
+
+fun mk() -> *P
+  *P(x: 1)
+
+sub g(h: !*P)
+  print(h.x)
+
+sub main
+  g(!mk())

@@ -1,0 +1,18 @@
+struct S
+  n: Int
+
+struct V
+  r: ?S
+
+sub main()
+  a = S(n: 1)
+  v = V(r: ?a)
+  w = !v
+  b = S(n: 2)
+  w.r = ?b
+  print(v.r.n)
+  c = S(n: 3)
+  w2 = !v
+  w2.r = ?c
+  -c
+  print(v.r.n)

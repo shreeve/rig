@@ -1,0 +1,4 @@
+enum E
+  a = U64.max
+sub main()
+  print(Int(E.a))

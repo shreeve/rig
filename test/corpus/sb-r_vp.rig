@@ -1,0 +1,10 @@
+fun g(v: Vec[Int]) -> ![]Int
+  !v[..]
+
+struct S
+  a: [2]Int
+  fun h(<self) -> ![]Int
+    !self.a[..]
+
+sub main
+  print(1)

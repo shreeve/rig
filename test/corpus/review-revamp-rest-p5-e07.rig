@@ -1,0 +1,4 @@
+fun inf() -> F64
+  1.0 / 0.0
+sub main()
+  print(Int(inf()))

@@ -1,0 +1,11 @@
+use lib
+type X = lib.IP
+type Y = lib.Q
+sub main()
+  p = lib.IP(a: 1, b: "x")
+  q = X(a: 2, b: "y")
+  c = lib.CI(5)
+  v = lib.VP()
+  !v.push(lib.Q(x: 7))
+  w = Y(x: 8)
+  print(p.a, q.b, c.get(), v[0].x, w.x)

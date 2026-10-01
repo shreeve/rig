@@ -1,0 +1,11 @@
+enum E
+  w(p: !Int)
+  none
+
+sub main
+  a = 1
+  e: E = .w(p: !a)
+  match e
+    .w(p) => p = 5
+    .none => print("n")
+  print(a)

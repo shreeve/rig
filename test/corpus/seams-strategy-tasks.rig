@@ -1,0 +1,27 @@
+# A tiny task board: tasks with owned names, sorted by priority,
+# with a text report.
+use std.sort
+
+struct Task
+  name: Text
+  priority: Int
+  done: Bool = false
+
+fun make_task(prefix: String, n: Int, priority: Int) -> Task
+  Task(name: Text(prefix, "-", n), priority: priority)
+
+fun report(tasks: ?Vec[Task]) -> Text
+  out = Text("tasks: ", tasks.len, "\n")
+  for t in tasks
+    mark = "x" if t.done else " "
+    !out.add("[", mark, "] ", t.name, " (p", t.priority, ")\n")
+  out
+
+sub main
+  board: Vec[Task] = Vec()
+  i = 0
+  while i < 5 : i += 1
+    !board.push(make_task("job", i, (i * 7) % 5))
+  board[2].done = true
+  sort.sort_by(!board[..], |a, b| a.priority > b.priority)
+  print(report(?board))

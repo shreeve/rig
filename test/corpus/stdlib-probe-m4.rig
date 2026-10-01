@@ -1,0 +1,12 @@
+extern fun sqrt(x: F64) -> F64
+extern fun time(t: Int) -> Int
+extern fun getpid() -> I32
+
+fun root(x: Float) -> Float
+  raw
+    sqrt(x)
+
+sub main
+  print(root(2.0))
+  raw
+    print(time(0) > 0, getpid() > 0)

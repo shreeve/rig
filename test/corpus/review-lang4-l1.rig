@@ -1,0 +1,27 @@
+fun find(xs: []Int, t: Int) -> Int
+  :outer for i in 0..xs.len
+    for j in 0..2
+      break :outer i if xs[i] == t + j
+  else
+    -1
+
+sub kind(n: Int)
+  :m match n
+    0 => print(5)
+    _
+      break :m if n > 2
+      print(9)
+
+sub main
+  xs = [1, 5, 9]
+  print(find(?xs[..], 5), find(?xs[..], 100))
+  :w while true
+    break :w
+  :r raw
+    break :r
+  :mm match 3
+    3 => break :mm
+    _ => pass
+  kind(0)
+  kind(3)
+  kind(1)

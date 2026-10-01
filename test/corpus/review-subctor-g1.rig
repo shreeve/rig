@@ -1,0 +1,7 @@
+struct R
+  items: Vec[Int]
+
+sub main
+  v = Vec[Int]()
+  r = R(v)
+  print(r, v)

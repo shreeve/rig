@@ -1,0 +1,8 @@
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  c = true
+  print(c)
+  if get(1) as x and (c and get(2) as y)
+    print(x, y)

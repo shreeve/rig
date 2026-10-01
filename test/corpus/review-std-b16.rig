@@ -1,0 +1,18 @@
+struct View
+  xs: []Int
+
+struct Counter
+  n: Int
+
+  sub stash(!self, v: !View, ys: []Int)
+    self.n += 1
+    v.xs = ys
+
+sub main
+  b = [9]
+  v = View(xs: ?b)
+  c = Counter(n: 0)
+  if true
+    a = [1, 2, 3]
+    !c.stash(!v, ?a)
+  print(v.xs)

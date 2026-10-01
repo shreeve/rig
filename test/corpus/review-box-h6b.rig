@@ -1,0 +1,7 @@
+struct P
+  take: Int
+
+sub main
+  b = Box(value: P(take: 4))
+  p = <b.take()
+  print(p.take)

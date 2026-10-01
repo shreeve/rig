@@ -1,0 +1,37 @@
+struct Wrap
+  n: Int
+
+struct View
+  w: ?Wrap
+
+sub go(n: Int)
+  total = 0
+  a = |!total|
+    total += 1
+  b = |!total|
+    total += 2
+  a()
+  b()
+  f = |!n|
+    n += 1
+  k =! 3
+  g = |!k|
+    k += 1
+
+sub main
+  x = 1
+  owned = *|?x| x + 1
+  owned2 = *|!x|
+    x += 1
+  c = 0
+  add = |!c|
+    c += 1
+  add()
+  print(c)
+  add()
+  outer = Wrap(n: 1)
+  v = View(w: ?outer)
+  keep = |!v|
+    inner = Wrap(n: 2)
+    v = View(w: ?inner)
+  keep()

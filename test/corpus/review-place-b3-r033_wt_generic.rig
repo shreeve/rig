@@ -1,0 +1,8 @@
+struct W[T]
+  w: !T
+
+sub main
+  n = 1
+  h = W[Int](w: !n)
+  h.w = 3
+  print(n)

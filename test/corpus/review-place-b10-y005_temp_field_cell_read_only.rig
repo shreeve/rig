@@ -1,0 +1,15 @@
+struct P
+  c: Cell[Int]
+
+struct Q
+  p: P
+  n: Int
+
+fun mk() -> Q
+  Q(p: P(c: Cell(1)), n: 4)
+
+sub show(p: ?P)
+  print(p.c.get())
+
+sub main
+  show(?mk().p)

@@ -1,0 +1,13 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  r = Res(n: 1)
+  v = lib.pairs(?r, Res(n: 2))
+  -r
+  print(v.first.n)

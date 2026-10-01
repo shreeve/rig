@@ -1,0 +1,42 @@
+# `errdefer` runs only when its function fails, so a function, closure,
+# or `drop` body that cannot fail takes `defer` instead.
+
+fun next(x: Int) -> Int
+  errdefer print("never")
+  x + 1
+
+sub show(x: Int)
+  errdefer
+    print("never")
+  print(x)
+
+struct D
+  n: Int
+
+  drop(!self)
+    errdefer print("never")
+
+fun later() -> Int!
+  defer
+    errdefer print("never")
+  1
+
+sub main
+  k = ||
+    errdefer print("never")
+  k()
+  c: sub() = ||
+    errdefer print("never")
+  c()
+  show(next(1))
+  print(later()!)
+  d = D(n: 1)
+  print(d.n)
+
+# error: 5:3: `errdefer` runs only when the function fails, and `next` cannot fail; use `defer`
+# error: 9:3: `errdefer` runs only when the function fails, and `show` cannot fail; use `defer`
+# error: 17:5: `errdefer` runs only when the function fails, and a `drop` body cannot fail; use `defer`
+# error: 21:5: `errdefer` runs only when the function fails, and a deferred block cannot fail; use `defer`
+# error: 26:5: `errdefer` runs only when the function fails, and this closure cannot fail; use `defer`
+# error: 29:5: `errdefer` runs only when the function fails, and this closure cannot fail; use `defer`
+# errors: 6

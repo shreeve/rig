@@ -1,0 +1,15 @@
+struct P
+  c: Cell[Int]
+
+struct Q
+  p: P
+
+fun mk() -> Q
+  Q(p: P(c: Cell(1)))
+
+sub bump(p: ?P)
+  p.c.set(p.c.get() + 1)
+  print(p.c.get())
+
+sub main
+  bump(?mk().p)

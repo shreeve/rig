@@ -1,0 +1,10 @@
+sub main
+  x = 3
+  :m match x
+    3
+      break :m if x > 0
+      print("no")
+    _ => print("other")
+  :r raw
+    break :r
+  print("ok")

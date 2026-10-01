@@ -1,0 +1,23 @@
+enum Shape
+  circle(r: Int)
+  point
+
+fun next() -> Int
+  print("next")
+  1
+
+sub main
+  xs: [3]Shape = [.point, .circle(r: 5), .point]
+  match xs[next()]
+    .circle(r) if r > 10 => print("big")
+    .circle(r) if r > 3 => print("mid")
+    _ => print("other")
+  match !xs[next()]
+    .circle(r) if r > 10 => r = 0
+    .circle(r) => r = 99
+    _ => print("other")
+  print(xs[1])
+  match (next() * 2)
+    n if n > 5 => print("a")
+    n if n > 1 => print("b", n)
+    _ => print("c")

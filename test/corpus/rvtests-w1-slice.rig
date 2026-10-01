@@ -1,0 +1,6 @@
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  s = "abc"
+  print(s[0..rt(4)])

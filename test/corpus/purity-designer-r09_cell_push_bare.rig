@@ -1,0 +1,5 @@
+sub main
+  c = Cell[Vec[Int]](Vec())
+  c.push(1)
+  v: Vec[Int] = Vec()
+  v.push(1)

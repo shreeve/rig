@@ -1,0 +1,13 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  b = B(n: 1)
+  c = B(n: 2)
+  w = !b
+  w = <c
+  w = replace(!w, B(n: 3))
+  print(b.n)

@@ -1,0 +1,10 @@
+struct H
+  w: !Vec[Int]
+
+sub main
+  v: Vec[Int] = Vec()
+  h = H(w: !v)
+  print(v.len)
+  u: Vec[Int] = Vec()
+  h.w = <u
+  print(v.len)

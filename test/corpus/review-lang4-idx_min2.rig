@@ -1,0 +1,7 @@
+sub main
+  n = 1
+  m = 2
+  xs = [!n]
+  xs[0] = !m
+  xs[0] += 1
+  print(m)

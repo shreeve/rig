@@ -1,0 +1,14 @@
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+sub main
+  v: Vec[Counter] = Vec()
+  !v.push(Counter(n: 1))
+  w = !v
+  !w[0].bump()
+  for x in !w
+    !x.bump()
+  print(v[0].n)

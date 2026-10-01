@@ -1,0 +1,5 @@
+use std.random
+
+sub main
+  r = random.Rng(state: 5)
+  print(!r.next())

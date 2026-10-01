@@ -1,0 +1,5 @@
+sub main
+  z = 0.0
+  f = z / z
+  print(f)
+  print(Int(f))

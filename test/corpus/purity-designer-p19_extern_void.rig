@@ -1,0 +1,5 @@
+extern fun putchar(c: I32) -> I32
+sub main
+  raw
+    _ = putchar(65)
+  print("")

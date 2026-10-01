@@ -1,0 +1,6 @@
+fun head(xs: ?[3]Int) -> []Int
+  ?xs[0..2]
+
+sub main
+  a = [1, 2, 3]
+  print(head(?a))

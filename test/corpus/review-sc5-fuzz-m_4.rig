@@ -1,0 +1,6 @@
+K: I32 = 3
+
+sub main()
+  v: I32 = 5
+  x: I32 = ((100 | I32.min) -% -1)
+  print(x, v, K)

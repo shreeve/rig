@@ -1,0 +1,13 @@
+use lib
+
+fun dbl(x: Int) -> Int
+  x * 2
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  l = lib.List(items: <v)
+  m = l.map(dbl)
+  print(m.count())
+  print(lib.countdown("s", 3), lib.ping(1, 4), lib.once(2).a, lib.swap(lib.Pair(a: 1, b: "x"), 3))

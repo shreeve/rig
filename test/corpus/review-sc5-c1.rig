@@ -1,0 +1,47 @@
+error Parse
+  empty
+  neg
+
+struct R
+  n: Int
+  drop(!self)
+    print("drop R", self.n)
+
+fun parse(s: String) -> Int!
+  if s.len == 0
+    return Parse.empty
+  s.len
+
+fun mk(n: Int) -> R!
+  if n < 0
+    return Parse.neg
+  R(n: n)
+
+fun eat(r: R) -> Int
+  r.n
+
+sub each(xs: []String, f: ?fun(String) -> Int!)!
+  for x in xs
+    print("got", f(x)!)
+
+sub main()
+  v = Vec[String]()
+  !v.push("keep")
+  g: *fun(String) -> Int! = *|<v, s|
+    r = R(n: v.len)
+    k = parse(s)!
+    tmp = mk(k - 3)!
+    eat(<tmp) + r.n
+  print(g("abcd") catch -1)
+  print(g("") catch -2)
+  print(g("ab") catch -3)
+  fs: Vec[*fun(String) -> Int!] = Vec()
+  !fs.push(+g)
+  !fs.push(*|s| parse(s)! * 10)
+  for f in ?fs
+    print(f("xyz") catch 0, f("") catch 0)
+  each(["a", "bb"], |s| eat(mk(parse(s)!)!)) catch |e| print("each failed", e)
+  each(["a", ""], |s| eat(mk(parse(s)!)!)) catch |e| print("each failed", e)
+  c = Cell(+g)
+  h = c.replace(<g)
+  print(h("hello") catch 0)

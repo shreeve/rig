@@ -1,0 +1,13 @@
+fun rd(x: ?Int) -> Int
+  x + 1
+
+sub wr(x: !Int)
+  x = 7
+
+sub main
+  b = Box(value: 5)
+  print(rd(?b))
+  wr(!b)
+  print(b)
+  bb = Box(value: Box(value: 3))
+  print(bb)

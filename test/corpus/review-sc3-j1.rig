@@ -1,0 +1,30 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun make(k: Int) -> Res?
+  Res(id: k) if k > 0 else none
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub t(k: Int)
+  keep = Res(id: 100)
+  if make(1) as a and (get(k) ?? return) > 0
+    print("body", a.id, keep.id)
+  print("after")
+
+sub u(k: Int)
+  for i in 0..3
+    if make(10 + i) as a and (get(k - i) ?? continue) > 0
+      print("u body", a.id)
+    if make(20 + i) as b and (get(k - i) ?? break) > 0
+      print("u body2", b.id)
+  print("u after")
+
+sub main
+  t(1)
+  t(0)
+  u(1)

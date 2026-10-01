@@ -1,0 +1,6 @@
+sub outer(f: ?fun(Int) -> Int)
+  h = |+f| f(1)
+  print(h())
+
+sub main
+  outer(|a| a * 10)

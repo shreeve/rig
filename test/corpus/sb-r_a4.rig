@@ -1,0 +1,10 @@
+struct V
+  s: ![]Int
+
+sub main
+  b = [0]
+  v = V(s: !b[..])
+  if true
+    a = [1, 2]
+    v.s = !a[..]
+  v.s[0] = 3

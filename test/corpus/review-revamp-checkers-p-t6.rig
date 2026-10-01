@@ -1,0 +1,37 @@
+struct P
+  x: Int
+  y: Int
+
+enum E
+  a(p: P)
+  b
+
+fun mk(n: Int) -> E
+  .a(p: P(x: n, y: n + 1))
+
+fun arr(n: Int) -> [3]Int
+  [n, n + 1, n + 2]
+
+fun opt(n: Int) -> P?
+  P(x: n, y: n) if n > 0 else none
+
+fun sum(xs: []Int) -> Int
+  new t = 0
+  for x in xs
+    t += x
+  t
+
+sub main()
+  for x in ?arr(4)
+    print(x)
+  match ?mk(5)
+    .a(p) => print(p.x, p.y)
+    .b => print("b")
+  n = match ?mk(6)
+    .a(p) => p.y
+    .b => 0
+  print(n)
+  if opt(3) as p
+    print(p.x)
+  s = [1, 2, 3]
+  print(sum(?s))

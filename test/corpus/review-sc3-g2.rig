@@ -1,0 +1,29 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun first[T](a: T?, b: T?) -> T?
+  if <a as x and <b as y
+    <x
+  else
+    none
+
+struct Holder
+  a: Res?
+  b: Res?
+
+sub main
+  s = first(none, Res(id: 4))
+  print(s == none)
+  h = Holder(a: Res(id: 5), b: none)
+  if <h.a as x and <h.b as y
+    print(x.id, y.id)
+  else
+    print("else", h.a == none)
+  h2 = Holder(a: none, b: Res(id: 6))
+  if <h2.a as x and <h2.b as y
+    print(x.id, y.id)
+  else
+    print("else2", h2.b == none)

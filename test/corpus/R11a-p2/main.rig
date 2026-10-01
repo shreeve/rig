@@ -1,0 +1,11 @@
+use lib
+
+fun f(s: String) -> String
+  print("eval", s)
+  s
+
+sub main()
+  lib.pair(b: f("B"), a: f("A"))
+  lib.pair[Int, String](b: f("x"), a: 1, sep: f("+"))
+  t = lib.Two(b: f("b"), a: f("a"))
+  t.show(post: f("]"), pre: f("["))

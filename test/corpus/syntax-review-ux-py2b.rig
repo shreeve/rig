@@ -1,0 +1,7 @@
+sub main
+  scores = [88, 92, 75, 64, 99]
+  total = 0
+  for s in scores
+    total += s
+  avg = total / len(scores)
+  print("average:", avg)

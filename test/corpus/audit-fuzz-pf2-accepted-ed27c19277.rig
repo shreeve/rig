@@ -1,0 +1,9 @@
+fun f0(a0: Int) -> Int
+  new a0 = a0
+  b0 = -5
+  c0 = 5
+  c0 = (a0 - b0) % 1000
+  a0 + b0 + c0
+
+sub main
+  print("ret", f0((-1)))

@@ -1,0 +1,8 @@
+struct S
+  n: Int
+  a: Box[S]?
+
+sub main
+  s = S(n: 1, a: none)
+  old = replace(!s.a, Box(value: <s))
+  print(old)

@@ -1,0 +1,28 @@
+struct Job
+  id: Int
+  drop(!self)
+    print("free", self.id)
+
+fun filter[T](xs: ?Vec[T], keep: ?fun(?T) -> Bool) -> Vec[T]
+  out: Vec[T] = Vec()
+  for x in xs
+    if keep(?x)
+      !out.push(x)
+  out
+
+fun largest[T](xs: ?Vec[T]) -> T?
+  best: T? = none
+  for x in xs
+    if best as b
+      best = x if x > b
+    else
+      best = x
+  best
+
+sub main
+  jobs: Vec[*Job] = Vec()
+  !jobs.push(*Job(id: 1))
+  !jobs.push(*Job(id: 2))
+  keep = filter(?jobs, |j| j.id > 1)
+  print(keep.len)
+  print(largest(?jobs))

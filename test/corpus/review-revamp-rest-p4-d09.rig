@@ -1,0 +1,6 @@
+sub main()
+  x = true
+  match x
+    true if false => print(1)
+    true => print(3)
+    false => print(2)

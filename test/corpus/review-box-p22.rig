@@ -1,0 +1,13 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub f(b: !Box[R])
+  r = <b.take()
+  print(r.n)
+
+sub main
+  b = Box(value: R(n: 1))
+  f(!b)

@@ -1,0 +1,14 @@
+struct H
+  w: !Int
+
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  n = 1
+  m = 2
+  h = H(w: !n)
+  h.w = slot(!m)
+  h.w += 5
+  print(h.w)
+  print(n, m)

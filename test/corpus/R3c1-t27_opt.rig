@@ -1,0 +1,23 @@
+struct P
+  x: Int
+
+fun sl(xs: []Int, n: Int) -> ([]Int)?
+  return none if n < 0
+  xs[0..n]
+
+sub main()
+  a: ([2]Int)? = [1, 2]
+  b: ([2]Int)? = none
+  two = [1, 2]
+  print(a == two, two == a, a == b, b == none, none == b, a != [2, 1])
+  s: String? = "hi"
+  print(s == "hi", "hi" == s, s != "ho", s == none, none != s)
+  p: P? = none
+  q: P? = none
+  print(p == q, p == P(x: 1), P(x: 1) != p)
+  arr = [1, 2, 3]
+  print(sl(?arr[0..3], 2) == sl(?arr[0..3], 2), sl(?arr[0..3], -1) == none, sl(?arr[0..3], 2) == sl(?arr[0..3], 3))
+  ps: [2]P? = [P(x: 1), none]
+  print(ps[1] == none, ps[0] == P(x: 1))
+  qs: [2]P? = [P(x: 1), none]
+  print(ps == qs)

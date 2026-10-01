@@ -1,0 +1,8 @@
+sub main
+  v: Vec[Int?] = Vec()
+  !v.push(5)
+  a = <v[0]
+  print(a, v)
+  arr: [2]Int? = [1, 2]
+  b = <arr[1]
+  print(b, arr)

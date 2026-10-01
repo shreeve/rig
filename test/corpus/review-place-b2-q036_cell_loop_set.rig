@@ -1,0 +1,4 @@
+sub main
+  cs = [Cell[Int](1), Cell[Int](2)]
+  for c in cs
+    c.set(3)

@@ -1,0 +1,10 @@
+use lib
+
+sub main()
+  a = lib.cons("a", none)
+  b = lib.cons("b", <a)
+  n: lib.Node[String] = lib.Node(v: "c", next: <b)
+  print(n.val())
+  t = lib.Tree[Int](kids: Vec(), v: 1)
+  !t.kids.push(lib.Tree(kids: Vec(), v: 2))
+  print(t.kids.len, t.kids[0].v)

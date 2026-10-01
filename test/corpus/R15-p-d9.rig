@@ -1,0 +1,8 @@
+# owned closure captures a write slice, then root used
+sub main()
+  a = [1, 2]
+  w = !a[..]
+  f = *|<w|
+    w[0] = 5
+  print(a)
+  f()

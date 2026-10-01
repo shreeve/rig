@@ -1,0 +1,15 @@
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun keep(f: *fun(Int) -> Int) -> *fun(Int) -> Int
+  f
+
+fun parse(s: String) -> Int!
+  s.len
+
+sub main
+  k = 3
+  print(apply(|+k, x| x + k, 4))
+  g = keep(*|x| x * 2)
+  print(g(5))
+  print(parse("ab")!)

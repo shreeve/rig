@@ -1,0 +1,5 @@
+sub main
+  v = Vec[Int]()
+  b = Box(<v)
+  c = Cell(<v)
+  print(b)

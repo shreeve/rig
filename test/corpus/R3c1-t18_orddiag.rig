@@ -1,0 +1,24 @@
+struct P
+  x: Int
+
+enum C
+  red
+  blue
+
+sub main()
+  p = P(x: 1)
+  c: C = .red
+  xs = [1, 2]
+  s = "a"
+  b: [2]U8 = [1, 2]
+  o: String? = "a"
+  print(p < p)
+  print(c < c)
+  print(true < false)
+  print(?xs[0..1] < ?xs[0..2])
+  print(s < 3)
+  print(s < ?b[0..2])
+  print(o < s)
+  print(c < .blue)
+  print(xs < xs)
+  print(s < o)

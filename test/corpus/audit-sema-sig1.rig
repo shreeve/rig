@@ -1,0 +1,5 @@
+sub main
+  s = Signal[Int](value: 1)
+  s.subscribe(*|| print("hi"))
+  s.set(2)
+  print(s.get())

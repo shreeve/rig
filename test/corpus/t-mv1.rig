@@ -1,0 +1,7 @@
+sub eat(c: String)
+  print(c)
+
+sub main()
+  v: Vec[String] = Vec()
+  !v.push("a")
+  eat(<v[0])

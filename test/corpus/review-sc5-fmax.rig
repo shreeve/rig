@@ -1,0 +1,5 @@
+sub main()
+  x: F32 = 1e38 * 10.0
+  y: F32 = F32.max * 10.0
+  z = Float.max * 2.0
+  print(x, y, z)

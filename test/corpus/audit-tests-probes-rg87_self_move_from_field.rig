@@ -1,0 +1,10 @@
+struct S
+  v: Vec[Int]
+
+struct T
+  s: S
+
+sub main
+  t = T(s: S(v: Vec()))
+  u = <t.s
+  print(u.v.len)

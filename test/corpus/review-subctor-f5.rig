@@ -1,0 +1,10 @@
+struct Wrap[T]
+  item: T
+
+fun mk() -> Wrap[?Vec[Int]]
+  v = Vec[Int]()
+  Wrap(?v)
+
+sub main
+  w = mk()
+  print(w)

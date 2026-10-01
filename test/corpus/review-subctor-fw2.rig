@@ -1,0 +1,19 @@
+error Bad
+  neg
+
+struct Wrap[T]
+  item: T
+
+sub check(n: Int)!
+  return Bad.neg if n < 0
+  print("ok", n)
+
+fun sq(n: Int) -> Int
+  n * n
+
+sub main
+  w = Wrap(item: check)
+  f = w.item
+  f(1)!
+  b = Box(value: sq)
+  print(b)

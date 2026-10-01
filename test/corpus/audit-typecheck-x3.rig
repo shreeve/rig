@@ -1,0 +1,9 @@
+struct N
+  v: Int
+
+sub main()
+  v = Vec[*N?]()
+  (!v).push(*N(v: 1))
+  c = Cell(<v)
+  y = <c[0]
+  print(1)

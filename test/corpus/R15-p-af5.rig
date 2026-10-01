@@ -1,0 +1,7 @@
+struct S
+  b: [4]U8
+sub main()
+  h: *S = *S(b: [1, 2, 3, 4])
+  print(h.b.read[U16, .big](0))
+  r = ?h.b[..]
+  print(r.len)

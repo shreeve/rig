@@ -1,0 +1,42 @@
+# Each `as` of a joined condition moves only when the parts before it
+# held: an optional not reached stays with its owner, and a binding
+# made before a part that fails is dropped before `else` runs.
+
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun make(k: Int) -> Res?
+  Res(id: k) if k > 0 else none
+
+sub take(r: Res)
+  print("take", r.id)
+
+sub try_pair(i: Int, j: Int)
+  p: Res? = make(i)
+  q: Res? = make(j)
+  if <p as a and <q as b
+    take(<a)
+    print("b", b.id)
+  else
+    print("none")
+  print("end")
+
+sub main
+  try_pair(1, 2)
+  try_pair(0, 4)
+  try_pair(5, 0)
+
+# take 1
+# drop 1
+# b 2
+# drop 2
+# end
+# none
+# end
+# drop 4
+# drop 5
+# none
+# end

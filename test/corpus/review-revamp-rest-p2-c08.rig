@@ -1,0 +1,7 @@
+enum E
+  a = F.x
+  b
+enum F
+  x = 3
+sub main()
+  print(Int(E.a))

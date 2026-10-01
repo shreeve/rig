@@ -1,0 +1,23 @@
+error E
+  bad
+
+struct Node
+  n: Int
+
+fun f(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+struct Pair
+  a: *Node
+  b: Int
+
+sub g(k: Int)!
+  p = Pair(a: *Node(n: 1), b: f(k)!)
+  print(p.a.n)
+  q = Pair(b: f(k)!, a: *Node(n: 1))
+  print(q.b)
+
+sub main
+  g(0) catch print("e")
+  g(1) catch print("e")

@@ -1,0 +1,6 @@
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  print(f)
+  f(x)
+
+sub main
+  print(apply(|a| a, 1))

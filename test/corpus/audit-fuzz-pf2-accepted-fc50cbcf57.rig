@@ -1,0 +1,40 @@
+K1 = 2
+
+fun sc1(n: Int, by: Int = K1, off: Int = (-1), _: Bool = false) -> Int
+  n * by + off
+
+struct Acct2
+  owner: String
+  balance: Int = 12
+  frozen: Bool = false
+
+  fun open(name: String) -> Self
+    Acct2(owner: name)
+
+  fun can_pay(?self, amount: Int) -> Bool
+    not self.frozen and self.balance >= amount
+
+  sub pay(!self, amount: Int)
+    self.balance -= amount
+
+  sub freeze(!self)
+    self.frozen = true
+
+  fun close(<self) -> Int
+    self.balance
+
+struct Pt2
+  x: Int
+  y: Int = 0
+
+  fun plus(?self, o: ?Pt2) -> Pt2
+    Pt2(x: self.x + o.x, y: self.y + o.y)
+
+sub main
+  v0: Vec[String] = Vec()
+  !v0.push("a")
+  v0[1] = "a"
+  print(!v0.pop())
+  print(!v0.pop())
+  !v0.push("bb")
+  

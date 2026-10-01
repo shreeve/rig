@@ -1,0 +1,11 @@
+error Bad
+  neg
+
+sub g[T](x: T, ok: Bool)!
+  return Bad.neg if not ok
+  print(x)
+
+sub main
+  g(1, true)!
+  g("s", false) catch |e|
+    print("e", e)

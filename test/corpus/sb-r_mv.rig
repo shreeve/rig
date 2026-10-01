@@ -1,0 +1,6 @@
+sub main
+  a = [1, 2]
+  w = !a[..]
+  <w.fill(0)
+  b: [2]U8 = [1, 2]
+  print(<b.read[U8, .big](0))

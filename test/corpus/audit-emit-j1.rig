@@ -1,0 +1,20 @@
+limit = 3
+
+fun f(n: Int) -> Int
+  while true
+    return n if n > 0
+  0
+
+fun g(n: Int) -> Int
+  while limit > 0
+    return n
+  1
+
+sub h
+  if limit > 5
+    return
+  print("h")
+
+sub main
+  print(f(2), g(3))
+  h()

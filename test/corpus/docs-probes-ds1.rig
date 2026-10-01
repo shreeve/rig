@@ -1,0 +1,18 @@
+sub each(v: ?Vec[Int], f: ?fun(Int) -> Int)
+  for x in ?v
+    print(f(x))
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+struct P
+  n: Int
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  total = 0
+  each(?v, |!total, n| total += n)
+  g = max[Int]
+  h: *(*P) = *(*P(n: 1))
+  print(total)

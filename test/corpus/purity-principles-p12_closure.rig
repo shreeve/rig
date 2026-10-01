@@ -1,0 +1,16 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main
+  k = 10
+  r = Res(n: 7)
+  add = |+k, ?r, a: Int| a + k + r.n
+  print(add(1), apply(?add, 2))
+  owned: *fun(Int) -> Int = *|+k, a| a + k * 2
+  print(owned(0))

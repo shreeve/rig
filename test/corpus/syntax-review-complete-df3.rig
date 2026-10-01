@@ -1,0 +1,16 @@
+struct S
+  a: Vec[Int]
+  b: Vec[Int]
+
+sub move_all(src: !Vec[Int], dst: !Vec[Int])
+  while src.pop() as x
+    dst.push(x)
+
+sub main
+  s = S(a: Vec(), b: Vec())
+  !s.a.push(1)
+  move_all(!s.a, !s.b)
+  print(s.b)
+  r = ?s.a
+  !s.b.push(2)
+  print(r.len)

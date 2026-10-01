@@ -1,0 +1,13 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun same[T](a: ?T, b: ?T) -> Bool
+  a == b
+
+sub main
+  x = Box(value: 1)
+  y = Box(value: 1)
+  print(same(?x, ?y))

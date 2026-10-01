@@ -1,0 +1,19 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main
+  s: Slot = .full(b: *B(n: 1))
+  f = |<s| match <s
+    .full(b) => keep(<b)
+    .empty => print("e")
+  print("end")

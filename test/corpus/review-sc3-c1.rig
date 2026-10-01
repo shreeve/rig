@@ -1,0 +1,38 @@
+error E
+  bad
+  worse
+
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun p(k: Int) -> Int!
+  return E.bad if k == 0
+  return E.worse if k < 0
+  k
+
+fun q(k: Int) -> Int!
+  r = Res(id: k)
+  n = p(k) catch |e| return e
+  n + r.id
+
+fun opt(k: Int) -> Int?
+  n = p(k) catch return none
+  n
+
+fun chain(a: Int?, b: Int?) -> Int
+  a ?? (b ?? return -1)
+
+sub s(k: Int)!
+  r = Res(id: 50 + k)
+  n = p(k) catch |e| return E.worse if e == E.bad else e
+  print("s", n, r.id)
+
+sub main
+  print(q(2) catch -9, q(0) catch -9)
+  print(opt(1), opt(0))
+  print(chain(none, 2), chain(none, none), chain(3, none))
+  s(1)!
+  s(0) catch |e| print("caught", e)

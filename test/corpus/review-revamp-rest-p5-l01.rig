@@ -1,0 +1,4 @@
+sub main()
+  :x print(1)
+  :y z = 3
+  print(z)

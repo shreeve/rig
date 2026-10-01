@@ -1,0 +1,35 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun make(k: Int) -> Res?
+  Res(id: k) if k > 0 else none
+
+fun pick(k: Int, j: Int) -> Res
+  if make(k) as a and a.id > j
+    <a
+  else
+    Res(id: 0)
+
+sub main
+  r = if make(1) as a and a.id > 0
+    <a
+  else
+    Res(id: 0)
+  print(r.id)
+  s = if make(2) as a and make(3) as b and b.id > 0
+    print("b", b.id)
+    <a
+  else
+    Res(id: -1)
+  print(s.id)
+  t = pick(5, 1)
+  u = pick(5, 9)
+  print(t.id, u.id)
+  o: Int? = if make(4) as c and c.id > 9
+    c.id
+  else
+    none
+  print(o)

@@ -1,0 +1,15 @@
+enum Color
+  red
+  missing
+
+error Lookup
+  missing
+
+fun pick(n: Int) -> Color?!
+  return Lookup.missing if n < 0
+  return none if n == 1
+  return .missing if n == 0
+  .red
+
+sub main
+  print(pick(2) catch .red, pick(0) catch .red, pick(1) catch .red, pick(-1) catch .red)

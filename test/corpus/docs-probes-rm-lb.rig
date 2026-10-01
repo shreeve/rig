@@ -1,0 +1,9 @@
+sub main
+  x = 3
+  :blk if x > 1
+    break :blk if x == 3
+    print(1)
+  print(2)
+  :c print(5)
+  :d y = 4
+  print(y)

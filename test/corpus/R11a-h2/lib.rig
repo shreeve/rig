@@ -1,0 +1,16 @@
+N =! 4
+
+pub struct Buf[T]
+  items: [N]T
+
+  fun first(?self) -> T
+    self.items[0]
+
+pub fun fill[T](x: T) -> [N]T
+  [x; N]
+
+pub fun buf[T](x: T) -> Buf[T]
+  Buf(items: [x; N])
+
+pub fun zeros() -> [N]Int
+  [0; N]

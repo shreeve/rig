@@ -1,0 +1,10 @@
+LIMIT = 4
+NAMES = ["a", "b"]
+V = LIMIT * 2
+
+fun show() -> Int
+  LIMIT
+
+sub main()
+  LIMIT = 5
+  print(LIMIT, show(), V)

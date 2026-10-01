@@ -1,0 +1,6 @@
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = !v[..]
+  -v
+  w[0] = 5

@@ -1,0 +1,10 @@
+struct H
+  w: !String
+
+sub main
+  s = "abc" + "def"
+  h = H(w: !s)
+  h.w = "x" + "y"
+  h.w = "q" + "r"
+  print(h.w)
+  print(s)

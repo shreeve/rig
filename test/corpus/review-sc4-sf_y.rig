@@ -1,0 +1,18 @@
+enum Shape
+  circle(r: Int)
+  point
+
+fun mk() -> Shape
+  print("mk")
+  .circle(r: 3)
+
+struct H
+  s: Shape
+
+  fun get(?self) -> Shape
+    print("get")
+    self.s
+sub main
+  match ?mk()
+    .circle(r) => print("mid", r)
+    _ => print("other")

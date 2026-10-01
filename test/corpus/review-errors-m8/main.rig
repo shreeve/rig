@@ -1,0 +1,12 @@
+use b
+
+error Mine
+  other
+
+sub main
+  x = b.g() catch |e|
+    print(e, e == .eof)
+    match e
+      .eof => 1
+      _ => 2
+  print(x)

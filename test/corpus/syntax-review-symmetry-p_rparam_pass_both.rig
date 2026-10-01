@@ -1,0 +1,7 @@
+fun h(n: ?Int) -> Int
+  n
+fun g(n: ?Int) -> Int
+  h(?n) + h(n)
+sub main
+  a = 1
+  print(g(?a))

@@ -1,0 +1,20 @@
+struct Words
+  s: String
+  i: Int = 0
+
+  fun next(!self) -> String?
+    while self.i < self.s.len and self.s[self.i] == 32
+      self.i += 1
+    return none if self.i >= self.s.len
+    start = self.i
+    while self.i < self.s.len and self.s[self.i] != 32
+      self.i += 1
+    self.s[start..self.i]
+
+sub main
+  w = Words(s: "  the quick  fox ")
+  n = 0
+  while !w.next() as x
+    print(x)
+    n += 1
+  print(n)

@@ -1,0 +1,3 @@
+sub main
+  v: Vec[Int] = Vec()
+  v.len = 3

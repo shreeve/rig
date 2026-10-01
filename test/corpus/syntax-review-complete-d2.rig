@@ -1,0 +1,10 @@
+struct C
+  m: Int = -1
+  e: Int? = none
+
+fun f(x: Int = -1, y: Float = 1.5) -> Int
+  x
+
+sub main
+  c = C()
+  print(c.m, c.e, f())

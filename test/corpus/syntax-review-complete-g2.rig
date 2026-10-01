@@ -1,0 +1,28 @@
+struct Entry
+  k: String
+  v: Int
+
+struct Map
+  es: Vec[Entry]
+
+  fun get(?self, k: String) -> (?Entry)?
+    for e, i in self.es
+      if e.k == k
+        return ?self.es[i]
+    none
+
+  fun get_mut(!self, k: String) -> (!Entry)?
+    i = 0
+    while i < self.es.len : i += 1
+      if self.es[i].k == k
+        return !self.es[i]
+    none
+
+sub main
+  m = Map(es: Vec())
+  !m.es.push(Entry(k: "a", v: 1))
+  if m.get("a") as v
+    print(v.v)
+  if !m.get_mut("a") as w
+    w.v = 9
+  print(m.es[0].v)

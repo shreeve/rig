@@ -1,0 +1,16 @@
+struct S
+  b: Box[Int]
+
+fun add(x: ?Int, f: ?fun(Int) -> Int) -> Int
+  f(x)
+
+fun add2(x: ?Int, y: Int) -> Int
+  x + y
+
+sub main
+  s = S(b: Box(value: 5))
+  print(add(?s.b, |k: Int| k * 2))
+  b = Box(value: 7)
+  print(add(?b, |k: Int| k * 3))
+  n = 1
+  print(add2(y: n + 1, x: ?s.b))

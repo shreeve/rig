@@ -1,0 +1,20 @@
+struct W
+  s: String
+
+sub main()
+  a = "abc"
+  b = "abcd"
+  z1 = "a\x00b"
+  z2 = "a\x00c"
+  z3 = "a"
+  print(a == b, a < b, b < a, a <= a, a >= b, b > a)
+  print(z1 == z2, z1 < z2, z3 < z1, z1 == z3, z1.len)
+  e = "é"
+  f = "z"
+  print(e > f, e < f, "" < "a", "" == "", "" <= "", "a" > "")
+  print(W(s: z1) == W(s: z2), W(s: z1) == W(s: "a\x00b"))
+  print("ab" < "abc", "abc" < "ab", "b" < "abc", "B" < "a")
+  print("a" == "a", "ab" != "ab", "a" < "a")
+  xs: [3]U8 = [1, 2, 3]
+  ys: [2]U8 = [1, 2]
+  print(?xs[0..3] < ?ys[0..2], ?xs[0..2] <= ?ys[0..2], ?xs[0..3] > ?ys[0..2])

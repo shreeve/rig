@@ -1,0 +1,8 @@
+sub main
+  x: Int = 300
+  y: U8 = 0
+  raw
+    y = @truncate(x)
+    z: U8 = @intCast(x)
+    print(z)
+  print(y)

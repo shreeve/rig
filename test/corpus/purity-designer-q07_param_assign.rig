@@ -1,0 +1,5 @@
+sub f(n: Int)
+  n = 2
+  print(n)
+sub main
+  f(1)

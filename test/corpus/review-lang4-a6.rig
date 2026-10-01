@@ -1,0 +1,17 @@
+struct H
+  w: !Vec[Int]
+
+sub main
+  v: Vec[Int] = Vec()
+  m: Vec[Int] = Vec()
+  !m.push(1)
+  h = H(w: !v)
+  new w2 = !m
+  h.w = w2
+  r = ?w2[0]
+  !h.w.clear()
+  i = 0
+  while i < 100
+    !h.w.push(i)
+    i += 1
+  print(r)

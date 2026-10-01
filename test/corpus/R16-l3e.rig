@@ -1,0 +1,18 @@
+struct Wrap
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  v: Vec[Wrap] = Vec()
+  !v.push(Wrap(n: 1))
+  f = |!v, n: Int|
+    v.push(Wrap(n: n))
+  i = 0
+  while i < 20
+    f(i)
+    w = ?v[0]
+    f(5)
+    print(w.n)
+    i += 1

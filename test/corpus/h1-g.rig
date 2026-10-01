@@ -1,0 +1,12 @@
+struct H
+  w: !Int
+sub put(h: !H, w2: !Int, w3: !Int, c: Bool)
+  h.w = w2 if c else w3
+  w2 += 1
+  print(h.w, w2)
+sub main
+  n = 1
+  m = 3
+  k = 4
+  h = H(w: !n)
+  put(!h, !m, !k, true)

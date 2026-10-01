@@ -1,0 +1,3 @@
+K = 5
+pub J: U8 = 250
+pub type B = U8

@@ -1,0 +1,29 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun next(b: ?B) -> B
+  B(n: b.n + 1)
+
+sub main
+  x = B(n: 1)
+  w = !x
+  w = next(?w)
+  w = B(n: w.n * 10)
+  s = *B(n: 5)
+  sw = !s
+  sw = +sw
+  sw = *B(n: sw.n + 1)
+  print(x.n, s.n)
+  v: Vec[Int] = Vec()
+  vw = !v
+  !vw.push(1)
+  vw = Vec()
+  !vw.push(2)
+  print(v.len, v[0])
+  str: String = "ab"
+  sw2 = !str
+  sw2 += "cd"
+  print(str)

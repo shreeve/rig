@@ -1,0 +1,25 @@
+struct H
+  w: !Vec[Int]
+
+fun make(v: !Vec[Int]) -> H
+  H(w: v)
+
+sub fill(h: H) 
+  u: Vec[Int] = Vec()
+  !u.push(1)
+  h.w = <u
+
+fun pass_on(h: H) -> H
+  k: Vec[Int] = Vec()
+  !k.push(1)
+  !k.push(2)
+  h.w = <k
+  h
+
+sub main
+  v: Vec[Int] = Vec()
+  h = make(!v)
+  h2 = pass_on(<h)
+  h2.w = Vec[Int]()
+  fill(<h2)
+  print(v.len)

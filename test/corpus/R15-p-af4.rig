@@ -1,0 +1,4 @@
+sub main()
+  c: Cell[[4]U8] = Cell(value: [4 of 0])
+  !c.value.fill(1)
+  w = !c.value[..]

@@ -1,0 +1,6 @@
+sub main()
+  x =! [1, 2, 3]
+  w = !x[..]
+  w[0] = 9
+  !x.swap(0, 1)
+  print(x)

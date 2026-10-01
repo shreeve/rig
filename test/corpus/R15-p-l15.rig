@@ -1,0 +1,8 @@
+sub main()
+  a = [1, 2]
+  w: (![]Int)? = !a[..]
+  if w as s
+    s[0] = 42
+  if w as t
+    t[1] = 43
+  print(a)

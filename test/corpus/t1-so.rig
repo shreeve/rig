@@ -1,0 +1,10 @@
+use std.sort
+
+sub main
+  a = [5, 3, 9, 1, 7, 3]
+  sort.sort(!a)
+  print(a)
+  sort.sort_by(!a, |x, y| x > y)
+  print(a)
+  sort.reverse(!a)
+  print(a, sort.search(?a, 7), sort.search(?a, 4), sort.contains(?a, 9), sort.index_of(?a, 3))

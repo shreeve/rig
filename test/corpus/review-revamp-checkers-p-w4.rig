@@ -1,0 +1,16 @@
+struct S
+  n: Int
+
+struct V
+  r: ?S
+
+sub put(p: !V)
+  w = !p
+  t = S(n: 99)
+  w.r = ?t
+
+sub main()
+  a = S(n: 1)
+  v = V(r: ?a)
+  put(!v)
+  print(v.r.n)

@@ -1,0 +1,18 @@
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  r = Res(n: 1)
+  p = Pair(first: ?r, second: 1)
+  -r
+  print(p.first.n)
+struct Pair[A, B]
+  first: A
+  second: B
+
+struct View[T]
+  r: ?T

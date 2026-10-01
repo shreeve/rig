@@ -1,0 +1,6 @@
+K: U8 = 3
+
+sub main()
+  v: U8 = 5
+  x: U8 = (U8.max * U8.max)
+  print(x, v, K)

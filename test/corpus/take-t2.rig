@@ -1,0 +1,33 @@
+struct Tree
+  key: Int
+  left: Box[Tree]?
+  right: Box[Tree]?
+
+sub mirror(slot: !Box[Tree]?)
+  if !slot as t
+    swap(!t.left, !t.right)
+    mirror(!t.left)
+    mirror(!t.right)
+
+sub show(slot: ?Box[Tree]?)
+  if slot as t
+    show(?t.left)
+    print(t.key)
+    show(?t.right)
+
+fun leaf(k: Int) -> Box[Tree]?
+  Box(value: Tree(key: k, left: none, right: none))
+
+sub main
+  root: Box[Tree]? = Box(value: Tree(key: 2, left: leaf(1), right: leaf(3)))
+  mirror(!root)
+  show(?root)
+  a = 1
+  b = 2
+  swap(!a, !b)
+  old = replace(!a, 10)
+  print(a, b, old)
+  names: Vec[String] = Vec()
+  !names.push("x")
+  first = replace(!names[0], "y")
+  print(first, names)

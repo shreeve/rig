@@ -1,0 +1,27 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun double(n: Int) -> Int
+  n * 2
+
+fun pick(a: ?fun(Int) -> Int, b: ?fun(Int) -> Int, first: Bool) -> ?fun(Int) -> Int
+  if first
+    a
+  else
+    b
+
+sub main
+  h: ?fun(Int) -> Int = double
+  if true
+    k = 1
+    l = |+k, a: Int| a + k
+    h = ?l
+  print(h(1))
+  r = Res(id: 1)
+  m = |<r, a: Int| a + r.id
+  p = pick(?m, double, true)
+  -m
+  print(p(2))

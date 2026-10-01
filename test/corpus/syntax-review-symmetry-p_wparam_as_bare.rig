@@ -1,0 +1,7 @@
+sub g(o: !Int?)
+  if o as x
+    x = 5
+sub main
+  o: Int? = 1
+  g(!o)
+  print(o)

@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  lib.show[-1]()
+  g = lib.grid[Int, -2](1)
+  print(g.cells.len)

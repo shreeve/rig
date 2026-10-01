@@ -1,0 +1,12 @@
+struct Wrap
+  n: Int
+
+fun pick(f: ?fun() -> ?Wrap, a: ?Wrap) -> ?Wrap
+  r = a
+  r = f()
+  r
+
+sub main
+  a = Wrap(n: 1)
+  b = Wrap(n: 2)
+  print(pick(|?b| b, ?a).n)

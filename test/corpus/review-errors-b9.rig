@@ -1,0 +1,16 @@
+error Disk
+  full
+
+type D = Disk
+
+fun f -> Int!
+  return D.full
+
+sub main
+  x = f() catch |e|
+    match e
+      D.full => print("alias full")
+      _ => print("other")
+    print(e == D.full)
+    0
+  print(x, D.full)

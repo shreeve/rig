@@ -1,0 +1,7 @@
+n = 3
+
+fun rep[n: Int] -> Int
+  n * 2
+
+sub main
+  print(rep[4](), n)

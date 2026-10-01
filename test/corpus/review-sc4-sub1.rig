@@ -1,0 +1,36 @@
+enum Shape
+  circle(r: Int)
+  point
+
+fun mk() -> Shape
+  print("mk")
+  .circle(r: 3)
+
+struct H
+  s: Shape
+
+  fun get(?self) -> Shape
+    print("get")
+    self.s
+
+sub main
+  match mk()
+    .circle(r) if r > 5 => print("big")
+    _ => print("other")
+  match ?mk()
+    .circle(r) if r > 5 => print("big")
+    _ => print("other")
+  h = H(s: .point)
+  match h.get()
+    .circle(r) if r > 5 => print("big")
+    _ => print("other")
+  match ?h.get()
+    .circle(r) if r > 5 => print("big")
+    _ => print("other")
+  match <mk()
+    .circle(r) if r > 5 => print("big")
+    _ => print("other")
+  match (mk())
+    .circle(r) if r > 5 => print("big")
+    .circle(r) if r > 4 => print("big")
+    _ => print("other")

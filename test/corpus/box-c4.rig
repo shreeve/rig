@@ -1,0 +1,18 @@
+struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+struct H
+  b: Box[Wrap[Int]]
+
+sub main
+  b = Box(value: Wrap(v: 7))
+  print(b.v, b.get())
+  h = H(b: <b)
+  h.b.v = 9
+  print(h.b.get(), h)
+  h.b = Box(value: Wrap(v: 1))
+  print(h.b.v)
+  -h

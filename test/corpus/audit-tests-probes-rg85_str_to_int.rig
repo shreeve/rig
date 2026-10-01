@@ -1,0 +1,3 @@
+sub main
+  s = "12"
+  print(Int(s))

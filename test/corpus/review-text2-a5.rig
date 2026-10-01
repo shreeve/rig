@@ -1,0 +1,19 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun mk[T](x: T) -> T
+  x
+
+fun show[T](x: ?T) -> Int
+  1
+
+fun gen[T](x: T) -> Int
+  a = show(?mk(<x))
+  a
+
+sub main
+  print(gen(N(id: 1)))
+  print(gen(Text("t")))

@@ -1,0 +1,27 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+sub main
+  t = *Tok(n: 1)
+  :outer for i in 0..3
+    for j in 0..3
+      if j == 1
+        eat(<t)
+        t = *Tok(n: i + 10)
+        continue :outer
+  print("end", t.n)

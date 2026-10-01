@@ -1,0 +1,8 @@
+error Bad
+  neg
+
+sub main!
+  v = Vec[Int]()
+  !v.push(1)
+  print(v)
+  return Bad.neg

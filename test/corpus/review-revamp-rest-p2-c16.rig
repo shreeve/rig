@@ -1,0 +1,4 @@
+A: I8 = -128 -% 1
+C: I8 = 1 << 7
+sub main()
+  print(A, C)

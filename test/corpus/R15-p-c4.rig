@@ -1,0 +1,7 @@
+fun g(a: [2]Int) -> ![]Int
+  !a[..]
+sub main()
+  a = [1, 2]
+  w = g(a)
+  w[0] = 9
+  print(w)

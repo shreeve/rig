@@ -1,0 +1,21 @@
+struct Node
+  id: Int
+  next: *Node?
+
+fun id_of(n: ?*Node) -> Int
+  n.id
+
+fun take(n: *Node) -> Int
+  n.id
+
+sub main
+  a = *Node(id: 1, next: none)
+  b = *Node(id: 2, next: +a)
+  x = b.id
+  y = id_of(?b)
+  z = take(+b)
+  if ?b.next as nx
+    print(nx.id)
+  print(x, y, z)
+  for k in 0..2
+    print(k, b.next == none)

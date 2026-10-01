@@ -1,0 +1,13 @@
+enum Opt[T]
+  some(value: T)
+  nothing
+
+fun is_nothing[T](o: ?Opt[T]) -> Bool
+  o == .nothing
+
+fun inc(x: Int) -> Int
+  x + 1
+
+sub main()
+  o: Opt[fun(Int) -> Int] = .some(value: inc)
+  print(is_nothing(?o))

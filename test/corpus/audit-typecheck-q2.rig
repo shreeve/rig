@@ -1,0 +1,12 @@
+struct H
+  w: !Int
+
+sub main()
+  n = 1
+  hs: [1]H = [H(w: !n)]
+  s: []H = ?hs
+  f(!s[0].w)
+  print(n)
+
+sub f(x: !Int)
+  x += 1

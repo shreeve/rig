@@ -1,0 +1,7 @@
+struct Bag[T]
+  c: Cell[T] = Cell(0)
+  a: [2]T = [2 of 0]
+
+sub main()
+  b = Bag[String]()
+  print(b.a)

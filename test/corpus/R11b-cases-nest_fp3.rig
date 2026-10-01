@@ -1,0 +1,13 @@
+struct Wrap[T]
+  v: T
+
+  fun tag[U](?self, u: U) -> Wrap[Wrap[U]]
+    Wrap(v: Wrap(v: u))
+
+fun make[T](x: T) -> Int
+  w = Wrap(v: x)
+  w2 = w.tag(3)
+  w2.v.v
+
+sub main()
+  print(make(3))

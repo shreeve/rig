@@ -1,0 +1,15 @@
+struct View
+  xs: []Int
+
+  sub point(!self, ys: []Int)
+    self.xs = ys
+
+sub f(v: !View)
+  a = [1, 2, 3]
+  !v.point(?a)
+
+sub main
+  b = [4, 5]
+  v = View(xs: ?b)
+  f(!v)
+  print(v.xs)

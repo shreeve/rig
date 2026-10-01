@@ -1,0 +1,7 @@
+sub main
+  x = 1
+  f = |!x|
+    x += 1
+  defer f()
+  x = 5
+  print(x)

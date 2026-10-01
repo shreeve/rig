@@ -1,0 +1,5 @@
+fun f(s: String, c: Bool) -> Int
+  ("b" if c else s).len
+
+sub main
+  print(f("abc", false))

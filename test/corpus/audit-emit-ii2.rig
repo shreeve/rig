@@ -1,0 +1,13 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun f -> R
+  r = R(n: 1)
+  defer -r
+  r
+
+sub main
+  x = f()
+  print(x.n)

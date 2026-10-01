@@ -1,0 +1,8 @@
+sub main()
+  a = [1, 2]
+  w = !a[..]
+  f = |<w|
+    for x in !w
+      x = 4
+  f()
+  print(a)

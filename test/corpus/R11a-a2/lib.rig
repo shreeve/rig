@@ -1,0 +1,13 @@
+pub struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+pub struct Keep[T]
+  items: Vec[T]
+
+  fun peek(?self) -> T
+    for x in ?self.items
+      return <x
+    self.items[0]

@@ -1,0 +1,16 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun make(k: Int) -> Res?
+  Res(id: k) if k > 0 else none
+
+sub main
+  other = Res(id: 2)
+  r = if make(1) as x and x.id > 0
+    ?x
+  else
+    ?other
+  print(r.id)

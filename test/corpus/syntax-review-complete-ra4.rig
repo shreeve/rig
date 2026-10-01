@@ -1,0 +1,9 @@
+sub main
+  n: U32 = 3
+  xs = [1, 2, 3, 4]
+  for i in 0..n
+    print(xs[i])
+  v: Vec[Int] = Vec()
+  !v.push(4)
+  k: U8 = 0
+  print(v[k])

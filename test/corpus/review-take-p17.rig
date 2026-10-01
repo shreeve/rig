@@ -1,0 +1,21 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+
+enum E
+  one(s: S)
+  two
+
+sub main
+  e = E.one(s: S(a: R(n: 1)))
+  match !e
+    .one(s)
+      s.a = R(n: 5)
+      x = replace(!s.a, none)
+      print(x)
+    .two => print("two")
+  print(e)

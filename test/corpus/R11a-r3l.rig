@@ -1,0 +1,20 @@
+struct Wrap[T]
+  v: T
+
+  fun make(v: T) -> Self
+    Wrap(v: <v)
+
+  fun count(n: Int) -> Int
+    n + 1
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  a = Wrap.make(Vec[Int]())
+  b = Wrap[Vec[Int]].make(Vec())
+  c = Wrap.make(Res(n: 1))
+  print(a.v.len, b.v.len, c.v.n, Wrap[Res].count(3))

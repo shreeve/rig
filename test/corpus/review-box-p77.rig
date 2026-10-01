@@ -1,0 +1,16 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk() -> R?
+  R(n: 1)
+
+sub main
+  if ?mk() as x
+    print(x.n)
+  if !mk() as y
+    y.n = 3
+    print(y.n)
+  print("end")

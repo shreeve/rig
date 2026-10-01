@@ -1,0 +1,10 @@
+pub enum Opt[T]
+  some(value: T)
+  none
+
+  fun is_none(?self) -> Bool
+    match self
+      .some(value) => false
+      .none => true
+
+pub NONE: Opt[Int] =! .none

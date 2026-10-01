@@ -1,0 +1,21 @@
+struct Counter
+  n: Int
+
+  sub put(!self, xs: []Int, out: ![]Int)
+    self.n += xs.len
+
+struct View
+  xs: []Int
+
+  sub grab(!self, c: !Counter, ys: []Int)
+    !c.put(ys, !self.xs)
+    self.xs = ys
+
+sub main
+  b = [9]
+  v = View(xs: ?b)
+  c = Counter(n: 0)
+  if true
+    a = [1, 2, 3]
+    !v.grab(!c, ?a)
+  print(v.xs)

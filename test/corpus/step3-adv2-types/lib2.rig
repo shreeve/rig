@@ -1,0 +1,15 @@
+pub struct Wrap[T]
+  v: T
+
+  fun make(v: T) -> Self
+    Wrap(v: v)
+
+pub struct Pair[A, B]
+  first: A
+  second: B
+
+pub fun empty[T] -> Vec[T]
+  Vec()
+
+pub fun id[T](x: T) -> T
+  x

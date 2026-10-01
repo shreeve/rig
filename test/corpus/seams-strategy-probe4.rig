@@ -1,0 +1,16 @@
+struct Row
+  name: String
+  n: Int
+
+fun parse(t: ?Text) -> Vec[Row]
+  rows: Vec[Row] = Vec()
+  !rows.push(Row(name: t[0..1], n: 1))
+  rows
+
+sub main
+  t = Text("abc")
+  rows = parse(?t)
+  print(rows)
+  label = Text("x")
+  name: String = ?label
+  print(name)

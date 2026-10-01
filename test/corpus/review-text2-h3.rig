@@ -1,0 +1,21 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+enum M
+  a(n: N)
+  b
+
+fun mk -> M
+  M.a(n: N(id: 1))
+
+sub take(n: N)
+  print("took", n.id)
+
+sub main
+  match mk()
+    .a(n) => take(<n)
+    .b => print("b")
+  print("end")

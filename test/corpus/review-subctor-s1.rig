@@ -1,0 +1,20 @@
+type T1 = fun(Int) -> Void
+type T2 = *fun(Int) -> Void!
+
+struct S
+  cb: *fun() -> Void
+
+  fun m(?self)
+    print(1)
+
+  fun n[U](?self, u: U) -> Void
+    print(u)
+
+fun g[U](u: U)
+  print(u)
+
+pub fun h()
+  print(2)
+
+fun main
+  print(3)

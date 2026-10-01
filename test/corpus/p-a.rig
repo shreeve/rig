@@ -1,0 +1,12 @@
+struct Wrap
+  n: Int
+
+struct View
+  w: ?Wrap
+
+sub main
+  x = Wrap(n: 1)
+  h = *View(w: ?x)
+  g = +h
+  c = Cell[Int](3)
+  print(g.w.n, c.get())

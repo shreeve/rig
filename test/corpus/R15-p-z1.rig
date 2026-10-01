@@ -1,0 +1,4 @@
+sub main()
+  b: [3]U8 = [0, 0, 0]
+  !b.copy("abc")
+  print(b[0])

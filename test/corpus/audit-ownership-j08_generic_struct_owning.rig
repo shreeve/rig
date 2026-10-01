@@ -1,0 +1,34 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+struct Stack[T]
+  items: Vec[T]
+
+  sub push(!self, x: T)
+    !self.items.push(<x)
+
+  fun pop(!self) -> T?
+    !self.items.pop()
+
+sub main
+  s = Stack[*Tok](items: Vec())
+  !s.push(*Tok(n: 1))
+  !s.push(*Tok(n: 2))
+  if !s.pop() as t
+    print("pop", t.n)
+  print("end")

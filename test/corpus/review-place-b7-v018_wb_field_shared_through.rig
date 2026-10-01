@@ -1,0 +1,11 @@
+struct P
+  x: Int
+
+struct H
+  w: !*P
+
+sub main
+  p = *P(x: 1)
+  h = H(w: !p)
+  h.w = *P(x: 2)
+  print(p.x)

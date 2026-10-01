@@ -1,0 +1,17 @@
+error Bad
+  neg
+
+sub check(n: Int)!
+  return Bad.neg if n < 0
+  print("ok", n)
+
+sub each(xs: []Int, f: ?sub(Int)!)!
+  for x in xs
+    f(x)!
+
+sub main
+  a = [1, 2, -3]
+  each(?a, check) catch |e|
+    print("stopped", e)
+  h: sub(Int)! = check
+  h(4)!

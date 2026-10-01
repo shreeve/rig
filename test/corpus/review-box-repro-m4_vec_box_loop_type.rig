@@ -1,0 +1,11 @@
+enum Sh
+  c(r: Int)
+  s(k: Int)
+
+sub main
+  v: Vec[Box[Sh]] = Vec()
+  !v.push(Box(value: Sh.s(k: 3)))
+  for x in ?v
+    match x
+      .c(r) => print("c", r)
+      .s(k) => print("s", k)

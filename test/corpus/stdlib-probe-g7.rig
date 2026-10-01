@@ -1,0 +1,17 @@
+struct Wrap[T]
+  items: Vec[T]
+
+  fun get(?self, i: Int) -> (?T)?
+    return none if i >= self.items.len
+    ?self.items[i]
+
+struct B
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  w = Wrap[*B](items: Vec())
+  !w.items.push(*B(n: 4))
+  if w.get(0) as b
+    print(b.n)

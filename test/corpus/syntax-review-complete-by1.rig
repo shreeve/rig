@@ -1,0 +1,26 @@
+struct Page
+  buf: [4096]U8
+  used: Int
+
+  sub put(!self, at: Int, key: U64)
+    !self.buf.write[U64, .little](at, key)
+
+  fun key(?self, at: Int) -> U64
+    self.buf.read[U64, .little](at)
+
+  fun bytes(?self, a: Int, b: Int) -> []U8
+    ?self.buf[a..b]
+
+sub main
+  p = Page(buf: [4096 of 0], used: 0)
+  !p.put(8, 77)
+  print(p.key(8))
+  v: Vec[U8] = Vec()
+  for _ in 0..16
+    !v.push(0)
+  !v.write[U32, .big](0, 5)
+  !v[4..8].copy(p.bytes(8, 12))
+  print(v.read[U32, .big](0), v[4])
+  pages: Vec[Box[Page]] = Vec()
+  !pages.push(Box(value: <p))
+  print(pages.len)

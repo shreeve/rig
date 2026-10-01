@@ -1,0 +1,19 @@
+enum Shape
+  circle(r: Int)
+  point
+
+fun idx(c: ?Cell[Int]) -> Int
+  n = c.get()
+  c.set(n + 1)
+  n % 2
+
+sub main
+  k = Cell(0)
+  xs: [2]Shape = [.circle(r: 5), .point]
+  match xs[idx(?k)]
+    .circle(r) => print("circle", r)
+    _ => print("other")
+  match !xs[idx(?k)]
+    .circle(r) => r = 7
+    _ => print("other")
+  print(k.get(), xs[0])

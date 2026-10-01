@@ -1,0 +1,7 @@
+use std.math
+
+fun math -> Int
+  1
+
+sub main
+  print(math())

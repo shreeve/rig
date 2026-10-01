@@ -1,0 +1,13 @@
+struct W[T]
+  x: T
+
+  sub put(!self, v: T)
+    self.x = v
+
+  sub bad(self, v: T)
+    self.x = v
+
+sub main
+  w = W[Int](x: 1)
+  !w.put(4)
+  print(w.x)

@@ -1,0 +1,11 @@
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  !v.push(4)
+  print(v.len, v[0], v.get(1))
+  if !v.pop() as x
+    print(x)
+  !v.clear()
+  c = Cell(1)
+  c.set(2)
+  print(c.get(), U8.max, Int.min)

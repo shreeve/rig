@@ -1,0 +1,26 @@
+struct P
+  s: String
+  n: Int
+
+fun f(a: !String, b: ?String) -> Bool
+  a < b and a != b and b > a and a == "a"
+
+fun g(p: !P, q: ?P) -> Bool
+  p.s < q.s and p == p and p != q
+
+fun gen[T](a: !T, b: ?T) -> Bool
+  a < b and a != b
+
+fun geq[T](a: !T, b: ?T) -> Bool
+  a == b
+
+sub main()
+  x = "a"
+  y = "b"
+  print(f(!x, ?y))
+  p = P(s: "a", n: 1)
+  q = P(s: "b", n: 1)
+  print(g(!p, ?q))
+  print(gen(!x, ?y))
+  r = P(s: "b", n: 1)
+  print(geq(!p, ?q), geq(!r, ?q))

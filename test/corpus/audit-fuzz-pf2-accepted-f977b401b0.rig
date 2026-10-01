@@ -1,0 +1,46 @@
+# Taking out of an element (`<v[i]`, `<arr[i]`), out of a boxed value,
+# in a generic type's `T?` field, and in a drop body, which releases a
+# long list one node at a time.
+
+sub elements
+  v: Vec[Int?] = Vec()
+  !v.push(5)
+  a = <v[0]
+  print(a, v)
+  arr: [2]Int? = [1, 2]
+  b = <arr[1]
+  print(b, arr)
+
+struct Node
+  v: Int
+  next: Box[Node]?
+
+  drop(!self)
+    cur = <self.next
+    while <cur as n
+      cur = <n.next
+
+struct W[T]
+  x: T?
+
+  fun grab(!self) -> T?
+    <self.x
+
+sub main
+  elements()
+  head: Box[Node]? = none
+  i = 0
+  while i < 100000 : i += 1
+    head = Box(Node(v: i, next: <head))
+  b = Box(Node(v: 1, next: Box(Node(v: 2, next: none))))
+  rest = <b.next
+  print(b, rest)
+  w = W[Int](x: 4)
+  head: Box[Node]? = none
+  print(!w.grab(), w)
+
+# expect:
+# 5 [none]
+# 2 [1, none]
+# Node(v: 1, next: none) Node(v: 2, next: none)
+    # 4 W(x: none)

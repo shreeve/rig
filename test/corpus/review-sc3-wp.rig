@@ -1,0 +1,25 @@
+struct P
+  x: Int
+
+struct Res
+  v: Vec[Int]
+
+sub main
+  p: Int? = 1
+  if !p as y and y > 0
+    y += 10
+  print(p)
+  q: P? = P(x: 2)
+  if !q as z and z.x > 1 and z.x < 5
+    z.x = 7
+  print(q)
+  r: Res? = Res(v: Vec())
+  if !r as w and w.v.len == 0
+    !w.v.push(3)
+  if ?r as w2 and w2.v.len == 1 and w2.v[0] == 3
+    print("ok", w2.v)
+  n = 0
+  while !p as y and y < 20
+    y += 5
+    n += 1
+  print(p, n)

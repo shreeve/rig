@@ -1,0 +1,25 @@
+struct Node
+  v: Int
+  next: Box[Node]?
+
+  drop(!self)
+    cur = <self.next
+    while <cur as n
+      cur = <n.next
+
+struct W[T]
+  x: T?
+
+  fun grab(!self) -> T?
+    <self.x
+
+sub main
+  head: Box[Node]? = none
+  i = 0
+  while i < 100000 : i += 1
+    head = Box(value: Node(v: i, next: <head))
+  b = Box(value: Node(v: 1, next: Box(value: Node(v: 2, next: none))))
+  rest = <b.next
+  print(b, rest)
+  w = W[Int](x: 4)
+  print(!w.grab(), w)

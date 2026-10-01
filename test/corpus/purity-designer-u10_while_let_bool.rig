@@ -1,0 +1,5 @@
+sub main
+  x: Int? = 3
+  while x as v and v > 0
+    print(v)
+    x = none

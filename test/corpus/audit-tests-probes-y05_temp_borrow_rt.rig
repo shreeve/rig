@@ -1,0 +1,19 @@
+struct S
+  n: Int
+  v: Vec[Int]
+
+struct H
+  s: ?S
+
+fun rt(n: Int) -> Int
+  n
+
+fun mk(n: Int) -> S
+  s = S(n: n, v: Vec())
+  !s.v.push(n)
+  s
+
+sub main
+  h = H(s: ?mk(rt(7)))
+  x = [rt(1), rt(2), rt(3), rt(4)]
+  print(h.s.n, h.s.v.len, x[0])

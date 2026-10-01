@@ -1,0 +1,19 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct T
+  a: R?
+
+struct S
+  t: T
+  z: Int
+
+fun mk() -> S
+  S(t: T(a: R(n: 1)), z: 0)
+
+sub main
+  s = mk()
+  t = <s.t.a
+  print(t, s)

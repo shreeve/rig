@@ -1,0 +1,11 @@
+pub struct Wrap[T]
+  v: T
+
+  fun make(v: T) -> Self
+    Wrap(v: v)
+
+pub fun max[T](a: T, b: T) -> T
+  if a > b
+    a
+  else
+    b

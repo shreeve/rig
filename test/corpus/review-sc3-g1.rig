@@ -1,0 +1,38 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun first[T](a: T?, b: T?) -> T?
+  if <a as x and <b as y
+    print("both")
+    <x
+  else
+    none
+
+fun pick[T](a: T?, ok: Bool) -> Int
+  if <a as x and ok
+    1
+  else
+    0
+
+sub main
+  r = first(Res(id: 1), Res(id: 2))
+  if <r as z
+    print(z.id)
+  s = first(Res(id: 3), none)
+  print(s == none)
+  print(pick(Res(id: 7), false), pick(Res(id: 8), true))
+  n = first(4, 5)
+  print(n)
+  # nested chain
+  a: Res? = Res(id: 20)
+  b: Res? = Res(id: 21)
+  if ?a as x and x.id > 0
+    if ?b as y and y.id > x.id and x.id == 20
+      print("nested", x.id, y.id)
+    else
+      print("inner else")
+  else
+    print("outer else")

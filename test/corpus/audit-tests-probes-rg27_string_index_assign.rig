@@ -1,0 +1,4 @@
+sub main
+  s = "abc"
+  s[0] = 65
+  print(s)

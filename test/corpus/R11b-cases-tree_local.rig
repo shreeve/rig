@@ -1,0 +1,7 @@
+struct Tree[T]
+  kids: Vec[Tree[T]]
+  v: T
+
+sub main()
+  t = Tree[Int](kids: Vec(), v: 1)
+  print(t.v)

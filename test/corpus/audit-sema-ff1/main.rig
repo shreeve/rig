@@ -1,0 +1,17 @@
+use lib
+
+struct Q
+  f: fun(?Int) -> Int
+
+fun twice(n: ?Int) -> Int
+  n * 2
+
+sub main
+  q = Q(f: twice)
+  n = 3
+  print(q.f(?n))
+  p = lib.P.make()
+  m = 4
+  r = p.f(?m)
+  m = 5
+  print(r, p.f(?m))

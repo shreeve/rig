@@ -1,0 +1,27 @@
+struct C
+  n: Int
+
+  fun sub2(!self, a: Int, b: Int) -> Int
+    self.n += 1
+    a * 10 + b
+
+fun side(c: !C, k: Int) -> Int
+  c.n += k
+  print("side", k, c.n)
+  k
+
+fun pair[T](a: T, b: T) -> T
+  a * 10 + b
+
+fun idx(c: !C) -> Int
+  print("idx")
+  c.n = 0
+  0
+
+sub main
+  c = C(n: 0)
+  print(pair[Int](b: side(!c, 1), a: side(!c, 2)))
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  print(!cs[k].sub2(b: side(!c, 3), a: side(!c, 4)))
+  print(cs[0].n, c.n)

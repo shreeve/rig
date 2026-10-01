@@ -1,0 +1,18 @@
+struct P
+  x: Int
+
+struct Bag
+  items: Vec[P]
+
+  fun first(?self) -> ?P
+    ?self.items[0]
+
+  fun first_mut(!self) -> !P
+    !self.items[0]
+
+sub main
+  b = Bag(items: Vec())
+  !b.items.push(P(x: 1))
+  f = !b.first_mut()
+  f.x = 9
+  print(b.first().x)

@@ -1,0 +1,11 @@
+pub fun maker[T](x: T) -> *fun() -> T
+  *|<x| x
+
+pub fun apply[T](x: T, f: *fun(T) -> T) -> T
+  f(<x)
+
+pub fun each[T](v: ?Vec[T], f: fun(?T) -> Int) -> Int
+  t = 0
+  for x in v
+    t += f(?x)
+  t

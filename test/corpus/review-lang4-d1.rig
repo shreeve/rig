@@ -1,0 +1,23 @@
+struct R
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+struct H
+  w: !R
+
+struct O
+  h: H
+
+sub main
+  r = R(id: 1)
+  h = H(w: !r)
+  h.w = R(id: 2)
+  print("after 2")
+  o = O(h: <h)
+  o.h.w = R(id: 3)
+  print("after 3")
+  for i in 4..6
+    o.h.w = R(id: i)
+  print("end")

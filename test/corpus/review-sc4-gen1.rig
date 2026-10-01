@@ -1,0 +1,44 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+enum Tree
+  leaf(b: *B)
+  node(l: Box[Tree], r: Box[Tree])
+
+fun unwrap[T](o: Opt[T], d: T) -> T
+  match <o
+    .some(v) if true => v
+    .some(v) => v
+    .nothing => <d
+
+fun count(t: ?Tree) -> Int
+  match t
+    .leaf(b) => b.n
+    .node(l, r) => count(?l) + count(?r)
+
+fun sum(t: Tree) -> Int
+  match <t
+    .leaf(b) => b.n
+    .node(l, r)
+      a = <l.unbox()
+      c = <r.unbox()
+      sum(<a) + sum(<c)
+
+sub main
+  o: Opt[*B] = .some(v: *B(n: 1))
+  x = unwrap(<o, *B(n: 2))
+  print(x.n)
+  o2: Opt[Vec[Int]] = .nothing
+  v = unwrap(<o2, Vec())
+  print(v.len)
+  t: Tree = .node(l: Box(Tree.leaf(b: *B(n: 3))), r: Box(Tree.leaf(b: *B(n: 4))))
+  print(count(?t))
+  print(sum(<t))
+  print("end")

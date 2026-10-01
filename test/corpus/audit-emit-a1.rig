@@ -1,0 +1,18 @@
+error E
+  bad
+
+struct Node
+  n: Int
+
+fun f(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+sub g(k: Int)!
+  v: Vec[*Node] = Vec()
+  !v.push(*Node(n: f(k)!))
+  print(v.len)
+
+sub main
+  g(0) catch print("e")
+  g(1) catch print("e")

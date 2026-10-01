@@ -1,0 +1,3 @@
+sub main
+  t = Text()
+  print(t)

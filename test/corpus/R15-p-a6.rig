@@ -1,0 +1,6 @@
+# root read while write slice alive, via len
+sub main()
+  a = [1, 2, 3]
+  w = !a[..]
+  print(a.len)
+  w[0] = 5

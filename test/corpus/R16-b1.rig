@@ -1,0 +1,9 @@
+sub bump(w: !Int)
+  w += 1
+
+sub main
+  x = 0
+  w = !x
+  print(x)
+  bump(w)
+  print(x)

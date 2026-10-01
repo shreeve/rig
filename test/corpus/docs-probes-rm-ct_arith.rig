@@ -1,0 +1,6 @@
+fun f[n: Int]() -> Int
+  a: [n * 2]Int = [0 of n * 2]
+  a.len
+
+sub main
+  print(f[3]())

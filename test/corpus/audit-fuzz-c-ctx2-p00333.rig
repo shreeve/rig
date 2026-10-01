@@ -1,0 +1,190 @@
+fun rt_bool(b: Bool) -> Bool
+  b
+
+fun rt_int(n: Int) -> Int
+  n
+
+fun gid[T](a: T) -> T
+  a
+
+fun gmax[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun gsome[T](a: T) -> T?
+  a
+
+fun id_u8(x: U8) -> U8
+  x
+
+fun id_i8(x: I8) -> I8
+  x
+
+fun id_i16(x: I16) -> I16
+  x
+
+fun id_u16(x: U16) -> U16
+  x
+
+fun id_i32(x: I32) -> I32
+  x
+
+fun id_u32(x: U32) -> U32
+  x
+
+fun id_int(x: Int) -> Int
+  x
+
+fun id_u64(x: U64) -> U64
+  x
+
+fun id_i128(x: I128) -> I128
+  x
+
+fun id_u128(x: U128) -> U128
+  x
+
+fun id_float(x: Float) -> Float
+  x
+
+fun id_f32(x: F32) -> F32
+  x
+
+struct GP3713[T]
+  f: T
+
+fun cf18(ok: Bool) -> U16!
+  return CE18.no if not ok
+  11482
+
+error CE18
+  no
+
+fun fo5013(s: Bool) -> U64?
+  return none if not s
+  18446744073709551615
+
+fun fu5013(s: Bool) -> U64?
+  x = fo5013(s)?
+  x
+
+enum Op5013
+  some(v: U64)
+  nothing
+
+struct FA1759
+  f: Float
+
+struct Bx1497
+  f: U64
+
+struct FA1218
+  f: U8
+
+fun fal3588(ok: Bool) -> U32!
+  return Err3588.bad if not ok
+  4
+
+error Err3588
+  bad
+
+fun fal387(ok: Bool) -> U128!
+  return Err387.bad if not ok
+  247082430125122878275228786794844851034
+
+error Err387
+  bad
+
+struct W387
+  f: U128
+  g: Int = 1
+
+sub t408
+  arr408: [2]F32 = [0, (-1.5)]
+  vec408: Vec[F32] = Vec()
+  !vec408.push(arr408[1])
+  print(vec408)
+
+sub t5652
+  o5652: U64? = id_u64(18098824267028067248)
+  vw5652: Vec[U64] = Vec()
+  pushit5652 = |!vw5652, x: U64| !vw5652.push(x)
+  pushit5652((o5652 ?? 2))
+  print(vw5652)
+
+sub t3713
+  gp3713: GP3713[F32] = GP3713(f: gid(0.5))
+  print(gp3713.f)
+
+sub t18
+  o18: U16? = none
+  flag18 = rt_bool(false)
+  print(cf18(false) catch (o18 ?? (53771 if flag18 else 48455)))
+
+sub t5013
+  en5013: Op5013 = .some((fu5013(false) ?? 19))
+  print(en5013)
+
+sub t1759
+  fa1759 = FA1759(f: 0)
+  fa1759.f = Float((-1.5))
+  print(fa1759.f)
+
+sub t1497
+  bx1497 = Bx1497(f: 18446744073709551615)
+  qo1497: U64? = id_u64(3)
+  print(qo1497 ?? bx1497.f)
+
+sub t1218
+  fa1218 = FA1218(f: 0)
+  fa1218.f = 0
+  print(fa1218.f)
+
+sub t2456
+  mk2456 = rt_int(0)
+  mz2456: U16 = match mk2456
+    1 => U16.min
+    _ => 0
+  print(mz2456)
+
+sub t3588
+  gy3588: U32 = gid((fal3588(false) catch 5))
+  print(gy3588)
+
+sub t201
+  x201: Float = gmax(2.5, 0.5)
+  print(x201)
+
+sub t387
+  w387 = W387(f: (fal387(true) catch 182303071622359499255022518865723165525))
+  print(w387.f, w387)
+
+sub t241
+  cmp241: U128 = id_u128(66597)
+  print(cmp241 == 17, 17 < cmp241, 17 >= cmp241)
+
+sub t645
+  x645: Float = gmax(3, (-2))
+  print(x645)
+
+sub t1102
+  gv1102: Vec[I8] = Vec()
+  !gv1102.push(2)
+  qo1102: I8? = none
+  print(qo1102 ?? (gv1102.get(0) ?? 0))
+
+sub main
+  t408()
+  t5652()
+  t3713()
+  t18()
+  t5013()
+  t1759()
+  t1497()
+  t1218()
+  t2456()
+  t3588()
+  t201()
+  t387()
+  t241()
+  t645()
+  t1102()

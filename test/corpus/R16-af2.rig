@@ -1,0 +1,11 @@
+fun double(n: Int) -> Int
+  n * 2
+
+fun inc(n: Int) -> Int
+  n + 1
+
+sub main
+  arr: [2]fun(Int) -> Int = [double, inc]
+  g = ?arr[1]
+  arr[1] = double
+  print(g(1))

@@ -1,0 +1,13 @@
+fun lit[T](a: T) -> Bool
+  a < 3
+
+fun litf[T](a: T) -> Bool
+  a > 1.5
+
+fun eqlit[T](a: T) -> Bool
+  a == 3
+
+sub main()
+  print(lit("x"))
+  print(litf("y"))
+  print(eqlit("z"))

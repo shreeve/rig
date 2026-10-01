@@ -1,0 +1,6 @@
+sub main
+  buf: Vec[U8] = Vec()
+  !buf.push(104)
+  raw
+    s: String = @bitCast(?buf[..])
+    print(s)

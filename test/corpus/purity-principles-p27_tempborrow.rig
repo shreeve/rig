@@ -1,0 +1,12 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun peek(r: ?R) -> Int
+  r.n
+
+sub main
+  x = peek(?R(n: 1)) + peek(?R(n: 2))
+  print("sum", x)

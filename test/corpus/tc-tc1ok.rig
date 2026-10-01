@@ -1,0 +1,13 @@
+struct N
+  v: Int
+
+sub take_read(o: ?*N?)
+  n = +o ?? return
+  print(n.v)
+
+sub main()
+  h: *N? = *N(v: 1)
+  take_read(?h)
+  take_read(?h)
+  v: *N? = none
+  take_read(?v)

@@ -1,0 +1,29 @@
+pub struct Box[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+  fun nest(?self) -> Int
+    b = Box(v: Box(v: 1))
+    print(b.v.v)
+    1
+
+pub struct Deep[T]
+  v: T
+
+  fun deeper(?self) -> Int
+    d: Deep[Deep[T]]? = none
+    print(d == none)
+    1
+
+pub struct Tagger
+  label: String
+
+  fun add[T](?self, x: T) -> T
+    x + 1
+
+pub fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+pub type IntBox = Box[Int]

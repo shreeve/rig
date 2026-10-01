@@ -1,0 +1,20 @@
+type Arr = [1_000_000]Int
+
+struct Big
+  a: Cell[Arr]
+  b: Cell[Arr]
+  c: Cell[Arr]
+  d: Cell[Arr]
+  e: Cell[Arr]
+  f: Cell[Arr]
+  g: Cell[Arr]
+  h: Cell[Arr]
+  i: Cell[Arr]
+  j: Cell[Arr]
+  k: Cell[Arr]
+  l: Cell[Arr]
+
+sub main
+  z: Arr = [1_000_000 of 7]
+  b = Big(a: Cell[Arr](value: z), b: Cell[Arr](value: z), c: Cell[Arr](value: z), d: Cell[Arr](value: z), e: Cell[Arr](value: z), f: Cell[Arr](value: z), g: Cell[Arr](value: z), h: Cell[Arr](value: z), i: Cell[Arr](value: z), j: Cell[Arr](value: z), k: Cell[Arr](value: z), l: Cell[Arr](value: z))
+  print(b.l.get()[3])

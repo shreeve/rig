@@ -1,0 +1,29 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+ 
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub each(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  total = 0
+  each(?v, |!total, n| total += n)
+  k = 10
+  add_k = |+k, a: Int| a + k
+  cb: *fun(Int) -> Int = *|a| a - 1
+  print(total, apply(double, 4), apply(?add_k, 4), apply(?cb, 4))
+  r = Res(id: 7)
+  n = apply(|<r, a| a + r.id, 1)
+  print(n)

@@ -1,0 +1,7 @@
+sub main
+  v: Vec[String] = Vec()
+  !v.push("a")
+  !v.push("b")
+  s = v[0]
+  -v
+  print(s)

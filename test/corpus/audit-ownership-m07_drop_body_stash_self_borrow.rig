@@ -1,0 +1,31 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+struct Keep
+  r: ?R
+
+struct R
+  t: *Tok
+
+  drop(!self)
+    k = Keep(r: ?self)
+    print("keep", k.r.t.n)
+
+sub main
+  r = R(t: *Tok(n: 1))
+  print("x")

@@ -1,0 +1,53 @@
+M5: I8 = (-6)
+
+fun id_i8(x: I8) -> I8
+  x
+
+fun id_i16(x: I16) -> I16
+  x
+
+fun id_i32(x: I32) -> I32
+  x
+
+fun id_int(x: Int) -> Int
+  x
+
+fun id_i128(x: I128) -> I128
+  x
+
+fun id_u8(x: U8) -> U8
+  x
+
+fun id_u16(x: U16) -> U16
+  x
+
+fun id_u32(x: U32) -> U32
+  x
+
+fun id_u64(x: U64) -> U64
+  x
+
+fun id_u128(x: U128) -> U128
+  x
+
+fun id_i64(x: I64) -> I64
+  x
+
+sub main
+  acc1: I8 = id_i8((-13))
+  v2: I8 = id_i8((-19))
+  v3: I8 = id_i8(33)
+  a4: [2]I8 = [20, 20]
+  acc1 ^= ((a4[1]) if (v2) < (v3) else (M5))
+  v7: I8 = id_i8(80)
+  acc1 *%= (v7 & 4)
+  v8: I8 = id_i8(58)
+  v9: I8 = id_i8((-60))
+  acc1 -= (v8 +% v9)
+  print(acc1)
+  v10: U128 = id_u128(2)
+  r11: U128 = v10
+# error: cannot drop `a` while borrows are live
+  print(r11)
+  r12: I32 = (-18)
+  print(r12)

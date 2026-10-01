@@ -1,0 +1,17 @@
+sub run(f: ?fun() -> Int)
+  print(f())
+sub main()
+  run(||
+    i = 0
+    n = 0
+    while i < 3 : i += 1
+      n += i
+    n
+  )
+  j = 0
+  :outer while j < 2 : j += 1
+    k = 0
+    while k < 5 : k += 1
+      x: Int? = none if k == 2 else k
+      v = x ?? continue :outer
+      print(v)

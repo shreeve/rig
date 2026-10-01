@@ -1,0 +1,7 @@
+sub each(x: ?Int, f: ?sub(Int))
+  f(x)
+
+sub main
+  total = 1
+  each(?total, |!total, n| total += n)
+  print(total)

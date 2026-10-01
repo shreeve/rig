@@ -1,0 +1,9 @@
+pub sub pair[A, B](a: A, b: B, sep: String = "-")
+  print(a, sep, b)
+
+pub struct Two[A, B]
+  a: A
+  b: B
+
+  sub show(?self, pre: String = ">", post: String = "<")
+    print(pre, self.a, self.b, post)

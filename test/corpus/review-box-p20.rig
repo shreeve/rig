@@ -1,0 +1,16 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  b: Box[R]
+
+sub eat(r: R)
+  print("eat", r.n)
+
+sub main
+  s = S(b: Box(value: R(n: 1)))
+  r = <s.b.take()
+  print(r.n)

@@ -1,0 +1,5 @@
+use lib
+
+sub main()
+  print(lib.f[Int, true](1, 2))
+  print(lib.f[String, true]("a", "b"))

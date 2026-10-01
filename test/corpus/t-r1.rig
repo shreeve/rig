@@ -1,0 +1,29 @@
+struct Node
+  n: Int
+
+fun clear(ns: !Vec[*Node]) -> Int
+  ns = Vec()
+  0
+
+fun reset(r: !*Node) -> Int
+  r = *Node(n: 9)
+  0
+
+fun rebox(b: !Box[Int]) -> Int
+  b = Box(5)
+  0
+
+fun clears(ss: !Vec[String]) -> Int
+  ss = Vec()
+  0
+
+sub main
+  ns: Vec[*Node] = Vec()
+  !ns.push(*Node(n: 1))
+  rc = *Node(n: 1)
+  print(rc, reset(!rc))
+  b = Box(3)
+  print(b, rebox(!b))
+  ss: Vec[String] = Vec()
+  !ss.push("hi")
+  print(ss[0], clears(!ss))

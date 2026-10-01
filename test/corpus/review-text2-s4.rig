@@ -1,0 +1,4 @@
+sub main
+  c = |x|
+    x + 1
+  print(c(3))

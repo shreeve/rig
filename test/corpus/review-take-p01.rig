@@ -1,0 +1,15 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+  b: R?
+
+sub main
+  s = S(a: R(n: 1), b: R(n: 2))
+  if ?s.a as x
+    t = <s.a
+    print(x.n)
+  print("end")

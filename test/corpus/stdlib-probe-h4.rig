@@ -1,0 +1,8 @@
+fun hash(s: String) -> U64
+  h: U64 = 14695981039346656037
+  for b in s
+    h = (h ^ U64(b)) *% 1099511628211
+  h
+
+sub main
+  print(hash("abc") % 16)

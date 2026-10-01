@@ -1,0 +1,6 @@
+sub main
+  i = 0
+  :c :d while true
+    i += 1
+    break :c if i > 2
+  print(i)

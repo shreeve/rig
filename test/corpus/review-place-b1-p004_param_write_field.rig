@@ -1,0 +1,11 @@
+struct P
+  x: Int
+
+sub f(p: !P)
+  p.x = 5
+  p.x += 2
+
+sub main
+  q = P(x: 1)
+  f(!q)
+  print(q.x)

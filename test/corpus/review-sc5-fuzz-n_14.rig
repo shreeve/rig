@@ -1,0 +1,6 @@
+K: U16 = 3
+C: U16 = ((U16.min ^ U16.min) >> 8)
+
+sub main()
+  v: U16 = 5
+  print(C, v)

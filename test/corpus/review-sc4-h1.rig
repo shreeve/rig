@@ -1,0 +1,32 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+sub keep(s: Slot)
+  print("kept slot")
+
+fun isfull(s: ?Slot) -> Bool
+  match s
+    .full(_) => true
+    .empty => false
+
+sub main
+  s: Slot = .full(b: *B(n: 1))
+  match <s
+    w if not isfull(?w) => print("no")
+    w if isfull(?w) => keep(<w)
+    _ => print("z")
+  t: Slot = .full(b: *B(n: 2))
+  match <t
+    w if not isfull(?w) => keep(<w)
+    w => print("left")
+  u: Slot = .full(b: *B(n: 3))
+  match <u
+    _ if false => print("q")
+  print("end")

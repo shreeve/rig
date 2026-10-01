@@ -1,0 +1,8 @@
+pub struct Wrap[T]
+  v: T
+
+  fun make(v: T, tag: String = "tagdefault", k: Int = 12345) -> String
+    tag
+
+  fun with[U](?self, u: U, tag: String = "withdefault") -> String
+    tag

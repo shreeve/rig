@@ -1,0 +1,6 @@
+struct S
+  x: Int
+
+sub main
+  s = S(x: 1)
+  print(s.impl)

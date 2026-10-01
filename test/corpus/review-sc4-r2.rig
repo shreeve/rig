@@ -1,0 +1,23 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+  fun twin(?self) -> B
+    B(n: self.n * 2)
+
+  fun get(?self) -> Int
+    self.n
+
+sub show_b(b: ?B)
+  print("b", b.n)
+
+sub main
+  p = B(n: 1)
+  show_b(?(p.twin()))
+  x = ?p.twin()
+  print(x.n)
+  print(?p.twin().get())
+  print(?(p.twin()).get())
+  print("end")

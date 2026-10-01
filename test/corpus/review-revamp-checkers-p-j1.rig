@@ -1,0 +1,22 @@
+struct Res
+  id: Int
+  v: Vec[Int]
+
+struct H
+  r: ?Res
+
+fun store(h: !H, r: ?Res) -> Bool
+  h.r = r
+  false
+
+fun make(k: Int) -> Res?
+  Res(id: k, v: Vec()) if k > 0 else none
+
+sub main
+  z = Res(id: 0, v: Vec())
+  h = H(r: ?z)
+  p: Res? = make(1)
+  if <p as a and store(!h, ?a)
+    print("yes")
+  else
+    print(h.r.id)

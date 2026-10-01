@@ -1,0 +1,17 @@
+# A returned borrow of a slice element keeps the slice's source
+# borrowed, so the source cannot go first.
+
+struct Val
+  n: Int
+
+fun first(xs: []Val) -> ?Val
+   :x ?xs[0]
+
+sub main
+  r = ?Val(n: 0)
+  if true
+    a = [Val(n: 1)]
+    r = first(?a)
+  print(r.n)
+
+# error: 14:15: `a` does not live long enough

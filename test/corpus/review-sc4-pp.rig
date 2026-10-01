@@ -1,0 +1,34 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B, v: Vec[Int])
+  empty
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+fun f(s: Slot) -> Int
+  match <s
+    .full(b, v) if v.len > 0 => b.n
+    .full(b, _) if b.n == 2
+      keep(<b)
+      -1
+    _ => 0
+
+sub g(s: Slot)
+  match <s
+    .full(b, v) if v.len > 0 => keep(<b)
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(f(.full(b: *B(n: 1), v: <v)))
+  print(f(.full(b: *B(n: 2), v: Vec())))
+  print(f(.full(b: *B(n: 3), v: Vec())))
+  print(f(.empty))
+  g(.full(b: *B(n: 4), v: Vec()))
+  print("end")

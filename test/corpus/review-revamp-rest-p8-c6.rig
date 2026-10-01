@@ -1,0 +1,22 @@
+error E
+  bad
+
+struct P
+  n: Int
+  fun use(!self, a: Vec[Int], b: Vec[Int]) -> Int
+    self.n + a.len + b.len
+
+fun mk(c: ?*Cell[Vec[P]]) -> Vec[Int]!
+  for i in 0..10000
+    c.push(P(n: i))
+  v = Vec[Int]()
+  !v.push(1)
+  v
+
+fun run(c: ?*Cell[Vec[P]]) -> Int!
+  !c[0].use(mk(c)!, mk(c)!)
+
+sub main()
+  c = *Cell[Vec[P]](value: Vec())
+  c.push(P(n: 41))
+  print(run(?c) catch 0)

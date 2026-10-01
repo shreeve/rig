@@ -1,0 +1,6 @@
+extern zig "m.zig"
+  pub fun sq(x: Float) -> Float
+  sub hi()
+
+sub main
+  print(1)

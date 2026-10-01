@@ -1,0 +1,13 @@
+struct S
+  n: Int
+
+fun pick(s: ?S) -> (?Int)?
+  ?s.n
+
+fun apply(f: fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main
+  match pick(?S(n: 5))
+    r => print(r)
+  print(apply(|x| x, 2))

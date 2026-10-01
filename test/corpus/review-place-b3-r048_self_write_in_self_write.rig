@@ -1,0 +1,16 @@
+struct Q
+  n: Int
+
+  sub inc(!self)
+    self.n += 1
+
+struct P
+  q: Q
+
+  sub go(!self)
+    !self.q.inc()
+
+sub main
+  p = P(q: Q(n: 1))
+  !p.go()
+  print(p.q.n)

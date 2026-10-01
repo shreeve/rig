@@ -1,0 +1,34 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun run() -> Int!
+  a = lib.check(Res(n: 1), true)!
+  print("got", a.n)
+  b = lib.check(Res(n: 2), false)!
+  print("never", b.n)
+  0
+
+sub main()
+  r = run() catch -1
+  print(r)
+  bag = lib.Bag[Int](items: Vec())
+  !bag.push(1)
+  !bag.push(2)
+  print(bag.size(), bag.name)
+  items = !bag.take()
+  print(items.len)
+  h = lib.Holder(v: Res(n: 5))
+  print(<h.done())
+  h2 = lib.Holder(v: Vec[Int]())
+  print(h2.v.len)
+  c = *Cell[lib.Holder[Vec[Int]]](value: lib.Holder(v: Vec[Int]()))
+  hv = lib.Holder(v: Vec[Int]())
+  !hv.v.push(9)
+  c.set(<hv)
+  old = c.replace(lib.Holder(v: Vec[Int]()))
+  print(old.v.len)

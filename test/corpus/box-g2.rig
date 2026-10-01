@@ -1,0 +1,4 @@
+sub main
+  c = Box(value: 5)
+  print(c.value + 1)
+  c.value = 3

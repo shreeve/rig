@@ -1,0 +1,27 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B, c: *B)
+  empty
+
+fun make(n: Int) -> Slot
+  print("make", n)
+  .full(b: *B(n: n), c: *B(n: n + 100))
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main
+  match <make(1)
+    .full(b, _) => keep(<b)
+  match <make(2)
+    .empty => print("e")
+  x = match <make(3)
+    .full(b, c) => <c
+    .empty => *B(n: 0)
+  print(x.n)
+  print("end")

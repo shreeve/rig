@@ -1,0 +1,17 @@
+enum E
+  a(v: Vec[Int])
+  b
+
+fun mk(n: Int) -> E
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  .a(v: <v)
+
+sub main()
+  match ?mk(5)
+    .a(v) => print(v[0])
+    .b => print("b")
+  n = match ?mk(6)
+    .a(v) => v[0]
+    .b => 0
+  print(n)

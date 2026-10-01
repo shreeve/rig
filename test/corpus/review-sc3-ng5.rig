@@ -1,0 +1,13 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun f(x: Int) -> Int
+  match x
+    1 => -x
+    _ => x
+
+sub main
+  print(f(1))

@@ -1,0 +1,12 @@
+error Bad
+  neg
+
+sub main
+  f: *sub(Int)! = *|x: Int|
+    return Bad.neg if x < 0
+    print("f", x)
+  f(1)!
+  f(-1) catch |e|
+    print("e", e)
+  g = +f
+  g(2)!

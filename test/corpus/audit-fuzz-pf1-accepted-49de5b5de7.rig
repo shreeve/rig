@@ -1,0 +1,17 @@
+struct Noisy
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+sub run(early: Bool)
+  a = Noisy(id: 1)
+  b = Noisy(id: 2)
+  if early
+    -b
+    print("dropped b early")
+  print("end of run")
+
+sub main
+  run(true)
+  run(false)

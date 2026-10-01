@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub bump(c: ?Cell[Int])
+  c.set(c.get() + 10)
+
+sub main
+  local: Cell[Int] = Cell(1)
+  bump(?local)
+  k = Counter(hits: Cell(0))
+  k.hit()
+  print(local.get(), k.hits.get())

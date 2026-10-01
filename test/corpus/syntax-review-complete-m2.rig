@@ -1,0 +1,9 @@
+enum E
+  n(v: Int)
+  z
+sub main
+  e: E = .n(5)
+  match e
+    .n(v) if v > 3 => print("big")
+    .n(v) => print(v)
+    .z => print("z")

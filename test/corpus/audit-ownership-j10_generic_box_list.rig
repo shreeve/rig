@@ -1,0 +1,41 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+struct Node[T]
+  v: T
+  next: Box[Node[T]]?
+
+struct List[T]
+  head: Box[Node[T]]?
+
+  sub push(!self, v: T)
+    self.head = Box(Node[T](v: <v, next: <self.head))
+
+  fun pop(!self) -> T?
+    if <self.head as n
+      self.head = <n.next
+      return <n.v
+    none
+
+sub main
+  l = List[*Tok](head: none)
+  !l.push(*Tok(n: 1))
+  !l.push(*Tok(n: 2))
+  if !l.pop() as t
+    print("pop", t.n)
+  print("end")

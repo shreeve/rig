@@ -1,0 +1,4 @@
+struct C
+  n: Int
+  sub bump(self)
+    self.n += 1

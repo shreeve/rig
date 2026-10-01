@@ -1,0 +1,19 @@
+use lib
+
+struct Holder
+  k: lib.Counter[Int]
+
+sub main()
+  k = lib.Counter(c: Cell(value: 0), v: 1)
+  k.bump()
+  k.c.set(k.c.get() + 10)
+  print(k.c.get())
+  h = Holder(k: lib.counter(2))
+  h.k.bump()
+  print(h.k.c.get())
+  b = lib.Box2(v: Cell(value: 5))
+  b.v.set(6)
+  print(b.v.get())
+  bb = lib.Box2(v: lib.Box2(v: Cell(value: 7)))
+  bb.v.v.set(8)
+  print(bb.v.v.get())

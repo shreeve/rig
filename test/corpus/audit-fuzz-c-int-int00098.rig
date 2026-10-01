@@ -1,0 +1,64 @@
+M2: U64 = 0
+M8: U32 = 904
+M16: I8 = 125
+
+fun id_i8(x: I8) -> I8
+  x
+
+fun id_i16(x: I16) -> I16
+  x
+
+fun id_i32(x: I32) -> I32
+  x
+
+fun id_int(x: Int) -> Int
+  x
+
+fun id_i128(x: I128) -> I128
+  x
+
+fun id_u8(x: U8) -> U8
+  x
+
+fun id_u16(x: U16) -> U16
+  x
+
+fun id_u32(x: U32) -> U32
+  x
+
+fun id_u64(x: U64) -> U64
+  x
+
+fun id_u128(x: U128) -> U128
+  x
+
+fun id_i64(x: I64) -> I64
+  x
+
+sub main
+  acc1: U64 = id_u64(60)
+  acc1 <<= 8
+  c3: Int = 42
+  acc1 ^= ((M2) << c3)
+  v4: U64 = id_u64(18446744073709551615)
+  acc1 *%= v4
+  print(acc1)
+  v5: Int = id_int(6)
+  r6: Int = v5
+  print(r6)
+  acc7: U32 = id_u32(4294967295)
+  v9: U32 = id_u32(3069546554)
+  acc7 *%= (M8 | v9)
+  v10: U32 = id_u32(4294967295)
+  acc7 ^= (v10 - 183901279)
+  v11: U32 = id_u32(1542358335)
+  v12: U32 = id_u32(1198393066)
+  v13: U32 = id_u32(0x1)
+  acc7 *%= ((v13) if (v11) > (v12) else (U32.min))
+  print(acc7)
+  acc14: U128 = id_u128(148257185830376869525594812137715853961)
+  v15: U128 = id_u128(490)
+  acc14 ^= ((v15) >> 108)
+  print(acc14)
+  r17: I8 = M16
+  print(r17)

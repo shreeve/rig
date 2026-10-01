@@ -1,0 +1,9 @@
+fun show[T](x: T) -> Int
+  print(x)
+  0
+
+sub main()
+  a: [2]U8 = [104, 105]
+  s: []U8 = ?a
+  _ = show(s)
+  _ = show(?a[..])

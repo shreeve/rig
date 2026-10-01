@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  lib = 3
+  w = lib.Wrap[Int](v: 1)
+  print(lib, w.v)

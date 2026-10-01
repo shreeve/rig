@@ -1,0 +1,17 @@
+use lib
+use a
+
+struct P
+  x: Int
+
+sub main()
+  w = lib.make(1)
+  print(a.get(?w))
+  s = a.build("hi")
+  print(a.get(?s))
+  p = a.build(P(x: 3))
+  print(a.get(?p).x)
+  v = Vec[lib.Wrap[Int]]()
+  !v.push(a.build(4))
+  !v.push(w)
+  print(lib.vsum(?v))

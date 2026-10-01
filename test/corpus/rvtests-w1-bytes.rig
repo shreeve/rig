@@ -1,0 +1,6 @@
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  b: [4]U8 = [1, 2, 3, 4]
+  print(b.read[U32, .big](rt(1)))

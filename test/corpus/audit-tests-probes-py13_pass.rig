@@ -1,0 +1,5 @@
+sub nothing
+  pass
+
+sub main
+  nothing()

@@ -1,0 +1,8 @@
+pub struct Wrap[T]
+  v: T
+
+pub struct Pt
+  x: Int
+
+pub type P = Pt
+pub type IntWrap = Wrap[Int]

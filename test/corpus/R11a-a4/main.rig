@@ -1,0 +1,14 @@
+use lib
+use util
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  w = lib.Wrap(c: util.Cell2(v: Res(n: 1)))
+  print(w.c.v.n)
+  o = lib.Ord(v: "x")
+  print(o.bigger(?o))

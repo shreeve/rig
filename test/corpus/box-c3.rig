@@ -1,0 +1,18 @@
+enum Expr
+  num(n: Int)
+  add(l: Box[Expr], r: Box[Expr])
+  mul(l: Box[Expr], r: Box[Expr])
+
+fun eval(e: ?Expr) -> Int
+  match e
+    .num(n) => n
+    .add(l, r) => eval(?l) + eval(?r)
+    .mul(l, r) => eval(?l) * eval(?r)
+
+fun num(n: Int) -> Box[Expr]
+  Box(value: .num(n))
+
+sub main
+  e = Expr.add(l: num(2), r: Box(value: Expr.mul(l: num(3), r: num(4))))
+  print(eval(?e))
+  print(e)

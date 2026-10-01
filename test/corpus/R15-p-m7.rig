@@ -1,0 +1,8 @@
+sub main()
+  grid = [[1, 2], [3, 4]]
+  a = [0, 0]
+  w = !a[..]
+  for row in grid
+    w = !row[..]
+  w[0] = 9
+  print(grid)

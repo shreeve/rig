@@ -1,0 +1,4 @@
+use lib
+
+sub main()
+  print(lib.f99(1, 2))

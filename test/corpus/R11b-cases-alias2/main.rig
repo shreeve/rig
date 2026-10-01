@@ -1,0 +1,12 @@
+use lib
+
+struct W2[T]
+  v: T
+
+type IW = W2[Int]
+
+sub main()
+  a = lib.P(x: 1)
+  b = IW(v: 2)
+  c = lib.IntWrap(v: 4)
+  print(a.x, b.v, c.v)

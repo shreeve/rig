@@ -1,0 +1,12 @@
+struct Q
+  n: Int
+
+struct H
+  q: !Q
+
+sub main
+  x = Q(n: 1)
+  h = H(q: !x)
+  h.q.n = 7
+  h.q.n += 1
+  print(x.n)

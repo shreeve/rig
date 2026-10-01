@@ -1,0 +1,9 @@
+sub main
+  o: Vec[Int]? = Vec()
+  if ?o as x and !o as y
+    !y.push(1)
+    print(x.len)
+  if !o as a and !o as b
+    !a.push(2)
+    !b.push(3)
+    print(a.len)

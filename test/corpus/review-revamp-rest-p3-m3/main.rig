@@ -1,0 +1,8 @@
+use lib
+type Byte = lib.Byte
+enum E
+  a = Byte.max
+  b = lib.Byte.max - 1
+sub main()
+  x: Byte = 300
+  print(Int(E.a), x)

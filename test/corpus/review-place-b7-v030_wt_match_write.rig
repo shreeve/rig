@@ -1,0 +1,14 @@
+struct H
+  w: !Int
+
+enum E
+  a(h: H)
+  b
+
+sub main
+  n = 1
+  e: E = .a(h: H(w: !n))
+  match !e
+    .a(h) => h.w = 8
+    .b => print("b")
+  print(n)

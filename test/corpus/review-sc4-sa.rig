@@ -1,0 +1,11 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  b = B(n: 1)
+  w = !b
+  w = <w
+  print(b.n)

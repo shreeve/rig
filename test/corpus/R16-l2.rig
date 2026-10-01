@@ -1,0 +1,8 @@
+sub main
+  x = 0
+  f = |!x|
+    x += 1
+  for i in 0..3
+    f()
+    x = 10
+  print(x)

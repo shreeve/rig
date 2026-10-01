@@ -1,0 +1,19 @@
+struct Holder[V]
+  one: V?
+
+  fun val(!self) -> (!V)?
+    if !self.one as v
+      return v
+    none
+
+struct N
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  h = Holder[N](one: N(n: 1))
+  if !h.val() as v
+    v.n = 5
+  if ?h.one as w
+    print(w.n)

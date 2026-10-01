@@ -1,0 +1,9 @@
+struct H
+  w: !Vec[Int]
+
+sub main
+  v: Vec[Int] = Vec()
+  h = H(w: !v)
+  h.w += 1
+  h.w = 5
+  h.w = ?v

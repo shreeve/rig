@@ -1,0 +1,12 @@
+struct P
+  x: Int
+
+fun first(v: ?Vec[P]) -> ?P
+  ?v[0]
+
+sub main
+  v: Vec[P] = Vec()
+  !v.push(P(x: 1))
+  r = first(?v)
+  !v.push(P(x: 2))
+  print(r.x)

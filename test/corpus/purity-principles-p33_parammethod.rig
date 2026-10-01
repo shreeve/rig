@@ -1,0 +1,21 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+fun peek(c: ?Counter) -> Int
+  c.hits.get()
+
+sub viaMethod(c: Counter)
+  c.hit()
+  c.hit()
+  print("param changed to", c.hits.get())
+
+sub main
+  k = Counter(hits: Cell(0))
+  viaMethod(k)
+  print("caller still", k.hits.get())
+  m =! Counter(hits: Cell(0))
+  m.hit()
+  print("fixed binding changed to", m.hits.get())

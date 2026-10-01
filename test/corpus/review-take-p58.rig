@@ -1,0 +1,30 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  s = "abc"
+  o = replace(!s, "xyz")
+  print(o, s)
+  a: [2]Int? = [1, none]
+  b = replace(!a, [none, 2])
+  print(a, b)
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = replace(!v, Vec())
+  !v.push(9)
+  print(v, w)
+  h = *R(n: 3)
+  g = replace(!h, *R(n: 4))
+  print(h, g)
+  c = Cell(value: 1)
+  d = replace(!c, Cell(value: 2))
+  print(c.get(), d.get())
+  bx = Box(value: R(n: 5))
+  by = replace(!bx, Box(value: R(n: 6)))
+  print(bx, by)
+  swap(!bx, !by)
+  print(bx, by)
+  replace(!s, "q")
+  print(s)

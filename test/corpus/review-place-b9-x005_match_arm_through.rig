@@ -1,0 +1,11 @@
+struct H
+  w: !Int
+
+sub main
+  n = 0
+  h = H(w: !n)
+  k = 2
+  match k
+    1 => h.w = 1
+    _ => h.w = 2
+  print(n)

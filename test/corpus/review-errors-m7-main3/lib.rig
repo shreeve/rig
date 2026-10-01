@@ -1,0 +1,7 @@
+pub error Disk
+  full
+
+pub DEF = Disk.full
+
+pub fun fail -> Int!
+  return Disk.full

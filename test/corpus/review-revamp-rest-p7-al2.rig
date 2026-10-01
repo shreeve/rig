@@ -1,0 +1,6 @@
+type S = String
+type B = Bool
+type O = Int?
+sub main()
+  a = S("x")
+  print(a)

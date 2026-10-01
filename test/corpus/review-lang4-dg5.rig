@@ -1,0 +1,16 @@
+struct R
+  xs: Vec[Int]
+
+struct H
+  w: !Vec[R]
+
+fun first(v: ?Vec[R]) -> ?R
+  ?v[0]
+
+sub main
+  v: Vec[R] = Vec()
+  !v.push(R(xs: Vec()))
+  h = H(w: !v)
+  r = first(?h.w)
+  h.w = Vec[R]()
+  print(r.xs)

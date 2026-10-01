@@ -1,0 +1,11 @@
+struct P
+  x: Int
+
+enum K
+  a(v: Int)
+  b
+
+sub main()
+  p = P(x: 1)
+  k: K = .b
+  print(p == nope, nope < "a", k == .a(v: nope), "a" < nope2)

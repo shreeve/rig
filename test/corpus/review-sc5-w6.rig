@@ -1,0 +1,22 @@
+fun cls(x: U128) -> String
+  match x
+    0 => "zero"
+    340282366920938463463374607431768211455 => "max"
+    1..100 => "small"
+    _ => "other"
+
+fun ci(x: I128) -> Int
+  match x
+    -170141183460469231731687303715884105728 => -1
+    _ => 1
+
+sub main()
+  print(cls(0), cls(U128.max), cls(5), cls(1000))
+  print(ci(I128.min), ci(0))
+  v = Vec[U128]()
+  !v.push(U128.max)
+  print(v, v[0] == U128.max, "#{v[0]}")
+  y: I128 = -5
+  print(y < 0, U128(y * y), I128(U128.max / 4))
+  z: U64 = U64(U128.max >> 64)
+  print(z, I8(y), F32(U128.max))

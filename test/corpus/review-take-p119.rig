@@ -1,0 +1,18 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R
+
+sub main
+  s = S(a: R(n: 1))
+  x = R(n: 2)
+  old = replace(!s.a, <x)
+  print(old, s)
+  y = R(n: 3)
+  i = 0
+  while i < 2 : i += 1
+    o2 = replace(!s.a, <y)
+    print(o2)

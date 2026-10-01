@@ -1,0 +1,5 @@
+sub main()
+  vs = Vec[Vec[Int]]()
+  !vs.push(Vec[Int]())
+  !vs[0].push(vs.len)
+  print(vs[0][0])

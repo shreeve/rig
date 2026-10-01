@@ -1,0 +1,13 @@
+struct Tally
+  count: !Int
+
+sub record(t: !Tally)
+  t.count += 1
+
+sub main
+  n = 0
+  t = Tally(count: !n)
+  record(!t)
+  u = <t
+  u.count += 10
+  print(n)

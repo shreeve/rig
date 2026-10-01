@@ -1,0 +1,10 @@
+struct Token
+  id: Int
+
+sub use_it(t: Token)
+  print(t.id)
+
+sub main
+  t = Token(id: 1)
+  use_it(t)
+  use_it(t)

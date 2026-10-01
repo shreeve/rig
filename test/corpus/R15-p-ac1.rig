@@ -1,0 +1,16 @@
+fun find(s: ![]Int, k: Int) -> (![]Int)?
+  i = 0
+  while i < s.len : i += 1
+    if s[i] == k
+      return !s[i..]
+  none
+sub inc(x: !Int)
+  x += 1
+sub main()
+  a = [1, 2, 3, 4]
+  if find(!a[..], 3) as t
+    t[0] = 30
+    inc(!t[1])
+  print(a)
+  o = find(!a[..], 9)
+  print(o == none)

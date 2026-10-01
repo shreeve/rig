@@ -1,0 +1,23 @@
+pub struct Pair[A, B]
+  a: A
+  b: B
+
+pub struct List[T]
+  items: Vec[T]
+
+  fun zip[U](?self, other: ?List[U]) -> List[Pair[T, U]]
+    out: Vec[Pair[T, U]] = Vec()
+    i = 0
+    while i < self.items.len and i < other.items.len
+      !out.push(Pair(a: self.items[i], b: other.items[i]))
+      i += 1
+    List(items: <out)
+
+  fun count(?self) -> Int
+    self.items.len
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  l = List(items: <v)
+  print(l.count())

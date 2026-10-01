@@ -1,0 +1,9 @@
+sub f(w2: !Int)
+  c = |+w2| w2 + 1
+  print(c())
+  d = |w2| w2 + 1
+  print(d())
+sub main
+  m = 3
+  f(!m)
+  print(m)

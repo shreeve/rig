@@ -1,0 +1,13 @@
+use lib
+
+sub main()
+  a = [1, 2, 3]
+  t = lib.tail(!a[..])
+  t[0] = 20
+  lib.rev(!a[..])
+  print(a)
+  v = lib.mk(!a)
+  lib.fillv(!v, 7)
+  a[0] = 1
+  v.s[0] = 2
+  print(a)

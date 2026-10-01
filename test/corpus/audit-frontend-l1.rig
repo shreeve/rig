@@ -1,0 +1,9 @@
+fun f(xs: ?[3]Int?) -> Int
+  n = 0
+  :outer for x in xs
+    for y in 0..2
+      v = x ?? continue :outer
+      n += v + y
+  n
+sub main()
+  print(f([1, none, 3]))

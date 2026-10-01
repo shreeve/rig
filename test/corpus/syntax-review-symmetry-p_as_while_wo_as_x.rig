@@ -1,0 +1,10 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  o: R? = R(n: 1)
+  while !o as x
+    print(x.n)
+    break

@@ -1,0 +1,9 @@
+struct P
+  x: Int
+  fun get(self: ?Self) -> Int
+    self.x
+  fun get2(self: Self) -> Int
+    self.x
+sub main
+  p = P(x: 1)
+  print(p.get(), <p.get2())

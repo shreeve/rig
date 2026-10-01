@@ -1,0 +1,4 @@
+sub main
+  x = 3
+  f = |+x| -x
+  print(f())

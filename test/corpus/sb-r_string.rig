@@ -1,0 +1,4 @@
+sub main
+  s = "abc"
+  w = !s[..]
+  print(s)

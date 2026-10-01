@@ -1,0 +1,9 @@
+# copy between param write slice and self field
+struct B
+  a: [4]Int
+  sub go(!self, s: ![]Int)
+    !s.copy(?self.a[..])
+sub main()
+  b = B(a: [1, 2, 3, 4])
+  !b.go(!b.a[..])
+  print(b.a)

@@ -1,0 +1,6 @@
+# A newline inside [ ] is whitespace (SPEC "Line joining"), but `..`
+# followed by a newline and `]` is not an open range.
+sub main()
+  a = [1, 2, 3]
+  print(?a[1..
+    ])

@@ -1,0 +1,12 @@
+fun half[T](x: T) -> T
+  x / (2 +% 1)
+
+fun band[T](x: T) -> T
+  x / (2 & 3)
+
+sub main()
+  print(half(5.0), band(5.0))
+  f: Float = 2 *% 3
+  g = 1.5 + (2 -% 1)
+  h = 1.5 + (2 << 1)
+  print(f, g, h)

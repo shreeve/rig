@@ -1,0 +1,16 @@
+struct R
+  v: Vec[Int]
+
+fun get(o: ?R?) -> Int
+  x = o ?? return 0
+  x.v.len
+
+fun get2(o: ?(*R)?) -> Int
+  x = o ?? return 0
+  x.v.len
+
+sub main()
+  o: R? = R(v: Vec())
+  print(get(?o))
+  s: (*R)? = *R(v: Vec())
+  print(get2(?s))

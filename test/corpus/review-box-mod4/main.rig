@@ -1,0 +1,7 @@
+use lib
+
+sub main
+  o: Box[lib.R]? = lib.mk(9)
+  if !o as x
+    x.n = 10
+  print(o)

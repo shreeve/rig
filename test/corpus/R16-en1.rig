@@ -1,0 +1,6 @@
+enum Ev
+  call(f: ?fun(Int) -> Int)
+  none_
+
+sub main
+  print(1)

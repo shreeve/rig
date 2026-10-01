@@ -1,0 +1,16 @@
+ARR = [1, 2, 3]
+
+fun f(x: ?Int = 3) -> Int
+  x
+
+fun g(a: ?[3]Int = ARR) -> Int
+  a[0]
+
+fun h(a: !Int = 3) -> Int
+  a
+
+fun k(a: []Int = ARR) -> Int
+  a.len
+
+sub main()
+  print(f(), g(), h(), k())

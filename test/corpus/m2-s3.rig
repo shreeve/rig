@@ -1,0 +1,15 @@
+struct R
+  y: !Int
+
+struct H
+  w: !R
+
+sub main
+  n = 0
+  r = R(y: !n)
+  h = H(w: !r)
+  if true
+    k = 5
+    f = |!h| h.w = R(y: !k)
+    f()
+  print(r.y)

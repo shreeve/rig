@@ -1,0 +1,6 @@
+use std.os
+
+A = os.args()
+
+sub main
+  print(A.len)

@@ -1,0 +1,159 @@
+fun f0(a0: Int) -> Int
+  new a0 = a0
+  b0 = -1
+  c0 = 3
+  v1 = for i2 in 0..3
+    break 16 if (i2 >= 2) and (((-4) + a0) < (-9))
+  else
+    (c0 / 1)
+  print("lv", v1)
+  match 15
+    m3 if m3 < (-5)
+      if not (((-1) - (-3)) < (a0 - m3))
+        print(13)
+      if (9 % 7) < (17 + c0)
+        :l6 for i10 in 1..4
+          print(i10)
+          print(((0 - 16) % 3))
+          b0 = c0 % 1000
+          return ((10 + c0) - a0) if not ((2 / 1) > (m3 * 1))
+          continue if (i10 - i10) == (15 % 6)
+        :l7 for i11 in (-2)..5
+          print(i11)
+          continue if (5 - c0) >= ((-6) / 5)
+      else if ((b0 % 6) != (7 % 7)) and (4 < (m3 / 1))
+        o4: Int? = ((-4) - m3) if (-2) != (b0 + c0) else none
+        if o4 as o4x
+          print("some", o4x)
+        else
+          print("none", o4 ?? (b0 * 2))
+      else if ((m3 + b0) == (a0 - (-2))) or ((b0 - m3) < (a0 / 5))
+        for i5 in 1..4
+          print(i5)
+          print((i5 % 2))
+          print(((18 - a0) - b0), 5, 9)
+          print(((16 % 4) + a0))
+          print(i5, b0)
+        w6 = 0
+        :l2 while w6 < 3 : w6 += 1
+          continue :l2 if 18 < (w6 - b0)
+          c0 -= ((c0 % 6) / 4)
+          c0 = c0 % 1000
+        w7 = 0
+        :l3 while w7 < 3 : w7 += 1
+          print(19)
+          continue if not ((m3 / 4) >= (c0 - 12))
+          print(((9 + a0) - (m3 - m3)))
+          c0 += (-8)
+          c0 = c0 % 1000
+        else
+          print(((c0 / 1) / 2))
+          b0 += ((a0 + c0) * (5 + a0))
+          b0 = b0 % 1000
+          print(((m3 * 11) + (14 * (-4))))
+      else
+        :l4 for i8 in (-2)..(-1)
+          print(i8)
+          c0 += m3
+          c0 = c0 % 1000
+          b0 -= 19
+          b0 = b0 % 1000
+        else
+          print(c0)
+          print(((7 + 19) + (b0 + 7)), (c0 - ((-2) - (-3))), c0)
+          return 17 if (m3 * c0) >= (17 * m3)
+        for i9 in 2..5
+          print(i9)
+          print((b0 - (-1)), ((c0 * b0) + (0 * (-3))), (m3 * (2 / 1)))
+          c0 -= 8
+          c0 = c0 % 1000
+          print((m3 % 2))
+          print((-4), ((b0 * m3) % 5), b0)
+    _
+      print((-1), ((a0 - a0) + a0), 12)
+      print((c0 * (4 / 9)))
+  a0 + b0 + c0
+
+fun f1(a1: Int) -> Int
+  new a1 = a1
+  b1 = 2
+  c1 = -5
+  :l8 for i12 in (-2)..0
+    print(i12)
+    defer print("defer", (a1 + c1))
+  else
+    b1 = 1000
+    w13 = 0
+    while w13 < 0 : w13 += 1
+      defer print("defer", a1)
+      print(15)
+    else
+      c1 += (0 + (6 % 8))
+      c1 = c1 % 1000
+      w14 = 0
+      while w14 < 3 : w14 += 1
+        c1 += b1
+        c1 = c1 % 1000
+        a1 = (19 * (-7)) % 1000
+      :l11 for i15 in 1..0
+        print(i15)
+        print(b1, c1)
+        print(((c1 * b1) * (c1 + 5)))
+        c1 += b1
+        c1 = c1 % 1000
+        a1 = 17 % 1000
+      else
+        print(((5 % 4) + b1), (9 * (17 - c1)))
+        print(((c1 - b1) + (c1 - (-2))), ((19 * a1) - (c1 / 8)))
+      v16 = for i17 in 0..5
+        break (c1 * 7) if (i17 >= 4) and ((7 / 9) <= (18 * i17))
+      else
+        (-3)
+      print("lv", v16)
+  c1 = ((c1 % 4) * (19 / 5)) % 1000
+  print(10)
+  if 11 == (a1 % 3)
+    b1 -= c1
+    b1 = b1 % 1000
+    if (18 + a1) <= (a1 % 3)
+      v20 = for i21 in 0..4
+        break c1 if (i21 >= 1) and ((14 / 7) > (-7))
+      else
+        (10 + c1)
+      print("lv", v20)
+    else if (b1 + (-1)) <= c1
+      match 18
+        m18 if m18 < 8
+          return ((18 - a1) % 8) if (m18 % 8) > (a1 + 18)
+          print(m18, (1 % 8), (c1 / 9))
+          a1 -= (c1 + (4 - c1))
+          a1 = a1 % 1000
+          print(((m18 / 5) - (m18 * 15)))
+        m19 if m19 == 14
+          a1 = (-4) % 1000
+          print(((18 * m19) % 4))
+          print(c1)
+          print(((a1 / 4) + a1))
+        10..12
+          c1 = ((a1 / 8) / 6) % 1000
+          print(((8 % 7) + (-2)), (-3))
+        4
+          a1 -= (a1 / 5)
+          a1 = a1 % 1000
+        _
+          print(((15 - a1) / 3))
+          a1 = ((c1 + a1) % 3) % 1000
+          print(((14 / 9) % 9))
+      b1 = c1 % 1000
+      print(((c1 + c1) + (c1 - (-4))), b1)
+    v22 = for i23 in 0..0
+      break (14 / 4) if (i23 >= 0) and (not ((a1 - 10) == (18 * a1)))
+    else
+      ((-3) * a1)
+    print("lv", v22)
+  a1 + b1 + c1
+
+sub main
+  print("ret", f0((-1)))
+  print("ret", f1(1))
+  print("ret", f1((-5)))

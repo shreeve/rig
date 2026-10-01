@@ -1,0 +1,15 @@
+fun f(x: Int, c: Bool) -> Int
+  if c
+    -x
+  else
+    x
+
+sub g(x: Int, c: Bool)
+  if c
+    -x
+  print("g")
+
+sub main
+  n = 1
+  print(f(n, true))
+  g(n, true)

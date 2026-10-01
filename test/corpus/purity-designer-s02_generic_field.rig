@@ -1,0 +1,7 @@
+struct P
+  x: Int
+fun k[T](a: ?T) -> Int
+  a.x
+sub main
+  p = P(x: 1)
+  print(k(?p))

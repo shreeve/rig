@@ -1,0 +1,12 @@
+sub eat(v: Vec[Int])
+  print(v.len)
+
+sub main()
+  a: Vec[Int] = Vec()
+  for i in 0..2
+    for j in 0..2
+      for k in 0..2
+        print(a.len)
+    if i == 0
+      d = <a
+      eat(<d)

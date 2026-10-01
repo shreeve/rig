@@ -1,0 +1,16 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+
+fun slot(s: !S) -> !R?
+  !s.a
+
+sub main
+  s = S(a: R(n: 1))
+  w = slot(!s)
+  t = <w
+  print(t, s)

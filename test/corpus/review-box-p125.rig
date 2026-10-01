@@ -1,0 +1,20 @@
+struct Node
+  v: Int
+  next: Box[Node]?
+
+sub two(a: !Node, b: !Box[Node]?)
+  b = none
+  print(a.next)
+
+sub two2(a: !Node, b: ?Node)
+  a.next = none
+  print(b.v)
+
+sub main
+  b = Box(value: Node(v: 1, next: Box(value: Node(v: 2, next: none))))
+  two(!b, !b.next)
+  two2(!b, ?b)
+  o: Box[Node]? = Box(value: Node(v: 1, next: none))
+  if !o as x
+    if ?o as y
+      print(y.v)

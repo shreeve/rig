@@ -1,0 +1,8 @@
+struct P
+  o: String?
+
+sub main
+  q: P? = P(o: "a")
+  if <q as p
+    x = <p.o
+    print(x ?? "-")

@@ -1,0 +1,7 @@
+sub main
+  a = [1, 2]
+  w = !a[..]
+  f = |<w|
+    w[0] = 5
+    w.len
+  print(f())

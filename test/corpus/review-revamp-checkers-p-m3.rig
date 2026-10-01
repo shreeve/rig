@@ -1,0 +1,16 @@
+error E
+  bad
+  worse
+
+fun f(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+sub main()
+  f(1) catch |e|
+    match e
+      .bad => print("bad")
+  x: Int? = 3
+  match 5
+    n if n > 3 => print("big")
+    n => print(n)

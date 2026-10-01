@@ -1,0 +1,12 @@
+struct Wrap
+  n: Int
+
+struct Rd
+  t: ?Wrap
+
+sub main
+  b = Box(value: Wrap(n: 1))
+  c = Wrap(n: 2)
+  r = Rd(t: ?c)
+  r.t = ?b
+  print(r.t.n)

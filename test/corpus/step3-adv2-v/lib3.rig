@@ -1,0 +1,3 @@
+pub enum Opt[T]
+  some(value: T, extra: Int)
+  none

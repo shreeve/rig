@@ -1,0 +1,22 @@
+struct Wrap
+  n: Int
+
+  drop(!self)
+    self.n = 0
+    print("drop")
+
+struct View
+  w: ?Wrap
+
+sub fill(out: !View, f: ?sub(!View))
+  f(out)
+
+sub main
+  a = Wrap(n: 1)
+  v = View(w: ?a)
+  if true
+    b = Wrap(n: 2)
+    set = |?b, o: !View|
+      o.w = b
+    fill(!v, ?set)
+  print(v.w.n)

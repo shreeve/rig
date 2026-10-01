@@ -1,0 +1,7 @@
+N = 3
+D = 4 if N > 2 else 2
+E = D + 1
+F = 1 if D > 3 else 0
+
+sub main()
+  print(D, E, F)

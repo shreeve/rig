@@ -1,0 +1,22 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  b: ?B
+
+enum Slot
+  full(b: B)
+  empty
+
+sub main
+  s: Slot = .full(b: B(n: 1))
+  z = B(n: 0)
+  h = V(b: ?z)
+  match <s
+    .full(b)
+      h = V(b: ?b)
+    .empty => print("e")
+  print(h.b.n)

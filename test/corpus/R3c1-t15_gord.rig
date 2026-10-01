@@ -1,0 +1,31 @@
+fun ops[T](a: T, b: T) -> [4]Bool
+  [a < b, a <= b, a > b, a >= b]
+
+fun opsB[T](a: ?T, b: ?T) -> [4]Bool
+  [a < b, a <= b, a > b, a >= b]
+
+fun lit[T](a: T) -> Bool
+  a < 3 and a >= 0
+
+fun sort3[T](xs: ![3]T)
+  for _ in 0..3
+    for j in 0..2
+      if xs[j + 1] < xs[j]
+        t = xs[j]
+        xs[j] = xs[j + 1]
+        xs[j + 1] = t
+
+sub main()
+  x: U8 = 200
+  y: U8 = 3
+  print(ops(x, y), ops(y, x), ops(y, y))
+  print(ops(1.5, 0.0 / 0.0), ops(-0.0, 0.0))
+  print(ops("b", "ab"), ops("", ""), opsB(?"a", ?"b"))
+  z: U8 = 2
+  print(lit(z), lit(2.5), lit(-1))
+  ws = ["pear", "apple", "fig"]
+  sort3(!ws)
+  print(ws[0], ws[1], ws[2])
+  ns = [3.5, -1.0, 2.0]
+  sort3(!ns)
+  print(ns[0], ns[1], ns[2])

@@ -1,0 +1,3 @@
+sub main
+  c: U8 = 'a'
+  print(c)

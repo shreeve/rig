@@ -1,0 +1,180 @@
+struct R
+  id: Int
+
+  drop(!self)
+    print("rel", self.id)
+
+struct P
+  a: R
+  b: R
+
+enum HR
+  one(r: R)
+  empty
+
+error E
+  bad
+
+fun mk(id: Int) -> R
+  print("new", id)
+  R(id: id)
+
+fun optr(id: Int) -> R?
+  return none if id % 3 == 0
+  mk(id)
+
+sub look(r: ?R)
+  print("use", r.id)
+
+fun rt_bool(b: Bool) -> Bool
+  b
+
+fun rt_int(n: Int) -> Int
+  n
+
+fun pick[T](a: T, b: T, first: Bool) -> T
+  if first
+    return <a
+  <b
+
+fun keep_first[T](a: T, b: T) -> T
+  a
+
+fun ident[T](x: T) -> T
+  x
+
+fun cycle[T](x: T, n: Int) -> T
+  cur = <x
+  for _ in 0..n
+    cur = ident(<cur)
+  cur
+
+fun wrap[T](x: T) -> T?
+  x
+
+fun unwrap_or[T](o: T?, d: T) -> T
+  if <o as v
+    return <v
+  <d
+
+fun first_some[T](a: T?, b: T?) -> T?
+  if <a as x
+    return <x
+  <b
+\
+fun must[T](o: T?) -> T!
+  if <o as x
+    return <x
+  E.bad
+
+fun chain[T](o: T?) -> T?
+  x = (<o)?
+  x
+
+sub swap_gen[T](a: !T, b: !T)
+  swap(!a, !b)
+
+fun first_ref[T, U](p: ?Pair[T, U]) -> ?T
+  ?p.first
+
+struct Pair[T, U]
+  first: T
+  second: U
+
+  fun left(?self) -> ?T
+    ?self.first
+
+struct Shelf[T]
+  items: Vec[T]
+
+  sub add(!self, x: T)
+    !self.items.push(<x)
+
+  fun take(!self) -> T?
+    !self.items.pop()
+
+enum Maybe[T]
+  just(v: T)
+  nada
+
+fun get_or[T](m: Maybe[T], d: T) -> T
+  match <m
+    .just(v) => v
+    .nada => d
+
+fun fill_shelf[T](a: T, b: T) -> Shelf[T]
+  s = Shelf[T](items: Vec())
+  !s.add(<a)
+  !s.add(<b)
+  s
+
+sub h0
+  m1: Maybe[*R] = .just(*mk(10))
+  r1 = get_or(<m1, *mk(20))
+  print("use", r1.id)
+  r3 = cycle(optr(30), rt_int(2))
+  if ?r3 as y4
+    print("use", y4.id)
+  o5: HR? = none
+  r5 = unwrap_or(<o5, HR.one(r: mk(40)))
+  match ?r5
+    .one(z6) => look(?z6)
+    .empty => print("empty")
+
+sub h1
+  r7 = fill_shelf(50, 60)
+  !r7.add(70)
+  if !r7.take() as w8
+    print("int", w8)
+  if !r7.take() as w10
+    print("int", w10)
+  if !r7.take() as w12
+    print("int", w12)
+  if !r7.take() as w14
+    print("int", w14)
+  print("int", r7.items.len)
+  r16 = fill_shelf(Box(mk(80)), Box(mk(90)))
+  !r16.add(Box(mk(100)))
+  if !r16.take() as w17
+    print("use", w17.id)
+  print("int", r16.items.len)
+  r19 = ident(ident(HR.one(r: mk(110))))
+  match ?r19
+    .one(z20) => look(?z20)
+    .empty => print("empty")
+  o21: R? = mk(120)
+  r21 = chain(<o21)
+  if ?r21 as w22
+    look(?w22)
+  o24: HR? = none
+  r24 = chain(<o24)
+  if ?r24 as w25
+    match ?w25
+      .one(z26) => look(?z26)
+      .empty => print("empty")
+  r27 = ident(ident(mk(130)))
+  look(?r27)
+
+sub h2
+  r29 = Pair(first: "s140", second: optr(150))
+  f29 = first_ref(?r29)
+  print("str", f29)
+  if ?r29.second as y31
+    print("use", y31.id)
+  a32: R? = mk(160)
+  b32: R? = none
+  r32 = first_some(<a32, <b32)
+  if ?r32 as w33
+    look(?w33)
+  r35 = ident(ident("s170"))
+  print("str", r35)
+  r37 = wrap(mk(180))
+  if ?r37 as w38
+    look(?w38)
+  r40 = ident(ident(mk(190)))
+  look(?r40)
+
+sub main
+  h0()
+  h1()
+  h2()

@@ -1,0 +1,18 @@
+fun cap[T](x: T) -> Int
+  c = |+x| 1
+  c()
+
+fun cap3[T](x: T) -> Int
+  c = |<x| 1
+  c() + c()
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  print(cap(Res(n: 1)))
+  print(cap3(Res(n: 3)))
+  print(cap(5), cap3(7))

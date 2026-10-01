@@ -1,0 +1,6 @@
+K: I8 = 3
+
+sub main()
+  v: I8 = 5
+  x: I8 = 7
+  print(x, v, K)

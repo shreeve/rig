@@ -1,0 +1,9 @@
+struct S
+  s: String
+
+sub main
+  out = S(s: "lit")
+  if true
+    t = Text("scoped text here")
+    out = S(s: ?t[..])
+  print(out)

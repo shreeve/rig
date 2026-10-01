@@ -1,0 +1,10 @@
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  e: Vec[Int] = Vec()
+  o = ?e[..]
+  for x in [?v[..], ?v[..1]]
+    o = x
+  -v
+  print(o)

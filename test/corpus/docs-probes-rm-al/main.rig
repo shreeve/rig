@@ -1,0 +1,8 @@
+use lib
+
+type W = lib.Wrap[Int]
+
+sub main
+  w = W(v: 3)
+  x = lib.IW(v: 4)
+  print(w.v, x.v, lib.Byte.max)

@@ -1,0 +1,13 @@
+fun first(xs: [2]Int?) -> Int?
+  v = xs[0]?
+  v + 1
+
+fun lit() -> Int?
+  n = [none, 2][1]?
+  n
+
+sub main
+  a: [2]Int? = [3, none]
+  print(first(a), lit())
+  b = 5
+  print(3 < -b, 3 -1)

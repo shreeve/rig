@@ -1,0 +1,16 @@
+struct R
+  v: Vec[Int]
+  n: Int
+
+enum S
+  a(r: R)
+  b
+
+sub main
+  s: S = .a(r: R(v: Vec(), n: 1))
+  match <s
+    .a(r)
+      r.n = 5
+      !r.v.push(3)
+      print(r.n, r.v.len)
+    .b => print("b")

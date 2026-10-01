@@ -1,0 +1,20 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+sub f(o: ?(Res?), p: !(Res?))
+  if o as a and !p as b and a.id < b.id
+    b.id = a.id
+    print("set", b.id)
+  else
+    print("else")
+
+sub main
+  x: Res? = Res(id: 1)
+  y: Res? = Res(id: 5)
+  f(?x, !y)
+  f(?x, !y)
+  if ?y as q
+    print(q.id)

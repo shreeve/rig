@@ -1,0 +1,2 @@
+pub fun first(v: ?Vec[String]) -> ?String
+  ?v[0]

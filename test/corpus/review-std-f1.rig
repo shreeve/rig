@@ -1,0 +1,20 @@
+use std.math
+use std.time
+use std.os
+
+fun apply(f: ?fun(Float) -> Float, x: Float) -> Float
+  f(x)
+
+fun apply2(f: fun(Float) -> Float, x: Float) -> Float
+  f(x)
+
+sub main
+  print(apply(math.sqrt, 16.0), apply2(math.floor, 2.5))
+  g = math.cos
+  print(g(0.0))
+  h = *|x: Float| math.sqrt(x)
+  print(h(9.0))
+  s = time.sleep
+  s(1)
+  e = os.env
+  print(e("NOPE_X") == none)

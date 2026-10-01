@@ -1,0 +1,7 @@
+use lib
+
+sub main
+  root = lib.leaf(1)
+  !root.kids.push(lib.leaf(2))
+  !root.kids.push(lib.leaf(3))
+  print(root.total(), root)

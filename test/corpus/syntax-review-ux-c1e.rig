@@ -1,0 +1,15 @@
+fun mulw(a: U64, b: U64) -> U64
+  wide: U128 = U128(a) * U128(b)
+  raw
+    r: U64 = @truncate(wide)
+    r
+
+fun fnv1a(s: String) -> U64
+  h: U64 = 0xcbf29ce484222325
+  for b in s
+    h ^= U64(b)
+    h = mulw(h, 0x100000001b3)
+  h
+
+sub main
+  print(fnv1a("hello"))

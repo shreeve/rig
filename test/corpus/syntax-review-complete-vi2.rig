@@ -1,0 +1,7 @@
+sub main
+  a: Vec[Int] = Vec()
+  !a.push(3)
+  !a.push(1)
+  !a[..].sort()
+  s = ?a[..]
+  print(s.len, a.cap, a.is_empty())

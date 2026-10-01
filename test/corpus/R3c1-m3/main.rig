@@ -1,0 +1,35 @@
+use geo
+
+struct P
+  x: Int
+
+enum S
+  c(p: P)
+  n
+
+enum Opt[T]
+  some(value: T)
+  nothing
+
+fun f(a: ?S) -> Bool
+  a == .c(p: P(x: 1))
+
+fun g(a: !S) -> Bool
+  .c(p: P(x: 1)) != a
+
+fun h(a: ?S?) -> Bool
+  a == .c(p: P(x: 1))
+
+fun gen[T](a: ?Opt[T], v: T) -> Bool
+  a == .some(value: v)
+
+sub main()
+  s: S = .c(p: P(x: 1))
+  o: S? = s
+  print(f(?s), g(!s), h(?o))
+  sh: geo.Shape = .dot(at: geo.Point(x: 1, y: 2))
+  print(sh == .dot(at: geo.Point(x: 1, y: 2)), .empty == sh)
+  op: Opt[String] = .some(value: "q")
+  print(op == .some(value: "q"), gen(?op, "q"), gen(?op, "r"))
+  ps = [s, s]
+  print(ps[0] == .c(p: P(x: 1)), ?ps[0] == .n)

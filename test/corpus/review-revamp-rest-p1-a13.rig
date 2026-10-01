@@ -1,0 +1,5 @@
+sub main()
+  x = 3
+  match x
+    1 => -x
+    _ => print(x)

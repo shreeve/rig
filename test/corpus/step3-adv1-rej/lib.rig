@@ -1,0 +1,27 @@
+pub struct Stack[T]
+  items: Vec[T]
+
+  fun new_stack() -> Self
+    Stack(items: Vec())
+
+  sub push(!self, x: T, note: String = "pushed")
+    !self.items.push(<x)
+    print(note)
+
+  fun size(?self) -> Int
+    self.items.len
+
+pub struct Slot[T]
+  c: Cell[T]
+
+  fun swap(?self, x: T) -> T
+    self.c.replace(<x)
+
+pub fun wrap[T](x: T, label: String = "w") -> Stack[T]
+  s = Stack[T].new_stack()
+  !s.push(<x)
+  print(label)
+  s
+
+pub struct View[T]
+  r: ?T

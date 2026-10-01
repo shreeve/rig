@@ -1,0 +1,9 @@
+struct Node
+  v: Int
+
+sub main
+  n = *Node(1)
+  w = ~n
+  c = *Cell(w)
+  d = *Cell(~n)
+  print(c, d)

@@ -1,0 +1,10 @@
+enum C
+  r
+  g
+  b
+
+sub main
+  c: C = .g
+  match c
+    .r, .g => print("warm")
+    .b => print("cool")

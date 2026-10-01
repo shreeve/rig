@@ -1,0 +1,14 @@
+use std.os
+use std.time
+
+sub main
+  args = os.args()
+  print(args.len, args[1..])
+  for a in args
+    print(a.len > 0)
+  print(os.env("RIG_T") ?? "unset", os.env("NOPE_X_Y") ?? "unset")
+  t = time.now()
+  time.sleep(2 * time.MS)
+  e = time.elapsed(t)
+  print(e >= 2 * time.MS, e < time.SECOND, time.unix() > 1_700_000_000 * time.SECOND)
+  time.sleep(-5)

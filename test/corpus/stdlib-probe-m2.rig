@@ -1,0 +1,8 @@
+struct Text
+  bytes: Vec[U8]
+
+sub main
+  v: Vec[Box[Text]] = Vec()
+  !v.push(Box(Text(bytes: Vec())))
+  for t in ?v
+    print(t.bytes.len)

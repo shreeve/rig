@@ -1,0 +1,16 @@
+struct Packet
+  size: Int
+
+fun size_of(p: ?Packet) -> Int
+  p.size
+
+sub send(p: Packet)
+  print(p.size)
+
+sub main
+  p = Packet(size: 512)
+  print(size_of(?p))
+  count = 1
+  f = |+count, a: Int| a + count
+  print(f(2))
+  send(<p)

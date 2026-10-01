@@ -1,0 +1,8 @@
+pub struct type[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+pub fun mk(x: Int) -> type[Int]
+  type(v: x)

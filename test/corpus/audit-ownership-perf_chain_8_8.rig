@@ -1,0 +1,31 @@
+struct Tok
+  n: Int
+
+sub main
+  a = Tok(n: 1)
+  b = Tok(n: 2)
+  r0: ?Tok = ?a
+  r1: ?Tok = ?a
+  r2: ?Tok = ?a
+  r3: ?Tok = ?a
+  r4: ?Tok = ?a
+  r5: ?Tok = ?a
+  r6: ?Tok = ?a
+  r7: ?Tok = ?a
+  for _ in 0..2
+    for _ in 0..2
+      for _ in 0..2
+        for _ in 0..2
+          for _ in 0..2
+            for _ in 0..2
+              for _ in 0..2
+                for _ in 0..2
+                  r7 = r6
+                  r6 = r5
+                  r5 = r4
+                  r4 = r3
+                  r3 = r2
+                  r2 = r1
+                  r1 = r0
+                  r0 = ?b
+                  print(r7.n)

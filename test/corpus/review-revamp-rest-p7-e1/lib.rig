@@ -1,0 +1,10 @@
+pub struct Pt
+  pub x: Int
+  pub y: Int
+pub struct Big
+  pub a: [300000]Int
+pub struct W[T]
+  pub v: T
+pub enum Sh
+  c(r: Int)
+  s(w: Int)

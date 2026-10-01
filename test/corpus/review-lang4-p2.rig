@@ -1,0 +1,12 @@
+struct H
+  w: !Vec[Int]
+
+sub main
+  v: Vec[Int] = Vec()
+  b = Box(H(w: !v))
+  u: Vec[Int] = Vec()
+  !u.push(3)
+  b.w = <u
+  print(b.w.len)
+  -b
+  print(v.len)

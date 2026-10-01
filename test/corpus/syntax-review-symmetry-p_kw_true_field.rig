@@ -1,0 +1,5 @@
+struct T
+  true: Int
+sub main
+  t = T(true: 1)
+  print(t.true)

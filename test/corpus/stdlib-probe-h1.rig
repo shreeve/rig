@@ -1,0 +1,11 @@
+struct Text
+  bytes: Vec[U8]
+
+  fun view(?self) -> []U8
+    ?self.bytes[..]
+
+sub main
+  t = Text(bytes: Vec())
+  !t.bytes.push(104)
+  s: String = t.view()
+  print(s)

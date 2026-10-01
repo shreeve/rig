@@ -1,0 +1,19 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+  sub bump(!self)
+    self.n += 1
+
+sub f(b: ?Box[R])
+  !b.bump()
+
+sub g(b: ?Box[R])
+  b.bump()
+
+sub main
+  b = Box(value: R(n: 1))
+  f(?b)
+  g(?b)

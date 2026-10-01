@@ -1,0 +1,7 @@
+sub eat(c: Int)
+  print(c)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  eat(<v[0])

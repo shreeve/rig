@@ -1,0 +1,5 @@
+sub main
+  v: Vec[String?] = Vec()
+  !v.push("a")
+  x = <v[0]
+  print(x ?? "-", v[0] ?? "-")

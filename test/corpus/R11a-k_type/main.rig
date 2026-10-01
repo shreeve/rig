@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  a = lib.type(v: 1)
+  b: lib.type[Int] = lib.mk(2)
+  print(a.get(), b.v)

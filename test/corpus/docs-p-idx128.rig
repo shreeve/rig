@@ -1,0 +1,5 @@
+sub main
+  xs = [1, 2, 3]
+  i: I128 = 2
+  j: U128 = 1
+  print(xs[i], xs[j])

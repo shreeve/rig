@@ -1,0 +1,5 @@
+use lib
+X = lib.HALF * 4611686018427387904
+W: U128 = lib.BIG + 1
+sub main()
+  print(X, W)

@@ -1,0 +1,9 @@
+enum E
+  a
+  b
+  drop(!self)
+    print("x")
+
+sub main
+  e: E = .a
+  print(e)

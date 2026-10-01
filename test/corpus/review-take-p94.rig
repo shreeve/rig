@@ -1,0 +1,17 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+  b: R?
+
+  fun into2(<self) -> R?
+    s = <self
+    <s.a
+
+sub main
+  s = S(a: R(n: 1), b: R(n: 2))
+  x = <s.into2()
+  print(x)

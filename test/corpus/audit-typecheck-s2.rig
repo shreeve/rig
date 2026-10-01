@@ -1,0 +1,5 @@
+struct Holder
+  v: Vec[Int]
+
+sub main()
+  a = [Holder(v: Vec[Int]())]

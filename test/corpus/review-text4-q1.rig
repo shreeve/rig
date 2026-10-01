@@ -1,0 +1,20 @@
+struct N
+  id: Int
+  drop(!self)
+    print("drop", self.id)
+
+fun mo(k: Int) -> N?
+  N(id: k) if k > 0 else none
+
+sub run(c: Bool)
+  a = N(id: 1)
+  print(<a if c else N(id: 2))
+  print("mid")
+  o = N(id: 3)
+  print(mo(0) ?? <o)
+  print("end run")
+
+sub main
+  run(true)
+  print("--")
+  run(false)

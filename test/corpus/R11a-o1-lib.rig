@@ -1,0 +1,9 @@
+pub struct Wrap[T]
+  v: T
+
+  fun unnest(w: Wrap[Wrap[T]]) -> Wrap[T]
+    w.v
+
+  fun nest(?self) -> Wrap[Wrap[T]]
+    Wrap(v: Wrap(v: self.v))
+

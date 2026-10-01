@@ -1,0 +1,6 @@
+fun f(x: Int) -> Int
+  k =! x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+  k
+
+sub main()
+  print(f(1))

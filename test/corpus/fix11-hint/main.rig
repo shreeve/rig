@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  p = lib.P(n: 4)
+  g = lib.P.get
+  print(g(?p))

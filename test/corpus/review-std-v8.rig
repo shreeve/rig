@@ -1,0 +1,12 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  v = Vec[Box[Res]]()
+  !v.push(Box(Res(n: 1)))
+  !v.push(Box(Res(n: 2)))
+  !v.insert(0, !v.remove(1))
+  print(v[0].n)

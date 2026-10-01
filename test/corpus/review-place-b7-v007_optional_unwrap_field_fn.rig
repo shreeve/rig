@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+fun f() -> Int?
+  o: P? = P(x: 1)
+  o?.x = 5
+  o?.x
+
+sub main
+  print(f() ?? 0)

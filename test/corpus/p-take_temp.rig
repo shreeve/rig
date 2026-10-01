@@ -1,0 +1,13 @@
+struct B
+  o: Int?
+
+struct H
+  r: !B
+
+fun mk(b: !B) -> H
+  H(r: <b)
+
+sub main
+  b = B(o: 3)
+  x = <mk(!b).r.o
+  print(x ?? 0)

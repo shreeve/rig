@@ -1,0 +1,22 @@
+error E
+  bad
+
+struct C
+  n: Int
+
+  sub put(!self, v: Vec[Int], b: Int)
+    self.n += 100 + v.len + b
+
+fun bump(k: !Int) -> Int!
+  return E.bad if k > 5
+  k += 1
+  7
+
+sub run!
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  !cs[k].put(Vec(), bump(!k)!)
+  print(cs[0].n, cs[1].n, k)
+
+sub main
+  run() catch print("e")

@@ -1,0 +1,5 @@
+sub main
+  n = 5
+  match n
+    x if x > 3 => print("big")
+    _ => print("small")

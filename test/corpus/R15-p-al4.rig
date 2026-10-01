@@ -1,0 +1,10 @@
+sub main()
+  b: [2]U8 = [1, 2]
+  print(b.read[U16, .big, .little](0))
+  print(b.read[U16](0))
+  print(b.read(0))
+  print(b.read[.big, U16](0))
+  print(b.read[U16, 1](0))
+  print(b.read[U16, .big](0, 1))
+  print(b.read[U16, .big](at: 0))
+  print(b.read[U16, .big]())

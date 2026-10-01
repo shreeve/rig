@@ -1,0 +1,13 @@
+error Bad
+  no
+
+fun f -> Text!
+  Text("hello")
+
+fun g(r: Text!) -> Int!
+  print(r!)
+  print(r!)
+  1
+
+sub main
+  print(g(f()) catch -1)

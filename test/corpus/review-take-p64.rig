@@ -1,0 +1,12 @@
+struct W[T]
+  x: T?
+
+  fun grab(!self) -> T?
+    <self.x
+
+sub main
+  a = 1
+  b = 2
+  w = W[?Int](x: ?a)
+  t = !w.grab()
+  print(t)

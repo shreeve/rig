@@ -1,0 +1,11 @@
+struct H
+  w: !Int
+
+sub main
+  n = 1
+  m = 10
+  w = !n
+  w = 5
+  h = H(w: !m)
+  h.w = 7
+  print(n, m)

@@ -1,0 +1,9 @@
+fun total -> Int
+  0
+
+sub main
+  count = 0
+  cuont = 5
+  print(count)
+  total = 1
+  print(total)

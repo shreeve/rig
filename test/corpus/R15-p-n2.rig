@@ -1,0 +1,13 @@
+struct V
+  s: ![]Int
+sub touch(v: !V)
+  v.s[0] = 1
+  !v.s[1..].fill(3)
+  !v.s.swap(0, 2)
+  t = !v.s[..2]
+  t[1] = 8
+sub main()
+  a = [0, 0, 0]
+  v = V(s: !a[..])
+  touch(!v)
+  print(a)

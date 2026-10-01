@@ -1,0 +1,29 @@
+use std.sort
+use std.random
+
+struct P
+  k: Int
+  id: Int
+
+sub main
+  r = random.Rng.seeded(7)
+  bad = 0
+  n = 0
+  while n < 400 : n += 1
+    for mk in [1, 3, 50, 1000000]
+      v = Vec[P]()
+      i = 0
+      while i < n : i += 1
+        !v.push(P(k: !r.int(0, mk), id: i))
+      sort.sort_by(!v[..], |a, b| a.k < b.k)
+      j = 1
+      while j < v.len : j += 1
+        if v[j - 1].k > v[j].k or (v[j - 1].k == v[j].k and v[j - 1].id > v[j].id)
+          bad += 1
+      # permutation check: ids sum
+      s = 0
+      for p in ?v
+        s += p.id
+      if s != n * (n - 1) / 2
+        bad += 1
+  print("bad", bad)

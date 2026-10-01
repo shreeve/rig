@@ -1,0 +1,14 @@
+struct Tok
+  kind: String
+  n: Int
+
+fun tok(kind: String, n: Int) -> Tok
+  Tok(kind: kind, n: n)
+
+sub main
+  toks: Vec[Tok] = Vec()
+  !toks.push(tok("num", 1))
+  !toks.push(tok("op", 2))
+  k = toks[0].kind
+  -toks
+  print(k)

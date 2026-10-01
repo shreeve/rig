@@ -1,0 +1,7 @@
+fun inc(n: Int) -> Int
+  n + 1
+
+F: fun(Int) -> Int = inc
+
+sub main
+  print(F(1))

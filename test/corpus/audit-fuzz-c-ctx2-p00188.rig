@@ -1,0 +1,175 @@
+fun rt_bool(b: Bool) -> Bool
+  b
+
+fun rt_int(n: Int) -> Int
+  n
+
+fun gid[T](a: T) -> T
+  a
+
+fun gmax[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun gsome[T](a: T) -> T?
+  a
+
+fun id_u8(x: U8) -> U8
+  x
+
+fun id_i8(x: I8) -> I8
+  x
+
+fun id_i16(x: I16) -> I16
+  x
+
+fun id_u16(x: U16) -> U16
+  x
+
+fun id_i32(x: I32) -> I32
+  x
+
+fun id_u32(x: U32) -> U32
+  x
+
+fun id_int(x: Int) -> Int
+  x
+
+fun id_u64(x: U64) -> U64
+  x
+
+fun id_i128(x: I128) -> I128
+  x
+
+fun id_u128(x: U128) -> U128
+  x
+
+fun id_float(x: Float) -> Float
+  x
+
+fun id_f32(x: F32) -> F32
+  x
+
+struct FA4395
+  f: U8
+
+struct W244
+  f: I8
+  g: Int = 1
+
+fun fo2185(s: Bool) -> Int?
+  return none if not s
+  18
+
+fun fu2185(s: Bool) -> Int?
+  x = fo2185(s)?
+  x
+
+struct GP3517[T]
+  f: T
+
+fun fal4734(ok: Bool) -> Float!
+  return Err4734.bad if not ok
+  10.25
+
+error Err4734
+  bad
+
+fun cf4734(ok: Bool) -> Float!
+  return CE4734.no if not ok
+  0
+
+error CE4734
+  no
+
+sub t4395
+  o4395: U8? = none
+  flag4395 = rt_bool(true)
+  fa4395 = FA4395(f: 0)
+  fa4395.f = (o4395 ?? (255 if flag4395 else 255))
+  print(fa4395.f)
+
+sub t5434
+  o5434: I8? = none
+  flag5434 = rt_bool(true)
+  qo5434: I8? = none
+  print(qo5434 ?? (o5434 ?? ((-128) if flag5434 else 13)))
+
+sub t455
+  cl455 = |x: U32| x
+  b455: U32 = id_u32(6)
+  print(b455 + cl455(783705563), cl455(783705563) + b455)
+
+sub t244
+  arr244: [2]I8 = [(-128), (-1)]
+  w244 = W244(f: arr244[0])
+  print(w244.f, w244)
+
+sub t1455
+  arr1455: [2]U8 = [13, 91]
+  op1455: U8? = arr1455[0]
+  print(op1455, op1455 ?? 0)
+
+sub t5194
+  op5194: Int? = Int.min
+  print(op5194, op5194 ?? 0)
+
+sub t4483
+  acc4483: I8 = id_i8(16)
+  acc4483 += ((-2) - 18)
+  print(acc4483)
+
+sub t1640
+  gv1640: Vec[U128] = Vec()
+  cmp1640: U128 = id_u128(4)
+  print(cmp1640 == (gv1640.get(0) ?? 5), (gv1640.get(0) ?? 5) < cmp1640, (gv1640.get(0) ?? 5) >= cmp1640)
+
+sub t4311
+  cr4311: Cell[I16] = Cell(32767)
+  cmp4311: I16 = id_i16((-5))
+  print(cmp4311 == cr4311.replace(11), cr4311.replace(11) < cmp4311, cr4311.replace(11) >= cmp4311)
+
+sub t2185
+  wb2185: Int = id_int((-22320))
+  print(wb2185 +% (fu2185(true) ?? (-10)))
+
+sub t3517
+  cst3517: U16 =! 6367
+  gp3517: GP3517[U16] = GP3517(f: cst3517)
+  print(gp3517.f)
+
+sub t3231
+  cr3231: Cell[U64] = Cell(1)
+  op3231: U64? = cr3231.replace(0)
+  print(op3231, op3231 ?? 0)
+
+sub t1176
+  o1176: U16? = none
+  flag1176 = rt_bool(true)
+  cc1176: Cell[U16] = Cell(0)
+  cc1176.set((o1176 ?? (14 if flag1176 else 1)))
+  print(cc1176.get())
+
+sub t4734
+  print(cf4734(false) catch (fal4734(true) catch 10.25))
+
+sub t787
+  cst787: U16 =! 0
+  gy787: U16 = gid(cst787)
+  print(gy787)
+
+sub main
+  t4395()
+  t5434()
+  t455()
+  t244()
+  t1455()
+  t5194()
+  t4483()
+  t1640()
+  t4311()
+  t2185()
+  t3517()
+  t3231()
+  t1176()
+  t4734()
+  t787()

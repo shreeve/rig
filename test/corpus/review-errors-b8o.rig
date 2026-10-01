@@ -1,0 +1,20 @@
+error Disk
+  full
+  empty
+
+fun f -> Int!
+  return Disk.full
+
+fun k(d: Disk) -> Int
+  match d
+    .full, .empty => 1
+
+sub main
+  x = f() catch |e|
+    match e
+      .full => print("full")
+    match e
+      .empty => print("empty")
+      .full if false => print("no")
+    0
+  print(x, k(.empty))

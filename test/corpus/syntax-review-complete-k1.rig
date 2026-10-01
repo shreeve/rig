@@ -1,0 +1,18 @@
+fun less(a: ?Vec[U8], b: ?Vec[U8]) -> Bool
+  ?a[..] < ?b[..]
+
+fun bytes(s: String) -> Vec[U8]
+  v: Vec[U8] = Vec()
+  for c in s
+    !v.push(c)
+  v
+
+sub main
+  keys: Vec[Box[Vec[U8]]] = Vec()
+  !keys.push(Box(value: bytes("pear")))
+  !keys.push(Box(value: bytes("apple")))
+  for k in ?keys
+    print(less(?k, ?k))
+  a = bytes("a")
+  b = bytes("b")
+  print(less(?a, ?b), ?a[..] == ?b[..])

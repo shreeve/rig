@@ -1,0 +1,8 @@
+sub main()
+  match 5
+    1 => print(1)
+    n => print(n + 1)
+  x = match 3
+    0 => 1.5
+    _ => 2
+  print(x)

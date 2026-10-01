@@ -1,0 +1,13 @@
+pub enum Mode
+  a
+  b
+
+pub type M = Mode
+
+pub struct P
+  pub n: Int
+
+  pub fun mk() -> P
+    P(n: 1)
+
+pub type PA = P

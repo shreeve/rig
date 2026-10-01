@@ -1,0 +1,11 @@
+struct H
+  w: !Vec[Int]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = H(w: !v)
+  x = h.w.len
+  h.w = Vec[Int]()
+  print(x)
+  print(v)

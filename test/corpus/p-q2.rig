@@ -1,0 +1,8 @@
+struct Note
+  title: Text
+
+sub main
+  n = Note(title: Text("a"))
+  v = ?n.title[..]
+  !n.title.add("b")
+  print(v)

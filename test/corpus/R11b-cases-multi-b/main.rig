@@ -1,0 +1,4 @@
+use lib
+
+pub fun fb() -> Bool
+  lib.dbl(true)

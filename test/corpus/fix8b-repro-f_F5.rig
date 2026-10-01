@@ -1,0 +1,11 @@
+fun f[n: Bool](xs: [n]Int) -> Int
+  1
+
+fun g[n: Int](xs: [n + 1]Int) -> Int
+  1
+
+fun h[n: Int](xs: [3]Int) -> Int
+  n
+
+sub main()
+  print(f([1, 2, 3]), g([1, 2]), h([1, 2, 3]))

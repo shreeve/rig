@@ -1,0 +1,22 @@
+struct V
+  r: ?Int
+
+struct H
+  w: !V
+
+  sub set(!self, r: ?Int)
+    self.w = V(r: r)
+
+fun clobber(k: Int) -> Int
+  a = [k, k + 1, k + 2, k + 3, k + 4, k + 5, k + 6, k + 7]
+  a[1] + a[6]
+
+sub main
+  a = 1
+  x = V(r: ?a)
+  h = H(w: !x)
+  if true
+    b = 77
+    !h.set(?b)
+  y = clobber(1000)
+  print(x.r, y)

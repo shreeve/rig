@@ -1,0 +1,11 @@
+struct P
+  x: Int
+
+sub main
+  xs = [P(x: 1), P(x: 2)]
+  if xs.get(0) as p
+    print(p.x)
+  sl = ?xs[..]
+  print(sl.get(1) == none, sl.get(5) == none)
+  fun_on = |i: Int| i
+  print(fun_on(1))

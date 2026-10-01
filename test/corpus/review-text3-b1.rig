@@ -1,0 +1,22 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+enum M
+  a(n: N, s: String)
+  b
+
+fun mk(s: String) -> M
+  M.a(n: N(id: 1), s: s)
+
+sub take(n: N)
+  print("took", n.id)
+
+sub main
+  t = Text("hello")
+  match mk(?t[..])
+    .a(n, s) => take(<n)
+    .b => print("b")
+  print("end")

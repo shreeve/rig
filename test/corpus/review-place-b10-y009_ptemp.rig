@@ -1,0 +1,11 @@
+struct P
+  c: Cell[Int]
+
+fun mk() -> P
+  P(c: Cell(1))
+
+sub show(p: ?P)
+  print(p.c.get())
+
+sub main
+  show(?mk())

@@ -1,0 +1,35 @@
+struct G
+  arr: [3]Int
+struct H
+  arr: [3]Int
+E =! Endian.little
+fun total(xs: []Int) -> Int
+  t = 0
+  for x in xs
+    t += x
+  t
+sub sink(xs: ![]Int)
+  for x in !xs
+    x += 1
+sub f(s: ![]Int, t: []U8, n: Int)
+  a = [1, 2, 3]
+  b: [8]U8 = [8 of 1]
+  b2: [8]U8 = [8 of 2]
+  u = !b2[..]
+  g = G(arr: [4, 5, 6])
+  grid = [[1, 2, 3], [4, 5, 6]]
+  vs: Vec[H] = Vec()
+  !vs.push(H(arr: [7, 8, 9]))
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  bv: Vec[U8] = Vec()
+  !bv.push(1)
+  print(1)
+  print(u.len)
+  print(a, b, s, t.len, n, g.arr, grid, vs.len, v, bv, b2)
+sub main()
+  a0 = [0, 1, 2, 3]
+  b0: [4]U8 = [0, 1, 2, 3]
+  f(!a0[..], ?b0[..], 2)
+  print(a0)

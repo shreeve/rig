@@ -1,0 +1,25 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  r: Res? = Res(n: 1)
+  if !r as v
+    print(r)
+    v.n = 2
+  if ?r as v
+    -r
+    print(v.n)
+  if !r as v
+    r = none
+    v.n = 3
+  keep: Res? = none
+  if ?r as v
+    keep = <v
+  out = 0
+  if ?r as v
+    s = v
+    -r
+    print(s.n)

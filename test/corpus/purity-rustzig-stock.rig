@@ -1,0 +1,62 @@
+# A stock room: methods that change it through a write borrow, fallible
+# operations, and callers that propagate or handle each failure.
+
+error StockError
+  unknown
+  short
+  bad_qty
+
+struct Item
+  name: String
+  qty: Int
+
+struct Stock
+  items: Vec[Item]
+  shipped: Int = 0
+
+  sub add(!self, name: String, qty: Int)
+    !self.items.push(Item(name: name, qty: qty))
+
+  fun find(?self, name: String) -> Int?
+    for it, i in ?self.items
+      return i if it.name == name
+    none
+
+  # Take `qty` of `name`: fails when the item is unknown or short.
+  fun take(!self, name: String, qty: Int) -> Int!
+    i = self.find(name) ?? return StockError.unknown
+    return StockError.short if self.items[i].qty < qty
+    self.items[i].qty -= qty
+    self.shipped += qty
+    self.items[i].qty
+
+# Parse a quantity like "12": fails on anything but digits.
+fun parse_qty(s: String) -> Int!
+  return StockError.bad_qty if s.len == 0
+  n = 0
+  for b in s
+    return StockError.bad_qty if b < 48 or b > 57
+    n = n * 10 + Int(b - 48)
+  n
+
+# One order: parse, then take. Either failure propagates.
+fun ship(stock: !Stock, name: String, qty: String) -> Int!
+  n = parse_qty(qty)!
+  !stock.take(name, n)!
+
+sub main
+  s = Stock(items: Vec())
+  !s.add("bolt", 10)
+  !s.add("nut", 3)
+  orders = [["bolt", "4"], ["nut", "5"], ["gear", "1"], ["bolt", "x2"], ["bolt", "6"]]
+  for o in orders
+    left = ship(!s, o[0], o[1]) catch |e|
+      match e
+        .short => print(o[0], "short")
+        .unknown => print(o[0], "unknown")
+        _ => print(o[1], "is not a number")
+      continue
+    print(o[0], "left", left)
+  print("shipped", s.shipped)
+  ship(!s, "nut", "1")!
+  print("nut left", s.items[1].qty)

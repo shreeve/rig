@@ -1,0 +1,11 @@
+struct Point
+  x: Int
+
+  fun origin() -> Point
+    Point(x: 0)
+
+F = Point.origin
+
+sub main()
+  p = F()
+  print(p.x)

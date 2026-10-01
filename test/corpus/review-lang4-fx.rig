@@ -1,0 +1,5 @@
+sub main
+  n = 1
+  w =! !n
+  w += 1
+  print(n)

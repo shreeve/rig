@@ -1,0 +1,12 @@
+struct B
+  v: Vec[Int]
+  fun items(!self) -> ![]Int
+    !self.v[..]
+sub main()
+  b = B(v: Vec())
+  !b.v.push(1)
+  it = !b.items()
+  !b.v.push(2)
+  !b.v.push(3)
+  !b.v.push(4)
+  it[0] = 9

@@ -1,0 +1,8 @@
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main
+  cb = *|a: Int| a + 1
+  print(apply(cb, 1))
+  x = 1
+  print(apply(|a| a + x, 1))

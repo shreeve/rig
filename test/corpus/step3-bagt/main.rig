@@ -1,0 +1,7 @@
+use bag
+
+sub main
+  b = bag.Bag[Int](items: Vec())
+  !b.add(3)
+  !b.add(4)
+  print(bag.largest(?b, 0), b.items.len)

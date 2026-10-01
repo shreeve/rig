@@ -1,0 +1,52 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun any(xs: ?Vec[Int], p: ?fun(Int) -> Bool) -> Bool
+  for x in xs
+    if p(x)
+      return true
+  false
+
+fun sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+  i = 1
+  while i < xs.len : i += 1
+    j = i
+    while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
+      !xs.swap(j, j - 1)
+
+fun sort_asc[T](xs: ![]T)
+  sort(xs, |a, b| a < b)
+
+fun via_handle(cb: ?*fun(Int) -> Int) -> Int
+  apply(cb, 1)
+
+fun first(k: Int) -> Int
+  return apply(|+k, a| a + k, 1) if k > 0 else 0
+
+sub main
+  v: Vec[Int] = Vec()
+  for n in [4, 1, 3]
+    !v.push(n)
+  if any(?v, |n| n > 3)
+    print("big")
+  while not any(?v, |n| n > 10)
+    !v.push(11)
+  print(v.len)
+  sort_asc(!v[..])
+  print(v)
+  defer print("deferred", apply(|a| a * 3, 2))
+  cb: *fun(Int) -> Int = *|a| a + 40
+  print(via_handle(?cb))
+  i = 0
+  while i < 3 : i += 1
+    r = Res(id: i)
+    print(apply(|<r, a| a + r.id, 10))
+  print(first(5))
+  check = |k: Int| apply(|+k, a| a - k, 0)
+  print(check(7))

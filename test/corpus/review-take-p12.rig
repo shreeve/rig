@@ -1,0 +1,14 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+
+sub main
+  o: S? = S(a: R(n: 1))
+  if o as x
+    y = <x.a
+    print(y)
+  print(o)

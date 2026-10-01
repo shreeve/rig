@@ -1,0 +1,7 @@
+sub main
+  t = Text("abc")
+  out: Vec[String] = Vec()
+  put = |!out, s: String| !out.push(s)
+  put(?t[..])
+  !t.clear()
+  print(out)

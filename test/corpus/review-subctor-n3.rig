@@ -1,0 +1,17 @@
+error Bad
+  neg
+
+fun sq(n: Int) -> Int
+  n * n
+
+sub run(f: ?sub(Int)!)!
+  f(3)!
+
+sub runp(f: ?sub(Int))
+  f(3)
+
+sub main
+  run(|x| sq(x))!
+  runp(|x| sq(x))
+  g: *sub(Int)! = *|x: Int| sq(x)
+  g(2)!

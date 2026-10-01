@@ -1,0 +1,23 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+fun make(n: Int) -> Slot
+  print("make", n)
+  .full(b: *B(n: n))
+
+sub main
+  match ?make(1)
+    .full(b) if b.n > 5 => print("big")
+    .full(b) => print("small", b.n)
+    _ => print("e")
+  match ?make(2)
+    .full(b) => print("small", b.n)
+    _ => print("e")
+  print("end")

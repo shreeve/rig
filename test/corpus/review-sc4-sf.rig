@@ -1,0 +1,32 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+  fun take(<self, d: *B) -> *B
+    match <self
+      .full(b) if b.n > 0 => b
+      _ => <d
+
+  sub bump(!self)
+    match !self
+      .full(b) if b.n < 10 => b = *B(n: b.n + 10)
+      _ => print("big")
+
+  fun peek(?self) -> Int
+    match self
+      .full(b) if b.n > 0 => b.n
+      _ => 0
+
+sub main
+  s: Slot = .full(b: *B(n: 1))
+  !s.bump()
+  print(s.peek())
+  x = <s.take(*B(n: 99))
+  print(x.n)
+  print("end")

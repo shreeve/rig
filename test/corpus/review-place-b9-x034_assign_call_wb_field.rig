@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+fun mk(p: !P) -> !P
+  <p
+
+sub main
+  p = P(x: 1)
+  mk(!p).x = 8
+  print(p.x)

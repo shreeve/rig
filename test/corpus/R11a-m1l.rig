@@ -1,0 +1,13 @@
+struct Wrap[T]
+  v: T
+
+struct Two[T]
+  a: Wrap[T]
+  n: Int
+
+struct Node
+  n: Int
+  next: Two[Node]
+
+sub main()
+  print(1)

@@ -1,0 +1,18 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct H
+  r: Box[R]?
+
+sub main
+  s = *H(r: Box(value: R(n: 1)))
+  w = ~s
+  if ?s.r as x
+    print(x.n)
+  if w.upgrade() as t
+    if ?t.r as y
+      -t
+      print(y.n)

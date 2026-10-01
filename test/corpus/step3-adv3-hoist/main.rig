@@ -1,0 +1,24 @@
+use lib2
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+error Bad
+  no
+
+fun mk(n: Int) -> (*Res)!
+  if n > 1
+    return Bad.no
+  *Res(n: n)
+
+fun build() -> Int!
+  p = lib2.Pair(a: mk(1)!, b: mk(2)!)
+  p.a.n + p.b.n
+
+sub main()
+  r = build() catch 0
+  q = lib2.Pair[*Res, Int](a: mk(1) catch *Res(n: 9), b: 3)
+  print(r, q.a.n, q.b)

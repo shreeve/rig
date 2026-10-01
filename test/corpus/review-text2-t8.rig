@@ -1,0 +1,21 @@
+struct N
+  id: Int
+  v: Vec[Int]
+
+  drop(!self)
+    print("drop", self.id)
+
+enum M
+  a(n: Int)
+  b
+
+sub main
+  a = N(id: 1, v: Vec())
+  print((a))
+  d = N(id: 4, v: Vec())
+  print(a.id, d.id)
+  m1 = M.a(n: 1)
+  m2 = M.b
+  match (m1 if true else m2)
+    .a(n) => print(n)
+    .b => print("b")

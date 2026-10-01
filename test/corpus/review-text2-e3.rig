@@ -1,0 +1,15 @@
+struct W
+  t: !Text
+
+fun grab(b: ?Box[W]) -> String
+  ?b.t[..3]
+
+sub grow(b: !Box[W])
+  !b.t.add("more more more more more more more more more")
+
+sub main
+  t = Text("abcdefghijklmnop")
+  b = Box(W(t: !t))
+  s = grab(?b)
+  grow(!b)
+  print(s)

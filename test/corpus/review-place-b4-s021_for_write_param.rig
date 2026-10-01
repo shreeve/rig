@@ -1,0 +1,6 @@
+sub f(xs: [3]Int)
+  for x in !xs
+    x += 1
+
+sub main
+  f([1, 2, 3])

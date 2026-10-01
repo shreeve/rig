@@ -1,0 +1,54 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop R", self.n)
+
+fun get(i: Int) -> R?
+  return none if i > 3
+  R(n: i)
+
+fun odd(i: Int) -> Int?
+  return none if i % 2 == 0
+  i
+
+fun f4 -> Int
+  :outer for a in 0..3
+    for b in 0..3
+      break :outer a * 10 + b if a + b == 3
+  else
+    -1
+
+fun f6 -> Int
+  :top while true
+    for b in 0..3
+      break :top b + 40 if b == 2
+
+sub main
+  i = 0
+  found = while get(i) as r and r.n < 10 : i += 1
+    break r.n * 100 if r.n == 2
+  else
+    -1
+  print(found)
+  j = 0
+  f2 = while get(j) as r : j += 1
+    break r.n if r.n == 9
+  else
+    -2
+  print(f2)
+  k = 0
+  f3 = while (odd(k) ?? continue) < 100 : k += 1
+    break k if k > 4
+  else
+    0
+  print(f3)
+  print(f4())
+  f5 = for a in 0..3
+    x = for b in 0..3
+      break b if b == a
+    else
+      -1
+    break x * 7 if x == 2
+  else
+    -9
+  print(f5, f6())

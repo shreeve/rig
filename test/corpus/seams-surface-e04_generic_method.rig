@@ -1,0 +1,11 @@
+struct P
+  x: Int
+  fun key(?self) -> Int
+    self.x
+
+fun keyof[T](a: ?T) -> Int
+  a.key()
+
+sub main
+  p = P(x: 1)
+  print(keyof(?p))

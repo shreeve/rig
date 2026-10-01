@@ -1,0 +1,16 @@
+enum Color
+  red
+  blue
+
+DEF = .red
+F = main
+S: String = "a"
+T = -S
+U = [1, 2][0]
+V = Color.blue
+W: Float = 7 / 2
+X: U8 = -1
+Y = none
+
+sub main()
+  print(DEF, V, U)

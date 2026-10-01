@@ -1,0 +1,26 @@
+struct P
+  x: Int
+
+enum E
+  a(n: Int)
+  b
+
+fun mk(n: Int) -> P
+  P(x: n)
+
+fun opt(n: Int) -> P?
+  if n > 0
+    return mk(n)
+  none
+
+fun e(n: Int) -> E
+  .a(n: n)
+
+sub main()
+  if ?opt(3) as p
+    print(p.x)
+  match ?e(5)
+    .a(n) => print(n)
+    .b => print(0)
+  for x in ?[mk(4), mk(6)]
+    print(x.x)

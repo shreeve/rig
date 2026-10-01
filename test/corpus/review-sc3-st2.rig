@@ -1,0 +1,11 @@
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  n = 3
+  xs = [1, 2, 3]
+  while xs.get(n - 1) as x and x > 0 : n = get(n - 1) ?? break
+    print(x)
+  else
+    print("else")
+  print("done")

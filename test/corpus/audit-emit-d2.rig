@@ -1,0 +1,37 @@
+struct R
+  name: String
+
+  drop(!self)
+    print("drop", self.name)
+
+enum Msg
+  data(r: R, n: Int)
+  pair(a: R, b: R)
+  none_
+
+fun mk(k: Int) -> Msg
+  match k
+    0 => .data(r: R(name: "d0"), n: 0)
+    1 => .data(r: R(name: "d1"), n: 5)
+    2 => .pair(a: R(name: "pa"), b: R(name: "pb"))
+    _ => .none_
+
+sub take(r: R)
+  print("took", r.name)
+
+sub main
+  for k in 0..4
+    m = mk(k)
+    match <m
+      .data(r, n) if n > 3 => take(<r)
+      .data(_, n) if n == 0 => print("zero")
+      .pair(a, _) => take(<a)
+      _ => print("rest")
+  print("--")
+  match <mk(1)
+    .data(r, n) if n > 3 => print("big", r.name)
+    .pair(a, b) => print(a.name, b.name)
+  print("--")
+  match <mk(2)
+    .data(r, n) if n > 3 => print("big", r.name)
+  print("end")

@@ -1,0 +1,12 @@
+struct N
+  n: Int
+
+enum Slot
+  held(p: *N)
+  empty
+
+sub main()
+  o: Slot? = .held(p: *N(n: 1))
+  print(o == .empty)
+  e: Slot? = .empty
+  print(e == .empty)

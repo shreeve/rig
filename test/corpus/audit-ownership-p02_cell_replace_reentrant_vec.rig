@@ -1,0 +1,20 @@
+struct Obj
+  n: Int
+  home: ~Cell[Vec[*Obj]]
+
+  drop(!self)
+    print("drop", self.n)
+    if self.home.upgrade() as h
+      h.push(*Obj(n: self.n + 100, home: ~h))
+      print("len in drop", h.len)
+
+sub main
+  c: *Cell[Vec[*Obj]] = *Cell(Vec())
+  c.push(*Obj(n: 1, home: ~c))
+  c.push(*Obj(n: 2, home: ~c))
+  c.clear()
+  print("after clear", c.len)
+  x = c.pop()
+  print("popped", x != none)
+  -x
+  print("end", c.len)

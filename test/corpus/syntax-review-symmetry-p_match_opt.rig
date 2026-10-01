@@ -1,0 +1,5 @@
+sub main
+  o: Int? = 3
+  match o
+    none => print("none")
+    x => print(x)

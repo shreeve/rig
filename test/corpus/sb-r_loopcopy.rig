@@ -1,0 +1,5 @@
+sub main
+  rows = [[1, 2], [3, 4]]
+  for r in rows
+    w = !r[..]
+    w[0] = 0

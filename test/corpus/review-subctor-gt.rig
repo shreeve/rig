@@ -1,0 +1,14 @@
+error Bad
+  neg
+
+sub main
+  cbs: Vec[*sub(Int)!] = Vec()
+  !cbs.push(*|x: Int|
+    return Bad.neg if x < 0
+    print("cb", x)
+  )
+  for c in ?cbs
+    c(2)!
+  m: Cell[(*sub(Int)!)?] = Cell(none)
+  old = m.replace(*|x: Int| print("m", x))
+  print(old == none)

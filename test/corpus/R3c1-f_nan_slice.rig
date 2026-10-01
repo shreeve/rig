@@ -1,0 +1,9 @@
+struct S
+  v: Float
+
+sub main()
+  nan = 0.0 / 0.0
+  xs = [nan, 1.0]
+  ys = [nan, 1.0]
+  ss = [S(v: nan)]
+  print(xs == xs, ?xs[0..2] == ?xs[0..2], ?xs[0..2] == ?ys[0..2], ?ss[0..1] == ?ss[0..1])

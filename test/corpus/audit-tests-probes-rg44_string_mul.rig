@@ -1,0 +1,2 @@
+sub main
+  print("ab" * 3)

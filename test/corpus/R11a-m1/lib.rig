@@ -1,0 +1,10 @@
+pub struct Wrap[T]
+  v: T
+
+pub struct Two[T]
+  a: Wrap[T]
+  n: Int
+
+pub enum Opt[T]
+  some(value: T)
+  none

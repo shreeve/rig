@@ -1,0 +1,11 @@
+enum Shape
+  circle(r: Float)
+  dot
+
+struct circle
+  r: Float
+
+sub main
+  s: Shape = .circle(2.0)
+  c = circle(3.0)
+  print(s, c)

@@ -1,0 +1,9 @@
+# Copying a local into a caller's buffer is rejected: the checker thinks
+# `copy` may store the argument's borrow in the receiver.
+sub load(s: ![]Int)
+  c = [7, 8]
+  !s.copy(?c[..])
+sub main()
+  a = [1, 2]
+  load(!a[..])
+  print(a)

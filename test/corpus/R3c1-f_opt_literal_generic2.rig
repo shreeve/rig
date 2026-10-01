@@ -1,0 +1,6 @@
+fun is300[T](x: T?) -> Bool
+  x == 300
+
+sub main()
+  b: U8? = 44
+  print(is300(b))

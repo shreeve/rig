@@ -1,0 +1,16 @@
+struct R
+  y: !Int
+
+struct Inner
+  x: !R
+
+sub put(inn: !Inner, k: !Int)
+  inn.x = R(y: <k)
+
+sub put2(inn: !Inner)
+  k = 5
+  inn.x = R(y: !k)
+
+sub main
+  n = 0
+  print(n)

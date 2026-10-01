@@ -1,0 +1,13 @@
+struct Bag
+  items: Vec[Int]
+
+  sub each(?self, f: ?sub(Int))
+    for x in ?self.items
+      f(x)
+
+sub main
+  b = Bag(items: Vec())
+  !b.items.push(1)
+  add = |!b, n: Int|
+    b.items.push(n)
+  b.each(?add)

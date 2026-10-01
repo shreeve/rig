@@ -1,0 +1,37 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B, c: *B)
+  empty
+
+fun make(n: Int) -> Slot
+  print("make", n)
+  .full(b: *B(n: n), c: *B(n: n + 100))
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main
+  match <make(1)
+    .full(b, _) if b.n > 5 => keep(<b)
+  match <make(2)
+    .full(b, c) if b.n > 5 => keep(<b)
+    .full(_, c) if c.n > 5 => keep(<c)
+    _ => print("other")
+  match <make(3)
+    .full(b, _) if b.n > 1 => print("seen", b.n)
+  x = match <make(4)
+    .full(b, c) if b.n > 50 => <b
+    .full(b, c) => <c
+    .empty => *B(n: 0)
+  print(x.n)
+  y = match <make(5)
+    .full(b, c) if b.n > 50 => b.n
+    .full(b, c) => c.n
+    .empty => 0
+  print(y)
+  print("end")

@@ -1,0 +1,31 @@
+sub eat(v: Vec[Int])
+  print(v.len)
+
+sub main()
+  a: Vec[Int] = Vec()
+  new t = 0
+  for i0 in 0..2
+    for i1 in 0..2
+      for i2 in 0..2
+        for i3 in 0..2
+          for i4 in 0..2
+            for i5 in 0..2
+              for i6 in 0..2
+                for i7 in 0..2
+                  for i8 in 0..2
+                    for i9 in 0..2
+                      for i10 in 0..2
+                        for i11 in 0..2
+                          for i12 in 0..2
+                            for i13 in 0..2
+                              for i14 in 0..2
+                                for i15 in 0..2
+                                  for i16 in 0..2
+                                    for i17 in 0..2
+                                      for i18 in 0..2
+                                        for i19 in 0..2
+                                          t += i0 + i1 + i2 + i3 + i4 + i5 + i6 + i7 + i8 + i9 + i10 + i11 + i12 + i13 + i14 + i15 + i16 + i17 + i18 + i19
+                                          if t == 99999
+                                            eat(<a)
+                                            a = Vec()
+  print(t, a.len)

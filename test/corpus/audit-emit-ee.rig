@@ -1,0 +1,8 @@
+sub each(n: Int, f: ?sub(Int))
+  for i in 0..n
+    f(i)
+
+sub main
+  total = 0
+  each(3, |!total, invoke| total += invoke)
+  print(total)

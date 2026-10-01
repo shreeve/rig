@@ -1,0 +1,8 @@
+struct P
+  x: Int
+sub main
+  b = Box(P(x: 1))
+  c = Cell(5)
+  s = Box("hi")
+  n = Box(3)
+  print(b, c, s, n)

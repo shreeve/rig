@@ -1,0 +1,7 @@
+use a
+pub error Mid
+  timeout
+
+pub fun h(n: Int) -> Int!
+  return Mid.timeout if n == 1
+  a.f(n)!

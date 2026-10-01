@@ -1,0 +1,53 @@
+# Count words in a fixed text and print the most frequent ones.
+# No hash map, no string building: words are views into TEXT, counted
+# in a Vec with a linear scan, and compared without regard to case.
+
+TEXT = "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs. A quick fox, a lazy dog!"
+
+struct Entry
+  word: String
+  count: Int
+
+fun is_letter(b: U8) -> Bool
+  (b >= 97 and b <= 122) or (b >= 65 and b <= 90)
+
+fun lower(b: U8) -> U8
+  b + 32 if b >= 65 and b <= 90 else b
+
+fun same_word(a: String, b: String) -> Bool
+  return false if a.len != b.len
+  for x, i in a
+    return false if lower(x) != lower(b[i])
+  true
+
+sub add(counts: !Vec[Entry], word: String)
+  for e in !counts
+    if same_word(e.word, word)
+      e.count += 1
+      return
+  !counts.push(Entry(word: word, count: 1))
+
+fun tally(text: String) -> Vec[Entry]
+  counts: Vec[Entry] = Vec()
+  start = 0
+  for b, i in text
+    if not is_letter(b)
+      add(!counts, text[start..i]) if i > start
+      start = i + 1
+  add(!counts, text[start..]) if start < text.len
+  counts
+
+# Insertion sort: most frequent first, ties in first-seen order.
+sub rank(xs: !Vec[Entry])
+  i = 1
+  while i < xs.len : i += 1
+    j = i
+    while j > 0 and xs[j - 1].count < xs[j].count : j -= 1
+      !xs.swap(j - 1, j)
+
+sub main
+  counts = tally(TEXT)
+  rank(!counts)
+  for e in ?counts[..3]
+    print(e.word, e.count)
+  print(counts.len, "distinct words")

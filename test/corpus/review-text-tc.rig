@@ -1,0 +1,6 @@
+struct Text2
+  t: Text
+
+sub main
+  Text = 3
+  print(Text)

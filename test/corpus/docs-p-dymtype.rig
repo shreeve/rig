@@ -1,0 +1,5 @@
+struct Point
+  x: Int
+sub main
+  p: Pont = Point(x: 1)
+  print(p.x)

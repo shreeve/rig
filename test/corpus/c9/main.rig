@@ -1,0 +1,18 @@
+use lib
+
+struct Wrap[T]
+  v: T
+
+  fun make(n: T) -> Wrap[T]
+    Wrap(v: n)
+
+type IW = Wrap[Int]
+type LIP = lib.IP
+
+sub main()
+  w = IW.make(3)
+  p = lib.IP(a: 1, b: 2)
+  q = lib.IP.twin(4)
+  r = LIP(a: 5, b: 6)
+  f = lib.Real(1.5)
+  print(w.v, p.b, q.a, r.b, f)

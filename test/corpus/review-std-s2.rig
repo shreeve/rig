@@ -1,0 +1,15 @@
+use std.sort
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  xs = [*Res(n: 3), *Res(n: 1), *Res(n: 2)]
+  sort.sort_by(!xs, |a, b| a.n < b.n)
+  for x in ?xs
+    print(x.n)
+  sort.reverse(!xs)
+  print("end")

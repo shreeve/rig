@@ -1,0 +1,13 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct H
+  r: R
+
+sub main
+  b = Box(value: H(r: R(n: 1)))
+  s = <b.r
+  t = b.r

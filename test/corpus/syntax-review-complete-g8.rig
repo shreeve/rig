@@ -1,0 +1,11 @@
+struct Val
+  n: Int
+
+fun first(xs: []Val) -> ?Val
+  for x in xs
+    return ?x
+  ?xs[0]
+
+sub main
+  a = [Val(n: 1)]
+  print(first(?a).n)

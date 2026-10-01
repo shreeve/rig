@@ -1,0 +1,10 @@
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub t(k: Int)
+  defer print(get(k) ?? return)
+  print(k)
+
+sub main
+  t(1)
+  t(0)

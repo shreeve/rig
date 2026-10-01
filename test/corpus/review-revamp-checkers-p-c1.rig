@@ -1,0 +1,38 @@
+fun get(i: Int) -> Int?
+  none if i >= 2 else i
+
+fun eat(v: Vec[Int]) -> Int
+  v.len
+
+fun both(x: Int, y: Int) -> Int
+  x + y
+
+fun f(k: Int) -> Int
+  a: Vec[Int] = Vec()
+  !a.push(1)
+  both(eat(<a), get(k) ?? return 7)
+
+fun g(k: Int) -> Int
+  a: Vec[Int] = Vec()
+  !a.push(1)
+  x = get(k) ?? get(k + 1) ?? return eat(<a)
+  x + eat(<a)
+
+fun h(k: Int) -> Int
+  a: Vec[Int] = Vec()
+  !a.push(1)
+  b = <a
+  y = get(k) ?? return b.len
+  y + eat(<b)
+
+sub main()
+  print(f(1), f(2), g(0), g(1), g(2), h(1), h(3))
+  :outer for i in 0..3
+    v: Vec[Int] = Vec()
+    !v.push(i)
+    for j in 0..3
+      w: Vec[Int] = Vec()
+      !w.push(j)
+      n = get(j + i) ?? break :outer
+      m = get(n) ?? continue :outer
+      print(i, j, n, m, v.len, w.len)

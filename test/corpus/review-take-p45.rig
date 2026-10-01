@@ -1,0 +1,10 @@
+struct P
+  a: !Int
+  b: !Int
+
+sub main
+  x = 1
+  y = 2
+  p = P(a: !x, b: !y)
+  swap(!p.a, !p.b)
+  print(x, y)

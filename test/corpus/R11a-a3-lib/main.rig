@@ -1,0 +1,18 @@
+use util
+use mid
+
+pub fun f[T](a: T, b: T) -> T
+  util.big(a, b)
+
+pub fun g[T](x: T) -> T
+  util.dup(x)
+
+pub struct Wrap[T]
+  c: util.Cell2[T]
+
+pub fun h[T](x: T) -> Bool
+  mid.m(x)
+
+pub fun viaType[T](x: T) -> Int
+  w = util.Cell2(v: x)
+  1

@@ -1,0 +1,10 @@
+enum E
+  a
+  b
+
+  drop(!self)
+    print(1)
+
+sub main
+  e: E = .a
+  print(e == .a)

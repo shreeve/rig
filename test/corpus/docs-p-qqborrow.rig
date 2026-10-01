@@ -1,0 +1,10 @@
+struct S
+  n: Int
+  drop(!self)
+    print("d")
+fun f(o: !S?) -> Int
+  s = <o ?? return 0
+  s.n
+sub main
+  m: S? = S(n: 1)
+  print(f(!m))

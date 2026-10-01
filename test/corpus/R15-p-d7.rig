@@ -1,0 +1,7 @@
+sub main()
+  a = [1, 2]
+  w = !a[..]
+  f = |<w|
+    !w.fill(3)
+  f()
+  print(a)

@@ -1,0 +1,8 @@
+sub main()
+  a = [1, 2]
+  w = !a[..]
+  f = |s: ![]Int| s
+  t = f(w)
+  t[0] = 3
+  w[1] = 4
+  print(a)

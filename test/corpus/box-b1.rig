@@ -1,0 +1,38 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub peek(o: ?Res?)
+  if o as v
+    print("peek", v.n)
+  else
+    print("peek none")
+
+sub grow(o: !Res?)
+  if !o as v
+    v.n += 10
+
+sub reset(o: !Res?)
+  if !o as v
+    v = Res(n: 0)
+
+sub main
+  r: Res? = Res(n: 1)
+  if ?r as v
+    print("read", v.n)
+  if !r as v
+    v.n += 1
+  peek(?r)
+  grow(!r)
+  peek(?r)
+  reset(!r)
+  peek(?r)
+  n: Int? = 5
+  if !n as v
+    v += 1
+  print(n)
+  none_r: Res? = none
+  peek(?none_r)
+  print("end")

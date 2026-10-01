@@ -1,0 +1,4 @@
+sub main
+  cs = [Cell[Vec[Int]](Vec())]
+  for c in cs
+    (<c).push(1)

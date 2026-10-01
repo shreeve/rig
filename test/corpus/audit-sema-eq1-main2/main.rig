@@ -1,0 +1,12 @@
+use lib
+
+struct Q
+  w: Wrap[*Int]
+
+struct Wrap[T]
+  v: T
+
+sub main
+  a = Q(w: Wrap[*Int](v: *1))
+  b = Q(w: Wrap[*Int](v: *1))
+  print(a == b)

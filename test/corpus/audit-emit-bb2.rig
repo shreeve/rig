@@ -1,0 +1,20 @@
+struct P
+  x: Int
+  y: Int
+
+sub main
+  s: *Signal[P] = *Signal(P(x: 0, y: 0))
+  log: *Cell[Vec[Int]] = *Cell(Vec())
+  s.subscribe(*|+log, ~s|
+    if s.upgrade() as h
+      v = h.get()
+      log.push(v.x)
+      if v.x == 1
+        h.set(P(x: 2, y: 0))
+        h.set(P(x: 3, y: 0)))
+  s.subscribe(*|+log| log.push(100))
+  s.set(P(x: 1, y: 1))
+  print(log.len)
+  for i in 0..log.len
+    print(log[i])
+  print(s)

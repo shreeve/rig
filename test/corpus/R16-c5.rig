@@ -1,0 +1,11 @@
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub outer(f: ?fun(Int) -> Int)
+  g = |?f, a: Int| apply(f, a) + 1
+  print(apply(?g, 3))
+  h = |?f| f(1)
+  print(h())
+
+sub main
+  outer(|a| a * 10)

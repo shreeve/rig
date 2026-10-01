@@ -1,0 +1,15 @@
+struct S
+  a: Int?
+
+sub main
+  v: Vec[S] = Vec()
+  !v.push(S(a: 1))
+  for x in !v
+    y = <x.a
+    print(y)
+  print(v)
+  w: Vec[Int?] = Vec()
+  !w.push(3)
+  for x in !w
+    print(<x)
+  print(w)

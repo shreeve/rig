@@ -1,0 +1,10 @@
+fun gen[T](a: ?T) -> ?T
+  a
+
+fun sl(a: ?[3]Int) -> []Int
+  b = gen(a)
+  ?b[0..2]
+
+sub main()
+  a = [5, 6, 7]
+  print(sl(?a))
