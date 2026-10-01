@@ -5,6 +5,8 @@
 ./test/run ownership       # only tests whose id contains "ownership"
 ./test/run -v known        # list each result of the known bugs
 ./test/run --update ir     # rewrite IR snapshots after an intended grammar change
+./test/run corpus          # every corpus program (a plain run takes a sample)
+test/matrix.py             # generate and run the form x context x type matrix
 ```
 
 The summary line reads `N passed, M failed, K known`. The suite is green
@@ -30,6 +32,7 @@ off the sanitizer (see [below](#leak-checking-and-the-sanitizer)).
 | `test/ir/<name>.rig` | raw and semantic IR snapshots (`<name>.raw.sexp`, `<name>.sem.sexp`) |
 | `test/torture/<name>.rig` | bad input: `rig run` must reject it with a `file:line:col` diagnostic, never crash |
 | `test/cli/<name>.sh` | a bash script exercising the `rig` commands; passes when it exits 0 (see below) |
+| `test/corpus/<name>.rig` | a reviewer's probe: `rig check` rejects it with a `file:line:col` diagnostic, or it runs sanitizer-clean (see below) |
 | `unit` | `zig build test` |
 | `parser` | `src/parser.zig` matches what Nexus generates from `rig.grammar` |
 | `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
@@ -136,6 +139,38 @@ caches nothing, so `rig build` is always cold; prefer `rig run` when the
 executable itself is not under test.) Call `"$RIG"` directly for
 commands that build nothing (`check`, `emit`, usage errors) and when
 the output directory is what the test is about.
+
+## The corpus
+
+`test/corpus/` keeps the probe programs written by past reviews and
+audits, deduplicated by content. Each program either is rejected by
+`rig check` with a `file:line:col` diagnostic, or runs under the
+sanitizer with no leak, no use of freed memory, no Zig compile error,
+no crash, and no Zig safety check that means emitted code went wrong
+(`reached unreachable`, a wrong union field, ...). A probe need not
+succeed: Rig's own panics (bounds, overflow) and exit statuses are
+fine, and nothing checks its output. A multi-module probe is a
+directory with `main.rig`. Probes that need a module we no longer
+have, loop forever, or leak through a cycle of strong handles (the one
+leak Rig allows) are left out, and so are those rejected only by the
+parser.
+
+Running every accepted probe builds hundreds of programs, several
+minutes of work, so a plain `./test/run` takes a fixed sample, one
+program in 16 by a hash of its name; `./test/run corpus` (or any filter
+that names corpus programs) takes all of them, as CI should nightly or
+before a merge that touches the checkers or the emitter. A corpus run
+removes each passing program's build, so the corpus leaves no cache
+behind. Add new review probes here, named `<review>-<probe>.rig`.
+
+`test/matrix.py` generates the programs where one expression form (a
+place, a ternary, `o?`, `??`, `catch`, `if … as`, `match`, a call, a
+constructor, `<x`, `+x`) stands in one context (a `print` argument, a
+`?T` argument, `==`, a binding, a field store, a Vec push, `return`, an
+element assignment, a `match` subject, a `for` source) for each of
+several types (Int, String, Vec, `*T`, Box, a struct with a `drop`),
+and holds each to the corpus's rule. It writes to a temporary directory
+and commits nothing; `-k` picks cells by id and `-v` lists every result.
 
 ## Known bugs
 
