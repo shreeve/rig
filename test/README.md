@@ -119,7 +119,13 @@ freed memory. Run a failing program by hand with
 system calls and two pages of address space per allocation: the suite
 takes about 15% longer, and an allocation-heavy program runs several
 times slower, so a plain `rig run` keeps only the leak checker.
-`RIG_SANITIZE=0 ./test/run` runs the suite without it.
+`RIG_SANITIZE=0 ./test/run` runs the suite without it. Each live
+guarded block is a memory mapping, and Linux caps those per process
+(`vm.max_map_count`); past about half that many live blocks (or
+`RIG_SANITIZE_BLOCKS`, which tests set to reach the cap), the sanitizer
+prints `rig: sanitizer: mapping limit reached; further allocations are
+not guarded` once and allocates the rest normally, poisoning them when
+freed. Leak checking still covers every block.
 
 ## CLI tests
 
