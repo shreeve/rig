@@ -1281,10 +1281,9 @@ pub const Emitter = struct {
         try self.w.print("; rig.drop(__rig_slot_{d}); __rig_slot_{d}.* = __rig_new_{d}; }}", .{ id, id, id });
     }
 
-    /// How `openAssign` evaluates an assignment's value: as a value, as
-    /// the borrow a borrow-holding place is pointed at, or not at all
-    /// (the caller evaluated it).
-    const AssignValue = enum { value, borrow, none };
+    /// How `openAssign` evaluates an assignment's value: as a value, or
+    /// as the borrow a borrow-holding place is pointed at.
+    const AssignValue = enum { value, borrow };
 
     /// Every assignment evaluates its value first, then its target's
     /// index expressions from the outside in, and only then finds the
@@ -1302,7 +1301,7 @@ pub const Emitter = struct {
         const first = self.hoisted.items.len;
         const id = self.nextId();
         try self.w.writeAll("{ ");
-        if (how != .none and !self.isPureArg(value)) {
+        if (!self.isPureArg(value)) {
             const name = try self.fmt("__rig_new_{d}", .{id});
             try self.w.print("const {s}", .{name});
             if (ty) |t| {
@@ -5526,10 +5525,9 @@ fn argValue(a: Sexp) Sexp {
     return if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
 }
 
-/// Whether `e` holds a node of one of `kinds`, outside the closures in it.
-/// The value of an assignment, or an index of its target, can act when
-/// it runs: it calls, assigns, drops, or leaves. Then the order of the
-/// value, the indices, and the store is observable (`openAssign`).
+/// Whether the value of an assignment, or an index of its target, can
+/// act when it runs: call, assign, drop, or leave. Then the order of the
+/// value, the indexes, and the store is observable (`openAssign`).
 fn actsBeforeStore(target: Sexp, value: Sexp) bool {
     const acts = &[_]Tag{ .call, .builtin, .set, .drop, .@"return", .@"break", .@"continue", .propagate, .propagate_none };
     if (contains(value, acts)) return true;
@@ -5544,6 +5542,7 @@ fn actsBeforeStore(target: Sexp, value: Sexp) bool {
     };
 }
 
+/// Whether `e` holds a node of one of `kinds`, outside the closures in it.
 fn contains(e: Sexp, kinds: []const Tag) bool {
     if (e != .list) return false;
     if (e.kind()) |h| {
