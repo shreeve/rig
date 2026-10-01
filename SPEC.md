@@ -2178,6 +2178,23 @@ drop 2
 after
 ```
 
+A Vec source is a place, which the loop walks in place, or a call,
+whose new Vec the loop consumes as `<v` does. Any other expression
+(`o?`, a ternary, a `match`) could be a place on one path and a new
+Vec on another, so it is bound to a name first:
+
+```rig reject
+sub main
+  a: Vec[Int] = Vec()
+  b: Vec[Int] = Vec()
+  for e in ?(a if a.len > 0 else b)
+    print(e)
+```
+
+```error
+a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int]` to a name first
+```
+
 ### Labels, break, and continue
 
 A loop may be labeled `:name`; `break :name` and `continue :name` then

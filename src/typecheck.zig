@@ -1570,6 +1570,13 @@ const Checker = struct {
             if (mode == .iter and isPlaceExpr(source) and vecElementType(self.ctx, source_ty) != null) {
                 try self.errAt(source, "write `for {s}{s}{s} in ?{s}` to read the Vec's elements", .{ self.text(binding), if (index_binding != .nil) ", " else "", if (index_binding != .nil) self.text(index_binding) else "", self.sourceText(source) });
             }
+            // A loop walks a Vec held in a place, or consumes one a call
+            // makes. An expression that is neither (`o?`, a ternary, a
+            // `match`) may be a place on one path and a new Vec on
+            // another, which one loop cannot both borrow and consume.
+            if (mode != .move and vecElementType(self.ctx, source_ty) != null and !isPlaceExpr(peeled_source) and !makesValue(peeled_source)) {
+                try self.errAt(peeled_source, "a `for` walks a Vec held in a place or made by a call: bind this `{s}` to a name first", .{try self.tyName(source_ty)});
+            }
             elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, mode);
         }
 
@@ -8037,6 +8044,17 @@ fn isArithmetic(e: Sexp) bool {
     const h = e.kind() orelse return false;
     return switch (h) {
         .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => true,
+        else => false,
+    };
+}
+
+/// A call, or a call's value propagated (`mk()!`, `mk()?`): an
+/// expression that makes a new value.
+fn makesValue(e: Sexp) bool {
+    const h = e.kind() orelse return false;
+    return switch (h) {
+        .call => true,
+        .propagate, .propagate_none => makesValue(ir.get(e, .value)),
         else => false,
     };
 }
