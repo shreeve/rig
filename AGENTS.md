@@ -28,8 +28,9 @@ allocation, no hidden refcount traffic, no silent control flow.
 ## Rules
 
 1. **We test and verify everything we say.** A feature exists when a
-   program using it runs and prints the right thing, with no leaks
-   under the checking allocator. A rejection exists when a
+   program using it runs and prints the right thing, with no leaks and
+   no use of freed memory under the sanitizing allocator. A rejection
+   exists when a
    `test/reject` test or a ```` ```rig reject ```` doc example proves
    it. Docs make no claims the test suite does not check, and every
    `rig` example in the docs is run by `./test/run` (see
@@ -61,11 +62,44 @@ allocation, no hidden refcount traffic, no silent control flow.
 7. **Comments explain the code as it is.** Milestone history,
    design-chat references, and changelogs belong in git history.
 
+## How we build
+
+These keep soundness a property of the compiler's structure, not of
+review rounds.
+
+- **One classifier per fact.** Whether an expression is a place, a
+  fresh owned value, a borrow, or a view is decided once, by a positive
+  list, and recorded as a fact. No category is defined as "not" another,
+  and no pass re-derives one from syntax.
+- **The checker checks exactly what is emitted.** Emit adds no
+  temporary, evaluation order, re-evaluation, or drop that the
+  ownership checker did not walk.
+- **Leaving a scope never silently forgets a borrow.** Every path out
+  of a scope (a jump, a failing condition or guard, an error) reports
+  the loans it discards.
+- **A feature is specified as a desugaring.** A feature that touches
+  ownership or lifetimes states its desugaring into existing forms in
+  `docs/INTERNALS.md`; its checker rule is the one the desugaring
+  implies.
+- **Fix the class, not the instance.** A soundness fix names its class,
+  lists the sibling sites it checked, and adds a test that would catch
+  a sibling (`test/matrix.py` finds many).
+- **A second soundness round stops the feature.** A feature that needs
+  a second round of soundness fixes stops for a redesign.
+- **One branch at a time touches ownership.** Only one branch at a time
+  changes `src/ownership.zig` or typecheck's classification of
+  expressions.
+- **Reviewer probes are kept** in `test/corpus/`.
+- **"Runs clean" means sanitizer-clean:** no leak and no use of freed
+  memory under `RIG_SANITIZE=1`, which `./test/run` sets.
+
 ## Workflow
 
 ```bash
 zig build                  # builds bin/rig
 ./test/run                 # full suite; must be green before every commit
+./test/run corpus          # every reviewer probe, not only the default sample
+test/matrix.py             # form x context x type programs, checked and run
 bin/rig run file.rig       # compile + run (Debug, leak-checked)
 bin/rig emit file.rig      # the emitted Zig
 bin/rig test file.rig      # run the program's `test` blocks
@@ -103,6 +137,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |
 | `src/main.zig` | CLI |
 | `test/` | The test suite (see `test/README.md`) |
+| `test/corpus/` | Reviewer probes: each is rejected, or runs sanitizer-clean |
 | `examples/` | Curated example programs, all run by the suite |
 | `WELCOME.md` | Guide for programmers coming from other languages |
 | `SYNTAX.md` | How every form is written, and the grammar summary |
