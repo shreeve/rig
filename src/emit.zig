@@ -3608,8 +3608,15 @@ pub const Emitter = struct {
             if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
             return self.writeLocalPlace(local);
         };
+        // A value that branches is read as its Rig type: Zig would take
+        // a field of each branch's own type (a literal's, a String's).
+        if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (obj_ty) |t| {
+            try self.writeAsOpen(t);
+            try self.emitExpr(o);
+            return self.w.writeAll(")");
+        };
         const needs_parens = if (o.kind()) |h| switch (h) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"if", .match, .@"??", .@"catch", .propagate, .call, .array => true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .propagate, .call, .array => true,
             else => false,
         } else false;
         if (needs_parens) try self.w.writeAll("(");
