@@ -1,0 +1,44 @@
+# A statement `-x` drops a name. Any other operand would be negated and
+# the value thrown away, in every place a statement stands.
+
+fun f() -> Int
+  3
+
+struct P
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+sub tail
+  -f()
+
+sub main
+  a = 1
+  b = 2
+  c = a > 0
+  p = P(n: 1)
+  -f()
+  -(a + b)
+  -p.get()
+  (-f())
+  -f() if c
+  defer -f()
+  match a
+    1 => -f()
+    _ => pass
+  if c
+    -f()
+  tail()
+  print(a, b, p.n)
+
+# errors: 9
+# error: 14:3: a statement `-e` drops a name; `-f()` would negate a value and discard it
+# error: 21:3: a statement `-e` drops a name; `-f()` would negate a value and discard it
+# error: 22:3: a statement `-e` drops a name; `-(a + b)` would negate a value and discard it
+# error: 23:3: a statement `-e` drops a name; `-p.get()` would negate a value and discard it
+# error: 24:4: a statement `-e` drops a name; `-f()` would negate a value and discard it
+# error: 25:3: a statement `-e` drops a name
+# error: 26:9: a statement `-e` drops a name
+# error: 28:10: a statement `-e` drops a name
+# error: 31:5: a statement `-e` drops a name

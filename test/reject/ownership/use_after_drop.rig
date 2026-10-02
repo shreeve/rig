@@ -2,9 +2,10 @@
 
 struct User
   name: String
+  tags: Vec[String]
 
 sub main()
-  user = User(name: "Steve")
+  user = User(name: "Steve", tags: Vec())
   -user
   print(user)
 

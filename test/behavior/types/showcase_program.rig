@@ -69,7 +69,7 @@ sub main()
   b: Wrap[Int] = Wrap(value: 5)
   print(b.value)
 
-  -other                       # drop now
+  print(other.id)              # `other` owns the user now
 
 # expect:
 # 3
@@ -77,3 +77,4 @@ sub main()
 # 7
 # false
 # 5
+# 1

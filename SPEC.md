@@ -1998,7 +1998,9 @@ A value is expected in an operand, an argument, a binding's value, a
 `break` value, and on the last line of a `fun` (the function's value)
 or of a branch (a loop's `else` block too) whose value is used, so `-x` there is negation, and one whose `x` is not a
 number is rejected with a pointer to dropping it before the last line.
-Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected.
+Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected,
+and so is any other statement `-e`, such as `-f()` or `-(a + b)`, which
+would negate a value and discard it.
 
 ```rig reject
 struct S
@@ -2889,8 +2891,9 @@ cannot write-borrow `ps` in an index of a place borrowed from it
 A write borrow is assignable, whether a `!T` parameter or a local
 holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
 borrowed value (the old value is dropped first). A new binding points
-a name at another place: `new w = !m` (`w = !m` is rejected, since it
-would write through `w`). A field or element of type `!T` reads and
+a name at another place: `new w = !m`, or `new w = <w2`. Assigning a
+write borrow to one (`w = !m`, `w = <w2`, or a call returning a `!T`)
+is rejected, since it would write through `w`. A field or element of type `!T` reads and
 writes through too: `h.w = 5`, `h.w += 1`, and `xs[i] += 1` write the
 value the place borrows, while assigning another write borrow,
 `h.w = !m`, points the place at `m`. Writing through a borrow held in
@@ -3124,8 +3127,10 @@ borrow cannot be cloned or weakly referenced: the borrow is unique.
 Every owning local and parameter that is still live is dropped
 automatically when its block ends, including on early `return`,
 `break`, and `continue`, and on every path through branches. So `-x`
-is only needed to release something early. A borrowed parameter cannot
-be dropped: the caller owns it.
+is only needed to release something early, or to end a borrow a
+binding holds. A borrowed parameter cannot be dropped: the caller owns
+it. Plain data owns nothing and holds no borrow, so `-n` of an `Int`
+or a plain struct drops nothing, and is rejected.
 
 ```rig
 struct Noisy
@@ -3311,8 +3316,9 @@ Handles are owning values: a bare copy (`b = a`, `f(a)`) is rejected;
 write `<a` or `+a`. Sharing a value that is already a shared handle
 (`*a` with `a: *T`, or the type `*(*T)`) is rejected; clone it instead.
 
-**Access is read-only.** Field reads and `?self` methods reach through
-a handle automatically, including through fields and loop elements.
+**Access is read-only.** Field reads, element reads (`h[i]` of a
+`*[N]T`, `*Vec[T]`, or `*String`), and `?self` methods reach through a
+handle automatically, including through fields and loop elements.
 Writing a field, calling a `!self` method, or consuming the value
 through a handle is rejected, because other handles share it; shared
 mutable state goes in a `Cell` ([§10](#cell)). The built-in `Vec` is no
