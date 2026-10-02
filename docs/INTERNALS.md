@@ -994,7 +994,12 @@ not borrow a var declared after the `defer` (dropped before it runs).
 An `errdefer` body is re-checked only at the exits that fail: a `!`,
 and a `return` or final value whose type is, or may be, an error,
 including the final value of an `if` or `match` branch block that is
-the function's result (`Checker.ret_block`).
+the function's result (`Checker.ret_block`). Where the path ends at the
+exit (a scope's end, a jump, `return`), the bodies run on it and their
+effects stay, so a borrow one stores is checked where it outlives what
+it borrows. Where the path goes on (`e!`, `e?`, a final value that may
+be an error), they run only on the path that leaves, so their effects
+are undone after the check (`Exit.goesOn`).
 
 **Rules** (SPEC §7 states them for users): no use of a moved or dropped
 value; read loans exclude writes, moves, drops, and reassignment, and

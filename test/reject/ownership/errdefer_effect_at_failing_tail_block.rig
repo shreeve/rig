@@ -1,0 +1,25 @@
+# A tail that may be an error value runs the errdefers only when it is
+# one. They do not run on success, so the defer checked at the success
+# exit sees `x` moved: the errdefer that reassigns it has not run.
+error E
+  bad
+
+sub eat(v: Vec[Int])
+  print("eat", v.len)
+
+fun f(ok: Bool) -> Int!
+  x: Vec[Int] = Vec()
+  !x.push(1)
+  defer print("deferred", x[0])
+  errdefer x = Vec()
+  eat(<x)
+  if ok
+    1
+  else
+    E.bad
+
+sub main
+  print(f(true) catch 0)
+
+# error: 13:27: use of `x` after move
+# errors: 1

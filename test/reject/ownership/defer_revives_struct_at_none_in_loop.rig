@@ -1,0 +1,26 @@
+# The defers run at `o?` only on the path that leaves with `none`. In a
+# loop body too, the path that goes on has not run them, so the defer's
+# reassignment does not revive the moved `x`.
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(r: R)
+  print("eat", r.n)
+
+fun f(o: Int?) -> Int?
+  t = 0
+  for i in 0..2
+    x = R(n: i)
+    defer x = R(n: 9)
+    eat(<x)
+    t += o?
+    print(x.n)
+  t
+
+sub main
+  print(f(3) ?? 0)
+
+# error: 19:11: use of `x` after move
+# errors: 1

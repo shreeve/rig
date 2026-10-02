@@ -1,0 +1,27 @@
+# The defers run at `e!` only on the path that fails. On the path that
+# goes on, the defer has not run, so its reassignment does not revive
+# the moved `v`.
+error E
+  bad
+
+sub eat(v: Vec[Int])
+  print("eat", v.len)
+
+fun maybe(ok: Bool) -> Int!
+  return E.bad if not ok
+  1
+
+fun f(ok: Bool) -> Int!
+  v: Vec[Int] = Vec()
+  !v.push(41)
+  defer v = Vec()
+  eat(<v)
+  k = maybe(ok)!
+  print(v[0] + k)
+  k
+
+sub main
+  print(f(true) catch 0)
+
+# error: 20:9: use of `v` after move
+# errors: 1
