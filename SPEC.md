@@ -1997,7 +1997,9 @@ A value is expected in an operand, an argument, a binding's value, a
 `break` value, and on the last line of a `fun` (the function's value)
 or of a branch (a loop's `else` block too) whose value is used, so `-x` there is negation, and one whose `x` is not a
 number is rejected with a pointer to dropping it before the last line.
-Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected.
+Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected,
+and so is any other statement `-e`, such as `-f()` or `-(a + b)`, which
+would negate a value and discard it.
 
 ```rig reject
 struct S
@@ -3119,8 +3121,10 @@ borrow cannot be cloned or weakly referenced: the borrow is unique.
 Every owning local and parameter that is still live is dropped
 automatically when its block ends, including on early `return`,
 `break`, and `continue`, and on every path through branches. So `-x`
-is only needed to release something early. A borrowed parameter cannot
-be dropped: the caller owns it.
+is only needed to release something early, or to end a borrow a
+binding holds. A borrowed parameter cannot be dropped: the caller owns
+it. Plain data owns nothing and holds no borrow, so `-n` of an `Int`
+or a plain struct drops nothing, and is rejected.
 
 ```rig
 struct Noisy

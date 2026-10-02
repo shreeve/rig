@@ -547,7 +547,12 @@ const Checker = struct {
                 for (ir.Block.stmts(stmt)) |c| try self.checkStmt(c);
             },
             .drop => {
-                _ = try self.synthExpr(ir.Drop.name(stmt));
+                const name = ir.Drop.name(stmt);
+                const ty = try self.synthExpr(name);
+                // Plain data owns nothing and holds no loan to end.
+                if (!self.isPoison(ty) and sema.isPlainData(self.ctx, ty)) {
+                    try self.errAt(stmt, "`-{s}` drops nothing: `{s}` is plain data", .{ self.text(name), self.text(name) });
+                }
             },
             .@"break" => try self.checkBreak(stmt),
             .@"continue", .pass => {},
@@ -630,6 +635,12 @@ const Checker = struct {
             return;
         }
         const ty = try self.synthExpr(stmt);
+        // A statement `-name` is a drop; any other `-e` there would negate
+        // a value and throw it away.
+        if (stmt.isKind(.neg)) {
+            if (!self.isPoison(ty)) try self.errAt(stmt, "a statement `-e` drops a name; `{s}` would negate a value and discard it", .{self.sourceText(stmt)});
+            return;
+        }
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
         if (!hasEffect(stmt)) {
