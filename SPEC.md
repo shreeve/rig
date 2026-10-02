@@ -2458,6 +2458,10 @@ sub main
 
 ## 7. Ownership
 
+[docs/CORE.md](docs/CORE.md) is the summary this section derives from:
+the whole ownership model in ten sentences, with each rule marked built
+or planned.
+
 Every owning value has exactly one owner, and the owner decides when it
 is released. The sigils make each ownership effect visible where it
 happens:

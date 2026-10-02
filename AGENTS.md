@@ -69,6 +69,10 @@ allocation, no hidden refcount traffic, no silent control flow.
 These keep soundness a property of the compiler's structure, not of
 review rounds.
 
+- **A feature fits the Core.** `docs/CORE.md` states the ownership
+  model. A feature that touches ownership fits it in one paragraph,
+  with no exception list, or changes the Core first; a rule the Core
+  does not imply is a bug.
 - **One classifier per fact.** Whether an expression is a place, a
   fresh owned value, a borrow, or a view is decided once, by a positive
   list, and recorded as a fact. No category is defined as "not" another,
@@ -141,6 +145,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `test/` | The test suite (see `test/README.md`) |
 | `test/corpus/` | Reviewer probes: each is rejected, or runs sanitizer-clean |
 | `examples/` | Curated example programs, all run by the suite |
+| `docs/CORE.md` | The ownership model on one page, which every other doc must agree with |
 | `WELCOME.md` | Guide for programmers coming from other languages |
 | `SYNTAX.md` | How every form is written, and the grammar summary |
 | `SPEC.md` | Language reference: what every form means |
