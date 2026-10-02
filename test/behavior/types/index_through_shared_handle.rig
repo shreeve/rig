@@ -1,0 +1,40 @@
+# A shared handle reads: indexing a `*[N]T`, `*Vec[T]`, or `*String`
+# reads an element of the value it holds, as a field read does, through
+# a borrow of the handle, a field holding one, and a nested index.
+
+struct Grid
+  rows: *[2][2]Int
+
+fun second(h: ?*[2]Int) -> Int
+  h[1]
+
+sub main
+  h = *[1, 2]
+  i = 1
+  print(h[0], h[i] + 1, h.len, second(?h))
+  r = ?h[0]
+  print(r)
+  a = 3
+  b = 4
+  views = *[?a, ?b]
+  print(views[1])
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  !v.push(8)
+  hv = *<v
+  print(hv[1], hv.len)
+  s = *"hey"
+  print(s[0], s.len)
+  g = Grid(rows: *[[1, 2], [3, 4]])
+  print(g.rows[1][0])
+  e: *[0]Int = *[]
+  print(e.len)
+
+# expect:
+# 1 3 2 2
+# 1
+# 4
+# 8 2
+# 104 3
+# 3
+# 0

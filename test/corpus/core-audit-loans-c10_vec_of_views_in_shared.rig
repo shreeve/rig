@@ -1,0 +1,6 @@
+# A shared handle to an array of views.
+sub main
+  a = 1
+  b = 2
+  h = *[?a, ?b]
+  print(h[0])

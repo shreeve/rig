@@ -1,0 +1,15 @@
+# A shared handle reads: an element of the value it holds is not
+# assigned, written by a compound assignment, or lent for writing.
+
+sub main
+  h = *[1, 2]
+  h[0] = 5
+  h[1] += 1
+  w = !h[0]
+  w = 3
+  print(h)
+
+# errors: 3
+# error: 6:3: cannot assign through a shared handle
+# error: 7:3: cannot assign through a shared handle
+# error: 8:8: cannot write-borrow through a shared handle

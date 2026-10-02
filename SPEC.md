@@ -3306,8 +3306,9 @@ Handles are owning values: a bare copy (`b = a`, `f(a)`) is rejected;
 write `<a` or `+a`. Sharing a value that is already a shared handle
 (`*a` with `a: *T`, or the type `*(*T)`) is rejected; clone it instead.
 
-**Access is read-only.** Field reads and `?self` methods reach through
-a handle automatically, including through fields and loop elements.
+**Access is read-only.** Field reads, element reads (`h[i]` of a
+`*[N]T`, `*Vec[T]`, or `*String`), and `?self` methods reach through a
+handle automatically, including through fields and loop elements.
 Writing a field, calling a `!self` method, or consuming the value
 through a handle is rejected, because other handles share it; shared
 mutable state goes in a `Cell` ([§10](#cell)). The built-in `Vec` is no

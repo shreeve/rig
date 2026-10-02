@@ -1,0 +1,4 @@
+# Indexing a shared array (no views involved).
+sub main
+  h = *[1, 2]
+  print(h[0])
