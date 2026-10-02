@@ -252,6 +252,37 @@ appear where the effect does. And because they appear at call sites,
 not only in signatures, a reader sees whether a value is lent or handed
 over without looking up the callee.
 
+### Lend, view, loan: naming from the owner's side
+
+*You lend a view; the compiler remembers the loan.*
+
+Rust calls this idea a *borrow*, and the word ends up meaning three
+different things: the act (`&v`), the reference that act makes, and the
+borrow checker's record of it. One reason is direction. Rust writes
+`&v` on the owner, at the place where the owner hands something over,
+but names the act from the receiver's point of view.
+
+Rig writes its sigil in the same place, on the owner: `print(?v)`,
+`grow(!v)`. So it names the act from the owner's side: `v` **lends**.
+That gives each word exactly one side of the hand-over:
+
+- **lend:** what the owner does, and where the sigil appears;
+- **view:** what crosses over and travels with the receiver, which may
+  copy, return, or store it;
+- **loan:** what stays with the owner and limits it until every view is
+  done.
+
+Keeping the three apart is what lets the rules be stated plainly. "A
+loan lasts until the last use of every view that carries it" is about
+loans, not lends. One lend on one line can make a loan that copies,
+results, and fields carry long after that line. Separate words also let
+an error say exactly who is blocked and why: *cannot lend `t` to write
+while a read loan is live*.
+
+Rig keeps *borrow* only as the everyday synonym, so the idea stays
+familiar while its vocabulary stays precise. The full rules are in
+[CORE](CORE.md).
+
 ### Borrows without lifetimes
 
 Rig follows the second-class-reference model of Swift, Hylo, and Mojo

@@ -20,12 +20,49 @@ becomes an ordinary example in the change that builds the rule
 
 **Three words.** *You lend a view; the compiler remembers the loan.*
 
-- To **lend** `x` (`?x`, `!x`) is to let someone use it without taking it.
-- A **view** is what they get: `?T`, `!T`, `[]T`, `![]T`, or `String`.
-  Copying a read view copies the view, not what it views.
-- A **loan** is the compiler's record that a view of `x` exists. While a
-  loan is live, `x` may not change, move, or drop in a way the view would
-  notice. SPEC's word *borrow* means a lend, or the view it makes.
+The sigil is written on the owner's side. In `print(?v)` and `grow(!v)`,
+the `?` or `!` sits on `v`, the owner, exactly where the owner hands
+something over. So the verb belongs to the owner: `v` **lends**. Each of
+the three words belongs to one side of that hand-over, and means one
+thing only:
+
+| Word | What it is | Which side | Where you see it |
+|---|---|---|---|
+| **lend** | the act | the owner's | the sigil: `?x` lends to read, `!x` lends to write |
+| **view** | the value handed over | it travels with the receiver: copied, returned, stored | a value of type `?T`, `!T`, `[]T`, `![]T`, or `String` |
+| **loan** | the record | it stays with the owner, and limits the owner until every view is done | in the compiler, and in its error messages |
+
+- To **lend** `x` is to let someone use it without taking it. A lend
+  happens once, on one line.
+- A **view** is what they get. Copying a read view copies the view, not
+  what it views, and every copy carries the same loan.
+- A **loan** is the compiler's record that views of `x` exist. While it
+  is live, `x` may not change, move, or drop in a way a view would
+  notice. A loan lasts until the last use of every view that carries it,
+  not until the lend's line ends.
+
+One lend makes one loan, which any number of views may carry:
+
+```rig reject
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  a = ?v[..]
+  b = a
+  !v.push(2)
+  print(a, b)
+```
+
+```error
+cannot write-borrow `v` while a read borrow is live
+```
+
+The lend is on line 4 (`?v[..]`). The loan stays with `v` while the
+views `a` and `b` are still used below, so `!v.push(2)` is rejected.
+*Borrow*, the word Rust uses, names the same event from the receiver's
+side; Rig names everything from the side the sigil is on, and SPEC's
+*borrow* means a lend or the view it makes. *(Error messages still say
+"borrow"; their wording moves to lend/loan with the SPEC rewrite.)*
 
 ---
 

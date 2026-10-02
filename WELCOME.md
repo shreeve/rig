@@ -36,8 +36,8 @@ happens, as a one-character **sigil**:
 | Sigil | Meaning | Rust | Zig |
 |---|---|---|---|
 | `<x` | move `x` | `x` (implicit move) | copy, then stop using `x` |
-| `?x` | read borrow | `&x` | `x` or `&x` |
-| `!x` | write borrow | `&mut x` | `&x` |
+| `?x` | lend `x` to read | `&x` | `x` or `&x` |
+| `!x` | lend `x` to write | `&mut x` | `&x` |
 | `+x` | clone: a new owner | `x.clone()`, `Rc::clone(&x)` | copy, or a manual refcount bump |
 | `-x` | drop now | `drop(x)` | `x.deinit()` |
 | `*x` | move into a shared, counted box | `Rc::new(x)` | a hand-written refcounted box |
@@ -51,7 +51,19 @@ shared handle, `~T` a weak one. As suffixes, `T?` is an optional and
 suffix always means absence or failure, and `!` never means "not"
 (that is `not`).
 
-A reader sees every move, borrow, clone, drop, and failure path on the
+**You lend a view; the compiler remembers the loan.**
+
+- The `?` or `!` is written on the owner (`print(?v)`, `grow(!v)`), so
+  the owner **lends**.
+- What the receiver gets is a **view**, which it may copy, return, or
+  store.
+- What stays behind is a **loan**: until the last use of every view,
+  the owner can't change, move, or drop what it lent.
+
+Rust calls all three a "borrow". Rig gives each its own word, named from
+the side the sigil is on ([CORE](docs/CORE.md)).
+
+A reader sees every move, lend, clone, drop, and failure path on the
 line where it happens, and the compiler checks each one: no use after
 move, no double free, no dangling borrow, no leak. The one leak it does
 not prevent is a cycle of strong handles, as in Rust and Swift; a weak
