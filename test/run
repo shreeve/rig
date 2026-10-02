@@ -20,8 +20,9 @@
 # directory), RIG_SANITIZE (0 builds the programs tests run on the plain
 # leak checker instead of the sanitizing allocator).
 #
-# Exit status is 1 if any test fails or a known-failing test starts
-# passing (move it out of test/known/ when that happens), 2 on a usage
+# Exit status is 1 if any test fails, or a known-failing test or a
+# pending doc example starts passing (move the test out of test/known/,
+# or mark the example ```rig, when that happens), 2 on a usage
 # error or when the filters select nothing (or only a skipped check),
 # unless they only name kinds, which may be empty.
 
@@ -55,7 +56,7 @@ ZIG=${ZIG:-zig}
 # -----------------------------------------------------------------------------
 # Worker: run one test, write a result file. Invoked through xargs.
 #   result line: <status>\t<id>\t<one-line reason>
-#   status: pass | fail | known | fixed
+#   status: pass | fail | known | fixed | pending
 # Results go to $RESULTS/st/, details (captured output) to $RESULTS/log/.
 # -----------------------------------------------------------------------------
 
@@ -217,10 +218,16 @@ check_facts() {
 }
 
 # A doc example: a directory extracted from a ```rig block, with its
-# mode in `mode` (see extract_docs).
+# mode in `mode` (see extract_docs). A pending example's mode is
+# `pending <mode>`: it states a rule that is decided but not built, so
+# the check of its mode must fail today, for a reason that means the rule
+# is missing (see pending_holds). check_doc then sets PENDING to `held`,
+# or to `works` once the example passes.
 check_doc() {
     local dir=$1 entry=$2 outdir=$3 log=$4 mode ok
     mode=$(cat "$dir/mode")
+    PENDING=""
+    if [[ $mode == "pending "* ]]; then mode=${mode#pending }; PENDING=held; fi
     case $mode in
         run)      check_behavior "$entry" "$outdir" "$log" ;;
         check)    check_accept "$entry" "$log" ;;
@@ -230,6 +237,12 @@ check_doc() {
         *)        REASON=$mode; return 1 ;;
     esac
     ok=$?
+    if [[ -n "$PENDING" ]]; then
+        if [[ $ok -eq 0 ]]; then PENDING=works
+        elif pending_holds "$REASON"; then ok=0
+        else REASON="pending example: $REASON"
+        fi
+    fi
     # Report positions relative to the example, not the scratch directory.
     REASON=${REASON//"$dir/"/}
     if [[ -f "$log" ]]; then
@@ -238,6 +251,18 @@ check_doc() {
         printf '%s\n' "${text//"$dir/"/}" >"$log"
     fi
     return $ok
+}
+
+# pending_holds <reason>: a pending example's failure means only that its
+# rule is not built yet: the program is rejected, accepted where it should
+# be rejected, rejected for another reason, or prints something else. A
+# timeout, a compiler crash, or an accepted program that fails to compile
+# or run clean is a bug, and fails the test as in any other example.
+pending_holds() {
+    case $1 in
+        "rejected"*|"stdout differs"*|"accepted (expected rejection)"|"no diagnostic"*|"expected "*" error(s), got"*) return 0 ;;
+    esac
+    return 1
 }
 
 # A corpus program's run fails on what memory-safe, correctly emitted
@@ -341,7 +366,13 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
         torture)           check_torture "$entry" "$outdir" "$log"; ok=$? ;;
         ir)                check_ir "$entry" "$log"; ok=$? ;;
         cli)               check_cli "$path" "$outdir" "$log"; ok=$? ;;
-        doc)               check_doc "$path" "$entry" "$outdir" "$log"; ok=$? ;;
+        doc)
+            check_doc "$path" "$entry" "$outdir" "$log"; ok=$?
+            case $PENDING in
+                held)  [[ $ok -eq 0 ]] && { printf 'pending\t%s\t%s\n' "$id" "$REASON" >"$res"; return; } ;;
+                works) printf 'fixed\t%s\tthe pending example now works; change ```rig pending to ```rig\n' "$id" >"$res"; return ;;
+            esac
+            ;;
         corpus)            check_corpus "$entry" "$outdir" "$log"; ok=$? ;;
         known)
             if grep -qE '^# error:' "$entry"; then check_reject "$entry" "$log"
@@ -535,6 +566,10 @@ fi
 #   ```rig fragment    only parsed
 #   ```rig facts       `rig check --facts` prints exactly the following
 #                      ```facts block
+#   ```rig pending     a rule decided but not built: like ```rig (with an
+#                      ```output block or not), or like ```rig reject when
+#                      an ```error block follows, but it must fail today;
+#                      once it passes, the suite fails
 #   ```rig file=m.rig  module `m.rig`, imported by the next example
 #
 # Each example becomes a directory holding main.rig (the directives
@@ -544,7 +579,7 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
     name=${name#docs/}
     name=${name//\//-}
     awk -v doc="$name" -v out="$2/$name" '
-        function fail(msg) { mode = "doc convention: " msg }
+        function fail(msg) { if (mode !~ /^doc convention/) mode = "doc convention: " msg }
         function emit(    dir, f, k, n, ls) {
             dir = out "/L" start
             system("mkdir -p \"" dir "\"")
@@ -560,7 +595,7 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
             close(dir "/main.rig")
             for (f in pending) { printf "%s", pending[f] > (dir "/" f); close(dir "/" f); delete pending[f] }
             if (mode == "facts") { printf "%s", extra > (dir "/facts"); close(dir "/facts") }
-            print mode > (dir "/mode"); close(dir "/mode")
+            print (pend && mode !~ /^doc convention/ ? "pending " : "") mode > (dir "/mode"); close(dir "/mode")
             printf "doc/%s/L%d\t%s\n", doc, start, dir
         }
         { line[NR] = $0 }
@@ -568,12 +603,13 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
             i = 1
             while (i <= NR) {
                 if (line[i] !~ /^```rig([ \t]|$)/) { i++; continue }
-                start = i; mode = "check"; fname = ""
+                start = i; mode = "check"; fname = ""; pend = 0
                 n = split(substr(line[i], 7), words, /[ \t]+/)
                 for (k = 1; k <= n; k++) {
                     w = words[k]
                     if (w == "") continue
                     if (w == "reject" || w == "fragment" || w == "facts") mode = w
+                    else if (w == "pending") pend = 1
                     else if (w ~ /^file=[A-Za-z_][A-Za-z0-9_]*\.rig$/) fname = substr(w, 6)
                     else fail("unknown word `" w "` after ```rig")
                 }
@@ -588,6 +624,10 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
                     kind = substr(line[j], 4)
                     for (j++; j <= NR && line[j] != "```"; j++) extra = extra line[j] "\n"
                     i = j + 1
+                }
+                if (pend) {
+                    if (mode != "check" || fname != "") fail("```rig pending takes no other word")
+                    else if (kind == "error") mode = "reject"
                 }
                 if (fname != "") {
                     if (kind != "" || mode != "check") fail("a file= block stands alone")
@@ -728,6 +768,7 @@ if [[ -n "$VERBOSE" ]]; then
         case $st in
             pass)  printf '  %spass%s   %s\n' "$G" "$X" "$id" ;;
             known) printf '  %sknown%s  %s %s— %s%s\n' "$Y" "$X" "$id" "$D" "$why" "$X" ;;
+            pending) printf '  %spending%s %s %s— %s%s\n' "$Y" "$X" "$id" "$D" "$why" "$X" ;;
         esac
     done <"$ALL"
 fi
@@ -745,27 +786,29 @@ while IFS=$'\t' read -r st id why; do
     esac
 done <"$ALL"
 
-# Per-area table: kind/area → pass / fail / known
-printf '\n%s%-26s %6s %6s %6s%s\n' "$B" "area" "pass" "fail" "known" "$X"
+# Per-area table: kind/area → pass / fail / known / pending
+printf '\n%s%-26s %6s %6s %6s %8s%s\n' "$B" "area" "pass" "fail" "known" "pending" "$X"
 awk -F'\t' '
     {
         n = split($2, p, "/")
         key = (p[1] == "behavior" || p[1] == "reject" || p[1] == "known" || p[1] == "doc") && n >= 3 ? p[1] "/" p[2] : p[1]
         if ($1 == "pass") pass[key]++
         else if ($1 == "known") known[key]++
+        else if ($1 == "pending") pending[key]++
         else fail[key]++
         keys[key] = 1
     }
-    END { for (k in keys) printf "%-26s %6d %6d %6d\n", k, pass[k], fail[k], known[k] }
+    END { for (k in keys) printf "%-26s %6d %6d %6d %8d\n", k, pass[k], fail[k], known[k], pending[k] }
 ' "$ALL" | sort
 
 PASS=$(grep -c '^pass' "$ALL")
 FAIL=$(grep -cE '^(fail|fixed)' "$ALL")
 KNOWN=$(grep -c '^known' "$ALL")
+PENDING=$(grep -c '^pending' "$ALL")
 ELAPSED=$((SECONDS - START))
 if [[ $FAILED -eq 0 ]]; then
-    printf '\n%s%d passed%s, 0 failed, %s%d known%s  %s(%ds)%s\n' "$G" "$PASS" "$X" "$Y" "$KNOWN" "$X" "$D" "$ELAPSED" "$X"
+    printf '\n%s%d passed%s, 0 failed, %s%d known, %d pending%s  %s(%ds)%s\n' "$G" "$PASS" "$X" "$Y" "$KNOWN" "$PENDING" "$X" "$D" "$ELAPSED" "$X"
 else
-    printf '\n%d passed, %s%d failed%s, %s%d known%s  %s(%ds)%s\n' "$PASS" "$R" "$FAIL" "$X" "$Y" "$KNOWN" "$X" "$D" "$ELAPSED" "$X"
+    printf '\n%d passed, %s%d failed%s, %s%d known, %d pending%s  %s(%ds)%s\n' "$PASS" "$R" "$FAIL" "$X" "$Y" "$KNOWN" "$PENDING" "$X" "$D" "$ELAPSED" "$X"
     exit 1
 fi

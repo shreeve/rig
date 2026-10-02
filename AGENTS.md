@@ -34,7 +34,9 @@ allocation, no hidden refcount traffic, no silent control flow.
    `test/reject` test or a ```` ```rig reject ```` doc example proves
    it. Docs make no claims the test suite does not check, and every
    `rig` example in the docs is run by `./test/run` (see
-   `test/README.md`).
+   `test/README.md`). A rule that is decided but not built is shown
+   with a ```` ```rig pending ```` example, which the suite checks does
+   not work yet.
 2. **Accept means correct.** If `rig check` accepts a program, the
    emitted Zig compiles, runs, and does what the source says. Anything
    the compiler cannot lower correctly is rejected in sema with a Rig

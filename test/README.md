@@ -9,8 +9,9 @@
 test/matrix.py             # generate and run the form x context x type matrix
 ```
 
-The summary line reads `N passed, M failed, K known`. The suite is green
-when nothing fails and no known-failing test has started passing. A
+The summary line reads `N passed, M failed, K known, P pending`. The
+suite is green when nothing fails and no known-failing test or pending
+doc example has started passing. A
 filter that selects nothing, or only the `parser` check when Nexus is
 not built, exits 2; naming only kinds that have no tests (`known`, when
 no bug is open) exits 0. The runner works from any directory.
@@ -88,8 +89,23 @@ compiler. The word after `rig` on the opening fence sets the contract:
 | ```` ```rig fragment ```` | only parsed; for snippets that are not whole programs |
 | ```` ```rig facts ```` followed by ```` ```facts ```` | `rig check --facts` accepts it and prints exactly the facts block |
 | ```` ```rig file=name.rig ```` | module `name.rig`, written next to the next example, which can `use name` |
+| ```` ```rig pending ```` | a rule that is decided but not built yet (see below) |
 
-Blank lines may separate a block from its `output` or `error` block. A
+Blank lines may separate a block from its `output` or `error` block.
+
+A ```` ```rig pending ```` block shows the behavior a decided rule will
+have: followed by an `output` block it is a program that runs and prints
+it, followed by an `error` block a program the check rejects with those
+messages, and alone a program the check accepts. It passes, and counts
+as `pending`, while that check fails for a reason that means the rule is
+missing: the program is rejected, accepted where it should be rejected,
+rejected with other messages, or prints something else. A timeout, a
+compiler crash, or an accepted program that fails to compile, leaks, or
+uses freed memory still fails it, as it would any example. Once the
+rule is built and the example passes, the suite fails with `FIXED`, and
+the change that built the rule marks the block ```` ```rig ```` (or
+```` ```rig reject ````). So the docs state planned rules only as
+tests, and no example claims behavior the compiler does not have. A
 failure is reported with the id `doc/<file>/L<line>`, naming the line of
 the opening fence; `./test/run doc` runs only the doc examples.
 
