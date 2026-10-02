@@ -548,7 +548,7 @@ These are single documented syntax rules, not ownership. Every other
 rule in SYNTAX is syntax too.
 
 - **`-x`:** as a statement, `-name` drops; as a value, `-x` negates. A
-  statement `-f()` is rejected. *(planned)*
+  statement `-f()`, or `-n` of plain data, is rejected. *(built)*
 - **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`. *(built)*
 - **`const x = e`:** a binding that never changes. *(planned)*
 - **A write call whose `Bool` value is used** is written
@@ -560,7 +560,7 @@ rule in SYNTAX is syntax too.
   propagates `none` from the function; `break` inside a `match` leaves
   the loop; `e catch a if c else b` groups as `e catch (a if c else b)`.
 
-```rig pending
+```rig reject
 fun count -> Int
   3
 
