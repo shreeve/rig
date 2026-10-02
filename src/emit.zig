@@ -3395,8 +3395,10 @@ pub const Emitter = struct {
             try self.emitBare(index);
             return self.w.writeAll(")");
         }
-        if (base_ty != null and self.isVecTy(base_ty.?)) {
-            try self.emitExpr(base);
+        // A shared handle's element is its value's.
+        const held_ty: ?TypeId = if (base_ty) |t| sema.unwrapReadAccess(self.sema, t) else null;
+        if (held_ty != null and self.isVecTy(held_ty.?)) {
+            try self.emitIndexBase(base, base_ty, .expr);
             try self.w.writeAll(if (!as_place) ".at(" else if (self.read_place) ".constSlot(" else ".slot(");
             // The index itself is a value, even inside an assignment target.
             self.place_chain = false;
@@ -3404,7 +3406,7 @@ pub const Emitter = struct {
             try self.w.writeAll(if (as_place) ").*" else ")");
             return;
         }
-        const array_len: ?TypeId = if (base_ty) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
+        const array_len: ?TypeId = if (held_ty) |t| switch (self.sema.types.get(t)) {
             .array => |a| a.len,
             else => null,
         } else null;
@@ -3414,14 +3416,14 @@ pub const Emitter = struct {
             // is assigned through.
             if (as_place) {
                 try self.w.writeAll("rig.elemPtr(");
-                try self.emitBare(base);
+                try self.emitIndexBase(base, base_ty, .bare);
                 try self.w.writeAll(", ");
                 self.place_chain = false;
                 try self.emitBare(index);
                 return self.w.writeAll(").*");
             }
             try self.w.writeAll("rig.at(");
-            try self.emitBare(base);
+            try self.emitIndexBase(base, base_ty, .bare);
             try self.w.writeAll(", ");
             self.place_chain = false;
             try self.emitBare(index);
@@ -3438,7 +3440,7 @@ pub const Emitter = struct {
             try self.w.writeAll("rig.elems(");
             const saved_read = self.read_place;
             if (!as_place) self.read_place = true;
-            try self.emitAddressOf(base);
+            try self.emitIndexBase(base, base_ty, .address);
             self.read_place = saved_read;
             try self.w.writeAll(")[rig.index(");
             self.place_chain = false;
@@ -3450,7 +3452,7 @@ pub const Emitter = struct {
         // An array literal is indexed through parentheses: `([_]T{ ... })[i]`.
         const literal = base.isKind(.array);
         if (literal) try self.w.writeAll("(");
-        try self.emitExpr(base);
+        try self.emitIndexBase(base, base_ty, .expr);
         if (literal) try self.w.writeAll(")");
         try self.w.writeAll("[");
         self.place_chain = false;
@@ -3465,6 +3467,22 @@ pub const Emitter = struct {
             try self.w.writeAll(")");
         }
         try self.w.writeAll("]");
+    }
+
+    /// The object `base` of an index, emitted `how` the index needs it. A
+    /// shared handle is read through its value, as a member read reaches
+    /// through it (`writeReach`).
+    fn emitIndexBase(self: *Emitter, base: Sexp, base_ty: ?TypeId, how: enum { expr, bare, address }) Error!void {
+        if (base_ty) |t| if (self.sema.types.get(self.peelBorrows(t)) == .shared) {
+            if (how == .address) try self.w.writeAll("&");
+            try self.emitMemberBase(base, t);
+            return self.writeReach(t);
+        };
+        switch (how) {
+            .expr => try self.emitExpr(base),
+            .bare => try self.emitBare(base),
+            .address => try self.emitAddressOf(base),
+        }
     }
 
     /// `xs[a..b]` → `rig.slice(items, a, b)`, which checks the bounds;

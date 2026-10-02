@@ -1,0 +1,7 @@
+# `-f()` as a statement: drop a temporary, or negate and discard?
+fun f() -> Int
+  print("f ran")
+  3
+sub main
+  -f()
+  print("end")

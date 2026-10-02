@@ -1,0 +1,32 @@
+# A statement `-x` releases what `x` owns or ends the loans it holds;
+# plain data owns nothing and holds no loan, so dropping it does nothing.
+
+struct P
+  x: Int
+
+enum Color
+  red
+  green
+
+sub main
+  n = 1
+  x = 2.5
+  s = "hi"
+  p = P(x: 1)
+  o: Int? = 1
+  k = Color.red
+  -n
+  -x
+  -s
+  -p
+  -o
+  -k if true
+  print("end")
+
+# errors: 6
+# error: 18:3: `-n` drops nothing: `n` is plain data
+# error: 19:3: `-x` drops nothing: `x` is plain data
+# error: 20:3: `-s` drops nothing: `s` is plain data
+# error: 21:3: `-p` drops nothing: `p` is plain data
+# error: 22:3: `-o` drops nothing: `o` is plain data
+# error: 23:3: `-k` drops nothing: `k` is plain data
