@@ -249,8 +249,9 @@ writes an element, with an index of any integer type; an index outside the half-
 panics, and a constant one is rejected where the length is known.
 `xs.get(i)` reads one as a `T?`, `none` when `i` is out of range, as a
 Vec's does.
-Arrays hold plain data only, and `[n of x]` copies `x` into every slot; a
-collection of resources is a `Vec`. An array of arrays is `[2][3]T`:
+Arrays hold plain data and borrows, never a value that owns a
+resource, and `[n of x]` copies `x` into every slot; a collection of
+resources is a `Vec`. An array of arrays is `[2][3]T`:
 two rows of three.
 
 ```rig
@@ -1642,7 +1643,7 @@ sub main
 ```
 
 An assignment evaluates its value first, then the indexes of its
-target from the outside in, and only then finds the place and stores
+target from left to right (the outermost index first), and only then finds the place and stores
 into it; a compound assignment reads the place there, combines, and
 writes it back. A call on the right that grows the Vec an element is
 in, or replaces the value a field is in, is safe: the store lands in
@@ -2460,6 +2461,10 @@ sub main
 
 ## 7. Ownership
 
+[docs/CORE.md](docs/CORE.md) is the summary this section derives from:
+the whole ownership model in ten sentences, with each rule marked built
+or planned.
+
 Every owning value has exactly one owner, and the owner decides when it
 is released. The sigils make each ownership effect visible where it
 happens:
@@ -2594,7 +2599,8 @@ move the struct as a whole, or exchange the field with `replace` or
 `swap` ([below](#replace-and-swap)). A Copy field can be read or copied
 freely.
 
-An optional field or element is the exception: `<p.f` **takes** the
+An optional field or element is the exception (an element only of a
+plain optional, since no Vec or array holds one that owns): `<p.f` **takes** the
 value out and leaves `none` behind, in one step, so the struct stays
 whole and nothing is dropped twice. Taking writes the field, so it
 needs a path that may write it (an owned local, a `!T`, not a `?T` or a

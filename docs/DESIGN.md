@@ -49,7 +49,9 @@ aims for rigor plus visibility.
 
 **Effects stay visible.** Moves, borrows, clones, drops, shared and
 weak ownership, allocation, failure, mutation, capture modes,
-compile-time parameters, and the unsafe boundary each have a marker.
+compile-time parameters, and the unsafe boundary each have a marker;
+the one mutation without one is inside a `Cell`, the interior-mutable
+type, which is why a `Cell` accepts only values that hold no borrow.
 There is no hidden refcount traffic, no implicit error propagation, and
 no unmarked unsafe code. What stays implicit is cheap and cannot
 surprise: copying plain data, reading through a shared handle, lending
@@ -250,6 +252,37 @@ appear where the effect does. And because they appear at call sites,
 not only in signatures, a reader sees whether a value is lent or handed
 over without looking up the callee.
 
+### Lend, view, loan: naming from the owner's side
+
+*You lend a view; the compiler remembers the loan.*
+
+Rust calls this idea a *borrow*, and the word ends up meaning three
+different things: the act (`&v`), the reference that act makes, and the
+borrow checker's record of it. One reason is direction. Rust writes
+`&v` on the owner, at the place where the owner hands something over,
+but names the act from the receiver's point of view.
+
+Rig writes its sigil in the same place, on the owner: `print(?v)`,
+`grow(!v)`. So it names the act from the owner's side: `v` **lends**.
+That gives each word exactly one side of the hand-over:
+
+- **lend:** what the owner does, and where the sigil appears;
+- **view:** what crosses over and travels with the receiver, which may
+  copy, return, or store it;
+- **loan:** what stays with the owner and limits it until every view is
+  done.
+
+Keeping the three apart is what lets the rules be stated plainly. "A
+loan lasts until the last use of every view that carries it" is about
+loans, not lends. One lend on one line can make a loan that copies,
+results, and fields carry long after that line. Separate words also let
+an error say exactly who is blocked and why: *cannot lend `t` to write
+while a read loan is live*.
+
+Rig keeps *borrow* only as the everyday synonym, so the idea stays
+familiar while its vocabulary stays precise. The full rules are in
+[CORE](CORE.md).
+
 ### Borrows without lifetimes
 
 Rig follows the second-class-reference model of Swift, Hylo, and Mojo
@@ -279,7 +312,7 @@ one is `?fun(A) -> R`, a read borrow of something to call, and it reuses
 the second-class borrow rules instead of adding closure lifetimes: the
 callee calls it and passes it on, and nothing stores it. The literal is
 written bare at the call, and its captures say what it borrows for the
-call: `sort(!v[..], |a, b| a < b)`, or `each(?v, |!total, n| total +=
+call: `sort.sort_by(!v[..], |a, b| a < b)`, or `each(?v, |!total, n| total +=
 n)`, where the checker's ordinary same-call conflict check rejects
 `each(?total, |!total, n| ...)`. `fun(A) -> R` stays a plain function
 pointer, a Copy value that can be stored; `*fun` is the owned closure
@@ -326,8 +359,8 @@ of code and review.
 Words read better than `&&` and `||`, and they free `!` for its two
 jobs, borrowing and failure. `&&` and `||` are rejected with a pointer
 to the words, and so is every `!` a C, Rust, or Zig reader would take
-for "not", such as `if !done` or `!q.is_empty()`. A habit can make a
-program fail to compile, never change what it means.
+for "not", such as `if !done` or `!q.is_empty()`, where it would start
+a condition or an operand of `and`, `or`, or `not`.
 
 ### Brackets for compile time
 
