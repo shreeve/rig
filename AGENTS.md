@@ -145,10 +145,14 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `test/` | The test suite (see `test/README.md`) |
 | `test/corpus/` | Reviewer probes: each is rejected, or runs sanitizer-clean |
 | `examples/` | Curated example programs, all run by the suite |
+| `std/` | The standard library: Rig modules and the Zig behind their Zig-backed declarations |
 | `docs/CORE.md` | The ownership model on one page, which every other doc must agree with |
+| `README.md` | Overview and a short tour |
 | `WELCOME.md` | Guide for programmers coming from other languages |
 | `SYNTAX.md` | How every form is written, and the grammar summary |
 | `SPEC.md` | Language reference: what every form means |
+| `FAQ.md` | Common questions |
+| `docs/STD.md` | The standard library's modules |
 | `docs/DESIGN.md` | Principles and rationale |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |

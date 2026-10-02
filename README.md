@@ -10,9 +10,9 @@ to [Zig](https://ziglang.org) 0.16, which does the optimizing, code
 generation, and linking.
 
 > **Status: early.** The core language and its ownership checker work
-> and are tested end to end, every program running leak-checked. There
-> is no standard library, concurrency, or async yet, and the language
-> will change. See [what works](#status).
+> and are tested end to end, every program running leak-checked. The
+> standard library is small, there is no concurrency or async yet, and
+> the language will change. See [what works](#status).
 
 ## A short tour
 

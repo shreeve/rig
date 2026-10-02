@@ -6,9 +6,9 @@ are coming from another language, start with [WELCOME.md](WELCOME.md).
 
 ## Is everything reference-counted?
 
-No. Numbers, strings, structs, enums, and arrays are plain values,
-and borrows (`?T`, `!T`) are checked at compile time and cost nothing
-at run time. Counting happens only behind a shared handle `*T`, where
+No. Numbers, strings, and structs, enums, and arrays made of them are
+plain values (a struct holding a `Vec` owns it), and borrows (`?T`,
+`!T`) are checked at compile time and cost nothing at run time. Counting happens only behind a shared handle `*T`, where
 every count change is written (`*x`, `+x`, `-x`); a heap value with one
 owner is a `Box[T]`, which counts nothing
 ([cost model](docs/DESIGN.md#cost-model)).

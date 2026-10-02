@@ -49,7 +49,9 @@ aims for rigor plus visibility.
 
 **Effects stay visible.** Moves, borrows, clones, drops, shared and
 weak ownership, allocation, failure, mutation, capture modes,
-compile-time parameters, and the unsafe boundary each have a marker.
+compile-time parameters, and the unsafe boundary each have a marker;
+the one mutation without one is inside a `Cell`, the interior-mutable
+type, which is why a `Cell` accepts only values that hold no borrow.
 There is no hidden refcount traffic, no implicit error propagation, and
 no unmarked unsafe code. What stays implicit is cheap and cannot
 surprise: copying plain data, reading through a shared handle, lending
@@ -279,7 +281,7 @@ one is `?fun(A) -> R`, a read borrow of something to call, and it reuses
 the second-class borrow rules instead of adding closure lifetimes: the
 callee calls it and passes it on, and nothing stores it. The literal is
 written bare at the call, and its captures say what it borrows for the
-call: `sort(!v[..], |a, b| a < b)`, or `each(?v, |!total, n| total +=
+call: `sort.sort_by(!v[..], |a, b| a < b)`, or `each(?v, |!total, n| total +=
 n)`, where the checker's ordinary same-call conflict check rejects
 `each(?total, |!total, n| ...)`. `fun(A) -> R` stays a plain function
 pointer, a Copy value that can be stored; `*fun` is the owned closure
@@ -326,8 +328,8 @@ of code and review.
 Words read better than `&&` and `||`, and they free `!` for its two
 jobs, borrowing and failure. `&&` and `||` are rejected with a pointer
 to the words, and so is every `!` a C, Rust, or Zig reader would take
-for "not", such as `if !done` or `!q.is_empty()`. A habit can make a
-program fail to compile, never change what it means.
+for "not", such as `if !done` or `!q.is_empty()`, where it would start
+a condition or an operand of `and`, `or`, or `not`.
 
 ### Brackets for compile time
 
