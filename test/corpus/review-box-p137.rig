@@ -1,0 +1,23 @@
+struct Wrap
+  v: Vec[Int]
+
+struct Ed
+  t: !Wrap
+
+struct Rd
+  t: ?Wrap
+
+enum Hold
+  none_
+  has(e: ?Wrap)
+
+sub main
+  b = Box(value: Wrap(v: Vec()))
+  e = Ed(t: !b)
+  !e.t.v.push(1)
+  r = Rd(t: ?b)
+  print(r.t.v.len)
+  h: Hold = .has(e: ?b)
+  match h
+    .has(w) => print(w.v)
+    .none_ => print("none")

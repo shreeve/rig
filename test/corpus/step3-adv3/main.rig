@@ -1,0 +1,15 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  k = lib.Keep[*Res](v: *Res(n: 1))
+  print(k.peek().n)
+  s = *lib.Wrap[Int](v: 5)
+  print(s.get())
+  v = lib.collect(*Res(n: 2), *Res(n: 3))
+  print(v.len)

@@ -1,0 +1,13 @@
+error Bad
+  neg
+
+fun get(n: Int) -> Int!
+  return Bad.neg if n < 0
+  n
+
+sub p(n: Int)
+  get(n) catch 0
+
+sub main
+  p(1)
+  get(1)!

@@ -1,0 +1,20 @@
+struct Big
+  v: Vec[Int]
+
+fun mk(k: Int) -> Big
+  b = Big(v: Vec())
+  !b.v.push(k)
+  <b
+
+struct Holder
+  b: ?Big
+
+  drop(!self)
+    print("holder reads", self.b.v[0])
+
+sub main
+  x0 = mk(0)
+  h = Holder(b: ?x0)
+  f = |<h| print("f", h.b.v[0])
+  x = mk(5)
+  f()

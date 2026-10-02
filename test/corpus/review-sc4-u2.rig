@@ -1,0 +1,15 @@
+enum Shape
+  circle(r: Int)
+  point
+
+sub main
+  c2: Shape = .circle(r: 4)
+  z = 0
+  new q = !z
+  match !c2
+    .circle(r)
+      new q = r
+    .point => print("p")
+  c2 = .point
+  q = 11
+  print(c2, z)

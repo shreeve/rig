@@ -1,0 +1,3 @@
+sub main
+  b = Box(value: Vec[Int]())
+  !b.push(3)

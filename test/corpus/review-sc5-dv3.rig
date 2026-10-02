@@ -1,0 +1,9 @@
+HALF = 7 / 2
+TWO = 2
+
+sub main()
+  x: Float = HALF
+  y: Float = 7 / TWO
+  z: Float = 1.5 * HALF
+  w: Float = TWO
+  print(x, y, z, w)

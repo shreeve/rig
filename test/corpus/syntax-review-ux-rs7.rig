@@ -1,0 +1,13 @@
+struct Job
+  id: Int
+  drop(!self)
+    print("free", self.id)
+
+sub main
+  jobs: Vec[*Job] = Vec()
+  !jobs.push(*Job(id: 1))
+  !jobs.push(*Job(id: 2))
+  keep: Vec[*Job] = Vec()
+  for j in ?jobs
+    !keep.push(+j) if j.id > 1
+  print(keep.len)

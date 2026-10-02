@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+sub f(b: !Box[P])
+  b.x = 5
+
+sub main
+  b = Box(P(x: 1))
+  f(!b)
+  print(b.x)

@@ -1,0 +1,5 @@
+sub main
+  !a[..2].copy(?b[2..])
+  !w.fill(0)
+  buf.read[U16, .big](4)
+  x = buf.read[U8, .big](4)

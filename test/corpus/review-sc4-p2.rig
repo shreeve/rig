@@ -1,0 +1,16 @@
+enum Shape
+  circle(r: Int)
+  point
+
+sub main
+  b = Box(Shape.circle(r: 2))
+  w = !b
+  match !w
+    .circle(r) => r = 9
+    _ => print("y")
+  match !b
+    .circle(r)
+      b = Box(Shape.point)
+      r = 3
+    _ => print("y")
+  print(b)

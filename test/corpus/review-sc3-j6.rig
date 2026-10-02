@@ -1,0 +1,40 @@
+error E
+  bad
+
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun parse(r: ?Res) -> Int!
+  return E.bad if r.id == 2
+  r.id
+
+fun mk(i: Int) -> Res!
+  return E.bad if i == 3
+  Res(id: i)
+
+sub main
+  xs: Vec[Box[Res]] = Vec()
+  for i in 1..5
+    !xs.push(Box(Res(id: i)))
+  total = 0
+  for b in <xs
+    n = parse(?b) catch continue
+    total += n
+  print("total", total)
+  ys: Vec[*Res] = Vec()
+  for i in 1..5
+    !ys.push(*Res(id: 10 + i))
+  got = for y in ?ys
+    tmp = Res(id: 100)
+    r = mk(y.id - 10) catch break tmp.id
+    print("r", r.id)
+  else
+    0
+  print("got", got)
+  v = while true
+    q = mk(3) catch |e| break (1 if e == E.bad else 2)
+    print(q.id)
+  print("v", v)

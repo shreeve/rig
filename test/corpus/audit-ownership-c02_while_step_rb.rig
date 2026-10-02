@@ -1,0 +1,10 @@
+struct P
+  n: Int
+
+sub main
+  o: P? = P(n: 1)
+  k = 0
+  while ?o as x : print(x.n)
+    k += 1
+    o = none
+  print(k)

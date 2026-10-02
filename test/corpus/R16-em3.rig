@@ -1,0 +1,23 @@
+error E
+  bad
+
+fun may(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+fun apply(f: ?fun(Int) -> Int!, x: Int) -> Int!
+  f(x)!
+
+fun appo(f: ?fun(Int) -> Int?, x: Int) -> Int
+  f(x) ?? 99
+
+fun appq(f: ?fun(Int) -> Int?, x: Int) -> Int?
+  f(x)? + 1
+
+sub main
+  print(apply(|a| a + 1, 3) catch -1)
+  print(apply(may, -3) catch -1)
+  print(apply(may, 3) catch -1)
+  print(appo(|a| a if a > 0 else none, 3))
+  print(appo(|a| a if a > 0 else none, -3))
+  print(appq(|a| a if a > 0 else none, -3) ?? 7)

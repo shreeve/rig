@@ -1,0 +1,11 @@
+struct S
+  n: Int
+  a: Box[S]?
+
+sub main
+  s = S(n: 1, a: Box(value: S(n: 2, a: none)))
+  t = S(n: 0, a: <s.a)
+  s.a = Box(value: <t)
+  print(s)
+  u = <s.a
+  print(u, s)

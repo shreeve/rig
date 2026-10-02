@@ -1,0 +1,16 @@
+struct P
+  a: Int
+  b: Int
+
+sub main()
+  v = Vec[Int]()
+  !v.push(1)
+  !v.push(2)
+  swap(!v[0], !v[1])
+  arr = [1, 2]
+  swap(!arr[0], !arr[1])
+  i = 0
+  swap(!arr[i], !arr[i])
+  p = P(a: 1, b: 2)
+  swap(!p.a, !p.b)
+  print(v, arr, p.a)

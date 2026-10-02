@@ -1,0 +1,4 @@
+fun f(x: Int) -> Int
+  -x
+sub main
+  print(f(3))

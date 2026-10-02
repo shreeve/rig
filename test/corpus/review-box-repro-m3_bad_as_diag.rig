@@ -1,0 +1,13 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun get(h: !R?) -> !R?
+  !h
+
+sub main
+  h: R? = R(n: 1)
+  if get(!h) as x
+    print(x.n)

@@ -1,0 +1,8 @@
+sub helper
+  main()
+
+sub main
+  print("once")
+
+test "calls main"
+  main()

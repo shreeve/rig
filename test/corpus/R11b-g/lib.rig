@@ -1,0 +1,8 @@
+pub struct Wrap[T]
+  v: T
+
+pub struct Pt
+  x: Int
+
+pub fun max[T](a: T, b: T) -> T
+  a

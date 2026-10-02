@@ -1,0 +1,3 @@
+sub main
+  write("a")
+  eprint("x")

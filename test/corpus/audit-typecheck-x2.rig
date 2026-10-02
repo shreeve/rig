@@ -1,0 +1,8 @@
+sub t(s: ![]Int?)
+  y = <s[0]
+  print(y ?? 0)
+
+sub main()
+  a: [2]Int? = [5, 6]
+  t(!a)
+  print(a[0] ?? 9)

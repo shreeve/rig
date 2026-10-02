@@ -1,0 +1,51 @@
+# Box[T] owns one T on the heap. Fields and methods of a boxed struct are
+# reached through the box; `?b` and `!b` lend the value as `?T` / `!T`;
+# `<b.unbox()` moves the value out and frees the box.
+
+struct Point
+  x: Int
+  y: Int
+
+  fun sum(?self) -> Int
+    self.x + self.y
+
+  sub shift(!self, d: Int)
+    self.x += d
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun norm(p: ?Point) -> Int
+  p.x * p.x + p.y * p.y
+
+sub reset(p: !Point)
+  p = Point(x: 0, y: 1)
+
+sub main
+  b = Box(Point(x: 3, y: 4))
+  print(b.x, b.y, b.sum(), norm(?b))
+  b.y = 10
+  !b.shift(2)
+  print(b.x, b.y)
+  reset(!b)
+  print(b.x, b.y)
+  p = <b.unbox()
+  print(p.sum())
+  r = Box(Res(n: 1))
+  s = <r
+  print("moved", s.n)
+  t: Box[Res] = Box(Res(n: 2))
+  u = <t.unbox()
+
+# expect:
+# 3 4 7 25
+# 5 10
+# 0 1
+# 1
+# moved 1
+# took 2
+# drop 2
+# drop 1

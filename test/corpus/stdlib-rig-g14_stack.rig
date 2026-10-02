@@ -1,0 +1,27 @@
+pub struct Stack[T]
+  items: Vec[T]
+
+  pub fun new -> Stack[T]
+    Stack[T](items: Vec())
+
+  pub sub push(!self, x: T)
+    !self.items.push(<x)
+
+  pub fun pop(!self) -> T?
+    !self.items.pop()
+
+  pub fun len(?self) -> Int
+    self.items.len
+
+struct N
+  k: Int
+
+sub main
+  s = Stack[Int].new()
+  !s.push(1)
+  !s.push(2)
+  print(s.len(), !s.pop())
+  h: Stack[*N] = Stack[*N].new()
+  !h.push(*N(k: 3))
+  if !h.pop() as n
+    print(n.k)

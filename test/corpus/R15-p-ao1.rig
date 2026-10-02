@@ -1,0 +1,14 @@
+sub main()
+  a = [3, 1, 0, 2]
+  !a.fill(a[1])
+  print(a)
+  b = [3, 1, 0, 2]
+  !b.swap(b[1], b[3])
+  print(b)
+  w = !b[..]
+  !w.swap(w[2], w.len - 1)
+  !w.fill(w.len)
+  print(b)
+  c: [4]U8 = [1, 2, 3, 4]
+  !c.write[U8, .big](c[0], c[3])
+  print(c[1], c.read[U8, .big](c.len - 1))

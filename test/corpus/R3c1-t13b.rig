@@ -1,0 +1,15 @@
+struct R
+  n: Int
+
+  sub drop(!self)
+    print("drop", self.n)
+
+enum D
+  r(res: R)
+  e
+
+sub main()
+  x = R(n: 5)
+  print(x.n)
+  d: D = .r(res: R(n: 1))
+  print(d == .e)

@@ -1,0 +1,7 @@
+sub main()
+  y = 3
+  x = while y > 5
+    break y
+  else
+    -y
+  print(x)

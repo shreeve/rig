@@ -1,0 +1,21 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun rd(o: ?R?) -> Int
+  if o as x
+    x.n
+  else
+    0
+
+sub wr(o: !R?)
+  o = R(n: 42)
+
+sub main
+  b: Box[R?] = Box(value: none)
+  print(rd(?b))
+  wr(!b)
+  print(rd(?b))
+  print(b)

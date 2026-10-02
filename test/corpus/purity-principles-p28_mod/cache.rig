@@ -1,0 +1,10 @@
+pub struct Cache
+  pub size: Int
+  seen: Cell[Vec[Int]]
+
+  pub fun lookup(?self, k: Int) -> Int
+    self.seen.push(k)
+    self.seen.len
+
+pub fun make -> Cache
+  Cache(size: 0, seen: Cell(Vec()))

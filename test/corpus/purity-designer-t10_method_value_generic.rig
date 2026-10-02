@@ -1,0 +1,7 @@
+struct W[T]
+  v: T
+  fun get(?self) -> T
+    self.v
+sub main
+  g = W[Int].get
+  print(1)

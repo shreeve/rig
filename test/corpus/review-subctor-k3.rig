@@ -1,0 +1,9 @@
+error Bad
+  neg
+
+fun get(n: Int) -> Int!
+  return Bad.neg if n < 0
+  n
+
+sub main
+  get(1)!

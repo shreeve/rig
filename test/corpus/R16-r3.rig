@@ -1,0 +1,11 @@
+fun id(f: ?fun() -> Int) -> ?fun() -> Int
+  f
+
+fun mk(x: ?Vec[Int], g: ?fun() -> Int) -> ?fun() -> Int
+  l = |?g| g() + 1
+  id(?l)
+
+sub main
+  v: Vec[Int] = Vec()
+  f = mk(?v, || 3)
+  print(f())

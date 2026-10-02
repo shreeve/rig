@@ -1,0 +1,5 @@
+sub main
+  :blk if true
+    break :blk
+    print(1)
+  print(2)

@@ -1,0 +1,10 @@
+use lib
+
+struct H
+  e: lib.Disk = lib.DEF
+
+fun g(e: lib.Disk = lib.DEF) -> lib.Disk
+  e
+
+sub main
+  print(H(), g())

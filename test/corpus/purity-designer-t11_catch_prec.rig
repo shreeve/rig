@@ -1,0 +1,7 @@
+error E
+  bad
+fun p(s: String) -> Int!
+  return E.bad if s == ""
+  s.len
+sub main
+  print(p("") catch 1 == 1)

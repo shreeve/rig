@@ -1,0 +1,13 @@
+struct R
+  xs: Vec[Int]
+
+struct H
+  w: !R
+
+sub main
+  v = R(xs: Vec())
+  !v.xs.push(1)
+  h = H(w: !v)
+  r = ?h.w.xs
+  h.w = R(xs: Vec())
+  print(r)

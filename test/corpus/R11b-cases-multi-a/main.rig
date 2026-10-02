@@ -1,0 +1,8 @@
+use lib
+
+pub fun fa() -> Bool
+  x = lib.dbl(true)
+  y = lib.dbl(false)
+  w = lib.W[Bool](v: true)
+  z: lib.W[Bool] = lib.W(v: false)
+  x and y

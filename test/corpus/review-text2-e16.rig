@@ -1,0 +1,13 @@
+struct P
+  s: String
+
+sub put(c: !Vec[P], s: String)
+  c[0] = P(s: s)
+
+sub main
+  t = Text("abcdefghijklmnop")
+  v: Vec[P] = Vec()
+  !v.push(P(s: "x"))
+  put(!v, ?t[..3])
+  -t
+  print(v)

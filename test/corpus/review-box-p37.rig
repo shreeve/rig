@@ -1,0 +1,19 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum E
+  empty
+  full(b: Box[R])
+
+sub eat(b: Box[R])
+  print("eat", b.n)
+
+sub main
+  e = Box(value: E.full(b: Box(value: R(n: 1))))
+  match !e
+    .empty => print("empty")
+    .full(b) => eat(<b)
+  print("end")

@@ -1,0 +1,25 @@
+struct C
+  n: U8
+  big: I128
+
+sub bump(x: !U8)
+  x +%= 200
+
+sub bumpc(c: !C)
+  c.n *%= 3
+  c.big -%= 1
+
+sub main()
+  a: U8 = 100
+  bump(!a)
+  print(a)
+  c = C(n: 100, big: I128.min)
+  bumpc(!c)
+  print(c.n, c.big)
+  b = Box(C(n: 255, big: 0))
+  b.n +%= 1
+  print(b.n)
+  v = Vec[U8]()
+  !v.push(250)
+  v[0] +%= 10
+  print(v[0])

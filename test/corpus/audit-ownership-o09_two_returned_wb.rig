@@ -1,0 +1,9 @@
+fun slot(a: !Vec[Int]) -> !Vec[Int]
+  a
+
+sub main
+  v: Vec[Int] = Vec()
+  a = slot(!v)
+  b = slot(!v)
+  !a.push(1)
+  !b.push(2)

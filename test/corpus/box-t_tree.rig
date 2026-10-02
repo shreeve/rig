@@ -1,0 +1,54 @@
+# A binary search tree of boxed nodes: `if !slot as n` borrows the node
+# inside an optional box in place, and assigning to a `!Box[Node]?`
+# slot stores a new subtree.
+
+struct Node
+  key: Int
+  left: Box[Node]?
+  right: Box[Node]?
+
+sub insert(slot: !Box[Node]?, key: Int)
+  if !slot as n
+    if key < n.key
+      insert(!n.left, key)
+    else
+      insert(!n.right, key)
+  else
+    slot = Box(value: Node(key: key, left: none, right: none))
+
+fun contains(slot: ?Box[Node]?, key: Int) -> Bool
+  if slot as n
+    if key == n.key
+      return true
+    if key < n.key
+      return contains(?n.left, key)
+    return contains(?n.right, key)
+  false
+
+fun size(slot: ?Box[Node]?) -> Int
+  if slot as n
+    1 + size(?n.left) + size(?n.right)
+  else
+    0
+
+sub walk(slot: ?Box[Node]?)
+  if slot as n
+    walk(?n.left)
+    print(n.key)
+    walk(?n.right)
+
+sub main
+  root: Box[Node]? = none
+  for k in [5, 2, 8, 1, 9, 3]
+    insert(!root, k)
+  print(size(?root), contains(?root, 3), contains(?root, 4))
+  walk(?root)
+
+# expect:
+# 6 true false
+# 1
+# 2
+# 3
+# 5
+# 8
+# 9

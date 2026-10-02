@@ -1,0 +1,5 @@
+pub fun b(x: F32 = F32.min, y: U8 = U8.max, z: I64 = Int.min) -> F32
+  x + F32(y) + F32(z)
+
+pub fun d(x: Float = Float.max) -> Float
+  x

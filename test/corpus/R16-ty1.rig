@@ -1,0 +1,51 @@
+struct P
+  n: Int
+
+enum Color
+  red
+  green
+
+sub fill(xs: ![]Int)
+  f = |!xs|
+    xs[0] = 9
+  f()
+  g = |?xs| xs[0]
+  print(g())
+
+sub main
+  arr = [1, 2, 3]
+  fa = |!arr|
+    arr[1] = 20
+  fa()
+  ga = |?arr| arr[1] + arr.len
+  print(ga())
+  fill(!arr[..])
+  print(arr[0])
+  s = ?arr[..]
+  gs = |?s| s.len
+  print(gs())
+  o: Int? = 4
+  fo = |!o|
+    o = none
+  fo()
+  go = |?o| o ?? -1
+  print(go())
+  print(o ?? -1)
+  h = *P(n: 2)
+  h = *P(n: 3)
+  gh = |?h| h.n
+  print(gh())
+  fh = |!h|
+    h = *P(n: 8)
+  fh()
+  print(h.n)
+  c = Color.red
+  fc = |!c|
+    c = .green
+  fc()
+  print(c)
+  st = "abc"
+  fs = |!st|
+    st = "xyz"
+  fs()
+  print(st)

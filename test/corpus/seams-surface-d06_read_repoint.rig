@@ -1,0 +1,9 @@
+struct P
+  x: Int
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  r = ?a
+  print(r.x)
+  r = ?b
+  print(r.x)

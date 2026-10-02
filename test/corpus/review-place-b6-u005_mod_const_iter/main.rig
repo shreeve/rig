@@ -1,0 +1,5 @@
+use geo
+
+sub main
+  for x in !geo.KP
+    x += 1

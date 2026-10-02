@@ -1,0 +1,8 @@
+use lib
+
+fun g[lib](x: lib) -> Int
+  w = lib.Wrap[Int](v: 1)
+  w.v
+
+sub main()
+  print(g(1))

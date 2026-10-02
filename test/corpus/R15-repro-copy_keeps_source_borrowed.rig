@@ -1,0 +1,7 @@
+# After `!b.copy(?a[..])`, `a` stays read-borrowed for as long as `b` lives.
+sub main()
+  a = [1, 2, 3]
+  b = [0, 0, 0]
+  !b.copy(?a[..])
+  a[0] = 9
+  print(a, b)

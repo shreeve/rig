@@ -1,0 +1,31 @@
+struct N
+  n: Int
+
+struct Inner
+  h: *N
+
+enum Sh
+  a(inner: Inner)
+  b
+
+struct Pair[A, B]
+  first: A
+  second: B
+
+struct Outer
+  p: Pair[Int, Sh]
+
+fun f(x: Int) -> Int
+  x
+
+sub main()
+  v = Vec[Int]()
+  print(v == v)
+  o = Outer(p: Pair(first: 1, second: .b))
+  print(o == o)
+  g = f
+  print(g == g)
+  h = *N(n: 1)
+  print(h == h)
+  c = Cell(1)
+  print(c == c)

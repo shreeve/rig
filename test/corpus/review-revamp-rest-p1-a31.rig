@@ -1,0 +1,4 @@
+sub main()
+  :l while true
+    break : l
+  print(9)

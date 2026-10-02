@@ -1,0 +1,5 @@
+sub main
+  o: Int? = 1
+  if ?o as x and !o as y
+    y += x
+  print(o)

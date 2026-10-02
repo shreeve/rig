@@ -1,0 +1,42 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B, k: Int)
+  empty
+
+struct H
+  s: Box[Slot]
+
+sub edit(h: !H)
+  match !h.s
+    .full(b, k) if k > 0 => b = *B(n: 20)
+    .full(_, k) => k = 5
+    _ => print("e")
+
+fun peek(h: ?H) -> Int
+  match ?h.s
+    .full(b, k) if k > 0 => b.n
+    _ => 0
+
+sub main
+  bx = Box(Slot.full(b: *B(n: 1), k: 0))
+  match !bx
+    .full(b, k) if b.n > 0 => k = 3
+    _ => print("e")
+  match ?bx
+    .full(b, k) if k == 3 => print("three", b.n)
+    _ => print("e")
+  h = H(s: Box(Slot.full(b: *B(n: 2), k: 0)))
+  edit(!h)
+  edit(!h)
+  print(peek(?h))
+  o: Slot? = .full(b: *B(n: 7), k: 1)
+  if ?o as s
+    match s
+      .full(b, k) if k > 0 => print("opt", b.n)
+      _ => print("e")
+  print("end")

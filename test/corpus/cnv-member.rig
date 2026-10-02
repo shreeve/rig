@@ -1,0 +1,6 @@
+struct P
+  x: Int
+sub main()
+  p = P(x: 1)
+  y = p.x -1
+  print(y)

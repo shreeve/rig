@@ -1,0 +1,32 @@
+struct N
+  a: Int
+
+enum Opt[T]
+  some(v: T)
+  no
+
+enum Hold
+  vec(v: Vec[Int])
+  sh(h: *N)
+  wk(w: ~N)
+  maybe(m: *N?)
+  str(s: String)
+
+fun mk() -> Hold
+  .vec(Vec[Int]())
+
+sub main
+  v = Vec[Int]()
+  !v.push(1)
+  a = Opt.some(<v)
+  n = *N(a: 2)
+  b: Hold = .sh(+n)
+  c: Hold = .wk(~n)
+  d: Hold = .maybe(+n)
+  e: Hold = .maybe(none)
+  f = Hold.str("x")
+  g = mk()
+  h = Opt.some(Opt.some(Vec[Int]()))
+  xs = Vec[*N]()
+  !xs.push(<n)
+  print(a, b, c, d, e, f, g, h, xs.len)

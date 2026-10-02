@@ -1,0 +1,7 @@
+enum Res
+  a
+  b(n: Int)
+  drop(!self)
+    print("x")
+sub main
+  r = Res.a

@@ -1,0 +1,5 @@
+struct Vec
+  n: Int
+
+sub main
+  print(1)

@@ -1,0 +1,22 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Loop
+  s: lib.Stack[Loop]
+
+struct Holds
+  b: lib.View[Int]
+
+fun boxed[T](x: T) -> lib.Stack[T]
+  lib.wrap(<x)
+
+sub main()
+  s = lib.Stack[Res].new_stack()
+  t = boxed(Res(n: 3))
+  u = lib.wrap(Res(n: 4))
+  print(s.size(), t.size(), u.size())

@@ -1,0 +1,7 @@
+# ![]T param and ?[4]Int param same root
+sub two(x: ![]Int, y: ?[4]Int)
+  x[0] = y[3]
+sub main()
+  a = [1, 2, 3, 4]
+  two(!a[0..2], ?a)
+  print(a)

@@ -1,0 +1,6 @@
+struct Event
+  code: Int
+
+sub main
+  cb: *sub(Event) = *|e| print(e.code)
+  cb(Event(code: 3))

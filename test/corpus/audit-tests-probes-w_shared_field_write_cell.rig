@@ -1,0 +1,7 @@
+struct S
+  n: Cell[Int]
+
+sub main
+  s = *S(n: Cell(1))
+  s.n = Cell(2)
+  print(s.n.get())

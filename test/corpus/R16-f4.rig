@@ -1,0 +1,8 @@
+struct View[T]
+  w: ?T
+
+sub main
+  k = 4
+  f = |+k, a: Int| a + k
+  v = View(w: ?f)
+  print(1)

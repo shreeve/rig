@@ -1,0 +1,15 @@
+struct S
+  n: Int
+
+fun id[T](x: T) -> T
+  x
+
+sub keep[T](v: !Vec[T], x: T)
+  !v.push(x)
+
+sub main()
+  a = id(?S(n: 1))
+  print(a.n)
+  v: Vec[?S] = Vec()
+  keep(!v, ?S(n: 2))
+  print(v[0].n)

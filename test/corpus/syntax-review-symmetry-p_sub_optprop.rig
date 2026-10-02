@@ -1,0 +1,5 @@
+sub f(o: Int?)
+  print(o?)
+sub main
+  f(1)
+  f(none)

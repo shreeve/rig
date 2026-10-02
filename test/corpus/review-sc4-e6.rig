@@ -1,0 +1,15 @@
+enum Shape
+  circle(r: Int)
+  point
+
+fun flip(s: !Shape) -> Bool
+  s = .point
+  false
+
+sub main
+  c: Shape = .circle(r: 1)
+  n = match !c
+    .point => 0
+    w if flip(!w) => 1
+    .circle(r) => r
+  print(n)

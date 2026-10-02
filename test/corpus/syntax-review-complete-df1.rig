@@ -1,0 +1,16 @@
+struct S
+  a: Vec[Int]
+  b: Int
+
+  sub go(!self)
+    for x in ?self.a
+      self.b += x
+
+sub main
+  s = S(a: Vec(), b: 0)
+  !s.a.push(3)
+  !s.go()
+  print(s.b)
+  for x in ?s.a
+    s.b += x
+  print(s.b)

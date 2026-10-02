@@ -1,0 +1,6 @@
+fun find(n: Int) -> Int?
+  return None if n < 0
+  n
+
+sub main
+  print(find(3) ?? 0)

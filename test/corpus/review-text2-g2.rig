@@ -1,0 +1,12 @@
+struct W
+  t: !Text
+
+fun grab(w: ?W) -> String
+  ?w.t[..3]
+
+sub main
+  t = Text("abcdefghijklmnop")
+  w = W(t: !t)
+  s = grab(?w)
+  w2 = W(t: !t)
+  print(s, w2.t.len)

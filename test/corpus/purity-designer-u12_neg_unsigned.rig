@@ -1,0 +1,3 @@
+sub main
+  a: U8 = 3
+  print(-a)

@@ -1,0 +1,3 @@
+sub main
+  v: Vec[Int] = Vec()
+  print(v.len())

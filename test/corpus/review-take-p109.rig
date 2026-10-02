@@ -1,0 +1,12 @@
+struct S
+  a: Int?
+
+fun f(s: !S) -> Int?
+  r = <s.a?
+  print(r)
+  1
+
+sub main
+  s = S(a: 1)
+  print(f(!s))
+  print(s)

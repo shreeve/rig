@@ -1,0 +1,16 @@
+struct View
+  w: ?Vec[Int]
+
+sub run(f: ?sub(?Vec[Int]))
+  local: Vec[Int] = Vec()
+  !local.push(7)
+  !local.push(8)
+  f(?local)
+
+sub main
+  a: Vec[Int] = Vec()
+  v = View(w: ?a)
+  set = |!v, w: ?Vec[Int]|
+    v.w = w
+  run(?set)
+  print(v.w.len)

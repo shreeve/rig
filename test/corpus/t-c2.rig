@@ -1,0 +1,8 @@
+sub consume(f: fun() -> Int)
+  print(f())
+
+sub main()
+  n =! 3
+  f = |+n|
+    n
+  consume(f)

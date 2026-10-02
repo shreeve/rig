@@ -1,0 +1,47 @@
+error E
+  bad
+
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct H
+  cb: *fun(Int) -> Int
+  name: String
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun mkv(k: Int) -> Vec[Int]!
+  return E.bad if k < 0
+  v: Vec[Int] = Vec()
+  !v.push(k)
+  v
+
+fun use3(v: Vec[Int], f: ?fun(Int) -> Int, w: Vec[Int]) -> Int
+  f(v.len + w.len)
+
+fun run(k: Int) -> Int!
+  base = 100
+  use3(mkv(1)!, |+base, x| x + base, mkv(k)!)
+
+sub main
+  r = R(n: 1)
+  f = |<r, x: Int| x + r.n
+  print(f(1), f(2))
+  g = |?f, x: Int| f(x) * 2
+  print(g(5))
+  h = H(cb: *|x| x * 3, name: "h")
+  print(h.cb(4))
+  v: Vec[*fun(Int) -> Int] = Vec()
+  !v.push(*|x| x + 1)
+  for c in ?v
+    print(c(1))
+  print(apply(?h.cb, 5))
+  print(run(1) catch -1, run(-1) catch -1)
+  outer = 7
+  nest = |+outer, a: Int|
+    inner = |+outer, b: Int| b + outer
+    inner(a) + outer
+  print(nest(1))

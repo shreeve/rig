@@ -1,0 +1,5 @@
+fun g(xs: ?[2]Int) -> Int
+  xs[0]
+sub main
+  a = [1, 2]
+  print(g(a))

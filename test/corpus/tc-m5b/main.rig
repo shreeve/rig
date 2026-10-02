@@ -1,0 +1,8 @@
+use util3
+
+sub main()
+  p = util3.PA.mk()
+  q = util3.PA(n: 2)
+  x = util3.M.a
+  y: util3.M = .b
+  print(p.n, q.n, x == util3.Mode.a, y == util3.M.b)

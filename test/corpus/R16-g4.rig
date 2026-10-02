@@ -1,0 +1,8 @@
+fun opt[T](x: T) -> T?
+  x
+
+sub main
+  k = 5
+  f = |+k, a: Int| a + k
+  o = opt(?f)
+  print(o == none)

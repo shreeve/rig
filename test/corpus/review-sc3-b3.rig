@@ -1,0 +1,20 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun kill(o: !(Res?)) -> Bool
+  o = none
+  true
+
+sub main
+  o: Res? = Res(id: 1)
+  if ?o as x and kill(!o)
+    print(x.id)
+  p: Res? = Res(id: 2)
+  if ?p as y and y.id > 0 and kill(!p)
+    print("p")
+  q: Res? = Res(id: 3)
+  if !q as z and kill(!q)
+    print(z.id)

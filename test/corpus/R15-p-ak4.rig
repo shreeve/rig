@@ -1,0 +1,11 @@
+struct View
+  s: ![]Int
+sub f(v: ?View)
+  for x in !v.s
+    x = 1
+  !v.s.swap(0, 1)
+  !v.s.write[U8, .big](0, 1)
+sub main()
+  a = [0, 0]
+  view = View(s: !a[..])
+  f(?view)

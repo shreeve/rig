@@ -1,0 +1,4 @@
+fun f(n: Int) -> Int!?
+  n
+sub main
+  print(f(1))

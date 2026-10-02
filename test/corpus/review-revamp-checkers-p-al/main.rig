@@ -1,0 +1,17 @@
+use lib
+
+type LW = lib.IW
+type LPP = lib.PP
+type Chain = LPP
+
+sub main()
+  w = lib.IW(v: 3)
+  p = lib.PP(x: 1, v: Vec())
+  q = LPP(x: 2, v: Vec())
+  r = Chain(x: 3, v: Vec())
+  a = lib.AA(x: 4, v: Vec())
+  v = lib.IV()
+  l = LW(v: 9)
+  b = lib.Byte(300 - 100)
+  bx = lib.BS(lib.P(x: 5, v: Vec()))
+  print(w.v, p.x, q.x, r.x, a.x, v.len, l.v, b, lib.Byte.max)

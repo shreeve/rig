@@ -1,0 +1,7 @@
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  f = |!v, n: Int|
+    v.push(n)
+  for x in ?v
+    f(x)

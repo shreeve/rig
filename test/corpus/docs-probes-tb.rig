@@ -1,0 +1,18 @@
+struct S
+  n: Int
+
+struct V
+  s: ?S
+
+fun get(s: ?S) -> Int
+  s.n
+
+fun keep(s: ?S) -> ?S
+  s
+
+sub main
+  print(get(?S(n: 1)))
+  v = V(s: ?S(n: 2))
+  r = ?S(n: 3)
+  k = keep(?S(n: 4))
+  print(v.s.n, r.n, k.n)

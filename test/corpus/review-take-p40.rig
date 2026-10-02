@@ -1,0 +1,12 @@
+struct S
+  x: String
+  y: String
+
+sub bump(p: !String, q: !String)
+  p = "one"
+  q = "two"
+
+sub main
+  b = Box(value: S(x: "a", y: "b"))
+  swap(!b.value, !b.value)
+  print(b.x)

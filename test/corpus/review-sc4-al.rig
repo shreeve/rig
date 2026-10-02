@@ -1,0 +1,30 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  a(b: *B)
+  b(c: *B, d: *B)
+  e
+
+fun f(s: Slot, flag: Bool) -> Int
+  match <s
+    .a(_), .b(_, _) if flag => 1
+    .a(x) => x.n
+    .b(_, _), .e => 0
+
+sub main
+  print(f(.a(b: *B(n: 1)), true))
+  print(f(.b(c: *B(n: 2), d: *B(n: 3)), true))
+  print(f(.a(b: *B(n: 4)), false))
+  print(f(.b(c: *B(n: 5), d: *B(n: 6)), false))
+  print(f(.e, false))
+  s: Slot = .b(c: *B(n: 7), d: *B(n: 8))
+  match !s
+    .a(_), .b(_, _) => print("alt")
+    .e => print("e")
+  match s
+    .a(_), .e => print("ae")
+  print("end")

@@ -1,0 +1,4 @@
+use lib
+
+sub main()
+  print(lib.ring[Int, 2000000](1))

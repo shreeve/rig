@@ -1,0 +1,5 @@
+extern fun strlen(s: String) -> Int
+
+sub main
+  raw
+    print(strlen("hi"))

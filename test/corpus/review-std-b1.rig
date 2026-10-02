@@ -1,0 +1,17 @@
+struct Pair[A, B]
+  a: A
+  b: B
+
+struct Holder
+  p: Pair[?Int, Int]
+
+  sub put(!self, x: ?Int)
+    self.p = Pair(a: x, b: 0)
+
+sub main
+  a = 1
+  h = Holder(p: Pair(a: ?a, b: 0))
+  if true
+    y = 42
+    !h.put(?y)
+  print(h.p.a)

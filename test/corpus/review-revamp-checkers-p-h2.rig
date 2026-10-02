@@ -1,0 +1,14 @@
+struct P
+  n: Int
+  v: Vec[Int]
+
+sub main()
+  o: P? = P(n: 1, v: Vec())
+  while !o as x : x.n += 1
+    print(x.n)
+    break if x.n > 2
+  while ?o as y : print(y.n)
+    break if y.n > 2
+  b: Box[P]? = Box(P(n: 1, v: Vec()))
+  while ?b as z : print(z.n)
+    break

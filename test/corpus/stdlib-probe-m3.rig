@@ -1,0 +1,9 @@
+fun first[T](xs: []T) -> T?
+  return none if xs.len == 0
+  xs[0]
+
+sub main
+  a = [3, 4]
+  print(first(?a))
+  h = *Cell(5)
+  print(h.get())

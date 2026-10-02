@@ -1,0 +1,7 @@
+use util
+
+pub fun f[T](x: T) -> T
+  util.dup(<x)
+
+pub fun g[T](v: ?Vec[T]) -> Int
+  util.firsts(v)

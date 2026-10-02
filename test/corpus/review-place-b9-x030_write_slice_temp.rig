@@ -1,0 +1,8 @@
+fun mk(a: ![]Int) -> ![]Int
+  <a
+
+sub main
+  a = [1, 2, 3]
+  s = !mk(!a[0..3])[1..2]
+  s[0] = 9
+  print(a[1])

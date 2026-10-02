@@ -1,0 +1,6 @@
+error Bad
+  x
+
+sub main()!
+  print("start")
+  return Bad.x

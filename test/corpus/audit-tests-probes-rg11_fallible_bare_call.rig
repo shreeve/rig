@@ -1,0 +1,8 @@
+error E
+  bad
+
+fun f -> Int!
+  1
+
+sub main
+  print(f())

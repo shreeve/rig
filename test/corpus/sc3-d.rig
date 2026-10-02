@@ -1,0 +1,14 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun neg(x: Int) -> Int
+  -x
+
+sub main
+  a = R(n: 1)
+  b = R(n: 2)
+  -a
+  print("after", neg(5))

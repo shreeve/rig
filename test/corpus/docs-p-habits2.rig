@@ -1,0 +1,9 @@
+fun f(n: Int) -> Int!
+  n
+fun g() -> Int!
+  f(1)?
+sub main
+  v: Vec[Int] = Vec()
+  v.push(1)
+  if !v.len == 0
+    print(g()!)

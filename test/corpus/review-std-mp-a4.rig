@@ -1,0 +1,5 @@
+use std.os
+use os as myos
+
+sub main
+  print(os.args().len, myos.hello())

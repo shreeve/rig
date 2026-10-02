@@ -1,0 +1,19 @@
+struct S
+  v: Vec[Int]
+
+fun mk(n: Int) -> S
+  s = S(v: Vec())
+  !s.v.push(n)
+  s
+
+fun len(s: ?S) -> Int
+  s.v.len
+
+sub main()
+  print(len(?mk(3)))
+  for x in ?mk(4).v
+    print(x)
+  match ?mk(5)
+    s => print(s.v[0])
+  if ?mk(6).v.len > 0
+    print("yes")

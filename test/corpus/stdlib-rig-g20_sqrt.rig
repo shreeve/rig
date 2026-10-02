@@ -1,0 +1,4 @@
+extern fun sqrt(x: F64) -> F64
+sub main
+  raw
+    print(sqrt(2.0))

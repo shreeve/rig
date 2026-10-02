@@ -1,0 +1,7 @@
+fun f(x: Int, c: Bool) -> Int
+  if c
+    -x
+  x
+
+sub main
+  print(f(3, true))

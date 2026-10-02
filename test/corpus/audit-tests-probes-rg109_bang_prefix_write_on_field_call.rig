@@ -1,0 +1,7 @@
+struct C
+  v: Vec[Int]
+
+sub main
+  c = C(v: Vec())
+  c.v.push(1)
+  print(c.v.len)

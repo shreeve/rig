@@ -1,0 +1,7 @@
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  x = 1
+  arr = [2 of slot(!x)]
+  print(arr)

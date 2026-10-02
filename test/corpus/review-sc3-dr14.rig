@@ -1,0 +1,15 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+struct H
+  r: Res
+
+sub rd(r: ?Res)
+  print(r.id)
+
+sub main
+  xs = [Res(id: 1)]
+  print(1)

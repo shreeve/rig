@@ -1,0 +1,4 @@
+use lib
+X: U8 =! lib.SMALL + 6
+sub main()
+  print(X)

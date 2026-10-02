@@ -1,0 +1,5 @@
+fun f(x: Int?) -> Int?
+  y = [x][0]?
+  y + 1
+sub main()
+  print(f(2))

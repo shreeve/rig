@@ -1,0 +1,11 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun main -> Int
+  r = R(n: 1)
+  defer print("deferred")
+  print("body")
+  7

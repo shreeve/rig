@@ -1,0 +1,21 @@
+error Full
+  full
+
+struct Box2
+  items: Vec[Int]
+
+  sub add(!self, n: Int)!
+    return Full.full if self.items.len >= 2
+    !self.items.push(n)
+
+sub each(xs: []Int, f: ?fun(Int) -> Void!)!
+  for x in xs
+    f(x)!
+
+sub main
+  b = Box2(items: Vec())
+  !b.add(1)!
+  !b.add(2)!
+  !b.add(3) catch |e|
+    print("add failed", e)
+  print(b.items)

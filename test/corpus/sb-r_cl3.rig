@@ -1,0 +1,7 @@
+sub main
+  a = [1, 2, 3]
+  w = !a[..]
+  f = |<w, i: Int|
+    w[i] = 0
+  print(a)
+  f(1)

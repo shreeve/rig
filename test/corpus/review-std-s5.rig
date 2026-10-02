@@ -1,0 +1,11 @@
+use std.sort
+
+sub main
+  xs = [3, 1, 2]
+  n = Cell(0)
+  sort.sort_by(!xs, |?n, a, b| bump(?n, a < b))
+  print(xs, n.get())
+
+fun bump(n: ?Cell[Int], r: Bool) -> Bool
+  n.set(n.get() + 1)
+  r

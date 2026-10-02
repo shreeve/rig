@@ -1,0 +1,4 @@
+use lib
+
+sub main()
+  print(lib.DEF.or(5), lib.DEF.is_none())

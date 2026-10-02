@@ -1,0 +1,29 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+sub main
+  keep: Vec[*Tok] = Vec()
+  s: Slot = .pair(a: *Tok(n: 1), b: *Tok(n: 2))
+  match s
+    .pair(a, b)
+      !keep.push(+a)
+      !keep.push(+b)
+    _ => print("other")
+  s = .empty
+  for k in ?keep
+    print(k.n)

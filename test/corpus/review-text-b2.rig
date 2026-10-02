@@ -1,0 +1,7 @@
+struct H
+  t: Text
+
+sub main
+  h = H(t: Text("abcdefghijklmnop"))
+  !h.t.add(h)
+  print(h)

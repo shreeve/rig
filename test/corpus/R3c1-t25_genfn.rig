@@ -1,0 +1,13 @@
+enum Opt[T]
+  some(value: T)
+  nothing
+
+fun gen[T](a: ?Opt[T], v: T) -> Bool
+  a == .some(value: v)
+
+fun inc(x: Int) -> Int
+  x + 1
+
+sub main()
+  op: Opt[fun(Int) -> Int] = .some(value: inc)
+  print(gen(?op, inc))

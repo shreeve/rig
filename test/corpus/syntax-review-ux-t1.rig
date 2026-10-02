@@ -1,0 +1,2 @@
+sub main
+  print("t", 43)

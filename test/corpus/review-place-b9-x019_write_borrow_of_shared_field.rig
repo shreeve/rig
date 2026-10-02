@@ -1,0 +1,13 @@
+struct P
+  x: Int
+
+struct N
+  h: *P
+
+sub g(h: !*P)
+  h = *P(x: 7)
+
+sub main
+  n = N(h: *P(x: 1))
+  g(!n.h)
+  print(n.h.x)

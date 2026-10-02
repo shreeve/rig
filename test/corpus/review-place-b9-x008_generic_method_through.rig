@@ -1,0 +1,14 @@
+struct H[T]
+  w: !T
+
+  sub put(!self, v: T)
+    self.w = v
+
+sub main
+  n = 0
+  s = "a"
+  h = H[Int](w: !n)
+  !h.put(9)
+  g = H[String](w: !s)
+  !g.put("zz")
+  print(n, s)

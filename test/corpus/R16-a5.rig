@@ -1,0 +1,10 @@
+sub walk(v: ?Vec[Int], f: ?sub(Int))
+  for x in v
+    f(x)
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  a = |!v, n: Int|
+    v.push(n)
+  walk(?v, ?a)

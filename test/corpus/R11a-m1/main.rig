@@ -1,0 +1,12 @@
+use lib
+
+struct Node
+  n: Int
+  next: lib.Two[Node]
+
+struct List
+  n: Int
+  rest: lib.Opt[List]
+
+sub main()
+  print(1)

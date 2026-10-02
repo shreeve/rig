@@ -1,0 +1,11 @@
+struct Q
+  n: Int
+
+struct P
+  q: Q
+
+sub main
+  p = P(q: Q(n: 1))
+  p.q.n = 5
+  p.q.n *= 2
+  print(p.q.n)

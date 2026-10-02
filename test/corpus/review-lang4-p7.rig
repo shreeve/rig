@@ -1,0 +1,7 @@
+sub main
+  n = 1
+  m = 2
+  xs = [!n, !m]
+  xs[1] = 9
+  print(xs[1])
+  print(n, m)

@@ -1,0 +1,11 @@
+struct Page
+  buf: [16]U8
+
+  fun wbytes(!self, a: Int, b: Int) -> ![]U8
+    !self.buf[a..b]
+
+sub main
+  p = Page(buf: [16 of 0])
+  w = !p.wbytes(0, 4)
+  w[0] = 9
+  print(p.buf[0])

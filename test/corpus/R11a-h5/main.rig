@@ -1,0 +1,22 @@
+use lib
+
+fun a(x: lib.Ring[Int, Int]) -> Int
+  1
+
+fun b(x: lib.Ring[4, Int]) -> Int
+  1
+
+fun c(x: lib.Wrap[Int, Int]) -> Int
+  1
+
+fun d(x: lib.Wrap) -> Int
+  1
+
+fun e(x: lib.Ring[Int, -1]) -> Int
+  1
+
+fun f(x: lib.Ring[Int, 99999999999]) -> Int
+  1
+
+sub main()
+  print(1)

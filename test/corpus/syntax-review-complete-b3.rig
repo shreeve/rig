@@ -1,0 +1,12 @@
+struct Node
+  v: Int
+  kids: Vec[Int]
+
+sub main
+  v: Vec[Box[Node]] = Vec()
+  !v.push(Box(value: Node(v: 1, kids: Vec())))
+  for n in ?v
+    print(n.v)
+  for n in !v
+    !n.kids.push(3)
+  print(v.len)

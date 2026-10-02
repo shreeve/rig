@@ -1,0 +1,7 @@
+error E
+  bad
+
+sub main
+  errdefer print("err")
+  defer print("d")
+  print("m")

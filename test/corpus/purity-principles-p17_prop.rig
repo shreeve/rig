@@ -1,0 +1,22 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+error E
+  bad
+
+fun mk(n: Int) -> Res!
+  return E.bad if n < 0
+  Res(n: n)
+
+fun both(a: Int, b: Int) -> Int!
+  x = mk(a)!
+  defer print("defer in both")
+  y = mk(b)!
+  x.n + y.n
+
+sub main
+  print(both(1, 2) catch -1)
+  print(both(3, -1) catch -1)

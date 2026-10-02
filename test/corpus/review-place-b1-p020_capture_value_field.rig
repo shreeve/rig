@@ -1,0 +1,7 @@
+struct P
+  x: Int
+
+sub main
+  p = P(x: 1)
+  f = |p| p.x = 2
+  f()

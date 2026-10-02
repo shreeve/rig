@@ -1,0 +1,6 @@
+fun lt[T](a: T, b: T) -> Bool
+  a < b
+
+sub main()
+  print(lt("a", "b"))
+  print(lt(1, 2))

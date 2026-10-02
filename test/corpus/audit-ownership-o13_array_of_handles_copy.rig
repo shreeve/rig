@@ -1,0 +1,22 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+sub main
+  a = [*Tok(n: 1), *Tok(n: 2)]
+  b = a
+  print(b[0].n)

@@ -1,0 +1,2 @@
+sub main(args: []String)
+  print(1)

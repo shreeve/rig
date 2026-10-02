@@ -1,0 +1,6 @@
+struct R
+  n: Int
+sub main
+  v: Vec[Box[R]] = Vec()
+  !v.push(Box(R(n: 1)))
+  print(v[0].n)

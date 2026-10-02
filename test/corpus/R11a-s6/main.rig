@@ -1,0 +1,4 @@
+use lib
+
+sub main()
+  print(lib.f[.fast, "hi", true, 300, Int](3))

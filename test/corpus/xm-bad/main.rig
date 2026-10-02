@@ -1,0 +1,7 @@
+use lib
+
+struct P
+  x: Int
+
+sub main
+  print(lib.max(P(x: 1), P(x: 2)).x)

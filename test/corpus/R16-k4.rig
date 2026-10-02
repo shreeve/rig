@@ -1,0 +1,10 @@
+struct V
+  w: ?Int
+
+sub main
+  a = 1
+  p = V(w: ?a)
+  f = |!p|
+    p.w = ?a
+  f()
+  print(p.w)

@@ -1,0 +1,5 @@
+fun compute(n: Int) -> Int
+  n * 2
+
+sub main
+  print(compte(3))

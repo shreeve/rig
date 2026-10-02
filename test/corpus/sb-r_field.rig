@@ -1,0 +1,8 @@
+struct V
+  s: ![]Int
+
+sub main
+  a = [1, 2]
+  v = V(s: !a[..])
+  print(a)
+  v.s[0] = 1

@@ -1,0 +1,13 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+
+sub main
+  v: Vec[Box[S]] = Vec()
+  !v.push(Box(value: S(a: R(n: 1))))
+  y = <v[0].a
+  print(y, v)

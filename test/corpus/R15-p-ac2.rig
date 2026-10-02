@@ -1,0 +1,10 @@
+struct V
+  s: ![]Int
+sub main()
+  a = [1, 2, 3]
+  v = V(s: !a[..])
+  for x, i in !v.s[1..]
+    x = i * 10
+  for x in !v.s
+    x += 1
+  print(a)

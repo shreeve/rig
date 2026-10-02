@@ -1,0 +1,21 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mkopt(k: Int) -> Box[R]?
+  return none if k > 1
+  Box(value: R(n: k))
+
+fun g(k: Int) -> Int?
+  o: Box[R]? = Box(value: R(n: 7))
+  if !o as y
+    q = mkopt(k)?
+    y = <q
+  z = (<o)?
+  z.n
+
+sub main
+  print(g(1) ?? -1)
+  print(g(2) ?? -1)

@@ -1,0 +1,15 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct H
+  r: R?
+
+sub main
+  h = H(r: R(n: 1))
+  p = ?h
+  if ?p.r as x
+    h.r = none
+    print(x.n)

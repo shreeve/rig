@@ -1,0 +1,8 @@
+sub main
+  a = 1
+  b = 2
+  ws: Vec[!Int] = Vec()
+  !ws.push(!a)
+  !ws.push(!b)
+  ws[1] = 9
+  print(a, b)

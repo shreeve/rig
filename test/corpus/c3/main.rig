@@ -1,0 +1,5 @@
+use lib
+
+sub main()
+  s = lib.S()
+  print(s.b, s.r < -3.0e38, s.q > 3.0e38, lib.f())

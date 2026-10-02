@@ -1,0 +1,6 @@
+use std.random
+
+sub main()
+  r = random.Rng.seeded(1)
+  a = r
+  print(!a.next(), !r.next())

@@ -1,0 +1,30 @@
+struct P
+  x: Int
+
+  fun eq(?self, o: ?P) -> Bool
+    true
+
+struct W
+  w: ~P
+
+struct C
+  c: Cell[Int]
+
+struct K
+  k: *sub()
+
+sub main()
+  a = P(x: 1)
+  b = P(x: 2)
+  print(a == b, a.eq(?b))
+  h = *P(x: 1)
+  w = W(w: ~h)
+  print(w == w)
+  c = C(c: Cell(value: 1))
+  print(c == c)
+  s: *Signal[Int] = *Signal(value: 0)
+  print(s == s)
+  k = K(k: *|| print("x"))
+  print(k == k)
+  ww = ~h
+  print(ww == ww)

@@ -1,0 +1,10 @@
+sub run(f: ?sub())
+  f()
+
+sub main
+  x = 1
+  f = |!x|
+    x += 1
+  defer run(?f)
+  x = 5
+  print(x)

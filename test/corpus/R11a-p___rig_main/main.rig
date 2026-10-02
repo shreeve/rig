@@ -1,0 +1,5 @@
+use __rig_main
+
+sub main()
+  w = __rig_main.Wrap(v: 1)
+  print(w.v, __rig_main.one())

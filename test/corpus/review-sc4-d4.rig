@@ -1,0 +1,23 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+struct W
+  b: *B
+
+  fun ok(<self) -> Bool
+    true
+
+sub main
+  s: Slot = .full(b: *B(n: 1))
+  w = W(b: *B(n: 7))
+  match <s
+    .full(b) if <w.ok() => print("a")
+    _ => print("other")
+  print("end")

@@ -1,0 +1,8 @@
+struct View
+  s: ![]Int
+sub f(v: ?View)
+  v.s[0] = 1
+sub main()
+  a = [0, 0]
+  view = View(s: !a[..])
+  f(?view)

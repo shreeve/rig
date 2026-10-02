@@ -1,0 +1,19 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum A
+  v(items: Vec[Int])
+  e
+
+enum D
+  r(res: R)
+  e
+
+sub main()
+  a: A = .e
+  print(a == .e)
+  d: D = .r(res: R(n: 1))
+  print(d == .e, .e != d)

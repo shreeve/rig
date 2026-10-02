@@ -1,0 +1,23 @@
+error E
+  bad
+
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun may(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+fun apply(x: Int, f: ?fun(Int) -> Int, y: Int) -> Int
+  f(x + y)
+
+fun go(n: Int) -> Int!
+  r = Res(id: n)
+  apply(may(n)!, |<r, a| a + r.id, may(n - 1)!)
+
+sub main
+  print(go(3) catch -1)
+  print(go(0) catch -1)

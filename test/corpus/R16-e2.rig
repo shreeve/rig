@@ -1,0 +1,9 @@
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  h: ?fun(Int) -> Int = double
+  for i in 0..3
+    l = |+i, a: Int| a + i
+    h = ?l
+  print(h(1))

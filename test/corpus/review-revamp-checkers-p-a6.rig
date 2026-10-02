@@ -1,0 +1,6 @@
+fun gen[N: Int](a: ?[N]Int) -> []Int
+  ?a[0..1]
+
+sub main()
+  a = [5, 6, 7]
+  print(gen(?a))

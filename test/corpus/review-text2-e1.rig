@@ -1,0 +1,21 @@
+struct W
+  t: !Text
+
+struct Outer
+  w: W
+
+struct Outer2
+  o: Outer
+
+fun grab(o: ?Outer2) -> String
+  ?o.o.w.t[..3]
+
+sub grow(o: !Outer2)
+  !o.o.w.t.add("more more more more more more more more more")
+
+sub main
+  t = Text("abcdefghijklmnop")
+  o = Outer2(o: Outer(w: W(t: !t)))
+  s = grab(?o)
+  grow(!o)
+  print(s)

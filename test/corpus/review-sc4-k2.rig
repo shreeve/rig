@@ -1,0 +1,13 @@
+struct Counter
+  n: Int
+
+sub pair(a: !Counter, b: !Counter)
+  swap(!a, !b)
+  x = replace(!a, Counter(n: 5))
+  print(x.n)
+
+sub main
+  c = Counter(n: 0)
+  d = Counter(n: 10)
+  pair(!c, !d)
+  print(c.n, d.n)

@@ -1,0 +1,92 @@
+fun counter0(start: Int) -> *fun(Int) -> Int
+  count: *Cell[Int] = *Cell(start)
+  *|+count, step|
+    count.set(count.get() + step)
+    count.get()
+
+sub each0(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+fun apply0(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun mx1[T](a: T, b: T) -> T
+  a if a > b else b
+
+struct Pair1[T, U]
+  first: T
+  second: U
+
+  fun left(?self) -> T
+    self.first
+
+  fun swap(?self) -> Pair1[U, T]
+    Pair1(first: self.second, second: self.first)
+
+enum Opt1[T]
+  some(value: T)
+  nothing
+
+  fun or(?self, d: T) -> T
+    match self
+      .some(v) => v
+      .nothing => d
+
+struct Ring1[T, n: Int]
+  items: [n]T
+  head: Int = 0
+
+  sub put(!self, x: T)
+    self.items[self.head % n] = x
+    self.head += 1
+
+fun sum1[n: Int](xs: [n]Int) -> Int
+  t = 0
+  for x in xs
+    t += x
+  t
+
+sub rep1[T, n: Int](x: T)
+  for i in 0..n
+    print(i, x)
+
+sub main
+  nx0 = counter0(7)
+  print(nx0((-4)), nx0((-4)), nx0(3))
+  v0: Vec[Int] = Vec()
+  !v0.push(5)
+  tot0 = 0
+  each0(?v0, |!tot0, n| tot0 += n * 1)
+  kk0 = 1
+  addk0 = |+kk0, a: Int| a + kk0
+  print(tot0, apply0(?addk0, 1), apply0(|x| x * x, 1), addk0(10))
+  hs0: Vec[*fun(Int) -> Int] = Vec()
+  !hs0.push(<nx0)
+  !hs0.push(*|x| x * 10)
+  for h in ?hs0
+    print(h(3))
+  base0 = |x: Int| x + 1
+  outer0 = |?base0, y: Int| base0(y) * 2
+  print(outer0(4))
+  w0: Vec[Int] = Vec()
+  !w0.push(1)
+  own0 = *|<w0| w0.len
+  print(own0())
+  sm1: I32 = 56
+  print(mx1(30, 19), mx1(sm1, 154), mx1(1.5, 2.5), mx1("ab", "b"))
+  pr1 = Pair1(first: 36, second: "s36")
+  print(pr1.left(), pr1.swap(), pr1.swap().swap().second)
+  o1: Opt1[Int] = .some(9)
+  n1 = Opt1[String].nothing
+  print(o1.or(5), n1.or("dflt"), o1)
+  rg1 = Ring1(items: [3 of 0])
+  !rg1.put(0)
+  !rg1.put(3)
+  !rg1.put(2)
+  !rg1.put(1)
+  !rg1.put(6)
+  !rg1.put(6)
+  print(rg1.items, rg1.head)
+  print(sum1([2, (-1), 3]))
+  rep1[String, 3]("hi")

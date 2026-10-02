@@ -1,0 +1,18 @@
+struct Pair[A, B]
+  a: A
+  b: B
+
+struct Wrap[T]
+  v: T
+
+  fun tag[U](?self, u: U) -> Wrap[Pair[T, U]]
+    Wrap(v: Pair(a: self.v, b: u))
+
+fun make[T](x: T) -> Int
+  w = Wrap(v: x)
+  1
+
+sub main()
+  w = Wrap(v: 2)
+  t = w.tag("x")
+  print(make(3), t.v.b)

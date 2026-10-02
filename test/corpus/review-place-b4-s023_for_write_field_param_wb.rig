@@ -1,0 +1,11 @@
+struct P
+  xs: [3]Int
+
+sub f(p: !P)
+  for x in !p.xs
+    x += 1
+
+sub main
+  p = P(xs: [1, 2, 3])
+  f(!p)
+  print(p.xs[0])

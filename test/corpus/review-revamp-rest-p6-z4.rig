@@ -1,0 +1,5 @@
+fun empty(a: ?Int?) -> Bool
+  a == none
+sub main()
+  x: Int? = none
+  print(empty(!x))

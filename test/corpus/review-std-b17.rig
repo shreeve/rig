@@ -1,0 +1,16 @@
+struct View
+  xs: []Int
+
+struct Slot[T]
+  v: T
+
+  sub put(!self, x: T)
+    self.v = x
+
+sub main
+  b = [9]
+  s = Slot(v: View(xs: ?b))
+  if true
+    a = [1, 2, 3]
+    !s.put(View(xs: ?a))
+  print(s.v.xs)

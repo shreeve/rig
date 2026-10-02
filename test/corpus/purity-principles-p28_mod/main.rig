@@ -1,0 +1,10 @@
+use cache
+
+fun inspect(c: ?cache.Cache) -> Int
+  c.lookup(1)
+
+sub main
+  c = cache.make()
+  a = inspect(?c)
+  b = c.lookup(2)
+  print(a, b)

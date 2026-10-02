@@ -1,0 +1,5 @@
+sub main()
+  i = 0
+  while i < 10 : i += 1
+    x = i if i > 5 else -i
+    print(x)

@@ -1,0 +1,19 @@
+struct R
+  s: U64
+
+sub t1(xs: ![]Int)
+  !xs.swap(0, 1)
+
+sub t2(r: !R, xs: ![]Int)
+  !xs.swap(0, 1)
+
+sub main
+  r = R(s: 1)
+  a = [1, 2, 3]
+  t1(!a)
+  print(a)
+  t2(!r, !a)
+  print(a)
+  t2(!r, !a[..])
+  print(a)
+  print(r.s)

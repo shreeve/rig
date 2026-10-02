@@ -1,0 +1,43 @@
+struct Node
+  key: Int
+  left: Box[Node]?
+  right: Box[Node]?
+
+  drop(!self)
+    print("drop", self.key)
+
+sub insert(slot: !Box[Node]?, key: Int)
+  if !slot as n
+    if key < n.key
+      insert(!n.left, key)
+    else
+      insert(!n.right, key)
+  else
+    slot = Box(Node(key: key, left: none, right: none))
+
+sub walk(slot: ?Box[Node]?)
+  if slot as n
+    walk(?n.left)
+    print(n.key)
+    walk(?n.right)
+
+enum Tree
+  leaf(v: Int)
+  node(l: Box[Tree], r: Box[Tree])
+
+fun sum(t: ?Tree) -> Int
+  match t
+    .leaf(v) => v
+    .node(l, r) => sum(?l) + sum(?r)
+
+sub bump(t: !Tree)
+  match !t
+    .leaf(v) => v += 1
+    .node(l, r)
+      bump(!l)
+      bump(!r)
+
+sub main
+  t: Tree = .node(l: Box(Tree.leaf(v: 1)), r: Box(Tree.node(l: Box(Tree.leaf(v: 2)), r: Box(Tree.leaf(v: 3)))))
+  bump(!t)
+  print(sum(?t))

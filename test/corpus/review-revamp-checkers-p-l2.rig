@@ -1,0 +1,9 @@
+fun c(k: Int) -> Bool
+  k > 0
+
+K = 3 if 1 > 0 else 4
+L: U8 = 200 if K > 3 else 300
+
+sub main()
+  w: U8 = 300 if c(1) else 1
+  print(w, K, L)

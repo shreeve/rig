@@ -1,0 +1,8 @@
+struct P
+  x: Int
+
+sub main
+  b = Box(P(x: 1))
+  s = Box("hi")
+  print(b, s)
+  print("hi")

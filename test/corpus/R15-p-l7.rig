@@ -1,0 +1,10 @@
+struct View
+  s: ![]Int
+sub main()
+  a = [1, 2]
+  v = View(s: !a[..])
+  t = !v.s[..]
+  u = !v.s[..]
+  t[0] = 5
+  u[0] = 6
+  print(a)

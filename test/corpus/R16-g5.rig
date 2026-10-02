@@ -1,0 +1,10 @@
+fun ident[T](x: ?T) -> ?T
+  x
+
+fun make(k: Int) -> Int
+  f = |+k, a: Int| a + k
+  g = ident(?f)
+  g(1)
+
+sub main
+  print(make(3))

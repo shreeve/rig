@@ -1,0 +1,6 @@
+sub main
+  x = 1
+  f = |?x| print(x)
+  defer f()
+  x = 5
+  print(x)

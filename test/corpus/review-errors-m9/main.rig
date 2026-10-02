@@ -1,0 +1,9 @@
+use lib
+
+sub main
+  x = lib.f() catch |e|
+    print(e == lib.D.full)
+    match e
+      lib.D.full => 1
+      _ => 2
+  print(x, lib.D.full)

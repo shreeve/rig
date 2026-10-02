@@ -1,0 +1,12 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun keep[T](a: T, b: T) -> T
+  b
+
+sub main
+  r = keep(Res(n: 1), Res(n: 2))
+  print(r.n, keep(3, 4))

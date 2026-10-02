@@ -1,0 +1,11 @@
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  for i in 0..3
+    n = 3
+    while (get(n) ?? break) > i
+      n -= 1
+      print("in", i, n)
+    print("after while", i)
+  print("done")

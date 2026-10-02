@@ -1,0 +1,4 @@
+fun half[T](x: T) -> T
+  x / (2 +% 1)
+sub main()
+  print(half(5.0))

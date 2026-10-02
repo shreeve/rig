@@ -1,0 +1,11 @@
+sub main
+  vs: Vec[[2]Int] = Vec()
+  !vs.push([1, 2])
+  print(vs[0] == [1, 2])
+  a: Cell[[3]Int] = Cell([1, 2, 3])
+  print(a.get() == [1, 2, 3])
+  g = [[1, 2], [3, 4]]
+  print(g.get(0) == [1, 2], vs.get(0) == none)
+  o: Vec[Int?] = Vec()
+  !o.push(none)
+  print(o.get(0))

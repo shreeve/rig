@@ -47,7 +47,7 @@ sub main()
   c = 4
   f = |+c| c + 1
   print(f())
-  d = 5
+  d = ?c
   -d
   for _ in 0..2
     print("tick")

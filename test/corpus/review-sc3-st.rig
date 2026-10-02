@@ -1,0 +1,10 @@
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub main
+  n = 3
+  c = 0
+  while c < 6 : n = get(n - 1) ?? continue
+    c += 1
+    print(c, n)
+  print("done")

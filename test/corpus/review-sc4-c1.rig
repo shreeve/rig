@@ -1,0 +1,43 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Pair
+  two(a: *B, b: *B)
+  none
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+fun pick(p: Pair, first: Bool) -> *B
+  match <p
+    .two(a, b)
+      if first
+        return <a
+      <b
+    .none => *B(n: 0)
+
+sub main
+  i = 0
+  while i < 3
+    p: Pair = .two(a: *B(n: i), b: *B(n: i + 10))
+    match <p
+      .two(a, b)
+        if i == 1
+          keep(<a)
+        else
+          keep(<b)
+      .none => print("none")
+    i += 1
+  x = pick(.two(a: *B(n: 50), b: *B(n: 51)), true)
+  y = pick(.two(a: *B(n: 60), b: *B(n: 61)), false)
+  print(x.n, y.n)
+  q: Pair = .two(a: *B(n: 70), b: *B(n: 71))
+  q2 = match <q
+    .two(a, b) if a.n > 100 => <a
+    .two(a, b) => <b
+    .none => *B(n: 0)
+  print(q2.n)
+  print("end")

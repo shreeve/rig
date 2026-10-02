@@ -1,0 +1,25 @@
+struct Pair[K, V]
+  k: K
+  v: V
+
+struct Map[K, V]
+  slots: Vec[Pair[K, V]]
+
+  fun get(?self, k: K) -> V?
+    for p in ?self.slots
+      return p.v if p.k == k
+    none
+
+  sub put(!self, k: K, v: V)
+    for p in !self.slots
+      if p.k == k
+        p.v = v
+        return
+    !self.slots.push(Pair(k: k, v: v))
+
+sub main
+  m = Map[String, Int](slots: Vec())
+  !m.put("a", 1)
+  !m.put("b", 2)
+  !m.put("a", 3)
+  print(m.get("a"), m.get("c"))

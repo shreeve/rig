@@ -1,0 +1,10 @@
+struct P
+  count: Int
+
+sub main
+  total = 1
+  p = P(count: 2)
+  print(totla, p.cuont)
+  q: Pp = p
+  x = 5
+  y = x

@@ -547,7 +547,13 @@ const Checker = struct {
                 for (ir.Block.stmts(stmt)) |c| try self.checkStmt(c);
             },
             .drop => {
-                _ = try self.synthExpr(ir.Drop.name(stmt));
+                const name = ir.Drop.name(stmt);
+                const ty = try self.synthExpr(name);
+                // Plain data owns nothing, and ends a loan only when it
+                // may hold a view (a String may view a Text).
+                if (!self.isPoison(ty) and sema.isPlainData(self.ctx, ty) and !sema.mayHoldView(self.ctx, ty)) {
+                    try self.errAt(stmt, "`-{s}` drops nothing: `{s}` is plain data", .{ self.text(name), self.text(name) });
+                }
             },
             .@"break" => try self.checkBreak(stmt),
             .@"continue", .pass => {},
@@ -630,6 +636,12 @@ const Checker = struct {
             return;
         }
         const ty = try self.synthExpr(stmt);
+        // A statement `-name` is a drop; any other `-e` there would negate
+        // a value and throw it away.
+        if (stmt.isKind(.neg)) {
+            if (!self.isPoison(ty)) try self.errAt(stmt, "a statement `-e` drops a name; `{s}` would negate a value and discard it", .{self.sourceText(stmt)});
+            return;
+        }
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
         if (!hasEffect(stmt)) {
@@ -719,7 +731,7 @@ const Checker = struct {
         }
         // `w = !m` writes through `w`, so it would store a borrow where a
         // value goes; a new binding points the name elsewhere.
-        if (!is_decl and writes_through and kind == .default and rhs.isKind(.write)) {
+        if (!is_decl and writes_through and kind == .default and try self.handsOverWriteBorrow(rhs)) {
             const src = self.sourceText(rhs);
             try self.errAt(rhs, "`{s} = {s}` would write through `{s}`; to point `{s}` at another place, write `new {s} = {s}`", .{ name, src, name, name, name, src });
             _ = try self.synthExpr(rhs);
@@ -802,6 +814,19 @@ const Checker = struct {
                 else => .{},
             } });
         }
+    }
+
+    /// Whether `rhs` hands over a write borrow where it is assigned: `!m`
+    /// lends one, `<w` moves one, and a call or branching value of type
+    /// `!T` yields one. A bare name or path of type `!T` reads the value
+    /// it reaches.
+    fn handsOverWriteBorrow(self: *Checker, rhs: Sexp) Error!bool {
+        const kind = rhs.kind() orelse return false;
+        return switch (kind) {
+            .write => true,
+            .member, .index => false,
+            else => self.ctx.types.get(try self.argType(rhs)) == .borrow_write,
+        };
     }
 
     /// The type an unannotated binding gets from its initializer.
@@ -1564,6 +1589,13 @@ const Checker = struct {
             // (An array is copied, and a String or slice is a view.)
             if (mode == .iter and isPlaceExpr(source) and vecElementType(self.ctx, source_ty) != null) {
                 try self.errAt(source, "write `for {s}{s}{s} in ?{s}` to read the Vec's elements", .{ self.text(binding), if (index_binding != .nil) ", " else "", if (index_binding != .nil) self.text(index_binding) else "", self.sourceText(source) });
+            }
+            // A loop walks a Vec held in a place, or consumes one a call
+            // makes. An expression that is neither (`o?`, a ternary, a
+            // `match`) may be a place on one path and a new Vec on
+            // another, which one loop cannot both borrow and consume.
+            if (mode != .move and vecElementType(self.ctx, source_ty) != null and !isPlaceExpr(peeled_source) and !makesValue(peeled_source)) {
+                try self.errAt(peeled_source, "a `for` walks a Vec held in a place or made by a call: bind this `{s}` to a name first", .{try self.tyName(source_ty)});
             }
             elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, mode);
         }
@@ -3766,7 +3798,9 @@ const Checker = struct {
         // A proxy is named as this module spells it already: `lib.Wrap`.
         const tname = if (module != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ foreign.name, owner.name }) else owner.name;
         if (f.is_method) {
-            const is_sub = switch (foreign.types.get(f.ty)) {
+            // A proxy's methods have this module's types.
+            const types = if (module != null) &foreign.types else self.t();
+            const is_sub = switch (types.get(f.ty)) {
                 .function => |fty| fty.is_sub,
                 else => false,
             };
@@ -8310,6 +8344,17 @@ fn isArithmetic(e: Sexp) bool {
 /// type as it is.
 fn textOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
     return if (sema.boxedType(ctx, ty) == ctx.types.text_id) ctx.types.text_id else ty;
+}
+
+/// A call, or a call's value propagated (`mk()!`, `mk()?`): an
+/// expression that makes a new value.
+fn makesValue(e: Sexp) bool {
+    const h = e.kind() orelse return false;
+    return switch (h) {
+        .call => true,
+        .propagate, .propagate_none => makesValue(ir.get(e, .value)),
+        else => false,
+    };
 }
 
 fn isPlaceExpr(e: Sexp) bool {

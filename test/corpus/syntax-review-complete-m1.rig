@@ -1,0 +1,5 @@
+sub main
+  a: Int? = 1
+  match a
+    none => print("none")
+    v => print(v)

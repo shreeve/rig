@@ -1,0 +1,27 @@
+# The defers run at `e!` only on the path that fails. On the path that
+# goes on, `r` still borrows `x`: the defer that re-points it has not
+# run, so `x` cannot be dropped while `r` is in use.
+error E
+  bad
+
+fun maybe(ok: Bool) -> Int!
+  return E.bad if not ok
+  1
+
+fun f(ok: Bool) -> Int!
+  keep: Vec[Int] = Vec()
+  !keep.push(1)
+  x: Vec[Int] = Vec()
+  !x.push(41)
+  r = ?x
+  defer r = ?keep
+  k = maybe(ok)!
+  -x
+  print(r[0] + k)
+  k
+
+sub main
+  print(f(true) catch 0)
+
+# error: 19:4: cannot drop `x` while borrows are live
+# errors: 1

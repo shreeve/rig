@@ -1,0 +1,7 @@
+fun main -> Int
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  0
+
+test "t"
+  print(1)

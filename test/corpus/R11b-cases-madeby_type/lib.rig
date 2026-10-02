@@ -1,0 +1,8 @@
+fun helper[T](x: T) -> T
+  x + x
+
+pub struct Wrap[T]
+  v: T
+
+  fun dbl(?self) -> T
+    helper(self.v)

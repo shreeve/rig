@@ -1,0 +1,23 @@
+sub fill(v: !Vec[Int])
+  !v.push(1)
+  !v.push(2)
+
+fun total(v: ?Vec[Int]) -> Int
+  s = 0
+  for x in v
+    s += x
+  s
+
+fun first(a: ?[4]Int) -> Int
+  a[0]
+
+sub main
+  b = Box(value: Vec[Int]())
+  fill(!b)
+  print(total(?b), b)
+  arr = Box(value: [4 of 7])
+  print(first(?arr))
+  s = Box(value: "hi")
+  print(s)
+  v = <b.take()
+  print(v.len)

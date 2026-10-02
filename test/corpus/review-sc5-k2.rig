@@ -1,0 +1,9 @@
+LIMIT = 4
+X = Y + 1
+Y = LIMIT
+A = B
+B = A
+
+sub main()
+  LIMIT += 1
+  print(X)

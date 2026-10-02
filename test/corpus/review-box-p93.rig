@@ -1,0 +1,29 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun unbox[T](b: Box[T]) -> T
+  <b.take()
+
+fun wrap[T](v: T) -> Box[T]
+  Box(value: <v)
+
+fun peek[T](b: ?Box[T]) -> ?T
+  ?b
+
+struct Pair[T]
+  a: T
+  b: T
+
+sub main
+  b = wrap(R(n: 1))
+  r = unbox(<b)
+  print(r.n)
+  c = wrap(wrap(R(n: 2)))
+  print(c)
+  p = Pair(a: wrap(R(n: 3)), b: wrap(R(n: 4)))
+  print(p.a.n, p.b.n)
+  q = <p
+  print(peek(?q.a).n)

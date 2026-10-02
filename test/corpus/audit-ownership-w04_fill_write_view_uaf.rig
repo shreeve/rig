@@ -1,0 +1,13 @@
+struct Ed
+  t: !Vec[Int]
+
+sub clear(e: Ed)
+  e.t = Vec()
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  arr = [2 of Ed(t: !v)]
+  for e in <arr
+    print(e.t.len)

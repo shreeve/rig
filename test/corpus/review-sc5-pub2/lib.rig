@@ -1,0 +1,24 @@
+struct Hidden
+  pub shown: Int
+  secret: Int
+
+  fun peek(?self) -> Int
+    self.secret
+
+struct Wrap[T]
+  v: T
+  pub w: T
+
+  fun get(?self) -> T
+    self.v
+
+pub fun hidden() -> Hidden
+  Hidden(shown: 1, secret: 2)
+
+pub fun wrap() -> Wrap[Int]
+  Wrap(v: 5, w: 6)
+
+pub fun hiddens() -> Vec[Hidden]
+  v = Vec[Hidden]()
+  !v.push(hidden())
+  v

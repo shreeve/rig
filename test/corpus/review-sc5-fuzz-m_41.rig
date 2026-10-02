@@ -1,0 +1,6 @@
+K: Int = 3
+
+sub main()
+  v: Int = 5
+  x: Int = (Int.min | K)
+  print(x, v, K)

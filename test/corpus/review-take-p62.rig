@@ -1,0 +1,9 @@
+sub main
+  x = 1
+  y = 2
+  swap(a: !x, b: !y)
+  swap(!x)
+  swap(!x, !y, !x)
+  replace(!x)
+  z = replace(v: 1, !x)
+  print(x, y)

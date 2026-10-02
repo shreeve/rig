@@ -1,0 +1,11 @@
+struct H
+  w: !Int
+
+sub main
+  m = 2
+  new w2 = !m
+  h = H(w: w2)
+  w2 += 1
+  h.w += 10
+  w2 += 100
+  print(h.w)

@@ -1,0 +1,16 @@
+pub struct Meters
+  v: Float
+
+  pub fun get(?self) -> Float
+    self.v
+
+pub struct Wrap[T]
+  v: T
+
+pub struct Pt
+  pub x: Int
+  y: Int = 0
+
+pub struct Handle
+  pub n: Int
+  priv: *Pt

@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+sub g(w: !~P)
+  print(1)
+
+sub main
+  h = *P(x: 1)
+  g(!(~h))

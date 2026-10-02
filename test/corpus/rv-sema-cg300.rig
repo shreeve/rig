@@ -1,0 +1,1206 @@
+struct S0
+  x: S1
+
+struct S1
+  x: S2
+
+struct S2
+  x: S3
+
+struct S3
+  x: S4
+
+struct S4
+  x: S5
+
+struct S5
+  x: S6
+
+struct S6
+  x: S7
+
+struct S7
+  x: S8
+
+struct S8
+  x: S9
+
+struct S9
+  x: S10
+
+struct S10
+  x: S11
+
+struct S11
+  x: S12
+
+struct S12
+  x: S13
+
+struct S13
+  x: S14
+
+struct S14
+  x: S15
+
+struct S15
+  x: S16
+
+struct S16
+  x: S17
+
+struct S17
+  x: S18
+
+struct S18
+  x: S19
+
+struct S19
+  x: S20
+
+struct S20
+  x: S21
+
+struct S21
+  x: S22
+
+struct S22
+  x: S23
+
+struct S23
+  x: S24
+
+struct S24
+  x: S25
+
+struct S25
+  x: S26
+
+struct S26
+  x: S27
+
+struct S27
+  x: S28
+
+struct S28
+  x: S29
+
+struct S29
+  x: S30
+
+struct S30
+  x: S31
+
+struct S31
+  x: S32
+
+struct S32
+  x: S33
+
+struct S33
+  x: S34
+
+struct S34
+  x: S35
+
+struct S35
+  x: S36
+
+struct S36
+  x: S37
+
+struct S37
+  x: S38
+
+struct S38
+  x: S39
+
+struct S39
+  x: S40
+
+struct S40
+  x: S41
+
+struct S41
+  x: S42
+
+struct S42
+  x: S43
+
+struct S43
+  x: S44
+
+struct S44
+  x: S45
+
+struct S45
+  x: S46
+
+struct S46
+  x: S47
+
+struct S47
+  x: S48
+
+struct S48
+  x: S49
+
+struct S49
+  x: S50
+
+struct S50
+  x: S51
+
+struct S51
+  x: S52
+
+struct S52
+  x: S53
+
+struct S53
+  x: S54
+
+struct S54
+  x: S55
+
+struct S55
+  x: S56
+
+struct S56
+  x: S57
+
+struct S57
+  x: S58
+
+struct S58
+  x: S59
+
+struct S59
+  x: S60
+
+struct S60
+  x: S61
+
+struct S61
+  x: S62
+
+struct S62
+  x: S63
+
+struct S63
+  x: S64
+
+struct S64
+  x: S65
+
+struct S65
+  x: S66
+
+struct S66
+  x: S67
+
+struct S67
+  x: S68
+
+struct S68
+  x: S69
+
+struct S69
+  x: S70
+
+struct S70
+  x: S71
+
+struct S71
+  x: S72
+
+struct S72
+  x: S73
+
+struct S73
+  x: S74
+
+struct S74
+  x: S75
+
+struct S75
+  x: S76
+
+struct S76
+  x: S77
+
+struct S77
+  x: S78
+
+struct S78
+  x: S79
+
+struct S79
+  x: S80
+
+struct S80
+  x: S81
+
+struct S81
+  x: S82
+
+struct S82
+  x: S83
+
+struct S83
+  x: S84
+
+struct S84
+  x: S85
+
+struct S85
+  x: S86
+
+struct S86
+  x: S87
+
+struct S87
+  x: S88
+
+struct S88
+  x: S89
+
+struct S89
+  x: S90
+
+struct S90
+  x: S91
+
+struct S91
+  x: S92
+
+struct S92
+  x: S93
+
+struct S93
+  x: S94
+
+struct S94
+  x: S95
+
+struct S95
+  x: S96
+
+struct S96
+  x: S97
+
+struct S97
+  x: S98
+
+struct S98
+  x: S99
+
+struct S99
+  x: S100
+
+struct S100
+  x: S101
+
+struct S101
+  x: S102
+
+struct S102
+  x: S103
+
+struct S103
+  x: S104
+
+struct S104
+  x: S105
+
+struct S105
+  x: S106
+
+struct S106
+  x: S107
+
+struct S107
+  x: S108
+
+struct S108
+  x: S109
+
+struct S109
+  x: S110
+
+struct S110
+  x: S111
+
+struct S111
+  x: S112
+
+struct S112
+  x: S113
+
+struct S113
+  x: S114
+
+struct S114
+  x: S115
+
+struct S115
+  x: S116
+
+struct S116
+  x: S117
+
+struct S117
+  x: S118
+
+struct S118
+  x: S119
+
+struct S119
+  x: S120
+
+struct S120
+  x: S121
+
+struct S121
+  x: S122
+
+struct S122
+  x: S123
+
+struct S123
+  x: S124
+
+struct S124
+  x: S125
+
+struct S125
+  x: S126
+
+struct S126
+  x: S127
+
+struct S127
+  x: S128
+
+struct S128
+  x: S129
+
+struct S129
+  x: S130
+
+struct S130
+  x: S131
+
+struct S131
+  x: S132
+
+struct S132
+  x: S133
+
+struct S133
+  x: S134
+
+struct S134
+  x: S135
+
+struct S135
+  x: S136
+
+struct S136
+  x: S137
+
+struct S137
+  x: S138
+
+struct S138
+  x: S139
+
+struct S139
+  x: S140
+
+struct S140
+  x: S141
+
+struct S141
+  x: S142
+
+struct S142
+  x: S143
+
+struct S143
+  x: S144
+
+struct S144
+  x: S145
+
+struct S145
+  x: S146
+
+struct S146
+  x: S147
+
+struct S147
+  x: S148
+
+struct S148
+  x: S149
+
+struct S149
+  x: S150
+
+struct S150
+  x: S151
+
+struct S151
+  x: S152
+
+struct S152
+  x: S153
+
+struct S153
+  x: S154
+
+struct S154
+  x: S155
+
+struct S155
+  x: S156
+
+struct S156
+  x: S157
+
+struct S157
+  x: S158
+
+struct S158
+  x: S159
+
+struct S159
+  x: S160
+
+struct S160
+  x: S161
+
+struct S161
+  x: S162
+
+struct S162
+  x: S163
+
+struct S163
+  x: S164
+
+struct S164
+  x: S165
+
+struct S165
+  x: S166
+
+struct S166
+  x: S167
+
+struct S167
+  x: S168
+
+struct S168
+  x: S169
+
+struct S169
+  x: S170
+
+struct S170
+  x: S171
+
+struct S171
+  x: S172
+
+struct S172
+  x: S173
+
+struct S173
+  x: S174
+
+struct S174
+  x: S175
+
+struct S175
+  x: S176
+
+struct S176
+  x: S177
+
+struct S177
+  x: S178
+
+struct S178
+  x: S179
+
+struct S179
+  x: S180
+
+struct S180
+  x: S181
+
+struct S181
+  x: S182
+
+struct S182
+  x: S183
+
+struct S183
+  x: S184
+
+struct S184
+  x: S185
+
+struct S185
+  x: S186
+
+struct S186
+  x: S187
+
+struct S187
+  x: S188
+
+struct S188
+  x: S189
+
+struct S189
+  x: S190
+
+struct S190
+  x: S191
+
+struct S191
+  x: S192
+
+struct S192
+  x: S193
+
+struct S193
+  x: S194
+
+struct S194
+  x: S195
+
+struct S195
+  x: S196
+
+struct S196
+  x: S197
+
+struct S197
+  x: S198
+
+struct S198
+  x: S199
+
+struct S199
+  x: S200
+
+struct S200
+  x: S201
+
+struct S201
+  x: S202
+
+struct S202
+  x: S203
+
+struct S203
+  x: S204
+
+struct S204
+  x: S205
+
+struct S205
+  x: S206
+
+struct S206
+  x: S207
+
+struct S207
+  x: S208
+
+struct S208
+  x: S209
+
+struct S209
+  x: S210
+
+struct S210
+  x: S211
+
+struct S211
+  x: S212
+
+struct S212
+  x: S213
+
+struct S213
+  x: S214
+
+struct S214
+  x: S215
+
+struct S215
+  x: S216
+
+struct S216
+  x: S217
+
+struct S217
+  x: S218
+
+struct S218
+  x: S219
+
+struct S219
+  x: S220
+
+struct S220
+  x: S221
+
+struct S221
+  x: S222
+
+struct S222
+  x: S223
+
+struct S223
+  x: S224
+
+struct S224
+  x: S225
+
+struct S225
+  x: S226
+
+struct S226
+  x: S227
+
+struct S227
+  x: S228
+
+struct S228
+  x: S229
+
+struct S229
+  x: S230
+
+struct S230
+  x: S231
+
+struct S231
+  x: S232
+
+struct S232
+  x: S233
+
+struct S233
+  x: S234
+
+struct S234
+  x: S235
+
+struct S235
+  x: S236
+
+struct S236
+  x: S237
+
+struct S237
+  x: S238
+
+struct S238
+  x: S239
+
+struct S239
+  x: S240
+
+struct S240
+  x: S241
+
+struct S241
+  x: S242
+
+struct S242
+  x: S243
+
+struct S243
+  x: S244
+
+struct S244
+  x: S245
+
+struct S245
+  x: S246
+
+struct S246
+  x: S247
+
+struct S247
+  x: S248
+
+struct S248
+  x: S249
+
+struct S249
+  x: S250
+
+struct S250
+  x: S251
+
+struct S251
+  x: S252
+
+struct S252
+  x: S253
+
+struct S253
+  x: S254
+
+struct S254
+  x: S255
+
+struct S255
+  x: S256
+
+struct S256
+  x: S257
+
+struct S257
+  x: S258
+
+struct S258
+  x: S259
+
+struct S259
+  x: S260
+
+struct S260
+  x: S261
+
+struct S261
+  x: S262
+
+struct S262
+  x: S263
+
+struct S263
+  x: S264
+
+struct S264
+  x: S265
+
+struct S265
+  x: S266
+
+struct S266
+  x: S267
+
+struct S267
+  x: S268
+
+struct S268
+  x: S269
+
+struct S269
+  x: S270
+
+struct S270
+  x: S271
+
+struct S271
+  x: S272
+
+struct S272
+  x: S273
+
+struct S273
+  x: S274
+
+struct S274
+  x: S275
+
+struct S275
+  x: S276
+
+struct S276
+  x: S277
+
+struct S277
+  x: S278
+
+struct S278
+  x: S279
+
+struct S279
+  x: S280
+
+struct S280
+  x: S281
+
+struct S281
+  x: S282
+
+struct S282
+  x: S283
+
+struct S283
+  x: S284
+
+struct S284
+  x: S285
+
+struct S285
+  x: S286
+
+struct S286
+  x: S287
+
+struct S287
+  x: S288
+
+struct S288
+  x: S289
+
+struct S289
+  x: S290
+
+struct S290
+  x: S291
+
+struct S291
+  x: S292
+
+struct S292
+  x: S293
+
+struct S293
+  x: S294
+
+struct S294
+  x: S295
+
+struct S295
+  x: S296
+
+struct S296
+  x: S297
+
+struct S297
+  x: S298
+
+struct S298
+  x: S299
+
+struct S299
+  x: S300
+
+struct S300
+  x: *Int
+
+sub main
+  s300 = S300(x: *3)
+  s299 = S299(x: <s300)
+  s298 = S298(x: <s299)
+  s297 = S297(x: <s298)
+  s296 = S296(x: <s297)
+  s295 = S295(x: <s296)
+  s294 = S294(x: <s295)
+  s293 = S293(x: <s294)
+  s292 = S292(x: <s293)
+  s291 = S291(x: <s292)
+  s290 = S290(x: <s291)
+  s289 = S289(x: <s290)
+  s288 = S288(x: <s289)
+  s287 = S287(x: <s288)
+  s286 = S286(x: <s287)
+  s285 = S285(x: <s286)
+  s284 = S284(x: <s285)
+  s283 = S283(x: <s284)
+  s282 = S282(x: <s283)
+  s281 = S281(x: <s282)
+  s280 = S280(x: <s281)
+  s279 = S279(x: <s280)
+  s278 = S278(x: <s279)
+  s277 = S277(x: <s278)
+  s276 = S276(x: <s277)
+  s275 = S275(x: <s276)
+  s274 = S274(x: <s275)
+  s273 = S273(x: <s274)
+  s272 = S272(x: <s273)
+  s271 = S271(x: <s272)
+  s270 = S270(x: <s271)
+  s269 = S269(x: <s270)
+  s268 = S268(x: <s269)
+  s267 = S267(x: <s268)
+  s266 = S266(x: <s267)
+  s265 = S265(x: <s266)
+  s264 = S264(x: <s265)
+  s263 = S263(x: <s264)
+  s262 = S262(x: <s263)
+  s261 = S261(x: <s262)
+  s260 = S260(x: <s261)
+  s259 = S259(x: <s260)
+  s258 = S258(x: <s259)
+  s257 = S257(x: <s258)
+  s256 = S256(x: <s257)
+  s255 = S255(x: <s256)
+  s254 = S254(x: <s255)
+  s253 = S253(x: <s254)
+  s252 = S252(x: <s253)
+  s251 = S251(x: <s252)
+  s250 = S250(x: <s251)
+  s249 = S249(x: <s250)
+  s248 = S248(x: <s249)
+  s247 = S247(x: <s248)
+  s246 = S246(x: <s247)
+  s245 = S245(x: <s246)
+  s244 = S244(x: <s245)
+  s243 = S243(x: <s244)
+  s242 = S242(x: <s243)
+  s241 = S241(x: <s242)
+  s240 = S240(x: <s241)
+  s239 = S239(x: <s240)
+  s238 = S238(x: <s239)
+  s237 = S237(x: <s238)
+  s236 = S236(x: <s237)
+  s235 = S235(x: <s236)
+  s234 = S234(x: <s235)
+  s233 = S233(x: <s234)
+  s232 = S232(x: <s233)
+  s231 = S231(x: <s232)
+  s230 = S230(x: <s231)
+  s229 = S229(x: <s230)
+  s228 = S228(x: <s229)
+  s227 = S227(x: <s228)
+  s226 = S226(x: <s227)
+  s225 = S225(x: <s226)
+  s224 = S224(x: <s225)
+  s223 = S223(x: <s224)
+  s222 = S222(x: <s223)
+  s221 = S221(x: <s222)
+  s220 = S220(x: <s221)
+  s219 = S219(x: <s220)
+  s218 = S218(x: <s219)
+  s217 = S217(x: <s218)
+  s216 = S216(x: <s217)
+  s215 = S215(x: <s216)
+  s214 = S214(x: <s215)
+  s213 = S213(x: <s214)
+  s212 = S212(x: <s213)
+  s211 = S211(x: <s212)
+  s210 = S210(x: <s211)
+  s209 = S209(x: <s210)
+  s208 = S208(x: <s209)
+  s207 = S207(x: <s208)
+  s206 = S206(x: <s207)
+  s205 = S205(x: <s206)
+  s204 = S204(x: <s205)
+  s203 = S203(x: <s204)
+  s202 = S202(x: <s203)
+  s201 = S201(x: <s202)
+  s200 = S200(x: <s201)
+  s199 = S199(x: <s200)
+  s198 = S198(x: <s199)
+  s197 = S197(x: <s198)
+  s196 = S196(x: <s197)
+  s195 = S195(x: <s196)
+  s194 = S194(x: <s195)
+  s193 = S193(x: <s194)
+  s192 = S192(x: <s193)
+  s191 = S191(x: <s192)
+  s190 = S190(x: <s191)
+  s189 = S189(x: <s190)
+  s188 = S188(x: <s189)
+  s187 = S187(x: <s188)
+  s186 = S186(x: <s187)
+  s185 = S185(x: <s186)
+  s184 = S184(x: <s185)
+  s183 = S183(x: <s184)
+  s182 = S182(x: <s183)
+  s181 = S181(x: <s182)
+  s180 = S180(x: <s181)
+  s179 = S179(x: <s180)
+  s178 = S178(x: <s179)
+  s177 = S177(x: <s178)
+  s176 = S176(x: <s177)
+  s175 = S175(x: <s176)
+  s174 = S174(x: <s175)
+  s173 = S173(x: <s174)
+  s172 = S172(x: <s173)
+  s171 = S171(x: <s172)
+  s170 = S170(x: <s171)
+  s169 = S169(x: <s170)
+  s168 = S168(x: <s169)
+  s167 = S167(x: <s168)
+  s166 = S166(x: <s167)
+  s165 = S165(x: <s166)
+  s164 = S164(x: <s165)
+  s163 = S163(x: <s164)
+  s162 = S162(x: <s163)
+  s161 = S161(x: <s162)
+  s160 = S160(x: <s161)
+  s159 = S159(x: <s160)
+  s158 = S158(x: <s159)
+  s157 = S157(x: <s158)
+  s156 = S156(x: <s157)
+  s155 = S155(x: <s156)
+  s154 = S154(x: <s155)
+  s153 = S153(x: <s154)
+  s152 = S152(x: <s153)
+  s151 = S151(x: <s152)
+  s150 = S150(x: <s151)
+  s149 = S149(x: <s150)
+  s148 = S148(x: <s149)
+  s147 = S147(x: <s148)
+  s146 = S146(x: <s147)
+  s145 = S145(x: <s146)
+  s144 = S144(x: <s145)
+  s143 = S143(x: <s144)
+  s142 = S142(x: <s143)
+  s141 = S141(x: <s142)
+  s140 = S140(x: <s141)
+  s139 = S139(x: <s140)
+  s138 = S138(x: <s139)
+  s137 = S137(x: <s138)
+  s136 = S136(x: <s137)
+  s135 = S135(x: <s136)
+  s134 = S134(x: <s135)
+  s133 = S133(x: <s134)
+  s132 = S132(x: <s133)
+  s131 = S131(x: <s132)
+  s130 = S130(x: <s131)
+  s129 = S129(x: <s130)
+  s128 = S128(x: <s129)
+  s127 = S127(x: <s128)
+  s126 = S126(x: <s127)
+  s125 = S125(x: <s126)
+  s124 = S124(x: <s125)
+  s123 = S123(x: <s124)
+  s122 = S122(x: <s123)
+  s121 = S121(x: <s122)
+  s120 = S120(x: <s121)
+  s119 = S119(x: <s120)
+  s118 = S118(x: <s119)
+  s117 = S117(x: <s118)
+  s116 = S116(x: <s117)
+  s115 = S115(x: <s116)
+  s114 = S114(x: <s115)
+  s113 = S113(x: <s114)
+  s112 = S112(x: <s113)
+  s111 = S111(x: <s112)
+  s110 = S110(x: <s111)
+  s109 = S109(x: <s110)
+  s108 = S108(x: <s109)
+  s107 = S107(x: <s108)
+  s106 = S106(x: <s107)
+  s105 = S105(x: <s106)
+  s104 = S104(x: <s105)
+  s103 = S103(x: <s104)
+  s102 = S102(x: <s103)
+  s101 = S101(x: <s102)
+  s100 = S100(x: <s101)
+  s99 = S99(x: <s100)
+  s98 = S98(x: <s99)
+  s97 = S97(x: <s98)
+  s96 = S96(x: <s97)
+  s95 = S95(x: <s96)
+  s94 = S94(x: <s95)
+  s93 = S93(x: <s94)
+  s92 = S92(x: <s93)
+  s91 = S91(x: <s92)
+  s90 = S90(x: <s91)
+  s89 = S89(x: <s90)
+  s88 = S88(x: <s89)
+  s87 = S87(x: <s88)
+  s86 = S86(x: <s87)
+  s85 = S85(x: <s86)
+  s84 = S84(x: <s85)
+  s83 = S83(x: <s84)
+  s82 = S82(x: <s83)
+  s81 = S81(x: <s82)
+  s80 = S80(x: <s81)
+  s79 = S79(x: <s80)
+  s78 = S78(x: <s79)
+  s77 = S77(x: <s78)
+  s76 = S76(x: <s77)
+  s75 = S75(x: <s76)
+  s74 = S74(x: <s75)
+  s73 = S73(x: <s74)
+  s72 = S72(x: <s73)
+  s71 = S71(x: <s72)
+  s70 = S70(x: <s71)
+  s69 = S69(x: <s70)
+  s68 = S68(x: <s69)
+  s67 = S67(x: <s68)
+  s66 = S66(x: <s67)
+  s65 = S65(x: <s66)
+  s64 = S64(x: <s65)
+  s63 = S63(x: <s64)
+  s62 = S62(x: <s63)
+  s61 = S61(x: <s62)
+  s60 = S60(x: <s61)
+  s59 = S59(x: <s60)
+  s58 = S58(x: <s59)
+  s57 = S57(x: <s58)
+  s56 = S56(x: <s57)
+  s55 = S55(x: <s56)
+  s54 = S54(x: <s55)
+  s53 = S53(x: <s54)
+  s52 = S52(x: <s53)
+  s51 = S51(x: <s52)
+  s50 = S50(x: <s51)
+  s49 = S49(x: <s50)
+  s48 = S48(x: <s49)
+  s47 = S47(x: <s48)
+  s46 = S46(x: <s47)
+  s45 = S45(x: <s46)
+  s44 = S44(x: <s45)
+  s43 = S43(x: <s44)
+  s42 = S42(x: <s43)
+  s41 = S41(x: <s42)
+  s40 = S40(x: <s41)
+  s39 = S39(x: <s40)
+  s38 = S38(x: <s39)
+  s37 = S37(x: <s38)
+  s36 = S36(x: <s37)
+  s35 = S35(x: <s36)
+  s34 = S34(x: <s35)
+  s33 = S33(x: <s34)
+  s32 = S32(x: <s33)
+  s31 = S31(x: <s32)
+  s30 = S30(x: <s31)
+  s29 = S29(x: <s30)
+  s28 = S28(x: <s29)
+  s27 = S27(x: <s28)
+  s26 = S26(x: <s27)
+  s25 = S25(x: <s26)
+  s24 = S24(x: <s25)
+  s23 = S23(x: <s24)
+  s22 = S22(x: <s23)
+  s21 = S21(x: <s22)
+  s20 = S20(x: <s21)
+  s19 = S19(x: <s20)
+  s18 = S18(x: <s19)
+  s17 = S17(x: <s18)
+  s16 = S16(x: <s17)
+  s15 = S15(x: <s16)
+  s14 = S14(x: <s15)
+  s13 = S13(x: <s14)
+  s12 = S12(x: <s13)
+  s11 = S11(x: <s12)
+  s10 = S10(x: <s11)
+  s9 = S9(x: <s10)
+  s8 = S8(x: <s9)
+  s7 = S7(x: <s8)
+  s6 = S6(x: <s7)
+  s5 = S5(x: <s6)
+  s4 = S4(x: <s5)
+  s3 = S3(x: <s4)
+  s2 = S2(x: <s3)
+  s1 = S1(x: <s2)
+  s0 = S0(x: <s1)
+  print(s0.x.x.x.x)

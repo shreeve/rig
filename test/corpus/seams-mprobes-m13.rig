@@ -1,0 +1,13 @@
+struct B
+  xs: Vec[Int]
+
+fun mk(b: !B) -> Int
+  !b.xs.push(9)
+  b.xs = Vec()
+  3
+
+sub main
+  b = B(xs: Vec())
+  !b.xs.push(1)
+  b.xs[0] = mk(!b)
+  print(b.xs.len)

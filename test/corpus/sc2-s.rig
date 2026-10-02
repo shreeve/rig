@@ -1,0 +1,16 @@
+fun first(xs: []Int?) -> Int
+  xs[0] ?? 0
+
+fun maybe(xs: ([]Int)?) -> Int
+  if xs as s
+    return s.len
+  0
+
+fun count(x: !Int?) -> Int
+  1 if x != none else 0
+
+sub main
+  a: [2]Int? = [none, 3]
+  b = [1, 2, 3]
+  n: Int? = 4
+  print(first(?a[0..2]), maybe(?b[0..3]), maybe(none), count(!n))

@@ -1,0 +1,20 @@
+fun maybe(k: Int) -> Int?
+  k
+
+fun fallible(k: Int) -> Int!
+  k
+
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+sub main
+  f: Float = 2 * 3
+  o: Int? = 5
+  a = [1, 2, 3]
+  w = !a[..]
+  print(f, o, maybe(1), fallible(2)!, total(w), total([4, 5]))
+  w[0] = 9
+  print(a)

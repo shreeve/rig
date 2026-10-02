@@ -1,0 +1,25 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct H
+  n: Int
+  b: B
+
+sub main
+  x = 1
+  w = !x
+  f = |!w| w = 3
+  f()
+  g = |!w| w += 4
+  g()
+  print(x)
+  h = H(n: 1, b: B(n: 10))
+  hw = !h.b
+  k = |!hw| hw = B(n: 11)
+  k()
+  hn = !h.n
+  hn *= 5
+  print(h.n, h.b.n)

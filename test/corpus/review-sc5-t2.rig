@@ -1,0 +1,17 @@
+struct R
+  n: Int
+
+fun a(x: [2][3]?Int) -> Int
+  1
+
+fun b(x: [][]*R) -> Int
+  1
+
+fun c(x: [2][]!Int) -> Int
+  1
+
+fun d(x: [2]?[3]Int) -> Int
+  1
+
+sub main()
+  print(1)

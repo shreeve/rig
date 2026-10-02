@@ -1,0 +1,10 @@
+fun t() -> Bool
+  true
+sub main()
+  a = [1, 2]
+  w = !a[..]
+  if t()
+    b = [3, 4]
+    w = !b[..]
+  w[0] = 9
+  print(w)

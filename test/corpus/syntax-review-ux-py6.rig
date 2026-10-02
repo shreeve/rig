@@ -1,0 +1,17 @@
+# parse an integer from a string by hand
+error ParseError
+  bad_digit
+  empty
+
+fun parse_int(s: String) -> Int!
+  return ParseError.empty if s.len == 0
+  n = 0
+  for ch in s
+    if ch < '0' or ch > '9'
+      return ParseError.bad_digit
+    n = n * 10 + (ch - '0')
+  n
+
+sub main
+  print(parse_int("123")!)
+  print(parse_int("12x") catch -1)

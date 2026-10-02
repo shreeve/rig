@@ -1,0 +1,12 @@
+struct Big
+  a: [100]Int
+
+enum Shape
+  blob(b: Big)
+  dot
+
+sub main
+  s: Shape = .blob(b: Big(a: [100 of 1]))
+  match s
+    .blob(b) => print(b.a[0])
+    .dot => print("dot")

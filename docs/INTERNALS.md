@@ -57,7 +57,8 @@ or `-OReleaseFast` (`--release=fast`), and with `-lc` when a module
 declares an `extern`. `emit` prints the root module's Zig and names the
 package directory on stderr; `build` names it when Zig fails.
 `RIG_LEAK_TRACE=1` at build time adds `__rig_leak_trace` to the root
-module (see [the runtime](#the-runtime)).
+module, and `RIG_SANITIZE=1` adds `__rig_sanitize` (see
+[the runtime](#the-runtime)).
 
 `rig test` adds a driver, `__rig_test.zig`, whose `main` passes each
 module's `__rig_tests` table to `rig.runTests`. The emitter lowers a
@@ -929,8 +930,11 @@ place owns (a Vec, a box, a handle, a struct holding one, or what a
 write borrow reaches: `print(v, grow(!v))`) leaves a read loan on the
 place's root, marked as an argument's read, until the call ends
 (`holdArgRead`), so a later argument cannot write-borrow or move it.
-Plain data is copied whole when it is read and leaves none, so
-`print(v.len, grow(!v))` is accepted. A borrowed parameter holds an
+A later read borrow can still change a Cell inside it, so the call
+must read the place when it runs: `print` takes such a place by
+address (`Emitter.printsByAddress`). Plain data is copied whole when it
+is read and leaves none, so `print(v.len, grow(!v))` is accepted. A
+borrowed parameter holds an
 *external* loan on itself: a borrow from the caller, which may be
 returned or stored into other borrowed parameters and never conflicts.
 A closure's parameters are not: a borrow a closure receives lives only
@@ -1029,7 +1033,12 @@ not borrow a var declared after the `defer` (dropped before it runs).
 An `errdefer` body is re-checked only at the exits that fail: a `!`,
 and a `return` or final value whose type is, or may be, an error,
 including the final value of an `if` or `match` branch block that is
-the function's result (`Checker.ret_block`).
+the function's result (`Checker.ret_block`). Where the path ends at the
+exit (a scope's end, a jump, `return`), the bodies run on it and their
+effects stay, so a borrow one stores is checked where it outlives what
+it borrows. Where the path goes on (`e!`, `e?`, a final value that may
+be an error), they run only on the path that leaves, so their effects
+are undone after the check (`Exit.goesOn`).
 
 **Rules** (SPEC §7 states them for users): no use of a moved or dropped
 value; read loans exclude writes, moves, drops, and reassignment, and
@@ -1179,6 +1188,15 @@ lower is an internal error: sema must have rejected it.
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's
   guarded `defer` then drops.
+- **Assignments.** Zig finds the address of `place.* = f()` before it
+  calls `f`, so an assignment to a field or element whose value or
+  indexes can act (a call, an assignment, a drop, a jump) evaluates the
+  value into `__rig_new_N` and each index into `__rig_ix_N_k` first,
+  then stores (`openAssign`): the order the ownership checker walks it
+  in (`walkFieldAssign`), and the order SPEC §4 gives. A borrow, a
+  slice, or a receiver takes its place's address up to each index
+  before the index runs, so there the checker holds the root read while
+  the indexes are walked (`walkIndicesHeld`).
 - **Closures.** A stack closure is a local struct holding its captures,
   with an `__rig_invoke` method. An owned closure allocates an environment
   struct per literal and erases it behind `rig.Closure(params, R)`, so
@@ -1272,13 +1290,13 @@ reviewed.
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; `exitStatus` checks the status of `fun main -> Int` |
-| `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `DebugAllocator`, which prints the stack trace of each leak. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
+| `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `DebugAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |
 
 ## Tests
 
 `./test/run` is the whole suite: behavior tests (run, compare stdout,
-leak-checked), rejection tests, known bugs, IR snapshots, torture
+leak-checked under the sanitizing allocator), rejection tests, known bugs, IR snapshots, torture
 inputs, CLI scripts, the Zig unit tests, a parser-freshness check, and
 every `rig` example in the documentation. [test/README.md](../test/README.md)
 describes each kind and its directives.

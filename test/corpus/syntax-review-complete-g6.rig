@@ -1,0 +1,26 @@
+struct Val
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct Slot
+  v: Val?
+
+struct Map
+  slots: Vec[Box[Slot]]
+  one: Val?
+
+  fun first(?self) -> ?Val?
+    ?self.one
+
+  fun val(?self) -> (?Val)?
+    if ?self.one as v
+      return v
+    none
+
+sub main
+  m = Map(slots: Vec(), one: Val(n: 3))
+  if m.first() as v
+    print(v.n)
+  if m.val() as v
+    print(v.n)

@@ -1,0 +1,11 @@
+struct P
+  x: Int
+
+sub main
+  a = *P(x: 1)
+  b = *P(x: 1)
+  print(a == b)
+  v: Vec[Float] = Vec()
+  !v.push(2.0)
+  !v.push(1.0)
+  print(v[0] < v[1])

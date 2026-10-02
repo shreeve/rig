@@ -1,0 +1,43 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+error Bad
+  no
+
+fun mk(i: Int) -> N
+  N(id: i)
+
+fun get(n: ?N) -> Int
+  n.id
+
+fun f(x: Int) -> Int!
+  if x > 1
+    return Bad.no
+  x
+
+fun g(o: Int?) -> Int
+  i = 0
+  while get(?mk(i)) < (o ?? return -1)
+    i += 1
+  i
+
+fun h(n: Int) -> Int!
+  i = 0
+  while get(?mk(i)) + f(i)! < n
+    i += 1
+  i
+
+sub main
+  print(g(none))
+  print(g(2))
+  print(h(10) catch -5)
+  print(get(?mk(50)) + (f(5) catch get(?mk(51))))
+  x = get(?mk(60)) > 0 and get(?mk(61)) > 100 and get(?mk(62)) > 0
+  print(x)
+  y = get(?mk(70)) < 0 or get(?mk(71)) > 0
+  print(y)
+  z = get(?mk(81)) if get(?mk(80)) > 0 else get(?mk(82))
+  print(z)

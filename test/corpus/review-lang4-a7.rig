@@ -1,0 +1,19 @@
+struct H
+  w: !Int
+
+fun clobber(k: Int) -> Int
+  a = k * 3
+  b = a + 1
+  b
+
+sub main
+  n = 1
+  h = H(w: !n)
+  if n == 1
+    m = 2
+    new w2 = !m
+    h.w = w2
+  x = clobber(40)
+  h.w += 5
+  print(h.w)
+  print(n, x)

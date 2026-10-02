@@ -1,0 +1,6 @@
+K: Int = 3
+
+sub main()
+  v: Int = 5
+  x: Int = (((-1 % Int.min) + (Int.max ^ Int.min)) - ((Int.max - Int.max) + 255))
+  print(x, v, K)

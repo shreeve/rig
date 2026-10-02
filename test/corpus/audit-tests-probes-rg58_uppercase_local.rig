@@ -1,0 +1,3 @@
+sub main
+  Total = 1
+  print(Total)

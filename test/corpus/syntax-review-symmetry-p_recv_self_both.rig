@@ -1,0 +1,13 @@
+struct P
+  n: Int
+  items: Vec[Int]
+  sub bump(!self)
+    self.n += 1
+  sub twice(!self)
+    self.bump()
+    !self.bump()
+    self.items.push(1)
+    print(self.n, self.items.len)
+sub main
+  p = P(n: 0, items: Vec())
+  !p.twice()

@@ -1,0 +1,38 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+error Bad
+  nope
+
+fun check(n: Int) -> Bool!
+  return Bad.nope if n > 0
+  true
+
+fun go(s: Slot) -> Int!
+  match <s
+    .full(b) if check(b.n)! => b.n
+    .full(b) => 0 - b.n
+    .empty => 0
+
+fun lookup(n: Int) -> Int?
+  return none if n > 0
+  n
+
+fun go2(s: Slot) -> Int?
+  match <s
+    .full(b) if lookup(b.n)? > 100 => b.n
+    _ => 0
+
+sub main
+  r = go(.full(b: *B(n: 1))) catch -1
+  print(r)
+  r2 = go2(.full(b: *B(n: 2))) ?? -2
+  print(r2)
+  print("end")

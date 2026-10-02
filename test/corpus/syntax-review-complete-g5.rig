@@ -1,0 +1,16 @@
+struct Val
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct Map
+  es: Vec[Box[Val]]
+
+  fun find(?self, n: Int) -> (?Val)?
+    for e in ?self.es
+      if e.n == n
+        return ?e.unbox_ref()
+    none
+
+sub main
+  m = Map(es: Vec())

@@ -1,0 +1,16 @@
+use geo
+
+fun inc(x: Int) -> Int
+  x + 1
+
+sub main()
+  a = geo.HasVec(v: Vec[Int]())
+  print(a == a)
+  b = geo.HasCell(c: Cell[Int](1))
+  print(b == b)
+  c = geo.HasRes(r: geo.Res(n: 1))
+  print(c == c)
+  d: geo.HasFn = .f(g: inc)
+  print(d == d)
+  e: geo.HasFn = .none_
+  print(e == .none_)

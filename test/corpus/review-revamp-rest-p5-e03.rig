@@ -1,0 +1,12 @@
+fun f() -> Int
+  print("f")
+  0
+fun g() -> Int
+  print("g")
+  1
+sub main()
+  vs = Vec[Vec[Int]]()
+  !vs.push(Vec[Int]())
+  !vs.push(Vec[Int]())
+  !vs[f()].push(g())
+  print(vs[0].len, vs[1].len)

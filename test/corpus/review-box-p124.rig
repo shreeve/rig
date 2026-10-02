@@ -1,0 +1,39 @@
+struct Node
+  v: Int
+  next: Box[Node]?
+
+  fun sum(?self) -> Int
+    if ?self.next as n
+      self.v + n.sum()
+    else
+      self.v
+
+  sub add(!self, k: Int)
+    self.v += k
+    if !self.next as n
+      !n.add(k)
+
+  sub append(!self, v: Int)
+    if !self.next as n
+      !n.append(v)
+    else
+      self.next = Box(value: Node(v: v, next: none))
+
+  fun len(?self) -> Int
+    if ?self.next as n
+      1 + n.len()
+    else
+      1
+
+sub main
+  n = Node(v: 1, next: none)
+  !n.append(2)
+  !n.append(3)
+  !n.add(10)
+  print(n.sum(), n)
+  b = Box(value: <n)
+  !b.append(4)
+  print(b.sum())
+  r = ?b
+  if ?r.next as z
+    print(z.v)

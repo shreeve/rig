@@ -1,0 +1,3 @@
+sub main
+  f: *fun(Vec[Int]) -> Int = *|v: Vec[Int]| v.len
+  print(f(Vec()))

@@ -1,0 +1,9 @@
+use lib
+fun dbl(x: Int) -> Int
+  x * 2
+sub main()
+  s = lib.Sh(5)
+  f: lib.Fn = dbl
+  x = lib.Byte(255) +% lib.Byte(1)
+  y = lib.Byte(-1)
+  print(f(3), x, y)

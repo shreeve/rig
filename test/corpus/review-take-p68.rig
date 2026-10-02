@@ -1,0 +1,12 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  bx = Box(value: R(n: 1))
+  r = R(n: 2)
+  swap(!bx, !r)
+  print(bx, r)
+  o = replace(!bx, R(n: 3))
+  print(o)

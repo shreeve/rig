@@ -1,0 +1,16 @@
+struct P
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+sub bump(p: ?P)
+  p.c.set(p.c.get() + 10)
+
+sub main
+  xs = [P(c: Cell(1)), P(c: Cell(2))]
+  for p in ?xs
+    p.hit()
+    bump(?p)
+    bump(p)
+  print(xs[0].c.get(), xs[1].c.get())

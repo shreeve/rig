@@ -1,0 +1,32 @@
+error ParseError
+  bad_digit
+  empty
+
+fun parse_int(s: String) -> Int!
+  return ParseError.empty if s.len == 0
+  n = 0
+  for ch in s
+    if ch < "0"[0] or ch > "9"[0]
+      return ParseError.bad_digit
+    n = n * 10 + Int(ch - "0"[0])
+  n
+
+fun sum_csv(line: String) -> Int!
+  total = 0
+  start = 0
+  for ch, i in line
+    if ch == ","[0]
+      total += parse_int(line[start..i])!
+      start = i + 1
+  total += parse_int(line[start..])!
+  total
+
+sub main
+  print(parse_int("123")!)
+  print(parse_int("12x") catch -1)
+  print(sum_csv("10,20,30")!)
+  r = sum_csv("10,,30") catch |e|
+    print("bad input:", e)
+    0
+  print(r)
+  print(sum_csv("1,2,x")!)

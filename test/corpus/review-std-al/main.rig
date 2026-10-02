@@ -1,0 +1,10 @@
+use std.random
+use dice
+
+sub main
+  r = random.Rng.seeded(1)
+  x = dice.roll(!r)
+  dice.wait()
+  f: random.Rng = dice.fresh()
+  s = random.Rng.seeded(1)
+  print(x >= 1 and x <= 6, !f.next() == !s.next())

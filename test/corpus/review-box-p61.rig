@@ -1,0 +1,11 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  v: Vec[Box[R]] = Vec()
+  !v.push(Box(value: R(n: 1)))
+  b = v[0]
+  print(b.n)

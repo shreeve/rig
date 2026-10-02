@@ -1,0 +1,45 @@
+# A tree with back-pointers: parents own their children through shared
+# handles, and each child points up weakly, so the cycle does not leak.
+
+struct Node
+  name: String
+  parent: ~Node?
+  children: Cell[Vec[*Node]]
+
+  drop(!self)
+    print("free", self.name)
+
+# Make a child of `parent` and hand back a handle to it.
+fun child(parent: ?*Node, name: String) -> *Node
+  up = +parent
+  kid = *Node(name: name, parent: ~up, children: Cell(Vec()))
+  parent.children.push(+kid)
+  kid
+
+# Walk up through the weak parent links.
+fun depth(n: ?*Node) -> Int
+  d = 0
+  cur = +n
+  while ?cur.parent as w
+    up = w.upgrade() ?? break
+    cur = <up
+    d += 1
+  d
+
+fun has_parent(n: ?*Node) -> Bool
+  if ?n.parent as w
+    return w.upgrade() != none
+  false
+
+sub main
+  root = *Node(name: "root", parent: none, children: Cell(Vec()))
+  a = child(?root, "a")
+  b = child(?root, "b")
+  a1 = child(?a, "a1")
+  print("depth", a1.name, depth(?a1))
+  print("root has", root.children.len, "children")
+  -a
+  -b
+  print("a1 still has a parent:", has_parent(?a1))
+  -root
+  print("a1 after root dropped:", has_parent(?a1))

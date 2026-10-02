@@ -1,0 +1,10 @@
+use lib2
+
+fun f(a: lib2.Wrap[Int]?, b: []lib2.Wrap[Int], c: *lib2.Wrap[lib2.Wrap[Int]], d: ?Vec[lib2.Wrap[String]]) -> Int
+  n = a ?? lib2.Wrap(v: 0)
+  n.v + b.len + c.v.v + d.len
+
+sub main()
+  arr = [lib2.Wrap(v: 1), lib2.Wrap(v: 2)]
+  d = Vec[lib2.Wrap[String]]()
+  print(f(lib2.Wrap(v: 5), ?arr[0..2], *lib2.Wrap(v: lib2.Wrap(v: 7)), ?d))

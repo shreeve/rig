@@ -1,0 +1,4 @@
+sub main
+  t = Text("abcdefgh")
+  !t.add(?t[..])
+  print(t)

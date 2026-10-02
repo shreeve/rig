@@ -1,0 +1,7 @@
+struct P
+  x: Int
+
+sub main
+  c: Cell[Int] = Cell(1)
+  c.get() = 5
+  print(c.get())

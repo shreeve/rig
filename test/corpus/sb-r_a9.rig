@@ -1,0 +1,8 @@
+sub f(s: (![]Int)?)
+  if s as t
+    t[0] = 1
+
+sub main
+  a = [1]
+  f(!a[..])
+  print(a)

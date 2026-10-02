@@ -1,0 +1,15 @@
+struct View
+  p: ?Int
+
+struct P
+  x: Int
+
+sub main
+  n = 3
+  b = Box(value: View(p: ?n))
+  c = Box(value: 5)
+  print(c.x)
+  d = Box(value: P(x: 1))
+  print(d.value)
+  e = Box[P](value: P(x: 2))
+  print(e.x)

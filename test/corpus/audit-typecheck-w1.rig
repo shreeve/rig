@@ -1,0 +1,14 @@
+struct N
+  v: Int
+
+struct S
+  f: *N
+
+sub take(w: ?S)
+  x = w.f
+  y = <w.f
+  print(x.v)
+
+sub main()
+  s = S(f: *N(v: 1))
+  take(?s)

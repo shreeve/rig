@@ -1,0 +1,14 @@
+struct Q
+  n: Int
+
+struct P
+  q: Q
+
+sub g(q: !Q)
+  q.n = 1
+
+fun mk() -> P
+  P(q: Q(n: 1))
+
+sub main
+  g(!mk().q)

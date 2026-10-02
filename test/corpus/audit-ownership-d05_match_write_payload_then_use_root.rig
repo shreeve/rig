@@ -1,0 +1,26 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+sub main
+  s: Slot = .full(t: *Tok(n: 1))
+  match !s
+    .full(t)
+      t = *Tok(n: 2)
+      s = .empty
+      print(t.n)
+    _ => print("other")

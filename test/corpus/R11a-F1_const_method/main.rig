@@ -1,0 +1,4 @@
+use lib
+
+sub main()
+  print(lib.NONE.is_none())

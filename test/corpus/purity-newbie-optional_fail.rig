@@ -1,0 +1,29 @@
+# An optional-returning function and a fallible one, TS/Python habits
+fun find_index(xs: ?Vec[String], target: String) -> Int?
+  for x, i in ?xs
+    if x == target
+      return i
+  return none
+
+error MathError
+  DivideByZero
+
+fun divide(a: Int, b: Int) -> Int!
+  if b == 0
+    return MathError.DivideByZero
+  a / b
+
+sub main
+  names: Vec[String] = Vec()
+  !names.push("ann")
+  !names.push("bob")
+  idx = find_index(?names, "bob")
+  if idx != none
+    print("found at", idx)
+  missing = find_index(?names, "zed")
+  print(missing)
+  print(divide(10, 2) catch -1)
+  q = divide(1, 0) catch |e|
+    print("error:", e)
+    0
+  print(q)

@@ -1,0 +1,11 @@
+sub zap(w: ![]Int)
+  v = <w
+  f = |<v, i: Int|
+    v[i] = 0
+  f(1)
+  f(2)
+
+sub main
+  a = [1, 2, 3]
+  zap(!a[..])
+  print(a)

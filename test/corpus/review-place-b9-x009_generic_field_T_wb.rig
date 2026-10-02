@@ -1,0 +1,11 @@
+struct W[T]
+  v: T
+
+  sub set(!self, x: T)
+    self.v = x
+
+sub main
+  n = 0
+  w = W[Int](v: 1)
+  !w.set(5)
+  print(w.v)

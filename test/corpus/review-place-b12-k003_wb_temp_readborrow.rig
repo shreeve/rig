@@ -1,0 +1,12 @@
+struct P
+  x: Int
+
+fun mk(p: ?P) -> ?P
+  <p
+
+sub g(p: !P)
+  p.x = 3
+
+sub main
+  p = P(x: 1)
+  g(!mk(?p))

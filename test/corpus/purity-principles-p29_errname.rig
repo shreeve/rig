@@ -1,0 +1,17 @@
+error Net
+  timeout
+
+error Disk
+  timeout
+  full
+
+fun write(k: Int) -> Int!
+  return Disk.timeout if k == 0
+  k
+
+sub main
+  r = write(0) catch |e|
+    if e == Net.timeout
+      print("network timed out?")
+    0
+  print(r)

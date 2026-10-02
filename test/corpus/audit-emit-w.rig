@@ -1,0 +1,6 @@
+sub main
+  x: U8 = 1
+  k =! 8
+  y = 3
+  z = x << 300
+  print(x, y, k, z)

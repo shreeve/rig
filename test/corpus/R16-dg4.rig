@@ -1,0 +1,8 @@
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub pr(n: Int)
+  print(n)
+
+sub main
+  print(apply(pr, 1))

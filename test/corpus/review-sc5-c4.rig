@@ -1,0 +1,18 @@
+error E
+  bad
+
+fun fail(n: Int) -> Int!
+  if n == 0
+    return E.bad
+  n
+
+fun a(f: ?fun(Int) -> Int!) -> Int
+  f(0) catch -1
+
+sub main()
+  print(a(|n|
+    errdefer print("errdefer ran")
+    defer print("defer ran")
+    v = Vec[String]()
+    !v.push("x")
+    fail(n)! + v.len))

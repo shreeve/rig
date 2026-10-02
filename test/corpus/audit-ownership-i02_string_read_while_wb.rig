@@ -1,0 +1,6 @@
+sub main
+  s = "a"
+  w = !s
+  t = s
+  w = "b"
+  print(s, t)

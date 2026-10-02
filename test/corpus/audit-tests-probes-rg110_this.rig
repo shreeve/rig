@@ -1,0 +1,8 @@
+struct P
+  x: Int
+
+  fun get(?self) -> Int
+    this.x
+
+sub main
+  print(P(x: 1).get())

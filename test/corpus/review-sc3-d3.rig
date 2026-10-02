@@ -1,0 +1,14 @@
+error E
+  bad
+fun p(k: Int) -> Int!
+  return E.bad if k == 0
+  k
+
+sub t(k: Int)!
+  errdefer print(p(k) catch return)
+  q = p(k - 1)!
+  print(q)
+
+sub main
+  t(2) catch print("f")
+  t(1) catch print("f")

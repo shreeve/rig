@@ -1,0 +1,147 @@
+fun rt_bool(b: Bool) -> Bool
+  b
+
+fun rt_int(n: Int) -> Int
+  n
+
+fun gid[T](a: T) -> T
+  a
+
+fun gmax[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun gsome[T](a: T) -> T?
+  a
+
+fun id_u8(x: U8) -> U8
+  x
+
+fun id_i8(x: I8) -> I8
+  x
+
+fun id_i16(x: I16) -> I16
+  x
+
+fun id_u16(x: U16) -> U16
+  x
+
+fun id_i32(x: I32) -> I32
+  x
+
+fun id_u32(x: U32) -> U32
+  x
+
+fun id_int(x: Int) -> Int
+  x
+
+fun id_u64(x: U64) -> U64
+  x
+
+fun id_i128(x: I128) -> I128
+  x
+
+fun id_u128(x: U128) -> U128
+  x
+
+fun id_float(x: Float) -> Float
+  x
+
+fun id_f32(x: F32) -> F32
+  x
+
+fun take163(a: U128) -> U128
+  a
+
+fun take1183(a: U16) -> U16
+  a
+
+fun take1844(a: U32) -> U32
+  a
+
+struct Bx1338
+  f: F32
+
+fun fal1968(ok: Bool) -> U32!
+  return Err1968.bad if not ok
+  19
+
+error Err1968
+  bad
+
+fun fal1051(ok: Bool) -> I16!
+  return Err1051.bad if not ok
+  28119
+
+error Err1051
+  bad
+
+sub t163
+  o163: U128? = none
+  y163 = take163((o163 ?? 13))
+  print(y163)
+
+sub t586
+  o586: I32? = id_i32(6)
+  op586: I32? = (o586 ?? 2147483647)
+  print(op586, op586 ?? 0)
+
+sub t1300
+  vv1300: Vec[I128] = Vec()
+  !vv1300.push(123658735722431922211322110412425641560)
+  b1300: I128 = id_i128((-49))
+  print(b1300 + vv1300[0], vv1300[0] + b1300)
+
+sub t1183
+  arr1183: [2]U16 = [37476, 3]
+  y1183 = take1183(arr1183[1])
+  print(y1183)
+
+sub t1307
+  cl1307 = |x: I128| x
+  qo1307: I128? = id_i128((-12))
+  print(qo1307 ?? cl1307(13143430442474787644971166844364250856))
+
+sub t1844
+  y1844 = take1844((9 - 0))
+  print(y1844)
+
+sub t1338
+  bx1338 = Bx1338(f: 1)
+  acc1338: F32 = id_f32(10.25)
+  acc1338 += bx1338.f
+  print(acc1338)
+
+sub t931
+  acc931: U32 = id_u32(5)
+  acc931 += gmax(12, 16)
+  print(acc931)
+
+sub t245
+  cmp245: I32 = id_i32(18)
+  print(cmp245 == (-2147483648), (-2147483648) < cmp245, (-2147483648) >= cmp245)
+
+sub t1968
+  wb1968: U32 = id_u32(64613)
+  print(wb1968 +% (fal1968(true) catch 5))
+
+sub t536
+  acc536: U128 = id_u128(5)
+  acc536 += 0
+  print(acc536)
+
+sub t1051
+  qo1051: I16? = none
+  print(qo1051 ?? (fal1051(true) catch (-1)))
+
+sub main
+  t163()
+  t586()
+  t1300()
+  t1183()
+  t1307()
+  t1844()
+  t1338()
+  t931()
+  t245()
+  t1968()
+  t536()

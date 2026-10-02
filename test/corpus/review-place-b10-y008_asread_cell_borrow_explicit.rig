@@ -1,0 +1,14 @@
+struct P
+  c: Cell[Int]
+
+sub bump(p: ?P)
+  p.c.set(p.c.get() + 1)
+
+sub main
+  o: P? = P(c: Cell(1))
+  if ?o as p
+    bump(p)
+    f = |?p| bump(p)
+    f()
+  if ?o as p
+    print(p.c.get())

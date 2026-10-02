@@ -1,0 +1,20 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun pick(b: !Box[R]) -> !R
+  !b
+
+fun rpick(b: ?Box[R]) -> ?R
+  b
+
+fun rpick2(b: ?Box[R]) -> ?R
+  ?b
+
+sub main
+  b = Box(value: R(n: 1))
+  r = pick(!b)
+  r.n = 3
+  print(rpick(?b).n, rpick2(?b).n)

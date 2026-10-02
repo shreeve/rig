@@ -1,0 +1,13 @@
+type Byte = U8
+
+sub f(n: U8 = Byte.max)
+  print(n)
+
+K = Byte.max
+
+struct S
+  b: U8 = Byte.min
+
+sub main()
+  f()
+  print(K, S().b)

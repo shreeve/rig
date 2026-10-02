@@ -1,0 +1,11 @@
+use lib
+
+struct S
+  Wrap: Vec[Int]
+
+sub main()
+  lib = S(Wrap: Vec[Int]())
+  !lib.Wrap.push(5)
+  print(lib.Wrap[0])
+  y: lib.Pt = lib.Pt(x: 2)
+  print(y.x)

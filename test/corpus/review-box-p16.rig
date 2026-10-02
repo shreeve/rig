@@ -1,0 +1,4 @@
+sub main
+  a = Box(value: 5)
+  b = +a
+  print(b)

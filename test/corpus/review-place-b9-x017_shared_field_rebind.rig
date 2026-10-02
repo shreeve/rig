@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+struct N
+  h: *P
+
+sub main
+  n = N(h: *P(x: 1))
+  n.h = *P(x: 2)
+  print(n.h.x)

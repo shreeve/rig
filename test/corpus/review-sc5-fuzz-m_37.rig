@@ -1,0 +1,6 @@
+K: U64 = 3
+
+sub main()
+  v: U64 = 5
+  x: U64 = (U64.min % 1)
+  print(x, v, K)

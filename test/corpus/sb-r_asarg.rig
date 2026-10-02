@@ -1,0 +1,9 @@
+fun id(xs: []Int) -> []Int
+  xs
+
+sub main
+  a = [1, 2]
+  w = !a[..]
+  v = id(w)
+  w[0] = 5
+  print(v)

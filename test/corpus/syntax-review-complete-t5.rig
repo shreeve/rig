@@ -1,0 +1,6 @@
+error TestError
+  failed
+fun expect2(c: Bool) -> Void!
+  return TestError.failed if not c
+test "x"
+  expect2(false)!

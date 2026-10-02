@@ -1,0 +1,16 @@
+pub enum Opt[T]
+  some(value: T)
+  none
+
+pub enum Tag[T]
+  on
+  off
+
+  fun flip(?self) -> Self
+    .off if self == .on else .on
+
+pub fun tag[T](x: T) -> Tag[T]
+  .on
+
+pub fun same[T](a: T, b: T) -> Bool
+  a == b

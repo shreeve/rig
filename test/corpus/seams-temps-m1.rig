@@ -1,0 +1,23 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> B
+  B(n: n)
+
+fun get(b: ?B) -> Int
+  b.n
+
+fun opt(n: Int) -> B?
+  if n > 0
+    return B(n: n)
+  none
+
+sub main
+  print(get(?mk(1)))
+  if opt(2) as b
+    print(b.n)
+  x = opt(0) ?? mk(3)
+  print(x.n)

@@ -1,0 +1,25 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+fun consume(b: *B) -> Bool
+  print("consume", b.n)
+  false
+
+fun fresh(n: Int) -> B
+  B(n: n)
+
+sub main
+  s: Slot = .full(b: *B(n: 1))
+  match <s
+    .full(b) if consume(+b) => print("a")
+    .full(b) if consume(+b) => print("c")
+    .full(b) => print("d", b.n)
+    .empty => print("e")
+  print("end")

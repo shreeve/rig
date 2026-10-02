@@ -1,0 +1,11 @@
+struct H
+  w: !Vec[Int]
+
+sub take(a: !Vec[Int], b: !H)
+  b.w = Vec[Int]()
+  !a.push(1)
+
+sub main
+  v: Vec[Int] = Vec()
+  h = H(w: !v)
+  take(!h.w, !h)

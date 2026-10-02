@@ -1,0 +1,11 @@
+struct Hidden[T]
+  v: T
+
+  fun make(v: T) -> Self
+    Hidden(v: v)
+
+fun helper[T](x: T) -> T
+  x
+
+pub fun hide(x: Int) -> Hidden[Int]
+  Hidden(v: x)

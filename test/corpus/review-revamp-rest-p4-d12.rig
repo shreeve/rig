@@ -1,0 +1,5 @@
+sub main()
+  x: I8 = 5
+  match x
+    -128..0 => print(0)
+    0..128 => print(1)

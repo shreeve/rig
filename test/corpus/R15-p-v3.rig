@@ -1,0 +1,8 @@
+struct R
+  s: []Int
+sub main()
+  a = [1, 2]
+  b = [3, 4]
+  rs = [R(s: ?a[..]), R(s: ?b[..])]
+  !rs.fill(R(s: ?a[..]))
+  print(rs[1].s)

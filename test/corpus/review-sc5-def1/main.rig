@@ -1,0 +1,30 @@
+use lib
+
+LIMIT = 300
+FL = 2.5
+enum Color
+  red
+  blue
+DEF = Color.blue
+
+struct S
+  a: U8 = LIMIT
+  b: Cell[U8] = Cell(300)
+  c: Int = Vec()
+  d: [4]Int = [3 of 0]
+  e: Cell[Int] = Cell("s")
+  f: Color = DEF
+  g: Int = lib.SECRET
+  h: U8 = lib.BIG
+  i: Int = FL
+  j: Int = U8.max
+
+fun p(k: U8 = LIMIT) -> U8
+  k
+
+fun q(k: Int = U8.max) -> Int
+  k
+
+sub main()
+  s = S()
+  print(s.a, p(), q())

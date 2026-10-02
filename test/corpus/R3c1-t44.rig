@@ -1,0 +1,14 @@
+struct P
+  x: Int
+  s: String
+
+sub main()
+  c = Cell(value: "a")
+  print(c.get() == "a", c.get() < "b")
+  h = *P(x: 2, s: "b")
+  print(h.x == 2, h.s < "c")
+  v = Vec[P]()
+  !v.push(P(x: 1, s: "a"))
+  print(v.get(0) == P(x: 1, s: "a"), v.get(5) == none, v[0].s == c.get())
+  sig: *Signal[Int] = *Signal(value: 3)
+  print(sig.get() == 3)

@@ -1,0 +1,8 @@
+sub load(s: ![]U8)
+  c: [2]U8 = [7, 8]
+  !s.fill(c[0])
+  !s.write[U8, .big](1, c[1])
+sub main()
+  a: [2]U8 = [1, 2]
+  load(!a[..])
+  print(a[0], a[1])

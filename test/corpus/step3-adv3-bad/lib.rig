@@ -1,0 +1,18 @@
+pub struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+pub struct Keep[T]
+  v: T
+
+  fun peek(?self) -> ?T
+    ?self.v
+
+pub fun collect[T](a: T, b: T) -> Vec[T]
+  v = Vec[T]()
+  !v.push(<a)
+  !v.push(<b)
+  v
+

@@ -1,0 +1,53 @@
+error Bad
+  boom
+
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+struct Tree
+  vals: Vec[Int]
+
+  sub each(?self, f: ?sub(Int))
+    for v in ?self.vals
+      f(v)
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun pick(a: ?fun(Int) -> Int, b: ?fun(Int) -> Int, first: Bool) -> ?fun(Int) -> Int
+  if first
+    return a
+  b
+
+fun num(ok: Bool) -> Int!
+  if not ok
+    return Bad.boom
+  5
+
+fun both(f: ?fun(Int) -> Int, n: Int) -> Int
+  f(n)
+
+fun run(ok: Bool) -> Int!
+  r = Res(id: 1)
+  v = both(|<r, a| a + r.id, num(ok)!)
+  v
+
+sub main
+  t = Tree(vals: Vec())
+  !t.vals.push(4)
+  !t.vals.push(5)
+  sum = 0
+  t.each(|!sum, n|
+    sum += n)
+  print(sum)
+  print(apply(x: 4, f: |a| a + 1))
+  one = |a: Int| a + 1
+  two = |a: Int| a + 2
+  print(pick(?one, ?two, false)(3))
+  print(run(true) catch 0)
+  print(run(false) catch -1)
+  outer = |k: Int| apply(|a| a * 2, k)
+  print(outer(21))

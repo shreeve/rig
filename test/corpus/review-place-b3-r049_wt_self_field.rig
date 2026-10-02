@@ -1,0 +1,14 @@
+struct H
+  w: !Int
+
+  sub put(!self)
+    self.w = 8
+
+  sub put2(self)
+    self.w = 8
+
+sub main
+  n = 1
+  h = H(w: !n)
+  !h.put()
+  print(n)

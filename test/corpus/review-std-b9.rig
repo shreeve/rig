@@ -1,0 +1,12 @@
+struct Holder
+  v: Vec[[]Int]
+
+  sub put(!self, ys: []Int)
+    !self.v.push(ys)
+
+sub main
+  h = Holder(v: Vec())
+  if true
+    a = [1, 2, 3]
+    !h.put(?a)
+  print(h.v.len)

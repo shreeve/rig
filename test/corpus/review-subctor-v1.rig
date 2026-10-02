@@ -1,0 +1,12 @@
+error Bad
+  neg
+
+sub inner(f: ?sub(Int)!)!
+  f(1)!
+
+sub outer(f: ?sub(Int)!)!
+  inner(f)!
+  f(2)
+
+sub main
+  outer(|x| print(x))!

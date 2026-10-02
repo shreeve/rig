@@ -1,0 +1,21 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+fun own(r: Res, n: Res) -> Int
+  r.id + n.id
+
+fun w(k: Int) -> Res
+  r = Res(id: 7)
+  x = own(<r, Res(id: get(k) ?? return <r))
+  Res(id: x)
+
+sub main
+  a = w(1)
+  b = w(0)
+  print(a.id, b.id)

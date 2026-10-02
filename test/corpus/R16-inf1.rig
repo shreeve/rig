@@ -1,0 +1,9 @@
+fun pipe[A, B, C](a: A, f: ?fun(A) -> B, g: ?fun(B) -> C) -> C
+  g(f(a))
+
+fun rpipe[A, B, C](a: A, g: ?fun(B) -> C, f: ?fun(A) -> B) -> C
+  g(f(a))
+
+sub main
+  print(pipe(3, |x| x > 2, |b| "yes" if b else "no"))
+  print(rpipe(3, |b| "yes" if b else "no", |x| x > 2))

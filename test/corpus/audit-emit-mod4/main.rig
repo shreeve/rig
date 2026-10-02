@@ -1,0 +1,6 @@
+use std
+use rig
+use builtin
+
+sub main
+  print(std.f(), rig.g(), builtin.h())

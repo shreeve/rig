@@ -1,0 +1,19 @@
+sub inc(a: !Int)
+  a += 1
+
+sub main
+  n = 0
+  while n < 3
+    w = !n
+    w += 1
+  for _ in 0..n
+    inc(!n)
+  m = 0
+  while m < 5 : inc(!m)
+    pass
+  k = 0
+  f = |!k| k += 1
+  f()
+  f()
+  print(n, m)
+  print(k)

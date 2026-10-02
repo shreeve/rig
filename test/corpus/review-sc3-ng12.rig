@@ -1,0 +1,11 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+sub main
+  x = 3
+  v = while true
+    break -x
+  print(v)

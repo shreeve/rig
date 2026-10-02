@@ -1,0 +1,17 @@
+struct N
+  a: Int
+
+sub main
+  s: *sub() = *|| print("x")
+  w = ~s
+  u = w.upgrade()
+  n = *N(a: 1)
+  wn = ~n
+  un = wn.upgrade()
+  arr: [2]Int? = none
+  sl: ([]Int)? = none
+  x: Int = u
+  y: Int = w
+  z: Int = un
+  q: Int = arr
+  r: Int = sl

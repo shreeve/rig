@@ -1,0 +1,5 @@
+K =! 3
+
+sub main
+  K = 4
+  print(K)

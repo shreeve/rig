@@ -1,0 +1,12 @@
+# A closure can call a captured `*sub()`.
+
+sub main()
+  count: *Cell[Int] = *Cell(0)
+  inc: *sub() = *|+count| count.set(count.get() + 1)
+  twice = |+inc|
+    inc()
+  twice()
+  twice()
+
+# expect:
+# 2

@@ -1,0 +1,9 @@
+LIMIT = 4
+NAMES = ["a"]
+sub bump(x: !Int)
+  x += 1
+sub main()
+  bump(!LIMIT)
+  n = <NAMES
+  LIMIT += 1
+  print(LIMIT, n)

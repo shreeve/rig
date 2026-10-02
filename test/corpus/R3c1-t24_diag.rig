@@ -1,0 +1,20 @@
+struct P
+  x: Int
+
+enum K
+  a(v: Int)
+  b
+
+sub main()
+  p = P(x: 1)
+  k: K = .b
+  print(p == 3)
+  print(p == .red)
+  print(p == none)
+  print(k == .a(w: 1))
+  print(k == .a(v: "s"))
+  print(k == .c)
+  print(.a(v: 1) == k)
+  print(k == .a)
+  print(k == K.a(v: 1))
+  print(K.b == k)

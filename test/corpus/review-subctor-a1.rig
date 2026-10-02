@@ -1,0 +1,25 @@
+error Bad
+  neg
+
+struct Acc
+  n: Int
+
+  sub bump(!self, k: Int)!
+    return Bad.neg if k < 0
+    self.n += k
+
+  sub show(?self)!
+    return Bad.neg if self.n < 0
+    print("acc", self.n)
+
+  sub eat(<self)!
+    return Bad.neg if self.n > 100
+    print("ate", self.n)
+
+sub main
+  a = Acc(n: 1)
+  !a.bump(2)!
+  a.show()!
+  !a.bump(-1) catch |e|
+    print("e", e)
+  <a.eat()!

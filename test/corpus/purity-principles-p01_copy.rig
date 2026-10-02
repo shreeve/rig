@@ -1,0 +1,16 @@
+struct Big
+  a: [1000]Int
+
+fun first(b: Big) -> Int
+  b.a[0]
+
+sub main
+  x = Big(a: [1000 of 7])
+  y = x
+  y.a[0] = 1
+  print(first(x), y.a[0])
+  arr = [1000 of 3]
+  s = 0
+  for e in arr
+    s += e
+  print(s)

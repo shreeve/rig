@@ -1,0 +1,10 @@
+struct N
+  id: Int
+  drop(!self)
+    print("drop", self.id)
+
+sub main
+  h = *N(id: 1)
+  print([+h, +h].len)
+  print([2 of +h].len)
+  print(h.id)

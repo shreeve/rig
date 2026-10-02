@@ -1,0 +1,7 @@
+sub take(f: ?fun() -> Int, g: ?fun() -> Int)
+  print(f(), g())
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  take(|?v| v.len, |<v| v.len)

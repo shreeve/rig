@@ -1,0 +1,10 @@
+enum Sh
+  c(r: Int)
+  s(w: Int)
+sub main()
+  payload = 5
+  whole = 6
+  x = Sh.c(r: 2)
+  match x
+    .c(r) => print(r + payload + whole)
+    .s(w) => print(w)

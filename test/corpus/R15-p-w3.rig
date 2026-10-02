@@ -1,0 +1,14 @@
+struct H
+  w: !Vec[Int]
+sub grow(h: ?H)
+  h.w.push(2)
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  d: Vec[Int] = Vec()
+  xs = [H(w: !v)]
+  ys = [H(w: !d)]
+  !ys.copy(?xs[..])
+  t = !ys[0].w[..]
+  grow(?xs[0])
+  t[0] = 99

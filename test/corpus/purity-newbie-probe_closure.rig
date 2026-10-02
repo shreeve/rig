@@ -1,0 +1,10 @@
+# JS habit: a counter made by a closure factory (fixed after examples/counter_closure.rig)
+fun make_counter() -> *fun() -> Int
+  count: *Cell[Int] = *Cell(0)
+  *|+count|
+    count.set(count.get() + 1)
+    count.get()
+
+sub main
+  next = make_counter()
+  print(next(), next())

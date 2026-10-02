@@ -1,0 +1,8 @@
+struct N
+  a: Int
+sub main
+  d = Cell[*(N
+    )?](value: none)
+  e = Cell[*( # hi
+    N)?](value: none)
+  print(d.replace(none) == none, e.replace(none) == none)

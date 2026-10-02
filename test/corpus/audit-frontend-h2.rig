@@ -1,0 +1,4 @@
+sub main()
+  fun g() -> Int
+    1
+  print(g())

@@ -1,0 +1,8 @@
+fun later[T](x: T) -> *fun() -> T
+  *|<x| x
+
+sub main
+  t = Text("abcdefghijklmnop")
+  f = later(?t[2..])
+  -t
+  print(f())

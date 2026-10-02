@@ -1,0 +1,13 @@
+struct P
+  x: Int
+
+fun wrap[T](v: T) -> Box[T]
+  Box(value: v)
+
+fun mk() -> Int
+  p = P(x: 1)
+  b = wrap(?p)
+  3
+
+sub main
+  print(mk())

@@ -1,0 +1,13 @@
+sub poke(w: !Int)
+  w += 1
+
+struct H
+  w: !Int
+
+sub f(h: ?H)
+  poke(h.w)
+
+sub main
+  n = 1
+  h = H(w: !n)
+  f(?h)

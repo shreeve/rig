@@ -1,0 +1,20 @@
+fun hid[T](x: T) -> T
+  x
+
+struct Hidden[T]
+  v: T
+
+  fun get[U](?self, u: U) -> U
+    u
+
+pub fun make(n: Int) -> Hidden[Int]
+  Hidden(v: n)
+
+pub fun twice[T](x: T) -> T
+  hid(x)
+
+pub struct Pub[T]
+  h: Hidden[T]
+
+  fun inner(?self) -> ?Hidden[T]
+    ?self.h

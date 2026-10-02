@@ -1,0 +1,13 @@
+use lib
+
+fun k(d: lib.Disk) -> String
+  match d
+    lib.DEF => "def"
+
+sub main
+  x = lib.fail() catch |e|
+    match e
+      lib.DEF => print("matched DEF")
+      _ => print("fell through")
+    0
+  print(x, k(lib.Disk.full))

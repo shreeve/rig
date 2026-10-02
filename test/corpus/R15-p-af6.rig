@@ -1,0 +1,7 @@
+struct S
+  b: [4]U8
+sub main()
+  h: *S = *S(b: [1, 2, 3, 4])
+  r = ?h.b[..]
+  h = *S(b: [9, 9, 9, 9])
+  print(r.len, r[0])

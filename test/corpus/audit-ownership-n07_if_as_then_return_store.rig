@@ -1,0 +1,36 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+struct Big
+  v: Vec[Int]
+
+struct View
+  b: ?Big
+
+fun put(v: !View, t: ?Big) -> Bool
+  v.b = t
+  false
+
+sub main
+  x0 = Big(v: Vec())
+  vw = View(b: ?x0)
+  o: Big? = Big(v: Vec())
+  if <o as x
+    put(!vw, ?x)
+    return
+  print("after", vw.b.v.len)

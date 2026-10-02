@@ -1,0 +1,14 @@
+struct Iter[T]
+  xs: []T
+  i: Int = 0
+
+  fun next(!self) -> T?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+sub main
+  a = [1, 2, 3]
+  it = Iter(xs: ?a[..])
+  while !it.next() as x
+    print(x)

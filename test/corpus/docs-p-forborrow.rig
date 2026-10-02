@@ -1,0 +1,6 @@
+sub f(w: ?Vec[Int])
+  for x in <w
+    print(x)
+sub main
+  v: Vec[Int] = Vec()
+  f(?v)

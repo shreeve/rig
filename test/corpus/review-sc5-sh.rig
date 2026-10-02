@@ -1,0 +1,11 @@
+LIMIT = 4
+
+fun f(k: Int = LIMIT) -> Int
+  k
+
+struct S
+  v: Int = LIMIT
+
+sub main()
+  new LIMIT = 99
+  print(f(), S().v, LIMIT)

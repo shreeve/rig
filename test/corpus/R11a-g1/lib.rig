@@ -1,0 +1,4 @@
+use util
+
+pub fun f[T](x: T) -> Int
+  util.g(?x)

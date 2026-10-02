@@ -1,0 +1,14 @@
+fun lower_bound[T](xs: []T, x: T) -> Int
+  lo = 0
+  hi = xs.len
+  while lo < hi
+    mid = (lo + hi) / 2
+    if xs[mid] < x
+      lo = mid + 1
+    else
+      hi = mid
+  lo
+
+sub main
+  a = [1, 3, 5, 7]
+  print(lower_bound(?a[..], 5), lower_bound(?a[..], 4), lower_bound(["a", "c"], "b"))

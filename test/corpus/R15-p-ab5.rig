@@ -1,0 +1,10 @@
+struct B
+  v: Vec[Int]
+fun items(b: !B) -> ![]Int
+  x = !b.v[..]
+  !b.v.push(1)
+  x
+sub main()
+  b = B(v: Vec())
+  it = items(!b)
+  print(it.len)

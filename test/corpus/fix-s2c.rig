@@ -1,0 +1,7 @@
+fun mx[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main()
+  print(max((3 +% 1), 2.5), mx((3 +% 1), 2.5), mx(3 +% 1, 2))
+  x = 1.5 / (2 & 3)
+  print(x)

@@ -1,0 +1,10 @@
+# method with !self and a ![]T param from the same object
+struct B
+  a: [4]Int
+  sub go(!self, s: ![]Int)
+    s[0] = 1
+    self.a[0] = 2
+    print(s[0])
+sub main()
+  b = B(a: [0, 0, 0, 0])
+  !b.go(!b.a[..])

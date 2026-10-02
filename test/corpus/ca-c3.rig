@@ -1,0 +1,11 @@
+sub add(v: !Vec[Int])
+  v.push(1)
+  !v.push(2)
+
+sub main
+  v: Vec[Int] = Vec()
+  add(!v)
+  push = |!v, x: Int|
+    v.push(x)
+  push(3)
+  print(v.len)

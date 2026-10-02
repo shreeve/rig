@@ -1,0 +1,6 @@
+extern fun write(fd: I32, buf: []U8, n: U64) -> I64
+
+sub main
+  b: [3]U8 = [104, 105, 10]
+  raw
+    _ = write(1, ?b[..], 3)

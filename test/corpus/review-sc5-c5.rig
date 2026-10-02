@@ -1,0 +1,21 @@
+error E
+  bad
+
+fun fail(n: Int) -> Int!
+  if n == 0
+    return E.bad
+  n
+
+struct S
+  f: *fun(Int) -> Int!
+  g: *sub(Int)!
+
+fun run(s: ?S, n: Int) -> Int!
+  s.g(n)!
+  s.f(n)! * 2
+
+sub main()
+  s = S(f: *|n| fail(n)! + 1, g: *|n| print("g", fail(n)!))
+  print(run(?s, 3) catch -1, run(?s, 0) catch -2)
+  o: (*fun(Int) -> Int!)? = none
+  print(o == none)

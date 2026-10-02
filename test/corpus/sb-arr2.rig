@@ -1,0 +1,14 @@
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+sub main
+  a = [1, 2]
+  b = [3, 4]
+  ws = [!a[..], !b[..]]
+  for w in !ws
+    print(w[1], w.len, total(w))
+  v = ws[0]
+  print(v)

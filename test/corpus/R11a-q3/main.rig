@@ -1,0 +1,11 @@
+use lib
+
+sub main()
+  a = lib.Hidden(v: 1)
+  b = lib.Hidden[Int](v: 1)
+  c = lib.Hidden.make(1)
+  d = lib.helper(1)
+  e = lib.helper[Int](1)
+  h = lib.hide(1)
+  v = Vec[lib.Hidden[Int]]()
+  print(a.v, b.v, c.v, d, e, h.v)

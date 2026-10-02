@@ -1,0 +1,26 @@
+error Bad
+  neg
+
+struct Acc
+  n: Int
+
+  sub bump(!self, k: Int)!
+    return Bad.neg if k < 0
+    self.n += k
+
+  sub show(?self)!
+    return Bad.neg if self.n < 0
+    print("acc", self.n)
+
+sub main
+  b = Box(Acc(1))
+  !b.bump(2)!
+  b.show()!
+  s = *Acc(5)
+  s.show()!
+  v = Vec[Acc]()
+  !v.push(Acc(7))
+  !v[0].bump(1)!
+  v[0].show()!
+  !v[0].bump(-1) catch |e|
+    print("e", e)

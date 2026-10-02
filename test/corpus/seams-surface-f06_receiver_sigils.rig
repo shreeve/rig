@@ -1,0 +1,14 @@
+struct P
+  v: Vec[Int]
+  f: Int?
+  fun first(?self) -> Int
+    self.v[0]
+
+sub main
+  p = P(v: Vec(), f: 3)
+  !p.v.push(4)
+  x = -p.first()
+  y = +p.first()
+  z = ?p.first()
+  w = <p.f
+  print(x, y, z, w, p.f)

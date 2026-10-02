@@ -1,0 +1,14 @@
+# A shared Cell prints its contents as they are when `print` is called,
+# after a later argument has grown them through another handle.
+fun grow(h: *Cell[Vec[Int]]) -> Int
+  for i in 0..20
+    h.push(i)
+  5
+
+sub main
+  h: *Cell[Vec[Int]] = *Cell(Vec())
+  h.push(42)
+  print(h, grow(+h))
+
+# expect:
+# Cell(value: [42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]) 5

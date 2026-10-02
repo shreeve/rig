@@ -1,0 +1,5 @@
+fun even(n: Int) -> Bool
+  n % 2
+
+sub main
+  print(even(2))

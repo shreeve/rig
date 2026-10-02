@@ -51,6 +51,9 @@ const usage =
     \\                   under $XDG_CACHE_HOME/rig, or ~/.cache/rig)
     \\  RIG_LEAK_TRACE   Set to 1 when building to report each leaked
     \\                   allocation with its stack trace (slower)
+    \\  RIG_SANITIZE     Set to 1 when building a Debug program to make
+    \\                   any use of freed memory crash where it happens
+    \\                   (much slower; `./test/run` sets it)
     \\  RIG_STD          For developing the standard library: a directory
     \\                   to read it from, in place of the copy built into
     \\                   rig
@@ -98,8 +101,24 @@ const Env = struct {
     }
 
     fn leakTrace(env: Env) bool {
-        const value = env.get("RIG_LEAK_TRACE") orelse return false;
+        return env.flag("RIG_LEAK_TRACE");
+    }
+
+    fn sanitize(env: Env) bool {
+        return env.flag("RIG_SANITIZE");
+    }
+
+    /// Set, and not to `0`.
+    fn flag(env: Env, name: []const u8) bool {
+        const value = env.get(name) orelse return false;
         return !std.mem.eql(u8, value, "0");
+    }
+
+    /// The declarations that ask the runtime for leak traces or the
+    /// sanitizer, written into the root module (`runtime.zig`).
+    fn writeRootFlags(env: Env, w: *std.Io.Writer) !void {
+        if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
+        if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
     }
 };
 
@@ -343,7 +362,7 @@ fn writeTestDriver(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *c
         \\pub const panic = rig.panic;
         \\
     , .{emit.runtime_filename});
-    if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
+    try env.writeRootFlags(w);
     try w.writeAll(
         \\
         \\fn testsOf(comptime module: type) []const rig.Test {
@@ -416,8 +435,8 @@ const Package = struct {
 };
 
 /// Write the runtime and every module to the output directory. With
-/// `RIG_LEAK_TRACE` set, the root module asks the runtime for
-/// stack-trace leak reports.
+/// `RIG_LEAK_TRACE` or `RIG_SANITIZE` set, the root module asks the
+/// runtime for stack-trace leak reports or the sanitizer.
 fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modules.ModuleGraph) !Package {
     const dir = try outputDir(allocator, env, graph.root());
 
@@ -431,7 +450,10 @@ fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modul
         defer em.deinit();
         try em.emit(m.ir);
         links_libc = links_libc or em.links_libc;
-        if (i == 0 and env.leakTrace()) try file_buffer.writer.writeAll("\npub const __rig_leak_trace = true;\n");
+        if (i == 0 and (env.leakTrace() or env.sanitize())) {
+            try file_buffer.writer.writeAll("\n");
+            try env.writeRootFlags(&file_buffer.writer);
+        }
         try writeFile(io, try std.fs.path.join(allocator, &.{ dir, m.out_basename }), file_buffer.written());
         for (m.shims.items) |shim| try writeFile(io, try std.fs.path.join(allocator, &.{ dir, "rig", "std", shim.name }), shim.source);
         if (i == 0) root_source = file_buffer.written();

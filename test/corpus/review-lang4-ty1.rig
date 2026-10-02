@@ -1,0 +1,38 @@
+enum Color
+  red
+  blue
+
+struct P
+  x: Int
+
+struct H
+  a: !U8
+  f: !Float
+  b: !Bool
+  s: !String
+  c: !Color
+  o: !Int?
+  p: !P
+
+sub main
+  a: U8 = 3
+  f = 1.5
+  b = false
+  s = "hi"
+  c: Color = .red
+  o: Int? = none
+  p = P(x: 1)
+  h = H(a: !a, f: !f, b: !b, s: !s, c: !c, o: !o, p: !p)
+  h.a <<= 2
+  h.a +%= 250
+  h.f /= 2.0
+  h.f = h.f * 3.0
+  h.b = not h.b
+  h.s = "there"
+  h.c = .blue
+  h.o = 5
+  h.o = none
+  h.o = 7
+  h.p = P(x: 9)
+  h.p.x += 1
+  print(a, f, b, s, c, o, p)

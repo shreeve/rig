@@ -1,0 +1,24 @@
+# The same board, with the workaround the compiler allows: boxed tasks.
+struct Task
+  name: Text
+  priority: Int
+  done: Bool = false
+
+fun make_task(prefix: String, n: Int, priority: Int) -> Box[Task]
+  Box(Task(name: Text(prefix, "-", n), priority: priority))
+
+fun report(tasks: ?Vec[Box[Task]]) -> Text
+  out = Text("tasks: ", tasks.len, "\n")
+  for t in ?tasks
+    mark = "x" if t.done else " "
+    !out.add("[", mark, "] ", t.name, " (p", t.priority, ")\n")
+  out
+
+sub main
+  board: Vec[Box[Task]] = Vec()
+  i = 0
+  while i < 5 : i += 1
+    !board.push(make_task("job", i, (i * 7) % 5))
+  for t, j in !board
+    t.done = true if j == 2
+  print(report(?board))

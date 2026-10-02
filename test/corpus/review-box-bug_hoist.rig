@@ -1,0 +1,10 @@
+struct S
+  b: Box[Int]
+
+fun add(x: ?Int, y: Int) -> Int
+  x + y
+
+sub main
+  s = S(b: Box(value: 5))
+  n = 1
+  print(add(y: n + 1, x: ?s.b))

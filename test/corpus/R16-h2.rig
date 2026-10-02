@@ -1,0 +1,9 @@
+fun double(n: Int) -> Int
+  n * 2
+
+sub store(f: ?fun(Int) -> Int)
+  v = [f]
+  print(v[0](1))
+
+sub main
+  store(double)

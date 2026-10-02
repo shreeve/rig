@@ -1,0 +1,10 @@
+error Bad
+  neg
+
+sub f(n: Int)!
+  return Bad.neg if n > 0
+  print("f", n)
+
+sub main
+  x = f(0)!
+  print(x)

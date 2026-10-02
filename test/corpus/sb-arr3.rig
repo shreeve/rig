@@ -1,0 +1,9 @@
+sub main
+  a = [1, 2]
+  b = [3, 4]
+  ws = [!a[..], !b[..]]
+  for w in !ws
+    print(w[1], w.len)
+  print(ws[1][0])
+  ws[0][1] = 7
+  print(a)

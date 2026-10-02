@@ -1,0 +1,9 @@
+sub each(f: ?sub(Int))
+  f(1)
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  each(double)
+  each(|a| a + 1)

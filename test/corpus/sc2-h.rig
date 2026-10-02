@@ -1,0 +1,17 @@
+struct Node
+  value: Int
+
+fun show(a: *Node?, b: *(Node?), c: ?*Node?, d: ~Node?) -> Int
+  1
+
+sub main
+  v = Vec[*Node?]()
+  w = Vec[*(Node?)]()
+  x = Vec[*(Node)?]()
+  !v.push(none)
+  !v.push(*Node(value: 3))
+  !w.push(*Node(value: 4))
+  !w.push(*(none))
+  a: Int = v
+  b: Int = w
+  c: Int = x

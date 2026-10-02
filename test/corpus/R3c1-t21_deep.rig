@@ -1,0 +1,2400 @@
+struct S0
+  v: String
+  o: Int?
+
+enum E1
+  some(x: S0)
+  empty
+
+struct S1
+  e: E1?
+  s: U8
+
+enum E2
+  some(x: S1)
+  empty
+
+struct S2
+  e: E2?
+  s: U8
+
+enum E3
+  some(x: S2)
+  empty
+
+struct S3
+  e: E3?
+  s: U8
+
+enum E4
+  some(x: S3)
+  empty
+
+struct S4
+  e: E4?
+  s: U8
+
+enum E5
+  some(x: S4)
+  empty
+
+struct S5
+  e: E5?
+  s: U8
+
+enum E6
+  some(x: S5)
+  empty
+
+struct S6
+  e: E6?
+  s: U8
+
+enum E7
+  some(x: S6)
+  empty
+
+struct S7
+  e: E7?
+  s: U8
+
+enum E8
+  some(x: S7)
+  empty
+
+struct S8
+  e: E8?
+  s: U8
+
+enum E9
+  some(x: S8)
+  empty
+
+struct S9
+  e: E9?
+  s: U8
+
+enum E10
+  some(x: S9)
+  empty
+
+struct S10
+  e: E10?
+  s: U8
+
+enum E11
+  some(x: S10)
+  empty
+
+struct S11
+  e: E11?
+  s: U8
+
+enum E12
+  some(x: S11)
+  empty
+
+struct S12
+  e: E12?
+  s: U8
+
+enum E13
+  some(x: S12)
+  empty
+
+struct S13
+  e: E13?
+  s: U8
+
+enum E14
+  some(x: S13)
+  empty
+
+struct S14
+  e: E14?
+  s: U8
+
+enum E15
+  some(x: S14)
+  empty
+
+struct S15
+  e: E15?
+  s: U8
+
+enum E16
+  some(x: S15)
+  empty
+
+struct S16
+  e: E16?
+  s: U8
+
+enum E17
+  some(x: S16)
+  empty
+
+struct S17
+  e: E17?
+  s: U8
+
+enum E18
+  some(x: S17)
+  empty
+
+struct S18
+  e: E18?
+  s: U8
+
+enum E19
+  some(x: S18)
+  empty
+
+struct S19
+  e: E19?
+  s: U8
+
+enum E20
+  some(x: S19)
+  empty
+
+struct S20
+  e: E20?
+  s: U8
+
+enum E21
+  some(x: S20)
+  empty
+
+struct S21
+  e: E21?
+  s: U8
+
+enum E22
+  some(x: S21)
+  empty
+
+struct S22
+  e: E22?
+  s: U8
+
+enum E23
+  some(x: S22)
+  empty
+
+struct S23
+  e: E23?
+  s: U8
+
+enum E24
+  some(x: S23)
+  empty
+
+struct S24
+  e: E24?
+  s: U8
+
+enum E25
+  some(x: S24)
+  empty
+
+struct S25
+  e: E25?
+  s: U8
+
+enum E26
+  some(x: S25)
+  empty
+
+struct S26
+  e: E26?
+  s: U8
+
+enum E27
+  some(x: S26)
+  empty
+
+struct S27
+  e: E27?
+  s: U8
+
+enum E28
+  some(x: S27)
+  empty
+
+struct S28
+  e: E28?
+  s: U8
+
+enum E29
+  some(x: S28)
+  empty
+
+struct S29
+  e: E29?
+  s: U8
+
+enum E30
+  some(x: S29)
+  empty
+
+struct S30
+  e: E30?
+  s: U8
+
+enum E31
+  some(x: S30)
+  empty
+
+struct S31
+  e: E31?
+  s: U8
+
+enum E32
+  some(x: S31)
+  empty
+
+struct S32
+  e: E32?
+  s: U8
+
+enum E33
+  some(x: S32)
+  empty
+
+struct S33
+  e: E33?
+  s: U8
+
+enum E34
+  some(x: S33)
+  empty
+
+struct S34
+  e: E34?
+  s: U8
+
+enum E35
+  some(x: S34)
+  empty
+
+struct S35
+  e: E35?
+  s: U8
+
+enum E36
+  some(x: S35)
+  empty
+
+struct S36
+  e: E36?
+  s: U8
+
+enum E37
+  some(x: S36)
+  empty
+
+struct S37
+  e: E37?
+  s: U8
+
+enum E38
+  some(x: S37)
+  empty
+
+struct S38
+  e: E38?
+  s: U8
+
+enum E39
+  some(x: S38)
+  empty
+
+struct S39
+  e: E39?
+  s: U8
+
+enum E40
+  some(x: S39)
+  empty
+
+struct S40
+  e: E40?
+  s: U8
+
+enum E41
+  some(x: S40)
+  empty
+
+struct S41
+  e: E41?
+  s: U8
+
+enum E42
+  some(x: S41)
+  empty
+
+struct S42
+  e: E42?
+  s: U8
+
+enum E43
+  some(x: S42)
+  empty
+
+struct S43
+  e: E43?
+  s: U8
+
+enum E44
+  some(x: S43)
+  empty
+
+struct S44
+  e: E44?
+  s: U8
+
+enum E45
+  some(x: S44)
+  empty
+
+struct S45
+  e: E45?
+  s: U8
+
+enum E46
+  some(x: S45)
+  empty
+
+struct S46
+  e: E46?
+  s: U8
+
+enum E47
+  some(x: S46)
+  empty
+
+struct S47
+  e: E47?
+  s: U8
+
+enum E48
+  some(x: S47)
+  empty
+
+struct S48
+  e: E48?
+  s: U8
+
+enum E49
+  some(x: S48)
+  empty
+
+struct S49
+  e: E49?
+  s: U8
+
+enum E50
+  some(x: S49)
+  empty
+
+struct S50
+  e: E50?
+  s: U8
+
+enum E51
+  some(x: S50)
+  empty
+
+struct S51
+  e: E51?
+  s: U8
+
+enum E52
+  some(x: S51)
+  empty
+
+struct S52
+  e: E52?
+  s: U8
+
+enum E53
+  some(x: S52)
+  empty
+
+struct S53
+  e: E53?
+  s: U8
+
+enum E54
+  some(x: S53)
+  empty
+
+struct S54
+  e: E54?
+  s: U8
+
+enum E55
+  some(x: S54)
+  empty
+
+struct S55
+  e: E55?
+  s: U8
+
+enum E56
+  some(x: S55)
+  empty
+
+struct S56
+  e: E56?
+  s: U8
+
+enum E57
+  some(x: S56)
+  empty
+
+struct S57
+  e: E57?
+  s: U8
+
+enum E58
+  some(x: S57)
+  empty
+
+struct S58
+  e: E58?
+  s: U8
+
+enum E59
+  some(x: S58)
+  empty
+
+struct S59
+  e: E59?
+  s: U8
+
+enum E60
+  some(x: S59)
+  empty
+
+struct S60
+  e: E60?
+  s: U8
+
+enum E61
+  some(x: S60)
+  empty
+
+struct S61
+  e: E61?
+  s: U8
+
+enum E62
+  some(x: S61)
+  empty
+
+struct S62
+  e: E62?
+  s: U8
+
+enum E63
+  some(x: S62)
+  empty
+
+struct S63
+  e: E63?
+  s: U8
+
+enum E64
+  some(x: S63)
+  empty
+
+struct S64
+  e: E64?
+  s: U8
+
+enum E65
+  some(x: S64)
+  empty
+
+struct S65
+  e: E65?
+  s: U8
+
+enum E66
+  some(x: S65)
+  empty
+
+struct S66
+  e: E66?
+  s: U8
+
+enum E67
+  some(x: S66)
+  empty
+
+struct S67
+  e: E67?
+  s: U8
+
+enum E68
+  some(x: S67)
+  empty
+
+struct S68
+  e: E68?
+  s: U8
+
+enum E69
+  some(x: S68)
+  empty
+
+struct S69
+  e: E69?
+  s: U8
+
+enum E70
+  some(x: S69)
+  empty
+
+struct S70
+  e: E70?
+  s: U8
+
+enum E71
+  some(x: S70)
+  empty
+
+struct S71
+  e: E71?
+  s: U8
+
+enum E72
+  some(x: S71)
+  empty
+
+struct S72
+  e: E72?
+  s: U8
+
+enum E73
+  some(x: S72)
+  empty
+
+struct S73
+  e: E73?
+  s: U8
+
+enum E74
+  some(x: S73)
+  empty
+
+struct S74
+  e: E74?
+  s: U8
+
+enum E75
+  some(x: S74)
+  empty
+
+struct S75
+  e: E75?
+  s: U8
+
+enum E76
+  some(x: S75)
+  empty
+
+struct S76
+  e: E76?
+  s: U8
+
+enum E77
+  some(x: S76)
+  empty
+
+struct S77
+  e: E77?
+  s: U8
+
+enum E78
+  some(x: S77)
+  empty
+
+struct S78
+  e: E78?
+  s: U8
+
+enum E79
+  some(x: S78)
+  empty
+
+struct S79
+  e: E79?
+  s: U8
+
+enum E80
+  some(x: S79)
+  empty
+
+struct S80
+  e: E80?
+  s: U8
+
+enum E81
+  some(x: S80)
+  empty
+
+struct S81
+  e: E81?
+  s: U8
+
+enum E82
+  some(x: S81)
+  empty
+
+struct S82
+  e: E82?
+  s: U8
+
+enum E83
+  some(x: S82)
+  empty
+
+struct S83
+  e: E83?
+  s: U8
+
+enum E84
+  some(x: S83)
+  empty
+
+struct S84
+  e: E84?
+  s: U8
+
+enum E85
+  some(x: S84)
+  empty
+
+struct S85
+  e: E85?
+  s: U8
+
+enum E86
+  some(x: S85)
+  empty
+
+struct S86
+  e: E86?
+  s: U8
+
+enum E87
+  some(x: S86)
+  empty
+
+struct S87
+  e: E87?
+  s: U8
+
+enum E88
+  some(x: S87)
+  empty
+
+struct S88
+  e: E88?
+  s: U8
+
+enum E89
+  some(x: S88)
+  empty
+
+struct S89
+  e: E89?
+  s: U8
+
+enum E90
+  some(x: S89)
+  empty
+
+struct S90
+  e: E90?
+  s: U8
+
+enum E91
+  some(x: S90)
+  empty
+
+struct S91
+  e: E91?
+  s: U8
+
+enum E92
+  some(x: S91)
+  empty
+
+struct S92
+  e: E92?
+  s: U8
+
+enum E93
+  some(x: S92)
+  empty
+
+struct S93
+  e: E93?
+  s: U8
+
+enum E94
+  some(x: S93)
+  empty
+
+struct S94
+  e: E94?
+  s: U8
+
+enum E95
+  some(x: S94)
+  empty
+
+struct S95
+  e: E95?
+  s: U8
+
+enum E96
+  some(x: S95)
+  empty
+
+struct S96
+  e: E96?
+  s: U8
+
+enum E97
+  some(x: S96)
+  empty
+
+struct S97
+  e: E97?
+  s: U8
+
+enum E98
+  some(x: S97)
+  empty
+
+struct S98
+  e: E98?
+  s: U8
+
+enum E99
+  some(x: S98)
+  empty
+
+struct S99
+  e: E99?
+  s: U8
+
+enum E100
+  some(x: S99)
+  empty
+
+struct S100
+  e: E100?
+  s: U8
+
+enum E101
+  some(x: S100)
+  empty
+
+struct S101
+  e: E101?
+  s: U8
+
+enum E102
+  some(x: S101)
+  empty
+
+struct S102
+  e: E102?
+  s: U8
+
+enum E103
+  some(x: S102)
+  empty
+
+struct S103
+  e: E103?
+  s: U8
+
+enum E104
+  some(x: S103)
+  empty
+
+struct S104
+  e: E104?
+  s: U8
+
+enum E105
+  some(x: S104)
+  empty
+
+struct S105
+  e: E105?
+  s: U8
+
+enum E106
+  some(x: S105)
+  empty
+
+struct S106
+  e: E106?
+  s: U8
+
+enum E107
+  some(x: S106)
+  empty
+
+struct S107
+  e: E107?
+  s: U8
+
+enum E108
+  some(x: S107)
+  empty
+
+struct S108
+  e: E108?
+  s: U8
+
+enum E109
+  some(x: S108)
+  empty
+
+struct S109
+  e: E109?
+  s: U8
+
+enum E110
+  some(x: S109)
+  empty
+
+struct S110
+  e: E110?
+  s: U8
+
+enum E111
+  some(x: S110)
+  empty
+
+struct S111
+  e: E111?
+  s: U8
+
+enum E112
+  some(x: S111)
+  empty
+
+struct S112
+  e: E112?
+  s: U8
+
+enum E113
+  some(x: S112)
+  empty
+
+struct S113
+  e: E113?
+  s: U8
+
+enum E114
+  some(x: S113)
+  empty
+
+struct S114
+  e: E114?
+  s: U8
+
+enum E115
+  some(x: S114)
+  empty
+
+struct S115
+  e: E115?
+  s: U8
+
+enum E116
+  some(x: S115)
+  empty
+
+struct S116
+  e: E116?
+  s: U8
+
+enum E117
+  some(x: S116)
+  empty
+
+struct S117
+  e: E117?
+  s: U8
+
+enum E118
+  some(x: S117)
+  empty
+
+struct S118
+  e: E118?
+  s: U8
+
+enum E119
+  some(x: S118)
+  empty
+
+struct S119
+  e: E119?
+  s: U8
+
+enum E120
+  some(x: S119)
+  empty
+
+struct S120
+  e: E120?
+  s: U8
+
+enum E121
+  some(x: S120)
+  empty
+
+struct S121
+  e: E121?
+  s: U8
+
+enum E122
+  some(x: S121)
+  empty
+
+struct S122
+  e: E122?
+  s: U8
+
+enum E123
+  some(x: S122)
+  empty
+
+struct S123
+  e: E123?
+  s: U8
+
+enum E124
+  some(x: S123)
+  empty
+
+struct S124
+  e: E124?
+  s: U8
+
+enum E125
+  some(x: S124)
+  empty
+
+struct S125
+  e: E125?
+  s: U8
+
+enum E126
+  some(x: S125)
+  empty
+
+struct S126
+  e: E126?
+  s: U8
+
+enum E127
+  some(x: S126)
+  empty
+
+struct S127
+  e: E127?
+  s: U8
+
+enum E128
+  some(x: S127)
+  empty
+
+struct S128
+  e: E128?
+  s: U8
+
+enum E129
+  some(x: S128)
+  empty
+
+struct S129
+  e: E129?
+  s: U8
+
+enum E130
+  some(x: S129)
+  empty
+
+struct S130
+  e: E130?
+  s: U8
+
+enum E131
+  some(x: S130)
+  empty
+
+struct S131
+  e: E131?
+  s: U8
+
+enum E132
+  some(x: S131)
+  empty
+
+struct S132
+  e: E132?
+  s: U8
+
+enum E133
+  some(x: S132)
+  empty
+
+struct S133
+  e: E133?
+  s: U8
+
+enum E134
+  some(x: S133)
+  empty
+
+struct S134
+  e: E134?
+  s: U8
+
+enum E135
+  some(x: S134)
+  empty
+
+struct S135
+  e: E135?
+  s: U8
+
+enum E136
+  some(x: S135)
+  empty
+
+struct S136
+  e: E136?
+  s: U8
+
+enum E137
+  some(x: S136)
+  empty
+
+struct S137
+  e: E137?
+  s: U8
+
+enum E138
+  some(x: S137)
+  empty
+
+struct S138
+  e: E138?
+  s: U8
+
+enum E139
+  some(x: S138)
+  empty
+
+struct S139
+  e: E139?
+  s: U8
+
+enum E140
+  some(x: S139)
+  empty
+
+struct S140
+  e: E140?
+  s: U8
+
+enum E141
+  some(x: S140)
+  empty
+
+struct S141
+  e: E141?
+  s: U8
+
+enum E142
+  some(x: S141)
+  empty
+
+struct S142
+  e: E142?
+  s: U8
+
+enum E143
+  some(x: S142)
+  empty
+
+struct S143
+  e: E143?
+  s: U8
+
+enum E144
+  some(x: S143)
+  empty
+
+struct S144
+  e: E144?
+  s: U8
+
+enum E145
+  some(x: S144)
+  empty
+
+struct S145
+  e: E145?
+  s: U8
+
+enum E146
+  some(x: S145)
+  empty
+
+struct S146
+  e: E146?
+  s: U8
+
+enum E147
+  some(x: S146)
+  empty
+
+struct S147
+  e: E147?
+  s: U8
+
+enum E148
+  some(x: S147)
+  empty
+
+struct S148
+  e: E148?
+  s: U8
+
+enum E149
+  some(x: S148)
+  empty
+
+struct S149
+  e: E149?
+  s: U8
+
+enum E150
+  some(x: S149)
+  empty
+
+struct S150
+  e: E150?
+  s: U8
+
+enum E151
+  some(x: S150)
+  empty
+
+struct S151
+  e: E151?
+  s: U8
+
+enum E152
+  some(x: S151)
+  empty
+
+struct S152
+  e: E152?
+  s: U8
+
+enum E153
+  some(x: S152)
+  empty
+
+struct S153
+  e: E153?
+  s: U8
+
+enum E154
+  some(x: S153)
+  empty
+
+struct S154
+  e: E154?
+  s: U8
+
+enum E155
+  some(x: S154)
+  empty
+
+struct S155
+  e: E155?
+  s: U8
+
+enum E156
+  some(x: S155)
+  empty
+
+struct S156
+  e: E156?
+  s: U8
+
+enum E157
+  some(x: S156)
+  empty
+
+struct S157
+  e: E157?
+  s: U8
+
+enum E158
+  some(x: S157)
+  empty
+
+struct S158
+  e: E158?
+  s: U8
+
+enum E159
+  some(x: S158)
+  empty
+
+struct S159
+  e: E159?
+  s: U8
+
+enum E160
+  some(x: S159)
+  empty
+
+struct S160
+  e: E160?
+  s: U8
+
+enum E161
+  some(x: S160)
+  empty
+
+struct S161
+  e: E161?
+  s: U8
+
+enum E162
+  some(x: S161)
+  empty
+
+struct S162
+  e: E162?
+  s: U8
+
+enum E163
+  some(x: S162)
+  empty
+
+struct S163
+  e: E163?
+  s: U8
+
+enum E164
+  some(x: S163)
+  empty
+
+struct S164
+  e: E164?
+  s: U8
+
+enum E165
+  some(x: S164)
+  empty
+
+struct S165
+  e: E165?
+  s: U8
+
+enum E166
+  some(x: S165)
+  empty
+
+struct S166
+  e: E166?
+  s: U8
+
+enum E167
+  some(x: S166)
+  empty
+
+struct S167
+  e: E167?
+  s: U8
+
+enum E168
+  some(x: S167)
+  empty
+
+struct S168
+  e: E168?
+  s: U8
+
+enum E169
+  some(x: S168)
+  empty
+
+struct S169
+  e: E169?
+  s: U8
+
+enum E170
+  some(x: S169)
+  empty
+
+struct S170
+  e: E170?
+  s: U8
+
+enum E171
+  some(x: S170)
+  empty
+
+struct S171
+  e: E171?
+  s: U8
+
+enum E172
+  some(x: S171)
+  empty
+
+struct S172
+  e: E172?
+  s: U8
+
+enum E173
+  some(x: S172)
+  empty
+
+struct S173
+  e: E173?
+  s: U8
+
+enum E174
+  some(x: S173)
+  empty
+
+struct S174
+  e: E174?
+  s: U8
+
+enum E175
+  some(x: S174)
+  empty
+
+struct S175
+  e: E175?
+  s: U8
+
+enum E176
+  some(x: S175)
+  empty
+
+struct S176
+  e: E176?
+  s: U8
+
+enum E177
+  some(x: S176)
+  empty
+
+struct S177
+  e: E177?
+  s: U8
+
+enum E178
+  some(x: S177)
+  empty
+
+struct S178
+  e: E178?
+  s: U8
+
+enum E179
+  some(x: S178)
+  empty
+
+struct S179
+  e: E179?
+  s: U8
+
+enum E180
+  some(x: S179)
+  empty
+
+struct S180
+  e: E180?
+  s: U8
+
+enum E181
+  some(x: S180)
+  empty
+
+struct S181
+  e: E181?
+  s: U8
+
+enum E182
+  some(x: S181)
+  empty
+
+struct S182
+  e: E182?
+  s: U8
+
+enum E183
+  some(x: S182)
+  empty
+
+struct S183
+  e: E183?
+  s: U8
+
+enum E184
+  some(x: S183)
+  empty
+
+struct S184
+  e: E184?
+  s: U8
+
+enum E185
+  some(x: S184)
+  empty
+
+struct S185
+  e: E185?
+  s: U8
+
+enum E186
+  some(x: S185)
+  empty
+
+struct S186
+  e: E186?
+  s: U8
+
+enum E187
+  some(x: S186)
+  empty
+
+struct S187
+  e: E187?
+  s: U8
+
+enum E188
+  some(x: S187)
+  empty
+
+struct S188
+  e: E188?
+  s: U8
+
+enum E189
+  some(x: S188)
+  empty
+
+struct S189
+  e: E189?
+  s: U8
+
+enum E190
+  some(x: S189)
+  empty
+
+struct S190
+  e: E190?
+  s: U8
+
+enum E191
+  some(x: S190)
+  empty
+
+struct S191
+  e: E191?
+  s: U8
+
+enum E192
+  some(x: S191)
+  empty
+
+struct S192
+  e: E192?
+  s: U8
+
+enum E193
+  some(x: S192)
+  empty
+
+struct S193
+  e: E193?
+  s: U8
+
+enum E194
+  some(x: S193)
+  empty
+
+struct S194
+  e: E194?
+  s: U8
+
+enum E195
+  some(x: S194)
+  empty
+
+struct S195
+  e: E195?
+  s: U8
+
+enum E196
+  some(x: S195)
+  empty
+
+struct S196
+  e: E196?
+  s: U8
+
+enum E197
+  some(x: S196)
+  empty
+
+struct S197
+  e: E197?
+  s: U8
+
+enum E198
+  some(x: S197)
+  empty
+
+struct S198
+  e: E198?
+  s: U8
+
+enum E199
+  some(x: S198)
+  empty
+
+struct S199
+  e: E199?
+  s: U8
+
+enum E200
+  some(x: S199)
+  empty
+
+struct S200
+  e: E200?
+  s: U8
+
+enum E201
+  some(x: S200)
+  empty
+
+struct S201
+  e: E201?
+  s: U8
+
+enum E202
+  some(x: S201)
+  empty
+
+struct S202
+  e: E202?
+  s: U8
+
+enum E203
+  some(x: S202)
+  empty
+
+struct S203
+  e: E203?
+  s: U8
+
+enum E204
+  some(x: S203)
+  empty
+
+struct S204
+  e: E204?
+  s: U8
+
+enum E205
+  some(x: S204)
+  empty
+
+struct S205
+  e: E205?
+  s: U8
+
+enum E206
+  some(x: S205)
+  empty
+
+struct S206
+  e: E206?
+  s: U8
+
+enum E207
+  some(x: S206)
+  empty
+
+struct S207
+  e: E207?
+  s: U8
+
+enum E208
+  some(x: S207)
+  empty
+
+struct S208
+  e: E208?
+  s: U8
+
+enum E209
+  some(x: S208)
+  empty
+
+struct S209
+  e: E209?
+  s: U8
+
+enum E210
+  some(x: S209)
+  empty
+
+struct S210
+  e: E210?
+  s: U8
+
+enum E211
+  some(x: S210)
+  empty
+
+struct S211
+  e: E211?
+  s: U8
+
+enum E212
+  some(x: S211)
+  empty
+
+struct S212
+  e: E212?
+  s: U8
+
+enum E213
+  some(x: S212)
+  empty
+
+struct S213
+  e: E213?
+  s: U8
+
+enum E214
+  some(x: S213)
+  empty
+
+struct S214
+  e: E214?
+  s: U8
+
+enum E215
+  some(x: S214)
+  empty
+
+struct S215
+  e: E215?
+  s: U8
+
+enum E216
+  some(x: S215)
+  empty
+
+struct S216
+  e: E216?
+  s: U8
+
+enum E217
+  some(x: S216)
+  empty
+
+struct S217
+  e: E217?
+  s: U8
+
+enum E218
+  some(x: S217)
+  empty
+
+struct S218
+  e: E218?
+  s: U8
+
+enum E219
+  some(x: S218)
+  empty
+
+struct S219
+  e: E219?
+  s: U8
+
+enum E220
+  some(x: S219)
+  empty
+
+struct S220
+  e: E220?
+  s: U8
+
+enum E221
+  some(x: S220)
+  empty
+
+struct S221
+  e: E221?
+  s: U8
+
+enum E222
+  some(x: S221)
+  empty
+
+struct S222
+  e: E222?
+  s: U8
+
+enum E223
+  some(x: S222)
+  empty
+
+struct S223
+  e: E223?
+  s: U8
+
+enum E224
+  some(x: S223)
+  empty
+
+struct S224
+  e: E224?
+  s: U8
+
+enum E225
+  some(x: S224)
+  empty
+
+struct S225
+  e: E225?
+  s: U8
+
+enum E226
+  some(x: S225)
+  empty
+
+struct S226
+  e: E226?
+  s: U8
+
+enum E227
+  some(x: S226)
+  empty
+
+struct S227
+  e: E227?
+  s: U8
+
+enum E228
+  some(x: S227)
+  empty
+
+struct S228
+  e: E228?
+  s: U8
+
+enum E229
+  some(x: S228)
+  empty
+
+struct S229
+  e: E229?
+  s: U8
+
+enum E230
+  some(x: S229)
+  empty
+
+struct S230
+  e: E230?
+  s: U8
+
+enum E231
+  some(x: S230)
+  empty
+
+struct S231
+  e: E231?
+  s: U8
+
+enum E232
+  some(x: S231)
+  empty
+
+struct S232
+  e: E232?
+  s: U8
+
+enum E233
+  some(x: S232)
+  empty
+
+struct S233
+  e: E233?
+  s: U8
+
+enum E234
+  some(x: S233)
+  empty
+
+struct S234
+  e: E234?
+  s: U8
+
+enum E235
+  some(x: S234)
+  empty
+
+struct S235
+  e: E235?
+  s: U8
+
+enum E236
+  some(x: S235)
+  empty
+
+struct S236
+  e: E236?
+  s: U8
+
+enum E237
+  some(x: S236)
+  empty
+
+struct S237
+  e: E237?
+  s: U8
+
+enum E238
+  some(x: S237)
+  empty
+
+struct S238
+  e: E238?
+  s: U8
+
+enum E239
+  some(x: S238)
+  empty
+
+struct S239
+  e: E239?
+  s: U8
+
+enum E240
+  some(x: S239)
+  empty
+
+struct S240
+  e: E240?
+  s: U8
+
+enum E241
+  some(x: S240)
+  empty
+
+struct S241
+  e: E241?
+  s: U8
+
+enum E242
+  some(x: S241)
+  empty
+
+struct S242
+  e: E242?
+  s: U8
+
+enum E243
+  some(x: S242)
+  empty
+
+struct S243
+  e: E243?
+  s: U8
+
+enum E244
+  some(x: S243)
+  empty
+
+struct S244
+  e: E244?
+  s: U8
+
+enum E245
+  some(x: S244)
+  empty
+
+struct S245
+  e: E245?
+  s: U8
+
+enum E246
+  some(x: S245)
+  empty
+
+struct S246
+  e: E246?
+  s: U8
+
+enum E247
+  some(x: S246)
+  empty
+
+struct S247
+  e: E247?
+  s: U8
+
+enum E248
+  some(x: S247)
+  empty
+
+struct S248
+  e: E248?
+  s: U8
+
+enum E249
+  some(x: S248)
+  empty
+
+struct S249
+  e: E249?
+  s: U8
+
+enum E250
+  some(x: S249)
+  empty
+
+struct S250
+  e: E250?
+  s: U8
+
+enum E251
+  some(x: S250)
+  empty
+
+struct S251
+  e: E251?
+  s: U8
+
+enum E252
+  some(x: S251)
+  empty
+
+struct S252
+  e: E252?
+  s: U8
+
+enum E253
+  some(x: S252)
+  empty
+
+struct S253
+  e: E253?
+  s: U8
+
+enum E254
+  some(x: S253)
+  empty
+
+struct S254
+  e: E254?
+  s: U8
+
+enum E255
+  some(x: S254)
+  empty
+
+struct S255
+  e: E255?
+  s: U8
+
+enum E256
+  some(x: S255)
+  empty
+
+struct S256
+  e: E256?
+  s: U8
+
+enum E257
+  some(x: S256)
+  empty
+
+struct S257
+  e: E257?
+  s: U8
+
+enum E258
+  some(x: S257)
+  empty
+
+struct S258
+  e: E258?
+  s: U8
+
+enum E259
+  some(x: S258)
+  empty
+
+struct S259
+  e: E259?
+  s: U8
+
+enum E260
+  some(x: S259)
+  empty
+
+struct S260
+  e: E260?
+  s: U8
+
+enum E261
+  some(x: S260)
+  empty
+
+struct S261
+  e: E261?
+  s: U8
+
+enum E262
+  some(x: S261)
+  empty
+
+struct S262
+  e: E262?
+  s: U8
+
+enum E263
+  some(x: S262)
+  empty
+
+struct S263
+  e: E263?
+  s: U8
+
+enum E264
+  some(x: S263)
+  empty
+
+struct S264
+  e: E264?
+  s: U8
+
+enum E265
+  some(x: S264)
+  empty
+
+struct S265
+  e: E265?
+  s: U8
+
+enum E266
+  some(x: S265)
+  empty
+
+struct S266
+  e: E266?
+  s: U8
+
+enum E267
+  some(x: S266)
+  empty
+
+struct S267
+  e: E267?
+  s: U8
+
+enum E268
+  some(x: S267)
+  empty
+
+struct S268
+  e: E268?
+  s: U8
+
+enum E269
+  some(x: S268)
+  empty
+
+struct S269
+  e: E269?
+  s: U8
+
+enum E270
+  some(x: S269)
+  empty
+
+struct S270
+  e: E270?
+  s: U8
+
+enum E271
+  some(x: S270)
+  empty
+
+struct S271
+  e: E271?
+  s: U8
+
+enum E272
+  some(x: S271)
+  empty
+
+struct S272
+  e: E272?
+  s: U8
+
+enum E273
+  some(x: S272)
+  empty
+
+struct S273
+  e: E273?
+  s: U8
+
+enum E274
+  some(x: S273)
+  empty
+
+struct S274
+  e: E274?
+  s: U8
+
+enum E275
+  some(x: S274)
+  empty
+
+struct S275
+  e: E275?
+  s: U8
+
+enum E276
+  some(x: S275)
+  empty
+
+struct S276
+  e: E276?
+  s: U8
+
+enum E277
+  some(x: S276)
+  empty
+
+struct S277
+  e: E277?
+  s: U8
+
+enum E278
+  some(x: S277)
+  empty
+
+struct S278
+  e: E278?
+  s: U8
+
+enum E279
+  some(x: S278)
+  empty
+
+struct S279
+  e: E279?
+  s: U8
+
+enum E280
+  some(x: S279)
+  empty
+
+struct S280
+  e: E280?
+  s: U8
+
+enum E281
+  some(x: S280)
+  empty
+
+struct S281
+  e: E281?
+  s: U8
+
+enum E282
+  some(x: S281)
+  empty
+
+struct S282
+  e: E282?
+  s: U8
+
+enum E283
+  some(x: S282)
+  empty
+
+struct S283
+  e: E283?
+  s: U8
+
+enum E284
+  some(x: S283)
+  empty
+
+struct S284
+  e: E284?
+  s: U8
+
+enum E285
+  some(x: S284)
+  empty
+
+struct S285
+  e: E285?
+  s: U8
+
+enum E286
+  some(x: S285)
+  empty
+
+struct S286
+  e: E286?
+  s: U8
+
+enum E287
+  some(x: S286)
+  empty
+
+struct S287
+  e: E287?
+  s: U8
+
+enum E288
+  some(x: S287)
+  empty
+
+struct S288
+  e: E288?
+  s: U8
+
+enum E289
+  some(x: S288)
+  empty
+
+struct S289
+  e: E289?
+  s: U8
+
+enum E290
+  some(x: S289)
+  empty
+
+struct S290
+  e: E290?
+  s: U8
+
+enum E291
+  some(x: S290)
+  empty
+
+struct S291
+  e: E291?
+  s: U8
+
+enum E292
+  some(x: S291)
+  empty
+
+struct S292
+  e: E292?
+  s: U8
+
+enum E293
+  some(x: S292)
+  empty
+
+struct S293
+  e: E293?
+  s: U8
+
+enum E294
+  some(x: S293)
+  empty
+
+struct S294
+  e: E294?
+  s: U8
+
+enum E295
+  some(x: S294)
+  empty
+
+struct S295
+  e: E295?
+  s: U8
+
+enum E296
+  some(x: S295)
+  empty
+
+struct S296
+  e: E296?
+  s: U8
+
+enum E297
+  some(x: S296)
+  empty
+
+struct S297
+  e: E297?
+  s: U8
+
+enum E298
+  some(x: S297)
+  empty
+
+struct S298
+  e: E298?
+  s: U8
+
+enum E299
+  some(x: S298)
+  empty
+
+struct S299
+  e: E299?
+  s: U8
+
+sub main()
+  a: S299? = none
+  b: S299? = none
+  print(a == b)

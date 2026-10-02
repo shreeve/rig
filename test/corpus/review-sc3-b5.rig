@@ -1,0 +1,10 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+sub main
+  o: Res? = Res(id: 1)
+  if !o as x and o == none
+    print(x.id)

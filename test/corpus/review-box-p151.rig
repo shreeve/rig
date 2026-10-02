@@ -1,0 +1,17 @@
+struct W[T]
+  v: T
+
+  fun eat(<self) -> Int
+    3
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  b = Box(value: W(v: 3))
+  print(<b.eat())
+  c = Box(value: W(v: R(n: 4)))
+  print(<c.eat())

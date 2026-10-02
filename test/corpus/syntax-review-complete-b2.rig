@@ -1,0 +1,8 @@
+struct Node
+  v: Int
+
+sub main
+  v: Vec[*Node] = Vec()
+  !v.push(*Node(v: 1))
+  r = ?v[0]
+  print(r.v)

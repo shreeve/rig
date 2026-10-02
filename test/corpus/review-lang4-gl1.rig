@@ -1,0 +1,15 @@
+struct V
+  r: ?Int
+
+struct H
+  w: !V
+
+x = V(r: none)
+h = H(w: !x)
+
+sub put(k: Int)
+  h.w = V(r: ?k)
+
+sub main
+  put(4)
+  print(x.r)

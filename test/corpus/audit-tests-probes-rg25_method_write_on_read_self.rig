@@ -1,0 +1,10 @@
+struct C
+  n: Int
+
+  fun get(?self) -> Int
+    self.n = 3
+    self.n
+
+sub main
+  c = C(n: 0)
+  print(c.get())

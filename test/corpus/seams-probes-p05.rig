@@ -1,0 +1,8 @@
+fun size(s: String) -> Int
+  s.len
+
+sub main
+  k = 3
+  match k
+    3 if size(?Text("abc")) == 3 => print("guard")
+    _ => print("other")

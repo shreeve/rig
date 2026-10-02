@@ -1346,6 +1346,8 @@ pub const Emitter = struct {
 
     /// Assignment to a field or element. When the place may hold a
     /// resource, the old value is dropped after the new one is computed.
+    /// The value and the target's indices are evaluated first
+    /// (`openAssign`).
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
         // A field or element holding a write borrow is written through
         // when it is given a value, not another write borrow (sema
@@ -1353,38 +1355,122 @@ pub const Emitter = struct {
         const through = self.sema.writesThrough(target);
         const place_ty = if (through) self.peelBorrows(self.typeOf(target).?) else self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
+            const order = try self.openAssign(target, value, self.typeOf(target), .value);
             try self.emitCellPtr(ir.Index.object(target));
             try self.w.writeAll(".vecSet(");
             try self.emitBare(ir.Index.index(target));
             try self.w.writeAll(", ");
             try self.emitBare(value);
-            return self.w.writeAll(");");
+            try self.w.writeAll(");");
+            return self.closeAssign(order);
         };
         if (target != .src and self.isPtrBorrowExpr(target) and !through) {
             // A field or element holding a write borrow is rebound.
+            const order = try self.openAssign(target, value, null, .borrow);
             try self.emitBorrowValue(target);
             try self.w.writeAll(" = ");
             try self.emitBorrowValue(value);
-            return self.w.writeAll(";");
+            try self.w.writeAll(";");
+            return self.closeAssign(order);
         }
         const may_own = if (place_ty) |t| self.kindOf(t) != null else true;
         if (!may_own) {
+            const order = try self.openAssign(target, value, place_ty, .value);
             try self.emitPlace(target);
             try self.w.writeAll(" = ");
             try self.emitBare(value);
             try self.w.writeAll(";");
-            return;
+            return self.closeAssign(order);
         }
         const id = try self.openNewValue(place_ty, value);
-        try self.w.print("; const __rig_slot_{d} = &", .{id});
+        try self.w.writeAll("; ");
+        const first = self.hoisted.items.len;
+        if (actsBeforeStore(target, value)) try self.hoistIndices(target, id);
+        try self.w.print("const __rig_slot_{d} = &", .{id});
         try self.emitPlace(target);
+        self.hoisted.shrinkRetainingCapacity(first);
         try self.w.print("; rig.drop(__rig_slot_{d}); __rig_slot_{d}.* = __rig_new_{d}; }}", .{ id, id, id });
     }
 
-    /// `x op= e` on a name or place, with the place evaluated once. The
-    /// operators that lower to a builtin (`@divTrunc` for integer `/`,
-    /// `@rem`, `@shlExact`) assign the builtin's result; the others use
-    /// Zig's own compound assignment.
+    /// How `openAssign` evaluates an assignment's value: as a value, or
+    /// as the borrow a borrow-holding place is pointed at.
+    const AssignValue = enum { value, borrow };
+
+    /// Every assignment evaluates its value first, then its target's
+    /// index expressions from the outside in, and only then finds the
+    /// place and stores (SPEC §4), which is the order the ownership
+    /// checker walks it in: a call in the value that grows, replaces, or
+    /// frees what the target lies in cannot leave the store pointing
+    /// into freed memory. When the value or an index can act (a call,
+    /// an assignment, a drop, or a jump), this opens a block and
+    /// evaluates the value into `__rig_new_N` and each index into
+    /// `__rig_ix_N_k`, unless it is pure; the store written next names
+    /// them. Returns what `closeAssign` needs, or null when nothing can
+    /// act and the order is unobservable.
+    fn openAssign(self: *Emitter, target: Sexp, value: Sexp, ty: ?TypeId, how: AssignValue) Error!?usize {
+        if (!actsBeforeStore(target, value)) return null;
+        const first = self.hoisted.items.len;
+        const id = self.nextId();
+        try self.w.writeAll("{ ");
+        if (!self.isPureArg(value)) {
+            const name = try self.fmt("__rig_new_{d}", .{id});
+            try self.w.print("const {s}", .{name});
+            if (ty) |t| {
+                try self.w.writeAll(": ");
+                try self.emitTypeTy(t);
+            }
+            try self.w.writeAll(" = ");
+            if (how == .borrow) try self.emitBorrowValue(value) else try self.emitBare(value);
+            try self.w.writeAll("; ");
+            try self.hoisted.append(self.allocator, .{ .node = value, .name = name });
+        }
+        try self.hoistIndices(target, id);
+        return first;
+    }
+
+    fn closeAssign(self: *Emitter, order: ?usize) Error!void {
+        const first = order orelse return;
+        self.hoisted.shrinkRetainingCapacity(first);
+        try self.w.writeAll(" }");
+    }
+
+    /// Evaluate each index of place `e` that is not pure into
+    /// `__rig_ix_<id>_<k>`, from the outside in, as `openAssign`
+    /// describes.
+    fn hoistIndices(self: *Emitter, e: Sexp, id: u32) Error!void {
+        switch (e.kind() orelse return) {
+            .member => try self.hoistIndices(ir.Member.object(e), id),
+            .index => {
+                try self.hoistIndices(ir.Index.object(e), id);
+                const index = ir.Index.index(e);
+                if (!index.isKind(.@"..")) return self.hoistIndex(index, id);
+                for ([2]Sexp{ ir.@"..".left(index), ir.@"..".right(index) }) |bound| if (bound != .nil) try self.hoistIndex(bound, id);
+            },
+            else => {},
+        }
+    }
+
+    fn hoistIndex(self: *Emitter, index: Sexp, id: u32) Error!void {
+        if (self.isPureArg(index)) return;
+        const name = try self.fmt("__rig_ix_{d}_{d}", .{ id, self.hoisted.items.len });
+        try self.w.print("const {s}", .{name});
+        if (self.typeOf(index)) |t| {
+            try self.w.writeAll(": ");
+            try self.emitTypeTy(t);
+        }
+        try self.w.writeAll(" = ");
+        const saved = self.place_chain;
+        defer self.place_chain = saved;
+        self.place_chain = false;
+        try self.emitBare(index);
+        try self.w.writeAll("; ");
+        try self.hoisted.append(self.allocator, .{ .node = index, .name = name });
+    }
+
+    /// `x op= e` on a name or place, with the place evaluated once, after
+    /// `e` (`openAssign`). The operators that lower to a builtin
+    /// (`@divTrunc` for integer `/`, `@rem`, `@shlExact`) assign the
+    /// builtin's result; the others use Zig's own compound assignment.
     fn emitCompound(self: *Emitter, target: Sexp, op: Tag, value: Sexp) Error!void {
         const builtin: ?[]const u8 = switch (op) {
             .@"/", .@"%" => self.divBuiltin(op, target, value),
@@ -1392,6 +1478,9 @@ pub const Emitter = struct {
             else => null,
         };
         const shift = op == .@"<<" or op == .@">>";
+        // The value of a shift is its amount, of any integer type.
+        const value_ty = self.typeOf(if (shift) value else target);
+        const order = try self.openAssign(target, value, if (value_ty) |t| self.peelBorrows(t) else null, .value);
         if (builtin) |b| {
             var slot: []const u8 = "";
             if (target == .src) {
@@ -1409,7 +1498,7 @@ pub const Emitter = struct {
             try self.emitBare(value);
             if (shift) try self.w.writeAll(")");
             try self.w.writeAll(if (target == .src) ");" else "); }");
-            return;
+            return self.closeAssign(order);
         }
         try self.emitPlace(target);
         try self.w.print(" {s}= ", .{@tagName(op)});
@@ -1417,6 +1506,7 @@ pub const Emitter = struct {
         try self.emitBare(value);
         if (shift) try self.w.writeAll(")");
         try self.w.writeAll(";");
+        return self.closeAssign(order);
     }
 
     /// An assignable place: a binding, field, or element.
@@ -3469,8 +3559,10 @@ pub const Emitter = struct {
             try self.emitBare(index);
             return self.w.writeAll(")");
         }
-        if (base_ty != null and self.isVecTy(base_ty.?)) {
-            try self.emitExpr(base);
+        // A shared handle's element is its value's.
+        const held_ty: ?TypeId = if (base_ty) |t| sema.unwrapReadAccess(self.sema, t) else null;
+        if (held_ty != null and self.isVecTy(held_ty.?)) {
+            try self.emitIndexBase(base, base_ty, .expr);
             try self.w.writeAll(if (!as_place) ".at(" else if (self.read_place) ".constSlot(" else ".slot(");
             // The index itself is a value, even inside an assignment target.
             self.place_chain = false;
@@ -3478,7 +3570,7 @@ pub const Emitter = struct {
             try self.w.writeAll(if (as_place) ").*" else ")");
             return;
         }
-        const array_len: ?TypeId = if (base_ty) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
+        const array_len: ?TypeId = if (held_ty) |t| switch (self.sema.types.get(t)) {
             .array => |a| a.len,
             else => null,
         } else null;
@@ -3488,14 +3580,14 @@ pub const Emitter = struct {
             // is assigned through.
             if (as_place) {
                 try self.w.writeAll("rig.elemPtr(");
-                try self.emitBare(base);
+                try self.emitIndexBase(base, base_ty, .bare);
                 try self.w.writeAll(", ");
                 self.place_chain = false;
                 try self.emitBare(index);
                 return self.w.writeAll(").*");
             }
             try self.w.writeAll("rig.at(");
-            try self.emitBare(base);
+            try self.emitIndexBase(base, base_ty, .bare);
             try self.w.writeAll(", ");
             self.place_chain = false;
             try self.emitBare(index);
@@ -3512,7 +3604,7 @@ pub const Emitter = struct {
             try self.w.writeAll("rig.elems(");
             const saved_read = self.read_place;
             if (!as_place) self.read_place = true;
-            try self.emitAddressOf(base);
+            try self.emitIndexBase(base, base_ty, .address);
             self.read_place = saved_read;
             try self.w.writeAll(")[rig.index(");
             self.place_chain = false;
@@ -3524,7 +3616,7 @@ pub const Emitter = struct {
         // An array literal is indexed through parentheses: `([_]T{ ... })[i]`.
         const literal = base.isKind(.array);
         if (literal) try self.w.writeAll("(");
-        try self.emitExpr(base);
+        try self.emitIndexBase(base, base_ty, .expr);
         if (literal) try self.w.writeAll(")");
         try self.w.writeAll("[");
         self.place_chain = false;
@@ -3539,6 +3631,22 @@ pub const Emitter = struct {
             try self.w.writeAll(")");
         }
         try self.w.writeAll("]");
+    }
+
+    /// The object `base` of an index, emitted `how` the index needs it. A
+    /// shared handle is read through its value, as a member read reaches
+    /// through it (`writeReach`).
+    fn emitIndexBase(self: *Emitter, base: Sexp, base_ty: ?TypeId, how: enum { expr, bare, address }) Error!void {
+        if (base_ty) |t| if (self.sema.types.get(self.peelBorrows(t)) == .shared) {
+            if (how == .address) try self.w.writeAll("&");
+            try self.emitMemberBase(base, t);
+            return self.writeReach(t);
+        };
+        switch (how) {
+            .expr => try self.emitExpr(base),
+            .bare => try self.emitBare(base),
+            .address => try self.emitAddressOf(base),
+        }
     }
 
     /// `xs[a..b]` → `rig.slice(items, a, b)`, which checks the bounds;
@@ -3690,8 +3798,15 @@ pub const Emitter = struct {
             if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
             return self.writeLocalPlace(local);
         };
+        // A value that branches is read as its Rig type: Zig would take
+        // a field of each branch's own type (a literal's, a String's).
+        if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (obj_ty) |t| {
+            try self.writeAsOpen(t);
+            try self.emitExpr(o);
+            return self.w.writeAll(")");
+        };
         const needs_parens = if (o.kind()) |h| switch (h) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"if", .match, .@"??", .@"catch", .propagate, .call, .array => true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .propagate, .call, .array => true,
             else => false,
         } else false;
         if (needs_parens) try self.w.writeAll("(");
@@ -4698,13 +4813,47 @@ pub const Emitter = struct {
     }
 
     /// `print(a, b)`: the runtime writes each value the way Rig spells it.
+    /// It reads a place that owns storage when it is called, after every
+    /// argument has run, as the ownership checker holds it
+    /// (`holdArgRead`): such a place goes by address, so a later argument
+    /// that changes it through a Cell leaves no copy of what it frees.
+    /// Plain data is copied whole where it is read.
     fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {
-        try self.w.writeAll("rig.print(.{");
+        try self.w.writeAll("rig.print(");
+        try self.emitPrintArgs(args);
+        try self.w.writeAll(")");
+    }
+
+    /// The tuple of values the runtime's writer reads: `.{ a, &b }`.
+    fn emitPrintArgs(self: *Emitter, args: []const Sexp) Error!void {
+        try self.w.writeAll(".{");
         for (args, 0..) |a, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
-            try self.emitBare(a);
+            if (self.printsByAddress(a)) {
+                const saved_read = self.read_place;
+                defer self.read_place = saved_read;
+                self.read_place = true;
+                try self.emitAddressOf(a);
+            } else try self.emitBare(a);
         }
-        try self.w.writeAll(if (args.len > 0) " })" else "})");
+        try self.w.writeAll(if (args.len > 0) " }" else "}");
+    }
+
+    /// Whether `print` argument `a` reads a place that owns storage, or
+    /// is borrowed from one: a local, or a field or element of one (not
+    /// a slice, which is a new value).
+    fn printsByAddress(self: *Emitter, a: Sexp) bool {
+        const place = switch (a) {
+            .src => self.localOf(a) != null and self.sema.callableOf(a) == null,
+            .list => switch (a.kind() orelse return false) {
+                .member => true,
+                .index => !ir.Index.index(a).isKind(.@".."),
+                else => false,
+            },
+            else => false,
+        };
+        const ty = self.typeOf(a) orelse return false;
+        return place and self.kindOf(self.peelBorrows(ty)) != null;
     }
 
     // =========================================================================
@@ -5652,6 +5801,23 @@ fn isPlace(e: Sexp) bool {
 /// The value of a call argument: a `(kwarg name value)` stands for its value.
 fn argValue(a: Sexp) Sexp {
     return if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+}
+
+/// Whether the value of an assignment, or an index of its target, can
+/// act when it runs: call, assign, drop, or leave. Then the order of the
+/// value, the indexes, and the store is observable (`openAssign`).
+fn actsBeforeStore(target: Sexp, value: Sexp) bool {
+    const acts = &[_]Tag{ .call, .builtin, .set, .drop, .@"return", .@"break", .@"continue", .propagate, .propagate_none };
+    if (contains(value, acts)) return true;
+    var e = target;
+    while (true) switch (e.kind() orelse return false) {
+        .member => e = ir.Member.object(e),
+        .index => {
+            if (contains(ir.Index.index(e), acts)) return true;
+            e = ir.Index.object(e);
+        },
+        else => return false,
+    };
 }
 
 /// Whether `e` holds a node of one of `kinds`, outside the closures in it.

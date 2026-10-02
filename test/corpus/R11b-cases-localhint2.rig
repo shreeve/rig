@@ -1,0 +1,15 @@
+struct Wrap[T]
+  v: T
+
+  fun conv2[U](?self) -> Vec[U]
+    Vec()
+
+  fun get(?self) -> T
+    self.v
+
+sub main()
+  w = Wrap(v: 1)
+  x = w.conv2
+  y = Wrap(1)
+  z = w.get
+  print(x, y, z)

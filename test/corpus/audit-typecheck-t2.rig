@@ -1,0 +1,11 @@
+enum Mode
+  a
+  b
+
+  fun name(?self) -> Int
+    1
+
+K = Mode.name
+
+sub main()
+  print(K(Mode.a))

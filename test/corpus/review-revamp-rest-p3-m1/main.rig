@@ -1,0 +1,12 @@
+use lib
+
+sub main()
+  a: lib.Byte = 250
+  b = lib.Byte(5)
+  c = lib.Byte.max
+  d = lib.P(x: 1, y: 2)
+  e: lib.Nums = [1, 2, 3]
+  f: lib.Opt = none
+  g = lib.F.max
+  xs: [lib.N]Int = [lib.N of 0]
+  print(a, b, c, d.x, e[2], f ?? 9, xs.len, g > 1.0)

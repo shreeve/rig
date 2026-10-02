@@ -1,0 +1,50 @@
+pub struct Stack[T]
+  items: Vec[T]
+
+  sub push(!self, x: T)
+    !self.items.push(<x)
+
+  fun map[U](?self, f: fun(?T) -> U) -> Stack[U]
+    out = Stack[U](items: Vec())
+    for x in ?self.items
+      !out.push(f(?x))
+    out
+
+pub struct Node[T]
+  v: T
+  next: (*Node[T])?
+
+  fun len(?self) -> Int
+    if +self.next as n
+      return n.len() + 1
+    1
+
+pub struct Pair[A, B]
+  a: A
+  b: B
+
+  fun swap(?self) -> Pair[B, A]
+    Pair(a: self.b, b: self.a)
+
+pub struct Wrap[T]
+  v: T
+
+  fun twin(?self) -> Pair[Self, Self]
+    Pair(a: Wrap(v: self.v), b: Wrap(v: self.v))
+
+pub fun even[T](n: Int, x: T) -> Bool
+  return true if n == 0
+  odd(n - 1, x)
+
+pub fun odd[T](n: Int, x: T) -> Bool
+  return false if n == 0
+  even(n - 1, x)
+
+pub struct Grid[T, n: Int]
+  cells: [n][n]T
+
+  fun row(?self, i: Int) -> [n]T
+    self.cells[i]
+
+pub fun grid[T, n: Int](x: T) -> Grid[T, n]
+  Grid(cells: [[x; n]; n])

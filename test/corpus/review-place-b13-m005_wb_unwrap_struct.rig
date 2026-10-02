@@ -1,0 +1,13 @@
+struct P
+  x: Int
+
+sub g(p: !P)
+  p.x = 7
+
+fun f() -> Int?
+  o: P? = P(x: 1)
+  g(!o?)
+  o?.x
+
+sub main
+  print(f() ?? 0)

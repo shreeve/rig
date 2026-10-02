@@ -1,0 +1,20 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+fun eat(b: *B) -> Bool
+  b.n > 0
+
+sub main
+  s: Slot = .full(b: *B(n: 1))
+  o = *B(n: 5)
+  match <s
+    .full(b) if eat(o) => print("a")
+    _ => print("other")
+  print("end")

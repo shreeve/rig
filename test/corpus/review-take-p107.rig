@@ -1,0 +1,24 @@
+struct S
+  a: Int?
+
+struct T
+  s: S
+
+fun mk() -> S
+  S(a: 1)
+
+sub main
+  s = mk()
+  t = <s.a
+  u = T(s: mk())
+  w = <u.s.a
+  x: S = S(a: 2)
+  y = <x.a
+  z = S(a: 3)
+  q = <z.a
+  print(t, s, w, u, y, x, q, z)
+  a: [2]S = [S(a: 5), S(a: 6)]
+  for e in a
+    print(e)
+  b = <a[1].a
+  print(b, a)

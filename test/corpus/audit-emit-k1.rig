@@ -1,0 +1,23 @@
+fun odd(i: Int) -> Int?
+  return none if i % 2 == 0
+  i
+
+fun lim(i: Int) -> Int?
+  return none if i > 6
+  i
+
+sub main
+  i = 0
+  :outer while i < 10 : i += 1
+    j = 0
+    while (odd(i) ?? continue) > j : j += (lim(j) ?? break) + 1
+      print(i, j)
+  print("i", i)
+  k = 0
+  while (odd(k) ?? continue) < 9 : k += 1
+    print("k", k)
+  print("k end", k)
+  m = 0
+  while m < 5 : m += (lim(m * 3) ?? break) + 1
+    print("m", m)
+  print("m end", m)

@@ -1,0 +1,10 @@
+sub f(w2: !Int)
+  w = w2 if true else w2
+  w += 1
+  print(w)
+  x: !Int = w2 if true else w2
+  x += 1
+sub main
+  m = 3
+  f(!m)
+  print(m)

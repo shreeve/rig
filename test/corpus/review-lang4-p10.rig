@@ -1,0 +1,6 @@
+sub main
+  n = 1
+  xs = [!n]
+  for x in !xs
+    x = 5
+  print(n)

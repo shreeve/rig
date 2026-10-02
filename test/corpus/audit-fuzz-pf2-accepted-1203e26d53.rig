@@ -1,0 +1,6 @@
+fun average(total: Int, count: Int) -> Float
+  Float(total) / Float(count)
+sub main
+
+  big = 300
+  print(U8(big - 100), Int(-7.9), average(7, 2), I32(U8(255)) + 1)

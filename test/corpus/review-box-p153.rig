@@ -1,0 +1,23 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+error E
+  bad
+
+fun mk(k: Int) -> Box[R]!
+  b = Box(value: R(n: k))
+  return E.bad if k > 1
+  b
+
+fun usex(k: Int) -> Int!
+  b = mk(k)!
+  b.n
+
+sub main
+  b = mk(1) catch Box(value: R(n: 0))
+  c = mk(2) catch Box(value: R(n: 9))
+  print(b.n, c.n)
+  print(usex(1) catch -1, usex(2) catch -1)

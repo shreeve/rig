@@ -1,0 +1,3 @@
+A: U8 = 200 + 100
+sub main()
+  print(A)

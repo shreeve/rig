@@ -1,0 +1,9 @@
+struct Hidden[T]
+  v: T
+
+  fun m(?self) -> Int
+    f(Hidden(v: self.v))
+
+pub fun f[T](x: T) -> Int
+  h = Hidden(v: x)
+  1

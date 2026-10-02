@@ -1,0 +1,25 @@
+struct R
+  v: Vec[Int]
+
+fun a(o: ?R?) -> Int
+  if <o as x
+    return x.v.len
+  0
+
+fun b(o: ?R?) -> Int
+  for _ in 0..2
+    x = <o ?? break
+    return x.v.len
+  0
+
+fun c(o: !R?) -> Int
+  x = <o ?? return 0
+  x.v.len
+
+fun d(o: ?(R?)?) -> Int
+  x = <o ?? return 0
+  0
+
+sub main()
+  o: R? = R(v: Vec())
+  print(a(?o), b(?o), c(!o))

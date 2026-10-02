@@ -1,0 +1,13 @@
+struct Node
+  v: Int
+  next: Box[Node]?
+
+sub main
+  head: Box[Node]? = none
+  for i in [1, 2, 3]
+    head = Box(value: Node(v: i, next: <head))
+  cur = !head
+  while !cur as n
+    n.v += 10
+    cur = !n.next
+  print(head)

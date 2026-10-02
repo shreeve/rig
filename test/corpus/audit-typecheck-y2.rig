@@ -1,0 +1,10 @@
+struct S
+  f: Int?
+
+sub t(b: ?Box[S])
+  y = <b.f
+  print(y ?? 0)
+
+sub main()
+  b = Box(S(f: 3))
+  t(?b)

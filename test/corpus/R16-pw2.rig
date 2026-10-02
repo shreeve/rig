@@ -1,0 +1,18 @@
+struct Wrap
+  n: Int
+
+sub f(w: !Wrap)
+  g = |?w| w.n
+  print(g())
+  w.n = 5
+  h = |?w| w.n
+  print(h())
+  k = |!w|
+    w.n += 1
+  k()
+  print(w.n)
+
+sub main
+  a = Wrap(n: 1)
+  f(!a)
+  print(a.n)

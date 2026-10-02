@@ -1,0 +1,6 @@
+sub main
+  grid: Vec[Vec[Int]] = Vec()
+  row: Vec[Int] = Vec()
+  !row.push(1)
+  !grid.push(<row)
+  print(grid.len)

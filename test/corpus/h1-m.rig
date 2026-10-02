@@ -1,0 +1,17 @@
+enum E
+  red
+  blue
+struct H
+  w: !E
+  s: !String
+sub f(h: !H, e: !E, s: !String)
+  h.w = e
+  h.s = s
+sub main
+  a = E.red
+  b = E.blue
+  s = "x"
+  t = "y"
+  h = H(w: !a, s: !s)
+  f(!h, !b, !t)
+  print(a, s)

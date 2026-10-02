@@ -1,0 +1,3 @@
+sub main()
+  s = "hello"
+  !s.fill(65)

@@ -1,0 +1,11 @@
+sub take(t: Text)
+  print(t)
+
+fun f(o: Text?) -> Int?
+  _ = o?
+  take(o?)
+  1
+
+sub main
+  x: Text? = Text("hello")
+  print(f(<x) ?? 0)

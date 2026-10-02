@@ -1,0 +1,6 @@
+sub main()
+  b: [8]U8 = [8 of 0]
+  !b.write[F32, .big](0, 1e300)
+  !b.write[F64, .big](0, 1)
+  !b.write[U16, .big](0, 1.5)
+  print(b.read[F32, .big](0))

@@ -1,0 +1,13 @@
+struct P
+  x: Int
+
+fun f(p: ?P) -> Int
+  p.x
+
+fun g(n: ?Int) -> Int
+  n + 1
+
+sub main
+  p = P(x: 1)
+  n = 2
+  print(f(p), g(n))

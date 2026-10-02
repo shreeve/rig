@@ -1,0 +1,23 @@
+fun maker[T](x: T) -> *fun() -> T
+  *|<x| x
+
+fun apply[T](x: T, f: *fun(T) -> T) -> T
+  f(<x)
+
+fun each[T](v: ?Vec[T], f: fun(?T) -> Int) -> Int
+  t = 0
+  for x in v
+    t += f(?x)
+  t
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  m = maker(Res(n: 1))
+  r = m()
+  r2 = m()
+  print(r.n, r2.n)

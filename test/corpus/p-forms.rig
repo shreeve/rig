@@ -1,0 +1,37 @@
+struct P
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+    print(self.c.get())
+
+enum E
+  a(p: P)
+  b
+
+struct Q
+  p: P
+  o: P?
+  ps: [2]P
+  e: E
+
+fun mk() -> Q
+  Q(p: P(c: Cell(1)), o: P(c: Cell(2)), ps: [P(c: Cell(3)), P(c: Cell(4))], e: .a(p: P(c: Cell(5))))
+
+sub bump(p: ?P)
+  p.c.set(p.c.get() + 10)
+  print(p.c.get())
+
+sub main
+  bump(?mk().p)
+  mk().p.hit()
+  if ?mk().o as p
+    p.c.set(20)
+    print(p.c.get())
+  for x in ?mk().ps
+    print(x.c.get())
+  match ?mk().e
+    .a(p)
+      print(p.c.get())
+    .b => print("b")
+  bump(?Q(p: P(c: Cell(1)), o: none, ps: [P(c: Cell(3)), P(c: Cell(4))], e: .b).p)

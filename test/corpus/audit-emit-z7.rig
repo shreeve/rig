@@ -1,0 +1,14 @@
+struct N
+  n: Int
+
+fun bump(k: !Int) -> Int
+  k += 1
+  7
+
+sub main
+  w: Vec[Int] = Vec()
+  !w.push(1)
+  !w.push(2)
+  j = 0
+  w[j] = bump(!j)
+  print(w, j)

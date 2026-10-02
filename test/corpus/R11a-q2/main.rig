@@ -1,0 +1,11 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  print(lib.cap3(Res(n: 3)))
+  print(lib.cap(5), lib.cap3(7))

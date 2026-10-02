@@ -1,0 +1,18 @@
+use geo
+
+struct Wrap[T]
+  item: T
+
+fun eqT[T](a: ?T, b: ?T) -> Bool
+  a == b
+
+fun wrapEq[T](a: T, b: T) -> Bool
+  Wrap(item: a) == Wrap(item: b)
+
+sub main()
+  a = geo.Point(x: 1, y: 2)
+  b = geo.Point(x: 1, y: 2)
+  print(geo.check(a, b), geo.check(a, geo.Point(x: 0, y: 0)))
+  print(eqT(?a, ?b), wrapEq(a, b), Wrap(item: a) == Wrap(item: b))
+  wa = Wrap(item: Wrap(item: a))
+  print(wa == Wrap(item: Wrap(item: b)))

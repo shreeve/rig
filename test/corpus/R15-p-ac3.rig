@@ -1,0 +1,11 @@
+fun first(o: (![]Int)?) -> Int
+  if <o as s
+    s[0] = 42
+    s.len
+  else
+    0
+sub main()
+  a = [1, 2]
+  w: (![]Int)? = !a[..]
+  print(first(<w))
+  print(a)

@@ -1,0 +1,14 @@
+fun g[T](f: ?fun(T) -> Int) -> Int
+  0
+
+fun h[T](x: T, f: ?fun(T) -> T) -> T
+  f(x)
+
+fun both[T](f: ?fun() -> T, k: ?fun() -> T) -> T
+  f()
+
+sub main
+  print(g(|x| 1))
+  print(h(1, |x| x > 0))
+  print(both(|| 1, || true))
+  print(g(|x: Int| 1))

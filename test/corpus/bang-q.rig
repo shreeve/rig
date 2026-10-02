@@ -1,0 +1,10 @@
+struct P
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+sub main
+  p = P(n: 1)
+  x = ?p.get()
+  print(x)

@@ -1,0 +1,8 @@
+sub main
+  e: Vec[Int] = Vec()
+  s = ?e[..]
+  if true
+    v: Vec[Int] = Vec()
+    !v.push(7)
+    defer s = ?v[..]
+  print(s)

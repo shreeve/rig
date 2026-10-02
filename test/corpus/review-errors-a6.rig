@@ -1,0 +1,30 @@
+error Bad
+  bad
+  missing
+
+enum Color
+  red
+  missing
+
+fun parse[T](ok: Bool, x: T) -> T!
+  return Bad.bad if not ok
+  x
+
+fun cb(f: ?fun(Int) -> Color!) -> Color
+  f(1) catch .red
+
+fun rethrow(n: Int) -> Int!
+  x = parse(n > 0, n) catch |e|
+    print("rethrowing", e)
+    return e
+  x
+
+fun withdefer(n: Int) -> Int!
+  errdefer print("errdefer ran")
+  r = rethrow(n)!
+  r
+
+sub main
+  print(parse(true, 3) catch 0, parse(false, 3) catch 0)
+  print(cb(|x| .missing), cb(|x| Bad.bad if x == 1 else .missing))
+  print(withdefer(0) catch -1, withdefer(1) catch -1)

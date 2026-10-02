@@ -1,0 +1,27 @@
+struct Node
+  value: Int
+  next: Box[Node]?
+
+  drop(!self)
+    print("drop", self.value)
+
+struct Stack
+  top: Box[Node]?
+
+  fun find(!self, k: Int) -> Int?
+    while <self.top as n
+      if n.value == k
+        return n.value
+      self.top = <n.next
+      continue if n.value == 99
+      break if n.value == 2
+    none
+
+sub main
+  s = Stack(top: none)
+  for v in [1, 2, 3, 4]
+    s.top = Box(value: Node(value: v, next: <s.top))
+  print(!s.find(9))
+  print(s)
+  print(!s.find(1))
+  print(s)

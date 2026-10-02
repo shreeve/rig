@@ -1,0 +1,9 @@
+struct R
+  v: Vec[Int]
+
+sub main
+  o: R? = R(v: Vec())
+  if <o as r
+    g = |!r| !r.v.push(1)
+    g()
+    print(r.v.len)

@@ -1,0 +1,4 @@
+sub main
+  raw
+    x = @import("std")
+    print(1)

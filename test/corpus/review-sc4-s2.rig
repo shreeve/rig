@@ -1,0 +1,13 @@
+struct V
+  n: Int
+
+struct H
+  r: ?V
+  v: V
+
+sub main
+  a = V(n: 1)
+  h = H(r: ?a, v: V(n: 5))
+  w = !h
+  w = H(r: ?h.v, v: V(n: 6))
+  print(h.r.n)

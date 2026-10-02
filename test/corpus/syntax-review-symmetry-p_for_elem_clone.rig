@@ -1,0 +1,9 @@
+struct P
+  x: Int
+sub main
+  v: Vec[*P] = Vec()
+  !v.push(*P(x: 1))
+  keep: Vec[*P] = Vec()
+  for x in ?v
+    !keep.push(+x)
+  print(keep.len)

@@ -1,0 +1,8 @@
+sub f(slot: !Int?)
+  if <slot as t
+    print("got", t)
+
+sub main
+  x: Int? = 3
+  f(!x)
+  print(x)

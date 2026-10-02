@@ -1,0 +1,7 @@
+fun get(xs: ?Vec[Int], i: Int) -> Int
+  xs[i]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(get(?v, 3))

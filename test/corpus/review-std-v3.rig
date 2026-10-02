@@ -1,0 +1,3 @@
+sub main
+  v = Vec[Int]()
+  !v.insert(-1, 3)

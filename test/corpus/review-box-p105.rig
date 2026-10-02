@@ -1,0 +1,4 @@
+sub main
+  k = 3
+  b = Box(value: *|<k| k + 1)
+  print("ok")

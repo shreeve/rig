@@ -1,0 +1,23 @@
+# A counter shared between two owners, Python habits: two objects
+# holding a reference to the same counter object.
+struct Counter
+  count: Int = 0
+
+  sub increment(!self)
+    self.count += 1
+
+struct Clicker
+  name: String
+  counter: Counter
+
+  sub click(!self)
+    !self.counter.increment()
+
+sub main
+  counter = Counter()
+  left = Clicker(name: "left", counter: counter)
+  right = Clicker(name: "right", counter: counter)
+  !left.click()
+  !right.click()
+  !right.click()
+  print("total clicks:", counter.count)

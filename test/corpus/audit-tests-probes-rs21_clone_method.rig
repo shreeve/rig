@@ -1,0 +1,7 @@
+struct S
+  v: Vec[Int]
+
+sub main
+  s = S(v: Vec())
+  t = s.clone()
+  print(t.v.len)

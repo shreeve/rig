@@ -1,0 +1,14 @@
+struct P
+  a: Vec[Int]
+  n: Int
+
+fun grow(p: !P) -> Int
+  for i in 0..100
+    !p.a.push(i)
+  1
+
+sub main
+  p = P(a: Vec(), n: 0)
+  !p.a.push(7)
+  p.a[0] += grow(!p)
+  print(p.a[0], p.a.len)

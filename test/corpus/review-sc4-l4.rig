@@ -1,0 +1,16 @@
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+fun id[T](x: T) -> T
+  x
+
+sub main
+  c = Counter(n: 0)
+  w = !c
+  x = id(w)
+  !x.bump()
+  !w.bump()
+  print(c.n)

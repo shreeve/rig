@@ -1,0 +1,11 @@
+struct Hidden[T]
+  v: T
+
+pub struct Wrap[T]
+  v: T
+
+pub struct Point
+  x: Int
+
+pub fun hide(n: Int) -> Int
+  Hidden(v: n).v

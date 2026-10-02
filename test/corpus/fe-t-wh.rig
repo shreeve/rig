@@ -1,0 +1,8 @@
+fun get(i: Int) -> Int?
+  none if i > 2 else i
+
+sub main()
+  i = 0
+  :outer while true
+    while get(i) ?? break :outer
+      i += 1

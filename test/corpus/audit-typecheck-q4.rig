@@ -1,0 +1,9 @@
+sub main()
+  a: [3]Int? = [1, none, 3]
+  x = <a[0]
+  print(x ?? 0, a[0] ?? 9)
+  v = Vec[Int?]()
+  (!v).push(4)
+  y = <v[0]
+  print(y ?? 0, v[0] ?? 9)
+  (!v).clear()

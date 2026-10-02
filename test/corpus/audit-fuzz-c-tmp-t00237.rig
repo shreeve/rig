@@ -1,0 +1,144 @@
+struct R
+  id: Int
+
+  drop(!self)
+    print("rel", self.id)
+
+  fun look(?self) -> Int
+    print("use", self.id)
+    self.id
+
+struct P
+  a: R
+  b: R
+
+struct Q
+  h: *R
+  o: R?
+
+enum HR
+  one(r: R)
+  two(a: R, b: *R)
+  empty
+
+struct M
+  r: R
+
+  fun with(<self, n: Int) -> Int
+    print("use", self.r.id)
+    n + self.r.id
+
+  fun peek(?self, n: Int) -> Int
+    print("use", self.r.id)
+    n
+
+  sub put(!self, r: R)
+    self.r = <r
+
+error E
+  bad
+
+fun mk(id: Int) -> R
+  print("new", id)
+  R(id: id)
+
+fun mkm(id: Int) -> M
+  M(r: mk(id))
+
+fun mayr(k: Int) -> R!
+  return E.bad if k == 0
+  mk(k)
+
+fun may(k: Int) -> Int!
+  return E.bad if k == 0
+  k
+
+fun optr(k: Int) -> R?
+  return none if k == 0
+  mk(k)
+
+fun opt(k: Int) -> Int?
+  return none if k == 0
+  k
+
+fun two(a: R, b: R) -> Int
+  print("use", a.id)
+  print("use", b.id)
+  a.id + b.id
+
+fun one(a: R, n: Int) -> Int
+  print("use", a.id)
+  a.id + n
+
+fun take3(a: R, n: Int, b: R) -> Int
+  print("use", a.id)
+  print("use", b.id)
+  n
+
+fun hand(h: *R, n: Int) -> Int
+  print("use", h.id)
+  n
+
+fun bx(b: Box[R], n: Int) -> Int
+  print("use", b.id)
+  n
+
+fun pp(p: P) -> Int
+  print("use", p.a.id)
+  print("use", p.b.id)
+  1
+
+fun qq(q: Q) -> Int
+  print("use", q.h.id)
+  2
+
+fun hr(e: HR) -> Int
+  match <e
+    .one(r) => r.look()
+    .two(a, b)
+      print("use", b.id)
+      a.look()
+    .empty => 0
+
+fun ints(xs: [2]Int) -> Int
+  xs[0] + xs[1]
+
+fun rt_int(n: Int) -> Int
+  n
+
+fun h0 -> Int?
+  b0 = [two(mk(1), optr(rt_int(4002))?), pp(P(a: mk(3), b: mk(4)))]
+  print("val", b0[0])
+  x2 = mk(5)
+  v3: Vec[*R] = Vec()
+  !v3.push(*mk(6))
+  !v3.push(*mk(7))
+  0
+
+fun h1 -> Int?
+  b0 = [8, bx(Box(optr(rt_int(3018))?), opt(rt_int(2))?)]
+  print("val", b0[0])
+  x2 = mk(19)
+  q3 = Q(h: *mk(20), o: none)
+  p4 = P(a: mk(21), b: mk(22))
+  print("val", take3(mk(23), 3, mk(24)))
+  0
+
+sub h2()!
+  x0 = mk(35)
+  m1 = M(r: mk(36))
+  !m1.put(mayr(rt_int(0))!)
+  print("val", m1.peek(4))
+  q4 = Q(h: *mk(38), o: mk(39))
+
+sub h3()!
+  b0 = [one(mk(50), hr(HR.two(a: mk(51), b: *mk(52)))), 4]
+  print("val", b0[0])
+  e2 = HR.one(r: mk(53))
+  e3 = HR.one(r: mayr(rt_int(3054))!)
+
+sub main
+  print("got", h0())
+  print("got", h1())
+  h2() catch |e| print("caught", e)
+  h3() catch |e| print("caught", e)

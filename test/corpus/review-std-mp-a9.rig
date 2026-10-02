@@ -1,0 +1,4 @@
+use std.os as std
+
+sub main
+  print(std.args().len)

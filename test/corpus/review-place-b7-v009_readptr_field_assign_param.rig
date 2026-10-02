@@ -1,0 +1,16 @@
+struct Big
+  v: Vec[Int]
+
+struct H
+  r: ?Big
+
+sub f(b: ?Big)
+  a = Big(v: Vec())
+  h = H(r: ?a)
+  h.r = b
+  print(h.r.v.len)
+
+sub main
+  b = Big(v: Vec())
+  !b.v.push(1)
+  f(?b)

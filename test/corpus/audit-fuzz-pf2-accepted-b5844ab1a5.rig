@@ -1,0 +1,200 @@
+fun rt_bool(b: Bool) -> Bool
+  b
+
+fun rt_int(n: Int) -> Int
+  n
+
+fun gid[T](a: T) -> T
+  a
+
+fun gmax[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun gsome[T](a: T) -> T?
+  a
+
+fun id_u8(x: U8) -> U8
+  x
+
+fun id_i8(x: I8) -> I8
+  x
+
+fun id_i16(x: I16) -> I16
+  x
+
+fun id_u16(x: U16) -> U16
+  x
+
+fun id_i32(x: I32) -> I32
+  x
+
+fun id_u32(x: U32) -> U32
+  x
+
+fun id_int(x: Int) -> Int
+  x
+
+
+fun id_u64(x: U64) -> U64
+  x
+
+fun id_i128(x: I128) -> I128
+  x
+
+fun id_u128(x: U128) -> U128
+  x
+
+fun id_float(x: Float) -> Float
+  x
+
+fun id_f32(x: F32) -> F32
+  x
+
+fun fo4325(s: Bool) -> Float?
+  return none if not s
+  1
+
+fun fu4325(s: Bool) -> Float?
+  x = fo4325(s)?
+  x
+
+fun ret2548 -> I16
+  vv2548: Vec[I16] = Vec()
+  !vv2548.push(32767)
+  vv2548[0]
+
+fun fal5678(ok: Bool) -> I32!
+  return Err5678.bad if not ok
+  2147483647
+
+error Err5678
+  bad
+
+fun take4183(a: F32) -> F32
+  a
+
+struct GP794[T]
+  f: T
+
+fun ri2601(go: Bool) -> I16
+  if go
+    ce2601: Cell[I16] = Cell(5)
+    return ce2601.get()
+  0
+
+struct Bx332
+  f: I128
+
+fun ri332(go: Bool) -> I128
+  if go
+    bx332 = Bx332(f: 154300748208079298205134082580789492322)
+    return bx332.f
+  0
+
+fun cf572(ok: Bool) -> U32!
+  return CE572.no if not ok
+  19
+
+error CE572
+  no
+
+sub t4325
+  tf4325 = rt_bool(true)
+  tv4325: Float = id_float(2.5)
+  tz4325: Float = (fu4325(false) ?? (-1.5)) if tf4325 else tv4325
+  print(tz4325, tv4325 if tf4325 else (fu4325(false) ?? (-1.5)))
+
+sub t2548
+  print(ret2548())
+
+sub t878
+  gv878: Vec[Int] = Vec()
+  !gv878.push((-7439022870369575952))
+  mk878 = rt_int(0)
+  mz878: Int = match mk878
+    1 => (gv878.get(0) ?? 18)
+    _ => (-9223372036854775807)
+  print(mz878)
+
+sub t5678
+  qo5678: I32? = none
+  print(qo5678 ?? (fal5678(false) catch (-544935519)))
+
+sub t764
+  acc764: U8 = id_u8(17)
+  acc764 += 0
+  print(acc764)
+
+sub t4822
+  op4822: U32? = (gsome(0) ?? 4294967295)
+  print(op4822, op4822 ?? 0)
+
+sub t1449
+  cr1449: Cell[Float] = Cell(10.25)
+  gy1449: Float = gid(cr1449.replace((-2)))
+  print(gy1449)
+
+sub t4183
+  k4183 = rt_int(2)
+  z4183: F32 = match k4183
+      1 => 0
+      2, 3 => 2.5
+      _ => 1
+  y4183 = take4183(z4183)
+  print(y4183)
+
+sub t794
+  lc794 = rt_int(0)
+  gz794: U128 = while true
+      break 332878397397557684467855711242930049358 if lc794 >= 0
+  gp794: GP794[U128] = GP794(f: gz794)
+  print(gp794.f)
+
+sub t5304
+  arr5304: [2]I128 = [(-2), (-17)]
+  vw5304: Vec[I128] = Vec()
+  pushit5304 = |!vw5304, x: I128| !vw5304.push(x)
+  pushit5304(arr5304[1])
+  print(vw5304)
+
+sub t2601
+  print(ri2601(true), ri2601(false))
+
+sub t4182
+  arr4182: [2]Int = [(-4912236136618164286), 1280334887887999893]
+  mk4182 = rt_int(2)
+  mz4182: Int = match mk4182
+    1 => arr4182[1]
+    _ => (-38705)
+  print(mz4182)
+
+sub t332
+  print(ri332(true), ri332(false))
+
+sub t3771
+  o3771: U32? = none
+  mk3771 = rt_int(1)
+  mz3771: U32 = match mk3771
+    1 => (o3771 ?? 2)
+    _ => 9
+  print(mz3771)
+
+sub t572
+  print(cf572(true) catch (975387537 - 0))
+
+sub main
+  t4325()
+  t2548()
+  t878()
+  t5678()
+  t764()
+  t4822()
+  t1449()
+  t4183()
+  t794()
+  t5304()
+  t2601()
+  t4182()
+  t332()
+  t3771()
+  t572()

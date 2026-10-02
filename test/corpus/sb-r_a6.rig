@@ -1,0 +1,6 @@
+sub main
+  a = [1, 2, 3]
+  w = !a[..]
+  for x in !w
+    print(w.len)
+    x = 0

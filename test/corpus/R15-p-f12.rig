@@ -1,0 +1,6 @@
+fun n(x: Int) -> Int
+  x
+sub main()
+  a = [1, 2, 3]
+  w = !a[..]
+  w[n(-1)] = 1

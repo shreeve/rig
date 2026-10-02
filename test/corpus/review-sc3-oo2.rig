@@ -1,0 +1,21 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun make(k: Int) -> N?
+  N(id: k) if k > 0 else none
+
+sub u(k: Int)
+  r = make(k) ?? return
+  print(r.id)
+
+sub w(k: Int)
+  r = make(k) ?? N(id: 0)
+  print(r.id)
+
+sub main
+  u(1)
+  u(0)
+  w(0)

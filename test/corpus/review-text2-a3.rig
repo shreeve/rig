@@ -1,0 +1,29 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun mk(i: Int) -> N
+  N(id: i)
+
+fun get(n: ?N) -> Int
+  n.id
+
+fun twice[T](x: T, f: ?fun(T) -> Int) -> Int
+  f(x) + get(?mk(5))
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main
+  c = |x: Int|
+    get(?mk(x)) + 1
+  print(c(3))
+  print(apply(|x| get(?mk(x * 10)), 2))
+  print(twice(4, |x| x))
+  defer print("deferred", get(?mk(99)))
+  match get(?mk(7))
+    7 if get(?mk(8)) == 8 => print("seven", get(?mk(9)))
+    _ => print("other")
+  print("done")

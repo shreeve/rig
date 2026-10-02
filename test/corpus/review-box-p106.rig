@@ -1,0 +1,7 @@
+struct R
+  n: Int
+
+sub main
+  s = *R(n: 3)
+  b = Box(value: ~s)
+  print(b)

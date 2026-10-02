@@ -1,0 +1,14 @@
+fun grow(v: !Vec[Int]) -> Int
+  for i in 0..100
+    !v.push(i)
+  5
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  v[0] = grow(!v)
+  print("v[0] is", v[0], "expected 5")
+  w: Vec[Int] = Vec()
+  !w.push(1)
+  w[0] += grow(!w)
+  print("w[0] is", w[0], "expected 6")

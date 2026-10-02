@@ -1,0 +1,6 @@
+sub main
+  v: Vec[Int?] = Vec()
+  !v.push(7)
+  for x in ?v
+    t = <v[0]
+    print(x, t)

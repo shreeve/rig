@@ -1,0 +1,12 @@
+struct N
+  id: Int
+  v: Vec[Int]
+
+  drop(!self)
+    print("drop", self.id)
+
+sub main
+  a = N(id: 1, v: Vec())
+  b = N(id: 2, v: Vec())
+  x = a if true else b
+  print(x.id, a.id)

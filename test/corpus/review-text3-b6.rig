@@ -1,0 +1,32 @@
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+enum Inner
+  x(n: N)
+  y
+
+enum M
+  a(i: Inner)
+  c
+
+fun mk -> M
+  M.a(i: Inner.x(n: N(id: 1)))
+
+sub take(n: N)
+  print("took", n.id)
+
+sub main
+  match mk()
+    .a(i) => match i
+      .x(n) => take(<n)
+      .y => print("y")
+    .c => print("c")
+  match ?mk()
+    .a(i) => match i
+      .x(n) => take(<n)
+      .y => print("y")
+    .c => print("c")
+  print("end")

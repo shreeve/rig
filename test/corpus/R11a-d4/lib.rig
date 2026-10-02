@@ -1,0 +1,31 @@
+error Oops
+  bad
+
+pub fun check[T](x: T, ok: Bool) -> T!
+  if not ok
+    -x
+    return Oops.bad
+  x
+
+pub struct Bag[T]
+  items: Vec[T]
+  name: String = "bag"
+
+  sub push(!self, x: T)
+    !self.items.push(<x)
+
+  fun take(!self) -> Vec[T]
+    out = Vec[T]()
+    while self.items.len > 0
+      if !self.items.pop() as x
+        !out.push(<x)
+    out
+
+  fun size(?self) -> Int
+    self.items.len
+
+pub struct Holder[T]
+  v: T
+
+  fun done(self: Self) -> Int
+    7

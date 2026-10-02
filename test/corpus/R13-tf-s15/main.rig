@@ -1,0 +1,8 @@
+use geo
+struct N
+  a: Int
+struct W[T]
+  v: T
+
+sub main
+  y: Cell[(~Int?)] = Cell[(~Int?)](value: 1)

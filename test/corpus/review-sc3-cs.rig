@@ -1,0 +1,18 @@
+error E
+  bad
+
+sub s(k: Int)!
+  return E.bad if k == 1
+  print("s", k)
+
+fun t(k: Int) -> Int
+  s(k) catch return -1
+  k
+
+sub main
+  for i in 0..3
+    s(i) catch continue
+    print("after", i)
+  for i in 0..3
+    s(i) catch break
+  print(t(0), t(1))

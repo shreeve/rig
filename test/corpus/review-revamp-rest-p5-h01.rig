@@ -1,0 +1,16 @@
+struct P
+  n: Int
+  sub bump(!self, k: Int)
+    self.n += k
+fun f() -> Int
+  print("f")
+  0
+fun g() -> Int
+  print("g")
+  1
+sub main()
+  ps = [P(n: 0), P(n: 0)]
+  i = 0
+  !ps[f()].bump(g())
+  !ps[i].bump(i + 1)
+  print(ps[0].n, ps[1].n)

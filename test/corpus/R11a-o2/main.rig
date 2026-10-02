@@ -1,0 +1,44 @@
+use lib
+
+error E
+  bad
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun num(ok: Bool) -> Int!
+  return E.bad if not ok
+  7
+
+fun mk(ok: Bool) -> Res!
+  return E.bad if not ok
+  Res(n: 100)
+
+fun t1(ok: Bool) -> Int!
+  x = lib.Two(a: Res(n: 1), b: num(ok)!)
+  x.b
+
+fun t2(ok: Bool) -> Int!
+  x = lib.Two[Res, Int].make(Res(n: 2), num(ok)!)
+  x.b
+
+fun t3(ok: Bool) -> Int!
+  x = lib.two(Res(n: 3), mk(ok)!)
+  x.b.n
+
+fun t4(ok: Bool) -> Int!
+  x = lib.Two.make(Res(n: 4), mk(ok)!)
+  x.b.n
+
+sub main()
+  print(t1(true) catch -1)
+  print(t1(false) catch -1)
+  print(t2(true) catch -1)
+  print(t2(false) catch -1)
+  print(t3(true) catch -1)
+  print(t3(false) catch -1)
+  print(t4(true) catch -1)
+  print(t4(false) catch -1)

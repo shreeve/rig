@@ -1,0 +1,13 @@
+struct Q
+  n: Int
+
+struct H
+  q: !Q
+
+fun mk(q: !Q) -> H
+  H(q: <q)
+
+sub main
+  x = Q(n: 1)
+  mk(!x).q.n = 7
+  print(x.n)

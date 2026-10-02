@@ -1,0 +1,21 @@
+struct H
+  w: !Int
+
+sub bump(hs: []H)
+  hs[0].w += 1
+
+sub bump2(hs: ?[2]H)
+  hs[1].w += 1
+
+sub bump3(hs: ![]H)
+  hs[0].w += 100
+
+sub main
+  n = 1
+  m = 2
+  hs = [H(w: !n), H(w: !m)]
+  bump(?hs[..])
+  bump2(?hs)
+  bump3(!hs[..])
+  print(hs[0].w)
+  print(n, m)

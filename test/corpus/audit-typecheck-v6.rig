@@ -1,0 +1,12 @@
+struct N
+  v: Int
+
+sub take(o: !*N?)
+  n = <o ?? return
+  print(n.v)
+
+sub main()
+  h: *N? = *N(v: 1)
+  take(!h)
+  take(!h)
+  print(1)

@@ -1,0 +1,10 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  c: Cell[Box[R]] = Cell(value: Box(value: R(n: 1)))
+  b = c.get()
+  print(b.n)

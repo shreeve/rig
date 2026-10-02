@@ -1,0 +1,5 @@
+fun z() -> F64
+  0.0
+sub main()
+  x = z() / z()
+  print(Int(x))

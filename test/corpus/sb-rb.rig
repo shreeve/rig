@@ -1,0 +1,13 @@
+sub f(s: ![]Int)
+  s = !s[1..]
+  s[0] = 7
+
+sub main
+  a = [1, 2, 3]
+  w = !a[..]
+  w[0] = 1
+  w = !a[1..]
+  w[0] = 5
+  print(a)
+  f(!a[..])
+  print(a)

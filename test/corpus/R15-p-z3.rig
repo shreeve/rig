@@ -1,0 +1,5 @@
+fun n(x: Int) -> Int
+  x
+sub main()
+  s = "abcd"
+  print(s.read[U8, .big](n(4)))

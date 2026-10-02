@@ -1,0 +1,9 @@
+struct S
+  a: Int?
+
+sub main
+  x = 1
+  replace(!x, 2)
+  s = S(a: 1)
+  _ = <s.a
+  print(x, s)

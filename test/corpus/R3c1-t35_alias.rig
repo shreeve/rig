@@ -1,0 +1,21 @@
+struct P
+  x: Int
+  y: Int
+  s: String
+
+fun bump(p: !P) -> P
+  p.x += 1
+  P(x: 1, y: 2, s: "a")
+
+fun bumpS(s: !String) -> String
+  s = "zzz"
+  "a"
+
+sub main()
+  a = P(x: 1, y: 2, s: "a")
+  print(a == bump(!a))
+  print(a)
+  s = "a"
+  print(s == bumpS(!s), s)
+  t = "a"
+  print(t < bumpS(!t), t)

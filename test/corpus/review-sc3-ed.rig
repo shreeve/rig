@@ -1,0 +1,17 @@
+error E
+  missing
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+fun f(k: Int) -> Int!
+  errdefer print("errdefer", k)
+  defer print("defer", k)
+  x = get(k) ?? return E.missing
+  y = get(k - 1) ?? return 100
+  x + y
+
+sub main
+  print(f(2) catch -1)
+  print(f(1) catch -1)
+  print(f(0) catch -1)

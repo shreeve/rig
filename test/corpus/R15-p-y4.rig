@@ -1,0 +1,8 @@
+sub f(b: ?[4]U8)
+  !b.write[U8, .big](0, 1)
+sub g(b: [4]U8)
+  !b.fill(0)
+sub main()
+  b: [4]U8 = [4 of 0]
+  f(?b)
+  g(b)

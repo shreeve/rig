@@ -1,0 +1,27 @@
+struct Point
+  x: Int
+  y: Float
+
+enum Shape
+  circle(r: Float)
+  square(side: Int)
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun index_of[T](xs: ?[3]T, x: T) -> Int
+  for v, i in xs
+    return i if v == x
+  -1
+
+sub main
+  p = Point(x: 1, y: 2.5)
+  q = Point(x: 1, y: 2.5)
+  nan = 0.0 / 0.0
+  n = Point(x: 1, y: nan)
+  s: Shape = .circle(r: 1.0)
+  o: Point? = none
+  pts = [p, Point(x: 2, y: 0.0), q]
+  print(p == q, p != q, n == n, s == .circle(r: 1.0), o == none)
+  print("abc" < "abd", "ab" < "abc", "" < "a", "é" > "z", max("pear", "apple"))
+  print(index_of(?pts, Point(x: 2, y: 0.0)), index_of(?["a", "b", "c"], "c"))

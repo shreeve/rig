@@ -1,0 +1,11 @@
+fun keep[T](xs: ?Vec[T], f: ?fun(?T) -> Bool) -> Vec[T]
+  out: Vec[T] = Vec()
+  for x in xs
+    !out.push(x) if f(?x)
+  out
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  w = keep(?v, |x| x > 1)
+  print(w.len)

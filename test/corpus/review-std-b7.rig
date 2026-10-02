@@ -1,0 +1,15 @@
+struct Holder
+  f: ?fun() -> Int
+
+  sub put(!self, g: ?fun() -> Int)
+    self.f = g
+
+sub main
+  z = 1
+  k = || z
+  h = Holder(f: ?k)
+  if true
+    y = 42
+    c = || y
+    !h.put(?c)
+  print(h.f())

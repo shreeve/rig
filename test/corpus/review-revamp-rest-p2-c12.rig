@@ -1,0 +1,4 @@
+enum E
+  a = I8(300)
+sub main()
+  print(Int(E.a))

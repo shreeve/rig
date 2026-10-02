@@ -1,0 +1,16 @@
+pub fun get[T](v: ?Vec[T], i: Int) -> T
+  v[i]
+
+pub struct Holder[T]
+  pub x: T
+
+  pub fun peek(?self) -> T
+    self.x
+
+pub fun pick[T](a: ?T, b: ?T) -> ?T
+  a
+
+pub fun each_first[T](v: ?Vec[T]) -> T?
+  for x in v
+    return x
+  none

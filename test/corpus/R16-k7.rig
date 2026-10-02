@@ -1,0 +1,9 @@
+fun seed(n: Int) -> Int
+  n + 1
+
+sub main
+  x = seed(1)
+  f = |!x|
+    x += 1
+  f()
+  print(x)

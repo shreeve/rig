@@ -1,0 +1,6 @@
+sub main
+  s = "lit"
+  r = ?s
+  o: String = r
+  s = "other"
+  print(o, s)

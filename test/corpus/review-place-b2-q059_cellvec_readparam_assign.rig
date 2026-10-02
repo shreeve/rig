@@ -1,0 +1,8 @@
+sub f(c: ?Cell[Vec[Int]])
+  c.push(1)
+  c[0] = 4
+
+sub main
+  c: Cell[Vec[Int]] = Cell(Vec())
+  f(?c)
+  print(c[0])

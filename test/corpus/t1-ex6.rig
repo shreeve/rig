@@ -1,0 +1,10 @@
+error E
+  bad
+
+fun f(x: Int) -> Int!
+  if x > 0
+    return E.bad
+  x
+
+fun main -> Int
+  f(1)!

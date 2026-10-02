@@ -1,0 +1,9 @@
+struct R
+  v: Vec[Int]
+  n: Int
+
+sub main
+  o: R? = R(v: Vec(), n: 1)
+  if <o as r
+    r.n = 7
+    print(r.n)

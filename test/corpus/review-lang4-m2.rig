@@ -1,0 +1,13 @@
+struct H
+  w: !Vec[Int]
+
+sub main
+  v: Vec[Int] = Vec()
+  h = H(w: !v)
+  for i in 0..4
+    u: Vec[Int] = Vec()
+    !u.push(i)
+    h.w = <u
+    if i == 2
+      break
+  print(v)

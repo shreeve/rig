@@ -1,0 +1,6 @@
+sub main
+  :m match 3
+    3
+      break :m
+    _ => pass
+  print("x")

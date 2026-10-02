@@ -1,0 +1,11 @@
+struct Wrap
+  n: Int
+
+sub main
+  a = Wrap(n: 1)
+  r = ?a
+  if true
+    c = Wrap(n: 3)
+    l = |?c| c
+    r = (?l)()
+  print(r.n)

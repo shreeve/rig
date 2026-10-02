@@ -1,0 +1,12 @@
+struct View
+  w: ?Vec[Int]
+
+sub main
+  a: Vec[Int] = Vec()
+  b: Vec[Int] = Vec()
+  !b.push(1)
+  v = View(w: ?a)
+  f = |!v, ?b|
+    v.w = b
+  f()
+  print(v.w.len)

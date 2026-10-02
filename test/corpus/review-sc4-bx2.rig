@@ -1,0 +1,11 @@
+fun f(b: Bool, c: Bool) -> Int
+  match b
+    true if c => 1
+    false => 0
+
+fun g(n: U8, c: Bool) -> Int
+  match n
+    0..256 if c => 1
+
+sub main
+  print(f(true, false), g(1, false))

@@ -1,0 +1,13 @@
+struct H
+  w: !Int
+
+sub poke(w: !Int)
+  w += 1
+
+sub f(h: H)
+  poke(h.w)
+
+sub main
+  n = 1
+  f(H(w: !n))
+  print(n)

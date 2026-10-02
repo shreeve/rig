@@ -1,0 +1,6 @@
+fun f(n: Int) -> Int
+  if n > 0
+    return 1
+
+sub main
+  print(f(1))

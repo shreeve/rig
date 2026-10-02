@@ -1,0 +1,6 @@
+type Byte = U8
+K = Byte.max
+
+sub main
+  a: [K]Int = [K of 1]
+  print(a[0], K)

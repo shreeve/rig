@@ -1,0 +1,7 @@
+# root element written
+sub main()
+  a = [1, 2, 3]
+  w = !a[..]
+  a[0] = 7
+  w[0] = 5
+  print(a)

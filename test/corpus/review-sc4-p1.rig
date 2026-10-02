@@ -1,0 +1,23 @@
+enum Shape
+  circle(r: Int)
+  point
+
+struct H
+  s: Shape
+
+struct R
+  h: ?H
+
+sub main
+  h = *H(s: .circle(r: 1))
+  match !h.s
+    .circle(r) => r = 5
+    _ => print("x")
+  hh = H(s: .point)
+  rr = R(h: ?hh)
+  match !rr.h.s
+    .circle(r) => r = 5
+    _ => print("x")
+  b = Box(Box(Shape.circle(r: 2)))
+  match !b
+    _ => print("y")

@@ -1,0 +1,10 @@
+struct N
+  v: Int
+
+sub main()
+  v = Vec[*N]()
+  (!v).push(*N(v: 1))
+  w = !v
+  for x in <w
+    print(x.v)
+  print(v.len)

@@ -1,0 +1,5 @@
+sub main
+  c: *Cell[Vec[Int]] = *Cell(Vec())
+  c.push(1)
+  for x in ?c
+    print(x)

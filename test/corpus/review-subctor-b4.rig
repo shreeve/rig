@@ -1,0 +1,11 @@
+error Bad
+  neg
+
+sub run(f: ?sub(Int))
+  f(3)
+
+sub check(n: Int)!
+  return Bad.neg if n < 0
+
+sub main
+  run(check)

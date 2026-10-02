@@ -1,0 +1,35 @@
+# An integer type's name converts a plain enum value to its declared or
+# implicit value, checked to fit like any conversion.
+
+enum Status
+  ok = 200
+  moved = 301
+  missing = 404
+
+enum Dir
+  north
+  east
+  south
+
+fun code(s: ?Status) -> Int
+  Int(s)
+
+fun bump(d: !Dir) -> U8
+  U8(d) + 1
+
+
+sub main()
+  s = Status.missing
+  d: Dir = .south
+  print(Int(s), U16(Status.moved), code(?Status.ok), I32(d), U8(Dir.north))
+  print(bump(!d), Int(d) * 10)
+  xs = [Dir.east, Dir.north, Dir.south]
+  total = 0
+  for x in xs
+    total += Int(x)
+  print(total)
+
+# expect:
+# 404 301 200 2 0
+# 3 20
+# 3

@@ -1,0 +1,13 @@
+enum E
+  arr(xs: [3]Int)
+  nothing
+
+fun first(e: ?E, d: ?[1]Int) -> []Int
+  match e
+    .arr(xs) => ?xs[0..2]
+    .nothing => ?d[0..0]
+
+sub main()
+  e: E = .arr(xs: [1, 2, 3])
+  d = [0]
+  print(first(?e, ?d))

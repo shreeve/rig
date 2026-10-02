@@ -62,7 +62,11 @@
 //!   its receiver for the whole call (`rc.show(<rc)` is rejected), and
 //!   an argument that reads a value sharing storage its place owns
 //!   holds that place read until the call ends (`print(v, grow(!v))`
-//!   is rejected).
+//!   is rejected). The indexes of a borrowed place (a borrow, a slice,
+//!   a receiver) cannot write-borrow or move its root, whose address is
+//!   found before they run (`!ps[0].a[grow(!ps)]` is rejected); an
+//!   assignment evaluates its value, then its target's indexes, then
+//!   stores, so there they may.
 //! * A borrow may not outlive its root: when a scope ends (normally or by
 //!   `break`, `continue` or `!`), no surviving value may hold a loan on a
 //!   var declared in it. A returned value, or one stored into something
@@ -91,7 +95,9 @@
 //!   use and clone them but not move, drop or reassign them.
 //! * A `defer` body cannot move or drop outer bindings, and is re-checked
 //!   against the state at every exit of its scope; an `errdefer` body at
-//!   every exit that fails (`!`, or returning an error).
+//!   every exit that fails (`!`, or returning an error). At an exit the
+//!   path goes on past (`e!`, `e?`, a result that may be an error), its
+//!   effects are undone after the check.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -136,6 +142,9 @@ const Loan = struct {
     /// A call argument's read of the root by value, which shares storage
     /// the root owns (see `holdArgRead`).
     arg_read: bool = false,
+    /// The root of a place whose address is being found while its
+    /// indices run (see `walkIndicesHeld`).
+    place_hold: bool = false,
 
     fn sameAs(a: Loan, b: Loan) bool {
         return a.root == b.root and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
@@ -217,6 +226,33 @@ const Scope = struct {
 /// it: the rest are dropped before it runs. An `errdefer` runs only at
 /// an exit that fails.
 const Deferred = struct { body: Sexp, vars: u32, err_only: bool };
+
+/// An exit at which defers run, and so are re-checked (`exitDefers`).
+const Exit = union(enum) {
+    /// The innermost scope's end, where the path falls through.
+    scope_end,
+    /// `break` / `continue`, leaving the scopes at this index and above.
+    jump: usize,
+    /// `return`; it fails when the value may be an error.
+    @"return": bool,
+    /// `e!` (which fails) or `e?`: the path that leaves the function.
+    propagate: bool,
+    /// A function result that may be an error, the innermost scope's
+    /// tail: the path where it is one runs the scope's `errdefer`s.
+    failing_result,
+
+    /// Whether the path being checked goes on past the exit. Where it
+    /// ends, the defers run on it and what they do stays, so a borrow
+    /// one stores is reported where it outlives what it borrows. Where
+    /// it goes on, they run only on a path that leaves there: they are
+    /// checked, and their effects undone.
+    fn goesOn(e: Exit) bool {
+        return switch (e) {
+            .scope_end, .jump, .@"return" => false,
+            .propagate, .failing_result => true,
+        };
+    }
+};
 
 /// One change to a var's flow, kept so it can be undone.
 const Change = struct { id: VarId, old: Flow };
@@ -641,7 +677,9 @@ pub const Checker = struct {
     }
 
     fn noteLoan(self: *Checker, loan: Loan) Error!void {
-        if (loan.arg_read) {
+        if (loan.place_hold) {
+            try self.note(loan.pos, "`{s}` is borrowed here, and the place is found up to each index before the index runs", .{self.vars.items[loan.root].name});
+        } else if (loan.arg_read) {
             try self.note(loan.pos, "`{s}` read here: the value shares its storage, and the call uses it after its later arguments run", .{self.vars.items[loan.root].name});
         } else try self.note(loan.pos, "{s} borrow taken here", .{@tagName(loan.kind)});
     }
@@ -661,13 +699,16 @@ pub const Checker = struct {
         const l = self.findLoan(id, if (access == .read) .write else .any, null) orelse return false;
         const name = self.vars.items[id].name;
         const earlier = "while an earlier argument's read of it is in use";
+        const in_index = "in an index of a place borrowed from it";
         switch (access) {
             .read => try self.err(pos, "cannot read-borrow `{s}` while a write borrow is live", .{name}),
-            .write => if (l.arg_read) try self.err(pos, "cannot write-borrow `{s}` " ++ earlier, .{name}) else switch (l.kind) {
+            .write => if (l.place_hold) try self.err(pos, "cannot write-borrow `{s}` " ++ in_index, .{name}) else if (l.arg_read) try self.err(pos, "cannot write-borrow `{s}` " ++ earlier, .{name}) else switch (l.kind) {
                 .read => try self.err(pos, "cannot write-borrow `{s}` while a read borrow is live", .{name}),
                 .write => try self.err(pos, "cannot take a second write borrow on `{s}`", .{name}),
             },
-            .consume => |verb| if (l.arg_read)
+            .consume => |verb| if (l.place_hold)
+                try self.err(pos, "cannot {s} `{s}` " ++ in_index, .{ verb, name })
+            else if (l.arg_read)
                 try self.err(pos, "cannot {s} `{s}` " ++ earlier, .{ verb, name })
             else
                 try self.err(pos, "cannot {s} `{s}` while it is {s}-borrowed", .{ verb, name, @tagName(l.kind) }),
@@ -690,7 +731,7 @@ pub const Checker = struct {
     fn popScope(self: *Checker) Error!void {
         const idx = self.scopes.items.len - 1;
         if (self.reachable) {
-            try self.runDefers(idx, false);
+            try self.exitDefers(.scope_end);
             try self.checkDropOrder(self.scopes.items[idx].start);
         }
         var scope = self.scopes.pop().?;
@@ -1242,7 +1283,7 @@ pub const Checker = struct {
                 defer self.cur_stmt = saved_stmt;
                 try self.walkReturnValue(stmt);
                 // An error returned here runs the body's `errdefer`s.
-                if (self.reachable and self.mayFail(stmt)) try self.runDefers(self.scopes.items.len - 1, true);
+                if (self.reachable and self.mayFail(stmt)) try self.exitDefers(.failing_result);
             } else {
                 try self.walkStmt(stmt);
             }
@@ -1379,7 +1420,7 @@ pub const Checker = struct {
         }
         // An error the function returns from here runs the block's
         // `errdefer`s.
-        if (returns and self.reachable and stmts.len > 0 and self.mayFail(stmts[stmts.len - 1])) try self.runDefers(self.scopes.items.len - 1, true);
+        if (returns and self.reachable and stmts.len > 0 and self.mayFail(stmts[stmts.len - 1])) try self.exitDefers(.failing_result);
         v = try self.checkValueEscapesScope(v);
         try self.popScope();
         return if (self.reachable) v else .{};
@@ -1718,6 +1759,20 @@ pub const Checker = struct {
         }
     }
 
+    /// The indices of place `e`, whose address is taken (a borrow, a
+    /// slice, a method's receiver): the place up to each index is found
+    /// before the index runs, so while the indices run, `root` is held
+    /// read, and an index cannot write-borrow or move it
+    /// (`!ps[0].a[grow(!ps)]` would write into the buffer `grow` freed).
+    /// An assignment finds its target only after its indices run
+    /// (`walkFieldAssign`).
+    fn walkIndicesHeld(self: *Checker, e: Sexp, root: VarId) Error!void {
+        const mark = self.temps.items.len;
+        try self.addTemp(.{ .root = root, .kind = .read, .pos = self.startOf(e), .place_hold = true });
+        try self.walkPlaceIndices(e);
+        if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
+    }
+
     /// A `member` or `index`.
     fn walkMember(self: *Checker, e: Sexp) Error!Value {
         const obj = try self.walk(ir.get(e, .object));
@@ -1800,7 +1855,7 @@ pub const Checker = struct {
         // not the var holding it: the borrow keeps what the slice keeps.
         if (kind == .read and self.throughReadSlice(inner)) return self.walkBorrowedPath(inner);
         const place = self.resolvePlace(inner) orelse return self.walkBorrowedPath(inner);
-        try self.walkPlaceIndices(inner);
+        try self.walkIndicesHeld(inner, place.root);
         const id = place.root;
         const v = self.vars.items[id];
         const pos = self.startOf(inner);
@@ -1863,7 +1918,7 @@ pub const Checker = struct {
         // views it.
         if (self.throughReadSlice(object)) return self.walkOperand(slice, object);
         const place = self.resolvePlace(object) orelse return self.walkOperand(slice, object);
-        try self.walkPlaceIndices(indices);
+        try self.walkIndicesHeld(indices, place.root);
         const id = place.root;
         const pos = self.startOf(slice);
         const v = (try self.borrowVar(id, kind, pos)) orelse return .{};
@@ -2689,7 +2744,12 @@ pub const Checker = struct {
             const place = if (recv_mode == .value) null else self.resolvePlace(obj);
             if (place) |p| {
                 const found = self.errors_found;
+                // The receiver is passed by address: its indices are held
+                // as a borrowed place's are.
+                const mark = self.temps.items.len;
+                try self.addTemp(.{ .root = p.root, .kind = .read, .pos = self.startOf(obj), .place_hold = true });
                 const recv_val = try self.walk(obj);
+                if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
                 const id = p.root;
                 // A receiver already reported (used while write-borrowed)
                 // is not reported again as a conflicting write borrow.
@@ -3228,7 +3288,7 @@ pub const Checker = struct {
     fn walkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
         if (value != .nil) try self.walkReturnValue(value);
-        try self.runDefersTo(0, value != .nil and self.mayFail(value));
+        try self.exitDefers(.{ .@"return" = value != .nil and self.mayFail(value) });
         self.reachable = false;
     }
 
@@ -3530,8 +3590,8 @@ pub const Checker = struct {
         elem1: Sexp = .nil,
         elem2: Sexp = .nil,
         source_root: ?VarId = null,
-        /// `for x in <v`: the loans the moved collection held, which its
-        /// elements carry; likewise those of a source no binding holds.
+        /// `for x in <v`, or a collection the source makes: the loans it
+        /// held, which its elements carry.
         moved: []const Loan = &.{},
         source_loan: LoanKind = .read,
         source_pos: u32 = 0,
@@ -3573,8 +3633,8 @@ pub const Checker = struct {
             spec.elem_view = true;
             const found = self.errors_found;
             const value = try self.walk(source);
-            // The elements of a value no binding holds (a literal, a
-            // call's result) hold what it borrows.
+            // The elements of a collection the source makes (an array of
+            // borrows, a call's result) carry the borrows it holds.
             if (self.resolvePlace(source) == null) spec.moved = value.loans;
             // A source already reported (used while write-borrowed) is
             // not reported again as a conflicting borrow.
@@ -3784,7 +3844,7 @@ pub const Checker = struct {
         }
         if (target) |t| {
             t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
-            try self.runDefersTo(t.scope_depth, false);
+            try self.exitDefers(.{ .jump = t.scope_depth });
             const s = try self.leaveTo(t.point, null);
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
@@ -3810,7 +3870,7 @@ pub const Checker = struct {
     /// `e!` / `e?`: on failure or `none`, control leaves for the caller.
     fn walkPropagate(self: *Checker, node: Sexp) Error!Value {
         const v = try self.walk(ir.get(node, .value));
-        if (self.reachable) try self.runDefersTo(0, node.isKind(.propagate));
+        if (self.reachable) try self.exitDefers(.{ .propagate = node.isKind(.propagate) });
         return v;
     }
 
@@ -3838,6 +3898,9 @@ pub const Checker = struct {
         try self.scopes.items[self.scopes.items.len - 1].defers.append(self.gpa, .{ .body = body, .vars = @intCast(self.vars.items.len), .err_only = node.isKind(.@"errdefer") });
     }
 
+    /// Walk a `defer` body: where it is written (`report_changes`), and
+    /// its effects undone; at an exit, where it runs, leaving them to
+    /// `exitDefers`.
     fn checkDeferBody(self: *Checker, body: Sexp, report_changes: bool) Error!void {
         const snap = try self.here();
         const saved_loop = self.loop;
@@ -3847,25 +3910,28 @@ pub const Checker = struct {
         try self.walkStmt(body);
         self.loop = saved_loop;
         self.in_defer = saved_in_defer;
+        if (!report_changes) return;
         const after = try self.leave(snap);
-        if (report_changes) {
-            for (after.changes) |e| {
-                if (e.flow.status != self.flows.items[e.id].status) {
-                    try self.errAt(body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
-                    break;
-                }
-            }
-            return;
-        }
-        // Run at an exit: the borrows it stored stay, so the scope's end
-        // checks that they do not outlive what they borrow.
         for (after.changes) |e| {
-            var f = self.flows.items[e.id];
-            const loans = try self.unionLoans(f.loans, e.flow.loans);
-            if (loans.len == f.loans.len) continue;
-            f.loans = loans;
-            try self.setFlow(e.id, f);
+            if (e.flow.status != self.flows.items[e.id].status) {
+                try self.errAt(body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
+                break;
+            }
         }
+    }
+
+    /// Re-check, against the state here, the defers that `exit` runs.
+    /// Their effects stay only where the path ends (`Exit.goesOn`).
+    fn exitDefers(self: *Checker, exit: Exit) Error!void {
+        const back: ?Point = if (exit.goesOn()) try self.here() else null;
+        const top = self.scopes.items.len - 1;
+        switch (exit) {
+            .scope_end => try self.runDefers(top, false),
+            .failing_result => try self.runDefers(top, true),
+            .jump => |depth| try self.runDefersTo(depth, false),
+            .@"return", .propagate => |fails| try self.runDefersTo(0, fails),
+        }
+        if (back) |p| try self.rewind(p);
     }
 
     /// Re-check the defers of scope `scope_idx` at an exit, with its

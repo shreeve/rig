@@ -1,0 +1,33 @@
+fun sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+  i = 1
+  while i < xs.len : i += 1
+    if less(?xs[i], ?xs[i - 1])
+      !xs.swap(i, i - 1)
+
+fun sort_asc[T](xs: ![]T)
+  sort(xs, |a, b| a < b)
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub keep(dst: !?fun(Int) -> Int, f: ?fun(Int) -> Int)
+  print(1)
+
+sub stash(f: ?fun(Int) -> Int)
+  c = Cell(value: f)
+  s: *Cell[Int] = *Cell(value: 0)
+  g = |+s, ?f| s.set(f(1))
+  g()
+
+sub main
+  bools = [true, false]
+  sort_asc(!bools[..])
+  g: ?fun(Int) -> Int = double
+  defer print(g(1))
+  if true
+    k = 1
+    l = |+k, a: Int| a + k
+    g = ?l
+  m = |a: Int| a
+  h = ?m if true else double
+  print(h(1))

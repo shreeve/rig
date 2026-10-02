@@ -1,0 +1,3 @@
+sub main()
+  x = F32(1e300)
+  print(x)

@@ -1,0 +1,18 @@
+fun a() -> Int
+  print("a")
+  1
+
+fun b(k: Int) -> Int?
+  print("b")
+  k if k > 0 else none
+
+fun add(x: Int, y: Int) -> Int
+  x + y
+
+sub t(k: Int)
+  x = add(a(), b(k) ?? return)
+  print("t", x)
+
+sub main
+  t(1)
+  t(0)

@@ -1,0 +1,14 @@
+error E
+  bad
+
+fun parse(s: String) -> Int!
+  if s.len == 0
+    return E.bad
+  s.len
+
+fun use2(f: ?fun(String) -> Int!) -> Int
+  f("") catch -5
+
+sub main()
+  f: fun(String) -> Int! = |s| parse(s)! + 1
+  print(f("ab") catch 0, f("") catch 0, use2(?f))

@@ -1,0 +1,4 @@
+fun f() -> Void
+  print(1)
+sub main
+  f()

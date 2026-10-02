@@ -1,0 +1,11 @@
+struct R
+  v: Vec[Int]
+  n: Int
+
+sub main
+  xs: Vec[R] = Vec()
+  !xs.push(R(v: Vec(), n: 1))
+  for r in <xs
+    r.n = 4
+    !r.v.push(1)
+    print(r.n, r.v.len)

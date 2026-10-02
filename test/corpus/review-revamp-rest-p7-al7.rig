@@ -1,0 +1,9 @@
+struct P
+  x: Int
+  fun make(n: Int) -> P
+    P(x: n)
+type Q = P
+sub main()
+  a = Q.make(3)
+  b = Q(x: 4)
+  print(a.x, b.x)

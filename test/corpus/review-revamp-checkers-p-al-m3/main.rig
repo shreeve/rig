@@ -1,0 +1,8 @@
+use lib
+
+sub main()
+  print(lib.Byte(300))
+  y: I8 = 5
+  print(U8(y), lib.Byte(y))
+  z: I8 = -1
+  print(U8(z))

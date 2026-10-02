@@ -1,0 +1,11 @@
+fun as_str(b: []U8) -> String
+  raw
+    @bitCast(b)
+
+sub main
+  v: Vec[U8] = Vec()
+  for b in "hey"
+    !v.push(b)
+  print(as_str(?v[..]))
+  a: U8 = "a"[0]
+  print(a)

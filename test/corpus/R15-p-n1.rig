@@ -1,0 +1,21 @@
+struct P
+  x: Int
+  arr: [2]Int
+  sub bump(!self)
+    self.x += 1
+sub inc(p: !P)
+  p.x += 100
+fun n(i: Int) -> Int
+  print("n")
+  i
+sub main()
+  ps = [P(x: 1, arr: [0, 0]), P(x: 2, arr: [0, 0])]
+  s = !ps[..]
+  s[n(0)].x = 5
+  s[n(1)].arr[n(1)] += 7
+  !s[0].bump()
+  inc(!s[1])
+  s[1] = P(x: 9, arr: [9, 9])
+  for p in !s
+    p.x *= 2
+  print(ps[0].x, ps[1].x, ps[1].arr)

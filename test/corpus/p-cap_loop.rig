@@ -1,0 +1,5 @@
+sub main
+  xs = [1, 2]
+  for x in xs
+    f = |!x| x += 1
+    f()

@@ -1,0 +1,7 @@
+struct R
+  n: Int
+  drop(!self)
+    pass
+
+sub main
+  v: Vec[R] = Vec()

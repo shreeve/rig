@@ -1,0 +1,28 @@
+pub limit = 10
+pub big: U64 = 18446744073709551615
+
+pub enum Color
+  red
+  green = 5
+  blue
+
+pub struct Cfg
+  pub n: Int = limit
+  pub c: Color = .green
+  pub s: String = "x"
+  pub f: Float = .5
+  pub v: Vec[Int] = Vec()
+  pub m: U64 = big
+
+pub fun scale(x: Int, by: Int = limit, c: Color = .blue, top: U64 = big) -> Int
+  x * by + Int(c)
+
+pub fun ident[T](x: T) -> T
+  x
+
+pub struct Pair[T]
+  pub a: T
+  pub b: T
+
+  pub fun sum(?self) -> T
+    self.a + self.b

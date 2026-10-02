@@ -1,0 +1,26 @@
+pub struct Node
+  n: Int
+
+struct Wrap[T]
+  item: T
+  id: Int
+
+enum Opt[T]
+  some(value: T)
+  nothing
+
+pub struct Point
+  x: Int
+  y: Int
+
+pub struct Tagged
+  id: Int
+  h: *Node
+
+fun same[T](a: T, b: T) -> Bool
+  Wrap(item: a, id: 1) == Wrap(item: b, id: 1)
+
+pub fun check(a: Point, b: Point) -> Bool
+  o: Opt[Point] = .some(value: a)
+  p: Opt[Point] = .some(value: b)
+  o == p and same(a, b) and Wrap(item: [a], id: 2) == Wrap(item: [b], id: 2)

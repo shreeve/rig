@@ -1,0 +1,9 @@
+sub g(a: !Int, b: !Int)
+  a += 1
+  b += 1
+sub f(w2: !Int)
+  g(w2, w2)
+sub main
+  m = 3
+  f(!m)
+  print(m)

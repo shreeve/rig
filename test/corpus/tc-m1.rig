@@ -1,0 +1,15 @@
+struct B
+  n: Int
+
+enum E
+  one(b: B)
+  none_
+
+fun mk() -> E
+  .one(b: B(n: 4))
+
+sub main
+  x = match ?(mk())
+    .one(b) => ?b
+    _ => ?B(n: 0)
+  print(x.n)

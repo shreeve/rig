@@ -1,0 +1,14 @@
+struct Holder
+  v: Vec[Int]
+
+sub reset(p: !Holder)
+  p = Holder(v: Vec[Int]())
+
+sub main()
+  h = Holder(v: Vec[Int]())
+  (!h.v).push(1)
+  reset(!h)
+  print(h.v.len)
+  w = !h
+  w = Holder(v: Vec[Int]())
+  print(h.v.len)

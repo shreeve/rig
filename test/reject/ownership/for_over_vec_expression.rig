@@ -1,0 +1,27 @@
+# A `for` over a Vec walks a named Vec in place, or consumes the Vec a
+# call makes. Any other expression (`o?`, a ternary, a `match`) could
+# name a place on one path and make a Vec on another, so it is bound
+# to a name first.
+
+fun total(o: Vec[Int]?) -> Int?
+  t = 0
+  for e in ?o?
+    t += e
+  t
+
+sub main
+  a: Vec[Int] = Vec()
+  !a.push(1)
+  b: Vec[Int] = Vec()
+  !b.push(2)
+  c = a.len > 0
+  for e in ?(a if c else b)
+    print(e)
+  for e in (a if c else b)
+    print(e)
+  print(total(<b) ?? 0, a.len)
+
+# error: 8:13: bind this `Vec[Int]` to a name first
+# error: 18:14: bind this `Vec[Int]` to a name first
+# error: 20:13: bind this `Vec[Int]` to a name first
+# errors: 3

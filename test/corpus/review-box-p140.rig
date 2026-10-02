@@ -1,0 +1,39 @@
+struct Node
+  key: Int
+  left: Box[Node]?
+  right: Box[Node]?
+
+sub insert(slot: !Box[Node]?, key: Int)
+  if !slot as n
+    if key < n.key
+      insert(!n.left, key)
+    else
+      insert(!n.right, key)
+  else
+    slot = Box(value: Node(key: key, left: none, right: none))
+
+fun find(root: ?Box[Node]?, k: Int) -> (?Box[Node])?
+  cur = root
+  while cur as n
+    if n.key == k
+      return n
+    cur = ?n.left if k < n.key else ?n.right
+  none
+
+fun min(root: ?Box[Node]?) -> Int
+  cur = root
+  best = -1
+  while cur as n
+    best = n.key
+    cur = ?n.left
+  best
+
+sub main
+  root: Box[Node]? = none
+  for k in [5, 2, 8, 1, 9, 3]
+    insert(!root, k)
+  print(min(?root))
+  if find(?root, 8) as f
+    print("found", f.key)
+  if find(?root, 7) as _
+    print("bad")

@@ -1,0 +1,7 @@
+sub main()
+  y = 3
+  x = for i in 0..3
+    break i
+  else
+    -y
+  print(x)

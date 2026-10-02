@@ -1,0 +1,19 @@
+struct Tok
+  n: Int
+
+sub main
+  t = *Tok(n: 0)
+  s = 0
+  for _ in 0..2
+    for _ in 0..2
+      for _ in 0..2
+        for _ in 0..2
+          for _ in 0..2
+            for _ in 0..2
+              for _ in 0..2
+                for _ in 0..2
+                  for _ in 0..2
+                    for _ in 0..2
+                      u = +t
+                      s += u.n
+  print(s)

@@ -1,0 +1,7 @@
+enum C
+  red
+  green
+
+sub main
+  c: C = red
+  print(c == C.red)

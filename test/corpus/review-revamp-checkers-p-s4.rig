@@ -1,0 +1,21 @@
+enum E
+  a(v: Vec[Int])
+  b
+
+sub main()
+  v0: Vec[Int] = Vec()
+  !v0.push(1)
+  e: E = .a(v: <v0)
+  match ?e
+    .a(_) 
+      e = .b
+      print("reassigned")
+    .b => print("b")
+  match !e
+    .a(_) => print("a")
+    _ 
+      e = .a(v: Vec())
+      print("set")
+  match ?e
+    .a(x) => print(x.len)
+    .b => print("b")

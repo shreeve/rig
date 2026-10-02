@@ -1,0 +1,19 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  o: R? = R(n: 1)
+  if !o as x
+    f = |!x| x.n += 1
+    f()
+    f()
+  print(o)
+  b = Box(value: R(n: 5))
+  g = |!b| b.n += 1
+  g()
+  print(b.n)
+  h = |?b| print(b.n)
+  h()

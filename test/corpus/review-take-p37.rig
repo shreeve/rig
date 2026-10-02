@@ -1,0 +1,8 @@
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  old = replace(!v[0], v[1])
+  print(old, v)
+  swap(!v[0], !v[1])
+  print(v)

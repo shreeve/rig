@@ -1,0 +1,12 @@
+fun upper(s: String) -> Vec[U8]
+  out: Vec[U8] = Vec()
+  for b in s
+    if b >= 97 and b <= 122
+      !out.push(b - 32)
+    else
+      !out.push(b)
+  out
+
+sub main
+  u = upper("hello, rig")
+  print(u)

@@ -1,0 +1,49 @@
+struct Node
+  value: Int
+  next: Box[Node]?
+
+struct List
+  head: Box[Node]? = none
+  len: Int = 0
+
+  sub push(!self, v: Int)
+    self.head = Box(value: Node(value: v, next: <self.head))
+    self.len += 1
+
+  fun pop(!self) -> Int?
+    if <self.head as n
+      self.head = <n.next
+      self.len -= 1
+      return n.value
+    none
+
+  fun sum(?self) -> Int
+    total = 0
+    cur = ?self.head
+    while cur as n
+      total += n.value
+      cur = ?n.next
+    total
+
+  sub each(?self, f: ?sub(Int))
+    cur = ?self.head
+    while cur as n
+      f(n.value)
+      cur = ?n.next
+
+  sub bump_all(!self, by: Int)
+    bump(!self.head, by)
+
+sub bump(slot: !Box[Node]?, by: Int)
+  if !slot as n
+    n.value += by
+    bump(!n.next, by)
+
+sub main
+  l = List()
+  for v in 1..6
+    !l.push(v)
+  print(l.len, l.sum())
+  !l.bump_all(10)
+  l.each(|x| print(x))
+  print(!l.pop() ?? 0, l.len)

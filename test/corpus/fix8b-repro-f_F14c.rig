@@ -1,0 +1,10 @@
+struct Ring[T, n: Int]
+  items: [n]T
+
+fun g[n: Int]() -> Int
+  r: Ring[Int, n * 2]? = none
+  s = Ring[Int, n * 2](items: [])
+  1
+
+sub main()
+  print(g[2]())

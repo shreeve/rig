@@ -1,0 +1,22 @@
+fun a[T](x: T) -> T
+  x / 2
+
+fun b[T](x: T) -> T
+  x * (3 / 2)
+
+fun c[T](x: T) -> Bool
+  x == 1 / 2
+
+fun d[T](x: T) -> T
+  y: T = 7 / 2
+  x + y
+
+fun e[T](x: T) -> T
+  x - 7 % 4
+
+sub main()
+  print(a(5.0), a(5))
+  print(b(2.0))
+  print(c(0.5), c(0))
+  print(d(1.0))
+  print(e(1.0))

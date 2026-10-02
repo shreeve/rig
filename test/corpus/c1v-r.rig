@@ -1,0 +1,6 @@
+struct H
+  h: *Int
+sub main
+  a = H(h: *1)
+  b = H(h: +a.h)
+  print(a == b)

@@ -1,0 +1,17 @@
+struct P
+  x: Int
+
+  fun boxed(?self) -> Int
+    h = *self
+    t: Int = h
+    1
+
+fun f(b: ?Int) -> Int
+  h = *b
+  k: Int = h
+  1
+
+sub main
+  y = 3
+  h = *(?y)
+  z: Int = h

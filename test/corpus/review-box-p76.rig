@@ -1,0 +1,16 @@
+struct Leaf
+  n: Int
+
+  drop(!self)
+    print("drop leaf", self.n)
+
+enum Ex
+  lit(l: Leaf)
+  neg(a: Box[Ex])
+sub main
+  t = Box(value: Ex.neg(a: Box(value: Ex.lit(l: Leaf(n: 2)))))
+  match ?t
+    .lit(l) => print(l.n)
+    .neg(a)
+      -t
+      print(a)

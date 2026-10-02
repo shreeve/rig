@@ -1,0 +1,7 @@
+sub two(a: !Int, b: !Int)
+  a += b
+
+sub main
+  x = 1
+  two(!x, !x)
+  print(x)

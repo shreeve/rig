@@ -1,0 +1,6 @@
+sub main()
+  x: Int? = 3
+  y = x ?? 0
+  print(y)
+  z = [x][0] ?? 1
+  print(z)

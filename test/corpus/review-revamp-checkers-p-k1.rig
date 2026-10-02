@@ -1,0 +1,23 @@
+fun get(i: Int) -> Int?
+  none if i == 2 else i
+
+sub eat(v: Vec[Int])
+  print(v.len)
+
+fun find(k: Int) -> Int
+  :lp for i in 0..5
+    for j in 0..2
+      x = get(i + k) ?? break :lp i * 100 + j
+      print(x)
+  else
+    -1
+
+sub main()
+  :outer for i in 0..3
+    a: Vec[Int] = Vec()
+    for j in 0..3
+      eat(<a)
+      n = get(j) ?? continue :outer
+      a = Vec()
+      print(n, i)
+  print(find(0), find(5))

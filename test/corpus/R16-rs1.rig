@@ -1,0 +1,25 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+sub run(f: ?sub())
+  f()
+
+sub main
+  r = Res(id: 1)
+  r = Res(id: 2)
+  swap = |!r|
+    r = Res(id: 3)
+  swap()
+  swap()
+  print("mid", r.id)
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  run(|!v|
+    v = Vec())
+  print(v.len)
+  run(|!r|
+    r = Res(id: 4))
+  print("end")

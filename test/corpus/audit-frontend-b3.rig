@@ -1,0 +1,5 @@
+sub main()
+  y = 3
+  g = |a: Int|
+    -a
+  print(g(2))

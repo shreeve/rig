@@ -1,0 +1,4 @@
+use m2
+use m2
+sub main()
+  print(m2.K)

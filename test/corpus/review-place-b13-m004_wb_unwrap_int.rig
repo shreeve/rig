@@ -1,0 +1,10 @@
+sub g(n: !Int)
+  n = 7
+
+fun f() -> Int?
+  o: Int? = 1
+  g(!o?)
+  o
+
+sub main
+  print(f() ?? 0)

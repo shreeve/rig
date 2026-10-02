@@ -1,0 +1,14 @@
+fun get(i: Int) -> Int?
+  none if i == 2 else i
+
+fun eat(v: Vec[Int]) -> Int
+  v.len
+
+sub main()
+  a: Vec[Int] = Vec()
+  i = 0
+  while i < 4 : i += 1
+    n = get(i) ?? continue
+    if n == 3
+      eat(<a)
+  print("done")

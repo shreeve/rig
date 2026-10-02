@@ -1,0 +1,10 @@
+struct In
+  n: Int = 1
+  xs: Vec[Int] = Vec()
+struct Out
+  i: In
+  o: Int? = none
+  c: Cell[Int?] = Cell(none)
+sub main()
+  o = Out(i: In())
+  print(o.i.n, o.o == none, o.c.get() == none)

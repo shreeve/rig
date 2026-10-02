@@ -1,0 +1,7 @@
+use util
+
+pub struct Wrap[T]
+  c: util.Cell2[T]
+
+pub fun wrap[T](x: T) -> Wrap[T]
+  Wrap(c: util.Cell2(v: <x))

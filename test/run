@@ -17,7 +17,8 @@
 # RIG_TEST_TIMEOUT (seconds per test, default 120; a test's own
 # `# timeout: N` line can raise its limit), RIG_TEST_OUT (where emitted
 # packages go, default .zig-cache/rig-test; one run at a time uses a
-# directory).
+# directory), RIG_SANITIZE (0 builds the programs tests run on the plain
+# leak checker instead of the sanitizing allocator).
 #
 # Exit status is 1 if any test fails or a known-failing test starts
 # passing (move it out of test/known/ when that happens), 2 on a usage
@@ -46,6 +47,8 @@ NEXUS=${NEXUS:-$(find_nexus)}
 PANIC_RE='Segmentation fault|panic:|panic at|reached unreachable|index out of bounds|General protection|GENERAL PROTECTION|Bus error|Illegal instruction'
 POS_RE='\.rig:[0-9]+:[0-9]+'
 LEAK_RE='rig: memory leak detected'
+# Programs run under the sanitizing allocator unless RIG_SANITIZE=0.
+SANITIZE=${RIG_SANITIZE:-1}
 TIMEOUT=${RIG_TEST_TIMEOUT:-120}
 ZIG=${ZIG:-zig}
 
@@ -77,7 +80,7 @@ check_behavior() {
     local out="$outdir.stdout" err="$outdir.stderr"
     mkdir -p "$outdir"
     # The braces keep bash's own "Abort trap" job notice out of the output.
-    { RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$out" 2>"$err" </dev/null; } 2>/dev/null
+    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$out" 2>"$err" </dev/null; } 2>/dev/null
     local rc=$?
     local panic_want
     panic_want=$(directive expect-panic "$entry" | head -1)
@@ -114,7 +117,8 @@ classify_failure() { # <stderr file> <rc>
     if line=$(grep -m1 -E '\.rig:[0-9]+:[0-9]+: error' "$err"); then echo "rejected: ${line#*: error: }"; return; fi
     if grep -qE 'parse error|unexpected' "$err" && ! grep -q '\.zig:' "$err"; then echo "rejected: $(head -1 "$err")"; return; fi
     if line=$(grep -m1 -E '\.zig:[0-9]+:[0-9]+: error' "$err"); then echo "zig compile error: ${line#*: error: }"; return; fi
-    if grep -qE 'Double free|Invalid free' "$err"; then echo "double free"; return; fi
+    if grep -qE 'Double free|Invalid free|rig: double free' "$err"; then echo "double free"; return; fi
+    if line=$(grep -m1 -E 'rig: (use of freed memory|access past the end)' "$err"); then echo "${line#error: rig: }"; return; fi
     if grep -qE 'Segmentation fault|General protection|GENERAL PROTECTION|Bus error' "$err"; then echo "crash (segfault)"; return; fi
     if line=$(grep -m1 -E 'panic' "$err"); then echo "panic: ${line#*panic: }"; return; fi
     echo "exit $rc: $(head -1 "$err")"
@@ -236,6 +240,44 @@ check_doc() {
     return $ok
 }
 
+# A corpus program's run fails on what memory-safe, correctly emitted
+# code never does: a leak, a use of freed memory, a Zig compile error, a
+# crash, or a Zig safety check that means emitted code went wrong. Rig's
+# own panics (bounds, overflow, a failed conversion) and exit statuses
+# are fine: a probe need not succeed, only stay sound.
+CORPUS_BAD_RE='rig: memory leak detected|rig: use of freed memory|rig: access past the end|rig: double free|\.zig:[0-9]+:[0-9]+: error|\.rig:[0-9]+:[0-9]+: error|Segmentation fault|Bus error|General protection|GENERAL PROTECTION|Illegal instruction|reached unreachable|access of union field|invalid enum value|incorrect alignment|attempt to use null value|switch on corrupt value|invalid error code|sentinel mismatch'
+
+# check_corpus <entry> <outdir> <logfile>: `rig check` rejects the
+# program with a file:line:col diagnostic, or it runs clean under the
+# sanitizer. A passing run's output directory, and its Zig cache, are
+# removed: the corpus is large, and each program is built once a run.
+check_corpus() {
+    local entry=$1 outdir=$2 log=$3
+    local out rc line
+    out=$("$TIMEOUT_CMD" "$TIMEOUT" "$RIG" check "$entry" 2>&1 </dev/null)
+    rc=$?
+    echo "$out" >"$log"
+    if [[ $rc -eq 124 ]]; then REASON="rig check timed out after ${TIMEOUT}s"; return 1; fi
+    if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler crashed"; return 1; fi
+    if [[ $rc -ne 0 ]]; then
+        grep -qE "$POS_RE" <<<"$out" && return 0
+        REASON="rejected without a file:line:col diagnostic: $(head -1 <<<"$out")"
+        return 1
+    fi
+    mkdir -p "$outdir"
+    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$outdir.stdout" 2>"$outdir.stderr" </dev/null; } 2>/dev/null
+    rc=$?
+    { echo "--- stdout"; head -40 "$outdir.stdout"; echo "--- stderr"; cat "$outdir.stderr"; } >"$log"
+    if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
+    if line=$(grep -m1 -E "$CORPUS_BAD_RE" "$outdir.stderr"); then
+        REASON=$(classify_failure "$outdir.stderr" "$rc")
+        [[ $REASON == exit* || $REASON == panic* ]] && REASON=$line
+        return 1
+    fi
+    rm -rf "$outdir" "$outdir.stdout" "$outdir.stderr"
+    return 0
+}
+
 # check_cli <script> <outdir> <logfile>: the script exits 0. It runs in an
 # empty directory with RIG, ROOT, and RIG_OUT_DIR set (test/cli/_lib.sh).
 check_cli() {
@@ -300,6 +342,7 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
         ir)                check_ir "$entry" "$log"; ok=$? ;;
         cli)               check_cli "$path" "$outdir" "$log"; ok=$? ;;
         doc)               check_doc "$path" "$entry" "$outdir" "$log"; ok=$? ;;
+        corpus)            check_corpus "$entry" "$outdir" "$log"; ok=$? ;;
         known)
             if grep -qE '^# error:' "$entry"; then check_reject "$entry" "$log"
             else check_behavior "$entry" "$outdir" "$log"; fi
@@ -421,10 +464,10 @@ exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
 PERL
     chmod +x "$TIMEOUT_CMD"
 fi
-export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE
+export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE
 
 is_kind() {
-    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|doc) return 0 ;; esac
+    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|doc|corpus) return 0 ;; esac
     return 1
 }
 
@@ -461,6 +504,26 @@ for p in examples/*.rig; do [[ -e "$p" ]] && add "examples/$(basename "$p" .rig)
 for p in test/ir/*.rig; do [[ -e "$p" ]] && add "ir/$(basename "$p" .rig)" "$p"; done
 for p in test/torture/*.rig; do [[ -e "$p" ]] && add "torture/$(basename "$p" .rig)" "$p"; done
 for p in test/cli/[!_]*.sh; do [[ -e "$p" ]] && add "cli/$(basename "$p" .sh)" "$p"; done
+# The corpus: a run with filters takes every program the filters select
+# (`./test/run corpus` takes them all); a run without takes one in
+# CORPUS_SAMPLE, picked by a hash of its name (see test/README.md).
+CORPUS_SAMPLE=16
+if [[ -d test/corpus ]]; then
+    for p in test/corpus/*; do
+        [[ "$p" == *.rig || -f "$p/main.rig" ]] && basename "$p" .rig
+    done | awk -v all=${#FILTERS[@]} -v n=$CORPUS_SAMPLE '
+        BEGIN { for (i = 1; i < 256; i++) ord[sprintf("%c", i)] = i }
+        {
+            h = 0
+            for (i = 1; i <= length($0); i++) h = (h * 31 + ord[substr($0, i, 1)]) % 1000003
+            if (all > 0 || h % n == 0) print
+        }
+    ' >"$WORK/corpus"
+    while IFS= read -r name; do
+        if [[ -d "test/corpus/$name" ]]; then add "corpus/$name" "test/corpus/$name"
+        else add "corpus/$name" "test/corpus/$name.rig"; fi
+    done <"$WORK/corpus"
+fi
 
 # Doc examples: every ```rig block in the Markdown docs is a test. The
 # info string after `rig` sets the contract (see test/README.md):
@@ -603,7 +666,7 @@ if [[ ${#FILTERS[@]} -eq 0 ]]; then
         }
         {
             rel = substr($0, length(root) + 1)
-            if (rel !~ /^(behavior|reject|known|examples|ir|torture|cli|doc)(\/|$)/) next
+            if (rel !~ /^(behavior|reject|known|examples|ir|torture|cli|doc|corpus)(\/|$)/) next
             n = split(rel, p, "/"); pre = p[1]; inside = 0
             for (i = 1; i < n; i++) { if (pre in keep || pre in gone) inside = 1; pre = pre "/" p[i + 1] }
             if (inside || rel in keep || rel in dir) next

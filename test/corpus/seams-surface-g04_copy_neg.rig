@@ -1,0 +1,5 @@
+sub main
+  n = 5
+  m = <n
+  p = <m
+  print(p)

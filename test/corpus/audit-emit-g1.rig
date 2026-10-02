@@ -1,0 +1,49 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop R", self.n)
+
+struct Node
+  v: Int
+  r: R
+  next: Box[Node]?
+
+  sub bump(!self)
+    self.v += 1
+
+  fun total(?self) -> Int
+    t = self.v
+    if ?self.next as n
+      t += n.total()
+    t
+
+fun read(n: ?Node) -> Int
+  n.v
+
+sub write(n: !Node)
+  n.v *= 10
+
+struct W[T]
+  item: T
+
+  fun get(?self) -> ?T
+    ?self.item
+
+fun first[T](w: ?W[T]) -> ?T
+  w.get()
+
+sub main
+  b = Box(Node(v: 1, r: R(n: 1), next: Box(Node(v: 2, r: R(n: 2), next: none))))
+  !b.bump()
+  print(b.v, read(?b), b.total())
+  write(!b)
+  print(b.v)
+  if !b.next as n
+    !n.bump()
+  print(b.total())
+  node = <b.unbox()
+  print(node.v)
+  w = W(item: Box(R(n: 7)))
+  print(first(?w).n)
+  wb = Box(W(item: 5))
+  print(wb.item, wb.get())

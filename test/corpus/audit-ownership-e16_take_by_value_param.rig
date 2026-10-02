@@ -1,0 +1,27 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+struct H
+  o: *Tok?
+
+sub f(h: H)
+  x = <h.o
+  print(x == none, h.o == none)
+
+sub main
+  f(H(o: *Tok(n: 1)))

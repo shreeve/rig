@@ -1,0 +1,25 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(k: Int) -> R?
+  R(n: k) if k > 0 else none
+
+sub use1(k: Int)
+  y = R(n: 100 + k)
+  x = mk(k) ?? <y
+  print("got", x.n)
+
+fun use2(k: Int) -> Int
+  y = R(n: 200 + k)
+  z = R(n: 300 + k)
+  x = mk(k) ?? return y.n
+  w = mk(k - 1) ?? <z
+  x.n + w.n
+
+sub main()
+  use1(1)
+  use1(0)
+  print(use2(0), use2(1), use2(2))

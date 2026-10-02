@@ -1,0 +1,15 @@
+error IoError
+  eof
+
+fun get(n: Int) -> Int?!
+  return IoError.eof if n < 0
+  return none if n == 0
+  n
+
+fun use_it(n: Int) -> Int!
+  x = get(n)! ?? 5
+  x
+
+sub main
+  print(use_it(3)!, use_it(0)!)
+  print(use_it(-1) catch -1)

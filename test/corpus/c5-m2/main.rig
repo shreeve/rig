@@ -1,0 +1,36 @@
+use lib
+use util
+
+struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+type IW = Wrap[Int]
+type IV = Vec[Int]
+type B2 = lib.Byte
+type Q = B2
+type LUP = lib.UP
+
+K = Q.max - 250
+
+sub main()
+  w = IW(v: 3)
+  print(w.get())
+  v: IV = IV()
+  !v.push(4)
+  print(v.len)
+  p = lib.UP(x: 5)
+  o = lib.UP.origin()
+  l = LUP(x: 6)
+  s = lib.US.dark(n: 7)
+  t: lib.US = lib.US.light
+  a: [K]Int = [K of 1]
+  print(p.x, o.x, l.x, a.len, lib.Byte(200), Q(3) + 1, B2.max)
+  match s
+    .dark(n) => print(n)
+    _ => print("light")
+  match t
+    .light => print("light")
+    _ => print("dark")

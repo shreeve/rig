@@ -1,0 +1,25 @@
+error E
+  bad
+
+fun f(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+test "ok"
+  print(f(0)!)
+
+test "fails"
+  print(f(1)!)
+
+test "leaks \"quoted\""
+  v: Vec[Int] = Vec()
+  !v.push(1)
+
+test "last"
+  xs = [1]
+  i = 3
+  i += 0
+  print(xs[i])
+
+sub main
+  print("m")

@@ -1,0 +1,25 @@
+pub fun dup[T](x: T) -> T
+  a = x
+  a
+
+pub fun last[T](v: ?Vec[T], d: T) -> T
+  r = <d
+  for x in v
+    r = <x
+  r
+
+pub fun eq[T](a: T, b: T) -> Bool
+  a == b
+
+pub fun lt[T](a: T, b: T) -> Bool
+  a < b
+
+pub fun arr[n: Int] -> Int
+  a = [0; n]
+  a.len
+
+pub fun fit[T](x: T) -> T
+  x + 300
+
+pub fun add[T](a: T, b: T) -> T
+  a + b

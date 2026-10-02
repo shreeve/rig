@@ -1,0 +1,9 @@
+fun grow(v: !Vec[Vec[Int]]) -> Int
+  for _ in 0..100
+    !v.push(Vec[Int]())
+  v.len
+sub main()
+  vs = Vec[Vec[Int]]()
+  !vs.push(Vec[Int]())
+  !vs[0].push(grow(!vs))
+  print(vs[0][0])

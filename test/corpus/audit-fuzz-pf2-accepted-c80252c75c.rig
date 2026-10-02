@@ -1,0 +1,11 @@
+# `==` on Strings compares their contents.
+
+sub main()
+  s = "a"
+  print(s == "a")
+  print(s == "a")
+  print(s == "b")
+
+# expec~xt:
+# true
+# false

@@ -1,0 +1,8 @@
+fun first(s: String) -> String
+  s[..1]
+
+sub main
+  out: String = "x"
+  f = |!out| out = first(?Text("zzz"))
+  f()
+  print(out)

@@ -1,0 +1,9 @@
+fun first(o: ?([3]Int?), d: ?[1]Int) -> []Int
+  if ?o as a
+    return ?a[0..2]
+  ?d[0..0]
+
+sub main()
+  o: [3]Int? = [1, 2, 3]
+  d = [0]
+  print(first(?o, ?d))

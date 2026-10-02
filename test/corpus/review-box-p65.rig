@@ -1,0 +1,17 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(o: ?R?) -> *fun() -> Int
+  if o as x
+    *|?x| x.n
+  else
+    *|| 0
+
+sub main
+  o: R? = R(n: 1)
+  f = mk(?o)
+  o = none
+  print(f())

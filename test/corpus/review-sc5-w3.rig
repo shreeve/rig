@@ -1,0 +1,6 @@
+fun wr[T](a: T, b: T) -> T
+  a +% b
+
+sub main()
+  a: U8 = 200
+  print(a +% 300)

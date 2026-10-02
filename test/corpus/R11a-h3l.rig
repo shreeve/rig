@@ -1,0 +1,36 @@
+enum Opt[T]
+  some(value: T)
+  none
+
+fun wrap[T](x: T) -> Opt[T]
+  .some(value: <x)
+
+struct Two[A, B]
+  a: A
+  b: B
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun unwrap(o: Opt[Res]) -> Res
+  match o
+    .some(value) => <value
+    .none => Res(n: 0)
+
+sub main()
+  o = wrap(Res(n: 1))
+  r = unwrap(<o)
+  print("got", r.n)
+  p = Opt[Res].some(value: Res(n: 2))
+  match p
+    .some(value) => print("peek", value.n)
+    .none => print("none")
+  q: Opt[Res] = .none
+  t = Two(a: Res(n: 3), b: Vec[Int]())
+  !t.b.push(1)
+  u = <t
+  print(u.a.n, u.b.len)
+  print("end")

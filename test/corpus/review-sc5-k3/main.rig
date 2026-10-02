@@ -1,0 +1,11 @@
+use lib
+
+LOCAL: U8 = lib.SMALL +% 10
+W = lib.BIG +% 1
+
+sub main()
+  print(lib.BIG, lib.NEG, lib.SMALL, lib.HALF, LOCAL, W, lib.ARR)
+  print(lib.SMALL + 5)
+  x = lib.SMALL
+  print(x +% 10, lib.BIG / 2, lib.NEG +% -1)
+  print(Float(lib.BIG), lib.F / 2)

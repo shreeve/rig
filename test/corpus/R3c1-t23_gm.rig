@@ -1,0 +1,33 @@
+struct N
+  n: Int
+
+struct Wrap[T]
+  item: T
+
+  fun same(?self, o: ?Self) -> Bool
+    self == o
+
+  fun has(?self, v: ?T) -> Bool
+    self.item == v
+
+struct Outer[T]
+  w: Wrap[T]
+  tag: Int
+
+enum Opt[T]
+  some(value: T)
+  nothing
+
+sub main()
+  a = Wrap(item: "x")
+  b = Wrap(item: "x")
+  print(a.same(?b), a.has(?"y"))
+  o1 = Outer(w: Wrap(item: 1.5), tag: 1)
+  print(o1 == Outer(w: Wrap(item: 1.5), tag: 1))
+  h1 = Outer(w: Wrap(item: *N(n: 1)), tag: 1)
+  print(h1 == h1)
+  s: Opt[*N] = .nothing
+  t: Opt[*N] = .nothing
+  print(s == t)
+  hw = Wrap(item: *N(n: 1))
+  print(hw.same(?hw))

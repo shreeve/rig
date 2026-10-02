@@ -1,0 +1,6 @@
+pub BIG: U128 = U128.max
+pub NEG: I128 = I128.min
+pub SMALL: U8 = 250
+pub HALF = 7 / 2
+pub F: Float = 1.5
+pub ARR: [3]U8 = [1, 2, 3]

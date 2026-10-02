@@ -1,0 +1,9 @@
+sub main
+  x = 0
+  f = |!x|
+    x += 1
+  i = 0
+  while i < 3
+    f()
+    print(x)
+    i += 1

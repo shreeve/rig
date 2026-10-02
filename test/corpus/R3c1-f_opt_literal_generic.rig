@@ -1,0 +1,6 @@
+fun is3[T](x: T?) -> Bool
+  x == 3
+
+sub main()
+  s: String? = "a"
+  print(is3(s))

@@ -1,0 +1,11 @@
+use a
+
+error Net
+  timeout
+
+fun g() -> Int!
+  return Net.timeout
+
+sub main
+  x = g() catch |e| 1 if e == .timeout else 2
+  print(x)

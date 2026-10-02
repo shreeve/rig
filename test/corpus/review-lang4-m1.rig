@@ -1,0 +1,27 @@
+struct Node
+  items: Vec[Int]
+  tag: *Vec[Int]
+
+struct H
+  w: !Node
+
+  sub reset(!self, k: Int)
+    fresh: Vec[Int] = Vec()
+    !fresh.push(k)
+    self.w = Node(items: <fresh, tag: *Vec())
+
+  sub grow(!self)
+    !self.w.items.push(1)
+
+sub main
+  sh: *Vec[Int] = *Vec()
+  node = Node(items: Vec(), tag: +sh)
+  h = H(w: !node)
+  i = 0
+  while i < 5
+    !h.reset(i)
+    !h.grow()
+    if i == 3
+      break
+    i += 1
+  print(node.items)

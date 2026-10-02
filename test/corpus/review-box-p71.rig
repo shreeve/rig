@@ -1,0 +1,18 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  b: Box[R]
+
+sub wr(r: !R)
+  r.n = 9
+
+sub main
+  c = Cell(value: 0)
+  s = S(b: Box(value: R(n: 1)))
+  p = ?s
+  wr(!p.b)
+  print(s.b.n)

@@ -1,0 +1,7 @@
+use util
+
+pub fun mk[T](x: T) -> util.Box[T]
+  util.Box(v: <x)
+
+pub fun top[T](a: T, b: T) -> T
+  util.big(a, b)

@@ -1,0 +1,5 @@
+K: U64 = 3
+
+sub main()
+  v: U64 = 5
+  print(K)

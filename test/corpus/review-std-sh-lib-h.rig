@@ -1,0 +1,10 @@
+extern zig "h.zig"
+  pub fun half(x: Int) -> Int
+  pub fun other(x: Int) -> Int
+  pub fun first(xs: []Int) -> ?Int
+  pub sub bump(x: !Int)
+  pub fun name(s: String) -> String
+  pub fun pick(a: ?P, b: ?P) -> ?P
+
+pub struct P
+  pub n: Int

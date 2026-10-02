@@ -1,0 +1,22 @@
+error E
+  bad
+
+struct P
+  n: Int
+  fun use(!self, a: Vec[Int], b: Vec[Int]) -> Int
+    self.n += 1
+    self.n + a.len + b.len
+
+fun mk(n: Int) -> Vec[Int]!
+  return E.bad if n < 0
+  v = Vec[Int]()
+  !v.push(n)
+  v
+
+fun run(ps: ![2]P, i: !Int) -> Int!
+  !ps[i].use(mk(1)!, mk(2)!)
+
+sub main()
+  ps = [P(n: 1), P(n: 2)]
+  i = 0
+  print(run(!ps, !i) catch 0, ps[0].n, ps[1].n)

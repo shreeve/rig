@@ -1,0 +1,26 @@
+struct S
+  a: Vec[Int]
+  b: Int
+
+  fun count(?self, n: Int) -> Int
+    self.a.len + n
+
+fun grow(v: !Vec[Int]) -> Int
+  !v.push(7)
+  2
+
+fun grows(s: !S) -> Int
+  !s.a.push(7)
+  2
+
+fun growo(o: !Vec[Int]?) -> Int
+  o = none
+  2
+
+sub main
+  s = S(a: Vec(), b: 1)
+  print(s.count(grow(!s.a)))
+  print(s.count(grows(!s)))
+  !s.a.push(grow(!s.a))
+  o: Vec[Int]? = Vec()
+  print(o, growo(!o))

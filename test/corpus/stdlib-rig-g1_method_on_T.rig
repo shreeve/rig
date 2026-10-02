@@ -1,0 +1,14 @@
+struct P
+  x: Int
+  fun area(?self) -> Int
+    self.x * 2
+
+fun twice[T](v: ?T) -> Int
+  v.area() * 2
+
+fun getx[T](v: ?T) -> Int
+  v.x
+
+sub main
+  p = P(x: 3)
+  print(twice(?p), getx(?p))

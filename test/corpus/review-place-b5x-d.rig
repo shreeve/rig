@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+sub main
+  o: *P? = *P(x: 1)
+  if +o as h
+    h = *P(x: 2)
+    print(h.x)
+  if o as k
+    print(k.x)

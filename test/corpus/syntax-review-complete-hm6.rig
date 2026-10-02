@@ -1,0 +1,50 @@
+struct Map[K, V]
+  keys: Vec[K?]
+  vals: Vec[V?]
+  hash: fun(?K) -> U64
+  len: Int
+
+  fun new(h: fun(?K) -> U64) -> Self
+    m: Self = Map(keys: Vec(), vals: Vec(), hash: h, len: 0)
+    for _ in 0..8
+      !m.keys.push(none)
+      !m.vals.push(none)
+    m
+
+  fun find(?self, k: ?K) -> Int?
+    cap = self.keys.len
+    i = Int(self.hash(k) % U64(cap))
+    for _ in 0..cap
+      if self.keys[i] as kk
+        return i if kk == k
+      else
+        return none
+      i = (i + 1) % cap
+    none
+
+  fun get(?self, k: ?K) -> (?V)?
+    i = self.find(k)?
+    ?self.vals[i]
+
+  sub put(!self, k: K, v: V)
+    cap = self.keys.len
+    f = self.hash
+    i = Int(f(?k) % U64(cap))
+    while self.keys[i] != none and self.keys[i] != k
+      i = (i + 1) % cap
+    self.len += 1 if self.keys[i] == none
+    self.keys[i] = k
+    self.vals[i] = <v
+
+fun hash_str(s: ?String) -> U64
+  h: U64 = 5381
+  for b in s
+    h = (h * 33 + U64(b)) % 1000000007
+  h
+
+sub main
+  m = Map[String, Int].new(hash_str)
+  !m.put("one", 1)
+  !m.put("two", 2)
+  !m.put("one", 11)
+  print(m.get(?"one"), m.get(?"two"), m.get(?"three"), m.len)

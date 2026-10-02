@@ -1,0 +1,7 @@
+fun deep(x: ?[1000000]Int, n: Int) -> Int
+  return x[0] if n == 0
+  deep(x, n - 1)
+
+sub main
+  a: [1000000]Int = [1000000 of 7]
+  print(deep(?a, 50))

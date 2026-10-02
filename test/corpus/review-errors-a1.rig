@@ -1,0 +1,29 @@
+error Disk
+  timeout
+  full
+
+error Net
+  timeout
+
+struct Rec
+  e: Disk = .full
+  f: Disk? = none
+
+fun opt(n: Int) -> Disk?
+  return .timeout if n == 0
+  none
+
+fun dflt(e: Disk = .timeout) -> Disk
+  e
+
+sub main
+  r = Rec()
+  print(r)
+  o: Disk? = .timeout
+  print(o, opt(0), opt(1))
+  v = Vec[Disk]()
+  !v.push(.full)
+  !v.push(Disk.timeout)
+  print(v, dflt(), dflt(.full))
+  print(r.e == .full, r.e != Disk.timeout)
+  -v

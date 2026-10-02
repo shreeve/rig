@@ -1,0 +1,5 @@
+use lib
+
+sub main()
+  f: fun(Int, Int) -> Int = lib.max
+  print(f(3, 4))

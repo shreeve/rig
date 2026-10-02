@@ -1,0 +1,34 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+  fun val(?self, k: Int) -> Int?
+    self.id if k > 0 else none
+
+fun mkv(k: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(k) if k > 0
+  v
+
+sub t(k: Int)
+  n = mkv(k).get(0) ?? 0
+  print("t", n)
+
+sub u(k: Int)
+  n = Res(id: 9).val(k) ?? 0
+  print("u", n)
+
+sub w(k: Int)
+  for i in 0..2
+    n = Res(id: 10 + i).val(k) ?? 0
+    print("w", n)
+
+sub main
+  t(1)
+  t(0)
+  u(1)
+  u(0)
+  w(0)
+  print("end")

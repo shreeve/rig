@@ -1,0 +1,12 @@
+struct R
+  n: Int
+  drop(!self)
+    print("d")
+enum S
+  full(r: R)
+  empty
+sub main
+  s: S = .full(r: R(n: 1))
+  match s
+    .full(r) => print(r.n)
+    .empty => pass

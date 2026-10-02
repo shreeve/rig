@@ -1,0 +1,17 @@
+struct Counter
+  hits: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  fun peek(?self) -> Int
+    self.hits.set(self.hits.get() + 100)
+    self.log.push(self.hits.get())
+    self.hits.get()
+
+fun look(c: ?Counter) -> Int
+  c.peek()
+
+sub main
+  c = Counter(hits: Cell(0), log: Cell(Vec()))
+  a = c.peek()
+  b = look(?c)
+  print(a, b, c.hits.get(), c.log.len)

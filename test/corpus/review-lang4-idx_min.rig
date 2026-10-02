@@ -1,0 +1,5 @@
+sub main
+  n = 1
+  xs = [!n]
+  xs[0] = 9
+  print(n)

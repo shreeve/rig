@@ -1,0 +1,8 @@
+pub enum Opt[T]
+  some(value: T)
+  none
+  other(a: Int, b: T)
+
+pub enum Color[T]
+  red
+  green

@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+sub eat(b: Box[P])
+  print(b.x)
+
+sub main
+  b = Box(value: P(x: 1))
+  eat(<b)
+  print(b.x)

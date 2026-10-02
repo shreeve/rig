@@ -1,0 +1,47 @@
+# Rust dev: a tiny expression evaluator with errors
+enum Token
+  num(v: Int)
+  plus
+  minus
+  star
+
+error EvalError
+  unexpected
+  trailing_op
+
+fun apply(op: ?Token, a: Int, b: Int) -> Int!
+  match op
+    .plus => a + b
+    .minus => a - b
+    .star => a * b
+    .num(_) => EvalError.unexpected
+
+fun eval(toks: ?Vec[Token]) -> Int!
+  acc = 0
+  pending: Token? = none
+  first = true
+  for t in toks
+    match t
+      .num(v)
+        if first
+          acc = v
+          first = false
+        else if pending as op
+          acc = apply(?op, acc, v)!
+          pending = none
+        else
+          return EvalError.unexpected
+      _ => pending = t
+  return EvalError.trailing_op if pending != none
+  acc
+
+sub main
+  toks: Vec[Token] = Vec()
+  !toks.push(.num(2))
+  !toks.push(.plus)
+  !toks.push(.num(3))
+  !toks.push(.star)
+  !toks.push(.num(4))
+  print(eval(?toks)!)
+  !toks.push(.minus)
+  print(eval(?toks) catch |e| -1 if e == EvalError.trailing_op else -2)

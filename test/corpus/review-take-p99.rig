@@ -1,0 +1,16 @@
+struct W[T]
+  x: T?
+
+fun first[T](o: W[T]?) -> T?
+  if <o as w
+    return <w.x
+  none
+
+fun second[T](o: W[T]?) -> T?
+  if o as w
+    return <w.x
+  none
+
+sub main
+  print(first(W[Int](x: 3)))
+  print(second(W[Int](x: 4)))

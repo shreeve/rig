@@ -1,0 +1,11 @@
+fun g[T, on: Bool](a: T, b: T) -> T
+  if on
+    return a if a > b else b
+  a
+
+fun f[T, on: Bool](a: T, b: T) -> T
+  g[T, on](a, b)
+
+sub main()
+  print(f[Int, true](1, 2))
+  print(f[String, true]("a", "b"))

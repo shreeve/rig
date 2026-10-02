@@ -1,0 +1,12 @@
+error E
+  bad
+fun f() -> Int!
+  return E.bad
+fun g -> Int
+  n = f() catch |e|
+    return 7
+  n
+sub main
+  h = |x: Int| 
+    return x + 1
+  print(g(), h(1))

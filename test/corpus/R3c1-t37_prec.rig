@@ -1,0 +1,19 @@
+struct P
+  x: Int
+
+fun g[T](a: T, b: T) -> Bool
+  not a < b and not (a == b) or a >= b
+
+sub main()
+  s = "a"
+  t = "b"
+  print(not s < t, not s > t, (s < t) == (t > s), (s < t) != true)
+  p = P(x: 1)
+  print(not p == p, not p != p, (p == p) == (p != p))
+  x = s < t
+  y = p == P(x: 1) if s < t else false
+  print(x, y, g(1, 2), g("b", "a"), g(2.0, 2.0))
+  if not s >= t
+    print("ok")
+  z = 1 if "a" < "b" else 2
+  print(z)

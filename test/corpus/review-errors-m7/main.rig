@@ -1,0 +1,8 @@
+use lib
+
+sub main
+  print(lib.DEF)
+  x = lib.fail() catch |e|
+    print(e == lib.DEF)
+    0
+  print(x)

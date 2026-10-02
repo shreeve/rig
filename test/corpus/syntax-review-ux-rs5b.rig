@@ -1,0 +1,13 @@
+struct Doc
+  title: String
+  words: Vec[String]
+
+struct View
+  doc: ?Doc
+  pos: Int
+
+sub main
+  d1 = Doc(title: "a", words: Vec())
+  v = View(doc: ?d1, pos: 0)
+  !d1.words.push("y")
+  print(v.doc.title)

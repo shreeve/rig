@@ -1,0 +1,15 @@
+struct P
+  x: Int
+
+fun mk(n: Int) -> P
+  P(x: n)
+
+fun get(p: ?P) -> Int
+  p.x
+
+sub main()
+  print(?mk(1))
+  print(get(?mk(2)), get(p: ?mk(3)))
+  v: Vec[Int] = Vec()
+  !v.push(get(?mk(4)))
+  print(v[0])

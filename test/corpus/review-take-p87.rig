@@ -1,0 +1,20 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: *R?
+  v: Vec[Int]
+
+sub bump(s: !S)
+  !s.v.push(1)
+
+sub main
+  o: S? = S(a: *R(n: 1), v: Vec())
+  if <o as x
+    y = <x.a
+    bump(!x)
+    x.v = Vec[Int]()
+    print(y, x)
+  print("end")

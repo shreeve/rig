@@ -1,0 +1,16 @@
+error Bad
+  neg
+
+sub plain(n: Int)
+  print("plain", n)
+
+fun pick(ok: Bool) -> (sub(Int))!
+  return Bad.neg if not ok
+  plain
+
+sub main
+  f = pick(true)!
+  f(1)
+  _ = pick(false) catch |e|
+    print("e", e)
+    plain

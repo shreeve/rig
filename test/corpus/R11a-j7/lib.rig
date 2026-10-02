@@ -1,0 +1,11 @@
+pub fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+pub fun apply(f: fun(Int, Int) -> Int) -> Int
+  f(1, 2)
+
+pub struct W[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v

@@ -1,0 +1,13 @@
+struct N
+  n: Int
+
+enum Sh
+  h(p: *N)
+  f(g: fun(Int) -> Int)
+  b
+
+sub main()
+  s: Sh = .b
+  print(s == .b, .b == s, s != .b)
+  t: Sh = .h(p: *N(n: 1))
+  print(t == .b)

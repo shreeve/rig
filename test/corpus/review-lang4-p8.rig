@@ -1,0 +1,7 @@
+sub main
+  n = 1
+  m = 2
+  xs = [!n, !m]
+  i = 0
+  xs[i] += 5
+  print(n, m)

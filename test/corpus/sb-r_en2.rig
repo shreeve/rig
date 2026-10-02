@@ -1,0 +1,5 @@
+enum Endian
+  a
+
+sub main
+  print(1)

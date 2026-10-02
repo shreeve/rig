@@ -1,0 +1,8 @@
+fun hid[T](x: T) -> T
+  x + x
+
+pub fun twice[T](x: T) -> T
+  hid(x)
+
+pub fun thrice[T](x: T) -> T
+  twice(x)

@@ -1,0 +1,17 @@
+use std.random
+
+sub main
+  r = random.Rng.seeded(42)
+  print(!r.next(), !r.next())
+  print(!r.int(0, 10), !r.int(-5, 5), !r.float())
+  a = [1, 2, 3, 4, 5, 6]
+  !r.shuffle(!a)
+  print(a)
+  v: Vec[Int] = Vec()
+  for i in 0..10
+    !v.push(i)
+  !r.shuffle(!v[..])
+  print(v)
+  o = random.Rng.new()
+  x = !o.int(1, 7)
+  print(x >= 1 and x < 7)

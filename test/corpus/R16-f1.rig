@@ -1,0 +1,11 @@
+struct View[T]
+  w: ?T
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  g: fun(Int) -> Int = double
+  v = View(w: ?g)
+  h = v.w
+  print(h(3))

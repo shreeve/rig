@@ -1,0 +1,12 @@
+fun mk -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  defer
+    i = 0
+    while i < 100 : i += 1
+      !v.push(i)
+  v
+
+sub main
+  w = mk()
+  print(w.len, w[0])

@@ -1,0 +1,3 @@
+sub main()
+  x: []* Cell[Int] = []
+  y: [2]? Int = [?1, ?2]

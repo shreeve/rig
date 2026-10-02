@@ -1,0 +1,22 @@
+sub main()
+  a: I8 = 127
+  print(a +% 1, a *% 2, I8.min -% 1)
+  b: U128 = U128.max
+  print(b +% 1, b *% b, U128(0) -% 1)
+  c: I128 = I128.min
+  print(c -% 1, c *% -1, I128.max +% 1, c)
+  d: U8 = 250
+  d +%= 10
+  print(d)
+  d *%= 3
+  print(d)
+  d -%= 250
+  print(d)
+  print(U128.max, I128.min, I128.max)
+  print(Float(U128.max), Float(I128.min))
+  print(U8.max +% 1, I8.max +% I8.max, Int.max *% 2)
+  x = I128.max
+  print(x / 3, x % 7, x >> 100, U128(1) << 127)
+  print(-I128.max - 1)
+  big: U128 = 340282366920938463463374607431768211455
+  print(big, U64(big >> 64))

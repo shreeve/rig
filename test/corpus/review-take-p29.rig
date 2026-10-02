@@ -1,0 +1,18 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  h: *R?
+  w: ~R?
+
+sub main
+  r = *R(n: 1)
+  s = S(h: +r, w: ~r)
+  a = <s.h
+  b = <s.w
+  print(a, s)
+  if <b as bb
+    print("weak")
+  print("end")

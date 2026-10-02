@@ -1,0 +1,10 @@
+struct S
+  a: Vec[Int]
+  b: Vec[Int]
+
+sub main
+  s = S(a: Vec(), b: Vec())
+  !s.a.push(1)
+  w = !s.a[..]
+  !s.b.push(2)
+  w[0] = 5

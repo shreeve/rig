@@ -1,0 +1,5 @@
+sub main
+  o: String? = "hi"
+  if o as s
+    s = "yo"
+    print(s)

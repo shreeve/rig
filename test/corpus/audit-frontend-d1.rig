@@ -1,0 +1,6 @@
+fun g(a: Int?, b: Int?) -> Int
+  x = a ?? b ?? return 7
+  x
+sub main()
+  print(g(none, none))
+  print(g(none, 2))

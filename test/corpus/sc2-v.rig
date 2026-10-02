@@ -1,0 +1,9 @@
+enum Option[T]
+  some(value: T)
+  nothing
+
+sub main()
+  v: Vec[Int] = Vec()
+  o: Option[Vec[Int]] = .some(v)
+  p = Option.some(v)
+  print(v.len)

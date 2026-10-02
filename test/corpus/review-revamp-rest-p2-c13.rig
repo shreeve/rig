@@ -1,0 +1,6 @@
+enum E
+  a = U8(3) + 4
+  b = 2 +% 3
+  c = 255 *% 255
+sub main()
+  print(Int(E.a), Int(E.b), Int(E.c))

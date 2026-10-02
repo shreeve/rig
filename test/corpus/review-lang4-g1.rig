@@ -1,0 +1,20 @@
+struct G[T]
+  w: !T
+
+  sub set(!self, x: T)
+    self.w = <x
+
+sub main
+  v: Vec[Int] = Vec()
+  g = G[Vec[Int]](w: !v)
+  u: Vec[Int] = Vec()
+  !u.push(4)
+  !g.set(<u)
+  t: Vec[Int] = Vec()
+  g.w = <t
+  n = 1
+  gi = G[Int](w: !n)
+  !gi.set(9)
+  gi.w += 1
+  print(n)
+  print(v.len)

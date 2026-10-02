@@ -1,0 +1,37 @@
+struct P
+  x: Int
+  y: Int
+
+enum S
+  c(p: P)
+  n
+
+fun eqb(a: ?P, b: ?P) -> Bool
+  a == b
+
+fun eqm(a: !P, b: P) -> Bool
+  a == b and b == a
+
+fun ords(a: ?String, b: String) -> Bool
+  a < b and not (b < a) and a <= ?b
+
+fun eqs(a: ?S, b: ?S) -> Bool
+  a == b and a != .n
+
+fun eqarr(a: ?[2]P, b: [2]P) -> Bool
+  a == b
+
+fun eqopt(a: ?P?, b: P) -> Bool
+  a == b and b == a and a != none
+
+sub main()
+  p = P(x: 1, y: 2)
+  q = P(x: 1, y: 2)
+  print(eqb(?p, ?q), eqm(!p, q), p == ?q, ?p == q, ?p == ?q)
+  print(ords(?"a", "b"))
+  s: S = .c(p: p)
+  print(eqs(?s, ?s))
+  arr = [p, q]
+  print(eqarr(?arr, arr))
+  o: P? = p
+  print(eqopt(?o, q))

@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+sub main
+  p = P(x: 1)
+  r = !p
+  t = +r
+  r.x = 5
+  print(t.x)

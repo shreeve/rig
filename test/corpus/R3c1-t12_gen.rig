@@ -1,0 +1,15 @@
+struct N
+  n: Int
+
+enum Opt[T]
+  some(value: T)
+  nothing
+
+fun isNothing[T](o: ?Opt[T]) -> Bool
+  o == .nothing
+
+sub main()
+  x: Opt[*N] = .some(value: *N(n: 1))
+  print(isNothing(?x))
+  y: Opt[Int] = .nothing
+  print(isNothing(?y))

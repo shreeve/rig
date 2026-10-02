@@ -1,0 +1,6 @@
+K: U64 = 3
+
+sub main()
+  v: U64 = 5
+  x: U64 = (v ^ ((U64.min * K) / (U64.min << 8)))
+  print(x, v, K)

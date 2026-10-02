@@ -1,0 +1,6 @@
+sub main()
+  :lbl for i in 0..3
+    x: Int? = none
+    y = x ?? continue :lbl
+    print(y)
+  print(9)

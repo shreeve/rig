@@ -1,0 +1,6 @@
+use util
+
+sub main()
+  print(util.Byte.max)
+  y: U8 = util.LIMIT
+  print(y)

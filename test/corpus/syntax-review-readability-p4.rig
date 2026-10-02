@@ -1,0 +1,8 @@
+sub main
+  s = "  hi"
+  a = 0
+  while a < s.len and s[a] == 32
+    a += 1
+  x: Int? = 3
+  y = x ?? return
+  print(a, y)

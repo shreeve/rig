@@ -1,0 +1,5 @@
+struct W
+  s: []Vec[Int]
+
+sub main
+  print(1)

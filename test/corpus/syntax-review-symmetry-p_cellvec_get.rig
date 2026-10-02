@@ -1,0 +1,3 @@
+sub main
+  c = *Cell(value: Vec[Int]())
+  v = c.get()

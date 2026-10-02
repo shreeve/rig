@@ -1,0 +1,10 @@
+error Disk
+  timeout
+
+error Net
+  timeout
+
+sub main
+  d: Disk = .timeout
+  n: Net = .timeout
+  print(d == n)

@@ -1,0 +1,20 @@
+error Bad
+  neg
+
+sub check(n: Int)!
+  return Bad.neg if n < 0
+
+struct M
+  v: Int
+
+sub main
+  h: sub(Int)! = check
+  print(h)
+  f: *sub(Int)! = *|x: Int|
+    return Bad.neg if x < 0
+  print(f)
+  print(M(3) == M(3), M(3))
+  x: M? = M(4)
+  print(x)
+  arr = [M(1), M(2)]
+  print(arr)

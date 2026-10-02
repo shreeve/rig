@@ -1,0 +1,8 @@
+pub struct Box[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+pub fun big[T](a: T, b: T) -> T
+  a if a > b else b

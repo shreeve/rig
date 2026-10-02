@@ -1,0 +1,26 @@
+struct P
+  v: Vec[Int]
+
+  fun n(?self) -> Int
+    self.v.len
+
+enum E
+  a(v: Vec[Int])
+  b
+
+fun size(p: ?P) -> Int
+  p.v.len
+
+fun sizei(n: ?Int) -> Int
+  n + 1
+
+sub main
+  p = P(v: Vec())
+  e: E = .b
+  print(p, p.n(), p.v.len)
+  match e
+    .a(v) => print(v.len)
+    .b => print("b")
+  k = 3
+  print(sizei(?k))
+  print(size(p))

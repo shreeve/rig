@@ -1,0 +1,12 @@
+struct P
+  x: Int
+
+fun mk() -> *P
+  *P(x: 1)
+
+sub g(h: !*P)
+  h = *P(x: 7)
+  print(h.x)
+
+sub main
+  g(!mk())

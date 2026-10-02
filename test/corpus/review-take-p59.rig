@@ -1,0 +1,19 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R
+  b: R?
+
+sub main
+  s = S(a: R(n: 1), b: R(n: 2))
+  replace(!s.a, R(n: 3))
+  _ = replace(!s.b, none)
+  <s.b
+  print("mid")
+  x = replace(!s.a, R(n: 4)).n
+  print(x)
+  print(replace(!s.a, R(n: 5)))
+  print("end")

@@ -1,0 +1,13 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  m = lib.maker(Res(n: 1))
+  r = m()
+  r2 = m()
+  print(r.n, r2.n)

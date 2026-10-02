@@ -1,0 +1,22 @@
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+sub scale(s: ![]Int, k: Int)
+  for x in !s
+
+    x *= k
+fun rest(s: ![]Int) -> ![]Int
+  !s[1..]
+
+sub main
+  a = [1, 2, 3, 4]
+  scale(!a[2..], 10)
+  w = !a[..]
+  w[0] = 7
+  r = rest(!w[..])
+  r[0] += 1
+  print(total(w))
+  print(a)

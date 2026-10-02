@@ -1,0 +1,15 @@
+struct Todo
+  title: String
+  done: Bool = false
+
+sub main
+  items: Vec[Todo] = Vec()
+  !items.push(Todo(title: "a"))
+  !items.push(Todo(title: "b"))
+  print(items.len)
+  left = 0
+  for t in ?items
+    if not t.done
+      left += 1
+  print("left:", left)
+  items[5].done = true

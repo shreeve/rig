@@ -1,0 +1,6 @@
+sub main
+  a = [Vec[Int](), Vec[Int]()]
+  !a[0].push(1)
+  a[1] = Vec()
+  !a[1].push(5)
+  print(a[0].len, a[1][0])

@@ -1,0 +1,12 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+sub main
+  v: Vec[*Res] = Vec()
+  !v.push(*Res(id: 1))
+  s = ?v[..]
+  if s.get(0) as h
+    print(h.id)

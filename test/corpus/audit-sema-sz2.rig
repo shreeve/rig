@@ -1,0 +1,4 @@
+type A = [524_288]*Int?
+
+sub main
+  print(1)

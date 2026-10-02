@@ -1,0 +1,11 @@
+fun replace(a: !Int, b: Int) -> Int
+  print("user replace")
+  a = b
+  0
+
+sub main
+  x = 1
+  y = replace(!x, 5)
+  print(x, y)
+  swap = |a: Int, b: Int| print("closure swap", a, b)
+  swap(1, 2)

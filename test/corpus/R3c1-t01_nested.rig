@@ -1,0 +1,29 @@
+struct Tag
+  name: String
+  code: U8
+
+enum Box
+  full(items: [2]Tag)
+  empty
+
+struct Holder
+  b: Box?
+  arr: [2]Box
+
+sub main()
+  t1 = Tag(name: "a", code: 1)
+  t2 = Tag(name: "b", code: 2)
+  x: Box? = .full(items: [t1, t2])
+  y: Box? = .full(items: [t1, t2])
+  z: Box? = .full(items: [t2, t1])
+  e: Box? = none
+  print(x == y, x == z, x == e, e == none, x != none, x != y)
+  h1 = Holder(b: x, arr: [.empty, .full(items: [t1, t1])])
+  h2 = Holder(b: y, arr: [.empty, .full(items: [t1, t1])])
+  h3 = Holder(b: none, arr: [.empty, .full(items: [t1, t1])])
+  print(h1 == h2, h1 == h3, h3 == h3, h1 != h3)
+  hs = [h1, h2]
+  gs = [h2, h1]
+  print(?hs[0..2] == ?gs[0..2], hs == gs)
+  print(t1 == Tag(name: "a", code: 1), Tag(name: "a", code: 1) == t1)
+  print(x == .full(items: [t1, t2]), .empty == x)

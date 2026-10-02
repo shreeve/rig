@@ -1,0 +1,9 @@
+fun get(f: ?fun() -> ?Vec[Int]) -> Int
+  g = f
+  r = g()
+  r.len
+
+sub main
+  c: Vec[Int] = Vec()
+  !c.push(42)
+  print(get(|?c| c))

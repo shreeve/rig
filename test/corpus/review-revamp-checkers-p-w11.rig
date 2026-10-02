@@ -1,0 +1,20 @@
+struct S
+  n: Int
+
+struct H
+  r: ?S
+
+struct V
+  h: !H
+
+sub put(p: !H)
+  v = V(h: !p)
+  w = !v
+  t = S(n: 99)
+  w.h.r = ?t
+
+sub main()
+  a = S(n: 1)
+  outer = H(r: ?a)
+  put(!outer)
+  print(outer.r.n)

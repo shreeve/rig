@@ -1,0 +1,35 @@
+enum Sh
+  c(r: Int)
+  s(k: Int)
+
+struct H
+  b: Box[Sh]
+
+fun area(b: ?Box[Sh]) -> Int
+  match b
+    .c(r) => r * 3
+    .s(k) => k * k
+
+sub main
+  h = H(b: Box(value: Sh.c(r: 2)))
+  match ?h.b
+    .c(r) => print("c", r)
+    .s(k) => print("s", k)
+  v: Vec[Box[Sh]] = Vec()
+  !v.push(Box(value: Sh.s(k: 3)))
+  for x in ?v
+    match ?x
+      .c(r) => print("c", r)
+      .s(k) => print("s", k)
+  for x in !v
+    match x
+      .c(r) => print("c", r)
+      .s(k) => print("s", k)
+  n = match ?h.b
+    .c(r) => r
+    .s(k) => k
+  print(n, area(?h.b))
+  p = ?h
+  match ?p.b
+    .c(r) => print("pc", r)
+    .s(k) => print("ps", k)

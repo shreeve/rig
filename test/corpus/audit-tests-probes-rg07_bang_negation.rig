@@ -1,0 +1,5 @@
+sub main
+  done = false
+  while !done
+    done = true
+  print(done)

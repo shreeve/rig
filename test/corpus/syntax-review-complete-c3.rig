@@ -1,0 +1,7 @@
+enum Dir
+  n
+  s
+sub main
+  for d in Dir
+    print(d)
+  print(Dir.count)

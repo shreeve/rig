@@ -1,0 +1,5 @@
+sub main
+  o: Vec[Int]? = Vec()
+  if o as v
+    v = Vec()
+    print(v.len)

@@ -1,0 +1,9 @@
+pub error Disk
+  full
+  empty
+
+pub DEF: Disk = .full
+pub DEF2 = Disk.empty
+
+pub fun fail(e: Disk) -> Int!
+  return e

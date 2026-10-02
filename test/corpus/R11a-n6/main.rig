@@ -1,0 +1,28 @@
+use lib
+
+error E
+  bad
+
+fun f(x: ?lib.Wrap[Int], y: lib.Wrap[Int]?, z: *lib.Wrap[Int], s: []lib.Wrap[Int], a: [2]lib.Wrap[Int]) -> Int
+  n = x.v + z.v + s[0].v + a[1].v
+  if y as w
+    n += w.v
+  n
+
+fun g(ok: Bool) -> lib.Wrap[lib.Wrap[Int]]!
+  return E.bad if not ok
+  lib.Wrap(v: lib.Wrap(v: 9))
+
+fun h(k: fun(lib.Wrap[Int]) -> lib.Wrap[Int]) -> Int
+  k(lib.Wrap(v: 1)).v
+
+fun inc(w: lib.Wrap[Int]) -> lib.Wrap[Int]
+  lib.Wrap(v: w.v + 1)
+
+sub main()
+  w = lib.Wrap(v: 1)
+  arr = [lib.Wrap(v: 2), lib.Wrap(v: 3)]
+  print(f(?w, w, *lib.Wrap(v: 4), ?arr[0..2], arr))
+  print(g(true)!.v.v, (g(false) catch lib.Wrap(v: lib.Wrap(v: 0))).v.v)
+  c = |q: lib.Wrap[Int]| lib.Wrap(v: q.v * 10)
+  print(h(inc), c(w).v)

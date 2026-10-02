@@ -1,0 +1,28 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun boxed[T](x: T) -> lib.Stack[T]
+  lib.wrap(<x, label: "boxed")
+
+sub main()
+  s = lib.Stack[*Res].new_stack()
+  !s.push(*Res(n: 1))
+  !s.push(*Res(n: 2))
+  print(s.size())
+  t = boxed(*Res(n: 3))
+  print(t.size())
+  c = lib.Slot(c: Cell(value: *Res(n: 4)))
+  old = c.swap(*Res(n: 5))
+  print(old.n)
+  u: lib.Stack[U8] = lib.Stack.new_stack()
+  !u.push(1, note: "one")
+  !u.push(2)
+  print(u.size())
+  n = 7
+  v = lib.View(r: ?n)
+  print(v.r)

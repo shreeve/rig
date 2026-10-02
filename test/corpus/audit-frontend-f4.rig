@@ -1,0 +1,3 @@
+sub main()
+  x = @ sizeOf(Int)
+  print(x)

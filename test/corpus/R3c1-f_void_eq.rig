@@ -1,0 +1,5 @@
+sub f()
+  print("f")
+
+sub main()
+  print(f() == f())

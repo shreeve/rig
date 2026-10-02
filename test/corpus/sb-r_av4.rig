@@ -1,0 +1,6 @@
+sub z(s: ![]Int, t: []Int)
+  s[0] = t[0]
+
+sub main
+  b = [1, 2, 3]
+  z(!b, ?b)

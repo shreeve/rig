@@ -71,7 +71,8 @@ and `rig --help` lists the other commands (see also the
 [README](README.md#build-and-run)).
 
 `rig run` builds in Debug mode with a leak-checking allocator: a program
-that leaks memory reports it and exits with an error. `--release` builds
+that leaks memory reports it and exits with an error. Built with
+`RIG_SANITIZE=1`, it also crashes at any use of freed memory. `--release` builds
 with Zig's ReleaseSafe, and `--release=fast` with ReleaseFast. Integer
 overflow, out-of-bounds indexing and slicing, and a numeric conversion
 whose value does not fit panic in Debug and ReleaseSafe builds.
@@ -1631,8 +1632,8 @@ reassigned. `_ = e` evaluates `e` and discards it, and an owning value
 discarded so is dropped at once. A binding's type comes from its
 annotation or its value.
 
-A compound assignment `x op= e` is `x = x op e`, with `x` evaluated
-once, and keeps its target's type: an arithmetic operator
+A compound assignment `x op= e` stores `x op e` in `x`, finding the
+place `x` once, and keeps its target's type: an arithmetic operator
 needs a number, a bitwise operator or shift an integer, and a shift
 amount may be any integer. Each behaves like its operator
 ([§5](#operators)): `/=` truncates, `%=` takes the dividend's sign, and
@@ -1649,6 +1650,38 @@ sub main
 
 ```output
 21
+```
+
+An assignment evaluates its value first, then the indexes of its
+target from the outside in, and only then finds the place and stores
+into it; a compound assignment reads the place there, combines, and
+writes it back. A call on the right that grows the Vec an element is
+in, or replaces the value a field is in, is safe: the store lands in
+the value as the call left it, and panics if the element is gone.
+
+```rig
+fun grow(v: !Vec[Int]) -> Int
+  !v.push(v.len)
+  v.len
+
+fun at(i: Int, what: String) -> Int
+  print(what)
+  i
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  v[0] = grow(!v)
+  v[at(1, "index")] += at(10, "value")
+  n = 1
+  n += grow(!v)
+  print(v, n)
+```
+
+```output
+value
+index
+[2, 11, 2] 4
 ```
 
 There is no implicit shadowing. A local may not reuse the name of a
@@ -1975,7 +2008,9 @@ A value is expected in an operand, an argument, a binding's value, a
 `break` value, and on the last line of a `fun` (the function's value)
 or of a branch (a loop's `else` block too) whose value is used, so `-x` there is negation, and one whose `x` is not a
 number is rejected with a pointer to dropping it before the last line.
-Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected.
+Only a binding is dropped: a statement `-s.f` or `-v[i]` is rejected,
+and so is any other statement `-e`, such as `-f()` or `-(a + b)`, which
+would negate a value and discard it.
 
 ```rig reject
 struct S
@@ -2154,6 +2189,23 @@ drop 1
 saw 2
 drop 2
 after
+```
+
+A Vec source is a place, which the loop walks in place, or a call,
+whose new Vec the loop consumes as `<v` does. Any other expression
+(`o?`, a ternary, a `match`) could be a place on one path and a new
+Vec on another, so it is bound to a name first:
+
+```rig reject
+sub main
+  a: Vec[Int] = Vec()
+  b: Vec[Int] = Vec()
+  for e in ?(a if a.len > 0 else b)
+    print(e)
+```
+
+```error
+a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int]` to a name first
 ```
 
 ### Labels, break, and continue
@@ -2811,13 +2863,42 @@ sub main
 cannot write-borrow `v` while an earlier argument's read of it is in use
 ```
 
+A borrow of a place (`!v[i]`, `?p.xs[i]`, a slice `!v[i..]`, or the
+receiver of a method call) finds the place up to each index before the
+index runs, so an index cannot write-borrow or move the place's root:
+it could grow or free the memory the place is in. An assignment finds
+its target only after the indexes run ([§4](#4-bindings-and-assignment)),
+so `v[grow(!v)] = 1` is accepted.
+
+```rig reject
+struct P
+  a: [4]Int
+
+fun grow(v: !Vec[P]) -> Int
+  !v.push(P(a: [0, 0, 0, 0]))
+  1
+
+sub set(n: !Int)
+  n = 9
+
+sub main
+  ps: Vec[P] = Vec()
+  !ps.push(P(a: [1, 2, 3, 4]))
+  set(!ps[0].a[grow(!ps)])
+```
+
+```error
+cannot write-borrow `ps` in an index of a place borrowed from it
+```
+
 #### Write borrows
 
 A write borrow is assignable, whether a `!T` parameter or a local
 holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
 borrowed value (the old value is dropped first). A new binding points
-a name at another place: `new w = !m` (`w = !m` is rejected, since it
-would write through `w`). A field or element of type `!T` reads and
+a name at another place: `new w = !m`, or `new w = <w2`. Assigning a
+write borrow to one (`w = !m`, `w = <w2`, or a call returning a `!T`)
+is rejected, since it would write through `w`. A field or element of type `!T` reads and
 writes through too: `h.w = 5`, `h.w += 1`, and `xs[i] += 1` write the
 value the place borrows, while assigning another write borrow,
 `h.w = !m`, points the place at `m`. Writing through a borrow held in
@@ -3052,8 +3133,12 @@ borrow cannot be cloned or weakly referenced: the borrow is unique.
 Every owning local and parameter that is still live is dropped
 automatically when its block ends, including on early `return`,
 `break`, and `continue`, and on every path through branches. So `-x`
-is only needed to release something early. A borrowed parameter cannot
-be dropped: the caller owns it.
+is only needed to release something early, or to end a borrow a
+binding holds. A borrowed parameter cannot be dropped: the caller owns
+it. Plain data owns nothing, so `-n` of an `Int` or a struct of
+numbers drops nothing, and is rejected. A String may view a `Text`
+(§10), so `-s` of a String, or of a struct holding one, ends the loan
+it carries.
 
 ```rig
 struct Noisy
@@ -3314,8 +3399,9 @@ Handles are owning values: a bare copy (`b = a`, `f(a)`) is rejected;
 write `<a` or `+a`. Sharing a value that is already a shared handle
 (`*a` with `a: *T`, or the type `*(*T)`) is rejected; clone it instead.
 
-**Access is read-only.** Field reads and `?self` methods reach through
-a handle automatically, including through fields and loop elements.
+**Access is read-only.** Field reads, element reads (`h[i]` of a
+`*[N]T`, `*Vec[T]`, or `*String`), and `?self` methods reach through a
+handle automatically, including through fields and loop elements.
 Writing a field, calling a `!self` method, or consuming the value
 through a handle is rejected, because other handles share it; shared
 mutable state goes in a `Cell` ([§10](#cell)). The built-in `Vec` is no
@@ -3375,7 +3461,7 @@ Swift. This is the one leak the compiler does not prevent. Break cycles
 with weak handles: a child holds its parent weakly, and a callback
 that refers back to its owner captures it weakly (`|~owner|`,
 [§11](#captures)). Every test and example in this repository runs
-leak-free under the checking allocator.
+leak-free, with no use of freed memory, under the sanitizing allocator.
 
 ---
 

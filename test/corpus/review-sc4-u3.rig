@@ -1,0 +1,8 @@
+sub main
+  z = 0
+  y = 0
+  q = !z
+  if true
+    new q = !y
+  q = 11
+  print(z, y)

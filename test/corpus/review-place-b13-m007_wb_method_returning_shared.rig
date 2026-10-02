@@ -1,0 +1,16 @@
+struct P
+  x: Int
+
+struct Q
+  h: *P
+
+  fun get(?self) -> *P
+    +self.h
+
+sub g(h: !*P)
+  h = *P(x: 7)
+
+sub main
+  q = Q(h: *P(x: 1))
+  g(!q.get())
+  print(q.h.x)

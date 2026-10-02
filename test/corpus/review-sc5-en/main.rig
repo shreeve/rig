@@ -1,0 +1,16 @@
+use lib
+error E
+  bad
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub main()
+  print(U8(lib.Code.a), Int(lib.Code.b))
+  print(U8(lib.Code.b))
+  print(Int(E.bad))
+  c: lib.Code? = .a
+  print(Int(c))
+  o: Opt[Int] = .nothing
+  print(Int(o))

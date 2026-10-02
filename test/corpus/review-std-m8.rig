@@ -1,0 +1,4 @@
+use std.math
+
+sub main
+  print(math.pow(2, Int.min))

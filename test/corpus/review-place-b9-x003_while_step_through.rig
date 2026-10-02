@@ -1,0 +1,10 @@
+struct H
+  w: !Int
+
+sub main
+  n = 0
+  h = H(w: !n)
+  i = 0
+  while i < 3 : h.w += 2
+    i += 1
+  print(n)

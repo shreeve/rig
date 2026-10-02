@@ -1,0 +1,8 @@
+error Bad
+  x
+
+fun f -> Int!
+  return Bad.x
+
+sub main()!
+  print(f()!)

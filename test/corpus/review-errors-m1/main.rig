@@ -1,0 +1,12 @@
+use lib
+
+error Mine
+  bad
+
+fun f(n: Int) -> Int!
+  return Mine.bad if n == 1
+  n
+
+sub main
+  print(f(2)!)
+  print(lib.read(0)!)

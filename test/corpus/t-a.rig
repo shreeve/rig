@@ -1,0 +1,8 @@
+fun grow(v: !Vec[Int]) -> Int
+  !v.push(7)
+  2
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  print(v, grow(!v), v)

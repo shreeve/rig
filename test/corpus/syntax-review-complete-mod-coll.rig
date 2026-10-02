@@ -1,0 +1,15 @@
+pub struct Stack
+  items: Vec[Int]
+  count: Int
+
+  fun new -> Self
+    Stack(items: Vec(), count: 0)
+
+  sub push(!self, x: Int)
+    !self.items.push(x)
+    self.count += 1
+
+  sub fixup(!self)
+    self.count = 0
+
+pub const_x =! 3

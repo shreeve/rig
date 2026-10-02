@@ -1,0 +1,13 @@
+pub struct Node[T]
+  v: T
+  next: (*Node[T])?
+
+  fun val(?self) -> T
+    self.v
+
+pub struct Tree[T]
+  kids: Vec[Tree[T]]
+  v: T
+
+pub fun cons[T](v: T, rest: (*Node[T])?) -> *Node[T]
+  *Node(v: v, next: <rest)

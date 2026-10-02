@@ -1,0 +1,16 @@
+use util
+
+error M
+  worse
+
+test "main fails"
+  util.f(0)!
+
+test "catch in test"
+  x = util.f(0) catch |e|
+    print(e == .bad, e)
+    0
+  print(x)
+
+sub main
+  print("hi")

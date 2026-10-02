@@ -1,0 +1,10 @@
+use lib
+
+sub main()
+  c = lib.make(3)
+  print(c.v)
+  print(c.get[Int](4))
+  print(c.get(4))
+  print(lib.twice(5))
+  p = lib.Pub[Int](h: lib.make(1))
+  print(p.inner().v, p.inner().get("s"))

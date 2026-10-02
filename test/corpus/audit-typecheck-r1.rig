@@ -1,0 +1,11 @@
+struct Point
+  x: Int
+
+  fun origin() -> Point
+    Point(x: 0)
+
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main()
+  print(twice)

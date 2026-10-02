@@ -1,0 +1,6 @@
+K: I128 = 3
+
+sub main()
+  v: I128 = 5
+  x: I128 = K
+  print(x)

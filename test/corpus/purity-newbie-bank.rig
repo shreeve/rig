@@ -1,0 +1,27 @@
+# Bank account "class", Python/TS habits
+error BankError
+  insufficient_funds
+  invalid_amount
+
+struct Account
+  owner: String
+  balance: Int = 0
+
+  sub deposit(!self, amount: Int)!
+    if amount <= 0
+      return BankError.invalid_amount
+    self.balance += amount
+
+  sub withdraw(!self, amount: Int)!
+    if amount > self.balance
+      return BankError.insufficient_funds
+    self.balance -= amount
+
+sub main
+  acct = Account(owner: "Ada")
+  !acct.deposit(100)!
+  !acct.withdraw(30)!
+  print(acct.owner, "has", acct.balance)
+  !acct.withdraw(500) catch |e|
+    print("could not withdraw 500:", e)
+  print(acct.owner, "has", acct.balance)

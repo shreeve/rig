@@ -1,0 +1,15 @@
+pub struct Wrap[T]
+  v: T
+
+struct Hidden[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+pub type IntWrap = Wrap[Int]
+pub type H = Hidden[Int]
+pub type VW = Vec[Wrap[String]]
+
+pub fun mkh() -> H
+  Hidden(v: 5)

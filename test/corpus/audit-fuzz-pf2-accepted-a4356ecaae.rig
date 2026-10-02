@@ -1,0 +1,126 @@
+struct R
+  id: Int
+
+  drop(!self)
+    print("rel", self.id)
+
+  fun look(?self) -> Int
+    print("use", self.id)
+    self.id
+
+struct P
+  a: R
+  b: R
+
+struct Q
+  h: *R
+  o: R?
+
+enum HR
+  one(r: R)
+  two(a: R, b: *R)
+  empty
+
+struct M
+  r: R
+
+  fun with(<self, n: Int) -> Int
+    print("use", self.r.id)
+    n + self.r.id
+
+  fun peek(?self, n: Int) -> Int
+    print("use", self.r.id)
+    n
+
+  sub put(!self, r: R)
+    self.r = <r
+
+error E
+  bad
+
+fun mk(id: Int) -> R
+  print("new", id)
+  R(id: id)
+
+fun mkm(id: Int) -> M
+  M(r: mk(id))
+
+fun mayr(k: Int) -> R!
+  return E.bad if k == 0
+  mk(k)
+
+fun may(k: Int) -> Int!
+  return E.bad if k == 0
+  k
+
+fun optr(k: Int) -> R?
+  return none if k == 0
+  mk(k)
+
+fun opt(k: Int) -> Int?
+  return none if k == 0
+  k
+
+fun two(a: R, b: R) -> Int
+  print("use", a.id)
+  print("use", b.id)
+  a.id + b.id
+
+fun one(a: R, n: Int) -> Int
+  print("use", a.id)
+  a.id + n
+
+fun take3(a: R, n: Int, b: R) -> Int
+  print("use", a.id)
+  print("use", b.id)
+  n
+
+fun hand(h: *R, n: Int) -> Int
+  print("use", h.id)
+  n
+
+fun bx(b: Box[R], n: Int) -> Int
+  print("use", b.id)
+  n
+
+fun pp(p: P) -> Int
+  print("use", p.a.id)
+  print("use", p.b.id)
+  1
+
+fun qq(q: Q) -> Int
+  print("use", q.h.id)
+  2
+
+fun hr(e: HR) -> Int
+  match <e
+    .one(r) => r.look()
+    .two(a, b)
+      print("use", b.id)
+      a.look()
+    .empty => 0
+
+fun ints(xs: [2]Int) -> Int
+  xs[0] + xs[1]
+
+fun rt_int(n: Int) -> Int
+  n
+
+sub h0()!
+  e1 = HR.one(r: mk(2))
+  q2 = Q(h: *mayr(rt_int(0))!, o: mk(4))
+  m3 = M(r: mk(5))
+  !m3.put(mk(6))
+  print("val", m3.peek(5))
+
+sub h1()!
+  x0 = mayr(rt_int(4017))!
+  x1 = mayr(rt_int(4018))!
+  e2 = HR.one(r: mk(19))
+  q3 = Q(h: *mk(20), o: mk(21))
+  print("val", pp(P(a: mayr(rt_int(4022))!, b: mk(23))))
+  print("val", hand(*mayr(rt_int(3024))!, bx(Box(mayr(rt_int(4025))!), 0)))
+
+sub main
+  h0() catch |e| print("caught", e)
+  h1() catch |e| print("caught", e)

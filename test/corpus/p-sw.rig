@@ -1,0 +1,14 @@
+struct W
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  a = W(n: 1)
+  r = ?a
+  if true
+    b = W(n: 2)
+    old = replace(!r, ?b)
+    print(old.n)
+  print(r.n)

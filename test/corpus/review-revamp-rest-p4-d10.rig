@@ -1,0 +1,6 @@
+sub main()
+  x: Bool? = none
+  match x
+    true => print(1)
+    false => print(2)
+    none => print(3)

@@ -1,0 +1,13 @@
+struct Page
+  buf: [4096]U8
+
+fun key(p: ?Page, at: Int) -> U64
+  p.buf.read[U64, .little](at)
+
+fun sum(xs: ?[4]Int) -> Int
+  xs[0]
+
+sub main
+  p = Page(buf: [4096 of 0])
+  a = [1, 2, 3, 4]
+  print(key(?p, 8), sum(?a))

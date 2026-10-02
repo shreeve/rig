@@ -1,0 +1,8 @@
+sub main
+  a: [3]Int = [1, 2, 3]
+  swap(!a[0], !a[2])
+  print(a)
+  i = 0
+  j = 0
+  swap(!a[i], !a[j])
+  print(a)

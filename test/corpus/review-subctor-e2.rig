@@ -1,0 +1,6 @@
+sub main
+  c = Cell(Vec())
+  print(c)
+  c2 = Cell[Vec[Int]](Vec())
+  b = Box(Vec[Int]())
+  print(b)

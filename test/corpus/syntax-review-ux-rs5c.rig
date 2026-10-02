@@ -1,0 +1,10 @@
+struct Doc
+  title: String
+  words: Vec[String]
+
+fun make -> Doc
+  Doc(title: "t", words: Vec())
+
+sub main
+  r = ?make()
+  print(r.title)

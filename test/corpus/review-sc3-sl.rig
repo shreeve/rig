@@ -1,0 +1,42 @@
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+struct Pair
+  a: Res
+  b: Int
+
+fun get(k: Int) -> Int?
+  k if k > 0 else none
+
+sub t(k: Int)
+  p = Pair(a: Res(id: 1), b: get(k) ?? return)
+  print("t", p.b)
+
+sub u(k: Int)
+  r = Res(id: 2)
+  p = Pair(a: <r, b: get(k) ?? return)
+  print("u", p.b)
+
+sub v(k: Int)
+  xs: Vec[Box[Res]] = Vec()
+  !xs.push(Box(Res(id: get(k) ?? return)))
+  print("v", xs.len)
+
+sub w(k: Int)
+  b = Box(Res(id: 3))
+  c = Box(Res(id: get(k) ?? return))
+  print("w", b.id, c.id)
+
+sub main
+  t(1)
+  t(0)
+  u(1)
+  u(0)
+  v(1)
+  v(0)
+  w(1)
+  w(0)
+  print("end")

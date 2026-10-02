@@ -1,0 +1,4 @@
+fun g -> Int?
+  none
+sub main
+  print(g()?)

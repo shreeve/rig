@@ -1,0 +1,19 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(b: *B)
+  empty
+
+sub main
+  s: Slot = .full(b: *B(n: 1))
+  i = 0
+  while i < 3
+    match <s
+      .full(b) if b.n == 2 => print("two")
+      .empty => print("e")
+    i += 1
+  print("end")

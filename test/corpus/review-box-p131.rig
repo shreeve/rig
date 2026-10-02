@@ -1,0 +1,14 @@
+struct N
+  v: Int
+  next: Box[N]?
+
+fun pop(l: !Box[N]?) -> Int?
+  if <l as b
+    n = <b.take()
+    l = <n.next
+    return n.v
+  none
+
+sub main
+  l: Box[N]? = Box(value: N(v: 1, next: Box(value: N(v: 2, next: none))))
+  print(pop(!l))

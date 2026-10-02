@@ -1,0 +1,19 @@
+struct V
+  s: ?[]U8
+
+struct W
+  s: [2]?[]U8
+
+enum E
+  a(s: ?[]U8)
+
+sub main
+  b: [3]U8 = [72, 105, 33]
+  v = V(s: ?b[..])
+  print(v)
+  w = W(s: [?b[..], ?b[1..]])
+  print(w)
+  e: E = .a(s: ?b[..])
+  print(e)
+  o: ?[]U8? = ?b[..]
+  print(o)

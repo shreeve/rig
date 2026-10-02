@@ -1,0 +1,25 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+sub main
+  i = 0
+  r = while true
+    t = *Tok(n: i)
+    i += 1
+    break <t if i == 2
+  print("got", r.n)

@@ -1,0 +1,4 @@
+sub main()
+  s = "abcdefgh"
+  print(s.read[U64, .little](0), s.read[U8, .big](7))
+  print(s.read[U16, .big](7))

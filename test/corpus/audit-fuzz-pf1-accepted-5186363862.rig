@@ -1,0 +1,11 @@
+# `a..b` is a half-open integer range; `for i in a..b` iterates it.
+
+sub main()
+# expect:
+  total = 0
+  for i in 0..4
+    total += i
+  print(total)
+
+# expect:
+# 6

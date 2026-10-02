@@ -1,0 +1,36 @@
+extern fun getchar() -> I32
+
+error InputError
+  bad_number
+
+fun read_line(buf: !Vec[U8]) -> Bool
+  !buf.clear()
+  while true
+    c: I32 = 0
+    raw
+      c = getchar()
+    return buf.len > 0 if c < 0
+    return true if c == 10
+    !buf.push(U8(c))
+
+fun parse(line: []U8) -> Int!
+  n = 0
+  for b in line
+    return InputError.bad_number if b < 48 or b > 57
+    n = n * 10 + Int(b - 48)
+  n
+
+sub main
+  line: Vec[U8] = Vec()
+  total = 0
+  count = 0
+  biggest: Int? = none
+  while read_line(!line)
+    n = parse(?line[..]) catch |e|
+      print("skipping bad line:", e)
+      continue
+    total += n
+    count += 1
+    biggest = n if n > (biggest ?? n - 1) else biggest
+  print("count", count, "sum", total, "max", biggest ?? 0)
+  print("avg", Float(total) / Float(count)) if count > 0

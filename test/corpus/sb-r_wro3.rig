@@ -1,0 +1,9 @@
+sub g(s: ![]Int)
+  s[0] = 1
+
+sub f(t: []Int)
+  g(!t)
+
+sub main
+  a = [1]
+  f(?a[..])

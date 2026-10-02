@@ -1,0 +1,8 @@
+struct Meters
+  v: Float
+
+type Km = Meters
+
+sub main
+  a = Km(v: 3.0)
+  print(a)

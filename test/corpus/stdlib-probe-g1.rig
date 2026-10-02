@@ -1,0 +1,10 @@
+struct P
+  x: Int
+  fun eq(?self, o: ?P) -> Bool
+    self.x == o.x
+
+fun same[T](a: ?T, b: ?T) -> Bool
+  a.eq(b)
+
+sub main
+  print(same(?P(x: 1), ?P(x: 1)))

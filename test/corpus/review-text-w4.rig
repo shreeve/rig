@@ -1,0 +1,13 @@
+fun label(n: Int) -> String
+  "big" if n > 10 else "small"
+
+struct Tag
+  name: String
+
+sub main
+  tags: Vec[Tag] = Vec()
+  !tags.push(Tag(name: label(3)))
+  !tags.push(Tag(name: "x"))
+  first = tags[0].name
+  -tags
+  print(first)

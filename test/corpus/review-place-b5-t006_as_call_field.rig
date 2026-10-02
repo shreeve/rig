@@ -1,0 +1,12 @@
+struct R
+  v: Vec[Int]
+  n: Int
+
+fun mk() -> R?
+  R(v: Vec(), n: 1)
+
+sub main
+  if mk() as r
+    r.n = 3
+    r = R(v: Vec(), n: 4)
+    print(r.n)

@@ -1,0 +1,46 @@
+struct C
+  hits: Cell[Int]
+
+struct P
+  x: Int
+  y: Int
+
+sub hit(c: ?C)
+  c.hits.set(c.hits.get() + 1)
+
+fun sum(p: ?P) -> Int
+  p.x + p.y
+
+enum K
+  a
+  b
+
+fun kk(k: ?K) -> Int
+  match k
+    .a => 1
+    .b => 2
+
+fun ss(s: ?String) -> Int
+  s.len
+
+sub main
+  b = Box(value: C(hits: Cell(value: 0)))
+  hit(?b)
+  hit(?b)
+  print(b.hits.get())
+  p = Box(value: P(x: 1, y: 2))
+  print(sum(?p))
+  k = Box(value: K.b)
+  print(kk(?k))
+  s = Box(value: "abc")
+  print(ss(?s))
+  o: Box[Int?] = Box(value: 3)
+  print(oo(?o))
+  a = Box(value: [1, 2])
+  print(aa(?a))
+
+fun oo(o: ?Int?) -> Int
+  o ?? 0
+
+fun aa(a: ?[2]Int) -> Int
+  a[1]

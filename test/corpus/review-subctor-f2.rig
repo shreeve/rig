@@ -1,0 +1,7 @@
+struct Wrap[T]
+  item: T
+
+sub main
+  v = Vec[Int]()
+  w = Wrap(?v)
+  print(w)

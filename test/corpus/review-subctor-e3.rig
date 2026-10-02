@@ -1,0 +1,7 @@
+sub main
+  x = Vec[Int]()
+  !x.push(3)
+  bx = Box(<x)
+  print(bx)
+  c: Box[Int?] = Box(none)
+  print(c)

@@ -1,0 +1,9 @@
+fun fnv1a(s: String) -> U64
+  h: U64 = 0xcbf29ce484222325
+  for b in s
+    h ^= U64(b)
+    h = h *% 0x100000001b3
+  h
+
+sub main
+  print(fnv1a("hello"))

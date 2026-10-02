@@ -1,0 +1,53 @@
+# A binary search tree of Ints with owned children.
+
+struct Node
+  key: Int
+  left: Box[Node]?
+  right: Box[Node]?
+
+  sub insert(!self, key: Int)
+    if key < self.key
+      if !self.left as l
+        !l.insert(key)
+      else
+        self.left = Box(Node(key: key, left: none, right: none))
+    else
+      if !self.right as r
+        !r.insert(key)
+      else
+        self.right = Box(Node(key: key, left: none, right: none))
+
+  sub walk(?self, visit: ?sub(Int))
+    if ?self.left as l
+      l.walk(visit)
+    visit(self.key)
+    if ?self.right as r
+      r.walk(visit)
+
+struct Tree
+  root: Box[Node]?
+  size: Int
+
+  sub insert(!self, key: Int)
+    if !self.root as n
+      !n.insert(key)
+    else
+      self.root = Box(Node(key: key, left: none, right: none))
+    self.size += 1
+
+  sub each(?self, visit: ?sub(Int))
+    if ?self.root as n
+      n.walk(visit)
+
+  fun sorted(?self) -> Vec[Int]
+    out: Vec[Int] = Vec()
+    self.each(|!out, k| !out.push(k))
+    out
+
+sub main
+  t = Tree(root: none, size: 0)
+  for k in [50, 30, 70, 20, 40, 60, 80, 35]
+    !t.insert(k)
+  t.each(|k| print(k))
+  keys = t.sorted()
+  print(keys, t.size)

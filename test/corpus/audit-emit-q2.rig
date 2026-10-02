@@ -1,0 +1,23 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop R", self.n)
+
+fun peek[T](o: T?) -> Int
+  if o as v
+    print("some")
+    return 1
+  0
+
+struct Holder[T]
+  o: T?
+
+  fun has(?self) -> Bool
+    if self.o as v
+      return true
+    false
+
+sub main
+  print(peek(Box(R(n: 1))))
+  h = Holder(o: Box(R(n: 2)))
+  print(h.has())

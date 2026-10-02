@@ -1,0 +1,11 @@
+fun double(n: Int) -> Int
+  n * 2
+
+fun twice(g: fun(?fun(Int) -> Int) -> Int) -> Int
+  g(double)
+
+fun use1(f: ?fun(Int) -> Int) -> Int
+  f(4)
+
+sub main
+  print(twice(use1))

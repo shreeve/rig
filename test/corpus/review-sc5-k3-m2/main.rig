@@ -1,0 +1,3 @@
+use lib
+sub main()
+  print(lib.SMALL + 6)

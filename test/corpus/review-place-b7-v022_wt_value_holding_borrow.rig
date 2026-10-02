@@ -1,0 +1,13 @@
+struct V
+  r: ?Int
+
+struct H
+  w: !V
+
+sub main
+  a = 1
+  b = 2
+  v = V(r: ?a)
+  h = H(w: !v)
+  h.w = V(r: ?b)
+  print(v.r)

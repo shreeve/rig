@@ -1,0 +1,11 @@
+struct Range
+  i: Int
+  n: Int
+  fun next(!self) -> Int?
+    return none if self.i >= self.n
+    self.i += 1
+    self.i - 1
+sub main
+  it = Range(i: 0, n: 3)
+  while !it.next() as x
+    print(x)

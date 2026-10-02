@@ -1,0 +1,2 @@
+fun f(xs: [2]~(Int)) -> Int
+  3

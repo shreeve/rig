@@ -1,0 +1,9 @@
+struct P
+  s: String
+
+sub main
+  b = Box("hi")
+  c = Box(3)
+  x: String? = "o"
+  print(P(s: "hi"), b, c, x)
+  print(b)

@@ -1,0 +1,6 @@
+sub main
+  x: Int? = null
+  b = True
+  println(x ?? 0, b)
+  s = "ab"
+  print(s.len())

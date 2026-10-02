@@ -1,0 +1,136 @@
+fun gid[T](a: T) -> T
+  a
+
+fun gmax[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun gmin[T](a: T, b: T) -> T
+  a if a < b else b
+
+fun gadd[T](a: T, b: T) -> T
+  a + b
+
+fun gdbl[T](a: T) -> T
+  a * 2
+
+fun ghalf[T](a: T) -> T
+  a / 2
+
+fun gsome[T](a: T) -> T?
+  a
+
+fun gnone[T] -> T?
+  none
+
+fun gpick[T](a: T, b: T, first: Bool) -> T
+  a if first else b
+
+fun gfail[T](a: T, ok: Bool) -> T!
+  return GE.bad if not ok
+  a
+
+error GE
+  bad
+
+struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+  fun make(x: T) -> Wrap[T]
+    Wrap(v: x)
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+  fun or(?self, d: T) -> T
+    match self
+      .some(v) => v
+      .nothing => d
+
+struct Pair[T, U]
+  a: T
+  b: U
+
+fun rt_bool(b: Bool) -> Bool
+  b
+
+fun take_u8(x: U8) -> U8
+  x
+
+fun take_i8(x: I8) -> I8
+  x
+
+fun take_i16(x: I16) -> I16
+  x
+
+fun take_u16(x: U16) -> U16
+  x
+
+fun take_i32(x: I32) -> I32
+  x
+
+fun take_u32(x: U32) -> U32
+  x
+
+fun take_int(x: Int) -> Int
+  x
+
+fun take_u64(x: U64) -> U64
+  x
+
+fun take_i128(x: I128) -> I128
+  x
+
+fun take_u128(x: U128) -> U128
+  x
+
+fun take_float(x: Float) -> Float
+  x
+
+fun take_f32(x: F32) -> F32
+  x
+
+fun id_u8(x: U8) -> U8
+  x
+
+fun id_i8(x: I8) -> I8
+  x
+
+fun id_i16(x: I16) -> I16
+  x
+
+fun id_u16(x: U16) -> U16
+  x
+
+fun id_i32(x: I32) -> I32
+  x
+
+fun id_u32(x: U32) -> U32
+  x
+
+fun id_int(x: Int) -> Int
+  x
+
+fun id_u64(x: U64) -> U64
+  x
+
+fun id_i128(x: I128) -> I128
+  x
+
+fun id_u128(x: U128) -> U128
+  x
+
+fun id_float(x: Float) -> Float
+  x
+
+fun id_f32(x: F32) -> F32
+  x
+
+sub t891
+  print(take_i16(gid(gid((-32768)))))
+
+sub main
+  t891()

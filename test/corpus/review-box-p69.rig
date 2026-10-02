@@ -1,0 +1,22 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+  sub bump(!self)
+    self.n += 1
+
+struct S
+  b: Box[R]
+
+sub wr(r: !R)
+  r.n = 9
+
+sub main
+  s = *S(b: Box(value: R(n: 1)))
+  s.b.n = 3
+  !s.b.bump()
+  wr(!s.b)
+  t = +s
+  print(t.b.n)

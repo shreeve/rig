@@ -1,0 +1,16 @@
+struct P
+  x: Int
+
+  fun mk() -> P
+    P(x: 1)
+
+  fun get(?self) -> Int
+    self.x
+
+G = P.get
+
+sub main()
+  p = P.mk()
+  print(G(?p))
+  k =! P.get
+  print(k(?p))

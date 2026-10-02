@@ -1,0 +1,8 @@
+enum Status
+  ok = 200
+  missing = 404
+
+sub main
+  s: Status = .missing
+  n = s.value
+  t = Status(404)

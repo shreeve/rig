@@ -1,0 +1,44 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Tree
+  leaf(b: *B)
+  node(l: Box[Tree], r: Box[Tree])
+
+fun count(t: ?Tree) -> Int
+  match t
+    .leaf(b) if b.n > 100 => 100
+    .leaf(b) => b.n
+    .node(l, r) if count(?l) > 5 => 99
+    .node(l, r) => count(?l) + count(?r)
+
+fun sum(t: Tree) -> Int
+  match <t
+    .leaf(b) if b.n > 3 => b.n * 10
+    .node(l, r) if count(?l) > 2
+      a = <l.unbox()
+      sum(<a)
+    .node(l, r)
+      a = <l.unbox()
+      c = <r.unbox()
+      sum(<a) + sum(<c)
+    _ => 0
+
+sub edit(t: !Tree)
+  match !t
+    .leaf(b) if b.n == 3 => b = *B(n: 30)
+    .node(l, r) if count(?l) > 0
+      edit(!l)
+      edit(!r)
+    _ => print("x")
+
+sub main
+  t: Tree = .node(l: Box(Tree.leaf(b: *B(n: 3))), r: Box(Tree.leaf(b: *B(n: 4))))
+  print(count(?t))
+  edit(!t)
+  print(count(?t))
+  print(sum(<t))
+  print("end")

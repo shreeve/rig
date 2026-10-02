@@ -1,0 +1,10 @@
+use lib2
+
+sub main()
+  b: lib2.Box[Int] = lib2.Box.make("s")
+  e = lib2.empty()
+  c = lib2.Box(Int)
+  p = lib2.Pair(first: 1)
+  i: I8 = 1
+  k: U8 = lib2.id(i)
+  print(b.v, e.len, c.v, p.first, k)

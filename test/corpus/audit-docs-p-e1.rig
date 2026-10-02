@@ -1,0 +1,15 @@
+enum D
+  a
+  b
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+sub main
+  x = 300
+  y = U8(x - 100)
+  d: D = .b
+  z = Int(d)
+  m = U8.max
+  arr = [4 of x]
+  w: U8 = 250
+  nan = 0.0 / 0.0
+  print(y, z, m, arr, w +% 10, max(3, 7), nan)

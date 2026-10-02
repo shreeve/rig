@@ -1,0 +1,14 @@
+struct Player
+  name: String
+  scores: Vec[Int]
+
+sub main
+  ps: Vec[Box[Player]] = Vec()
+  p = Player(name: "a", scores: Vec())
+  !p.scores.push(3)
+  !ps.push(Box(value: <p))
+  print(ps[0].name)
+  for q in ?ps
+    print(q.name, q.scores.len)
+  for q in !ps
+    !q.scores.push(4)

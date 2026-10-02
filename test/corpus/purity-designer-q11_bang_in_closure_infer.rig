@@ -1,0 +1,8 @@
+error E
+  bad
+fun p(s: String) -> Int!
+  return E.bad if s == ""
+  s.len
+sub main
+  f = |s: String| p(s)! + 1
+  print(f("ab") catch 0)

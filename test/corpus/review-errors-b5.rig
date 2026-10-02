@@ -1,0 +1,13 @@
+error Disk
+  full
+
+fun f -> Int!
+  return Disk.full
+
+fun g -> Disk
+  x = f() catch |e|
+    return e
+  Disk.full
+
+sub main
+  print(g())

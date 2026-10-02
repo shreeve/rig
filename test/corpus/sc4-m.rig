@@ -1,0 +1,36 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Shape
+  circle(r: Int)
+  sq(s: Int)
+  held(res: R)
+
+sub eat(r: R)
+  print("ate", r.n)
+
+sub main
+  e = Shape.circle(r: 2)
+  match !e
+    .circle(r) => r += 10
+    _ => print("other")
+  print(e)
+  n = 5
+  match n
+    1, 2 => print("small")
+    x if x > 3 => print("big", x)
+    _ => print("mid")
+  h = Shape.held(res: R(n: 7))
+  match <h
+    .held(res) => eat(<res)
+    _ => print("none")
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  for x in ?v
+    print("x", x)
+  w = !n
+  w = 9
+  print(n)

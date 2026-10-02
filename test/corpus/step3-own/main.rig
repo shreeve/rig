@@ -1,0 +1,13 @@
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  r = Res(n: 1)
+  a = lib.twice(Res(n: 2))
+  b = lib.same(?r)
+  print(a.n, b.n, lib.twice(3))

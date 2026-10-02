@@ -1,0 +1,22 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct S
+  a: R?
+
+fun make() -> S?
+  S(a: R(n: 1))
+
+sub main
+  if make() as x
+    y = <x.a
+    print(y, x)
+  i = 0
+  while make() as z
+    w = <z.a
+    z.a = R(n: 7)
+    print(w, z)
+    i += 1
+    break if i > 1

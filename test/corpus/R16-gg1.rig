@@ -1,0 +1,33 @@
+fun map[T, U](xs: []T, f: ?fun(T) -> U) -> Vec[U]
+  out: Vec[U] = Vec()
+  for x in xs
+    !out.push(f(x))
+  out
+
+fun map2[T, U](xs: []T, f: ?fun(T) -> U) -> Vec[U]
+  map(xs, f)
+
+fun map3[T, U](xs: []T, f: ?fun(T) -> U) -> Vec[U]
+  k = 1
+  map2(xs, |?f, +k, x| f(x))
+
+fun fold[T, A](xs: []T, init: A, f: ?fun(A, T) -> A) -> A
+  acc = init
+  for x in xs
+    acc = f(acc, x)
+  acc
+
+sub apply0(f: ?sub())
+  f()
+
+sub main
+  a = [1, 2, 3]
+  m = map3(?a[..], |x| x * 2)
+  print(m.len, m[2])
+  s = map3(?a[..], |x| x > 1)
+  print(s[0], s[2])
+  print(fold(?a[..], 0, |acc, x| acc + x))
+  print(fold(?a[..], "", |acc, x| acc))
+  apply0(|| print("zero"))
+  n = map(xs: ?a[..], f: |x| x + 100)
+  print(n[0])

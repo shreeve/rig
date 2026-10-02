@@ -1,0 +1,18 @@
+struct P
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+    print(self.c.get())
+
+struct Q
+  p: P
+  o: P?
+
+sub main
+  if ?Q(p: P(c: Cell(1)), o: P(c: Cell(2))).o as p
+    p.c.set(20)
+    print(p.c.get())
+  Q(p: P(c: Cell(1)), o: none).p.hit()
+  q = Q(p: P(c: Cell(7)), o: none)
+  q.p.hit()

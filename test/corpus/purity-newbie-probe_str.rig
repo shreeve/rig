@@ -1,0 +1,4 @@
+sub main
+  a = "foo"
+  b = a + "bar"
+  print(b, a.upper(), a[0], a.len)

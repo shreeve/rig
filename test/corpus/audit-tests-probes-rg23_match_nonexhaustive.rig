@@ -1,0 +1,10 @@
+enum C
+  red
+  green
+  blue
+
+sub main
+  c: C = .red
+  match c
+    .red => print("r")
+    .green => print("g")

@@ -1,0 +1,16 @@
+struct P
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct Q
+  p: P
+
+  fun get(?self) -> ?P
+    ?self.p
+
+sub main
+  q = Q(p: P(c: Cell(1)))
+  q.get().hit()
+  print(q.p.c.get())

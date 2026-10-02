@@ -1,0 +1,8 @@
+sub main
+  t = Text("abcdefghijklmnop")
+  cv: *Cell[Vec[String]] = *Cell(Vec())
+  keep = +cv
+  cv.push(?t[..3])
+  -cv
+  -t
+  print(keep[0])

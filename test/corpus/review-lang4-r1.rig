@@ -1,0 +1,11 @@
+struct H
+  w: !Vec[Int]
+
+fun keep(v: Vec[Int]) -> Vec[Int]
+  v
+
+sub main
+  v: Vec[Int] = Vec()
+  h = H(w: !v)
+  h.w = keep(<h.w)
+  print(v)

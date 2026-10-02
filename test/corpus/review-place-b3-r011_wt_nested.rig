@@ -1,0 +1,12 @@
+struct H
+  w: !Int
+
+struct G
+  h: H
+
+sub main
+  n = 1
+  g = G(h: H(w: !n))
+  g.h.w = 4
+  g.h.w -= 1
+  print(n)

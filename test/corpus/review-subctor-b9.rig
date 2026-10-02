@@ -1,0 +1,13 @@
+error Bad
+  neg
+
+fun mk() -> *sub(Int)!
+  *|x: Int|
+    return Bad.neg if x < 0
+    print("f", x)
+
+sub main
+  f = mk()
+  f(1)!
+  f(-1) catch |e|
+    print("e", e)

@@ -1,0 +1,5 @@
+use lib
+
+sub main()
+  x = lib.max(a: 1, c: 2)
+  print(x)

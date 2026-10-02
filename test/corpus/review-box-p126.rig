@@ -1,0 +1,38 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun has[T](o: ?T?) -> Bool
+  if o as x
+    true
+  else
+    false
+
+fun cnt[T](o: ?T?) -> Int
+  n = 0
+  if o as x
+    show(?x)
+    n = 1
+  n
+
+sub show[T](x: ?T)
+  print(x)
+
+sub put[T](o: !T?, v: T)
+  if !o as x
+    x = <v
+  else
+    o = <v
+
+sub main
+  a: Int? = 3
+  r: R? = R(n: 1)
+  b: Box[R]? = Box(value: R(n: 2))
+  print(has(?a), has(?r), has(?b))
+  print(cnt(?a), cnt(?r), cnt(?b))
+  put(!a, 4)
+  put(!r, R(n: 7))
+  put(!b, Box(value: R(n: 8)))
+  print(a, r, b)

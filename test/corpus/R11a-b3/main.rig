@@ -1,0 +1,5 @@
+use a
+
+sub main()
+  s = a.build("hi")
+  print(s.v)

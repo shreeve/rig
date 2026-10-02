@@ -1,0 +1,26 @@
+error A
+  x
+
+error B
+  x
+
+error C
+  x
+
+fun f -> Int!
+  return .nope
+
+fun g -> Int!
+  return .x
+
+fun h -> Int!
+  return A.x
+
+sub main
+  print(f() catch 0, g() catch 0)
+  _ = h() catch |e|
+    print(e == .x)
+    match e
+      .x => print(1)
+      .nope => print(2)
+      _ => pass

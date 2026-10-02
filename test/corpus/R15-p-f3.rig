@@ -1,0 +1,8 @@
+fun n(x: Int) -> Int
+  x
+sub main()
+  a = [1, 2, 3]
+  w = !a[1..]
+  t = !w[n(-1)..]
+  t[0] = 7
+  print(a)

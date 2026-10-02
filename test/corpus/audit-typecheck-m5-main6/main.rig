@@ -1,0 +1,5 @@
+use util3
+
+sub main()
+  x = util3.M.a
+  print(x == util3.Mode.a)

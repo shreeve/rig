@@ -1,0 +1,39 @@
+struct Ring[n: Int]
+  buf: [n]U8
+  head: Int = 0
+  tail: Int = 0
+
+  fun empty(?self) -> Bool
+    self.head == self.tail
+
+  fun push(!self, b: U8) -> Bool
+    next = (self.tail + 1) % n
+    return false if next == self.head
+    self.buf[self.tail] = b
+    self.tail = next
+    true
+
+  fun pop(!self) -> U8?
+    return none if self.empty()
+    b = self.buf[self.head]
+    self.head = (self.head + 1) % n
+    b
+
+fun popcount(x: U32) -> Int
+  c = 0
+  v = x
+  while v != 0
+    c += Int(v & 1)
+    v >>= 1
+  c
+
+sub main
+  r = Ring[8](buf: [8 of 0])
+  for i in 0..10
+    ok = (!r).push(U8(i * 3))
+    print("full at", i) if not ok
+  while !r.pop() as b
+    print(b, popcount(U32(b)))
+  print(@sizeOf(R8))
+
+type R8 = Ring[8]

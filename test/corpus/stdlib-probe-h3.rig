@@ -1,0 +1,12 @@
+struct B
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct Pair[K, V]
+  k: K
+  v: V
+
+sub main
+  v: Vec[Pair[String, B]] = Vec()
+  print(v.len)

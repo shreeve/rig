@@ -1,0 +1,11 @@
+struct S
+  a: Int?
+
+fun f() -> Int?
+  o: S? = S(a: 1)
+  t = <o?.a
+  print(t, o)
+  1
+
+sub main
+  print(f())

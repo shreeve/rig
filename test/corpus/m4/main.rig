@@ -1,0 +1,6 @@
+use lib
+
+sub main()
+  lib.K += 2
+  lib.K = 1
+  print(lib.K)

@@ -1,0 +1,15 @@
+struct Counter
+  n: Int
+
+  fun keep(!self, xs: []Int) -> []Int
+    self.n += 1
+    xs
+
+sub main
+  c = Counter(n: 0)
+  z = [0]
+  s: []Int = ?z
+  if true
+    a = [1, 2, 3]
+    s = !c.keep(?a)
+  print(s)

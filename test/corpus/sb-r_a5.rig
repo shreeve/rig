@@ -1,0 +1,12 @@
+fun pick(a: ![]Int, b: ![]Int, first: Bool) -> ![]Int
+  if first
+    <a
+  else
+    <b
+
+sub main
+  x = [1]
+  y = [2]
+  r = pick(!x[..], !y[..], true)
+  print(y)
+  r[0] = 9

@@ -1,0 +1,11 @@
+struct S
+  a: Vec[Int]
+  c: Vec[Int]
+
+sub main
+  s = S(a: Vec(), c: Vec())
+  !s.a.push(3)
+  for x in s.a
+    !s.c.push(x)
+  print(s.c)
+  swap(!s.a, !s.c)

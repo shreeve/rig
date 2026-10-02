@@ -1,0 +1,6 @@
+sub main
+  a = [1, 2]
+  w = !a[..]
+  t: []Int = w
+  w[0] = 5
+  print(t)

@@ -1,0 +1,12 @@
+struct S
+  v: Vec[Int]
+
+sub take(s: S)
+  print(s.v.len)
+
+sub g(s: ?S)
+  take(<s)
+
+sub main
+  s = S(v: Vec())
+  g(?s)

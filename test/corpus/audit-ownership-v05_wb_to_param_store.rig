@@ -1,0 +1,31 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+struct View
+  b: ?Tok
+
+sub f(vw: !View)
+  y = Tok(n: 2)
+  w = !vw
+  w = View(b: ?y)
+
+sub main
+  x = Tok(n: 1)
+  vw = View(b: ?x)
+  f(!vw)
+  print(vw.b.n)

@@ -1,0 +1,7 @@
+K: U8 = 200
+N = K +% 100
+M: U128 = U128.max *% U128.max
+sub main
+  print(N, M)
+  a: [N]Int = [N of 0]
+  print(a[0])

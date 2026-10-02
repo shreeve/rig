@@ -1,0 +1,26 @@
+struct A
+  xs: [3]Int
+
+struct Name
+  s: String
+
+struct Sl
+  items: Vec[String]
+
+enum Kind
+  one
+  two
+
+struct K
+  k: Kind
+
+sub main
+  a = A([1, 2, 3])
+  b = A([3 of 0])
+  n = Name("bob")
+  bb = Box(Box(1))
+  bc = Box[Box[Int]](Box(2))
+  k = K(.two)
+  kk = Box(K(.one))
+  print(a, b, n, bb, bc, k, kk)
+  print(Name("x").s, A([4, 5, 6]).xs[1])

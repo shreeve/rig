@@ -1,0 +1,9 @@
+struct P
+  n: Int
+
+sub main
+  p = P(n: 1)
+  f = |!p|
+    p.n += 1
+  f()
+  print(p.n)

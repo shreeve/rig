@@ -1,0 +1,28 @@
+struct Wrap
+  n: Int
+
+struct View
+  w: ?Wrap
+
+sub fill(out: !View, f: ?fun() -> ?Wrap)
+  out.w = f()
+
+fun get(f: ?fun() -> ?Wrap) -> ?Wrap
+  f()
+
+fun bad(f: ?fun(?Wrap) -> ?Wrap) -> ?Wrap
+  w = Wrap(n: 1)
+  f(?w)
+
+sub main
+  a = Wrap(n: 1)
+  v = View(w: ?a)
+  if true
+    b = Wrap(n: 2)
+    fill(!v, |?b| b)
+  print(v.w.n)
+  r = ?a
+  if true
+    c = Wrap(n: 3)
+    r = get(|?c| c)
+  print(r.n)

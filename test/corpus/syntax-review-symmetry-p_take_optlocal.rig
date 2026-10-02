@@ -1,0 +1,5 @@
+sub main
+  a = *Cell(value: 1)
+  o: *Cell[Int]? = <a
+  x = <o
+  print(o)

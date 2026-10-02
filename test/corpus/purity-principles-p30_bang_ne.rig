@@ -1,0 +1,5 @@
+sub main
+  a = 1
+  b = 2
+  c =! b
+  print(a != b, c)

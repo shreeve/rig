@@ -1,0 +1,8 @@
+sub main
+  x = 1
+  y = 2
+  w = !x
+  w = 5
+  new w = !y
+  w = 7
+  print(x, y)

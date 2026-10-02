@@ -1,0 +1,48 @@
+struct E
+  x: Int
+
+  sub nothing(?self)
+    pass
+
+sub f()!
+  pass
+
+sub g
+  defer pass
+  pass
+  pass
+
+test "t"
+  pass
+
+sub main
+  n = 3
+  defer pass
+  if n > 1
+    pass
+  else if n > 0
+    pass
+  else
+    pass
+  while n > 0
+    n -= 1
+    pass
+  for _ in 0..2
+    pass
+  :outer for _ in 0..2
+    pass
+  match n
+    0 => pass
+    _
+      pass
+  raw
+    pass
+  cb = |x: Int|
+    pass
+  cb(1)
+  g()
+  E(x: 1).nothing()
+  x = match n
+    0 => 1
+    _ => 2
+  print(x)

@@ -1,0 +1,15 @@
+struct S
+  n: Int
+
+  fun bump(!self) -> Bool
+    self.n += 1
+    self.n > 1
+
+sub main
+  s = S(n: 0)
+  added = !s.bump()
+  print(added)
+  if (!s).bump()
+    print("ok")
+  b = true and (!s).bump()
+  print(b, s.n)

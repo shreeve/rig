@@ -1,0 +1,31 @@
+struct Tok
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  full(t: *Tok)
+  pair(a: *Tok, b: *Tok)
+  empty
+
+sub eat(t: *Tok)
+  print("eat", t.n)
+
+fun cond(t: *Tok) -> Bool
+  print("cond", t.n)
+  false
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun peek[T](o: ?Opt[T], d: T) -> T
+  match o
+    .some(v) => v
+    .nothing => <d
+
+sub main
+  o = Opt[*Tok].some(v: *Tok(n: 1))
+  t = peek(?o, *Tok(n: 2))
+  print(t.n)

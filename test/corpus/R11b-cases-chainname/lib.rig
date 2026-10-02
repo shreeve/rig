@@ -1,0 +1,10 @@
+use util
+
+fun g(n: Int) -> Int
+  n
+
+pub fun f[T](x: T) -> T
+  util.g(x)
+
+pub fun h(n: Int) -> Int
+  g(n)

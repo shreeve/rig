@@ -1,0 +1,4 @@
+fun dup[T](x: ?T) -> T
+  +x
+sub main
+  print(dup(?3))

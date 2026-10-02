@@ -1,0 +1,18 @@
+error E
+  bad
+
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun make(fail: Bool) -> Int!
+  r = R(n: 1)
+  errdefer print("errdefer", r.n)
+  defer print("defer")
+  return E.bad if fail
+  r.n
+
+sub main
+  print(make(false)!)
+  print(make(true) catch -1)

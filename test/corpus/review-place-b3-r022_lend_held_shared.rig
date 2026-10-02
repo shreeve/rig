@@ -1,0 +1,10 @@
+struct H
+  w: !Int
+
+sub poke(w: !Int)
+  w += 1
+
+sub main
+  n = 1
+  s = *H(w: !n)
+  poke(!s.w)

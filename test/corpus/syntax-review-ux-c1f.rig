@@ -1,0 +1,10 @@
+fun mulw(a: U64, b: U64) -> U64
+  lo = (a & 0xffffffff) * (b & 0xffffffff)
+  a_hi = a >> 32
+  b_hi = b >> 32
+  cross = ((a_hi * (b & 0xffffffff)) + ((a & 0xffffffff) * b_hi)) & 0xffffffff
+  raw
+    r: U64 = @truncate((U128(lo) + (U128(cross) << 32)))
+    r
+sub main
+  print(mulw(3, 4))

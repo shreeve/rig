@@ -1,0 +1,5 @@
+enum C
+  red
+sub main
+  c: C = . red
+  print(c)

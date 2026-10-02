@@ -1,0 +1,22 @@
+struct S
+  b: Box[Int]
+
+enum E
+  a(n: Int)
+  b
+
+  fun get(?self) -> Int
+    match self
+      .a(n) => n
+      .b => 0
+
+  sub set(!self, k: Int)
+    self = .a(n: k)
+
+  fun eat(<self) -> Int
+    3
+
+sub main
+  x = S(b: Box(value: 1))
+  y = S(b: Box(value: 1))
+  print(x == y)

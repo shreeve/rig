@@ -1,0 +1,7 @@
+sub main
+  x = 3
+  y = if x > 0
+    -x
+  else
+    x
+  print(y)

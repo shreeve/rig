@@ -1,0 +1,7 @@
+struct P
+  c: Cell[Int]
+
+sub main
+  p = P(c: Cell(1))
+  p.c.set(4)
+  print(p.c.get())

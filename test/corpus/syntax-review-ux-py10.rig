@@ -1,0 +1,26 @@
+struct BankAccount
+  owner: String
+  balance: Float = 0.0
+  history: Vec[Float]
+
+  fun new(owner: String) -> Self
+    BankAccount(owner: owner, history: Vec())
+
+  sub deposit(!self, amt: Float)
+    self.balance += amt
+    !self.history.push(amt)
+
+  fun withdraw(!self, amt: Float) -> Void!
+    return AccountError.insufficient if amt > self.balance
+    self.balance -= amt
+    !self.history.push(-amt)
+
+error AccountError
+  insufficient
+
+sub main
+  acct = BankAccount.new("ada")
+  acct.deposit(100)
+  !acct.withdraw(30)!
+  !acct.withdraw(500) catch |e| print("denied:", e)
+  print(acct.owner, acct.balance, acct.history)

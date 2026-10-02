@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+  sub inc(!self)
+    self.x += 1
+
+sub main
+  h = *P(x: 1)
+  !h.inc()

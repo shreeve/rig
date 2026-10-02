@@ -1,0 +1,21 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop R", self.n)
+
+enum Msg
+  data(r: R, n: Int)
+  other
+
+fun f(m: Msg) -> R
+  match m
+    x => <x
+    _ => R(n: 0)
+
+fun g(m: Msg) -> Msg
+  match m
+    x => x
+
+sub main
+  q = f(Msg.data(r: R(n: 1), n: 2))
+  print(q.n)
