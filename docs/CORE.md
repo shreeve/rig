@@ -18,7 +18,7 @@ behavior, and the suite checks that it does not work yet, so the block
 becomes an ordinary example in the change that builds the rule
 ([test/README.md](../test/README.md#doc-examples)).
 
-**Three words:**
+**Three words.** *You lend a view; the compiler remembers the loan.*
 
 - To **lend** `x` (`?x`, `!x`) is to let someone use it without taking it.
 - A **view** is what they get: `?T`, `!T`, `[]T`, `![]T`, or `String`.
