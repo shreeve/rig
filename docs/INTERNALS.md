@@ -923,8 +923,11 @@ place owns (a Vec, a box, a handle, a struct holding one, or what a
 write borrow reaches: `print(v, grow(!v))`) leaves a read loan on the
 place's root, marked as an argument's read, until the call ends
 (`holdArgRead`), so a later argument cannot write-borrow or move it.
-Plain data is copied whole when it is read and leaves none, so
-`print(v.len, grow(!v))` is accepted. A borrowed parameter holds an
+A later read borrow can still change a Cell inside it, so the call
+must read the place when it runs: `print` takes such a place by
+address (`Emitter.printsByAddress`). Plain data is copied whole when it
+is read and leaves none, so `print(v.len, grow(!v))` is accepted. A
+borrowed parameter holds an
 *external* loan on itself: a borrow from the caller, which may be
 returned or stored into other borrowed parameters and never conflicts.
 A closure's parameters are not: a borrow a closure receives lives only

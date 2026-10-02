@@ -1,0 +1,17 @@
+# `print` reads each argument when it is called, after every argument
+# has run: a Cell a later argument grows through a read borrow prints
+# as it is then.
+fun grow(c: ?Cell[Vec[Int]]) -> Int
+  for i in 0..20
+    c.push(i)
+  5
+
+sub main
+  c: Cell[Vec[Int]] = Cell(Vec())
+  c.push(42)
+  print(c, grow(?c))
+  print(c.len)
+
+# expect:
+# Cell(value: [42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]) 5
+# 21

@@ -4577,13 +4577,47 @@ pub const Emitter = struct {
     }
 
     /// `print(a, b)`: the runtime writes each value the way Rig spells it.
+    /// It reads a place that owns storage when it is called, after every
+    /// argument has run, as the ownership checker holds it
+    /// (`holdArgRead`): such a place goes by address, so a later argument
+    /// that changes it through a Cell leaves no copy of what it frees.
+    /// Plain data is copied whole where it is read.
     fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {
-        try self.w.writeAll("rig.print(.{");
+        try self.w.writeAll("rig.print(");
+        try self.emitPrintArgs(args);
+        try self.w.writeAll(")");
+    }
+
+    /// The tuple of values the runtime's writer reads: `.{ a, &b }`.
+    fn emitPrintArgs(self: *Emitter, args: []const Sexp) Error!void {
+        try self.w.writeAll(".{");
         for (args, 0..) |a, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
-            try self.emitBare(a);
+            if (self.printsByAddress(a)) {
+                const saved_read = self.read_place;
+                defer self.read_place = saved_read;
+                self.read_place = true;
+                try self.emitAddressOf(a);
+            } else try self.emitBare(a);
         }
-        try self.w.writeAll(if (args.len > 0) " })" else "})");
+        try self.w.writeAll(if (args.len > 0) " }" else "}");
+    }
+
+    /// Whether `print` argument `a` reads a place that owns storage, or
+    /// is borrowed from one: a local, or a field or element of one (not
+    /// a slice, which is a new value).
+    fn printsByAddress(self: *Emitter, a: Sexp) bool {
+        const place = switch (a) {
+            .src => self.localOf(a) != null and self.sema.callableOf(a) == null,
+            .list => switch (a.kind() orelse return false) {
+                .member => true,
+                .index => !ir.Index.index(a).isKind(.@".."),
+                else => false,
+            },
+            else => false,
+        };
+        const ty = self.typeOf(a) orelse return false;
+        return place and self.kindOf(self.peelBorrows(ty)) != null;
     }
 
     // =========================================================================
