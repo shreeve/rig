@@ -3974,13 +3974,14 @@ pub const Emitter = struct {
         return self.sema.textCallOf(call) orelse self.sema.textCallOf(self.sema.calleeOf(call));
     }
 
-    /// `Text(a, b)` → `rig.Text.of(.{ a, b })`; `!t.add(a, b)` →
-    /// `t.add(.{ a, b })`, the arguments written as `print`'s are;
-    /// `!t.clear()` → `t.clear()`.
+    /// `Text(a, b)` → `rig.Text.of(.{ a, &b })`; `!t.add(a, b)` →
+    /// `t.add(.{ a, &b })`, the arguments written as `print`'s are
+    /// (`emitPrintArgs`), so a place is read at the call; `!t.clear()` →
+    /// `t.clear()`.
     fn emitTextCall(self: *Emitter, call: Sexp, op: sema.TextCall) Error!void {
         const args = ir.Call.args(call);
         switch (op) {
-            .new => try self.w.writeAll("rig.Text.of(.{"),
+            .new => try self.w.writeAll("rig.Text.of("),
             .add, .push, .clear => {
                 const recv = ir.Member.object(self.sema.calleeOf(call));
                 try self.emitMemberBase(recv, self.typeOf(recv));
@@ -3990,14 +3991,11 @@ pub const Emitter = struct {
                     try self.emitBare(args[0]);
                     return self.w.writeAll(")");
                 }
-                try self.w.writeAll(".add(.{");
+                try self.w.writeAll(".add(");
             },
         }
-        for (args, 0..) |a, i| {
-            try self.w.writeAll(if (i == 0) " " else ", ");
-            try self.emitBare(a);
-        }
-        try self.w.writeAll(if (args.len > 0) " })" else "})");
+        try self.emitPrintArgs(args);
+        try self.w.writeAll(")");
     }
 
     fn isPrintCall(self: *Emitter, call: Sexp) bool {
@@ -4839,9 +4837,9 @@ pub const Emitter = struct {
         try self.w.writeAll(if (args.len > 0) " }" else "}");
     }
 
-    /// Whether `print` argument `a` reads a place that owns storage, or
-    /// is borrowed from one: a local, or a field or element of one (not
-    /// a slice, which is a new value).
+    /// Whether a `print`, `Text(...)`, or `add` argument `a` reads a
+    /// place that owns storage, or is borrowed from one: a local, or a
+    /// field or element of one (not a slice, which is a new value).
     fn printsByAddress(self: *Emitter, a: Sexp) bool {
         const place = switch (a) {
             .src => self.localOf(a) != null and self.sema.callableOf(a) == null,
