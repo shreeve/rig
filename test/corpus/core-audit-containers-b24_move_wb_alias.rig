@@ -1,0 +1,10 @@
+sub main
+  m: Vec[Int] = Vec()
+  !m.push(1)
+  n: Vec[Int] = Vec()
+  w = !m
+  w2 = !n
+  w = <w2
+  r = ?m
+  !w.push(5)
+  print(r, m, n)

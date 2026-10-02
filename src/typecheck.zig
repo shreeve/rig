@@ -719,7 +719,7 @@ const Checker = struct {
         }
         // `w = !m` writes through `w`, so it would store a borrow where a
         // value goes; a new binding points the name elsewhere.
-        if (!is_decl and writes_through and kind == .default and rhs.isKind(.write)) {
+        if (!is_decl and writes_through and kind == .default and try self.handsOverWriteBorrow(rhs)) {
             const src = self.sourceText(rhs);
             try self.errAt(rhs, "`{s} = {s}` would write through `{s}`; to point `{s}` at another place, write `new {s} = {s}`", .{ name, src, name, name, name, src });
             _ = try self.synthExpr(rhs);
@@ -802,6 +802,19 @@ const Checker = struct {
                 else => .{},
             } });
         }
+    }
+
+    /// Whether `rhs` hands over a write borrow where it is assigned: `!m`
+    /// lends one, `<w` moves one, and a call or branching value of type
+    /// `!T` yields one. A bare name or path of type `!T` reads the value
+    /// it reaches.
+    fn handsOverWriteBorrow(self: *Checker, rhs: Sexp) Error!bool {
+        const kind = rhs.kind() orelse return false;
+        return switch (kind) {
+            .write => true,
+            .member, .index => false,
+            else => self.ctx.types.get(try self.argType(rhs)) == .borrow_write,
+        };
     }
 
     /// The type an unannotated binding gets from its initializer.

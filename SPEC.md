@@ -2883,8 +2883,9 @@ cannot write-borrow `ps` in an index of a place borrowed from it
 A write borrow is assignable, whether a `!T` parameter or a local
 holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
 borrowed value (the old value is dropped first). A new binding points
-a name at another place: `new w = !m` (`w = !m` is rejected, since it
-would write through `w`). A field or element of type `!T` reads and
+a name at another place: `new w = !m`, or `new w = <w2`. Assigning a
+write borrow to one (`w = !m`, `w = <w2`, or a call returning a `!T`)
+is rejected, since it would write through `w`. A field or element of type `!T` reads and
 writes through too: `h.w = 5`, `h.w += 1`, and `xs[i] += 1` write the
 value the place borrows, while assigning another write borrow,
 `h.w = !m`, points the place at `m`. Writing through a borrow held in
