@@ -91,7 +91,9 @@
 //!   use and clone them but not move, drop or reassign them.
 //! * A `defer` body cannot move or drop outer bindings, and is re-checked
 //!   against the state at every exit of its scope; an `errdefer` body at
-//!   every exit that fails (`!`, or returning an error).
+//!   every exit that fails (`!`, or returning an error). At an exit the
+//!   path goes on past (`e!`, `e?`, a result that may be an error), its
+//!   effects are undone after the check.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -220,6 +222,33 @@ const Scope = struct {
 /// it: the rest are dropped before it runs. An `errdefer` runs only at
 /// an exit that fails.
 const Deferred = struct { body: Sexp, vars: u32, err_only: bool };
+
+/// An exit at which defers run, and so are re-checked (`exitDefers`).
+const Exit = union(enum) {
+    /// The innermost scope's end, where the path falls through.
+    scope_end,
+    /// `break` / `continue`, leaving the scopes at this index and above.
+    jump: usize,
+    /// `return`; it fails when the value may be an error.
+    @"return": bool,
+    /// `e!` (which fails) or `e?`: the path that leaves the function.
+    propagate: bool,
+    /// A function result that may be an error, the innermost scope's
+    /// tail: the path where it is one runs the scope's `errdefer`s.
+    failing_result,
+
+    /// Whether the path being checked goes on past the exit. Where it
+    /// ends, the defers run on it and what they do stays, so a borrow
+    /// one stores is reported where it outlives what it borrows. Where
+    /// it goes on, they run only on a path that leaves there: they are
+    /// checked, and their effects undone.
+    fn goesOn(e: Exit) bool {
+        return switch (e) {
+            .scope_end, .jump, .@"return" => false,
+            .propagate, .failing_result => true,
+        };
+    }
+};
 
 /// One change to a var's flow, kept so it can be undone.
 const Change = struct { id: VarId, old: Flow };
@@ -675,7 +704,7 @@ pub const Checker = struct {
     fn popScope(self: *Checker) Error!void {
         const idx = self.scopes.items.len - 1;
         if (self.reachable) {
-            try self.runDefers(idx, false);
+            try self.exitDefers(.scope_end);
             try self.checkDropOrder(self.scopes.items[idx].start);
         }
         var scope = self.scopes.pop().?;
@@ -1202,7 +1231,7 @@ pub const Checker = struct {
                 defer self.cur_stmt = saved_stmt;
                 try self.walkReturnValue(stmt);
                 // An error returned here runs the body's `errdefer`s.
-                if (self.reachable and self.mayFail(stmt)) try self.runDefers(self.scopes.items.len - 1, true);
+                if (self.reachable and self.mayFail(stmt)) try self.exitDefers(.failing_result);
             } else {
                 try self.walkStmt(stmt);
             }
@@ -1295,7 +1324,7 @@ pub const Checker = struct {
         }
         // An error the function returns from here runs the block's
         // `errdefer`s.
-        if (returns and self.reachable and stmts.len > 0 and self.mayFail(stmts[stmts.len - 1])) try self.runDefers(self.scopes.items.len - 1, true);
+        if (returns and self.reachable and stmts.len > 0 and self.mayFail(stmts[stmts.len - 1])) try self.exitDefers(.failing_result);
         v = try self.checkValueEscapesScope(v);
         try self.popScope();
         return if (self.reachable) v else .{};
@@ -3034,7 +3063,7 @@ pub const Checker = struct {
     fn walkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
         if (value != .nil) try self.walkReturnValue(value);
-        try self.runDefersTo(0, value != .nil and self.mayFail(value));
+        try self.exitDefers(.{ .@"return" = value != .nil and self.mayFail(value) });
         self.reachable = false;
     }
 
@@ -3576,7 +3605,7 @@ pub const Checker = struct {
         }
         if (target) |t| {
             t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
-            try self.runDefersTo(t.scope_depth, false);
+            try self.exitDefers(.{ .jump = t.scope_depth });
             const s = try self.leaveTo(t.point, null);
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
@@ -3602,7 +3631,7 @@ pub const Checker = struct {
     /// `e!` / `e?`: on failure or `none`, control leaves for the caller.
     fn walkPropagate(self: *Checker, node: Sexp) Error!Value {
         const v = try self.walk(ir.get(node, .value));
-        if (self.reachable) try self.runDefersTo(0, node.isKind(.propagate));
+        if (self.reachable) try self.exitDefers(.{ .propagate = node.isKind(.propagate) });
         return v;
     }
 
@@ -3631,7 +3660,8 @@ pub const Checker = struct {
     }
 
     /// Walk a `defer` body: where it is written (`report_changes`), and
-    /// its effects undone; at an exit, where it runs, and they stay.
+    /// its effects undone; at an exit, where it runs, leaving them to
+    /// `exitDefers`.
     fn checkDeferBody(self: *Checker, body: Sexp, report_changes: bool) Error!void {
         const snap = try self.here();
         const saved_loop = self.loop;
@@ -3641,9 +3671,6 @@ pub const Checker = struct {
         try self.walkStmt(body);
         self.loop = saved_loop;
         self.in_defer = saved_in_defer;
-        // At an exit the body runs: what it stores, a borrow among them,
-        // stays, so leaving the scope reports a borrow of one of its vars
-        // that the body stored outside it.
         if (!report_changes) return;
         const after = try self.leave(snap);
         for (after.changes) |e| {
@@ -3652,6 +3679,20 @@ pub const Checker = struct {
                 break;
             }
         }
+    }
+
+    /// Re-check, against the state here, the defers that `exit` runs.
+    /// Their effects stay only where the path ends (`Exit.goesOn`).
+    fn exitDefers(self: *Checker, exit: Exit) Error!void {
+        const back: ?Point = if (exit.goesOn()) try self.here() else null;
+        const top = self.scopes.items.len - 1;
+        switch (exit) {
+            .scope_end => try self.runDefers(top, false),
+            .failing_result => try self.runDefers(top, true),
+            .jump => |depth| try self.runDefersTo(depth, false),
+            .@"return", .propagate => |fails| try self.runDefersTo(0, fails),
+        }
+        if (back) |p| try self.rewind(p);
     }
 
     /// Re-check the defers of scope `scope_idx` at an exit, with its

@@ -1,0 +1,142 @@
+# At `e!`, `e?`, and a function result that may be an error, the defers
+# and errdefers run only on the path that leaves; the path that goes on
+# has not run them yet. Defers that reassign, revive, or re-point there
+# leave the continuing path as it was, and run when it ends.
+
+error E
+  bad
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(r: R)
+  print("eat", r.n)
+
+fun maybe(ok: Bool) -> Int!
+  return E.bad if not ok
+  1
+
+# A defer that replaces a live owner, at a `!` that may fail.
+fun replace(ok: Bool) -> Int!
+  x = R(n: 1)
+  defer x = R(n: 9)
+  k = maybe(ok)!
+  print("live", x.n)
+  k
+
+# An errdefer that revives an owner the path moves before a `!`.
+fun revive(ok: Bool) -> Int!
+  x = R(n: 2)
+  errdefer x = R(n: 8)
+  eat(<x)
+  k = maybe(ok)!
+  x = R(n: 3)
+  print("again", x.n)
+  k
+
+# A defer that re-points a borrow, at a `?` that may leave with none.
+fun repoint(o: Int?) -> Int?
+  a: Vec[Int] = Vec()
+  !a.push(10)
+  b: Vec[Int] = Vec()
+  !b.push(20)
+  r = ?a
+  defer print("deferred", r[0])
+  defer r = ?b
+  k = o?
+  print("r", r[0] + k)
+  k
+
+# An errdefer that revives a moved owner, at a tail `!`.
+fun tail_bang(ok: Bool) -> Int!
+  x = R(n: 4)
+  defer print("defer")
+  errdefer x = R(n: 7)
+  eat(<x)
+  maybe(ok)!
+
+# Errdefers at a tail that may be an error value.
+fun tail_value(ok: Bool) -> Int!
+  x = R(n: 5)
+  defer print("defer", x.n)
+  errdefer x = R(n: 6)
+  if ok
+    1
+  else
+    E.bad
+
+# A defer in a loop body, at a `!` inside the loop.
+fun looped(ok: Bool) -> Int!
+  total = 0
+  for i in 0..2
+    x = R(n: 10 + i)
+    defer x = R(n: 20 + i)
+    total += maybe(ok)!
+    print("loop", x.n)
+  total
+
+sub main
+  print(replace(true) catch -1)
+  print(replace(false) catch -1)
+  print(revive(true) catch -1)
+  print(revive(false) catch -1)
+  print(repoint(5) ?? -1)
+  print(repoint(none) ?? -1)
+  print(tail_bang(true) catch -1)
+  print(tail_bang(false) catch -1)
+  print(tail_value(true) catch -1)
+  print(tail_value(false) catch -1)
+  print(looped(true) catch -1)
+  print(looped(false) catch -1)
+
+# expect:
+# live 1
+# drop 1
+# drop 9
+# 1
+# drop 1
+# drop 9
+# -1
+# eat 2
+# drop 2
+# again 3
+# drop 3
+# 1
+# eat 2
+# drop 2
+# drop 8
+# -1
+# r 15
+# deferred 20
+# 5
+# deferred 20
+# -1
+# eat 4
+# drop 4
+# defer
+# 1
+# eat 4
+# drop 4
+# defer
+# drop 7
+# -1
+# defer 5
+# drop 5
+# 1
+# drop 5
+# defer 6
+# drop 6
+# -1
+# loop 10
+# drop 10
+# drop 20
+# loop 11
+# drop 11
+# drop 21
+# 2
+# drop 10
+# drop 20
+# -1

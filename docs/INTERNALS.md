@@ -923,8 +923,11 @@ place owns (a Vec, a box, a handle, a struct holding one, or what a
 write borrow reaches: `print(v, grow(!v))`) leaves a read loan on the
 place's root, marked as an argument's read, until the call ends
 (`holdArgRead`), so a later argument cannot write-borrow or move it.
-Plain data is copied whole when it is read and leaves none, so
-`print(v.len, grow(!v))` is accepted. A borrowed parameter holds an
+A later read borrow can still change a Cell inside it, so the call
+must read the place when it runs: `print` takes such a place by
+address (`Emitter.printsByAddress`). Plain data is copied whole when it
+is read and leaves none, so `print(v.len, grow(!v))` is accepted. A
+borrowed parameter holds an
 *external* loan on itself: a borrow from the caller, which may be
 returned or stored into other borrowed parameters and never conflicts.
 A closure's parameters are not: a borrow a closure receives lives only
@@ -994,7 +997,12 @@ not borrow a var declared after the `defer` (dropped before it runs).
 An `errdefer` body is re-checked only at the exits that fail: a `!`,
 and a `return` or final value whose type is, or may be, an error,
 including the final value of an `if` or `match` branch block that is
-the function's result (`Checker.ret_block`).
+the function's result (`Checker.ret_block`). Where the path ends at the
+exit (a scope's end, a jump, `return`), the bodies run on it and their
+effects stay, so a borrow one stores is checked where it outlives what
+it borrows. Where the path goes on (`e!`, `e?`, a final value that may
+be an error), they run only on the path that leaves, so their effects
+are undone after the check (`Exit.goesOn`).
 
 **Rules** (SPEC §7 states them for users): no use of a moved or dropped
 value; read loans exclude writes, moves, drops, and reassignment, and
