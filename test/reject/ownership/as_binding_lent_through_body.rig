@@ -1,0 +1,29 @@
+# What `while … as` binds, and what an earlier part of a joined
+# condition binds, view the value they reach while they are used: a
+# write lend of it in the body, or in a later part, is rejected.
+
+struct H
+  o: Box[Int]?
+
+fun clear(h: !H) -> Bool
+  h.o = none
+  false
+
+fun yes(h: !H) -> Bool
+  h.o = none
+  true
+
+sub main
+  h = H(o: Box(3))
+  z = !h
+  while ?z.o as s
+    print(clear(!h))
+    print(s)
+  g = H(o: Box(4))
+  y = !g
+  if ?y.o as s and yes(!g)
+    print(s)
+
+# error: 20:18: cannot take a second write borrow on `h`
+# error: 24:25: cannot take a second write borrow on `g`
+# errors: 2

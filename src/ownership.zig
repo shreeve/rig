@@ -3543,6 +3543,13 @@ pub const Checker = struct {
         // A payload binding holds its own loan on the matched place, so
         // the borrow of the subject ends with the bindings, not the match.
         if (lent and info.root != null) self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
+        // The match reads its subject again after a guard runs, to test
+        // the next arm's pattern: what the subject views stays lent while
+        // the arm is chosen, through every guard. (An arm's bindings hold
+        // their own loans on it.)
+        var held: std.ArrayListUnmanaged(Loan) = .empty;
+        for (scrut_value.loans) |l| if (std.mem.indexOfScalar(VarId, header_temps, l.root) == null) try held.append(self.arena(), l);
+        const hold = try self.addVar(.{ .name = "", .decl = self.startOf(scrut), .kind = .hidden }, .{ .loans = held.items });
 
         const base = try self.here();
         // The state an arm starts from: the entry state joined with what
@@ -3579,6 +3586,8 @@ pub const Checker = struct {
                 // A failing guard goes on to the next arm, or past the match.
                 failed = try self.leaveTo(base, resumeAt(if (i + 1 < arms.len) arms[i + 1] else .nil, match));
             }
+            // The arm is chosen: the subject is read no more.
+            if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
             var v = try self.walkTailBranch(body, tail_ctx);
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
@@ -3590,6 +3599,7 @@ pub const Checker = struct {
         // Without a catch-all arm, no arm may run.
         if (!catch_all) acc = if (acc) |a| try self.join(a, start) else start;
         try self.apply(acc orelse start);
+        if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
         return value;
     }
 

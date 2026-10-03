@@ -1,0 +1,46 @@
+# A match's subject stays lent through its guards and arms, and no
+# longer: a guard may read the subject's owner, lend anything else, or
+# change an unrelated value; after the match, its owner may change.
+
+enum Shape
+  circle(r: Int)
+  point
+
+fun grow(v: !Vec[Shape]) -> Bool
+  for _ in 0..100
+    !v.push(.point)
+  false
+
+fun count(v: ?Vec[Shape]) -> Int
+  v.len
+
+fun bump(n: !Int) -> Bool
+  n += 1
+  n > 1
+
+sub main
+  v: Vec[Shape] = Vec()
+  !v.push(.circle(r: 5))
+  other: Vec[Shape] = Vec()
+  hits = 0
+  n = match ?v[0]
+    .point => 0
+    .circle(r) if r > count(?v) and bump(!hits) => r
+    .circle(_) if grow(!other) => 1
+    .circle(_) => 2
+  print(grow(!v), n, hits, v.len, other.len)
+  w = !v
+  m = match ?w[0]
+    .point => 0
+    .circle(_) if grow(!other) => 1
+    .circle(_) => 2
+  print(m, grow(!v), v.len, other.len)
+  k = v[0]
+  match k
+    .circle(r) if grow(!v) => print("grew", r)
+    _ => print("other", v.len)
+
+# expect:
+# false 2 1 101 100
+# 2 false 201 200
+# other 301
