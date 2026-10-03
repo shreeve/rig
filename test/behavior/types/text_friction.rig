@@ -1,0 +1,71 @@
+# `!t.push(b)` appends one byte, while `!t.add(b)` writes a `U8` as a
+# number. A `Box[Text]` is viewed through its box. A plain element of an
+# owning temporary is read where it stands, and `??` on an owning
+# optional temporary gives its value or the fallback.
+
+use std.text
+
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun maybe(k: Int) -> N?
+  N(id: k) if k > 0 else none
+
+struct W
+  v: Vec[Int]
+  t: Text
+
+fun mkw -> W
+  W(v: mkv(), t: Text("wt"))
+
+fun mkv -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  v
+
+fun mko(k: Int) -> Text?
+  Text("opt", k) if k > 0 else none
+
+fun mkf(k: Int) -> Text!
+  Text("ok", k)
+
+fun fresh(k: Int) -> Int?!
+  print(mko(k)?, mkf(k)!, mko(k)?.len)
+  k
+
+sub main
+  print(fresh(1) catch 0, fresh(0) catch 0)
+  t = Text()
+  for b in "Hi"
+    !t.push(text.to_lower(b))
+  !t.add(" ", U8(65))
+  print(t)
+  texts: Vec[Box[Text]] = Vec()
+  !texts.push(Box(Text(" one ")))
+  !texts.push(Box(Text("two")))
+  for b in ?texts
+    print(text.trim(?b), ?b[..2])
+  bx = Box(Text("boxed"))
+  print(?bx[1..], text.starts_with(?bx, "box"))
+  print(mkv()[0], mkv().len, mkw().v[0], mkw().t.len, ?bx == "boxed", bx == Text("boxed"))
+  a = maybe(1) ?? N(id: 10)
+  c = maybe(0) ?? N(id: 20)
+  print(a.id, c.id, (maybe(0) ?? N(id: 30)).id)
+  print("end")
+
+# expect:
+# opt1 ok1 4
+# 1 none
+# hi 65
+# one  o
+# two tw
+# oxed true
+# 3 1 3 2 true true
+# 1 20 30
+# drop 30
+# end
+# drop 20
+# drop 1

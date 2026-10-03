@@ -1,0 +1,17 @@
+use std.text
+
+struct N
+  id: Int
+  t: Text
+
+  drop(!self)
+    print("drop", self.id)
+
+fun maybe(k: Int) -> N?
+  N(id: k, t: Text("aaaa")) if k > 0 else none
+
+sub main
+  print(text.trim(?(maybe(1) ?? N(id: 2, t: Text("bb"))).t))
+  print((maybe(0) ?? N(id: 3, t: Text("cc"))).t)
+  s = text.trim(?(maybe(1) ?? N(id: 4, t: Text("dd"))).t)
+  print(s)

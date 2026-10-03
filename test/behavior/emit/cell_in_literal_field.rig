@@ -1,7 +1,8 @@
 # A Cell in a field or element of a temporary, a constructor literal
-# included, is changed through a read borrow lent to a call, a `?self`
-# receiver, or an `as` binding: the temporary's part is emitted into a
-# mutable local, never written where Zig keeps a constant.
+# included, is changed through a read borrow lent to a call or a `?self`
+# receiver: the temporary's part is emitted into a mutable local, never
+# written where Zig keeps a constant. An `as` binding outlives its
+# header's temporaries, so it binds a part of a named value.
 
 struct P
   c: Cell[Int]
@@ -25,17 +26,20 @@ sub main
   bump(?Q(p: P(c: Cell(1)), o: none).p)
   bump(?[P(c: Cell(3)), P(c: Cell(4))][1])
   Q(p: P(c: Cell(5)), o: none).p.hit()
-  if ?Q(p: P(c: Cell(1)), o: P(c: Cell(20))).o as p
+  q = Q(p: P(c: Cell(1)), o: P(c: Cell(20)))
+  if ?q.o as p
     p.c.set(p.c.get() + 1)
     print(p.c.get())
   bump(?mk().p)
   mk().p.hit()
-  if ?mk().o as p
+  m = mk()
+  if ?m.o as p
     p.c.set(30)
     print(p.c.get())
   n = 0
   while n < 2 : n += 1
-    if ?mk().o as p
+    r = mk()
+    if ?r.o as p
       p.hit()
 
 # expect:

@@ -99,6 +99,17 @@ const LocalRef = struct { scope: u32, index: u32 };
 /// dropped at scope exit while `flag` is set; the call clears it.
 const Hoisted = struct { node: Sexp, name: []const u8, flag: []const u8 = "" };
 
+/// The slot an owning temporary is kept in until its statement ends,
+/// and the flag saying it holds one.
+const TempSlot = struct {
+    node: parser.NodeId,
+    name: []const u8,
+};
+
+/// A header being emitted (`openHeader`): the label of the block that
+/// holds its temporaries' slots, if it makes any, and the slots before.
+const Header = struct { label: []const u8 = "", first: usize };
+
 /// A loop used as a value: its Rig label (empty when it has none), the
 /// Zig block its `break` values leave, and its type.
 const ValueLoop = struct { rig: []const u8, block: []const u8, ty: TypeId };
@@ -201,6 +212,13 @@ pub const Emitter = struct {
     /// evaluated into temporaries first (`emitHoistedCall`), innermost
     /// call last.
     hoisted: std.ArrayListUnmanaged(Hoisted) = .empty,
+    /// The owning temporaries of the statements being emitted, each held
+    /// in a slot its statement drops (`sema.dropsTemp`).
+    temp_slots: std.ArrayListUnmanaged(TempSlot) = .empty,
+    /// The temporary whose value is being written into its slot.
+    keeping: Sexp = .nil,
+    /// The Text borrow being emitted before its `.bytes()`.
+    lending_text: Sexp = .nil,
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayListUnmanaged(struct { rig: []const u8, zig: []const u8 }) = .empty,
@@ -223,6 +241,9 @@ pub const Emitter = struct {
     uses_module: bool = false,
     /// The module declares an `extern "c"`, so the program links libc.
     links_libc: bool = false,
+    /// The Zig error set of every error of the module's error sets,
+    /// which its fallible Zig-backed functions may return.
+    module_errors: []const u8 = "error{}",
     /// The statement or declaration being emitted, where an internal
     /// error about a node without a position is reported.
     stmt: Sexp = .nil,
@@ -246,6 +267,7 @@ pub const Emitter = struct {
         self.usage.deinit(self.allocator);
         self.tests.deinit(self.allocator);
         self.hoisted.deinit(self.allocator);
+        self.temp_slots.deinit(self.allocator);
         self.labels.deinit(self.allocator);
         self.returning.deinit(self.allocator);
         self.value_loops.deinit(self.allocator);
@@ -258,6 +280,12 @@ pub const Emitter = struct {
         if (!sexp.isKind(.module)) return;
         const decls = ir.Module.decls(sexp);
         try self.collectModule(decls);
+        for (decls) |d0| {
+            const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
+            if (!d.isKind(.errors)) continue;
+            const set = try self.fmt("{f}", .{ident(self.srcText(ir.Errors.name(d)))});
+            self.module_errors = if (std.mem.eql(u8, self.module_errors, "error{}")) set else try self.fmt("{s} || {s}", .{ self.module_errors, set });
+        }
         var scan: Scan = .{ .e = self };
         try scan.walk(sexp);
         for (decls) |decl| {
@@ -352,7 +380,10 @@ pub const Emitter = struct {
     /// `extern zig "file.zig"`: each declaration is the function of the
     /// same name in the standard library's Zig file, written beside the
     /// runtime as `rig/std/file.zig`, and a compile-time check that its
-    /// Zig type is exactly the one the Rig signature lowers to.
+    /// Zig type is exactly the one the Rig signature lowers to. A
+    /// fallible one's Zig function returns a narrower error set, only of
+    /// the module's errors (`rig.expectShim`), so the declaration is a
+    /// function of the Rig type that calls it.
     fn emitZigExtern(self: *Emitter, node: Sexp) Error!void {
         const file = self.srcText(ir.ZigExtern.file(node));
         const shim = try self.fmt("__rig_shim_{d}", .{self.nextId()});
@@ -361,12 +392,26 @@ pub const Emitter = struct {
             const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
             const name = ir.get(d, .name);
             const f = self.fnType(try self.declType(name)) orelse return self.unsupported(name, "an untyped function");
-            try self.w.print("pub const {f} = {s}.{f};\n", .{ ident(self.srcText(name)), shim, ident(self.srcText(name)) });
+            if (self.sema.types.get(f.returns) == .fallible) {
+                try self.w.print("pub fn {f}(", .{ident(self.srcText(name))});
+                for (f.params, 0..) |p, i| {
+                    if (i > 0) try self.w.writeAll(", ");
+                    try self.w.print("__rig_a{d}: ", .{i});
+                    try self.emitTypeTy(p);
+                }
+                try self.w.writeAll(") ");
+                try self.emitTypeTy(f.returns);
+                try self.w.print(" {{\n    return {s}.{f}(", .{ shim, ident(self.srcText(name)) });
+                for (0..f.params.len) |i| try self.w.print("{s}__rig_a{d}", .{ if (i > 0) ", " else "", i });
+                try self.w.writeAll(");\n}\n");
+            } else {
+                try self.w.print("pub const {f} = {s}.{f};\n", .{ ident(self.srcText(name)), shim, ident(self.srcText(name)) });
+            }
             try self.w.print("comptime {{\n    rig.expectShim({s}.{f}, fn (", .{ shim, ident(self.srcText(name)) });
             try self.emitTypeList(f.params);
             try self.w.writeAll(") ");
             if (f.returns == self.sema.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
-            try self.w.print(", \"{s}.{s}\");\n}}\n", .{ self.sema.name, self.srcText(name) });
+            try self.w.print(", {s}, \"{s}.{s}\");\n}}\n", .{ self.module_errors, self.sema.name, self.srcText(name) });
         }
     }
 
@@ -977,6 +1022,9 @@ pub const Emitter = struct {
         try self.emitStmts(stmts[0..last]);
         try self.writeIndent(self.indent);
         if (self.yieldsValue(stmts[last])) {
+            const first = self.temp_slots.items.len;
+            defer self.temp_slots.shrinkRetainingCapacity(first);
+            try self.emitTempSlots(stmts[last]);
             try self.w.writeAll("return ");
             try self.emitReturnValue(stmts[last]);
             try self.w.writeAll(";");
@@ -987,7 +1035,95 @@ pub const Emitter = struct {
         try self.closeBrace();
     }
 
+    /// A statement, with the slots of the owning temporaries it drops at
+    /// its end: declared before it, each with a `defer` for an exit from
+    /// inside it (a failure, a jump), and dropped right after it.
     fn emitStmt(self: *Emitter, sexp: Sexp) Error!void {
+        const first = self.temp_slots.items.len;
+        try self.emitTempSlots(sexp);
+        defer self.temp_slots.shrinkRetainingCapacity(first);
+        try self.emitStmtOnly(sexp);
+        if (isTerminatingStmt(sexp)) return;
+        // The last made is dropped first, as the `defer`s would.
+        var i = self.temp_slots.items.len;
+        while (i > first) {
+            i -= 1;
+            try self.writeTempDrop(self.temp_slots.items[i].name);
+        }
+    }
+
+    fn writeTempDrop(self: *Emitter, name: []const u8) Error!void {
+        try self.w.print(" if ({s}_live) {{ {s}_live = false; rig.drop(&{s}); }}", .{ name, name, name });
+    }
+
+    /// Declare a slot for each owning temporary in statement `stmt` (not
+    /// in the blocks or closures it holds, whose statements are emitted
+    /// on their own, or in its headers, which are their own statements:
+    /// `openHeader`) that has none yet, inline before the statement.
+    fn emitTempSlots(self: *Emitter, stmt: Sexp) Error!void {
+        if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
+        // The parts first: they are made first, so their `defer`s run
+        // after those of what holds them.
+        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c)) try self.emitTempSlots(c);
+        if (self.sema.dropsTemp(stmt) and self.tempSlot(stmt) == null) {
+            const name = try self.fmt("__rig_tmp_{d}", .{self.nextId()});
+            try self.w.print("var {s}: ", .{name});
+            try self.emitTypeTy(self.typeOf(stmt) orelse return self.unsupported(stmt, "an untyped temporary"));
+            try self.w.print(" = undefined; var {s}_live = false; defer if ({s}_live) rig.drop(&{s}); ", .{ name, name, name });
+            try self.temp_slots.append(self.allocator, .{ .node = stmt.list.id, .name = name });
+        }
+    }
+
+    /// Whether `child` is the step of `while` loop `parent`: a statement
+    /// of its own, run after each pass (`emitStep`).
+    fn isWhileStep(parent: Sexp, child: Sexp) bool {
+        if (!parent.isKind(.@"while")) return false;
+        const step = ir.While.step(parent);
+        return step == .list and child == .list and step.list.id == child.list.id;
+    }
+
+    fn tempSlot(self: *Emitter, node: Sexp) ?TempSlot {
+        if (node != .list) return null;
+        for (self.temp_slots.items) |t| if (t.node == node.list.id) return t;
+        return null;
+    }
+
+    /// Whether statement `stmt` holds an owning temporary its end drops.
+    fn hasTemps(self: *Emitter, stmt: Sexp) bool {
+        if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return false;
+        if (self.sema.dropsTemp(stmt)) return true;
+        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c) and self.hasTemps(c)) return true;
+        return false;
+    }
+
+    /// Start header `e` (`sema.isHeaderOf`), its own statement: when it
+    /// makes temporaries, a block holds their slots, whose `defer`s drop
+    /// them as the block yields the header's value, `(label: { slots
+    /// break :label e; })`. The caller writes the value, then calls
+    /// `closeHeader`.
+    fn openHeader(self: *Emitter, e: Sexp) Error!Header {
+        const first = self.temp_slots.items.len;
+        if (!self.hasTemps(e)) return .{ .first = first };
+        const label = try self.fmt("__rig_hdr_{d}", .{self.nextId()});
+        try self.w.print("({s}: {{ ", .{label});
+        try self.emitTempSlots(e);
+        try self.w.print("break :{s} ", .{label});
+        return .{ .label = label, .first = first };
+    }
+
+    fn closeHeader(self: *Emitter, h: Header) Error!void {
+        if (h.label.len > 0) try self.w.writeAll("; })");
+        self.temp_slots.shrinkRetainingCapacity(h.first);
+    }
+
+    /// Header `e`'s value, as `emitBare` writes it.
+    fn emitHeader(self: *Emitter, e: Sexp) Error!void {
+        const h = try self.openHeader(e);
+        try self.emitBare(e);
+        try self.closeHeader(h);
+    }
+
+    fn emitStmtOnly(self: *Emitter, sexp: Sexp) Error!void {
         self.stmt = sexp;
         const head = sexp.kind() orelse {
             try self.w.writeAll("_ = ");
@@ -1030,7 +1166,7 @@ pub const Emitter = struct {
         var e = expr;
         while (e.isKind(.propagate)) e = ir.Propagate.value(e);
         if (!e.isKind(.call)) return true;
-        if (self.isPrintCall(e)) return false;
+        if (self.isPrintCall(e) or self.textCall(e) != null) return false;
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
         if (self.sema.calleeOf(e).isKind(.lambda)) return true;
@@ -1696,7 +1832,7 @@ pub const Emitter = struct {
     fn emitCond(self: *Emitter, cond: Sexp) Error!Prelude {
         if (cond.isKind(.as)) return self.emitOptionalHead(cond);
         try self.w.writeAll("(");
-        try self.emitBare(cond);
+        try self.emitHeader(cond);
         try self.w.writeAll(") ");
         return .{};
     }
@@ -2008,8 +2144,14 @@ pub const Emitter = struct {
         try self.w.writeAll("for (");
         // Writing an array's elements in place iterates through a pointer.
         const array_ptr = by_ptr and !is_vec and src_ty != null and self.sema.types.get(self.peelBorrows(src_ty.?)) == .array;
-        if (array_ptr) try self.emitAddressOf(source) else try self.emitExpr(source);
+        if (array_ptr) try self.emitAddressOf(source) else {
+            const h = try self.openHeader(source);
+            try self.emitExpr(source);
+            try self.closeHeader(h);
+        }
         if (is_vec) try self.w.writeAll(".items()");
+        // `for b in ?t` walks the bytes of a Text, boxed or not.
+        if (src_ty) |t| if (self.textReach(t)) |reach| try self.w.print("{s}.bytes()", .{reach});
         const counter = try self.fmt("__rig_i_{d}", .{self.nextId()});
         // An index nobody reads needs no counter.
         const indexed = self.loopIndex(sexp) != null;
@@ -2044,9 +2186,11 @@ pub const Emitter = struct {
 
         try self.openBrace();
         try self.writeIndent(self.indent);
-        try self.w.print("var {s} = ", .{it});
+        try self.w.print("var {s} = (", .{it});
+        const h = try self.openHeader(ir.For.source(sexp));
         try self.emitMoved(ir.For.source(sexp));
-        try self.w.writeAll(".intoIter();\n");
+        try self.closeHeader(h);
+        try self.w.writeAll(").intoIter();\n");
         try self.line("defer {s}.deinit();", .{it});
         if (indexed) try self.line("var {s}: usize = 0;", .{counter});
         try self.writeIndent(self.indent);
@@ -2086,7 +2230,7 @@ pub const Emitter = struct {
             try self.w.print("{s} {s}: ", .{ decl, name });
             try self.emitTypeTy(int_ty);
             try self.w.writeAll(" = ");
-            try self.emitBare(bound);
+            try self.emitHeader(bound);
             try self.w.writeAll(";\n");
         }
         try self.writeIndent(self.indent);
@@ -2141,7 +2285,7 @@ pub const Emitter = struct {
         var info: MatchInfo = .{
             .mode = if (scrutinee.isKind(.write))
                 .write
-            else if (scrutinee.isKind(.move) and scrut_ty != null and self.kindOf(scrut_ty.?) != null) .consume else .read,
+            else if ((scrutinee.isKind(.move) or self.sema.takesSubject(sexp)) and scrut_ty != null and self.kindOf(scrut_ty.?) != null) .consume else .read,
             .ty = scrut_ty,
             .error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false,
             // `match ?t` / `match !t` switch on the value borrowed.
@@ -2181,8 +2325,10 @@ pub const Emitter = struct {
         } else {
             // A match on a call returning a borrow held by pointer
             // switches on the value it points to.
+            const h = try self.openHeader(subject);
             if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
             if (info.boxed) try self.w.writeAll(".value.*");
+            try self.closeHeader(h);
         }
         try self.w.writeAll(") ");
         try self.openBrace();
@@ -2267,7 +2413,7 @@ pub const Emitter = struct {
         }
         const name = try self.fmt("__rig_subject_{d}", .{self.nextId()});
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
-        if (isPlace(value) and !info.subject.isKind(.move)) {
+        if (isPlace(value) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
             try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
             info.reread = try self.fmt("{s}.*", .{name});
             return;
@@ -2279,7 +2425,10 @@ pub const Emitter = struct {
             try self.emitTypeTy(self.peelBorrows(t));
         }
         try self.w.writeAll(" = ");
+        const h = try self.openHeader(value);
         if (self.isPtrBorrowExpr(value)) try self.emitDeref(value) else try self.emitBare(value);
+        if (info.boxed and self.hasTemps(value)) try self.w.writeAll(".value.*");
+        try self.closeHeader(h);
         try self.w.print("; _ = &{s};\n", .{name});
         info.reread = name;
         info.temp = info.mode == .consume;
@@ -2393,7 +2542,7 @@ pub const Emitter = struct {
             try self.guardBindings(pattern, guard, info, subj);
             try self.writeIndent(self.indent);
             try self.w.writeAll("if (");
-            try self.emitBare(guard);
+            try self.emitHeader(guard);
             try self.w.print(") break :{s} @as(usize, {d});\n", .{ sel, i });
             try self.closeBrace();
             try self.w.writeAll("\n");
@@ -2633,6 +2782,26 @@ pub const Emitter = struct {
         const value = ir.As.value(cond);
         const sym = self.sema.symbolOf(name);
         // Over a borrow of an optional, a borrowed binding points into it.
+        if (self.borrowsOptionalValue(value) and self.hasTemps(value)) {
+            // A borrow of a temporary the header drops: the optional is
+            // read inside the header, and the binding views a copy of the
+            // value inside, which the ownership checker lets nothing use
+            // past the header.
+            try self.w.writeAll("(");
+            const h = try self.openHeader(value);
+            try self.w.writeAll("(");
+            try self.emitBare(value);
+            try self.w.writeAll(").*");
+            try self.closeHeader(h);
+            try self.w.writeAll(") ");
+            if (sym == null or !self.usage.used.contains(sym.?)) {
+                try self.w.writeAll("|_| ");
+                return .{};
+            }
+            const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
+            try self.w.print("|{s}| ", .{tmp});
+            return .{ .lent = .{ .name = name, .tmp = tmp, .copy = true } };
+        }
         if (self.borrowsOptionalValue(value)) {
             // A name holding a borrow is emitted as the place it points to.
             // `o` and `<o` of a name holding the borrow are the place.
@@ -2650,7 +2819,7 @@ pub const Emitter = struct {
             return .{ .lent = .{ .name = name, .tmp = tmp, .copy = copy } };
         }
         try self.w.writeAll("(");
-        try self.emitBare(value);
+        try self.emitHeader(value);
         try self.w.writeAll(") ");
         // `as _` binds no symbol; a resource inside is dropped at once.
         const ty: ?TypeId = if (sym) |s| self.symType(s) else if (self.typeOf(value)) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
@@ -2733,6 +2902,29 @@ pub const Emitter = struct {
         self.want_ptr = false;
         const bare = self.bare;
         self.bare = false;
+        // A borrow of a Text lent as a String: its bytes.
+        if (self.sema.lendsText(sexp) and !sameNode(sexp, self.lending_text)) {
+            const saved = self.lending_text;
+            defer self.lending_text = saved;
+            self.lending_text = sexp;
+            const reach = self.textReach(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped Text")) orelse return self.unsupported(sexp, "a Text lent as a String");
+            try self.w.writeAll("(");
+            self.bare = true;
+            try self.emitValue(sexp, tail);
+            return self.w.print("){s}.bytes()", .{reach});
+        }
+        // An owning temporary is kept in its statement's slot, which
+        // drops it at the statement's end.
+        if (self.sema.dropsTemp(sexp) and !sameNode(sexp, self.keeping)) {
+            const slot = self.tempSlot(sexp) orelse return self.unsupported(sexp, "a temporary outside a statement");
+            const saved = self.keeping;
+            defer self.keeping = saved;
+            self.keeping = sexp;
+            try self.w.print("rig.keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
+            self.bare = true;
+            try self.emitValue(sexp, tail);
+            return self.w.writeAll(").*");
+        }
         // A temporary holds the value its context reads (`hoist`).
         if (self.hoistedOf(sexp)) |h| {
             if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
@@ -2776,7 +2968,7 @@ pub const Emitter = struct {
                 return self.w.print("rig.rt({s})", .{local.zig_name});
             }
             if (tail and self.ptr_tail and local.is_ptr) return self.w.writeAll(local.zig_name);
-            return if (tail) self.writeTake(local) else self.writeLocalPlace(local);
+            return if (tail and !self.sema.readsInPlace(sexp)) self.writeTake(local) else self.writeLocalPlace(local);
         }
         if (std.mem.eql(u8, name, "none")) return self.w.writeAll("null");
         if (name[0] == '\'') return writeSingleQuoted(self.w, name);
@@ -2988,6 +3180,16 @@ pub const Emitter = struct {
     /// borrow or an optional borrow goes stays a borrow.
     fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
         if (ty) |t| if (self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptional(t))) return self.emitBorrowValue(e);
+        // A branch's String is a slice, so a literal in one branch and a
+        // slice in another have one Zig type.
+        if (ty) |t| if (self.unwrapOptional(t) == self.sema.types.string_id) {
+            try self.w.writeAll("@as(");
+            try self.emitTypeTy(t);
+            try self.w.writeAll(", ");
+            self.bare = true;
+            try self.emitValue(e, true);
+            return self.w.writeAll(")");
+        };
         try self.emitValue(e, true);
     }
 
@@ -3077,6 +3279,11 @@ pub const Emitter = struct {
             // `?a` / `!a` of an array lent as a slice: the array's address,
             // which Zig takes as a slice.
             .read, .write => if (self.sema.arrayViewOf(sexp) == .borrowed) {
+                // `?t` of a Text lent as a String: its bytes.
+                if (self.typeOf(ir.get(sexp, .operand))) |t| if (self.textReach(t)) |reach| {
+                    try self.emitExpr(ir.get(sexp, .operand));
+                    return self.w.print("{s}.bytes()", .{reach});
+                };
                 const saved_read = self.read_place;
                 defer self.read_place = saved_read;
                 self.read_place = head == .read;
@@ -3115,6 +3322,11 @@ pub const Emitter = struct {
                     try self.w.writeAll("rig.cloneOptional(");
                     try self.emitBare(operand);
                     return self.w.writeAll(")");
+                }
+                // `+t` of a Text copies its bytes.
+                if (self.peelBorrows(self.typeOf(operand).?) == self.sema.types.text_id) {
+                    try self.emitExpr(operand);
+                    return self.w.writeAll(".clone()");
                 }
                 // A generic `T` is cloned only where each instance is plain
                 // data, so it is copied.
@@ -3499,6 +3711,9 @@ pub const Emitter = struct {
         if (self.isVecTy(ty)) {
             try self.emitExpr(base);
             try self.w.writeAll(".items()");
+        } else if (self.textReach(ty)) |reach| {
+            try self.emitExpr(base);
+            try self.w.print("{s}.bytes()", .{reach});
         } else if (self.sema.types.get(ty) == .array) {
             // A read slice only reads through: a Vec element on the way
             // is reached through a read-only slot.
@@ -3546,6 +3761,11 @@ pub const Emitter = struct {
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.isCellVecTy(obj_ty.?)) {
             try self.emitCellPtr(obj);
             return self.w.writeAll(".vecLen()");
+        }
+        if (std.mem.eql(u8, field, "len") and obj_ty != null and sema.unwrapAccess(self.sema, obj_ty.?) == self.sema.types.text_id) {
+            try self.emitMemberBase(obj, obj_ty);
+            try self.writeReach(obj_ty.?);
+            return self.w.writeAll(".length()");
         }
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLen(obj_ty.?)) {
             try self.w.writeAll("rig.len(");
@@ -3731,7 +3951,7 @@ pub const Emitter = struct {
         const stmts = try self.stmtsOf(body);
         if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
         const last = stmts[stmts.len - 1];
-        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last)) return self.emitValueAs(last, result);
+        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and !self.hasTemps(last)) return self.emitValueAs(last, result);
 
         const terminates = isTerminatingStmt(last);
         if (!terminates and !self.yieldsValue(last)) return self.unsupported(last, "a block without a value in value position");
@@ -3749,6 +3969,9 @@ pub const Emitter = struct {
         if (terminates) {
             try self.emitStmt(last);
         } else {
+            const first = self.temp_slots.items.len;
+            defer self.temp_slots.shrinkRetainingCapacity(first);
+            try self.emitTempSlots(last);
             if (returns) try self.w.writeAll("return ") else try self.w.print("break :{s} ", .{label});
             self.bare = true;
             try self.emitValueAs(last, result);
@@ -3780,6 +4003,46 @@ pub const Emitter = struct {
                 try self.emitAddressOf(unborrowed(a));
             } else try self.emitStored(a);
         }
+        try self.w.writeAll(")");
+    }
+
+    /// How a value of type `ty` (borrowed or not) reaches the Text it
+    /// views: directly, or through a `Box[Text]`; null for anything else.
+    fn textReach(self: *Emitter, ty: TypeId) ?[]const u8 {
+        const t = self.peelBorrows(ty);
+        if (t == self.sema.types.text_id) return "";
+        if (sema.boxedType(self.sema, t) == self.sema.types.text_id) return ".value";
+        return null;
+    }
+
+    /// The built-in Text operation `call` is: `Text(...)`, `!t.add(...)`,
+    /// or `!t.clear()`.
+    fn textCall(self: *Emitter, call: Sexp) ?sema.TextCall {
+        if (!call.isKind(.call)) return null;
+        return self.sema.textCallOf(call) orelse self.sema.textCallOf(self.sema.calleeOf(call));
+    }
+
+    /// `Text(a, b)` → `rig.Text.of(.{ a, &b })`; `!t.add(a, b)` →
+    /// `t.add(.{ a, &b })`, the arguments written as `print`'s are
+    /// (`emitPrintArgs`), so a place is read at the call; `!t.clear()` →
+    /// `t.clear()`.
+    fn emitTextCall(self: *Emitter, call: Sexp, op: sema.TextCall) Error!void {
+        const args = ir.Call.args(call);
+        switch (op) {
+            .new => try self.w.writeAll("rig.Text.of("),
+            .add, .push, .clear => {
+                const recv = ir.Member.object(self.sema.calleeOf(call));
+                try self.emitMemberBase(recv, self.typeOf(recv));
+                if (op == .clear) return self.w.writeAll(".clear()");
+                if (op == .push) {
+                    try self.w.writeAll(".push(");
+                    try self.emitBare(args[0]);
+                    return self.w.writeAll(")");
+                }
+                try self.w.writeAll(".add(");
+            },
+        }
+        try self.emitPrintArgs(args);
         try self.w.writeAll(")");
     }
 
@@ -3849,6 +4112,7 @@ pub const Emitter = struct {
         const args = ir.Call.args(sexp);
 
         if (self.isPrintCall(sexp)) return self.emitPrint(args);
+        if (self.textCall(sexp)) |op| return self.emitTextCall(sexp, op);
         if (self.builtinCall(sexp)) |name| return self.emitSwapCall(name, args);
         if (callee == .src and self.sema.symbolOf(callee) == null and resolve.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
         // A call through an alias: a conversion to the number type it
@@ -4227,7 +4491,7 @@ pub const Emitter = struct {
     /// effects, or when an argument may leave (`!`, a `catch` that
     /// returns) after an owned value was produced, which would be lost.
     fn hoistsArgs(self: *Emitter, call: Sexp) bool {
-        if (!call.isKind(.call) or self.isPrintCall(call)) return false;
+        if (!call.isKind(.call) or self.isPrintCall(call) or self.textCall(call) != null) return false;
         const args = ir.Call.args(call);
         // A closure literal lent to the call gets an environment first.
         for (args) |a| if (self.lentLiteral(argValue(a))) return true;
@@ -4621,9 +4885,9 @@ pub const Emitter = struct {
         try self.w.writeAll(if (args.len > 0) " }" else "}");
     }
 
-    /// Whether `print` argument `a` reads a place that owns storage, or
-    /// is borrowed from one: a local, or a field or element of one (not
-    /// a slice, which is a new value).
+    /// Whether a `print`, `Text(...)`, or `add` argument `a` reads a
+    /// place that owns storage, or is borrowed from one: a local, or a
+    /// field or element of one (not a slice, which is a new value).
     fn printsByAddress(self: *Emitter, a: Sexp) bool {
         const place = switch (a) {
             .src => self.localOf(a) != null and self.sema.callableOf(a) == null,
@@ -4933,6 +5197,7 @@ pub const Emitter = struct {
             .any_error => try self.w.writeAll("anyerror"),
             .bool => try self.w.writeAll("bool"),
             .string => try self.w.writeAll("[]const u8"),
+            .text => try self.w.writeAll("rig.Text"),
             .int_literal => try self.w.writeAll(int_zig),
             .float_literal => try self.w.writeAll(float_zig),
             .int => |i| if (i.bits == 0) try self.w.writeAll(int_zig) else try self.w.print("{c}{d}", .{ @as(u8, if (i.signed) 'i' else 'u'), i.bits }),

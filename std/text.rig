@@ -1,0 +1,201 @@
+# std.text: searching, slicing, splitting, and parsing Strings. A
+# String is UTF-8 bytes by convention, and nothing here checks that it
+# is: every index and length is in bytes. Every function that returns a
+# String returns a view of the String it was given, so nothing here
+# allocates.
+
+# Why a parse failed: the String is not a number (or Bool) as written,
+# or it is one too large for its type.
+pub error ParseError
+  invalid
+  overflow
+
+# ---- Searching ---------------------------------------------------------
+
+# Whether `pat` occurs in `s`; every String contains "".
+pub fun contains(s: String, pat: String) -> Bool
+  find(s, pat) != none
+
+# Whether `s` begins with `prefix`.
+pub fun starts_with(s: String, prefix: String) -> Bool
+  prefix.len <= s.len and s[..prefix.len] == prefix
+
+# Whether `s` ends with `suffix`.
+pub fun ends_with(s: String, suffix: String) -> Bool
+  suffix.len <= s.len and s[s.len - suffix.len..] == suffix
+
+# ---- Views ---------------------------------------------------------------
+
+# `s` without its leading and trailing ASCII whitespace (`is_space`).
+pub fun trim(s: String) -> String
+  trim_end(trim_start(s))
+
+# `s` without its leading ASCII whitespace.
+pub fun trim_start(s: String) -> String
+  i = 0
+  while i < s.len and is_space(s[i])
+    i += 1
+  s[i..]
+
+# `s` without its trailing ASCII whitespace.
+pub fun trim_end(s: String) -> String
+  n = s.len
+  while n > 0 and is_space(s[n - 1])
+    n -= 1
+  s[..n]
+
+# `s` after `prefix`, or `none` when `s` does not begin with it.
+pub fun strip_prefix(s: String, prefix: String) -> String?
+  return none if not starts_with(s, prefix)
+  s[prefix.len..]
+
+# `s` before `suffix`, or `none` when `s` does not end with it.
+pub fun strip_suffix(s: String, suffix: String) -> String?
+  return none if not ends_with(s, suffix)
+  s[..s.len - suffix.len]
+
+# The two parts of a String around a separator, which `cut` gives.
+pub struct Cut
+  pub before: String
+  pub after: String
+
+# `s` around the first `sep` in it: the part before it and the part
+# after it, or `none` when `sep` does not occur in `s`.
+pub fun cut(s: String, sep: String) -> Cut?
+  i = find(s, sep)?
+  Cut(before: s[..i], after: s[i + sep.len..])
+
+# ---- Splitting ---------------------------------------------------------
+
+# The parts of a String between the occurrences of a separator, which
+# `split` gives, in order: `while !parts.next() as part`.
+pub struct Split
+  rest: String
+  sep: String
+  done: Bool
+
+  # The next part, or `none` after the last.
+  pub fun next(!self) -> String?
+    return none if self.done
+    at = find(self.rest, self.sep) ?? -1
+    if at < 0
+      self.done = true
+      return self.rest
+    part = self.rest[..at]
+    self.rest = self.rest[at + self.sep.len..]
+    part
+
+# The parts of `s` between the occurrences of `sep`, left to right:
+# one more than `count(s, sep)`, some of which may be empty. Panics
+# when `sep` is empty.
+pub fun split(s: String, sep: String) -> Split
+  if sep.len == 0
+    empty_separator()
+  Split(rest: s, sep: sep, done: false)
+
+# The lines of a String, which `lines` gives, in order.
+pub struct Lines
+  rest: String
+
+  # The next line, without its line ending, or `none` after the last.
+  pub fun next(!self) -> String?
+    return none if self.rest.len == 0
+    end = find(self.rest, "\n") ?? -1
+    if end < 0
+      line = self.rest
+      self.rest = ""
+      return line
+    line = self.rest[..end]
+    self.rest = self.rest[end + 1..]
+    strip_suffix(line, "\r") ?? line
+
+# The lines of `s`: the parts between line endings, `\n` or `\r\n`,
+# without them. A line ending at the end of `s` ends the last line
+# rather than starting an empty one, so "" has no lines. A `\r` not
+# followed by `\n` is part of its line.
+pub fun lines(s: String) -> Lines
+  Lines(rest: s)
+
+# The words of a String, which `words` gives, in order.
+pub struct Words
+  rest: String
+
+  # The next word, or `none` after the last.
+  pub fun next(!self) -> String?
+    s = trim_start(self.rest)
+    return none if s.len == 0
+    end = 0
+    while end < s.len and not is_space(s[end])
+      end += 1
+    self.rest = s[end..]
+    s[..end]
+
+# The words of `s`: the nonempty runs of bytes between ASCII whitespace.
+pub fun words(s: String) -> Words
+  Words(rest: s)
+
+# ---- Parsing -------------------------------------------------------------
+
+# `true` for "true" and `false` for "false"; fails with
+# `ParseError.invalid` for any other String.
+pub fun parse_bool(s: String) -> Bool!
+  return true if s == "true"
+  return false if s == "false"
+  ParseError.invalid
+
+# ---- Bytes ---------------------------------------------------------------
+
+# Whether `b` is an ASCII digit, `0` to `9`.
+pub fun is_digit(b: U8) -> Bool
+  b >= 48 and b <= 57
+
+# Whether `b` is an ASCII letter, `a` to `z` or `A` to `Z`.
+pub fun is_alpha(b: U8) -> Bool
+  (b >= 65 and b <= 90) or (b >= 97 and b <= 122)
+
+# Whether `b` is ASCII whitespace: a space, tab, line feed, vertical
+# tab, form feed, or carriage return.
+pub fun is_space(b: U8) -> Bool
+  b == 32 or (b >= 9 and b <= 13)
+
+# `b` in upper case when it is an ASCII lower-case letter, else `b`.
+pub fun to_upper(b: U8) -> U8
+  b - 32 if b >= 97 and b <= 122 else b
+
+# `b` in lower case when it is an ASCII upper-case letter, else `b`.
+pub fun to_lower(b: U8) -> U8
+  b + 32 if b >= 65 and b <= 90 else b
+
+extern zig "text.zig"
+  # Panics: `split`'s separator is empty.
+  sub empty_separator()
+
+  # The index of the first occurrence of `pat` in `s`, or `none`; 0 when
+  # `pat` is "".
+  pub fun find(s: String, pat: String) -> Int?
+  # The index of the last occurrence of `pat` in `s`, or `none`;
+  # `s.len` when `pat` is "".
+  pub fun find_last(s: String, pat: String) -> Int?
+  # How many times `pat` occurs in `s`, counting from the left without
+  # overlaps: `count("aaaa", "aa")` is 2. For "" it is `s.len + 1`, the
+  # places between and around the bytes.
+  pub fun count(s: String, pat: String) -> Int
+
+  # `s` as a base-10 `Int`: an optional sign, `+` or `-`, then one or
+  # more digits, and nothing else. Fails with `ParseError.invalid` when
+  # `s` is not written so, and `ParseError.overflow` when its value is
+  # not an `Int`.
+  pub fun parse_int(s: String) -> Int!
+  # `s` as a `Float`: an optional sign, then digits with an optional
+  # `.` and fraction (one side of the `.` may be empty) and an optional
+  # exponent (`e` or `E`, an optional sign, and digits), or `inf`,
+  # `infinity`, or `nan` in any case. The nearest Float to the value;
+  # fails with `ParseError.invalid` when `s` is not written so, and
+  # `ParseError.overflow` when its magnitude is beyond `Float.max`.
+  pub fun parse_float(s: String) -> Float!
+
+  # Whether `bytes` is well-formed UTF-8.
+  pub fun valid_utf8(bytes: []U8) -> Bool
+  # The order of `a` and `b` by their bytes, as `<` orders them: -1
+  # when `a` sorts first, 1 when `b` does, and 0 when they are equal.
+  pub fun compare(a: String, b: String) -> Int

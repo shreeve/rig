@@ -1,0 +1,14 @@
+# An owned closure can be stored anywhere, so it cannot capture a String
+# that views a Text; nor can a Cell hold one.
+
+sub main
+  t = Text("abc")
+  s = ?t[..]
+  f = *|+s| print(s)
+  f()
+  c = Cell("free")
+  c.set(?t[1..])
+  print(c.get())
+
+# error: 7:10: an owned closure cannot capture `s`, which holds a borrow of `t`
+# error: 10:9: cannot store a borrow of `t` in a `Cell`

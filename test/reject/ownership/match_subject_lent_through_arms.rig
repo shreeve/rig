@@ -1,0 +1,60 @@
+# A `match` reads its subject again after a guard runs, to test the next
+# arm's pattern: what the subject views stays lent through every guard,
+# in a nested match too. A write lend of it there is rejected, as is one
+# in an arm whose subject views it through a write borrow still in use,
+# in the body of an `if … as` whose binding views it and is used after,
+# and in a loop walking a view of it.
+
+enum Shape
+  circle(r: Int)
+  point
+
+fun grow(v: !Vec[Shape]) -> Bool
+  for _ in 0..100
+    !v.push(.point)
+  false
+
+struct H
+  o: Box[Int]?
+
+fun clear(h: !H) -> Bool
+  h.o = none
+  false
+
+fun first(v: ?Vec[Shape]) -> []Shape
+  ?v[..1]
+
+sub main
+  v: Vec[Shape] = Vec()
+  !v.push(.circle(r: 5))
+  w = !v
+  n = match ?w[0]
+    .point => 0
+    .circle(_) if grow(!v) => 1
+    .circle(_) => 2
+  print(n)
+  x = !v
+  match ?x[0]
+    .point => print(0)
+    .circle(_) => print(grow(!v))
+  k = 1
+  y = !v
+  match k
+    1 => match ?y[0]
+      .circle(_) if grow(!v) => print(k)
+      _ => print(0)
+    _ => print(k)
+  h = H(o: Box(3))
+  z = !h
+  if ?z.o as s
+    print(clear(!h))
+    print(s)
+  for s in first(?v)
+    print(grow(!v), s)
+
+# error: 33:25: cannot take a second write borrow on `v`
+# error: 39:31: cannot take a second write borrow on `v`
+# error: 44:27: cannot take a second write borrow on `v`
+# error: 50:18: cannot take a second write borrow on `h`
+# error: 53:17: cannot write-borrow `v` while a read borrow is live
+# errors: 5

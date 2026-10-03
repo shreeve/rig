@@ -1,0 +1,23 @@
+# A branching `print` argument is copied where it runs, before the
+# later arguments: a place it may be that holds a Cell is held against
+# any later borrow, which could change the Cell under the copy.
+
+struct S
+  c: Cell[Vec[Int]]
+
+fun grow(s: ?S) -> Int
+  for i in 0..100
+    s.c.push(i)
+  5
+
+sub main
+  a = S(c: Cell(Vec()))
+  b = S(c: Cell(Vec()))
+  k = true
+  a.c.push(1)
+  print(a if k else b, grow(?a))
+  print(Text(b if k else a, grow(?a)))
+
+# error: 18:30: cannot read-borrow `a`, which holds a Cell, while an earlier argument's read of it is in use
+# error: 19:35: cannot read-borrow `a`, which holds a Cell, while an earlier argument's read of it is in use
+# errors: 2

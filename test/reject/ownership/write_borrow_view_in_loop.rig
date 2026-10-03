@@ -1,0 +1,18 @@
+# A view stored through a write borrow in a loop lands in what it
+# borrows, and a copy made on the next iteration keeps the Text borrowed.
+
+sub main
+  t = Text("scoped text here")
+  s = "lit"
+  o = "x"
+  i = 0
+  while i < 2
+    w = !s
+    o = w
+    w = ?t[..]
+    i += 1
+  -t
+  print(o)
+
+# error: 14:4: cannot drop `t` while borrows are live
+# errors: 1

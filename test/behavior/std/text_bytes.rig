@@ -1,0 +1,82 @@
+# std.text's byte functions: ASCII classes and case, UTF-8 validity,
+# and `compare`, which orders Strings as `<` does.
+use std.sort
+use std.text
+
+sub classes(s: String)
+  for b in s
+    print(b, text.is_digit(b), text.is_alpha(b), text.is_space(b), text.to_upper(b), text.to_lower(b))
+
+fun digits(s: String) -> Int
+  n = 0
+  for b in s
+    if text.is_digit(b)
+      n += 1
+  n
+
+sub main()
+  # "0", "9", "/", ":", "a", "z", "A", "Z", "@", "[", "`", "{"
+  classes("09/:azAZ@[`{")
+  # space, tab, line feed, vertical tab, form feed, carriage return, and
+  # the bytes either side of them
+  classes(" \t\n\x0b\x0c\r\x08\x0e\x1f!")
+  # the two bytes of "é", and 0xff
+  classes("é\xff")
+  print(digits("a1b22c333"), text.to_upper(text.to_lower(81)), text.to_lower(U8.max))
+
+  ok: [4]U8 = [104, 195, 169, 33]
+  bad: [3]U8 = [104, 195, 40]
+  empty: [0]U8 = []
+  cut_short: [2]U8 = [226, 130]
+  euro: [3]U8 = [226, 130, 172]
+  print(text.valid_utf8(?ok), text.valid_utf8(?bad), text.valid_utf8(?empty), text.valid_utf8(?cut_short), text.valid_utf8(?euro))
+  print(text.valid_utf8(?ok[1..3]), text.valid_utf8(?ok[2..]))
+  v: Vec[U8] = Vec()
+  !v.push(255)
+  print(text.valid_utf8(?v[..]))
+
+  print(text.compare("a", "b"), text.compare("b", "a"), text.compare("ab", "ab"), text.compare("", ""))
+  print(text.compare("ab", "abc"), text.compare("abc", "ab"), text.compare("", "a"), text.compare("Z", "a"), text.compare("é", "z"))
+  for pair in [["pear", "fig"], ["fig", "fig"], ["a", "ab"]]
+    print((text.compare(pair[0], pair[1]) < 0) == (pair[0] < pair[1]))
+
+  names = ["pear", "Fig", "apple", "fig", ""]
+  sort.sort_by(!names, |a, b| text.compare(a, b) < 0)
+  print(names)
+
+# expect:
+# 48 true false false 48 48
+# 57 true false false 57 57
+# 47 false false false 47 47
+# 58 false false false 58 58
+# 97 false true false 65 97
+# 122 false true false 90 122
+# 65 false true false 65 97
+# 90 false true false 90 122
+# 64 false false false 64 64
+# 91 false false false 91 91
+# 96 false false false 96 96
+# 123 false false false 123 123
+# 32 false false true 32 32
+# 9 false false true 9 9
+# 10 false false true 10 10
+# 11 false false true 11 11
+# 12 false false true 12 12
+# 13 false false true 13 13
+# 8 false false false 8 8
+# 14 false false false 14 14
+# 31 false false false 31 31
+# 33 false false false 33 33
+# 195 false false false 195 195
+# 169 false false false 169 169
+# 255 false false false 255 255
+# 6 81 255
+# true false true false true
+# true false
+# false
+# -1 1 0 0
+# -1 1 -1 -1 1
+# true
+# true
+# true
+# ["", "Fig", "apple", "fig", "pear"]

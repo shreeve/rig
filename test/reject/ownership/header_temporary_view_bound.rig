@@ -1,0 +1,31 @@
+# What `if … as`, `while … as`, or `match` binds lives through the
+# body, past its header, so it may not borrow a temporary the header
+# made.
+
+struct B
+  o: Text?
+
+enum E
+  a(t: Text)
+  z
+
+fun mk -> B
+  B(o: Text("o"))
+
+fun mke -> E
+  E.a(t: Text("e"))
+
+sub main
+  if ?mk().o as t
+    print(t)
+  while ?mk().o as u
+    print(u)
+    break
+  match ?mke()
+    .a(t) => print(t)
+    .z => pass
+
+# error: 19:7: a borrow of the temporary `mk()` outlives its statement
+# error: 21:10: a borrow of the temporary `mk()` outlives its statement
+# error: 24:10: a borrow of the temporary `mke()` outlives its statement
+# errors: 3

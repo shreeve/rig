@@ -1,0 +1,13 @@
+# A named owner as the fallback of `??` over a fresh optional would be
+# copied into the result: it is moved, written `<d`.
+
+fun mko(k: Int) -> Text?
+  Text("o") if k > 0 else none
+
+sub main
+  d = Text("d")
+  x = mko(0) ?? d
+  print(x)
+
+# error: 9:17: bare use of `Text` value `d` in binding would copy the buffer pointer and free it twice; use `<d` to move ownership
+# errors: 1

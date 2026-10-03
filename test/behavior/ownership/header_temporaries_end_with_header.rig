@@ -1,0 +1,108 @@
+# A header is its own statement: an `if` or `while` condition (each
+# part of a joined one), a guard, and the subject of a `match` or `for`
+# (a range's bounds included). Its temporaries are dropped when it ends,
+# before the body runs, also when it fails or leaves early; the step of
+# a `while` is a statement too.
+
+struct N
+  id: Int
+  v: Vec[Int]
+
+  drop(!self)
+    print("drop", self.id)
+
+error Bad
+  no
+
+fun mk(i: Int) -> N
+  v: Vec[Int] = Vec()
+  !v.push(i)
+  N(id: i, v: <v)
+
+fun idof(n: ?N) -> Int
+  n.id
+
+fun opt(n: ?N) -> Int?
+  return none if n.id > 50
+  n.id
+
+fun fails(n: ?N) -> Int!
+  return Bad.no if n.id > 60
+  n.id
+
+enum E
+  a(k: Int)
+  b
+
+fun mke(n: ?N) -> E
+  .a(k: n.id)
+
+fun run(k: Int) -> Int!
+  if fails(?mk(k))! > 0
+    print("then", k)
+  0
+
+sub main
+  if idof(?mk(1)) == 1
+    print("then")
+  x = idof(?mk(2)) if idof(?mk(3)) > 0 else idof(?mk(4))
+  print("x", x)
+  i = 0
+  while opt(?mk(10 + i)) as k and k < 12
+    print("body", k)
+    i += 1
+  j = 0
+  while true
+    k = opt(?mk(55 + j)) ?? break
+    print("never", k)
+  match mke(?mk(5))
+    .a(k) if k > idof(?mk(6)) => print("big", k)
+    .a(k) if k == idof(?mk(5)) => print("eq", k)
+    _ => print("other")
+  for q in 0..idof(?mk(2))
+    print("q", q)
+  print(run(1) catch -1, run(70) catch -1)
+  y = if idof(?mk(7)) > 0
+    idof(?mk(8))
+  else
+    0
+  print("y", y)
+  z = 0
+  while idof(?mk(20 + z)) < 22 : z += idof(?mk(1))
+    print("z", z)
+  print("end")
+
+# expect:
+# drop 1
+# then
+# drop 3
+# drop 2
+# x 2
+# drop 10
+# body 10
+# drop 11
+# body 11
+# drop 12
+# drop 55
+# drop 5
+# drop 6
+# drop 5
+# eq 5
+# drop 2
+# q 0
+# q 1
+# drop 1
+# then 1
+# drop 70
+# 0 -1
+# drop 7
+# drop 8
+# y 8
+# drop 20
+# z 0
+# drop 1
+# drop 21
+# z 1
+# drop 1
+# drop 22
+# end

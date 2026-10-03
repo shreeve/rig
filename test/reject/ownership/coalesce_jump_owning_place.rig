@@ -1,5 +1,5 @@
-# `??` would copy an owning value out of an optional a binding still
-# holds; move it out with `<o ?? return`.
+# `??` taking the value out of an optional a binding still holds would
+# copy an owner; move it out with `<o ?? return`.
 
 struct Res
   id: Int
@@ -14,4 +14,4 @@ fun first(o: Res?) -> Int
 sub main
   print(first(Res(id: 1)))
 
-# error: 11:7: `??` on an optional `Res?` would copy an owning handle out of it; move it out: `<o ?? ...`
+# error: 11:7: bare use of `Res` value `o` in binding would alias an owning value; `Res` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<o` to move ownership

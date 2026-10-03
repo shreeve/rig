@@ -1,0 +1,35 @@
+# An owning temporary lives until its statement ends, so nothing may
+# keep a borrow of it: not a binding, a field, a call's String result,
+# or a slice. A `match` takes a call's result: a view of a payload it
+# binds ends with the arm.
+
+enum M
+  a(t: Text)
+  b
+
+struct E
+  s: String
+
+fun mk -> M
+  M.a(t: Text("in m"))
+
+fun id(s: String) -> String
+  s
+
+sub main
+  w = id(?Text("abc"))
+  s = ?Text("x")[0..1]
+  e = E(s: ?Text("abc"))
+  r = ?Text("r")
+  o = "x"
+  match mk()
+    .a(t) => o = ?t[..]
+    .b => print("b")
+  print(w, s, e, r, o)
+
+# error: 20:11: a borrow of the temporary `Text("abc")` outlives its statement
+# error: 21:8: a borrow of the temporary `Text("x")` outlives its statement
+# error: 22:13: a borrow of the temporary `Text("abc")` outlives its statement
+# error: 23:8: a borrow of the temporary `Text("r")` outlives its statement
+# error: 26:19: `t` does not live long enough
+# errors: 5

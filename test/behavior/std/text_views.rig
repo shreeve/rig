@@ -1,0 +1,46 @@
+# std.text's views: trimming ASCII whitespace, stripping a prefix or a
+# suffix, and cutting around a separator. Each is a part of the String
+# it was given.
+use std.text
+
+fun show(s: String) -> String
+  s
+
+sub main()
+  print("[" , text.trim("  two words \t\r\n"), "]", "[", text.trim_start("  x  "), "]", "[", text.trim_end("  x  "), "]")
+  print(text.trim("").len, text.trim(" \t\n\r").len, text.trim_start("\x0b\x0cv").len, text.trim("x"), text.trim_end("é "))
+  print(text.trim(" a b ").len, text.trim_start(" a b ").len, text.trim_end(" a b ").len)
+
+  print(text.strip_prefix("unhappy", "un"), text.strip_prefix("unhappy", "happy"), text.strip_prefix("un", "un"), text.strip_prefix("x", ""))
+  print(text.strip_suffix("file.rig", ".rig"), text.strip_suffix("file.rig", ".zig"), text.strip_suffix("", ""), text.strip_suffix("a", "ab"))
+
+  if text.cut("key = value = more", " = ") as kv
+    print(kv.before, "|", kv.after)
+  c = text.cut("=start", "=") ?? text.Cut(before: "?", after: "?")
+  print(c.before.len, c.after)
+  c = text.cut("end=", "=") ?? text.Cut(before: "?", after: "?")
+  print(c.before, c.after.len)
+  if text.cut("no separator", "=") as found
+    print("found", found.before)
+  else
+    print("no separator")
+  if text.cut("abc", "") as whole
+    print(whole.before.len, whole.after)
+
+  # A view is a String like any other.
+  path = "  /usr/local/bin  "
+  dir = text.strip_suffix(text.trim(path), "/bin") ?? "/"
+  print(show(dir), dir.len, dir == "/usr/local")
+
+# expect:
+# [ two words ] [ x   ] [   x ]
+# 0 0 1 x é
+# 3 4 4
+# happy none  x
+# file none  none
+# key | value = more
+# 0 start
+# end 0
+# no separator
+# 0 abc
+# /usr/local 10 true

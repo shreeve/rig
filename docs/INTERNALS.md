@@ -82,7 +82,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/diag.zig` | diagnostics: source ranges, line and column, the printed format |
 | `src/modules.zig` | the module graph: loads each `use`d file and checks modules in dependency order |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
-| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Box`, `Signal` as built-in generics and `Endian` as a built-in enum, symbol resolution, declaration types and their checks |
+| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Box`, `Signal` as built-in generics, `Endian` as a built-in enum, and the built-in type names (`Int`, `String`, `Text`, ...), symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/ownership.zig` | the ownership checker |
 | `src/emit.zig` | Zig code generation |
@@ -449,7 +449,8 @@ standard library: its declarations are `fun` and `sub` nodes (or `pub`
 of one) whose `body` is `_`. Every pass reads them as the module-level
 functions they are, and skips the body that is not there: the resolver
 declares and types them (and rejects the block outside the standard
-library, a compile-time parameter, and a fallible signature), the type
+library, a compile-time parameter, and a fallible signature in a module
+that declares no error set), the type
 checker checks the signature and default values, the ownership checker
 has no body to walk, and calls to them are ordinary calls.
 
@@ -569,7 +570,10 @@ later pass reads. It runs these steps in order:
    and substitution as user generics, and `Endian` as an enum. The
    methods on elements (`copy`, `fill`, `swap`, `read`, `write`) of
    slices, arrays, Vecs, and Strings, which have no symbol, are checked
-   by `elemsCall` and recorded as `elemCallOf` facts.
+   by `elemsCall` and recorded as `elemCallOf` facts. `Text` is a
+   built-in type like `String` (the `text` type, with drop glue), and
+   its operations, which have no symbol either, are checked by
+   `checkTextNew` and `textCall` and recorded as `textCallOf` facts.
 2. **symbols** (`resolve.resolveSymbols`): one walk creates a `Symbol`
    for every declaration and binding, and a `Scope` for every node that
    opens one, recorded under that node.
@@ -625,12 +629,27 @@ ownership:
   must be inside a `raw` block. An `extern` function can only be
   called, so it cannot leave `raw` as a value.
 
-It also allows a borrow of a temporary (`?S(n: 1)`) only as an
-argument of a call whose result keeps no borrow, a `print` argument, a
-`match` subject, a `for` source, or the optional an `if`/`while ... as`
-binds, since the temporary
-ends with its statement, so the ownership checker, which tracks loans
-on named values, never meets one that outlives its value.
+Temporaries (SPEC §7) desugar into a hidden binding per statement. A
+value made where it is only read (`readLeaf`: a `print` or `Text`
+argument, an `==` operand, a `?self` receiver, the object of a field
+or element read) is bound to a hidden name `_t` at the start of its
+statement and dropped at its end: `print(mk().n)` is `_t = mk()`,
+`print(_t.n)`, `-_t`, with the drop also on every path out of the
+statement. A read passes through `a if c else b`, `??`, `catch`, `e!`,
+and `e?` (`readLeaves`): a branch that is a name is read where it is
+(`readsInPlace`), never moved, and a branching value all of whose
+branches are made is one temporary. A read borrow of a temporary
+(`?S(n: 1)`, `?make()`, a slice of one) records it the same way,
+owning or not. A header (`sema.isHeaderOf`: an `if` or `while`
+condition, a guard, a `match` or `for` subject) is its own statement:
+`if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
+so a binding that still views `_t` is reported where the header ends.
+A call's result that `match` binds is taken, as `match <e` takes it
+(`takesSubject`). The ownership checker holds each temporary in a
+hidden var borrowed by what reads it, and drops it where its statement
+or header ends (`dropStmtTemps`); emit gives a header's temporaries a
+block of their own, `(label: { slots; break :label e; })`, whose
+`defer`s drop them as the header's value is yielded.
 
 What may be done with a place is decided in one place. `placeOf(e)`
 reads a place expression (a name, or a field or element of one) once,
@@ -699,6 +718,10 @@ instead of re-deriving it by name:
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read borrow lending it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds borrows, rather than pointing the place elsewhere |
 | `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |
+| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary a read borrow lends. The ownership checker holds it in a hidden var named by its source, borrowed by what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a borrow of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
+| `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
+| `takesSubject(match)` | whether a `match` takes its subject, a call's result that owns a resource, as `match <e` would: its arms own the payloads |
+| `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is recorded as an `arrayViewOf` `borrowed`, walked as `?t[..]` |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 Leaves are keyed by source position and list nodes by their node id:
@@ -940,6 +963,35 @@ the loans of all its captures, as a call's `!` arguments do with its
 arguments. This is sound because the only loans left to such a store
 are on values outside the closure that it captured, and the captured
 value's var now holds each of them for as long as it lives.
+**Strings are views.** A String points into a literal, the process's
+arguments and environment, or a Text's buffer, so the contents pass
+treats it as a borrow the value may or may not hold: `String` sets a
+`view` bit in a type's `Borrows` (reaching through optionals, fields,
+handles, and a Vec's or Box's elements, but not into a Cell or Signal),
+and the checker tracks the loans of any value whose type has it, while
+sema's type-level `holdsBorrow` ignores it (a struct holding a String
+is not a view type, and `Vec[String]` is plain data). `?t[a..b]` of a
+Text borrows the Text as a slice borrows a Vec; a literal carries no
+loan, and a String parameter, like a borrowed one, holds an external
+loan on itself, so a function's String result borrows what its
+arguments do. A value that holds Strings but no borrow
+(`sema.holdsViewOnly`) keeps only the loans that lead to a Text
+(`viewLoans`): its bytes lie in no value that reaches no Text
+(`Borrows.text`: a Text by value, through a handle, a Vec's, Box's,
+Cell's, or Signal's value, or a borrow, so a struct holding `!Text`
+reaches one), so a loan on a var whose type reaches none stands for
+that var's own loans, read loans at that (a String never writes). So
+`!it.next()` of an iterator holding Strings borrows what `it` views,
+not `it`, and a String read through a `!String`, copied into a
+binding, or read out of a `Vec[String]` keeps what the String views.
+The loans of a `for` source no binding holds go to its elements, and
+the borrows deferred code stores stay when it runs at a scope's exit,
+so that exit checks them. A value whose loans
+the checker cannot follow per var (a Cell's or Signal's contents, an
+owned closure's captures) holds no String with a loan, which rejects
+a String parameter stored there; a generic body that stores a `T`
+there records a `view` requirement (`PlainRequirement.view`), and an
+instance whose `T` holds a String is rejected (`checkViews`).
 A slice of an array (`?xs[a..b]`) held in the storage of the var it is
 reached from, which may be the function's own (a parameter taken by
 value, a loop or pattern binding), also holds a *frame* loan on that
@@ -1182,12 +1234,26 @@ lower is an internal error: sema must have rejected it.
   from the module graph (`Module.shims`, read where the module is), and
   binds each declaration to the Zig function of its name:
   `pub const sqrt = __rig_shim_1.sqrt;`. Beside each it writes
-  `comptime { rig.expectShim(__rig_shim_1.sqrt, fn (f64) f64, "std.math.sqrt"); }`,
+  `comptime { rig.expectShim(__rig_shim_1.sqrt, fn (f64) f64, error{}, "std.math.sqrt"); }`,
   the Zig type spelled from the declaration's sema signature, as
   `emitFun` spells a Rig function's, so a Zig function whose type
   differs fails the package's build with a message naming the
   declaration. The suite calls every declaration of the standard
   library, so no such mismatch reaches a program.
+  A fallible declaration lowers to `anyerror!T`, but its Zig function
+  returns `E!T` for an error set `E` it spells out, not `anyerror`.
+  The third argument of `expectShim` is every error of the module's
+  error sets (`ParseError || ...`, as `emitErrorSet` wrote them), and
+  each error of `E` must be one of them, so a shim cannot fail with an
+  error Rig does not know. A shim names a Rig error by its Zig name,
+  `error.@"std.text.ParseError.invalid"`: the module, the set, and
+  the member (Zig cannot build an error set from names computed at
+  compile time, so the shim spells its set out). A misspelled or undeclared
+  name fails the build, naming the declaration and the error. The
+  declaration is then a function of its Rig type that calls the shim,
+  `pub fn parse_int(__rig_a0: []const u8) anyerror!i64 { return __rig_shim_1.parse_int(__rig_a0); }`,
+  so it is a value of that type, and a `match` on its error sees every
+  error, as for a Rig function.
 - **`main`** of the root module takes `std.process.Init.Minimal`, the
   only way Zig 0.16 hands a program its arguments and environment. It
   calls `rig.guardStack()` and `rig.start(init)`, then defers
@@ -1221,6 +1287,7 @@ reviewed.
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |
 | `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read borrow of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readBorrowIsPtr` applies the same rule to a known `T`. `lend` borrows through a pointer, `borrowed` reads the value |
 | `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place |
+| `Text` | `Text`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `Text(...)` and `print` agree exactly; `bytes` is the String view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a Text's or a String's |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a borrowed callable: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
@@ -1233,9 +1300,9 @@ reviewed.
 | `notNan` | wraps a float converted to an integer type: where safety checks run (Debug and ReleaseSafe), a NaN panics as an out-of-range value does, which `@intFromFloat`'s own check misses |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
-| `discard`, `isNone`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out |
+| `discard`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |
-| `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to |
+| `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; `exitStatus` checks the status of `fun main -> Int` |

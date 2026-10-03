@@ -1,0 +1,68 @@
+# A String-holding struct is a view of what its Strings view. An
+# iterator's `next(!self)` copies a String out of `self` and returns
+# it: the result borrows what the iterator views, not the iterator, so
+# two parts can be held at once. Literals stay free: `self.rest = ""`.
+
+fun find(s: String, pat: String) -> Int?
+  i = 0
+  while i + pat.len <= s.len
+    if s[i..i + pat.len] == pat
+      return i
+    i += 1
+  none
+
+fun strip_suffix(s: String, suffix: String) -> String?
+  return none if suffix.len > s.len or s[s.len - suffix.len..] != suffix
+  s[..s.len - suffix.len]
+
+struct Cut
+  before: String
+  after: String
+
+fun cut(s: String, sep: String) -> Cut?
+  i = find(s, sep)?
+  Cut(before: s[..i], after: s[i + sep.len..])
+
+struct Lines
+  rest: String
+
+  fun next(!self) -> String?
+    return none if self.rest.len == 0
+    end = find(self.rest, "\n") ?? -1
+    if end < 0
+      line = self.rest
+      self.rest = ""
+      return line
+    line = self.rest[..end]
+    self.rest = self.rest[end + 1..]
+    strip_suffix(line, "\r") ?? line
+
+fun lines(s: String) -> Lines
+  Lines(rest: s)
+
+fun view(t: !Text) -> String
+  ?t[..]
+
+sub main
+  t = Text("one\r\ntwo\nthree")
+  it = lines(?t)
+  a = !it.next()
+  b = !it.next()
+  print(a, b)
+  while !it.next() as line
+    print(line)
+  more = lines("x\ny\nz")
+  print(!more.next() ?? "?", !more.next() ?? "?", !more.next() ?? "?", !more.next() ?? "done")
+  c = cut(?t, "\n") ?? Cut(before: "", after: "")
+  print(c.before.len, c.after)
+  !t.add("!")
+  s = view(!t)
+  print(t.len, s.len, s[..3])
+
+# expect:
+# one two
+# three
+# x y z done
+# 4 two
+# three
+# 15 15 one

@@ -262,6 +262,8 @@ and environment variable. The suite runs on Linux and macOS in
   functions and held in structs) that end at their last use, clones,
   drops, automatic drop on every path, drop glue, user `drop` bodies
 - shared `*T` and weak `~T` handles, `Cell`, `Vec`, `Box`, and `Signal`
+- `Text`, owned text built with `Text(a, b)` and `!t.add(...)`, whose
+  Strings (`?t[a..b]`) borrow it
 - stack and owned closures with explicit captures, any arity, inferred
   parameter types, and return values
 - optionals with `none`, `??`, `if x as v`, and `x?`; fallible functions
@@ -271,9 +273,10 @@ and environment variable. The suite runs on Linux and macOS in
   `extern`, and `test` blocks run by `rig test`
 - `fun main -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
-  environment), `std.time`, `std.random`, `std.sort`, and `std.slices`
+  environment), `std.time`, `std.random`, `std.sort`, `std.slices`, and
+  `std.text` (searching, splitting, and parsing Strings)
 
-**Not yet:** most of a standard library (text, files, maps, formatting),
+**Not yet:** most of a standard library (files, maps, number formatting),
 concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
 storing or returning a stack closure (lending one to a call, as a

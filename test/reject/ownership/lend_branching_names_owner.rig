@@ -1,0 +1,22 @@
+# A lend of a branching value that may be an owner a name holds would
+# lend a copy of that owner: lend each branch instead.
+
+use std.text
+
+fun size(s: ?Text) -> Int
+  s.len
+
+fun g(o: Text?) -> Int?
+  print(text.trim(?o?))
+  1
+
+sub main
+  a = Text("aaaa")
+  b = Text("bb")
+  c = true
+  print(size(?(a if c else b)))
+  print(size(?a if c else ?b), g(none))
+
+# error: 10:20: cannot lend `o?`: it may be `o`
+# error: 17:16: cannot lend `a if c else b`: it may be `a`
+# errors: 2

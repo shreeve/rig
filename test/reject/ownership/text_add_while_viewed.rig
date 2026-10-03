@@ -1,0 +1,11 @@
+# A String taken from a Text borrows it: the Text cannot change while
+# the view is in use, since the change may move its bytes.
+
+sub main
+  t = Text("abc")
+  s = ?t[..]
+  !t.add("d")
+  print(s)
+
+# error: 7:3: cannot write-borrow `t` while a read borrow is live
+# errors: 1

@@ -1,8 +1,9 @@
-# Borrowing a fresh `*Cell(...)` without binding it first is rejected:
-# the anonymous handle would leak.
+# Borrowing a fresh `*Cell(...)` into a binding is rejected: the
+# handle is dropped when its statement ends, before the borrow's use.
 
 sub main()
   c = ?(*Cell(0))
   print(c.get())
 
-# error: bind it to a name first
+# error: 5:9: a borrow of the temporary `*Cell(0)` outlives its statement, which drops it; bind the value to a name first
+# errors: 1

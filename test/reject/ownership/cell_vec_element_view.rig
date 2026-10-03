@@ -1,0 +1,24 @@
+# Assigning an element of a Cell's Vec stores the
+# value in the Cell, which every handle reaches: a String that may view
+# a Text cannot go there, as with `set` and `push`. A literal can.
+
+sub put(c: ?Cell[Vec[String]], s: String)
+  c[0] = s
+
+sub fill[T](c: ?Cell[Vec[T]], x: T)
+  c[0] = x
+
+sub main
+  t = Text("abcdefghijklmnop")
+  cv: Cell[Vec[String]] = Cell(Vec())
+  cv.push("lit")
+  put(?cv, ?t[..3])
+  cv[0] = ?t[..2]
+  cv[0] = "free"
+  fill(?cv, "x")
+  print(cv[0])
+
+# error: 6:3: cannot store a borrow of `s` in a `Cell`
+# error: 16:3: cannot store a borrow of `t` in a `Cell`
+# error: 18:3: `fill[String]` cannot use `T = String`
+# errors: 3

@@ -41,6 +41,7 @@ fn needsDrop(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => isStrongHandle(T),
         .optional => |o| needsDrop(o.child),
+        .error_union => |e| needsDrop(e.payload),
         .array => |a| needsDrop(a.child),
         .@"struct" => |s| blk: {
             if (@hasDecl(T, "__rig_drop")) break :blk true;
@@ -114,6 +115,7 @@ fn dropElement(comptime T: type, value: *T) void {
     switch (@typeInfo(T)) {
         .pointer => value.*.dropStrong(),
         .optional => if (value.*) |*inner| dropElement(@TypeOf(inner.*), inner),
+        .error_union => if (value.*) |*inner| dropElement(@TypeOf(inner.*), inner) else |_| {},
         .array => {
             var i: usize = value.len;
             while (i > 0) {
@@ -166,6 +168,14 @@ pub fn takeOut(place: anytype) @TypeOf(place.*) {
     return value;
 }
 
+/// Keep `value`, an owning temporary, in `slot` until its statement
+/// ends and drops it.
+pub fn keep(slot: anytype, live: *bool, value: @TypeOf(slot.*)) @TypeOf(slot) {
+    slot.* = value;
+    live.* = true;
+    return slot;
+}
+
 /// Yield `value` after clearing its binding's alive flag: the value has
 /// been moved out, so the binding's scope-exit drop must not run.
 pub fn take(alive: *bool, value: anytype) @TypeOf(value) {
@@ -199,9 +209,29 @@ pub fn create(comptime T: type) *T {
 pub fn eql(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
+    // A Text compares with a Text or a String by its bytes.
+    if (comptime isText(A) or isText(B)) return std.mem.eql(u8, textBytes(a), textBytes(b));
     // The peer type of an optional error and an error is an error union.
     const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
     return eqlAs(T, a, b);
+}
+
+/// A `Text`, or a pointer to one (a borrowed Text).
+fn isText(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct" => @hasDecl(T, "__rig_text") or (@hasDecl(T, "__rig_box") and isText(@TypeOf(@as(T, undefined).value))),
+        .pointer => |p| p.size == .one and isText(p.child),
+        else => false,
+    };
+}
+
+/// The bytes of a Text, a borrowed or boxed Text, or a String.
+fn textBytes(x: anytype) []const u8 {
+    const X = @TypeOf(x);
+    if (comptime !isText(X)) return x;
+    if (comptime @typeInfo(X) == .pointer) return textBytes(x.*);
+    if (comptime @hasDecl(X, "__rig_box")) return textBytes(x.value.*);
+    return x.list.items;
 }
 
 fn eqlAs(comptime T: type, a: T, b: T) bool {
@@ -224,6 +254,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
             return true;
         },
         .@"struct" => |s| {
+            if (@hasDecl(T, "__rig_text")) return std.mem.eql(u8, a.list.items, b.list.items);
             inline for (s.fields) |f| if (!eqlAs(f.type, @field(a, f.name), @field(b, f.name))) return false;
             return true;
         },
@@ -889,15 +920,118 @@ pub fn Vec(comptime T: type) type {
 }
 
 // -----------------------------------------------------------------------------
+// Text
+// -----------------------------------------------------------------------------
+
+/// `Text`: owned, growable bytes, UTF-8 by convention. `Text(a, b)` and
+/// `!t.add(a, b)` write each value as `print` does at the top level
+/// (`writeValue`), with no separators; a String taken from a Text views
+/// its buffer, which the ownership checker keeps from changing while a
+/// view is in use.
+pub const Text = struct {
+    list: std.ArrayList(u8) = .empty,
+
+    /// Printed as its bytes (`writeValue`), compared by them (`eql`).
+    pub const __rig_text = {};
+
+    pub const empty: Text = .{};
+
+    /// `Text(a, b, ...)`.
+    pub fn of(parts: anytype) Text {
+        var t: Text = .empty;
+        t.add(parts);
+        return t;
+    }
+
+    /// `!t.add(a, b, ...)`.
+    pub fn add(self: *Text, parts: anytype) void {
+        var out: std.Io.Writer.Allocating = .fromArrayList(defaultAllocator(), &self.list);
+        defer self.list = out.toArrayList();
+        inline for (std.meta.fields(@TypeOf(parts))) |f| writeValue(&out.writer, @field(parts, f.name), true) catch oom();
+    }
+
+    /// `!t.push(b)`: append one byte.
+    pub fn push(self: *Text, b: u8) void {
+        self.list.append(defaultAllocator(), b) catch oom();
+    }
+
+    /// `!t.clear()`: empty, keeping the buffer.
+    pub fn clear(self: *Text) void {
+        self.list.clearRetainingCapacity();
+    }
+
+    /// The bytes, as a String: `?t[..]`, `?t` where a String goes.
+    pub fn bytes(self: Text) []const u8 {
+        return self.list.items;
+    }
+
+    /// `t.len`.
+    pub fn length(self: Text) Int {
+        return @intCast(self.list.items.len);
+    }
+
+    /// `+t`: a new Text holding the same bytes.
+    pub fn clone(self: Text) Text {
+        var t: Text = .empty;
+        t.list.appendSlice(defaultAllocator(), self.list.items) catch oom();
+        return t;
+    }
+
+    pub fn __rig_drop(self: *Text) void {
+        self.list.deinit(defaultAllocator());
+        self.list = .empty;
+    }
+};
+
+// -----------------------------------------------------------------------------
 // Zig-backed declarations
 // -----------------------------------------------------------------------------
 
 /// The check the emitter writes for each Zig-backed declaration of the
 /// standard library (`extern zig "file.zig"`): its function in the Zig
 /// file has exactly the type its Rig signature lowers to, so a call the
-/// checker accepts passes and returns what Rig says it does.
-pub fn expectShim(comptime f: anytype, comptime Rig: type, comptime name: []const u8) void {
-    if (@TypeOf(f) != Rig) @compileError("rig: the Zig function of `" ++ name ++ "` has type " ++ @typeName(@TypeOf(f)) ++ ", but its Rig signature lowers to " ++ @typeName(Rig));
+/// checker accepts passes and returns what Rig says it does. `Errors` is
+/// every error of the module's error sets. Where the Rig signature can
+/// fail (`anyerror!T`), the Zig function returns `E!T` instead, for an
+/// error set `E` it names, each error of which is in `Errors`: so a
+/// failure is always one of the module's Rig errors.
+pub fn expectShim(comptime f: anytype, comptime Rig: type, comptime Errors: type, comptime name: []const u8) void {
+    const F = @TypeOf(f);
+    const rig_ret = @typeInfo(Rig).@"fn".return_type.?;
+    if (@typeInfo(rig_ret) != .error_union) {
+        if (F != Rig) shimMismatch(F, @typeName(Rig), name);
+        return;
+    }
+    const rig_name = @typeName(Rig);
+    const lowered = rig_name[0 .. rig_name.len - @typeName(rig_ret).len] ++ "E!" ++ @typeName(@typeInfo(rig_ret).error_union.payload) ++ ", for an error set E of module `" ++ moduleOf(name) ++ "`";
+    const fi = switch (@typeInfo(F)) {
+        .@"fn" => |fi| fi,
+        else => shimMismatch(F, lowered, name),
+    };
+    const ri = @typeInfo(Rig).@"fn";
+    const ret = fi.return_type orelse shimMismatch(F, lowered, name);
+    if (@typeInfo(ret) != .error_union or fi.is_var_args or fi.params.len != ri.params.len or
+        @typeInfo(ret).error_union.payload != @typeInfo(rig_ret).error_union.payload or
+        !std.meta.eql(fi.calling_convention, ri.calling_convention)) shimMismatch(F, lowered, name);
+    for (fi.params, ri.params) |p, q| if (p.type != q.type or p.is_noalias != q.is_noalias) shimMismatch(F, lowered, name);
+    const set = @typeInfo(@typeInfo(ret).error_union.error_set).error_set orelse
+        @compileError("rig: the Zig function of `" ++ name ++ "` returns `anyerror`; it must name the errors it returns, each an error of module `" ++ moduleOf(name) ++ "`");
+    const allowed = @typeInfo(Errors).error_set.?;
+    for (set) |e| {
+        const known = for (allowed) |a| {
+            if (std.mem.eql(u8, a.name, e.name)) break true;
+        } else false;
+        if (!known) @compileError("rig: the Zig function of `" ++ name ++ "` returns `error." ++ e.name ++ "`, which is not an error of module `" ++ moduleOf(name) ++ "`: its errors are named `error.@\"" ++ moduleOf(name) ++ ".Set.name\"`");
+    }
+}
+
+fn shimMismatch(comptime F: type, comptime lowered: []const u8, comptime name: []const u8) noreturn {
+    @compileError("rig: the Zig function of `" ++ name ++ "` has type " ++ @typeName(F) ++ ", but its Rig signature lowers to " ++ lowered);
+}
+
+/// The module of the declaration `std.NAME.decl`.
+fn moduleOf(comptime name: []const u8) []const u8 {
+    return name[0 .. std.mem.lastIndexOfScalar(u8, name, '.') orelse 0];
 }
 
 // -----------------------------------------------------------------------------
@@ -1663,7 +1797,10 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         },
         .bool => return w.writeAll(if (value) "true" else "false"),
         .@"fn" => return w.writeAll("<fun>"),
-        .@"struct" => if (@hasDecl(T, "__rig_box")) return writeValue(w, value.value.*, top),
+        .@"struct" => {
+            if (@hasDecl(T, "__rig_box")) return writeValue(w, value.value.*, top);
+            if (@hasDecl(T, "__rig_text")) return writeValue(w, value.list.items, top);
+        },
         .optional => return if (value) |v| writeValue(w, v, top) else w.writeAll("none"),
         .pointer => |p| {
             if (comptime isStrongHandle(T)) return writeValue(w, value.value, top);
@@ -2086,6 +2223,33 @@ test "values print the way Rig writes them" {
     try testing.expectEqualStrings("~(gone)", w.buffered());
     weak.dropWeak();
     closure.__rig_drop();
+    try expectNoLeaks(before);
+}
+
+test "Text writes values as print does, and compares and frees its bytes" {
+    const before = usage();
+    const P = struct { name: []const u8, n: ?i64 };
+    var t = Text.of(.{ "n=", @as(i64, 42), " ", P{ .name = "a", .n = null }, " ", @as(f64, 2.0) });
+    try testing.expectEqualStrings("n=42 P(name: \"a\", n: none) 2.0", t.bytes());
+    var i: usize = 0;
+    while (i < 1000) : (i += 1) t.add(.{ @as(i64, @intCast(i % 10)), "," });
+    try testing.expectEqual(@as(Int, 2030), t.length());
+    var u = t.clone();
+    try testing.expect(eql(t, u) and !eql(t, "n=42"));
+    u.clear();
+    u.add(.{ "hi", true });
+    try testing.expect(eql(u, "hi" ++ "true") and eql("hitrue", &u));
+    const Holder = struct { t: Text };
+    var h = Holder{ .t = Text.of(.{"in"}) };
+    var buf: [64]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try writeValue(&w, h, true);
+    try w.writeAll(" ");
+    try writeValue(&w, h.t, true);
+    try testing.expectEqualStrings("Holder(t: \"in\") in", w.buffered());
+    drop(&h);
+    u.__rig_drop();
+    t.__rig_drop();
     try expectNoLeaks(before);
 }
 

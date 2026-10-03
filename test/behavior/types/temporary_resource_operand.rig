@@ -1,0 +1,20 @@
+# A temporary that owns a resource, read as an operand (here the value
+# whose field is read), is dropped when its statement ends.
+
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> B
+  B(n: n)
+
+sub main()
+  print(mk(1).n)
+  print("next")
+
+# expect:
+# 1
+# drop 1
+# next

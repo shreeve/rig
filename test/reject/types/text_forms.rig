@@ -1,0 +1,19 @@
+# A Text is changed only through its `!` methods, and viewed only
+# through a visible `?` borrow.
+
+sub main
+  t = Text("abc")
+  a = t[0..1]
+  b = !t[..]
+  t.len = 2
+  t.add("x")
+  u = Text(first: "x")
+  !t.pop()
+  print(a, b, u)
+
+# error: 6:7: a slice of a Text borrows it; write `?t[0..1]`
+# error: 7:8: cannot write-borrow a slice of a Text
+# error: 8:5: cannot assign to `.len`; a length is read-only
+# error: 9:5: method `add` requires a write-borrowed receiver; use `!receiver.add(...)`
+# error: 10:12: `Text(...)` takes no keyword arguments
+# error: 11:6: has no method `pop`

@@ -10,7 +10,10 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 
 - **More compile-time values on generic types**: `Bool` and enum value parameters (`struct Ring[T, n: Int]` takes integers only).
 - **Owning values in more places**: arrays of owning values, and owned closures that take or return them.
-- **Strings**: building and formatting strings, and matching on them. A slice of a built (heap) string will be a borrow of it, as an array slice is today.
+- **Strings**: matching on them.
+- **Reading more through temporaries and optionals**: `o?` of an owned optional parameter read through a borrow where only read (`o?.len`), and a read-only use of an owning field of a temporary (`print(mk().t)`), both rejected today.
+- **Quieter follow-on errors**: one mistake about a temporary can still give two diagnostics.
+- **Static Strings**: a String known to view only static bytes (a literal, an argument), which could go into a Cell, a Signal, an owned closure, or a generic `T` stored there, where a String that may view a Text cannot.
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `String`).
 - **A labeled value loop on the right of a binding** (`x = :l for ...`), which needs a grammar change without conflicts.
 - **Traits or bounds** whose dispatch and ownership stay visible in the IR, so a generic signature says what its type parameters support; `[T: Trait]` is kept free for them, told from a value parameter by what the name after `:` denotes.
@@ -28,8 +31,9 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 
 ## Libraries
 
-- **The rest of the standard library** ([STD.md](STD.md) lists what exists): collections, strings, I/O, and allocators, written in Rig over small Zig files. Next for the Zig-backed declarations: Zig-backed types (`struct Text owns`, with the kinds `copy`, `owns`, and `view`), and generic ones with declared requirement bounds, which a body-less declaration needs since the checker cannot infer them.
-  Settled so far: `String` stays a view and `Text` is the owned, growable text; iterators follow the convention `while !it.next() as x` (a `for` never calls user methods); containers of owning values lend elements as `?v[i]` and `!v[i]`; a generic method call on a `T` is checked at each use; a `[]U8` goes to C as a pointer plus a separate length, and a NUL-terminated copy is made explicitly.
+- **The rest of the standard library** ([STD.md](STD.md) lists what exists): collections, strings, I/O, and allocators, written in Rig over small Zig files. Next for the Zig-backed declarations: Zig-backed types (`struct File owns`, with the kinds `copy`, `owns`, and `view`), and generic ones with declared requirement bounds, which a body-less declaration needs since the checker cannot infer them.
+  Settled so far: iterators follow the convention `while !it.next() as x` (a `for` never calls user methods); containers of owning values lend elements as `?v[i]` and `!v[i]`; a generic method call on a `T` is checked at each use; a `[]U8` goes to C as a pointer plus a separate length, and a NUL-terminated copy is made explicitly.
+- **Text building in std.text**: functions that build new text into a `Text`, such as an upper-case copy, a replacement, and a join.
 - **A reactive library** in userland, grown from `examples/memo_canary.rig`.
 
 ## Tooling

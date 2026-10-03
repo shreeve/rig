@@ -1,0 +1,24 @@
+# A Text cannot be dropped, cleared, or reassigned while a String
+# views it, even through a function's result.
+
+fun first(s: String) -> String
+  s[..1]
+
+sub main
+  t = Text("abc")
+  a = first(?t)
+  -t
+  print(a)
+  u = Text("xyz")
+  b = ?u[..]
+  !u.clear()
+  print(b)
+  w = Text("w")
+  c = ?w[..]
+  w = Text("v")
+  print(c, w)
+
+# error: 10:4: cannot drop `t` while borrows are live
+# error: 14:3: cannot write-borrow `u` while a read borrow is live
+# error: 18:3: cannot reassign `w` while borrows are live
+# errors: 3

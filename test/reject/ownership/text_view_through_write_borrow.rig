@@ -1,0 +1,35 @@
+# A String viewing a Text reached through a struct that holds `!Text`
+# keeps that struct borrowed: a write through the struct could move the
+# Text's bytes. So does a part an iterator holding `!Text` gives.
+
+struct W
+  t: !Text
+
+fun grab(w: ?W) -> String
+  ?w.t[..3]
+
+sub grow(w: !W)
+  !w.t.add("more")
+
+struct It
+  t: !Text
+
+  fun next(!self) -> String?
+    !self.t.add("z")
+    ?self.t[..4]
+
+sub main
+  t = Text("abcdefghijklmnop")
+  w = W(t: !t)
+  s = grab(?w)
+  grow(!w)
+  print(s)
+  u = Text("abcdefghijklmnop")
+  it = It(t: !u)
+  a = !it.next() ?? ""
+  b = !it.next() ?? ""
+  print(a, b)
+
+# error: 25:9: cannot write-borrow `w` while a read borrow is live
+# error: 30:7: cannot write-borrow `it` while a read borrow is live
+# errors: 2

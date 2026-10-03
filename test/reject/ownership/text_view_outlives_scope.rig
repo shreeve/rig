@@ -1,0 +1,16 @@
+# A struct holding a String that views a Text, or a Vec of such
+# Strings, cannot outlive the Text.
+
+struct Name
+  s: String
+
+sub main
+  n = Name(s: "none")
+  names: Vec[String] = Vec()
+  if true
+    t = Text("inner")
+    n = Name(s: ?t[..])
+    !names.push(?t[1..])
+  print(n.s, names)
+
+# error: does not live long enough

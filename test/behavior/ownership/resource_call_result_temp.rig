@@ -1,0 +1,15 @@
+# A field read from a resource-returning call reads the temporary
+# handle, which its statement drops.
+
+struct User
+  age: Int
+
+fun make_user() -> *User
+  return *User(age: 5)
+
+sub main()
+  a = make_user().age
+  print(a)
+
+# expect:
+# 5

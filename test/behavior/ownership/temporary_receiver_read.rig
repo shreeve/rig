@@ -1,0 +1,24 @@
+# A `?self` receiver only reads: a value made there, a cloned handle
+# included, is a temporary its statement drops.
+
+struct B
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> B
+  B(n: n)
+
+sub main()
+  c: *Cell[Int] = *Cell(1)
+  print((+c).get(), mk(5).get())
+  print("end")
+
+# expect:
+# 1 5
+# drop 5
+# end

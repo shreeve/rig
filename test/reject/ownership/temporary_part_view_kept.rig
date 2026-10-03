@@ -1,0 +1,57 @@
+# A view of a part of a temporary (a field, a nested field, an element,
+# a slice, a boxed or shared value, a branch value) carries the loan on
+# the temporary, so it may be used in its statement but not kept past it.
+
+use std.text
+
+struct In
+  t: Text
+
+struct N
+  t: Text
+  inner: In
+  arr: [2]Int
+  v: Vec[Int]
+  name: String
+
+fun mk -> N
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  N(t: Text("tt"), inner: In(t: Text("in")), arr: [1, 2], v: <v, name: "nm")
+
+fun mkbox -> Box[Text]
+  Box(Text("bx"))
+
+fun mksh -> *N
+  *mk()
+
+fun mkt -> Text
+  Text("tx")
+
+fun first(s: []Int) -> Int
+  s[0]
+sub main
+  c = true
+  s1 = text.trim(?mk().t)
+  s2 = ?mk().t[1..]
+  s3 = text.trim(?mk().inner.t)
+  r4 = ?mk().arr[0]
+  r5 = ?mk().arr[..]
+  r6 = ?mk().v[..]
+  s7 = text.trim(?mkbox())
+  s8 = text.trim(?mksh().t)
+  s9 = text.trim(?(mk() if c else mk()).t)
+  r10 = ?mk().inner
+  print(s1, s2, s3, r4, r5, r6, s7, s8, s9, r10)
+
+# error: 35:19: a borrow of the temporary `mk()` outlives its statement
+# error: 36:9: a borrow of the temporary `mk()` outlives its statement
+# error: 37:19: a borrow of the temporary `mk()` outlives its statement
+# error: 38:9: a borrow of the temporary `mk()` outlives its statement
+# error: 39:9: a borrow of the temporary `mk()` outlives its statement
+# error: 40:9: a borrow of the temporary `mk()` outlives its statement
+# error: 41:19: a borrow of the temporary `mkbox()` outlives its statement
+# error: 42:19: a borrow of the temporary `mksh()` outlives its statement
+# error: 43:20: a borrow of the temporary `mk() if c else mk()` outlives its statement
+# error: 44:10: a borrow of the temporary `mk()` outlives its statement
+# errors: 10

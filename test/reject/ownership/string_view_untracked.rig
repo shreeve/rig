@@ -1,0 +1,28 @@
+# Loans are not followed into a Cell's or Signal's contents or an owned
+# closure's captures, so a String that may view a Text cannot go there:
+# not a view, not a String parameter, not a closure's String parameter
+# stored through a capture, and not a generic `T` that is a String.
+
+sub put[T](c: ?Cell[T], x: T)
+  c.set(x)
+
+fun later[T](x: T) -> *sub()
+  *|+x| print(x)
+
+sub main
+  t = Text("abc")
+  cell = Cell("lit")
+  put(?cell, ?t[..])
+  f = later(?t[1..])
+  f()
+  out: Vec[String] = Vec()
+  keep = |!out, s: String| !out.push(s)
+  keep("x")
+  sig = *Signal("s")
+  sig.set(?t[..1])
+  print(cell.get(), out)
+
+# error: 15:3: `put[String]` cannot use `T = String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which holds no borrow, and a String may view a Text
+# error: 16:7: `later[String]` cannot use `T = String`
+# error: 19:17: `s` does not live long enough
+# error: 22:11: cannot store a borrow of `t` in a `Signal`

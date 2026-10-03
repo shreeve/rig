@@ -1,0 +1,14 @@
+# A Text owns its bytes, so a bare name never copies it: it moves with
+# `<t` or clones with `+t`, and a moved Text cannot be used.
+
+sub keep(t: Text)
+  print(t)
+
+sub main
+  t = Text("a")
+  u = t
+  keep(<t)
+  print(t, u)
+
+# error: 9:7: bare use of `Text` value `t` in binding would copy the buffer pointer and free it twice; use `<t` to move ownership, or `+t` to copy the text
+# error: 11:9: use of `t` after move

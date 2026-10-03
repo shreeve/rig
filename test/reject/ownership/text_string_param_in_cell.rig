@@ -1,0 +1,18 @@
+# A String parameter may view a caller's Text, so it cannot be stored
+# where no loan is tracked: in a Cell, a Signal, or an owned closure.
+
+sub keep(c: ?Cell[String], s: String)
+  c.set(s)
+
+fun later(s: String) -> *sub()
+  *|+s| print(s)
+
+sub main
+  c = Cell("a")
+  keep(?c, "b")
+  f = later("c")
+  f()
+  print(c.get())
+
+# error: 5:9: cannot store a borrow of `s` in a `Cell`
+# error: 8:6: an owned closure cannot capture `s`, which holds a borrow

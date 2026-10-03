@@ -1,0 +1,12 @@
+# A slice of a temporary cannot outlive its statement, which ends the
+# temporary.
+
+fun make() -> [3]Int
+  [1, 2, 3]
+
+sub main()
+  s = ?make()[0..2]
+  print(s)
+
+# error: 8:8: a borrow of the temporary `make()` outlives its statement
+# errors: 1

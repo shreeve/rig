@@ -1,0 +1,40 @@
+# The elements of a `for` over a value no binding holds (an array
+# literal, or a call's result) carry what that value borrows, so one
+# stored outside the loop keeps it borrowed.
+
+struct C
+  s: String
+
+fun halves(s: String) -> [2]String
+  [s[..s.len / 2], s[s.len / 2..]]
+
+fun firsts(s: String) -> Vec[String]
+  v: Vec[String] = Vec()
+  !v.push(s[..1])
+  v
+
+sub main
+  t = Text("abcdefghijklmnop")
+  o = "x"
+  for x in [?t[..1], ?t[1..2]]
+    o = x
+  for c in [C(s: ?t[..3])]
+    o = c.s
+  for x in halves(?t)
+    o = x
+  for x in firsts(?t)
+    o = x
+  -t
+  print(o)
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e: Vec[Int] = Vec()
+  sl = ?e[..]
+  for x in [?v[..], ?v[..1]]
+    sl = x
+  -v
+  print(sl)
+
+# error: 27:4: cannot drop `t` while borrows are live
+# error: 35:4: cannot drop `v` while borrows are live
+# errors: 2

@@ -23,7 +23,7 @@ marked as rejected must fail with the errors shown.
 7. [Ownership](#7-ownership)
 8. [Drop and drop glue](#8-drop-and-drop-glue)
 9. [Shared and weak handles](#9-shared-and-weak-handles)
-10. [Cell, Vec, Box, and Signal](#10-cell-vec-box-and-signal)
+10. [Cell, Vec, Box, Text, and Signal](#10-cell-vec-box-text-and-signal)
 11. [Closures](#11-closures)
 12. [Optionals](#12-optionals)
 13. [Errors](#13-errors)
@@ -95,7 +95,7 @@ every mode.
 | `U8` `U16` `U32` `U64` `U128` | unsigned integers | `u8` ... `u128` |
 | `F32` `F64` | floats | `f32`, `f64` |
 | `Bool` | `true` or `false` | `bool` |
-| `String` | immutable UTF-8 bytes; a Copy value | `[]const u8` |
+| `String` | a view of text: bytes, UTF-8 by convention, that it does not own; a Copy value | `[]const u8` |
 | `Void` | no value (what a `sub` returns) | `void` |
 
 `Int` is `I64` and `Float` is `F64`: one type under two names. Every
@@ -222,6 +222,15 @@ A `String` has a length `s.len` and can be indexed (`s[0]`, or
 it yields its bytes as `U8`. Strings compare with `==` and
 `!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
 ([§5](#operators)).
+
+A String is a view: it points at bytes it does not own. Those of a
+literal, a module constant, or the program's arguments and environment
+([std.os](docs/STD.md)) last as long as the program, so such a String
+is free to copy anywhere. One taken from a `Text` (`?t[..]`) is a view
+of the Text: the lend makes a loan on the Text, which the String
+carries wherever it goes ([§10](#text)). The bytes are UTF-8 by convention, and nothing checks
+it: lengths and indexes count bytes, and a slice checks only its
+bounds.
 
 ### Arrays
 
@@ -668,7 +677,8 @@ no variant `native` on enum `Endian`
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§11](#11-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§11](#11-closures) |
 | `?fun(A) -> R`, `?sub(A)` | borrowed callable: a closure, function, or owned closure lent to a call | [§11](#closure-parameters) |
-| `Cell[T]`, `Vec[T]`, `Box[T]`, `Signal[T]` | built-in generic types | [§10](#10-cell-vec-box-and-signal) |
+| `Cell[T]`, `Vec[T]`, `Box[T]`, `Signal[T]` | built-in generic types | [§10](#10-cell-vec-box-text-and-signal) |
+| `Text` | owned, growable text | [§10](#text) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
 
@@ -681,11 +691,12 @@ borrow: `*(?User)` is rejected.
 
 A **Copy** value is plain data: numbers, `Bool`, `String`, plain enums,
 and optionals, arrays, structs, and `Cell`s that hold only Copy values.
-Using one copies it.
+Using one copies it. A copy of a String that views a Text carries the
+Text's borrow ([§10](#text)).
 
 An **owning** value holds a resource that must be released exactly
-once: a `*T` or `~T` handle, a `Vec`, a `Box`, a `Signal`, an owned
-closure, and any struct, enum, or generic instance that contains one or
+once: a `*T` or `~T` handle, a `Vec`, a `Box`, a `Text`, a `Signal`, an
+owned closure, and any struct, enum, or generic instance that contains one or
 declares a `drop` body. Owning values have **drop glue**: code the compiler
 generates to release them. They move instead of copying, and the
 ownership rules of [§7](#7-ownership) apply to them.
@@ -2310,8 +2321,10 @@ source and `if … as` do:
 | `match !e` | write borrows of the fields: assigning one writes the field in place |
 | `match <e` | own the fields: `e` is consumed, and what an arm does not move on is dropped at the end of the arm |
 
-A bare `match e` only reads `e`, so moving a payload out of it is
-rejected; that takes `match <e`. Its bindings only read, too, even of a
+A bare `match e` of a place only reads it, so moving a payload out of
+it is rejected; that takes `match <e`. A call's result is taken, as
+`match <e` would take it ([§7](#temporaries)): `match make()` owns its
+payloads. Its bindings only read, too, even of a
 field or value that is itself a write borrow. A binding of `match <e`
 owns what it binds: a resource it holds may be written and lent for
 writing. A `Bool` is not matched with `!`: `match !flag` reads as
@@ -3023,7 +3036,8 @@ struct field (a **view**), or a function's result, and the checker
 tracks where every one came from.
 
 - A function may return a borrow only of something its caller lent it.
-  The result then borrows from every borrowed argument of the call.
+  The result then borrows from every borrowed argument of the call,
+  a String argument included: it may view a Text ([§10](#text)).
 - A struct holding a borrow keeps the borrowed value borrowed while the
   struct is alive. So does a stack closure that captured a borrow, and
   a value a call may have stored a borrow into (its receiver, and what
@@ -3129,8 +3143,10 @@ automatically when its block ends, including on early `return`,
 `break`, and `continue`, and on every path through branches. So `-x`
 is only needed to release something early, or to end a borrow a
 binding holds. A borrowed parameter cannot be dropped: the caller owns
-it. Plain data owns nothing and holds no borrow, so `-n` of an `Int`
-or a plain struct drops nothing, and is rejected.
+it. Plain data owns nothing, so `-n` of an `Int` or a struct of
+numbers drops nothing, and is rejected. A String may view a `Text`
+(§10), so `-s` of a String, or of a struct holding one, ends the loan
+it carries.
 
 ```rig
 struct Noisy
@@ -3168,43 +3184,123 @@ value declared after it: that value is dropped first.
 
 ### Temporaries
 
-A value that owns a resource must have an owner. It may be bound,
-returned, passed to a call (which takes ownership), discarded with
-`_ = e` (which drops it), used as the receiver of a consuming method,
-or compared with `none`. Anywhere else (a field read, a borrow, a
-method receiver, a `print` argument, an expression statement) nothing
-would release it, so it must be bound to a name first.
+An expression either **takes** its value or only **reads** it. A
+binding, an argument to a parameter that owns it, `return`, a stored
+field or element, and `<` take. A `print` or `Text(...)` argument, an
+`==` operand, `?e`, a `?self` receiver, and a field or element read
+only read. Reading never moves a name, whatever form reads it: a read
+passes through `a if c else b`, `??`, `catch`, `e!`, and `e?` to their
+operands, so `print(a if c else b)` reads `a` or `b` where it is and
+moves nothing.
 
-```rig reject
-struct User
-  age: Int
+A value made where it is only read (a call's result, a constructor's
+included, `+x`, `<x`, or a block or `match` value) has no name: its
+statement is its scope, so it is a **temporary**. One that owns a
+resource is dropped when its statement ends, last made first, also
+when the statement fails (`!`) or leaves early (`?? return`). A
+temporary that nothing reads or takes (an expression statement, the
+receiver of a `!self` method, whose change would be lost) is rejected:
+bind it to a name first.
+
+```rig
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun size(s: String) -> Int
+  s.len
 
 sub main
-  print((*User(age: 5)).age)
+  a = B(n: 2)
+  b = B(n: 3)
+  print(B(n: 1), size(?Text("four")))
+  print(a if b.n > 5 else b)
+  print("next")
 ```
 
-```error
-bind it to a name first
+```output
+B(n: 1) 4
+drop 1
+B(n: 3)
+next
+drop 3
+drop 2
 ```
 
-A borrow of a temporary (`?S(n: 1)`, `?make()`) lives only as long as
-the call it is lent to, so it may be an argument of a call whose result
-keeps no borrow or of `print`, a `match` subject, a `for` source, or
-the optional an `if` or `while` binds with `as`. Bound to a name, stored in a
-field, or passed to a call whose result may borrow it, it would outlive
-the value, and it is rejected.
+```rig
+struct Log
+  lines: Vec[Int]
+
+  fun count(?self) -> Int
+    self.lines.len
+
+fun make -> Log
+  Log(lines: Vec())
+
+sub main
+  print(make().count(), make().lines.len)
+```
+
+```output
+0 0
+```
+
+A borrow of a temporary (`?S(n: 1)`, `?make()`, `?make()[1..]`), and
+any view made from one (a call's result that borrows it), may be used
+anywhere in its statement, and nowhere after: held by a binding, a
+field, a Vec, or a returned value, it is rejected.
+
+**Headers are their own statements:** an `if` or `while` condition, a
+`match` guard, and the subject of a `match` or `for`. A header's
+temporaries end with the header, before the body runs; what the header
+binds lives through the body. So `if text.starts_with(?Text(a, b),
+"x")` works, but `if text.cut(?Text(a, b), "=") as kv` must bind the
+Text first, because `kv` outlives the header. A call's result that `if
+… as`, `while … as`, `match`, or `for` binds is taken, as `<e` would
+take it: an arm of `match make()` may move a payload out. A lend of a
+branching value that may be a name's (`?(a if c else b)`) would copy
+that name's value, so it is rejected: lend each branch, `?a if c else
+?b`.
+
+```rig
+use std.text
+
+sub main
+  print(text.trim(?Text("  padded  ")) == "padded")
+  n = text.find(?Text("abc"), "b") ?? -1
+  if text.starts_with(?Text("x", n), "x1")
+    print("starts")
+  kv_text = Text("k=v")
+  if text.cut(?kv_text, "=") as kv
+    print(kv.before, kv.after)
+```
+
+```output
+true
+starts
+k v
+```
 
 ```rig reject
+use std.text
+
 struct S
   n: Int
 
 sub main
   r = ?S(n: 1)
-  print(r.n)
+  s = text.trim(?Text(" a "))
+  if text.cut(?Text("k=v"), "=") as kv
+    print(kv.after)
+  print(r.n, s)
 ```
 
 ```error
-a borrow of a temporary lives only for the call it is lent to; bind the value to a name first
+a borrow of the temporary `S(n: 1)` outlives its statement, which drops it; bind the value to a name first
+a borrow of the temporary `Text(" a ")` outlives its statement
+a borrow of the temporary `Text("k=v")` outlives its statement
 ```
 
 ---
@@ -3382,10 +3478,10 @@ leak-free, with no use of freed memory, under the sanitizing allocator.
 
 ---
 
-## 10. Cell, Vec, Box, and Signal
+## 10. Cell, Vec, Box, Text, and Signal
 
-These built-in generic types are part of the language's substrate.
-Their names are reserved.
+These built-in types are part of the language's substrate. Their names
+are reserved.
 
 ### Cell
 
@@ -3405,8 +3501,9 @@ mutable value.
 `T` is a Copy primitive, plain data (a struct, enum, optional, or array
 that owns nothing and holds no borrow), or an owning type. An owning
 value is never copied out of a cell: it moves in with `set` / `replace` and moves out
-with `replace`. What goes into a cell holds no borrow, since every
-handle to the cell reaches it.
+with `replace`. What goes into a cell, by any of its members or
+`c[i] = x`, holds no borrow, nor a String that may view a Text
+([§10](#text)), since every handle to the cell reaches it.
 
 A `Cell[Vec[T]]` answers its Vec's members as `set` does, without `!`:
 `push` moves or clones an owning element in (`<x`, `+x`), `pop` hands
@@ -3651,6 +3748,172 @@ sub main
 2
 5
 8
+```
+
+### Text
+
+`Text` is owned, growable text: bytes on the heap, UTF-8 by convention,
+released when the Text is dropped. It is an owning value, so a bare
+name moves nothing: `<t` moves it and `+t` copies its bytes into a new
+Text. A `String` is the view of text; a Text is where text is built.
+
+| Member | Meaning |
+|---|---|
+| `Text()` | an empty Text; nothing is allocated until text is added |
+| `Text(a, b, ...)` | a Text holding each value as `print` writes it ([§17](#17-printing)), with no separators |
+| `!t.add(a, b, ...)` | append each value the same way; a `U8` is written as a number |
+| `!t.push(b)` | append one byte `b`, a `U8`, given by position |
+| `!t.clear()` | empty it, keeping its buffer |
+| `t.len` | its length in bytes, read-only |
+| `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
+| `?t` where a String or `String?` is expected | `?t[..]` |
+| a borrow `p: ?Text` (a name, or a call's result) where a String is expected | its bytes; `p[a..b]` is a view of them, with no further `?` |
+| `for b in ?t` | its bytes, as `U8`s |
+| `?b[a..b]`, `?b` of a `Box[Text]` | the same, through the box |
+| `+t` | a new Text holding the same bytes |
+| `t == u`, `t == s` | compares its bytes with a Text's or a String's; a boxed Text too |
+
+Each value is written as `print` writes it at the top level: a String
+or a Text as its text, a number as `print` shows it, a struct, enum,
+optional, array, or Vec as `print` writes it, with the Strings inside
+it quoted. Rig has no `+` on text and no interpolation: text is built
+with `Text(...)` and `!t.add(...)`, and every change to a Text is
+written with `!`.
+
+```rig
+struct Point
+  x: Int
+  y: Float
+
+sub main
+  t = Text("n=", 42, " p=", Point(x: 1, y: 2.5))
+  !t.add(" ok=", true, " ", ["a", "b"])
+  print(t)
+  print(t.len, t == "n=42", ?t[..4])
+  u = +t
+  !u.clear()
+  !u.add("fresh")
+  print(u, u.len)
+```
+
+```output
+n=42 p=Point(x: 1, y: 2.5) ok=true ["a", "b"]
+45 false n=42
+fresh 5
+```
+
+**A String is a view of its Text.** `?t[a..b]` lends the Text as a
+slice lends an array, and the String it makes carries the loan: while
+the String is in use, the Text cannot be changed, moved, or dropped,
+and the String cannot outlive it. The loan goes wherever the String
+goes: into a binding, a struct field, a `Vec[String]`, an optional, a
+closure's captures, and a call's result, since a function returning a
+String may return a view of a String it was passed
+([§7](#second-class-borrows)). Once the last use of the String, and of
+every value holding it, is past, the Text is free again; a Vec holding
+one is in use until it is dropped.
+
+`Text(...)` and `!t.add(...)` only read their arguments, as `print`
+does: a place is read where it is when the call runs, after its later
+arguments, and a value made there is a temporary its statement drops
+([§7](#temporaries)). A String viewing a temporary Text, as in
+`text.trim(?Text(a, b))`, may be used within its statement, and within
+a header only by the header itself ([§7](#temporaries)); bind the Text
+to a name to keep the view longer.
+
+```rig
+fun first_word(s: String) -> String
+  i = 0
+  while i < s.len and s[i] != 32
+    i += 1
+  s[..i]
+
+struct Entry
+  name: String
+
+sub main
+  t = Text("hello world")
+  w = first_word(?t)
+  e = Entry(name: ?t[6..])
+  names: Vec[String] = Vec()
+  !names.push(w)
+  print(w, e, names)
+  -names
+  !t.add("!")
+  print(t)
+```
+
+```output
+hello Entry(name: "world") ["hello"]
+hello world!
+```
+
+```rig reject
+fun first_word(s: String) -> String
+  s[..5]
+
+fun local -> String
+  t = Text("gone")
+  ?t[..]
+
+sub main
+  t = Text("hello world")
+  w = first_word(?t)
+  !t.add("!")
+  print(w, local())
+```
+
+```error
+cannot write-borrow `t` while a read borrow is live
+returned borrow of `t` does not originate from a borrowed parameter
+```
+
+A String whose origin a function cannot see, a parameter or a value
+built from one, may view a Text, so it stays where borrows are
+followed. It cannot be stored in a `Cell` or a `Signal` (by `Cell(v)`,
+`set`, `replace`, `push`, or `c[i] = v`), or captured by an owned
+closure, since every handle to those reaches what they hold;
+nor can a closure store its String parameter through a capture. A
+generic body that stores a `T` in a `Cell`, a `Signal`, or an owned
+closure cannot be instantiated with a `T` that holds a String, even
+when every String passed is a literal. Where a String must outlive the
+Text it came from, copy it into a Text of its own: `Text(s)`.
+
+A Text owns its bytes, so it is not the plain data a `Vec` holds:
+`Vec[Text]` is rejected, and `Vec[Box[Text]]` holds Texts. A Vec that
+holds views keeps their Texts borrowed until it is dropped, since it is
+in use until then; drop it early with `-v` to change them sooner.
+
+```rig
+sub main
+  owned: Vec[Box[Text]] = Vec()
+  !owned.push(Box(Text("one")))
+  !owned.push(Box(Text("two")))
+  t = Text("a b")
+  views: Vec[String] = Vec()
+  !views.push(?t[..1])
+  print(owned, views)
+  -views
+  !t.add("!")
+  print(t)
+```
+
+```output
+["one", "two"] ["a"]
+a b!
+```
+
+```rig reject
+sub keep(c: ?Cell[String], s: String)
+  c.set(s)
+
+sub main
+  c = Cell("")
+  keep(?c, "a")
+```
+
+```error
+cannot store a borrow of `s` in a `Cell`
 ```
 
 ### Signal
@@ -4215,10 +4478,12 @@ and the left side of `?? return` is the whole expression before it, as
 for `catch` (`a and b ?? return` is `(a and b) ?? return`), except in a
 chain of `??`, where the jump belongs to the nearest one, as `??` is
 right-associative: `a ?? b ?? return v` is `a ?? (b ?? return v)`.
-With a jump as the fallback nothing is copied, so the optional may hold
-an owning value when it is a temporary (`make(k) ?? return`) or moved
-(`<o ?? return`, `<h.f ?? return`, which leaves `none`), but not when
-it is reached through a borrow, which gives up nothing. Anything
+Where `a ?? b` is only read, it reads the value inside `a`, or `b`,
+where it is ([§7](#temporaries)). Where it is taken, it takes from each
+side: the optional may hold an owning value when it is made there
+(`make(k) ?? return`, `make(k) ?? make(0)`) or moved (`<o ?? return`,
+`<h.f ?? return`, which leaves `none`), but not when it is reached
+through a borrow, which gives up nothing. Anything
 else on the right of `??` is a value of the optional's type, so a bare
 error value is no fallback: `?? E.missing` is rejected, and failing is
 written `?? return E.missing` in a fallible function.
@@ -4847,11 +5112,35 @@ is checked exactly as a call to a Rig function with that signature
 (moves, borrows, and the loans its result carries) and needs no `raw`:
 the Zig file is trusted as the runtime is, and each function's Zig type
 is checked, when the program is compiled, to be the one its Rig
-signature lowers to. Such a function takes no compile-time parameters
-and cannot fail. Its signature is trusted where the checker cannot see
-a body: one that returns a borrow and takes no borrowed parameter, as
+signature lowers to. Such a function takes no compile-time parameters.
+Its signature is trusted where the checker cannot see a body: one that
+returns a borrow and takes no borrowed parameter, as
 `std.os.args() -> []String` does, returns something that lives as long
-as the program. Only the standard library may declare one:
+as the program.
+
+A Zig-backed function may fail, returning `T!` or declared
+`sub name(...)!`, when its module declares error sets
+([§3](#error-sets)): it fails only with their errors, since its Zig
+function's type must name the errors it returns, each one of those
+sets' members. Its failures are errors like any other
+([§13](#13-errors)), named through the module:
+
+```rig
+use std.text
+
+sub main
+  n = text.parse_int("12x") catch |err|
+    print(err, err == text.ParseError.invalid)
+    0
+  print(n + text.parse_int("-30")!)
+```
+
+```output
+ParseError.invalid true
+-30
+```
+
+Only the standard library may declare a Zig-backed function:
 
 ```rig reject
 extern zig "fast.zig"
@@ -4977,7 +5266,7 @@ direct call; it is not a value.
 | Value | Printed as |
 |---|---|
 | numbers, `Bool` | `42`, `-3`, `2.5`, `true`; a whole `Float` keeps its point, `1.0`, and a NaN is `nan` on every platform |
-| `String` | its text; inside other values, quoted |
+| `String`, `Text` | its text; inside other values, quoted |
 | `none` | `none` |
 | enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, however it was built |
 | error | `Disk.timeout`: its set and its name, without the module |
@@ -4991,7 +5280,8 @@ direct call; it is not a value.
 | function | `<fun>` |
 
 A value nested more than 64 levels deep prints its deeper parts as
-`...`. A `[]U8` and a `String` are the same bytes at run time, so
+`...`. A temporary printed, `print(Text("n=", n))` or `print(make())`,
+is dropped when the statement ends ([§7](#temporaries)). A `[]U8` and a `String` are the same bytes at run time, so
 `print` rejects a value that holds a `[]U8`; print its bytes one by one.
 
 ```rig

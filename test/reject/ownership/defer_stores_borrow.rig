@@ -1,0 +1,21 @@
+# Deferred code runs as its scope exits, before the scope's values are
+# dropped: a borrow it stores in a binding from outside the scope would
+# outlive them.
+
+sub main
+  s = "x"
+  if true
+    t = Text("abcdefghijklmnop")
+    defer s = ?t[..]
+  print(s)
+  e: Vec[Int] = Vec()
+  sl = ?e[..]
+  if true
+    v: Vec[Int] = Vec()
+    !v.push(7)
+    defer sl = ?v[..]
+  print(sl)
+
+# error: 9:16: `t` does not live long enough
+# error: 16:17: `v` does not live long enough
+# errors: 2

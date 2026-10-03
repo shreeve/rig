@@ -1,0 +1,105 @@
+# std.text's splitting iterators: `split` on a separator, `lines` on
+# `\n` and `\r\n`, and `words` on runs of ASCII whitespace.
+use std.text
+
+sub parts(s: String, sep: String)
+  it = text.split(s, sep)
+  n = 0
+  while !it.next() as part
+    print("[" , part, "]")
+    n += 1
+  print(n, "parts, one more than", text.count(s, sep), "separators")
+
+sub each_line(s: String)
+  ls = text.lines(s)
+  n = 0
+  while !ls.next() as l
+    crs = text.count(l, "\r")
+    print(n, l.len, "[", l if crs == 0 else "...", "]", crs)
+    n += 1
+  print(n, "lines")
+
+sub each_word(s: String)
+  ws = text.words(s)
+  n = 0
+  while !ws.next() as w
+    print("<", w, ">")
+    n += 1
+  print(n, "words")
+
+sub main()
+  parts("a,b,,c", ",")
+  parts(",a,", ",")
+  parts("", ",")
+  parts("no separator", ",")
+  parts("a::b:::c", "::")
+  parts("aaaa", "aa")
+
+  each_line("one\ntwo\r\n\r\nfour\n")
+  each_line("no ending")
+  each_line("")
+  each_line("\n")
+  each_line("\n\n")
+  each_line("a\rb\r")
+  each_line("x\r\n")
+
+  each_word("  the quick\tbrown\n\nfox  ")
+  each_word("")
+  each_word(" \t\r\n ")
+  each_word("one")
+
+  # An iterator is a value: a second one walks the same String anew.
+  it = text.split("x-y", "-")
+  first = !it.next() ?? "?"
+  again = text.split("x-y", "-")
+  print(first, !it.next() ?? "?", !it.next() ?? "done", !again.next() ?? "?")
+
+# expect:
+# [ a ]
+# [ b ]
+# [  ]
+# [ c ]
+# 4 parts, one more than 3 separators
+# [  ]
+# [ a ]
+# [  ]
+# 3 parts, one more than 2 separators
+# [  ]
+# 1 parts, one more than 0 separators
+# [ no separator ]
+# 1 parts, one more than 0 separators
+# [ a ]
+# [ b ]
+# [ :c ]
+# 3 parts, one more than 2 separators
+# [  ]
+# [  ]
+# [  ]
+# 3 parts, one more than 2 separators
+# 0 3 [ one ] 0
+# 1 3 [ two ] 0
+# 2 0 [  ] 0
+# 3 4 [ four ] 0
+# 4 lines
+# 0 9 [ no ending ] 0
+# 1 lines
+# 0 lines
+# 0 0 [  ] 0
+# 1 lines
+# 0 0 [  ] 0
+# 1 0 [  ] 0
+# 2 lines
+# 0 4 [ ... ] 2
+# 1 lines
+# 0 1 [ x ] 0
+# 1 lines
+# < the >
+# < quick >
+# < brown >
+# < fox >
+# 4 words
+# 0 words
+# 0 words
+# < one >
+# 1 words
+# x y done x

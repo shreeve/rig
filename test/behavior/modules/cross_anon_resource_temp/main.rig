@@ -1,0 +1,10 @@
+# A field read from an imported function's `*Wrap` result, without
+# binding it, reads the temporary handle, which its statement drops.
+
+use a
+
+sub main()
+  print(a.make_box().value)
+
+# expect:
+# 7

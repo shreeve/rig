@@ -1,9 +1,0 @@
-# Reading a field of an imported function's `*Wrap` result without
-# binding it is rejected: nothing would drop the temporary handle.
-
-use a
-
-sub main()
-  print(a.make_box().value)
-
-# error: bind it to a name first

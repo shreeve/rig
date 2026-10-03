@@ -1,0 +1,17 @@
+# A Text is indexed through its String view, walked with `for b in ?t`,
+# and lent as a String with `?`, whatever sigil it was written with.
+
+sub f(s: String)
+  print(s)
+
+sub main
+  t = Text("abc")
+  print(t[0])
+  for b in t
+    print(b)
+  f(!t)
+
+# error: 9:9: cannot index a value of type `Text`; index its String view: `(?t[..])[i]`
+# error: 10:12: walk a Text's bytes through its String view: `for b in ?t`
+# error: 12:5: type mismatch: expected `String`, got `!Text`; lend it as a String with `?t` or `?t[..]`
+# errors: 3

@@ -1,0 +1,21 @@
+# A binding takes the value of `??`, and so each of its operands: a
+# fallback that may be an owner a name holds needs `<`. A read of `o?`
+# takes nothing.
+
+fun mko(k: Int) -> Text?
+  Text("o") if k > 0 else none
+
+fun f(o: Text?) -> Int?
+  print(o?)
+  1
+
+sub main
+  e = Text("e")
+  g = Text("g")
+  c = true
+  y = mko(0) ?? (e if c else g)
+  print(y, f(none))
+
+# error: 16:18: bare use of `Text` value `e` in binding
+# error: 16:30: bare use of `Text` value `g` in binding
+# errors: 2

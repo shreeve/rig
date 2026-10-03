@@ -1,0 +1,65 @@
+# A Text owns its bytes: it moves, clones with `+t`, compares by content
+# with a Text or a String, clears, and prints bare at the top level and
+# quoted inside other values. Every Text is released exactly once.
+
+type Str = Text
+
+struct Note
+  title: Text
+  n: Int
+
+fun shout(t: ?Text) -> Text
+  Text(?t[..], "!")
+
+sub grow(t: !Text, n: Int)
+  for i in 0..n
+    !t.add(i)
+
+fun take(t: Text) -> Int
+  t.len
+
+sub main
+  a = Text("abc")
+  b = +a
+  !b.add("d")
+  print(a, b, a == b, a != b, a == "abc", "abcd" == b, b == ?a[..])
+  c = shout(?a)
+  print(c, c.len)
+  grow(!c, 3)
+  print(c)
+  !c.clear()
+  shown = Text("[", c, "]")
+  print(c.len, c == "", shown)
+  !c.add("again")
+  print(c)
+  note = Note(title: Text("hi"), n: 2)
+  print(note, note.title)
+  maybe: Text? = Text("m")
+  print(maybe)
+  boxed = Box(Text("boxed"))
+  shared = *Text("shared")
+  other = +shared
+  cell = Cell(Text("one"))
+  old = cell.replace(Text("two"))
+  print(boxed, shared, other, old, shared.len)
+  named: Str = Str("alias ", 1)
+  print(named)
+  print(take(<a))
+  a = Text("reborn")
+  print(a)
+  -b
+  print("done")
+
+# expect:
+# abc abcd false true true true false
+# abc! 4
+# abc!012
+# 0 true []
+# again
+# Note(title: "hi", n: 2) hi
+# m
+# boxed shared shared one 6
+# alias 1
+# 3
+# reborn
+# done
