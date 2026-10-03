@@ -39,7 +39,8 @@ byte order mark at the start of the file is skipped.
 A file is a list of declarations: functions, types, constants,
 imports, `extern` declarations, and `test` blocks
 ([§8](#8-declarations)). Statements live inside functions. A program
-that runs declares its entry point, `sub main`.
+that runs declares its entry point, `sub main`, or `fun main -> Int`
+for an exit status.
 
 ```rig
 # A comment runs from `#` to the end of the line.
@@ -405,7 +406,7 @@ operator does, and which types it takes, is in
 | function | `fun(Int, Int) -> Int`, `sub(String)`, `sub(Int)!` | [SPEC §11](SPEC.md#function-types) |
 | owned closure | `*fun(Int) -> Int`, `*sub()` | |
 | weak closure | `~fun(Int) -> Int` | |
-| borrowed callable | `?fun(Int) -> Int`, `?sub(Int)` | a parameter's type |
+| borrowed callable | `?fun(Int) -> Int`, `?sub(Int)` | a parameter's, a local's, or a result's type |
 
 The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),

@@ -10,12 +10,15 @@ to [Zig](https://ziglang.org) 0.16, which does the optimizing, code
 generation, and linking.
 
 > **Status: early.** The core language and its ownership checker work
-> and are tested end to end, every program running leak-checked. There
-> is no standard library, concurrency, or async yet, and the language
-> will change. See [what works](#status).
+> and are tested end to end, every program running leak-checked. The
+> standard library is small, there is no concurrency or async yet, and
+> the language will change. See [what works](#status).
 
 ## A short tour
 
+Rig's whole ownership model fits on one page,
+[docs/CORE.md](docs/CORE.md). Read it before the syntax guide and the
+language reference, which give the details.
 New to Rig? [WELCOME.md](WELCOME.md) is the guide for programmers
 coming from Rust, Zig, C, Python, Ruby, JavaScript, or Go. Every
 example in this README is compiled and run by the test suite, and
@@ -192,6 +195,7 @@ libraries are written in Rig itself (see
 A sigil is a prefix where an operand starts, and an operator after a
 value, so `a < b` is still a comparison and `a * b` a product, however
 an infix operator is spaced; a prefix sigil touches its operand. The
+[Core](docs/CORE.md) states what they mean in ten sentences, the
 [syntax guide](SYNTAX.md#5-prefixes-infixes-and-suffixes) shows the
 forms, the [language reference](SPEC.md) covers every rule, and
 [docs/DESIGN.md](docs/DESIGN.md) explains how the sigils form a small
@@ -281,6 +285,7 @@ storing or returning a stack closure (lending one to a call, as a
 
 ## Learn more
 
+- [docs/CORE.md](docs/CORE.md): the ownership model on one page
 - [WELCOME.md](WELCOME.md): a guide for programmers coming from other
   languages
 - [SYNTAX.md](SYNTAX.md): how every form is written

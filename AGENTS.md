@@ -34,7 +34,9 @@ allocation, no hidden refcount traffic, no silent control flow.
    `test/reject` test or a ```` ```rig reject ```` doc example proves
    it. Docs make no claims the test suite does not check, and every
    `rig` example in the docs is run by `./test/run` (see
-   `test/README.md`).
+   `test/README.md`). A rule that is decided but not built is shown
+   with a ```` ```rig pending ```` example, which the suite checks does
+   not work yet.
 2. **Accept means correct.** If `rig check` accepts a program, the
    emitted Zig compiles, runs, and does what the source says. Anything
    the compiler cannot lower correctly is rejected in sema with a Rig
@@ -67,6 +69,10 @@ allocation, no hidden refcount traffic, no silent control flow.
 These keep soundness a property of the compiler's structure, not of
 review rounds.
 
+- **A feature fits the Core.** `docs/CORE.md` states the ownership
+  model. A feature that touches ownership fits it in one paragraph,
+  with no exception list, or changes the Core first; a rule the Core
+  does not imply is a bug.
 - **One classifier per fact.** Whether an expression is a place, a
   fresh owned value, a borrow, or a view is decided once, by a positive
   list, and recorded as a fact. No category is defined as "not" another,
@@ -139,9 +145,14 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `test/` | The test suite (see `test/README.md`) |
 | `test/corpus/` | Reviewer probes: each is rejected, or runs sanitizer-clean |
 | `examples/` | Curated example programs, all run by the suite |
+| `std/` | The standard library: Rig modules and the Zig behind their Zig-backed declarations |
+| `docs/CORE.md` | The ownership model on one page, which every other doc must agree with |
+| `README.md` | Overview and a short tour |
 | `WELCOME.md` | Guide for programmers coming from other languages |
 | `SYNTAX.md` | How every form is written, and the grammar summary |
 | `SPEC.md` | Language reference: what every form means |
+| `FAQ.md` | Common questions |
+| `docs/STD.md` | The standard library's modules |
 | `docs/DESIGN.md` | Principles and rationale |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |

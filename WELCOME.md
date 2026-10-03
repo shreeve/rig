@@ -36,8 +36,8 @@ happens, as a one-character **sigil**:
 | Sigil | Meaning | Rust | Zig |
 |---|---|---|---|
 | `<x` | move `x` | `x` (implicit move) | copy, then stop using `x` |
-| `?x` | read borrow | `&x` | `x` or `&x` |
-| `!x` | write borrow | `&mut x` | `&x` |
+| `?x` | lend `x` to read | `&x` | `x` or `&x` |
+| `!x` | lend `x` to write | `&mut x` | `&x` |
 | `+x` | clone: a new owner | `x.clone()`, `Rc::clone(&x)` | copy, or a manual refcount bump |
 | `-x` | drop now | `drop(x)` | `x.deinit()` |
 | `*x` | move into a shared, counted box | `Rc::new(x)` | a hand-written refcounted box |
@@ -51,7 +51,19 @@ shared handle, `~T` a weak one. As suffixes, `T?` is an optional and
 suffix always means absence or failure, and `!` never means "not"
 (that is `not`).
 
-A reader sees every move, borrow, clone, drop, and failure path on the
+**You lend a view; the compiler remembers the loan.**
+
+- The `?` or `!` is written on the owner (`print(?v)`, `grow(!v)`), so
+  the owner **lends**.
+- What the receiver gets is a **view**, which it may copy, return, or
+  store.
+- What stays behind is a **loan**: until the last use of every view,
+  the owner can't change, move, or drop what it lent.
+
+Rust calls all three a "borrow". Rig gives each its own word, named from
+the side the sigil is on ([CORE](docs/CORE.md)).
+
+A reader sees every move, lend, clone, drop, and failure path on the
 line where it happens, and the compiler checks each one: no use after
 move, no double free, no dangling borrow, no leak. The one leak it does
 not prevent is a cycle of strong handles, as in Rust and Swift; a weak
@@ -114,7 +126,8 @@ ada 70
 
 `?self` reads the receiver and `!self` writes it. The call site says
 the same: a read is implicit (`a.can_pay(30)`), but a write is always
-spelled out, `!a.pay(30)`, so every mutation is visible.
+spelled out, `!a.pay(30)`, so every mutation is visible, except inside
+a `Cell`, which changes through any path ([SPEC §10](SPEC.md#cell)).
 
 ### Moves, clones, and drops
 
@@ -198,8 +211,8 @@ sub main
 A closure has no keyword: it starts with its bar list. Each captured
 name carries a sigil that says how it is held: `+step` copies, `<x`
 would move, `?x` and `!x` would borrow, and `~x` would hold a handle
-weakly. `*Cell[Int]` is a shared cell, the one way to share state that
-changes.
+weakly. `*Cell[Int]` is a shared cell, the way to share state that
+changes (a `*Signal` also tells its subscribers).
 
 ## Running a program
 
@@ -216,8 +229,9 @@ The [README](README.md#install) says how to build `bin/rig`.
 ## From Rust and Zig
 
 Rig's ownership model is Rust's, with two differences you notice at
-once: every transfer is written (`<x` moves; a bare name never moves an
-owning value), and there is no lifetime syntax (the checker follows
+once: every transfer is written (`<x` moves; a bare name moves an
+owning value only out of a function, in `return x` or as its last
+value), and there is no lifetime syntax (the checker follows
 where each borrow came from instead). Its cost model is Zig's: the
 emitted program is plain Zig, with no runtime beyond a small support
 file.
@@ -321,7 +335,7 @@ correspondences:
 | `?fun(A) -> R` | `rig.FnRef`: a context pointer and a call function |
 | an owned closure | a counted, type-erased closure |
 | `defer`, `errdefer` | `defer`, `errdefer` |
-| `sub main` | `pub fn main() void`, which reports a failure it propagates as `error: E.name` and exits 1; in Debug it checks for leaks on exit |
+| `sub main` | `pub fn main(__rig_init: std.process.Init.Minimal) void`, which reports a failure it propagates as `error: E.name` and exits 1; in Debug it checks for leaks on exit |
 
 The runtime, `src/runtime.zig`, is written next to every emitted
 program; [INTERNALS](docs/INTERNALS.md) describes it.
@@ -473,8 +487,8 @@ unexpected name `x`; `print` is called with parentheses: `print(...)`
 ```
 
 **`!` is not "not".** Prefix `!` is a write borrow; negation is `not`.
-Every place where the habit would change a program's meaning is an
-error:
+Where it would start a condition, or an operand of `and`, `or`, or
+`not`, the habit is an error:
 
 ```rig reject
 sub main
@@ -519,7 +533,8 @@ sub main
 method `bump` requires a write-borrowed receiver
 ```
 
-**Moves without `<`.** A bare name never moves an owning value; the
+**Moves without `<`.** A bare name moves an owning value only out of a
+function (`return x`, or `x` as its last value); anywhere else the
 error names the fix:
 
 ```rig reject
@@ -641,8 +656,9 @@ Some habits need no error, only a different spelling: `xs.len` is a
 field, not `xs.len()`, since reading it runs no code; a constructor
 names its fields, `P(x: 1)`, not `.{ .x = 1 }`; `switch`'s `else =>` is
 `match`'s `_ =>`; and an allocator is never passed, because `*x`,
-`Box(v)`, `Vec`, and owned closures are the only things that allocate,
-and the compiler frees them.
+`Box(v)`, `Vec`, and owned closures are the only things that allocate
+(besides the runtime's list of the program's arguments), and the
+compiler frees them.
 
 ## What Rig does not have
 
