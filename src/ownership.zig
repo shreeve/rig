@@ -2831,6 +2831,10 @@ pub const Checker = struct {
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
                     result = if (self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.reborrow(id, .{ .root = id, .kind = kind, .pos = pos }));
                 }
+            } else if (recv_mode == .value) {
+                // A consuming receiver is taken like an argument: a name
+                // it yields through a branch is moved with `<`.
+                result = try self.walkConsumed(ir.Member.object(callee), .argument);
             } else {
                 result = try self.walk(ir.Member.object(callee));
             }
