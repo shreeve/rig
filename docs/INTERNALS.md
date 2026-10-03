@@ -5,8 +5,8 @@ Rig program becomes a running binary, what each pass is responsible
 for, and the data each pass hands to the next. The language itself is
 specified in [SPEC.md](../SPEC.md), the reasons behind it are in
 [DESIGN.md](DESIGN.md), and the working rules are in
-[AGENTS.md](../AGENTS.md). [zig-0.16.md](zig-0.16.md) is a reference
-for the Zig 0.16 APIs the compiler and runtime use.
+[AGENTS.md](../AGENTS.md). [zig-0.17.md](zig-0.17.md) is a reference
+for the Zig 0.17 APIs the compiler and runtime use.
 
 ## Pipeline
 
@@ -23,7 +23,7 @@ modules          src/modules.zig   load `use`d files, check in dependency order
 emit             src/emit.zig      one Zig file per module
 runtime          src/runtime.zig   written next to them as rig/runtime.zig
   ▼
-zig run / zig build-exe            Debug (leak-checked), ReleaseSafe, or ReleaseFast
+zig run / zig build-exe            debug (leak-checked), safe, or fast
 ```
 
 `src/main.zig` is the CLI; `rig --help` is its reference. `check` runs
@@ -45,15 +45,14 @@ to `$RIG_OUT_DIR` when it is set, otherwise to
 `~/.cache/rig/<name>-<hash>/` (or under `$XDG_CACHE_HOME`). Each file
 is replaced atomically, so concurrent builds of one program never read
 a partly written file, and the directory is not emptied. It holds the
-package's own Zig cache, `.zig-cache/`: Zig 0.16 keys a `zig run` cache
-entry by the root file's path relative to the working directory, so
-two packages sharing one cache could collide. `run` and `test` go
+package's own Zig cache, `.zig-cache/`, so each package's builds stay
+apart from every other package's. `run` and `test` go
 through `zig run` (`rig run file.rig -- args` passes the program its
 arguments after Zig's `--`), which reuses a cached build of unchanged sources;
 `build` runs `zig build-exe -femit-bin=...`, which caches nothing, so
 it compiles the package in full every time. The toolchain is `$ZIG`,
-else `zig` on `PATH`, run with `-ODebug`, `-OReleaseSafe` (`--release`),
-or `-OReleaseFast` (`--release=fast`), and with `-lc` when a module
+else `zig` on `PATH`, run with `-Odebug`, `-Osafe` (`--release`),
+or `-Ofast` (`--release=fast`), and with `-lc` when a module
 declares an `extern`. `emit` prints the root module's Zig and names the
 package directory on stderr; `build` names it when Zig fails.
 `RIG_LEAK_TRACE=1` at build time adds `__rig_leak_trace` to the root
@@ -109,7 +108,7 @@ fun = FUN name:name [tparams:tparams] [params:params] [returns:returns] body:blo
 action can also fill roles by position or with a literal tag
 (`→ (set op:fixed)`). There is no hand-written parser and no AST type:
 every later pass walks this tree. After editing the grammar, run
-`zig build parser` with Nexus 1.0 (`-Dnexus=path/to/nexus`, or
+`zig build parser` with Nexus 2.0 (`-Dnexus=path/to/nexus`, or
 `nexus/bin/nexus` next to this checkout); the test suite fails if
 `src/parser.zig` is stale.
 
@@ -1089,7 +1088,7 @@ and the loans a result carries are checked there with the real types.
 
 ## Emit
 
-`emit.zig` lowers each checked module to Zig 0.16 source. It only
+`emit.zig` lowers each checked module to Zig 0.17 source. It only
 chooses a representation; everything it needs to know about names and
 types comes from the facts table, never from name matching, and every
 type it writes is spelled from a sema `TypeId`. A construct it cannot
@@ -1255,7 +1254,7 @@ lower is an internal error: sema must have rejected it.
   so it is a value of that type, and a `match` on its error sees every
   error, as for a Rig function.
 - **`main`** of the root module takes `std.process.Init.Minimal`, the
-  only way Zig 0.16 hands a program its arguments and environment. It
+  only way Zig hands a program its arguments and environment. It
   calls `rig.guardStack()` and `rig.start(init)`, then defers
   `rig.finish()`, so it runs after every other drop, and the root
   module declares `pub const panic = rig.panic`. A `main` that may
@@ -1297,7 +1296,7 @@ reviewed.
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @sizeOf(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
-| `notNan` | wraps a float converted to an integer type: where safety checks run (Debug and ReleaseSafe), a NaN panics as an out-of-range value does, which `@intFromFloat`'s own check misses |
+| `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
 | `discard`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
@@ -1306,7 +1305,7 @@ reviewed.
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; `exitStatus` checks the status of `fun main -> Int` |
-| `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `DebugAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
+| `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |
 
 ## Tests

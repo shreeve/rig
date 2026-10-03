@@ -316,7 +316,7 @@ correspondences:
 | `Int`, `U8`, `Float`, `String` | `i64`, `u8`, `f64`, `[]const u8` |
 | `Text` | `rig.Text`, a growable byte buffer the runtime frees |
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
-| `U8(x)`, `Int(e)` of a plain enum | `@as(u8, @intCast(x))`, `@as(i64, @intCast(@intFromEnum(e)))` |
+| `U8(x)`, `Int(e)` of a plain enum | `@as(u8, @intCast(x))`, `@as(i64, @intCast(@backingInt(e)))` |
 | `a +% b`, `U8.max` | `a +% b`, the constant `std.math.maxInt(u8)` |
 | `error E` | an error set, each member named with its set (`error.@"E.name"`), so two sets' members never coincide |
 | `struct Wrap[T]` | `fn Wrap(comptime T: type) type` |

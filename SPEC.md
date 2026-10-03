@@ -70,13 +70,13 @@ nothing to do
 and `rig --help` lists the other commands (see also the
 [README](README.md#build-and-run)).
 
-`rig run` builds in Debug mode with a leak-checking allocator: a program
+`rig run` builds in Zig's debug mode with a leak-checking allocator: a program
 that leaks memory reports it and exits with an error. Built with
 `RIG_SANITIZE=1`, it also crashes at any use of freed memory. `--release` builds
-with Zig's ReleaseSafe, and `--release=fast` with ReleaseFast. Integer
+in Zig's safe mode, and `--release=fast` in its fast mode. Integer
 overflow, out-of-bounds indexing and slicing, and a numeric conversion
-whose value does not fit panic in Debug and ReleaseSafe builds.
-ReleaseFast is the one mode outside that guarantee: it drops the
+whose value does not fit panic in debug and safe builds.
+The fast mode is the one outside that guarantee: it drops the
 overflow and conversion checks, so there an overflow or an out-of-range
 conversion is undefined behavior. Indexing and slicing stay checked in
 every mode.
