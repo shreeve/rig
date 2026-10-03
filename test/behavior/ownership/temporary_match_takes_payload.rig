@@ -1,0 +1,39 @@
+# A `match` takes a call's result, as `match <e` does: an arm may move a
+# payload out, and what it leaves is dropped with the arm.
+
+struct N
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+enum M
+  a(n: N)
+  b
+
+fun mk -> M
+  M.a(n: N(id: 1))
+
+sub take(n: N)
+  print("took", n.id)
+
+sub main
+  match mk()
+    .a(n) => take(<n)
+    .b => print("b")
+  match <mk()
+    .a(n) => take(<n)
+    .b => print("b")
+  match mk()
+    .a(n) => print("read", n.id)
+    .b => print("b")
+  print("end")
+
+# expect:
+# took 1
+# drop 1
+# took 1
+# drop 1
+# read 1
+# drop 1
+# end

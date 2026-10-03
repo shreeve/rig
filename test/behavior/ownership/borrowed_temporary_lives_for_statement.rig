@@ -1,7 +1,8 @@
-# A borrow of a temporary may be printed, since `print` keeps nothing,
-# and may be the optional an `if` or `while` binds with `as`, as it may
-# be a `match` subject or a `for` source: the temporary lives as long as
-# the statement.
+# A borrow of a temporary may be printed, since `print` keeps nothing.
+# A borrow of a plain temporary may also be the optional an `if` or
+# `while` binds with `as`, a `match` subject, or a `for` source: the
+# header copies what it binds out of the plain value before its
+# temporaries end.
 
 struct P
   x: Int

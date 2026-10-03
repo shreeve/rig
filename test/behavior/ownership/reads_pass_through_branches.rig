@@ -1,0 +1,74 @@
+# Reading never moves a name: a read passes through `a if c else b`,
+# `??`, `catch`, `e!`, and `e?` to their operands. A name there is read
+# where it is; a value made there is a temporary its statement drops.
+
+use std.text
+
+struct N
+  id: Int
+  t: Text
+
+  drop(!self)
+    print("drop", self.id)
+
+fun mk -> N
+  N(id: 9, t: Text("m"))
+
+error E
+  bad
+
+fun fails(k: Int) -> N!
+  return E.bad if k > 0
+  N(id: 8, t: Text("f"))
+
+fun f(o: N?, c: Bool) -> Int?
+  print(mk() if c else o?)
+  print(o?)
+  1
+
+fun g(o: Text?) -> Int?
+  print(o?.len)
+  print(o? == "hi")
+  1
+
+fun h(o: Vec[Int]?) -> Int?
+  print(o?[0])
+  1
+
+fun k(o: (N?)?) -> Int?
+  print(o? ?? N(id: 5, t: Text("e")))
+  1
+
+sub main
+  oa: N? = N(id: 1, t: Text("a"))
+  ob: N? = N(id: 2, t: Text("b"))
+  c = true
+  print((oa if c else ob) ?? N(id: 3, t: Text("c")))
+  print(f(none, c), g(none), h(none), k(none))
+  a = Text("aaaa")
+  b = Text("bb")
+  print(a if c else b)
+  print((a if c else b) == "aaaa", (b if c else a).len)
+  m = N(id: 6, t: Text("x"))
+  n = N(id: 7, t: Text("y"))
+  print(m if c else n, (n if c else m).t)
+  print(fails(1) catch m, (fails(0) catch n).id)
+  print(?a if c else ?b, text.trim(?a if c else ?b))
+  print(a, b, m.id, n.id)
+
+# expect:
+# N(id: 1, t: "a")
+# N(id: 9, t: "m")
+# drop 9
+# none none none none
+# aaaa
+# true 2
+# N(id: 6, t: "x") y
+# N(id: 6, t: "x") 8
+# drop 8
+# aaaa aaaa
+# aaaa bb 6 7
+# drop 7
+# drop 6
+# drop 2
+# drop 1

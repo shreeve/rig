@@ -1,7 +1,8 @@
 # A borrow of a temporary, or a view made from one, may be used anywhere
-# in its statement: the temporary lives until the statement ends. The
-# temporaries of an `if` header live through the `if`, and those of a
-# `while` header through the pass it starts.
+# in its statement: the temporary lives until the statement ends. A
+# header is its own statement: the temporaries of an `if` or `while`
+# condition end with it, so a view the body uses is made from a Text
+# bound to a name first.
 
 use std.text
 
@@ -23,10 +24,13 @@ sub main
     i += 1
   print(i, text.trim(?Text(" v ")), ?Text("abcdef")[2..4])
   print(pick(?S(n: 4)) + 1, ?[1, 2, 3][1..])
-  if text.cut(?Text("k=v"), "=") as kv
+  kv_text = Text("k=v")
+  if text.cut(?kv_text, "=") as kv
     print(kv.before, kv.after)
   j = 0
-  while text.cut(?Text("pass=", j), "=") as kw
+  while true
+    pass_text = Text("pass=", j)
+    kw = text.cut(?pass_text, "=") ?? break
     print(kw.after)
     j += 1
     if j == 2

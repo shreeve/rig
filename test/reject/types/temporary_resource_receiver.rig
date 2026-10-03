@@ -1,7 +1,0 @@
-# A cloned handle used only as a method receiver would never be dropped.
-
-sub main()
-  c: *Cell[Int] = *Cell(1)
-  print((+c).get())
-
-# error: bind it to a name first

@@ -1,6 +1,6 @@
-# The fallback of `??` over a fresh optional is moved into the result: a
-# value that only reaches owners names cannot be. A value that is not
-# fresh says how to read or take the optional instead.
+# A binding takes the value of `??`, and so each of its operands: a
+# fallback that may be an owner a name holds needs `<`. A read of `o?`
+# takes nothing.
 
 fun mko(k: Int) -> Text?
   Text("o") if k > 0 else none
@@ -16,6 +16,6 @@ sub main
   y = mko(0) ?? (e if c else g)
   print(y, f(none))
 
-# error: 16:18: `e if c else g` is not a fresh value: it reaches an owner a name holds, which `??` would move out
-# error: 9:9: read an optional through `if ?o as x`, or take it with `if <o as x`
+# error: 16:18: bare use of `Text` value `e` in binding
+# error: 16:30: bare use of `Text` value `g` in binding
 # errors: 2

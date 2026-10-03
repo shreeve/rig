@@ -1,6 +1,6 @@
 # A field that owns nothing is read from an owning temporary where it
-# stands; the statement drops the temporary. A `?` borrow of one lent to
-# a `for` lives through the loop; `as` over a temporary takes its value.
+# stands; the statement drops the temporary. A `for` over a call's
+# result, and `as` over one, take its value.
 
 struct User
   age: Int
@@ -22,7 +22,7 @@ sub main
   print(Text("bye").len, (*User(age: 5, name: Text("u"))).age)
   x = User(age: 1, name: Text("n")).age
   print(x)
-  for n in ?mv()
+  for n in mv()
     print(n)
   if mo() as t
     print(t.len)

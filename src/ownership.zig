@@ -701,7 +701,10 @@ pub const Checker = struct {
         const earlier = "while an earlier argument's read of it is in use";
         const in_index = "in an index of a place borrowed from it";
         switch (access) {
-            .read => try self.err(pos, "cannot read-borrow `{s}` while a write borrow is live", .{name}),
+            .read => if (l.arg_read)
+                try self.err(pos, "cannot read-borrow `{s}`, which holds a Cell, " ++ earlier, .{name})
+            else
+                try self.err(pos, "cannot read-borrow `{s}` while a write borrow is live", .{name}),
             .write => if (l.place_hold) try self.err(pos, "cannot write-borrow `{s}` " ++ in_index, .{name}) else if (l.arg_read) try self.err(pos, "cannot write-borrow `{s}` " ++ earlier, .{name}) else switch (l.kind) {
                 .read => try self.err(pos, "cannot write-borrow `{s}` while a read borrow is live", .{name}),
                 .write => try self.err(pos, "cannot take a second write borrow on `{s}`", .{name}),
@@ -1405,6 +1408,15 @@ pub const Checker = struct {
         self.stmt_drops.shrinkRetainingCapacity(start);
     }
 
+    /// A loan in `v` on a temporary held since `stmt_drops` held
+    /// `drops`: one a header made, which ends with the header.
+    fn headerTempLoan(self: *const Checker, drops: usize, v: Value) ?Loan {
+        for (v.loans) |l| for (self.stmt_drops.items[@min(drops, self.stmt_drops.items.len)..]) |d| {
+            if (d.id == l.root) return l;
+        };
+        return null;
+    }
+
     /// Walk a `(block ...)` in its own scope; its value is the value of
     /// its last statement, which may not borrow the block's own locals.
     fn walkBlock(self: *Checker, block: Sexp) Error!Value {
@@ -1450,7 +1462,13 @@ pub const Checker = struct {
             else => return .{},
         }
         const kind = sexp.kind() orelse return .{};
-        if (self.sema) |ctx| if (ctx.dropsTemp(sexp)) return self.holdTemp(sexp, try self.walkList(sexp, kind));
+        // A temporary is taken into its statement's slot: a block or
+        // `match` value's tail leaves its scope as it would for a binding.
+        if (self.sema) |ctx| if (ctx.dropsTemp(sexp)) {
+            try self.checkNoImplicitCopy(sexp, .binding, false);
+            self.setTail(sexp, .binding);
+            return self.holdTemp(sexp, try self.walkList(sexp, kind));
+        };
         // A borrow its context reads through gives the value it reaches;
         // when that holds no borrow, the loans taken to reach it end here.
         if (self.sema) |ctx| if (ctx.readsThrough(sexp)) if (ctx.typeOf(sexp)) |ty| {
@@ -1917,7 +1935,13 @@ pub const Checker = struct {
         // An array inside an element of a `[]T` is viewed as the `[]T`
         // views it.
         if (self.throughReadSlice(object)) return self.walkOperand(slice, object);
-        const place = self.resolvePlace(object) orelse return self.walkOperand(slice, object);
+        // A path from no var (a temporary's part, `?mk().v[..]`) keeps
+        // what its start borrows, as a borrow of one does.
+        const place = self.resolvePlace(object) orelse {
+            const v = try self.walkBorrowedPath(object);
+            if (rig.isRangeIndex(slice)) _ = try self.walk(ir.Index.index(slice));
+            return v;
+        };
         try self.walkIndicesHeld(indices, place.root);
         const id = place.root;
         const pos = self.startOf(slice);
@@ -2879,13 +2903,48 @@ pub const Checker = struct {
     fn holdArgRead(self: *Checker, arg: Sexp) Error!void {
         const ctx = self.sema orelse return;
         const e = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
-        const place = self.resolvePlace(e) orelse return;
+        const place = self.resolvePlace(e) orelse return self.holdBranchReads(e);
         const v = self.vars.items[place.root];
         if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
         var ty = self.exprType(e) orelse return;
         while (ctx.types.get(ty) == .borrow_write) ty = ctx.types.get(ty).borrow_write;
         if (self.owningKind(ty) == null) return;
         try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(e), .arg_read = true });
+    }
+
+    /// The places a read branching argument (`a if c else b`, `o ?? d`,
+    /// `e catch d`, `o?`) may be, held as `holdArgRead` holds a place
+    /// argument. The value is copied where the argument runs, so a place
+    /// holding a Cell is held against any later borrow: one that changes
+    /// the Cell would leave the copy stale.
+    fn holdBranchReads(self: *Checker, e: Sexp) Error!void {
+        if (e.kind()) |kind| switch (kind) {
+            .@"if" => {
+                if (ir.If.@"else"(e) == .nil) return;
+                try self.holdBranchReads(ir.If.then(e));
+                return self.holdBranchReads(ir.If.@"else"(e));
+            },
+            .@"??" => {
+                try self.holdBranchReads(ir.@"??".left(e));
+                return self.holdBranchReads(ir.@"??".right(e));
+            },
+            .@"catch" => return self.holdBranchReads(ir.Catch.handler(e)),
+            .propagate => return self.holdBranchReads(ir.Propagate.value(e)),
+            .propagate_none => return self.holdBranchReads(ir.PropagateNone.value(e)),
+            else => {},
+        };
+        return self.holdBranchLeaf(e);
+    }
+
+    fn holdBranchLeaf(self: *Checker, leaf: Sexp) Error!void {
+        const ctx = self.sema orelse return;
+        const place = self.resolvePlace(leaf) orelse return;
+        const v = self.vars.items[place.root];
+        if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
+        const ty = self.exprType(leaf) orelse return;
+        if (self.owningKind(ty) == null) return;
+        const kind: LoanKind = if (sema.holdsCellByValue(ctx, sema.unwrapBorrows(ctx, ty))) .write else .read;
+        try self.addTemp(.{ .root = place.root, .kind = kind, .pos = self.startOf(leaf), .arg_read = true });
     }
 
     /// Whether call `call` may keep what argument `arg` borrows. No value
@@ -3359,7 +3418,8 @@ pub const Checker = struct {
         if (cond.isKind(.as) or rig.isConditionJoin(cond)) return self.walkIfBinding(node, t);
         const then_b = ir.If.then(node);
         const else_b = ir.If.@"else"(node);
-        _ = try self.walk(cond);
+        // The condition is a header, its own statement.
+        try self.walkStmt(cond);
         const base = try self.here();
         const v1 = try self.walkTailBranch(then_b, t);
         const s1 = try self.leave(base);
@@ -3404,15 +3464,16 @@ pub const Checker = struct {
             try self.walkConditionParts(ir.get(cond, .left), body);
             return self.walkConditionParts(ir.get(cond, .right), body);
         }
-        if (!cond.isKind(.as)) {
-            _ = try self.walk(cond);
-            return;
-        }
+        // Each part is a header, its own statement: its temporaries end
+        // with it, after the binding takes what it binds.
+        if (!cond.isKind(.as)) return self.walkStmt(cond);
         const temps_start = self.temps.items.len;
+        const drops = self.stmt_drops.items.len;
         const bound = try self.walkConsumed(ir.As.value(cond), .binding);
         self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
         try self.pushScopeFor(.block, body);
         try self.bindNew(ir.As.name(cond), false, false, bound);
+        try self.dropStmtTemps(drops, null);
     }
 
     /// `(catch expr name? handler)`: the handler runs when `expr` fails.
@@ -3472,12 +3533,13 @@ pub const Checker = struct {
             if (!p.whole) info.path = try self.placeText(node);
         }
         const scrut_temps = self.temps.items.len;
+        // The subject is a header: its temporaries end with it.
+        const drops = self.stmt_drops.items.len;
         const scrut_value = try self.walk(scrut);
-        // A temporary subject is held in a hidden var its statement drops:
-        // the payload bindings view it as they would a named one.
-        if (info.root == null) if (self.sema) |ctx| if (ctx.dropsTemp(node) and scrut_value.loans.len == 1) {
-            info.root = scrut_value.loans[0].root;
-        };
+        const header_temps = try self.arena().alloc(VarId, self.stmt_drops.items.len - @min(drops, self.stmt_drops.items.len));
+        for (header_temps, self.stmt_drops.items[self.stmt_drops.items.len - header_temps.len ..]) |*t, d| t.* = d.id;
+        try self.dropStmtTemps(drops, null);
+        var outlived = false;
         // A payload binding holds its own loan on the matched place, so
         // the borrow of the subject ends with the bindings, not the match.
         if (lent and info.root != null) self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
@@ -3498,12 +3560,22 @@ pub const Checker = struct {
             try self.pushScopeFor(.block, arm);
             // A guarded arm may not run for the values its pattern
             // matches. The borrows the guard takes end with it.
+            const bound = self.vars.items.len;
             if (try self.bindPattern(pattern, info, scrut_value) and guard == .nil) catch_all = true;
+            // A binding that views a temporary the subject made would
+            // outlive it.
+            if (!outlived) for (bound..self.vars.items.len) |id| {
+                for (self.flows.items[id].loans) |l| if (std.mem.indexOfScalar(VarId, header_temps, l.root) != null and self.holderLive(@intCast(id), null)) {
+                    try self.reportTempOutlived(l, @intCast(id));
+                    outlived = true;
+                    break;
+                };
+                if (outlived) break;
+            };
             var failed: ?State = null;
             if (guard != .nil) {
-                const temps_start = self.temps.items.len;
-                _ = try self.walk(guard);
-                self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+                // A header, its own statement.
+                try self.walkStmt(guard);
                 // A failing guard goes on to the next arm, or past the match.
                 failed = try self.leaveTo(base, resumeAt(if (i + 1 < arms.len) arms[i + 1] else .nil, match));
             }
@@ -3627,12 +3699,16 @@ pub const Checker = struct {
             .elem1 = ir.For.@"var"(node),
             .elem2 = ir.For.index(node),
         };
+        // The source is a header: its temporaries end with it, before
+        // the loop walks what it gives.
+        const drops = self.stmt_drops.items.len;
         if (mode == .move) {
             spec.moved = (try self.walkMove(source)).loans;
         } else {
             spec.elem_view = true;
             const found = self.errors_found;
             const value = try self.walk(source);
+            if (self.headerTempLoan(drops, value)) |l| try self.reportTempOutlived(l, null);
             // The elements of a collection the source makes (an array of
             // borrows, a call's result) carry the borrows it holds.
             if (self.resolvePlace(source) == null) spec.moved = value.loans;
@@ -3650,6 +3726,7 @@ pub const Checker = struct {
                 }
             };
         }
+        try self.dropStmtTemps(drops, null);
         return self.walkLoop(spec);
     }
 
@@ -3741,9 +3818,6 @@ pub const Checker = struct {
         // The loop ends when its condition fails: for a binding
         // condition, when a part fails, with the bindings before it gone.
         var exit: State = .{ .reachable = false };
-        // The temporaries of a binding header live through the pass it
-        // starts: the next pass evaluates the header again.
-        const drops = self.stmt_drops.items.len;
         if (spec.cond_binds) {
             try self.walkConditionParts(spec.cond.?, spec.body);
             // A failing part leaves the loop for its `else`, or past it.
@@ -3757,8 +3831,6 @@ pub const Checker = struct {
         try self.pushScopeFor(.block, spec.body);
         try self.bindLoopElems(spec);
         try self.walkStmt(spec.body);
-        const body_end = extent(spec.body).hi;
-        try self.dropStmtTemps(drops, body_end +| 1);
         while (self.scopes.items.len > depth) try self.popScope();
 
         if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items);

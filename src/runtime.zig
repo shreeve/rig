@@ -41,6 +41,7 @@ fn needsDrop(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => isStrongHandle(T),
         .optional => |o| needsDrop(o.child),
+        .error_union => |e| needsDrop(e.payload),
         .array => |a| needsDrop(a.child),
         .@"struct" => |s| blk: {
             if (@hasDecl(T, "__rig_drop")) break :blk true;
@@ -114,6 +115,7 @@ fn dropElement(comptime T: type, value: *T) void {
     switch (@typeInfo(T)) {
         .pointer => value.*.dropStrong(),
         .optional => if (value.*) |*inner| dropElement(@TypeOf(inner.*), inner),
+        .error_union => if (value.*) |*inner| dropElement(@TypeOf(inner.*), inner) else |_| {},
         .array => {
             var i: usize = value.len;
             while (i > 0) {
@@ -167,10 +169,8 @@ pub fn takeOut(place: anytype) @TypeOf(place.*) {
 }
 
 /// Keep `value`, an owning temporary, in `slot` until its statement
-/// ends and drops it; a value left there by an earlier run of the
-/// statement (a loop's condition) is dropped first.
+/// ends and drops it.
 pub fn keep(slot: anytype, live: *bool, value: @TypeOf(slot.*)) @TypeOf(slot) {
-    if (live.*) drop(slot);
     slot.* = value;
     live.* = true;
     return slot;

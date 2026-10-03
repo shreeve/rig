@@ -1,7 +1,8 @@
 # An owning temporary that is only read (a `print` or `Text` argument,
-# a borrow lent to a call that keeps none, an `==` operand, a `match`
-# subject) is dropped when its statement ends, also when the statement
-# fails or leaves early, and each time a loop's condition runs again.
+# a borrow lent to a call that keeps none, an `==` operand) is dropped
+# when its statement ends, also when the statement fails or leaves
+# early; one in a loop's condition, a header, when the condition ends.
+# A `match` takes a call's result and drops what its arms leave.
 
 struct Noisy
   id: Int

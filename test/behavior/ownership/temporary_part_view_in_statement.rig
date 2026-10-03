@@ -1,0 +1,42 @@
+# A view of a part of a temporary (a field, a nested field, an element,
+# a slice, a boxed or shared value, a branch value) may be used anywhere
+# in its statement.
+
+use std.text
+
+struct In
+  t: Text
+
+struct N
+  t: Text
+  inner: In
+  arr: [2]Int
+  v: Vec[Int]
+  name: String
+
+fun mk -> N
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  N(t: Text("tt"), inner: In(t: Text("in")), arr: [1, 2], v: <v, name: "nm")
+
+fun mkbox -> Box[Text]
+  Box(Text("bx"))
+
+fun mksh -> *N
+  *mk()
+
+fun mkt -> Text
+  Text("tx")
+
+fun first(s: []Int) -> Int
+  s[0]
+sub main
+  c = true
+  print(text.trim(?mk().t), ?mk().t[1..], text.trim(?mk().inner.t), ?mk().arr[0])
+  print(first(?mk().arr[..]), first(?mk().v[..]), text.trim(?mkbox()), text.trim(?mksh().t))
+  print(text.trim(?(mk() if c else mk()).t), ?mk().inner, ?mkt()[..], mk().name)
+
+# expect:
+# tt t in 1
+# 1 7 bx tt
+# tt In(t: "in") tx nm

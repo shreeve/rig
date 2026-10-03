@@ -1,6 +1,7 @@
 # An owning temporary lives until its statement ends, so nothing may
 # keep a borrow of it: not a binding, a field, a call's String result,
-# a slice, or a view taken from a `match` over it.
+# or a slice. A `match` takes a call's result: a view of a payload it
+# binds ends with the arm.
 
 enum M
   a(t: Text)
@@ -26,9 +27,9 @@ sub main
     .b => print("b")
   print(w, s, e, r, o)
 
-# error: 19:11: a borrow of the temporary `Text("abc")` outlives its statement
-# error: 20:8: a borrow of the temporary `Text("x")` outlives its statement
-# error: 21:13: a borrow of the temporary `Text("abc")` outlives its statement
-# error: 22:8: a borrow of the temporary `Text("r")` outlives its statement
-# error: 25:8: a borrow of the temporary `mk()` outlives its statement
+# error: 20:11: a borrow of the temporary `Text("abc")` outlives its statement
+# error: 21:8: a borrow of the temporary `Text("x")` outlives its statement
+# error: 22:13: a borrow of the temporary `Text("abc")` outlives its statement
+# error: 23:8: a borrow of the temporary `Text("r")` outlives its statement
+# error: 26:19: `t` does not live long enough
 # errors: 5

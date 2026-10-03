@@ -1,5 +1,6 @@
-# A view of a `match` subject that is a temporary cannot outlive the
-# statement, which drops the subject.
+# A `match` takes a call's result, as `match <e` would: a payload an
+# arm binds is dropped when the arm ends, so a view of it cannot
+# outlive the arm.
 
 enum M
   a(t: Text)
@@ -15,5 +16,5 @@ sub main
     .b => print("b")
   print(o)
 
-# error: 14:8: a borrow of the temporary `mk()` outlives its statement
+# error: 15:19: `t` does not live long enough
 # errors: 1

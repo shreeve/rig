@@ -2320,8 +2320,10 @@ source and `if … as` do:
 | `match !e` | write borrows of the fields: assigning one writes the field in place |
 | `match <e` | own the fields: `e` is consumed, and what an arm does not move on is dropped at the end of the arm |
 
-A bare `match e` only reads `e`, so moving a payload out of it is
-rejected; that takes `match <e`. Its bindings only read, too, even of a
+A bare `match e` of a place only reads it, so moving a payload out of
+it is rejected; that takes `match <e`. A call's result is taken, as
+`match <e` would take it ([§7](#temporaries)): `match make()` owns its
+payloads. Its bindings only read, too, even of a
 field or value that is itself a write borrow. A binding of `match <e`
 owns what it binds: a resource it holds may be written and lent for
 writing. A `Bool` is not matched with `!`: `match !flag` reads as
@@ -3176,29 +3178,23 @@ value declared after it: that value is dropped first.
 
 ### Temporaries
 
-A value that owns a resource must have an owner. It may be bound,
-returned, passed to a call (which takes ownership), discarded with
-`_ = e` (which drops it), used as the receiver of a consuming method,
-or compared with `none`. A temporary is a **fresh** value, one no name
-holds: a call's result (a constructor's included), `*x`, `+x`, `<x`, a
-literal, or an `if`, `match`, `??`, `catch`, block, `e!`, or `e?` value
-all of whose branches are fresh. `??` on a fresh optional consumes it,
-giving its value or the fallback. Where a fresh value is only read, as
-a `print` or `Text(...)` argument, an `==` operand, a `match` subject,
-the value whose part that owns nothing is read (`make().len`,
-`make()[0]`, `make().items[0]`, `make().items.get(0)`), or lent with
-`?` (below), it lives
-until its statement ends, which drops it, as Rust does. The drop runs also when the
-statement fails (`!`) or leaves early (`?? return`), and before a
-loop's condition is evaluated again; a statement's temporaries are
-dropped last made first. A `match` over a temporary reads it, so an
-arm cannot move a payload out; `match <e` takes the payloads. Anywhere
-else (a method receiver, a field that owns a resource, an expression
-statement) nothing would release it, so it must be bound to a name
-first. A value that is not fresh but reaches an owner a name holds (`o?`
-of an optional parameter, `a if c else b`) is no temporary: reading it
-where it stands would move that owner, so it is rejected; borrow what
-it reaches instead (`?a if c else ?b`), or take the owner out first.
+An expression either **takes** its value or only **reads** it. A
+binding, an argument to a parameter that owns it, `return`, a stored
+field or element, and `<` take. A `print` or `Text(...)` argument, an
+`==` operand, `?e`, a `?self` receiver, and a field or element read
+only read. Reading never moves a name, whatever form reads it: a read
+passes through `a if c else b`, `??`, `catch`, `e!`, and `e?` to their
+operands, so `print(a if c else b)` reads `a` or `b` where it is and
+moves nothing.
+
+A value made where it is only read (a call's result, a constructor's
+included, `+x`, `<x`, or a block or `match` value) has no name: its
+statement is its scope, so it is a **temporary**. One that owns a
+resource is dropped when its statement ends, last made first, also
+when the statement fails (`!`) or leaves early (`?? return`). A
+temporary that nothing reads or takes (an expression statement, the
+receiver of a `!self` method, whose change would be lost) is rejected:
+bind it to a name first.
 
 ```rig
 struct B
@@ -3211,17 +3207,23 @@ fun size(s: String) -> Int
   s.len
 
 sub main
+  a = B(n: 2)
+  b = B(n: 3)
   print(B(n: 1), size(?Text("four")))
+  print(a if b.n > 5 else b)
   print("next")
 ```
 
 ```output
 B(n: 1) 4
 drop 1
+B(n: 3)
 next
+drop 3
+drop 2
 ```
 
-```rig reject
+```rig
 struct Log
   lines: Vec[Int]
 
@@ -3232,23 +3234,29 @@ fun make -> Log
   Log(lines: Vec())
 
 sub main
-  print(make().count())
+  print(make().count(), make().lines.len)
 ```
 
-```error
-bind it to a name first
+```output
+0 0
 ```
 
 A borrow of a temporary (`?S(n: 1)`, `?make()`, `?make()[1..]`), and
 any view made from one (a call's result that borrows it), may be used
-anywhere in its statement: the temporary lives until the statement
-ends. It may not outlive the statement: held by a binding, a field, a
-Vec, or a returned value, it is rejected. As in Rust, the temporaries
-of an `if` header, a `match` subject, and a `for` source live through
-the whole statement, so an `as` binding may hold such a borrow in the
-body, but nothing may keep it past the statement. A `while` header is
-evaluated again on each pass, so its temporaries live through one
-pass: a borrow of one kept for a later pass is rejected.
+anywhere in its statement, and nowhere after: held by a binding, a
+field, a Vec, or a returned value, it is rejected.
+
+**Headers are their own statements:** an `if` or `while` condition, a
+`match` guard, and the subject of a `match` or `for`. A header's
+temporaries end with the header, before the body runs; what the header
+binds lives through the body. So `if text.starts_with(?Text(a, b),
+"x")` works, but `if text.cut(?Text(a, b), "=") as kv` must bind the
+Text first, because `kv` outlives the header. A call's result that `if
+… as`, `while … as`, `match`, or `for` binds is taken, as `<e` would
+take it: an arm of `match make()` may move a payload out. A lend of a
+branching value that may be a name's (`?(a if c else b)`) would copy
+that name's value, so it is rejected: lend each branch, `?a if c else
+?b`.
 
 ```rig
 use std.text
@@ -3258,7 +3266,8 @@ sub main
   n = text.find(?Text("abc"), "b") ?? -1
   if text.starts_with(?Text("x", n), "x1")
     print("starts")
-  if text.cut(?Text("k=v"), "=") as kv
+  kv_text = Text("k=v")
+  if text.cut(?kv_text, "=") as kv
     print(kv.before, kv.after)
 ```
 
@@ -3277,10 +3286,8 @@ struct S
 sub main
   r = ?S(n: 1)
   s = text.trim(?Text(" a "))
-  last = ""
-  while text.cut(?Text("k=v"), "=") as kv
-    print(last)
-    last = kv.after
+  if text.cut(?Text("k=v"), "=") as kv
+    print(kv.after)
   print(r.n, s)
 ```
 
@@ -4457,10 +4464,12 @@ and the left side of `?? return` is the whole expression before it, as
 for `catch` (`a and b ?? return` is `(a and b) ?? return`), except in a
 chain of `??`, where the jump belongs to the nearest one, as `??` is
 right-associative: `a ?? b ?? return v` is `a ?? (b ?? return v)`.
-With a jump as the fallback nothing is copied, so the optional may hold
-an owning value when it is a temporary (`make(k) ?? return`) or moved
-(`<o ?? return`, `<h.f ?? return`, which leaves `none`), but not when
-it is reached through a borrow, which gives up nothing. Anything
+Where `a ?? b` is only read, it reads the value inside `a`, or `b`,
+where it is ([§7](#temporaries)). Where it is taken, it takes from each
+side: the optional may hold an owning value when it is made there
+(`make(k) ?? return`, `make(k) ?? make(0)`) or moved (`<o ?? return`,
+`<h.f ?? return`, which leaves `none`), but not when it is reached
+through a borrow, which gives up nothing. Anything
 else on the right of `??` is a value of the optional's type, so a bare
 error value is no fallback: `?? E.missing` is rejected, and failing is
 written `?? return E.missing` in a fallible function.

@@ -628,9 +628,16 @@ pub const Facts = struct {
     /// Array expressions lent as a slice (`ArrayView`).
     array_views: std.AutoHashMapUnmanaged(NodeKey, ArrayView) = .empty,
     /// Owning temporaries only read where they stand (a `print`
-    /// argument, a borrow lent to a call, an `==` operand, a `match`
-    /// subject): each is dropped at the end of its statement.
+    /// argument, a borrow lent to a call, an `==` operand, a `?self`
+    /// receiver): each is dropped at the end of its statement, or of
+    /// its header.
     temp_drops: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Branches of a read branching value that a name holds (`a` in
+    /// `print(a if c else b)`): read where they are, never moved out.
+    in_place_reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// `match` nodes whose subject is a call's result, which the match
+    /// takes as `match <e` would.
+    taken_subjects: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Borrows of a Text (`?Text` call results and names) lent as a
     /// String where one is expected (`SemContext.lendsText`).
     text_lends: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -1406,6 +1413,26 @@ pub const SemContext = struct {
     /// end (`recordTempDrop`).
     pub fn dropsTemp(self: *const SemContext, node: Sexp) bool {
         return self.facts.temp_drops.contains(nodeKey(node) orelse return false);
+    }
+
+    pub fn recordReadInPlace(self: *SemContext, node: Sexp) !void {
+        try self.facts.in_place_reads.put(self.allocator, exprKey(node) orelse return, {});
+    }
+
+    /// Whether `node`, a branch of a read branching value, is read where
+    /// a name holds it (`recordReadInPlace`).
+    pub fn readsInPlace(self: *const SemContext, node: Sexp) bool {
+        return self.facts.in_place_reads.contains(exprKey(node) orelse return false);
+    }
+
+    pub fn recordTakenSubject(self: *SemContext, match: Sexp) !void {
+        try self.facts.taken_subjects.put(self.allocator, recordKey(match), {});
+    }
+
+    /// Whether `match` takes its subject, a call's result, as `match <e`
+    /// would (`recordTakenSubject`).
+    pub fn takesSubject(self: *const SemContext, match: Sexp) bool {
+        return self.facts.taken_subjects.contains(nodeKey(match) orelse return false);
     }
 
     pub fn recordTextCall(self: *SemContext, call: Sexp, op: TextCall) !void {
@@ -3174,6 +3201,22 @@ pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
 /// String may view.
 pub fn reachesText(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).borrows.text;
+}
+
+/// Whether `child` is a header of `parent`: an `if` or `while`
+/// condition, a guard, or the subject of a `match` or `for`. A
+/// header is its own statement: its temporaries end with it.
+pub fn isHeaderOf(parent: Sexp, child: Sexp) bool {
+    const kind = parent.kind() orelse return false;
+    const header: Sexp = switch (kind) {
+        .@"if" => ir.If.cond(parent),
+        .@"while" => ir.While.cond(parent),
+        .match => ir.Match.subject(parent),
+        .arm => ir.Arm.guard(parent),
+        .@"for" => ir.For.source(parent),
+        else => return false,
+    };
+    return header == .list and child == .list and header.list.id == child.list.id;
 }
 
 /// Whether a value of `ty` holds a String but no borrow or type

@@ -629,13 +629,27 @@ ownership:
   must be inside a `raw` block. An `extern` function can only be
   called, so it cannot leave `raw` as a value.
 
-A read borrow of a temporary (`?S(n: 1)`, `?make()`, a slice of one)
-records the temporary as one its statement holds (`dropsTemp`), owning
-or not: it lives in a slot until the statement ends, and the ownership
-checker reports a borrow of it, or a view made from one, that a value
-still holds after the statement. A `while` whose header binds with
-`as` drops its header's temporaries after each pass of the body, and
-reports one a value keeps for a later pass.
+Temporaries (SPEC §7) desugar into a hidden binding per statement. A
+value made where it is only read (`readLeaf`: a `print` or `Text`
+argument, an `==` operand, a `?self` receiver, the object of a field
+or element read) is bound to a hidden name `_t` at the start of its
+statement and dropped at its end: `print(mk().n)` is `_t = mk()`,
+`print(_t.n)`, `-_t`, with the drop also on every path out of the
+statement. A read passes through `a if c else b`, `??`, `catch`, `e!`,
+and `e?` (`readLeaves`): a branch that is a name is read where it is
+(`readsInPlace`), never moved, and a branching value all of whose
+branches are made is one temporary. A read borrow of a temporary
+(`?S(n: 1)`, `?make()`, a slice of one) records it the same way,
+owning or not. A header (`sema.isHeaderOf`: an `if` or `while`
+condition, a guard, a `match` or `for` subject) is its own statement:
+`if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
+so a binding that still views `_t` is reported where the header ends.
+A call's result that `match` binds is taken, as `match <e` takes it
+(`takesSubject`). The ownership checker holds each temporary in a
+hidden var borrowed by what reads it, and drops it where its statement
+or header ends (`dropStmtTemps`); emit gives a header's temporaries a
+block of their own, `(label: { slots; break :label e; })`, whose
+`defer`s drop them as the header's value is yielded.
 
 What may be done with a place is decided in one place. `placeOf(e)`
 reads a place expression (a name, or a field or element of one) once,
@@ -704,7 +718,9 @@ instead of re-deriving it by name:
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read borrow lending it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds borrows, rather than pointing the place elsewhere |
 | `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |
-| `dropsTemp(node)` | whether the node is an owning temporary, a fresh value (`handsOverFresh`: a call's result, `*x`, `+x`, `<x`, a literal, or a branching value all of whose branches are fresh; never a name, a field path, or `o?`), only read where it stands (a `print` or `Text` argument, a borrow lent where a borrowed temporary may go, an `==` operand, a `match` subject, the value whose field that owns nothing is read), which its statement drops at its end. The ownership checker holds it in a hidden var named by its source, borrowed by what reads it, and drops that var when the statement ends (`dropStmtTemps`), so a borrow of it kept past the statement is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement, in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. The first temporary a `while` condition makes drops all of that condition's slots, last first, before it is made again. A `match` over a temporary makes the hidden var its subject, so an arm cannot move a payload out of it |
+| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary a read borrow lends. The ownership checker holds it in a hidden var named by its source, borrowed by what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a borrow of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
+| `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
+| `takesSubject(match)` | whether a `match` takes its subject, a call's result that owns a resource, as `match <e` would: its arms own the payloads |
 | `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is recorded as an `arrayViewOf` `borrowed`, walked as `?t[..]` |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 

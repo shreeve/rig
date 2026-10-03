@@ -104,10 +104,11 @@ const Hoisted = struct { node: Sexp, name: []const u8, flag: []const u8 = "" };
 const TempSlot = struct {
     node: parser.NodeId,
     name: []const u8,
-    /// For the first temporary a loop's condition makes: the slots of
-    /// that condition, last first, dropped before it runs again.
-    resets: []const []const u8 = &.{},
 };
+
+/// A header being emitted (`openHeader`): the label of the block that
+/// holds its temporaries' slots, if it makes any, and the slots before.
+const Header = struct { label: []const u8 = "", first: usize };
 
 /// A loop used as a value: its Rig label (empty when it has none), the
 /// Zig block its `break` values leave, and its type.
@@ -1057,24 +1058,13 @@ pub const Emitter = struct {
 
     /// Declare a slot for each owning temporary in statement `stmt` (not
     /// in the blocks or closures it holds, whose statements are emitted
-    /// on their own) that has none yet, inline before the statement.
+    /// on their own, or in its headers, which are their own statements:
+    /// `openHeader`) that has none yet, inline before the statement.
     fn emitTempSlots(self: *Emitter, stmt: Sexp) Error!void {
         if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
         // The parts first: they are made first, so their `defer`s run
         // after those of what holds them.
-        if (stmt.isKind(.@"while")) {
-            // A condition's temporaries are dropped, last first, before
-            // it runs again.
-            const start = self.temp_slots.items.len;
-            try self.emitTempSlots(ir.While.cond(stmt));
-            const made = self.temp_slots.items[start..];
-            if (made.len > 0) {
-                const names = try self.arena.allocator().alloc([]const u8, made.len);
-                for (made, 0..) |t, k| names[made.len - 1 - k] = t.name;
-                made[0].resets = names;
-            }
-            for (rig.children(stmt)) |c| if (!sameNode(c, ir.While.cond(stmt))) try self.emitTempSlots(c);
-        } else for (rig.children(stmt)) |c| try self.emitTempSlots(c);
+        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c)) try self.emitTempSlots(c);
         if (self.sema.dropsTemp(stmt) and self.tempSlot(stmt) == null) {
             const name = try self.fmt("__rig_tmp_{d}", .{self.nextId()});
             try self.w.print("var {s}: ", .{name});
@@ -1082,6 +1072,14 @@ pub const Emitter = struct {
             try self.w.print(" = undefined; var {s}_live = false; defer if ({s}_live) rig.drop(&{s}); ", .{ name, name, name });
             try self.temp_slots.append(self.allocator, .{ .node = stmt.list.id, .name = name });
         }
+    }
+
+    /// Whether `child` is the step of `while` loop `parent`: a statement
+    /// of its own, run after each pass (`emitStep`).
+    fn isWhileStep(parent: Sexp, child: Sexp) bool {
+        if (!parent.isKind(.@"while")) return false;
+        const step = ir.While.step(parent);
+        return step == .list and child == .list and step.list.id == child.list.id;
     }
 
     fn tempSlot(self: *Emitter, node: Sexp) ?TempSlot {
@@ -1094,8 +1092,35 @@ pub const Emitter = struct {
     fn hasTemps(self: *Emitter, stmt: Sexp) bool {
         if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return false;
         if (self.sema.dropsTemp(stmt)) return true;
-        for (rig.children(stmt)) |c| if (self.hasTemps(c)) return true;
+        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c) and self.hasTemps(c)) return true;
         return false;
+    }
+
+    /// Start header `e` (`sema.isHeaderOf`), its own statement: when it
+    /// makes temporaries, a block holds their slots, whose `defer`s drop
+    /// them as the block yields the header's value, `(label: { slots
+    /// break :label e; })`. The caller writes the value, then calls
+    /// `closeHeader`.
+    fn openHeader(self: *Emitter, e: Sexp) Error!Header {
+        const first = self.temp_slots.items.len;
+        if (!self.hasTemps(e)) return .{ .first = first };
+        const label = try self.fmt("__rig_hdr_{d}", .{self.nextId()});
+        try self.w.print("({s}: {{ ", .{label});
+        try self.emitTempSlots(e);
+        try self.w.print("break :{s} ", .{label});
+        return .{ .label = label, .first = first };
+    }
+
+    fn closeHeader(self: *Emitter, h: Header) Error!void {
+        if (h.label.len > 0) try self.w.writeAll("; })");
+        self.temp_slots.shrinkRetainingCapacity(h.first);
+    }
+
+    /// Header `e`'s value, as `emitBare` writes it.
+    fn emitHeader(self: *Emitter, e: Sexp) Error!void {
+        const h = try self.openHeader(e);
+        try self.emitBare(e);
+        try self.closeHeader(h);
     }
 
     fn emitStmtOnly(self: *Emitter, sexp: Sexp) Error!void {
@@ -1807,7 +1832,7 @@ pub const Emitter = struct {
     fn emitCond(self: *Emitter, cond: Sexp) Error!Prelude {
         if (cond.isKind(.as)) return self.emitOptionalHead(cond);
         try self.w.writeAll("(");
-        try self.emitBare(cond);
+        try self.emitHeader(cond);
         try self.w.writeAll(") ");
         return .{};
     }
@@ -2119,7 +2144,11 @@ pub const Emitter = struct {
         try self.w.writeAll("for (");
         // Writing an array's elements in place iterates through a pointer.
         const array_ptr = by_ptr and !is_vec and src_ty != null and self.sema.types.get(self.peelBorrows(src_ty.?)) == .array;
-        if (array_ptr) try self.emitAddressOf(source) else try self.emitExpr(source);
+        if (array_ptr) try self.emitAddressOf(source) else {
+            const h = try self.openHeader(source);
+            try self.emitExpr(source);
+            try self.closeHeader(h);
+        }
         if (is_vec) try self.w.writeAll(".items()");
         // `for b in ?t` walks the bytes of a Text, boxed or not.
         if (src_ty) |t| if (self.textReach(t)) |reach| try self.w.print("{s}.bytes()", .{reach});
@@ -2157,9 +2186,11 @@ pub const Emitter = struct {
 
         try self.openBrace();
         try self.writeIndent(self.indent);
-        try self.w.print("var {s} = ", .{it});
+        try self.w.print("var {s} = (", .{it});
+        const h = try self.openHeader(ir.For.source(sexp));
         try self.emitMoved(ir.For.source(sexp));
-        try self.w.writeAll(".intoIter();\n");
+        try self.closeHeader(h);
+        try self.w.writeAll(").intoIter();\n");
         try self.line("defer {s}.deinit();", .{it});
         if (indexed) try self.line("var {s}: usize = 0;", .{counter});
         try self.writeIndent(self.indent);
@@ -2199,7 +2230,7 @@ pub const Emitter = struct {
             try self.w.print("{s} {s}: ", .{ decl, name });
             try self.emitTypeTy(int_ty);
             try self.w.writeAll(" = ");
-            try self.emitBare(bound);
+            try self.emitHeader(bound);
             try self.w.writeAll(";\n");
         }
         try self.writeIndent(self.indent);
@@ -2254,7 +2285,7 @@ pub const Emitter = struct {
         var info: MatchInfo = .{
             .mode = if (scrutinee.isKind(.write))
                 .write
-            else if (scrutinee.isKind(.move) and scrut_ty != null and self.kindOf(scrut_ty.?) != null) .consume else .read,
+            else if ((scrutinee.isKind(.move) or self.sema.takesSubject(sexp)) and scrut_ty != null and self.kindOf(scrut_ty.?) != null) .consume else .read,
             .ty = scrut_ty,
             .error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false,
             // `match ?t` / `match !t` switch on the value borrowed.
@@ -2294,8 +2325,10 @@ pub const Emitter = struct {
         } else {
             // A match on a call returning a borrow held by pointer
             // switches on the value it points to.
+            const h = try self.openHeader(subject);
             if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
             if (info.boxed) try self.w.writeAll(".value.*");
+            try self.closeHeader(h);
         }
         try self.w.writeAll(") ");
         try self.openBrace();
@@ -2380,7 +2413,7 @@ pub const Emitter = struct {
         }
         const name = try self.fmt("__rig_subject_{d}", .{self.nextId()});
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
-        if (isPlace(value) and !info.subject.isKind(.move)) {
+        if (isPlace(value) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
             try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
             info.reread = try self.fmt("{s}.*", .{name});
             return;
@@ -2392,7 +2425,10 @@ pub const Emitter = struct {
             try self.emitTypeTy(self.peelBorrows(t));
         }
         try self.w.writeAll(" = ");
+        const h = try self.openHeader(value);
         if (self.isPtrBorrowExpr(value)) try self.emitDeref(value) else try self.emitBare(value);
+        if (info.boxed and self.hasTemps(value)) try self.w.writeAll(".value.*");
+        try self.closeHeader(h);
         try self.w.print("; _ = &{s};\n", .{name});
         info.reread = name;
         info.temp = info.mode == .consume;
@@ -2506,7 +2542,7 @@ pub const Emitter = struct {
             try self.guardBindings(pattern, guard, info, subj);
             try self.writeIndent(self.indent);
             try self.w.writeAll("if (");
-            try self.emitBare(guard);
+            try self.emitHeader(guard);
             try self.w.print(") break :{s} @as(usize, {d});\n", .{ sel, i });
             try self.closeBrace();
             try self.w.writeAll("\n");
@@ -2746,6 +2782,26 @@ pub const Emitter = struct {
         const value = ir.As.value(cond);
         const sym = self.sema.symbolOf(name);
         // Over a borrow of an optional, a borrowed binding points into it.
+        if (self.borrowsOptionalValue(value) and self.hasTemps(value)) {
+            // A borrow of a temporary the header drops: the optional is
+            // read inside the header, and the binding views a copy of the
+            // value inside, which the ownership checker lets nothing use
+            // past the header.
+            try self.w.writeAll("(");
+            const h = try self.openHeader(value);
+            try self.w.writeAll("(");
+            try self.emitBare(value);
+            try self.w.writeAll(").*");
+            try self.closeHeader(h);
+            try self.w.writeAll(") ");
+            if (sym == null or !self.usage.used.contains(sym.?)) {
+                try self.w.writeAll("|_| ");
+                return .{};
+            }
+            const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
+            try self.w.print("|{s}| ", .{tmp});
+            return .{ .lent = .{ .name = name, .tmp = tmp, .copy = true } };
+        }
         if (self.borrowsOptionalValue(value)) {
             // A name holding a borrow is emitted as the place it points to.
             // `o` and `<o` of a name holding the borrow are the place.
@@ -2763,7 +2819,7 @@ pub const Emitter = struct {
             return .{ .lent = .{ .name = name, .tmp = tmp, .copy = copy } };
         }
         try self.w.writeAll("(");
-        try self.emitBare(value);
+        try self.emitHeader(value);
         try self.w.writeAll(") ");
         // `as _` binds no symbol; a resource inside is dropped at once.
         const ty: ?TypeId = if (sym) |s| self.symType(s) else if (self.typeOf(value)) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
@@ -2865,16 +2921,8 @@ pub const Emitter = struct {
             defer self.keeping = saved;
             self.keeping = sexp;
             try self.w.print("rig.keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
-            var label: []const u8 = "";
-            if (slot.resets.len > 0) {
-                label = try self.fmt("__rig_reset_{d}", .{self.nextId()});
-                try self.w.print("{s}: {{", .{label});
-                for (slot.resets) |r| try self.writeTempDrop(r);
-                try self.w.print(" break :{s} ", .{label});
-            }
             self.bare = true;
             try self.emitValue(sexp, tail);
-            if (label.len > 0) try self.w.writeAll("; }");
             return self.w.writeAll(").*");
         }
         // A temporary holds the value its context reads (`hoist`).
@@ -2920,7 +2968,7 @@ pub const Emitter = struct {
                 return self.w.print("rig.rt({s})", .{local.zig_name});
             }
             if (tail and self.ptr_tail and local.is_ptr) return self.w.writeAll(local.zig_name);
-            return if (tail) self.writeTake(local) else self.writeLocalPlace(local);
+            return if (tail and !self.sema.readsInPlace(sexp)) self.writeTake(local) else self.writeLocalPlace(local);
         }
         if (std.mem.eql(u8, name, "none")) return self.w.writeAll("null");
         if (name[0] == '\'') return writeSingleQuoted(self.w, name);
