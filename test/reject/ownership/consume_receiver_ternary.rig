@@ -1,0 +1,19 @@
+# A consuming method's receiver is taken like an argument: each name a
+# branching receiver yields is moved with `<` (`(<a if c else <b)`).
+struct Bag
+  items: Vec[Int]
+
+  fun total(<self) -> Int
+    self.items.len
+
+sub main
+  a = Bag(items: Vec())
+  b = Bag(items: Vec())
+  !a.items.push(1)
+  c = true
+  print((a if c else b).total())
+  print(a.items[0])
+
+# error: 14:10: bare use of `Bag` value `a` in call argument would alias an owning value
+# error: 14:22: bare use of `Bag` value `b` in call argument would alias an owning value
+# errors: 2

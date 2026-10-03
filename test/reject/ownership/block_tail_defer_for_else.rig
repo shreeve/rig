@@ -1,0 +1,16 @@
+# A `for ... else` value's block-local tail leaves the `else` block
+# before its defer runs.
+sub main
+  xs = [1, 2]
+  x = for k in xs
+    break Vec[Int]() if k > 5
+  else
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    defer !v.push(2)
+    v
+  !x.push(3)
+  print(x.len, x[0])
+
+# error: 10:12: use of `v` after move
+# errors: 1

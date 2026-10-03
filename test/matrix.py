@@ -52,8 +52,12 @@ TYPES = {
                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
     "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
-    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n',
+    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
+    # A payload enum: `== .variant` tests the variant.
+    "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: Vec[Int])\n",
+                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
+                 only=("eq_variant", "eq_none", "binding", "tail_if", "tail_match")),
 }
 
 # -----------------------------------------------------------------------------
@@ -94,7 +98,35 @@ CONTEXTS = {
     "elem_index_call": dict(block="vs[grow(!vs)] = E", needs="vs", after="print(vs.len)"),
     "match_subject": dict(inline="match E\n    y => print(look(?y))"),
     "for_source": dict(inline="for e in ?E\n    print(e)"),
+    # A method that consumes its receiver (`<self`, `Box.unbox`).
+    "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
+    # `none` and a bare `.variant` test a value and drop it if no name holds it.
+    "eq_none": dict(inline="print(E == none)", optional=True),
+    "eq_variant": dict(inline="print(E != .dot)", types=("enum",)),
 }
+
+# A block-local binding at the tail of a value block leaves it before the
+# block's defers run. Each shape of value block goes to each sink, with a
+# `defer` that uses the binding (writes a Vec or Text, reads the rest) or
+# none. Each cell's form is `mk(5)`.
+TAIL_SHAPES = {
+    "if": ["if c", "  BODY", "else", "  mk(8)"],
+    "match": ["match c", "  true", "    BODY", "  false => mk(8)"],
+    "catch": ["fail(c) catch |_|", "  BODY"],
+    "while_else": ["while false", "  break mk(8)", "else", "  BODY"],
+    "for_else": ["for k in [1, 2]", "  break mk(8) if k > 5", "else", "  BODY"],
+    "nested": ["if c", "  t: T = mk(5)", "  DEFER", "  if not c", "    t", "  else", "    mk(9)", "else", "  mk(8)"],
+}
+TAIL_SINKS = {
+    "binding": dict(block="x = E", after="print(look(?x))"),
+    "field": dict(block="h.f = E", needs="h", after="print(look(?h.f))"),
+    "result": dict(block="return E", returns=True),
+}
+TAIL_WRITES = {"vec": "!t.push(1)", "text": '!t.add("x")'}
+for shape in TAIL_SHAPES:
+    for sink, ctx in TAIL_SINKS.items():
+        for defer in ("defer", "plain"):
+            CONTEXTS[f"tail_{shape}_{sink}_{defer}"] = dict(ctx, tail=shape, defer=defer == "defer")
 
 
 def indent(lines, n):
@@ -108,6 +140,24 @@ def program(tname, fname, cname):
     form = FORMS[fname] if fname != "ctor" else t["ctor"]
     if isinstance(form, list) and "block" not in ctx:
         return None
+    if "only" in t and not any(cname.startswith(c) for c in t["only"]):
+        return None
+    if "recv" in ctx and tname not in ctx["recv"] or tname not in ctx.get("types", (tname,)):
+        return None
+    if "tail" in ctx:
+        if fname != "call" or tname in ("int", "string"):
+            return None
+        write = TAIL_WRITES.get(tname, "print(look(?t))")
+        lines = []
+        for l in TAIL_SHAPES[ctx["tail"]]:
+            pad = l[:len(l) - len(l.lstrip())]
+            part = ["t: T = mk(5)", "DEFER", "t"] if l.strip() == "BODY" else [l.strip()]
+            for p in part:
+                if p == "DEFER":
+                    p = "defer " + write if ctx["defer"] else ""
+                if p:
+                    lines.append(pad + p.replace("t: T", "t: " + t["ty"]))
+        form = lines
     ty = t["ty"]
     out = []
     out.append(t["decls"])
@@ -123,7 +173,10 @@ def program(tname, fname, cname):
         out.append(f"fun through(v: !Vec[{ty}], x: {ty}) -> {ty}\n  for i in 0..100\n    !v.push(mk(i))\n  x\n")
         out.append(f"fun grow(v: !Vec[{ty}]) -> Int\n  for i in 0..100\n    !v.push(mk(i))\n  0\n")
     ret_ty = f"{ty}?" if returns else "Int?"
-    body = [f"a: {ty} = mk(1)", f"b: {ty} = mk(2)", "print(look(?a), look(?b))"]
+    if ctx.get("optional"):
+        body = [f"a: {ty}? = mk(1)", f"b: {ty}? = mk(2)", "print(a == none, b == none)"]
+    else:
+        body = [f"a: {ty} = mk(1)", f"b: {ty} = mk(2)", "print(look(?a), look(?b))"]
     if needs == "h" or fname == "field":
         body += [f"h = H(f: mk(3))", "print(look(?h.f))"]
     if needs == "vs":
@@ -134,6 +187,8 @@ def program(tname, fname, cname):
         body += form[1:]
     else:
         text = ctx.get("inline") or ctx["block"]
+        if "recv" in ctx:
+            text = text.replace("M", ctx["recv"][tname])
         e = form
         if cname in ("borrow_arg", "for_source") and " " in e:
             e = f"({e})"

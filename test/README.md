@@ -189,9 +189,14 @@ behind. Add new review probes here, named `<review>-<probe>.rig`.
 place, a ternary, `o?`, `??`, `catch`, `if … as`, `match`, a call, a
 constructor, `<x`, `+x`) stands in one context (a `print` argument, a
 `?T` argument, `==`, a binding, a field store, a Vec push, `return`, an
-element assignment, a `match` subject, a `for` source) for each of
-several types (Int, String, Text, Vec, `*T`, Box, a struct with a `drop`),
-and holds each to the corpus's rule. It writes to a temporary directory
+element assignment, a `match` subject, a `for` source, a consuming
+receiver, a test against `none` or a bare `.variant`) for each of
+several types (Int, String, Text, Vec, `*T`, Box, a struct with a `drop`,
+a payload enum), and holds each to the corpus's rule. It also puts a
+block-local binding at the tail of each kind of value block (an `if`
+branch, a `match` arm, a `catch` handler, a loop's `else`, a nested
+`if`), with and without a `defer` that uses it, for a binding, a field
+store, and a result. It writes to a temporary directory
 and commits nothing; `-k` picks cells by id and `-v` lists every result.
 
 ## Known bugs
