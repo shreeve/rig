@@ -178,7 +178,7 @@ const Checker = struct {
         /// Where a `!` in the code being checked sends its failure.
         fail_to: FailTarget = .module,
         /// The `return`s of the closure whose return type is inferred.
-        returns: ?*std.ArrayListUnmanaged(ReturnSite) = null,
+        returns: ?*std.ArrayList(ReturnSite) = null,
         /// The name of the `fun` or `sub` being checked, for messages.
         name: Sexp = .nil,
         /// The loops and labeled blocks around the code being checked,
@@ -200,7 +200,7 @@ const Checker = struct {
         expected: ?TypeId,
         /// The type the values settle on, without `expected`.
         ty: ?TypeId = null,
-        values: std.ArrayListUnmanaged(Typed) = .empty,
+        values: std.ArrayList(Typed) = .empty,
     };
 
     /// A branch, arm, or `break` value and the type it synthesized.
@@ -614,7 +614,7 @@ const Checker = struct {
     fn checkErrdeferCanRun(self: *Checker, stmt: Sexp) Error!void {
         const what = switch (self.body.fail_to) {
             .caller, .module => return,
-            .infallible => |name| try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`", .{self.text(name)}),
+            .infallible => |name| try self.ctx.arena.allocator().print("`{s}`", .{self.text(name)}),
             .closure => "this closure",
             .deferred => return self.errAt(stmt, "an `errdefer` inside deferred code never runs, since deferred code cannot fail; write its statement in the block directly", .{}),
             .drop => "a `drop` body",
@@ -762,7 +762,7 @@ const Checker = struct {
 
         switch (kind) {
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
-                const what = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}` has type", .{name});
+                const what = try self.ctx.arena.allocator().print("`{s}` has type", .{name});
                 try self.checkCompound(kind, declared, rhs, target.src.pos, what);
                 try self.ctx.recordType(target, declared);
                 return;
@@ -1403,7 +1403,7 @@ const Checker = struct {
     /// nor owning), and no `continue` in the condition may skip binding
     /// one.
     fn checkJoinedStep(self: *Checker, cond: Sexp, step: Sexp) Error!void {
-        var parts: std.ArrayListUnmanaged(Sexp) = .empty;
+        var parts: std.ArrayList(Sexp) = .empty;
         defer parts.deinit(self.ctx.allocator);
         try collectConditionParts(self.ctx.allocator, cond, &parts);
         var read: ?Sexp = null;
@@ -1645,7 +1645,7 @@ const Checker = struct {
         if (!fits) return "";
         const elem = self.ctx.symbols.items[pair.elem].name;
         const index = self.ctx.symbols.items[pair.index].name;
-        return std.fmt.allocPrint(self.ctx.arena.allocator(), "; `{s}` is the index here: Rig writes the element first, `for {s}, {s} in {s}`", .{ index, index, elem, self.sourceText(pair.source) });
+        return self.ctx.arena.allocator().print("; `{s}` is the index here: Rig writes the element first, `for {s}, {s} in {s}`", .{ index, index, elem, self.sourceText(pair.source) });
     }
 
     /// The `break` or `continue`, with no label or value, that `cond`
@@ -1882,7 +1882,7 @@ const Checker = struct {
             .{ .place = ir.Read.operand(subject), .kind = .match_read }
         else if (isPlaceExpr(subject)) .{ .place = subject, .kind = .match_copy } else null;
         var cov: MatchCoverage = .{};
-        var arm_values: std.ArrayListUnmanaged(Typed) = .empty;
+        var arm_values: std.ArrayList(Typed) = .empty;
         defer arm_values.deinit(self.ctx.allocator);
         defer cov.deinit(self.ctx.allocator);
         var result: ?TypeId = expected;
@@ -1955,7 +1955,7 @@ const Checker = struct {
         variants: std.StringHashMapUnmanaged(u32) = .empty,
         bools: [2]bool = .{ false, false },
         /// Inclusive integer intervals, disjoint and in order.
-        ints: std.ArrayListUnmanaged([2]Wide) = .empty,
+        ints: std.ArrayList([2]Wide) = .empty,
         has_default: bool = false,
         /// An arm's pattern was rejected without saying what it meant to
         /// cover: whether the arms cover every value is not known.
@@ -2084,7 +2084,7 @@ const Checker = struct {
         const ty = sema.unwrapBorrows(self.ctx, scrutinee);
         const fix = "add an arm for it, or `_ =>` for the rest";
         if (sema.nominalDecl(self.ctx, ty)) |decl| if (decl.symbol().fields) |fields| {
-            var missing: std.ArrayListUnmanaged(u8) = .empty;
+            var missing: std.ArrayList(u8) = .empty;
             const a = self.ctx.arena.allocator();
             var count: usize = 0;
             for (fields) |f| {
@@ -3040,7 +3040,7 @@ const Checker = struct {
     /// `ty` holds.
     fn checkEquatable(self: *Checker, ty: TypeId, node: Sexp, op: []const u8) Error!void {
         if (self.isPoison(ty)) return;
-        var params: std.ArrayListUnmanaged(SymbolId) = .empty;
+        var params: std.ArrayList(SymbolId) = .empty;
         defer params.deinit(self.ctx.allocator);
         if (try sema.notEquatable(self.ctx, ty, &params)) |n| {
             return self.errAt(node, "`{s}` is not defined for `{s}`: {s}", .{ op, try self.tyName(ty), try notEquatableReason(self.ctx, n) });
@@ -3567,7 +3567,7 @@ const Checker = struct {
     fn ownsResource(self: *Checker, ty: TypeId, pos: u32, op: []const u8) Error!bool {
         if (sema.typeHasDropGlue(self.ctx, ty)) return true;
         if (!sema.maybeDropGlue(self.ctx, ty)) return false;
-        var held: std.ArrayListUnmanaged(SymbolId) = .empty;
+        var held: std.ArrayList(SymbolId) = .empty;
         defer held.deinit(self.ctx.allocator);
         try sema.heldTypeVars(self.ctx, ty, &held, self.ctx.allocator);
         for (held.items) |param| try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = param, .req = .plain, .pos = pos, .op = op });
@@ -3594,7 +3594,7 @@ const Checker = struct {
     /// value a name holds, not one made there.
     fn namedLeaf(self: *Checker, e: Sexp) ?Sexp {
         if (!isBranching(e)) return null;
-        var leaves: std.ArrayListUnmanaged(Sexp) = .empty;
+        var leaves: std.ArrayList(Sexp) = .empty;
         defer leaves.deinit(self.ctx.allocator);
         readLeaves(self.ctx.allocator, e, &leaves) catch return e;
         for (leaves.items) |leaf| {
@@ -3618,7 +3618,7 @@ const Checker = struct {
     /// `match` value) is a temporary: one that owns a resource is
     /// dropped when its statement ends.
     fn readLeaf(self: *Checker, e: Sexp) Error!void {
-        var leaves: std.ArrayListUnmanaged(Sexp) = .empty;
+        var leaves: std.ArrayList(Sexp) = .empty;
         defer leaves.deinit(self.ctx.allocator);
         // A branching value whose every value is made here is itself a
         // value made here: one temporary.
@@ -3773,7 +3773,7 @@ const Checker = struct {
             if (owner.kind == .generic_type) {
                 try self.err(pos, "method `{s}` must be called; wrap it in a closure to pass it as a value", .{field});
             } else {
-                const tname = if (decl.module_id != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ decl.ctx.name, owner.name }) else owner.name;
+                const tname = if (decl.module_id != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ decl.ctx.name, owner.name }) else owner.name;
                 try self.err(pos, "method `{s}` must be called; to pass it as a function that takes the receiver first, name it through its type: `{s}.{s}`", .{ field, tname, field });
             }
         } else if (owner.fields == null) {
@@ -3809,7 +3809,7 @@ const Checker = struct {
         if (m == self.ctx.module_id) return;
         const foreign = self.ctx.foreign_semas.get(m) orelse return;
         // A proxy is named as this module spells it already: `lib.Wrap`.
-        const tname = if (module != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ foreign.name, owner.name }) else owner.name;
+        const tname = if (module != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ foreign.name, owner.name }) else owner.name;
         if (f.is_method) {
             // A proxy's methods have this module's types.
             const types = if (module != null) &foreign.types else self.t();
@@ -3869,7 +3869,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
-        if (found.sym.kind == .function) return try self.functionValue(ty, try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(obj), field }), pos);
+        if (found.sym.kind == .function) return try self.functionValue(ty, try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field }), pos);
         return ty;
     }
 
@@ -3937,7 +3937,7 @@ const Checker = struct {
     /// module's (a generic one's proxy is named so already).
     fn namedTypeName(self: *Checker, nt: NamedType) Error![]const u8 {
         const fo = nt.foreign orelse return nt.sym.name;
-        return std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ fo.ctx.name, nt.sym.name });
+        return self.ctx.arena.allocator().print("{s}.{s}", .{ fo.ctx.name, nt.sym.name });
     }
 
     /// Another module's generic type, named here by its proxy
@@ -3978,7 +3978,7 @@ const Checker = struct {
                     try self.err(pos, "method `{s}.{s}` of a generic type must be called; wrap it in a closure to pass it as a value", .{ tname, field });
                     return self.t().invalid_id;
                 }
-                const name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ tname, field });
+                const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ tname, field });
                 return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos);
             }
             if (!m.is_variant) break;
@@ -4199,7 +4199,7 @@ const Checker = struct {
     /// expression spelling, and a fallible one is only a return type.
     /// Null when the chain has no suffix to move.
     fn optionalHandleArg(self: *Checker, e: Sexp) Error!?TypeId {
-        var handles: std.ArrayListUnmanaged(Sexp) = .empty;
+        var handles: std.ArrayList(Sexp) = .empty;
         var op = e;
         while (op.isKind(.share) or op.isKind(.weak)) : (op = ir.get(op, .operand)) try handles.append(self.ctx.arena.allocator(), op);
         if (!op.isKind(.propagate_none) and !op.isKind(.propagate)) return null;
@@ -4615,7 +4615,7 @@ const Checker = struct {
         if (callee.isKind(.member)) {
             const obj = ir.Member.object(callee);
             const name = self.text(ir.Member.name(callee));
-            if (obj == .src) return std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(obj), name });
+            if (obj == .src) return self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), name });
             return name;
         }
         return "expression";
@@ -4925,7 +4925,7 @@ const Checker = struct {
                 .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
                 .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
                 else => {
-                    var seen: std.ArrayListUnmanaged(ByteSliceVisit) = .empty;
+                    var seen: std.ArrayList(ByteSliceVisit) = .empty;
                     defer seen.deinit(self.ctx.allocator);
                     if (try holdsByteSlice(self.ctx, ty, &seen, self.ctx.allocator)) {
                         const name = try self.tyName(ty);
@@ -4987,7 +4987,7 @@ const Checker = struct {
     /// Whether a value of `ty` holds a `[]U8`, directly or through a
     /// wrapper, field, payload, or type argument. A `[]U8` and a String
     /// are both Zig `[]const u8`, so `print` cannot tell them apart.
-    fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, seen: *std.ArrayListUnmanaged(ByteSliceVisit), a: std.mem.Allocator) Error!bool {
+    fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, seen: *std.ArrayList(ByteSliceVisit), a: std.mem.Allocator) Error!bool {
         switch (ctx.types.get(ty)) {
             .slice => |sl| return switch (ctx.types.get(sl.elem)) {
                 .int => |i| i.bits == 8 and !i.signed,
@@ -5261,8 +5261,8 @@ const Checker = struct {
         const n = f.ct_params.len;
         // The parameters an instance binds: the type parameters and the
         // integer value parameters, at their slots.
-        var own: std.ArrayListUnmanaged(SymbolId) = .empty;
-        var own_slots: std.ArrayListUnmanaged(usize) = .empty;
+        var own: std.ArrayList(SymbolId) = .empty;
+        var own_slots: std.ArrayList(usize) = .empty;
         for (f.ct_params, 0..) |slot, i| {
             const sym = sema.typeParamOf(self.ctx, slot) orelse self.intSlot(f, i) orelse continue;
             try own.append(a, sym);
@@ -5374,7 +5374,7 @@ const Checker = struct {
     const Inference = struct {
         own: []const SymbolId,
         bound: []Bound,
-        literals: std.ArrayListUnmanaged(LiteralBound) = .empty,
+        literals: std.ArrayList(LiteralBound) = .empty,
         /// The first argument whose type does not have the shape of the
         /// type it fills (`?[3]Int` where `[]T` goes).
         mismatch: ?struct { arg: u32, pattern: TypeId, actual: TypeId } = null,
@@ -5398,7 +5398,7 @@ const Checker = struct {
         @memset(inf.bound, .{});
         // Closure literals are matched last, against the parameter types
         // the other arguments give them (`lentLambdaTypes`).
-        var lambdas: std.ArrayListUnmanaged(LambdaArg) = .empty;
+        var lambdas: std.ArrayList(LambdaArg) = .empty;
         var positional: usize = 0;
         for (args, 1..) |arg, number| {
             var value = arg;
@@ -5492,8 +5492,8 @@ const Checker = struct {
     /// result is its body's. Null when a parameter has no type yet.
     fn lentLambdaType(self: *Checker, inf: *const Inference, pattern: TypeId, lambda: Sexp) Error!?TypeId {
         const a = self.ctx.arena.allocator();
-        var params: std.ArrayListUnmanaged(SymbolId) = .empty;
-        var types: std.ArrayListUnmanaged(TypeId) = .empty;
+        var params: std.ArrayList(SymbolId) = .empty;
+        var types: std.ArrayList(TypeId) = .empty;
         for (inf.own, inf.bound) |p, b| {
             if (b.ty == sema.type_invalid or b.conflict != sema.type_invalid) continue;
             try params.append(a, p);
@@ -5674,7 +5674,7 @@ const Checker = struct {
                 const literal = self.onlyLiterals(inf, i, c.first_arg);
                 if (if (literal) self.literalFits(c.first_ty, c.later) else compatible(self.ctx, c.first_ty, c.later)) {
                     const fix = if (try self.bracketHint(result, i, c.later)) |brackets|
-                        try std.fmt.allocPrint(self.ctx.arena.allocator(), "give it in brackets: `{s}[{s}]{s}`", .{ callee, brackets, parens })
+                        try self.ctx.arena.allocator().print("give it in brackets: `{s}[{s}]{s}`", .{ callee, brackets, parens })
                     else
                         "give it in brackets, naming each array, slice, or function type in them with a `type` alias";
                     try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); {s}", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg, fix });
@@ -5712,7 +5712,7 @@ const Checker = struct {
     fn valueBindingFits(self: *Checker, param: SymbolId, b: Bound, callee: []const u8, pos: u32) Error!bool {
         const p = self.ctx.symbols.items[param];
         if (p.kind != .param or self.isPoison(p.ty)) return true;
-        const from = if (b.expected) "the type expected of the result" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "argument {d}", .{b.arg});
+        const from = if (b.expected) "the type expected of the result" else try self.ctx.arena.allocator().print("argument {d}", .{b.arg});
         switch (self.ctx.types.get(b.ty)) {
             .ct_value => |v| if (!sema.intFits(self.ctx, p.ty, v.int)) {
                 const name = try self.tyName(p.ty);
@@ -5759,7 +5759,7 @@ const Checker = struct {
             .type_var => |tv| tv,
             else => return,
         };
-        const i = std.mem.indexOfScalar(SymbolId, own, tv) orelse return;
+        const i = std.mem.findScalar(SymbolId, own, tv) orelse return;
         const b = inf.bound[i];
         if (b.ty == sema.type_invalid) {
             // `id(none)` and `nothing()` give some optional.
@@ -5776,9 +5776,9 @@ const Checker = struct {
         if (path == .propagate_none) return;
         if (b.wanted == sema.type_invalid) return;
         const a = self.ctx.arena.allocator();
-        const took = try std.fmt.allocPrint(a, "`{s}` takes `{s} = {s}` from argument {d}", .{ callee, self.ctx.symbols.items[tv].name, try self.tyName(b.ty), b.arg });
+        const took = try a.print("`{s}` takes `{s} = {s}` from argument {d}", .{ callee, self.ctx.symbols.items[tv].name, try self.tyName(b.ty), b.arg });
         if (sema.isNumeric(self.ctx, b.ty) and sema.isNumeric(self.ctx, b.wanted)) {
-            try self.result_hints.put(self.ctx.allocator, id, try std.fmt.allocPrint(a, "{s}; convert its result with `{s}(...)`", .{ took, try self.tyName(b.wanted) }));
+            try self.result_hints.put(self.ctx.allocator, id, try a.print("{s}; convert its result with `{s}(...)`", .{ took, try self.tyName(b.wanted) }));
             return;
         }
         // Brackets pass the type on to an argument that takes it from
@@ -5786,7 +5786,7 @@ const Checker = struct {
         const types = try a.alloc(TypeId, inf.bound.len);
         for (inf.bound, types) |bound, *ty| ty.* = bound.ty;
         const brackets = (try self.bracketHint(types, i, b.wanted)) orelse return self.result_hints.put(self.ctx.allocator, id, took);
-        try self.result_hints.put(self.ctx.allocator, id, try std.fmt.allocPrint(a, "{s}; to pass `{s}` on to it, give it in brackets: `{s}[{s}](...)`", .{ took, try self.tyName(b.wanted), callee, brackets }));
+        try self.result_hints.put(self.ctx.allocator, id, try a.print("{s}; to pass `{s}` on to it, give it in brackets: `{s}[{s}](...)`", .{ took, try self.tyName(b.wanted), callee, brackets }));
     }
 
     /// Whether a literal of type `lit` (an integer or float literal's
@@ -5803,7 +5803,7 @@ const Checker = struct {
     /// `index`. Null when a type in it has no expression spelling
     /// (`spelledInBrackets`).
     fn bracketHint(self: *Checker, types: []const TypeId, index: usize, at: ?TypeId) Error!?[]const u8 {
-        var buf: std.ArrayListUnmanaged(u8) = .empty;
+        var buf: std.ArrayList(u8) = .empty;
         const a = self.ctx.arena.allocator();
         for (types, 0..) |ty, i| {
             if (i > 0) try buf.appendSlice(a, ", ");
@@ -5821,14 +5821,14 @@ const Checker = struct {
     fn inferHint(self: *Checker, f: FunctionType, own: []const SymbolId, types: []const TypeId, index: usize, callee: []const u8, parens: []const u8) Error![]const u8 {
         const a = self.ctx.arena.allocator();
         const pname = self.ctx.symbols.items[own[index]].name;
-        if (try self.bracketHint(types, index, null)) |brackets| return std.fmt.allocPrint(a, "give `{s}` in brackets: `{s}[{s}]{s}`", .{ pname, callee, brackets, parens });
+        if (try self.bracketHint(types, index, null)) |brackets| return a.print("give `{s}` in brackets: `{s}[{s}]{s}`", .{ pname, callee, brackets, parens });
         // The result with each known type argument in place.
         const args = try a.alloc(TypeId, own.len);
         for (own, types, args) |p, ty, *arg| arg.* = if (ty == sema.type_invalid) try self.ctx.intern(.{ .type_var = p }) else ty;
         const shown = try sema.substituteType(self.ctx, f.returns, .{ .params = own, .args = args });
         const holds = (try sema.substituteType(self.ctx, f.returns, .{ .params = own[index .. index + 1], .args = &.{self.t().void_id} })) != f.returns;
-        if (holds) return std.fmt.allocPrint(a, "give the type where the value goes: `x: {s} = {s}{s}`, with a type in place of `{s}`", .{ try self.tyName(shown), callee, parens, pname });
-        return std.fmt.allocPrint(a, "give `{s}` in brackets, naming each array, slice, or function type in them with a `type` alias", .{pname});
+        if (holds) return a.print("give the type where the value goes: `x: {s} = {s}{s}`, with a type in place of `{s}`", .{ try self.tyName(shown), callee, parens, pname });
+        return a.print("give `{s}` in brackets, naming each array, slice, or function type in them with a `type` alias", .{pname});
     }
 
     /// Bind the type parameters of `inf` in `pattern`, a parameter's type,
@@ -5845,7 +5845,7 @@ const Checker = struct {
         const at = self.ctx.types.get(actual);
         switch (self.ctx.types.get(pattern)) {
             .type_var => |tv| {
-                const i = std.mem.indexOfScalar(SymbolId, inf.own, tv) orelse return;
+                const i = std.mem.findScalar(SymbolId, inf.own, tv) orelse return;
                 const value = readValue(self.ctx, actual);
                 switch (self.ctx.types.get(value)) {
                     .none_literal => {
@@ -5893,7 +5893,7 @@ const Checker = struct {
             // the argument's type holds there: an array length, or a
             // generic type's value argument.
             .ct_param => |p| {
-                const i = std.mem.indexOfScalar(SymbolId, inf.own, p) orelse return;
+                const i = std.mem.findScalar(SymbolId, inf.own, p) orelse return;
                 if (at != .ct_value and at != .ct_param) return;
                 const b = &inf.bound[i];
                 if (b.ty == sema.type_invalid) {
@@ -6058,7 +6058,7 @@ const Checker = struct {
     fn checkConstructible(self: *Checker, sym: sema.Symbol, fields: []const Field, module: ?u32, pos: u32) Error!void {
         const m = module orelse if (sema.isProxy(sym)) sym.from.module_id else return;
         const foreign = self.ctx.foreign_semas.get(m) orelse return;
-        var private: std.ArrayListUnmanaged(u8) = .empty;
+        var private: std.ArrayList(u8) = .empty;
         defer private.deinit(self.ctx.allocator);
         var count: usize = 0;
         for (fields) |f| {
@@ -6069,7 +6069,7 @@ const Checker = struct {
             count += 1;
         }
         if (count == 0) return;
-        const tname = if (module != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ foreign.name, sym.name }) else sym.name;
+        const tname = if (module != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ foreign.name, sym.name }) else sym.name;
         const which = .{ if (count == 1) "field" else "fields", private.items, if (count == 1) "is" else "are" };
         if (foreign.is_std) {
             try self.err(pos, "only the standard library's module `{s}` can construct `{s}`: its {s} {s} {s} private; make one with its `pub` functions", .{ foreign.name, tname } ++ which);
@@ -6741,9 +6741,9 @@ const Checker = struct {
         for (types) |ty| if (ty == sema.type_invalid) return;
         const sym = self.ctx.symbols.items[sym_id];
         const b = inf.bound[i];
-        const took = try std.fmt.allocPrint(a, "`{s}.{s}` takes `{s} = {s}` from argument {d}", .{ sym.name, member, self.ctx.symbols.items[sym.type_params.?[i]].name, try self.tyName(b.ty), b.arg });
+        const took = try a.print("`{s}.{s}` takes `{s} = {s}` from argument {d}", .{ sym.name, member, self.ctx.symbols.items[sym.type_params.?[i]].name, try self.tyName(b.ty), b.arg });
         const named = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(types) } });
-        const hint = if (spelledInBrackets(self.ctx, named)) try std.fmt.allocPrint(a, "{s}; to pass `{s}` on to it, name the type: `{s}.{s}(...)`", .{ took, try self.tyName(types[i]), try self.tyName(named), member }) else took;
+        const hint = if (spelledInBrackets(self.ctx, named)) try a.print("{s}; to pass `{s}` on to it, name the type: `{s}.{s}(...)`", .{ took, try self.tyName(types[i]), try self.tyName(named), member }) else took;
         try self.result_hints.put(self.ctx.allocator, call.list.id, hint);
     }
 
@@ -6768,7 +6768,7 @@ const Checker = struct {
     fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const module_name = self.ctx.symbols.items[module_sym].name;
         const found = (try self.foreignSymbol(module_sym, name, pos)) orelse return self.skipCall(args);
-        const qualified = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ module_name, name });
+        const qualified = try self.ctx.arena.allocator().print("{s}.{s}", .{ module_name, name });
         switch (found.sym.kind) {
             .type_alias => return self.aliasCall(self.current_call orelse Sexp.nil, self.callee_node orelse Sexp.nil, qualified, try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id), args, pos),
             .function, .@"extern" => {
@@ -6835,7 +6835,7 @@ const Checker = struct {
         const name = self.ctx.source[at.start..at.end];
         if (recv.isKind(.read)) {
             if (mode == .read) return false;
-            const hint = if (returns == self.t().void_id) "" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "; to borrow the call's result, write `?({s}.{s}(...))`", .{ name, method });
+            const hint = if (returns == self.t().void_id) "" else try self.ctx.arena.allocator().print("; to borrow the call's result, write `?({s}.{s}(...))`", .{ name, method });
             if (mode == .write) {
                 try self.errAt(recv, "`{s}` writes its receiver: write `!{s}.{s}(...)`{s}", .{ method, name, method, hint });
             } else try self.errAt(recv, "`{s}` consumes its receiver: write `<{s}.{s}(...)`{s}", .{ method, name, method, hint });
@@ -7368,15 +7368,15 @@ const Checker = struct {
         const op = @tagName(div.kind().?);
         const a = self.ctx.arena.allocator();
         const fix = if (left == .src)
-            try std.fmt.allocPrint(a, "{s}.0 {s} {s}", .{ self.text(left), op, self.sourceText(right) })
+            try a.print("{s}.0 {s} {s}", .{ self.text(left), op, self.sourceText(right) })
         else
-            try std.fmt.allocPrint(a, "Float({s}) {s} {s}", .{ self.sourceText(left), op, self.sourceText(right) });
+            try a.print("Float({s}) {s} {s}", .{ self.sourceText(left), op, self.sourceText(right) });
         // A remainder of whole numbers is the same whole number as a
         // float's: only its type differs.
         if (div.isKind(.@"%")) return self.errAt(div, "`{s}` is a whole-number remainder; write `{s}` for a Float", .{ self.sourceText(div), fix });
-        const whole: []const u8 = if (self.constInt(div)) |v| try std.fmt.allocPrint(a, " ({d})", .{v}) else "";
+        const whole: []const u8 = if (self.constInt(div)) |v| try a.print(" ({d})", .{v}) else "";
         if (floatConstIn(f64, self.ctx.source, div)) |f| {
-            const shown = if (f == @trunc(f) and @abs(f) < 1e15) try std.fmt.allocPrint(a, "{d}.0", .{f}) else try std.fmt.allocPrint(a, "{d}", .{f});
+            const shown = if (f == @trunc(f) and @abs(f) < 1e15) try a.print("{d}.0", .{f}) else try a.print("{d}", .{f});
             return self.errAt(div, "`{s}` divides whole numbers{s}; for {s} write `{s}`", .{ self.sourceText(div), whole, shown, fix });
         }
         try self.errAt(div, "`{s}` divides whole numbers{s}; for a float write `{s}`", .{ self.sourceText(div), whole, fix });
@@ -7468,9 +7468,9 @@ const Checker = struct {
         const what = if (target == self.t().void_id)
             "a `sub` returns no value"
         else if (sema.enumVariantCount(self.ctx, target) != null)
-            try std.fmt.allocPrint(a, "`.{s}` is not a variant of `{s}`", .{ name, try self.tyName(target) })
+            try a.print("`.{s}` is not a variant of `{s}`", .{ name, try self.tyName(target) })
         else
-            try std.fmt.allocPrint(a, "`.{s}` is not a value of `{s}`", .{ name, try self.tyName(target) });
+            try a.print("`.{s}` is not a value of `{s}`", .{ name, try self.tyName(target) });
         try self.errAt(name_node, "{s}; to fail, name the error set: {s}", .{ what, try self.errorChoices(sets, name, true) });
     }
 
@@ -7484,15 +7484,15 @@ const Checker = struct {
         const decl = sema.nominalDecl(self.ctx, set) orelse return .{ .text = try self.tyName(set) };
         const sname = decl.symbol().name;
         const module = decl.module_id orelse return .{ .text = sname };
-        for (self.ctx.imports) |imp| if (imp.module_id == module) return .{ .text = try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, sname }) };
-        return .{ .text = try std.fmt.allocPrint(a, "{s}.{s}", .{ decl.ctx.name, sname }), .import = decl.ctx.name };
+        for (self.ctx.imports) |imp| if (imp.module_id == module) return .{ .text = try a.print("{s}.{s}", .{ imp.local_name, sname }) };
+        return .{ .text = try a.print("{s}.{s}", .{ decl.ctx.name, sname }), .import = decl.ctx.name };
     }
 
     /// `A.x`, `B.x`, or `C.x`: each of `sets` (with its member `name`,
     /// when `members`), saying which modules must be imported to write it.
     fn errorChoices(self: *Checker, sets: []const TypeId, name: []const u8, members: bool) Error![]const u8 {
         const a = self.ctx.arena.allocator();
-        var out: std.ArrayListUnmanaged(u8) = .empty;
+        var out: std.ArrayList(u8) = .empty;
         const conj = if (members) "or" else "and";
         for (sets, 0..) |set, i| {
             if (i + 1 < sets.len) {
@@ -7525,7 +7525,7 @@ const Checker = struct {
     /// member where it may be any error.
     fn errorArmKey(self: *Checker, subject: TypeId, set: TypeId, name: []const u8) Error![]const u8 {
         if (subject != self.t().any_error_id) return name;
-        return std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ try self.tyName(set), name });
+        return self.ctx.arena.allocator().print("{s}.{s}", .{ try self.tyName(set), name });
     }
 
     /// `E.name` or `m.E.name` as a pattern: a member of error set `E`,
@@ -7656,9 +7656,9 @@ const Checker = struct {
         intCast,
         floatCast,
         truncate,
-        intFromFloat,
+        trunc,
         floatFromInt,
-        enumFromInt,
+        fromBackingInt,
 
         fn isSafe(b: Builtin) bool {
             return switch (b) {
@@ -7675,7 +7675,13 @@ const Checker = struct {
         const args = ir.Builtin.args(node);
         const ty: TypeId = blk: {
             const builtin = std.meta.stringToEnum(Builtin, name) orelse {
-                try self.err(pos, "builtin `@{s}` is not supported; the builtins are `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`, and, inside `raw`, `@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@intFromFloat`, `@floatFromInt`, `@enumFromInt`", .{name});
+                if (std.mem.eql(u8, name, "enumFromInt")) {
+                    try self.err(pos, "builtin `@enumFromInt` is not supported; an integer becomes a plain enum with `@fromBackingInt`", .{});
+                } else if (std.mem.eql(u8, name, "intFromFloat")) {
+                    try self.err(pos, "builtin `@intFromFloat` is not supported; a float becomes an integer with `@trunc`", .{});
+                } else {
+                    try self.err(pos, "builtin `@{s}` is not supported; the builtins are `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`, and, inside `raw`, `@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`, `@floatFromInt`, `@fromBackingInt`", .{name});
+                }
                 try self.synthArgs(args);
                 break :blk self.t().invalid_id;
             };
@@ -7714,9 +7720,9 @@ const Checker = struct {
                 // value must convert.
                 switch (builtin) {
                     .intCast, .floatFromInt => try self.checkLiteralFits(args[0], to),
-                    .intFromFloat => try self.checkFloatFits(args[0], to),
-                    .enumFromInt => if (self.constInt(args[0]) != null) {
-                        try self.errAt(args[0], "`@enumFromInt` of a constant: name the variant instead (`.name`)", .{});
+                    .trunc => try self.checkFloatFits(args[0], to),
+                    .fromBackingInt => if (self.constInt(args[0]) != null) {
+                        try self.errAt(args[0], "`@fromBackingInt` of a constant: name the variant instead (`.name`)", .{});
                     },
                     else => {},
                 }
@@ -7744,9 +7750,9 @@ const Checker = struct {
                 }
             },
             .floatCast => if (!f_float or t_ != .float) return "it converts one float type to another",
-            .intFromFloat => if (!f_float or t_ != .int) return "it converts a float to an integer",
+            .trunc => if (!f_float or t_ != .int) return "it converts a float to an integer",
             .floatFromInt => if (!f_int or t_ != .float) return "it converts an integer to a float",
-            .enumFromInt => if (!f_int or !sema.isPlainEnum(self.ctx, to)) return "it converts an integer to a plain enum",
+            .fromBackingInt => if (!f_int or !sema.isPlainEnum(self.ctx, to)) return "it converts an integer to a plain enum",
             .bitCast => {
                 const fb = numericBits(f) orelse return "it reinterprets a number of the same size";
                 const tb = numericBits(t_) orelse return "it reinterprets a number of the same size";
@@ -7872,7 +7878,7 @@ const Checker = struct {
             try self.errAt(node, "this closure takes {d} parameter{s}, but its type `{s}` passes {d}", .{ param_nodes.len, plural(param_nodes.len), try self.tyName(expected.?), w.params.len });
         };
 
-        var params: std.ArrayListUnmanaged(TypeId) = .empty;
+        var params: std.ArrayList(TypeId) = .empty;
         defer params.deinit(self.ctx.allocator);
         var r = self.resolver();
         for (param_nodes, 0..) |p, i| {
@@ -7907,7 +7913,7 @@ const Checker = struct {
             return expected.?;
         }
 
-        var sites: std.ArrayListUnmanaged(ReturnSite) = .empty;
+        var sites: std.ArrayList(ReturnSite) = .empty;
         defer sites.deinit(self.ctx.allocator);
         self.body = .{ .ret = self.t().unknown_id, .is_sub = false, .fail_to = .closure, .returns = &sites };
         var ret = self.t().void_id;
@@ -7963,7 +7969,7 @@ const Checker = struct {
             if (!compatible(self.ctx, ty, ret)) {
                 // A generic call only literals typed would take the type.
                 const hint = if (self.literalResult(ir.Return.value(site.node)) != null and sema.isNumeric(self.ctx, ret))
-                    try std.fmt.allocPrint(self.ctx.arena.allocator(), "; give the closure its type where it goes (`f: fun(...) -> {s} = |...| ...`), and every `return` takes it", .{try self.tyName(ret)})
+                    try self.ctx.arena.allocator().print("; give the closure its type where it goes (`f: fun(...) -> {s} = |...| ...`), and every `return` takes it", .{try self.tyName(ret)})
                 else
                     "";
                 try self.errAt(site.node, "this closure returns `{s}`, but this `return` gives `{s}`{s}", .{ try self.tyName(ret), try self.tyName(ty), hint });
@@ -8300,7 +8306,7 @@ fn vecElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return pn.args[0];
 }
 
-fn collectConditionParts(a: std.mem.Allocator, cond: Sexp, out: *std.ArrayListUnmanaged(Sexp)) std.mem.Allocator.Error!void {
+fn collectConditionParts(a: std.mem.Allocator, cond: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
     if (rig.isConditionJoin(cond)) {
         try collectConditionParts(a, ir.get(cond, .left), out);
         return collectConditionParts(a, ir.get(cond, .right), out);
@@ -8364,7 +8370,7 @@ fn isBranching(e: Sexp) bool {
 
 /// The values a read of `e` reads: `e` itself, or through a branching
 /// value (`isBranching`), each of its value operands' leaves.
-fn readLeaves(a: std.mem.Allocator, e: Sexp, out: *std.ArrayListUnmanaged(Sexp)) std.mem.Allocator.Error!void {
+fn readLeaves(a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
     const h = e.kind() orelse return out.append(a, e);
     switch (h) {
         .@"if" => if (ir.If.@"else"(e) != .nil) {
@@ -8710,7 +8716,7 @@ pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
 const FrameWalker = struct {
     ctx: *SemContext,
 
-    const Slots = std.ArrayListUnmanaged(TypeId);
+    const Slots = std.ArrayList(TypeId);
 
     fn walk(self: *FrameWalker, node: Sexp, frame: ?*Slots, bound: bool) Error!void {
         const ctx = self.ctx;
@@ -8734,11 +8740,11 @@ const FrameWalker = struct {
         switch (kind) {
             .fun, .sub => {
                 const name = ir.get(node, .name);
-                const label = try std.fmt.allocPrint(ctx.arena.allocator(), "`{s}`", .{sema.identAt(ctx.source, name) orelse "?"});
+                const label = try ctx.arena.allocator().print("`{s}`", .{sema.identAt(ctx.source, name) orelse "?"});
                 try self.frameOf(label, ctx.startOf(name), &.{ ir.get(node, .params), ir.get(node, .body) });
             },
             .@"test" => {
-                const label = try std.fmt.allocPrint(ctx.arena.allocator(), "test {s}", .{sema.identAt(ctx.source, ir.get(node, .name)) orelse "?"});
+                const label = try ctx.arena.allocator().print("test {s}", .{sema.identAt(ctx.source, ir.get(node, .name)) orelse "?"});
                 try self.frameOf(label, ctx.startOf(node), &.{ir.get(node, .body)});
             },
             .drop_decl => try self.frameOf("`drop`", ctx.startOf(node), &.{ ir.get(node, .params), ir.get(node, .body) }),
@@ -8793,7 +8799,7 @@ fn frameBytes(ctx: *SemContext, tys: []const TypeId) Error!?u128 {
 }
 
 fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?sema.InstanceRoot) Error!void {
-    const in = if (of) |root| try std.fmt.allocPrint(ctx.arena.allocator(), " in `{s}`", .{try sema.rootName(ctx, root)}) else "";
+    const in = if (of) |root| try ctx.arena.allocator().print(" in `{s}`", .{try sema.rootName(ctx, root)}) else "";
     try ctx.err(pos, "{s} keeps {d} bytes of values on its stack{s}; a function keeps at most {d} (16 MiB), the size of the stack. Keep large data in a `Vec`", .{ label, bytes, in, sema.max_frame_bytes });
 }
 
@@ -8828,7 +8834,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
         .func => |f| f.ownParams(),
         .type => params,
     };
-    var buf: std.ArrayListUnmanaged(TypeId) = .empty;
+    var buf: std.ArrayList(TypeId) = .empty;
     defer buf.deinit(ctx.allocator);
     frames: for (ctx.generic_frames.items) |fr| {
         const uses = for (fr.tys) |ty| {
@@ -8894,20 +8900,20 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
     const a = ctx.arena.allocator();
     const t = try sema.formatType(ctx, n.ty);
     if (n.path.len > 0) return switch (n.why) {
-        .handle => std.fmt.allocPrint(a, "field `{s}` is a handle `{s}`, which could compare by identity or by content", .{ n.path, t }),
-        .closure => std.fmt.allocPrint(a, "field `{s}` is an owned closure `{s}`", .{ n.path, t }),
-        .function => std.fmt.allocPrint(a, "field `{s}` is a function value", .{n.path}),
-        .no_eq => std.fmt.allocPrint(a, "field `{s}` is a `{s}`, which has no `==`", .{ n.path, t }),
-        .borrow => std.fmt.allocPrint(a, "field `{s}` holds a borrow", .{n.path}),
-        .drop => std.fmt.allocPrint(a, "field `{s}` is a `{s}`: `{s}` declares `drop`", .{ n.path, t, t }),
+        .handle => a.print("field `{s}` is a handle `{s}`, which could compare by identity or by content", .{ n.path, t }),
+        .closure => a.print("field `{s}` is an owned closure `{s}`", .{ n.path, t }),
+        .function => a.print("field `{s}` is a function value", .{n.path}),
+        .no_eq => a.print("field `{s}` is a `{s}`, which has no `==`", .{ n.path, t }),
+        .borrow => a.print("field `{s}` holds a borrow", .{n.path}),
+        .drop => a.print("field `{s}` is a `{s}`: `{s}` declares `drop`", .{ n.path, t, t }),
     };
     return switch (n.why) {
-        .handle => std.fmt.allocPrint(a, "`{s}` is a handle, which could compare by identity or by content", .{t}),
-        .closure => std.fmt.allocPrint(a, "`{s}` is an owned closure", .{t}),
-        .function => std.fmt.allocPrint(a, "`{s}` is a function value", .{t}),
-        .no_eq => std.fmt.allocPrint(a, "`{s}` has no `==`", .{t}),
-        .borrow => std.fmt.allocPrint(a, "`{s}` is a borrow", .{t}),
-        .drop => std.fmt.allocPrint(a, "`{s}` declares `drop`", .{t}),
+        .handle => a.print("`{s}` is a handle, which could compare by identity or by content", .{t}),
+        .closure => a.print("`{s}` is an owned closure", .{t}),
+        .function => a.print("`{s}` is a function value", .{t}),
+        .no_eq => a.print("`{s}` has no `==`", .{t}),
+        .borrow => a.print("`{s}` is a borrow", .{t}),
+        .drop => a.print("`{s}` declares `drop`", .{t}),
     };
 }
 
@@ -8952,7 +8958,7 @@ fn checkSource(allocator: std.mem.Allocator, source: []const u8) !struct { ctx: 
 
 fn expectDiagnostic(ctx: *const SemContext, needle: []const u8) !void {
     for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, needle) != null) return;
+        if (std.mem.find(u8, d.message, needle) != null) return;
     }
     std.debug.print("missing diagnostic containing: {s}\n", .{needle});
     for (ctx.diagnostics.items) |d| std.debug.print("  got: {s}\n", .{d.message});

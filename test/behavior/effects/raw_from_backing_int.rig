@@ -1,0 +1,23 @@
+# `@fromBackingInt` turns an integer of any type into a plain enum
+# inside `raw`.
+
+enum Status
+  ok = 200
+  missing = 404
+
+fun of(n: Int) -> Status
+  raw
+    @fromBackingInt(n)
+
+fun ofSmall(n: U16) -> Status
+  raw
+    s: Status = @fromBackingInt(n)
+    s
+
+sub main()
+  print(ofSmall(200))
+  print(of(404))
+
+# expect:
+# .ok
+# .missing

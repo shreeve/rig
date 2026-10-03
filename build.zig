@@ -1,14 +1,14 @@
 //! Rig Build Configuration
 //!
 //! Steps:
-//!   zig build              — build bin/rig (with `-p PREFIX`: PREFIX/bin/rig)
+//!   zig build              — build bin/rig (with `-p PREFIX`: also PREFIX/bin/rig)
 //!   zig build parser       — regenerate src/parser.zig from rig.grammar via Nexus
 //!   zig build run -- ...   — run bin/rig with args
 //!   zig build test         — run the Zig unit tests (./test/run runs these too)
 //!
 //! `zig build parser` runs Nexus: `-Dnexus=PATH` (relative to where `zig build`
 //! runs), else nexus/bin/nexus in the nearest parent directory (build it with
-//! `zig build -Doptimize=ReleaseSafe`).
+//! `zig build -Doptimize=safe`).
 
 const std = @import("std");
 
@@ -52,17 +52,16 @@ pub fn build(b: *std.Build) void {
         .root_module = main_mod,
     });
 
-    // Without `--prefix`, bin/rig in the checkout, where ./test/run and
-    // the docs expect it.
-    const default_prefix = b.build_root.join(b.allocator, &.{"zig-out"}) catch @panic("OOM");
-    const install_exe = b.addInstallArtifact(exe, .{
-        .dest_dir = if (std.mem.eql(u8, b.install_prefix, default_prefix)) .{ .override = .{ .custom = "../bin" } } else .default,
-    });
-    b.getInstallStep().dependOn(&install_exe.step);
+    // bin/rig in the checkout, where ./test/run and the docs expect it,
+    // and PREFIX/bin/rig (zig-out/bin/rig without `-p`).
+    const checkout_bin = b.addUpdateSourceFiles();
+    checkout_bin.addCopyFileToSource(exe.getEmittedBin(), "bin/rig");
+    b.getInstallStep().dependOn(&checkout_bin.step);
+    b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_cmd.addArgs(args);
+    run_cmd.addPassthruArgs();
 
     const run_step = b.step("run", "Run the Rig compiler");
     run_step.dependOn(&run_cmd.step);
@@ -77,13 +76,16 @@ pub fn build(b: *std.Build) void {
 
 /// `nexus/bin/nexus` in the nearest parent directory of the build root
 /// that has one (the checkout's sibling, also from nested git worktrees).
+/// The configuration is cached: a found binary is a declared input, and
+/// without one every `zig build` looks again.
 fn findNexus(b: *std.Build) []const u8 {
-    const root = b.build_root.path orelse ".";
-    var dir: []const u8 = b.pathResolve(&.{root});
+    var dir: []const u8 = b.pathResolve(&.{b.fmt("{f}", .{b.root})});
     while (std.fs.path.dirname(dir)) |parent| : (dir = parent) {
         const candidate = b.pathJoin(&.{ parent, "nexus", "bin", "nexus" });
         std.Io.Dir.cwd().access(b.graph.io, candidate, .{}) catch continue;
+        b.dependOnFileMetadata(.{ .cwd_relative = candidate });
         return candidate;
     }
+    b.graph.poisonCache();
     return "../nexus/bin/nexus";
 }

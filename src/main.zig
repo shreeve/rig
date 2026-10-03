@@ -33,9 +33,10 @@ const usage =
     \\                         checking it (check): every IR node with its
     \\                         kind, span, and role-named children
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
-    \\                         `--release=safe` are ReleaseSafe, which keeps
-    \\                         overflow and bounds checks; `--release=fast`
-    \\                         is ReleaseFast. Default: Debug, leak-checked.
+    \\                         `--release=safe` are Zig's safe mode, which
+    \\                         keeps overflow and bounds checks;
+    \\                         `--release=fast` is its fast mode. Default:
+    \\                         debug, leak-checked.
     \\  -o <path>              Executable to write (build; default ./<name>)
     \\  -h, --help             Show this help
     \\  --version              Show the version
@@ -57,7 +58,7 @@ const usage =
     \\  RIG_STD          For developing the standard library: a directory
     \\                   to read it from, in place of the copy built into
     \\                   rig
-    \\  ZIG              The Zig 0.16 executable (default: zig on PATH)
+    \\  ZIG              The Zig 0.17 executable (default: zig on PATH)
     \\
 ;
 
@@ -71,9 +72,9 @@ const Mode = enum {
 
     fn zigFlag(mode: Mode) []const u8 {
         return switch (mode) {
-            .debug => "-ODebug",
-            .safe => "-OReleaseSafe",
-            .fast => "-OReleaseFast",
+            .debug => "-Odebug",
+            .safe => "-Osafe",
+            .fast => "-Ofast",
         };
     }
 };
@@ -247,7 +248,7 @@ fn dumpTokens(io: std.Io, path: []const u8, source: []const u8) !void {
     while (true) : (i += 1) {
         const tok = lexer.next();
         const lc = lines.at(tok.pos);
-        try w.print("{d:4} {d}:{d} {s:15} \"{s}\"\n", .{ i, lc.line, lc.col, @tagName(tok.cat), lexer.text(tok) });
+        try w.print("{d:4} {d}:{d} {s:15} \"{s}\"\n", .{ i, lc.line, lc.col, @tagName(tok.cat), lexer.base.text(tok) });
         if (tok.cat == .eof) break;
         if (tok.cat == .err) {
             try w.flush();
@@ -342,7 +343,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const flag = opts.mode.zigFlag();
     const code = switch (opts.command) {
         .run => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig }, opts.program_args),
-        .build => try runZig(allocator, io, pkg, &.{ zig, "build-exe", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig, try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{opts.out_path orelse graph.root().name}) }, &.{}),
+        .build => try runZig(allocator, io, pkg, &.{ zig, "build-exe", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig, try allocator.print("-femit-bin={s}", .{opts.out_path orelse graph.root().name}) }, &.{}),
         else => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, try writeTestDriver(allocator, io, env, &graph, pkg.dir) }, &.{}),
     };
     if (code == 0) return;
@@ -397,12 +398,12 @@ fn runZig(allocator: std.mem.Allocator, io: std.Io, pkg: Package, argv: []const 
         .stdout = .inherit,
         .stderr = .inherit,
     }) catch |err| switch (err) {
-        error.FileNotFound => fatal("error: cannot run `{s}`: install Zig 0.16 and put it on PATH, or set ZIG", .{argv[0]}),
+        error.FileNotFound => fatal("error: cannot run `{s}`: install Zig 0.17 and put it on PATH, or set ZIG", .{argv[0]}),
         else => return err,
     };
     return switch (try child.wait(io)) {
         .exited => |code| code,
-        .signal => |sig| 128 +| @as(u8, @truncate(@intFromEnum(sig))),
+        .signal => |sig| 128 +| @as(u8, @truncate(@backingInt(sig))),
         else => 1,
     };
 }
@@ -424,11 +425,8 @@ const Package = struct {
     root_zig: []const u8,
     root_source: []const u8,
     /// Zig's cache for building the package, inside the output
-    /// directory. Zig keys a cached build by its root file's path
-    /// relative to the cwd, then checks the files that build read by
-    /// their absolute paths; in a cache shared with a package at the
-    /// same relative path elsewhere, an identical root file would get
-    /// that package's executable. A cache per package cannot collide.
+    /// directory, so each package's builds stay apart from every other
+    /// package's.
     zig_cache: []const u8,
     /// A module declares an `extern "c"`, which Zig links only with `-lc`.
     links_libc: bool,
@@ -489,7 +487,7 @@ fn outputDir(allocator: std.mem.Allocator, env: Env, root: *const modules.Module
     else
         fatal("error: set RIG_OUT_DIR, XDG_CACHE_HOME, or HOME for emitted Zig", .{});
 
-    const project = try std.fmt.allocPrint(allocator, "{s}-{x:0>16}", .{ root.name, std.hash.Wyhash.hash(0, root.path) });
+    const project = try allocator.print("{s}-{x:0>16}", .{ root.name, std.hash.Wyhash.hash(0, root.path) });
     return std.fs.path.join(allocator, &.{ base, project });
 }
 

@@ -6,7 +6,7 @@ sub main()
   n: I64 = 7
   raw
     a: U8 = @truncate(x)
-    b: I32 = @intFromFloat(f)
+    b: I32 = @trunc(f)
     c: U64 = @bitCast(f)
     d: F32 = @floatCast(f)
     e: F64 = @floatFromInt(n)

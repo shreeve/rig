@@ -3,6 +3,6 @@ enum Status
   missing = 404
 fun of(n: Int) -> Status
   raw
-    @enumFromInt(n)
+    @fromBackingInt(n)
 sub main
   print(of(404))

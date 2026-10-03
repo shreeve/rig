@@ -238,7 +238,7 @@ pub const ImportEntry = struct {
 /// Interns types so structural equality is TypeId equality. Lookup is
 /// a hash map keyed by the type's structure.
 pub const TypeStore = struct {
-    items: std.ArrayListUnmanaged(Type) = .empty,
+    items: std.ArrayList(Type) = .empty,
     map: std.HashMapUnmanaged(TypeId, void, IdContext, std.hash_map.default_max_load_percentage) = .empty,
 
     invalid_id: TypeId = type_invalid,
@@ -479,7 +479,7 @@ pub const ScopeKind = enum { module, function, lambda, block };
 pub const Scope = struct {
     parent: ?ScopeId,
     /// In declaration order. Add with `SemContext.addToScope`.
-    symbols: std.ArrayListUnmanaged(SymbolId) = .empty,
+    symbols: std.ArrayList(SymbolId) = .empty,
     /// Name -> the latest symbol of that name; earlier ones are chained
     /// through `Symbol.prev_in_scope`.
     by_name: std.StringHashMapUnmanaged(SymbolId) = .empty,
@@ -500,7 +500,7 @@ pub const Suggest = struct {
     /// `; did you mean `best`?`, or nothing.
     pub fn hint(s: Suggest, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
         const best = s.best orelse return "";
-        return std.fmt.allocPrint(a, "; did you mean `{s}`?", .{best});
+        return a.print("; did you mean `{s}`?", .{best});
     }
 
     pub fn offer(s: *Suggest, candidate: []const u8) void {
@@ -658,7 +658,7 @@ pub const Facts = struct {
     error_members: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
-        inline for (std.meta.fields(Facts)) |f| @field(self, f.name).deinit(allocator);
+        inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
     }
 };
 
@@ -874,19 +874,19 @@ pub const SemContext = struct {
     /// Owns symbol names, messages, and every slice inside a Type.
     arena: std.heap.ArenaAllocator,
 
-    symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+    symbols: std.ArrayList(Symbol) = .empty,
     /// Scope 1 is the module scope.
-    scopes: std.ArrayListUnmanaged(Scope) = .empty,
+    scopes: std.ArrayList(Scope) = .empty,
     types: TypeStore,
     /// Facts of each interned type, by TypeId.
-    type_info: std.ArrayListUnmanaged(TypeInfo) = .empty,
+    type_info: std.ArrayList(TypeInfo) = .empty,
     /// Every declared type's `contents` is known, and so are the
     /// ownership facts in `type_info`.
     contents_ready: bool = false,
     /// Checks on types spelled in declarations that wait for
     /// `contents_ready`.
-    deferred_checks: std.ArrayListUnmanaged(resolve.DeferredCheck) = .empty,
-    diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
+    deferred_checks: std.ArrayList(resolve.DeferredCheck) = .empty,
+    diagnostics: std.ArrayList(Diagnostic) = .empty,
     /// Each error reported, by position and message hash -> its index in
     /// `diagnostics`: the same finding reached twice is reported once.
     /// (A check whose diagnostics are dropped truncates `diagnostics`.)
@@ -916,7 +916,7 @@ pub const SemContext = struct {
     /// type from another module names its origin by id.
     foreign_semas: *const ModuleMap = &no_modules,
     /// The ids of the modules this one reaches through its imports.
-    reach: std.DynamicBitSetUnmanaged = .{},
+    reach: std.bit_set.Dynamic = .{},
 
     /// Type alias symbol -> its target type expression, resolved on
     /// first use (aliases may be used before they are declared).
@@ -924,22 +924,22 @@ pub const SemContext = struct {
     /// Aliases currently being resolved, to report cycles.
     alias_in_progress: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// Operations generic bodies apply to their type parameters.
-    generic_requirements: std.ArrayListUnmanaged(GenericRequirement) = .empty,
+    generic_requirements: std.ArrayList(GenericRequirement) = .empty,
     /// Instantiated generic type -> position of its first spelling.
     instantiation_sites: std.AutoHashMapUnmanaged(TypeId, u32) = .empty,
     /// Instances of user generics spelled with type parameters, inside
     /// generic declarations (`Opt[T]` in `Wrap[T]`'s methods). See
     /// `expandInstantiations`.
-    generic_uses: std.ArrayListUnmanaged(TypeId) = .empty,
+    generic_uses: std.ArrayList(TypeId) = .empty,
     /// The instances of generic functions the module's calls make, each
     /// with the position of its first call, in the order found.
-    fn_instances: std.ArrayListUnmanaged(struct { inst: FnInstance, site: u32, via: ?InstanceRoot = null }) = .empty,
+    fn_instances: std.ArrayList(struct { inst: FnInstance, site: u32, via: ?InstanceRoot = null }) = .empty,
     /// Every instance in `fn_instances` and `generic_fn_uses`.
     fn_instance_set: std.HashMapUnmanaged(FnInstance, void, FnInstance.Context, std.hash_map.default_max_load_percentage) = .empty,
     /// Instances of generic functions called with type parameters, inside
     /// generic bodies (`max[T]` in `fun top[T]`); expanded like
     /// `generic_uses`.
-    generic_fn_uses: std.ArrayListUnmanaged(FnInstance) = .empty,
+    generic_fn_uses: std.ArrayList(FnInstance) = .empty,
     /// Integer constants: bindings never reassigned or written whose
     /// value is a constant expression. The emitted Zig computes these at
     /// compile time, so sema checks their arithmetic. Module constants
@@ -950,11 +950,11 @@ pub const SemContext = struct {
     /// The array types spelled or built in generic declarations, which
     /// each instance checks against `max_value_bytes`; `module_id` is
     /// the module whose source `pos` is in (0 for this one).
-    generic_arrays: std.ArrayListUnmanaged(struct { ty: TypeId, pos: u32, module_id: u32 = 0 }) = .empty,
+    generic_arrays: std.ArrayList(struct { ty: TypeId, pos: u32, module_id: u32 = 0 }) = .empty,
     /// The stack values of the generic functions and closures, and of the
     /// generic types' methods, whose sizes depend on their parameters:
     /// each instance checks them against `max_frame_bytes`.
-    generic_frames: std.ArrayListUnmanaged(Frame) = .empty,
+    generic_frames: std.ArrayList(Frame) = .empty,
     /// The types reported as too large, each once; a type holding one is
     /// not reported again.
     oversized: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
@@ -976,7 +976,7 @@ pub const SemContext = struct {
     /// The copies of type parameters' values generic bodies make, which
     /// the ownership checker finds: this module's own, recorded after it
     /// is checked, and those of the proxies' bodies, imported with them.
-    plain_reqs: std.ArrayListUnmanaged(PlainRequirement) = .empty,
+    plain_reqs: std.ArrayList(PlainRequirement) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -1076,13 +1076,13 @@ pub const SemContext = struct {
     /// id, for this module): where another module's generic body applies
     /// an operation an instance made here does not support.
     pub fn noteIn(self: *SemContext, module: u32, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
-        const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
+        const msg = try self.arena.allocator().print(fmt, args);
         const m = if (module == self.module_id) 0 else module;
         try self.diagnostics.append(self.allocator, .{ .severity = .note, .pos = pos, .end = pos, .message = msg, .module = m });
     }
 
     fn report(self: *SemContext, severity: diag.Severity, at: diag.Span, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
-        const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
+        const msg = try self.arena.allocator().print(fmt, args);
         if (severity == .@"error") {
             const gop = try self.reported.getOrPut(self.allocator, .{ .pos = at.start, .message = std.hash.Wyhash.hash(0, msg) });
             if (gop.found_existing and gop.value_ptr.* < self.diagnostics.items.len) {
@@ -1601,7 +1601,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
 /// read by its own release (a guard held to the end of its scope), and
 /// `_` names nothing. Parameters and module constants are exempt.
 fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
-    var read: std.DynamicBitSetUnmanaged = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
+    var read: std.bit_set.Dynamic = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
     defer read.deinit(ctx.allocator);
     var names = ctx.facts.names.iterator();
     while (names.next()) |e| {
@@ -1639,7 +1639,7 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// checked for nesting themselves (`checkSelfNesting`).
 fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
     if (ctx.generic_uses.items.len == 0 and ctx.generic_fn_uses.items.len == 0) return;
-    var work: std.ArrayListUnmanaged(ExpandItem) = .empty;
+    var work: std.ArrayList(ExpandItem) = .empty;
     defer work.deinit(ctx.allocator);
     var it = ctx.instantiation_sites.iterator();
     while (it.next()) |e| {
@@ -1674,7 +1674,7 @@ const Reached = struct {
 /// type parameters skipped; with `reached`, those over type parameters
 /// are followed too and kept there. Whether an instance nesting ever
 /// deeper was reported.
-fn expand(ctx: *SemContext, work: *std.ArrayListUnmanaged(ExpandItem), reached: ?*Reached) std.mem.Allocator.Error!bool {
+fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached) std.mem.Allocator.Error!bool {
     while (work.pop()) |item| {
         for (ctx.generic_fn_uses.items) |use| {
             if (!argsUseParams(ctx, use.args, item.subst.params)) continue;
@@ -1756,7 +1756,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayListUnmanaged(ExpandItem), reached: 
 fn checkSelfNesting(ctx: *SemContext) std.mem.Allocator.Error!void {
     var reached: Reached = .{};
     defer reached.deinit(ctx.allocator);
-    var work: std.ArrayListUnmanaged(ExpandItem) = .empty;
+    var work: std.ArrayList(ExpandItem) = .empty;
     defer work.deinit(ctx.allocator);
     for (0..ctx.symbols.items.len) |i| {
         const sym = ctx.symbols.items[i];
@@ -1798,7 +1798,7 @@ fn selfSeed(ctx: *SemContext, name: []const u8, outer: []const SymbolId, ty: Typ
         else => return null,
     };
     const a = ctx.arena.allocator();
-    var params: std.ArrayListUnmanaged(SymbolId) = .empty;
+    var params: std.ArrayList(SymbolId) = .empty;
     try params.appendSlice(a, outer);
     for (f.ct_syms, 0..) |p, i| {
         if (p == symbol_invalid or i >= f.ct_params.len) continue;
@@ -1849,7 +1849,7 @@ fn isRenaming(ctx: *const SemContext, args: []const TypeId) bool {
             .type_var, .ct_param => {},
             else => return false,
         }
-        if (std.mem.indexOfScalar(TypeId, args[0..i], a) != null) return false;
+        if (std.mem.findScalar(TypeId, args[0..i], a) != null) return false;
     }
     return true;
 }
@@ -1863,7 +1863,7 @@ fn ownParamArgs(ctx: *SemContext, params: []const SymbolId, args: []TypeId) std.
 fn usesOnlyParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
     if (!ctx.typeInfo(ty).has_type_var) return true;
     switch (ctx.types.get(ty)) {
-        .type_var, .ct_param => |sym| return std.mem.indexOfScalar(SymbolId, params, sym) != null,
+        .type_var, .ct_param => |sym| return std.mem.findScalar(SymbolId, params, sym) != null,
         else => {},
     }
     var it = typeChildren(ctx, ty);
@@ -1889,7 +1889,7 @@ pub fn formatFnInstance(ctx: *SemContext, inst: FnInstance) std.mem.Allocator.Er
 
 /// `formatFnInstance` with a caller-chosen allocator.
 pub fn formatFnInstanceIn(ctx: *const SemContext, a: std.mem.Allocator, inst: FnInstance) std.mem.Allocator.Error![]const u8 {
-    return std.fmt.allocPrint(a, "{s}[{s}]", .{ inst.name, try formatTypeList(ctx, a, inst.ownArgs()) });
+    return a.print("{s}[{s}]", .{ inst.name, try formatTypeList(ctx, a, inst.ownArgs()) });
 }
 
 const max_instance_depth = 24;
@@ -1898,7 +1898,7 @@ const max_instance_depth = 24;
 pub fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
     if (!ctx.typeInfo(ty).has_type_var) return false;
     switch (ctx.types.get(ty)) {
-        .type_var, .ct_param => |sym| return std.mem.indexOfScalar(SymbolId, params, sym) != null,
+        .type_var, .ct_param => |sym| return std.mem.findScalar(SymbolId, params, sym) != null,
         else => {},
     }
     var it = typeChildren(ctx, ty);
@@ -2063,7 +2063,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
             break :blk .{ .glue = c.glue, .plain = c.plain };
         },
         .type_var => |sym| blk: {
-            const i = std.mem.indexOfScalar(SymbolId, params, sym) orelse break :blk .{ .type_var = true };
+            const i = std.mem.findScalar(SymbolId, params, sym) orelse break :blk .{ .type_var = true };
             held[i] = true;
             break :blk .{ .plain = true, .type_var = true };
         },
@@ -2131,9 +2131,9 @@ const ReachEdge = struct {
 /// the types that hold something directly, so each field type is walked
 /// once.
 fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
-    var edges: std.ArrayListUnmanaged(ReachEdge) = .empty;
+    var edges: std.ArrayList(ReachEdge) = .empty;
     defer edges.deinit(ctx.allocator);
-    var work: std.ArrayListUnmanaged(SymbolId) = .empty;
+    var work: std.ArrayList(SymbolId) = .empty;
     defer work.deinit(ctx.allocator);
     for (ctx.symbols.items, 0..) |sym, i| {
         if (!isTypeDecl(sym)) continue;
@@ -2168,7 +2168,7 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// matters here. What a declared type `ty` names holds is read from its
 /// contents; while they are computed (`computeReach`), an edge from it
 /// to `into.owner` is added instead.
-fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edges: *std.ArrayListUnmanaged(ReachEdge), owner: SymbolId }) std.mem.Allocator.Error!Reach {
+fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edges: *std.ArrayList(ReachEdge), owner: SymbolId }) std.mem.Allocator.Error!Reach {
     const r: Reach = switch (ctx.types.get(ty)) {
         .slice => .{ .borrows = .{ .any = true } },
         .borrow_read => |inner| (Reach{ .borrows = .{ .any = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
@@ -2239,7 +2239,7 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
 fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
     var c = try Components.run(ctx, false);
     defer c.deinit();
-    var targets: std.ArrayListUnmanaged(SymbolId) = .empty;
+    var targets: std.ArrayList(SymbolId) = .empty;
     defer targets.deinit(ctx.allocator);
     for (ctx.symbols.items, 0..) |sym, i| {
         if (!c.cyclic[i]) continue;
@@ -2251,7 +2251,7 @@ fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
             // `low` names the component after the search.
             for (targets.items) |t| if (c.low[t] == c.low[i]) break :fields f;
         } else continue;
-        const shown = if (sym.kind == .generic_type) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}[...]", .{sym.name}) else sym.name;
+        const shown = if (sym.kind == .generic_type) try ctx.arena.allocator().print("{s}[...]", .{sym.name}) else sym.name;
         try ctx.err(f.decl_pos, "`{s}` contains itself by value through `{s}`, so it would have no finite size; hold it through a shared handle (`*{s}`)", .{ shown, f.name, shown });
     }
 }
@@ -2276,12 +2276,12 @@ const Components = struct {
     cyclic: []bool,
     /// The types in completed components, each component after every
     /// one its members hold by value.
-    order: std.ArrayListUnmanaged(SymbolId) = .empty,
-    stack: std.ArrayListUnmanaged(SymbolId) = .empty,
+    order: std.ArrayList(SymbolId) = .empty,
+    stack: std.ArrayList(SymbolId) = .empty,
     /// The types being visited, innermost last, each with its range of
     /// `targets` and the next one to follow.
-    visiting: std.ArrayListUnmanaged(struct { v: SymbolId, start: u32, next: u32, end: u32 }) = .empty,
-    targets: std.ArrayListUnmanaged(SymbolId) = .empty,
+    visiting: std.ArrayList(struct { v: SymbolId, start: u32, next: u32, end: u32 }) = .empty,
+    targets: std.ArrayList(SymbolId) = .empty,
 
     fn run(ctx: *const SemContext, every_arg: bool) std.mem.Allocator.Error!Components {
         const n = ctx.symbols.items.len;
@@ -2337,7 +2337,7 @@ const Components = struct {
                 self.low[parent] = @min(self.low[parent], self.low[v]);
             }
             if (self.low[v] != self.index[v]) continue;
-            const start = std.mem.lastIndexOfScalar(SymbolId, self.stack.items, v).?;
+            const start = std.mem.findScalarLast(SymbolId, self.stack.items, v).?;
             const members = self.stack.items[start..];
             for (members) |m| {
                 self.on_stack[m] = false;
@@ -2389,7 +2389,7 @@ fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
 /// The declared types a value of `ty` holds inline (not behind a handle,
 /// a borrow, or a Vec's or a Box's heap memory), appended to `out`; with
 /// `every_arg`, those of every argument of a generic instance as well.
-fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanaged(SymbolId), every_arg: bool) std.mem.Allocator.Error!void {
+fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), every_arg: bool) std.mem.Allocator.Error!void {
     switch (ctx.types.get(ty)) {
         .optional, .fallible => |inner| try byValueTargets(ctx, inner, out, every_arg),
         .array => |a| try byValueTargets(ctx, a.elem, out, every_arg),
@@ -2731,7 +2731,7 @@ pub fn isErrorSet(ctx: *const SemContext, ty: TypeId) bool {
 /// its own sets, private ones included, then the `pub` sets of the
 /// modules it reaches through its imports, that have a member `name`.
 pub fn errorSetsWith(ctx: *SemContext, name: []const u8) std.mem.Allocator.Error![]const TypeId {
-    var out: std.ArrayListUnmanaged(TypeId) = .empty;
+    var out: std.ArrayList(TypeId) = .empty;
     const a = ctx.arena.allocator();
     try collectErrorSets(ctx, ctx, null, name, &out, a);
     var it = ctx.reach.iterator(.{});
@@ -2739,7 +2739,7 @@ pub fn errorSetsWith(ctx: *SemContext, name: []const u8) std.mem.Allocator.Error
     return out.items;
 }
 
-fn collectErrorSets(ctx: *SemContext, in: *const SemContext, module_id: ?u32, name: []const u8, out: *std.ArrayListUnmanaged(TypeId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
+fn collectErrorSets(ctx: *SemContext, in: *const SemContext, module_id: ?u32, name: []const u8, out: *std.ArrayList(TypeId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
     for (in.symbols.items, 0..) |sym, i| {
         if (!sym.flags.error_set or isProxy(sym)) continue;
         if (module_id != null and !sym.flags.is_public) continue;
@@ -2802,7 +2802,7 @@ pub const NotEquatable = struct {
 /// borrows held in a field are not equatable. Each generic parameter
 /// `ty` holds is appended to `params`, when given: `==` on `ty` holds in
 /// the instances where it holds for them.
-pub fn notEquatable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayListUnmanaged(SymbolId)) std.mem.Allocator.Error!?NotEquatable {
+pub fn notEquatable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayList(SymbolId)) std.mem.Allocator.Error!?NotEquatable {
     var walk: EquatableWalk = .{ .ctx = ctx, .params = params };
     defer walk.deinit();
     try walk.items.append(ctx.allocator, .{ .ty = ty });
@@ -2810,7 +2810,7 @@ pub fn notEquatable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayListUnmanag
     while (walk.work.pop()) |i| {
         const why = (try walk.step(i)) orelse continue;
         // The path of fields from the compared type to the one found.
-        var names: std.ArrayListUnmanaged([]const u8) = .empty;
+        var names: std.ArrayList([]const u8) = .empty;
         defer names.deinit(ctx.allocator);
         var at = i;
         while (at != 0) : (at = walk.items.items[at].parent) {
@@ -2835,13 +2835,13 @@ pub fn isEquatable(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!bool {
 /// applied.
 const EquatableWalk = struct {
     ctx: *SemContext,
-    params: ?*std.ArrayListUnmanaged(SymbolId),
+    params: ?*std.ArrayList(SymbolId),
     /// Every type reached: the compared one first, then each with the
     /// one that holds it and, for a field or payload, its name
     /// (`variant.field` for a payload field).
-    items: std.ArrayListUnmanaged(struct { ty: TypeId, parent: u32 = 0, name: []const u8 = "", in_decl: bool = false }) = .empty,
+    items: std.ArrayList(struct { ty: TypeId, parent: u32 = 0, name: []const u8 = "", in_decl: bool = false }) = .empty,
     /// The items still to check, the next last.
-    work: std.ArrayListUnmanaged(u32) = .empty,
+    work: std.ArrayList(u32) = .empty,
     /// Declared types checked or being checked: one reached again,
     /// through itself or another path, adds nothing new.
     visited: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
@@ -2867,7 +2867,7 @@ const EquatableWalk = struct {
             .function => return .function,
             // A parameter of another module's generic type is always
             // bound by the instance that reaches it.
-            .type_var => |sym| if (self.params) |out| if (!isProxy(ctx.symbols.items[sym]) and std.mem.indexOfScalar(SymbolId, out.items, sym) == null) try out.append(ctx.allocator, sym),
+            .type_var => |sym| if (self.params) |out| if (!isProxy(ctx.symbols.items[sym]) and std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(ctx.allocator, sym),
             .nominal, .imported_nominal, .parameterized_nominal => return self.stepDecl(i),
             .void, .fallible, .range => return .no_eq,
             else => {},
@@ -2902,7 +2902,7 @@ const EquatableWalk = struct {
                 j -= 1;
                 const d = held[j];
                 const fty = if (decl.module_id) |m| try importType(ctx, decl.ctx, d.ty, m) else try substituteType(ctx, d.ty, subst);
-                const name = if (f.is_variant) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}.{s}", .{ f.name, d.name }) else d.name;
+                const name = if (f.is_variant) try ctx.arena.allocator().print("{s}.{s}", .{ f.name, d.name }) else d.name;
                 try self.push(i, fty, name);
             }
         }
@@ -3098,10 +3098,10 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             return ctx.intern(.{ .array = .{ .elem = e, .len = n } });
         },
         .function => |f| {
-            var params: std.ArrayListUnmanaged(TypeId) = .empty;
+            var params: std.ArrayList(TypeId) = .empty;
             defer params.deinit(ctx.allocator);
             for (f.params) |p| try params.append(ctx.allocator, try substituteType(ctx, p, subst));
-            var ct: std.ArrayListUnmanaged(TypeId) = .empty;
+            var ct: std.ArrayList(TypeId) = .empty;
             defer ct.deinit(ctx.allocator);
             for (f.ct_params) |p| try ct.append(ctx.allocator, try substituteType(ctx, p, subst));
             const ret = try substituteType(ctx, f.returns, subst);
@@ -3109,7 +3109,7 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             return ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = f.ct_syms } });
         },
         .parameterized_nominal => |pn| {
-            var args: std.ArrayListUnmanaged(TypeId) = .empty;
+            var args: std.ArrayList(TypeId) = .empty;
             defer args.deinit(ctx.allocator);
             for (pn.args) |a| try args.append(ctx.allocator, try substituteType(ctx, a, subst));
             if (std.mem.eql(TypeId, args.items, pn.args)) return ty_id;
@@ -3258,10 +3258,10 @@ pub fn maybeDropGlue(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// The type parameters `ty` holds by value, appended to `out`.
-pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanaged(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
+pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
     if (!ctx.holds(ty).holds_type_var) return;
     switch (ctx.types.get(ty)) {
-        .type_var => |sym| if (std.mem.indexOfScalar(SymbolId, out.items, sym) == null) try out.append(a, sym),
+        .type_var => |sym| if (std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(a, sym),
         .optional, .fallible => |inner| try heldTypeVars(ctx, inner, out, a),
         .array => |arr| try heldTypeVars(ctx, arr.elem, out, a),
         .parameterized_nominal => |pn| {
@@ -3295,10 +3295,10 @@ pub fn importType(
             .len = try importType(local_ctx, foreign_ctx, a.len, origin_module_id),
         } }),
         .function => |f| {
-            var params: std.ArrayListUnmanaged(TypeId) = .empty;
+            var params: std.ArrayList(TypeId) = .empty;
             defer params.deinit(local_ctx.allocator);
             for (f.params) |p| try params.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, p, origin_module_id));
-            var ct: std.ArrayListUnmanaged(TypeId) = .empty;
+            var ct: std.ArrayList(TypeId) = .empty;
             defer ct.deinit(local_ctx.allocator);
             for (f.ct_params) |p| try ct.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, p, origin_module_id));
             const ret = try importType(local_ctx, foreign_ctx, f.returns, origin_module_id);
@@ -3322,7 +3322,7 @@ pub fn importType(
         .parameterized_nominal => |pn| {
             const sym = try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = pn.sym });
             if (sym == symbol_invalid) return local_ctx.types.invalid_id;
-            var args: std.ArrayListUnmanaged(TypeId) = .empty;
+            var args: std.ArrayList(TypeId) = .empty;
             defer args.deinit(local_ctx.allocator);
             for (pn.args) |a| try args.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, a, origin_module_id));
             return local_ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym, .args = args.items } });
@@ -3364,7 +3364,7 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
     const generic = fsym.kind == .generic_type;
     const id = try ctx.addSymbol(.{
         // A generic type is named as this module spells it: `lib.Wrap`.
-        .name = if (generic) try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, fsym.name }) else fsym.name,
+        .name = if (generic) try a.print("{s}.{s}", .{ foreign.name, fsym.name }) else fsym.name,
         .kind = fsym.kind,
         .ty = ctx.types.unknown_id,
         .decl_pos = imported_decl_pos,
@@ -3435,13 +3435,13 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         for (use.args, args) |t, *out| out.* = try importType(ctx, foreign, t, m);
         // A module-level function is named as this module would call
         // it: `lib.helper[T]`; a method keeps its bare name.
-        const name = if (isModuleFunction(foreign, use)) try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, use.name }) else use.name;
+        const name = if (isModuleFunction(foreign, use)) try a.print("{s}.{s}", .{ foreign.name, use.name }) else use.name;
         _ = try ctx.recordFnInstance(.{ .name = name, .params = params, .args = args, .own = use.own }, 0, null);
     }
     for (foreign.generic_uses.items, 0..) |use, i| {
         if (!usesParams(foreign, use, &here) or !try firstImport(ctx, m, .uses, i)) continue;
         const ty = try importType(ctx, foreign, use, m);
-        if (std.mem.indexOfScalar(TypeId, ctx.generic_uses.items, ty) == null) try ctx.generic_uses.append(ctx.allocator, ty);
+        if (std.mem.findScalar(TypeId, ctx.generic_uses.items, ty) == null) try ctx.generic_uses.append(ctx.allocator, ty);
     }
 }
 
@@ -3453,7 +3453,7 @@ fn isModuleFunction(ctx: *const SemContext, use: FnInstance) bool {
     const sym = ctx.symbols.items[top];
     if (sym.kind != .function) return false;
     return switch (ctx.types.get(sym.ty)) {
-        .function => |f| std.mem.indexOfScalar(SymbolId, f.ct_syms, use.params[0]) != null,
+        .function => |f| std.mem.findScalar(SymbolId, f.ct_syms, use.params[0]) != null,
         else => false,
     };
 }
@@ -3651,8 +3651,8 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .bool => "Bool",
         .string => "String",
         .text => "Text",
-        .int => |info| if (info.bits == 0) "Int" else try std.fmt.allocPrint(a, "{c}{d}", .{ @as(u8, if (info.signed) 'I' else 'U'), info.bits }),
-        .float => |info| if (info.bits == 0) "Float" else try std.fmt.allocPrint(a, "F{d}", .{info.bits}),
+        .int => |info| if (info.bits == 0) "Int" else try a.print("{c}{d}", .{ @as(u8, if (info.signed) 'I' else 'U'), info.bits }),
+        .float => |info| if (info.bits == 0) "Float" else try a.print("F{d}", .{info.bits}),
         .int_literal => "Int",
         .float_literal => "Float",
         .none_literal => "none",
@@ -3660,18 +3660,18 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .noreturn => "NoReturn",
         .optional => |inner| try formatSuffixed(ctx, a, inner, '?'),
         .fallible => |inner| try formatSuffixed(ctx, a, inner, '!'),
-        .borrow_read => |inner| try std.fmt.allocPrint(a, "?{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .borrow_read => |inner| try a.print("?{s}", .{try formatTypeIn(ctx, a, inner)}),
         .callable => |f| try formatTypeIn(ctx, a, f),
-        .borrow_write => |inner| try std.fmt.allocPrint(a, "!{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .borrow_write => |inner| try a.print("!{s}", .{try formatTypeIn(ctx, a, inner)}),
         .shared => |inner| try formatHandle(ctx, a, inner, '*'),
         .weak => |inner| try formatHandle(ctx, a, inner, '~'),
-        .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatTypeIn(ctx, a, s.elem)}),
-        .array => |arr| try std.fmt.allocPrint(a, "[{s}]{s}", .{ try formatTypeIn(ctx, a, arr.len), try formatTypeIn(ctx, a, arr.elem) }),
-        .range => |e| try std.fmt.allocPrint(a, "range of {s}", .{try formatTypeIn(ctx, a, e)}),
+        .slice => |s| try a.print("[]{s}", .{try formatTypeIn(ctx, a, s.elem)}),
+        .array => |arr| try a.print("[{s}]{s}", .{ try formatTypeIn(ctx, a, arr.len), try formatTypeIn(ctx, a, arr.elem) }),
+        .range => |e| try a.print("range of {s}", .{try formatTypeIn(ctx, a, e)}),
         .function => |f| if (f.is_sub)
-            try std.fmt.allocPrint(a, "sub({s}){s}", .{ try formatTypeList(ctx, a, f.params), if (f.returns == ctx.types.void_id) "" else "!" })
+            try a.print("sub({s}){s}", .{ try formatTypeList(ctx, a, f.params), if (f.returns == ctx.types.void_id) "" else "!" })
         else
-            try std.fmt.allocPrint(a, "fun({s}) -> {s}", .{ try formatTypeList(ctx, a, f.params), try formatTypeIn(ctx, a, f.returns) }),
+            try a.print("fun({s}) -> {s}", .{ try formatTypeList(ctx, a, f.params), try formatTypeIn(ctx, a, f.returns) }),
         .nominal => |sym| ctx.symbols.items[sym].name,
         .imported_nominal => |in| blk: {
             const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk "<imported>";
@@ -3679,20 +3679,20 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
             const name = foreign.symbols.items[in.sym_id].name;
             // Spelled the way this module names it: `other.Point`.
             for (ctx.imports) |imp| {
-                if (imp.module_id == in.module_id) break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, name });
+                if (imp.module_id == in.module_id) break :blk try a.print("{s}.{s}", .{ imp.local_name, name });
             }
             // A module reached only through an import, by its file name.
-            break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, name });
+            break :blk try a.print("{s}.{s}", .{ foreign.name, name });
         },
-        .parameterized_nominal => |pn| try std.fmt.allocPrint(a, "{s}[{s}]", .{ ctx.symbols.items[pn.sym].name, try formatTypeList(ctx, a, pn.args) }),
+        .parameterized_nominal => |pn| try a.print("{s}[{s}]", .{ ctx.symbols.items[pn.sym].name, try formatTypeList(ctx, a, pn.args) }),
         .type_var, .ct_param => |sym| ctx.symbols.items[sym].name,
-        .ct_value => |v| try std.fmt.allocPrint(a, "{d}", .{v.int}),
+        .ct_value => |v| try a.print("{d}", .{v.int}),
     };
 }
 
 /// Types separated by `, `.
 fn formatTypeList(ctx: *const SemContext, a: std.mem.Allocator, ids: []const TypeId) std.mem.Allocator.Error![]const u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     for (ids, 0..) |id, i| {
         if (i > 0) try buf.appendSlice(a, ", ");
         try buf.appendSlice(a, try formatTypeIn(ctx, a, id));
@@ -3709,9 +3709,9 @@ fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, s
     // `N??` would lex as the `??` operator: `(N?)?`.
     const doubled = suffix == '?' and ctx.types.get(inner) == .optional;
     return if (doubled or takesNoSuffix(ctx, inner))
-        std.fmt.allocPrint(a, "({s}){c}", .{ s, suffix })
+        a.print("({s}){c}", .{ s, suffix })
     else
-        std.fmt.allocPrint(a, "{s}{c}", .{ s, suffix });
+        a.print("{s}{c}", .{ s, suffix });
 }
 
 /// A type whose spelling a suffix cannot follow: a borrow (which covers
@@ -3731,8 +3731,8 @@ fn formatHandle(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, sig
     const s = try formatTypeIn(ctx, a, inner);
     return switch (ctx.types.get(inner)) {
         // A handle binds tighter than a suffix, and takes no borrow prefix.
-        .optional, .fallible, .borrow_read, .borrow_write => std.fmt.allocPrint(a, "{c}({s})", .{ sigil, s }),
-        else => std.fmt.allocPrint(a, "{c}{s}", .{ sigil, s }),
+        .optional, .fallible, .borrow_read, .borrow_write => a.print("{c}({s})", .{ sigil, s }),
+        else => a.print("{c}{s}", .{ sigil, s }),
     };
 }
 
@@ -4189,7 +4189,7 @@ pub fn isFloatLiteralText(text: []const u8) bool {
     if (text.len == 0) return false;
     if ((text[0] < '0' or text[0] > '9') and text[0] != '.') return false;
     if (text.len > 1 and text[0] == '0' and (text[1] == 'x' or text[1] == 'X')) return false;
-    return std.mem.indexOfAny(u8, text, ".eE") != null;
+    return std.mem.findAny(u8, text, ".eE") != null;
 }
 
 // =============================================================================
@@ -4284,7 +4284,7 @@ const FactsRun = struct {
     fn at(self: *const FactsRun, needle: []const u8, nth: usize) u32 {
         var count: usize = 0;
         var i: usize = 0;
-        while (std.mem.indexOfPos(u8, self.source, i, needle)) |p| : (i = p + 1) {
+        while (std.mem.findPos(u8, self.source, i, needle)) |p| : (i = p + 1) {
             const before_ok = p == 0 or !isWordChar(self.source[p - 1]);
             const after = p + needle.len;
             const after_ok = after >= self.source.len or !isWordChar(self.source[after]);
@@ -4721,7 +4721,7 @@ test "check: a long chain of types each holding the next by value" {
     // Each walk over what a type holds runs once per type, not nested
     // once per link of the chain.
     const n = 5000;
-    var src: std.ArrayListUnmanaged(u8) = .empty;
+    var src: std.ArrayList(u8) = .empty;
     defer src.deinit(std.testing.allocator);
     const a = std.testing.allocator;
     for (0..n) |i| try src.print(a, "struct S{d}\n  x: S{d}\n\n", .{ i, i + 1 });

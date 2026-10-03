@@ -1,9 +1,8 @@
 # Two programs in different directories whose output directories sit at
 # the same path relative to where rig runs, with byte-identical root
-# modules, each run their own code: Zig keys a cached build by the root
-# file's cwd-relative path, so a shared Zig cache would hand the second
-# program the first one's executable. So does `rig test`, whose driver
-# depends only on the module names, and so does a later edit to a module.
+# modules, each run their own code, never the other's cached executable.
+# So does `rig test`, whose driver depends only on the module names, and
+# so does a later edit to a module.
 source "$ROOT/test/cli/_lib.sh"
 
 for p in one two; do

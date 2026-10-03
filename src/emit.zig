@@ -1,7 +1,7 @@
 //! Zig code generation.
 //!
 //! Lowers the semantic IR (`docs/INTERNALS.md`) of one checked module to Zig
-//! 0.16 source. The program has already passed sema and ownership
+//! 0.17 source. The program has already passed sema and ownership
 //! checking; this pass only chooses a representation, and it
 //! reads everything it needs to know about names and types from sema's
 //! facts table (`sema.zig`): which symbol a name denotes, whether a
@@ -115,7 +115,7 @@ const Header = struct { label: []const u8 = "", first: usize };
 const ValueLoop = struct { rig: []const u8, block: []const u8, ty: TypeId };
 
 const Scope = struct {
-    locals: std.ArrayListUnmanaged(Local) = .empty,
+    locals: std.ArrayList(Local) = .empty,
 };
 
 /// State for the function whose body is being emitted.
@@ -163,7 +163,7 @@ pub const Emitter = struct {
     arena: std.heap.ArenaAllocator,
     sema: *const sema.SemContext,
 
-    scopes: std.ArrayListUnmanaged(Scope) = .empty,
+    scopes: std.ArrayList(Scope) = .empty,
     /// Symbol -> its innermost local in `scopes`.
     local_by_sym: std.AutoHashMapUnmanaged(SymbolId, LocalRef) = .empty,
     /// The Zig names of the locals in `scopes`, with how many locals use each.
@@ -174,7 +174,7 @@ pub const Emitter = struct {
     module_names: std.StringHashMapUnmanaged(void) = .empty,
     usage: Usage = .{},
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
-    tests: std.ArrayListUnmanaged(struct { name: []const u8, func: []const u8 }) = .empty,
+    tests: std.ArrayList(struct { name: []const u8, func: []const u8 }) = .empty,
     fun: FunState = .{},
     /// Closure bodies being emitted around the current point. Each names
     /// its environment `__rig_self`, `__rig_self1`, ... so a closure
@@ -211,17 +211,17 @@ pub const Emitter = struct {
     /// Arguments and receivers of the calls being emitted that were
     /// evaluated into temporaries first (`emitHoistedCall`), innermost
     /// call last.
-    hoisted: std.ArrayListUnmanaged(Hoisted) = .empty,
+    hoisted: std.ArrayList(Hoisted) = .empty,
     /// The owning temporaries of the statements being emitted, each held
     /// in a slot its statement drops (`sema.dropsTemp`).
-    temp_slots: std.ArrayListUnmanaged(TempSlot) = .empty,
+    temp_slots: std.ArrayList(TempSlot) = .empty,
     /// The temporary whose value is being written into its slot.
     keeping: Sexp = .nil,
     /// The Text borrow being emitted before its `.bytes()`.
     lending_text: Sexp = .nil,
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
-    labels: std.ArrayListUnmanaged(struct { rig: []const u8, zig: []const u8 }) = .empty,
+    labels: std.ArrayList(struct { rig: []const u8, zig: []const u8 }) = .empty,
     /// Branch blocks whose value the function returns and which hold an
     /// `errdefer`: they return it themselves, so that an error runs the
     /// `errdefer` (`markReturningBlocks`).
@@ -230,7 +230,7 @@ pub const Emitter = struct {
     /// when Zig cannot reach its loop with them (`JumpRedirect`).
     redirect: ?JumpRedirect = null,
     /// The loops used as values around the current point, innermost last.
-    value_loops: std.ArrayListUnmanaged(ValueLoop) = .empty,
+    value_loops: std.ArrayList(ValueLoop) = .empty,
     /// The place being emitted is only read: a Vec element on its path
     /// is reached through `constSlot`.
     read_place: bool = false,
@@ -715,7 +715,7 @@ pub const Emitter = struct {
             } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    __rig_run_main(__rig_init){s};\n}}\n\n", .{catches});
             try self.w.writeAll("fn __rig_run_main(");
         } else try self.w.print("pub fn {f}(", .{ident(name)});
-        // Zig 0.16 hands the arguments and environment only to `main`.
+        // Zig hands the arguments and environment only to `main`.
         if (is_main) try self.w.writeAll("__rig_init: std.process.Init.Minimal");
         try self.pushScope();
         defer self.popScope() catch {};
@@ -926,7 +926,7 @@ pub const Emitter = struct {
     }
 
     fn fmt(self: *Emitter, comptime f: []const u8, args: anytype) Error![]const u8 {
-        return std.fmt.allocPrint(self.arena.allocator(), f, args);
+        return self.arena.allocator().print(f, args);
     }
 
     // =========================================================================
@@ -1753,12 +1753,12 @@ pub const Emitter = struct {
 
     /// The parts of a binding condition (`rig.bindsInCondition`), in order.
     fn conditionParts(self: *Emitter, cond: Sexp) Error![]const Sexp {
-        var parts: std.ArrayListUnmanaged(Sexp) = .empty;
+        var parts: std.ArrayList(Sexp) = .empty;
         try self.collectParts(cond, &parts);
         return parts.items;
     }
 
-    fn collectParts(self: *Emitter, cond: Sexp, parts: *std.ArrayListUnmanaged(Sexp)) Error!void {
+    fn collectParts(self: *Emitter, cond: Sexp, parts: *std.ArrayList(Sexp)) Error!void {
         if (rig.isConditionJoin(cond)) {
             try self.collectParts(ir.get(cond, .left), parts);
             return self.collectParts(ir.get(cond, .right), parts);
@@ -2666,8 +2666,8 @@ pub const Emitter = struct {
     /// local, dropped at the end of the arm unless moved; every other
     /// part is dropped at the end of the arm.
     fn ownedParts(self: *Emitter, binds: []const Sexp, parts: []const OwnedPart, used_in: Sexp) Error!Prelude {
-        var owned: std.ArrayListUnmanaged(OwnedBinding) = .empty;
-        var drops: std.ArrayListUnmanaged([]const u8) = .empty;
+        var owned: std.ArrayList(OwnedBinding) = .empty;
+        var drops: std.ArrayList([]const u8) = .empty;
         const a = self.arena.allocator();
         for (binds, parts) |b, part| {
             const used = if (b == .src and !std.mem.eql(u8, self.srcText(b), "_")) self.usedPayloadLocal(b, used_in) else null;
@@ -2740,7 +2740,7 @@ pub const Emitter = struct {
     /// field is itself a borrow, which is bound as it is.
     fn payloadAliases(self: *Emitter, captures: []const Sexp, scrut_ty: TypeId, variant: []const u8, writes: bool, payload_expr: ?[]const u8, used_in: Sexp) Error![]const Alias {
         const fields = self.variantPayload(scrut_ty, variant) orelse return self.unsupported(captures[0], "this payload pattern");
-        var out: std.ArrayListUnmanaged(Alias) = .empty;
+        var out: std.ArrayList(Alias) = .empty;
         var payload: ?[]const u8 = payload_expr;
         for (captures, fields) |c, f| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
@@ -3866,12 +3866,19 @@ pub const Emitter = struct {
     }
 
     /// `@name(args)`. Arguments that name Rig types are spelled as Zig types.
+    /// A builtin call as written. `@fromBackingInt` takes the enum's
+    /// backing integer type exactly, so its operand, any integer, goes
+    /// through `@intCast` (checked in safe builds, as the tag is).
     fn emitBuiltin(self: *Emitter, sexp: Sexp) Error!void {
-        try self.w.print("@{s}(", .{self.srcText(ir.Builtin.name(sexp))});
+        const name = self.srcText(ir.Builtin.name(sexp));
+        const cast = std.mem.eql(u8, name, "fromBackingInt");
+        try self.w.print("@{s}(", .{name});
+        if (cast) try self.w.writeAll("@intCast(");
         for (ir.Builtin.args(sexp), 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
             if (self.isTypeArg(sexp, a)) try self.emitTypeTy(self.typeOf(a).?) else try self.emitBare(a);
         }
+        if (cast) try self.w.writeAll(")");
         try self.w.writeAll(")");
     }
 
@@ -4254,7 +4261,7 @@ pub const Emitter = struct {
 
     /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin
     /// chosen by the kinds of the two types. Zig checks that the value
-    /// fits in safe builds; `@intFromFloat` truncates toward zero, and
+    /// fits in safe builds; `@trunc` truncates toward zero, and
     /// `rig.notNan` panics on a NaN.
     fn emitConversion(self: *Emitter, call: Sexp) Error!void {
         const target = self.typeOf(call) orelse return self.unsupported(call, "an untyped conversion");
@@ -4264,7 +4271,7 @@ pub const Emitter = struct {
         // Zig checks that it fits (the checker did for a constant one).
         if (self.isEnumTy(self.peelBorrows(arg_ty))) {
             try self.writeAsOpen(target);
-            try self.w.writeAll("@intCast(@intFromEnum(rig.rt(");
+            try self.w.writeAll("@intCast(@backingInt(rig.rt(");
             try self.emitBare(arg);
             return self.w.writeAll("))))");
         }
@@ -4283,7 +4290,7 @@ pub const Emitter = struct {
             return self.w.print("{d})", .{v});
         };
         const from_int = self.sema.types.get(from) == .int;
-        const builtin = if (to_int) (if (from_int) "@intCast" else "@intFromFloat") else (if (from_int) "@floatFromInt" else "@floatCast");
+        const builtin = if (to_int) (if (from_int) "@intCast" else "@trunc") else (if (from_int) "@floatFromInt" else "@floatCast");
         const nan_check = to_int and !from_int;
         try self.writeAsOpen(target);
         try self.w.print("{s}({s}", .{ builtin, if (nan_check) "rig.notNan(" else "" });
@@ -4918,7 +4925,7 @@ pub const Emitter = struct {
     };
 
     fn captureInfo(self: *Emitter, captures: Sexp) Error![]const Capture {
-        var out: std.ArrayListUnmanaged(Capture) = .empty;
+        var out: std.ArrayList(Capture) = .empty;
         for (sema.captureList(captures)) |cap| {
             const name_node = sema.captureNameNode(cap).?;
             const sym = self.sema.symbolOf(name_node) orelse return self.unsupported(cap, "an unresolved capture");
@@ -5752,7 +5759,7 @@ fn writeSingleQuoted(w: *Writer, lit: []const u8) Error!void {
 }
 
 fn isPlainIdent(name: []const u8) bool {
-    return name.len > 0 and name[0] != '@' and std.mem.indexOfScalar(u8, name, '.') == null;
+    return name.len > 0 and name[0] != '@' and std.mem.findScalar(u8, name, '.') == null;
 }
 
 /// Whether Zig could evaluate `e` at compile time: it is built only from
@@ -5871,7 +5878,7 @@ fn contains(e: Sexp, kinds: []const Tag) bool {
     if (e != .list) return false;
     if (e.kind()) |h| {
         if (h == .lambda) return false;
-        if (std.mem.indexOfScalar(Tag, kinds, h) != null) return true;
+        if (std.mem.findScalar(Tag, kinds, h) != null) return true;
     }
     for (e.items()) |c| if (contains(c, kinds)) return true;
     return false;

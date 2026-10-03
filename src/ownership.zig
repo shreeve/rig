@@ -216,7 +216,7 @@ const ScopeKind = enum {
 const Scope = struct {
     start: u32,
     kind: ScopeKind,
-    defers: std.ArrayListUnmanaged(Deferred) = .empty,
+    defers: std.ArrayList(Deferred) = .empty,
     /// The code the scope covers, whose end is where its vars go out of
     /// scope; `.nil` when not known.
     node: Sexp = .nil,
@@ -308,8 +308,8 @@ const LoopCtx = struct {
     point: Point,
     /// Number of scopes open at loop entry.
     scope_depth: usize,
-    breaks: std.ArrayListUnmanaged(State) = .empty,
-    conts: std.ArrayListUnmanaged(State) = .empty,
+    breaks: std.ArrayList(State) = .empty,
+    conts: std.ArrayList(State) = .empty,
     /// The loans of the values `break` gives a loop used as a value.
     value: Value = .{},
     parent: ?*LoopCtx,
@@ -388,14 +388,14 @@ pub const Checker = struct {
     fn_depth: u32 = 0,
     source: []const u8,
     sema: ?*const sema.SemContext = null,
-    diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
+    diagnostics: std.ArrayList(Diagnostic) = .empty,
 
-    vars: std.ArrayListUnmanaged(Var) = .empty,
+    vars: std.ArrayList(Var) = .empty,
     /// The innermost var with each name (see `Var.shadows`).
     names: std.StringHashMapUnmanaged(VarId) = .empty,
     /// What generic bodies copy: this module's, found while walking them,
     /// then those of other modules' bodies its instances use.
-    plain_reqs: std.ArrayListUnmanaged(PlainRequirement) = .empty,
+    plain_reqs: std.ArrayList(PlainRequirement) = .empty,
     /// A branching value (`if` / `match` / block) whose result is taken
     /// (bound, passed, returned): the tails of its branches leave them.
     /// Set just before walking that node; see `takeTail`.
@@ -407,15 +407,15 @@ pub const Checker = struct {
     /// A source position at or before the statement being walked, for
     /// statements without one of their own (`break`, `continue`).
     anchor: u32 = 0,
-    flows: std.ArrayListUnmanaged(Flow) = .empty,
+    flows: std.ArrayList(Flow) = .empty,
     /// For each var, the number of loans on it that flows hold, so the
     /// checks can skip a scan for an unborrowed var.
-    loan_counts: std.ArrayListUnmanaged(u32) = .empty,
+    loan_counts: std.ArrayList(u32) = .empty,
     /// Every change to `flows`, so a branch can be undone back to a
     /// `Point` instead of copying the whole state (see `setFlow`).
-    trail: std.ArrayListUnmanaged(Change) = .empty,
+    trail: std.ArrayList(Change) = .empty,
     /// Scratch space for `capture`.
-    scratch: std.ArrayListUnmanaged(VarId) = .empty,
+    scratch: std.ArrayList(VarId) = .empty,
     /// Borrows end at their last use (see `holderLive`): for the function
     /// being checked, the last position each symbol is used at, and the
     /// symbols used in deferred code, which runs at scope exit.
@@ -425,13 +425,13 @@ pub const Checker = struct {
     nll: bool = false,
     /// The innermost statement being walked.
     cur_stmt: Sexp = .nil,
-    scopes: std.ArrayListUnmanaged(Scope) = .empty,
+    scopes: std.ArrayList(Scope) = .empty,
     /// Loans taken by the current statement and not stored in a var.
-    temps: std.ArrayListUnmanaged(Loan) = .empty,
+    temps: std.ArrayList(Loan) = .empty,
     /// The hidden vars holding the owning temporaries of the statements
     /// being walked (`sema.dropsTemp`), each with its position: dropped
     /// when its statement ends.
-    stmt_drops: std.ArrayListUnmanaged(struct { id: VarId, pos: u32 }) = .empty,
+    stmt_drops: std.ArrayList(struct { id: VarId, pos: u32 }) = .empty,
     reachable: bool = true,
     /// Non-zero while computing a loop fixpoint: diagnostics suppressed.
     quiet: u32 = 0,
@@ -629,7 +629,7 @@ pub const Checker = struct {
         self.last_err_kept = false;
         self.errors_found += 1;
         if (self.quiet > 0) return;
-        const msg = try std.fmt.allocPrint(self.gpa, fmt, args);
+        const msg = try self.gpa.print(fmt, args);
         for (self.diagnostics.items) |d| {
             if (d.severity == .@"error" and d.pos == at.start and std.mem.eql(u8, d.message, msg)) {
                 self.gpa.free(msg);
@@ -647,7 +647,7 @@ pub const Checker = struct {
     /// A note at `pos` in module `module_id`'s source (0 for this one).
     fn noteIn(self: *Checker, module_id: u32, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
         if (self.quiet > 0 or !self.last_err_kept) return;
-        const msg = try std.fmt.allocPrint(self.gpa, fmt, args);
+        const msg = try self.gpa.print(fmt, args);
         try self.diagnostics.append(self.gpa, .{ .severity = .note, .pos = pos, .message = msg, .module = module_id });
     }
 
@@ -946,7 +946,7 @@ pub const Checker = struct {
             if (c.id < len and c.id < self.flows.items.len) try self.scratch.append(self.gpa, c.id);
         }
         std.mem.sort(VarId, self.scratch.items, {}, std.sort.asc(VarId));
-        var entries: std.ArrayListUnmanaged(Entry) = .empty;
+        var entries: std.ArrayList(Entry) = .empty;
         var prev: ?VarId = null;
         for (self.scratch.items) |id| {
             if (prev == id) continue;
@@ -999,7 +999,7 @@ pub const Checker = struct {
     fn join(self: *Checker, a: State, b: State) Error!State {
         if (!a.reachable) return b;
         if (!b.reachable) return a;
-        var out: std.ArrayListUnmanaged(Entry) = .empty;
+        var out: std.ArrayList(Entry) = .empty;
         var pairs: Pairs = .{ .a = a.changes, .b = b.changes };
         while (pairs.next(self)) |p| {
             const joined = try self.joinFlow(p.fa, p.fb);
@@ -1009,7 +1009,7 @@ pub const Checker = struct {
     }
 
     fn joinFlow(self: *Checker, fa: Flow, fb: Flow) Error!Flow {
-        const status: Status = @enumFromInt(@max(@intFromEnum(fa.status), @intFromEnum(fb.status)));
+        const status: Status = @fromBackingInt(@intCast(@max(@backingInt(fa.status), @backingInt(fb.status))));
         return .{
             .status = status,
             .at = if (fa.status == status) fa.at else fb.at,
@@ -1076,7 +1076,7 @@ pub const Checker = struct {
 
     fn filterLoansBelow(self: *Checker, loans: []const Loan, len: u32) Error![]const Loan {
         if (!hasLoanFrom(loans, len)) return loans;
-        var out: std.ArrayListUnmanaged(Loan) = .empty;
+        var out: std.ArrayList(Loan) = .empty;
         for (loans) |l| if (l.root < len) try out.append(self.arena(), l);
         return out.items;
     }
@@ -1390,7 +1390,7 @@ pub const Checker = struct {
                 if (holder == d.id) continue;
                 var f = self.flows.items[holder];
                 var reported = false;
-                var kept: std.ArrayListUnmanaged(Loan) = .empty;
+                var kept: std.ArrayList(Loan) = .empty;
                 for (f.loans) |l| {
                     if (l.root != d.id) {
                         try kept.append(self.arena(), l);
@@ -1705,12 +1705,12 @@ pub const Checker = struct {
     /// through what that borrows, which must not be a var declared after
     /// the `defer` (from `floor` on): that is dropped before it runs.
     fn checkDeferredReach(self: *Checker, id: VarId, floor: u32, pos: u32) Error!void {
-        var reach: std.ArrayListUnmanaged(VarId) = .empty;
+        var reach: std.ArrayList(VarId) = .empty;
         try reach.append(self.arena(), id);
         var k: usize = 0;
         while (k < reach.items.len) : (k += 1) {
             for (self.flows.items[reach.items[k]].loans) |l| {
-                if (l.ext or std.mem.indexOfScalar(VarId, reach.items, l.root) != null) continue;
+                if (l.ext or std.mem.findScalar(VarId, reach.items, l.root) != null) continue;
                 if (l.root >= floor) {
                     try self.err(pos, "deferred code reads `{s}` through `{s}`, but `{s}` is declared after the `defer` and dropped before it runs", .{ self.vars.items[l.root].name, self.vars.items[id].name, self.vars.items[l.root].name });
                     try self.noteLoan(l);
@@ -1809,7 +1809,7 @@ pub const Checker = struct {
         const ctx = self.sema orelse return v;
         const t = ty orelse return v;
         if (v.loans.len == 0 or !sema.holdsViewOnly(ctx, t)) return v;
-        var out: std.ArrayListUnmanaged(Loan) = .empty;
+        var out: std.ArrayList(Loan) = .empty;
         for (v.loans) |l| try self.addViewLoan(&out, l, 0);
         return .{ .loans = out.items };
     }
@@ -1822,7 +1822,7 @@ pub const Checker = struct {
         return v;
     }
 
-    fn addViewLoan(self: *Checker, out: *std.ArrayListUnmanaged(Loan), l: Loan, depth: u8) Error!void {
+    fn addViewLoan(self: *Checker, out: *std.ArrayList(Loan), l: Loan, depth: u8) Error!void {
         if (l.ext or depth >= 16 or self.mayOwnText(l.root)) {
             // A String only reads what it views.
             var kept = l;
@@ -2432,7 +2432,7 @@ pub const Checker = struct {
 
     fn addRequirement(self: *Checker, pos: u32, ty: TypeId, req: PlainRequirement) Error!void {
         const ctx = self.sema orelse return;
-        var held: std.ArrayListUnmanaged(SymbolId) = .empty;
+        var held: std.ArrayList(SymbolId) = .empty;
         try sema.heldTypeVars(ctx, ty, &held, self.arena());
         for (held.items) |param| {
             for (self.plain_reqs.items) |r| {
@@ -3001,7 +3001,7 @@ pub const Checker = struct {
         const start = self.temps.items.len;
         const first = try self.walkConsumed(args[0], .argument);
         const lent = self.temps.items.len;
-        var saved: std.ArrayListUnmanaged(Loan) = .empty;
+        var saved: std.ArrayList(Loan) = .empty;
         defer saved.deinit(self.gpa);
         const elements = if (swap) self.sameCollection(args[0], args[1]) else null;
         if (elements) |e| {
@@ -3095,7 +3095,7 @@ pub const Checker = struct {
     /// borrows, do not. A write borrow var on the way (`w2 = !w`) is a
     /// name for what it borrows, and takes no step of its own.
     fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32, via: ?[]const u8, depth: ?u32) Error!void {
-        var level: std.ArrayListUnmanaged(VarId) = .empty;
+        var level: std.ArrayList(VarId) = .empty;
         try self.appendWriteRoots(&level, v, &.{});
         const d = depth orelse {
             for (level.items) |r| {
@@ -3106,14 +3106,14 @@ pub const Checker = struct {
             return;
         };
         // The values reached, found before any of them takes the loans.
-        var seen: std.ArrayListUnmanaged(VarId) = .empty;
+        var seen: std.ArrayList(VarId) = .empty;
         var remaining = d;
         while (level.items.len > 0 and seen.items.len <= 64) {
-            var next: std.ArrayListUnmanaged(VarId) = .empty;
+            var next: std.ArrayList(VarId) = .empty;
             var i: usize = 0;
             while (i < level.items.len) : (i += 1) {
                 const r = level.items[i];
-                if (std.mem.indexOfScalar(VarId, seen.items, r) != null) continue;
+                if (std.mem.findScalar(VarId, seen.items, r) != null) continue;
                 try seen.append(self.arena(), r);
                 const c = self.vars.items[r];
                 if ((c.kind == .param and c.ref != .none) or self.isGlobal(r)) continue;
@@ -3134,9 +3134,9 @@ pub const Checker = struct {
 
     /// Append to `out` the roots of the write loans in `v` not in `out`
     /// or `skip`.
-    fn appendWriteRoots(self: *Checker, out: *std.ArrayListUnmanaged(VarId), v: Value, skip: []const VarId) Error!void {
+    fn appendWriteRoots(self: *Checker, out: *std.ArrayList(VarId), v: Value, skip: []const VarId) Error!void {
         for (v.loans) |l| {
-            if (l.kind != .write or std.mem.indexOfScalar(VarId, out.items, l.root) != null or std.mem.indexOfScalar(VarId, skip, l.root) != null) continue;
+            if (l.kind != .write or std.mem.findScalar(VarId, out.items, l.root) != null or std.mem.findScalar(VarId, skip, l.root) != null) continue;
             try out.append(self.arena(), l.root);
         }
     }
@@ -3169,9 +3169,9 @@ pub const Checker = struct {
     fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool) Error!void {
         // A value that holds only Strings keeps only what leads to a Text.
         const v = try self.viewLoans(self.pointee(self.vars.items[id].ty), v_in);
-        var out: std.ArrayListUnmanaged(Loan) = .empty;
+        var out: std.ArrayList(Loan) = .empty;
         for (v.loans) |l| {
-            if (l.root != id and std.mem.indexOfScalar(VarId, through, l.root) == null) try out.append(self.arena(), l);
+            if (l.root != id and std.mem.findScalar(VarId, through, l.root) == null) try out.append(self.arena(), l);
         }
         if (out.items.len == 0) return;
         const c = self.vars.items[id];
@@ -3195,7 +3195,7 @@ pub const Checker = struct {
         if (!deeper or through.len > 16) return;
         const next = try std.mem.concat(self.arena(), VarId, &.{ through, &.{id} });
         for (held) |l| {
-            if (l.kind == .write and std.mem.indexOfScalar(VarId, next, l.root) == null) try self.absorbLoans(l.root, v, pos, next, via, true);
+            if (l.kind == .write and std.mem.findScalar(VarId, next, l.root) == null) try self.absorbLoans(l.root, v, pos, next, via, true);
         }
     }
 
@@ -3234,7 +3234,7 @@ pub const Checker = struct {
 
         // Captures take effect on the enclosing scope, at construction.
         var value: Value = .{};
-        var cap_values: std.ArrayListUnmanaged(Value) = .empty;
+        var cap_values: std.ArrayList(Value) = .empty;
         const caps = sema.captureList(ir.Lambda.captures(node));
         for (caps) |cap| {
             const cv = try self.applyCapture(cap);
@@ -3547,8 +3547,8 @@ pub const Checker = struct {
         // the next arm's pattern: what the subject views stays lent while
         // the arm is chosen, through every guard. (An arm's bindings hold
         // their own loans on it.)
-        var held: std.ArrayListUnmanaged(Loan) = .empty;
-        for (scrut_value.loans) |l| if (std.mem.indexOfScalar(VarId, header_temps, l.root) == null) try held.append(self.arena(), l);
+        var held: std.ArrayList(Loan) = .empty;
+        for (scrut_value.loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) == null) try held.append(self.arena(), l);
         const hold = try self.addVar(.{ .name = "", .decl = self.startOf(scrut), .kind = .hidden }, .{ .loans = held.items });
 
         const base = try self.here();
@@ -3572,7 +3572,7 @@ pub const Checker = struct {
             // A binding that views a temporary the subject made would
             // outlive it.
             if (!outlived) for (bound..self.vars.items.len) |id| {
-                for (self.flows.items[id].loans) |l| if (std.mem.indexOfScalar(VarId, header_temps, l.root) != null and self.holderLive(@intCast(id), null)) {
+                for (self.flows.items[id].loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null and self.holderLive(@intCast(id), null)) {
                     try self.reportTempOutlived(l, @intCast(id));
                     outlived = true;
                     break;
@@ -4058,7 +4058,7 @@ pub const Checker = struct {
     fn checkDropOrder(self: *Checker, start: u32) Error!void {
         const ctx = self.sema orelse return;
         const len: u32 = @intCast(self.vars.items.len);
-        var reach: std.ArrayListUnmanaged(VarId) = .empty;
+        var reach: std.ArrayList(VarId) = .empty;
         for (start..len) |i| {
             const h = self.vars.items[i];
             if (!self.flowLive(@intCast(i)) or h.alias_of != null or h.loop_borrow or h.ref != .none) continue;
@@ -4068,7 +4068,7 @@ pub const Checker = struct {
             var k: usize = 0;
             while (k < reach.items.len) : (k += 1) {
                 for (self.flows.items[reach.items[k]].loans) |l| {
-                    if (l.ext or l.root < start or std.mem.indexOfScalar(VarId, reach.items, l.root) != null) continue;
+                    if (l.ext or l.root < start or std.mem.findScalar(VarId, reach.items, l.root) != null) continue;
                     try reach.append(self.arena(), l.root);
                     const x = self.vars.items[l.root];
                     if (l.root < i or !self.flowLive(l.root)) continue;
@@ -4109,7 +4109,7 @@ pub const Checker = struct {
     }
 
     fn fieldsRunDropBody(self: *const Checker, sid: SymbolId, path: []const SymbolId) bool {
-        if (std.mem.indexOfScalar(SymbolId, path, sid) != null) return false;
+        if (std.mem.findScalar(SymbolId, path, sid) != null) return false;
         // Past any real nesting depth, assume the worst.
         if (path.len >= 32) return true;
         var buf: [32]SymbolId = undefined;
@@ -4313,8 +4313,8 @@ pub const Checker = struct {
         switch (e) {
             .src => return self.text(e),
             .list => switch (e.kind() orelse return "expression") {
-                .member => return std.fmt.allocPrint(self.arena(), "{s}.{s}", .{ try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e)) }),
-                .index => return std.fmt.allocPrint(self.arena(), "{s}[...]", .{try self.placeText(ir.Index.object(e))}),
+                .member => return self.arena().print("{s}.{s}", .{ try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e)) }),
+                .index => return self.arena().print("{s}[...]", .{try self.placeText(ir.Index.object(e))}),
                 // A sigil or other wrapper: the place it wraps.
                 else => {
                     const children = rig.children(e);
@@ -4457,7 +4457,7 @@ const TestRig = struct {
 
     fn hasError(self: *const TestRig, needle: []const u8) bool {
         for (self.checker.diagnostics.items) |d| {
-            if (d.severity == .@"error" and std.mem.indexOf(u8, d.message, needle) != null) return true;
+            if (d.severity == .@"error" and std.mem.find(u8, d.message, needle) != null) return true;
         }
         return false;
     }

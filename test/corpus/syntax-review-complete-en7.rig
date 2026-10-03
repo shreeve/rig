@@ -4,5 +4,5 @@ enum Status
 sub main
   n: Int = 405
   raw
-    s: Status = @enumFromInt(n)
+    s: Status = @fromBackingInt(n)
     print(s)
