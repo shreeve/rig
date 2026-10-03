@@ -275,15 +275,21 @@ test "writeSome: a note in another module's file" {
     , w.buffered());
 }
 
+/// `n` copies of `c`, for building long test strings.
+fn chars(comptime c: u8, comptime n: usize) *const [n]u8 {
+    const s: [n]u8 = @splat(c);
+    return &s;
+}
+
 test "writeExcerpt: a long line is cut around the position" {
-    const line = "x" ** 100 ++ "é" ++ "y" ** 100;
+    const line = chars('x', 100) ++ "é" ++ chars('y', 100);
     var buf: [512]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try writeExcerpt(line, 102, 105, &w);
     const out = w.buffered();
-    const first = out[0..std.mem.indexOfScalar(u8, out, '\n').?];
-    try std.testing.expectEqualStrings("..." ++ "x" ** 58 ++ "é" ++ "y" ** 60 ++ "...", first);
-    try std.testing.expectEqualStrings(" " ** 62 ++ "^~~\n", out[first.len + 1 ..]);
+    const first = out[0..std.mem.findScalar(u8, out, '\n').?];
+    try std.testing.expectEqualStrings("..." ++ chars('x', 58) ++ "é" ++ chars('y', 60) ++ "...", first);
+    try std.testing.expectEqualStrings(chars(' ', 62) ++ "^~~\n", out[first.len + 1 ..]);
 }
 
 test "leafSpan: from the first leaf to the end of the last" {

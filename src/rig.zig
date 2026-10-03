@@ -114,8 +114,8 @@ pub const BindingKind = enum {
     @">>=",
 
     comptime {
-        for (@typeInfo(BindingKind).@"enum".fields[1..]) |f| {
-            if (!@hasField(Tag, f.name)) @compileError("BindingKind." ++ f.name ++ " is not a tag of the IR");
+        for (@typeInfo(BindingKind).@"enum".field_names[1..]) |f| {
+            if (!@hasField(Tag, f)) @compileError("BindingKind." ++ f ++ " is not a tag of the IR");
         }
     }
 
@@ -151,8 +151,8 @@ pub fn bindingKindOf(op: Sexp) BindingKind {
 const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "and", .@"and" },
     .{ "as", .as },
-    .{ "async", .@"async" },
-    .{ "await", .@"await" },
+    .{ "async", .async },
+    .{ "await", .await },
     .{ "break", .@"break" },
     .{ "catch", .@"catch" },
     .{ "const", .@"const" },
@@ -460,10 +460,6 @@ pub const Lexer = struct {
         return lexer;
     }
 
-    pub fn text(self: *const Lexer, tok: Token) []const u8 {
-        return self.base.text(tok);
-    }
-
     pub fn next(self: *Lexer) Token {
         const tok = self.produce();
         self.after_label = self.label_colon and tok.cat == .ident;
@@ -504,8 +500,8 @@ pub const Lexer = struct {
     /// Nothing but a comment follows on the current line.
     fn lineEndsAfter(self: *const Lexer) bool {
         var probe = self.base;
-        var t = probe.matchRules();
-        if (t.cat == .comment) t = probe.matchRules();
+        var t = probe.next();
+        if (t.cat == .comment) t = probe.next();
         return t.cat == .newline or t.cat == .eof;
     }
 
@@ -550,7 +546,7 @@ pub const Lexer = struct {
         }
 
         while (true) {
-            const tok = self.base.matchRules();
+            const tok = self.base.next();
             switch (tok.cat) {
                 .comment => continue,
                 // A comment longer than a token can hold.
@@ -582,7 +578,7 @@ pub const Lexer = struct {
         const src = self.base.source;
         var start = tok.pos;
         while (start > 0 and (src[start - 1] == ' ' or src[start - 1] == '\t')) start -= 1;
-        if (std.mem.indexOfScalar(u8, src[start..tok.pos], '\t')) |tab| return self.fail(.tab_indent, start + @as(u32, @intCast(tab)));
+        if (std.mem.findScalar(u8, src[start..tok.pos], '\t')) |tab| return self.fail(.tab_indent, start + @as(u32, @intCast(tab)));
         return self.fail(.first_line_indented, tok.pos);
     }
 
@@ -675,7 +671,7 @@ pub const Lexer = struct {
     fn startsWithElse(self: *const Lexer, pos: u32) bool {
         var probe = self.base;
         probe.pos = pos;
-        const tok = probe.matchRules();
+        const tok = probe.next();
         return tok.cat == .ident and std.mem.eql(u8, self.base.text(tok), "else");
     }
 
@@ -801,9 +797,9 @@ pub const Lexer = struct {
     /// else, `-x` is negation.
     fn isWholeDropStatement(self: *const Lexer) bool {
         var probe = self.base;
-        const name = probe.matchRules();
+        const name = probe.next();
         if (name.cat != .ident or keyword(self.base.text(name)) != null) return false;
-        const after = probe.matchRules();
+        const after = probe.next();
         return switch (after.cat) {
             .newline, .eof, .comment => true,
             .ident => std.mem.eql(u8, self.base.text(after), "if"),
@@ -815,9 +811,9 @@ pub const Lexer = struct {
     /// sigil.
     fn isBuiltinCall(self: *const Lexer) bool {
         var probe = self.base;
-        const name = probe.matchRules();
+        const name = probe.next();
         if (name.cat != .ident) return false;
-        return probe.matchRules().cat == .lparen;
+        return probe.next().cat == .lparen;
     }
 
     /// The token touches the one after it.
@@ -845,12 +841,12 @@ pub const Lexer = struct {
         if (after_value) return false;
         var probe = self.base;
         while (true) {
-            var t = probe.matchRules();
-            if (t.cat == .plus or t.cat == .lt or t.cat == .tilde or t.cat == .question or t.cat == .not_sym) t = probe.matchRules();
+            var t = probe.next();
+            if (t.cat == .plus or t.cat == .lt or t.cat == .tilde or t.cat == .question or t.cat == .not_sym) t = probe.next();
             // A keyword entry still makes a bar list, so that the parser
             // reports the keyword (`|when: Int|`).
             if (t.cat != .ident) return true;
-            var sep = probe.matchRules();
+            var sep = probe.next();
             if (sep.cat == .colon) sep = skipType(&probe) orelse return true;
             switch (sep.cat) {
                 .bar => {
@@ -859,7 +855,7 @@ pub const Lexer = struct {
                 },
                 .comma => {
                     var after = probe;
-                    const close = after.matchRules();
+                    const close = after.next();
                     if (close.cat == .bar) {
                         self.capture_close = close.pos;
                         return true;
@@ -876,7 +872,7 @@ pub const Lexer = struct {
     fn skipType(probe: *BaseLexer) ?Token {
         var depth: u32 = 0;
         while (true) {
-            const t = probe.matchRules();
+            const t = probe.next();
             switch (t.cat) {
                 .lparen, .lbracket => depth += 1,
                 .rparen, .rbracket => {
@@ -898,7 +894,7 @@ pub const Lexer = struct {
         var probe = self.base;
         var depth: u32 = 0;
         while (true) {
-            const t = probe.matchRules();
+            const t = probe.next();
             switch (t.cat) {
                 .eof => return false,
                 .newline => if (depth == 0 and (self.nesting == 0 or self.inIsland())) return false,
@@ -930,7 +926,7 @@ pub const Lexer = struct {
 
     fn nextCat(self: *const Lexer) TokenCat {
         var probe = self.base;
-        return probe.matchRules().cat;
+        return probe.next().cat;
     }
 
     /// The next token, past comments, `\` line joins, and line breaks
@@ -939,7 +935,7 @@ pub const Lexer = struct {
         var probe = self.base;
         const joins = self.nesting > 0 and !self.inIsland();
         while (true) {
-            const t = probe.matchRules();
+            const t = probe.next();
             switch (t.cat) {
                 .comment, .skip => continue,
                 .newline => if (!joins) return t,
@@ -966,7 +962,7 @@ pub const Lexer = struct {
 
     fn nextIsName(self: *const Lexer) bool {
         var probe = self.base;
-        const t = probe.matchRules();
+        const t = probe.next();
         return t.cat == .ident and keyword(self.base.text(t)) == null;
     }
 
@@ -976,7 +972,7 @@ pub const Lexer = struct {
         const t = self.base.text(tok);
         return switch (t[0]) {
             '"', '\'' => self.stringError(tok.pos),
-            '0'...'9' => self.fail(if (t.len > 1 and t[0] == '0' and std.mem.indexOfScalar(u8, "XBO", t[1]) != null)
+            '0'...'9' => self.fail(if (t.len > 1 and t[0] == '0' and std.mem.findScalar(u8, "XBO", t[1]) != null)
                 .radix_case
             else if (t.len > 1 and t[0] == '0' and (std.ascii.isDigit(t[1]) or t[1] == '_'))
                 .leading_zero
@@ -1138,7 +1134,8 @@ pub const Parser = struct {
     /// what it expected there, when that is a short list.
     pub fn diagnostic(self: *Parser) diag.Diagnostic {
         if (self.failure) |f| return f;
-        const tok = self.base.current;
+        const failure = self.base.lastError().?;
+        const tok = BaseLexer.makeToken(failure.cat, 0, failure.span.start, failure.span.end);
         const src = self.base.source;
         var pos = tok.pos;
         var end = tok.pos + tok.len;
@@ -1167,7 +1164,7 @@ pub const Parser = struct {
             else
                 self.format("unexpected `{s}`", .{src[pos..end]}),
         };
-        const expected = self.expectedHint();
+        const expected = self.expectedHint(failure.state);
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
         const hint = self.printHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse tokenHint(tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
@@ -1212,7 +1209,7 @@ pub const Parser = struct {
             if (cat != .ident or pos != lexer.head_pos) return null;
             var end = pos;
             while (end < src.len and isIdentCont(src[end])) end += 1;
-            break :blk .{ .cat = .ident, .pre = 0, .pos = pos, .len = @intCast(end - pos) };
+            break :blk BaseLexer.makeToken(.ident, 0, pos, end);
         };
         const word = src[at.pos .. at.pos + at.len];
         const f = foreign_words.get(word) orelse return null;
@@ -1278,7 +1275,7 @@ pub const Parser = struct {
     fn inclusiveRange(self: *Parser, at: u32) diag.Diagnostic {
         var probe = BaseLexer.init(self.base.source);
         probe.pos = at + 3;
-        const end = probe.matchRules();
+        const end = probe.next();
         const text = self.base.source[end.pos .. end.pos + end.len];
         const n = if (end.cat == .integer) std.fmt.parseInt(i64, text, 0) catch null else null;
         const fix = if (n) |v|
@@ -1298,12 +1295,13 @@ pub const Parser = struct {
         const lexer = &self.base.lexer;
         const src = self.base.source;
         // How many of the open brackets the rest of the source closes.
+        const at = self.base.lastError().?.span.start;
         var probe = BaseLexer.init(src);
-        probe.pos = self.base.current.pos;
+        probe.pos = at;
         var depth: u32 = 0;
         var closed: u32 = 0;
         while (closed < lexer.nesting) {
-            switch (probe.matchRules().cat) {
+            switch (probe.next().cat) {
                 .lparen, .lbracket => depth += 1,
                 .rparen, .rbracket => if (depth > 0) {
                     depth -= 1;
@@ -1315,14 +1313,14 @@ pub const Parser = struct {
             }
         } else return null;
         const open = lexer.brackets[lexer.nesting - 1 - closed];
-        if (std.mem.indexOfScalar(u8, src[open..self.base.current.pos], '\n') == null) return null;
+        if (std.mem.findScalar(u8, src[open..at], '\n') == null) return null;
         return .{ .severity = .note, .pos = open, .end = open + 1, .message = self.format("the `{c}` opened here is not closed", .{src[open]}) };
     }
 
     /// Why an unexpected token is not Rig: it starts a reserved form, or
     /// Rig spells what it starts differently.
     fn reservedHint(src: []const u8, tok: Token, expected: []const u8) ?[]const u8 {
-        const in_pattern = std.mem.indexOf(u8, expected, "a match arm") != null or std.mem.indexOf(u8, expected, "a pattern") != null;
+        const in_pattern = std.mem.find(u8, expected, "a match arm") != null or std.mem.find(u8, expected, "a pattern") != null;
         // Only a function type's result must follow here.
         if (std.mem.eql(u8, expected, "`->`")) return "a function type writes its result after `->`: `fun(Int) -> Int`";
         return switch (tok.cat) {
@@ -1351,8 +1349,8 @@ pub const Parser = struct {
         if (word.len > 0 and endsWithWord(declared, "type")) switch (tok.cat) {
             .indent => return self.format("a struct is declared with `struct`: `struct {s}`", .{word}),
             .lbracket, .lparen => {
-                const eol = std.mem.indexOfScalarPos(u8, src, tok.pos, '\n') orelse src.len;
-                if (std.mem.indexOfScalar(u8, src[tok.pos..eol], '=') != null) return "a type alias takes no type parameters; generic aliases are not supported";
+                const eol = std.mem.findScalarPos(u8, src, tok.pos, '\n') orelse src.len;
+                if (std.mem.findScalar(u8, src[tok.pos..eol], '=') != null) return "a type alias takes no type parameters; generic aliases are not supported";
                 return self.format("a struct is declared with `struct`: `struct {s}[T]`", .{word});
             },
             else => {},
@@ -1405,7 +1403,7 @@ pub const Parser = struct {
         var probe = BaseLexer.init(src);
         probe.pos = tok.pos + 1;
         const next = while (true) {
-            const t = probe.matchRules();
+            const t = probe.next();
             if (t.cat != .skip and t.cat != .comment) break t;
         };
         const operand = switch (next.cat) {
@@ -1422,7 +1420,7 @@ pub const Parser = struct {
         const lex = &self.base.lexer;
         if (lex.nesting == 0) {
             // `a = 1; b = 2`: another statement follows on the line.
-            const eol = std.mem.indexOfScalarPos(u8, src, tok.pos, '\n') orelse src.len;
+            const eol = std.mem.findScalarPos(u8, src, tok.pos, '\n') orelse src.len;
             const rest = std.mem.trim(u8, src[tok.pos + 1 .. eol], " \r");
             if (rest.len > 0 and rest[0] != '#') return "unexpected `;`; Rig ends a statement at the end of its line; put each statement on its own line";
             return "unexpected `;`; Rig ends a statement at the end of its line; drop the `;`";
@@ -1430,20 +1428,20 @@ pub const Parser = struct {
         const open = lex.brackets[lex.nesting - 1];
         if (src[open] != '[') return "unexpected `;`";
         const either = "unexpected `;`; `[x; n]` is written `[n of x]`, and `[Int; 3]` is written `[3]Int`";
-        const eol = std.mem.indexOfScalarPos(u8, src, tok.pos, '\n') orelse src.len;
-        const close = std.mem.indexOfScalarPos(u8, src[0..eol], tok.pos, ']') orelse return either;
+        const eol = std.mem.findScalarPos(u8, src, tok.pos, '\n') orelse src.len;
+        const close = std.mem.findScalarPos(u8, src[0..eol], tok.pos, ']') orelse return either;
         const elem = std.mem.trim(u8, src[open + 1 .. tok.pos], " ");
         const len = std.mem.trim(u8, src[tok.pos + 1 .. close], " ");
-        if (elem.len == 0 or len.len == 0 or std.mem.indexOfAny(u8, elem, ",;") != null or std.mem.indexOfAny(u8, len, ",;([") != null) return either;
+        if (elem.len == 0 or len.len == 0 or std.mem.findAny(u8, elem, ",;") != null or std.mem.findAny(u8, len, ",;([") != null) return either;
         // `[Int; 3]`: the brackets stand where a type goes (after `:` or
         // `->`), or the element reads as a type: `Int`, `U8`, `T`, not a
         // constant such as `LIMIT`, nor a constructor call.
         const before = std.mem.trimEnd(u8, src[0..open], " ");
         const in_type = std.mem.endsWith(u8, before, ":") or std.mem.endsWith(u8, before, "->");
         const rest = elem[1..];
-        const typelike = in_type or (std.ascii.isUpper(elem[0]) and std.mem.indexOfScalar(u8, elem, '(') == null and
-            (rest.len == 0 or std.mem.indexOfAny(u8, rest, "abcdefghijklmnopqrstuvwxyz") != null or
-                std.mem.indexOfNone(u8, rest, "0123456789") == null));
+        const typelike = in_type or (std.ascii.isUpper(elem[0]) and std.mem.findScalar(u8, elem, '(') == null and
+            (rest.len == 0 or std.mem.findAny(u8, rest, "abcdefghijklmnopqrstuvwxyz") != null or
+                std.mem.findNone(u8, rest, "0123456789") == null));
         if (typelike) return self.format("unexpected `;`; an array type puts its length first: `[{s}]{s}`", .{ len, elem });
         return self.format("unexpected `;`; a fill literal puts its count first: `[{s} of {s}]`", .{ len, elem });
     }
@@ -1500,25 +1498,13 @@ pub const Parser = struct {
     /// The generated parser's expected set where it stopped (its
     /// `@display` and `@errors` names, distinct), or null when it names
     /// more than a few things.
-    fn expectedHint(self: *Parser) ?[]const u8 {
-        const failure = self.base.lastError() orelse return null;
-        var names: [max_expected][]const u8 = undefined;
-        var count: usize = 0;
-        for (BaseParser.expected(failure.state)) |sym| {
-            const name = BaseParser.symbolText(sym);
-            if (name.len == 0) continue;
-            for (names[0..count]) |n| {
-                if (std.mem.eql(u8, n, name)) break;
-            } else {
-                if (count == max_expected) return null;
-                names[count] = name;
-                count += 1;
-            }
-        }
-        if (count == 0) return null;
+    fn expectedHint(self: *Parser, state: u16) ?[]const u8 {
+        var buf: [parser.maxExpected][]const u8 = undefined;
+        const names = BaseParser.expectedNames(state, &buf);
+        if (names.len == 0 or names.len > max_expected) return null;
         var out: std.Io.Writer.Allocating = .init(self.allocator());
-        for (names[0..count], 0..) |n, i| {
-            out.writer.writeAll(if (i == 0) "" else if (i + 1 == count) " or " else ", ") catch return null;
+        for (names, 0..) |n, i| {
+            out.writer.writeAll(if (i == 0) "" else if (i + 1 == names.len) " or " else ", ") catch return null;
             out.writer.writeAll(n) catch return null;
         }
         return out.written();
@@ -1528,11 +1514,11 @@ pub const Parser = struct {
     const max_expected = 3;
 
     fn format(self: *Parser, comptime fmt: []const u8, args: anytype) []const u8 {
-        return std.fmt.allocPrint(self.allocator(), fmt, args) catch "unexpected token";
+        return self.allocator().print(fmt, args) catch "unexpected token";
     }
 
     fn allocator(self: *Parser) std.mem.Allocator {
-        return self.base.arena.allocator();
+        return self.base.allocator();
     }
 
     // -------------------------------------------------------------------------
@@ -1612,7 +1598,7 @@ pub const Parser = struct {
                     const ty = ir.Set.type(set);
                     const annot = if (ty == .nil) "" else src[target.end..self.span(ty).end];
                     const shown = src[value.start..value.end];
-                    const short = shown.len <= 40 and std.mem.indexOfScalar(u8, shown, '\n') == null;
+                    const short = shown.len <= 40 and std.mem.findScalar(u8, shown, '\n') == null;
                     self.reject(set, self.format("a module-level binding is already a constant; write `{s}{s} = {s}`", .{ src[target.start..target.end], annot, if (short) shown else "..." }));
                 },
                 else => {},
@@ -1729,7 +1715,7 @@ pub const Parser = struct {
         var probe = BaseLexer.init(self.base.source);
         probe.pos = self.span(node).start + 1;
         while (true) {
-            const t = probe.matchRules();
+            const t = probe.next();
             switch (t.cat) {
                 .comment, .newline, .skip => continue,
                 else => return t.pos,
@@ -1750,7 +1736,7 @@ pub const Parser = struct {
         const tag: parser.Tag = node.kind().?;
         const at = self.afterSigil(node);
         // The chain from the operand down to its head, outermost first.
-        var chain: std.ArrayListUnmanaged(Sexp) = .empty;
+        var chain: std.ArrayList(Sexp) = .empty;
         var e = ir.get(node, .operand);
         while (true) {
             if (self.span(e).start != at) return node;
@@ -1804,8 +1790,8 @@ pub const Parser = struct {
     /// rest parameters. Captures come first.
     fn splitBars(self: *Parser, node: Sexp, items: []Sexp) std.mem.Allocator.Error!void {
         const bars = ir.Lambda.params(node);
-        var caps: std.ArrayListUnmanaged(Sexp) = .empty;
-        var params: std.ArrayListUnmanaged(Sexp) = .empty;
+        var caps: std.ArrayList(Sexp) = .empty;
+        var params: std.ArrayList(Sexp) = .empty;
         for (bars.items()) |e| {
             const is_capture = if (e.kind()) |k| switch (k) {
                 .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => true,
@@ -1886,7 +1872,7 @@ fn expectCats(source: []const u8, expected: []const TokenCat) !void {
     for (expected) |want| {
         const got = lx.next();
         testing.expectEqual(want, got.cat) catch |e| {
-            std.debug.print("source: {s}\n  at `{s}`\n", .{ source, lx.text(got) });
+            std.debug.print("source: {s}\n  at `{s}`\n", .{ source, lx.base.text(got) });
             return e;
         };
     }
@@ -1968,9 +1954,15 @@ test "closure bar lists: typed parameters, empty bars, owned star" {
     try expectCats("x = a || b", &.{ .ident, .assign, .ident, .err });
 }
 
+/// `n` copies of `c`, for building long test strings.
+fn chars(comptime c: u8, comptime n: usize) *const [n]u8 {
+    const s: [n]u8 = @splat(c);
+    return &s;
+}
+
 test "tokens longer than 65535 bytes: a comment is skipped, anything else is an error" {
-    try expectCats("#" ++ "c" ** 70000 ++ "\nx", &.{ .ident, .eof });
-    var lx = Lexer.init("x = " ++ "y" ** 70000);
+    try expectCats("#" ++ chars('c', 70000) ++ "\nx", &.{ .ident, .eof });
+    var lx = Lexer.init("x = " ++ chars('y', 70000));
     _ = lx.next();
     _ = lx.next();
     try testing.expectEqual(TokenCat.err, lx.next().cat);

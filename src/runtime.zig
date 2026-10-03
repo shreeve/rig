@@ -45,13 +45,13 @@ fn needsDrop(comptime T: type) bool {
         .array => |a| needsDrop(a.child),
         .@"struct" => |s| blk: {
             if (@hasDecl(T, "__rig_drop")) break :blk true;
-            inline for (s.fields) |f| if (needsDrop(f.type)) break :blk true;
+            inline for (s.field_types) |F| if (needsDrop(F)) break :blk true;
             break :blk false;
         },
         .@"union" => |u| blk: {
             if (@hasDecl(T, "__rig_drop")) break :blk true;
             if (u.tag_type == null) break :blk false;
-            inline for (u.fields) |f| if (needsDrop(f.type)) break :blk true;
+            inline for (u.field_types) |F| if (needsDrop(F)) break :blk true;
             break :blk false;
         },
         .@"enum", .@"opaque" => @hasDecl(T, "__rig_drop"),
@@ -68,11 +68,11 @@ fn holdsCell(comptime T: type) bool {
         .@"struct" => |s| blk: {
             if (@hasDecl(T, "__rig_cell")) break :blk true;
             if (@hasDecl(T, "__rig_signal")) break :blk false;
-            inline for (s.fields) |f| if (holdsCell(f.type)) break :blk true;
+            inline for (s.field_types) |F| if (holdsCell(F)) break :blk true;
             break :blk false;
         },
         .@"union" => |u| blk: {
-            inline for (u.fields) |f| if (holdsCell(f.type)) break :blk true;
+            inline for (u.field_types) |F| if (holdsCell(F)) break :blk true;
             break :blk false;
         },
         else => false,
@@ -141,11 +141,11 @@ pub fn drop(ptr: anytype) void {
 /// Drop every field of the struct `ptr` points to, last field first.
 /// A type's own `__rig_drop` calls this after its user-written body.
 pub fn dropFields(ptr: anytype) void {
-    const fields = @typeInfo(@TypeOf(ptr.*)).@"struct".fields;
-    comptime var i = fields.len;
+    const s = @typeInfo(@TypeOf(ptr.*)).@"struct";
+    comptime var i = s.field_names.len;
     inline while (i > 0) {
         i -= 1;
-        dropElement(fields[i].type, &@field(ptr, fields[i].name));
+        dropElement(s.field_types[i], &@field(ptr, s.field_names[i]));
     }
 }
 
@@ -255,7 +255,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
         },
         .@"struct" => |s| {
             if (@hasDecl(T, "__rig_text")) return std.mem.eql(u8, a.list.items, b.list.items);
-            inline for (s.fields) |f| if (!eqlAs(f.type, @field(a, f.name), @field(b, f.name))) return false;
+            inline for (s.field_names, s.field_types) |name, F| if (!eqlAs(F, @field(a, name), @field(b, name))) return false;
             return true;
         },
         .@"union" => |u| {
@@ -380,7 +380,7 @@ pub fn RcBox(comptime T: type) type {
 const max_drop_depth = 256;
 var drop_depth: u32 = 0;
 const PendingDrop = struct { box: *anyopaque, release: *const fn (*anyopaque) void };
-var drop_queue: std.ArrayListUnmanaged(PendingDrop) = .empty;
+var drop_queue: std.ArrayList(PendingDrop) = .empty;
 
 fn drainDropQueue() void {
     drop_depth += 1;
@@ -625,7 +625,7 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
         drop_fn: *const fn (*anyopaque) void,
 
         const Self = @This();
-        pub const Args = std.meta.Tuple(params);
+        pub const Args = @Tuple(params);
 
         /// Erase `env`, a heap-allocated `Env` the closure now owns.
         pub fn init(comptime Env: type, env: *Env) Self {
@@ -672,7 +672,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         call_fn: *const fn (*anyopaque, Args) R,
 
         const Self = @This();
-        pub const Args = std.meta.Tuple(params);
+        pub const Args = @Tuple(params);
 
         /// Lend `env`, a stack closure's environment, whose `__rig_invoke`
         /// takes the parameters.
@@ -696,7 +696,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
                     return @call(.auto, g, args);
                 }
             };
-            return .{ .ctx = @constCast(@ptrCast(f)), .call_fn = thunk.call };
+            return .{ .ctx = @ptrCast(@constCast(f)), .call_fn = thunk.call };
         }
 
         /// Lend the owned closure `handle` points to (a
@@ -947,7 +947,7 @@ pub const Text = struct {
     pub fn add(self: *Text, parts: anytype) void {
         var out: std.Io.Writer.Allocating = .fromArrayList(defaultAllocator(), &self.list);
         defer self.list = out.toArrayList();
-        inline for (std.meta.fields(@TypeOf(parts))) |f| writeValue(&out.writer, @field(parts, f.name), true) catch oom();
+        inline for (@typeInfo(@TypeOf(parts)).@"struct".field_names) |f| writeValue(&out.writer, @field(parts, f), true) catch oom();
     }
 
     /// `!t.push(b)`: append one byte.
@@ -1010,18 +1010,18 @@ pub fn expectShim(comptime f: anytype, comptime Rig: type, comptime Errors: type
     };
     const ri = @typeInfo(Rig).@"fn";
     const ret = fi.return_type orelse shimMismatch(F, lowered, name);
-    if (@typeInfo(ret) != .error_union or fi.is_var_args or fi.params.len != ri.params.len or
+    if (@typeInfo(ret) != .error_union or fi.attrs.varargs or fi.param_types.len != ri.param_types.len or
         @typeInfo(ret).error_union.payload != @typeInfo(rig_ret).error_union.payload or
-        !std.meta.eql(fi.calling_convention, ri.calling_convention)) shimMismatch(F, lowered, name);
-    for (fi.params, ri.params) |p, q| if (p.type != q.type or p.is_noalias != q.is_noalias) shimMismatch(F, lowered, name);
-    const set = @typeInfo(@typeInfo(ret).error_union.error_set).error_set orelse
+        !std.meta.eql(fi.attrs.@"callconv", ri.attrs.@"callconv")) shimMismatch(F, lowered, name);
+    for (fi.param_types, ri.param_types, fi.param_attrs, ri.param_attrs) |p, q, pa, qa| if (p != q or pa.@"noalias" != qa.@"noalias") shimMismatch(F, lowered, name);
+    const set = @typeInfo(@typeInfo(ret).error_union.error_set).error_set.error_names orelse
         @compileError("rig: the Zig function of `" ++ name ++ "` returns `anyerror`; it must name the errors it returns, each an error of module `" ++ moduleOf(name) ++ "`");
-    const allowed = @typeInfo(Errors).error_set.?;
+    const allowed = @typeInfo(Errors).error_set.error_names.?;
     for (set) |e| {
         const known = for (allowed) |a| {
-            if (std.mem.eql(u8, a.name, e.name)) break true;
+            if (std.mem.eql(u8, a, e)) break true;
         } else false;
-        if (!known) @compileError("rig: the Zig function of `" ++ name ++ "` returns `error." ++ e.name ++ "`, which is not an error of module `" ++ moduleOf(name) ++ "`: its errors are named `error.@\"" ++ moduleOf(name) ++ ".Set.name\"`");
+        if (!known) @compileError("rig: the Zig function of `" ++ name ++ "` returns `error." ++ e ++ "`, which is not an error of module `" ++ moduleOf(name) ++ "`: its errors are named `error.@\"" ++ moduleOf(name) ++ ".Set.name\"`");
     }
 }
 
@@ -1031,7 +1031,7 @@ fn shimMismatch(comptime F: type, comptime lowered: []const u8, comptime name: [
 
 /// The module of the declaration `std.NAME.decl`.
 fn moduleOf(comptime name: []const u8) []const u8 {
-    return name[0 .. std.mem.lastIndexOfScalar(u8, name, '.') orelse 0];
+    return name[0 .. std.mem.findScalarLast(u8, name, '.') orelse 0];
 }
 
 // -----------------------------------------------------------------------------
@@ -1047,9 +1047,9 @@ pub fn index(i: anytype, count: usize) usize {
 }
 
 /// A float about to be converted to an integer type, panicking if it is
-/// NaN, which `@intFromFloat`'s own range check does not catch.
+/// NaN, which `@trunc`'s own range check does not catch.
 pub fn notNan(x: anytype) @TypeOf(x) {
-    if (std.debug.runtime_safety and std.math.isNan(x)) @panic("integer part of floating point value out of bounds");
+    if (comptime builtin.optimize.runtimeSafety()) if (std.math.isNan(x)) @panic("integer part of floating point value out of bounds");
     return x;
 }
 
@@ -1063,7 +1063,7 @@ pub fn elems(p: anytype) Elems(@TypeOf(p)) {
 fn Elems(comptime P: type) type {
     const ptr = @typeInfo(P).pointer;
     const elem = @typeInfo(ptr.child).array.child;
-    return if (ptr.is_const) []const elem else []elem;
+    return if (ptr.attrs.@"const") []const elem else []elem;
 }
 
 /// `s[i]` for a string or slice: the element at `i`, with `s` evaluated
@@ -1119,7 +1119,7 @@ pub const Endian = enum { little, big };
 pub fn readInt(comptime T: type, bytes: anytype, offset: anytype, comptime endian: Endian) T {
     const n = @divExact(@bitSizeOf(T), 8);
     const i = byteOffset(bytes.len, offset, n) orelse @panic("byte read out of range");
-    const Bits = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const Bits = @Int(.unsigned, @bitSizeOf(T));
     return @bitCast(std.mem.readInt(Bits, bytes[i..][0..n], zigEndian(endian)));
 }
 
@@ -1129,7 +1129,7 @@ pub fn readInt(comptime T: type, bytes: anytype, offset: anytype, comptime endia
 pub fn writeInt(comptime T: type, bytes: anytype, offset: anytype, value: T, comptime endian: Endian) void {
     const n = @divExact(@bitSizeOf(T), 8);
     const i = byteOffset(bytes.len, offset, n) orelse @panic("byte write out of range");
-    const Bits = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const Bits = @Int(.unsigned, @bitSizeOf(T));
     std.mem.writeInt(Bits, bytes[i..][0..n], @bitCast(value), zigEndian(endian));
 }
 
@@ -1140,7 +1140,7 @@ fn byteOffset(count: usize, offset: anytype, n: usize) ?usize {
     return i;
 }
 
-fn zigEndian(comptime e: Endian) std.builtin.Endian {
+fn zigEndian(comptime e: Endian) std.lang.Endian {
     return switch (e) {
         .little => .little,
         .big => .big,
@@ -1188,7 +1188,7 @@ fn oom() noreturn {
 // leak is reported with its count and size, and a double or mismatched
 // free panics. Built with `RIG_LEAK_TRACE=1`, the emitted root module
 // declares `__rig_leak_trace`, and the checker sits on Zig's
-// `DebugAllocator`, which prints the stack trace of every leaked
+// `SafeAllocator`, which prints the stack trace of every leaked
 // allocation (and of double frees) at the cost of capturing one per
 // allocation. Built with `RIG_SANITIZE=1`, the root module declares
 // `__rig_sanitize`, and the checker sits on `Sanitizer`, which makes any
@@ -1198,11 +1198,11 @@ fn oom() noreturn {
 
 const builtin = @import("builtin");
 const root = @import("root");
-const leak_checked = builtin.mode == .Debug;
+const leak_checked = builtin.optimize == .debug;
 const leak_trace = leak_checked and @hasDecl(root, "__rig_leak_trace") and root.__rig_leak_trace;
 const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_sanitize") and root.__rig_sanitize;
 
-var trace_allocator: std.heap.DebugAllocator(.{}) = .init;
+var trace_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
 var sanitizer: Sanitizer = .{};
 var leak_checker: LeakChecker = .{};
 
@@ -1265,7 +1265,7 @@ const LeakChecker = struct {
 
     fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
         const self: *LeakChecker = @ptrCast(@alignCast(ctx));
-        // Under RIG_LEAK_TRACE, let DebugAllocator report a bad free
+        // Under RIG_LEAK_TRACE, let SafeAllocator report a bad free
         // with its stack traces first.
         if (leak_trace and !sanitize and !self.live.contains(@intFromPtr(memory.ptr))) backing().rawFree(memory, alignment, ret_addr);
         _ = self.entry(memory);
@@ -1309,7 +1309,7 @@ const Sanitizer = struct {
     /// The note that blocks are no longer guarded has been printed.
     noted: bool = false,
 
-    const supported = builtin.os.tag == .macos or builtin.os.tag == .linux;
+    const supported = builtin.target.os.tag == .macos or builtin.target.os.tag == .linux;
     /// Address space reserved at a time: 64 GiB, which holds a million
     /// blocks at the largest page size (16 KiB, plus a guard page).
     const span_size: usize = 64 << 30;
@@ -1337,7 +1337,7 @@ const Sanitizer = struct {
         if (environ.getPosix("RIG_SANITIZE_BLOCKS")) |text| {
             if (std.fmt.parseInt(usize, text, 10)) |n| return self.setMaxLive(n) else |_| {}
         }
-        if (builtin.os.tag != .linux) return;
+        if (builtin.target.os.tag != .linux) return;
         var buf: [32]u8 = undefined;
         const text = std.Io.Dir.cwd().readFile(io(), "/proc/sys/vm/max_map_count", &buf) catch return;
         const maps = std.fmt.parseInt(usize, std.mem.trim(u8, text, " \n"), 10) catch return;
@@ -1450,7 +1450,7 @@ const Sanitizer = struct {
 
     fn onFault(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {
         for (signals, &previous) |sig, *old| std.posix.sigaction(sig, old, null);
-        const addr = switch (builtin.os.tag) {
+        const addr = switch (builtin.target.os.tag) {
             .linux => @intFromPtr(info.fields.sigfault.addr),
             else => @intFromPtr(info.addr),
         };
@@ -1458,9 +1458,9 @@ const Sanitizer = struct {
         flush();
         var buf: [256]u8 = undefined;
         const msg = if (sanitizer.blockBefore(addr)) |b|
-            std.fmt.bufPrint(&buf, "error: rig: access past the end of a {d}-byte block at 0x{x} (address 0x{x})\n", .{ b.len, b.start, addr })
+            std.mem.print(&buf, "error: rig: access past the end of a {d}-byte block at 0x{x} (address 0x{x})\n", .{ b.len, b.start, addr })
         else
-            std.fmt.bufPrint(&buf, "error: rig: use of freed memory at address 0x{x}\n", .{addr});
+            std.mem.print(&buf, "error: rig: use of freed memory at address 0x{x}\n", .{addr});
         const text = msg catch return;
         _ = std.posix.system.write(std.posix.STDERR_FILENO, text.ptr, text.len);
     }
@@ -1533,8 +1533,8 @@ pub fn guardStack() void {
 
 /// Whether an overflow of the main stack now stops the program.
 fn guarded() bool {
-    if (builtin.cpu.arch.isX86()) return true;
-    return switch (builtin.os.tag) {
+    if (builtin.target.cpu.arch.isX86()) return true;
+    return switch (builtin.target.os.tag) {
         .macos => reserveBelowStack() != null,
         .linux => {
             const limit = std.posix.getrlimit(.STACK) catch return false;
@@ -1561,7 +1561,7 @@ fn reserveBelowStack() ?[*]align(std.heap.page_size_min) u8 {
     return @ptrCast(@alignCast(got));
 }
 
-/// What the process started with, which Zig 0.16 hands only to `main`:
+/// What the process started with, which Zig hands only to `main`:
 /// the arguments and environment, for the standard library.
 pub var process: ?std.process.Init.Minimal = null;
 var process_args: []const []const u8 = &.{};
@@ -1650,9 +1650,9 @@ fn flush() void {
 /// newline.
 pub fn print(args: anytype) void {
     const w = stdout();
-    inline for (std.meta.fields(@TypeOf(args)), 0..) |f, i| {
+    inline for (@typeInfo(@TypeOf(args)).@"struct".field_names, 0..) |f, i| {
         if (i > 0) w.writeAll(" ") catch {};
-        writeValue(w, @field(args, f.name), true) catch {};
+        writeValue(w, @field(args, f), true) catch {};
     }
     w.writeAll("\n") catch {};
     if (stdout_is_tty) flush();
@@ -1707,8 +1707,8 @@ var current_test: ?TestName = null;
 /// error `Set.name`, or `module.Set.name` outside the root module.
 pub fn errorShown(err: anyerror) []const u8 {
     const full = @errorName(err);
-    const dot = std.mem.lastIndexOfScalar(u8, full, '.') orelse return full;
-    const begin = if (std.mem.lastIndexOfScalar(u8, full[0..dot], '.')) |d| d + 1 else 0;
+    const dot = std.mem.findScalarLast(u8, full, '.') orelse return full;
+    const begin = if (std.mem.findScalarLast(u8, full[0..dot], '.')) |d| d + 1 else 0;
     return full[begin..];
 }
 
@@ -1763,8 +1763,8 @@ fn isString(comptime T: type) bool {
 /// The Rig name of a declared type: `main.Wrap(i64)` is `Wrap`.
 fn rigTypeName(comptime T: type) []const u8 {
     const full = @typeName(T);
-    const end = comptime std.mem.indexOfScalar(u8, full, '(') orelse full.len;
-    const begin = comptime if (std.mem.lastIndexOfScalar(u8, full[0..end], '.')) |d| d + 1 else 0;
+    const end = comptime std.mem.findScalar(u8, full, '(') orelse full.len;
+    const begin = comptime if (std.mem.findScalarLast(u8, full[0..end], '.')) |d| d + 1 else 0;
     // A Rig name the emitter reserves (`std`, `rig`) is spelled `@"std'"`.
     const quoted = comptime end > begin and full[end - 1] == '\'';
     return full[begin..if (quoted) end - 1 else end];
@@ -1837,10 +1837,10 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
 }
 
 fn writeFields(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
-    inline for (std.meta.fields(@TypeOf(value)), 0..) |f, i| {
+    inline for (@typeInfo(@TypeOf(value)).@"struct".field_names, 0..) |f, i| {
         if (i > 0) try w.writeAll(", ");
-        try w.print("{s}: ", .{f.name});
-        try writeValue(w, @field(value, f.name), false);
+        try w.print("{s}: ", .{f});
+        try writeValue(w, @field(value, f), false);
     }
 }
 
@@ -1885,7 +1885,7 @@ const Order = struct {
 };
 
 test "the reserve below the stack is made only where nothing is mapped" {
-    if (builtin.os.tag != .macos or builtin.cpu.arch.isX86()) return error.SkipZigTest;
+    if (builtin.target.os.tag != .macos or builtin.target.cpu.arch.isX86()) return error.SkipZigTest;
     const self = std.c.pthread_self();
     const bottom = @intFromPtr(pthread_get_stackaddr_np(self)) - pthread_get_stacksize_np(self);
     const page = std.heap.pageSize();
@@ -1900,7 +1900,7 @@ test "the reserve below the stack is made only where nothing is mapped" {
 }
 
 test "guardStack holds the stack to 16 MiB on Linux" {
-    if (builtin.os.tag != .linux or builtin.cpu.arch.isX86()) return error.SkipZigTest;
+    if (builtin.target.os.tag != .linux or builtin.target.cpu.arch.isX86()) return error.SkipZigTest;
     const before = try std.posix.getrlimit(.STACK);
     if (before.max < 2 * stack_size) return error.SkipZigTest;
     try std.posix.setrlimit(.STACK, .{ .cur = 2 * stack_size, .max = before.max });
@@ -2261,7 +2261,7 @@ test "printing stops past a nesting depth" {
     var buf: [4096]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try writeValue(&w, head, true);
-    try testing.expect(std.mem.endsWith(u8, w.buffered(), "Node(next: ...)" ++ ")" ** (max_print_depth - 1)));
+    try testing.expect(std.mem.endsWith(u8, w.buffered(), "Node(next: ...)" ++ &@as([max_print_depth - 1]u8, @splat(')'))));
     drop(&head);
     try expectNoLeaks(before);
 }
@@ -2305,8 +2305,8 @@ fn faultsInChild(addr: usize, comptime touch: fn (usize) void, handler: bool, er
         n += got;
     }
     _ = sys.close(fds[0]);
-    const signaled = if (builtin.os.tag == .linux) blk: {
-        var status: u32 = 0;
+    const signaled = if (builtin.target.os.tag == .linux) blk: {
+        var status: i32 = 0;
         if (std.posix.errno(sys.waitpid(@intCast(pid), &status, 0)) != .SUCCESS) return error.WaitFailed;
         break :blk status & 0x7f != 0;
     } else blk: {
@@ -2387,7 +2387,7 @@ test "a fault in freed memory names it" {
     const got = try faultsInChild(freed, writeByte, true, &buf);
     try testing.expect(got.faulted);
     var want: [64]u8 = undefined;
-    try testing.expectEqualStrings(try std.fmt.bufPrint(&want, "error: rig: use of freed memory at address 0x{x}\n", .{freed}), got.stderr);
+    try testing.expectEqualStrings(try std.mem.print(&want, "error: rig: use of freed memory at address 0x{x}\n", .{freed}), got.stderr);
 }
 
 test "take clears the alive flag" {

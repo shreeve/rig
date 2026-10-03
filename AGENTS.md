@@ -55,7 +55,7 @@ allocation, no hidden refcount traffic, no silent control flow.
 5. **Substrate in the language, libraries in userland.** No GC, no
    macros, no built-in reactive framework.
 6. **Never edit `src/parser.zig` by hand.** Edit `rig.grammar` and
-   run `zig build parser` (Nexus 1.0.0 or later; see Workflow). The
+   run `zig build parser` (Nexus 2.0.0 or later; see Workflow). The
    grammar's `@schema` declares every IR node and its roles; the
    compiler reads the tree through the generated accessors
    (`parser.ir`), by role, never by position. Grammar conflicts must
@@ -106,10 +106,10 @@ zig build                  # builds bin/rig
 ./test/run                 # full suite; must be green before every commit
 ./test/run corpus          # every reviewer probe, not only the default sample
 test/matrix.py             # form x context x type programs, checked and run
-bin/rig run file.rig       # compile + run (Debug, leak-checked)
+bin/rig run file.rig       # compile + run (debug, leak-checked)
 bin/rig emit file.rig      # the emitted Zig
 bin/rig test file.rig      # run the program's `test` blocks
-bin/rig build --release -o prog file.rig   # optimized executable (ReleaseSafe)
+bin/rig build --release -o prog file.rig   # optimized executable (safe)
 RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 ```
@@ -117,7 +117,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 - Nexus: `zig build parser` and `./test/run` (whose parser check
   regenerates `src/parser.zig` and compares) use `nexus/bin/nexus` in
   the nearest parent directory, normally `../nexus/bin/nexus` beside
-  this checkout. It must be Nexus 1.0.0 or later; an older build there
+  this checkout. It must be Nexus 2.0.0 or later; an older build there
   fails generation or the parser check. To use another binary, name it
   in both places: `zig build parser -Dnexus=PATH` and
   `NEXUS=PATH ./test/run`.
@@ -156,4 +156,4 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `docs/DESIGN.md` | Principles and rationale |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
-| `docs/zig-0.16.md` | Zig 0.16 for Rig contributors: the language, std, and build APIs Rig uses |
+| `docs/zig-0.17.md` | Zig 0.17 for Rig contributors: the language, std, and build APIs Rig uses |

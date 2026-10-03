@@ -119,7 +119,7 @@ and exits 1 if anything is still allocated. A double free or a free of
 memory that was never allocated panics. To see where leaked memory was
 allocated, run the test again by hand with
 `RIG_LEAK_TRACE=1 bin/rig run file.rig`: the runtime then allocates
-through Zig's `DebugAllocator`, which prints a stack trace for each
+through Zig's `SafeAllocator`, which prints a stack trace for each
 leak.
 
 The suite also builds every program it runs (behavior tests, examples,

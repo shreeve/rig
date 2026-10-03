@@ -2,7 +2,7 @@
 # has the Rig signature the real API would have; its body is a
 # placeholder so the program compiles today. The emitted Zig is then
 # hand-edited so each stand-in resolves to rig/std/text.zig or
-# rig/std/map.zig, which wrap Zig 0.16 std.
+# rig/std/map.zig, which wrap Zig std.
 
 error StdError
   not_found

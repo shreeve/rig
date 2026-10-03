@@ -2,7 +2,7 @@
 # rig.grammar — Rig lexer and parser grammar
 # ==============================================================================
 #
-# Processed by Nexus 1.0 into src/parser.zig (`zig build parser`). The
+# Processed by Nexus 2.0 into src/parser.zig (`zig build parser`). The
 # @schema at the top of the parser section declares every IR node kind and
 # its roles; Nexus checks every action against it and generates the IR
 # accessors (`parser.ir`) the compiler reads the tree with.
@@ -477,12 +477,12 @@ sub      = SUB name:name [tparams:tparams] [params:params] body:block → (sub)
 
 returns  = "->" type                                → 2
 
-params   = "(" fields [","] ")"                     → (...2)
+params   = "(" fields ![","] ")"                     → (...2)
          | "(" ")"                                  → ()
 
 # Compile-time parameters, in brackets after the declared name: a bare
 # name is a type parameter, `name: Type` a compile-time value.
-tparams  = "[" tfields [","] "]"                    → (...2)
+tparams  = "[" tfields ![","] "]"                    → (...2)
 
 tfields  = tfield                                   → (1)
          | tfields "," tfield                       → (...1 3)
@@ -585,7 +585,7 @@ thandle  = "*" type:thandle                         → (shared)
          | tatom
 
 tatom    = tname
-         | name:tname "[" args:types [","] "]"      → (generic_inst)
+         | name:tname "[" args:types ![","] "]"      → (generic_inst)
          | "(" type ")"                             → 2
 
 # A named type, of this module or another: `Point`, `geo.Point`. Its
@@ -752,7 +752,7 @@ patatom  = name
          | FALSE
          | "." name:name                            → (enum_lit)
          | "." name:name "(" ")"                    → (variant_pattern)
-         | "." name:name "(" bindings:pbinds [","] ")" → (variant_pattern)
+         | "." name:name "(" bindings:pbinds ![","] ")" → (variant_pattern)
 
 pqual    = object:name "." name:name                → (member)
 
@@ -788,7 +788,7 @@ cclosure = clambda
 
 clambda  = params:bars assign                       → (lambda body:(block 2))
 
-bars     = BAR_CAPTURE barents [","] BAR_CAPTURE    → (...2)
+bars     = BAR_CAPTURE barents ![","] BAR_CAPTURE    → (...2)
          | BAR_EMPTY                                → ()
 
 barents  = barent                                   → (1)

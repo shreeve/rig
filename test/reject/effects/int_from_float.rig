@@ -1,0 +1,11 @@
+# Rig's builtins are Zig's: a float becomes an integer with `@trunc`,
+# and `@intFromFloat` names it.
+
+sub main()
+  f = 2.5
+  raw
+    n: I64 = @intFromFloat(f)
+    print(n)
+
+# error: builtin `@intFromFloat` is not supported; a float becomes an integer with `@trunc`
+# errors: 1

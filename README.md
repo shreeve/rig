@@ -6,7 +6,7 @@ collector. Blocks are indented, most code carries no annotations at
 all, and the places where ownership matters are marked by a handful of
 one-character sigils: `<x` moves, `?x` borrows, `+x` clones, `-x`
 drops. The compiler checks every one of them, then lowers the program
-to [Zig](https://ziglang.org) 0.16, which does the optimizing, code
+to [Zig](https://ziglang.org) 0.17, which does the optimizing, code
 generation, and linking.
 
 > **Status: early.** The core language and its ownership checker work
@@ -203,29 +203,29 @@ algebra.
 
 ## Install
 
-Rig needs [Zig](https://ziglang.org/download/) 0.16 on `PATH`; `rig`
+Rig needs [Zig](https://ziglang.org/download/) 0.17 on `PATH`; `rig`
 itself runs `$ZIG` instead when it is set.
 
 ```bash
 zig build                  # builds bin/rig in the checkout
-zig build -p ~/.local      # or installs ~/.local/bin/rig
+zig build -p ~/.local      # and installs ~/.local/bin/rig
 ```
 
 The test runner also needs bash and either GNU `timeout` or perl
 (stock macOS has perl). [Nexus](https://github.com/shreeve/nexus)
-1.0, the parser generator, is needed only to change the grammar: clone
+2.0, the parser generator, is needed only to change the grammar: clone
 it beside this checkout and build it there (`zig build
--Doptimize=ReleaseSafe`), and `zig build parser` and the suite find it
+-Doptimize=safe`), and `zig build parser` and the suite find it
 ([AGENTS.md](AGENTS.md#workflow) has the details).
 
 ## Build and run
 
 ```bash
-bin/rig run examples/hello.rig         # check, build, and run (Debug)
+bin/rig run examples/hello.rig         # check, build, and run (debug)
 bin/rig run file.rig -- a b            # the same, passing the program arguments
-bin/rig run --release file.rig         # the same, optimized (ReleaseSafe)
+bin/rig run --release file.rig         # the same, optimized (safe)
 bin/rig build -o hello file.rig        # a native executable
-bin/rig build --release=fast file.rig  # ReleaseFast: no overflow checks
+bin/rig build --release=fast file.rig  # fast: no overflow checks
 bin/rig test file.rig                  # run the program's `test` blocks
 bin/rig check file.rig                 # check only
 bin/rig emit file.rig                  # print the emitted Zig

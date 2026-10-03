@@ -65,7 +65,7 @@ pub const Module = struct {
     is_std: bool = false,
     /// The Zig files its `extern zig` blocks name (standard library
     /// modules only), which the package holds as `rig/std/<name>`.
-    shims: std.ArrayListUnmanaged(Shim) = .empty,
+    shims: std.ArrayList(Shim) = .empty,
     source: []const u8,
     parser: *parser.Parser,
     /// Semantic IR; `.nil` if parsing failed.
@@ -73,7 +73,7 @@ pub const Module = struct {
     /// Always valid, so diagnostics (including parse and import errors)
     /// can be recorded against the module's source.
     sema: *sema.SemContext,
-    imports: std.ArrayListUnmanaged(Import) = .empty,
+    imports: std.ArrayList(Import) = .empty,
     state: State = .loading,
 
     pub const State = enum { loading, checked, failed };
@@ -84,7 +84,7 @@ pub const ModuleGraph = struct {
     io: std.Io,
     arena: std.heap.ArenaAllocator,
     /// Modules in load order; the root is first.
-    modules: std.ArrayListUnmanaged(Module) = .empty,
+    modules: std.ArrayList(Module) = .empty,
     by_path: std.StringHashMapUnmanaged(ModuleId) = .empty,
     by_name: std.StringHashMapUnmanaged(ModuleId) = .empty,
     /// `$RIG_STD`: the standard library's directory, in place of the
@@ -94,7 +94,7 @@ pub const ModuleGraph = struct {
     /// with the first module, so it stays put when the graph is moved.
     semas: ?*sema.ModuleMap = null,
     /// Errors with no source position (the root file cannot be read).
-    errors: std.ArrayListUnmanaged([]const u8) = .empty,
+    errors: std.ArrayList([]const u8) = .empty,
 
     pub const Error = std.mem.Allocator.Error;
 
@@ -142,11 +142,11 @@ pub const ModuleGraph = struct {
     /// stack it is `loading`, which is how a cycle is recognized.
     pub fn loadRoot(self: *ModuleGraph, path: []const u8) Error!void {
         const source = self.read(path) catch |err| {
-            try self.errors.append(self.allocator, try std.fmt.allocPrint(self.arena.allocator(), "cannot read `{s}`: {s}", .{ path, fileError(err) }));
+            try self.errors.append(self.allocator, try self.arena.allocator().print("cannot read `{s}`: {s}", .{ path, fileError(err) }));
             return;
         };
         const Frame = struct { id: ModuleId, next: usize = 0, ok: bool = true };
-        var stack: std.ArrayListUnmanaged(Frame) = .empty;
+        var stack: std.ArrayList(Frame) = .empty;
         defer stack.deinit(self.allocator);
 
         const root_id = try self.add(try self.realPath(path), path, moduleName(path), source);
@@ -205,9 +205,9 @@ pub const ModuleGraph = struct {
             try self.errorAt(id, at, "a module of the standard library imports only other modules of it: `use std.{s}`", .{name});
             return .failed;
         }
-        const qualified = if (in_std) try std.fmt.allocPrint(a, "std.{s}", .{name}) else name;
+        const qualified = if (in_std) try a.print("std.{s}", .{name}) else name;
         const target = self.by_name.get(qualified) orelse blk: {
-            const file = try std.fmt.allocPrint(a, "{s}.rig", .{name});
+            const file = try a.print("{s}.rig", .{name});
             if (in_std) {
                 const found = self.readStd(file) catch |err| {
                     try self.stdError(id, at, file, err);
@@ -218,7 +218,7 @@ pub const ModuleGraph = struct {
                 };
                 const added = try self.add(found.key, found.display, qualified, found.source);
                 self.get(added).is_std = true;
-                self.get(added).out_basename = try std.fmt.allocPrint(a, "__rig_std_{s}.zig", .{name});
+                self.get(added).out_basename = try a.print("__rig_std_{s}.zig", .{name});
                 if (!try self.loadShims(added)) self.get(added).state = .failed;
                 try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = added });
                 return .{ .added = added };
@@ -263,7 +263,7 @@ pub const ModuleGraph = struct {
             const at = m.parser.span(leaf);
             const quoted = leaf.getText(m.source);
             const file = quoted[1 .. quoted.len - 1];
-            const base = file[0 .. file.len -| 4];
+            const base = file[0..file.len -| 4];
             const plain = std.mem.endsWith(u8, file, ".zig") and base.len > 0 and for (base) |c| {
                 if (!std.ascii.isAlphanumeric(c) and c != '_') break false;
             } else true;
@@ -291,7 +291,7 @@ pub const ModuleGraph = struct {
     /// `display` names it in diagnostics.
     fn readStd(self: *ModuleGraph, file: []const u8) !?struct { key: []const u8, display: []const u8, source: []const u8 } {
         const a = self.arena.allocator();
-        const key = try std.fmt.allocPrint(a, "<std>/{s}", .{file});
+        const key = try a.print("<std>/{s}", .{file});
         const dir = self.std_dir orelse {
             const source = std_lib.get(file) orelse return null;
             return .{ .key = key, .display = try std.fs.path.join(a, &.{ "std", file }), .source = source };
@@ -324,7 +324,7 @@ pub const ModuleGraph = struct {
         const p = blk: {
             // Everything that can fail comes first; the graph owns the
             // module once it is registered.
-            const out_basename = if (id == 1) root_zig else try std.fmt.allocPrint(a, "{s}.zig", .{name});
+            const out_basename = if (id == 1) root_zig else try a.print("{s}.zig", .{name});
             const semas = self.semas orelse semas: {
                 const map = try a.create(sema.ModuleMap);
                 map.* = .empty;
@@ -390,7 +390,7 @@ pub const ModuleGraph = struct {
     /// checked.
     fn check(self: *ModuleGraph, id: ModuleId) Error!void {
         const m = self.get(id);
-        var entries: std.ArrayListUnmanaged(sema.ImportEntry) = .empty;
+        var entries: std.ArrayList(sema.ImportEntry) = .empty;
         defer entries.deinit(self.allocator);
         for (m.imports.items) |imp| {
             try entries.append(self.allocator, .{ .local_name = imp.local_name, .sema = self.get(imp.target).sema, .module_id = imp.target });
@@ -427,7 +427,7 @@ pub const ModuleGraph = struct {
 
     fn errorAt(self: *ModuleGraph, id: ModuleId, at: parser.Span, comptime fmt: []const u8, args: anytype) Error!void {
         const m = self.get(id);
-        const message = try std.fmt.allocPrint(m.sema.arena.allocator(), fmt, args);
+        const message = try m.sema.arena.allocator().print(fmt, args);
         try m.sema.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = message });
     }
 

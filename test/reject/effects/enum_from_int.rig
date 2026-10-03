@@ -1,0 +1,17 @@
+# Rig's builtins are Zig's: an integer becomes a plain enum with
+# `@fromBackingInt`, and `@enumFromInt` names it.
+
+enum Status
+  ok = 200
+  missing = 404
+
+fun of(n: Int) -> Status
+  raw
+    s: Status = @enumFromInt(n)
+    s
+
+sub main()
+  print(of(404))
+
+# error: builtin `@enumFromInt` is not supported; an integer becomes a plain enum with `@fromBackingInt`
+# errors: 1

@@ -340,7 +340,7 @@ const SymbolResolver = struct {
         const id = (try self.declare(name_node, .generic_type, .{})) orelse return;
         const name = self.ctx.symbols.items[id].name;
         const params = ir.get(node, .tparams);
-        var ids: std.ArrayListUnmanaged(SymbolId) = .empty;
+        var ids: std.ArrayList(SymbolId) = .empty;
         defer ids.deinit(self.ctx.allocator);
         for (params.items(), 0..) |p, i| {
             const pnode = sema.paramNameNode(p) orelse continue;
@@ -650,7 +650,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             if (c.ty) |ty| if (!try sema.checkArrayBytes(ctx, ctx.startOf(c.at), ty)) return;
             // `[N]T` in a generic type: every instance must supply plain
             // data for the parameters the element holds.
-            var held: std.ArrayListUnmanaged(SymbolId) = .empty;
+            var held: std.ArrayList(SymbolId) = .empty;
             defer held.deinit(ctx.allocator);
             try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
             for (held.items) |param| {
@@ -664,7 +664,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
                 try ctx.errAt(c.node, "slices cannot view values that own resources (`{s}`); borrow the Vec instead", .{try sema.formatType(ctx, c.elem)});
                 return;
             }
-            var held: std.ArrayListUnmanaged(SymbolId) = .empty;
+            var held: std.ArrayList(SymbolId) = .empty;
             defer held.deinit(ctx.allocator);
             try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
             for (held.items) |param| {
@@ -760,7 +760,7 @@ fn literalTypeName(text: []const u8) ?[]const u8 {
 
 /// The article for a type's name: "an `Int`", "a `Float`".
 pub fn an(name: []const u8) []const u8 {
-    return if (name.len > 0 and std.mem.indexOfScalar(u8, "AEIO", name[0]) != null) "an" else "a";
+    return if (name.len > 0 and std.mem.findScalar(u8, "AEIO", name[0]) != null) "an" else "a";
 }
 
 pub const TypeResolver = struct {
@@ -781,7 +781,7 @@ pub const TypeResolver = struct {
         if (name.len > 0 and std.ascii.isLower(name[0])) {
             const upper = try a.dupe(u8, name);
             upper[0] = std.ascii.toUpper(upper[0]);
-            if (isBuiltinTypeName(self.ctx, upper)) return std.fmt.allocPrint(a, "; Rig's types are capitalized: `{s}`", .{upper});
+            if (isBuiltinTypeName(self.ctx, upper)) return a.print("; Rig's types are capitalized: `{s}`", .{upper});
             if (std.mem.eql(u8, name, "str")) return "; Rig's string type is `String`";
         }
         var s: sema.Suggest = .{ .name = name };
@@ -848,9 +848,9 @@ pub const TypeResolver = struct {
 
         // The compile-time parameters first: the other types may use
         // them (`fun zeros[n: Int] -> [n]Int`).
-        var ct_types: std.ArrayListUnmanaged(TypeId) = .empty;
+        var ct_types: std.ArrayList(TypeId) = .empty;
         defer ct_types.deinit(self.ctx.allocator);
-        var ct_syms: std.ArrayListUnmanaged(SymbolId) = .empty;
+        var ct_syms: std.ArrayList(SymbolId) = .empty;
         defer ct_syms.deinit(self.ctx.allocator);
         for (sema.tparamsOf(node).items()) |p| {
             const pty = try self.resolveCtParam(p);
@@ -863,7 +863,7 @@ pub const TypeResolver = struct {
         const return_ty = if (rig.subFails(node))
             try self.ctx.intern(.{ .fallible = self.ctx.types.void_id })
         else if (returns == .nil) self.ctx.types.void_id else try self.resolveReturnType(returns);
-        var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
+        var param_types: std.ArrayList(TypeId) = .empty;
         defer param_types.deinit(self.ctx.allocator);
         for (params.items()) |p| {
             const pty = try self.resolveParamType(p);
@@ -1044,7 +1044,7 @@ pub const TypeResolver = struct {
         if (!is_sub and (returns == .nil or return_ty == self.ctx.types.void_id)) {
             try self.ctx.errAt(if (returns == .nil) name else returns, "an `extern fun` returns a value; declare `-> T`, or make `{s}` an `extern sub`", .{identAt(self.ctx.source, name) orelse "it"});
         }
-        var ps: std.ArrayListUnmanaged(TypeId) = .empty;
+        var ps: std.ArrayList(TypeId) = .empty;
         defer ps.deinit(self.ctx.allocator);
         for (params.items()) |p| {
             if (p.isKind(.default)) try self.ctx.err(sema.paramPos(p, self.ctx.startOf(p)), "an `extern` parameter cannot have a default value", .{});
@@ -1120,7 +1120,7 @@ pub const TypeResolver = struct {
         self.nominal = try sema.makeNominalContext(self.ctx, sym_id);
         defer self.nominal = prev;
 
-        var fields: std.ArrayListUnmanaged(Field) = .empty;
+        var fields: std.ArrayList(Field) = .empty;
         defer fields.deinit(self.ctx.allocator);
         // Each member's name -> where it is declared.
         var names: std.StringHashMapUnmanaged(u32) = .empty;
@@ -1357,12 +1357,12 @@ pub const TypeResolver = struct {
         return true;
     }
 
-    fn resolveVariant(self: *TypeResolver, variant: Sexp, fields: *std.ArrayListUnmanaged(Field), names: *std.StringHashMapUnmanaged(u32), owner: []const u8) Error!void {
+    fn resolveVariant(self: *TypeResolver, variant: Sexp, fields: *std.ArrayList(Field), names: *std.StringHashMapUnmanaged(u32), owner: []const u8) Error!void {
         const name_node = ir.Variant.name(variant);
         const vname = identAt(self.ctx.source, name_node).?;
         const vpos = name_node.src.pos;
         if (try self.checkDuplicateMember(names, vname, vpos, owner)) return;
-        var payload: std.ArrayListUnmanaged(Field) = .empty;
+        var payload: std.ArrayList(Field) = .empty;
         defer payload.deinit(self.ctx.allocator);
         var payload_names: std.StringHashMapUnmanaged(u32) = .empty;
         defer payload_names.deinit(self.ctx.allocator);
@@ -1403,7 +1403,7 @@ pub const TypeResolver = struct {
         return p.isPubMember(member);
     }
 
-    fn resolveMethod(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayListUnmanaged(Field), names: *std.StringHashMapUnmanaged(u32)) Error!void {
+    fn resolveMethod(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayList(Field), names: *std.StringHashMapUnmanaged(u32)) Error!void {
         const name = ir.get(node, .name);
         const mname = identAt(self.ctx.source, name).?;
         const mpos = name.src.pos;
@@ -1461,7 +1461,7 @@ pub const TypeResolver = struct {
         return .none;
     }
 
-    fn resolveDropDecl(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayListUnmanaged(Field)) Error!void {
+    fn resolveDropDecl(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayList(Field)) Error!void {
         const pos = self.ctx.startOf(node);
         for (fields.items) |f| {
             if (f.is_drop_method) {
@@ -1652,7 +1652,7 @@ pub const TypeResolver = struct {
                         return ty;
                     },
                     .fun_type => {
-                        var ps: std.ArrayListUnmanaged(TypeId) = .empty;
+                        var ps: std.ArrayList(TypeId) = .empty;
                         defer ps.deinit(self.ctx.allocator);
                         for (ir.FunType.params(sexp).items()) |p| try ps.append(self.ctx.allocator, try self.resolveType(p));
                         const ret = if (ir.FunType.fails(sexp) != .nil)
@@ -1828,9 +1828,8 @@ pub const TypeResolver = struct {
                     try self.ctx.errAt(o.node, "{s} `{s}` overflows `{s}` ({d}..{d}) in `{s}`", .{ what, try self.sourceText(node), ty, b.min, b.max, at });
             },
             .mismatch => |m| try self.ctx.errAt(m.node, "{s} `{s}` combines `{s}` and `{s}`; convert one to the other's type", .{
-                what, try self.sourceText(m.node),
-                try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.a })),
-                try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.b })),
+                what,                                                                try self.sourceText(m.node),
+                try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.a })), try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.b })),
             }),
             .value, .not_constant => unreachable,
         }
@@ -2074,7 +2073,7 @@ pub const TypeResolver = struct {
             try self.ctx.err(pos, "generic type `{s}` expects {d} {s} argument{s}, got {d}", .{ name, tparams.len, argsNoun(self.ctx, tparams), if (tparams.len == 1) @as([]const u8, "") else "s", supplied.len });
             return t.invalid_id;
         }
-        var args: std.ArrayListUnmanaged(TypeId) = .empty;
+        var args: std.ArrayList(TypeId) = .empty;
         defer args.deinit(self.ctx.allocator);
         var any_bad = false;
         for (supplied, tparams, 0..) |a, tp, i| {
@@ -2118,7 +2117,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
         if (sema.isCopyElement(ctx, args[0]) or sema.typeHasDropGlue(ctx, args[0])) return null;
-        return try std.fmt.allocPrint(a, "`Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), or a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`); got `{s}`", .{arg});
+        return try a.print("`Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), or a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`); got `{s}`", .{arg});
     }
     if (sym_id == ctx.vec_sym_id) {
         const ok = sema.isCopyElement(ctx, args[0]) or switch (ctx.types.get(args[0])) {
@@ -2128,15 +2127,15 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
             else => false,
         };
         if (ok) return null;
-        return try std.fmt.allocPrint(a, "`Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `{s}`", .{arg});
+        return try a.print("`Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `{s}`", .{arg});
     }
     if (sym_id == ctx.box_sym_id) {
         if (!sema.holdsBorrow(ctx, args[0])) return null;
-        return try std.fmt.allocPrint(a, "`Box[T]` owns its value, so `T` holds no borrow; got `{s}`", .{arg});
+        return try a.print("`Box[T]` owns its value, so `T` holds no borrow; got `{s}`", .{arg});
     }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isCopyElement(ctx, args[0])) return null;
-        return try std.fmt.allocPrint(a, "`Signal[T]` requires `T` to be a Copy type (Int, Bool, Float, String) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
+        return try a.print("`Signal[T]` requires `T` to be a Copy type (Int, Bool, Float, String) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
     }
     return null;
 }
