@@ -1362,7 +1362,7 @@ pub const Checker = struct {
         const drops = self.stmt_drops.items.len;
         const v = if (sink) |k| try self.walkConsumed(stmt, k) else try self.walk(stmt);
         self.temps.shrinkRetainingCapacity(@min(temps_len, self.temps.items.len));
-        try self.dropStmtTemps(drops, null);
+        try self.dropStmtTemps(drops);
         return v;
     }
 
@@ -1378,7 +1378,7 @@ pub const Checker = struct {
     /// Drop the temporaries statement-held since `start`: a value that
     /// still borrows one after the statement would outlive it. One whose
     /// scope already ended (a branch's) was released there.
-    fn dropStmtTemps(self: *Checker, start: usize, at: ?u32) Error!void {
+    fn dropStmtTemps(self: *Checker, start: usize) Error!void {
         var i = self.stmt_drops.items.len;
         while (i > start) {
             i -= 1;
@@ -1394,7 +1394,7 @@ pub const Checker = struct {
                 for (f.loans) |l| {
                     if (l.root != d.id) {
                         try kept.append(self.arena(), l);
-                    } else if (!reported and self.holderLive(@intCast(holder), at)) {
+                    } else if (!reported and self.holderLive(@intCast(holder), null)) {
                         try self.reportTempOutlived(l, @intCast(holder));
                         reported = true;
                     }
@@ -3473,7 +3473,7 @@ pub const Checker = struct {
         self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
         try self.pushScopeFor(.block, body);
         try self.bindNew(ir.As.name(cond), false, false, bound);
-        try self.dropStmtTemps(drops, null);
+        try self.dropStmtTemps(drops);
     }
 
     /// `(catch expr name? handler)`: the handler runs when `expr` fails.
@@ -3538,7 +3538,7 @@ pub const Checker = struct {
         const scrut_value = try self.walk(scrut);
         const header_temps = try self.arena().alloc(VarId, self.stmt_drops.items.len - @min(drops, self.stmt_drops.items.len));
         for (header_temps, self.stmt_drops.items[self.stmt_drops.items.len - header_temps.len ..]) |*t, d| t.* = d.id;
-        try self.dropStmtTemps(drops, null);
+        try self.dropStmtTemps(drops);
         var outlived = false;
         // A payload binding holds its own loan on the matched place, so
         // the borrow of the subject ends with the bindings, not the match.
@@ -3726,7 +3726,7 @@ pub const Checker = struct {
                 }
             };
         }
-        try self.dropStmtTemps(drops, null);
+        try self.dropStmtTemps(drops);
         return self.walkLoop(spec);
     }
 

@@ -3,9 +3,9 @@
 
 Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
-for one type (Int, String, Vec, `*T`, Box, a struct with a `drop`). The
-rule is the corpus's: `rig check` rejects the program with a
-file:line:col diagnostic, or it runs clean under the sanitizer (no leak,
+for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
+`drop`). The rule is the corpus's: `rig check` rejects the program with
+a file:line:col diagnostic, or it runs clean under the sanitizer (no leak,
 no use of freed memory, no Zig compile error, no crash).
 
     test/matrix.py                 # generate, check, and run everything
@@ -47,6 +47,7 @@ N_DECL = "struct N\n  v: Int\n"
 TYPES = {
     "int": dict(ty="Int", decls="", mk="n", ctor="Int(5)"),
     "string": dict(ty="String", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
+    "text": dict(ty="Text", decls="", mk='Text("t", n)', ctor='Text("lit")'),
     "vec": dict(ty="Vec[Int]", decls="",
                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
