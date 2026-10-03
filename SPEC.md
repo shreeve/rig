@@ -226,9 +226,9 @@ it yields its bytes as `U8`. Strings compare with `==` and
 A String is a view: it points at bytes it does not own. Those of a
 literal, a module constant, or the program's arguments and environment
 ([std.os](docs/STD.md)) last as long as the program, so such a String
-is free to copy anywhere. One taken from a `Text` (`?t[..]`) borrows
-the Text, and carries that borrow wherever it goes
-([§10](#text)). The bytes are UTF-8 by convention, and nothing checks
+is free to copy anywhere. One taken from a `Text` (`?t[..]`) is a view
+of the Text: the lend makes a loan on the Text, which the String
+carries wherever it goes ([§10](#text)). The bytes are UTF-8 by convention, and nothing checks
 it: lengths and indexes count bytes, and a slice checks only its
 bounds.
 
@@ -3802,16 +3802,24 @@ n=42 p=Point(x: 1, y: 2.5) ok=true ["a", "b"]
 fresh 5
 ```
 
-**A view borrows its Text.** A String taken from a Text, `?t[a..b]`,
-is a read borrow of it, as a slice of an array is: while the String is
-in use, the Text cannot be changed, moved, or dropped, and the String
-cannot outlive it. The borrow goes wherever the String goes: into a
-binding, a struct field, a `Vec[String]`, an optional, a closure's
-captures, and a call's result, since a function returning a String may
-return a view of a String it was passed ([§7](#second-class-borrows)).
-Once the last use of the String, and of every value holding it, is
-past, the Text is free again; a Vec holding one is in use until it is
-dropped.
+**A String is a view of its Text.** `?t[a..b]` lends the Text as a
+slice lends an array, and the String it makes carries the loan: while
+the String is in use, the Text cannot be changed, moved, or dropped,
+and the String cannot outlive it. The loan goes wherever the String
+goes: into a binding, a struct field, a `Vec[String]`, an optional, a
+closure's captures, and a call's result, since a function returning a
+String may return a view of a String it was passed
+([§7](#second-class-borrows)). Once the last use of the String, and of
+every value holding it, is past, the Text is free again; a Vec holding
+one is in use until it is dropped.
+
+`Text(...)` and `!t.add(...)` only read their arguments, as `print`
+does: a place is read where it is when the call runs, after its later
+arguments, and a value made there is a temporary its statement drops
+([§7](#temporaries)). A String viewing a temporary Text, as in
+`text.trim(?Text(a, b))`, may be used within its statement, and within
+a header only by the header itself ([§7](#temporaries)); bind the Text
+to a name to keep the view longer.
 
 ```rig
 fun first_word(s: String) -> String

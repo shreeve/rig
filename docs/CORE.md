@@ -71,9 +71,9 @@ side; Rig names everything from the side the sigil is on, and SPEC's
 | Kind | Examples | A plain use | Status |
 |---|---|---|---|
 | **plain** | `Int`, `Bool`, enums, structs whose parts are all plain | copies | built |
-| **owning** | `Vec[T]`, `Box[T]`, `Text`, structs holding an owner | moves; one owner; dropped once | built (`Text`: planned) |
+| **owning** | `Vec[T]`, `Box[T]`, `Text`, structs holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak) | moves; `+h` adds a count | built |
-| **view** | `?T`, `!T`, `[]T`, `![]T`, `String` | a read view copies; a write view moves | built (`String` as a view of a `Text`: planned) |
+| **view** | `?T`, `!T`, `[]T`, `![]T`, `String` | a read view copies; a write view moves | built |
 
 **A struct's or enum's kind follows from its parts:** it is owning if
 any part is owning or a handle; otherwise a view if any part is a view
@@ -160,7 +160,7 @@ sub main
 **2. `<x` moves, `+x` makes a new owner, `-x` drops now.** `+x` is a
 copy, a count bump, or a deep copy, as the type says; a `unique` type,
 or one with a `drop` body, has none. *(built* for plain data, handles,
-and closures; *planned* for `Vec`, `Box`, `Text`, and structs holding an
+closures, and `Text`; *planned* for `Vec`, `Box`, and structs holding an
 owner.*)*
 
 ```rig
@@ -197,8 +197,7 @@ sub main
 
 **3. Drop points.** An owner that is not moved is dropped where its
 scope ends. *(built)* A value no name holds is dropped where its
-statement ends ([§3](#3-temporaries)). *(planned;* today such a value
-must be bound to a name in most positions.*)*
+statement ends ([§3](#3-temporaries)). *(built)*
 
 **4. `?x` lends `x` to read, and `!x` lends it to write, as whichever
 view the context expects** ([§4](#4-one-lend-table)). A read lend may go
@@ -342,10 +341,9 @@ Only code inside `raw` may break these rules. *(built)*
 
 ## 3. Temporaries
 
-*(planned* as a whole. Today a temporary that owns a resource may be
-bound, returned, passed to a parameter that takes it, or discarded with
-`_ = e`, and elsewhere must be bound to a name first; a view of a plain
-temporary lives only for the call it is lent to.*)*
+*(built.* A lend of a branching value that may be a name's,
+`?(a if c else b)`, is *planned*; today each branch is lent, `?a if c
+else ?b`.*)*
 
 **Taking and reading.** An expression either *takes* its value or only
 *reads* it.
@@ -373,7 +371,7 @@ taken, as `<e` would take it. So `if starts_with(?Text(a, b), "x")`
 works, but `if cut(?Text(a, b), "=") as kv` must bind the `Text` first,
 because `kv` outlives the header.
 
-```rig pending
+```rig
 struct User
   name: String
   tags: Vec[Int]
@@ -389,6 +387,32 @@ sub main
 ada
 ```
 
+```rig
+use std.text
+
+sub main
+  a = "x"
+  b = "yz"
+  if text.starts_with(?Text(a, b), "xy")
+    print("starts")
+```
+
+```output
+starts
+```
+
+```rig reject
+use std.text
+
+sub main
+  if text.cut(?Text("k", "=v"), "=") as kv
+    print(kv.after)
+```
+
+```error
+a borrow of the temporary `Text("k", "=v")` outlives its statement
+```
+
 ## 4. One lend table
 
 `?x` and `!x` lend the view the context expects:
@@ -400,7 +424,7 @@ ada
 | a place `p.f` or `v[i]` | the views of the field or element | its write views | fields built; elements planned |
 | a held `!T` | `?T` | `!T` (lent on) | built |
 | `![]T` | `[]T` | `![]T` (lent on) | built |
-| `Text` | `String` (also `String?`) | `!Text` | planned |
+| `Text` | `String` (also `String?`) | `!Text` | built |
 | `Box[T]` | the views of `T` | the write views of `T` | one level built; composing planned |
 | `*T` | the read views of `T` | nothing of the value (`!h` lends the handle itself) | planned |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | planned |
@@ -423,6 +447,39 @@ sub main
 
 ```output
 [1, 2, 3]
+```
+
+A `Text` lends a `String`, which views its bytes, so the `Text` may not
+change while the view is used:
+
+```rig
+use std.text
+
+fun or_none(s: String?) -> String
+  s ?? "none"
+
+sub main
+  t = Text("  hi  ")
+  print(text.trim(?t), or_none(?t).len)
+  !t.add("!")
+  print(t)
+```
+
+```output
+hi 6
+  hi  !
+```
+
+```rig reject
+sub main
+  t = Text("abc")
+  s = ?t[..2]
+  !t.add("d")
+  print(s)
+```
+
+```error
+cannot write-borrow `t` while a read borrow is live
 ```
 
 ```rig pending
