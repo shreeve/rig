@@ -362,11 +362,15 @@ const Owning = union(enum) {
     generic,
 };
 
-/// The consuming context of a branching value; `node` is its list.
+/// The consuming context of a value that yields through its parts
+/// (`sema.eachTailPart`); `node` is its list.
 const Tail = struct {
-    /// The `if` or `match` node consumed by `sink`.
+    /// The node (`if`, `match`, block, ...) consumed by `sink`.
     node: parser.NodeId,
     sink: Sink,
+    /// The vars `>= vars` are declared inside the value, after `sink`
+    /// checked its names: a tail name among them moves out.
+    vars: u32,
 };
 
 const PlainRequirement = sema.PlainRequirement;
@@ -396,9 +400,10 @@ pub const Checker = struct {
     /// What generic bodies copy: this module's, found while walking them,
     /// then those of other modules' bodies its instances use.
     plain_reqs: std.ArrayList(PlainRequirement) = .empty,
-    /// A branching value (`if` / `match` / block) whose result is taken
-    /// (bound, passed, returned): the tails of its branches leave them.
-    /// Set just before walking that node; see `takeTail`.
+    /// A value that yields through its parts (`if`, `match`, a block,
+    /// ...) whose result is taken (bound, passed, returned): the tails
+    /// of its parts leave them. Set just before walking that node; see
+    /// `takeTail`.
     tail: ?Tail = null,
     /// A branch block whose tail is the function's result, set just
     /// before walking it: an error there fails the function, running
@@ -1421,6 +1426,7 @@ pub const Checker = struct {
     /// its last statement, which may not borrow the block's own locals.
     fn walkBlock(self: *Checker, block: Sexp) Error!Value {
         const stmts = ir.Block.stmts(block);
+        const t = self.takeTail(block);
         const returns = self.ret_block != 0 and self.ret_block == block.list.id;
         if (returns) self.ret_block = 0;
         try self.pushScopeFor(.block, block);
@@ -1428,7 +1434,15 @@ pub const Checker = struct {
         for (stmts, 0..) |s, i| {
             try self.checkAfterJump(stmts, i);
             if (!self.reachable) break;
-            if (i == stmts.len - 1) v = try self.walkStmtValue(s, null) else try self.walkStmt(s);
+            if (i < stmts.len - 1) {
+                try self.walkStmt(s);
+                continue;
+            }
+            // The value leaves: its tail name moves before the block's
+            // defers run, as emit takes it there.
+            if (t) |ctx| self.markTail(s, ctx);
+            v = try self.walkStmtValue(s, null);
+            if (t) |ctx| if (s == .src and self.reachable) try self.consumeTailName(s, ctx);
         }
         // An error the function returns from here runs the block's
         // `errdefer`s.
@@ -1529,7 +1543,7 @@ pub const Checker = struct {
                     break :blk v;
                 },
                 .array_fill => self.walkConsumed(ir.ArrayFill.value(sexp), .element),
-                .raw_block => self.walk(ir.RawBlock.body(sexp)),
+                .raw_block => self.walkTailPart(ir.RawBlock.body(sexp), self.takeTail(sexp)),
                 .enum_lit, .use, .type, .generic_struct, .generic_inst => .{},
                 // Operators on values produce fresh Copy results.
                 .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
@@ -1575,12 +1589,16 @@ pub const Checker = struct {
         return self.walk(expr);
     }
 
-    /// Mark `expr`, if it branches, as consumed by `sink`.
+    /// Mark `expr`, if it yields through its parts, as consumed by `sink`.
     fn setTail(self: *Checker, expr: Sexp, sink: Sink) void {
-        const e = tailOf(expr);
-        if (e.isKind(.@"if") or e.isKind(.match)) {
-            self.tail = .{ .node = e.list.id, .sink = sink };
-        }
+        self.markTail(expr, .{ .node = 0, .sink = sink, .vars = @intCast(self.vars.items.len) });
+    }
+
+    /// Mark `expr`, a part of the value `t` consumes, as consumed too.
+    /// A loop's `else` is consumed by the loop's own value (`walkLoop`).
+    fn markTail(self: *Checker, expr: Sexp, t: Tail) void {
+        if (!sema.yieldsThroughParts(expr) or expr.isKind(.@"while") or expr.isKind(.@"for") or expr.isKind(.labeled)) return;
+        self.tail = .{ .node = expr.list.id, .sink = t.sink, .vars = t.vars };
     }
 
     /// The consuming context of the branching `node`, if any.
@@ -1591,21 +1609,35 @@ pub const Checker = struct {
         return t;
     }
 
-    /// Walk a branch of a consumed branching value: its tail leaves it.
-    /// A match payload named there moves out of its scrutinee, which the
-    /// check before the walk could not see (the name is bound in the arm).
+    /// Walk a branch of a consumed `if` or `match`: its tail leaves it.
+    /// A branch block of the function's result returns it (`ret_block`).
     fn walkTailBranch(self: *Checker, body: Sexp, t: ?Tail) Error!Value {
+        if (t) |ctx| if (ctx.sink == .ret and body.isKind(.block)) {
+            self.ret_block = body.list.id;
+        };
+        return self.walkTailPart(body, t);
+    }
+
+    /// Walk a part of a consumed value (a branch, an arm, a handler):
+    /// its tail leaves it. A block part moves its tail name before its
+    /// defers run (`walkBlock`); a bare name part moves here.
+    fn walkTailPart(self: *Checker, body: Sexp, t: ?Tail) Error!Value {
         const ctx = t orelse return self.walk(body);
-        const tail = tailOf(body);
-        self.setTail(tail, ctx.sink);
-        if (ctx.sink == .ret and body.isKind(.block)) self.ret_block = body.list.id;
+        self.markTail(body, ctx);
         const v = try self.walk(body);
         self.tail = null;
-        if (tail == .src) try self.consumeTailName(tail, ctx.sink);
+        if (body == .src) try self.consumeTailName(body, ctx);
         return v;
     }
 
-    fn consumeTailName(self: *Checker, node: Sexp, sink: Sink) Error!void {
+    /// `node`, a bare name at the tail of a value `t` consumes, leaves
+    /// its binding there, as emit takes it. A name the value itself
+    /// declares, which `t.sink` could not check, or one the function
+    /// returns, moves out, as `<x` would. A match payload named there
+    /// moves out of its scrutinee, which the check before the walk could
+    /// not see (the name is bound in the arm).
+    fn consumeTailName(self: *Checker, node: Sexp, t: Tail) Error!void {
+        const sink = t.sink;
         const ctx = self.sema orelse return;
         const sym = ctx.symbolOf(node) orelse return;
         const id = self.find(self.text(node)) orelse return;
@@ -1613,8 +1645,7 @@ pub const Checker = struct {
         if (v.decl != ctx.symbols.items[sym].decl_pos) return;
         if (!self.flowLive(id)) return;
         if (v.alias_of == null) {
-            // A bare owning name returned through a branch moves out.
-            if (sink == .ret and !v.closure and !v.loop_borrow and !v.capture_resource and self.returnMoves(v)) {
+            if ((sink == .ret or id >= t.vars) and !v.closure and !v.loop_borrow and !v.capture_resource and self.returnMoves(v)) {
                 _ = try self.moveVar(id, node.src.pos, .move);
             }
             return;
@@ -2314,7 +2345,7 @@ pub const Checker = struct {
         if (self.readsValue(expr)) self.copy_reads = true;
         switch (expr) {
             .src => {
-                const v = self.vars.items[self.find(self.text(expr)) orelse return];
+                const v = self.vars.items[self.boundVar(expr) orelse return];
                 const pos = expr.src.pos;
                 const name = v.name;
                 if (v.closure) return; // reported by walkName
@@ -2387,6 +2418,19 @@ pub const Checker = struct {
             },
             else => {},
         }
+    }
+
+    /// The var the name `expr` refers to, once the walk has bound it:
+    /// null for a name the value being checked declares itself (a
+    /// block's local at its tail), even where an outer binding has the
+    /// same name.
+    fn boundVar(self: *const Checker, expr: Sexp) ?VarId {
+        const id = self.find(self.text(expr)) orelse return null;
+        const ctx = self.sema orelse return id;
+        const sym = ctx.symbolOf(expr) orelse return id;
+        if (self.vars.items[id].sym == sym) return id;
+        for (self.vars.items) |v| if (v.sym == sym) return id;
+        return null;
     }
 
     /// Whether the context of `e` reads the value the borrow it yields
@@ -3478,6 +3522,7 @@ pub const Checker = struct {
 
     /// `(catch expr name? handler)`: the handler runs when `expr` fails.
     fn walkCatch(self: *Checker, node: Sexp) Error!Value {
+        const t = self.takeTail(node);
         const v1 = try self.walk(ir.Catch.value(node));
         const base = try self.here();
         const handler = ir.Catch.handler(node);
@@ -3486,7 +3531,7 @@ pub const Checker = struct {
         if (name != .nil) {
             _ = try self.addVar(.{ .name = self.text(name), .decl = name.src.pos, .ty = self.symType(name.src.pos) }, .{});
         }
-        var v2 = try self.walk(handler);
+        var v2 = try self.walkTailPart(handler, t);
         v2 = try self.checkValueEscapesScope(v2);
         try self.popScope();
         const s = try self.leave(base);
@@ -3497,9 +3542,10 @@ pub const Checker = struct {
     /// `a ?? b`: `b` runs only when `a` is `none`. It may be a jump, which
     /// leaves the rest of the code reachable through the other path.
     fn walkNullish(self: *Checker, node: Sexp) Error!Value {
+        const t = self.takeTail(node);
         const v1 = try self.walk(ir.@"??".left(node));
         const base = try self.here();
-        const v2 = try self.walk(ir.@"??".right(node));
+        const v2 = try self.walkTailPart(ir.@"??".right(node), t);
         const s = try self.leave(base);
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
