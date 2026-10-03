@@ -2921,6 +2921,13 @@ const Checker = struct {
         if (isContextual(self.ctx.source, l) or isContextual(self.ctx.source, r)) {
             const lit, const other = if (isContextual(self.ctx.source, r)) .{ r, l } else .{ l, r };
             const ty = try self.synthExpr(other);
+            // `none` and a bare `.variant` test a value that owns a
+            // resource and drop it when no name holds it: a branching
+            // value that may be a name's value would drop that value.
+            if (!lit.isKind(.call) and !self.isPoison(ty) and sema.typeHasDropGlue(self.ctx, ty)) if (self.namedLeaf(other)) |leaf| {
+                try self.errAt(other, "cannot test `{s}` against `{s}`: it may be `{s}`, a value a name holds, and the test drops the value it tests; bind the value to a name first and test that, or test `{s}` itself", .{ self.sourceText(other), self.sourceText(lit), self.sourceText(leaf), self.sourceText(leaf) });
+                return self.t().bool_id;
+            };
             const reached = try self.readThrough(other, ty, sema.unwrapBorrows(self.ctx, ty));
             try self.checkExpr(lit, reached);
             if (lit.isKind(.call)) try self.checkEquatable(reached, l, op);
