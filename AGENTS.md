@@ -1,6 +1,8 @@
 # AGENTS.md — working on Rig
 
-Read this before changing anything. It is short on purpose.
+Read this before changing anything. It is short on purpose. Where
+Rig stands and what comes next is in [HANDOFF.md](HANDOFF.md); read
+that first.
 
 ## North star
 
@@ -103,9 +105,10 @@ review rounds.
 
 ```bash
 zig build                  # builds bin/rig
-./test/run                 # full suite; must be green before every commit
-./test/run corpus          # every reviewer probe, not only the default sample
-test/matrix.py             # form x context x type programs, checked and run
+./test/run -j 2            # full suite; must be green before every commit
+./test/run -j 2 corpus     # every reviewer probe, not only the default sample
+test/matrix.py -j 2        # form x context x type programs, checked and run
+zig build test --cache-dir "$(mktemp -d)"  # unit tests, not replayed from cache
 bin/rig run file.rig       # compile + run (debug, leak-checked)
 bin/rig emit file.rig      # the emitted Zig
 bin/rig test file.rig      # run the program's `test` blocks
@@ -121,6 +124,9 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
   fails generation or the parser check. To use another binary, name it
   in both places: `zig build parser -Dnexus=PATH` and
   `NEXUS=PATH ./test/run`.
+- The machine is shared: before a full run, check
+  `sysctl -n vm.loadavg` and wait while the 1-minute load is above
+  about 12. Under load, rerun a timeout failure alone before trusting it.
 - Fixing a bug starts with a failing test that reproduces it.
 - Every change keeps `./test/run` green.
 - Commit messages are short, imperative, and describe the change.
@@ -130,6 +136,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 
 | Path | Role |
 |---|---|
+| `HANDOFF.md` | Where Rig stands, the work that comes next, the gates, and whom to ask |
 | `rig.grammar` | Nexus grammar: syntax, and the IR schema every node follows |
 | `src/rig.zig` | Lexer and parser wrappers (layout, position, IR rewrites) |
 | `src/diag.zig` | Diagnostics: spans, line and column, the printed format |
