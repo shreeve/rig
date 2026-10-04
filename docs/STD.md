@@ -194,9 +194,9 @@ true
 
 `Rng` is a small, fast pseudorandom generator (splitmix64), written in
 Rig. Its state is one `U64`, which its methods change, so they take
-`!self`. An `Rng` moves (`a = <r`) and is never copied, since a copy
-would draw the same numbers as the original; `fork` makes a second
-generator on purpose. A seeded `Rng` gives the same sequence on every
+`!self`. An `Rng` is unique (`struct Rng unique`): it moves (`a = <r`)
+and is never copied, since a copy would draw the same numbers as the
+original; `fork` makes a second generator on purpose. A seeded `Rng` gives the same sequence on every
 platform. It is not for cryptography.
 
 | Member | Result |

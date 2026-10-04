@@ -900,10 +900,10 @@ pub const Requirement = union(enum) {
     /// Copies (`moves` is not `yes`): the body copies the parameter's
     /// value.
     copyable,
-    /// Needs no cleanup: the body discards the parameter's value, leaves
-    /// a temporary of it, overwrites one, or keeps one in an array or a
-    /// slice.
-    no_cleanup,
+    /// Is not kept like an owner (`keptLikeOwner`): the body discards
+    /// the parameter's value, leaves a temporary of it, overwrites one,
+    /// or keeps one in an array or a slice.
+    not_owner,
     /// A compile-time integer from 0 to `max_array_len`: the body uses
     /// the value parameter as an array length.
     array_len,
@@ -929,7 +929,7 @@ pub const Requirement = union(enum) {
             .fits => "an integer literal",
             .shift => "a constant shift",
             .copyable => "a value that copies",
-            .no_cleanup => "a value that owns no resource",
+            .not_owner => "a value that owns no resource",
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
@@ -1732,7 +1732,7 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
             .invalid, .unknown => continue,
             else => {},
         }
-        if (typeHasDropGlue(ctx, sym.ty) or maybeDropGlue(ctx, sym.ty)) continue;
+        if (keptLikeOwner(ctx, sym.ty) or maybeDropGlue(ctx, sym.ty)) continue;
         if (sym.flags.pattern_bound) {
             try ctx.lintErr(sym.decl_pos, "`{s}` is bound but never read; name it `_` to ignore the value", .{sym.name});
         } else {
@@ -2040,7 +2040,7 @@ pub const Contents = struct {
     /// Holds a `Cell` inline, directly or through any argument of a
     /// generic instance it holds.
     cell: bool = false,
-    /// Is declared `unique`, or holds a unique type inline, as `cell`
+    /// Is declared `unique`, or holds such a type inline, as `cell`
     /// reaches (`Reach`).
     unique: bool = false,
     /// Owns nothing and holds no borrow. A type parameter held by value
@@ -2146,6 +2146,8 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
     // value), whose release drops it.
     if (id == ctx.vec_sym_id or id == ctx.box_sym_id) c.glue = true;
     if (id == ctx.vec_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id) c.plain = false;
+    // A unique value is never copied, so it is not plain data.
+    if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
 }
 
@@ -2915,6 +2917,8 @@ pub const NotEquatable = struct {
         borrow,
         /// A struct that declares `drop`.
         drop,
+        /// A struct declared `unique`.
+        unique,
     };
 };
 
@@ -3008,6 +3012,7 @@ const EquatableWalk = struct {
         if ((try self.visited.getOrPut(ctx.allocator, ty)).found_existing) return null;
         const fields = sym.fields orelse return null;
         for (fields) |f| if (f.is_drop_method) return .drop;
+        if (sym.flags.unique) return .unique;
         // An instance's field types name its generic type's parameters
         // (a proxy's, for another module's generic type).
         const subst: TypeSubst = switch (ctx.types.get(ty)) {
@@ -3394,12 +3399,22 @@ pub fn isUnique(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// Whether a bare use of a value of `ty` moves it rather than copying
-/// it: `yes` when it needs cleanup (`typeHasDropGlue`), `depends` when
-/// it holds a type parameter by value (`maybeDropGlue`), otherwise `no`.
+/// it: `yes` when it needs cleanup (`typeHasDropGlue`) or is unique
+/// (`isUnique`), `depends` when it holds a type parameter by value
+/// (`maybeDropGlue`), otherwise `no`.
 pub fn moves(ctx: *const SemContext, ty: TypeId) Answer {
     const info = ctx.holds(ty);
-    if (info.glue) return .yes;
+    if (info.glue or isUnique(ctx, ty)) return .yes;
     return if (info.holds_type_var) .depends else .no;
+}
+
+/// Whether `ty` needs cleanup (`typeHasDropGlue`) or holds inline a type
+/// declared `unique`: the values a discard, a temporary, an array or a
+/// slice, and the loans a scope ends keep out or account for as they
+/// do a value that owns a resource.
+pub fn keptLikeOwner(ctx: *const SemContext, ty: TypeId) bool {
+    const info = ctx.holds(ty);
+    return info.glue or info.unique;
 }
 
 /// Whether a value of `ty` may be copied implicitly: it does not move
@@ -5107,9 +5122,14 @@ test "type facts: unique reaches what holds it inline" {
         errdefer std.debug.print("not unique case {d}\n", .{i});
         try std.testing.expect(!isUnique(ctx, t));
     }
-    // Nothing reads the fact yet: a unique type with plain fields copies.
-    try std.testing.expectEqual(Answer.no, moves(ctx, u));
-    try std.testing.expectEqual(Answer.yes, copyable(ctx, u));
+    // A unique value moves, has no clone, and is not plain data.
+    for (unique) |t| {
+        try std.testing.expectEqual(Answer.yes, moves(ctx, t));
+        try std.testing.expectEqual(Answer.no, copyable(ctx, t));
+        try std.testing.expectEqual(Clone.no, cloneable(ctx, t));
+        try std.testing.expect(keptLikeOwner(ctx, t));
+        try std.testing.expect(!isPlainData(ctx, t));
+    }
 }
 
 /// Walk every expression position of a body and report nodes sema left

@@ -357,6 +357,8 @@ const Owning = union(enum) {
     box,
     text,
     drop_glue: []const u8, // type name
+    /// A unique value that needs no cleanup (`sema.isUnique`).
+    unique: []const u8, // type name
     /// A value inside a generic body whose type holds type parameters:
     /// it owns a resource if an instantiation's argument does.
     generic,
@@ -1172,7 +1174,7 @@ pub const Checker = struct {
         // A var that owns its value drops it at scope exit. (A match
         // payload or a borrowed loop element only views a value.)
         const owns = v.alias_of == null and !v.loop_borrow and v.ref == .none;
-        if (owns and (sema.typeHasDropGlue(ctx, ty) or sema.maybeDropGlue(ctx, ty))) return true;
+        if (owns and (sema.keptLikeOwner(ctx, ty) or sema.maybeDropGlue(ctx, ty))) return true;
         if (self.last_use.get(sym)) |last| if (last >= self.liveFrom(v.decl, at)) return true;
         if (self.isBorrowed(id)) for (self.flows.items, 0..) |f, j| {
             if (j == id) continue;
@@ -2522,6 +2524,11 @@ pub const Checker = struct {
             } else {
                 try self.err(pos, "bare use of `Text` value `{s}` in {s} would copy the buffer pointer; a field cannot be moved out of its parent. Borrow it (`?{s}`) or copy the text (`+{s}`)", .{ what, where, what, what });
             },
+            .unique => |tname| if (is_name) {
+                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy a unique value; use `<{s}` to move it", .{ tname, what, where, what });
+            } else {
+                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy a unique value; a field cannot be moved out of its parent", .{ tname, what, where });
+            },
             .drop_glue => |tname| if (is_name) {
                 try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<{s}` to move ownership", .{ tname, what, where, tname, what });
             } else {
@@ -2580,7 +2587,7 @@ pub const Checker = struct {
         const ctx = self.sema orelse return true;
         for (sema.captureList(ir.Lambda.captures(lambda))) |cap| {
             const ty = self.symType(sema.captureNameNode(cap).?.src.pos) orelse return true;
-            if (sema.typeHasDropGlue(ctx, ty) or sema.maybeDropGlue(ctx, ty)) return true;
+            if (sema.keptLikeOwner(ctx, ty) or sema.maybeDropGlue(ctx, ty)) return true;
         }
         return false;
     }
@@ -4131,7 +4138,7 @@ pub const Checker = struct {
                     try reach.append(self.arena(), l.root);
                     const x = self.vars.items[l.root];
                     if (l.root < i or !self.flowLive(l.root)) continue;
-                    const glue = if (x.ty) |t| sema.typeHasDropGlue(ctx, t) else true;
+                    const glue = if (x.ty) |t| sema.keptLikeOwner(ctx, t) else true;
                     if (!glue and self.scopeOf(l.root) == self.scopeOf(@intCast(i))) continue;
                     try self.err(l.pos, "`{s}` is dropped before `{s}`, whose `drop` body could still read it through this borrow", .{ x.name, h.name });
                     try self.note(x.decl, "`{s}` is declared after `{s}`, so it is dropped first; declare it before `{s}`", .{ x.name, h.name, h.name });
@@ -4324,12 +4331,17 @@ pub const Checker = struct {
         const ctx = self.sema.?;
         var inner = t;
         while (ctx.types.get(inner) == .optional) inner = ctx.types.get(inner).optional;
+        const name = switch (ctx.types.get(inner)) {
+            .parameterized_nominal => |pn| ctx.symbols.items[pn.sym].name,
+            else => if (sema.nominalDecl(ctx, inner)) |d| d.symbol().name else "value",
+        };
+        if (!sema.typeHasDropGlue(ctx, t)) return .{ .unique = name };
         return switch (ctx.types.get(inner)) {
             .shared => .shared,
             .weak => .weak,
             .text => .text,
-            .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) .vec else if (pn.sym == ctx.box_sym_id) .box else .{ .drop_glue = ctx.symbols.items[pn.sym].name },
-            else => .{ .drop_glue = if (sema.nominalDecl(ctx, inner)) |d| d.symbol().name else "value" },
+            .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) .vec else if (pn.sym == ctx.box_sym_id) .box else .{ .drop_glue = name },
+            else => .{ .drop_glue = name },
         };
     }
 

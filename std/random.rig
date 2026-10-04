@@ -2,14 +2,11 @@
 # same seed gives the same sequence on every platform; it is not for
 # cryptography.
 
-pub struct Rng
+# An Rng is unique: it moves rather than copies, since a copy would draw
+# the same numbers as the original. `fork` makes a second generator on
+# purpose.
+pub struct Rng unique
   state: U64
-
-  # An Rng moves rather than copies: a copy would draw the same numbers
-  # as the original. The empty `drop` makes it an owning value; `fork`
-  # makes a second generator on purpose.
-  drop(!self)
-    pass
 
   # A generator whose sequence is fixed by `seed`.
   pub fun seeded(seed: U64) -> Rng

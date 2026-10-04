@@ -1,0 +1,17 @@
+# An `Rng` is unique: arrays, `==`, a discard, and `Cell.get` keep it
+# out.
+use std.random
+
+sub main()
+  a: [2]random.Rng = [random.Rng.seeded(1), random.Rng.seeded(2)]
+  r = random.Rng.seeded(1)
+  s = random.Rng.seeded(1)
+  print(r == s)
+  random.Rng.seeded(3)
+  c = Cell(random.Rng.seeded(4))
+  t = c.get()
+
+# error: 6:9: arrays cannot hold unique values (`random.Rng`)
+# error: 9:9: `==` is not defined for `random.Rng`: `random.Rng` is unique
+# error: 10:3: expression result of type `random.Rng` is unique and would be lost
+# error: 12:9: `Cell.get` returns `T` by value but `T = random.Rng` is unique

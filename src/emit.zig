@@ -5393,8 +5393,8 @@ pub const Emitter = struct {
     /// released, or null for a value that copies. A value that moves gets
     /// `var` storage, owned `as` and payload bindings, and an owned
     /// closure environment; the kind picks its drop call. `rig.drop`
-    /// releases only what needs cleanup: a value of a type parameter
-    /// whose instance needs none drops nothing.
+    /// releases only what needs cleanup: a unique value, or a value of a
+    /// type parameter whose instance needs none, drops nothing.
     fn kindOf(self: *Emitter, ty: TypeId) ?ResourceKind {
         if (sema.moves(self.sema, ty) == .no) return null;
         return switch (self.sema.types.get(ty)) {

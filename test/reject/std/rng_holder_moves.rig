@@ -1,0 +1,15 @@
+# A struct that holds an `Rng` is unique too: binding it to another
+# name without `<` would copy the generator.
+use std.random
+
+struct Game
+  rng: random.Rng
+  score: Int
+
+sub main()
+  g = Game(rng: random.Rng.seeded(7), score: 0)
+  h = g
+  print(h.score)
+
+# error: 11:7: bare use of `Game` value `g` in binding would copy a unique value; use `<g` to move it
+# errors: 1

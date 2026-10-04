@@ -701,6 +701,27 @@ declares a `drop` body. Owning values have **drop glue**: code the compiler
 generates to release them. They move instead of copying, and the
 ownership rules of [§7](#7-ownership) apply to them.
 
+A **unique** value owns nothing to release but must not be copied: a
+struct declared `unique` (`struct Rng unique`, a generator whose copy
+would repeat its numbers), or any struct, enum, or generic instance
+that holds one. It moves like an owning value and has no clone (`+x`);
+it has no drop glue. Arrays, slices, `==`, and a discarded statement
+reject a unique value as they do an owning value.
+
+```rig reject
+struct Seed unique
+  n: Int
+
+sub main
+  a = Seed(n: 1)
+  b = a
+  print(b.n)
+```
+
+```error
+would copy a unique value; use `<a` to move it
+```
+
 ---
 
 ## 3. Declarations

@@ -99,7 +99,7 @@ sub main
 
 - **A type that must not be copied but owns nothing**, such as a random
   generator whose copy would repeat its numbers, says so on the type:
-  `struct Rng unique`. It moves like an owner. *(planned)*
+  `struct Rng unique`. It moves like an owner. *(built)*
 - **A type that holds a `Cell`**, or a bare `Cell[T]`, is unique too,
   because a copy would fork state that should be shared. *(planned)*
 

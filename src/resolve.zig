@@ -645,8 +645,10 @@ pub const DeferredCheck = union(enum) {
 fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
     switch (check) {
         .array => |c| {
-            if (sema.typeHasDropGlue(ctx, c.elem)) {
-                try ctx.errAt(c.node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try sema.formatType(ctx, c.elem)});
+            if (sema.keptLikeOwner(ctx, c.elem)) {
+                if (sema.typeHasDropGlue(ctx, c.elem)) {
+                    try ctx.errAt(c.node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try sema.formatType(ctx, c.elem)});
+                } else try ctx.errAt(c.node, "arrays cannot hold unique values (`{s}`)", .{try sema.formatType(ctx, c.elem)});
                 return;
             }
             if (c.ty) |ty| if (!try sema.checkArrayBytes(ctx, ctx.startOf(c.at), ty)) return;
@@ -656,21 +658,23 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             defer held.deinit(ctx.allocator);
             try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
             for (held.items) |param| {
-                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .no_cleanup, .pos = ctx.startOf(c.node), .op = "keeps in an array a value" });
+                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .not_owner, .pos = ctx.startOf(c.node), .op = "keeps in an array a value" });
             }
         },
         // A slice views plain data only: arrays hold nothing else, and a
         // Vec of resources cannot be sliced.
         .slice => |c| {
-            if (sema.typeHasDropGlue(ctx, c.elem)) {
-                try ctx.errAt(c.node, "slices cannot view values that own resources (`{s}`); borrow the Vec instead", .{try sema.formatType(ctx, c.elem)});
+            if (sema.keptLikeOwner(ctx, c.elem)) {
+                if (sema.typeHasDropGlue(ctx, c.elem)) {
+                    try ctx.errAt(c.node, "slices cannot view values that own resources (`{s}`); borrow the Vec instead", .{try sema.formatType(ctx, c.elem)});
+                } else try ctx.errAt(c.node, "slices cannot view unique values (`{s}`)", .{try sema.formatType(ctx, c.elem)});
                 return;
             }
             var held: std.ArrayList(SymbolId) = .empty;
             defer held.deinit(ctx.allocator);
             try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
             for (held.items) |param| {
-                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .no_cleanup, .pos = ctx.startOf(c.node), .op = "views in a slice a value" });
+                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .not_owner, .pos = ctx.startOf(c.node), .op = "views in a slice a value" });
             }
         },
         .builtin => |c| if (try builtinElementError(ctx, c.sym, c.args)) |msg| try ctx.err(c.pos, "{s}", .{msg}),
@@ -2118,7 +2122,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const a = ctx.arena.allocator();
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
-        if (sema.isCopyElement(ctx, args[0]) or sema.typeHasDropGlue(ctx, args[0])) return null;
+        if (sema.isCopyElement(ctx, args[0]) or sema.moves(ctx, args[0]) == .yes) return null;
         return try a.print("`Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), or a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`); got `{s}`", .{arg});
     }
     if (sym_id == ctx.vec_sym_id) {
