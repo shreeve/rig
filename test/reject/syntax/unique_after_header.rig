@@ -3,4 +3,4 @@
 struct Random unique extra
   seed: Int
 
-# error: 3:19: unexpected name `extra`; expected an indented block
+# error: 3:22: unexpected name `extra`; expected an indented block
