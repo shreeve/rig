@@ -675,7 +675,8 @@ and emit all ask it, and none decides it again from syntax. Its
 | `jump` | `return`, `break`, `continue` |
 | `none` | a statement, a declaration, a type, a pattern |
 
-and `Hands.view` says its type is a view (Core §1). The list is an
+Whether the value is a view, and whether it lives for the whole
+program, are not classified yet (Core §9). The list is an
 exhaustive switch over the IR's kinds (`shapeOf`), so a new kind does
 not compile until it is classified. `Hands.hasStorage` (a place, a part
 of a made value, or a lend) is what reads a value where it is, as
@@ -693,13 +694,17 @@ of this kind left outside `handsOver`.
 
 What a context does with a value is recorded as its `Use`
 (`useOf(e)`): `read` (`readLeaf`), `take` (a binding, an argument, a
-stored field or element, `return`, a `break` value, a consuming
-receiver, a header that binds the value), or `lend` (`?e`, `!e`, a
-write receiver), for a name and for a value that yields one of its
-parts. Emit moves a name at a tail of a value out of its binding
-(`rig.take`) only where that value is taken, never where it is read
-in place; a part of the value inherits its use. A tail name with a drop
-flag and no recorded use is an internal error in a Debug build.
+stored field or element, `return`, a function's or a closure's value,
+a `break` value, a loop's `else`, a consuming receiver, a header that
+binds the value), or `lend` (`?e`, `!e`, a write receiver), for a name
+and for a value that yields one of its parts. A value whose names own
+nothing needs no use (an `==` operand of plain data records none),
+since moving such a name out disarms nothing. Emit moves a name at a
+tail of a value out of its binding (`rig.take`) only where that value
+is taken, never where it is read in place; a part of the value inherits
+its use. A tail name with a drop flag whose value has no recorded use
+is an internal compiler error in every build: emit neither moves nor
+reads it.
 
 What may be done with a place is decided in one place. `placeOf(e)`
 reads a place expression (a name, or a field or element of one) once,

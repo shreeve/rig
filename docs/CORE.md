@@ -730,8 +730,9 @@ no pass decides them again by looking at syntax.
   a loan; cloneable; how a read view is represented (a copy, or a
   pointer). *(built)*
 - **Per expression, one classification** of what it hands over: a
-  place, a made value, a lend, a view, branches, or a jump *(built)*,
-  including whether the value lives for the whole program *(planned)*.
+  place, a made value, a lend, branches, or a jump *(built)*; whether it
+  is a view, and whether the value lives for the whole program
+  *(planned)*.
 - **Per path, one exit primitive,** which runs defers, reports any loan
   it would drop, and rewinds when the path goes on. *(built)*
 

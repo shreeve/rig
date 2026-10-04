@@ -777,8 +777,11 @@ pub const Checker = struct {
                 try self.setFlow(@intCast(holder), f);
             }
         }
-        // A temporary loan of the statement the scope ends in (a
-        // returned `?user.name`, an arm's `o = ?t[..]`) ends with it.
+        // A `temps` entry reserves a var for the statement in flight (a
+        // returned `?user.name`, an arm's `o = ?t[..]`); it holds nothing
+        // past the statement, which every holder's own loans cover, so
+        // the scope's end removes it, and a reused var id is not left
+        // reserved.
         var i: usize = 0;
         while (i < self.temps.items.len) {
             if (self.temps.items[i].root >= start) {

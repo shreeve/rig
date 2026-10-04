@@ -1571,11 +1571,11 @@ pub const SemContext = struct {
     }
 
     /// The context of `node` reads, takes, or lends it (`Facts.uses`).
-    /// A value has one use; a second record of the same use is no
-    /// change.
+    /// A value has one use: a second record of it must agree.
     pub fn recordUse(self: *SemContext, node: Sexp, use: Use) !void {
         const key = recordExprKey(node) orelse return;
         const gop = try self.facts.uses.getOrPut(self.allocator, key);
+        if (gop.found_existing) std.debug.assert(gop.value_ptr.* == use);
         gop.value_ptr.* = use;
     }
 
@@ -4133,9 +4133,6 @@ pub fn eachTailPart(e: Sexp, context: anytype, comptime f: anytype) @typeInfo(@T
 /// Every pass asks `handsOver`; none decides it again from syntax.
 pub const Hands = struct {
     kind: Kind,
-    /// Its type is a view type (Core §1: a part is a view, and nothing
-    /// owns): a copy of the value carries the loans it does.
-    view: bool = false,
 
     pub const Kind = enum {
         /// Storage with an owner: a name of a binding or of a constant
@@ -4188,12 +4185,7 @@ pub fn handsOver(ctx: *const SemContext, node: Sexp) Hands {
 /// Without them (the ownership checker's own unit tests) every name is a
 /// binding's and no type is known.
 pub fn handsOverIn(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands {
-    const kind = handsOverKind(source, ctx, node);
-    const view = switch (kind) {
-        .place, .part_of_made, .made, .lend, .branches => if (ctx) |c| (if (c.typeOf(node)) |ty| isViewType(c, ty) else false) else false,
-        .jump, .none => false,
-    };
-    return .{ .kind = kind, .view = view };
+    return .{ .kind = handsOverKind(source, ctx, node) };
 }
 
 fn handsOverKind(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind {
@@ -4272,13 +4264,6 @@ fn isLiteralLeafText(text: []const u8) bool {
     if (text[0] == '"' or text[0] == '\'') return true;
     if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return true;
     return isIntLiteralText(text) or isFloatLiteralText(text);
-}
-
-/// Whether a value of `ty` is a view (Core §1): it holds a view (`?T`,
-/// `!T`, `[]T`, `![]T`, `String`) and owns nothing.
-pub fn isViewType(ctx: *const SemContext, ty: TypeId) bool {
-    const info = ctx.holds(ty);
-    return !info.glue and !info.holds_type_var and (info.borrows.any or info.borrows.view);
 }
 
 /// What a list node is by its kind alone, the positive list `handsOver`
@@ -5834,7 +5819,6 @@ test "hands over: one kind per expression, by a positive list" {
         \\
     ) };
     defer h.r.deinit();
-    const ctx = &h.r.ctx;
     // Names, functions, and literals.
     try std.testing.expectEqual(.place, h.kind(h.leaf("p", 3)));
     try std.testing.expectEqual(.made, h.kind(h.leaf("10", 0)));
@@ -5847,11 +5831,8 @@ test "hands over: one kind per expression, by a positive list" {
     try std.testing.expectEqual(.part_of_made, h.kind(h.node(.member, 1)));
     try std.testing.expectEqual(.place, h.kind(h.node(.member, 2)));
     try std.testing.expectEqual(.part_of_made, h.kind(h.node(.index, 1)));
-    // A lend, and what it lends is a view.
-    const lend = h.node(.read, 0);
-    try std.testing.expectEqual(.lend, h.kind(lend));
-    try std.testing.expect(handsOver(ctx, lend).view);
-    try std.testing.expect(!handsOver(ctx, h.leaf("p", 3)).view);
+    // A lend.
+    try std.testing.expectEqual(.lend, h.kind(h.node(.read, 0)));
     // Branching values: one that may be a name's, and one whose every
     // leaf is made here, which is itself made here.
     try std.testing.expectEqual(.branches, h.kind(h.node(.@"if", 0)));
