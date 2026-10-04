@@ -3499,9 +3499,9 @@ pub const Emitter = struct {
         }
     }
 
-    /// A statement that produces a value, including a loop used as one.
+    /// A statement that gives a value (`sema.yieldsValue`).
     fn yieldsValue(self: *Emitter, s: Sexp) bool {
-        return isValueStmt(s) or sema.hasValueBreaks(self.source, s);
+        return sema.yieldsValue(self.source, s);
     }
 
     fn isNoneLeaf(self: *Emitter, e: Sexp) bool {
@@ -5929,16 +5929,6 @@ fn sameNode(a: Sexp, b: Sexp) bool {
         .src => |s| b == .src and b.src.pos == s.pos,
         .list => b == .list and a.items().ptr == b.items().ptr,
         else => false,
-    };
-}
-
-/// Statements that produce a value (and can end a value block).
-fn isValueStmt(s: Sexp) bool {
-    const h = s.kind() orelse return true;
-    return switch (h) {
-        .set, .drop, .pass, .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .block, .@"while", .@"for", .labeled => false,
-        .@"if" => ir.If.@"else"(s) != .nil,
-        else => true,
     };
 }
 

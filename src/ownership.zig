@@ -3777,9 +3777,9 @@ pub const Checker = struct {
         elem_view: bool = false,
     };
 
-    /// An expression that yields a value, including a loop used as one.
+    /// A statement that gives a value (`sema.yieldsValue`).
     fn isValue(self: *const Checker, e: Sexp) bool {
-        return isValueExpr(e) or sema.hasValueBreaks(self.source, e);
+        return sema.yieldsValue(self.source, e);
     }
 
     fn walkWhile(self: *Checker, node: Sexp) Error!Value {
@@ -4525,16 +4525,6 @@ fn tailOf(s: Sexp) Sexp {
         return tailOf(stmts[stmts.len - 1]);
     }
     return s;
-}
-
-/// Whether a statement produces a value (as opposed to binding, jumping
-/// or looping).
-fn isValueExpr(s: Sexp) bool {
-    if (s != .list) return s == .src;
-    return switch (s.kind() orelse return false) {
-        .set, .@"return", .@"break", .@"continue", .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .labeled => false,
-        else => true,
-    };
 }
 
 fn refOfTypeSexp(t: Sexp) Ref {
