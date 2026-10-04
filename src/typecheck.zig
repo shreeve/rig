@@ -7106,16 +7106,14 @@ const Checker = struct {
         if (try self.checkContextual(e, expected)) |ty| return self.ctx.recordType(e, ty);
 
         const actual = try self.synthExpr(e);
+        if (try self.lendView(e, actual, expected)) return;
         if (try self.arrayAsSlice(e, actual, expected)) return;
         if (try self.textAsString(e, actual, expected)) return;
-        if (try self.boxLent(e, actual, expected)) return;
-        if (sema.callableFn(self.ctx, expected) != null and try self.lendCallable(e, actual, expected)) return;
         if (self.ctx.types.get(expected) == .function and sema.callableFnTy(self.ctx, actual) == expected) {
             return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; a lent closure goes to a parameter declared `{s}`", .{ try self.tyName(expected), try self.tyName(actual), try self.tyName(actual) });
         }
         if (compatible(self.ctx, actual, expected)) {
             try self.recordAdapted(e, actual, expected);
-            if (sema.writeSliceElem(self.ctx, actual) != null and self.ctx.types.get(expected) == .slice) try self.ctx.recordReadView(e);
             if (sema.holdsWriteBorrow(self.ctx, expected)) _ = try self.requireAccess(self.placeOf(e), .pass_write, e);
             return;
         }
@@ -7167,40 +7165,73 @@ const Checker = struct {
     /// a Cell, which the callee may change through the slice, lives in a
     /// mutable slot (`lendsCellTemp`).
     fn lendTempArray(self: *Checker, e: Sexp, elem: TypeId) Error!void {
-        try self.ctx.recordArrayView(e, .temporary);
+        try self.ctx.recordTempArray(e);
         if (sema.holdsCellByValue(self.ctx, elem)) try self.ctx.recordCellTemp(e);
     }
 
-    /// An array where a slice is expected: `?a` as `?a[..]` where a `[]T`
-    /// is, `!a` as `!a[..]` where a `![]T` is, and a temporary array as
-    /// a `[]T` argument of a call that keeps no borrow of it. A bare
-    /// named array is rejected with the borrow to write. True when
-    /// handled.
+    /// `e`, of type `actual`, where a view of type `expected` goes, lent
+    /// by the rows of the lend table that make it (`sema.lendsAs`): from
+    /// a lend written here (`?a`, `!b`), a view `e` already is (a `?Text`
+    /// a call returns, a held `![]T`), or a function. True when handled.
+    fn lendView(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
+        const kind: sema.LendKind, const from: TypeId = switch (self.ctx.types.get(actual)) {
+            .borrow_read => |inner| .{ .read, inner },
+            .borrow_write => |inner| .{ .write, inner },
+            else => .{ .read, actual },
+        };
+        const lend = sema.lendsAs(self.ctx, from, kind, expected) orelse return false;
+        if (lend.len == 0) return false;
+        const view = isBorrow(self.ctx, actual);
+        const written = e.isKind(.read) or e.isKind(.write);
+        switch (lend.rows[lend.len - 1]) {
+            .callable => {
+                if (sema.ownedClosureFn(self.ctx, from) != null and !view) {
+                    // The handle is lent from its binding; reported once.
+                    const place = switch (e.kind() orelse .lambda) {
+                        .move, .clone => ir.get(e, .operand),
+                        else => e,
+                    };
+                    if (self.hands(place).hasStorage()) {
+                        try self.errAt(e, "an owned closure is lent to a `{s}` parameter: write `?{s}`", .{ try self.tyName(expected), self.sourceText(place) });
+                    } else try self.errAt(e, "an owned closure is lent to a `{s}` parameter from a binding: bind it first (`cb = ...`), then lend it with `?cb`", .{try self.tyName(expected)});
+                    try self.ctx.recordType(e, self.t().invalid_id);
+                    return true;
+                }
+            },
+            // `?a` as `?a[..]` where a `[]T` is expected, `!a` as `!a[..]`
+            // where a `![]T` is.
+            .elems => {
+                if (!written or !self.placeOf(ir.get(e, .operand)).named()) return false;
+                try self.ctx.recordType(e, expected);
+            },
+            // A Text lends its bytes: a borrow already made (a `?Text` a
+            // call returns, or a name holds), a Text made here, which its
+            // statement drops, or a named one. A borrowed temporary
+            // elsewhere was reported.
+            .text => if (e.isKind(.read)) {
+                if (!self.placeOf(ir.Read.operand(e)).named()) try self.lendTemp(ir.Read.operand(e));
+                try self.ctx.recordType(e, self.t().string_id);
+            } else if (!view) return false,
+            .unbox => {
+                if (!view) return false;
+                if (self.ctx.types.get(expected) == .borrow_write) _ = try self.requireAccess(self.placeOf(e), .pass_write, e);
+            },
+            .read_only => try self.recordAdapted(e, actual, expected),
+        }
+        try self.ctx.recordLend(e, lend);
+        return true;
+    }
+
+    /// An array where a slice is expected: a temporary array as a `[]T`
+    /// argument of a call that keeps no borrow of it. A bare named array
+    /// is rejected with the borrow to write. True when handled.
     fn arrayAsSlice(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
         const want_write = sema.writeSliceElem(self.ctx, expected) != null;
         const elem = sema.writeSliceElem(self.ctx, expected) orelse switch (self.ctx.types.get(expected)) {
             .slice => |sl| sl.elem,
             else => return false,
         };
-        const arr_of = struct {
-            fn f(ctx: *const SemContext, ty: TypeId, want: TypeId) bool {
-                return switch (ctx.types.get(ty)) {
-                    .array => |a| a.elem == want,
-                    else => false,
-                };
-            }
-        }.f;
         switch (self.ctx.types.get(actual)) {
-            .borrow_read => |inner| if (!want_write and e.isKind(.read) and self.placeOf(ir.Read.operand(e)).named() and arr_of(self.ctx, inner, elem)) {
-                try self.ctx.recordType(e, expected);
-                try self.ctx.recordArrayView(e, .borrowed);
-                return true;
-            },
-            .borrow_write => |inner| if (want_write and e.isKind(.write) and self.placeOf(ir.Write.operand(e)).named() and arr_of(self.ctx, inner, elem)) {
-                try self.ctx.recordType(e, expected);
-                try self.ctx.recordArrayView(e, .borrowed);
-                return true;
-            },
             .array => |a| if (a.elem == elem) {
                 if (self.hands(e).hasStorage()) {
                     const shown = self.sourceText(e);
@@ -7222,9 +7253,8 @@ const Checker = struct {
         return false;
     }
 
-    /// `?t` of a named Text where a String is expected lends the whole
-    /// Text as a String, as `?t[..]` does; a bare Text there is rejected
-    /// with the borrow to write. True when handled.
+    /// A Text, or a write borrow of one, where a String is expected: it
+    /// is lent as a String to read, `?t`. True when handled.
     fn textAsString(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
         // Where a `String?` is expected, too: the view is lifted.
         const want = switch (self.ctx.types.get(expected)) {
@@ -7233,49 +7263,14 @@ const Checker = struct {
         };
         if (want != self.t().string_id) return false;
         const text_ty = self.t().text_id;
-        switch (self.ctx.types.get(actual)) {
-            .borrow_read => |inner| if (textOrBoxed(self.ctx, inner) == text_ty) {
-                // A borrow already made (a `?Text` a call returns, or a
-                // name holds) lends its Text's bytes.
-                if (!e.isKind(.read)) {
-                    try self.ctx.recordTextLend(e);
-                    return true;
-                }
-                // A Text made here, which its statement drops, or a named
-                // one; a borrowed temporary elsewhere was reported.
-                if (!self.placeOf(ir.Read.operand(e)).named()) try self.lendTemp(ir.Read.operand(e));
-                try self.ctx.recordType(e, want);
-                try self.ctx.recordArrayView(e, .borrowed);
-                return true;
-            },
-            .text, .borrow_write => if (actual == text_ty or self.ctx.types.get(actual).borrow_write == text_ty) {
-                const shown = self.sourceText(unborrowedNode(e));
-                try self.errAt(e, "type mismatch: expected `String`, got `{s}`; lend it as a String with `?{s}` or `?{s}[..]`", .{ try self.tyName(actual), shown, shown });
-                return true;
-            },
-            else => {},
-        }
-        return false;
-    }
-
-    /// A borrow of a box where a borrow of its value is expected: `?b`
-    /// lends the value as a `?T`, `!b` as a `!T`. True when handled.
-    fn boxLent(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
-        const want = self.ctx.types.get(expected);
-        const got = self.ctx.types.get(actual);
-        // A write borrow of a box may be lent to read, as a `!T` may.
-        const box = switch (got) {
-            .borrow_write => |b| b,
-            .borrow_read => |b| if (want == .borrow_read) b else return false,
-            else => return false,
+        const is_text = switch (self.ctx.types.get(actual)) {
+            .text => true,
+            .borrow_write => |inner| inner == text_ty,
+            else => false,
         };
-        const value = switch (want) {
-            .borrow_read, .borrow_write => |v| v,
-            else => return false,
-        };
-        if (sema.boxedType(self.ctx, box) != value) return false;
-        try self.ctx.recordUnboxed(e);
-        if (want == .borrow_write) _ = try self.requireAccess(self.placeOf(e), .pass_write, e);
+        if (!is_text) return false;
+        const shown = self.sourceText(unborrowedNode(e));
+        try self.errAt(e, "type mismatch: expected `String`, got `{s}`; lend it as a String with `?{s}` or `?{s}[..]`", .{ try self.tyName(actual), shown, shown });
         return true;
     }
 
@@ -7989,40 +7984,8 @@ const Checker = struct {
             try self.errAt(e, "a closure literal is lent as `{s}` only as a call's argument; bind the closure (`f = |...| ...`) and lend it as `?f`", .{try self.tyName(target)});
         }
         const ty = try self.checkLambda(e, fn_ty, false);
-        try self.ctx.recordCallable(e, fn_ty);
+        try self.ctx.recordLend(e, sema.lendsAs(self.ctx, fn_ty, .read, target).?);
         return ty;
-    }
-
-    /// `e`, of type `actual`, lent where borrowed callable `expected`
-    /// (a `?fun(...)`) is: a function, or a borrowed owned closure of
-    /// its function type. Returns whether `e` was handled.
-    fn lendCallable(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
-        const fn_ty = sema.callableFnTy(self.ctx, expected).?;
-        // A function, or a read borrow of a function value (`?g`).
-        const plain = switch (self.ctx.types.get(actual)) {
-            .borrow_read => |inner| inner,
-            else => actual,
-        };
-        if (plain == fn_ty) {
-            try self.ctx.recordCallable(e, fn_ty);
-            return true;
-        }
-        if (sema.ownedClosureFn(self.ctx, actual) == null) return false;
-        if (self.ctx.types.get(sema.unwrapBorrows(self.ctx, actual)).shared != fn_ty) return false;
-        if (!isBorrow(self.ctx, actual)) {
-            // The handle is lent from its binding; reported once.
-            const place = switch (e.kind() orelse .lambda) {
-                .move, .clone => ir.get(e, .operand),
-                else => e,
-            };
-            if (self.hands(place).hasStorage()) {
-                try self.errAt(e, "an owned closure is lent to a `{s}` parameter: write `?{s}`", .{ try self.tyName(expected), self.sourceText(place) });
-            } else try self.errAt(e, "an owned closure is lent to a `{s}` parameter from a binding: bind it first (`cb = ...`), then lend it with `?cb`", .{try self.tyName(expected)});
-            try self.ctx.recordType(e, self.t().invalid_id);
-            return true;
-        }
-        try self.ctx.recordCallable(e, fn_ty);
-        return true;
     }
 
     /// `*|...| body`: an owned closure; `expected` is the function type

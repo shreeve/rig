@@ -762,9 +762,8 @@ instead of re-deriving it by name:
 | `typeOf(node)` | the type of an expression (literals get their contextual type) |
 | `bindingTypeOf(leaf)` | the declared or inferred type of the symbol a leaf names |
 | `readsThrough(node)` | whether the node yields a view (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a number, `Bool`, `String`, or plain enum where one is expected, an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced String or slice, or a clone. Typecheck records it wherever it admits the view as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that carries no loan |
-| `arrayViewOf(node)` | for an array lent as a slice: `borrowed` for `?a` where a `[]T` is expected or `!a` where a `![]T` is (the ownership checker walks it as `?a[..]`, emit writes the array's address), `temporary` for a temporary array passed as a `[]T` argument to a call that keeps no view of it (emit writes `&` before it, which Zig keeps alive through the call) |
-| `readsAsView(node)` | whether the node yields a `![]T` where a `[]T` is expected; the ownership checker lends such an argument to read, not to write |
-| `callableOf(node)` | for a closure literal, a function, or a lend of an owned closure, where a callable view `?fun(...)` is expected: the function type it is lent as. The ownership checker lets such a literal be an argument, and emit wraps the node in a `rig.FnRef` (hoisting a literal's environment before the call) |
+| `lendOf(node)` | for a node lent where a view of another type is expected: the rows of the lend table that make the view (`sema.Lend`, from `sema.lendsAs`, below). The ownership checker walks a lend of an array's elements or a Text's bytes as `?a[..]`, lends a `![]T` lent on to read only to read, and lets a closure literal lent as a callable be an argument; emit writes each in one place (`emitLend`): an array's address, a Text's `.bytes()`, a box's value, or a `rig.FnRef` (hoisting a literal's environment before the call) |
+| `lendsTempArray(node)` | whether the node is a temporary array passed as a `[]T` argument to a call that keeps no view of it: emit writes `&` before it, which Zig keeps alive through the call |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
@@ -775,13 +774,23 @@ instead of re-deriving it by name:
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read lend of it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
-| `unboxes(node)` | whether a lend of a `Box[T]` makes a view of its `T` (`?b` where a `?T` is expected) |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `takesSubject(match)` | whether a `match` takes its subject, a value made there that cannot be copied, as `match <e` would: its arms own the payloads |
-| `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is recorded as an `arrayViewOf` `borrowed`, walked as `?t[..]` |
+| `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is a `lendOf` `text`, walked as `?t[..]` |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
+
+**The lend table.** Which views a value lends (Core §4) is decided in
+one place, `sema.lendsAs(from, kind, view)`: lending a value of type
+`from` to read or to write makes a view of type `view` through a list of
+rows (`LendStep`): `unbox` (a `Box[T]` lends the views of its `T`),
+`elems` (an array lends `[]T`, and `![]T` to write), `text` (a Text
+lends its bytes, a `String`), `read_only` (a `![]T` is lent on as a
+`[]T`), and `callable` (a function or an owned closure lends a
+`?fun(...)`). No rows is the first row, `?T` of a `T`. Typecheck asks it
+where a value meets an expected view (`lendView`) and records the rows
+it used (`lendOf`); the ownership checker and emit read that record.
 
 Leaves are keyed by source position and list nodes by their node id:
 the parser numbers every node it builds (`List.id`), and the Parser
@@ -1365,7 +1374,7 @@ lower is an internal error: sema must have rejected it.
   environment `var __rig_env_N = struct {...}{...}` (dropped at the end
   of the call's block when it owns captures) and then the `FnRef` over
   it. Sema records which expressions are lent this way
-  (`SemContext.callableOf`).
+  (`SemContext.lendOf`, the `callable` row).
 - **Zig-backed declarations.** An `extern zig "file.zig"` block imports
   the file, which `rig` writes into the package as `rig/std/file.zig`
   from the module graph (`Module.shims`, read where the module is), and

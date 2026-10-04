@@ -208,11 +208,8 @@ pub const Emitter = struct {
     /// Emitting the object chain of an assignment target: an indexed
     /// element in it is a slot, not a copy.
     place_chain: bool = false,
-    /// The callable `emitLentCallable` is emitting the value of.
-    lent: Sexp = .nil,
-    /// The box borrow `emitUnboxed` is emitting, which it emits as a
-    /// plain borrow of the box.
-    unboxing: Sexp = .nil,
+    /// The value `emitLend` is lending, which it emits as itself.
+    lending: Sexp = .nil,
     /// Arguments and receivers of the calls being emitted that were
     /// evaluated into temporaries first (`emitHoistedCall`), innermost
     /// call last.
@@ -222,8 +219,6 @@ pub const Emitter = struct {
     temp_slots: std.ArrayList(TempSlot) = .empty,
     /// The temporary whose value is being written into its slot.
     keeping: Sexp = .nil,
-    /// The Text borrow being emitted before its `.bytes()`.
-    lending_text: Sexp = .nil,
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayList(struct { rig: []const u8, zig: []const u8 }) = .empty,
@@ -2917,17 +2912,6 @@ pub const Emitter = struct {
         self.want_ptr = false;
         const bare = self.bare;
         self.bare = false;
-        // A borrow of a Text lent as a String: its bytes.
-        if (self.sema.lendsText(sexp) and !sameNode(sexp, self.lending_text)) {
-            const saved = self.lending_text;
-            defer self.lending_text = saved;
-            self.lending_text = sexp;
-            const reach = self.textReach(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped Text")) orelse return self.unsupported(sexp, "a Text lent as a String");
-            try self.w.writeAll("(");
-            self.bare = true;
-            try self.emitValue(sexp, tail);
-            return self.w.print("){s}.bytes()", .{reach});
-        }
         // An owning temporary is kept in its statement's slot, which
         // drops it at the statement's end.
         if (self.sema.dropsTemp(sexp) and !sameNode(sexp, self.keeping)) {
@@ -2945,8 +2929,7 @@ pub const Emitter = struct {
             if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
             return self.w.writeAll(h.name);
         }
-        if (!sameNode(sexp, self.lent)) if (self.sema.callableOf(sexp)) |fn_ty| return self.emitLentCallable(sexp, fn_ty);
-        if (!sameNode(sexp, self.unboxing) and self.sema.unboxes(sexp)) return self.emitUnboxed(sexp, false);
+        if (!sameNode(sexp, self.lending)) if (self.sema.lendOf(sexp)) |lend| if (!lend.has(.read_only)) return self.emitLend(sexp, lend, tail);
         if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
@@ -2962,14 +2945,48 @@ pub const Emitter = struct {
         }
     }
 
+    /// `sexp`, lent where a view of another type is expected, as the rows
+    /// of the lend table make it (`SemContext.lendOf`).
+    fn emitLend(self: *Emitter, sexp: Sexp, lend: sema.Lend, tail: bool) Error!void {
+        const saved = self.lending;
+        defer self.lending = saved;
+        self.lending = sexp;
+        switch (lend.rows[lend.len - 1]) {
+            .callable => return self.emitLentCallable(sexp, lend.fn_ty),
+            .unbox => return self.emitUnboxed(sexp, false),
+            // `?a` of an array lent as a slice, `!a` as a writable one: the
+            // array's address, which Zig takes as a slice.
+            .elems => {
+                const saved_read = self.read_place;
+                defer self.read_place = saved_read;
+                self.read_place = sexp.isKind(.read);
+                return self.emitAddressOf(ir.get(sexp, .operand));
+            },
+            // A Text lent as a String: its bytes.
+            .text => {
+                const operand = if (sexp.isKind(.read)) ir.Read.operand(sexp) else sexp;
+                const reach = self.textReach(self.typeOf(operand) orelse return self.unsupported(sexp, "an untyped Text")) orelse return self.unsupported(sexp, "a Text lent as a String");
+                if (sexp.isKind(.read)) {
+                    try self.emitExpr(operand);
+                    return self.w.print("{s}.bytes()", .{reach});
+                }
+                try self.w.writeAll("(");
+                self.bare = true;
+                try self.emitValue(sexp, tail);
+                return self.w.print("){s}.bytes()", .{reach});
+            },
+            .read_only => unreachable,
+        }
+    }
+
     /// A borrow of a `Box[T]` lent as a borrow of its value: the box's
     /// pointer, `*T`, reached through the box or a pointer to it. Where a
     /// read borrow is passed as a value (`as_ptr` false), it is the
     /// `rig.ReadBorrow(T)` of that pointer: a scalar or view is copied.
     fn emitUnboxed(self: *Emitter, sexp: Sexp, as_ptr: bool) Error!void {
-        const saved = self.unboxing;
-        defer self.unboxing = saved;
-        self.unboxing = sexp;
+        const saved = self.lending;
+        defer self.lending = saved;
+        self.lending = sexp;
         const lend = !as_ptr and !sexp.isKind(.write) and if (self.typeOf(sexp)) |t| self.sema.types.get(t) == .borrow_read else false;
         try self.w.writeAll(if (lend) "rig.lend((" else "(");
         try self.emitBare(sexp);
@@ -3193,7 +3210,7 @@ pub const Emitter = struct {
     /// `?x` or `!x` held by pointer: the address of `x`, or for a generic
     /// read borrow, `rig.lend` of it.
     fn emitBorrowOf(self: *Emitter, borrow: Sexp) Error!void {
-        if (!sameNode(borrow, self.unboxing) and self.sema.unboxes(borrow)) return self.emitUnboxed(borrow, true);
+        if (!sameNode(borrow, self.lending)) if (self.sema.lendOf(borrow)) |lend| if (lend.has(.unbox)) return self.emitUnboxed(borrow, true);
         const operand = ir.get(borrow, .operand);
         // A read borrow reaches a Vec element through a read-only slot, a
         // write borrow through a writable one.
@@ -3333,19 +3350,9 @@ pub const Emitter = struct {
         switch (head) {
             // `?a` / `!a` of an array lent as a slice: the array's address,
             // which Zig takes as a slice.
-            .read, .write => if (self.sema.arrayViewOf(sexp) == .borrowed) {
-                // `?t` of a Text lent as a String: its bytes.
-                if (self.typeOf(ir.get(sexp, .operand))) |t| if (self.textReach(t)) |reach| {
-                    try self.emitExpr(ir.get(sexp, .operand));
-                    return self.w.print("{s}.bytes()", .{reach});
-                };
-                const saved_read = self.read_place;
-                defer self.read_place = saved_read;
-                self.read_place = head == .read;
-                try self.emitAddressOf(ir.get(sexp, .operand));
-            } else if (head == .read) {
+            .read, .write => if (head == .read) {
                 // `?f` of a closure or function lends it.
-                if (self.typeOf(sexp)) |t| if (sema.callableFn(self.sema, t) != null) return self.emitLend(ir.Read.operand(sexp), sema.callableFnTy(self.sema, t).?);
+                if (self.typeOf(sexp)) |t| if (sema.callableFn(self.sema, t) != null) return self.emitFnRef(ir.Read.operand(sexp), sema.callableFnTy(self.sema, t).?);
                 // `?x` of a value held by pointer (a Cell) is its address.
                 if (self.isPtrBorrowExpr(sexp)) return self.emitBorrowOf(sexp);
                 // A borrow never moves its operand, even in tail position.
@@ -4162,7 +4169,7 @@ pub const Emitter = struct {
                 try self.emitElems(ir.Member.object(callee));
                 for (args) |a| {
                     try self.w.writeAll(", ");
-                    if (self.sema.arrayViewOf(a) == .temporary) try self.w.writeAll("&");
+                    if (self.sema.lendsTempArray(a)) try self.w.writeAll("&");
                     try self.emitBare(a);
                 }
             },
@@ -4484,7 +4491,7 @@ pub const Emitter = struct {
         const value = argValue(arg);
         // A temporary array lent as a slice: its address, which lives
         // through the call.
-        if (self.sema.arrayViewOf(value) == .temporary) {
+        if (self.sema.lendsTempArray(value)) {
             try self.w.writeAll("&");
             return self.emitBare(value);
         }
@@ -4596,7 +4603,7 @@ pub const Emitter = struct {
         // and a Cell a read borrow may change must not be in one.
         if (self.receiverOf(call)) |recv| if ((!self.hasStorage(recv) and recv.kind() != .move and self.receiverWrites(call)) or self.sema.lendsCellTemp(unborrowed(recv))) return true;
         for (args) |a| if (argValue(a).isKind(.read) and self.sema.lendsCellTemp(ir.Read.operand(argValue(a)))) return true;
-        for (args) |a| if (self.sema.arrayViewOf(argValue(a)) == .temporary and self.sema.lendsCellTemp(argValue(a))) return true;
+        for (args) |a| if (self.sema.lendsTempArray(argValue(a)) and self.sema.lendsCellTemp(argValue(a))) return true;
         var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or self.consumedTemporary(call) != null;
         for (args) |a| {
             const v = argValue(a);
@@ -4806,7 +4813,7 @@ pub const Emitter = struct {
         const ptr = slot < params.len and self.isPtrBorrowTy(params[slot]);
         // A temporary array lent as a slice stays in its slot, which owns
         // nothing to release: an array holds no value that needs cleanup.
-        const lent_array = self.sema.arrayViewOf(h.node) == .temporary;
+        const lent_array = self.sema.lendsTempArray(h.node);
         const kind: ?ResourceKind = if (ptr or lent_array) null else if (ty) |t| self.kindOf(t) else null;
         // A temporary array whose elements hold a Cell is lent from a
         // mutable slot, never from constant memory.
@@ -4816,13 +4823,14 @@ pub const Emitter = struct {
         // The value alone may have no Zig type (`.empty`, `null`, a
         // literal). A borrow read through is read here, in argument order.
         // A box lent as its value has the parameter's type.
-        const shown: ?TypeId = if (self.sema.unboxes(h.node)) (if (slot < params.len) params[slot] else null) else ty;
+        const unboxes = if (self.sema.lendOf(h.node)) |lend| lend.has(.unbox) else false;
+        const shown: ?TypeId = if (unboxes) (if (slot < params.len) params[slot] else null) else ty;
         if (shown) |t| if (!ptr) {
             try self.w.writeAll(": ");
             try self.emitTypeTy(if (self.readsThrough(h.node)) self.peelBorrows(t) else t);
         };
         try self.w.writeAll(" = ");
-        if (fields) try self.emitStored(h.node) else if (self.sema.arrayViewOf(h.node) == .temporary) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
+        if (fields) try self.emitStored(h.node) else if (self.sema.lendsTempArray(h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
         try self.w.writeAll(";\n");
         if (mutable) try self.line("_ = &{s};", .{h.name});
         const k = kind orelse return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
@@ -5234,16 +5242,16 @@ pub const Emitter = struct {
         try self.emitCallableTy("FnRef", f);
         const ty = self.typeOf(e) orelse return self.unsupported(e, "an untyped callable");
         try self.w.writeAll(if (sema.ownedClosureFn(self.sema, ty) != null) ".ofClosure(" else ".ofFn(");
-        const saved = self.lent;
-        defer self.lent = saved;
-        self.lent = e;
+        const saved = self.lending;
+        defer self.lending = saved;
+        self.lending = e;
         try self.emitExpr(e);
         try self.w.writeAll(")");
     }
 
     /// `?f` where `f` is a stack closure, a function value, or already a
     /// borrowed callable: the `rig.FnRef` of function type `fn_ty`.
-    fn emitLend(self: *Emitter, operand: Sexp, fn_ty: TypeId) Error!void {
+    fn emitFnRef(self: *Emitter, operand: Sexp, fn_ty: TypeId) Error!void {
         const ty = self.typeOf(operand) orelse return self.unsupported(operand, "an untyped callable");
         if (sema.callableFn(self.sema, ty) != null) return self.emitExpr(operand);
         const f = self.sema.types.get(fn_ty).function;

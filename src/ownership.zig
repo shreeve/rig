@@ -1601,8 +1601,9 @@ pub const Checker = struct {
                 // A borrow the type checker rejected lends nothing.
                 .read, .write => if (self.rejected(sexp))
                     self.walkRejectedBorrow(ir.get(sexp, .operand))
-                else if (self.isArrayView(sexp))
-                    // `?a` lent as `?a[..]`, `!a` as `!a[..]`.
+                else if (self.lendsBy(sexp, .elems) or self.lendsBy(sexp, .text))
+                    // `?a` lent as `?a[..]`, `!a` as `!a[..]`, `?t` of a
+                    // Text as `?t[..]`.
                     self.walkElems(sexp, ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write)
                 else
                     self.walkBorrow(ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write),
@@ -1656,7 +1657,7 @@ pub const Checker = struct {
             // A closure literal lent to a call as a borrowed callable
             // lives for the call; anywhere else it is reported by
             // walkLambda.
-            if (sink == .argument and (self.lentCallable(expr) or self.in_rejected_call or self.rejected(expr))) self.lambda_ok = true;
+            if (sink == .argument and (self.lendsBy(expr, .callable) or self.in_rejected_call or self.rejected(expr))) self.lambda_ok = true;
             return self.walk(expr);
         }
         self.copy_reads = self.value_reads;
@@ -1667,7 +1668,7 @@ pub const Checker = struct {
         // its holder is write-borrowed for as long as the result may keep
         // the borrow.
         // A `![]T` passed where a `[]T` is expected is lent to read.
-        if (sink == .argument and self.isWriteBorrowPlace(expr)) return self.walkBorrow(expr, if (self.readsAsView(expr)) .read else .write);
+        if (sink == .argument and self.isWriteBorrowPlace(expr)) return self.walkBorrow(expr, if (self.lendsBy(expr, .read_only)) .read else .write);
         self.setTail(expr, sink);
         return self.walk(expr);
     }
@@ -1773,13 +1774,6 @@ pub const Checker = struct {
     /// A closure binding used as a value.
     fn errClosureValue(self: *Checker, pos: u32, name: []const u8) Error!void {
         try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, lend it to a call as `?{s}`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name, name });
-    }
-
-    /// Whether `e` is lent where a borrowed callable is expected without
-    /// being one yet (`SemContext.callableOf`).
-    fn lentCallable(self: *const Checker, e: Sexp) bool {
-        const ctx = self.sema orelse return false;
-        return ctx.callableOf(e) != null;
     }
 
     /// `?f` of closure binding `id`: a read loan on the closure, and the
@@ -1968,10 +1962,17 @@ pub const Checker = struct {
     // Borrow, move, clone, drop
     // -------------------------------------------------------------------------
 
-    /// `e` yields a `![]T` where a `[]T` is expected.
-    fn readsAsView(self: *const Checker, e: Sexp) bool {
-        const ctx = self.sema orelse return false;
-        return ctx.readsAsView(e);
+    /// How `e` is lent where a view of another type is expected
+    /// (`SemContext.lendOf`).
+    fn lendOf(self: *const Checker, e: Sexp) ?sema.Lend {
+        const ctx = self.sema orelse return null;
+        return ctx.lendOf(e);
+    }
+
+    /// Whether `e` is lent by `step` of the lend table.
+    fn lendsBy(self: *const Checker, e: Sexp, step: sema.LendStep) bool {
+        const lend = self.lendOf(e) orelse return false;
+        return lend.has(step);
     }
 
     /// Whether `ty` is the type of something the type checker rejected.
@@ -2021,12 +2022,6 @@ pub const Checker = struct {
         const loan: Loan = .{ .root = id, .kind = kind, .pos = pos };
         try self.addTemp(loan);
         return try self.reborrow(id, loan);
-    }
-
-    /// `?a` / `!a` of an array lent as a slice.
-    fn isArrayView(self: *const Checker, e: Sexp) bool {
-        const ctx = self.sema orelse return false;
-        return ctx.arrayViewOf(e) == .borrowed;
     }
 
     /// A borrow of the elements of `object`: `slice` is a slice of it

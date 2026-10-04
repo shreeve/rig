@@ -597,19 +597,12 @@ pub const Facts = struct {
     names: std.AutoHashMapUnmanaged(u32, SymbolId) = .empty,
     /// Expression (`exprKey`) -> its type.
     types: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
-    /// Expressions lent where a borrowed callable `?fun(...)` is
-    /// expected that are not one yet (a closure literal, a function, an
-    /// owned closure) -> the callable's function type.
-    callables: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
+    /// Expressions lent where a view of another type is expected ->
+    /// the rows of the lend table that make it (`Lend`, `lendsAs`).
+    lends: std.AutoHashMapUnmanaged(u64, Lend) = .empty,
     /// Expressions that yield a borrow where their context reads the
     /// value it reaches (`SemContext.recordRead`).
     reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
-    /// Expressions yielding a `![]T` where a `[]T` is expected, which
-    /// lend it only to read.
-    views: std.AutoHashMapUnmanaged(u64, void) = .empty,
-    /// Borrows of a `Box[T]` lent as borrows of its value (`?b` where a
-    /// `?T` is expected).
-    unboxed: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Scope-opening node -> the scope it opens.
     scopes: std.AutoHashMapUnmanaged(NodeKey, ScopeId) = .empty,
     /// Call node -> how its arguments fill the parameters, for calls
@@ -628,8 +621,9 @@ pub const Facts = struct {
     writes: std.AutoHashMapUnmanaged(u32, void) = .empty,
     /// Callee (`member`) node -> the built-in element method it calls.
     elem_calls: std.AutoHashMapUnmanaged(NodeKey, ElemCall) = .empty,
-    /// Array expressions lent as a slice (`ArrayView`).
-    array_views: std.AutoHashMapUnmanaged(NodeKey, ArrayView) = .empty,
+    /// Temporary arrays passed as a `[]T` argument to a call that keeps
+    /// no view of them (`SemContext.lendsTempArray`).
+    temp_arrays: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Owning temporaries only read where they stand (a `print`
     /// argument, a borrow lent to a call, an `==` operand, a `?self`
     /// receiver): each is dropped at the end of its statement, or of
@@ -646,9 +640,6 @@ pub const Facts = struct {
     /// `match` nodes whose subject is a call's result, which the match
     /// takes as `match <e` would.
     taken_subjects: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
-    /// Borrows of a Text (`?Text` call results and names) lent as a
-    /// String where one is expected (`SemContext.lendsText`).
-    text_lends: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// `Text(...)` call node, or `t.add` / `t.clear` callee node -> the
     /// built-in Text operation it is (`TextCall`).
     text_calls: std.AutoHashMapUnmanaged(NodeKey, TextCall) = .empty,
@@ -681,16 +672,6 @@ pub const Use = enum {
     take,
     /// Lends it: `?e`, `!e`.
     lend,
-};
-
-/// An array lent where a slice is expected.
-pub const ArrayView = enum {
-    /// `?a` where a `[]T` is expected, `!a` where a `![]T` is: the
-    /// borrow is `?a[..]` / `!a[..]`.
-    borrowed,
-    /// A temporary array (a literal, a fill, a call's result) passed as
-    /// a `[]T` argument: lent for the call.
-    temporary,
 };
 
 /// A built-in method on the elements of a slice, an array, a Vec, or a
@@ -873,11 +854,15 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         const sym = ctx.symbols.items[v];
         return w.print(" {s} {s}", .{ sym.name, @tagName(sym.kind) });
     }
-    if (comptime std.mem.eql(u8, name, "types") or std.mem.eql(u8, name, "callables"))
+    if (comptime std.mem.eql(u8, name, "types"))
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        ArrayView, TextCall, Use => try w.print(" {s}", .{@tagName(v)}),
+        TextCall, Use => try w.print(" {s}", .{@tagName(v)}),
+        Lend => {
+            for (v.steps()) |step| try w.print(" {s}", .{@tagName(step)});
+            if (v.fn_ty != type_invalid) try w.print(" {s}", .{try formatTypeIn(ctx, a, v.fn_ty)});
+        },
         ElemCall => {
             try w.print(" {s} {s}", .{ @tagName(v.op), try formatTypeIn(ctx, a, v.elem) });
             if (v.num != type_invalid) try w.print(" {s}", .{try formatTypeIn(ctx, a, v.num)});
@@ -1437,25 +1422,37 @@ pub const SemContext = struct {
         try self.facts.reads.put(self.allocator, recordExprKey(node) orelse return, {});
     }
 
-    pub fn recordArrayView(self: *SemContext, node: Sexp, view: ArrayView) !void {
-        try self.facts.array_views.put(self.allocator, recordKey(node), view);
+    /// `node`, a temporary array (a literal, a fill, a call's result),
+    /// is passed as a `[]T` argument to a call that keeps no view of it.
+    pub fn recordTempArray(self: *SemContext, node: Sexp) !void {
+        try self.facts.temp_arrays.put(self.allocator, recordKey(node), {});
     }
 
-    /// How the array expression `node` is lent as a slice, if it is.
-    pub fn arrayViewOf(self: *const SemContext, node: Sexp) ?ArrayView {
-        return self.facts.array_views.get(nodeKey(node) orelse return null);
+    /// Whether `node` is a temporary array lent as a `[]T` argument for
+    /// the call (`recordTempArray`).
+    pub fn lendsTempArray(self: *const SemContext, node: Sexp) bool {
+        return self.facts.temp_arrays.contains(nodeKey(node) orelse return false);
     }
 
-    /// `node`, lent where a borrowed callable is expected, is lent as one
-    /// of function type `fn_ty` (`callableOf`).
-    pub fn recordCallable(self: *SemContext, node: Sexp, fn_ty: TypeId) !void {
-        try self.facts.callables.put(self.allocator, recordExprKey(node) orelse return, fn_ty);
+    /// `node` is lent, where a view of another type is expected, by the
+    /// rows of the lend table `lend` names (`lendOf`).
+    pub fn recordLend(self: *SemContext, node: Sexp, lend: Lend) !void {
+        std.debug.assert(lend.len > 0);
+        try self.facts.lends.put(self.allocator, recordExprKey(node) orelse return, lend);
+    }
+
+    /// How `node` is lent where a view of another type is expected: the
+    /// rows of the lend table that make the view (`recordLend`); null
+    /// where its value is the view itself.
+    pub fn lendOf(self: *const SemContext, node: Sexp) ?Lend {
+        return self.facts.lends.get(exprKey(node) orelse return null);
     }
 
     /// The function type `node` is lent as, where a borrowed callable is
-    /// expected and `node` is not one yet (`recordCallable`).
+    /// expected and `node` is not one yet (`Lend.callable`).
     pub fn callableOf(self: *const SemContext, node: Sexp) ?TypeId {
-        return self.facts.callables.get(exprKey(node) orelse return null);
+        const lend = self.lendOf(node) orelse return null;
+        return lend.callable();
     }
 
     /// `node` is `<place` taking an optional out of a field or element,
@@ -1500,25 +1497,6 @@ pub const SemContext = struct {
         return self.facts.cell_temps.contains(nodeKey(node) orelse return false);
     }
 
-    /// `node`, a borrow of a `Box[T]`, is lent as a borrow of the `T`.
-    pub fn recordUnboxed(self: *SemContext, node: Sexp) !void {
-        try self.facts.unboxed.put(self.allocator, recordExprKey(node) orelse return, {});
-    }
-
-    pub fn unboxes(self: *const SemContext, node: Sexp) bool {
-        return self.facts.unboxed.contains(exprKey(node) orelse return false);
-    }
-
-    /// `node` yields a `![]T` where a `[]T` is expected: it is lent to
-    /// read only.
-    pub fn recordReadView(self: *SemContext, node: Sexp) !void {
-        try self.facts.views.put(self.allocator, recordExprKey(node) orelse return, {});
-    }
-
-    pub fn readsAsView(self: *const SemContext, node: Sexp) bool {
-        return self.facts.views.contains(exprKey(node) orelse return false);
-    }
-
     pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {
         try self.facts.scopes.put(self.allocator, recordKey(node), scope);
     }
@@ -1538,16 +1516,6 @@ pub const SemContext = struct {
     /// The built-in element method a call's callee (`member`) names.
     pub fn elemCallOf(self: *const SemContext, callee: Sexp) ?ElemCall {
         return self.facts.elem_calls.get(nodeKey(callee) orelse return null);
-    }
-
-    pub fn recordTextLend(self: *SemContext, node: Sexp) !void {
-        try self.facts.text_lends.put(self.allocator, recordExprKey(node) orelse return, {});
-    }
-
-    /// Whether `node`, a borrow of a Text that is not written `?t`, is
-    /// lent as a String: its bytes.
-    pub fn lendsText(self: *const SemContext, node: Sexp) bool {
-        return self.facts.text_lends.contains(exprKey(node) orelse return false);
     }
 
     pub fn recordTempDrop(self: *SemContext, node: Sexp) !void {
@@ -4125,6 +4093,120 @@ pub fn eachTailPart(e: Sexp, context: anytype, comptime f: anytype) @typeInfo(@T
 }
 
 // =============================================================================
+// The lend table
+// =============================================================================
+
+/// One row of the lend table (Core §4): a step from a value to a view of
+/// it, or of what it holds.
+pub const LendStep = enum(u8) {
+    /// A `Box[T]` lends the views of its `T`.
+    unbox,
+    /// An array lends its elements, `[]T` to read and `![]T` to write.
+    elems,
+    /// A `Text` lends its bytes, a `String` (also where a `String?` is
+    /// expected).
+    text,
+    /// A `![]T` is lent on to read, as a `[]T`.
+    read_only,
+    /// A function, or an owned closure, lends a `?fun(...)`.
+    callable,
+};
+
+/// How a view is lent from a value of another type: the rows of the
+/// lend table, applied in order from the value (`lendsAs`). A lend with
+/// no rows is the first row, `?T` of a `T`.
+pub const Lend = struct {
+    rows: [max_rows]LendStep = undefined,
+    len: u8 = 0,
+    /// `callable`: the function type the callable has.
+    fn_ty: TypeId = type_invalid,
+
+    pub const max_rows = 4;
+
+    pub fn steps(self: *const Lend) []const LendStep {
+        return self.rows[0..self.len];
+    }
+
+    pub fn has(self: Lend, step: LendStep) bool {
+        return std.mem.findScalar(LendStep, self.rows[0..self.len], step) != null;
+    }
+
+    /// The function type a callable is lent as; null for any other lend.
+    pub fn callable(self: Lend) ?TypeId {
+        return if (self.has(.callable)) self.fn_ty else null;
+    }
+
+    fn push(self: *Lend, step: LendStep) bool {
+        if (self.len == max_rows) return false;
+        self.rows[self.len] = step;
+        self.len += 1;
+        return true;
+    }
+};
+
+/// Which lend: `?` to read, `!` to write.
+pub const LendKind = enum { read, write };
+
+/// The lend table (Core §4): how lending a value of type `from` to read
+/// or to write (`kind`) makes a view of type `view`; null when no row
+/// does. The one place that knows which views a value lends.
+pub fn lendsAs(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId) ?Lend {
+    var lend: Lend = .{};
+    return if (lendRows(ctx, from, kind, view, &lend, false)) lend else null;
+}
+
+fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, lend: *Lend, unboxed: bool) bool {
+    const types = &ctx.types;
+    // Any `T` lends `?T`, and `!T` to write; a write lend may be read.
+    switch (types.get(view)) {
+        .borrow_read => |t| if (t == from) return true,
+        .borrow_write => |t| if (t == from and kind == .write) return true,
+        else => {},
+    }
+    // A function, or an owned closure, lends a `?fun(...)`.
+    if (!unboxed) if (callableFnTy(ctx, view)) |fn_ty| {
+        const owned = switch (types.get(from)) {
+            .shared => |inner| inner == fn_ty,
+            else => false,
+        };
+        if (!owned and !(from == fn_ty and kind == .read)) return false;
+        lend.fn_ty = fn_ty;
+        return lend.push(.callable);
+    };
+    switch (types.get(from)) {
+        // An array lends `[]T`, and `![]T` to write.
+        .array => |a| if (!unboxed) {
+            const elem = switch (kind) {
+                .read => switch (types.get(view)) {
+                    .slice => |sl| sl.elem,
+                    else => return false,
+                },
+                .write => writeSliceElem(ctx, view) orelse return false,
+            };
+            return elem == a.elem and lend.push(.elems);
+        },
+        // A `![]T` is lent on to read as a `[]T`.
+        .slice => |sl| if (!unboxed and kind == .write) switch (types.get(view)) {
+            .slice => |v| return v.elem == sl.elem and lend.push(.read_only),
+            else => {},
+        },
+        // A Text lends its bytes, also where a `String?` is expected.
+        .text => if (kind == .read) {
+            const want = switch (types.get(view)) {
+                .optional => |inner| inner,
+                else => view,
+            };
+            return want == types.string_id and lend.push(.text);
+        },
+        else => if (!unboxed) if (boxedType(ctx, from)) |inner| {
+            // A box lends the views of its value.
+            return lend.push(.unbox) and lendRows(ctx, inner, kind, view, lend, true);
+        },
+    }
+    return false;
+}
+
+// =============================================================================
 // What an expression hands over
 // =============================================================================
 
@@ -5448,6 +5530,78 @@ test "type facts: moves, copyable, cloneable" {
     try std.testing.expect(!readsAsValue(ctx, p));
     try std.testing.expect(lendByValue(ctx, ty.int_id));
     try std.testing.expect(!lendByValue(ctx, vec_int));
+}
+
+test "lend table: each row makes its view" {
+    var r = try factsRun(
+        \\struct P
+        \\  x: Int
+        \\
+    );
+    defer r.deinit();
+    const ctx = &r.ctx;
+    const ty = &ctx.types;
+    const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
+    const read = struct {
+        fn f(c: *SemContext, t: TypeId) !TypeId {
+            return c.intern(.{ .borrow_read = t });
+        }
+    }.f;
+    const write = struct {
+        fn f(c: *SemContext, t: TypeId) !TypeId {
+            return c.intern(.{ .borrow_write = t });
+        }
+    }.f;
+    const arr = try ctx.intern(.{ .array = .{ .elem = ty.int_id, .len = try ctInt(ctx, 3) } });
+    const slice = try ctx.intern(.{ .slice = .{ .elem = ty.int_id } });
+    const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{p} } });
+    const box_text = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{ty.text_id} } });
+    const fn_ty = try ctx.intern(.{ .function = .{ .params = &.{}, .returns = ty.int_id, .is_sub = false } });
+    const owned = try ctx.intern(.{ .shared = fn_ty });
+    const callable = try callableOfFn(ctx, fn_ty);
+    const opt_string = try ctx.intern(.{ .optional = ty.string_id });
+
+    const Case = struct { from: TypeId, kind: LendKind, view: TypeId, rows: ?[]const LendStep };
+    const cases = [_]Case{
+        // Any `T`: `?T`, and `!T` to write; a write lend may be read.
+        .{ .from = p, .kind = .read, .view = try read(ctx, p), .rows = &.{} },
+        .{ .from = p, .kind = .write, .view = try write(ctx, p), .rows = &.{} },
+        .{ .from = p, .kind = .write, .view = try read(ctx, p), .rows = &.{} },
+        .{ .from = p, .kind = .read, .view = try write(ctx, p), .rows = null },
+        // An array: `[]T`, and `![]T` to write.
+        .{ .from = arr, .kind = .read, .view = slice, .rows = &.{.elems} },
+        .{ .from = arr, .kind = .write, .view = try write(ctx, slice), .rows = &.{.elems} },
+        .{ .from = arr, .kind = .read, .view = try write(ctx, slice), .rows = null },
+        // A `![]T` lent on to read.
+        .{ .from = slice, .kind = .write, .view = slice, .rows = &.{.read_only} },
+        // A Text: a String, also where a `String?` is expected; never to
+        // write.
+        .{ .from = ty.text_id, .kind = .read, .view = ty.string_id, .rows = &.{.text} },
+        .{ .from = ty.text_id, .kind = .read, .view = opt_string, .rows = &.{.text} },
+        .{ .from = ty.text_id, .kind = .write, .view = ty.string_id, .rows = null },
+        // A box: the views of its value.
+        .{ .from = box_p, .kind = .read, .view = try read(ctx, p), .rows = &.{.unbox} },
+        .{ .from = box_p, .kind = .write, .view = try write(ctx, p), .rows = &.{.unbox} },
+        .{ .from = box_p, .kind = .read, .view = try write(ctx, p), .rows = null },
+        .{ .from = box_text, .kind = .read, .view = ty.string_id, .rows = &.{ .unbox, .text } },
+        // A function, or an owned closure: a `?fun(...)`.
+        .{ .from = fn_ty, .kind = .read, .view = callable, .rows = &.{.callable} },
+        .{ .from = owned, .kind = .read, .view = callable, .rows = &.{.callable} },
+        .{ .from = fn_ty, .kind = .write, .view = callable, .rows = null },
+        // No row: an Int is no slice.
+        .{ .from = ty.int_id, .kind = .read, .view = slice, .rows = null },
+    };
+    for (cases, 0..) |c, i| {
+        errdefer std.debug.print("case {d}\n", .{i});
+        const lend = lendsAs(ctx, c.from, c.kind, c.view);
+        const rows = c.rows orelse {
+            try std.testing.expect(lend == null);
+            continue;
+        };
+        try std.testing.expect(lend != null);
+        try std.testing.expectEqualSlices(LendStep, rows, lend.?.steps());
+    }
+    try std.testing.expectEqual(fn_ty, lendsAs(ctx, fn_ty, .read, callable).?.callable().?);
 }
 
 test "type facts: unique reaches what holds it inline" {
