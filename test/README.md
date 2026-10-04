@@ -182,8 +182,10 @@ minutes of work, so a plain `./test/run` takes a fixed sample, one
 program in 16 by a hash of its name; `./test/run corpus` (or any filter
 that names corpus programs) takes all of them, as CI should nightly or
 before a merge that touches the checkers or the emitter. A corpus run
-removes each passing program's build, so the corpus leaves no cache
-behind. Add new review probes here, named `<review>-<probe>.rig`.
+removes each passing program's output but keeps its Zig cache (a few
+gigabytes for the whole corpus), so a later run rebuilds only the
+programs whose emitted Zig changed; delete `.zig-cache/rig-test/corpus`
+to reclaim the space. Add new review probes here, named `<review>-<probe>.rig`.
 
 `test/matrix.py` generates the programs where one expression form (a
 place, a ternary, `o?`, `??`, `catch`, `if … as`, `match`, a call, a

@@ -274,8 +274,8 @@ CORPUS_BAD_RE='rig: memory leak detected|rig: use of freed memory|rig: access pa
 
 # check_corpus <entry> <outdir> <logfile>: `rig check` rejects the
 # program with a file:line:col diagnostic, or it runs clean under the
-# sanitizer. A passing run's output directory, and its Zig cache, are
-# removed: the corpus is large, and each program is built once a run.
+# sanitizer. A passing run's output is removed and its Zig cache kept,
+# so a later run rebuilds only the programs whose emitted Zig changed.
 check_corpus() {
     local entry=$1 outdir=$2 log=$3
     local out rc line
@@ -299,7 +299,8 @@ check_corpus() {
         [[ $REASON == exit* || $REASON == panic* ]] && REASON=$line
         return 1
     fi
-    rm -rf "$outdir" "$outdir.stdout" "$outdir.stderr"
+    find "$outdir" -mindepth 1 -maxdepth 1 ! -name .zig-cache -exec rm -rf {} +
+    rm -f "$outdir.stdout" "$outdir.stderr"
     return 0
 }
 
