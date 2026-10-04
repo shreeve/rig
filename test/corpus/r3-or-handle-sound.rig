@@ -1,0 +1,80 @@
+# Handles (Core s8, s9): `*<x` moves `x` into a counted box, `*S(...)`
+# boxes a new value, `+h` adds a count, `~h` holds the box weakly, and
+# `h.upgrade()` is the way back. What a handle holds is read through it
+# while the handle lives, and every handle carries its contents' loans.
+#
+# oracle: boxes accept
+# oracle: view_of_contents accept
+# oracle: clone_outlives accept
+# oracle: carries_then_done accept
+# oracle: weak_after_drop accept
+# oracle: lends_the_handle accept
+
+struct User
+  name: String
+
+struct Holder
+  r: ?Vec[Int]
+
+sub show(u: ?User)
+  print(u.name)
+
+sub reset(h: !*User)
+  h = *User(name: "new")
+
+sub boxes()
+  u = User(name: "ada")
+  a = *<u
+  b = +a
+  show(?a)
+  -a
+  print(b.name)
+
+sub view_of_contents()
+  a = *User(name: "bob")
+  r = ?a.name
+  b = +a
+  -b
+  print(r)
+
+sub clone_outlives()
+  a = *User(name: "cy")
+  b = +a
+  w = ~a
+  -a
+  if w.upgrade() as h
+    print(h.name)
+  print(b.name)
+
+sub carries_then_done()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = *Holder(r: ?v)
+  g = +h
+  print(g.r.len, h.r.len)
+  -h
+  -g
+  !v.push(2)
+  print(v.len)
+
+sub weak_after_drop()
+  a = *User(name: "dee")
+  w = ~a
+  -a
+  if w.upgrade() as h
+    print("still", h.name)
+  else
+    print("gone")
+
+sub lends_the_handle()
+  a = *User(name: "old")
+  reset(!a)
+  print(a.name)
+
+sub main
+  boxes()
+  view_of_contents()
+  clone_outlives()
+  carries_then_done()
+  weak_after_drop()
+  lends_the_handle()

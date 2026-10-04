@@ -43,3 +43,14 @@ store.text.swap.grow f prod-rejects ref-gap `swap` stores a String view of `b` i
 test/corpus/r3-or-defer-strict.rig main prod-rejects prod-strict `defer !v.push(3)` before `w = !v`, whose last use precedes the exit
 test/corpus/review-take-p53.rig main prod-rejects prod-strict deferred `<s.a` after `print(r)`, the last use of `r = ?s`
 test/corpus/review-take-p54.rig main prod-rejects prod-strict deferred `<s.a` runs after the deferred `print(w)`, the last use of `w = !s`
+
+# A `for k in ?v` element over a Vec of handles is a read view of the
+# slot (Core §4); storing it in a binding declared before the loop keeps
+# the loan on `v`, which `v` outlives (Core s6).
+test/corpus/r3-review1-p33b_vec_store_opt.rig main prod-rejects prod-strict `saved = k` of a `for k in ?v` element view
+test/corpus/review-step1-p33b_vec_store_opt.rig main prod-rejects prod-strict `saved = k` of a `for k in ?v` element view
+
+# A generic body's copy of a `T` is checked per instance (SPEC "Generic
+# bodies"); the compiler reports an owning instance inside the function
+# that names it, which the oracle does not check.
+test/corpus/audit-ownership-q02 main prod-rejects ref-gap `Holder[*Tok].peek` copies an owning `T`

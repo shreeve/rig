@@ -76,6 +76,10 @@ const Place = struct {
     /// The path passed through a write view before it carried: reaching
     /// the stored view still reads the write view's place.
     under_write: bool = false,
+    /// The path passes through a counted handle: what it reaches is the
+    /// box's, which a loan on the handle keeps alive (Core s8: handles
+    /// only read).
+    handle: bool = false,
 
     const Via = enum { own, read, write };
 };
@@ -504,6 +508,7 @@ const Lowerer = struct {
         const v = try self.eval(rhs, .take, try self.typeOf(target));
         const p = try self.place(target) orelse return abstain("an assignment to something not a place");
         if (p.via == .read) return abstain("a write through a read view");
+        if (p.handle) return abstain("a write through a handle");
         if (self.f.vars.items[p.root].kind != .write_view and self.ctx.types.get(p.ty) == .borrow_write) return abstain("a write view stored in a place");
         // A store through a write view lands in what the view sees (s6).
         const through: []const VarId = if (p.via == .write) try self.one(p.root) else &.{};
@@ -514,6 +519,7 @@ const Lowerer = struct {
         var v = try self.eval(rhs, .read, null);
         if (v) |rv| v = try self.readThrough(rv, pos);
         const p = try self.place(target) orelse return abstain("a compound assignment to something not a place");
+        if (p.handle) return abstain("a write through a handle");
         if (target == .src and self.f.vars.items[p.root].kind != .write_view) {
             try self.reassignable(self.ctx.symbols.items[self.ctx.symbolOf(target).?], pos);
         }
@@ -544,6 +550,8 @@ const Lowerer = struct {
             return self.found(.C5, self.posOf(s), "a parameter's view is the caller's; it is not dropped here", .{});
         }
         try self.keptByDefer(x, self.posOf(s));
+        // A payload seen through a view is the subject's (§5).
+        if (xv.alias) return self.found(.C7, self.posOf(s), "a payload seen through a view is not dropped; take the subject with `<`", .{});
         try self.emit(.{ .pos = self.posOf(s), .what = .kill, .uses = try self.one(x), .kill = x, .access = .{ .root = x, .kind = .whole } });
     }
 
@@ -1347,7 +1355,25 @@ const Lowerer = struct {
                 return null;
             },
             .pass => return null,
-            .lambda, .share, .weak => return abstain("a closure or handle"),
+            .lambda => return abstain("a closure"),
+            .share => {
+                // `*<x` moves `x` into a counted box and `*S(...)` boxes a
+                // new value: the box takes it, with its loans (Core s8, s9).
+                const operand = ir.get(e, .operand);
+                if (operand.isKind(.lambda)) return abstain("an owned closure");
+                const v = try self.eval(operand, .take, null);
+                const t = try self.temp(try self.typeOf(e), pos);
+                try self.emit(.{ .pos = pos, .what = .make, .moves = try self.list(v), .def = t });
+                return t;
+            },
+            .weak => {
+                // `~h` reads the handle and holds its box weakly, with the
+                // contents' loans, as every handle does (Core s8, s9).
+                const p = try self.place(ir.get(e, .operand)) orelse return abstain("a weak handle of a made value");
+                const t = try self.temp(try self.typeOf(e), pos);
+                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .access = readAccess(p) });
+                return t;
+            },
             .builtin, .raw_block => return abstain("`raw`"),
             .inst => return abstain("compile-time arguments"),
             .kwarg => return abstain("a keyword argument out of place"),
@@ -1494,7 +1520,12 @@ const Lowerer = struct {
         var via = base.via;
         var carry = base.carry;
         var under_write = base.under_write;
+        var handle = base.handle;
         switch (self.ctx.types.get(base.ty)) {
+            // What a handle holds is read through it, and stays while the
+            // handle does: a loan on the handle (Core s8, §4's `*T` row).
+            .shared => handle = true,
+            .weak => return abstain("an access through a weak handle"),
             // A view reached through a slice or String carries that
             // view's loans, through a write view too (Core s7).
             .slice, .string => if (via != .read or !carry) {
@@ -1510,7 +1541,7 @@ const Lowerer = struct {
             },
             else => {},
         }
-        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice, .slice_of = if (slice) base.ty else 0, .carry = carry, .under_write = under_write };
+        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice, .slice_of = if (slice) base.ty else 0, .carry = carry, .under_write = under_write, .handle = handle };
     }
 
     /// A var as a place; an alias is the payload it sees.
@@ -1600,6 +1631,13 @@ const Lowerer = struct {
         if (self.in_defer and v < self.defer_vars) return self.found(.B2, pos, "deferred code does not move or drop `{s}`, which it did not declare", .{self.f.vars.items[v].name});
     }
 
+    fn isHandle(self: *Lowerer, ty: TypeId) bool {
+        return switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
+            .shared, .weak => true,
+            else => false,
+        };
+    }
+
     fn isFinding(self: *Lowerer, root: VarId) bool {
         return std.mem.findScalar(VarId, self.finding.items, root) != null;
     }
@@ -1610,6 +1648,7 @@ const Lowerer = struct {
         const pos = self.posOf(e);
         const kind: kinds.Kind = if (mode == .read) .read_view else .write_view;
         if (mode != .read and self.isFinding(p.root)) return abstain("an index that lends its place's root to write");
+        if (mode != .read and p.handle) return abstain("a write lend through a handle");
         const pk = (try self.kinds.of(p.ty)).kind;
         // Lending a view the place holds hands over a copy of it; lending
         // the place itself (`?p.s` as a `?String`, a slice) makes a loan.
@@ -1675,6 +1714,7 @@ const Lowerer = struct {
         const info = try self.kinds.of(p.ty);
         if (self.ctx.types.get(p.ty) == .optional) {
             if (p.via == .read) return self.found(.C7, pos, "nothing is taken out through a read view", .{});
+            if (p.handle) return abstain("a take through a handle");
             const t = try self.temp(p.ty, pos);
             try self.emit(.{ .pos = pos, .what = .take, .reads = try self.one(p.root), .def = t, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .write } });
             return t;
@@ -1773,6 +1813,7 @@ const Lowerer = struct {
                     .write => {
                         if (!obj.isKind(.write)) return abstain("a write receiver without `!`");
                         const p = try self.place(ir.Write.operand(obj)) orelse return abstain("a write receiver of a made value");
+                        if (p.handle or self.isHandle(p.ty)) return abstain("a write receiver through a handle");
                         // A write receiver is lent when the call runs; its
                         // arguments may still read it (SPEC §7).
                         if (p.via == .read) return abstain("a write receiver through a read view");
@@ -1796,6 +1837,7 @@ const Lowerer = struct {
                         if (r) |rv| try reads.append(self.a, rv);
                     },
                     .value => {
+                        if (self.isHandle(try self.typeOf(obj))) return abstain("a by-value receiver through a handle");
                         const r = try self.eval(obj, .take, null);
                         if (r) |rv| try moves.append(self.a, rv);
                     },
@@ -1936,7 +1978,16 @@ const Lowerer = struct {
             return .{ .write, null };
         }
         const inner_obj = if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
-        const recv_ty = try self.typeOf(inner_obj);
+        var recv_ty = try self.typeOf(inner_obj);
+        // A method of what a handle holds reads it through the handle
+        // (Core s8).
+        switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, recv_ty))) {
+            .shared => |inner| recv_ty = inner,
+            // `w.upgrade()` reads the weak handle; its result is a new
+            // count carrying the handle's loans (Core s8, s9).
+            .weak => if (std.mem.eql(u8, mname, "upgrade")) return .{ .read, null } else return abstain("a method of a weak handle"),
+            else => {},
+        }
         const decl = sema.nominalDecl(self.ctx, recv_ty) orelse {
             // A built-in method of an array, slice, or String: it writes
             // its receiver only where `!` says so.

@@ -15,7 +15,10 @@ const SemContext = sema.SemContext;
 pub const Kind = enum {
     /// Copies: owns nothing and views nothing (Core §1, "plain").
     plain,
-    /// Moves; one owner; dropped once (Core §1, "owning").
+    /// Moves; one owner; dropped once (Core §1, "owning"). A handle,
+    /// `*T` or `~T`, is one too (Core §1: "moves; `+h` adds a count"):
+    /// what it holds is the box's, read through it, and dropping the
+    /// last count drops it.
     owning,
     /// A read view: copies, and every copy carries its loans (Core §1).
     read_view,
@@ -93,16 +96,27 @@ pub const Kinds = struct {
 /// in whichever module declares them.
 const Scan = struct {
     a: std.mem.Allocator,
-    seen: std.AutoHashMapUnmanaged(struct { usize, TypeId }, void) = .empty,
+    seen: std.AutoHashMapUnmanaged(struct { usize, TypeId, bool }, void) = .empty,
     unsupported: ?[]const u8 = null,
     drop_body: bool = false,
+    /// Walking what a weak handle holds, which it never drops.
+    under_weak: bool = false,
 
     fn walk(self: *Scan, ctx: *const SemContext, ty: TypeId, depth: u32, in_generic: bool) std.mem.Allocator.Error!void {
-        const gop = try self.seen.getOrPut(self.a, .{ @intFromPtr(ctx), ty });
+        const gop = try self.seen.getOrPut(self.a, .{ @intFromPtr(ctx), ty, self.under_weak });
         if (gop.found_existing) return;
         switch (ctx.types.get(ty)) {
             .invalid, .unknown => self.mark("a type with an error"),
-            .shared, .weak => self.mark("a handle (`*T`, `~T`)"),
+            // A handle carries its contents' loans (Core s9), and
+            // dropping a counted one may drop them.
+            .shared => |inner| try self.walk(ctx, inner, depth + 1, in_generic),
+            // A weak handle never drops what it holds.
+            .weak => |inner| {
+                const saved = self.under_weak;
+                self.under_weak = true;
+                defer self.under_weak = saved;
+                try self.walk(ctx, inner, depth + 1, in_generic);
+            },
             .function, .callable => self.mark("a function or closure value"),
             .type_var, .ct_param => if (!in_generic) self.mark("a generic parameter"),
             .ct_value => {},
@@ -147,7 +161,7 @@ const Scan = struct {
             return self.mark("an imported generic type");
         }
         for (sym.fields orelse &.{}) |*f| {
-            if (f.is_drop_method) self.drop_body = true;
+            if (f.is_drop_method and !self.under_weak) self.drop_body = true;
             for (sema.dataFields(f)) |d| try self.walk(ctx, d.ty, depth + 1, in_generic);
         }
     }
