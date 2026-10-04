@@ -243,7 +243,7 @@ decides (also where the compiler's semantic checks stop first):
 ```
 
 The word after the function is `accept`, or `reject` with the rule
-the oracle names (C1–C7, B1). `oracle planned:` checks the verdict
+the oracle names (C1–C7, B1, B2). `oracle planned:` checks the verdict
 under the Core's planned rule the oracle models (`--planned`): a type
 holding a `Cell` is unique. (A `for`, `if … as`, `while … as`, or
 `match` reads a bare place where it stands in every run.) A different

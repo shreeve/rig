@@ -81,10 +81,26 @@ const Place = struct {
 };
 
 /// A scope (a block's bindings) or a statement's temporaries; leaving
-/// either drops its vars, last first.
+/// either drops its vars, last first, and runs its scope's `defer`s.
 const Region = struct {
     vars: std.ArrayList(VarId) = .empty,
+    defers: std.ArrayList(Deferred) = .empty,
 };
+
+/// A `defer` or `errdefer` its scope has reached: its body runs at
+/// every exit of the scope, after the vars declared after it are
+/// dropped and before the ones declared before it (Core §7; SPEC
+/// "defer and errdefer").
+const Deferred = struct {
+    body: Sexp,
+    /// An `errdefer`: it runs only on the exits where the function fails.
+    err: bool,
+    /// How many of the region's vars were declared before it.
+    at: usize,
+};
+
+/// Whether an exit fails the function, which runs its `errdefer`s.
+const Fails = enum { no, yes, maybe };
 
 const Loop = struct {
     label: ?[]const u8,
@@ -146,6 +162,11 @@ const Lowerer = struct {
     /// While a header finds the place its subject names in a value it
     /// made: that value's node, and the var holding it.
     made_root: ?struct { start: u32, end: u32, v: VarId } = null,
+    /// While a deferred body is lowered: the loops it may leave start here.
+    loop_floor: usize = 0,
+    in_defer: bool = false,
+    /// While a deferred body is lowered: the first var it declares.
+    defer_vars: VarId = 0,
 
     // ---- the function ---------------------------------------------------
 
@@ -170,7 +191,7 @@ const Lowerer = struct {
                 try self.retValue(s);
             } else try self.stmt(s);
         }
-        if (self.cur != null) try self.ret(null, self.posOf(body));
+        if (self.cur != null) try self.ret(null, self.posOf(body), .no);
     }
 
     fn param(self: *Lowerer, p: Sexp) Error!void {
@@ -290,27 +311,77 @@ const Lowerer = struct {
         try self.regions.append(self.a, .{});
     }
 
-    /// Drop a region's vars, last first, at `pos`.
-    fn killRegion(self: *Lowerer, r: Region, pos: u32) Error!void {
+    /// Leave a region at `pos`: drop its vars, last first, running each
+    /// `defer` it reached where it was written among them, and each
+    /// `errdefer` too on an exit that fails (Core §7: they run where
+    /// their scope ends; the code there is inlined at every exit, so the
+    /// checks apply to it as written).
+    fn killRegion(self: *Lowerer, r: Region, pos: u32, fails: bool) Error!void {
+        var di = r.defers.items.len;
         var i = r.vars.items.len;
-        while (i > 0) {
+        while (true) {
+            while (di > 0 and r.defers.items[di - 1].at >= i) {
+                di -= 1;
+                const d = r.defers.items[di];
+                if (!d.err or fails) try self.runDeferred(d.body);
+            }
+            if (i == 0) break;
             i -= 1;
             try self.emit(.{ .pos = pos, .what = .kill, .kill = r.vars.items[i], .scope_end = true });
         }
     }
 
-    fn popRegion(self: *Lowerer, pos: u32) Error!void {
-        const r = self.regions.pop().?;
-        if (self.cur != null) try self.killRegion(r, pos);
+    /// A deferred body at one exit: its own statements, which may not
+    /// leave it (a jump or a propagation out of deferred code is the
+    /// compiler's to reject; the oracle leaves such a function alone).
+    fn runDeferred(self: *Lowerer, body: Sexp) Error!void {
+        if (self.cur == null) return;
+        const saved_floor = self.tail_floor;
+        const saved_label = self.label;
+        const saved_made = self.made_root;
+        const saved_loops = self.loop_floor;
+        const saved_in = self.in_defer;
+        const saved_vars = self.defer_vars;
+        defer {
+            self.defer_vars = saved_vars;
+            self.tail_floor = saved_floor;
+            self.label = saved_label;
+            self.made_root = saved_made;
+            self.loop_floor = saved_loops;
+            self.in_defer = saved_in;
+        }
+        self.tail_floor = null;
+        self.label = null;
+        self.made_root = null;
+        self.loop_floor = self.loops.items.len;
+        self.in_defer = true;
+        self.defer_vars = @intCast(self.f.vars.items.len);
+        try self.pushRegion();
+        if (body.isKind(.block)) {
+            for (ir.Block.stmts(body)) |s| try self.stmt(s);
+        } else try self.stmt(body);
+        try self.popRegion(self.posOf(body));
     }
 
-    /// Leave every region above `depth`, innermost first (a jump).
-    fn unwind(self: *Lowerer, depth: usize, pos: u32) Error!void {
+    fn popRegion(self: *Lowerer, pos: u32) Error!void {
+        const r = self.regions.pop().?;
+        if (self.cur != null) try self.killRegion(r, pos, false);
+    }
+
+    /// Leave every region above `depth`, innermost first (a jump, or a
+    /// return that fails or not).
+    fn unwind(self: *Lowerer, depth: usize, pos: u32, fails: bool) Error!void {
         var i = self.regions.items.len;
         while (i > depth) {
             i -= 1;
-            try self.killRegion(self.regions.items[i], pos);
+            try self.killRegion(self.regions.items[i], pos, fails);
         }
+    }
+
+    /// Whether a region on the stack has reached an `errdefer`.
+    fn hasErrdefer(self: *Lowerer) bool {
+        for (self.regions.items) |r| for (r.defers.items) |d| if (d.err) return true;
+        return false;
     }
 
     fn varOf(self: *Lowerer, leaf: Sexp) ?VarId {
@@ -363,7 +434,7 @@ const Lowerer = struct {
             .@"for" => try self.forStmt(s, null),
             .@"return" => {
                 const v = ir.Return.value(s);
-                if (v == .nil) try self.ret(null, self.posOf(s)) else try self.retValue(v);
+                if (v == .nil) try self.ret(null, self.posOf(s), .no) else try self.retValue(v);
             },
             .@"break", .@"continue" => try self.jump(s),
             .labeled => {
@@ -372,7 +443,12 @@ const Lowerer = struct {
                 self.label = ir.Labeled.label(s).getText(self.src);
                 try self.stmtIn(inner);
             },
-            .@"defer", .@"errdefer" => return abstain("`defer`"),
+            // Registered on the scope under the statement's temporaries;
+            // its body runs at the scope's exits (`killRegion`).
+            .@"defer", .@"errdefer" => {
+                const scope = &self.regions.items[self.regions.items.len - 2];
+                try scope.defers.append(self.a, .{ .body = ir.get(s, .body), .err = k == .@"errdefer", .at = scope.vars.items.len });
+            },
             .raw_block => return abstain("`raw`"),
             else => _ = try self.eval(s, .read, null),
         }
@@ -467,6 +543,7 @@ const Lowerer = struct {
         if (xv.param and self.ctx.types.get(xv.ty) != .string and xv.kind != .owning and xv.kind != .plain) {
             return self.found(.C5, self.posOf(s), "a parameter's view is the caller's; it is not dropped here", .{});
         }
+        try self.keptByDefer(x, self.posOf(s));
         try self.emit(.{ .pos = self.posOf(s), .what = .kill, .uses = try self.one(x), .kill = x, .access = .{ .root = x, .kind = .whole } });
     }
 
@@ -765,7 +842,7 @@ const Lowerer = struct {
                 try self.branch(held_blk, if (falls) fail else held_blk);
                 // A failed guard leaves the arm's bindings.
                 self.cur = fail;
-                try self.killRegion(self.regions.items[self.regions.items.len - 1], self.posOf(guard));
+                try self.killRegion(self.regions.items[self.regions.items.len - 1], self.posOf(guard), false);
                 try self.goto(next);
                 self.cur = held_blk;
             }
@@ -990,7 +1067,7 @@ const Lowerer = struct {
     fn findLoop(self: *Lowerer, label: Sexp) Error!Loop {
         var i = self.loops.items.len;
         const want = if (label == .nil) null else label.getText(self.src);
-        while (i > 0) {
+        while (i > self.loop_floor) {
             i -= 1;
             const lp = self.loops.items[i];
             // `break` inside a `match` leaves the loop (Core §8).
@@ -1007,7 +1084,7 @@ const Lowerer = struct {
         const pos = self.posOf(s);
         if (s.isKind(.@"continue")) {
             const lp = try self.findLoop(ir.Continue.label(s));
-            try self.unwind(lp.cont_depth orelse lp.depth, pos);
+            try self.unwind(lp.cont_depth orelse lp.depth, pos, false);
             try self.goto(lp.cont orelse return abstain("`continue` out of a `match`"));
             return;
         }
@@ -1019,7 +1096,7 @@ const Lowerer = struct {
             // the loop's value is read, a write view is read through.
             try self.storeTaken(v, lv);
         }
-        try self.unwind(lp.depth, pos);
+        try self.unwind(lp.depth, pos, false);
         try self.goto(lp.brk);
     }
 
@@ -1031,11 +1108,34 @@ const Lowerer = struct {
         try self.valueInto(e, .ret, r);
         try self.popRegion(self.posOf(e));
         if (self.cur == null) return;
-        try self.ret(r, self.posOf(e));
+        // The function fails when it returns an error value (SPEC
+        // "Failing"): always for one, on some paths for a branching value
+        // with an error leaf.
+        const ty = self.f.vars.items[r].ty;
+        const fails: Fails = if (sema.isErrorValue(self.ctx, ty)) .yes else if (self.ctx.types.get(ty) == .fallible) .maybe else .no;
+        try self.ret(r, self.posOf(e), fails);
     }
 
-    fn ret(self: *Lowerer, r: ?VarId, pos: u32) Error!void {
-        try self.unwind(0, pos);
+    /// Leave the function: every scope's drops and `defer`s, then the
+    /// return. Where it may fail, the `errdefer`s run on a path of their
+    /// own (SPEC "defer and errdefer").
+    fn ret(self: *Lowerer, r: ?VarId, pos: u32, fails: Fails) Error!void {
+        if (self.in_defer) return abstain("a return from deferred code");
+        if (fails == .maybe and self.hasErrdefer()) {
+            const ok = try self.newBlock();
+            const err = try self.newBlock();
+            try self.branch(ok, err);
+            self.cur = ok;
+            try self.retPath(r, pos, false);
+            self.cur = err;
+            try self.retPath(r, pos, true);
+            return;
+        }
+        try self.retPath(r, pos, fails == .yes);
+    }
+
+    fn retPath(self: *Lowerer, r: ?VarId, pos: u32, fails: bool) Error!void {
+        try self.unwind(0, pos, fails);
         // A write parameter's caller sees what it holds (Core s7).
         try self.emit(.{ .pos = pos, .what = .ret, .reads = try self.list(r), .keep = self.write_params.items });
         self.cur = null;
@@ -1192,7 +1292,8 @@ const Lowerer = struct {
                 const on = try self.newBlock();
                 try self.branch(on, exit);
                 self.cur = exit;
-                try self.ret(null, pos);
+                // `e!` fails the function; `e?` returns `none`.
+                try self.ret(null, pos, if (k == .propagate) .yes else .no);
                 self.cur = on;
                 return v;
             },
@@ -1484,11 +1585,19 @@ const Lowerer = struct {
     }
 
     fn moveWhole(self: *Lowerer, root: VarId, pos: u32) Error!VarId {
+        try self.keptByDefer(root, pos);
         if (self.f.vars.items[root].alias) return self.found(.C7, pos, "a payload seen through a view does not move out; take the subject with `<`", .{});
         if (self.isFinding(root)) return abstain("an index that moves its place's root");
         const t = try self.temp(self.f.vars.items[root].ty, pos);
         try self.emit(.{ .pos = pos, .what = .move, .moves = try self.one(root), .def = t, .access = .{ .root = root, .kind = .whole } });
         return t;
+    }
+
+    /// Deferred code may read and write what is live where it runs
+    /// (Core §7), so it moves or drops only what it declares itself: it
+    /// runs at every exit of its scope (SPEC "defer and errdefer").
+    fn keptByDefer(self: *Lowerer, v: VarId, pos: u32) Error!void {
+        if (self.in_defer and v < self.defer_vars) return self.found(.B2, pos, "deferred code does not move or drop `{s}`, which it did not declare", .{self.f.vars.items[v].name});
     }
 
     fn isFinding(self: *Lowerer, root: VarId) bool {

@@ -30,6 +30,8 @@ pub const Rule = enum {
     C7,
     /// §6: parameters and fixed bindings are never reassigned.
     B1,
+    /// §7: deferred code moves or drops only what it declares.
+    B2,
 };
 
 pub const Finding = struct {

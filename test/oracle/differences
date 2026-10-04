@@ -34,3 +34,12 @@ test/corpus/review-take-p15.rig main prod-rejects core-gap `y = <s` of a `match 
 # the oracle's model of those calls does not carry the stored loan yet.
 store.text.replace.grow f prod-rejects ref-gap `replace` stores a String view of `b` in `a`, then `b` grows
 store.text.swap.grow f prod-rejects ref-gap `swap` stores a String view of `b` in `a`, then `b` grows
+
+# A `defer` runs at its scope's exits, after the values declared after
+# it are dropped (Core §7, SPEC "defer and errdefer"). The compiler also
+# checks deferred code where it is written, and its liveness counts
+# every use in deferred code, so a view whose last use comes before the
+# deferred code runs still holds its loan there.
+test/corpus/r3-or-defer-strict.rig main prod-rejects prod-strict `defer !v.push(3)` before `w = !v`, whose last use precedes the exit
+test/corpus/review-take-p53.rig main prod-rejects prod-strict deferred `<s.a` after `print(r)`, the last use of `r = ?s`
+test/corpus/review-take-p54.rig main prod-rejects prod-strict deferred `<s.a` runs after the deferred `print(w)`, the last use of `w = !s`
