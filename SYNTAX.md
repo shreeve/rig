@@ -924,13 +924,12 @@ sub main
 
 | Loop | Element |
 |---|---|
-| `for x in xs` | a copy of each element of an array, slice, or String |
-| `for x in ?v` | each element of a Vec, read in place |
+| `for x in xs`, `for x in ?xs` | each element read in place: a copy of plain data, a view of anything else |
 | `for x in !xs` | a write view of each element |
 | `for x in <v` | each element of a Vec, owned; `v` is consumed |
 
-A Vec is always walked with a sigil; [SPEC §6](SPEC.md#for) has the
-rules. An `else` block runs when the loop ends without `break`.
+A source made there (`for x in mk()`) is taken; [SPEC §6](SPEC.md#for)
+has the rules. An `else` block runs when the loop ends without `break`.
 
 ### Labels, break, and continue
 
@@ -1326,8 +1325,8 @@ the same sigil means the same thing in every position:
 | type | `?T` | `!T` | | | `~T` |
 | receiver | `?self` | `!self` | `<self` | | |
 | method call | `p.m()` | `!p.m()` | `<p.m()` | | |
-| `for` source | `for x in ?v` | `for x in !v` | `for x in <v` | | |
-| `match` subject | `match ?e` | `match !e` | `match <e` | | |
+| `for` source | `for x in v` | `for x in !v` | `for x in <v` | | |
+| `match` subject | `match e` | `match !e` | `match <e` | | |
 | closure capture | `\|?x\|` | `\|!x\|` | `\|<x\|` | `\|+x\|` | `\|~x\|` |
 | assignment | | | `a = <b` | | |
 
