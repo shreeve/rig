@@ -1,0 +1,28 @@
+# A `catch` handler that stores a loan on its own local and then
+# leaves with `break` drops that local on the way out: the outer value
+# that holds the loan is used after the loop.
+error E
+  bad
+
+fun mk(ok: Bool) -> Int!
+  if not ok
+    return E.bad
+  1
+
+struct H
+  r: ?Vec[Int]
+
+sub main
+  z: Vec[Int] = Vec()
+  h = H(r: ?z)
+  for _ in 0..2
+    n = mk(false) catch |_|
+      inner: Vec[Int] = Vec()
+      !inner.push(9)
+      h.r = ?inner
+      break
+    print(n)
+  print(h.r[0])
+
+# error: 22:14: `inner` does not live long enough
+# errors: 1

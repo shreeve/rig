@@ -953,9 +953,16 @@ pub const Checker = struct {
 
     /// The current state relative to point `p`: of the vars in scope
     /// there, and of the loans on them. A path that leaves the scopes
-    /// opened since carries nothing else (`leaveTo` reports what it
-    /// loses).
+    /// opened since carries nothing else (`exitTo` reports what it
+    /// loses). A statement's temporary made since `p` is out of the state:
+    /// a value that still holds one after the statement outlives it.
     fn capture(self: *Checker, p: Point) Error!State {
+        return self.captureState(p, true);
+    }
+
+    /// The state relative to `p` (`capture`), reporting a holder of a
+    /// statement's temporary only when `report_temps`.
+    fn captureState(self: *Checker, p: Point, report_temps: bool) Error!State {
         const len = p.vars;
         self.scratch.clearRetainingCapacity();
         for (self.trail.items[p.trail..]) |c| {
@@ -968,13 +975,7 @@ pub const Checker = struct {
             if (prev == id) continue;
             prev = id;
             var f = self.flows.items[id];
-            // A statement's temporary made since `p` is out of the state:
-            // a value that still holds one after the statement outlives it.
-            if (hasLoanFrom(f.loans, len)) for (f.loans) |l| {
-                if (l.root < len or !self.isStmtTemp(l.root)) continue;
-                if (self.holderLive(id, extent(self.cur_stmt).hi +| 1)) try self.reportTempOutlived(l, id);
-                break;
-            };
+            if (report_temps and hasLoanFrom(f.loans, len)) try self.reportTempHolder(f, id, len);
             f.loans = try self.filterLoansBelow(f.loans, len);
             try entries.append(self.arena(), .{ .id = id, .flow = f });
         }
@@ -983,6 +984,54 @@ pub const Checker = struct {
             .temps = try self.arena().dupe(Loan, try self.filterLoansBelow(self.temps.items, len)),
             .reachable = self.reachable,
         };
+    }
+
+    /// A statement's temporary, made since there were `depth` vars, that
+    /// `holder` (whose flow is `f`) still borrows after the statement,
+    /// which drops it: reported once.
+    fn reportTempHolder(self: *Checker, f: Flow, holder: VarId, depth: u32) Error!void {
+        for (f.loans) |l| {
+            if (l.root < depth or !self.isStmtTemp(l.root)) continue;
+            if (self.holderLive(holder, extent(self.cur_stmt).hi +| 1)) try self.reportTempOutlived(l, holder);
+            return;
+        }
+    }
+
+    /// How a path ends (`exitTo`).
+    const ExitTo = struct {
+        /// The point the path leaves for: on it, the vars declared since
+        /// leave scope, and its state is relative to this point.
+        to: Point,
+        /// The exit, whose defers run first; null where none run.
+        exit: ?Exit = null,
+        /// Where the path goes on, for liveness: a source position, or
+        /// after the current statement when null.
+        resume_at: ?u32 = null,
+    };
+
+    /// The one way a path ends. It runs the defers its exit runs (their
+    /// effects stay only where the path ends, `Exit.goesOn`), reports
+    /// each loan the path drops that a holder still live where it goes
+    /// on keeps (`reportDropped`), and gives the path's state relative to
+    /// `x.to`.
+    fn exitTo(self: *Checker, x: ExitTo) Error!State {
+        if (x.exit) |e| try self.exitDefers(e);
+        try self.reportDropped(x.to.vars, x.resume_at);
+        return self.captureState(x.to, false);
+    }
+
+    /// Report each var below `depth` that keeps a loan on a var at
+    /// `depth` or above, which leaves scope, where the holder is live at
+    /// `at` (after the current statement when null); or, when it is not,
+    /// a loan on a statement's temporary that it keeps past its
+    /// statement. Each holder is reported once.
+    fn reportDropped(self: *Checker, depth: u32, at: ?u32) Error!void {
+        for (self.flows.items[0..@min(depth, self.flows.items.len)], 0..) |f, holder| {
+            if (!hasLoanFrom(f.loans, depth)) continue;
+            if (self.holderLive(@intCast(holder), at)) {
+                for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, @intCast(holder));
+            } else try self.reportTempHolder(f, @intCast(holder), depth);
+        }
     }
 
     /// Make state `s` current. The current state must be its point's.
@@ -3493,7 +3542,7 @@ pub const Checker = struct {
         const depth = self.scopes.items.len;
         try self.walkConditionParts(ir.If.cond(node), then_b);
         // A failing part goes on to the `else`, or past the `if`.
-        const failed = try self.leaveTo(base, resumeAt(else_b, node));
+        const failed = try self.exitTo(.{ .to = base, .resume_at = resumeAt(else_b, node) });
         var v1 = try self.walkTailBranch(then_b, t);
         while (self.scopes.items.len > depth) {
             v1 = try self.checkValueEscapesScope(v1);
@@ -3639,7 +3688,7 @@ pub const Checker = struct {
                 // A header, its own statement.
                 try self.walkStmt(guard);
                 // A failing guard goes on to the next arm, or past the match.
-                failed = try self.leaveTo(base, resumeAt(if (i + 1 < arms.len) arms[i + 1] else .nil, match));
+                failed = try self.exitTo(.{ .to = base, .resume_at = resumeAt(if (i + 1 < arms.len) arms[i + 1] else .nil, match) });
             }
             // The arm is chosen: the subject is read no more.
             if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
@@ -3892,7 +3941,7 @@ pub const Checker = struct {
             // A failing part leaves the loop for its `else`, or past it.
             self.loop = ctx.parent;
             defer self.loop = ctx;
-            exit = try self.leaveTo(ctx.point, resumeAt(ir.get(spec.node, .@"else"), spec.node));
+            exit = try self.exitTo(.{ .to = ctx.point, .resume_at = resumeAt(ir.get(spec.node, .@"else"), spec.node) });
         } else {
             if (spec.cond) |c| try self.walkStmt(c);
             if (!spec.cond_always_true) exit = try self.capture(ctx.point);
@@ -3985,27 +4034,13 @@ pub const Checker = struct {
         }
         if (target) |t| {
             t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
-            try self.exitDefers(.{ .jump = t.scope_depth });
-            const s = try self.leaveTo(t.point, null);
+            const s = try self.exitTo(.{ .to = t.point, .exit = .{ .jump = t.scope_depth } });
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
                 .cont => try t.conts.append(self.arena(), s),
             }
         }
         self.reachable = false;
-    }
-
-    /// The state of a path that leaves for point `target`, relative to
-    /// it, dropping the vars declared since: a value that survives, and
-    /// is live where the path goes on (at position `at`, or after the
-    /// current statement), may not borrow one of them.
-    fn leaveTo(self: *Checker, target: Point, at: ?u32) Error!State {
-        const depth = target.vars;
-        for (self.flows.items[0..depth], 0..) |f, holder| {
-            if (!hasLoanFrom(f.loans, depth) or !self.holderLive(@intCast(holder), at)) continue;
-            for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, @intCast(holder));
-        }
-        return self.capture(target);
     }
 
     /// `e!` / `e?`: on failure or `none`, control leaves for the caller.

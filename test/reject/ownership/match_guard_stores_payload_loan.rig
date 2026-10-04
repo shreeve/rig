@@ -1,0 +1,27 @@
+# A guard that fails leaves its arm's scope: a loan on the arm's own
+# payload binding, stored in an outer value, cannot survive it, even
+# when the arm leaves a labeled `match`.
+struct H
+  r: ?Vec[Int]
+
+enum S
+  a(v: Vec[Int])
+  b
+
+fun store(h: !H, r: ?Vec[Int]) -> Bool
+  h.r = r
+  false
+
+sub main
+  z: Vec[Int] = Vec()
+  h = H(r: ?z)
+  w: Vec[Int] = Vec()
+  !w.push(1)
+  s = S.a(v: <w)
+  :m match <s
+    .a(v) if store(!h, ?v) => break :m
+    _ => pass
+  print(h.r.len)
+
+# error: 22:25: `v` does not live long enough
+# errors: 1
