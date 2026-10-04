@@ -5193,7 +5193,7 @@ pub const Emitter = struct {
     /// `print(a, b)`: the runtime writes each value the way Rig spells it.
     /// It reads a place that owns storage when it is called, after every
     /// argument has run, as the ownership checker holds it
-    /// (`holdArgRead`): such a place goes by address, so a later argument
+    /// (`holdRead`): such a place goes by address, so a later argument
     /// that changes it through a Cell leaves no copy of what it frees.
     /// Plain data is copied whole where it is read.
     fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {

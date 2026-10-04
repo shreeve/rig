@@ -1,0 +1,8 @@
+fun grow(t: !Text) -> Int
+  for _ in 0..100
+    !t.add("abcdefgh")
+  1
+
+sub main
+  a = Text("a")
+  print(a, grow(!a))

@@ -1,0 +1,12 @@
+fun peek(p: ?Vec[Int], other: !Vec[Int]) -> Int
+  for i in 0..100
+    !other.push(i)
+  p[0]
+
+sub main
+  a: Vec[Int] = Vec()
+  !a.push(1)
+  b: Vec[Int] = Vec()
+  !b.push(2)
+  c = true
+  print(peek(?a if c else ?b, !a))

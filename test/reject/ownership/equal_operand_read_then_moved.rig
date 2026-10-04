@@ -1,0 +1,16 @@
+# The right operand of `==` cannot move the left operand's place: the
+# comparison reads the left value after the move freed it.
+
+fun renew(t: Text) -> Text
+  r = Text(t)
+  -t
+  r
+
+sub main
+  a = Text("a")
+  for _ in 0..10
+    !a.add("abcdefgh")
+  print(a == renew(<a))
+
+# error: 13:21: cannot move `a` while the left operand's read of it is in use
+# errors: 1

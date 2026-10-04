@@ -3542,11 +3542,12 @@ pub fn moves(ctx: *const SemContext, ty: TypeId) Answer {
 /// Whether a read that copies nothing out (a `print` argument, an
 /// argument a call reads before it runs, a branch of one) reads a value
 /// of `ty` where it is, by address, so a later argument must not change
-/// it first: a value that needs cleanup (`typeHasDropGlue`), or one of a
-/// type parameter. Any other value, a unique one included, is copied
-/// where the read runs.
+/// it first: a value that needs cleanup (`typeHasDropGlue`), a unique
+/// one (which moves like an owner, so reading it in place lends it), or
+/// one of a type parameter. Any other value is copied where the read
+/// runs.
 pub fn readByAddress(ctx: *const SemContext, ty: TypeId) bool {
-    return typeHasDropGlue(ctx, ty) or maybeDropGlue(ctx, ty);
+    return typeHasDropGlue(ctx, ty) or maybeDropGlue(ctx, ty) or isUnique(ctx, ty);
 }
 
 /// Whether a value of `ty` may be copied implicitly: it does not move
