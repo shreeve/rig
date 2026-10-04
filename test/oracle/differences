@@ -33,3 +33,9 @@ test/corpus/review-place-b9-x022_fixed_wb_local.rig main prod-rejects core-gap `
 # be moved into a local (`y = <s`): SPEC §7 moves a write view with `<w`,
 # and the compiler reads `<s` as moving out of `e`.
 test/corpus/review-take-p15.rig main prod-rejects core-gap `y = <s` of a `match !e` payload binding
+
+# `swap` and `replace` store a view in a borrowed parameter, so the
+# stored view's loans join that parameter's flow and the owner stays lent;
+# the oracle's model of those calls does not carry the stored loan yet.
+store.text.replace.grow f prod-rejects ref-gap `replace` stores a String view of `b` in `a`, then `b` grows
+store.text.swap.grow f prod-rejects ref-gap `swap` stores a String view of `b` in `a`, then `b` grows
