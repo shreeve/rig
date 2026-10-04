@@ -957,13 +957,15 @@ pub const PlainRequirement = struct {
     module_id: u32 = 0,
 };
 
+/// The lists of what generic bodies do over their type parameters, which
+/// each instance makes concrete: `generic_fn_uses`, `generic_uses`,
+/// `generic_arrays`, `generic_frames`. Each entry is added through
+/// `SemContext.addGeneric`, which indexes it.
+pub const GenericList = enum(u8) { fn_uses, uses, arrays, frames };
+
 /// An entry of one of another module's lists of what its generic bodies
 /// do (`importParam`), copied here once.
-const ImportedEntry = struct {
-    module_id: u32,
-    list: enum(u8) { fn_uses, uses, arrays, frames },
-    index: u32,
-};
+const ImportedEntry = struct { module_id: u32, list: GenericList, index: u32 };
 
 // =============================================================================
 // SemContext
@@ -1059,6 +1061,11 @@ pub const SemContext = struct {
     /// generic types' methods, whose sizes depend on their parameters:
     /// each instance checks them against `max_frame_bytes`.
     generic_frames: std.ArrayList(Frame) = .empty,
+    /// For each `GenericList` and each type or integer parameter, the
+    /// positions of the list's entries that mention the parameter, in
+    /// order: an instance visits only the entries over its own parameters
+    /// (`genericEntries`).
+    generic_index: std.AutoHashMapUnmanaged(struct { list: GenericList, param: SymbolId }, std.ArrayList(u32)) = .empty,
     /// The types reported as too large, each once; a type holding one is
     /// not reported again.
     oversized: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
@@ -1128,6 +1135,9 @@ pub const SemContext = struct {
         self.ct_locals.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
         self.generic_frames.deinit(self.allocator);
+        var index = self.generic_index.valueIterator();
+        while (index.next()) |at| at.deinit(self.allocator);
+        self.generic_index.deinit(self.allocator);
         self.oversized.deinit(self.allocator);
         self.byte_sizes.deinit(self.allocator);
         self.imported.deinit(self.allocator);
@@ -1568,11 +1578,64 @@ pub const SemContext = struct {
         const owned = try self.ownFnInstance(inst);
         try self.fn_instance_set.put(self.allocator, owned, {});
         for (inst.args) |a| if (self.typeInfo(a).has_type_var) {
-            try self.generic_fn_uses.append(self.allocator, owned);
+            try self.addGeneric(.fn_uses, owned);
             return true;
         };
         try self.fn_instances.append(self.allocator, .{ .inst = owned, .site = site, .via = via });
         return true;
+    }
+
+    /// Add `entry` to `list`, indexed by the type and integer parameters
+    /// it mentions; a use already in `generic_uses` is not added again.
+    pub fn addGeneric(self: *SemContext, comptime list: GenericList, entry: @typeInfo(@FieldType(@FieldType(SemContext, "generic_" ++ @tagName(list)), "items")).pointer.child) !void {
+        const items = &@field(self, "generic_" ++ @tagName(list));
+        if (list == .uses and std.mem.findScalar(TypeId, items.items, entry) != null) return;
+        const at: u32 = @intCast(items.items.len);
+        switch (list) {
+            .uses => try self.indexParams(list, at, entry),
+            .arrays => try self.indexParams(list, at, entry.ty),
+            .fn_uses => for (entry.args) |ty| try self.indexParams(list, at, ty),
+            .frames => for (entry.tys) |ty| try self.indexParams(list, at, ty),
+        }
+        try items.append(self.allocator, entry);
+    }
+
+    /// Index entry `at` of `list` under each parameter `ty` mentions.
+    fn indexParams(self: *SemContext, list: GenericList, at: u32, ty: TypeId) !void {
+        if (!self.typeInfo(ty).has_type_var) return;
+        switch (self.types.get(ty)) {
+            .type_var, .ct_param => |sym| {
+                const gop = try self.generic_index.getOrPut(self.allocator, .{ .list = list, .param = sym });
+                if (!gop.found_existing) gop.value_ptr.* = .empty;
+                const entries = gop.value_ptr;
+                if (entries.items.len == 0 or entries.getLast() != at) try entries.append(self.allocator, at);
+                return;
+            },
+            else => {},
+        }
+        var it = typeChildren(self, ty);
+        while (it.next()) |c| try self.indexParams(list, at, c);
+    }
+
+    /// The positions of the entries of `list` that mention `param`, in order.
+    pub fn paramEntries(self: *const SemContext, list: GenericList, param: SymbolId) []const u32 {
+        const entries = self.generic_index.getPtr(.{ .list = list, .param = param }) orelse return &.{};
+        return entries.items;
+    }
+
+    /// Set `out` to the positions of the entries of `list` that mention
+    /// any of `params`, in order.
+    pub fn genericEntries(self: *const SemContext, list: GenericList, params: []const SymbolId, out: *std.ArrayList(u32)) !void {
+        out.clearRetainingCapacity();
+        for (params) |p| try out.appendSlice(self.allocator, self.paramEntries(list, p));
+        if (params.len < 2) return;
+        std.mem.sort(u32, out.items, {}, std.sort.asc(u32));
+        var n: usize = 0;
+        for (out.items) |i| if (n == 0 or out.items[n - 1] != i) {
+            out.items[n] = i;
+            n += 1;
+        };
+        out.shrinkRetainingCapacity(n);
     }
 
     fn ownFnInstance(self: *SemContext, inst: FnInstance) !FnInstance {
@@ -1779,9 +1842,12 @@ const Reached = struct {
 /// are followed too and kept there. Whether an instance nesting ever
 /// deeper was reported.
 fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached) std.mem.Allocator.Error!bool {
+    var entries: std.ArrayList(u32) = .empty;
+    defer entries.deinit(ctx.allocator);
     while (work.pop()) |item| {
-        for (ctx.generic_fn_uses.items) |use| {
-            if (!argsUseParams(ctx, use.args, item.subst.params)) continue;
+        try ctx.genericEntries(.fn_uses, item.subst.params, &entries);
+        for (entries.items) |i| {
+            const use = ctx.generic_fn_uses.items[i];
             // A use over parameters this instance does not bind (a
             // generic method's own `U`, reached from its type's instance)
             // is made by the instances that bind them, as it is above.
@@ -1811,8 +1877,9 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
             } else if (!try ctx.recordFnInstance(concrete, item.site, item.root)) continue;
             try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root });
         }
-        for (ctx.generic_uses.items) |use| {
-            if (!usesParams(ctx, use, item.subst.params)) continue;
+        try ctx.genericEntries(.uses, item.subst.params, &entries);
+        for (entries.items) |i| {
+            const use = ctx.generic_uses.items[i];
             if (reached != null and !usesOnlyParams(ctx, use, item.subst.params)) continue;
             var concrete = try substituteType(ctx, use, item.subst);
             if (reached != null) if (typeItem(ctx, concrete)) |t| if (isRenaming(ctx, t.args)) {
@@ -1938,11 +2005,6 @@ fn typeItem(ctx: *const SemContext, ty: TypeId) ?TypeSubst {
         else => return null,
     };
     return .{ .params = ctx.symbols.items[pn.sym].type_params orelse return null, .args = pn.args };
-}
-
-fn argsUseParams(ctx: *const SemContext, args: []const TypeId, params: []const SymbolId) bool {
-    for (args) |a| if (usesParams(ctx, a, params)) return true;
-    return false;
 }
 
 /// Whether `args` are distinct type or integer parameters: an instance at
@@ -2662,7 +2724,7 @@ pub fn intFits(ctx: *const SemContext, ty: TypeId, v: Wide) bool {
 pub fn checkArrayBytes(ctx: *SemContext, pos: u32, ty: TypeId) std.mem.Allocator.Error!bool {
     if (containsPoison(ctx, ty)) return true;
     if (containsTypeVar(ctx, ty)) {
-        try ctx.generic_arrays.append(ctx.allocator, .{ .ty = ty, .pos = pos });
+        try ctx.addGeneric(.arrays, .{ .ty = ty, .pos = pos });
         return true;
     }
     if (ctx.quiet > 0) return true;
@@ -3514,25 +3576,27 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
     const foreign = ctx.foreign_semas.get(origin.module_id).?;
     const m = origin.module_id;
     const a = ctx.arena.allocator();
-    const here = [_]SymbolId{origin.sym};
     for (foreign.generic_requirements.items) |r| if (r.param == origin.sym) {
         try ctx.generic_requirements.append(ctx.allocator, .{ .param = proxy, .req = r.req, .pos = r.pos, .op = r.op, .module_id = if (r.module_id == 0) m else r.module_id });
     };
     for (foreign.plain_reqs.items) |r| if (r.param == origin.sym) {
         try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .view = r.view, .module_id = if (r.module_id == 0) m else r.module_id });
     };
-    for (foreign.generic_arrays.items, 0..) |g, i| {
-        if (!usesParams(foreign, g.ty, &here) or !try firstImport(ctx, m, .arrays, i)) continue;
-        try ctx.generic_arrays.append(ctx.allocator, .{ .ty = try importType(ctx, foreign, g.ty, m), .pos = g.pos, .module_id = if (g.module_id == 0) m else g.module_id });
+    for (foreign.paramEntries(.arrays, origin.sym)) |i| {
+        if (!try firstImport(ctx, m, .arrays, i)) continue;
+        const g = foreign.generic_arrays.items[i];
+        try ctx.addGeneric(.arrays, .{ .ty = try importType(ctx, foreign, g.ty, m), .pos = g.pos, .module_id = if (g.module_id == 0) m else g.module_id });
     }
-    for (foreign.generic_frames.items, 0..) |fr, i| {
-        if (!argsUseParams(foreign, fr.tys, &here) or !try firstImport(ctx, m, .frames, i)) continue;
+    for (foreign.paramEntries(.frames, origin.sym)) |i| {
+        if (!try firstImport(ctx, m, .frames, i)) continue;
+        const fr = foreign.generic_frames.items[i];
         const tys = try a.alloc(TypeId, fr.tys.len);
         for (fr.tys, tys) |t, *out| out.* = try importType(ctx, foreign, t, m);
-        try ctx.generic_frames.append(ctx.allocator, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .module_id = if (fr.module_id == 0) m else fr.module_id });
+        try ctx.addGeneric(.frames, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .module_id = if (fr.module_id == 0) m else fr.module_id });
     }
-    for (foreign.generic_fn_uses.items, 0..) |use, i| {
-        if (!argsUseParams(foreign, use.args, &here) or !try firstImport(ctx, m, .fn_uses, i)) continue;
+    for (foreign.paramEntries(.fn_uses, origin.sym)) |i| {
+        if (!try firstImport(ctx, m, .fn_uses, i)) continue;
+        const use = foreign.generic_fn_uses.items[i];
         const params = try a.alloc(SymbolId, use.params.len);
         for (use.params, params) |p, *out| out.* = try proxyOf(ctx, .{ .module_id = m, .sym = p });
         const args = try a.alloc(TypeId, use.args.len);
@@ -3542,10 +3606,9 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         const name = if (isModuleFunction(foreign, use)) try a.print("{s}.{s}", .{ foreign.name, use.name }) else use.name;
         _ = try ctx.recordFnInstance(.{ .name = name, .params = params, .args = args, .own = use.own }, 0, null);
     }
-    for (foreign.generic_uses.items, 0..) |use, i| {
-        if (!usesParams(foreign, use, &here) or !try firstImport(ctx, m, .uses, i)) continue;
-        const ty = try importType(ctx, foreign, use, m);
-        if (std.mem.findScalar(TypeId, ctx.generic_uses.items, ty) == null) try ctx.generic_uses.append(ctx.allocator, ty);
+    for (foreign.paramEntries(.uses, origin.sym)) |i| {
+        if (!try firstImport(ctx, m, .uses, i)) continue;
+        try ctx.addGeneric(.uses, try importType(ctx, foreign, foreign.generic_uses.items[i], m));
     }
 }
 

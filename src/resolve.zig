@@ -2100,9 +2100,7 @@ pub const TypeResolver = struct {
         } else {
             // Spelled inside a generic declaration: each instantiation of
             // that generic instantiates this too.
-            for (self.ctx.generic_uses.items) |u| {
-                if (u == ty) break;
-            } else try self.ctx.generic_uses.append(self.ctx.allocator, ty);
+            try self.ctx.addGeneric(.uses, ty);
         }
         return ty;
     }
