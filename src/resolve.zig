@@ -1862,7 +1862,7 @@ pub const TypeResolver = struct {
         const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(mod_id) orelse return false) orelse return false;
         const name = identAt(self.ctx.source, ir.Member.name(node)) orelse return false;
         const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
-            try self.ctx.errAt(node, "no member `{s}` in module `{s}`", .{ name, module_name });
+            try self.ctx.errAt(node, "no member `{s}` in module `{s}`{s}", .{ name, module_name, sema.stdNameHint(foreign, name) });
             return true;
         };
         const fsym = foreign.symbols.items[fid];
@@ -1985,7 +1985,7 @@ pub const TypeResolver = struct {
         const origin = self.ctx.module_refs.get(mod_id) orelse return null;
         const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
         const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
-            try self.ctx.err(pos, "no type `{s}` in module `{s}`", .{ name, module_name });
+            try self.ctx.err(pos, "no type `{s}` in module `{s}`{s}", .{ name, module_name, sema.stdNameHint(foreign, name) });
             return null;
         };
         return .{ .foreign = foreign, .origin = origin, .id = fid, .sym = foreign.symbols.items[fid], .module_name = module_name, .name = name, .pos = pos };

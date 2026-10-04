@@ -317,7 +317,7 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //
 // `unique`
 //   After a struct header's name or type parameters, `unique` marks the
-//   struct unique (`struct Rng unique`). Elsewhere it is a name.
+//   struct unique (`struct Random unique`). Elsewhere it is a name.
 //
 // `..`
 //   Before `]` (past any line break, which is whitespace inside
@@ -776,7 +776,7 @@ pub const Lexer = struct {
     }
 
     /// `unique` after a struct header's name or its type parameters marks
-    /// the struct unique (`struct Rng unique`, `struct Ring[T] unique`);
+    /// the struct unique (`struct Random unique`, `struct Ring[T] unique`);
     /// anywhere else it is a name.
     fn isStructUnique(self: *const Lexer) bool {
         return self.line_head == .@"struct" and self.nesting == 0 and
@@ -2106,7 +2106,7 @@ test "parser: every form parses" {
         \\  drop(!self)
         \\    print(self.n)
         \\
-        \\struct Rng unique
+        \\struct Random unique
         \\  seed: Int
         \\
         \\pub struct Ring[T] unique

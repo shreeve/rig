@@ -2,17 +2,17 @@
 # same seed gives the same sequence on every platform; it is not for
 # cryptography.
 
-pub struct Rng
+pub struct Random
   state: U64
 
   # A generator whose sequence is fixed by `seed`.
-  pub fun seeded(seed: U64) -> Rng
-    Rng(state: seed)
+  pub fun seeded(seed: U64) -> Random
+    Random(state: seed)
 
   # A generator seeded from the operating system's entropy, so each run
   # differs.
-  pub fun new -> Rng
-    Rng(state: entropy())
+  pub fun new -> Random
+    Random(state: entropy())
 
   # The next 64 random bits.
   pub fun next(!self) -> U64

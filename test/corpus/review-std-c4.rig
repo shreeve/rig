@@ -1,7 +1,7 @@
 use std.random
 
-R = random.Rng.seeded(5)
-N = random.Rng.new()
+R = random.Random.seeded(5)
+N = random.Random.new()
 
 sub main
   r = R

@@ -3,7 +3,7 @@ use std.sort
 use std.time
 
 sub main
-  r = random.Rng.seeded(1)
+  r = random.Random.seeded(1)
   v: Vec[Int] = Vec()
   for _ in 0..200000
     !v.push(!r.int(0, 1000000))

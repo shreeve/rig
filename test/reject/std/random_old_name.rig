@@ -1,0 +1,13 @@
+# `std.random` has no `Rng`: its generator is `Random`, and the old name
+# resolves to nothing, as a type or as a value.
+use std.random
+
+fun roll(r: random.Rng) -> Int
+  1
+
+sub main()
+  r = random.Rng.seeded(1)
+  print(roll(r))
+
+# error: 5:20: no type `Rng` in module `random`; its generator is `Random`
+# error: 9:14: no member `Rng` in module `random`; its generator is `Random`

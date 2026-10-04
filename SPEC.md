@@ -703,7 +703,7 @@ ownership rules of [§7](#7-ownership) apply to them.
 
 A **unique** value owns nothing to release but must not be copied: a
 `Cell` (a copy would fork the state it shares), a struct declared
-`unique` (`struct Rng unique`, a generator whose copy would repeat its
+`unique` (`struct Random unique`, a generator whose copy would repeat its
 numbers), or any struct, enum, array, or generic instance that holds
 one inline. It moves like an owning value, has no clone (`+x`) and no
 `==`, and nothing copies it out of a place; it has no drop glue, so an

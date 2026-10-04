@@ -86,7 +86,7 @@ gate green.
 
    Build `unique`:
    - `struct T unique` replaces `std/random.rig`'s empty `drop` on
-     `Rng`;
+     `Random`;
    - a type holding a `Cell`, or a bare `Cell[T]`, is unique.
 
    This also fixes false rejections such as `<p` on a plain match

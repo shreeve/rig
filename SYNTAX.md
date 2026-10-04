@@ -201,7 +201,7 @@ the start of a statement (`new x = ...`), so a method may be named
 `new`. `of` is a keyword only after a value directly inside `[ ]`,
 where it separates a fill literal's count from its element
 (`[n of x]`). `unique` is a keyword only after a struct's name or type
-parameters (`struct Rng unique`). `none` is a reserved name, the
+parameters (`struct Random unique`). `none` is a reserved name, the
 absent optional. The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.

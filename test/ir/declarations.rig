@@ -50,7 +50,7 @@ struct Guard
   drop(!self)
     print(self.id)
 
-struct Rng unique
+struct Random unique
   seed: Int
 
 struct Ring[T] unique

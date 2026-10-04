@@ -18,7 +18,7 @@
 #     where it names a member: after `.`, before `:` inside ( ), and in a
 #     member list before `:` or after `fun` / `sub`); `of` is a keyword
 #     only after a value directly inside [ ] (`[n of x]`), and `unique`
-#     only after a struct header's name or type parameters (`struct Rng
+#     only after a struct header's name or type parameters (`struct Random
 #     unique`); each is a name everywhere else;
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
 #     open range (`xs[a..]`, `xs[..]`);

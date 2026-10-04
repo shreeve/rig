@@ -1730,6 +1730,14 @@ pub const CheckOptions = struct {
 /// Report that `module.name`, a declaration of the imported module
 /// `foreign`, is not public: a module of the program can mark it `pub`;
 /// the standard library's is not the program's to change.
+/// The end of a diagnostic for a name a standard library module does
+/// not declare, when what it does declare goes by another name: `Rng` in
+/// `std.random`, whose generator is `Random`. Empty for any other name.
+pub fn stdNameHint(foreign: *const SemContext, name: []const u8) []const u8 {
+    if (foreign.is_std and std.mem.eql(u8, foreign.name, "std.random") and std.mem.eql(u8, name, "Rng")) return "; its generator is `Random`";
+    return "";
+}
+
 pub fn notPublic(ctx: *SemContext, pos: u32, module: []const u8, name: []const u8, foreign: *const SemContext) std.mem.Allocator.Error!void {
     if (foreign.is_std) return ctx.err(pos, "`{s}.{s}` is private to the standard library's module `{s}`", .{ module, name, foreign.name });
     try ctx.err(pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module, name, module });

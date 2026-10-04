@@ -1,4 +1,4 @@
-struct Rng
+struct Random
   s: U64
 
   fun next(!self) -> U64
@@ -12,5 +12,5 @@ struct Rng
     !self.next() % n
 
 sub main
-  r = Rng(s: 42)
+  r = Random(s: 42)
   print(!r.below(100), !r.below(100))

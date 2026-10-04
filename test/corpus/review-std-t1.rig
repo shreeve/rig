@@ -5,7 +5,7 @@ use std.sort
 use std.os
 
 fun main -> Int
-  r = random.Rng.seeded(3)
+  r = random.Random.seeded(3)
   print(!r.int(0, 10) < 10)
   xs = [3, 1, 2]
   sort.sort(!xs)

@@ -1,6 +1,6 @@
 # `unique` ends a struct header: nothing follows it on the line.
 
-struct Rng unique extra
+struct Random unique extra
   seed: Int
 
 # error: 3:19: unexpected name `extra`; expected an indented block

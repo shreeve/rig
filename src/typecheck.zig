@@ -4359,7 +4359,8 @@ const Checker = struct {
         };
         if (self.ctx.foreign_semas.get(origin) == null) return null;
         const found = self.foreignLookup(module_sym, name) orelse {
-            try self.err(pos, "no member `{s}` in module `{s}`", .{ name, module_name });
+            const foreign = self.ctx.foreign_semas.get(origin).?;
+            try self.err(pos, "no member `{s}` in module `{s}`{s}", .{ name, module_name, sema.stdNameHint(foreign, name) });
             return null;
         };
         if (!found.sym.flags.is_public and found.sym.decl_pos != sema.builtin_decl_pos) {
