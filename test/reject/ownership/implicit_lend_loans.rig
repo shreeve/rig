@@ -1,0 +1,57 @@
+# A bare argument lent to read keeps its owner lent for as long as the
+# view is used, as `?x` does, and a value made there is a temporary of
+# its statement.
+
+struct Bag
+  v: Vec[Int]
+
+fun keep(b: ?Bag) -> ?Bag
+  b
+
+fun keep_s(xs: []Int) -> []Int
+  xs
+
+fun keep_t(s: String) -> String
+  s
+
+sub add(a: !Int, b: ?Int)
+  a += b
+
+fun mk() -> Bag
+  Bag(v: Vec())
+
+sub one()
+  b = Bag(v: Vec())
+  r = keep(b)
+  -b
+  print(r.v.len)
+
+sub two()
+  v: Vec[Int] = Vec()
+  s = keep_s(v)
+  !v.push(1)
+  print(s)
+
+sub three()
+  t = Text("a")
+  s = keep_t(t)
+  !t.add("b")
+  print(s)
+
+sub four()
+  n = 1
+  add(!n, n)
+
+sub five()
+  r = keep(mk())
+  print(r.v.len)
+
+sub main
+  one()
+
+# error: 26:4: cannot drop `b` while borrows are live
+# error: 32:3: cannot write-borrow `v` while a read borrow is live
+# error: 38:3: cannot write-borrow `t` while a read borrow is live
+# error: 43:11: cannot read-borrow `n` while a write borrow is live
+# error: 46:12: a borrow of the temporary `mk()` outlives its statement
+# errors: 5

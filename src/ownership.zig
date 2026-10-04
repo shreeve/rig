@@ -1653,6 +1653,9 @@ pub const Checker = struct {
 
     /// Walk an expression in a position that takes ownership of its value.
     fn walkConsumed(self: *Checker, expr: Sexp, sink: Sink) Error!Value {
+        // A bare value lent to read where a view is expected is walked as
+        // `?expr` (`Lend.implicit`).
+        if (self.lendOf(expr)) |lend| if (lend.implicit) return self.walkImplicitLend(expr, lend);
         if (isLambda(expr)) {
             // A closure literal lent to a call as a borrowed callable
             // lives for the call; anywhere else it is reported by
@@ -1980,6 +1983,18 @@ pub const Checker = struct {
             else => return false,
         };
         return false;
+    }
+
+    /// `e`, a bare value lent to read where a view is expected, walked as
+    /// the lend `?e` would be: of its elements (`?a[..]`, `?t[..]`) when
+    /// the lend's first row is theirs, of the value otherwise.
+    fn walkImplicitLend(self: *Checker, e: Sexp, lend: sema.Lend) Error!Value {
+        for (lend.steps()) |step| switch (step) {
+            .lift => {},
+            .elems, .text => return self.walkElems(e, e, .read),
+            else => break,
+        };
+        return self.walkBorrow(e, .read);
     }
 
     /// Whether `e` is lent by `step` of the lend table.

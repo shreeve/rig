@@ -121,6 +121,9 @@ const Checker = struct {
     /// The argument being checked, when the call keeps no borrow of its
     /// arguments: a temporary array there may be lent as a `[]T`.
     lent_temp: Sexp = .nil,
+    /// The argument being checked: a bare value there is lent to read
+    /// where a view is expected (`lendView`).
+    view_arg: Sexp = .nil,
     /// The argument being checked, where a closure literal may be lent
     /// as a borrowed callable, and the call when its result could hold
     /// the literal instead.
@@ -3392,20 +3395,7 @@ const Checker = struct {
         // type, so what it is lent to is checked too.
         const lends = self.ctx.types.get(inner) == .borrow_write and place.steps > 0;
         if (kind == .write and !try self.requireAccess(place, if (lends) .lend_write else .write_borrow, operand) and (place.blocked != null or place.root == .temporary)) return self.t().invalid_id;
-        // A borrow of a value holding a Cell can change the Cell, which a
-        // loop or match binding only copies.
-        if (kind == .read and sema.holdsCellByValue(self.ctx, inner)) {
-            if (place.root == .pattern and !place.indirect) {
-                try self.errAt(operand, "cannot borrow this: it holds a Cell, and `{s}` is a loop or match binding, a copy, so changes through the borrow would be lost", .{self.text(place.base)});
-                return self.t().invalid_id;
-            }
-            if (place.root == .temporary and place.steps == 0) {
-                try self.errAt(operand, "cannot borrow a temporary that holds a Cell: a change through the borrow would have no place; bind it to a name first", .{});
-                return self.t().invalid_id;
-            }
-            if (place.root == .temporary) try self.ctx.recordCellTemp(operand);
-        }
-        if (kind == .read and self.isTemporary(operand)) try self.lendTemp(operand);
+        if (kind == .read and !try self.lendsToRead(operand, inner, place)) return self.t().invalid_id;
         switch (self.ctx.types.get(inner)) {
             // (A write borrow of a `?T` was rejected above.)
             .borrow_read => return inner,
@@ -3415,6 +3405,27 @@ const Checker = struct {
             else => {},
         }
         return self.ctx.intern(if (kind == .read) Type{ .borrow_read = inner } else Type{ .borrow_write = inner });
+    }
+
+    /// `operand`, of type `inner` at `place`, lent to read, written `?e`
+    /// or not: a temporary is held to its statement's end. False when the
+    /// lend is rejected (reported).
+    fn lendsToRead(self: *Checker, operand: Sexp, inner: TypeId, place: Place) Error!bool {
+        // A borrow of a value holding a Cell can change the Cell, which a
+        // loop or match binding only copies.
+        if (sema.holdsCellByValue(self.ctx, inner)) {
+            if (place.root == .pattern and !place.indirect) {
+                try self.errAt(operand, "cannot borrow this: it holds a Cell, and `{s}` is a loop or match binding, a copy, so changes through the borrow would be lost", .{self.text(place.base)});
+                return false;
+            }
+            if (place.root == .temporary and place.steps == 0) {
+                try self.errAt(operand, "cannot borrow a temporary that holds a Cell: a change through the borrow would have no place; bind it to a name first", .{});
+                return false;
+            }
+            if (place.root == .temporary) try self.ctx.recordCellTemp(operand);
+        }
+        if (self.isTemporary(operand)) try self.lendTemp(operand);
+        return true;
     }
 
     /// `U8`, a String's byte.
@@ -5284,12 +5295,15 @@ const Checker = struct {
         const saved = self.lent_temp;
         const saved_callable = self.lent_callable;
         const saved_kept = self.callable_kept;
+        const saved_view = self.view_arg;
         defer {
+            self.view_arg = saved_view;
             self.lent_temp = saved;
             self.lent_callable = saved_callable;
             self.callable_kept = saved_kept;
         }
         self.lent_temp = if (lends) arg else .nil;
+        self.view_arg = arg;
         // A closure literal lives for the call, so the call's result may
         // not hold it.
         const kept = sema.holdsCallable(self.ctx, f.returns);
@@ -7173,11 +7187,27 @@ const Checker = struct {
             .borrow_write => |inner| .{ .write, inner },
             else => .{ .read, actual },
         };
-        const lend = sema.lendsAs(self.ctx, from, kind, expected) orelse return false;
+        var lend = sema.lendsAs(self.ctx, from, kind, expected) orelse return false;
+        const view = isBorrow(self.ctx, actual);
+        // A bare value where a view argument goes is lent to read where it
+        // is, as `?e` would lend it (Core sentence 1): a place, or a value
+        // made here, which its statement holds. A function lends itself.
+        const function = lend.callable() != null and self.ctx.types.get(from) == .function and !self.closureBinding(e);
+        if (!view and sameExpr(e, self.view_arg) and !function) {
+            switch (self.hands(e).kind) {
+                .place, .part_of_made, .made => {},
+                .lend, .branches, .jump, .none => return false,
+            }
+            if (try self.lendsToRead(e, from, self.placeOf(e))) {
+                lend.implicit = true;
+                try self.ctx.recordImplicitLend(e);
+                try self.ctx.recordLend(e, lend);
+            } else try self.ctx.recordType(e, self.t().invalid_id);
+            return true;
+        }
         // `?x` where a `(?T)?` is expected is a view the context admits as
         // it is.
         if (lend.onlyLifts()) return false;
-        const view = isBorrow(self.ctx, actual);
         if (lend.callable() != null) {
             if (sema.ownedClosureFn(self.ctx, from) != null and !view) {
                 // The handle is lent from its binding; reported once.
@@ -7299,6 +7329,15 @@ const Checker = struct {
             .src => {
                 const s = self.text(e);
                 if (std.mem.eql(u8, s, "none")) return try self.checkNone(e, expected);
+                // A number literal where a view argument `?N` goes is lent
+                // as `?5` is: a copy of the number.
+                if (sameExpr(e, self.view_arg) and (sema.isIntLiteralText(s) or sema.isFloatLiteralText(s))) switch (self.ctx.types.get(expected)) {
+                    .borrow_read => |inner| if (sema.isNumeric(self.ctx, inner)) {
+                        try self.checkExpr(e, inner);
+                        return inner;
+                    },
+                    else => {},
+                };
                 if (!sema.isIntLiteralText(s) or !sema.isInteger(self.ctx, target)) return null;
                 try self.checkLiteralFits(e, target);
                 return target;
@@ -8685,6 +8724,13 @@ fn resultCall(e: Sexp) ?Sexp {
 /// `a` and `b` are the same parsed node.
 fn sameNode(a: Sexp, b: Sexp) bool {
     return a == .list and b == .list and a.list.ptr == b.list.ptr;
+}
+
+/// `a` and `b` are the same parsed expression: a list node, or a leaf at
+/// one position.
+fn sameExpr(a: Sexp, b: Sexp) bool {
+    if (a == .src and b == .src) return a.src.pos == b.src.pos;
+    return sameNode(a, b);
 }
 
 /// Forms whose type comes from the other operand: `.variant`,

@@ -412,14 +412,14 @@ is expected, `?a` of an array means `?a[..]`, and where a `![]T` is
 expected, `!a` means `!a[..]`: the sigil shows the borrow, which is the
 slice's. A Vec is lent the same way (`sort.sort(!v)`), and so is an
 array or Vec in a box (`?b` of a `Box[[3]Int]`) or behind a read view
-(a `?Vec[Int]` parameter passed where a `[]Int` is expected). A bare named array
-there is rejected, since it would borrow the array unseen. A temporary
-array, a literal, a fill, or a call's result, is accepted as a `[]T`
-argument of a function or method call that keeps no borrow of its
-arguments (its result holds none, and it writes through no borrow into
-anything that could hold one): it borrows nothing named, and it lives
-until the call returns. Anywhere else, such as a struct field or a call
-that returns a slice, it is rejected; bind it to a name and pass `?a`.
+(a `?Vec[Int]` parameter passed where a `[]Int` is expected). As an
+argument the `?` may go unwritten (`total(a)` lends `a` to read, as
+`total(?a)` does, [Borrows](#borrows)); anywhere else, such as a
+binding or a field, the lend is written. A temporary array, a literal,
+a fill, or a call's result, passed as a `[]T` argument is lent as a
+temporary of its statement: it lives until the statement ends, so a
+call that returns a view of it is rejected where the view outlives the
+statement; bind it to a name and pass `?a`.
 
 ```rig
 fun total(xs: []Int) -> Int
@@ -456,13 +456,25 @@ fun id(xs: []Int) -> []Int
 sub main
   a = [1, 2, 3]
   print(total(a))
+  s: []Int = a
+  print(s)
+```
+
+```error
+type mismatch: expected `[]Int`, got `[3]Int`; write `?a` or `?a[..]`
+```
+
+```rig reject
+fun id(xs: []Int) -> []Int
+  xs
+
+sub main
   r = id([1, 2])
   print(r)
 ```
 
 ```error
-type mismatch: expected `[]Int`, got `[3]Int`; write `?a` or `?a[..]`
-a temporary array is lent as a `[]Int` only to a call that keeps no borrow of it
+a borrow of the temporary `[1, 2]` outlives its statement
 ```
 
 `!xs[a..b]` is a **writable slice**, of type `![]T`: a write borrow of
@@ -2756,8 +2768,13 @@ A payload binding of `match <s` owns its field and may move it on
 
 A borrow lends a value without giving it up. `?x` is a read borrow and
 `!x` a write borrow, and borrowed parameter types say the same thing:
-`b: ?Wrap` reads, `b: !Wrap` writes. Every borrow is visible at the call
-site.
+`b: ?Wrap` reads, `b: !Wrap` writes. A write borrow is always visible
+at the call site; a read borrow of an argument may go unwritten: where
+a parameter takes a view, a bare argument is lent to read where it is,
+as `?x` would lend it, and its owner stays lent for as long as the
+view is used (`balance_of(acct)` is `balance_of(?acct)`). A value made
+there (`balance_of(open())`) is lent as a temporary of its statement.
+A lend kept in a binding or a field is always written.
 
 ```rig
 struct Account

@@ -1,5 +1,6 @@
-# A value where a borrow of it is expected: the message names the sigil
-# that lends it.
+# A value where a borrow of it is expected, and the lend is written (a
+# binding keeps it; a write lend is always written): the message names
+# the sigil that lends it.
 
 struct S
   n: Int
@@ -13,9 +14,9 @@ sub bump(n: !Int)
 sub main
   s = S(n: 1)
   x = 1
-  print(f(s))
+  r: ?S = s
   bump(x)
-  print(x)
+  print(x, f(r))
 
-# error: 16:11: type mismatch: expected `?S`, got `S`; lend a read borrow: `?s`
-# error: 17:8: type mismatch: expected `!Int`, got `Int`; lend a write borrow: `!x`
+# error: 17:11: type mismatch: expected `?S`, got `S`; lend a read borrow: `?s`
+# error: 18:8: type mismatch: expected `!Int`, got `Int`; lend a write borrow: `!x`

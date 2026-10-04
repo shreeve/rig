@@ -860,6 +860,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     switch (V) {
         TextCall, Use => try w.print(" {s}", .{@tagName(v)}),
         Lend => {
+            if (v.implicit) try w.writeAll(" implicit");
             for (v.steps()) |step| try w.print(" {s}", .{@tagName(step)});
             if (v.fn_ty != type_invalid) try w.print(" {s}", .{try formatTypeIn(ctx, a, v.fn_ty)});
         },
@@ -1437,7 +1438,7 @@ pub const SemContext = struct {
     /// `node` is lent, where a view of another type is expected, by the
     /// rows of the lend table `lend` names (`lendOf`).
     pub fn recordLend(self: *SemContext, node: Sexp, lend: Lend) !void {
-        std.debug.assert(lend.len > 0);
+        std.debug.assert(lend.len > 0 or lend.implicit);
         try self.facts.lends.put(self.allocator, recordExprKey(node) orelse return, lend);
     }
 
@@ -1545,6 +1546,13 @@ pub const SemContext = struct {
         const gop = try self.facts.uses.getOrPut(self.allocator, key);
         if (gop.found_existing) std.debug.assert(gop.value_ptr.* == use);
         gop.value_ptr.* = use;
+    }
+
+    /// The context of `node` lends it, where it was first recorded as
+    /// taken: a bare value lent to read where a view is expected.
+    pub fn recordImplicitLend(self: *SemContext, node: Sexp) !void {
+        const key = recordExprKey(node) orelse return;
+        try self.facts.uses.put(self.allocator, key, .lend);
     }
 
     /// What the context of `node` does with it, where one was recorded.
@@ -4131,6 +4139,9 @@ pub const Lend = struct {
     len: u8 = 0,
     /// The view the lend makes: the type its context expects.
     view: TypeId = type_invalid,
+    /// The lend is not written: a bare value is lent to read where a
+    /// view of it is expected, as `?e` would lend it (Core sentence 1).
+    implicit: bool = false,
     /// `callable`: the function type the callable has.
     fn_ty: TypeId = type_invalid,
 

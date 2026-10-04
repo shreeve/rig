@@ -2914,6 +2914,9 @@ pub const Emitter = struct {
         self.bare = false;
         // An owning temporary is kept in its statement's slot, which
         // drops it at the statement's end.
+        // A value lent bare is lent around its temporary's slot, as `?e`
+        // lends it (unless an argument hoisted before the call holds it).
+        if (!sameNode(sexp, self.lending) and self.hoistedOf(sexp) == null) if (self.sema.lendOf(sexp)) |lend| if (lend.implicit) return self.emitLend(sexp, lend, tail, want_ptr);
         if (self.sema.dropsTemp(sexp) and !sameNode(sexp, self.keeping)) {
             const slot = self.tempSlot(sexp) orelse return self.unsupported(sexp, "a temporary outside a statement");
             const saved = self.keeping;
@@ -2929,7 +2932,7 @@ pub const Emitter = struct {
             if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
             return self.w.writeAll(h.name);
         }
-        if (!sameNode(sexp, self.lending)) if (self.sema.lendOf(sexp)) |lend| if (!lend.has(.read_only)) return self.emitLend(sexp, lend, tail, false);
+        if (!sameNode(sexp, self.lending)) if (self.sema.lendOf(sexp)) |lend| if (!lend.has(.read_only)) return self.emitLend(sexp, lend, tail, lend.implicit and want_ptr);
         if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
@@ -2951,7 +2954,11 @@ pub const Emitter = struct {
         const saved = self.lending;
         defer self.lending = saved;
         self.lending = sexp;
-        if (lend.callable()) |fn_ty| return self.emitLentCallable(sexp, fn_ty);
+        if (lend.callable()) |fn_ty| {
+            // A stack closure lent bare is lent as `?f` lends it.
+            if (lend.implicit and sexp == .src) if (self.localOf(sexp)) |local| if (local.stack_closure) return self.emitFnRef(sexp, fn_ty);
+            return self.emitLentCallable(sexp, fn_ty);
+        }
         const rows = lend.steps();
         var first: sema.LendStep = .lift;
         for (rows) |r| if (r != .lift) {
@@ -2959,9 +2966,26 @@ pub const Emitter = struct {
             break;
         };
         // What the lend starts from: the value written `?x` or `!x` here,
-        // or the view `sexp` already is, which is a pointer to its value
-        // or (a scalar's or a view's) a copy of it.
+        // the bare value lent as `?x` would be, or the view `sexp` already
+        // is, which is a pointer to its value or (a scalar's or a view's)
+        // a copy of it.
         const written = sexp.isKind(.read) or sexp.isKind(.write);
+        if (lend.implicit and rows.len == 0) {
+            // `?x` where a `?T` is expected: the address of `x`, or a copy
+            // of a scalar or a view.
+            if (!self.isPtrBorrowTy(lend.view)) {
+                self.bare = true;
+                return self.emitValue(sexp, false);
+            }
+            const lent = !as_ptr and self.genericReadBorrow(lend.view) != null;
+            if (lent) try self.w.writeAll("rig.lend(");
+            const saved_read = self.read_place;
+            defer self.read_place = saved_read;
+            self.read_place = true;
+            try self.emitAddressOf(sexp);
+            if (lent) try self.w.writeAll(")");
+            return;
+        }
         var buf: Writer.Allocating = .init(self.arena.allocator());
         var at: LendAt = .{ .text = "", .ptr = true };
         var from: TypeId = sema.type_invalid;
@@ -2969,7 +2993,7 @@ pub const Emitter = struct {
             const saved_w = self.w;
             self.w = &buf.writer;
             defer self.w = saved_w;
-            if (!written or (first == .unbox and !lend.has(.text))) {
+            if (!(written or lend.implicit) or (written and first == .unbox and !lend.has(.text))) {
                 try self.w.writeAll("(");
                 self.bare = true;
                 try self.emitValue(sexp, tail and !written);
@@ -2977,7 +3001,7 @@ pub const Emitter = struct {
                 at.ptr = written or self.isPtrBorrowExpr(sexp);
                 from = sema.unwrapBorrows(self.sema, self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped lend"));
             } else {
-                const operand = ir.get(sexp, .operand);
+                const operand = if (written) ir.get(sexp, .operand) else sexp;
                 from = sema.unwrapBorrows(self.sema, self.typeOf(operand) orelse return self.unsupported(sexp, "an untyped lend"));
                 const vec = self.sema.types.get(from) == .parameterized_nominal;
                 if (lend.has(.text)) {
@@ -2989,8 +3013,11 @@ pub const Emitter = struct {
                 } else {
                     const saved_read = self.read_place;
                     defer self.read_place = saved_read;
-                    self.read_place = sexp.isKind(.read);
+                    self.read_place = !sexp.isKind(.write);
+                    const unbox = first == .unbox;
+                    if (unbox) try self.w.writeAll("(");
                     try self.emitAddressOf(operand);
+                    if (unbox) try self.w.writeAll(")");
                 }
             }
         }
