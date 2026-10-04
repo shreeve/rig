@@ -719,6 +719,26 @@ sub main
 a statement `-e` drops a name
 ```
 
+```rig pending
+struct Seen
+  items: Vec[Int]
+
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.items
+      return false if x == k
+    !self.items.push(k)
+    true
+
+sub main
+  s = Seen(items: Vec())
+  added = !s.insert(1)
+  print(added)
+```
+
+```error
+(!s).insert(...)
+```
+
 ## 9. Inside the compiler
 
 Not visible to programs: the compiler decides each of these once, and
