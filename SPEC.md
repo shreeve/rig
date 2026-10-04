@@ -4679,13 +4679,45 @@ sub main
 
 ### Failing
 
-A fallible function fails by producing an error value where its `T` is
-expected: `return E.name` (a member of an error set,
-[§3](#error-sets)), a binding of an error set's type, or an error it
-caught. The failure leaves the function the way `!` does: every `defer`
-and `errdefer` of the scopes it leaves runs, including when the error
-is the final value of an `if` or `match` branch block. Only a function
-returning `T!` can fail.
+A fallible function fails by returning an error value: `return E.name`
+(a member of an error set, [§3](#error-sets)), a binding of an error
+set's type, or an error it caught. The error value may be a branch of
+the returned value, of a ternary or a `match` (`return n if ok else
+E.bad`), and nowhere deeper: failing is always written, so an error
+value anywhere else a `T!` is expected, such as a function's last
+expression or a branch block's, is rejected. The failure leaves the
+function the way `!` does: every `defer` and `errdefer` of the scopes it
+leaves runs. Only a function returning `T!` can fail.
+
+```rig
+error Bad
+  odd
+
+fun half(n: Int) -> Int!
+  return n / 2 if n % 2 == 0 else Bad.odd
+
+sub main
+  print(half(4) catch -1, half(3) catch -1)
+```
+
+```output
+2 -1
+```
+
+```rig reject
+error Bad
+  odd
+
+fun half(n: Int) -> Int!
+  if n % 2 == 1
+    Bad.odd
+  else
+    n / 2
+```
+
+```error
+an error value meets `Int!` only as the operand of `return`: write `return Bad.odd`
+```
 
 Failing always names the error set. Where a `T!` is expected, a bare
 `.name` is a variant of `T`, even when an error set has a member of the

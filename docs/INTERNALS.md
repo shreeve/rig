@@ -682,9 +682,11 @@ Types are interned in a `TypeStore`, so two `TypeId`s are equal exactly
 when the types are. `unknown` and `invalid` are poison: they appear only
 after a diagnostic and are compatible with everything, so one mistake
 does not cascade. `compatible` also accepts a literal where a numeric
-type is expected, `none` or a `T` where `T?` is expected, a `T` or an
-error value where `T!` is expected, `!T` where `?T` is expected, and a
-borrow of a Copy value where the value is expected. A bare `.name`
+type is expected, `none` or a `T` where `T?` is expected, a `T` where
+`T!` is expected, `!T` where `?T` is expected, and a borrow of a Copy
+value where the value is expected. An error value meets a `T!` only in
+a branch leaf of a `return` operand (`Checker.isReturnLeaf`, checked in
+`checkExpr`), so failing is always written. A bare `.name`
 where a `T!` is expected is checked as a variant of `T`
 (`checkContextual`), so an error value there always has its set's type.
 The error a `catch |err|` names has the type `error`: any error, since

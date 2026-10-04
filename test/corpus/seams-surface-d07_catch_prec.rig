@@ -1,7 +1,7 @@
 error E
   bad
 fun f() -> Int!
-  E.bad
+  return E.bad
 fun g() -> Int?
   none
 sub main

@@ -65,7 +65,7 @@ fun first_some[T](a: T?, b: T?) -> T?
 fun must[T](o: T?) -> T!
   if <o as x
     return <x
-  E.bad
+  return E.bad
 
 fun chain[T](o: T?) -> T?
   x = (<o)?

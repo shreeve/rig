@@ -14,7 +14,7 @@ fun h(k: Int) -> Int!
   t = Tok(n: 1)
   errdefer print("errdefer", t.n)
   eat(<t)
-  E.bad
+  return E.bad
 
 fun i(k: Int) -> Int!
   t = Tok(n: 1)
@@ -27,7 +27,7 @@ fun j(k: Int) -> Int!
     t = Tok(n: 1)
     errdefer print("errdefer", t.n)
     eat(<t)
-    E.bad
+    return E.bad
   else
     0
 

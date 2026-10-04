@@ -337,9 +337,9 @@ sub main
 **10. `e!` propagates a failure, and `e?` propagates an absence.** Every
 fallible call says what happens to its failure: `!` or `catch`.
 *(built)* Failing is always written: an error value meets a `T!` only as
-the operand of `return`. *(planned)*
+the operand of `return`. *(built)*
 
-```rig pending
+```rig reject
 error Bad
   oops
 

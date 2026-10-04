@@ -1,0 +1,38 @@
+# A function fails with `return` of an error value: a member of an error
+# set, a binding of one, an error it caught, or a branch of the returned
+# value, of a ternary or a `match`.
+
+error E
+  bad
+  worse
+
+fun named(k: Int) -> Int!
+  e = E.worse
+  return k if k > 0
+  return e
+
+fun ternary(k: Int) -> Int!
+  return k if k > 0 else E.bad
+
+fun arm(k: Int) -> Int!
+  return match k
+    0 => E.bad
+    1 => E.worse
+    _ => k
+
+fun caught(k: Int) -> Int!
+  n = ternary(k) catch |err|
+    return err
+  n + 1
+
+sub main
+  print(named(2) catch -1, named(0) catch |e| 10 if e == E.worse else 20)
+  print(ternary(3) catch -1, ternary(0) catch |e| 10 if e == E.bad else 20)
+  print(arm(5) catch -1, arm(0) catch |e| 10 if e == E.bad else 20, arm(1) catch |e| 10 if e == E.worse else 20)
+  print(caught(1) catch -1, caught(0) catch |e| 10 if e == E.bad else 20)
+
+# expect:
+# 2 10
+# 3 10
+# 5 10 10
+# 2 10

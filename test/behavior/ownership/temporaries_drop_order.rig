@@ -29,7 +29,7 @@ error Bad
   no
 
 fun f -> Int!
-  Bad.no
+  return Bad.no
 
 fun run -> Int!
   print(R(n: ?N(id: 1, v: Vec())).n.id, f()!)

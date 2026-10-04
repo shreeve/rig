@@ -14,7 +14,7 @@ fun apply(op: ?Token, a: Int, b: Int) -> Int!
     .plus => a + b
     .minus => a - b
     .star => a * b
-    .num(_) => EvalError.unexpected
+    .num(_) => return EvalError.unexpected
 
 fun eval(toks: ?Vec[Token]) -> Int!
   acc = 0

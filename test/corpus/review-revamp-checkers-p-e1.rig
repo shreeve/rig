@@ -17,7 +17,7 @@ fun tailmatch(k: Int) -> Int!
   eat(<t)
   match k
     0 => 0
-    _ => E.bad
+    _ => return E.bad
 
 fun tailif(k: Int) -> Int!
   t = Tok(n: 2, v: Vec())
@@ -26,7 +26,7 @@ fun tailif(k: Int) -> Int!
   if k == 0
     0
   else
-    E.bad
+    return E.bad
 
 sub s(k: Int)!
   t = Tok(n: 3, v: Vec())

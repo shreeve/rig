@@ -109,6 +109,9 @@ const Checker = struct {
     handled: Sexp = .nil,
     /// The operand of the `*x` being checked.
     shared_operand: Sexp = .nil,
+    /// The operand of the `return` being checked: an error value meets a
+    /// `T!` only in its branch leaves (`isReturnLeaf`).
+    return_operand: Sexp = .nil,
     /// The condition, or operand of `and`, `or`, or `not`, being
     /// checked: a `!` that starts it reads as negation.
     negation_operand: Sexp = .nil,
@@ -688,7 +691,30 @@ const Checker = struct {
             } else try self.errAt(value, "a `sub` returns no value; remove the value or declare a `fun`", .{});
             return;
         }
+        const saved = self.return_operand;
+        defer self.return_operand = saved;
+        self.return_operand = value;
         try self.checkExpr(value, ret);
+    }
+
+    /// Whether `e` is a branch leaf of the `return` operand being
+    /// checked, where an error value may meet a `T!`: the operand, or a
+    /// branch of a ternary or an arm of a `match` that is a leaf, never
+    /// anything deeper.
+    fn isReturnLeaf(self: *const Checker, e: Sexp) bool {
+        return isBranchLeaf(self.return_operand, e);
+    }
+
+    fn isBranchLeaf(value: Sexp, e: Sexp) bool {
+        if (sameNode(value, e) or (value == .src and e == .src and value.src.pos == e.src.pos)) return true;
+        switch (value.kind() orelse return false) {
+            .@"if" => return isBranchLeaf(ir.If.then(value), e) or isBranchLeaf(ir.If.@"else"(value), e),
+            .match => for (ir.Match.arms(value)) |arm| {
+                if (isBranchLeaf(ir.Arm.body(arm), e)) return true;
+            },
+            else => {},
+        }
+        return false;
     }
 
     // ---- bindings and assignment --------------------------------------------
@@ -7001,6 +7027,12 @@ const Checker = struct {
             if (sema.holdsWriteBorrow(self.ctx, expected)) _ = try self.requireAccess(self.placeOf(e), .pass_write, e);
             return;
         }
+        // Failing is written: an error value meets a `T!` only as the
+        // operand of `return`.
+        if (self.ctx.types.get(expected) == .fallible and sema.isErrorValue(self.ctx, actual)) {
+            if (self.isReturnLeaf(e)) return;
+            return self.errAt(e, "an error value meets `{s}` only as the operand of `return`: write `return {s}`", .{ try self.tyName(expected), self.sourceText(e) });
+        }
         // A fallible call where its value is expected: `synthCall`
         // reported the missing `!` / `catch`.
         const at = self.ctx.types.get(actual);
@@ -8034,7 +8066,9 @@ const Checker = struct {
                 }
                 continue;
             };
-            if (!compatible(self.ctx, ty, ret)) {
+            // Each site is a `return`, whose operand may be an error value.
+            const fails = self.ctx.types.get(ret) == .fallible and sema.isErrorValue(self.ctx, ty);
+            if (!fails and !compatible(self.ctx, ty, ret)) {
                 // A generic call only literals typed would take the type.
                 const hint = if (self.literalResult(ir.Return.value(site.node)) != null and sema.isNumeric(self.ctx, ret))
                     try self.ctx.arena.allocator().print("; give the closure its type where it goes (`f: fun(...) -> {s} = |...| ...`), and every `return` takes it", .{try self.tyName(ret)})
@@ -8270,8 +8304,9 @@ fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
             if (a == .none_literal) return true;
             return compatible(ctx, actual, inner);
         },
-        // A `T!` holds a `T`, or the error it failed with.
-        .fallible => |inner| return compatible(ctx, actual, inner) or sema.isErrorValue(ctx, actual),
+        // A `T!` holds a `T`; an error value meets it only as `return`'s
+        // operand (`Checker.isReturnLeaf`).
+        .fallible => |inner| return compatible(ctx, actual, inner),
         .borrow_read => |inner| if (a == .borrow_write) return a.borrow_write == inner,
         // A `![]T` (or a `?[]T`) reads as the `[]T` it borrows.
         .slice => switch (a) {

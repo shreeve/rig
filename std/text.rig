@@ -141,7 +141,7 @@ pub fun words(s: String) -> Words
 pub fun parse_bool(s: String) -> Bool!
   return true if s == "true"
   return false if s == "false"
-  ParseError.invalid
+  return ParseError.invalid
 
 # ---- Bytes ---------------------------------------------------------------
 

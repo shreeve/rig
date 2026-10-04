@@ -1,7 +1,7 @@
 error E
   bad
 fun f -> Int!
-  E.bad
+  return E.bad
 sub main
   if f() as x
     print(x)
