@@ -1143,6 +1143,43 @@ it borrows. Where the path goes on (`e!`, `e?`, a final value that may
 be an error), they run only on the path that leaves, so their effects
 are undone after the check (`Exit.goesOn`).
 
+**Exits.** Every path ends through one primitive, `exitTo(.{ to,
+exit, resume_at })`, which desugars an exit into three steps:
+
+1. run the defers `exit` runs (`scope_end`, a `jump` to a scope depth,
+   `return`, `propagate`, `failing_result`), re-checked against the
+   state there, keeping their effects only where the path ends;
+2. report what the path drops (`reportDropped`): each var below `to`'s
+   var count, live at `resume_at` (where the path goes on; after the
+   current statement when null), that keeps a loan on a var declared
+   since `to`, which leaves scope on the path; for a holder that is not
+   live there, a loan on a statement's temporary that it keeps past
+   its statement. Each holder is reported once;
+3. give the path's state relative to `to` (`capture`), which then
+   carries no loan on those vars.
+
+| Exit | `to` | `exit` | `resume_at` |
+|---|---|---|---|
+| an `if`, `match` arm, `catch` handler, or `??` fallback that ends (`leave`) | the construct's entry | | past the construct |
+| a failing part of `if a as x and ...`, `while a as x`, or a guard | the construct's entry | | the `else`, the next arm, or past it |
+| `break`, `continue` | the loop's entry | `jump` | after the statement |
+| a loop's condition failing; the end of its body | the loop's entry | | past the loop; its head |
+| the joins after a loop and a labeled block (`joinAt`) | the entry | | past it |
+| a `defer` body where it is written | before the body | | after the statement |
+| `return`, `e!`, `e?`, a result that may fail | none | `return`, `propagate`, `failing_result` | |
+| a scope's end (`popScope`) | none | `scope_end` | |
+
+A scope's end then reports, with the same per-holder reporter
+(`reportHolder`), each loan on its vars that a holder live at the
+scope's end keeps, and drops them (`releaseVarsFrom`). A point's var
+count bounds the vars a path may have declared: every var past it when
+the path rewinds is hidden (a statement's temporaries, or the `hold`
+var of a `match`), which `rewind` asserts. The other places a loan
+leaves the state report it first or cannot be live: a value escaping
+a scope (`escapeVarsFrom`), a statement's end (`dropStmtTemps`), a copy
+of plain data, a Cell argument once reported, the whole-body rewinds of
+a function, a closure, or a written `defer`, and reassignment.
+
 **Rules** (SPEC §7 states them for users): no use of a moved or dropped
 value; read loans exclude writes, moves, drops, and reassignment, and
 write loans exclude everything; no loan outlives its root, including
