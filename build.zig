@@ -5,6 +5,8 @@
 //!   zig build parser       — regenerate src/parser.zig from rig.grammar via Nexus
 //!   zig build run -- ...   — run bin/rig with args
 //!   zig build test         — run the Zig unit tests (./test/run runs these too)
+//!   zig build oracle       — build bin/rig-oracle, the test suite's reference
+//!                            ownership checker (test/oracle/)
 //!
 //! `zig build parser` runs Nexus: `-Dnexus=PATH` (relative to where `zig build`
 //! runs), else nexus/bin/nexus in the nearest parent directory (build it with
@@ -12,7 +14,7 @@
 
 const std = @import("std");
 
-const version = "0.1.0";
+const version = "0.1.1";
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -72,6 +74,31 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run the Zig unit tests of the compiler and the runtime");
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = main_mod })).step);
+
+    // -----------------------------------------------------------------
+    // the reference ownership checker (test only)
+    // -----------------------------------------------------------------
+
+    // The oracle reaches the compiler through src/lib.zig; bin/rig never
+    // imports it.
+    const lib_mod = b.createModule(.{
+        .root_source_file = b.path("src/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lib_mod.addImport("rig_std", b.createModule(.{ .root_source_file = b.path("std/embed.zig") }));
+    const oracle_exe = b.addExecutable(.{
+        .name = "rig-oracle",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/oracle/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "rig_lib", .module = lib_mod }},
+        }),
+    });
+    const oracle_bin = b.addUpdateSourceFiles();
+    oracle_bin.addCopyFileToSource(oracle_exe.getEmittedBin(), "bin/rig-oracle");
+    b.step("oracle", "Build bin/rig-oracle, the reference ownership checker").dependOn(&oracle_bin.step);
 }
 
 /// `nexus/bin/nexus` in the nearest parent directory of the build root

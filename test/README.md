@@ -37,6 +37,7 @@ off the sanitizer (see [below](#leak-checking-and-the-sanitizer)).
 | `unit` | `zig build test` |
 | `parser` | `src/parser.zig` matches what Nexus generates from `rig.grammar` |
 | `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
+| `oracle/<set>` | the reference ownership checker agrees with the compiler over a set of programs (see below) |
 
 Areas: `syntax`, `types`, `effects`, `ownership`, `emit`, `runtime`, `modules`,
 `std` (the standard library).
@@ -182,8 +183,10 @@ minutes of work, so a plain `./test/run` takes a fixed sample, one
 program in 16 by a hash of its name; `./test/run corpus` (or any filter
 that names corpus programs) takes all of them, as CI should nightly or
 before a merge that touches the checkers or the emitter. A corpus run
-removes each passing program's build, so the corpus leaves no cache
-behind. Add new review probes here, named `<review>-<probe>.rig`.
+removes each passing program's output but keeps its Zig cache (a few
+gigabytes for the whole corpus), so a later run rebuilds only the
+programs whose emitted Zig changed; delete `.zig-cache/rig-test/corpus`
+to reclaim the space. Add new review probes here, named `<review>-<probe>.rig`.
 
 `test/matrix.py` generates the programs where one expression form (a
 place, a ternary, `o?`, `??`, `catch`, `if … as`, `match`, a call, a
@@ -198,6 +201,42 @@ branch, a `match` arm, a `catch` handler, a loop's `else`, a nested
 `if`), with and without a `defer` that uses it, for a binding, a field
 store, and a result. It writes to a temporary directory
 and commits nothing; `-k` picks cells by id and `-v` lists every result.
+
+## The reference ownership checker
+
+`test/oracle/` is a second ownership checker, written from
+[docs/CORE.md](../docs/CORE.md) and SPEC's ownership sections without
+reading `src/ownership.zig`, and built as `bin/rig-oracle` (`zig build
+oracle`; `src/lib.zig` is its view of the compiler, which `bin/rig`
+never imports). It lowers each function to a small core with its
+statement temporaries and evaluation order written out, then checks
+moves, loans, and drops with a dataflow over the function's control
+flow. Each function gets its verdict, accept or reject, or none when
+the function uses a form the oracle does not model yet. The test kind
+`oracle` runs it over five sets:
+
+| Id | Programs |
+|---|---|
+| `oracle/lint` | none: `test/oracle/` uses none of the compiler's ownership classifications, and `src/` imports neither `lib.zig` nor `test/` |
+| `oracle/tests` | `test/behavior`, `test/reject`, `test/known`, and `examples` |
+| `oracle/corpus` | every corpus program (no sample) |
+| `oracle/docs` | every doc example but fragments |
+| `oracle/matrix` | the matrix programs (`test/matrix.py --oracle`) |
+
+A set fails when the compiler accepts a function the oracle rejects:
+that may be a soundness hole, and it can never be allowlisted. When the
+compiler rejects a function the oracle accepts, the run reports it
+(`stricter`), and `test/oracle/differences` records it once classified
+(a compiler rejection the Core allows, an oracle gap, or a question the
+Core leaves open). A set also fails when a listed difference is gone
+(`FIXED`), or when the oracle decides fewer functions than the set's
+floor in `test/oracle/coverage`. By hand:
+
+```bash
+bin/rig-oracle -v file.rig            # every function's two verdicts
+bin/rig-oracle --explain main file.rig  # the lowered core of `main`
+bin/rig-oracle --stats test/corpus/*  # why it abstains, by count
+```
 
 ## Proving a refactor changed nothing
 

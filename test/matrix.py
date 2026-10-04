@@ -11,6 +11,8 @@ no use of freed memory, no Zig compile error, no crash).
     test/matrix.py                 # generate, check, and run everything
     test/matrix.py -j 8 -k vec     # 8 at a time; only ids containing "vec"
     test/matrix.py --keep DIR      # write the programs to DIR and keep them
+    test/matrix.py --oracle        # only run the reference ownership checker
+                                   # (bin/rig-oracle, test/oracle/) over them
 
 Nothing it writes is committed: programs go to a temporary directory,
 and each run's build is removed after it passes.
@@ -27,6 +29,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RIG = os.path.join(ROOT, "bin", "rig")
+ORACLE = os.path.join(ROOT, "bin", "rig-oracle")
 
 # What a sound program never does when it runs (test/run's CORPUS_BAD_RE).
 BAD = re.compile(
@@ -240,6 +243,25 @@ def run_one(path, keep):
     return "ok", ""
 
 
+def run_oracle(work, cells, args):
+    """Check every program with the reference ownership checker; its exit status."""
+    if not os.access(ORACLE, os.X_OK):
+        print(f"{ORACLE} is not built; run `zig build oracle`")
+        return 1
+    listing = os.path.join(work, "oracle.list")
+    with open(listing, "w") as fh:
+        for ident, path in cells:
+            fh.write(f"{ident}\t{path}\n")
+    cmd = [ORACLE, "--set", "matrix", "--allow", os.path.join(ROOT, "test", "oracle", "differences"),
+           "--coverage", os.path.join(ROOT, "test", "oracle", "coverage"), "--list", listing]
+    if args.v:
+        cmd.append("-v")
+    r = subprocess.run(cmd, stdin=subprocess.DEVNULL)
+    if not args.keep:
+        shutil.rmtree(work, ignore_errors=True)
+    return r.returncode
+
+
 def first_line(s):
     return next((l for l in s.splitlines() if l.strip()), "")
 
@@ -257,6 +279,7 @@ def main():
     ap.add_argument("-k", action="append", default=[], help="only ids containing this (repeatable)")
     ap.add_argument("--keep", help="write the programs here and keep them and their builds")
     ap.add_argument("-v", action="store_true", help="list every result")
+    ap.add_argument("--oracle", action="store_true", help="run bin/rig-oracle over the programs instead")
     args = ap.parse_args()
     if not os.access(RIG, os.X_OK):
         sys.exit(f"{RIG} is not built; run `zig build`")
@@ -278,6 +301,8 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(src)
                 cells.append((ident, path))
+    if args.oracle:
+        sys.exit(run_oracle(work, cells, args))
     results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
         futs = {pool.submit(run_one, p, bool(args.keep)): i for i, p in cells}

@@ -108,6 +108,7 @@ zig build                  # builds bin/rig
 ./test/run -j 2            # full suite; must be green before every commit
 ./test/run -j 2 corpus     # every reviewer probe, not only the default sample
 test/matrix.py -j 2        # form x context x type programs, checked and run
+zig build oracle           # builds bin/rig-oracle (./test/run does it too)
 zig build test --cache-dir "$(mktemp -d)"  # unit tests, not replayed from cache
 bin/rig run file.rig       # compile + run (debug, leak-checked)
 bin/rig emit file.rig      # the emitted Zig
@@ -149,8 +150,10 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |
 | `src/main.zig` | CLI |
+| `src/lib.zig` | The compiler as a library, for `bin/rig-oracle` only |
 | `test/` | The test suite (see `test/README.md`) |
 | `test/corpus/` | Reviewer probes: each is rejected, or runs sanitizer-clean |
+| `test/oracle/` | The reference ownership checker, `bin/rig-oracle`, and its classified differences |
 | `examples/` | Curated example programs, all run by the suite |
 | `std/` | The standard library: Rig modules and the Zig behind their Zig-backed declarations |
 | `docs/CORE.md` | The ownership model on one page, which every other doc must agree with |
@@ -161,6 +164,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `FAQ.md` | Common questions |
 | `docs/STD.md` | The standard library's modules |
 | `docs/DESIGN.md` | Principles and rationale |
+| `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
 | `docs/zig-0.17.md` | Zig 0.17 for Rig contributors: the language, std, and build APIs Rig uses |

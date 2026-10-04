@@ -75,6 +75,10 @@ pub const Module = struct {
     sema: *sema.SemContext,
     imports: std.ArrayList(Import) = .empty,
     state: State = .loading,
+    /// Whether the ownership checker ran on the module, and the range of
+    /// `sema.diagnostics` it appended (read by test tools).
+    own_ran: bool = false,
+    own_diags: [2]u32 = .{ 0, 0 },
 
     pub const State = enum { loading, checked, failed };
 };
@@ -418,7 +422,10 @@ pub const ModuleGraph = struct {
         var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);
         defer own.deinit();
         try own.check(m.ir);
+        const first: u32 = @intCast(m.sema.diagnostics.items.len);
         for (own.diagnostics.items) |d| try self.addDiagnostic(id, d);
+        m.own_ran = true;
+        m.own_diags = .{ first, @intCast(m.sema.diagnostics.items.len) };
         // What the generic bodies copy, for the modules that import them.
         try m.sema.plain_reqs.appendSlice(self.allocator, own.ownPlainReqs());
 

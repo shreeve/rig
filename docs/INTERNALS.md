@@ -1359,6 +1359,24 @@ To fix a bug: write a failing test first (under `test/known/` if it will
 not be fixed in the same change), make it pass, and keep the suite
 green.
 
+### The reference ownership checker
+
+`bin/rig-oracle` (`test/oracle/`) is a second ownership checker that the
+suite runs beside `src/ownership.zig`, written from
+[CORE](CORE.md) and sharing none of the compiler's ownership code: it
+reads only the IR, symbols, and types (`src/lib.zig`), never the facts
+typecheck and ownership record about what an expression hands over, and
+a lint keeps it so. It lowers each function to a small core in which
+statement temporaries are hidden bindings and evaluation order is
+explicit, then runs one dataflow over the core's control flow: which
+vars are live, which loans each var holds, and the checks each Core
+sentence implies. Its verdict per function is accept, reject, or none
+(a form it does not model yet). Where the compiler accepts what it
+rejects, the suite fails: that may be a soundness hole, found when the
+program is checked rather than when it happens to touch freed memory.
+It sees the program's meaning, not the emitted Zig, so emit-side bugs
+stay with the sanitizer and `test/equiv.py`.
+
 ## Nexus notes
 
 - An `L(X)` list followed by its own separator is a shift/reduce
