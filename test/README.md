@@ -230,12 +230,35 @@ compiler rejects a function the oracle accepts, the run reports it
 (a compiler rejection the Core allows, an oracle gap, or a question the
 Core leaves open). A set also fails when a listed difference is gone
 (`FIXED`), or when the oracle decides fewer functions than the set's
-floor in `test/oracle/coverage`. By hand:
+floor in `test/oracle/coverage`.
+
+A test may state the oracle's own verdict on one of its functions, in
+a comment line the oracle checks on every run, whatever the compiler
+decides (also where the compiler's semantic checks stop first):
+
+```
+# oracle: main reject C2
+# oracle planned: loops accept
+```
+
+The word after the function is `accept`, or `reject` with the rule
+the oracle names (C1–C7, B1). `oracle planned:` checks the verdict
+under the Core's planned rules the oracle models (`--planned`): a type
+holding a `Cell` is unique, and a `for` reads a bare place where it
+stands. A different verdict, or none, fails the set. These lines are
+the oracle's own tests: each of the oracle's header rules (a subject
+that is a place, a made value, a part of one, a lend of one, or a
+branching value) has tests that state its verdict, so the change that
+builds a planned rule can rely on the oracle to catch what it gets
+wrong. By hand:
 
 ```bash
 bin/rig-oracle -v file.rig            # every function's two verdicts
 bin/rig-oracle --explain main file.rig  # the lowered core of `main`
 bin/rig-oracle --stats test/corpus/*  # why it abstains, by count
+bin/rig-oracle --planned -v file.rig  # with the planned rules it models
+bin/rig-oracle --sema -v file.rig     # also functions the compiler's
+                                      # semantic checks rejected
 ```
 
 ## Proving a refactor changed nothing

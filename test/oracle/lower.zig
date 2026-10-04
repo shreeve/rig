@@ -98,13 +98,17 @@ const Loop = struct {
     value: ?VarId,
 };
 
-pub fn lowerUnit(a: std.mem.Allocator, m: *const lib.modules.Module, unit: Unit) !core.Func {
+/// `planned` applies the Core's planned rules the oracle models: a type
+/// holding a `Cell` is unique (Core §1), and a bare place a `for` walks
+/// is read where it stands (Core s1).
+pub fn lowerUnit(a: std.mem.Allocator, m: *const lib.modules.Module, unit: Unit, planned: bool) !core.Func {
     var l: Lowerer = .{
         .a = a,
         .ctx = m.sema,
         .parser = m.parser,
         .src = m.source,
-        .kinds = kinds.Kinds.init(a, m.sema),
+        .kinds = kinds.Kinds.init(a, m.sema, planned),
+        .planned = planned,
     };
     l.run(unit) catch |err| switch (err) {
         error.Found => {},
@@ -119,6 +123,7 @@ const Lowerer = struct {
     parser: *const parser.Parser,
     src: []const u8,
     kinds: kinds.Kinds,
+    planned: bool,
     f: core.Func = .{},
     cur: ?BlockId = null,
     vars: std.AutoHashMapUnmanaged(SymbolId, VarId) = .empty,
@@ -136,6 +141,9 @@ const Lowerer = struct {
     /// of `if`s in tail position: the block's region. A bare binding of
     /// that block or a deeper one leaves with the value.
     tail_floor: ?usize = null,
+    /// While a header finds the place its subject names in a value it
+    /// made: that value's node, and the var holding it.
+    made_root: ?struct { start: u32, end: u32, v: VarId } = null,
 
     // ---- the function ---------------------------------------------------
 
@@ -477,7 +485,7 @@ const Lowerer = struct {
         try self.branch(t, el);
         self.cur = t;
         try self.pushRegion();
-        if (held) |h| try self.bindHeld(ir.As.name(cond), h);
+        if (held) |h| try self.bindHeld(ir.As.name(cond), h, self.optionalInner(h.ty));
         if (j) |jv| try self.armValue(ir.If.then(e), how, jv) else try self.blockStmts(ir.If.then(e));
         try self.popRegion(self.posOf(e));
         try self.goto(x);
@@ -498,30 +506,31 @@ const Lowerer = struct {
         try self.valueInto(e, how, j);
     }
 
-    /// What `e as x` holds through the branch it binds in.
+    /// What a header holds through the statement it heads.
     const Held = struct {
         v: VarId,
         pos: u32,
+        /// The subject's type, whose elements or payloads the header binds.
+        ty: TypeId,
         /// For a read lend of a place (`match ?h`): the place's root, whose
         /// loans a String payload carries instead of the loan on it.
         carry_from: ?VarId = null,
+        /// For a lend of a value the header made (`match ?mk()`): the
+        /// header's temporary, which the tests of the statement may read
+        /// but no binding may view (Core §3).
+        lent_temp: bool = false,
     };
 
     /// The value of `if e as x`, `while e as x`, or a `match` subject: a
     /// header, whose temporaries end with it, and whose value a hidden
-    /// var of the statement holds (Core §3). A call's result is taken; a
-    /// place is lent or moved as written, or, bare, taken as a binding
-    /// takes it (`as`) or read where it stands (`match`).
+    /// var of the statement holds (Core §3). A bare place is taken as a
+    /// binding takes it (`as`, `how` take) or read where it stands
+    /// (`match`, `how` read); see `subject` for the rest.
     fn asHeader(self: *Lowerer, value: Sexp, how: How) Error!Held {
         const pos = self.posOf(value);
-        if (isBranching(value)) return abstain("an `as` of a branching value");
+        const ty = try self.typeOf(value);
         try self.pushRegion();
-        var v = try self.eval(value, how, null) orelse blk: {
-            // A literal or constant subject holds no loan.
-            const c = try self.temp(try self.typeOf(value), pos);
-            try self.emit(.{ .pos = pos, .what = .make, .def = c });
-            break :blk c;
-        };
+        var v = try self.subject(value, how, "the `as` value");
         // A read view of a made value of plain data is read as its value,
         // which carries no loan (Core §4).
         if (value.isKind(.read) and !self.isPlaceSyntax(ir.Read.operand(value))) v = try self.readThrough(v, pos);
@@ -532,7 +541,85 @@ const Lowerer = struct {
             const rv = self.f.vars.items[r];
             if (rv.kind != .write_view and !rv.alias) carry_from = r;
         };
-        return .{ .v = h, .pos = pos, .carry_from = carry_from };
+        const lent_temp = (value.isKind(.read) or value.isKind(.write)) and self.madeSubject(ir.get(value, .operand));
+        return .{ .v = h, .pos = pos, .ty = ty, .carry_from = carry_from, .lent_temp = lent_temp };
+    }
+
+    /// What a header's subject hands over (Core §3), lowered inside the
+    /// header's region; `bare` says what a bare place does.
+    /// - A place is read, lent, moved, or taken as written.
+    /// - A value made in the header (a call's result, a constructor, a
+    ///   literal) is taken. So is the made value the subject is a part
+    ///   of (`mk().e`, `[a, b][0]`): a hidden var of the statement holds
+    ///   it through the body, and the subject is its part.
+    /// - A lend of a made value (`?mk()`) lends the header's temporary:
+    ///   the statement's tests may read it, but no binding may view it
+    ///   (`Held.lent_temp`).
+    /// - A branching value (`if`, `??`, `catch`, `o?`, `match`, a block)
+    ///   is taken leaf by leaf, as a binding takes it: a bare leaf whose
+    ///   type moves is rejected (C2, Core s1), `<x` moves, a made leaf is
+    ///   taken, a leaf of plain data or a read view copies.
+    fn subject(self: *Lowerer, value: Sexp, bare: How, name: []const u8) Error!VarId {
+        const pos = self.posOf(value);
+        const lent = value.isKind(.read) or value.isKind(.write);
+        const named = if (lent) ir.get(value, .operand) else value;
+        const root = chainRoot(named);
+        if (self.madeSubject(named)) {
+            if (lent and isBranching(named)) return abstain("a lend of a branching value (Core §3, planned)");
+            if (lent and value.isKind(.write)) return abstain("a write lend of a made value");
+            const part = named.kind().? == .member or named.kind().? == .index;
+            if (part or lent) {
+                const hp = try self.heldPart(named, name);
+                if (lent) return try self.lend(hp.place, .read, value, try self.typeOf(value));
+                // The payloads a header binds of a value it holds are the
+                // body's own (or views of the holder: `bindHeld`).
+                return hp.held;
+            }
+            if (isBranching(root)) {
+                const t = try self.temp(try self.typeOf(root), pos);
+                try self.valueInto(root, .take, t);
+                return t;
+            }
+        }
+        return try self.eval(value, bare, null) orelse blk: {
+            // A literal or constant subject holds no loan.
+            const c = try self.temp(try self.typeOf(value), pos);
+            try self.emit(.{ .pos = pos, .what = .make, .def = c });
+            break :blk c;
+        };
+    }
+
+    /// Take the value a header made, which `named` is or is a part of,
+    /// into a hidden var of the statement; the place `named` is in it.
+    fn heldPart(self: *Lowerer, named: Sexp, name: []const u8) Error!struct { held: VarId, place: Place } {
+        const root = chainRoot(named);
+        const made = try self.eval(root, .take, null) orelse return abstain("a part of a constant");
+        const held = try self.hold(made, name, self.posOf(named));
+        const span = self.parser.span(root);
+        const saved = self.made_root;
+        self.made_root = .{ .start = span.start, .end = span.end, .v = held };
+        defer self.made_root = saved;
+        const p = try self.place(named) orelse return abstain("an unusual header subject");
+        return .{ .held = held, .place = p };
+    }
+
+    /// Whether a header subject names a value the header makes, or a
+    /// part of one: neither a place, nor a constant, nor a sigil.
+    fn madeSubject(self: *Lowerer, named: Sexp) bool {
+        const rk = chainRoot(named).kind() orelse return false;
+        if (rk == .read or rk == .write or rk == .move) return false;
+        return !self.isPlaceSyntax(named) and !self.constRooted(named);
+    }
+
+    /// The object a chain of fields and elements starts from: `mk()` in
+    /// `mk().e[0]`.
+    fn chainRoot(e: Sexp) Sexp {
+        var x = e;
+        while (x.kind()) |k| {
+            if (k != .member and k != .index) break;
+            x = ir.get(x, .object);
+        }
+        return x;
     }
 
     /// Move a header's value into a hidden var of the statement around
@@ -550,9 +637,15 @@ const Lowerer = struct {
         return h;
     }
 
-    /// Bind a payload of a held value: owned when the value is, else a
-    /// view of it that carries its loans, whatever the payload's type.
-    fn bindHeld(self: *Lowerer, leaf: Sexp, h: Held) Error!void {
+    /// Bind an element or payload of a held value, whose stored type is
+    /// `stored` when known. Through a held view, the binding sees the
+    /// payload where it is and carries the view's loans. A held value is
+    /// the body's own: a binding of the stored type is a copy of it, or
+    /// owned, carrying what it holds; a binding that views a stored
+    /// value (`?T` of a stored `T`) is a lend of the holder, whose loan
+    /// ends with the statement (Core §3: a view of what a header made
+    /// does not outlive it).
+    fn bindHeld(self: *Lowerer, leaf: Sexp, h: Held, stored: ?TypeId) Error!void {
         if (leaf == .nil or std.mem.eql(u8, leaf.getText(self.src), "_")) {
             try self.emit(.{ .pos = h.pos, .what = .use, .uses = try self.one(h.v) });
             return;
@@ -560,14 +653,29 @@ const Lowerer = struct {
         const x = try self.bind(leaf, 0);
         const hv = self.f.vars.items[h.v];
         const xv = &self.f.vars.items[x];
+        // A view of a value a header made ends with the header: a binding
+        // that would carry it outlives its statement (Core §3).
+        if (h.lent_temp and (xv.holds_views or (xv.kind != .plain and (hv.kind == .read_view or hv.kind == .write_view)))) {
+            return self.found(.C5, leaf.src.pos, "a loan of a temporary the header made outlives its statement", .{});
+        }
         // A String payload of a read lend carries the String's loans, not
         // the loan on what holds it (Core s7).
         if (h.carry_from) |r| if (self.ctx.types.get(xv.ty) == .string) {
             try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(r), .uses = try self.one(h.v), .def = x, .carry = true });
             return;
         };
+        const held_view = hv.kind == .read_view or hv.kind == .write_view;
+        if (!held_view) switch (self.ctx.types.get(xv.ty)) {
+            .borrow_read, .borrow_write => if (stored == null or stored.? != xv.ty) {
+                const mode: core.Mode = if (self.ctx.types.get(xv.ty) == .borrow_write) .write else .read;
+                const loan = try self.newLoan(self.rootPlace(h.v), mode, false, 0, h.pos);
+                try self.emit(.{ .pos = h.pos, .what = .lend, .reads = try self.one(h.v), .def = x, .loan = loan, .access = .{ .root = h.v, .kind = if (mode == .read) .read else .write } });
+                return;
+            },
+            else => {},
+        };
         // The held value stays whole for the arms after a failed guard.
-        if ((hv.kind == .read_view or hv.kind == .write_view) and xv.kind != .plain) {
+        if (held_view and xv.kind != .plain) {
             // An owner's payload seen through the view: an alias.
             xv.alias = xv.kind == .owning;
             xv.kind = hv.kind;
@@ -576,6 +684,41 @@ const Lowerer = struct {
             xv.drop_reads = false;
         }
         try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(h.v), .def = x });
+    }
+
+    /// The type an `as` binds: what the optional subject holds.
+    fn optionalInner(self: *Lowerer, ty: TypeId) ?TypeId {
+        return switch (self.ctx.types.get(ty)) {
+            .optional => |t| t,
+            else => null,
+        };
+    }
+
+    /// The type of each element a `for` over a value of `ty` binds.
+    fn elementOf(self: *Lowerer, ty: TypeId) ?TypeId {
+        return switch (self.ctx.types.get(ty)) {
+            .array => |arr| arr.elem,
+            .slice => |sl| sl.elem,
+            .parameterized_nominal => |pn| if (pn.sym == self.ctx.vec_sym_id and pn.args.len == 1) pn.args[0] else null,
+            else => null,
+        };
+    }
+
+    /// The type of the `i`th payload a variant pattern binds, for an
+    /// enum of this module that is not generic.
+    fn payloadOf(self: *Lowerer, ty: TypeId, pattern: Sexp, i: usize) ?TypeId {
+        if (self.ctx.types.get(ty) != .nominal) return null;
+        const decl = sema.nominalDecl(self.ctx, ty) orelse return null;
+        if (decl.ctx != self.ctx) return null;
+        const name = ir.VariantPattern.name(pattern);
+        if (name != .src) return null;
+        const want = name.getText(self.src);
+        for (decl.symbol().fields orelse &.{}) |*f| {
+            if (!f.is_variant or !std.mem.eql(u8, f.name, want)) continue;
+            const payload = sema.dataFields(f);
+            return if (i < payload.len) payload[i].ty else null;
+        }
+        return null;
     }
 
     /// A `match`, as a statement (`j` null) or a value stored in `j`.
@@ -662,11 +805,11 @@ const Lowerer = struct {
 
     fn bindPattern(self: *Lowerer, pattern: Sexp, h: Held) Error!void {
         switch (pattern) {
-            .src => if (self.bindsName(pattern)) try self.bindHeld(pattern, h),
+            .src => if (self.bindsName(pattern)) try self.bindHeld(pattern, h, h.ty),
             .list => switch (pattern.kind() orelse return abstain("an unusual pattern")) {
-                .variant_pattern => for (ir.VariantPattern.bindings(pattern)) |b| {
+                .variant_pattern => for (ir.VariantPattern.bindings(pattern), 0..) |b, i| {
                     if (b != .src) return abstain("a payload bound by field name");
-                    try self.bindHeld(b, h);
+                    try self.bindHeld(b, h, self.payloadOf(h.ty, pattern, i));
                 },
                 .alt_pattern => for (ir.AltPattern.alts(pattern)) |alt| {
                     if (alt.isKind(.variant_pattern) and ir.VariantPattern.bindings(alt).len > 0) return abstain("alternatives that bind");
@@ -718,7 +861,7 @@ const Lowerer = struct {
         // and the step; `continue` goes to the step inside it.
         self.cur = b;
         try self.pushRegion();
-        if (held) |hv| try self.bindHeld(ir.As.name(cond), hv);
+        if (held) |hv| try self.bindHeld(ir.As.name(cond), hv, self.optionalInner(hv.ty));
         self.loops.items[self.loops.items.len - 1].cont_depth = self.regions.items.len;
         try self.blockStmts(ir.While.body(s));
         try self.goto(st);
@@ -741,6 +884,7 @@ const Lowerer = struct {
         const mode = ir.For.mode(s).tag;
         const source = ir.For.source(s);
         const pos = self.posOf(s);
+        const src_ty = sema.unwrapBorrows(self.ctx, try self.typeOf(source));
         // The loop's own scope holds what the header binds: the source.
         try self.pushRegion();
         var src_var: VarId = undefined;
@@ -748,16 +892,44 @@ const Lowerer = struct {
             try self.pushRegion();
             const v: ?VarId = switch (mode) {
                 .read, .write => blk: {
-                    const p = try self.place(source) orelse return abstain("a `for` over a lend of a made value");
+                    // A lend of a value the header makes is a lend of the
+                    // header's temporary, which ends with the header, before
+                    // the loop walks it; a lent value of plain data is read
+                    // as its value, which carries no loan (Core §3, §4).
+                    if (self.madeSubject(source)) {
+                        if (mode == .write) return abstain("a write lend of a made value");
+                        if (isBranching(source)) return abstain("a lend of a branching value (Core §3, planned)");
+                        const p = try self.place(source) orelse blk2: {
+                            const t = try self.eval(source, .take, null) orelse return abstain("a lend of a constant");
+                            break :blk2 Place{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
+                        };
+                        const view = try self.lend(p, .read, source, try self.typeOf(source));
+                        const inner = try self.typeOf(source);
+                        if ((try self.kinds.of(inner)).kind.copies()) {
+                            const c = try self.temp(inner, pos);
+                            try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(view), .def = c });
+                            break :blk c;
+                        }
+                        break :blk view;
+                    }
+                    const p = try self.place(source) orelse return abstain("a `for` over a lend of an unusual value");
                     break :blk try self.lend(p, if (mode == .read) .read else .write, source, try self.typeOf(source));
                 },
                 .move => if (source == .src) blk: {
                     const x = self.varOf(source) orelse return abstain("a `for` moving something not a local");
                     break :blk try self.moveWhole(x, pos);
                 } else try self.eval(source, .take, null),
-                .iter => if (source.isKind(.@"..")) try self.eval(source, .read, null) else if (try self.place(source)) |p| blk: {
-                    if (!(try self.kinds.of(p.ty)).kind.copies()) return abstain("a `for` over a bare place (Core s1, planned)");
-                    break :blk try self.copy(p, p.ty, pos);
+                .iter => if (source.isKind(.@"..")) try self.eval(source, .read, null) else if (self.madeSubject(source)) blk: {
+                    // A value the header makes is taken, and so is the made
+                    // value the source is a part of; a branching value is
+                    // taken leaf by leaf (Core §3).
+                    if (source.isKind(.member) or source.isKind(.index)) break :blk (try self.heldPart(source, "the `for` source")).held;
+                    break :blk try self.eval(source, .take, null);
+                } else if (try self.place(source)) |p| blk: {
+                    if ((try self.kinds.of(p.ty)).kind.copies()) break :blk try self.copy(p, p.ty, pos);
+                    // A bare place is read where it stands (Core s1, planned).
+                    if (!self.planned) return abstain("a `for` over a bare place (Core s1, planned)");
+                    break :blk try self.lend(p, .read, source, p.ty);
                 } else try self.eval(source, .take, null),
                 else => return abstain("an unusual `for`"),
             };
@@ -786,7 +958,7 @@ const Lowerer = struct {
         // view of the source, carrying its loans.
         const var_leaf = ir.For.@"var"(s);
         if (var_leaf != .nil and !std.mem.eql(u8, var_leaf.getText(self.src), "_")) {
-            try self.bindHeld(var_leaf, .{ .v = src_var, .pos = pos });
+            try self.bindHeld(var_leaf, .{ .v = src_var, .pos = pos, .ty = src_ty }, self.elementOf(src_ty));
         }
         const idx_leaf = ir.For.index(s);
         if (idx_leaf != .nil and !std.mem.eql(u8, idx_leaf.getText(self.src), "_")) {
@@ -1172,7 +1344,10 @@ const Lowerer = struct {
                 const v = self.vars.get(sym_id) orelse return null;
                 return self.rootPlace(v);
             },
-            .list => {},
+            .list => if (self.made_root) |mr| {
+                const span = self.parser.span(e);
+                if (span.start == mr.start and span.end == mr.end) return self.rootPlace(mr.v);
+            },
             else => return null,
         }
         const k = e.kind() orelse return null;
@@ -1451,7 +1626,8 @@ const Lowerer = struct {
                     shapes = try self.shapesOf(self.ctx, ft.function.params);
                 },
                 .nominal_type, .generic_type, .type_alias => {
-                    if (s.kind == .generic_type and sym_id.? != self.ctx.vec_sym_id and sym_id.? != self.ctx.box_sym_id) return abstain("a generic constructor");
+                    const built_in = sym_id.? == self.ctx.vec_sym_id or sym_id.? == self.ctx.box_sym_id or sym_id.? == self.ctx.cell_sym_id or sym_id.? == self.ctx.signal_sym_id;
+                    if (s.kind == .generic_type and !built_in) return abstain("a generic constructor");
                     is_ctor = true;
                 },
                 .local, .param, .capture => return abstain("a call of a closure"),
