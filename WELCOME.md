@@ -56,7 +56,8 @@ suffix always means absence or failure, and `!` never means "not"
 - The `?` or `!` is written on the owner (`print(?v)`, `grow(!v)`), so
   the owner **lends**.
 - What the receiver gets is a **view**: it reads the value, or with
-  `!` changes it, and the receiver may copy, return, or store it.
+  `!` changes it. The receiver may return or store it; a read view also
+  copies, while a write view moves, so only one can change the value.
 - What stays behind is a **loan**: until the last use of every view,
   the owner can't change, move, or drop what it lent.
 
