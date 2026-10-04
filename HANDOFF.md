@@ -200,6 +200,10 @@ and run the corpus after:
 - **`defer`/`errdefer` at exits:** `Exit.goesOn()`.
 - **Owning values behind `Cell`, `Box`, and `*T`, and generic
   instances.**
+- **Copies of a type holding a `Cell`.** Such a type copies, so a copy
+  forks the state the `Cell` holds: `b = a`, `k = a[0]`, and `k = <a[0]`
+  each make an independent `Cell`. It is not a memory hole; step 3's
+  rule that a `Cell` holder is unique closes it.
 
 ## The gates
 
