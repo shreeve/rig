@@ -223,12 +223,14 @@ the function uses a form the oracle does not model yet. The test kind
 | `oracle/docs` | every doc example but fragments |
 | `oracle/matrix` | the matrix programs (`test/matrix.py --oracle`) |
 
-A set fails when a function the oracle decides gets the other verdict
-from the compiler and is not listed in `test/oracle/differences` with
-its class (a compiler hole, a compiler rejection the Core allows, an
-oracle gap, or a question the Core leaves open), when a listed
-difference is gone (`FIXED`), or when the oracle decides fewer
-functions than the set's floor in `test/oracle/coverage`. By hand:
+A set fails when the compiler accepts a function the oracle rejects:
+that may be a soundness hole, and it can never be allowlisted. When the
+compiler rejects a function the oracle accepts, the run reports it
+(`stricter`), and `test/oracle/differences` records it once classified
+(a compiler rejection the Core allows, an oracle gap, or a question the
+Core leaves open). A set also fails when a listed difference is gone
+(`FIXED`), or when the oracle decides fewer functions than the set's
+floor in `test/oracle/coverage`. By hand:
 
 ```bash
 bin/rig-oracle -v file.rig            # every function's two verdicts

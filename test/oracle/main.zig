@@ -17,10 +17,12 @@
 //! otherwise, skipped when sema stopped the module first. It then lowers
 //! every function of the program's own modules to the core (lower.zig)
 //! and checks it (flow.zig), which accepts, rejects, or abstains. Each
-//! function both decide differently is a difference: listed in the
-//! allowlist with its class, or a failure. The run also fails on a
-//! stale allowlist entry, and on fewer decided functions than the set's
-//! floor. The oracle reads only the IR, symbols, and types; it never
+//! function both decide differently is a difference. One the compiler
+//! accepts and the oracle rejects always fails the run: it may be a
+//! soundness hole. One the compiler rejects is reported, and listed in
+//! the allowlist with its class once classified. The run also fails on
+//! a stale allowlist entry, and on fewer decided functions than the
+//! set's floor. The oracle reads only the IR, symbols, and types; it never
 //! reads the compiler's ownership classifications (see test/run's lint).
 
 const std = @import("std");
@@ -195,6 +197,12 @@ fn readAllowlist(a: std.mem.Allocator, io: std.Io, path: []const u8, allow: *std
         const function = words.next() orelse continue;
         const direction = words.next() orelse continue;
         const class = words.next() orelse continue;
+        // The compiler accepting what the oracle rejects is a possible
+        // soundness hole: it always fails the run, so it is never listed.
+        if (std.mem.eql(u8, direction, "prod-accepts")) {
+            std.debug.print("{s}: `{s} {s}` lists a prod-accepts difference; those always fail and cannot be allowlisted\n", .{ path, program, function });
+            return error.UnsoundAllowlisted;
+        }
         const key = try std.mem.concat(a, u8, &.{ program, "\x00", function });
         try allow.put(a, key, .{ .direction = direction, .class = class });
     }
@@ -285,8 +293,11 @@ fn checkProgram(
                     totals.allowed += 1;
                 }
             };
-            if (differs and !allowed) totals.failures += 1;
-            const mark = if (!differs) "" else if (allowed) "allowed " else "DIFF ";
+            // Only the compiler accepting what the oracle rejects fails the
+            // run; a stricter compiler is reported, and listed once classified.
+            const fails = differs and prod == .accept;
+            if (fails) totals.failures += 1;
+            const mark = if (!differs) "" else if (fails) "DIFF " else if (allowed) "allowed " else "stricter ";
             try out.print("{s}{s} {s} prod={s} ref={s}", .{ mark, name, qualified, @tagName(prod), @tagName(verdict) });
             switch (verdict) {
                 .reject => |f| {
