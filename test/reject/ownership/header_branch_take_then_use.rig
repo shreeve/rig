@@ -1,0 +1,40 @@
+# A branching header subject written with `<` on each name takes the
+# name on its path (Core §3, §5), so the name may not be used after the
+# header, on any path that took it.
+#
+# oracle: loops reject C1
+# oracle: matches reject C1
+# oracle planned: loops reject C1
+# oracle planned: matches reject C1
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter)
+  b
+
+fun pair() -> [2]Counter
+  [Counter(hits: Cell(1)), Counter(hits: Cell(2))]
+
+sub loops(f: Bool)
+  a = pair()
+  b = pair()
+  for k in (<a if f else <b)
+    print(k.hits.get())
+  print(a[0].hits.get())
+
+sub matches(f: Bool)
+  x = E.a(c: Counter(hits: Cell(0)))
+  y = E.b
+  match (<x if f else <y)
+    .a(c) => print(c.hits.get())
+    .b => pass
+  print(x)
+
+sub main()
+  loops(true)
+  matches(true)
+
+# error: 24:9: use of `a` after move
+# error: 32:9: use of `x` after move
+# errors: 2

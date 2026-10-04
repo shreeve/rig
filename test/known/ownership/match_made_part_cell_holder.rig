@@ -1,0 +1,66 @@
+# A `match` on a part of a value its header makes takes that value
+# (Core §3): `H(...).e`, `mkh(n).e`, `[...][0]`, and `mk(n)[0]` are held
+# through the match, so each payload is the arm's own, a place a `?self`
+# method or `Cell.set` changes (Core s9).
+#
+# Known bug: today each payload is a copy, and a change through it is
+# rejected ("`c` is a loop or match binding, a copy"); the compiler that
+# accepted these forms in step 1 wrote into a constant (`Bus error`).
+# Step 3 fixes it; test/reject/ownership/match_copy_of_cell_holder.rig,
+# which states today's rejection, goes then.
+#
+# oracle: main accept
+# oracle planned: main accept
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+struct H
+  e: E
+
+fun mkh(n: Int) -> H
+  H(e: E.a(c: Counter(hits: Cell(n))))
+
+fun mk(n: Int) -> [1]E
+  [E.a(c: Counter(hits: Cell(n)))]
+
+sub main()
+  match H(e: E.a(c: Counter(hits: Cell(0)))).e
+    .a(c)
+      c.hit()
+      print(c.hits.get())
+    .b => pass
+  match mkh(3).e
+    .a(c)
+      c.hit()
+      print(c.hits.get())
+    .b => pass
+  match [E.a(c: Counter(hits: Cell(5))), E.b][0]
+    .a(c)
+      c.hit()
+      print(c.hits.get())
+    .b => pass
+  match mk(7)[0]
+    .a(c)
+      c.hit()
+      print(c.hits.get())
+    .b => pass
+  match H(e: E.a(c: Counter(hits: Cell(0)))).e
+    .a(c)
+      c.hits.set(2)
+      print(c.hits.get())
+    .b => pass
+
+# expect:
+# 1
+# 4
+# 6
+# 8
+# 2
