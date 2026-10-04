@@ -589,8 +589,10 @@ sub main
 
 A call evaluates its receiver and arguments left to right, then runs. A
 value an earlier argument reads stays lent until the call returns, so a
-later argument can't change it. A write lend in an argument acts as a
-read loan until the call starts, so `!v.push(v.len)` works. *(built)*
+later argument can't change it. A write lend of a method's receiver
+acts as a read loan until the call starts, so `!v.push(v.len)` works; a
+write lend in any other argument is a write loan at once, so
+`grow(!v, v.len)` is rejected. *(built)*
 
 ```rig
 sub main
