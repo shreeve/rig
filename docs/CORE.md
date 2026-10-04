@@ -121,11 +121,11 @@ use `<c`
 reads owners and handles in place. It never clones, writes, or drops,
 and it moves only where the value leaves for good: `return x`, `break
 x`, or `x` as the last value of a function or block. *(built* for copies,
-`return x`, a function's last value, and reading in place an argument
-where a view is expected (`size(v)` for a `?Vec[Int]` parameter);
-*planned:* a block's last value and `break x`, which take `<x` today,
-and reading in place in a header, where `?` is still required today, as
-for a `for` over a `Vec`, `if o as x`, or a `match` on a `Box`.*)*
+`return x`, a function's last value, and reading in place: an argument
+where a view is expected (`size(v)` for a `?Vec[Int]` parameter), and a
+header's subject (a `for` over a `Vec`, `if o as x`, a `match` on a
+`Box`); *planned:* a block's last value and `break x`, which take `<x`
+today.*)*
 
 ```rig
 fun make -> Vec[Int]
@@ -142,7 +142,7 @@ sub main
 1
 ```
 
-```rig pending
+```rig
 sub main
   v: Vec[Int] = Vec()
   !v.push(1)

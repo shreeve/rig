@@ -2,9 +2,6 @@
 # (Core §3, §5): with `<` on each name, a unique value is moved, never
 # copied, so the loop's elements and the arm's payloads are its own.
 #
-# Known bug: today a loop over `<a if f else <b` is rejected as a read
-# loop that copies each `Random` ("binds a copy of each element").
-#
 # oracle: loops accept
 # oracle planned: loops accept
 use std.random

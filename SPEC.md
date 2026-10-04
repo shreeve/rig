@@ -721,9 +721,8 @@ copy would repeat its numbers), or any struct, enum, array, or generic
 instance that holds one inline. It moves like an owning value, has no
 clone (`+x`) and no `==`, and nothing copies it out of a place; it has
 no drop glue, so an array may hold it and a discarded one is simply
-dropped. A loop that reads an array or slice binds a copy of each
-element, so a loop over unique elements writes each in place (`for x
-in !a`) or takes the array (`for x in <a`).
+dropped. A loop that reads an array or slice of them binds a view of
+each element (`?E`), never a copy.
 
 ```rig reject
 struct Seed unique
@@ -2166,11 +2165,14 @@ evaluated once). `for x, i in xs` also binds the index (not for
 ranges); the element comes first, the reverse of Python's
 `enumerate`, and where a loop written index first gives a binding the
 other's type, the error says so. An `else` block runs when the loop ends without `break`. A
-`Vec` is walked in place, so the loop borrows it and says so:
-`for x in ?v` ([§10](#vec)); a bare `for x in v` over a Vec binding or
-field is rejected with that fix. An array is copied, and a slice or
-String is a view, so they are walked bare, as is a Vec a call returns,
-which the loop owns and drops.
+source that is a place is walked where it stands: `for x in v` is
+`for x in ?v`, which lends `v` to read for the whole loop ([§10](#vec)),
+so an element of plain data is a copy and any other element a view of
+its slot (`?E`). A value the source makes is taken: a Vec a call
+returns is consumed, and an array made there whose elements move is
+held for the loop, which owns its elements. A part of a value made
+there (`mk().items`) is walked in that value, which the loop holds
+until it ends.
 
 ```rig
 sub find(xs: ?[4]Int, target: Int)
@@ -2387,8 +2389,11 @@ negation and is rejected, as `!flag` is anywhere a `!Bool` is not
 expected. `match !e` needs a place that may be
 written, as `!e` does, and while one of its bindings is live `e` cannot
 be used otherwise. `match <e` needs a value `e` owns, not a borrow. A
-boxed enum is matched through a borrow of the box, `match ?b` or
-`match !b` ([§10](#box)).
+boxed enum is matched where the box holds it, `match b` (as `match ?b`)
+or `match !b` ([§10](#box)), and so is the value a handle holds,
+`match h`, which reads it. A match on a part of a value made there
+(`match mk().e`) holds that value until the match ends, so its payloads
+are read where they are.
 
 ```rig
 struct B
@@ -3662,8 +3667,8 @@ shared handles (including owned closures), weak handles, or boxes.
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
 
-A `for` loop borrows the Vec for the whole loop, so it cannot be
-modified inside it, and the source says so: `for x in ?v`. Each element
+A `for` loop lends the Vec to read for the whole loop, so it cannot be
+modified inside it: `for x in v` is `for x in ?v`. Each element
 of Copy values is a copy; one of owning values is a borrowed slot,
 where `v` must be a binding or a field of one: the element can be
 read, called, and cloned (`+x` is a new handle), but not moved,
@@ -4424,8 +4429,9 @@ grace none none
 An optional of an owning value (such as `*T?` from `upgrade()`) owns
 what it holds. `if e as x` over a temporary gives `x` ownership, and it
 is dropped at the end of the block. An optional held in a binding is
-bound by moving or cloning it: `if <m as x`, `if +m as x`, and
-unwrapped the same way: `(<m)?`.
+read where it is: `if m as x` is `if ?m as x`. To take its value, move
+or clone it: `if <m as x`, `if +m as x`, and it is unwrapped the same
+way: `(<m)?`.
 
 To use the value where it is, borrow the optional: `if ?m as x` binds
 `x` as a read borrow of the value (`?T`), and `if !m as x` as a write

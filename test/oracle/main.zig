@@ -9,10 +9,8 @@
 //!   --set NAME        the set these programs are, for --coverage
 //!   --explain FN      print the lowered core of every function named FN
 //!   --stats           count the reasons the oracle abstains
-//!   --planned         apply the Core's planned rules the oracle models:
-//!                     a type holding a `Cell` is unique (Core §1), and a
-//!                     `for`, `if … as`, or `while … as` reads a bare
-//!                     place where it stands (Core s1)
+//!   --planned         apply the Core's planned rule the oracle models:
+//!                     a type holding a `Cell` is unique (Core §1)
 //!   --sema            also decide the functions of a module whose
 //!                     semantic checks failed (prod=sema), as a probe;
 //!                     they count toward nothing

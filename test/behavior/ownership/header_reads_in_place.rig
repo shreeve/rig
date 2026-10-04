@@ -1,0 +1,97 @@
+# A bare place in a header is read where it stands (Core sentence 1):
+# `for x in v` is `for x in ?v`, `if o as x` over an owning optional is
+# `if ?o as x`, `match b` on a box or a handle reaches the value it
+# holds, and a part of a value the header makes is read in that value,
+# which the construct holds (docs/INTERNALS.md, "Header subjects").
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Tok unique
+  n: Int
+
+enum Shape
+  circle(r: Int)
+  square(s: Int)
+
+struct Bag
+  v: Vec[Int]
+  o: Res?
+
+fun mk(n: Int) -> Bag
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  !v.push(n + 1)
+  Bag(v: <v, o: Res(n: n))
+
+fun bytes(t: ?Text) -> Int
+  n = 0
+  for _ in t
+    n += 1
+  n
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  for x, i in v
+    print(x, i)
+  rs: Vec[*Res] = Vec()
+  !rs.push(*Res(n: 7))
+  for r in rs
+    print(r.n)
+  t = Text("hi")
+  for b in t
+    print(b)
+  print(bytes(?t))
+  o: Res? = Res(n: 3)
+  if o as x
+    print("in", x.n)
+  m = 2
+  while o as x and m > 0
+    print("while", x.n)
+    m -= 1
+  b = Box(Shape.circle(r: 4))
+  match b
+    .circle(r) => print("circle", r)
+    .square(s) => print("square", s)
+  h = *Shape.square(s: 5)
+  match h
+    .circle(r) => print("circle", r)
+    .square(s) => print("square", s)
+  for x in mk(10).v
+    print(x)
+  if mk(20).o as r
+    print("held", r.n)
+  toks = [Tok(n: 1), Tok(n: 2)]
+  n = 0
+  for k in toks
+    n += k.n
+  for k in [Tok(n: 3)]
+    new e = <k
+    print(e.n)
+  print(n)
+
+# expect:
+# 1 0
+# 2 1
+# 7
+# 104
+# 105
+# 2
+# in 3
+# while 3
+# while 3
+# circle 4
+# square 5
+# 10
+# 11
+# drop 10
+# held 20
+# drop 20
+# 3
+# 3
+# drop 3
+# drop 7

@@ -66,10 +66,10 @@ sub main()
   matches(true)
   print(run2(none) ?? 0)
 
-# error: 32:13: a loop that reads `a if f else b` binds a copy of each element, and `random.Random` is unique; bind the array to a name
-# error: 35:12: a loop that reads `two(9) catch d` binds a copy of each element
-# error: 38:12: a loop that reads `o ?? d` binds a copy of each element
-# error: 42:12: a loop that reads `o?` binds a copy of each element
+# error: 32:13: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
+# error: 35:12: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
+# error: 38:12: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
+# error: 42:12: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
 # error: 49:10: a `match` reads a place or takes a call's result; bind this `E` to a name first
 # error: 53:9: a `match` reads a place or takes a call's result; bind this `E` to a name first
 # error: 58:9: a `match` reads a place or takes a call's result; bind this `E` to a name first

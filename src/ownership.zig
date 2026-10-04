@@ -411,6 +411,9 @@ pub const Checker = struct {
     /// of its parts leave them. Set just before walking that node; see
     /// `takeTail`.
     tail: ?Tail = null,
+    /// The value a header holds for its construct (`Header.held`): the
+    /// node that makes it, read as the hidden var `id` holding it.
+    held: ?Held = null,
     /// A branch block whose tail is the function's result, set just
     /// before walking it: an error there fails the function, running
     /// the block's `errdefer`s.
@@ -1559,6 +1562,11 @@ pub const Checker = struct {
             else => return .{},
         }
         const kind = sexp.kind() orelse return .{};
+        // The value a header holds is read from its hidden var.
+        if (self.held) |h| if (sexp.list.ptr == h.base.list.ptr) {
+            try self.checkReadable(h.id, self.startOf(sexp));
+            return self.varValue(h.id);
+        };
         // A temporary is taken into its statement's slot: a block or
         // `match` value's tail leaves its scope as it would for a binding.
         if (self.sema) |ctx| if (ctx.dropsTemp(sexp)) {
@@ -1856,7 +1864,9 @@ pub const Checker = struct {
     /// it gets there. Null for anything else, and for a name the closure
     /// body did not capture (walking the expression reports it).
     fn resolvePlace(self: *const Checker, e: Sexp) ?Place {
-        if (self.hands(e).kind != .place) return null;
+        // The value a header holds is its hidden var.
+        if (self.held) |h| if (e == .list and e.list.ptr == h.base.list.ptr) return .{ .root = h.id, .whole = true };
+        if (self.hands(e).kind != .place and !self.heldPath(e)) return null;
         switch (e) {
             .src => {
                 const id = self.find(self.text(e)) orelse return null;
@@ -3615,9 +3625,17 @@ pub const Checker = struct {
         // Each part is a header, its own statement: its temporaries end
         // with it, after the binding takes what it binds.
         if (!cond.isKind(.as)) return self.walkStmt(cond);
+        // A bare place is bound as `if ?p as x` binds it, and a part of a
+        // made value in a hidden var the `if` holds, in a scope the
+        // caller ends with the body's (docs/INTERNALS.md, "Header
+        // subjects").
+        const header = self.headerOf(cond);
+        const saved_held = self.held;
+        defer self.held = saved_held;
+        if (header == .held) try self.holdBase(ir.As.value(cond), cond);
         const temps_start = self.temps.items.len;
         const drops = self.stmt_drops.items.len;
-        const bound = try self.walkConsumed(ir.As.value(cond), .binding);
+        const bound = if (header != null) try self.walkBorrow(ir.As.value(cond), .read) else try self.walkConsumed(ir.As.value(cond), .binding);
         self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
         try self.pushScopeFor(.block, body);
         try self.bindNew(ir.As.name(cond), false, false, bound);
@@ -3655,6 +3673,35 @@ pub const Checker = struct {
         return self.valueUnion(v1, v2);
     }
 
+    const Held = struct { base: Sexp, id: VarId };
+
+    /// How the header `node` has its bare subject (`SemContext.headerOf`).
+    fn headerOf(self: *const Checker, node: Sexp) ?sema.Header {
+        const ctx = self.sema orelse return null;
+        return ctx.headerOf(node);
+    }
+
+    /// Hold `base`, the value a header makes of which its subject is a
+    /// part, in a hidden var of a scope opened for the construct `node`
+    /// (`Header.held`): `var _h = <base`, whose part the construct
+    /// views. The caller pops the scope where the construct ends.
+    fn holdBase(self: *Checker, subject: Sexp, node: Sexp) Error!void {
+        var base = subject;
+        while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+        const v = try self.walkConsumed(base, .binding);
+        try self.pushScopeFor(.block, node);
+        const id = try self.addVar(.{ .name = self.spanText(base), .decl = self.startOf(base), .ty = self.exprType(base), .kind = .hidden }, .{ .loans = v.loans });
+        self.held = .{ .base = base, .id = id };
+    }
+
+    /// Whether place `e` is a path from the value a header holds.
+    fn heldPath(self: *const Checker, e: Sexp) bool {
+        const h = self.held orelse return false;
+        var base = e;
+        while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+        return base == .list and base.list.ptr == h.base.list.ptr;
+    }
+
     const Scrutinee = struct {
         root: ?VarId = null,
         via: Via = .owned,
@@ -3665,11 +3712,19 @@ pub const Checker = struct {
     fn walkMatch(self: *Checker, match: Sexp) Error!Value {
         const tail_ctx = self.takeTail(match);
         const scrut = ir.Match.subject(match);
+        // A bare place is matched as `match ?p`; a part of a made value
+        // in a hidden var the match holds (docs/INTERNALS.md, "Header
+        // subjects").
+        const header = self.headerOf(match);
+        const saved_held = self.held;
+        defer self.held = saved_held;
+        if (header == .held) try self.holdBase(scrut, match);
         var info: Scrutinee = .{};
         var node = scrut;
-        const lent = scrut.isKind(.read) or scrut.isKind(.write);
+        const written = scrut.isKind(.read) or scrut.isKind(.write);
+        const lent = written or header == .viewed or header == .held;
         if (lent) {
-            node = ir.get(scrut, .operand);
+            if (written) node = ir.get(scrut, .operand);
             info.via = .borrowed;
         }
         if (self.resolvePlace(node)) |p| {
@@ -3685,7 +3740,7 @@ pub const Checker = struct {
         const scrut_temps = self.temps.items.len;
         // The subject is a header: its temporaries end with it.
         const drops = self.stmt_drops.items.len;
-        const scrut_value = try self.walk(scrut);
+        const scrut_value = if (header == .viewed) try self.walkBorrow(scrut, .read) else try self.walk(scrut);
         const header_temps = try self.arena().alloc(VarId, self.stmt_drops.items.len - @min(drops, self.stmt_drops.items.len));
         for (header_temps, self.stmt_drops.items[self.stmt_drops.items.len - header_temps.len ..]) |*t, d| t.* = d.id;
         try self.dropStmtTemps(drops);
@@ -3750,6 +3805,11 @@ pub const Checker = struct {
         if (!catch_all) acc = if (acc) |a| try self.join(a, start) else start;
         try self.apply(acc orelse start);
         if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
+        // The value the match held ends with it.
+        if (header == .held) {
+            value = try self.checkValueEscapesScope(value);
+            try self.popScope();
+        }
         return value;
     }
 
@@ -3863,11 +3923,20 @@ pub const Checker = struct {
             .elem1 = ir.For.@"var"(node),
             .elem2 = ir.For.index(node),
         };
+        // A bare place is walked as `for x in ?p`, an array made here as
+        // `for x in <e`, and a part of a made value in a hidden var the
+        // loop holds (docs/INTERNALS.md, "Header subjects").
+        const header = self.headerOf(node);
+        const saved_held = self.held;
+        defer self.held = saved_held;
+        if (header == .held) try self.holdBase(source, node);
         // The source is a header: its temporaries end with it, before
         // the loop walks what it gives.
         const drops = self.stmt_drops.items.len;
         if (mode == .move) {
             spec.moved = (try self.walkMove(source)).loans;
+        } else if (header == .taken) {
+            spec.moved = (try self.walkConsumed(source, .binding)).loans;
         } else {
             spec.elem_view = true;
             const found = self.errors_found;
@@ -3884,14 +3953,20 @@ pub const Checker = struct {
                 spec.source_root = id;
                 spec.source_loan = kind;
                 spec.source_pos = self.startOf(source);
-                spec.resource_vec = mode == .read and self.isResourceVec(self.exprType(source));
+                spec.resource_vec = (mode == .read or header != null) and self.isResourceVec(self.exprType(source));
                 if (!self.flowLive(id) or try self.conflicts(id, if (kind == .write) .write else .read, spec.source_pos)) {
                     spec.source_root = null;
                 }
             };
         }
         try self.dropStmtTemps(drops);
-        return self.walkLoop(spec);
+        var v = try self.walkLoop(spec);
+        // The value the loop held ends with it.
+        if (header == .held) {
+            v = try self.checkValueEscapesScope(v);
+            try self.popScope();
+        }
+        return v;
     }
 
     /// `(labeled name stmt)`: a labeled loop, or a labeled `match` or

@@ -961,6 +961,31 @@ pub const Emitter = struct {
         return if (self.usage.consumed.contains(sym)) .flag else .scope;
     }
 
+    /// `var _h = base`, for a header that holds the value it makes of
+    /// which `subject` is a part (`Header.held`), dropped where the
+    /// block the caller opened around the construct ends. Until
+    /// `unhold`, emitting the base reads `_h`. Returns the hoisted
+    /// count to restore.
+    fn emitHeld(self: *Emitter, subject: Sexp) Error!usize {
+        var base = subject;
+        while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+        const mark = self.hoisted.items.len;
+        const name = try self.fmt("__rig_held_{d}", .{self.nextId()});
+        try self.writeIndent(self.indent);
+        try self.w.print("var {s} = ", .{name});
+        try self.emitBare(base);
+        try self.w.writeAll(";\n");
+        const k = if (self.typeOf(base)) |t| self.kindOf(t) else null;
+        if (k) |kind| {
+            try self.writeIndent(self.indent);
+            try self.w.writeAll("defer ");
+            try self.writeDrop(name, kind);
+            try self.w.writeAll(";\n");
+        } else try self.line("_ = &{s};", .{name});
+        try self.hoisted.append(self.allocator, .{ .node = base, .name = name });
+        return mark;
+    }
+
     fn writeDrop(self: *Emitter, place: []const u8, kind: ResourceKind) Error!void {
         switch (kind) {
             .shared => try self.w.print("{s}.dropStrong()", .{place}),
@@ -1734,8 +1759,25 @@ pub const Emitter = struct {
     /// Statement `if`: `(if cond then else?)`.
     fn emitIf(self: *Emitter, sexp: Sexp) Error!void {
         const cond = ir.If.cond(sexp);
-        const else_ = ir.If.@"else"(sexp);
         if (rig.isConditionJoin(cond)) return self.emitIfJoined(sexp);
+        // A value the condition holds (`Header.held`) lives in a block
+        // around the `if`.
+        if (cond.isKind(.as) and self.sema.headerOf(cond) == .held) {
+            try self.openBrace();
+            const mark = try self.emitHeld(ir.As.value(cond));
+            defer self.hoisted.shrinkRetainingCapacity(mark);
+            try self.writeIndent(self.indent);
+            try self.emitIfAs(sexp);
+            try self.w.writeAll("\n");
+            return self.closeBrace();
+        }
+        return self.emitIfAs(sexp);
+    }
+
+    /// `emitIf` once a held value is in place.
+    fn emitIfAs(self: *Emitter, sexp: Sexp) Error!void {
+        const cond = ir.If.cond(sexp);
+        const else_ = ir.If.@"else"(sexp);
         try self.w.writeAll("if ");
         if (cond.isKind(.as)) {
             try self.pushScope();
@@ -2135,16 +2177,36 @@ pub const Emitter = struct {
         }
         const elem_sym = self.sema.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
+        const header = self.sema.headerOf(sexp);
+        // An array the loop takes is held in a `var`, and each element is
+        // reached through a pointer into it, as the body's own.
+        const owned = header == .taken;
         // A resource element is a borrowed view of its slot.
-        const by_ptr = mode == .write or
+        const by_ptr = mode == .write or owned or
             (elem_ty != null and self.sema.types.get(elem_ty.?) == .borrow_read);
 
+        // A value the loop holds, or the array it takes, lives in a block
+        // around it.
+        var taken: []const u8 = "";
+        var mark: ?usize = null;
+        if (owned or header == .held) {
+            try self.openBrace();
+            if (header == .held) mark = try self.emitHeld(source);
+            if (owned) {
+                taken = try self.fmt("__rig_src_{d}", .{self.nextId()});
+                try self.writeIndent(self.indent);
+                try self.w.print("var {s} = ", .{taken});
+                try self.emitHeader(source);
+                try self.w.writeAll(";\n");
+            }
+            try self.writeIndent(self.indent);
+        }
         try self.pushScope();
         try self.writeLabel(label);
         try self.w.writeAll("for (");
         // Writing an array's elements in place iterates through a pointer.
         const array_ptr = by_ptr and !is_vec and src_ty != null and self.sema.types.get(self.peelBorrows(src_ty.?)) == .array;
-        if (array_ptr) try self.emitAddressOf(source) else {
+        if (owned) try self.w.print("&{s}", .{taken}) else if (array_ptr) try self.emitAddressOf(source) else {
             const h = try self.openHeader(source);
             try self.emitExpr(source);
             try self.closeHeader(h);
@@ -2168,6 +2230,11 @@ pub const Emitter = struct {
         try self.closeBrace();
         try self.popScope();
         try self.emitElse(ir.For.@"else"(sexp));
+        if (owned or header == .held) {
+            if (mark) |m| self.hoisted.shrinkRetainingCapacity(m);
+            try self.w.writeAll("\n");
+            try self.closeBrace();
+        }
     }
 
     /// `for x in <v`: the Vec is consumed; each element is handed to `x`,
@@ -2279,8 +2346,9 @@ pub const Emitter = struct {
     /// (`emitGuardedMatch`).
     fn emitMatch(self: *Emitter, sexp: Sexp, value_pos: bool) Error!void {
         const scrutinee = ir.Match.subject(sexp);
-        // A boxed enum is switched on where the box points.
-        const boxed = if (self.typeOf(scrutinee)) |t| sema.boxedNominal(self.sema, t) else null;
+        // An enum in a box or behind a handle is switched on where it is.
+        const reached: ?TypeId = if (self.typeOf(scrutinee)) |t| sema.unwrapAccess(self.sema, t) else null;
+        const boxed: ?TypeId = if (reached) |r| (if (r != sema.unwrapBorrows(self.sema, self.typeOf(scrutinee).?)) r else null) else null;
         const scrut_ty = boxed orelse self.typeOf(scrutinee);
         var info: MatchInfo = .{
             .mode = if (scrutinee.isKind(.write))
@@ -2303,11 +2371,16 @@ pub const Emitter = struct {
             if (info.mode == .write and isCatchAll(self.source, pattern)) rereads = true;
             if (info.mode == .consume and pattern.isKind(.alt_pattern)) rereads = true;
         }
-        // Evaluating the subject first takes a block around the match.
-        const block = if (guarded or (rereads and !self.subjectRereadable(info))) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
+        // Evaluating the subject first, or holding the value it is a part
+        // of (`Header.held`), takes a block around the match.
+        const held = self.sema.headerOf(sexp) == .held;
+        const block = if (held or guarded or (rereads and !self.subjectRereadable(info))) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
+        var held_mark: ?usize = null;
+        defer if (held_mark) |m| self.hoisted.shrinkRetainingCapacity(m);
         if (block.len > 0) {
             if (value_pos) try self.w.print("{s}: ", .{block});
             try self.openBrace();
+            if (held) held_mark = try self.emitHeld(info.subject);
             try self.evalSubject(&info);
             if (guarded) {
                 try self.emitGuardedMatch(sexp, value_pos, info, block);
@@ -2327,7 +2400,7 @@ pub const Emitter = struct {
             // switches on the value it points to.
             const h = try self.openHeader(subject);
             if (!self.hasStorage(subject) and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
-            if (info.boxed) try self.w.writeAll(".value.*");
+            if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
             try self.closeHeader(h);
         }
         try self.w.writeAll(") ");
@@ -2379,7 +2452,11 @@ pub const Emitter = struct {
                     }
                 } else if (captures.len > 0) {
                     prelude.aliases = try self.payloadAliases(captures, info.ty.?, vname, info.mode == .write, null, .nil);
-                    if (prelude.aliases.len > 0) try self.w.print("|{s}{s}| ", .{ if (info.mode == .write) "*" else "", prelude.aliases[0].payload });
+                    // A payload a read binds as a view is reached in place.
+                    const by_ptr = info.mode == .write or for (prelude.aliases) |a| {
+                        if (a.addr) break true;
+                    } else false;
+                    if (prelude.aliases.len > 0) try self.w.print("|{s}{s}| ", .{ if (by_ptr) "*" else "", prelude.aliases[0].payload });
                 }
             }
             if (value_pos) try self.emitValueBlock(body, prelude, self.typeOf(sexp)) else try self.emitBodyWith(body, prelude);
@@ -2442,8 +2519,32 @@ pub const Emitter = struct {
         self.w = &buf.writer;
         defer self.w = saved_w;
         try self.emitPlace(if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject);
-        if (info.boxed) try self.w.writeAll(".value.*");
+        if (info.boxed) try self.writeMatchReach(self.typeOf(info.subject).?);
         return buf.written();
+    }
+
+    /// The enum a match on a `ty` in a box or behind a handle switches
+    /// on: `.value` for each box (a pointer) and handle on the way, the
+    /// value itself at the end.
+    fn writeMatchReach(self: *Emitter, ty: TypeId) Error!void {
+        var t = sema.unwrapBorrows(self.sema, ty);
+        var ptr = false;
+        while (true) {
+            switch (self.sema.types.get(t)) {
+                .shared => |inner| {
+                    try self.w.writeAll(if (ptr) ".*.value" else ".value");
+                    t = sema.unwrapBorrows(self.sema, inner);
+                    ptr = false;
+                    continue;
+                },
+                else => {},
+            }
+            const inner = sema.boxedType(self.sema, t) orelse break;
+            try self.w.writeAll(".value");
+            t = sema.unwrapBorrows(self.sema, inner);
+            ptr = true;
+        }
+        if (ptr) try self.w.writeAll(".*");
     }
 
     /// The prong head of a pattern that is not a catch-all: a literal, a
@@ -2746,7 +2847,10 @@ pub const Emitter = struct {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
             const stored = try self.declare(local, self.srcText(c));
             if (payload == null) payload = try self.fresh("__rig_payload");
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = writes and fieldIsPointee(self.sema, f.ty) });
+            // A write binds a pointer to each field, and a read binds one
+            // to a field it views (`?F` of a field that is no view).
+            const viewed = !writes and if (local.ty) |t| self.sema.types.get(t) == .borrow_read and self.sema.types.get(f.ty) != .borrow_read else false;
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = (writes or viewed) and fieldIsPointee(self.sema, f.ty) });
         }
         return out.items;
     }
@@ -2781,6 +2885,20 @@ pub const Emitter = struct {
         const name = ir.As.name(cond);
         const value = ir.As.value(cond);
         const sym = self.sema.symbolOf(name);
+        // A place, or a part of a value the `if` holds, is bound where it
+        // stands, as `if ?o as x` binds it (`Header`).
+        if (self.sema.headerOf(cond) != null) {
+            try self.w.writeAll("(");
+            try self.emitBare(value);
+            try self.w.writeAll(") ");
+            if (sym == null or !self.usage.used.contains(sym.?)) {
+                try self.w.writeAll("|_| ");
+                return .{};
+            }
+            const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
+            try self.w.print("|*{s}| ", .{tmp});
+            return .{ .lent = .{ .name = name, .tmp = tmp, .copy = false } };
+        }
         // Over a borrow of an optional, a borrowed binding points into it.
         if (self.borrowsOptionalValue(value) and self.hasTemps(value)) {
             // A borrow of a temporary the header drops: the optional is
