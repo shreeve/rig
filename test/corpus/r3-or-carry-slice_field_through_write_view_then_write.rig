@@ -1,0 +1,17 @@
+# A view reached through a slice field of what a write view sees still
+# carries the slice's loan on the array.
+
+struct Tok
+  kind: Int
+
+struct P
+  toks: []Tok
+  pos: Int
+
+sub main
+  a = [Tok(kind: 1), Tok(kind: 2)]
+  p = P(toks: ?a[..], pos: 0)
+  w = !p
+  t = ?w.toks[0]
+  a[1] = Tok(kind: 7)
+  print(t.kind)

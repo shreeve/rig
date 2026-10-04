@@ -1,0 +1,14 @@
+# An owned Text payload of `match ?h` is seen through the lend of `h`: `h`
+# cannot change while the payload is used.
+
+enum H
+  has(t: Text)
+  no
+
+sub main
+  h: H = .has(t: Text("a"))
+  match ?h
+    .has(t)
+      h = .no
+      print(t)
+    .no => print("no")

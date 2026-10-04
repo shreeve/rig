@@ -1,0 +1,16 @@
+# A String payload of `match ?h` carries the String's loan on the Text it
+# views: the Text cannot change while the payload is used.
+
+enum H
+  has(s: String)
+  no
+
+sub main
+  t = Text("abc")
+  h: H = .has(s: ?t)
+  match ?h
+    .has(s)
+      h = .no
+      !t.add("x")
+      print(s)
+    .no => print("no")

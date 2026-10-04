@@ -1,0 +1,17 @@
+# A String a method makes from the holder's String field carries that
+# String's loan on the Text.
+
+struct P
+  src: String
+  toks: []Int
+
+  fun head(?self) -> String
+    self.src[0..1]
+
+sub main
+  t = Text("abc")
+  a = [1, 2]
+  p = P(src: ?t, toks: ?a[..])
+  s = p.head()
+  !t.add("x")
+  print(s)

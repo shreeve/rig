@@ -152,8 +152,12 @@ const Checker = struct {
         out.clear();
         for (op.reads) |v| _ = out.merge(st.holds[v]);
         for (op.moves) |v| _ = out.merge(st.holds[v]);
+        if (op.carry) {
+            for (self.f.loans.items, 0..) |l, li| {
+                if (l.pointer and !l.external) out.unset(li);
+            }
+        }
         if (op.loan) |l| out.set(l);
-        _ = self;
     }
 
     /// Add the flowing loans a var can carry: none if its type holds no

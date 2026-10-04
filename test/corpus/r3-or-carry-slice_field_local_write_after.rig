@@ -1,0 +1,15 @@
+# A view reached through a slice field carries the slice's loan on the
+# array it views.
+
+struct Tok
+  kind: Int
+
+struct P
+  toks: []Tok
+
+sub main
+  a = [Tok(kind: 1), Tok(kind: 2)]
+  p = P(toks: ?a[..])
+  t = ?p.toks[0]
+  a[0] = Tok(kind: 9)
+  print(t.kind)
