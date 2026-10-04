@@ -1,6 +1,5 @@
 # A view held by pointer lifted into an optional of that view stays the
-# pointer: a named view, a loop element view, and a payload view, bound,
-# assigned, passed, stored in a field, and returned.
+# pointer: bound, assigned, passed, stored in a field, and returned.
 
 struct Counter
   hits: Cell[Int]
@@ -36,10 +35,9 @@ sub main()
   h.o = r
   print(show(h.o))
   arr = [Counter(hits: Cell(0)), Counter(hits: Cell(7))]
-  for k in arr
-    print(show(k))
+  print(show(?arr[1]))
   e = E.a(c: Counter(hits: Cell(4)), n: 1)
-  match e
+  match !e
     .a(c, _) => print(show(c))
     .b => pass
   p = P(x: 1)
@@ -53,7 +51,6 @@ sub main()
 # 5
 # 5 5 5
 # 5
-# 0
 # 7
 # 4
 # 1

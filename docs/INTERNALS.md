@@ -1195,9 +1195,8 @@ lower is an internal error: sema must have rejected it.
   the owning fields in reverse order.
 - **Values.** `if` and `match` in value position become labeled blocks
   when a branch needs statements; `match` is a `switch`, whose
-  captures copy the payload (`match e`, `match ?e`; a field that holds
-  a Cell is pointed into as a read view instead), point into it (`|*p|`
-  for `match !e`), or own it (`match <e`: each bound field
+  captures copy the payload (`match e`, `match ?e`), point into it
+  (`|*p|` for `match !e`), or own it (`match <e`: each bound field
   becomes an owned local with its drop guard, and the rest is dropped
   by a `defer` in the prong). Alternatives are one prong's list of
   items. A Zig `switch` has no guards, so a match with a guarded arm

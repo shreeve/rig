@@ -16,11 +16,9 @@ fun look(s: []Counter) -> Int
   s[0].hits.get()
 
 fun total(s: []Counter) -> Int
-  new t = 0
-  for k in s
-    k.hit()
-    t += k.hits.get()
-  t
+  s[0].hit()
+  s[1].hit()
+  s[0].hits.get() + s[1].hits.get()
 
 sub main()
   print(look([Counter(hits: Cell(0))]))
