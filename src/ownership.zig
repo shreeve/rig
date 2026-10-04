@@ -927,10 +927,13 @@ pub const Checker = struct {
         };
     }
 
-    /// Go back to point `p`: undo every change since. The var stack is
-    /// back at `p`'s depth whenever this is called (scopes are balanced),
-    /// so changes to vars that have left scope since are skipped.
+    /// Go back to point `p`: undo every change since. Scopes are
+    /// balanced, so every var declared since `p` has left scope, except
+    /// hidden ones no scope holds (a statement's temporaries, a match's
+    /// `hold` var); changes to vars that have left are skipped.
     fn rewind(self: *Checker, p: Point) Error!void {
+        std.debug.assert(self.vars.items.len >= p.vars);
+        for (self.vars.items[p.vars..]) |v| std.debug.assert(v.kind == .hidden);
         var i = self.trail.items.len;
         while (i > p.trail) {
             i -= 1;
