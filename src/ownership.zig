@@ -1176,7 +1176,7 @@ pub const Checker = struct {
         // A var that owns its value drops it at scope exit. (A match
         // payload or a borrowed loop element only views a value.)
         const owns = v.alias_of == null and !v.loop_borrow and v.ref == .none;
-        if (owns and (sema.keptLikeOwner(ctx, ty) or sema.maybeDropGlue(ctx, ty))) return true;
+        if (owns and (sema.typeHasDropGlue(ctx, ty) or sema.maybeDropGlue(ctx, ty))) return true;
         if (self.last_use.get(sym)) |last| if (last >= self.liveFrom(v.decl, at)) return true;
         if (self.isBorrowed(id)) for (self.flows.items, 0..) |f, j| {
             if (j == id) continue;
@@ -2589,7 +2589,7 @@ pub const Checker = struct {
         const ctx = self.sema orelse return true;
         for (sema.captureList(ir.Lambda.captures(lambda))) |cap| {
             const ty = self.symType(sema.captureNameNode(cap).?.src.pos) orelse return true;
-            if (sema.keptLikeOwner(ctx, ty) or sema.maybeDropGlue(ctx, ty)) return true;
+            if (sema.typeHasDropGlue(ctx, ty) or sema.maybeDropGlue(ctx, ty)) return true;
         }
         return false;
     }
@@ -4140,7 +4140,7 @@ pub const Checker = struct {
                     try reach.append(self.arena(), l.root);
                     const x = self.vars.items[l.root];
                     if (l.root < i or !self.flowLive(l.root)) continue;
-                    const glue = if (x.ty) |t| sema.keptLikeOwner(ctx, t) else true;
+                    const glue = if (x.ty) |t| sema.typeHasDropGlue(ctx, t) else true;
                     if (!glue and self.scopeOf(l.root) == self.scopeOf(@intCast(i))) continue;
                     try self.err(l.pos, "`{s}` is dropped before `{s}`, whose `drop` body could still read it through this borrow", .{ x.name, h.name });
                     try self.note(x.decl, "`{s}` is declared after `{s}`, so it is dropped first; declare it before `{s}`", .{ x.name, h.name, h.name });

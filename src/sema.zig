@@ -900,10 +900,10 @@ pub const Requirement = union(enum) {
     /// Copies (`moves` is not `yes`): the body copies the parameter's
     /// value.
     copyable,
-    /// Is not kept like an owner (`keptLikeOwner`): the body discards
-    /// the parameter's value, leaves a temporary of it, overwrites one,
-    /// or keeps one in an array or a slice.
-    not_owner,
+    /// Needs no cleanup: the body discards the parameter's value, leaves
+    /// a temporary of it, overwrites one, or keeps one in an array or a
+    /// slice.
+    no_cleanup,
     /// A compile-time integer from 0 to `max_array_len`: the body uses
     /// the value parameter as an array length.
     array_len,
@@ -929,7 +929,7 @@ pub const Requirement = union(enum) {
             .fits => "an integer literal",
             .shift => "a constant shift",
             .copyable => "a value that copies",
-            .not_owner => "a value that owns no resource",
+            .no_cleanup => "a value that owns no resource",
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
@@ -1732,7 +1732,9 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
             .invalid, .unknown => continue,
             else => {},
         }
-        if (keptLikeOwner(ctx, sym.ty) or maybeDropGlue(ctx, sym.ty)) continue;
+        // A value that moves may be bound only to be dropped or moved
+        // at the scope's end.
+        if (moves(ctx, sym.ty) != .no) continue;
         if (sym.flags.pattern_bound) {
             try ctx.lintErr(sym.decl_pos, "`{s}` is bound but never read; name it `_` to ignore the value", .{sym.name});
         } else {
@@ -3411,20 +3413,11 @@ pub fn moves(ctx: *const SemContext, ty: TypeId) Answer {
 /// Whether a read that copies nothing out (a `print` argument, an
 /// argument a call reads before it runs, a branch of one) reads a value
 /// of `ty` where it is, by address, so a later argument must not change
-/// it first: a value kept like an owner (`keptLikeOwner`), or one of a
-/// type parameter. Any other value, a unique one that holds a Cell
-/// included, is copied where the read runs.
+/// it first: a value that needs cleanup (`typeHasDropGlue`), or one of a
+/// type parameter. Any other value, a unique one included, is copied
+/// where the read runs.
 pub fn readByAddress(ctx: *const SemContext, ty: TypeId) bool {
-    return keptLikeOwner(ctx, ty) or maybeDropGlue(ctx, ty);
-}
-
-/// Whether `ty` needs cleanup (`typeHasDropGlue`) or holds inline a type
-/// declared `unique`: the values a discard, a temporary, an array or a
-/// slice, and the loans a scope ends keep out or account for as they
-/// do a value that owns a resource.
-pub fn keptLikeOwner(ctx: *const SemContext, ty: TypeId) bool {
-    const info = ctx.holds(ty);
-    return info.glue or info.unique;
+    return typeHasDropGlue(ctx, ty) or maybeDropGlue(ctx, ty);
 }
 
 /// Whether a value of `ty` may be copied implicitly: it does not move
@@ -5140,18 +5133,16 @@ test "type facts: unique reaches what holds it inline" {
         try std.testing.expectEqual(Answer.yes, moves(ctx, t));
         try std.testing.expectEqual(Answer.no, copyable(ctx, t));
         try std.testing.expectEqual(Clone.no, cloneable(ctx, t));
-        try std.testing.expect(keptLikeOwner(ctx, t));
         try std.testing.expect(!isPlainData(ctx, t));
     }
-    // A Cell, and what holds one inline, is unique, but no owner: arrays
-    // and discards take it.
+    // A Cell, and what holds one inline, is unique.
     const counter = try nominal(ctx, "Counter");
     const cell_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.cell_sym_id, .args = &.{ctx.types.int_id} } });
     for ([_]TypeId{ counter, cell_int, try ctx.intern(.{ .array = .{ .elem = counter, .len = two } }) }) |t| {
         try std.testing.expect(isUnique(ctx, t));
         try std.testing.expectEqual(Answer.yes, moves(ctx, t));
         try std.testing.expectEqual(Clone.no, cloneable(ctx, t));
-        try std.testing.expect(!keptLikeOwner(ctx, t));
+        try std.testing.expect(!typeHasDropGlue(ctx, t));
     }
     const shared_counter = try ctx.intern(.{ .shared = counter });
     try std.testing.expect(!isUnique(ctx, shared_counter));

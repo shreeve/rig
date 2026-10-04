@@ -748,15 +748,14 @@ emitter ask these, never a predicate built for another question:
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
 | `copyable` | does not move and holds no write view: copied implicitly where it is used |
 | `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), Text copy, copy per instance, or nothing (a value that moves) |
-| `keptLikeOwner` | needs cleanup or is declared `unique`: arrays, slices, `==`, a discard, and a temporary keep it out as they keep out an owner |
-| `readByAddress` | kept like an owner, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
+| `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
 | `isPlainData` | copies and holds no view: plain data |
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
 | `readsAsValue` | a view of it reads as the value (a primitive or a plain enum) |
 
 A generic body that copies a `T` records `Requirement.copyable`; one
 that discards, overwrites, or stores a `T` in an array or slice records
-`Requirement.not_owner`. Each instance is checked against them.
+`Requirement.no_cleanup`. Each instance is checked against them.
 
 Sema's job includes everything emit cannot lower: a construct the
 backend cannot express yet is rejected with a diagnostic that says so.
@@ -772,7 +771,7 @@ beside a `T`, a constant shift, `not_error` for a `T!` return (an
 error set cannot fill it), `copyable` where the body copies a value
 holding a `T` in a way the ownership checker does not see (cloning it,
 reading it out of a `Vec` or `Cell`, or moving it out of a borrow), and
-`not_owner` where it discards one, leaves it as a temporary, or puts it
+`no_cleanup` where it discards one, leaves it as a temporary, or puts it
 in an array. An operator's operand borrowed as `?T` or `!T` counts as a `T`
 (`operandValue`), and `==` on a value that holds a `T` (`T?`, `[4]T`,
 `Pair[T, Int]`) records `==` on that `T` (`sema.notEquatable`). Nothing about a `T` is assumed that is not recorded. A function's type parameters are `generic_param`
@@ -1037,8 +1036,7 @@ leaf counts as a use of what it captures) and the symbols deferred code
 uses. A var is live after the current statement when it is used at or
 after the statement's start, or anywhere in an enclosing loop it was
 declared outside of (the next iteration), or in deferred code, or when
-it owns a value kept like an owner (`sema.keptLikeOwner`, dropped at
-scope exit), or when a live
+it owns a value with drop glue (dropped at scope exit), or when a live
 var or temporary holds a loan on it. A closure binding whose
 environment has drop glue, a parameter, and the hidden var that keeps a
 `for` source borrowed are always live. The

@@ -646,10 +646,8 @@ const Checker = struct {
                 return self.errAt(stmt, "`{s}` is a function; call it with `{s}()`", .{ self.text(stmt), self.text(stmt) });
             return self.errAt(stmt, "this expression does nothing as a statement; use its value, or discard it with `_ = ...`", .{});
         }
-        if ((try self.keptLikeOwner(ty, self.startOf(stmt), "discards a value"))) {
-            if (sema.typeHasDropGlue(self.ctx, ty)) {
-                try self.errAt(stmt, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
-            } else try self.errAt(stmt, "expression result of type `{s}` is unique and would be lost as a discarded statement; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
+        if ((try self.needsCleanup(ty, self.startOf(stmt), "discards a value"))) {
+            try self.errAt(stmt, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
         }
     }
 
@@ -914,7 +912,7 @@ const Checker = struct {
             }
             return;
         }
-        if (head == .index and (try self.keptLikeOwner(place_ty, self.startOf(target), "overwrites an element"))) {
+        if (head == .index and (try self.needsCleanup(place_ty, self.startOf(target), "overwrites an element"))) {
             try self.errAt(target, "cannot replace an element of type `{s}` by assignment; the old handle would leak", .{try self.tyName(place_ty)});
             return;
         }
@@ -1575,6 +1573,9 @@ const Checker = struct {
         }
 
         var elem_ty = self.t().invalid_id;
+        // A unique element of an array the loop takes is the binding's
+        // own (`elementTypeForLoop`).
+        var owns_elem = false;
         if (source.isKind(.@"..")) {
             // Both bounds are integers of one type, the element's.
             elem_ty = try self.checkIntDefaultOperands(source, "..", .integer, null);
@@ -1599,6 +1600,7 @@ const Checker = struct {
                 try self.errAt(peeled_source, "a `for` walks a Vec held in a place or made by a call: bind this `{s}` to a name first", .{try self.tyName(source_ty)});
             }
             elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, mode);
+            owns_elem = !isBorrow(self.ctx, elem_ty) and !self.isPoison(elem_ty) and sema.isUnique(self.ctx, elem_ty) and self.ctx.types.get(sema.unwrapBorrows(self.ctx, source_ty)) == .array;
             // The source is a header: a temporary it reads into ends with
             // it, before the loop walks it.
             if (mode != .move) if (self.tempBase(source)) |temp| {
@@ -1607,7 +1609,7 @@ const Checker = struct {
             // `for x in ?e` and `for x in !e` lend `e`: one made here would
             // end with the header. A call's result is taken: `for x in e`.
             const unbound = vecElementType(self.ctx, source_ty) != null and !isPlaceExpr(peeled_source) and !makesValue(peeled_source);
-            if ((mode == .read or mode == .write) and !unbound and !isPlaceExpr(source) and !self.isPoison(source_ty) and sema.keptLikeOwner(self.ctx, source_ty)) {
+            if ((mode == .read or mode == .write) and !unbound and !isPlaceExpr(source) and !self.isPoison(source_ty) and sema.typeHasDropGlue(self.ctx, source_ty)) {
                 try self.errAt(source, "the loop would walk a borrow of the temporary `{s}` after its header drops it; take it with `for {s} in {s}`, or bind it to a name first", .{ self.sourceText(source), self.text(binding), self.sourceText(source) });
             }
         }
@@ -1619,6 +1621,7 @@ const Checker = struct {
                 self.ctx.symbols.items[sym].ty = elem_ty;
                 try self.ctx.recordType(binding, elem_ty);
                 if ((mode == .iter or mode == .read) and !source.isKind(.@"..") and isPlaceExpr(source) and !isBorrow(self.ctx, elem_ty)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = source, .kind = .loop });
+                if (owns_elem) try self.owned_bindings.put(self.ctx.allocator, sym, {});
             }
             if (self.ctx.symbolOf(index_binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = self.t().int_id;
@@ -2943,7 +2946,7 @@ const Checker = struct {
             // `none` and a bare `.variant` test a value that owns a
             // resource and drop it when no name holds it: a branching
             // value that may be a name's value would drop that value.
-            if (!lit.isKind(.call) and !self.isPoison(ty) and sema.keptLikeOwner(self.ctx, ty)) if (self.namedLeaf(other)) |leaf| {
+            if (!lit.isKind(.call) and !self.isPoison(ty) and sema.typeHasDropGlue(self.ctx, ty)) if (self.namedLeaf(other)) |leaf| {
                 try self.errAt(other, "cannot test `{s}` against `{s}`: it may be `{s}`, a value a name holds, and the test drops the value it tests; bind the value to a name first and test that, or test `{s}` itself", .{ self.sourceText(other), self.sourceText(lit), self.sourceText(leaf), self.sourceText(leaf) });
                 return self.t().bool_id;
             };
@@ -2977,7 +2980,7 @@ const Checker = struct {
         // borrow compared owns nothing.
         for ([2]Sexp{ l, r }) |operand| {
             const own = self.ctx.typeOf(operand) orelse continue;
-            if (sema.keptLikeOwner(self.ctx, own)) try self.readLeaf(operand);
+            if (sema.typeHasDropGlue(self.ctx, own)) try self.readLeaf(operand);
         }
         if (sema.isNumeric(self.ctx, a) and sema.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(l, r, a, b, op);
@@ -3443,7 +3446,7 @@ const Checker = struct {
         if (!operand.isKind(.member) and !operand.isKind(.index)) return ty;
         if (self.isPoison(ty)) return ty;
         // A part of a temporary is dropped with it.
-        if (self.ctx.types.get(ty) != .optional) if (self.tempBase(operand)) |temp| if (try self.keptLikeOwner(ty, self.startOf(e), "moves out of a temporary a part")) {
+        if (self.ctx.types.get(ty) != .optional) if (self.tempBase(operand)) |temp| if (try self.needsCleanup(ty, self.startOf(e), "moves out of a temporary a part")) {
             try self.errAt(e, "cannot move a part out of the temporary `{s}`, which its statement drops; bind it to a name first", .{self.sourceText(temp)});
             return self.t().invalid_id;
         };
@@ -3594,15 +3597,15 @@ const Checker = struct {
         };
     }
 
-    /// Whether a value of `ty` is kept like an owner
-    /// (`sema.keptLikeOwner`), for a check that rejects `op`, which
-    /// discards one or keeps it where nothing drops it. Inside a generic
-    /// body a type holding type parameters may or may not be: `op` is
-    /// then allowed, and every instantiation must supply values that are
-    /// not (`Requirement.not_owner`).
-    fn keptLikeOwner(self: *Checker, ty: TypeId, pos: u32, op: []const u8) Error!bool {
-        if (sema.keptLikeOwner(self.ctx, ty)) return true;
-        if (sema.maybeDropGlue(self.ctx, ty)) try self.requireOf(ty, .not_owner, pos, op);
+    /// Whether a value of `ty` needs cleanup (`sema.typeHasDropGlue`),
+    /// for a check that rejects `op`, which discards one or keeps it
+    /// where nothing drops it. Inside a generic body a type holding type
+    /// parameters may or may not: `op` is then allowed, and every
+    /// instantiation must supply values that need no cleanup
+    /// (`Requirement.no_cleanup`).
+    fn needsCleanup(self: *Checker, ty: TypeId, pos: u32, op: []const u8) Error!bool {
+        if (sema.typeHasDropGlue(self.ctx, ty)) return true;
+        if (sema.maybeDropGlue(self.ctx, ty)) try self.requireOf(ty, .no_cleanup, pos, op);
         return false;
     }
 
@@ -3629,7 +3632,7 @@ const Checker = struct {
         const base = if (isPlaceExpr(operand)) self.placeOf(operand).base else operand;
         if (base != .list) return;
         const ty = self.ctx.typeOf(base) orelse return;
-        if (sema.keptLikeOwner(self.ctx, ty)) if (self.namedLeaf(base)) |leaf| {
+        if (sema.typeHasDropGlue(self.ctx, ty)) if (self.namedLeaf(base)) |leaf| {
             try self.errAt(base, "cannot lend `{s}`: it may be `{s}`, a value a name holds, which lending the branching value would copy; lend what each branch reaches instead (`?a if c else ?b`, `if ?o as x`)", .{ self.sourceText(base), self.sourceText(leaf) });
             return;
         };
@@ -3679,17 +3682,15 @@ const Checker = struct {
                 .fallible => |inner| inner,
                 else => ty,
             };
-            if (try self.keptLikeOwner(held, self.startOf(leaf), "leaves a temporary")) try self.ctx.recordTempDrop(leaf);
+            if (try self.needsCleanup(held, self.startOf(leaf), "leaves a temporary")) try self.ctx.recordTempDrop(leaf);
         }
     }
 
     /// A fresh value (a call result, `*x`, `+x`, `<x`, ...) that owns a
     /// resource, where nothing takes ownership of it.
     fn rejectResourceTemporary(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
-        if (isPlaceExpr(operand) or !(try self.keptLikeOwner(ty, self.startOf(operand), "leaves a temporary"))) return;
-        if (sema.typeHasDropGlue(self.ctx, ty)) {
-            try self.errAt(operand, "this `{s}` is a temporary that owns a resource, and nothing would drop it; bind it to a name first", .{try self.tyName(ty)});
-        } else try self.errAt(operand, "this `{s}` is a unique temporary, and nothing would keep it; bind it to a name first", .{try self.tyName(ty)});
+        if (isPlaceExpr(operand) or !(try self.needsCleanup(ty, self.startOf(operand), "leaves a temporary"))) return;
+        try self.errAt(operand, "this `{s}` is a temporary that owns a resource, and nothing would drop it; bind it to a name first", .{try self.tyName(ty)});
     }
 
     // ---- member access and indexing -------------------------------------------
@@ -4451,7 +4452,7 @@ const Checker = struct {
             try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a Vec, or a `[]T`", .{try self.tyName(obj_ty)});
             return null;
         };
-        if (try self.keptLikeOwner(elem, self.startOf(object), "slices a Vec")) {
+        if (try self.needsCleanup(elem, self.startOf(object), "slices a Vec")) {
             try self.errAt(object, "cannot slice a `{s}`: a slice would copy owning handles out of the Vec; iterate with `for x in ?v` or `for x in !v` instead", .{try self.tyName(peeled)});
             return null;
         }
@@ -4566,10 +4567,8 @@ const Checker = struct {
         if (concrete != elem) {
             for (elems) |e| try self.checkExpr(e, concrete);
         } else for (elems, elem_tys) |e, ty| try self.adaptLiteral(e, ty, concrete);
-        if ((try self.keptLikeOwner(concrete, self.startOf(node), "puts in an array a value"))) {
-            if (sema.typeHasDropGlue(self.ctx, concrete)) {
-                try self.errAt(node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try self.tyName(concrete)});
-            } else try self.errAt(node, "arrays cannot hold unique values (`{s}`)", .{try self.tyName(concrete)});
+        if ((try self.needsCleanup(concrete, self.startOf(node), "puts in an array a value"))) {
+            try self.errAt(node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try self.tyName(concrete)});
             return self.t().invalid_id;
         }
         const ty = try self.ctx.intern(.{ .array = .{ .elem = concrete, .len = try sema.ctInt(self.ctx, elems.len) } });
@@ -8923,7 +8922,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
             const aname = try sema.formatType(ctx, arg);
             const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
             switch (req.req) {
-                .copyable, .not_owner => if (sema.typeHasDropGlue(ctx, arg))
+                .copyable, .no_cleanup => if (sema.typeHasDropGlue(ctx, arg))
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname })
                 else
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is unique", .{ inst, pname, aname, req.op, pname, aname }),
@@ -8938,7 +8937,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
-                .copyable, .not_owner => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
+                .copyable, .no_cleanup => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
@@ -8992,7 +8991,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
             else => false,
         },
         .copyable => sema.moves(ctx, ty) != .yes,
-        .not_owner => !sema.keptLikeOwner(ctx, ty),
+        .no_cleanup => !sema.typeHasDropGlue(ctx, ty),
         .array_len => switch (ctx.types.get(ty)) {
             .ct_value => |v| v.int >= 0 and v.int <= sema.max_array_len,
             else => false,
