@@ -1,0 +1,17 @@
+# An element of an array a loop takes is the binding's own, not a view:
+# it cannot be stored where a view goes.
+
+struct Counter
+  hits: Cell[Int]
+
+fun two(n: Int) -> [2]Counter
+  [Counter(hits: Cell(n)), Counter(hits: Cell(n + 1))]
+
+sub main()
+  one = [Counter(hits: Cell(1))]
+  saved = ?one[0]
+  for k in two(10)
+    saved = k
+  print(saved.hits.get())
+
+# error: 14:13: type mismatch: expected `?Counter`, got `Counter`

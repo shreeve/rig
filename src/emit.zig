@@ -2125,16 +2125,33 @@ pub const Emitter = struct {
         }
         const elem_sym = self.sema.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
+        const is_array = !is_vec and src_ty != null and self.sema.types.get(self.peelBorrows(src_ty.?)) == .array;
+        // A unique element bound as the binding's own (not as a view) is
+        // one of an array the loop takes: the array is held in a `var`,
+        // and each element is reached through a pointer into it, so a
+        // Cell in it changes where it is.
+        const owned = is_array and mode != .write and elem_ty != null and
+            self.sema.types.get(elem_ty.?) != .borrow_read and sema.isUnique(self.sema, elem_ty.?);
         // A resource element is a borrowed view of its slot.
-        const by_ptr = mode == .write or
+        const by_ptr = mode == .write or owned or
             (elem_ty != null and self.sema.types.get(elem_ty.?) == .borrow_read);
 
+        var taken: []const u8 = "";
+        if (owned) {
+            taken = try self.fmt("__rig_src_{d}", .{self.nextId()});
+            try self.openBrace();
+            try self.writeIndent(self.indent);
+            try self.w.print("var {s} = ", .{taken});
+            try self.emitHeader(source);
+            try self.w.writeAll(";\n");
+            try self.writeIndent(self.indent);
+        }
         try self.pushScope();
         try self.writeLabel(label);
         try self.w.writeAll("for (");
         // Writing an array's elements in place iterates through a pointer.
-        const array_ptr = by_ptr and !is_vec and src_ty != null and self.sema.types.get(self.peelBorrows(src_ty.?)) == .array;
-        if (array_ptr) try self.emitAddressOf(source) else {
+        const array_ptr = by_ptr and is_array;
+        if (owned) try self.w.print("&{s}", .{taken}) else if (array_ptr) try self.emitAddressOf(source) else {
             const h = try self.openHeader(source);
             try self.emitExpr(source);
             try self.closeHeader(h);
@@ -2158,6 +2175,10 @@ pub const Emitter = struct {
         try self.closeBrace();
         try self.popScope();
         try self.emitElse(ir.For.@"else"(sexp));
+        if (owned) {
+            try self.w.writeAll("\n");
+            try self.closeBrace();
+        }
     }
 
     /// `for x in <v`: the Vec is consumed; each element is handed to `x`,
@@ -4525,6 +4546,7 @@ pub const Emitter = struct {
         // and a Cell a read borrow may change must not be in one.
         if (self.receiverOf(call)) |recv| if ((!isPlace(recv) and recv.kind() != .move and self.receiverWrites(call)) or self.sema.lendsCellTemp(unborrowed(recv))) return true;
         for (args) |a| if (argValue(a).isKind(.read) and self.sema.lendsCellTemp(ir.Read.operand(argValue(a)))) return true;
+        for (args) |a| if (self.sema.arrayViewOf(argValue(a)) == .temporary and self.sema.lendsCellTemp(argValue(a))) return true;
         var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or self.consumedTemporary(call) != null;
         for (args) |a| {
             const v = argValue(a);
@@ -4719,9 +4741,15 @@ pub const Emitter = struct {
         }
         const ty = self.typeOf(h.node);
         const ptr = slot < params.len and self.isPtrBorrowTy(params[slot]);
-        const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
+        // A temporary array lent as a slice stays in its slot, which owns
+        // nothing to release: an array holds no value that needs cleanup.
+        const lent_array = self.sema.arrayViewOf(h.node) == .temporary;
+        const kind: ?ResourceKind = if (ptr or lent_array) null else if (ty) |t| self.kindOf(t) else null;
+        // A temporary array whose elements hold a Cell is lent from a
+        // mutable slot, never from constant memory.
+        const mutable = lent_array and self.sema.lendsCellTemp(h.node);
         try self.writeIndent(self.indent);
-        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
+        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or mutable) "var" else "const", h.name });
         // The value alone may have no Zig type (`.empty`, `null`, a
         // literal). A borrow read through is read here, in argument order.
         // A box lent as its value has the parameter's type.
@@ -4733,6 +4761,7 @@ pub const Emitter = struct {
         try self.w.writeAll(" = ");
         if (fields) try self.emitStored(h.node) else if (self.sema.arrayViewOf(h.node) == .temporary) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
         try self.w.writeAll(";\n");
+        if (mutable) try self.line("_ = &{s};", .{h.name});
         const k = kind orelse return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
         try self.line("var {s} = true;", .{h.flag});
         try self.writeIndent(self.indent);

@@ -1,0 +1,31 @@
+# An array literal lent as a `[]T` argument lives in a slot through the
+# call; when its elements hold a Cell, the callee changes them there, and
+# reads its own changes.
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub bumpc(c: ?Counter)
+  c.hit()
+
+fun look(s: []Counter) -> Int
+  bumpc(?s[0])
+  s[0].hits.get()
+
+fun total(s: []Counter) -> Int
+  new t = 0
+  for k in s
+    k.hit()
+    t += k.hits.get()
+  t
+
+sub main()
+  print(look([Counter(hits: Cell(0))]))
+  print(total([Counter(hits: Cell(1)), Counter(hits: Cell(2))]))
+
+# expect:
+# 1
+# 5

@@ -1,0 +1,48 @@
+# A loop over an array made in its header (a literal, a call's result, a
+# part of a made value) takes the array: each element that holds a Cell
+# is the binding's own, changed where it is, and may be moved out.
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct H
+  arr: [2]Counter
+
+fun two(n: Int) -> [2]Counter
+  [Counter(hits: Cell(n)), Counter(hits: Cell(n + 1))]
+
+sub main()
+  for k in [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+    k.hit()
+    k.hits.set(k.hits.get() * 10)
+    print(k.hits.get())
+  for k, i in two(1)
+    k.hit()
+    print(i, k.hits.get())
+  for k in H(arr: two(7)).arr
+    k.hit()
+    print(k.hits.get())
+  kept: Counter? = none
+  for k in two(20)
+    kept = <k
+  if <kept as c
+    c.hit()
+    print(c.hits.get())
+  a = two(30)
+  for k in <a
+    k.hit()
+    print(k.hits.get())
+
+# expect:
+# 10
+# 60
+# 0 2
+# 1 3
+# 8
+# 9
+# 22
+# 31
+# 32
