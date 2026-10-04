@@ -84,10 +84,9 @@ gate green.
    - cloneable;
    - how a read view is represented.
 
-   Build `unique`:
-   - `struct T unique` replaces `std/random.rig`'s empty `drop` on
-     `Random`;
-   - a type holding a `Cell`, or a bare `Cell[T]`, is unique.
+   Build `unique`: `struct T unique` replaces `std/random.rig`'s empty
+   `drop` on `Random`. (A type holding a `Cell` becomes unique in step
+   3, which it needs.)
 
    This also fixes false rejections such as `<p` on a plain match
    payload. See `core-audit/kinds.md`.
@@ -107,6 +106,33 @@ gate green.
      - `sort.sort(!v)` works on a Vec;
      - Box and `*T` members are readable;
      - `?Shape` serves a `Box[Shape]` and a `*Shape`.
+
+   **Inherited from step 1.** Step 1 stopped its in-place views of loop
+   elements and read-match payloads after a second round of soundness
+   findings (`.git/revamp/r3/review-step1-round2.md`,
+   `step1-carveout.md`). Each item and its next action:
+   - **Header subjects, then reads in place.** A loop or match binding
+     holds a copy of each element or payload today. Classify the
+     subject of `for`, `match`, `if … as`, and `while … as` once, with
+     step 2's `handsOver` (a place or a lend is viewed; a made value is
+     taken, held in a `var`; a branch hands over per leaf), then bind
+     every type's element or payload by that classification. Next:
+     specify it as a desugaring in INTERNALS before any code.
+   - **A type holding a `Cell` is unique** (CORE §1, *planned*). It
+     becomes unique once loop and match bindings view or take it, so
+     no binding copies it. Next: restore commit `2cab5408`'s rule, the
+     seven programs it rewrote with `<`, and its three reject tests,
+     and promote the pending example in CORE §1.
+   - **A by-value parameter's Cell is a place** (step 1's item 1.7).
+     `c.hits.set(v)` on `c: Counter` is rejected today while
+     `c.hit()` is accepted. Next: make a parameter root a Cell place
+     for a value that moves, in `requireCellPlace`, and state one rule
+     in SPEC §10.
+   - **The acceptance set.** The round-1 and round-2 review probes
+     (`.git/revamp/r3/probes/review-step1/`, `round2/q*.rig`) are the
+     tests the redesign must pass: each runs sanitizer-clean with the
+     meaning the Core gives it, or is rejected. Next: copy them into
+     `test/corpus/` when step 3 starts.
 4. **Containers hold anything** (Core §5). Remove about six early
    rejections so `Vec[Text]`, `Vec[Vec[Int]]`, and records that own text
    work, and `?v[i]`, `!v[i]`, and `<v[i]` lend or take elements.
