@@ -2379,7 +2379,10 @@ pub const Emitter = struct {
                     }
                 } else if (captures.len > 0) {
                     prelude.aliases = try self.payloadAliases(captures, info.ty.?, vname, info.mode == .write, null, .nil);
-                    if (prelude.aliases.len > 0) try self.w.print("|{s}{s}| ", .{ if (info.mode == .write) "*" else "", prelude.aliases[0].payload });
+                    const by_ptr = info.mode == .write or for (prelude.aliases) |a| {
+                        if (a.addr) break true;
+                    } else false;
+                    if (prelude.aliases.len > 0) try self.w.print("|{s}{s}| ", .{ if (by_ptr) "*" else "", prelude.aliases[0].payload });
                 }
             }
             if (value_pos) try self.emitValueBlock(body, prelude, self.typeOf(sexp)) else try self.emitBodyWith(body, prelude);
@@ -2746,7 +2749,10 @@ pub const Emitter = struct {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
             const stored = try self.declare(local, self.srcText(c));
             if (payload == null) payload = try self.fresh("__rig_payload");
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = writes and fieldIsPointee(self.sema, f.ty) });
+            // A write binds a pointer to each field, and a read binds one
+            // to a field it views (`?T` of a field that is no view).
+            const viewed = !writes and fieldIsPointee(self.sema, f.ty) and if (local.ty) |t| self.sema.types.get(t) == .borrow_read else false;
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = (writes or viewed) and fieldIsPointee(self.sema, f.ty) });
         }
         return out.items;
     }

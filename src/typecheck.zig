@@ -1783,6 +1783,9 @@ const Checker = struct {
                 if (mode != .move and sema.holdsWriteBorrow(self.ctx, a.elem)) {
                     try self.err(pos, "each element holds a write borrow, which a loop binding would copy; write through them with `for x in !xs`", .{});
                 }
+                // An element that holds a Cell is viewed where it is: a
+                // copy would fork the Cell.
+                if (mode != .move and sema.holdsCellByValue(self.ctx, a.elem)) return self.ctx.intern(.{ .borrow_read = a.elem });
                 return a.elem;
             },
             .slice, .string => {
@@ -1795,7 +1798,8 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 return switch (self.ctx.types.get(peeled)) {
-                    .slice => |sl| sl.elem,
+                    // An element that holds a Cell is viewed where it is.
+                    .slice => |sl| if (sema.holdsCellByValue(self.ctx, sl.elem)) try self.ctx.intern(.{ .borrow_read = sl.elem }) else sl.elem,
                     else => try self.byteType(),
                 };
             },
@@ -2287,8 +2291,16 @@ const Checker = struct {
         }
         for (bindings, resolved.payload) |b, f| {
             // `match !e` binds a write borrow of each field; a field that
-            // is a borrow or a slice (a view) is bound as it is.
-            const ty = if (mode == .write and !isBorrow(self.ctx, f.ty) and self.ctx.types.get(f.ty) != .slice and !self.isPoison(f.ty)) try self.ctx.intern(.{ .borrow_write = f.ty }) else f.ty;
+            // is a borrow or a slice (a view) is bound as it is. A read
+            // binds a view of a field that holds a Cell, which a copy
+            // would fork, and a copy of any other.
+            const view = !isBorrow(self.ctx, f.ty) and self.ctx.types.get(f.ty) != .slice and !self.isPoison(f.ty);
+            const ty = if (mode == .write and view)
+                try self.ctx.intern(.{ .borrow_write = f.ty })
+            else if (mode == .read and view and sema.holdsCellByValue(self.ctx, f.ty))
+                try self.ctx.intern(.{ .borrow_read = f.ty })
+            else
+                f.ty;
             try self.ctx.recordType(b, ty);
             if (self.ctx.symbolOf(b)) |sym| self.ctx.symbols.items[sym].ty = ty;
         }

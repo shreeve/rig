@@ -3540,8 +3540,10 @@ with `pop`, or by taking the whole Vec out with `replace`.
 A Cell is interior-mutable: `set` and `replace` change it through any
 path to it, including a read borrow (`?Cell[T]`), a `?self` method of a
 struct holding one, and a shared handle. A by-value parameter is
-immutable, and a loop or match binding is only a copy, so neither can
-be changed (or lent to something that could change it).
+immutable, so it cannot be changed (or lent to something that could
+change it). A loop over an array or slice, and a match that reads, bind
+an element or payload that holds a Cell as a read view of it (`?T`), so
+a change through the binding changes the element or payload itself.
 
 ```rig
 struct Counter
