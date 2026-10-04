@@ -4149,31 +4149,38 @@ pub const Hands = struct {
 /// sema records (`symbolOf`, `typeOf`, `instanceOf`), so every pass
 /// after type checking gets the same answer.
 pub fn handsOver(ctx: *const SemContext, node: Sexp) Hands {
-    const kind = handsOverKind(ctx, node);
+    return handsOverIn(ctx.source, ctx, node);
+}
+
+/// `handsOver` in `source`, with the facts of `ctx` when there are any.
+/// Without them (the ownership checker's own unit tests) every name is a
+/// binding's and no type is known.
+pub fn handsOverIn(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands {
+    const kind = handsOverKind(source, ctx, node);
     const view = switch (kind) {
-        .place, .part_of_made, .made, .lend, .branches => if (ctx.typeOf(node)) |ty| isViewType(ctx, ty) else false,
+        .place, .part_of_made, .made, .lend, .branches => if (ctx) |c| (if (c.typeOf(node)) |ty| isViewType(c, ty) else false) else false,
         .jump, .none => false,
     };
     return .{ .kind = kind, .view = view };
 }
 
-fn handsOverKind(ctx: *const SemContext, node: Sexp) Hands.Kind {
+fn handsOverKind(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind {
     switch (node) {
-        .src => return leafHands(ctx, node),
+        .src => return leafHands(source, ctx, node),
         .list => {},
         else => return .none,
     }
     // `f[Int]`: a function's instance is a value; a type's is none.
-    if (ctx.instanceOf(node)) |inst| return if (inst == .function) .made else .none;
-    return switch (shapeOf(ctx.source, node)) {
+    if (ctx) |c| if (c.instanceOf(node)) |inst| return if (inst == .function) .made else .none;
+    return switch (shapeOf(source, node)) {
         .made => .made,
         .lend => .lend,
         .jump => .jump,
         .none => .none,
-        .path => pathHands(ctx, node),
+        .path => pathHands(source, ctx, node),
         .branches => {
             var parts = valueParts(node);
-            while (parts.next()) |p| switch (handsOverKind(ctx, p.node)) {
+            while (parts.next()) |p| switch (handsOverKind(source, ctx, p.node)) {
                 .made, .jump => {},
                 .place, .part_of_made, .lend, .branches, .none => return .branches,
             };
@@ -4183,35 +4190,35 @@ fn handsOverKind(ctx: *const SemContext, node: Sexp) Hands.Kind {
 }
 
 /// A name or a literal.
-fn leafHands(ctx: *const SemContext, leaf: Sexp) Hands.Kind {
-    const text = identAt(ctx.source, leaf) orelse return .none;
-    const sym = ctx.symbolOf(leaf) orelse {
+fn leafHands(source: []const u8, ctx: ?*const SemContext, leaf: Sexp) Hands.Kind {
+    const text = identAt(source, leaf) orelse return .none;
+    const sym = (if (ctx) |c| c.symbolOf(leaf) else null) orelse {
         if (isLiteralLeafText(text) or std.mem.eql(u8, text, "none")) return .made;
         // A name sema could not resolve was reported; it stands for a
         // binding.
         return .place;
     };
-    return switch (ctx.symbols.items[sym].kind) {
+    return switch (ctx.?.symbols.items[sym].kind) {
         .param, .local, .capture, .@"extern", .generic_param, .function => .place,
         .type_alias, .generic_type, .nominal_type, .module => .none,
     };
 }
 
 /// `p.f` or `p[i]`: by the base the path starts from.
-fn pathHands(ctx: *const SemContext, node: Sexp) Hands.Kind {
+fn pathHands(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind {
     var base = node;
     while (base.isKind(.member) or base.isKind(.index)) {
         const object = ir.get(base, .object);
         // `Enum.variant`, `Type.method`, `module.name`: a qualified
         // name, not a part of another value.
-        if (base.isKind(.member) and namesTypeOrModule(ctx, object)) return .place;
+        if (base.isKind(.member)) if (ctx) |c| if (namesTypeOrModule(c, object)) return .place;
         base = object;
     }
-    return switch (handsOverKind(ctx, base)) {
+    return switch (handsOverKind(source, ctx, base)) {
         .place, .lend => .place,
         // A path through a borrow reaches what the borrow views, not the
         // value made here that holds it.
-        .made, .branches, .part_of_made => if (ctx.typeOf(base)) |ty| (if (isBorrowType(ctx, ty)) .place else .part_of_made) else .part_of_made,
+        .made, .branches, .part_of_made => if (ctx) |c| (if (c.typeOf(base)) |ty| (if (isBorrowType(c, ty)) .place else .part_of_made) else .part_of_made) else .part_of_made,
         .jump, .none => .none,
     };
 }

@@ -1672,11 +1672,15 @@ pub const Checker = struct {
     /// with a `!T` field): passing it on lends that borrow.
     fn isWriteBorrowPlace(self: *Checker, expr: Sexp) bool {
         if (!self.carriesWriteBorrow(self.exprType(expr))) return false;
-        return switch (expr) {
-            .src => true,
-            .list => expr.isKind(.member) or expr.isKind(.index),
-            else => false,
+        return switch (self.hands(expr).kind) {
+            .place, .part_of_made => true,
+            .made, .lend, .branches, .jump, .none => false,
         };
+    }
+
+    /// What `e` hands over to its context (`sema.handsOver`).
+    fn hands(self: *const Checker, e: Sexp) sema.Hands {
+        return sema.handsOverIn(self.source, self.sema, e);
     }
 
     /// A bare use of a name.
@@ -1778,10 +1782,11 @@ pub const Checker = struct {
         through_borrow: bool = false,
     };
 
-    /// The var a place expression starts from, and how it gets there.
-    /// Null for anything else, and for a name the closure body did not
-    /// capture (walking the expression reports it).
+    /// The var a place (`sema.Hands.Kind.place`) starts from, and how
+    /// it gets there. Null for anything else, and for a name the closure
+    /// body did not capture (walking the expression reports it).
     fn resolvePlace(self: *const Checker, e: Sexp) ?Place {
+        if (self.hands(e).kind != .place) return null;
         switch (e) {
             .src => {
                 const id = self.find(self.text(e)) orelse return null;
@@ -2084,32 +2089,14 @@ pub const Checker = struct {
     /// it, so the move is written where the place is. Reported; the
     /// offending place, or null.
     fn movedTail(self: *Checker, e: Sexp, top: Sexp, nested: bool) Error!?Sexp {
-        const kind = e.kind() orelse {
-            return if (nested and self.ownsPlace(e)) try self.reportMovedTail(e, top) else null;
-        };
-        switch (kind) {
-            .member, .index => return if (nested and self.ownsPlace(e)) try self.reportMovedTail(e, top) else null,
-            .@"if" => {
-                if (try self.movedTail(tailOf(ir.If.then(e)), top, true)) |p| return p;
-                return self.movedTail(tailOf(ir.If.@"else"(e)), top, true);
-            },
-            .match => {
-                for (ir.Match.arms(e)) |arm| if (try self.movedTail(tailOf(ir.Arm.body(arm)), top, true)) |p| return p;
-                return null;
-            },
-            .block => return if (ir.Block.stmts(e).len > 0) self.movedTail(tailOf(e), top, true) else null,
-            .@"??" => {
-                if (try self.movedTail(ir.@"??".left(e), top, true)) |p| return p;
-                return self.movedTail(ir.@"??".right(e), top, true);
-            },
-            .@"catch" => {
-                if (try self.movedTail(ir.Catch.value(e), top, true)) |p| return p;
-                return self.movedTail(tailOf(ir.Catch.handler(e)), top, true);
-            },
-            .propagate => return self.movedTail(ir.Propagate.value(e), top, true),
-            .propagate_none => return self.movedTail(ir.PropagateNone.value(e), top, true),
-            else => return null,
+        switch (self.hands(e).kind) {
+            .place, .part_of_made => return if (nested and self.ownsPlace(e)) try self.reportMovedTail(e, top) else null,
+            .made, .lend, .branches, .jump, .none => {},
         }
+        // A value one of whose parts it is (`sema.valueParts`).
+        var parts = sema.valueParts(e);
+        while (parts.next()) |p| if (try self.movedTail(p.node, top, true)) |place| return place;
+        return null;
     }
 
     /// A binding or field whose value owns a resource.
@@ -2386,46 +2373,33 @@ pub const Checker = struct {
                     try self.err(pos, "bare use of `{s}` in {s} would duplicate the write borrow it holds; use `<{s}` to move it", .{ name, sink.text(), name });
                 }
             },
-            .list => {
-                switch (expr.kind() orelse return) {
-                    .member, .index => {
-                        // `Enum.variant` is a new value, not a field.
-                        if (self.namesType(ir.get(expr, .object))) return;
-                        const ty = self.exprType(expr);
-                        if (self.owningKind(ty)) |k| {
-                            return self.reportAlias(self.startOf(expr), try self.placeText(expr), false, k, sink, ty);
-                        }
-                        if (sink != .argument and self.carriesWriteBorrow(ty)) {
-                            try self.errAt(expr, "bare use of `{s}` in {s} would duplicate a write borrow; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
-                        }
-                    },
-                    // A value returned through a branch moves out, like a bare return.
-                    .@"if" => {
-                        try self.checkNoImplicitCopy(tailOf(ir.If.then(expr)), sink, top_return);
-                        try self.checkNoImplicitCopy(tailOf(ir.If.@"else"(expr)), sink, top_return);
-                    },
-                    .match => for (ir.Match.arms(expr)) |arm| {
-                        try self.checkNoImplicitCopy(tailOf(ir.Arm.body(arm)), sink, top_return);
-                    },
-                    .block => if (ir.Block.stmts(expr).len > 0) try self.checkNoImplicitCopy(tailOf(expr), sink, top_return),
-                    // Operators that yield one of their operands.
-                    .@"??" => {
-                        try self.checkNoImplicitCopy(ir.@"??".left(expr), sink, false);
-                        try self.checkNoImplicitCopy(ir.@"??".right(expr), sink, false);
-                    },
-                    .@"catch" => {
-                        try self.checkNoImplicitCopy(ir.Catch.value(expr), sink, false);
-                        try self.checkNoImplicitCopy(tailOf(ir.Catch.handler(expr)), sink, false);
-                    },
-                    .propagate => try self.checkNoImplicitCopy(ir.Propagate.value(expr), sink, false),
-                    // `m?` copies out the value inside `m`, which only
-                    // matters when that value owns or holds a write borrow.
-                    .propagate_none => {
-                        const ty = self.exprType(expr);
-                        if (self.owningKind(ty) != null or self.carriesWriteBorrow(ty)) try self.checkNoImplicitCopy(ir.PropagateNone.value(expr), sink, false);
-                    },
-                    else => {},
-                }
+            .list => switch (self.hands(expr).kind) {
+                .place, .part_of_made => {
+                    // `Enum.variant` is a new value, not a field.
+                    if (self.namesType(ir.get(expr, .object))) return;
+                    const ty = self.exprType(expr);
+                    if (self.owningKind(ty)) |k| {
+                        return self.reportAlias(self.startOf(expr), try self.placeText(expr), false, k, sink, ty);
+                    }
+                    if (sink != .argument and self.carriesWriteBorrow(ty)) {
+                        try self.errAt(expr, "bare use of `{s}` in {s} would duplicate a write borrow; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
+                    }
+                },
+                // A value that is one of its parts (`sema.valueParts`):
+                // a tail it returns moves out, like a bare return; an
+                // operand it passes through does not. `m?` copies out
+                // the value inside `m`, which only matters when that
+                // value owns or holds a write borrow.
+                .made, .branches => {
+                    const ty = self.exprType(expr);
+                    var parts = sema.valueParts(expr);
+                    while (parts.next()) |p| switch (p.via) {
+                        .tail => try self.checkNoImplicitCopy(p.node, sink, top_return),
+                        .operand => try self.checkNoImplicitCopy(p.node, sink, false),
+                        .unwrapped => if (self.owningKind(ty) != null or self.carriesWriteBorrow(ty)) try self.checkNoImplicitCopy(p.node, sink, false),
+                    };
+                },
+                .lend, .jump, .none => {},
             },
             else => {},
         }
@@ -3000,22 +2974,9 @@ pub const Checker = struct {
     /// holding a Cell is held against any later borrow: one that changes
     /// the Cell would leave the copy stale.
     fn holdBranchReads(self: *Checker, e: Sexp) Error!void {
-        if (e.kind()) |kind| switch (kind) {
-            .@"if" => {
-                if (ir.If.@"else"(e) == .nil) return;
-                try self.holdBranchReads(ir.If.then(e));
-                return self.holdBranchReads(ir.If.@"else"(e));
-            },
-            .@"??" => {
-                try self.holdBranchReads(ir.@"??".left(e));
-                return self.holdBranchReads(ir.@"??".right(e));
-            },
-            .@"catch" => return self.holdBranchReads(ir.Catch.handler(e)),
-            .propagate => return self.holdBranchReads(ir.Propagate.value(e)),
-            .propagate_none => return self.holdBranchReads(ir.PropagateNone.value(e)),
-            else => {},
-        };
-        return self.holdBranchLeaf(e);
+        var leaves: std.ArrayList(Sexp) = .empty;
+        try sema.valueLeaves(self.arena(), e, &leaves);
+        for (leaves.items) |leaf| try self.holdBranchLeaf(leaf);
     }
 
     fn holdBranchLeaf(self: *Checker, leaf: Sexp) Error!void {
@@ -4514,17 +4475,6 @@ fn loanSetEql(a: []const Loan, b: []const Loan) bool {
 fn hasLoanFrom(loans: []const Loan, start: u32) bool {
     for (loans) |l| if (l.root >= start) return true;
     return false;
-}
-
-/// The expression whose value a branch produces: the last statement of
-/// a block, or the branch itself.
-fn tailOf(s: Sexp) Sexp {
-    if (s.isKind(.block)) {
-        const stmts = ir.Block.stmts(s);
-        if (stmts.len == 0) return .nil;
-        return tailOf(stmts[stmts.len - 1]);
-    }
-    return s;
 }
 
 fn refOfTypeSexp(t: Sexp) Ref {
