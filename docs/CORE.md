@@ -370,8 +370,8 @@ else ?b`.*)*
 
 - **Taking:** a binding, an argument to a parameter that owns it,
   `return`, a stored field or element, or `<`.
-- **Reading:** a `print` or `Text(...)` argument, an `==` operand, `?e`, a
-  `?self` receiver, or a field or element read.
+- **Reading:** a `print` or `Text(...)` argument, an `==` operand, `?e`,
+  `+e`, a `?self` receiver, or a field or element read.
 
 Reading never moves a name, whatever form reads it: `print(a if c else
 b)` moves nothing.
@@ -386,10 +386,12 @@ statement.
 **Headers are their own statements:** an `if` or `while` condition, a
 guard, and the subject of a `match` or `for`. A header's temporaries
 end with the header; what the header binds lives through the body. A
-call's result that `if … as`, `while … as`, `match`, or `for` binds is
-taken, as `<e` would take it. So `if starts_with(?Text(a, b), "x")`
-works, but `if cut(?Text(a, b), "=") as kv` must bind the `Text` first,
-because `kv` outlives the header.
+value made there that `if … as`, `while … as`, `match`, or `for` binds
+is taken, as `<e` would take it: a call's result, or a branching value
+whose every branch is made there (`mk() if c else <a`). So
+`if starts_with(?Text(a, b), "x")` works, but
+`if cut(?Text(a, b), "=") as kv` must bind the `Text` first, because
+`kv` outlives the header.
 
 ```rig
 struct User

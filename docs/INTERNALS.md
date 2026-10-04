@@ -648,8 +648,9 @@ owning or not. A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
 `if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
 so a binding that still views `_t` is reported where the header ends.
-A call's result that `match` binds is taken, as `match <e` takes it
-(`takesSubject`). The ownership checker holds each temporary in a
+A value made in a `match` subject (`sema.handsOver`: a call's result,
+or a branching value whose every leaf is made there) that cannot be
+copied is taken, as `match <e` takes it (`takesSubject`). The ownership checker holds each temporary in a
 hidden var borrowed by what reads it, and drops it where its statement
 or header ends (`dropStmtTemps`); emit gives a header's temporaries a
 block of their own, `(label: { slots; break :label e; })`, whose
@@ -724,7 +725,7 @@ instead of re-deriving it by name:
 | `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary a read borrow lends. The ownership checker holds it in a hidden var named by its source, borrowed by what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a borrow of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
-| `takesSubject(match)` | whether a `match` takes its subject, a call's result that owns a resource, as `match <e` would: its arms own the payloads |
+| `takesSubject(match)` | whether a `match` takes its subject, a value made there that cannot be copied, as `match <e` would: its arms own the payloads |
 | `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is recorded as an `arrayViewOf` `borrowed`, walked as `?t[..]` |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
