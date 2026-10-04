@@ -944,7 +944,17 @@ argument that reads a place by value whose value shares storage the
 place owns (a Vec, a box, a handle, a struct holding one, or what a
 write borrow reaches: `print(v, grow(!v))`) leaves a read loan on the
 place's root, marked as an argument's read, until the call ends
-(`holdArgRead`), so a later argument cannot write-borrow or move it.
+(`holdRead`), so a later argument cannot write-borrow or move it. The
+same hold covers every operand read in place before a later operand of
+the same form runs, marked with what reads it: a method's receiver that
+is no place (`(a if c else b).peek(!a)`), the value a call calls
+(`h.f(reset(!h))`), a binary operator's left operand until its right
+one has run (`a == grow(!a)`, `walkThenHeld`), and an indexed value
+that is no place until its index has run. A value that is no place
+holds what it may be and what its owning fields and elements are read
+from (`holdBranchReads`). Desugared, each is the read held as a view:
+`a == grow(!a)` is `r = ?a` then `r == grow(!a)`, which sentence 5
+rejects.
 A later read borrow can still change a Cell inside it, so the call
 must read the place when it runs: `print` takes such a place by
 address (`Emitter.printsByAddress`). Plain data is copied whole when it

@@ -1,0 +1,8 @@
+fun grow(t: !Text) -> Text
+  for _ in 0..100
+    !t.add("abcdefgh")
+  Text("x")
+
+sub main
+  a = Text("a")
+  print(a == grow(!a))

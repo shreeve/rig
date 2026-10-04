@@ -1,0 +1,17 @@
+# What a write view reaches, read as the left operand of `==`, is held
+# against lending the view on in the right operand.
+
+fun grow(t: !Text) -> Text
+  for _ in 0..100
+    !t.add("abcdefgh")
+  Text("x")
+
+fun same(w: !Text) -> Bool
+  w == grow(!w)
+
+sub main
+  a = Text("a")
+  print(same(!a))
+
+# error: 10:14: cannot lend `w` to write while the left operand's read of it is in use
+# errors: 1

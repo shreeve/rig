@@ -1,0 +1,83 @@
+# What an operand reads in place is held only until its consumer runs,
+# and only when the value shares storage: a write that finishes before
+# the read, a read of plain data, a read lend beside the read, a write
+# to another place, and a place indexed after its index runs are all
+# accepted (the rejected shapes are the reject tests named *_read_then_*).
+
+struct P
+  v: Vec[Int]
+  n: Int
+
+  fun sum(?self, k: Int) -> Int
+    self.v[0] + k
+
+fun mk(k: Int) -> P
+  v: Vec[Int] = Vec()
+  !v.push(k)
+  P(v: <v, n: k)
+
+fun growp(p: !P) -> Int
+  for i in 0..100
+    !p.v.push(i)
+  0
+
+fun growv(v: !Vec[Int]) -> Int
+  for i in 0..100
+    !v.push(i)
+  0
+
+fun grow(t: !Text) -> Text
+  for _ in 0..100
+    !t.add("ab")
+  Text("x")
+
+fun growi(t: !Text) -> Int
+  !t.add("ab")
+  t.len
+
+fun look(p: ?P) -> Int
+  p.n
+
+fun reset(f: !*fun(Int) -> Int) -> Int
+  f = *|k: Int| k + 2
+  1
+
+sub main
+  a = mk(1)
+  b = mk(2)
+  c = true
+  print((a if c else b).n, growp(!a))
+  print((a if c else b).sum(look(?a)))
+  z = mk(3)
+  print((a if c else b).sum(growp(!z)), z.v.len)
+  print(a.v[growp(!a)], a.v.len)
+  vs: Vec[Int] = Vec()
+  !vs.push(5)
+  print(vs[growv(!vs)], vs.len)
+  t = Text("a")
+  print(grow(!t) == t, t.len)
+  print(t.len == growi(!t))
+  print(t == Text("x") or growi(!t) > 0, t.len)
+  u = Text("u")
+  print(t != grow(!u), u.len)
+  same = t == +t
+  print(same, growi(!t))
+  base = 40
+  f = *|<base, k: Int| base + k
+  print(f(f(1)))
+  r = reset(!f)
+  print(f(r))
+
+# expect:
+# 1 0
+# 2
+# 1 101
+# 1 201
+# 5 101
+# false 201
+# false
+# true 205
+# true 201
+# true 207
+# 81
+# 3

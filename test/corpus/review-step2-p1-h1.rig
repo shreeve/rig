@@ -1,0 +1,19 @@
+struct P
+  v: Vec[Int]
+
+  fun peek(?self, other: !P) -> Int
+    for i in 0..100
+      !other.v.push(i)
+    self.v[0]
+
+fun mk(k: Int) -> P
+  v: Vec[Int] = Vec()
+  !v.push(k)
+  P(v: <v)
+
+sub main
+  a = mk(1)
+  b = mk(2)
+  c = true
+  print((a if c else b).peek(!a))
+  print(a.v.len)

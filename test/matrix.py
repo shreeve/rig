@@ -44,7 +44,7 @@ CRASH = re.compile(r"panic:|Segmentation fault|reached unreachable|Bus error")
 # fresh one, and a constructor expression.
 # -----------------------------------------------------------------------------
 
-N_DECL = "struct N\n  v: Int\n"
+N_DECL = "struct N\n  v: Int\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n"
 TYPES = {
     "int": dict(ty="Int", decls="", mk="n", ctor="Int(5)"),
     "string": dict(ty="String", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
@@ -53,7 +53,7 @@ TYPES = {
                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
     "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
-    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n',
+    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
     # A payload enum: `== .variant` tests the variant.
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: Vec[Int])\n",
@@ -104,7 +104,26 @@ CONTEXTS = {
     # `none` and a bare `.variant` test a value and drop it if no name holds it.
     "eq_none": dict(inline="print(E == none)", optional=True),
     "eq_variant": dict(inline="print(E != .dot)", types=("enum",)),
+    # A value read in place, then its place lent to write (`poke(!W)`) by
+    # a later operand of the same call or operator, before the read is
+    # used. `W` is what the form reads: `h.f` for a field, `b` for a
+    # fallback, else `a`.
+    "arg_then_write": dict(inline="print(E, poke(!W))", write=True),
+    "recv_read_then_write": dict(inline="print((E).M)", write=True,
+                                 recv={t: "get(poke(!W))" if t == "vec" else "peek(poke(!W))"
+                                       for t in ("vec", "shared", "box", "drop")}),
+    "eq_then_write": dict(inline="print((E) == pokev(!W))", write=True, types=("int", "string", "text")),
+    "index_then_write": dict(inline="print((E)[poke(!W)])", write=True, types=("vec",)),
 }
+
+# How `poke` changes a value of each type: it grows the buffer, or
+# replaces the value, freeing what the old one owned.
+POKES = {
+    "int": "x += 1", "string": 'x = "u"',
+    "text": 'for _ in 0..100\n    !x.add("abcdefgh")', "vec": "for i in 0..100\n    !x.push(i)",
+    "shared": "x = *N(v: 9)", "box": "x = Box(N(v: 9))", "drop": "x = D(v: 9)",
+}
+WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
 
 # A block-local binding at the tail of a value block leaves it before the
 # block's defers run. Each shape of value block goes to each sink, with a
@@ -239,6 +258,9 @@ def program(tname, fname, cname):
         # Calls that grow the Vec an element assignment stores into.
         out.append(f"fun through(v: !Vec[{ty}], x: {ty}) -> {ty}\n  for i in 0..100\n    !v.push(mk(i))\n  x\n")
         out.append(f"fun grow(v: !Vec[{ty}]) -> Int\n  for i in 0..100\n    !v.push(mk(i))\n  0\n")
+    if ctx.get("write"):
+        out.append(f"fun poke(x: !{ty}) -> Int\n  {POKES[tname]}\n  0\n")
+        out.append(f"fun pokev(x: !{ty}) -> {ty}\n  n = poke(!x)\n  mk(n + 9)\n")
     ret_ty = f"{ty}?" if returns else "Int?"
     if ctx.get("optional"):
         body = [f"a: {ty}? = mk(1)", f"b: {ty}? = mk(2)", "print(a == none, b == none)"]
@@ -256,6 +278,8 @@ def program(tname, fname, cname):
         text = ctx.get("inline") or ctx["block"]
         if "recv" in ctx:
             text = text.replace("M", ctx["recv"][tname])
+        if ctx.get("write"):
+            text = text.replace("!W", "!" + WRITE_TARGETS.get(fname, "a"))
         e = form
         if cname in ("borrow_arg", "for_source") and " " in e:
             e = f"({e})"

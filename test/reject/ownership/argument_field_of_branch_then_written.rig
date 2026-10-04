@@ -1,0 +1,24 @@
+# A field of a branching argument is read where the branch is: a later
+# argument cannot lend what the branch may be to write.
+
+struct P
+  v: Vec[Int]
+
+fun mk(k: Int) -> P
+  v: Vec[Int] = Vec()
+  !v.push(k)
+  P(v: <v)
+
+fun growp(p: !P) -> Int
+  for i in 0..100
+    !p.v.push(i)
+  0
+
+sub main
+  a = mk(1)
+  b = mk(2)
+  c = true
+  print((a if c else b).v, growp(!a))
+
+# error: 21:35: cannot write-borrow `a` while an earlier argument's read of it is in use
+# errors: 1
