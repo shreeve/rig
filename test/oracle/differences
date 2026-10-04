@@ -9,3 +9,21 @@
 # Core allows), ref-gap (the oracle is wrong or less precise), core-gap
 # (docs/CORE.md does not decide it). A program is its test path, a doc
 # example's id (doc/CORE/L120), or a matrix cell (vec.print.place).
+
+# A `for x in ?v` element is a read view; a bare read view copies (Core
+# s1), so binding it inside the loop, or returning one that views only
+# what the function was lent (s7), keeps every loan in order.
+test/corpus/review-box-p117.rig main prod-rejects prod-strict `y = x` of a `for x in ?v` element view
+test/corpus/review-box-p142.rig main prod-rejects prod-strict `new x = x` of a `for x in ?v` element view
+test/corpus/syntax-review-complete-g7.rig Map.find prod-rejects prod-strict returns a `for e in ?self.es` element view of the receiver
+
+# `<v[i]` of a plain element copies it (Core s1; SPEC: `<p.f` of a Copy
+# field copies), as the compiler already does for an `Int` element.
+test/reject/ownership/move_vec_element.rig main prod-rejects prod-strict `<v[0]` of a plain struct element
+test/corpus/t-mv4.rig main prod-rejects prod-strict `<v[0]` of a plain struct element
+
+# Whether writing through a fixed `w =! !n` (`w = 5`, `w += 1`) reassigns
+# `w`: Core §6 forbids reassigning a const binding, and SPEC §7 says a
+# write view's assignment writes through.
+test/corpus/review-lang4-fx.rig main prod-rejects core-gap `w += 1` through a fixed write view
+test/corpus/review-place-b9-x022_fixed_wb_local.rig main prod-rejects core-gap `w = 5` through a fixed write view

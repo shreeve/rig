@@ -1,0 +1,135 @@
+//! The four kinds of value (Core §1), read from sema's types: what a
+//! bare use of a value does, whether it may carry a loan, and whether
+//! dropping it runs a user `drop` body.
+
+const std = @import("std");
+const lib = @import("rig_lib");
+const sema = lib.sema;
+
+const TypeId = sema.TypeId;
+const SemContext = sema.SemContext;
+
+pub const Kind = enum {
+    /// Copies: owns nothing and views nothing (Core §1, "plain").
+    plain,
+    /// Moves; one owner; dropped once (Core §1, "owning").
+    owning,
+    /// A read view: copies, and every copy carries its loans (Core §1).
+    read_view,
+    /// A write view: moves (Core §1).
+    write_view,
+
+    /// A bare use copies (Core s1).
+    pub fn copies(k: Kind) bool {
+        return k == .plain or k == .read_view;
+    }
+};
+
+pub const Info = struct {
+    kind: Kind,
+    /// Values may carry a loan (Core §4: a view, or a value holding one).
+    holds_views: bool,
+    /// Values may hold a `?T`, `!T`, or slice.
+    holds_pointers: bool,
+    /// Dropping it runs a user `drop` body somewhere inside.
+    drop_reads: bool,
+    /// Why the oracle does not model values of this type yet.
+    unsupported: ?[]const u8,
+};
+
+pub const Kinds = struct {
+    a: std.mem.Allocator,
+    ctx: *const SemContext,
+    memo: std.AutoHashMapUnmanaged(TypeId, Info) = .empty,
+
+    pub fn init(a: std.mem.Allocator, ctx: *const SemContext) Kinds {
+        return .{ .a = a, .ctx = ctx };
+    }
+
+    pub fn of(self: *Kinds, ty: TypeId) !Info {
+        if (self.memo.get(ty)) |info| return info;
+        const ctx = self.ctx;
+        const ti = ctx.typeInfo(ty);
+        var scan: Scan = .{ .a = self.a };
+        defer scan.seen.deinit(self.a);
+        try scan.walk(ctx, ty, 0, false);
+        const kind: Kind = switch (ctx.types.get(ty)) {
+            .borrow_write => .write_view,
+            .borrow_read, .slice, .string => .read_view,
+            else => if (ti.glue)
+                .owning
+            else if (ti.borrows.write)
+                .write_view
+            else if (ti.borrows.any or ti.borrows.view)
+                .read_view
+            else
+                .plain,
+        };
+        const info: Info = .{
+            .kind = kind,
+            .holds_views = ti.borrows.any or ti.borrows.view,
+            .holds_pointers = ti.borrows.any,
+            .drop_reads = scan.drop_body and kind == .owning,
+            .unsupported = if (ti.poison) "a type with an error" else scan.unsupported,
+        };
+        try self.memo.put(self.a, ty, info);
+        return info;
+    }
+};
+
+/// A walk over what a type holds, through the fields of nominal types
+/// in whichever module declares them.
+const Scan = struct {
+    a: std.mem.Allocator,
+    seen: std.AutoHashMapUnmanaged(struct { usize, TypeId }, void) = .empty,
+    unsupported: ?[]const u8 = null,
+    drop_body: bool = false,
+
+    fn walk(self: *Scan, ctx: *const SemContext, ty: TypeId, depth: u32, in_generic: bool) std.mem.Allocator.Error!void {
+        const gop = try self.seen.getOrPut(self.a, .{ @intFromPtr(ctx), ty });
+        if (gop.found_existing) return;
+        switch (ctx.types.get(ty)) {
+            .invalid, .unknown => self.mark("a type with an error"),
+            .shared, .weak => self.mark("a handle (`*T`, `~T`)"),
+            .function, .callable => self.mark("a function or closure value"),
+            .type_var, .ct_param => if (!in_generic) self.mark("a generic parameter"),
+            .ct_value => {},
+            .borrow_write => |inner| {
+                if (depth > 0) self.mark("a write view held in a value");
+                try self.walk(ctx, inner, depth + 1, in_generic);
+            },
+            .borrow_read, .optional, .fallible, .range => |inner| try self.walk(ctx, inner, depth + 1, in_generic),
+            .slice => |s| try self.walk(ctx, s.elem, depth + 1, in_generic),
+            .array => |arr| try self.walk(ctx, arr.elem, depth + 1, in_generic),
+            .nominal => |sym| try self.fields(ctx, sym, depth, in_generic),
+            .imported_nominal => |in| {
+                const foreign = ctx.foreign_semas.get(in.module_id) orelse return self.mark("an unknown module's type");
+                try self.fields(foreign, in.sym_id, depth, in_generic);
+            },
+            .parameterized_nominal => |pn| {
+                if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) return self.mark("a `Cell` or `Signal`");
+                for (pn.args) |arg| try self.walk(ctx, arg, depth + 1, in_generic);
+                if (pn.sym != ctx.vec_sym_id and pn.sym != ctx.box_sym_id) try self.fields(ctx, pn.sym, depth, true);
+            },
+            else => {},
+        }
+    }
+
+    fn fields(self: *Scan, ctx: *const SemContext, sym_id: sema.SymbolId, depth: u32, in_generic: bool) !void {
+        const sym = ctx.symbols.items[sym_id];
+        if (sema.isProxy(sym)) {
+            if (sym.from.module_id != 0) if (ctx.foreign_semas.get(sym.from.module_id)) |foreign| {
+                return self.fields(foreign, sym.from.sym, depth, in_generic);
+            };
+            return self.mark("an imported generic type");
+        }
+        for (sym.fields orelse &.{}) |*f| {
+            if (f.is_drop_method) self.drop_body = true;
+            for (sema.dataFields(f)) |d| try self.walk(ctx, d.ty, depth + 1, in_generic);
+        }
+    }
+
+    fn mark(self: *Scan, why: []const u8) void {
+        if (self.unsupported == null) self.unsupported = why;
+    }
+};
