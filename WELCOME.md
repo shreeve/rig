@@ -45,9 +45,9 @@ happens, as a one-character **sigil**:
 | `e!` | propagate failure | `e?` | `try e` |
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 
-The same characters prefix types: `?T` and `!T` are borrows, `*T` a
+The same characters prefix types: `?T` and `!T` are views, `*T` a
 shared handle, `~T` a weak one. As suffixes, `T?` is an optional and
-`T!` a `T` that may fail. So a prefix `?` or `!` always borrows and a
+`T!` a `T` that may fail. So a prefix `?` or `!` always lends and a
 suffix always means absence or failure, and `!` never means "not"
 (that is `not`).
 
@@ -55,8 +55,8 @@ suffix always means absence or failure, and `!` never means "not"
 
 - The `?` or `!` is written on the owner (`print(?v)`, `grow(!v)`), so
   the owner **lends**.
-- What the receiver gets is a **view**, which it may copy, return, or
-  store.
+- What the receiver gets is a **view**: it reads the value, or with
+  `!` changes it, and the receiver may copy, return, or store it.
 - What stays behind is a **loan**: until the last use of every view,
   the owner can't change, move, or drop what it lent.
 
@@ -65,7 +65,7 @@ the side the sigil is on ([CORE](docs/CORE.md)).
 
 A reader sees every move, lend, clone, drop, and failure path on the
 line where it happens, and the compiler checks each one: no use after
-move, no double free, no dangling borrow, no leak. The one leak it does
+move, no double free, no dangling view, no leak. The one leak it does
 not prevent is a cycle of strong handles, as in Rust and Swift; a weak
 handle breaks it.
 
@@ -100,7 +100,7 @@ returns nothing. The last expression of a `fun` is its value. `1..7`
 counts from 1 up to, not including, 7. `print` takes any number of
 values and separates them with spaces.
 
-### Structs, methods, and borrows
+### Structs, methods, and lending
 
 ```rig
 struct Account
@@ -210,7 +210,7 @@ sub main
 
 A closure has no keyword: it starts with its bar list. Each captured
 name carries a sigil that says how it is held: `+step` copies, `<x`
-would move, `?x` and `!x` would borrow, and `~x` would hold a handle
+would move, `?x` and `!x` would lend, and `~x` would hold a handle
 weakly. `*Cell[Int]` is a shared cell, the way to share state that
 changes (a `*Signal` also tells its subscribers).
 
@@ -232,7 +232,7 @@ Rig's ownership model is Rust's, with two differences you notice at
 once: every transfer is written (`<x` moves; a bare name moves an
 owning value only out of a function, in `return x` or as its last
 value), and there is no lifetime syntax (the checker follows
-where each borrow came from instead). Its cost model is Zig's: the
+where each view came from instead). Its cost model is Zig's: the
 emitted program is plain Zig, with no runtime beyond a small support
 file.
 
@@ -258,7 +258,7 @@ file.
 | fallible | `Result<T, E>` | `E!T` | `T!` |
 | propagate | `f()?` | `try f()` | `f()!` |
 | handle | `f().unwrap_or(0)` | `f() catch 0` | `f() catch 0` |
-| borrow | `&x`, `&mut x` | `&x` | `?x`, `!x` |
+| lend | `&x`, `&mut x` | `&x` | `?x`, `!x` |
 | slice | `&v[a..b]`, `&mut v[a..]` | `v[a..b]`, `v[a..]` | `?v[a..b]`, `!v[a..]` |
 | reference count | `Rc::new(x)`, `Rc::clone(&r)` | by hand | `*x`, `+r` |
 | weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `w.upgrade()` |
@@ -486,7 +486,7 @@ sub main
 unexpected name `x`; `print` is called with parentheses: `print(...)`
 ```
 
-**`!` is not "not".** Prefix `!` is a write borrow; negation is `not`.
+**`!` is not "not".** Prefix `!` lends to write; negation is `not`.
 Where it would start a condition, or an operand of `and`, `or`, or
 `not`, the habit is an error:
 

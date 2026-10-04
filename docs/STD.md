@@ -350,7 +350,7 @@ bytes by convention, and nothing here checks that it is: every index
 and length is in bytes, and whitespace and case are ASCII's. A function
 that returns a String returns a part of the String it was given, a
 view of the same bytes, so nothing here allocates. A String taken from
-a `Text` ([SPEC §10](../SPEC.md#text)) keeps it borrowed through every
+a `Text` ([SPEC §10](../SPEC.md#text)) keeps it lent through every
 part these functions return.
 
 | Function | Result |
@@ -398,7 +398,7 @@ false no prefix
 
 `split`, `lines`, and `words` give an iterator, a struct holding the
 rest of the String, whose `next` gives each part in turn, and `none`
-after the last. It is advanced through a write borrow:
+after the last. It is advanced by lending it to write:
 
 ```rig
 use std.text

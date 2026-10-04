@@ -28,8 +28,8 @@ write while a read loan is live*.
 
 The words stay inside Rust's conversation. *Loan* is the term Rust's own
 checker uses internally: Polonius, the formal model behind Rust's
-next-generation borrow checker, states its rules as loans that are
-issued, killed, and invalidated. A Rust programmer needs one line of
+next-generation checker, states its rules as loans that are issued,
+killed, and invalidated. A Rust programmer needs one line of
 translation, and nothing to unlearn.
 
 **One word for every view.** Rust's `&T`, `&mut T`, `&[T]`, and `&str`
@@ -48,7 +48,7 @@ Rust reasons about lifetimes: regions such as `'a`, written in
 signatures and solved across a whole function. Rig has none. Each value
 carries the set of loans it holds, the checker follows each path of a
 function on its own, and loan sets meet where paths join. What a result
-borrows comes from the signature alone: it carries the loans of
+views comes from the signature alone: it carries the loans of
 everything it was lent ([CORE sentence 7](CORE.md#2-the-core-in-ten-sentences)).
 
 The difference shows in the case Rust's non-lexical lifetimes RFC lists
@@ -117,11 +117,11 @@ cannot assign to `b.items[...]`
 The trade: Rust can say with explicit lifetimes which argument a
 result views, and Rig cannot. A function lent two values whose result
 views only one of them keeps both lent while the result lives. Rig
-accepts that cost so a reader never solves lifetime equations ([DESIGN](DESIGN.md#borrows-without-lifetimes)).
+accepts that cost so a reader never solves lifetime equations ([DESIGN](DESIGN.md#views-without-lifetimes)).
 
 ## 3. A checker that is tested, not trusted
 
-A borrow checker is only as sound as its last bug. Rig holds its
+An ownership checker is only as sound as its last bug. Rig holds its
 compiler to one rule, *accept means correct* ([AGENTS](../AGENTS.md)):
 a program `rig check` accepts compiles, runs, and does what it says,
 with no leak and no use of freed memory. The test suite checks that
