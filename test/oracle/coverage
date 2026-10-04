@@ -1,6 +1,9 @@
 # The fewest functions bin/rig-oracle must decide in each set of
 # test/run's oracle tests; raise a floor when the oracle grows.
-tests 1700
-corpus 5872
-docs 307
-matrix 3631
+# The oracle decides header subjects that are made values, parts of
+# made values, and branching values, `unique` types, and Cells and
+# Signals of plain data, so each floor is what it decides now.
+tests 1796
+corpus 6105
+docs 313
+matrix 4763
