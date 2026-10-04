@@ -327,9 +327,9 @@ whole expression: `*Point.origin()` shares the new `Point`, `-a.len`
 negates the length, `!x.v` borrows the field, `<p.f` moves the field,
 and `?xs[0]` borrows the element. With parentheses around the call,
 `?(p.m())` borrows its result. The long form is valid everywhere; it is
-required where a write-borrowing call returning `Bool` would start a
-condition, `if (!set).insert(k)`, so that it never reads as negation
-([SPEC §3](SPEC.md#structs) has the checks).
+required for a write call whose `Bool` value is used, `if
+(!set).insert(k)` or `added = (!set).insert(k)`, so that its `!` never
+reads as negation ([SPEC §3](SPEC.md#structs) has the checks).
 
 ```rig
 struct Stack

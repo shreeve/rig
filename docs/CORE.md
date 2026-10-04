@@ -699,8 +699,7 @@ rule in SYNTAX is syntax too.
 - **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`. *(built)*
 - **`const x = e`:** a binding that never changes. *(planned)*
 - **A write call whose `Bool` value is used** is written
-  `(!s).insert(k)`, everywhere. *(planned;* today only where its `!`
-  would start a condition or an operand of `and`, `or`, or `not`.*)*
+  `(!s).insert(k)`, everywhere. *(built)*
 - **Labels**, the `catch` forms, `pass`, and `??`.
 - **Habits from other languages that keep Rig's meaning,** documented
   rather than changed: integer `/` and `%` truncate as in C; `u?.n`
@@ -719,7 +718,7 @@ sub main
 a statement `-e` drops a name
 ```
 
-```rig pending
+```rig reject
 struct Seen
   items: Vec[Int]
 

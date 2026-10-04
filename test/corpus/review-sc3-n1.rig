@@ -11,11 +11,11 @@ fun get(k: Int) -> Int?
 
 sub main
   set = Set(items: Vec())
-  a = true == !set.insert(1)
+  a = true == (!set).insert(1)
   print(a)
-  match !set.insert(4)
+  match (!set).insert(4)
     true => print("m true")
     false => print("m false")
-  v = [!set.insert(5), !set.insert(5)]
+  v = [(!set).insert(5), (!set).insert(5)]
   print(v)
   print(set.items.len)

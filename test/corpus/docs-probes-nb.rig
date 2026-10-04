@@ -7,7 +7,7 @@ struct S
 
 sub main
   s = S(n: 0)
-  added = !s.bump()
+  added = (!s).bump()
   print(added)
   if (!s).bump()
     print("ok")

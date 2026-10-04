@@ -855,12 +855,11 @@ does not take `!self` is rejected (it reads as negation, which is
 `not`), `<` before one that does not take `<self`, `?` before one that
 takes `!self` or `<self`, and any of them before a function with no
 receiver (`Point.origin()`). A
-write-borrowing call whose value is a `Bool` is written in the long
-form, `(!set).insert(k)`, where its `!` would start a condition (of
-`if`, `while`, a ternary, or a postfix guard) or an operand of `and`,
-`or`, or `not`, so it is never read as negation. Elsewhere (a binding,
-an argument, a return value) the short form is accepted:
-`added = !set.insert(k)`.
+write call whose `Bool` value is used is written in the long form,
+`(!set).insert(k)`, wherever the value goes (a condition, an operand,
+a binding, an argument, a return value), so its `!` never reads as
+negation. The short form stays for a call whose value is discarded: a
+statement `!set.insert(k)`, alone or under `!` or `catch`.
 
 ```rig
 struct Tally
@@ -881,14 +880,15 @@ struct Tally
 sub main
   t = Tally(seen: Vec())
   !t.seen.push(1)
-  added = !t.insert(2)
-  print(added, !t.insert(2))
+  added = (!t).insert(2)
+  print(added, (!t).insert(2))
+  !t.insert(3)
   print(<t.total())
 ```
 
 ```output
 true false
-3
+6
 ```
 
 ```rig reject
@@ -939,7 +939,7 @@ sub main
 ```
 
 ```error
-a write-borrowing call that returns `Bool` is written `(!t).insert(...)`, so it is never read as negation
+a write call whose `Bool` value is used is written `(!t).insert(...)`, so its `!` never reads as negation
 ```
 
 ```rig
@@ -958,7 +958,7 @@ sub main
     print("new")
   if not (!set).insert(1)
     print("seen")
-  print(!set.insert(2))
+  print((!set).insert(2))
 ```
 
 ```output
