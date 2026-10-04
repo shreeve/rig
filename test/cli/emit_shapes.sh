@@ -19,7 +19,7 @@ sub main()
   x = 1
   y = two()
   z = 5
-  user =! 1
+  const user = 1
   if y > 1
     x = 3
   print(x + y + z + user)

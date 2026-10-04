@@ -1,8 +1,8 @@
 fun double(n: Int) -> Int
   n * 2
 
-keep =! double
-k2: ?fun(Int) -> Int =! double
+const keep = double
+const k2: ?fun(Int) -> Int = double
 
 sub main
   print(keep(1), k2(2))

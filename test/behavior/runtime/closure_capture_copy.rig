@@ -2,7 +2,7 @@
 # unaffected and still readable.
 
 sub main()
-  n =! 7
+  const n = 7
   add = |+n|
     n * 2
   print(add())

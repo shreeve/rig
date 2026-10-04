@@ -154,11 +154,12 @@ not used.
 | Role | Keywords |
 |---|---|
 | declarations | `fun` `sub` `struct` `enum` `error` `type` `use` `pub` `extern` `test` `drop` |
+| bindings | `const` |
 | control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` `pass` |
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
 | boundaries | `raw` `zig` (in `extern zig`) |
 | reserved forms | `try`, and `zig` elsewhere |
-| held for later | `async` `await` `const` `impl` `trait` `when` `where` `yield` |
+| held for later | `async` `await` `impl` `trait` `when` `where` `yield` |
 
 A keyword may still name a member, where it cannot be mistaken for the
 keyword: a struct field, a method, or a payload field. It reads as a
@@ -197,8 +198,8 @@ fun f(in: Int) -> Int
 ```
 
 Four words are keywords only in one position. `new` is a keyword at
-the start of a statement (`new x = ...`), so a method may be named
-`new`. `of` is a keyword only after a value directly inside `[ ]`,
+the start of a statement (`new x = ...`, `new const x = ...`), so a
+method may be named `new`. `of` is a keyword only after a value directly inside `[ ]`,
 where it separates a fill literal's count from its element
 (`[n of x]`). `unique` is a keyword only after a struct's name or type
 parameters (`struct Random unique`). `none` is a reserved name, the
@@ -294,10 +295,10 @@ a prefix `-` touches its operand: write `-b`
 ```
 
 Tokens split by the longest match, as in C and Zig, so `a == b` is not
-`a = = b`. `=!` is one token, so `x =!y` could be a fixed binding of `y`
-or `x = !y`, a write borrow; a `=!` touching the operand after it is
-rejected. A sigil after the `]` of an array or slice type starts its
-element type: in `[2]?Int`, the `?` borrows each element.
+`a = = b`. `=!` is one token and no operator: `x =! y` and `x =!y` are
+rejected, so `x =!y` never passes for `x = !y`, a write lend. A sigil
+after the `]` of an array or slice type starts its element type: in
+`[2]?Int`, the `?` borrows each element.
 
 Postfixes bind tighter than prefixes: `-a.len` is `-(a.len)`, and
 `+n.first()` clones what `first` returns. The one exception is a
@@ -718,7 +719,7 @@ big 7 2.0
 
 A binding at module level is a constant: `LIMIT = 10`,
 `names = ["low", "high"]`, `pub unit: U8 = 10`. It is written with `=`,
-never `=!` ([SPEC §3](SPEC.md#constants)).
+never `const` ([SPEC §3](SPEC.md#constants)).
 
 ### Tests
 
@@ -743,22 +744,23 @@ declarations without bodies, which that Zig file implements
 |---|---|
 | `x = e` | declare `x`, or assign the visible `x` (through it, when `x` holds a write borrow) |
 | `x: T = e` | declare with a type |
-| `x =! e`, `x: T =! e` | declare a fixed `x`, which cannot be reassigned |
-| `new x = e` | declare a new `x` shadowing the visible one; `e` may read the old |
+| `const x = e`, `const x: T = e` | declare a fixed `x`, which cannot be reassigned |
+| `new x = e`, `new x: T = e`, `new const x = e` | declare a new `x` shadowing the visible one; `e` may read the old |
 | `x = <y` | move `y` into `x` |
 | `x += e`, and `-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `&=` `\|=` `^=` `<<=` `>>=` | compound assignment |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it |
 
-There is no `let`, `var`, or `const`. The first `x = e` in a scope
-declares `x`, and later ones assign it. `x =! e` reads as "set,
-dammit!": this value, final.
+There is no `let` or `var`. The first `x = e` in a scope declares `x`,
+and later ones assign it. `const x = e` declares a binding that never
+changes, in a function body; at module level every binding is already
+constant.
 
 ```rig
 sub main
   x = 1
   x = x + 1
-  limit =! 10
+  const limit = 10
   new x = "now a string"
   total = 0
   total += limit
@@ -1434,12 +1436,12 @@ comma-separated list (which may end with a comma), `tail-closure` is a
 closure whose body assigns, and `INDENT` / `DEDENT` are the block
 structure. The checker narrows a few forms the grammar accepts: a `fun`
 needs `->`, a `drop` body takes `!self`, a module-level binding
-takes no `=!`, and a label goes only on a loop, `match`, or `raw`
+takes no `const`, and a label goes only on a loop, `match`, or `raw`
 block.
 
 ```text
 program   = decl*
-decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | test | const)
+decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | test | constant)
           | use | extern
 use       = "use" ["std" "."] name ["as" name]
 fun       = "fun" name [tparams] [params] "->" type block
@@ -1454,7 +1456,7 @@ field     = name ":" type ["=" expr]
 variant   = name | name "=" expr | name params
 errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type
-const     = name [":" type] "=" tail
+constant  = name [":" type] "=" tail
 test      = "test" string block
 extern    = "extern" "fun" name [params] ["->" type]
           | "extern" "sub" name [params]
@@ -1477,8 +1479,8 @@ cunit     = integer | name | name "." name | "(" cexp ")"
 block     = INDENT stmt* DEDENT
 stmt      = decl | ":" name stmt | simple ["if" value]
 simple    = tail | assign
-          | postfix "=!" tail | name ":" type ("=" | "=!") tail
-          | "new" name "=" tail | "-" name | "pass"
+          | name ":" type "=" tail | "const" name [":" type] "=" tail
+          | "new" ["const"] name [":" type] "=" tail | "-" name | "pass"
           | "return" [tail] | "break" [":" name] [tail] | "continue" [":" name]
           | ("defer" | "errdefer") (simple | block) | "raw" block
 assign    = postfix ("=" | "+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%="

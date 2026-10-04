@@ -1,5 +1,5 @@
 sub main()
   print(U8(-0.5))
-  x =! 2.5
+  const x = 2.5
   print(I8(x))
   print(Int(1e300))

@@ -1,10 +1,9 @@
-# `x =!y` could be a fixed binding of `y` or a write borrow `x = !y`;
-# `=!` is one token, so the source does not say which, and it is
-# rejected.
+# `=!` is no operator: `x =!y` would pass for the write lend `x = !y`,
+# so `=!` is an error wherever it stands, with the spelling to use.
 
 sub main()
   y = 1
   x =!y
   print(x)
 
-# error: 7:5: `=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` for a write borrow
+# error: 6:5: Rig has no `=!`: a binding that never changes is `const x = e`, and `x = !y` lends `y` to write

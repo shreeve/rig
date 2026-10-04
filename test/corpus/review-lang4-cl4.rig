@@ -12,7 +12,7 @@ sub main
   new w = !n
   k = |<w| w += 5
   k()
-  h =! H(w: !n)
+  const h = H(w: !n)
   h.w += 1
   byval(<h)
   print(n)

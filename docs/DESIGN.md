@@ -196,8 +196,6 @@ reuses the expression sigils for captures (`|+x|` clones, `|<x|` moves,
 writes the payload in place, `match <e` takes it). Receivers are
 `?self`, `!self`, and `<self`, the only place a sigil may prefix a
 parameter name. A move-assignment is `a = <b`.
-The fixed binding `x =! e` is the one place `!` appears in an operator
-that is not about borrowing or failure.
 
 Here the algebra is at work in one small program:
 
@@ -334,7 +332,7 @@ per such binding, visible in the emitted code.
 `x = e` binds or assigns, as in Python and Ruby, so there is no `var`
 or `let`. What Rig forbids is the classic accident of that style:
 implicit shadowing. A local may not reuse a visible name; `new x = e`
-shadows on purpose. `x =! e` marks a binding that never changes.
+shadows on purpose. `const x = e` marks a binding that never changes.
 Rig does not flip to immutable-by-default: whether a binding is a Zig
 `const` or `var` is the emitter's choice, made from what the checker
 knows, and visible mutation is better expressed through types like

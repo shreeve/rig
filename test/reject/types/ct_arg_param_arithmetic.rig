@@ -1,6 +1,6 @@
 # Arithmetic in a compile-time argument is checked only when Rig folds
 # it to a constant. On a compile-time parameter it would be computed per
-# instance, unchecked, so it is rejected, as is a `=!` binding of it.
+# instance, unchecked, so it is rejected, as is a `const` binding of it.
 
 sub inner[n: U8]
   print(n)
@@ -14,7 +14,7 @@ fun g[n: Int] -> Int
   n
 
 fun f[n: Int] -> Int
-  k =! n * 2
+  const k = n * 2
   g[-n]() + g[k]()
 
 sub main()
@@ -25,4 +25,4 @@ sub main()
 # error: 10:9: compile-time argument 1 of `inner` does arithmetic on a compile-time parameter
 # error: 11:9: compile-time argument 1 of `inner` does arithmetic on a compile-time parameter
 # error: 18:5: compile-time argument 1 of `g` does arithmetic on a compile-time parameter
-# error: 18:15: compile-time argument 1 of `g` must be known at compile time; `k` is bound with `=!` to a value computed when the program runs
+# error: 18:15: compile-time argument 1 of `g` must be known at compile time; `k` is bound with `const` to a value computed when the program runs

@@ -1,7 +1,7 @@
-A =! "ab"
-B =! "abc"
-NAMES =! ["x", "yy"]
-OPT =! 3
+const A = "ab"
+const B = "abc"
+const NAMES = ["x", "yy"]
+const OPT = 3
 
 struct W
   s: String

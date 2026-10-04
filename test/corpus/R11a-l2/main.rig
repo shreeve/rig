@@ -10,7 +10,7 @@ struct Mine[T, m: Int]
   fun cap(?self) -> Int
     self.r.cap()
 
-N =! 3
+const N = 3
 
 sub main()
   print(g[2](), lib.zeros[N]().len)

@@ -621,10 +621,9 @@ while an earlier argument's read of it is in use
 ```
 
 **Bindings.** A local binding may be reassigned. Parameters and `const`
-bindings may not. *(built;* the word `const` is *planned*: today a
-binding that never changes is written `x =! 5`.*)*
+bindings may not. *(built)*
 
-```rig pending
+```rig
 sub main
   const limit = 3
   print(limit)
@@ -697,7 +696,7 @@ rule in SYNTAX is syntax too.
 - **`-x`:** as a statement, `-name` drops; as a value, `-x` negates. A
   statement `-f()`, or `-n` of plain data, is rejected. *(built)*
 - **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`. *(built)*
-- **`const x = e`:** a binding that never changes. *(planned)*
+- **`const x = e`:** a binding that never changes. *(built)*
 - **A write call whose `Bool` value is used** is written
   `(!s).insert(k)`, everywhere. *(built)*
 - **Labels**, the `catch` forms, `pass`, and `??`.

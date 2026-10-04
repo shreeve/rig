@@ -1,4 +1,4 @@
-LIMIT =! 8
+const LIMIT = 8
 fun f(x: Int = LIMIT) -> Int
   x
 sub main

@@ -1,4 +1,4 @@
-# A binding made with `=!` is fixed and cannot be reassigned.
+# A binding made with `const` is fixed and cannot be reassigned.
 
 struct User
   name: String
@@ -7,7 +7,7 @@ fun loadUser(id: Int) -> User
   User(name: "Steve")
 
 sub main()
-  user =! loadUser(1)
+  const user = loadUser(1)
   user = loadUser(2)
 
 # error: cannot reassign fixed binding `user`

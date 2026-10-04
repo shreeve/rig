@@ -133,7 +133,7 @@ sub t2185
   print(wb2185 +% (fu2185(true) ?? (-10)))
 
 sub t3517
-  cst3517: U16 =! 6367
+  const cst3517: U16 = 6367
   gp3517: GP3517[U16] = GP3517(f: cst3517)
   print(gp3517.f)
 
@@ -153,7 +153,7 @@ sub t4734
   print(cf4734(false) catch (fal4734(true) catch 10.25))
 
 sub t787
-  cst787: U16 =! 0
+  const cst787: U16 = 0
   gy787: U16 = gid(cst787)
   print(gy787)
 

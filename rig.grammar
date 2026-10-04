@@ -89,7 +89,7 @@ tokens
     zig             # `extern zig "file.zig"`
     async           # reserved; no form uses it
     await           # reserved; no form uses it
-    const           # reserved; no form uses it
+    const           # `const x = e`: a binding that never changes
     impl            # reserved; no form uses it
     trait           # reserved; no form uses it
     when            # reserved; no form uses it
@@ -125,7 +125,7 @@ tokens
     rshift          # >>
     at              # @
     assign          # =
-    fixed_assign    # =!
+    fixed_assign    # =! (not Rig; the rewriter rejects it)
     plus_assign     # +=
     minus_assign    # -=
     star_assign     # *=
@@ -310,7 +310,7 @@ tokens
     variant                     name:leaf params:group
 
     # Bindings: `op` is the binding kind (see BindingKind in src/rig.zig)
-    set                         op:tag(fixed|shadow|"+="|"-="|"*="|"/="|"%="|"+%="|"-%="|"*%="|"&="|"|="|"^="|"<<="|">>=")? target type? value
+    set                         op:tag(fixed|shadow|shadow_fixed|"+="|"-="|"*="|"/="|"%="|"+%="|"-%="|"*%="|"&="|"|="|"^="|"<<="|">>=")? target type? value
     drop                        name:leaf
     pass
 
@@ -387,7 +387,7 @@ tokens
     ASYNC: "`async`", AWAIT: "`await`", CONST: "`const`", IMPL: "`impl`"
     TRAIT: "`trait`", WHEN: "`when`", WHERE: "`where`", YIELD: "`yield`"
     "=": "`=`", "+=": "`+=`", "-=": "`-=`", "*=": "`*=`", "/=": "`/=`", "%=": "`%=`"
-    "&=": "`&=`", "|=": "`|=`", "^=": "`^=`", "<<=": "`<<=`", ">>=": "`>>=`", "=!": "`=!`"
+    "&=": "`&=`", "|=": "`|=`", "^=": "`^=`", "<<=": "`<<=`", ">>=": "`>>=`"
     "+%=": "`+%=`", "-%=": "`-%=`", "*%=": "`*%=`", "+%": "`+%`", "-%": "`-%`", "*%": "`*%`"
     ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
     "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
@@ -432,10 +432,13 @@ stmt     = use
 # A compound assignment's `op` is the tag its operator names (`+=`).
 simple   = tail
          | assign
-         | target:postfix "=!"  value:tail          → (set op:fixed)
-         | target:name ":" type:type "="  value:tail → (set)
-         | target:name ":" type:type "=!" value:tail → (set op:fixed)
+         | target:name ":" type:type "=" value:tail → (set)
+         | CONST target:name "=" value:tail         → (set op:fixed)
+         | CONST target:name ":" type:type "=" value:tail → (set op:fixed)
          | NEW target:name "=" value:tail           → (set op:shadow)
+         | NEW target:name ":" type:type "=" value:tail → (set op:shadow)
+         | NEW CONST target:name "=" value:tail     → (set op:shadow_fixed)
+         | NEW CONST target:name ":" type:type "=" value:tail → (set op:shadow_fixed)
          | DROP_STMT name:name                      → (drop)
          | PASS                                     → (pass)
          | RETURN [value:tail]                      → (return)
@@ -456,14 +459,14 @@ assign   = target:postfix "="   value:tail          → (set)
 
 decl     = defn
          | PUB decl:defn                            → (pub)
-         | PUB decl:const                           → (pub)
+         | PUB decl:constant                        → (pub)
 
-# A public module-level constant, `pub LIMIT = 4`. A `=!` parses too, so
-# that the Parser wrapper can say a module-level binding needs none.
-const    = target:name "="  value:tail              → (set)
-         | target:name ":" type:type "="  value:tail → (set)
-         | target:name "=!" value:tail              → (set op:fixed)
-         | target:name ":" type:type "=!" value:tail → (set op:fixed)
+# A public module-level constant, `pub LIMIT = 4`. A `const` parses too,
+# so that the Parser wrapper can say a module-level binding needs none.
+constant = target:name "=" value:tail               → (set)
+         | target:name ":" type:type "=" value:tail → (set)
+         | CONST target:name "=" value:tail         → (set op:fixed)
+         | CONST target:name ":" type:type "=" value:tail → (set op:fixed)
 
 defn     = fun | sub | enum | struct | errors | typedef | test
 

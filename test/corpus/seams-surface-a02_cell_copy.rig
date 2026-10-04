@@ -17,6 +17,6 @@ sub main
   via(a)
   r = ?a
   r.hit()
-  f =! Counter(hits: Cell(0))
+  const f = Counter(hits: Cell(0))
   f.hit()
   print(a.hits.get(), b.hits.get(), f.hits.get())

@@ -1,9 +1,9 @@
-# Converting a `=!` constant is checked when the program runs, like any
+# Converting a `const` binding is checked when the program runs, like any
 # other value: an out-of-range float panics.
 
 sub main()
-  small =! 2.75
-  huge =! 1e300
+  const small = 2.75
+  const huge = 1e300
   print(Int(small))
   print(Int(huge))
 

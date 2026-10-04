@@ -1626,10 +1626,10 @@ sub main
 ```
 
 There are no mutable module-level variables, so a module-level binding
-needs no `=!`, and one written with it is rejected:
+needs no `const`, and one written with it is rejected:
 
 ```rig reject
-LIMIT =! 4
+const LIMIT = 4
 
 sub main
   print(LIMIT)
@@ -1652,8 +1652,8 @@ declaration ([§14](#14-modules)), and `extern` declares a C symbol
 The forms are in [SYNTAX §9](SYNTAX.md#9-bindings-and-assignment).
 `x = e` binds a new local `x` when no `x` is visible, and otherwise
 assigns the visible one: through it, when `x` holds a write borrow
-([§7](#write-borrows)). `x =! e` binds a fixed local, which cannot be
-reassigned. `_ = e` evaluates `e` and discards it, and an owning value
+([§7](#write-borrows)). `const x = e` binds a fixed local, which cannot
+be reassigned. `_ = e` evaluates `e` and discards it, and an owning value
 discarded so is dropped at once. A binding's type comes from its
 annotation or its value.
 
@@ -1710,8 +1710,8 @@ index
 ```
 
 There is no implicit shadowing. A local may not reuse the name of a
-visible local, parameter, or module-level declaration, and `x =! e`
-always declares. To reuse a name on purpose, write `new`:
+visible local, parameter, or module-level declaration, and `const x =
+e` always declares. To reuse a name on purpose, write `new`:
 
 ```rig
 sub main
@@ -1725,6 +1725,22 @@ sub main
 ```output
 11
 now a string
+```
+
+`new` takes the other binding forms too: `new x: T = e`, and `new
+const x = e`, which shadows with a fixed local.
+
+```rig
+sub main
+  const limit = 3
+  new const limit = limit * 2
+  n = 7
+  new n: U8 = U8(n)
+  print(limit, n)
+```
+
+```output
+6 7
 ```
 
 ```rig reject
@@ -5246,11 +5262,11 @@ the signature holds, may be left to inference
 ([generic functions](#generic-functions)), any other value never. A
 value argument must be known at compile time: a literal
 (`none` included), an enum value, a module constant, a compile-time
-parameter, a `=!` binding of one of these, or a comparison or `and`,
+parameter, a `const` binding of one of these, or a comparison or `and`,
 `or`, `not` of them. Arithmetic in a compile-time argument must fold to
 a constant (`LIMIT * 2`), which is checked like constant arithmetic;
 arithmetic on a compile-time parameter (`n + 1`), directly or through a
-`=!` binding, is rejected, since each instance would compute it
+`const` binding, is rejected, since each instance would compute it
 unchecked. Inside a body, a compile-time value is an ordinary value, and
 arithmetic on it is checked when it runs. Whether `x[...]` indexes `x`
 or gives it compile-time arguments is decided by what `x` names
@@ -5387,7 +5403,7 @@ not parse, and their words and sigils stay reserved:
 | `for *x in v` | `` `for *x in` is reserved `` |
 | `try` blocks | `` `try` blocks are reserved `` |
 | `zig "..."` | `` inline Zig is reserved `` |
-| `when`, `yield`, `const`, ... as a name | `` unexpected keyword `when` `` (every word held for later: `async` `await` `const` `impl` `trait` `when` `where` `yield`) |
+| `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
 | string and float match patterns | `` a pattern is a name, an integer, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet

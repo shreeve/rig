@@ -1,6 +1,6 @@
 sub main
   v: Vec[Int] = Vec()
   !v.push(1)
-  r =! ?v[..]
+  const r = ?v[..]
   !v.push(2)
   print(r.len)

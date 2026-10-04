@@ -1,5 +1,5 @@
-ARR =! [1, 2]
-SAME =! ARR == [1, 2]
+const ARR = [1, 2]
+const SAME = ARR == [1, 2]
 
 sub main()
   print(SAME)

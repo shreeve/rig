@@ -1,5 +1,5 @@
 sub main
-  n =! 3
-  k =! 4 if n > 2 else 2
+  const n = 3
+  const k = 4 if n > 2 else 2
   a: [k]Int = [k of 1]
   print(k, a.len)

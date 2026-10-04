@@ -1,4 +1,4 @@
-N =! 3
-pub F =! 2.5
+const N = 3
+pub const F = 2.5
 pub struct S
   x: Int

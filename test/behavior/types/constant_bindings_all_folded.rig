@@ -1,5 +1,5 @@
 # A constant binding whose every use is computed ahead of time (inside a
-# block value, or a `=!` binding) is still fine to declare.
+# block value, or a `const` binding) is still fine to declare.
 
 sub main()
   x = 3
@@ -8,9 +8,9 @@ sub main()
     z + 1
   else
     0
-  k =! 4
+  const k = 4
   print(k + 1)
-  j =! k * 2
+  const j = k * 2
   print(y, j - 1)
 
 # expect:

@@ -86,7 +86,7 @@ sub t1787
   print(mz1787)
 
 sub t404
-  cst404: I16 =! 8237
+  const cst404: I16 = 8237
   cc404: Cell[I16] = Cell(0)
   cc404.set(cst404)
   print(cc404.get())
@@ -103,7 +103,7 @@ sub t176
   print(vec176)
 
 sub t721
-  cst721: I128 =! (-12)
+  const cst721: I128 = (-12)
   op721: I128? = cst721
   print(op721, op721 ?? 0)
 

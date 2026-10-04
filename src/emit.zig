@@ -191,7 +191,7 @@ pub const Emitter = struct {
     /// its context reads through it (`emitDeref`).
     want_ptr: bool = false,
     /// Emitting an operand of arithmetic or an index: compile-time names
-    /// (compile-time parameters, `=!` constants) are read through `rig.rt` so Zig
+    /// (compile-time parameters, `const` bindings) are read through `rig.rt` so Zig
     /// evaluates the operation at run time, as Rig checked it.
     rt_names: bool = false,
     /// Emitting a compile-time argument, which must stay compile-time known.
@@ -5802,7 +5802,7 @@ fn isPlainIdent(name: []const u8) bool {
 }
 
 /// Whether Zig could evaluate `e` at compile time: it is built only from
-/// literals, compile-time names (compile-time parameters, `=!` constants),
+/// literals, compile-time names (compile-time parameters, `const` bindings),
 /// constructors, and operators. Conservative: true when unsure.
 fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
     if (depth > 32) return true;

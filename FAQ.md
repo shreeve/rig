@@ -95,8 +95,8 @@ because the value may be gone. So it is a method returning an optional:
 
 ## Why no `var` or `let`?
 
-`x = e` binds or assigns, as in Python and Ruby, and `x =! e` binds for
-good. What Rig forbids is silently reusing a visible name; write
+`x = e` binds or assigns, as in Python and Ruby, and `const x = e` binds
+for good. What Rig forbids is silently reusing a visible name; write
 `new x = e` to shadow on purpose ([more](docs/DESIGN.md#bindings)).
 
 ## Why isn't reactivity built into the language?

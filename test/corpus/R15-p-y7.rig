@@ -1,6 +1,6 @@
 struct S
   a: [2]Int
-K =! S(a: [1, 2])
+const K = S(a: [1, 2])
 sub main()
   w = !K.a[..]
   w[0] = 5

@@ -16,6 +16,6 @@ sub main
   k = Counter(hits: Cell(0))
   viaMethod(k)
   print("caller still", k.hits.get())
-  m =! Counter(hits: Cell(0))
+  const m = Counter(hits: Cell(0))
   m.hit()
   print("fixed binding changed to", m.hits.get())
