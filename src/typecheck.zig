@@ -3651,17 +3651,14 @@ const Checker = struct {
         try self.ctx.recordTempDrop(base);
     }
 
-    /// A leaf of branching value `e` (`readLeaves`) that is a place, a
-    /// value a name holds, not one made there.
+    /// A leaf of `e` that is a value a name holds, where `e` hands over
+    /// branches (`sema.handsOver`): a place, a part of one, or a lend.
     fn namedLeaf(self: *Checker, e: Sexp) ?Sexp {
-        if (!isBranching(e)) return null;
+        if (sema.handsOver(self.ctx, e).kind != .branches) return null;
         var leaves: std.ArrayList(Sexp) = .empty;
         defer leaves.deinit(self.ctx.allocator);
-        readLeaves(self.ctx.allocator, e, &leaves) catch return e;
-        for (leaves.items) |leaf| {
-            const named = if (leaf == .src) !isLiteralText(self.text(leaf)) and !std.mem.eql(u8, self.text(leaf), "none") else isPlaceExpr(leaf);
-            if (named) return leaf;
-        }
+        sema.valueLeaves(self.ctx.allocator, e, &leaves) catch return e;
+        for (leaves.items) |leaf| if (sema.handsOver(self.ctx, leaf).hasStorage()) return leaf;
         return null;
     }
 
@@ -3673,20 +3670,27 @@ const Checker = struct {
     }
 
     /// `e`, synthesized, is only read. Reading never moves a name: a
-    /// read passes through `a if c else b`, `??`, `catch`, `e!`, and
-    /// `e?` to their operands (`readLeaves`). A value made where it is
-    /// only read (a call's result, a constructor, `+x`, `<x`, a block or
-    /// `match` value) is a temporary: one that owns a resource is
-    /// dropped when its statement ends.
+    /// read passes through a branching value (`a if c else b`, `??`,
+    /// `catch`, `e!`, `e?`) to its leaves (`sema.valueLeaves`). A value
+    /// made where it is only read (a call's result, a constructor, `+x`,
+    /// `<x`, a block or `match` value) is a temporary: one that owns a
+    /// resource is dropped when its statement ends.
     fn readLeaf(self: *Checker, e: Sexp) Error!void {
         var leaves: std.ArrayList(Sexp) = .empty;
         defer leaves.deinit(self.ctx.allocator);
-        // A branching value whose every value is made here is itself a
+        // A branching value whose every leaf is made here is itself a
         // value made here: one temporary.
-        if (self.namedLeaf(e) == null) try leaves.append(self.ctx.allocator, e) else try readLeaves(self.ctx.allocator, e, &leaves);
+        if (sema.handsOver(self.ctx, e).kind == .branches) try sema.valueLeaves(self.ctx.allocator, e, &leaves) else try leaves.append(self.ctx.allocator, e);
         for (leaves.items) |leaf| {
-            if (leaves.items.len > 1 and isPlaceExpr(leaf)) try self.ctx.recordReadInPlace(leaf);
-            if (leaf != .list or isPlaceExpr(leaf) or isJump(leaf) or leaf.isKind(.lambda)) continue;
+            const hands = sema.handsOver(self.ctx, leaf);
+            // A name's value, or a part of one, is read where it is.
+            if (hands.hasStorage()) {
+                if (leaves.items.len > 1) try self.ctx.recordReadInPlace(leaf);
+                continue;
+            }
+            if (hands.kind != .made) continue;
+            // A literal, `none`, or a function lives for the whole program.
+            if (leaf == .src) continue;
             const ty = self.ctx.typeOf(leaf) orelse continue;
             if (self.isPoison(ty) or isBorrow(self.ctx, ty)) continue;
             // A fallible value's temporary holds what it gives on success.
@@ -8394,10 +8398,6 @@ fn hasContinue(e: Sexp) bool {
     return false;
 }
 
-fn isJump(e: Sexp) bool {
-    return e.isKind(.@"return") or e.isKind(.@"break") or e.isKind(.@"continue");
-}
-
 /// An arithmetic operation: unary minus or a binary arithmetic,
 /// bitwise, or shift operator.
 fn isArithmetic(e: Sexp) bool {
@@ -8434,30 +8434,6 @@ fn isBranching(e: Sexp) bool {
         .@"??", .@"catch", .propagate, .propagate_none => true,
         else => false,
     };
-}
-
-/// The values a read of `e` reads: `e` itself, or through a branching
-/// value (`isBranching`), each of its value operands' leaves.
-fn readLeaves(a: std.mem.Allocator, e: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    const h = e.kind() orelse return out.append(a, e);
-    switch (h) {
-        .@"if" => if (ir.If.@"else"(e) != .nil) {
-            try readLeaves(a, ir.If.then(e), out);
-            return readLeaves(a, ir.If.@"else"(e), out);
-        },
-        .@"??" => {
-            try readLeaves(a, ir.@"??".left(e), out);
-            return readLeaves(a, ir.@"??".right(e), out);
-        },
-        .@"catch" => {
-            try readLeaves(a, ir.Catch.value(e), out);
-            return readLeaves(a, ir.Catch.handler(e), out);
-        },
-        .propagate => return readLeaves(a, ir.Propagate.value(e), out),
-        .propagate_none => return readLeaves(a, ir.PropagateNone.value(e), out),
-        else => {},
-    }
-    try out.append(a, e);
 }
 
 fn isPlaceExpr(e: Sexp) bool {
