@@ -656,7 +656,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             defer held.deinit(ctx.allocator);
             try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
             for (held.items) |param| {
-                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .plain, .pos = ctx.startOf(c.node), .op = "keeps in an array a value" });
+                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .no_cleanup, .pos = ctx.startOf(c.node), .op = "keeps in an array a value" });
             }
         },
         // A slice views plain data only: arrays hold nothing else, and a
@@ -670,7 +670,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             defer held.deinit(ctx.allocator);
             try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
             for (held.items) |param| {
-                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .plain, .pos = ctx.startOf(c.node), .op = "views in a slice a value" });
+                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .no_cleanup, .pos = ctx.startOf(c.node), .op = "views in a slice a value" });
             }
         },
         .builtin => |c| if (try builtinElementError(ctx, c.sym, c.args)) |msg| try ctx.err(c.pos, "{s}", .{msg}),

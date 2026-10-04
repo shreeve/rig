@@ -897,9 +897,13 @@ pub const Requirement = union(enum) {
     /// An integer wider than this many bits: the body shifts the value
     /// by a constant amount.
     shift: Wide,
-    /// Owns no resource: the body copies, discards, or leaves a
-    /// temporary of the parameter's value.
-    plain,
+    /// Copies (`moves` is not `yes`): the body copies the parameter's
+    /// value.
+    copyable,
+    /// Needs no cleanup: the body discards the parameter's value, leaves
+    /// a temporary of it, overwrites one, or keeps one in an array or a
+    /// slice.
+    no_cleanup,
     /// A compile-time integer from 0 to `max_array_len`: the body uses
     /// the value parameter as an array length.
     array_len,
@@ -924,7 +928,8 @@ pub const Requirement = union(enum) {
             .float => "a float literal",
             .fits => "an integer literal",
             .shift => "a constant shift",
-            .plain => "a value that owns no resource",
+            .copyable => "a value that copies",
+            .no_cleanup => "a value that owns no resource",
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",

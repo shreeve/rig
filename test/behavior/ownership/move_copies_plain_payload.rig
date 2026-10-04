@@ -1,0 +1,35 @@
+# A match payload of plain data is a copy of the field: `<p` copies it
+# out and leaves the matched value whole, as `<n` does for an `Int`.
+
+struct P
+  x: Int
+
+enum Color
+  red
+  blue
+
+enum E
+  a(p: P)
+  b(c: Color)
+
+sub take(p: P)
+  print(p)
+
+sub paint(c: Color)
+  print(c)
+
+sub main
+  e = E.a(p: P(x: 1))
+  match e
+    .a(p) => take(<p)
+    .b(c) => paint(<c)
+  f = E.b(c: .blue)
+  match f
+    .a(p) => take(<p)
+    .b(c) => paint(<c)
+  print(e, f)
+
+# expect:
+# P(x: 1)
+# .blue
+# .a(p: P(x: 1)) .b(c: .blue)

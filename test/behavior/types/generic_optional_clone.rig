@@ -1,0 +1,12 @@
+# `+x` of a `T?` in a generic body copies the optional where each
+# instance copies.
+
+fun dup[T](x: T?) -> T?
+  +x
+
+sub main
+  n: Int? = none
+  print(dup(3) ?? 0, dup(n) ?? 7)
+
+# expect:
+# 3 7

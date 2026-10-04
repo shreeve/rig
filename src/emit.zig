@@ -3317,23 +3317,33 @@ pub const Emitter = struct {
             .clone => {
                 // `+b` of a borrowed handle clones the handle it borrows.
                 const operand = ir.Clone.operand(sexp);
-                const kind: ?ResourceKind = if (self.typeOf(operand)) |t| self.kindOf(self.peelBorrows(t)) else null;
-                if (kind == .optional) {
-                    try self.w.writeAll("rig.cloneOptional(");
-                    try self.emitBare(operand);
-                    return self.w.writeAll(")");
+                const ty = self.typeOf(operand).?;
+                switch (sema.cloneable(self.sema, ty)) {
+                    .bump => switch (self.sema.types.get(self.peelBorrows(ty))) {
+                        .optional => {
+                            try self.w.writeAll("rig.cloneOptional(");
+                            try self.emitBare(operand);
+                            try self.w.writeAll(")");
+                        },
+                        .shared => {
+                            try self.emitExpr(operand);
+                            try self.w.writeAll(".cloneStrong()");
+                        },
+                        else => {
+                            try self.emitExpr(operand);
+                            try self.w.writeAll(".cloneWeak()");
+                        },
+                    },
+                    // `+t` of a Text copies its bytes.
+                    .text => {
+                        try self.emitExpr(operand);
+                        try self.w.writeAll(".clone()");
+                    },
+                    // A generic `T` is cloned only where each instance
+                    // copies, so it is copied.
+                    .copy, .depends => try self.emitExpr(operand),
+                    .no => return self.unsupported(sexp, "a clone of a value that moves"),
                 }
-                // `+t` of a Text copies its bytes.
-                if (self.peelBorrows(self.typeOf(operand).?) == self.sema.types.text_id) {
-                    try self.emitExpr(operand);
-                    return self.w.writeAll(".clone()");
-                }
-                // A generic `T` is cloned only where each instance is plain
-                // data, so it is copied.
-                if (kind == .value and !sema.maybeDropGlue(self.sema, self.peelBorrows(self.typeOf(operand).?))) return self.unsupported(sexp, "a clone of a value with drop glue");
-                try self.emitExpr(operand);
-                if (kind == .shared) try self.w.writeAll(".cloneStrong()");
-                if (kind == .weak) try self.w.writeAll(".cloneWeak()");
             },
             .weak => {
                 try self.emitExpr(ir.Weak.operand(sexp));
@@ -5379,12 +5389,14 @@ pub const Emitter = struct {
         return null;
     }
 
-    /// How a value of this type is released, or null for plain data.
-    /// Sema decides whether it owns anything (`typeHasDropGlue`, or
-    /// `maybeDropGlue` for values of a type parameter, which `rig.drop`
-    /// releases only if the instance needs it); this only picks the call.
+    /// How a value of this type that moves (`sema.moves`) is held and
+    /// released, or null for a value that copies. A value that moves gets
+    /// `var` storage, owned `as` and payload bindings, and an owned
+    /// closure environment; the kind picks its drop call. `rig.drop`
+    /// releases only what needs cleanup: a value of a type parameter
+    /// whose instance needs none drops nothing.
     fn kindOf(self: *Emitter, ty: TypeId) ?ResourceKind {
-        if (!sema.typeHasDropGlue(self.sema, ty) and !sema.maybeDropGlue(self.sema, ty)) return null;
+        if (sema.moves(self.sema, ty) == .no) return null;
         return switch (self.sema.types.get(ty)) {
             .shared => .shared,
             .weak => .weak,

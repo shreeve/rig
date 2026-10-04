@@ -596,7 +596,7 @@ pub const Checker = struct {
     /// generic body copies a `param`.
     fn checkCopies(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId) Error!void {
         const ctx = self.sema orelse return;
-        if (!sema.typeHasDropGlue(ctx, arg)) return;
+        if (sema.moves(ctx, arg) != .yes) return;
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
             if (r.param != param or r.view) continue;
@@ -2141,8 +2141,9 @@ pub const Checker = struct {
         const value = self.varValue(id);
         if (try self.rejectGlobal(id, pos, vt)) return .{};
 
-        // A Copy payload is copied out of its scrutinee, which stays whole.
-        if (v.alias_of != null and !self.isCopy(v.ty)) return self.movePayload(id, pos, vt);
+        // A payload that views its scrutinee cannot leave it; a copied
+        // payload is not a view (`bindPayload`).
+        if (v.alias_of != null) return self.movePayload(id, pos, vt);
 
         if (try self.conflicts(id, .{ .consume = vt }, pos)) return .{};
         // `<x` ends `x`, whatever its type: a Copy value or a borrow is
@@ -2192,7 +2193,7 @@ pub const Checker = struct {
     fn movePath(self: *Checker, inner: Sexp, place: Place) Error!Value {
         const value = try self.walk(inner);
         const ty = self.exprType(inner);
-        if (ty != null and self.isCopy(ty)) return value;
+        if (ty != null and self.copies(ty)) return value;
         if (ty != null and self.refOfType(ty) == .read) return value;
         const path = try self.placeText(inner);
         const root = self.vars.items[place.root].name;
@@ -2355,7 +2356,7 @@ pub const Checker = struct {
                 }
                 // A captured read borrow or Copy value is copied out, and
                 // a captured borrow passed to a call is lent for the call.
-                const copied = v.ref == .read or self.isCopy(v.ty) or (sink == .argument and v.ref != .none);
+                const copied = v.ref == .read or self.copies(v.ty) or (sink == .argument and v.ref != .none);
                 if (v.capture_resource and !copied and v.ref == .write) {
                     try self.err(pos, "bare use of captured write borrow `{s}` in {s} would hand the unique borrow out of the closure environment, again at each call; use it inside the closure instead", .{ name, sink.text() });
                     return;
@@ -2369,7 +2370,7 @@ pub const Checker = struct {
                 if (sink == .argument) return;
                 // A write borrow of a Copy value is copied where the
                 // value is read; where a `!T` goes, the borrow would be.
-                if (v.ref == .write and (!self.isCopy(self.pointee(v.ty)) or !self.copy_reads)) {
+                if (v.ref == .write and (!self.readsAsValue(self.pointee(v.ty)) or !self.copy_reads)) {
                     try self.err(pos, "bare use of write borrow `{s}` in {s} would duplicate a unique borrow; use `<{s}` to move it", .{ name, sink.text(), name });
                 } else if (v.ref != .write and self.carriesWriteBorrow(v.ty)) {
                     try self.err(pos, "bare use of `{s}` in {s} would duplicate the write borrow it holds; use `<{s}` to move it", .{ name, sink.text(), name });
@@ -2620,8 +2621,8 @@ pub const Checker = struct {
         // (A capture the type checker rejected is reported there.)
         const writes_capture = v.kind == .capture and (v.ref == .write or self.isPoisonType(v.ty));
         if (!writes_capture and try self.rejectBorrowedView(id, pos, "reassign")) return;
-        if (!self.isCopy(v.ty) and try self.rejectGlobal(id, pos, "reassign")) return;
-        if (v.alias_of != null and !self.isCopy(v.ty) and v.ref != .write and !self.isPoisonType(v.ty)) {
+        if (!self.copies(v.ty) and try self.rejectGlobal(id, pos, "reassign")) return;
+        if (v.alias_of != null and v.ref != .write and !self.isPoisonType(v.ty)) {
             try self.err(pos, "cannot reassign match binding `{s}`; it views the matched value", .{v.name});
             return;
         }
@@ -2642,7 +2643,7 @@ pub const Checker = struct {
             return self.storeThroughCapture(v, pos, value);
         }
         if (v.closure or v.fixed or v.loop_borrow or v.capture_resource) return;
-        if (self.isGlobal(id) and !self.isCopy(v.ty)) return;
+        if (self.isGlobal(id) and !self.copies(v.ty)) return;
         if (self.findLoan(id, .any, null) != null) return;
         if (v.ref == .write) {
             // Assigning a write borrow writes into the value it borrows:
@@ -2825,7 +2826,7 @@ pub const Checker = struct {
                 const id = p.root;
                 // A receiver already reported (used while write-borrowed)
                 // is not reported again as a conflicting write borrow.
-                if (self.flowLive(id) and !self.isCopy(self.vars.items[id].ty) and self.errors_found == found) {
+                if (self.flowLive(id) and !self.isScalar(self.vars.items[id].ty) and self.errors_found == found) {
                     const pos = self.startOf(obj);
                     reservation = self.temps.items.len;
                     try self.addTemp(.{ .root = id, .kind = .read, .pos = pos });
@@ -3344,7 +3345,7 @@ pub const Checker = struct {
             const ty = self.symType(name.src.pos);
             // A capture the type checker rejected holds nothing.
             const resource = !self.isPoisonType(ty) and switch (sema.captureModeOf(cap).?) {
-                .cap_clone => !self.isCopy(ty),
+                .cap_clone => !self.copies(ty),
                 .cap_weak, .cap_move, .cap_read, .cap_write => true,
             };
             _ = try self.addVar(.{
@@ -3437,7 +3438,7 @@ pub const Checker = struct {
     /// out of its scrutinee, and an owning value out of its binding, so
     /// deferred code at that exit sees it moved.
     fn returnMoves(self: *const Checker, v: Var) bool {
-        if (v.alias_of != null) return !self.isCopy(v.ty);
+        if (v.alias_of != null) return true;
         return self.owningKind(v.ty) != null;
     }
 
@@ -3686,11 +3687,15 @@ pub const Checker = struct {
         const ty = self.symType(pos);
         var v: Var = .{ .name = self.text(node), .decl = pos, .ty = ty, .kind = .pattern, .ref = self.refOfType(ty) };
         var loans: []const Loan = &.{};
-        // A String copied out of the matched value views what it views.
-        if (self.isCopy(ty) and self.mayCarryBorrow(ty)) {
+        // A payload that copies (`sema.copyable`) is copied out of the
+        // matched value, which stays whole. A view the match makes of a
+        // field (`match ?e`) views the matched value instead.
+        const copied = self.copies(ty) and v.ref == .none;
+        // A copy views what the matched value views.
+        if (copied and self.mayCarryBorrow(ty)) {
             const r_loans: []const Loan = if (info.root) |r| self.flows.items[r].loans else &.{};
             loans = (try self.viewLoans(ty, .{ .loans = try self.unionLoans(scrut_value.loans, r_loans) })).loans;
-        } else if (!self.isCopy(ty)) {
+        } else if (!copied) {
             if (info.root) |r| {
                 v.alias_of = r;
                 v.alias_path = info.path;
@@ -4253,8 +4258,24 @@ pub const Checker = struct {
         };
     }
 
-    /// A primitive copied freely: numbers, `Bool`, `String`, errors.
-    fn isCopy(self: *const Checker, ty: ?TypeId) bool {
+    /// A value copied implicitly where it is used (`sema.copyable`):
+    /// not one whose copying depends on a type parameter.
+    fn copies(self: *const Checker, ty: ?TypeId) bool {
+        const ctx = self.sema orelse return false;
+        return sema.copyable(ctx, ty orelse return false) == .yes;
+    }
+
+    /// A value read through a write view as the value itself
+    /// (`sema.readsAsValue`).
+    fn readsAsValue(self: *const Checker, ty: ?TypeId) bool {
+        const ctx = self.sema orelse return false;
+        return sema.readsAsValue(ctx, ty orelse return false);
+    }
+
+    /// A scalar: a number, `Bool`, `String`, or an error. A method call
+    /// takes any other receiver by address, so a later argument must
+    /// not change it before the call reads it.
+    fn isScalar(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;
         return sema.isCopyPrimitive(ctx, t) or ctx.types.get(t) == .any_error;
@@ -4274,23 +4295,33 @@ pub const Checker = struct {
         return t == .parameterized_nominal and t.parameterized_nominal.sym == ctx.vec_sym_id;
     }
 
-    /// A Vec (or a borrow of one) whose elements own resources: walked
-    /// by borrowed slot.
+    /// A Vec (or a borrow of one) whose elements move (`sema.moves`):
+    /// walked by borrowed slot.
     fn isResourceVec(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;
         const pt = ctx.types.get(sema.unwrapBorrows(ctx, t));
         if (pt != .parameterized_nominal or pt.parameterized_nominal.sym != ctx.vec_sym_id) return false;
         if (pt.parameterized_nominal.args.len != 1) return false;
-        return sema.typeHasDropGlue(ctx, pt.parameterized_nominal.args[0]);
+        return sema.moves(ctx, pt.parameterized_nominal.args[0]) == .yes;
     }
 
-    /// Values of this type own a resource (ctx's drop glue) and cannot
-    /// be copied implicitly. The kind only chooses the diagnostic.
+    /// Values of this type move (`sema.moves`) and cannot be copied
+    /// implicitly: null for a value that copies. The kind only chooses
+    /// the diagnostic (`kindLabel`).
     fn owningKind(self: *const Checker, ty: ?TypeId) ?Owning {
         const ctx = self.sema orelse return null;
         const t = ty orelse return null;
-        if (!sema.typeHasDropGlue(ctx, t)) return if (sema.maybeDropGlue(ctx, t)) .generic else null;
+        return switch (sema.moves(ctx, t)) {
+            .no => null,
+            .depends => .generic,
+            .yes => self.kindLabel(t),
+        };
+    }
+
+    /// How a diagnostic names the kind of a value that moves.
+    fn kindLabel(self: *const Checker, t: TypeId) Owning {
+        const ctx = self.sema.?;
         var inner = t;
         while (ctx.types.get(inner) == .optional) inner = ctx.types.get(inner).optional;
         return switch (ctx.types.get(inner)) {

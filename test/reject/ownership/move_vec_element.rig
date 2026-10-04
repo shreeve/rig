@@ -1,14 +1,15 @@
-# An element cannot be moved out of a Vec: the Vec still owns the slot.
+# An element that moves cannot be moved out of a Vec: the Vec still
+# owns the slot. (An element of plain data is copied out.)
 
 struct P
   n: Int
 
-sub eat(p: P)
+sub eat(p: *P)
   print(p.n)
 
 sub main()
-  v: Vec[P] = Vec()
-  !v.push(P(n: 7))
+  v: Vec[*P] = Vec()
+  !v.push(*P(n: 7))
   eat(<v[0])
 
-# error: 12:8: cannot move out of
+# error: 13:8: indexing a `Vec[*P]` would copy an owning element out of the Vec
