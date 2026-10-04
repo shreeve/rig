@@ -51,6 +51,9 @@ pub const Var = struct {
     drop_reads: bool,
     hidden: bool = false,
     param: bool = false,
+    /// A binding that sees an owner's payload through a view (`match s`,
+    /// `if ?o as x`): it reads and lends what it sees, never moves it.
+    alias: bool = false,
     pos: u32,
 };
 

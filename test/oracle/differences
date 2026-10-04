@@ -27,3 +27,8 @@ test/corpus/t-mv4.rig main prod-rejects prod-strict `<v[0]` of a plain struct el
 # write view's assignment writes through.
 test/corpus/review-lang4-fx.rig main prod-rejects core-gap `w += 1` through a fixed write view
 test/corpus/review-place-b9-x022_fixed_wb_local.rig main prod-rejects core-gap `w = 5` through a fixed write view
+
+# Whether a `match !e` payload binding, a write view of the payload, may
+# be moved into a local (`y = <s`): SPEC §7 moves a write view with `<w`,
+# and the compiler reads `<s` as moving out of `e`.
+test/corpus/review-take-p15.rig main prod-rejects core-gap `y = <s` of a `match !e` payload binding

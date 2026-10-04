@@ -1,6 +1,6 @@
 # The fewest functions bin/rig-oracle must decide in each set of
 # test/run's oracle tests; raise a floor when the oracle grows.
-tests 1300
-corpus 4341
-docs 241
-matrix 3175
+tests 1634
+corpus 5045
+docs 299
+matrix 3383
