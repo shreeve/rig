@@ -122,6 +122,13 @@ CONTEXTS = {
     # `none` and a bare `.variant` test a value and drop it if no name holds it.
     "eq_none": dict(inline="print(E == none)", optional=True),
     "eq_variant": dict(inline="print(E != .dot)", types=("enum",)),
+    # A closure whose result is inferred returns its value: the tail of
+    # an expression body, and of a block body. (Its own `a`, `b`, `c`,
+    # `o` are parameters, in a function of their own.)
+    "closure_tail": dict(decl="fun ctail(k: Bool, p: @T?) -> @T\n  g = |a: @T, b: @T, c: Bool, o: @T?| E\n  g(mk(1), mk(2), k, <p)\n",
+                         inline="x = ctail(c, mk(3))\n  print(look(?x))"),
+    "closure_block": dict(decl="fun ctail(k: Bool, p: @T?) -> @T\n  g = |a: @T, b: @T, c: Bool, o: @T?|\n    print(0)\n    E\n  g(mk(1), mk(2), k, <p)\n",
+                          inline="x = ctail(c, mk(3))\n  print(look(?x))"),
     # `+e` reads `e`, and `_ = e` drops what it takes.
     "clone": dict(inline="x = +(E)\n  print(look(?x))"),
     "discard": dict(inline="_ = E"),
@@ -253,6 +260,10 @@ def program(tname, fname, cname):
     out.append(f"fun mk(n: Int) -> {ty}\n  {t["mk"]}\n")
     out.append(f"fun fail(c: Bool) -> {ty}!\n  return E.bad if c\n  mk(7)\n")
     out.append(f"fun look(x: ?{ty}) -> Int\n  1\n")
+    if "decl" in ctx:
+        if isinstance(form, list):
+            return None
+        out.append(ctx["decl"].replace("@T", ty).replace("E", form))
     out.append(f"struct H\n  f: {ty}\n")
     returns = ctx.get("returns", False)
     needs = ctx.get("needs")

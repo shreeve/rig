@@ -8092,12 +8092,20 @@ const Checker = struct {
                 // A closure ending in a statement, or an `if` without
                 // `else`, returns nothing.
                 const no_value = self.yieldsNoValue(last) or ifWithoutValue(last);
+                // A closure's value is its result: it leaves the body,
+                // as `return` takes it.
                 ret = if (no_value) blk: {
                     try self.checkStmt(last);
                     break :blk self.t().void_id;
-                } else try self.synthExpr(last);
+                } else blk: {
+                    try self.recordUse(last, .take);
+                    break :blk try self.synthExpr(last);
+                };
             }
-        } else ret = try self.synthExpr(body);
+        } else {
+            try self.recordUse(body, .take);
+            ret = try self.synthExpr(body);
+        }
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
         ret = try self.reconcileReturns(sites.items, ret, ends_in_return, body);
