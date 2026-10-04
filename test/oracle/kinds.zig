@@ -31,6 +31,8 @@ pub const Info = struct {
     holds_views: bool,
     /// Values may hold a `?T`, `!T`, or slice.
     holds_pointers: bool,
+    /// Values are or hold a Text, whose bytes a String may view.
+    reaches_text: bool,
     /// Dropping it runs a user `drop` body somewhere inside.
     drop_reads: bool,
     /// Why the oracle does not model values of this type yet.
@@ -69,6 +71,7 @@ pub const Kinds = struct {
             .kind = kind,
             .holds_views = ti.borrows.any or ti.borrows.view,
             .holds_pointers = ti.borrows.any,
+            .reaches_text = ti.borrows.text or ctx.types.get(ty) == .text,
             .drop_reads = scan.drop_body and kind == .owning,
             .unsupported = if (ti.poison) "a type with an error" else scan.unsupported,
         };

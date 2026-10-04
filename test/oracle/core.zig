@@ -81,7 +81,18 @@ pub const Loan = struct {
     /// The lend made a `?T` or `!T` pointing at the place (not a slice
     /// or a String, which view its bytes).
     pointer: bool = true,
+    /// The place reaches a Text, whose bytes a String made through the
+    /// pointer may view.
+    reaches_text: bool = false,
     pos: u32,
+
+    /// Whether a value of a type that holds views but no pointer (a
+    /// String, a struct of Strings) can carry this loan: a String copied
+    /// out through a `?String` does not carry the loan on the place it
+    /// was read from, but one made from a `?Text` views the Text.
+    pub fn reachesStrings(l: Loan) bool {
+        return !l.pointer or l.reaches_text;
+    }
 };
 
 pub const AccessKind = enum {

@@ -87,6 +87,8 @@ const Checker = struct {
     nv: usize,
     nl: usize,
     live_out: []Bits,
+    /// The read loan each write loan reads as, in what a call returns.
+    twins: []?LoanId,
     finding: ?core.Finding = null,
 
     fn report(self: *Checker, rule: core.Rule, pos: u32, comptime fmt: []const u8, args: anytype) !void {
@@ -166,7 +168,7 @@ const Checker = struct {
             return;
         }
         for (self.f.loans.items, 0..) |l, li| {
-            if (flow.has(li) and !l.pointer) st.holds[v].set(li);
+            if (flow.has(li) and l.reachesStrings()) st.holds[v].set(li);
         }
     }
 
@@ -177,14 +179,31 @@ const Checker = struct {
         if (!vr.holds_views) return;
         for (self.f.loans.items, 0..) |l, li| {
             if (!flow.has(li) or (!l.external and l.root == g)) continue;
-            if (l.pointer and !vr.holds_pointers) continue;
+            if (!vr.holds_pointers and !l.reachesStrings()) continue;
             st.holds[g].set(li);
+        }
+    }
+
+    /// Replace each write loan in a flow by its read twin.
+    fn readOnly(self: *Checker, flow: Bits) void {
+        for (self.twins, 0..) |twin, li| {
+            if (twin) |t| if (flow.has(li)) {
+                flow.unset(li);
+                flow.set(t);
+            };
         }
     }
 
     /// Apply an op to the state (after its checks).
     fn transfer(self: *Checker, op: core.Op, st: State, flow: Bits) void {
         self.flowOf(op, st, flow);
+        // What a call hands back or stores is a read view of what it was
+        // lent to write, unless it is itself a write view: a String made
+        // from a `!Text` reads it (Core s7).
+        if (op.what == .call) {
+            const wants_write = if (op.def) |d| self.f.vars.items[d].kind == .write_view else false;
+            if (!wants_write) self.readOnly(flow);
+        }
         for (op.moves) |v| {
             st.empty.set(v);
             st.holds[v].clear();
@@ -214,8 +233,8 @@ const Checker = struct {
 
     // ---- checks ---------------------------------------------------------
 
-    fn conflicts(self: *Checker, l: core.Loan, li: LoanId, acc: core.Access) bool {
-        _ = self;
+    /// Whether an access conflicts with a loan a var carries.
+    fn conflicts(l: core.Loan, li: LoanId, acc: core.Access) bool {
         if (l.external or l.root != acc.root) return false;
         if (acc.except) |e| if (e == li) return false;
         // The places of one `swap` may be different fields of one value.
@@ -260,8 +279,8 @@ const Checker = struct {
                 for (self.f.loans.items, 0..) |l, li| {
                     if (!st.holds[u].has(li)) continue;
                     if (op.loan != null and op.loan.? == li) continue;
-                    if (!self.conflicts(l, @intCast(li), acc)) continue;
-                    try self.report(.C4, op.pos, "cannot {s} `{s}` while a {s} loan of it is live (L{d}, carried by {s}#{d})", .{
+                    if (!conflicts(l, @intCast(li), acc)) continue;
+                    try self.report(.C4, op.pos, "cannot {s} `{s}` while a {s} loan of it is live (L{d}, carried by `{s}`#{d})", .{
                         switch (acc.kind) {
                             .read => "read",
                             .reserve, .write => "write",
@@ -319,7 +338,18 @@ pub fn check(a: std.mem.Allocator, f: *core.Func) !?core.Finding {
         try f.loans.append(a, .{ .root = p, .path = &.{}, .mode = .read, .external = true, .pointer = false, .pos = 0 });
         try entry_loans.append(a, .{ p, @intCast(f.loans.items.len - 1) });
     }
-    var c: Checker = .{ .a = a, .f = f, .nv = f.vars.items.len, .nl = f.loans.items.len, .live_out = &.{} };
+    const n = f.loans.items.len;
+    const twins = try a.alloc(?LoanId, n);
+    for (twins, 0..) |*t, li| {
+        const l = f.loans.items[li];
+        t.* = null;
+        if (l.mode == .read or l.external) continue;
+        var twin = l;
+        twin.mode = .read;
+        try f.loans.append(a, twin);
+        t.* = @intCast(f.loans.items.len - 1);
+    }
+    var c: Checker = .{ .a = a, .f = f, .nv = f.vars.items.len, .nl = f.loans.items.len, .live_out = &.{}, .twins = twins };
     try c.liveness();
 
     const blocks = f.blocks.items;

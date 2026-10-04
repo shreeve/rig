@@ -80,7 +80,7 @@ const Region = struct {
 const Loop = struct {
     label: ?[]const u8,
     brk: BlockId,
-    /// Null for a labeled `match`, which only `break :label` leaves.
+    /// Null for a `match`, which only `break :label` leaves.
     cont: ?BlockId,
     /// The region depth a `break` unwinds to.
     depth: usize,
@@ -502,7 +502,12 @@ const Lowerer = struct {
         const pos = self.posOf(value);
         if (isBranching(value)) return abstain("an `as` of a branching value");
         try self.pushRegion();
-        var v = try self.eval(value, how, null) orelse return abstain("an `as` of a constant");
+        var v = try self.eval(value, how, null) orelse blk: {
+            // A literal or constant subject holds no loan.
+            const c = try self.temp(try self.typeOf(value), pos);
+            try self.emit(.{ .pos = pos, .what = .make, .def = c });
+            break :blk c;
+        };
         // A read view of a made value of plain data is read as its value,
         // which carries no loan (Core §4).
         if (value.isKind(.read) and !self.isPlaceSyntax(ir.Read.operand(value))) v = try self.readThrough(v, pos);
@@ -657,21 +662,23 @@ const Lowerer = struct {
         try self.goto(h);
         self.cur = h;
         const forever = cond == .src and std.mem.eql(u8, cond.getText(self.src), "true");
-        var held: ?Held = null;
-        if (cond.isKind(.as)) held = try self.asHeader(ir.As.value(cond), .take) else try self.header(cond);
         const b = try self.newBlock();
         const x = try self.newBlock();
+        const st = try self.newBlock();
+        // A jump in the condition (`?? break`) leaves the loop too.
+        try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = st, .depth = self.regions.items.len, .value = loop_value });
+        var held: ?Held = null;
+        if (cond.isKind(.as)) held = try self.asHeader(ir.As.value(cond), .take) else try self.header(cond);
         const els = ir.While.@"else"(s);
         const e = if (els == .nil) x else try self.newBlock();
         if (forever) try self.goto(b) else try self.branch(b, e);
         const step = ir.While.step(s);
-        const st = try self.newBlock();
         // One iteration's region holds the `as` binding through the body
         // and the step; `continue` goes to the step inside it.
         self.cur = b;
         try self.pushRegion();
         if (held) |hv| try self.bindHeld(ir.As.name(cond), hv);
-        try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = st, .depth = self.regions.items.len - 1, .cont_depth = self.regions.items.len, .value = loop_value });
+        self.loops.items[self.loops.items.len - 1].cont_depth = self.regions.items.len;
         try self.blockStmts(ir.While.body(s));
         try self.goto(st);
         self.cur = st;
@@ -1084,7 +1091,8 @@ const Lowerer = struct {
         const obj = ir.Member.object(e);
         if (self.ctx.isErrorMember(e)) return true;
         if (obj != .src) return false;
-        const sym_id = self.ctx.symbolOf(obj) orelse return false;
+        // `Int.min`: a member of a built-in type.
+        const sym_id = self.ctx.symbolOf(obj) orelse return self.ctx.typeOf(obj) == null;
         const sym = self.ctx.symbols.items[sym_id];
         return switch (sym.kind) {
             .module, .nominal_type, .type_alias, .generic_type => true,
@@ -1299,7 +1307,18 @@ const Lowerer = struct {
     }
 
     fn newLoan(self: *Lowerer, p: Place, mode: core.Mode, deref: bool, group: u32, pos: u32) Error!core.LoanId {
-        try self.f.loans.append(self.a, .{ .root = p.root, .path = p.path, .mode = mode, .deref = deref, .group = group, .pos = pos, .stores_views = try self.storesViews(p) });
+        var reached = p.ty;
+        if (self.ctx.types.get(reached) == .borrow_write) reached = try self.innerOf(reached);
+        try self.f.loans.append(self.a, .{
+            .root = p.root,
+            .path = p.path,
+            .mode = mode,
+            .deref = deref,
+            .group = group,
+            .pos = pos,
+            .stores_views = try self.storesViews(p),
+            .reaches_text = (try self.kinds.of(reached)).reaches_text,
+        });
         return @intCast(self.f.loans.items.len - 1);
     }
 
@@ -1384,7 +1403,7 @@ const Lowerer = struct {
                     if (ft != .function) return abstain("an unusual callee");
                     shapes = try self.shapesOf(self.ctx, ft.function.params);
                 },
-                .nominal_type, .generic_type => {
+                .nominal_type, .generic_type, .type_alias => {
                     if (s.kind == .generic_type and sym_id.? != self.ctx.vec_sym_id and sym_id.? != self.ctx.box_sym_id) return abstain("a generic constructor");
                     is_ctor = true;
                 },
@@ -1577,7 +1596,26 @@ const Lowerer = struct {
         }
         const inner_obj = if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
         const recv_ty = try self.typeOf(inner_obj);
-        const decl = sema.nominalDecl(self.ctx, recv_ty) orelse return abstain("a method of an unusual type");
+        const decl = sema.nominalDecl(self.ctx, recv_ty) orelse {
+            // A built-in method of an array, slice, or String: it writes
+            // its receiver only where `!` says so.
+            return switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, recv_ty))) {
+                .array, .slice, .string => .{ if (obj.isKind(.write)) .write else .read, null },
+                else => abstain("a method of an unusual type"),
+            };
+        };
+        if (try self.methodOf(decl, mname)) |found_method| return found_method;
+        // A method of what a box holds, reached through the box.
+        if (sema.boxedNominal(self.ctx, recv_ty)) |boxed| {
+            if (sema.nominalDecl(self.ctx, boxed)) |inner_decl| {
+                if (try self.methodOf(inner_decl, mname)) |found_method| return found_method;
+            }
+        }
+        return abstain("a method reached through a handle");
+    }
+
+    fn methodOf(self: *Lowerer, decl: sema.NominalDecl, mname: []const u8) Error!?struct { sema.MethodReceiver, ?MethodParams } {
+        _ = self;
         for (decl.symbol().fields orelse &.{}) |f| {
             if (!f.is_method or f.is_drop_method or !std.mem.eql(u8, f.name, mname)) continue;
             const ft = decl.ctx.types.get(f.ty);
@@ -1588,6 +1626,6 @@ const Lowerer = struct {
                 .read, .write, .value => .{ f.receiver, .{ .ctx = decl.ctx, .params = if (params.len > 0) params[1..] else params } },
             };
         }
-        return abstain("a method reached through a box or handle");
+        return null;
     }
 };
