@@ -953,16 +953,9 @@ pub const Checker = struct {
 
     /// The current state relative to point `p`: of the vars in scope
     /// there, and of the loans on them. A path that leaves the scopes
-    /// opened since carries nothing else (`exitTo` reports what it
-    /// loses). A statement's temporary made since `p` is out of the state:
-    /// a value that still holds one after the statement outlives it.
+    /// opened since carries nothing else: `exitTo`, its only caller,
+    /// reports what it loses.
     fn capture(self: *Checker, p: Point) Error!State {
-        return self.captureState(p, true);
-    }
-
-    /// The state relative to `p` (`capture`), reporting a holder of a
-    /// statement's temporary only when `report_temps`.
-    fn captureState(self: *Checker, p: Point, report_temps: bool) Error!State {
         const len = p.vars;
         self.scratch.clearRetainingCapacity();
         for (self.trail.items[p.trail..]) |c| {
@@ -975,7 +968,6 @@ pub const Checker = struct {
             if (prev == id) continue;
             prev = id;
             var f = self.flows.items[id];
-            if (report_temps and hasLoanFrom(f.loans, len)) try self.reportTempHolder(f, id, len);
             f.loans = try self.filterLoansBelow(f.loans, len);
             try entries.append(self.arena(), .{ .id = id, .flow = f });
         }
@@ -1017,7 +1009,7 @@ pub const Checker = struct {
     fn exitTo(self: *Checker, x: ExitTo) Error!State {
         if (x.exit) |e| try self.exitDefers(e);
         try self.reportDropped(x.to.vars, x.resume_at);
-        return self.captureState(x.to, false);
+        return self.capture(x.to);
     }
 
     /// Report each var below `depth` that keeps a loan on a var at
@@ -1042,18 +1034,18 @@ pub const Checker = struct {
         self.reachable = s.reachable;
     }
 
-    /// Leave the current path: its state relative to point `p`, after
-    /// going back to `p`.
-    fn leave(self: *Checker, p: Point) Error!State {
-        const s = try self.capture(p);
+    /// Leave the current path for point `p`, going on at `resume_at`
+    /// (`exitTo`): its state relative to `p`, after going back to `p`.
+    fn leave(self: *Checker, p: Point, resume_at: ?u32) Error!State {
+        const s = try self.exitTo(.{ .to = p, .resume_at = resume_at });
         try self.rewind(p);
         return s;
     }
 
-    /// Make current the join of the current state with `states`, all
-    /// relative to point `p`.
-    fn joinAt(self: *Checker, p: Point, states: []const State) Error!void {
-        var out = try self.leave(p);
+    /// Make current the join of the current state, which goes on at
+    /// `resume_at`, with `states`, all relative to point `p`.
+    fn joinAt(self: *Checker, p: Point, states: []const State, resume_at: ?u32) Error!void {
+        var out = try self.leave(p, resume_at);
         for (states) |s| out = try self.join(out, s);
         try self.apply(out);
     }
@@ -3523,10 +3515,11 @@ pub const Checker = struct {
         // The condition is a header, its own statement.
         try self.walkStmt(cond);
         const base = try self.here();
+        const past = resumeAt(.nil, node);
         const v1 = try self.walkTailBranch(then_b, t);
-        const s1 = try self.leave(base);
+        const s1 = try self.leave(base, past);
         const v2 = if (else_b != .nil) try self.walkTailBranch(else_b, t) else Value{};
-        const s2 = try self.leave(base);
+        const s2 = try self.leave(base, past);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
     }
@@ -3548,10 +3541,11 @@ pub const Checker = struct {
             v1 = try self.checkValueEscapesScope(v1);
             try self.popScope();
         }
-        const s1 = try self.leave(base);
+        const past = resumeAt(.nil, node);
+        const s1 = try self.leave(base, past);
         try self.apply(failed);
         const v2 = if (else_b != .nil) try self.walkTailBranch(else_b, t) else Value{};
-        const s2 = try self.leave(base);
+        const s2 = try self.leave(base, past);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
     }
@@ -3592,7 +3586,7 @@ pub const Checker = struct {
         var v2 = try self.walkTailPart(handler, t);
         v2 = try self.checkValueEscapesScope(v2);
         try self.popScope();
-        const s = try self.leave(base);
+        const s = try self.leave(base, resumeAt(.nil, node));
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
     }
@@ -3604,7 +3598,7 @@ pub const Checker = struct {
         const v1 = try self.walk(ir.@"??".left(node));
         const base = try self.here();
         const v2 = try self.walkTailPart(ir.@"??".right(node), t);
-        const s = try self.leave(base);
+        const s = try self.leave(base, resumeAt(.nil, node));
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
     }
@@ -3696,7 +3690,7 @@ pub const Checker = struct {
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);
-            const s = try self.leave(base);
+            const s = try self.leave(base, resumeAt(.nil, match));
             acc = if (acc) |a| try self.join(a, s) else s;
             if (failed) |f| start = try self.join(start, f);
         }
@@ -3865,7 +3859,7 @@ pub const Checker = struct {
         self.loop = &ctx;
         defer self.loop = ctx.parent;
         try self.walkStmt(stmt);
-        try self.joinAt(ctx.point, ctx.breaks.items);
+        try self.joinAt(ctx.point, ctx.breaks.items, resumeAt(.nil, node));
         return .{};
     }
 
@@ -3920,7 +3914,7 @@ pub const Checker = struct {
                 self.value_reads = false;
             } else try self.walkStmt(e);
         }
-        try self.joinAt(ctx.point, ctx.breaks.items);
+        try self.joinAt(ctx.point, ctx.breaks.items, resumeAt(.nil, spec.node));
         return value;
     }
 
@@ -3944,16 +3938,18 @@ pub const Checker = struct {
             exit = try self.exitTo(.{ .to = ctx.point, .resume_at = resumeAt(ir.get(spec.node, .@"else"), spec.node) });
         } else {
             if (spec.cond) |c| try self.walkStmt(c);
-            if (!spec.cond_always_true) exit = try self.capture(ctx.point);
+            if (!spec.cond_always_true) exit = try self.exitTo(.{ .to = ctx.point, .resume_at = resumeAt(ir.get(spec.node, .@"else"), spec.node) });
         }
         try self.pushScopeFor(.block, spec.body);
         try self.bindLoopElems(spec);
         try self.walkStmt(spec.body);
         while (self.scopes.items.len > depth) try self.popScope();
 
-        if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items);
+        // A `continue` and the end of the body go back to the loop's
+        // head.
+        if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, ctx.start);
         if (spec.cont) |c| try self.walkStmt(c);
-        return .{ .back = try self.capture(ctx.point), .exit = exit };
+        return .{ .back = try self.exitTo(.{ .to = ctx.point, .resume_at = ctx.start }), .exit = exit };
     }
 
     fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {
@@ -4087,7 +4083,7 @@ pub const Checker = struct {
         self.loop = saved_loop;
         self.in_defer = saved_in_defer;
         if (!report_changes) return;
-        const after = try self.leave(snap);
+        const after = try self.leave(snap, null);
         for (after.changes) |e| {
             if (e.flow.status != self.flows.items[e.id].status) {
                 try self.errAt(body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
