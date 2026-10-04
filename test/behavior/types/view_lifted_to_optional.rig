@@ -19,6 +19,9 @@ fun show(o: (?Counter)?) -> Int
     return s.hits.get()
   0
 
+fun deep(r: ?Counter) -> ((?Counter)?)?
+  r
+
 fun pick(r: ?Counter) -> (?Counter)?
   r
 
@@ -46,6 +49,14 @@ sub main()
   ps = pr
   if ps as q
     print(q.x)
+  nested: ((?Counter)?)? = r
+  nested = r
+  if nested as n1
+    if n1 as n2
+      print(n2.hits.get())
+  if deep(r) as d1
+    if d1 as d2
+      print(d2.hits.get())
 
 # expect:
 # 5
@@ -54,3 +65,5 @@ sub main()
 # 7
 # 4
 # 1
+# 5
+# 5

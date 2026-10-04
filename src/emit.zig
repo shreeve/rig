@@ -1657,7 +1657,7 @@ pub const Emitter = struct {
     /// position (directly, or through `if`/`match` branches) are moved
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
-        if (self.fun.return_ty) |r| if (self.isPtrBorrowTy(self.unwrapOptional(r))) return self.emitBorrowValue(value);
+        if (self.fun.return_ty) |r| if (self.isPtrBorrowTy(self.unwrapOptionals(r))) return self.emitBorrowValue(value);
         try self.markReturningBlocks(value);
         self.bare = true;
         try self.emitValue(value, true);
@@ -3179,7 +3179,7 @@ pub const Emitter = struct {
     /// `e` yielded where a value of `ty` goes: a borrow yielded where a
     /// borrow or an optional borrow goes stays a borrow.
     fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
-        if (ty) |t| if (self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptional(t))) return self.emitBorrowValue(e);
+        if (ty) |t| if (self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptionals(t))) return self.emitBorrowValue(e);
         // A branch's String is a slice, so a literal in one branch and a
         // slice in another have one Zig type.
         if (ty) |t| if (self.unwrapOptional(t) == self.sema.types.string_id) {
@@ -3197,8 +3197,16 @@ pub const Emitter = struct {
     /// lifted into an optional of that view is the pointer itself, never
     /// the value it reaches.
     fn emitBareAs(self: *Emitter, e: Sexp, target: ?TypeId) Error!void {
-        if (target) |t| if (self.sema.types.get(t) == .optional and self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptional(t))) return self.emitBorrowValue(e);
+        if (target) |t| if (self.sema.types.get(t) == .optional and self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptionals(t))) return self.emitBorrowValue(e);
         try self.emitBare(e);
+    }
+
+    /// The type `ty` holds under every level of optional; any other type
+    /// itself.
+    fn unwrapOptionals(self: *Emitter, ty: TypeId) TypeId {
+        var inner = ty;
+        while (self.sema.types.get(inner) == .optional) inner = self.sema.types.get(inner).optional;
+        return inner;
     }
 
     /// The type an optional `ty` holds; any other type itself.
