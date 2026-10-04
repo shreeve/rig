@@ -27,8 +27,11 @@ zig run / zig build-exe            debug (leak-checked), safe, or fast
 ```
 
 `src/main.zig` is the CLI; `rig --help` is its reference. `check` runs
-every checker on the program and its imports, and `check --facts` then
-prints the root module's IR as flat facts ([Syntax facts](#syntax-facts)).
+every checker on the program and its imports. `check --facts` then
+prints the root module's IR as flat facts ([Syntax facts](#syntax-facts)),
+and `check --facts=sema` every fact sema recorded for its expressions
+(`sema.Facts`), one per line, keyed by node kind and span with no
+compiler ids, so two compilers' dumps of a program diff cleanly.
 A module whose sema reports an error (other than a local that is never
 read, a lint on well-typed code) is not ownership-checked: ownership
 reads the types sema settled, as Rust's borrow checker waits for its

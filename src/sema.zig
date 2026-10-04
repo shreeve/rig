@@ -773,6 +773,110 @@ pub const DefaultValue = struct {
     source: []const u8,
 };
 
+/// `rig check --facts=sema`: every entry of the module's `Facts`, one line each,
+///
+///   FACT KIND LINE:COL-LINE:COL "SOURCE" [VALUE]
+///
+/// sorted by fact, then span, then text. Node, symbol, and type ids
+/// never appear (a symbol is printed by name and kind, a type as
+/// spelled), so two compilers' dumps of one program diff cleanly.
+/// `root` is the module's IR; a node outside it prints as `node#ID`.
+pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *std.Io.Writer) !void {
+    var nodes: std.AutoHashMapUnmanaged(NodeKey, Sexp) = .empty;
+    var leaves: std.AutoHashMapUnmanaged(u32, Sexp) = .empty;
+    var stack: std.ArrayList(Sexp) = .empty;
+    try stack.append(a, root);
+    while (stack.pop()) |s| switch (s) {
+        .list => |l| {
+            if (l.id != 0) try nodes.put(a, l.id, s);
+            try stack.appendSlice(a, l.items());
+        },
+        .src => |x| try leaves.put(a, x.pos, s),
+        else => {},
+    };
+
+    const Line = struct {
+        fact: usize,
+        start: u32,
+        end: u32,
+        text: []const u8,
+
+        fn lessThan(_: void, x: @This(), y: @This()) bool {
+            if (x.fact != y.fact) return x.fact < y.fact;
+            if (x.start != y.start) return x.start < y.start;
+            if (x.end != y.end) return x.end < y.end;
+            return std.mem.order(u8, x.text, y.text) == .lt;
+        }
+    };
+    var out: std.ArrayList(Line) = .empty;
+    var lines: diag.Lines = .{ .source = ctx.source };
+    inline for (@typeInfo(Facts).@"struct".field_names, 0..) |name, fact| {
+        const Key = @FieldType(@FieldType(Facts, name).KV, "key");
+        var it = @field(ctx.facts, name).iterator();
+        while (it.next()) |e| {
+            const key = e.key_ptr.*;
+            // `names` and `writes` are keyed by a leaf's position, the
+            // expression facts by `exprKey`, the rest by node id.
+            const node: ?Sexp, const id: u64 = if (comptime std.mem.eql(u8, name, "names") or std.mem.eql(u8, name, "writes"))
+                .{ leaves.get(key), key }
+            else if (Key == u64)
+                .{ if (key >> 32 != 0) nodes.get(@truncate(key)) else leaves.get(@truncate(key)), key & 0xffff_ffff }
+            else
+                .{ nodes.get(key), key };
+            var text: std.Io.Writer.Allocating = .init(a);
+            const t = &text.writer;
+            try t.print("{s} ", .{name});
+            var span: parser.Span = .empty;
+            if (node) |n| {
+                span = if (ctx.parser) |p| p.base.span(n) else diag.leafSpan(n);
+                const kind = if (n == .src) "leaf" else if (n.kind()) |k| @tagName(k) else "group";
+                const from = lines.at(span.start);
+                const to = lines.at(span.end);
+                try t.print("{s} {d}:{d}-{d}:{d} \"", .{ kind, from.line, from.col, to.line, to.col });
+                for (ctx.source[span.start..@min(span.end, span.start + 40)]) |c|
+                    if (c == '\n') try t.writeAll("\\n") else try t.writeByte(c);
+                try t.writeAll("\"");
+            } else try t.print("node#{d}", .{id});
+            try writeFactValue(ctx, a, t, name, e.value_ptr.*);
+            try out.append(a, .{ .fact = fact, .start = span.start, .end = span.end, .text = text.written() });
+        }
+    }
+    std.mem.sort(Line, out.items, {}, Line.lessThan);
+    for (out.items) |l| try w.print("{s}\n", .{l.text});
+}
+
+fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Writer, comptime name: []const u8, v: anytype) !void {
+    const V = @TypeOf(v);
+    if (V == void) return;
+    if (comptime std.mem.eql(u8, name, "names")) {
+        const sym = ctx.symbols.items[v];
+        return w.print(" {s} {s}", .{ sym.name, @tagName(sym.kind) });
+    }
+    if (comptime std.mem.eql(u8, name, "types") or std.mem.eql(u8, name, "callables"))
+        return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
+    if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
+    switch (V) {
+        ArrayView, TextCall => try w.print(" {s}", .{@tagName(v)}),
+        ElemCall => {
+            try w.print(" {s} {s}", .{ @tagName(v.op), try formatTypeIn(ctx, a, v.elem) });
+            if (v.num != type_invalid) try w.print(" {s}", .{try formatTypeIn(ctx, a, v.num)});
+        },
+        Instance => switch (v) {
+            .type => |ty| try w.print(" type {s}", .{try formatTypeIn(ctx, a, ty)}),
+            .function => try w.writeAll(" function"),
+        },
+        GenericCall => {
+            for (v.type_args) |ty| try w.print(" {s}", .{if (ty == type_invalid) "_" else try formatTypeIn(ctx, a, ty)});
+            if (v.receiver_arg) try w.writeAll(" receiver");
+        },
+        []const ArgSlot => for (v) |slot| switch (slot) {
+            .arg => |i| try w.print(" arg{d}", .{i}),
+            .default => try w.writeAll(" default"),
+        },
+        else => @compileError("check --facts=sema: no format for the fact " ++ name),
+    }
+}
+
 /// An operation a generic body applies to a type parameter. Checked
 /// against every instantiation of the generic type.
 pub const Requirement = union(enum) {

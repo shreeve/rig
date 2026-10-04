@@ -194,6 +194,21 @@ several types (Int, String, Text, Vec, `*T`, Box, a struct with a `drop`),
 and holds each to the corpus's rule. It writes to a temporary directory
 and commits nothing; `-k` picks cells by id and `-v` lists every result.
 
+## Proving a refactor changed nothing
+
+```bash
+test/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR]
+```
+
+runs two compilers over every tracked program and every ```` ```rig ````
+block in the docs, and compares what they print for `parse`,
+`normalize`, `check`, `check --facts`, and, for an accepted program,
+`check --facts=sema` and `emit`. It lists each program whose output
+differs, with the sections that differ (`--keep` saves both outputs),
+and exits 1 if any does. Build the old compiler from the base commit
+and copy `bin/rig` aside first. A refactor's every difference is a
+planned rule or a fixed bug, and its pull request lists them.
+
 ## Known bugs
 
 `test/known/` is the work queue. Each file is written as a behavior or

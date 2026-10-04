@@ -14,6 +14,7 @@ const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const modules = @import("modules.zig");
+const sema = @import("sema.zig");
 
 const usage =
     \\Rig: a systems language with visible ownership, compiled to Zig.
@@ -32,6 +33,8 @@ const usage =
     \\  --facts                Print the root module's syntax facts after
     \\                         checking it (check): every IR node with its
     \\                         kind, span, and role-named children
+    \\  --facts=sema           Print the facts sema recorded for the root
+    \\                         module's expressions instead (check)
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
     \\                         `--release=safe` are Zig's safe mode, which
     \\                         keeps overflow and bounds checks;
@@ -79,12 +82,15 @@ const Mode = enum {
     }
 };
 
+/// What `check --facts` prints: the IR's syntax facts, or sema's.
+const Facts = enum { none, syntax, sema };
+
 const Options = struct {
     command: Command,
     path: []const u8,
     mode: Mode = .debug,
     out_path: ?[]const u8 = null,
-    facts: bool = false,
+    facts: Facts = .none,
     /// `rig run file.rig -- args...`: the program's own arguments.
     program_args: []const []const u8 = &.{},
 };
@@ -144,7 +150,17 @@ pub fn main(init: std.process.Init) !void {
         .check => {
             var graph = try loadProject(allocator, io, env, opts.path);
             defer graph.deinit();
-            if (opts.facts) try printFacts(io, graph.root());
+            switch (opts.facts) {
+                .none => {},
+                .syntax => try printFacts(io, graph.root()),
+                .sema => {
+                    const m = graph.root();
+                    var buffer: [4096]u8 = undefined;
+                    var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
+                    try sema.writeFactsDump(m.sema, allocator, m.ir, &writer.interface);
+                    try writer.interface.flush();
+                },
+            }
         },
         .emit => try emitCommand(allocator, io, env, opts.path),
         .run, .build, .@"test" => try buildCommand(allocator, io, env, opts),
@@ -156,7 +172,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var path: ?[]const u8 = null;
     var mode: Mode = .debug;
     var out_path: ?[]const u8 = null;
-    var facts = false;
+    var facts: Facts = .none;
     var program_args: []const []const u8 = &.{};
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -180,7 +196,9 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
         } else if (eql(arg, "--release=fast")) {
             mode = .fast;
         } else if (eql(arg, "--facts")) {
-            facts = true;
+            facts = .syntax;
+        } else if (eql(arg, "--facts=sema")) {
+            facts = .sema;
         } else if (eql(arg, "-o")) {
             i += 1;
             if (i == args.len) usageError("-o needs a path", .{});
@@ -202,7 +220,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     if (mode != .debug and cmd != .run and cmd != .build and cmd != .@"test")
         usageError("`--release` applies to run, build, and test", .{});
     if (out_path != null and cmd != .build) usageError("`-o` applies to build", .{});
-    if (facts and cmd != .check) usageError("`--facts` applies to check", .{});
+    if (facts != .none and cmd != .check) usageError("`--facts` applies to check", .{});
     const file = path orelse usageError("`rig {s}` needs a .rig file", .{@tagName(cmd)});
     // `rig build` writes ./<name>: a file without `.rig` would be its own
     // output.
@@ -497,7 +515,7 @@ test {
     _ = diag;
     _ = modules;
     _ = emit;
-    _ = @import("sema.zig");
+    _ = sema;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");
 }
