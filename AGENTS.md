@@ -161,6 +161,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `FAQ.md` | Common questions |
 | `docs/STD.md` | The standard library's modules |
 | `docs/DESIGN.md` | Principles and rationale |
+| `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
 | `docs/zig-0.17.md` | Zig 0.17 for Rig contributors: the language, std, and build APIs Rig uses |

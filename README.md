@@ -293,6 +293,9 @@ storing or returning a stack closure (lending one to a call, as a
 - [docs/STD.md](docs/STD.md): the standard library
 - [docs/DESIGN.md](docs/DESIGN.md): principles, the sigil algebra, and
   influences
+- [docs/BEYOND-RUST.md](docs/BEYOND-RUST.md): what Rig changes for a Rust
+  programmer: the words, loans without lifetimes, and how the checker is
+  tested
 - [docs/INTERNALS.md](docs/INTERNALS.md): how the compiler works
 - [docs/ROADMAP.md](docs/ROADMAP.md): where Rig is going
 - [FAQ.md](FAQ.md): common questions
