@@ -1,0 +1,17 @@
+# A view reached through a slice field of what a local write view sees
+# carries the slice's loans, not the write loan on the holder.
+
+struct Tok
+  kind: Int
+
+struct P
+  toks: []Tok
+  pos: Int
+
+sub main
+  a = [Tok(kind: 1), Tok(kind: 2)]
+  p = P(toks: ?a[..], pos: 0)
+  w = !p
+  t = ?w.toks[0]
+  p.pos = 1
+  print(t.kind, p.pos)

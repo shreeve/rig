@@ -1,0 +1,20 @@
+# An element of a Vec the holder owns, reached through `!self`, lends
+# `self`: the holder cannot change while the view is used.
+
+struct Tok
+  kind: Int
+
+struct P
+  toks: Vec[Tok]
+  pos: Int
+
+  fun next(!self) -> ?Tok
+    t = ?self.toks[self.pos]
+    self.pos += 1
+    t
+
+sub main
+  p = P(toks: Vec(), pos: 0)
+  !p.toks.push(Tok(kind: 1))
+  a = !p.next()
+  print(a.kind)

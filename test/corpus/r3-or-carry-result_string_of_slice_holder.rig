@@ -1,0 +1,17 @@
+# A String a method makes from the holder's String field views only Text
+# bytes: the holder's slice of an array stays free to change.
+
+struct P
+  src: String
+  toks: []Int
+
+  fun head(?self) -> String
+    self.src[0..1]
+
+sub main
+  t = Text("abc")
+  a = [1, 2]
+  p = P(src: ?t, toks: ?a[..])
+  s = p.head()
+  a[0] = 5
+  print(s, a[0])

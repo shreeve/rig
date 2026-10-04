@@ -67,6 +67,15 @@ const Place = struct {
     /// A slice, `x[a..b]`: a view of part of the place, not a value
     /// stored there (Core §4).
     slice: bool = false,
+    /// For a slice, the type of what is sliced.
+    slice_of: TypeId = 0,
+    /// The path passes through a `[]T` or String stored in a place or
+    /// seen through a view: what it reaches carries that view's loans,
+    /// not a loan on its holder (Core s7).
+    carry: bool = false,
+    /// The path passed through a write view before it carried: reaching
+    /// the stored view still reads the write view's place.
+    under_write: bool = false,
 
     const Via = enum { own, read, write };
 };
@@ -490,7 +499,13 @@ const Lowerer = struct {
     }
 
     /// What `e as x` holds through the branch it binds in.
-    const Held = struct { v: VarId, pos: u32 };
+    const Held = struct {
+        v: VarId,
+        pos: u32,
+        /// For a read lend of a place (`match ?h`): the place's root, whose
+        /// loans a String payload carries instead of the loan on it.
+        carry_from: ?VarId = null,
+    };
 
     /// The value of `if e as x`, `while e as x`, or a `match` subject: a
     /// header, whose temporaries end with it, and whose value a hidden
@@ -512,7 +527,12 @@ const Lowerer = struct {
         if (value.isKind(.read) and !self.isPlaceSyntax(ir.Read.operand(value))) v = try self.readThrough(v, pos);
         const h = try self.hold(v, "the `as` value", pos);
         try self.popRegion(pos);
-        return .{ .v = h, .pos = pos };
+        var carry_from: ?VarId = null;
+        if (value.isKind(.read)) if (self.rootVar(ir.Read.operand(value))) |r| {
+            const rv = self.f.vars.items[r];
+            if (rv.kind != .write_view and !rv.alias) carry_from = r;
+        };
+        return .{ .v = h, .pos = pos, .carry_from = carry_from };
     }
 
     /// Move a header's value into a hidden var of the statement around
@@ -540,6 +560,12 @@ const Lowerer = struct {
         const x = try self.bind(leaf, 0);
         const hv = self.f.vars.items[h.v];
         const xv = &self.f.vars.items[x];
+        // A String payload of a read lend carries the String's loans, not
+        // the loan on what holds it (Core s7).
+        if (h.carry_from) |r| if (self.ctx.types.get(xv.ty) == .string) {
+            try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(r), .uses = try self.one(h.v), .def = x, .carry = true });
+            return;
+        };
         // The held value stays whole for the arms after a failed guard.
         if ((hv.kind == .read_view or hv.kind == .write_view) and xv.kind != .plain) {
             // An owner's payload seen through the view: an alias.
@@ -602,6 +628,14 @@ const Lowerer = struct {
         _ = self.loops.pop();
         self.cur = x;
         try self.popRegion(pos);
+    }
+
+    /// The var a place expression starts from.
+    fn rootVar(self: *Lowerer, e: Sexp) ?VarId {
+        if (e == .src) return self.varOf(e);
+        const k = e.kind() orelse return null;
+        if (k != .member and k != .index) return null;
+        return self.rootVar(ir.get(e, .object));
     }
 
     /// Whether `e` is written as a place: a local, or a field or element
@@ -1173,12 +1207,25 @@ const Lowerer = struct {
         path[base.path.len] = step;
         // A step out of a view leaves the root's own storage.
         var via = base.via;
-        if (via == .own) via = switch (self.ctx.types.get(base.ty)) {
-            .borrow_read, .slice, .string => .read,
-            .borrow_write => .write,
-            else => .own,
-        };
-        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice };
+        var carry = base.carry;
+        var under_write = base.under_write;
+        switch (self.ctx.types.get(base.ty)) {
+            // A view reached through a slice or String carries that
+            // view's loans, through a write view too (Core s7).
+            .slice, .string => if (via != .read or !carry) {
+                if (via == .write) under_write = true;
+                via = .read;
+                carry = true;
+            },
+            .borrow_read => if (via == .own) {
+                via = .read;
+            },
+            .borrow_write => if (via == .own) {
+                via = .write;
+            },
+            else => {},
+        }
+        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice, .slice_of = if (slice) base.ty else 0, .carry = carry, .under_write = under_write };
     }
 
     /// A var as a place; an alias is the payload it sees.
@@ -1240,9 +1287,16 @@ const Lowerer = struct {
 
     fn copy(self: *Lowerer, p: Place, ty: TypeId, pos: u32) Error!VarId {
         const t = try self.temp(ty, pos);
-        const access: ?core.Access = if (p.via == .read) null else .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .read };
-        try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(p.root), .def = t, .access = access });
+        try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(p.root), .def = t, .access = readAccess(p), .carry = p.carry });
         return t;
+    }
+
+    /// What reading a place accesses: nothing behind a read view; the
+    /// write view's place, when the path passed through one.
+    fn readAccess(p: Place) ?core.Access {
+        if (p.under_write) return .{ .root = p.root, .deref = true, .kind = .read };
+        if (p.via == .read) return null;
+        return .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .read };
     }
 
     fn moveWhole(self: *Lowerer, root: VarId, pos: u32) Error!VarId {
@@ -1273,8 +1327,7 @@ const Lowerer = struct {
         if (p.via == .read or (p.via == .own and pk == .read_view and !p.slice and !pointer)) {
             if (mode != .read) return abstain("a write lend through a read view");
             const t = try self.viewTemp(ty, kind, pos);
-            const access: ?core.Access = if (p.via == .read) null else .{ .root = p.root, .path = p.path, .kind = .read };
-            try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(p.root), .def = t, .access = access });
+            try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(p.root), .def = t, .access = readAccess(p), .carry = p.carry });
             return t;
         }
         const deref = p.via == .write or (p.path.len == 0 and pk == .write_view);
@@ -1300,7 +1353,8 @@ const Lowerer = struct {
     }
 
     fn newLoan(self: *Lowerer, p: Place, mode: core.Mode, deref: bool, group: u32, pos: u32) Error!core.LoanId {
-        var reached = p.ty;
+        // What the loan is on: for a slice, what is sliced.
+        var reached = if (p.slice) p.slice_of else p.ty;
         if (self.ctx.types.get(reached) == .borrow_write) reached = try self.innerOf(reached);
         try self.f.loans.append(self.a, .{
             .root = p.root,

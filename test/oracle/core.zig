@@ -86,12 +86,13 @@ pub const Loan = struct {
     reaches_text: bool = false,
     pos: u32,
 
-    /// Whether a value of a type that holds views but no pointer (a
-    /// String, a struct of Strings) can carry this loan: a String copied
-    /// out through a `?String` does not carry the loan on the place it
-    /// was read from, but one made from a `?Text` views the Text.
+    /// Whether a value of a type that holds views but no pointer or
+    /// slice (a String, a struct of Strings) can carry this loan: a
+    /// String views only a Text's bytes, so it carries a loan on a
+    /// place that reaches a Text, never one on a String it was copied
+    /// out of or on an array (Core s7).
     pub fn reachesStrings(l: Loan) bool {
-        return !l.pointer or l.reaches_text;
+        return l.external or l.reaches_text;
     }
 };
 
@@ -147,6 +148,10 @@ pub const Op = struct {
     /// For a kill: the end of a statement or scope ("does not live long
     /// enough"), rather than `-x`.
     scope_end: bool = false,
+    /// A view reached through a slice or String view stored in `reads`:
+    /// it carries that view's loans, not the loans that point at their
+    /// holder (Core s7). The flow leaves out pointer loans.
+    carry: bool = false,
 
     pub const What = enum { copy, move, take, lend, make, call, assign, use, kill, ret };
 };
