@@ -1,0 +1,21 @@
+# A store into a field of an element of write slice `a` keeps `b` lent
+# for the rest of the body.
+
+struct Holder
+  r: []Int
+
+fun f(a: ![]Holder, b: !Vec[Int]) -> Int
+  a[0].r = ?b[..]
+  for i in 0..100
+    !b.push(i)
+  a[0].r[0]
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  hs = [Holder(r: ?x[..])]
+  print(f(!hs, !v))
+
+# errors: 1
+# error: 10:5: cannot write-borrow `b` while a read borrow is live

@@ -965,6 +965,14 @@ the loans of all its captures, as a call's `!` arguments do with its
 arguments. This is sound because the only loans left to such a store
 are on values outside the closure that it captured, and the captured
 value's var now holds each of them for as long as it lives.
+A borrowed parameter is live at every exit, since the caller uses the
+value it lent after the return, and every store into what a parameter
+reaches (an assignment through it, through a loop or `match !` binding
+or a local write view of it, a call, `swap`, `replace`, or making a
+closure that captures it) puts the stored loans in that parameter's
+flow, as a store into a local does. So a view of one parameter stored
+in another keeps the first lent for the rest of the body: after
+`a.r = ?b[..]`, `!b.push(x)` is rejected.
 **Strings are views.** A String points into a literal, the process's
 arguments and environment, or a Text's buffer, so the contents pass
 treats it as a borrow the value may or may not hold: `String` sets a

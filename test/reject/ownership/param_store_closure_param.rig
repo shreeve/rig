@@ -1,0 +1,20 @@
+# A closure's write parameter is a parameter too: a view of `b` stored
+# in `a` keeps `b` lent for the rest of the closure's body.
+
+struct Holder
+  r: []Int
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  g = |a: !Holder, b: !Vec[Int]|
+    a.r = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    a.r[0]
+  print(g(!h, !v))
+
+# errors: 1
+# error: 15:7: cannot write-borrow `b` while a read borrow is live

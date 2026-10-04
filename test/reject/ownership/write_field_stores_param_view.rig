@@ -1,0 +1,25 @@
+# A store through local `c`'s `!Holder` field lands in local `h`, which
+# then holds the view of parameter `b`: `b` stays lent while `h` is used.
+
+struct Holder
+  r: []Int
+
+struct Ctx
+  w: !Holder
+
+fun f(b: !Vec[Int]) -> Int
+  x = [9, 9]
+  h = Holder(r: ?x[..])
+  c = Ctx(w: !h)
+  c.w.r = ?b[..]
+  for i in 0..100
+    !b.push(i)
+  c.w.r[0]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(f(!v))
+
+# errors: 1
+# error: 16:5: cannot write-borrow `b` while a read borrow is live
