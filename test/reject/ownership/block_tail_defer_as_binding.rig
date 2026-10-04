@@ -1,0 +1,18 @@
+# An `if ... as` binding at the tail of the then-branch leaves it before
+# the branch's defer runs; the defer cannot write it.
+sub main
+  w: Vec[Int] = Vec()
+  !w.push(1)
+  o: Vec[Int]? = <w
+  x = if <o as v
+    defer
+      for i in 0..100
+        !v.push(i)
+    v
+  else
+    Vec[Int]()
+  !x.push(3)
+  print(x.len, x[0])
+
+# error: 10:10: use of `v` after move
+# errors: 1

@@ -1,0 +1,15 @@
+# A defer that only reads a block's tail name runs after the name has
+# moved out with the block's value.
+sub main
+  c = true
+  x = if c
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    defer print(v.len)
+    v
+  else
+    Vec[Int]()
+  print(x.len)
+
+# error: 8:17: use of `v` after move
+# errors: 1

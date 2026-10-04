@@ -1,0 +1,18 @@
+# `unbox` consumes its receiver: each name a branching receiver yields is
+# moved with `<`.
+struct N
+  v: Vec[Int]
+
+sub main
+  p: Vec[Int] = Vec()
+  !p.push(5)
+  a = Box(N(v: <p))
+  b = Box(N(v: Vec()))
+  c = true
+  n = (a if c else b).unbox()
+  print(n.v.len)
+  print(a.v[0])
+
+# error: 12:8: bare use of `Box` value `a` in call argument would copy the box's pointer and free its value twice
+# error: 12:20: bare use of `Box` value `b` in call argument would copy the box's pointer and free its value twice
+# errors: 2

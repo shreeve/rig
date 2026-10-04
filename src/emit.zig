@@ -5612,24 +5612,12 @@ const Scan = struct {
     }
 
     /// The names a value moves out of their bindings when it leaves its
-    /// scope: a bare name in tail position, through blocks and branches
-    /// (the positions `emitValue` is given `tail` for).
+    /// scope: a bare name in tail position, through the parts that yield
+    /// the value (`sema.eachTailPart`; the positions `emitValue` is given
+    /// `tail` for).
     fn consumeTail(s: *Scan, value: Sexp) Error!void {
         if (value == .src) return s.consume(value);
-        switch (value.kind() orelse return) {
-            .block, .raw_block => {
-                const stmts = try s.e.stmtsOf(if (value.isKind(.raw_block)) ir.RawBlock.body(value) else value);
-                if (stmts.len > 0) try s.consumeTail(stmts[stmts.len - 1]);
-            },
-            .@"if" => {
-                try s.consumeTail(ir.If.then(value));
-                try s.consumeTail(ir.If.@"else"(value));
-            },
-            .match => for (ir.Match.arms(value)) |arm| try s.consumeTail(ir.Arm.body(arm)),
-            .@"??" => try s.consumeTail(ir.@"??".right(value)),
-            .@"catch" => try s.consumeTail(ir.Catch.handler(value)),
-            else => {},
-        }
+        try sema.eachTailPart(value, s, consumeTail);
     }
 
     fn walk(s: *Scan, sexp: Sexp) Error!void {
@@ -5652,11 +5640,16 @@ const Scan = struct {
             .move => try s.consume(ir.Move.operand(sexp)),
             .drop => try s.consume(ir.Drop.name(sexp)),
             .@"return" => try s.consumeTail(ir.Return.value(sexp)),
-            .@"for" => if (ir.For.mode(sexp).tag == .move) try s.consume(ir.For.source(sexp)),
+            .@"for" => {
+                if (ir.For.mode(sexp).tag == .move) try s.consume(ir.For.source(sexp));
+                try s.consumeTail(sexp);
+            },
             // An `if` with `else`, a `match`, `??`, and `catch` may be
             // values: their branches yield.
             .@"if" => if (ir.If.@"else"(sexp) != .nil) try s.consumeTail(sexp),
             .@"??", .@"catch", .match => try s.consumeTail(sexp),
+            // A loop's `else` and a `raw` block yield when they are values.
+            .@"while", .raw_block => try s.consumeTail(sexp),
             .cap_clone, .cap_weak, .cap_move, .cap_read, .cap_write => {
                 const cap = s.e.sema.symbolOf(ir.get(sexp, .name)) orelse return;
                 const origin = s.e.sema.symbols.items[cap].origin;

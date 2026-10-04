@@ -1,0 +1,74 @@
+# A block-local owner at the tail of a value block moves out with the
+# block's value, in every shape that yields through its parts; the
+# block's defers run after, and may use anything else.
+error E
+  bad
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun fail(c: Bool) -> R!
+  return E.bad if c
+  R(n: 0)
+
+fun pick(c: Bool) -> R
+  if c
+    r = R(n: 5)
+    defer print("left 5")
+    r
+  else
+    R(n: 6)
+
+sub main
+  c = true
+  k = 0
+  a = if c
+    r = R(n: 1)
+    defer print("left 1")
+    r
+  else
+    R(n: 0)
+  b = match k
+    0
+      r = R(n: 2)
+      r
+    _ => R(n: 0)
+  d = fail(true) catch |_|
+    r = R(n: 3)
+    r
+  i = 0
+  e = while i < 0 : i += 1
+    break R(n: 0)
+  else
+    r = R(n: 4)
+    r
+  f = for x in [1, 2]
+    break R(n: 0) if x > 5
+  else
+    r = R(n: 7)
+    r
+  g = if c
+    r = R(n: 8)
+    if not c
+      R(n: 0)
+    else
+      r
+  else
+    R(n: 0)
+  h = pick(true)
+  print(a.n, b.n, d.n, e.n, f.n, g.n, h.n)
+
+# expect:
+# left 1
+# left 5
+# 1 2 3 4 7 8 5
+# drop 5
+# drop 8
+# drop 7
+# drop 4
+# drop 3
+# drop 2
+# drop 1

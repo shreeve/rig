@@ -1,0 +1,15 @@
+# Testing against `none` drops a value no name holds; a branching value
+# that may be a name's value cannot be tested that way.
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  a: Vec[Int]? = <v
+  b: Vec[Int]? = none
+  c = true
+  if (a if c else b) != none
+    print("some")
+  if ?a as x
+    print(x[0])
+
+# error: 9:7: cannot test `a if c else b` against `none`: it may be `a`, a value a name holds, and the test drops the value it tests
+# errors: 1

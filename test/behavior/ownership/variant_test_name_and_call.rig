@@ -1,0 +1,34 @@
+# A name tested against `none` or a bare variant is read in place; a
+# call's result tested that way is dropped after the test.
+enum Shape
+  dot
+  line(v: Vec[Int])
+
+fun mk -> Shape
+  p: Vec[Int] = Vec()
+  !p.push(1)
+  .line(v: <p)
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  a: Vec[Int]? = <v
+  if a != none
+    print("some")
+  if ?a as x
+    print(x[0])
+  if mk() != .dot
+    print("line")
+  s = mk()
+  if s != .dot
+    print("still line")
+  match ?s
+    .line(w) => print(w[0])
+    .dot => print("dot")
+
+# expect:
+# some
+# 1
+# line
+# still line
+# 1

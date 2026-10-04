@@ -1,0 +1,19 @@
+# A name a function returns through a branch block leaves it before the
+# branch's defer runs; the defer cannot write it.
+fun mk(c: Bool) -> Vec[Int]
+  a: Vec[Int] = Vec()
+  !a.push(1)
+  if c
+    defer
+      for i in 0..100
+        !a.push(i)
+    a
+  else
+    Vec()
+sub main
+  x = mk(true)
+  !x.push(3)
+  print(x.len, x[0])
+
+# error: 9:10: use of `a` after move
+# errors: 1

@@ -1,0 +1,23 @@
+# A name the outer branch declares, at the tail of an inner `if` that
+# is the outer branch's value, leaves before the outer branch's defer
+# runs.
+sub main
+  c = true
+  d = true
+  x = if c
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    if d
+      v
+    else
+      Vec[Int]()
+  else
+    Vec[Int]()
+  !x.push(3)
+  print(x.len, x[0])
+
+# error: 12:10: use of `v` after move
+# errors: 1
