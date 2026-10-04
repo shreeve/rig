@@ -54,3 +54,19 @@ test/corpus/review-step1-p33b_vec_store_opt.rig main prod-rejects prod-strict `s
 # bodies"); the compiler reports an owning instance inside the function
 # that names it, which the oracle does not check.
 test/corpus/audit-ownership-q02 main prod-rejects ref-gap `Holder[*Tok].peek` copies an owning `T`
+
+# `<x` of a view copies it out (SPEC §7), so moving a borrowed parameter
+# into a stack closure, which never leaves the function, holds the
+# caller's loan for the closure's life as `|?x|` would (Core §7).
+test/corpus/R16-c6.rig outer prod-rejects prod-strict `|<f|` of a `?fun` parameter
+test/reject/ownership/move_capture_borrowed_param_lambda.rig f prod-rejects prod-strict `|<rc|` of a `?*Wrap` parameter
+test/reject/types/closure_lending_hints_ownership.rig outer prod-rejects prod-strict `|<f|` of a `?fun` parameter
+
+# A closure's loans end with its last use, deferred code included; the
+# compiler holds them wherever deferred code mentions the closure, or
+# where its environment needs a drop.
+test/corpus/R16-d4.rig main prod-rejects prod-strict `errdefer f()` never runs in `main`, so `-v` meets no live loan
+test/corpus/R16-d5.rig main prod-rejects prod-strict the deferred `f()` is the last use of `f`'s write loan before `print(x)`
+
+# `-cb` of a `for cb in ?subs` element ends a read view (SPEC "Drop").
+test/reject/ownership/vec_for_drop_elem.rig main prod-rejects prod-strict `-cb` of a `for cb in ?subs` element view

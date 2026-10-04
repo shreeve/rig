@@ -32,6 +32,15 @@ pub const Rule = enum {
     B1,
     /// §7: deferred code moves or drops only what it declares.
     B2,
+    /// §7: a closure's body uses what it captured, and never moves,
+    /// drops, or reassigns it: the closure may be called again.
+    B3,
+    /// §7: a stack closure is called, bound, or lent; it never leaves the
+    /// function that writes it.
+    B4,
+    /// s9: an owned closure, a Cell, or a Signal holds no value that
+    /// carries a loan.
+    C8,
 };
 
 pub const Finding = struct {
@@ -53,6 +62,11 @@ pub const Var = struct {
     drop_reads: bool,
     hidden: bool = false,
     param: bool = false,
+    /// In a closure's body: what the closure captured, which its
+    /// environment holds for the closure's life.
+    capture: bool = false,
+    /// In a closure's body: a parameter, whose views last one call.
+    call_only: bool = false,
     /// A binding that sees an owner's payload through a view (`match s`,
     /// `if ?o as x`): it reads and lends what it sees, never moves it.
     alias: bool = false,
@@ -74,6 +88,9 @@ pub const Loan = struct {
     deref: bool = false,
     /// The caller's loan a parameter carries: on nothing here.
     external: bool = false,
+    /// An external loan that lasts one call of a closure: its
+    /// parameter's (Core §7).
+    call_only: bool = false,
     /// Lends of one `swap` or `replace` call: their places may be
     /// different fields of one value.
     group: u32 = 0,
@@ -154,6 +171,9 @@ pub const Op = struct {
     /// it carries that view's loans, not the loans that point at their
     /// holder (Core s7). The flow leaves out pointer loans.
     carry: bool = false,
+    /// What the op makes holds no value that carries a loan (Core s9:
+    /// an owned closure's captures); a flowing loan is C8.
+    no_loans: bool = false,
 
     pub const What = enum { copy, move, take, lend, make, call, assign, use, kill, ret };
 };

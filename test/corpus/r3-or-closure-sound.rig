@@ -1,0 +1,94 @@
+# Closures (Core §7): a capture `?x` or `!x` lends `x` for the closure's
+# life, which ends at its last use; `<x` moves `x` in, and `+x` copies it
+# or adds a count. A stack closure is called, or lent as `?fun`; an
+# owned closure (`*fun`) holds only values that carry no loan (s9). The
+# body is checked as a function whose captures the caller lent.
+#
+# oracle: write_capture accept
+# oracle: read_capture_then_write accept
+# oracle: literal_argument accept
+# oracle: move_capture accept
+# oracle: owned_counter accept
+# oracle: nested accept
+# oracle: lent_closure accept
+# oracle: returns_captured_view accept
+
+struct Res
+  id: Int
+
+sub each(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub write_capture()
+  total = 0
+  add = |!total, k: Int| total += k
+  add(2)
+  add(3)
+  print(total)
+
+sub read_capture_then_write()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  size = |?v| v.len
+  print(size())
+  !v.push(2)
+  print(v.len)
+
+sub literal_argument()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  total = 0
+  each(?v, |!total, n| total += n)
+  print(total)
+
+sub move_capture()
+  r = Res(id: 7)
+  g = |<r, a: Int| a + r.id
+  print(g(1), g(2))
+
+fun make_counter(start: Int) -> *fun(Int) -> Int
+  count: *Cell[Int] = *Cell(start)
+  *|+count, step|
+    count.set(count.get() + step)
+    count.get()
+
+sub owned_counter()
+  next = make_counter(100)
+  print(next(1), next(10))
+
+sub nested()
+  total: *Cell[Int] = *Cell(0)
+  add = |+total, k: Int|
+    step = |+total, +k| total.set(total.get() + k)
+    step()
+    step()
+  add(3)
+  add(4)
+  print(total.get())
+
+sub lent_closure()
+  k = 10
+  add_k = |+k, a: Int| a + k
+  print(apply(?add_k, 4))
+
+sub returns_captured_view()
+  v: Vec[Int] = Vec()
+  !v.push(5)
+  get = |?v| v
+  print(get().len)
+  !v.push(6)
+
+sub main
+  write_capture()
+  read_capture_then_write()
+  literal_argument()
+  move_capture()
+  owned_counter()
+  nested()
+  lent_closure()
+  returns_captured_view()

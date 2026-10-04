@@ -60,6 +60,10 @@ pub const Kinds = struct {
     pub fn of(self: *Kinds, ty: TypeId) !Info {
         if (self.memo.get(ty)) |info| return info;
         const ctx = self.ctx;
+        if (callableInfo(ctx, ty)) |info| {
+            try self.memo.put(self.a, ty, info);
+            return info;
+        }
         const ti = ctx.typeInfo(ty);
         var scan: Scan = .{ .a = self.a };
         defer scan.seen.deinit(self.a);
@@ -92,6 +96,29 @@ pub const Kinds = struct {
     }
 };
 
+/// A closure, a function value, or a view of one (Core §7). A stack
+/// closure is never copied or moved, and its environment carries the
+/// loans of what it captured; a view of one (`?fun`) is a read view.
+/// An owned closure is a handle whose captures carry no loan (Core s9).
+fn callableInfo(ctx: *const SemContext, ty: TypeId) ?Info {
+    const t = ctx.types.get(ty);
+    const env: Info = .{ .kind = .owning, .holds_views = true, .holds_pointers = true, .reaches_text = true, .drop_reads = false, .unsupported = null };
+    return switch (t) {
+        .function => env,
+        .callable => .{ .kind = .read_view, .holds_views = true, .holds_pointers = true, .reaches_text = true, .drop_reads = false, .unsupported = null },
+        .borrow_read, .borrow_write => |inner| if (ctx.types.get(inner) == .function or ctx.types.get(inner) == .callable) .{
+            .kind = if (t == .borrow_read) .read_view else .write_view,
+            .holds_views = true,
+            .holds_pointers = true,
+            .reaches_text = true,
+            .drop_reads = false,
+            .unsupported = null,
+        } else null,
+        .shared, .weak => |inner| if (ctx.types.get(inner) == .function) .{ .kind = .owning, .holds_views = false, .holds_pointers = false, .reaches_text = false, .drop_reads = false, .unsupported = null } else null,
+        else => null,
+    };
+}
+
 /// A walk over what a type holds, through the fields of nominal types
 /// in whichever module declares them.
 const Scan = struct {
@@ -109,9 +136,10 @@ const Scan = struct {
             .invalid, .unknown => self.mark("a type with an error"),
             // A handle carries its contents' loans (Core s9), and
             // dropping a counted one may drop them.
-            .shared => |inner| try self.walk(ctx, inner, depth + 1, in_generic),
+            // An owned closure carries no loan (Core s9).
+            .shared => |inner| if (ctx.types.get(inner) != .function) try self.walk(ctx, inner, depth + 1, in_generic),
             // A weak handle never drops what it holds.
-            .weak => |inner| {
+            .weak => |inner| if (ctx.types.get(inner) != .function) {
                 const saved = self.under_weak;
                 self.under_weak = true;
                 defer self.under_weak = saved;
