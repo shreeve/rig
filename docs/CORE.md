@@ -253,11 +253,15 @@ sub main
 cannot write-borrow `v` while a read borrow is live
 ```
 
-**7. A function returns a view only of what it was lent, or of something
-that lives for the whole program** (literals, module constants,
-`os.args()`). Its result carries the loans of everything it was lent.
-*(built;* narrowing that to the loans its signature names is
-*planned.)*
+**7. A call passes on only the loans its signature shows.** A function
+returns a view only of what it was lent, or of something that lives for
+the whole program (literals, module constants, `os.args()`). Its result
+carries the loans of the arguments whose types could hold what it views,
+or, when the result says `from a`, of `a` alone. A view reached through
+another view carries that view's loans, not a loan on its holder. The
+compiler checks each body against its signature. *(built:* the result
+carries the loans of everything it was lent; *planned:* the narrowing
+to the arguments that could hold it, and `from`.*)*
 
 ```rig reject
 fun pick(a: ?Vec[Int]) -> ?Vec[Int]
@@ -267,6 +271,22 @@ fun pick(a: ?Vec[Int]) -> ?Vec[Int]
 
 ```error
 does not originate from a borrowed parameter
+```
+
+```rig pending
+fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
+  a
+
+sub main
+  x: Vec[Int] = Vec()
+  y: Vec[Int] = Vec()
+  r = first(?x, ?y)
+  !y.push(1)
+  print(r.len)
+```
+
+```output
+0
 ```
 
 **8. `*<x` moves `x` into a counted box, and `*S(...)` boxes a new
