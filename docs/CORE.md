@@ -442,14 +442,14 @@ a borrow of the temporary `Text("k", "=v")` outlives its statement
 | Owner `x` | `?x` lends | `!x` lends | Status |
 |---|---|---|---|
 | any `T` | `?T` | `!T` | built |
-| `[N]T`, `Vec[T]` | `[]T` | `![]T` | arrays built; `Vec` planned |
+| `[N]T`, `Vec[T]` | `[]T` | `![]T` | built |
 | a place `p.f` or `v[i]` | the views of the field or element | its write views | fields built; elements planned |
 | a held `!T` | `?T` | `!T` (lent on) | built |
 | `![]T` | `[]T` | `![]T` (lent on) | built |
 | `Text` | `String` (also `String?`) | `!Text` | built |
-| `Box[T]` | the views of `T` | the write views of `T` | one level built; composing planned |
-| `*T` | the read views of `T` | nothing of the value (`!h` lends the handle itself) | planned |
-| `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | planned |
+| `Box[T]` | the views of `T` | the write views of `T` | built |
+| `*T` | the read views of `T` | nothing of the value (`!h` lends the handle itself) | built |
+| `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
 | a function or closure | `?fun` | | built |
 
 A read view of plain data copies, and carries no loan once copied out,
@@ -504,7 +504,7 @@ sub main
 cannot write-borrow `t` while a read borrow is live
 ```
 
-```rig pending
+```rig
 use std.sort
 
 sub main

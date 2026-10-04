@@ -1601,7 +1601,7 @@ pub const Checker = struct {
                 // A borrow the type checker rejected lends nothing.
                 .read, .write => if (self.rejected(sexp))
                     self.walkRejectedBorrow(ir.get(sexp, .operand))
-                else if (self.lendsBy(sexp, .elems) or self.lendsBy(sexp, .text))
+                else if (self.lendsElements(sexp))
                     // `?a` lent as `?a[..]`, `!a` as `!a[..]`, `?t` of a
                     // Text as `?t[..]`.
                     self.walkElems(sexp, ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write)
@@ -1967,6 +1967,19 @@ pub const Checker = struct {
     fn lendOf(self: *const Checker, e: Sexp) ?sema.Lend {
         const ctx = self.sema orelse return null;
         return ctx.lendOf(e);
+    }
+
+    /// Whether `e`, a lend written here, lends the elements of its
+    /// operand (an array's or a Vec's, or a Text's bytes) rather than a
+    /// view of the operand or of what it holds.
+    fn lendsElements(self: *const Checker, e: Sexp) bool {
+        const lend = self.lendOf(e) orelse return false;
+        for (lend.steps()) |step| switch (step) {
+            .lift => {},
+            .elems, .text => return true,
+            else => return false,
+        };
+        return false;
     }
 
     /// Whether `e` is lent by `step` of the lend table.

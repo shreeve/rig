@@ -4101,13 +4101,19 @@ pub fn eachTailPart(e: Sexp, context: anytype, comptime f: anytype) @typeInfo(@T
 pub const LendStep = enum(u8) {
     /// A `Box[T]` lends the views of its `T`.
     unbox,
-    /// An array lends its elements, `[]T` to read and `![]T` to write.
+    /// A `*T` lends the read views of its `T`.
+    handle,
+    /// An array or a Vec lends its elements, `[]T` to read and `![]T` to
+    /// write.
     elems,
-    /// A `Text` lends its bytes, a `String` (also where a `String?` is
-    /// expected).
+    /// A `Text` lends its bytes, a `String`.
     text,
     /// A `![]T` is lent on to read, as a `[]T`.
     read_only,
+    /// An `X?` lends a `View?`: a view of the `X` inside, or `none`.
+    optional,
+    /// The view is lifted into an optional where a `View?` is expected.
+    lift,
     /// A function, or an owned closure, lends a `?fun(...)`.
     callable,
 };
@@ -4118,10 +4124,12 @@ pub const LendStep = enum(u8) {
 pub const Lend = struct {
     rows: [max_rows]LendStep = undefined,
     len: u8 = 0,
+    /// The view the lend makes: the type its context expects.
+    view: TypeId = type_invalid,
     /// `callable`: the function type the callable has.
     fn_ty: TypeId = type_invalid,
 
-    pub const max_rows = 4;
+    pub const max_rows = 8;
 
     pub fn steps(self: *const Lend) []const LendStep {
         return self.rows[0..self.len];
@@ -4134,6 +4142,13 @@ pub const Lend = struct {
     /// The function type a callable is lent as; null for any other lend.
     pub fn callable(self: Lend) ?TypeId {
         return if (self.has(.callable)) self.fn_ty else null;
+    }
+
+    /// Whether the lend only lifts the view the value is into an
+    /// optional, which a value's type admits as it is (`compatible`).
+    pub fn onlyLifts(self: Lend) bool {
+        for (self.steps()) |step| if (step != .lift) return false;
+        return true;
     }
 
     fn push(self: *Lend, step: LendStep) bool {
@@ -4151,11 +4166,11 @@ pub const LendKind = enum { read, write };
 /// or to write (`kind`) makes a view of type `view`; null when no row
 /// does. The one place that knows which views a value lends.
 pub fn lendsAs(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId) ?Lend {
-    var lend: Lend = .{};
-    return if (lendRows(ctx, from, kind, view, &lend, false)) lend else null;
+    var lend: Lend = .{ .view = view };
+    return if (lendRows(ctx, from, kind, view, &lend)) lend else null;
 }
 
-fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, lend: *Lend, unboxed: bool) bool {
+fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, lend: *Lend) bool {
     const types = &ctx.types;
     // Any `T` lends `?T`, and `!T` to write; a write lend may be read.
     switch (types.get(view)) {
@@ -4164,7 +4179,7 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
         else => {},
     }
     // A function, or an owned closure, lends a `?fun(...)`.
-    if (!unboxed) if (callableFnTy(ctx, view)) |fn_ty| {
+    if (callableFnTy(ctx, view)) |fn_ty| {
         const owned = switch (types.get(from)) {
             .shared => |inner| inner == fn_ty,
             else => false,
@@ -4172,38 +4187,81 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
         if (!owned and !(from == fn_ty and kind == .read)) return false;
         lend.fn_ty = fn_ty;
         return lend.push(.callable);
-    };
+    }
+    if (types.get(view) == .optional) {
+        const want = types.get(view).optional;
+        // An `X?` lends a `View?` for each view of `X`.
+        if (types.get(from) == .optional) {
+            var inner = lend.*;
+            if (inner.push(.optional) and lendRows(ctx, types.get(from).optional, kind, want, &inner)) {
+                lend.* = inner;
+                return true;
+            }
+        }
+        // A view where a `View?` is expected is lifted into it.
+        var lifted = lend.*;
+        if (lifted.push(.lift) and lendRows(ctx, from, kind, want, &lifted)) {
+            lend.* = lifted;
+            return true;
+        }
+        return false;
+    }
     switch (types.get(from)) {
         // An array lends `[]T`, and `![]T` to write.
-        .array => |a| if (!unboxed) {
-            const elem = switch (kind) {
-                .read => switch (types.get(view)) {
-                    .slice => |sl| sl.elem,
-                    else => return false,
-                },
-                .write => writeSliceElem(ctx, view) orelse return false,
-            };
-            return elem == a.elem and lend.push(.elems);
-        },
+        .array => |a| return lendElems(ctx, a.elem, kind, view, lend),
         // A `![]T` is lent on to read as a `[]T`.
-        .slice => |sl| if (!unboxed and kind == .write) switch (types.get(view)) {
+        .slice => |sl| if (kind == .write) switch (types.get(view)) {
             .slice => |v| return v.elem == sl.elem and lend.push(.read_only),
             else => {},
         },
-        // A Text lends its bytes, also where a `String?` is expected.
-        .text => if (kind == .read) {
-            const want = switch (types.get(view)) {
-                .optional => |inner| inner,
-                else => view,
-            };
-            return want == types.string_id and lend.push(.text);
-        },
-        else => if (!unboxed) if (boxedType(ctx, from)) |inner| {
+        // A Text lends its bytes; never to write.
+        .text => return kind == .read and view == types.string_id and lend.push(.text),
+        // A `*T` lends the read views of its `T`; `!h` lends the handle.
+        .shared => |inner| return kind == .read and lend.push(.handle) and lendRows(ctx, inner, .read, view, lend),
+        else => {
+            // A Vec lends its elements, as an array does.
+            if (vecElem(ctx, from)) |elem| return lendElems(ctx, elem, kind, view, lend);
             // A box lends the views of its value.
-            return lend.push(.unbox) and lendRows(ctx, inner, kind, view, lend, true);
+            if (boxedType(ctx, from)) |inner| return lend.push(.unbox) and lendRows(ctx, inner, kind, view, lend);
         },
     }
     return false;
+}
+
+/// The elements of an array or a Vec of `elem`: `[]T` to read, `![]T`
+/// to write.
+fn lendElems(ctx: *const SemContext, elem: TypeId, kind: LendKind, view: TypeId, lend: *Lend) bool {
+    const want = switch (kind) {
+        .read => switch (ctx.types.get(view)) {
+            .slice => |sl| sl.elem,
+            else => return false,
+        },
+        .write => writeSliceElem(ctx, view) orelse return false,
+    };
+    return want == elem and lend.push(.elems);
+}
+
+/// The element type of the `[]T` a value of type `ty` lends (`lendsAs`):
+/// an array's or a Vec's, reached through views, boxes, and handles;
+/// null for any other type. Generic inference matches a `[]T` with it.
+pub fn lentElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    var t = unwrapBorrows(ctx, ty);
+    while (true) switch (ctx.types.get(t)) {
+        .array => |a| return a.elem,
+        .shared => |inner| t = inner,
+        else => {
+            if (vecElem(ctx, t)) |elem| return elem;
+            t = boxedType(ctx, t) orelse return null;
+        },
+    };
+}
+
+/// `T` of a `Vec[T]`; null for any other type.
+pub fn vecElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id and pn.args.len == 1) pn.args[0] else null,
+        else => null,
+    };
 }
 
 // =============================================================================
@@ -5560,6 +5618,16 @@ test "lend table: each row makes its view" {
     const owned = try ctx.intern(.{ .shared = fn_ty });
     const callable = try callableOfFn(ctx, fn_ty);
     const opt_string = try ctx.intern(.{ .optional = ty.string_id });
+    const opt_text = try ctx.intern(.{ .optional = ty.text_id });
+    const box_box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{box_p} } });
+    const box_arr = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{arr} } });
+    const vec_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.vec_sym_id, .args = &.{ty.int_id} } });
+    const shared_p = try ctx.intern(.{ .shared = p });
+    const shared_text = try ctx.intern(.{ .shared = ty.text_id });
+    const opt_p = try ctx.intern(.{ .optional = p });
+    const opt_read_p = try ctx.intern(.{ .optional = try read(ctx, p) });
+    const opt_vec = try ctx.intern(.{ .optional = vec_int });
+    const opt_slice = try ctx.intern(.{ .optional = slice });
 
     const Case = struct { from: TypeId, kind: LendKind, view: TypeId, rows: ?[]const LendStep };
     const cases = [_]Case{
@@ -5577,13 +5645,29 @@ test "lend table: each row makes its view" {
         // A Text: a String, also where a `String?` is expected; never to
         // write.
         .{ .from = ty.text_id, .kind = .read, .view = ty.string_id, .rows = &.{.text} },
-        .{ .from = ty.text_id, .kind = .read, .view = opt_string, .rows = &.{.text} },
+        .{ .from = ty.text_id, .kind = .read, .view = opt_string, .rows = &.{ .lift, .text } },
+        .{ .from = opt_text, .kind = .read, .view = opt_string, .rows = &.{ .optional, .text } },
         .{ .from = ty.text_id, .kind = .write, .view = ty.string_id, .rows = null },
         // A box: the views of its value.
         .{ .from = box_p, .kind = .read, .view = try read(ctx, p), .rows = &.{.unbox} },
         .{ .from = box_p, .kind = .write, .view = try write(ctx, p), .rows = &.{.unbox} },
         .{ .from = box_p, .kind = .read, .view = try write(ctx, p), .rows = null },
         .{ .from = box_text, .kind = .read, .view = ty.string_id, .rows = &.{ .unbox, .text } },
+        // Boxes compose.
+        .{ .from = box_box_p, .kind = .read, .view = try read(ctx, p), .rows = &.{ .unbox, .unbox } },
+        .{ .from = box_arr, .kind = .read, .view = slice, .rows = &.{ .unbox, .elems } },
+        // A Vec lends its elements, as an array does.
+        .{ .from = vec_int, .kind = .read, .view = slice, .rows = &.{.elems} },
+        .{ .from = vec_int, .kind = .write, .view = try write(ctx, slice), .rows = &.{.elems} },
+        // A `*T` lends the read views of its `T`, never a write view.
+        .{ .from = shared_p, .kind = .read, .view = try read(ctx, p), .rows = &.{.handle} },
+        .{ .from = shared_text, .kind = .read, .view = ty.string_id, .rows = &.{ .handle, .text } },
+        .{ .from = shared_p, .kind = .write, .view = try write(ctx, p), .rows = null },
+        // An `X?` lends a `View?`; `?o` of an `S?` is a `?(S?)`.
+        .{ .from = opt_p, .kind = .read, .view = opt_read_p, .rows = &.{.optional} },
+        .{ .from = opt_p, .kind = .read, .view = try read(ctx, opt_p), .rows = &.{} },
+        .{ .from = opt_vec, .kind = .read, .view = opt_slice, .rows = &.{ .optional, .elems } },
+        .{ .from = arr, .kind = .read, .view = opt_slice, .rows = &.{ .lift, .elems } },
         // A function, or an owned closure: a `?fun(...)`.
         .{ .from = fn_ty, .kind = .read, .view = callable, .rows = &.{.callable} },
         .{ .from = owned, .kind = .read, .view = callable, .rows = &.{.callable} },

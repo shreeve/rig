@@ -235,8 +235,7 @@ true true
 ## std.sort
 
 Sorting, and searching sorted slices, written in Rig over slices, so
-they work on arrays (`!a`, `?a`) and on Vecs (`!v[..]`, `?v[..]`)
-alike. The elements are plain data, as a slice's are. `sort`,
+they work on arrays and on Vecs alike (`!a`, `?a`, `!v`, `?v`). The elements are plain data, as a slice's are. `sort`,
 `lower_bound`, and `search` order elements with `<` (numbers and
 Strings), and `search` compares them with `==`; each call is checked
 for its element type, as any generic call is.
@@ -269,7 +268,7 @@ sub main
   !v.push(Player(name: "ann", score: 7))
   !v.push(Player(name: "bob", score: 9))
   !v.push(Player(name: "cy", score: 7))
-  sort.sort_by(!v[..], |a, b| a.score > b.score)
+  sort.sort_by(!v, |a, b| a.score > b.score)
   for p in ?v
     print(p.name, p.score)
 ```

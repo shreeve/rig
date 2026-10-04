@@ -2929,7 +2929,7 @@ pub const Emitter = struct {
             if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
             return self.w.writeAll(h.name);
         }
-        if (!sameNode(sexp, self.lending)) if (self.sema.lendOf(sexp)) |lend| if (!lend.has(.read_only)) return self.emitLend(sexp, lend, tail);
+        if (!sameNode(sexp, self.lending)) if (self.sema.lendOf(sexp)) |lend| if (!lend.has(.read_only)) return self.emitLend(sexp, lend, tail, false);
         if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
@@ -2947,50 +2947,102 @@ pub const Emitter = struct {
 
     /// `sexp`, lent where a view of another type is expected, as the rows
     /// of the lend table make it (`SemContext.lendOf`).
-    fn emitLend(self: *Emitter, sexp: Sexp, lend: sema.Lend, tail: bool) Error!void {
+    fn emitLend(self: *Emitter, sexp: Sexp, lend: sema.Lend, tail: bool, as_ptr: bool) Error!void {
         const saved = self.lending;
         defer self.lending = saved;
         self.lending = sexp;
-        switch (lend.rows[lend.len - 1]) {
-            .callable => return self.emitLentCallable(sexp, lend.fn_ty),
-            .unbox => return self.emitUnboxed(sexp, false),
-            // `?a` of an array lent as a slice, `!a` as a writable one: the
-            // array's address, which Zig takes as a slice.
-            .elems => {
-                const saved_read = self.read_place;
-                defer self.read_place = saved_read;
-                self.read_place = sexp.isKind(.read);
-                return self.emitAddressOf(ir.get(sexp, .operand));
-            },
-            // A Text lent as a String: its bytes.
-            .text => {
-                const operand = if (sexp.isKind(.read)) ir.Read.operand(sexp) else sexp;
-                const reach = self.textReach(self.typeOf(operand) orelse return self.unsupported(sexp, "an untyped Text")) orelse return self.unsupported(sexp, "a Text lent as a String");
-                if (sexp.isKind(.read)) {
-                    try self.emitExpr(operand);
-                    return self.w.print("{s}.bytes()", .{reach});
-                }
+        if (lend.callable()) |fn_ty| return self.emitLentCallable(sexp, fn_ty);
+        const rows = lend.steps();
+        var first: sema.LendStep = .lift;
+        for (rows) |r| if (r != .lift) {
+            first = r;
+            break;
+        };
+        // What the lend starts from: the value written `?x` or `!x` here,
+        // or the view `sexp` already is, which is a pointer to its value
+        // or (a scalar's or a view's) a copy of it.
+        const written = sexp.isKind(.read) or sexp.isKind(.write);
+        var buf: Writer.Allocating = .init(self.arena.allocator());
+        var at: LendAt = .{ .text = "", .ptr = true };
+        var from: TypeId = sema.type_invalid;
+        {
+            const saved_w = self.w;
+            self.w = &buf.writer;
+            defer self.w = saved_w;
+            if (!written or (first == .unbox and !lend.has(.text))) {
                 try self.w.writeAll("(");
                 self.bare = true;
-                try self.emitValue(sexp, tail);
-                return self.w.print("){s}.bytes()", .{reach});
-            },
-            .read_only => unreachable,
+                try self.emitValue(sexp, tail and !written);
+                try self.w.writeAll(")");
+                at.ptr = written or self.isPtrBorrowExpr(sexp);
+                from = sema.unwrapBorrows(self.sema, self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped lend"));
+            } else {
+                const operand = ir.get(sexp, .operand);
+                from = sema.unwrapBorrows(self.sema, self.typeOf(operand) orelse return self.unsupported(sexp, "an untyped lend"));
+                const vec = self.sema.types.get(from) == .parameterized_nominal;
+                if (lend.has(.text)) {
+                    try self.emitExpr(operand);
+                    at.ptr = false;
+                } else if (first == .handle or first == .optional or (first == .elems and vec)) {
+                    try self.emitMemberBase(operand, self.typeOf(operand));
+                    at.ptr = false;
+                } else {
+                    const saved_read = self.read_place;
+                    defer self.read_place = saved_read;
+                    self.read_place = sexp.isKind(.read);
+                    try self.emitAddressOf(operand);
+                }
+            }
         }
+        at.text = buf.written();
+        return self.w.writeAll(try self.lendChain(at, from, rows, lend.view, as_ptr));
     }
 
-    /// A borrow of a `Box[T]` lent as a borrow of its value: the box's
-    /// pointer, `*T`, reached through the box or a pointer to it. Where a
-    /// read borrow is passed as a value (`as_ptr` false), it is the
-    /// `rig.ReadBorrow(T)` of that pointer: a scalar or view is copied.
-    fn emitUnboxed(self: *Emitter, sexp: Sexp, as_ptr: bool) Error!void {
-        const saved = self.lending;
-        defer self.lending = saved;
-        self.lending = sexp;
-        const lend = !as_ptr and !sexp.isKind(.write) and if (self.typeOf(sexp)) |t| self.sema.types.get(t) == .borrow_read else false;
-        try self.w.writeAll(if (lend) "rig.lend((" else "(");
-        try self.emitBare(sexp);
-        try self.w.writeAll(if (lend) ").value)" else ").value");
+    /// A value a lend reaches, as Zig text: a pointer to it (`ptr`), or
+    /// the value itself, whose fields and methods Zig reaches the same.
+    const LendAt = struct { text: []const u8, ptr: bool };
+
+    /// The view the lend table's `rows` make of the value `at`, of type
+    /// `from`, where a `view` is expected (`emitLend`).
+    fn lendChain(self: *Emitter, start: LendAt, start_from: TypeId, rows: []const sema.LendStep, start_view: TypeId, as_ptr: bool) Error![]const u8 {
+        const types = &self.sema.types;
+        var at = start;
+        var from = start_from;
+        var view = start_view;
+        for (rows, 0..) |row, i| switch (row) {
+            .lift => view = types.get(view).optional,
+            .unbox => {
+                at = .{ .text = try self.fmt("{s}.value", .{at.text}), .ptr = true };
+                from = sema.boxedType(self.sema, from).?;
+            },
+            // A handle is a pointer: reached through a pointer to it, it is
+            // dereferenced first.
+            .handle => {
+                const handle = if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text;
+                at = .{ .text = try self.fmt("{s}.value", .{handle}), .ptr = false };
+                from = types.get(from).shared;
+            },
+            // An array's address is a slice; a Vec's elements are its items.
+            .elems => return if (types.get(from) == .array)
+                (if (at.ptr) at.text else try self.fmt("&{s}", .{at.text}))
+            else
+                self.fmt("{s}.items()", .{at.text}),
+            .text => return self.fmt("{s}.bytes()", .{at.text}),
+            .read_only => return at.text,
+            // The view of the value inside, or `none`.
+            .optional => {
+                const name = try self.fmt("__rig_lent_{d}", .{self.nextId()});
+                const inner = try self.lendChain(.{ .text = name, .ptr = true }, types.get(from).optional, rows[i + 1 ..], types.get(view).optional, false);
+                const value = if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text;
+                return self.fmt("(if ({s}) |*{s}| {s} else null)", .{ value, name, inner });
+            },
+            .callable => unreachable,
+        };
+        const ptr = if (at.ptr) at.text else try self.fmt("&{s}", .{at.text});
+        return switch (types.get(view)) {
+            .borrow_read => if (as_ptr) ptr else self.fmt("rig.lend({s})", .{ptr}),
+            else => ptr,
+        };
     }
 
     fn emitName(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
@@ -3210,7 +3262,7 @@ pub const Emitter = struct {
     /// `?x` or `!x` held by pointer: the address of `x`, or for a generic
     /// read borrow, `rig.lend` of it.
     fn emitBorrowOf(self: *Emitter, borrow: Sexp) Error!void {
-        if (!sameNode(borrow, self.lending)) if (self.sema.lendOf(borrow)) |lend| if (lend.has(.unbox)) return self.emitUnboxed(borrow, true);
+        if (!sameNode(borrow, self.lending)) if (self.sema.lendOf(borrow)) |lend| if (!lend.has(.read_only) and lend.callable() == null) return self.emitLend(borrow, lend, false, true);
         const operand = ir.get(borrow, .operand);
         // A read borrow reaches a Vec element through a read-only slot, a
         // write borrow through a writable one.

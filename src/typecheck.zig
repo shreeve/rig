@@ -3890,16 +3890,16 @@ const Checker = struct {
             else => {},
         }
 
+        // `value` names a Cell's constructor argument, not a field to read.
+        if (std.mem.eql(u8, field, "value") and cellElementType(self.ctx, peeled) != null) {
+            try self.err(pos, "a Cell is read with `c.get()` and written with `c.set(v)`, not through `.value`", .{});
+            return self.t().invalid_id;
+        }
+
         // A box of anything but a struct or enum is only lent or taken apart.
         if (sema.boxedType(self.ctx, peeled) != null) {
             const shown = self.sourceText(obj);
             try self.err(pos, "a `{s}` reaches no fields of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.unbox()`", .{ try self.tyName(peeled), shown, shown, shown });
-            return self.t().invalid_id;
-        }
-
-        // `value` names a Cell's constructor argument, not a field to read.
-        if (std.mem.eql(u8, field, "value") and cellElementType(self.ctx, peeled) != null) {
-            try self.err(pos, "a Cell is read with `c.get()` and written with `c.set(v)`, not through `.value`", .{});
             return self.t().invalid_id;
         }
 
@@ -6043,8 +6043,9 @@ const Checker = struct {
                 try self.bindArg(inf, p.elem, at.slice.elem, arg, depth + 1)
             else if (sema.writeSliceElem(self.ctx, actual)) |elem|
                 try self.bindArg(inf, p.elem, elem, arg, depth + 1)
-            else if (arrayElem(self.ctx, actual)) |elem|
-                // An array lent as a slice (`?a`, a temporary).
+            else if (sema.lentElem(self.ctx, actual)) |elem|
+                // An array or a Vec lent as a slice (`?a`, `!v`, a
+                // temporary).
                 try self.bindArg(inf, p.elem, elem, arg, depth + 1)
             else
                 self.noteMismatch(inf, pattern, actual, arg),
@@ -7180,43 +7181,40 @@ const Checker = struct {
             else => .{ .read, actual },
         };
         const lend = sema.lendsAs(self.ctx, from, kind, expected) orelse return false;
-        if (lend.len == 0) return false;
+        // `?x` where a `(?T)?` is expected is a view the context admits as
+        // it is.
+        if (lend.onlyLifts()) return false;
         const view = isBorrow(self.ctx, actual);
-        const written = e.isKind(.read) or e.isKind(.write);
-        switch (lend.rows[lend.len - 1]) {
-            .callable => {
-                if (sema.ownedClosureFn(self.ctx, from) != null and !view) {
-                    // The handle is lent from its binding; reported once.
-                    const place = switch (e.kind() orelse .lambda) {
-                        .move, .clone => ir.get(e, .operand),
-                        else => e,
-                    };
-                    if (self.hands(place).hasStorage()) {
-                        try self.errAt(e, "an owned closure is lent to a `{s}` parameter: write `?{s}`", .{ try self.tyName(expected), self.sourceText(place) });
-                    } else try self.errAt(e, "an owned closure is lent to a `{s}` parameter from a binding: bind it first (`cb = ...`), then lend it with `?cb`", .{try self.tyName(expected)});
-                    try self.ctx.recordType(e, self.t().invalid_id);
-                    return true;
-                }
-            },
-            // `?a` as `?a[..]` where a `[]T` is expected, `!a` as `!a[..]`
-            // where a `![]T` is.
-            .elems => {
-                if (!written or !self.placeOf(ir.get(e, .operand)).named()) return false;
-                try self.ctx.recordType(e, expected);
-            },
-            // A Text lends its bytes: a borrow already made (a `?Text` a
-            // call returns, or a name holds), a Text made here, which its
-            // statement drops, or a named one. A borrowed temporary
-            // elsewhere was reported.
-            .text => if (e.isKind(.read)) {
-                if (!self.placeOf(ir.Read.operand(e)).named()) try self.lendTemp(ir.Read.operand(e));
-                try self.ctx.recordType(e, self.t().string_id);
-            } else if (!view) return false,
-            .unbox => {
-                if (!view) return false;
-                if (self.ctx.types.get(expected) == .borrow_write) _ = try self.requireAccess(self.placeOf(e), .pass_write, e);
-            },
-            .read_only => try self.recordAdapted(e, actual, expected),
+        if (lend.callable() != null) {
+            if (sema.ownedClosureFn(self.ctx, from) != null and !view) {
+                // The handle is lent from its binding; reported once.
+                const place = switch (e.kind() orelse .lambda) {
+                    .move, .clone => ir.get(e, .operand),
+                    else => e,
+                };
+                if (self.hands(place).hasStorage()) {
+                    try self.errAt(e, "an owned closure is lent to a `{s}` parameter: write `?{s}`", .{ try self.tyName(expected), self.sourceText(place) });
+                } else try self.errAt(e, "an owned closure is lent to a `{s}` parameter from a binding: bind it first (`cb = ...`), then lend it with `?cb`", .{try self.tyName(expected)});
+                try self.ctx.recordType(e, self.t().invalid_id);
+                return true;
+            }
+        } else if (lend.has(.read_only)) {
+            try self.recordAdapted(e, actual, expected);
+        } else {
+            // Every other row lends a value written `?x` or `!x` here, or
+            // what a view `e` already is views.
+            if (!view) return false;
+            // A Text made here is a temporary its statement drops.
+            if (lend.has(.text) and e.isKind(.read) and !self.placeOf(ir.Read.operand(e)).named()) try self.lendTemp(ir.Read.operand(e));
+            if (self.ctx.types.get(expected) == .borrow_write) _ = try self.requireAccess(self.placeOf(e), .pass_write, e);
+            // A lend written here of an array's or a Text's own elements
+            // is the view it makes.
+            if (e.isKind(.read) or e.isKind(.write)) for (lend.steps()) |step| switch (step) {
+                .lift => {},
+                .elems => try self.ctx.recordType(e, expected),
+                .text => try self.ctx.recordType(e, self.t().string_id),
+                else => break,
+            };
         }
         try self.ctx.recordLend(e, lend);
         return true;
@@ -8686,14 +8684,6 @@ fn resultCall(e: Sexp) ?Sexp {
         .propagate_none => resultCall(ir.PropagateNone.value(e)),
         .@"catch" => resultCall(ir.Catch.value(e)),
         .@"??" => resultCall(ir.@"??".left(e)),
-        else => null,
-    };
-}
-
-/// The element type of an array, or of a borrow of one.
-fn arrayElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    return switch (ctx.types.get(sema.unwrapBorrows(ctx, ty))) {
-        .array => |a| a.elem,
         else => null,
     };
 }

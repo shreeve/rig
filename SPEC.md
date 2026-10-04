@@ -408,9 +408,11 @@ caller's array. An array parameter taken by value (`xs: [N]T`) is the
 function's own, so a borrow of it cannot be returned.
 
 An array goes where a slice is expected in three ways. Where a `[]T`
-is expected, `?a` of a named array (or a field or element of one)
-means `?a[..]`, and where a `![]T` is expected, `!a` means `!a[..]`:
-the sigil shows the borrow, which is the slice's. A bare named array
+is expected, `?a` of an array means `?a[..]`, and where a `![]T` is
+expected, `!a` means `!a[..]`: the sigil shows the borrow, which is the
+slice's. A Vec is lent the same way (`sort.sort(!v)`), and so is an
+array or Vec in a box (`?b` of a `Box[[3]Int]`) or behind a read view
+(a `?Vec[Int]` parameter passed where a `[]Int` is expected). A bare named array
 there is rejected, since it would borrow the array unseen. A temporary
 array, a literal, a fill, or a call's result, is accepted as a `[]T`
 argument of a function or method call that keeps no borrow of its
@@ -3460,6 +3462,11 @@ write `<a` or `+a`. Sharing a value that is already a shared handle
 **Access is read-only.** Field reads, element reads (`h[i]` of a
 `*[N]T`, `*Vec[T]`, or `*String`), and `?self` methods reach through a
 handle automatically, including through fields and loop elements.
+`?h` lends the value's read views where one is expected: one
+`fun area(s: ?Shape)` takes a `?h` of a `*Shape`, and a `*Text` lends
+a String. The loan is on `h`, so `h` may not be dropped, moved, or
+reassigned while the view is used. `!h` lends only the handle itself
+(a `!*T`), never a write view of the value.
 Writing a field, calling a `!self` method, or consuming the value
 through a handle is rejected, because other handles share it; shared
 mutable state goes in a `Cell` ([§10](#cell)). The built-in `Vec` is no
@@ -3724,7 +3731,7 @@ Long chains of boxes are released without deep recursion.
 |---|---|
 | `Box(v)` | move `v` into a new box |
 | `b.f`, `b.m(...)` | a field or method of a boxed struct or enum, reached through the box |
-| `?b`, `!b` | lend the box, or, where a `?T` or `!T` is expected, the value inside it |
+| `?b`, `!b` | lend the box, or, where a view of the value is expected, that view: `?T` or `!T`, a `[]T` of a boxed array or Vec, a `String` of a boxed Text, through any number of boxes |
 | `<b.unbox()` | move the value out; the box is freed |
 | `<s.f` | take an optional box out of a field, leaving `none` ([§7](#moves)) |
 | `match ?b`, `match !b` | match a boxed enum where it is |
@@ -4338,6 +4345,7 @@ expected, and `none` needs a known optional type.
 | `a == v`, `a != v` | whether `a` holds the value `v`, a `T` |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
 | `if ?a as x`, `if !a as x` | the same, with `x` borrowing the value inside `a` |
+| `?a` where a `View?` is expected | a view of the value inside `a`, or `none`: `?a` of an `S?` where a `(?S)?` is expected, of a `Text?` where a `String?` is, of a `Vec[Int]?` where a `([]Int)?` is; `?a` itself is a `?(S?)` |
 | `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§7](#moves)) |
 | `while a as x` | repeat while `a` produces a value |
 | `if a as x and b as y`, `if a as x and x > 0` | bindings and `Bool` conditions joined by `and`; `else` runs when any fails |

@@ -1,6 +1,5 @@
 # std.slices: linear operations on slices, written in Rig. Every
-# function takes a slice: pass an array as `!a` or `?a`, and a Vec as
-# `!v[..]` or `?v[..]`.
+# function takes a slice: pass an array or a Vec as `!a` or `?a`.
 
 # Reverse the order of the elements of `xs` in place.
 pub sub reverse[T](xs: ![]T)
