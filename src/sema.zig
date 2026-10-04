@@ -406,7 +406,10 @@ pub const SymbolFlags = packed struct(u16) {
     error_set: bool = false,
     /// A local bound to a closure literal: a stack closure.
     closure: bool = false,
-    _: u7 = 0,
+    /// A type declared `unique` (`struct T unique`): its values are never
+    /// copied (`Contents.unique`).
+    unique: bool = false,
+    _: u6 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -2032,6 +2035,9 @@ pub const Contents = struct {
     /// Holds a `Cell` inline, directly or through any argument of a
     /// generic instance it holds.
     cell: bool = false,
+    /// Is declared `unique`, or holds a unique type inline, as `cell`
+    /// reaches (`Reach`).
+    unique: bool = false,
     /// Owns nothing and holds no borrow. A type parameter held by value
     /// counts as plain here; each instance checks its arguments.
     plain: bool = false,
@@ -2063,7 +2069,7 @@ pub const Borrows = packed struct(u4) {
 /// Facts about an interned type, recorded when it is interned
 /// (`SemContext.intern`). The structural facts are always known; the
 /// rest once declarations are resolved (`SemContext.contents_ready`).
-pub const TypeInfo = packed struct(u18) {
+pub const TypeInfo = packed struct(u19) {
     /// Mentions a generic parameter anywhere.
     has_type_var: bool = false,
     /// Holds a generic parameter by value, so whether it owns a resource
@@ -2073,6 +2079,8 @@ pub const TypeInfo = packed struct(u18) {
     glue: bool = false,
     /// Holds a `Cell` inline (see `holdsCellByValue`).
     cell: bool = false,
+    /// Is or holds inline a type declared `unique` (see `isUnique`).
+    unique: bool = false,
     /// Holds no resource, borrow, or generic parameter. A struct with a
     /// user `drop` can be plain and still have glue (see `isPlainData`).
     plain: bool = false,
@@ -2188,28 +2196,31 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
 }
 
 /// What a value holds, of what it can hold through the declared types it
-/// holds: a `Cell` inline, a borrow, and a write borrow.
-const Reach = packed struct(u5) {
+/// holds: a `Cell` inline, a unique type inline, a borrow, and a write
+/// borrow.
+const Reach = packed struct(u6) {
     cell: bool = false,
+    unique: bool = false,
     borrows: Borrows = .{},
 
-    const all: Reach = .{ .cell = true, .borrows = .{ .any = true, .write = true, .view = true, .text = true } };
-    /// What reaches through a handle or heap memory: no Cell is inline.
+    const all: Reach = .{ .cell = true, .unique = true, .borrows = .{ .any = true, .write = true, .view = true, .text = true } };
+    /// What reaches through a handle or heap memory: no Cell or unique
+    /// value is inline.
     const borrows_only: Reach = .{ .borrows = .{ .any = true, .write = true, .view = true, .text = true } };
     /// What reaches through a borrow, or into a Cell's or Signal's value:
     /// only a Text matters.
     const text_only: Reach = .{ .borrows = .{ .text = true } };
 
     fn with(a: Reach, b: Reach) Reach {
-        return @bitCast(@as(u5, @bitCast(a)) | @as(u5, @bitCast(b)));
+        return @bitCast(@as(u6, @bitCast(a)) | @as(u6, @bitCast(b)));
     }
 
     fn within(a: Reach, mask: Reach) Reach {
-        return @bitCast(@as(u5, @bitCast(a)) & @as(u5, @bitCast(mask)));
+        return @bitCast(@as(u6, @bitCast(a)) & @as(u6, @bitCast(mask)));
     }
 
     fn of(c: Contents) Reach {
-        return .{ .cell = c.cell, .borrows = c.borrows };
+        return .{ .cell = c.cell, .unique = c.unique, .borrows = c.borrows };
     }
 };
 
@@ -2228,12 +2239,12 @@ const ReachEdge = struct {
     }
 };
 
-/// What each declared type's values hold (`Reach`): a type holds what
-/// the declared types it holds do, a borrow even through a handle, and
-/// what any argument of a generic instance it holds does (as the
-/// emitter reads type expressions). Found by propagating backwards from
-/// the types that hold something directly, so each field type is walked
-/// once.
+/// What each declared type's values hold (`Reach`): a type declared
+/// `unique` is unique, and a type holds what the declared types it
+/// holds do, a borrow even through a handle, and what any argument of a
+/// generic instance it holds does (as the emitter reads type
+/// expressions). Found by propagating backwards from the types that
+/// hold something directly, so each field type is walked once.
 fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
     var edges: std.ArrayList(ReachEdge) = .empty;
     defer edges.deinit(ctx.allocator);
@@ -2243,11 +2254,12 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
         if (!isTypeDecl(sym)) continue;
         const id: SymbolId = @intCast(i);
         // A proxy's contents are its declaration's.
-        var r: Reach = if (isProxy(sym)) Reach.of(sym.contents) else .{};
+        var r: Reach = if (isProxy(sym)) Reach.of(sym.contents) else .{ .unique = sym.flags.unique };
         if (!isProxy(sym)) for (sym.fields orelse &.{}) |*f| {
             for (dataFields(f)) |d| r = r.with(try reachOf(ctx, d.ty, .all, .{ .edges = &edges, .owner = id }));
         };
         ctx.symbols.items[id].contents.cell = r.cell;
+        ctx.symbols.items[id].contents.unique = r.unique;
         ctx.symbols.items[id].contents.borrows = r.borrows;
         if (r != Reach{}) try work.append(ctx.allocator, id);
     }
@@ -2260,6 +2272,7 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
             const now = Reach.of(to.*).with(r.within(edges.items[i].mask));
             if (now == Reach.of(to.*)) continue;
             to.cell = now.cell;
+            to.unique = now.unique;
             to.borrows = now.borrows;
             try work.append(ctx.allocator, edges.items[i].to);
         }
@@ -2333,6 +2346,7 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     info.holds_type_var = h.type_var;
     const r = try reachOf(ctx, id, .all, null);
     info.cell = r.cell;
+    info.unique = r.unique;
     info.borrows = r.borrows;
     return info;
 }
@@ -3249,17 +3263,20 @@ pub fn containsPoison(ctx: *const SemContext, ty_id: TypeId) bool {
     return ctx.typeInfo(ty_id).poison;
 }
 
-/// Whether a read borrow `?inner` is a copy of the value: a scalar or a
-/// view, which nothing can change while it is borrowed and which costs
-/// no more to copy than a pointer. Anything larger is lent by address,
-/// as is a value that owns resources (a copy would be dropped with
-/// whatever holds it) or holds a Cell (which can change while it is
-/// borrowed). `rig.ReadBorrow` applies the same rule to Zig types, for
-/// a generic `?T`.
-pub fn readBorrowCopies(ctx: *const SemContext, inner: TypeId) bool {
+/// Whether lending `inner` (`?inner`) hands over a copy of the value: a
+/// scalar or a view, which nothing can change while it is lent and which
+/// costs no more to copy than a pointer. Anything larger is lent by
+/// address, as is a value that owns resources (a copy would be dropped
+/// with whatever holds it) or holds a Cell (which can change while it is
+/// lent). `rig.ReadBorrow` applies the same rule to Zig types, for a
+/// generic `?T`.
+pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
     if (typeHasDropGlue(ctx, inner) or maybeDropGlue(ctx, inner) or holdsCellByValue(ctx, inner)) return false;
     return copiedByBorrow(ctx, inner);
 }
+
+/// `lendByValue`, under the name its callers use.
+pub const readBorrowCopies = lendByValue;
 
 /// A type a read borrow copies: a number, `Bool`, `String`, a slice, a
 /// function or borrowed callable (a `rig.FnRef`), a plain enum, an
@@ -3293,7 +3310,6 @@ pub fn mayHoldBorrow(ctx: *const SemContext, ty: TypeId) bool {
     return info.borrows.any or info.holds_type_var;
 }
 
-/// Whether a value of `ty` holds a write borrow, which is unique.
 /// Whether a value of `ty` holds a borrow or a String, which may view a
 /// Text: the ownership checker tracks the loans such a value carries.
 pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
@@ -3330,6 +3346,7 @@ pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
     return info.borrows.view and !info.borrows.any and !info.holds_type_var and !info.poison;
 }
 
+/// Whether a value of `ty` holds a write borrow, which is unique.
 pub fn holdsWriteBorrow(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).borrows.write;
 }
@@ -3359,6 +3376,82 @@ pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
 pub fn maybeDropGlue(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
     return !info.glue and info.holds_type_var;
+}
+
+/// An answer about a type that may hold a type parameter by value:
+/// `depends` when each instance answers for itself.
+pub const Answer = enum { no, yes, depends };
+
+/// Whether `ty` is declared `unique` or holds such a type inline (not
+/// behind a handle, a borrow, or a Vec's or Box's heap memory).
+pub fn isUnique(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.holds(ty).unique;
+}
+
+/// Whether a bare use of a value of `ty` moves it rather than copying
+/// it: `yes` when it needs cleanup (`typeHasDropGlue`), `depends` when
+/// it holds a type parameter by value (`maybeDropGlue`), otherwise `no`.
+pub fn moves(ctx: *const SemContext, ty: TypeId) Answer {
+    const info = ctx.holds(ty);
+    if (info.glue) return .yes;
+    return if (info.holds_type_var) .depends else .no;
+}
+
+/// Whether a value of `ty` may be copied implicitly: it does not move
+/// (`moves`) and holds no write view (`!T`), of which there is only
+/// one. `depends` when each instance decides.
+pub fn copyable(ctx: *const SemContext, ty: TypeId) Answer {
+    if (ctx.holds(ty).borrows.write) return .no;
+    return switch (moves(ctx, ty)) {
+        .no => .yes,
+        .yes => .no,
+        .depends => .depends,
+    };
+}
+
+/// What `+x` does for an `x` of type `ty`.
+pub const Clone = enum {
+    /// Copies the value.
+    copy,
+    /// Bumps a handle's count: `*T`, `~T`, or an optional of one.
+    bump,
+    /// Copies a Text's bytes into a new Text.
+    text,
+    /// Copies the value, where each instance of the type parameters it
+    /// holds is copied.
+    depends,
+    /// Cannot clone it.
+    no,
+};
+
+/// What `+x` does for an `x` of type `ty`, which may be a borrow: a
+/// clone reads the value the borrow reaches. A `![]T` cannot be cloned:
+/// it is a write view of elements it does not own, and a copy would be a
+/// second path to them.
+pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
+    if (writeSliceElem(ctx, ty) != null) return .no;
+    const value = unwrapBorrows(ctx, ty);
+    switch (ctx.types.get(value)) {
+        .shared, .weak => return .bump,
+        .text => return .text,
+        .optional => |o| switch (ctx.types.get(o)) {
+            .shared, .weak => return .bump,
+            else => {},
+        },
+        else => {},
+    }
+    return switch (moves(ctx, value)) {
+        .no => .copy,
+        .yes => .no,
+        .depends => .depends,
+    };
+}
+
+/// Whether a value of `ty` read through a view reads as the value
+/// itself: a Copy primitive or a plain enum (`n + 1` with `n: ?Int` is
+/// an `Int`).
+pub fn readsAsValue(ctx: *const SemContext, ty: TypeId) bool {
+    return isCopyPrimitive(ctx, ty) or isPlainEnum(ctx, ty);
 }
 
 /// The type parameters `ty` holds by value, appended to `out`.
@@ -4834,6 +4927,77 @@ test "check: a long chain of types each holding the next by value" {
     defer r.deinit();
     const s0 = try r.ctx.intern(.{ .nominal = r.ctx.lookup(module_scope, "S0").? });
     try std.testing.expectEqual(@as(?u128, 8), try minBytes(&r.ctx, s0));
+}
+
+test "type facts: moves, copyable, cloneable" {
+    var r = try factsRun(
+        \\struct P
+        \\  x: Int
+        \\
+        \\struct V
+        \\  p: ?P
+        \\
+        \\struct W
+        \\  p: !P
+        \\
+        \\struct Wrap[T]
+        \\  item: T
+        \\
+    );
+    defer r.deinit();
+    const ctx = &r.ctx;
+    const ty = &ctx.types;
+    const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
+    const v = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "V").? });
+    const w = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "W").? });
+    const t = try ctx.intern(.{ .type_var = r.sym("T", 0).? });
+    const vec_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.vec_sym_id, .args = &.{ty.int_id} } });
+    const wrap_t = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{t} } });
+    const wrap_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{ty.int_id} } });
+    const read_p = try ctx.intern(.{ .borrow_read = p });
+    const write_p = try ctx.intern(.{ .borrow_write = p });
+    const shared_p = try ctx.intern(.{ .shared = p });
+    const weak_p = try ctx.intern(.{ .weak = p });
+    const opt_shared = try ctx.intern(.{ .optional = shared_p });
+    const opt_t = try ctx.intern(.{ .optional = t });
+    const int_slice = try ctx.intern(.{ .slice = .{ .elem = ty.int_id } });
+    const write_slice = try ctx.intern(.{ .borrow_write = int_slice });
+
+    const Case = struct { ty: TypeId, moves: Answer, copyable: Answer, clone: Clone };
+    const cases = [_]Case{
+        .{ .ty = ty.int_id, .moves = .no, .copyable = .yes, .clone = .copy },
+        .{ .ty = ty.string_id, .moves = .no, .copyable = .yes, .clone = .copy },
+        .{ .ty = p, .moves = .no, .copyable = .yes, .clone = .copy },
+        .{ .ty = read_p, .moves = .no, .copyable = .yes, .clone = .copy },
+        .{ .ty = write_p, .moves = .no, .copyable = .no, .clone = .copy },
+        .{ .ty = v, .moves = .no, .copyable = .yes, .clone = .copy },
+        .{ .ty = w, .moves = .no, .copyable = .no, .clone = .copy },
+        .{ .ty = vec_int, .moves = .yes, .copyable = .no, .clone = .no },
+        .{ .ty = ty.text_id, .moves = .yes, .copyable = .no, .clone = .text },
+        .{ .ty = shared_p, .moves = .yes, .copyable = .no, .clone = .bump },
+        .{ .ty = weak_p, .moves = .yes, .copyable = .no, .clone = .bump },
+        .{ .ty = opt_shared, .moves = .yes, .copyable = .no, .clone = .bump },
+        .{ .ty = t, .moves = .depends, .copyable = .depends, .clone = .depends },
+        .{ .ty = opt_t, .moves = .depends, .copyable = .depends, .clone = .depends },
+        .{ .ty = wrap_t, .moves = .depends, .copyable = .depends, .clone = .depends },
+        .{ .ty = wrap_int, .moves = .no, .copyable = .yes, .clone = .copy },
+        .{ .ty = write_slice, .moves = .no, .copyable = .no, .clone = .no },
+    };
+    for (cases, 0..) |c, i| {
+        errdefer std.debug.print("case {d}\n", .{i});
+        try std.testing.expectEqual(c.moves, moves(ctx, c.ty));
+        try std.testing.expectEqual(c.copyable, copyable(ctx, c.ty));
+        try std.testing.expectEqual(c.clone, cloneable(ctx, c.ty));
+        try std.testing.expect(!isUnique(ctx, c.ty));
+    }
+    // A clone reads what a view reaches.
+    try std.testing.expectEqual(Clone.bump, cloneable(ctx, try ctx.intern(.{ .borrow_read = shared_p })));
+    try std.testing.expectEqual(Clone.no, cloneable(ctx, try ctx.intern(.{ .borrow_read = vec_int })));
+    // A view of a scalar or a plain enum reads as the value.
+    try std.testing.expect(readsAsValue(ctx, ty.int_id));
+    try std.testing.expect(!readsAsValue(ctx, p));
+    try std.testing.expect(lendByValue(ctx, ty.int_id));
+    try std.testing.expect(!lendByValue(ctx, vec_int));
 }
 
 /// Walk every expression position of a body and report nodes sema left
