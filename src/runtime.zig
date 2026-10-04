@@ -37,6 +37,8 @@ fn isStrongHandle(comptime T: type) bool {
 /// True when dropping a `T` releases anything. A type owns resources
 /// when it declares `__rig_drop`, is a strong handle, or (for structs,
 /// tagged unions, arrays, and optionals) contains something that does.
+/// The mirror of sema's `typeHasDropGlue` for a Zig type: a unique type
+/// that needs no cleanup drops nothing.
 fn needsDrop(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => isStrongHandle(T),
@@ -60,7 +62,7 @@ fn needsDrop(comptime T: type) bool {
 }
 
 /// True when a `T` holds a `Cell` by value (not behind a pointer or in
-/// a `Vec` or `Signal`).
+/// a `Vec` or `Signal`): the mirror of sema's `holdsCellByValue`.
 fn holdsCell(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .optional => |o| holdsCell(o.child),
@@ -82,7 +84,7 @@ fn holdsCell(comptime T: type) bool {
 /// How a read borrow `?T` is held: a copy of a scalar or a view (a
 /// number, `Bool`, a plain enum, an error, a slice or `String`, a
 /// function, or an optional of one), a pointer to anything else. The
-/// emitter decides this itself for a known `T` (`readBorrowIsPtr`), by
+/// emitter decides this itself for a known `T` (`sema.lendByValue`), by
 /// the same rule, and uses this in a generic type, where `T` depends on
 /// the type arguments.
 pub fn ReadBorrow(comptime T: type) type {

@@ -2970,7 +2970,7 @@ pub const Checker = struct {
         if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
         var ty = self.exprType(e) orelse return;
         while (ctx.types.get(ty) == .borrow_write) ty = ctx.types.get(ty).borrow_write;
-        if (!sema.readsInPlace(ctx, ty)) return;
+        if (!sema.readByAddress(ctx, ty)) return;
         try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(e), .arg_read = true });
     }
 
@@ -3004,7 +3004,7 @@ pub const Checker = struct {
         const v = self.vars.items[place.root];
         if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
         const ty = self.exprType(leaf) orelse return;
-        if (!sema.readsInPlace(ctx, ty)) return;
+        if (!sema.readByAddress(ctx, ty)) return;
         const kind: LoanKind = if (sema.holdsCellByValue(ctx, sema.unwrapBorrows(ctx, ty))) .write else .read;
         try self.addTemp(.{ .root = place.root, .kind = kind, .pos = self.startOf(leaf), .arg_read = true });
     }
@@ -4304,8 +4304,8 @@ pub const Checker = struct {
         return t == .parameterized_nominal and t.parameterized_nominal.sym == ctx.vec_sym_id;
     }
 
-    /// A Vec (or a borrow of one) whose elements move (`sema.moves`):
-    /// walked by borrowed slot.
+    /// A Vec (or a view of one) whose elements move (`sema.moves`):
+    /// walked by a view of each slot.
     fn isResourceVec(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;

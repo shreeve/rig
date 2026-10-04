@@ -3121,9 +3121,9 @@ pub const Emitter = struct {
     }
 
     /// A read borrow of a scalar or a view is a copy
-    /// (`sema.readBorrowCopies`); anything else is lent by address.
+    /// (`sema.lendByValue`); anything else is lent by address.
     fn readBorrowIsPtr(self: *Emitter, inner: TypeId) bool {
-        return !sema.readBorrowCopies(self.sema, inner);
+        return !sema.lendByValue(self.sema, inner);
     }
 
     /// The `T` of a read borrow `?T` whose form depends on a generic
@@ -4912,7 +4912,7 @@ pub const Emitter = struct {
             else => false,
         };
         const ty = self.typeOf(a) orelse return false;
-        return place and sema.readsInPlace(self.sema, self.peelBorrows(ty));
+        return place and sema.readByAddress(self.sema, self.peelBorrows(ty));
     }
 
     // =========================================================================

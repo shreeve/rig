@@ -3286,9 +3286,6 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
     return copiedByBorrow(ctx, inner);
 }
 
-/// `lendByValue`, under the name its callers use.
-pub const readBorrowCopies = lendByValue;
-
 /// A type a read borrow copies: a number, `Bool`, `String`, a slice, a
 /// function or borrowed callable (a `rig.FnRef`), a plain enum, an
 /// error, or an optional of one of those.
@@ -3417,7 +3414,7 @@ pub fn moves(ctx: *const SemContext, ty: TypeId) Answer {
 /// it first: a value kept like an owner (`keptLikeOwner`), or one of a
 /// type parameter. Any other value, a unique one that holds a Cell
 /// included, is copied where the read runs.
-pub fn readsInPlace(ctx: *const SemContext, ty: TypeId) bool {
+pub fn readByAddress(ctx: *const SemContext, ty: TypeId) bool {
     return keptLikeOwner(ctx, ty) or maybeDropGlue(ctx, ty);
 }
 

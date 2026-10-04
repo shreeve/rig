@@ -7342,7 +7342,7 @@ const Checker = struct {
         const lifted = self.liftTarget(expected);
         if (readValue(self.ctx, actual) != actual and !isBorrow(self.ctx, lifted)) return self.ctx.recordRead(e);
         if (self.ctx.types.get(actual) == .borrow_write) switch (self.ctx.types.get(lifted)) {
-            .borrow_read => |inner| if (sema.readBorrowCopies(self.ctx, inner)) return self.ctx.recordRead(e),
+            .borrow_read => |inner| if (sema.lendByValue(self.ctx, inner)) return self.ctx.recordRead(e),
             else => {},
         };
         if (actual != self.t().int_literal_id and actual != self.t().float_literal_id) return;
