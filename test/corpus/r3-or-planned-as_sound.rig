@@ -2,11 +2,9 @@
 # `while … as` binds is read where it stands, as `?p`, and the binding
 # is a view: the place may change once the view is done. A `match` on
 # a place reads it in place today, and an optional of plain data
-# copies. Today the compiler rejects the bare `as` subjects.
+# copies. Before the rule is on by default the bare `as` subjects are
+# rejected (C2), so only the planned lines state their verdicts.
 #
-# oracle: if_as reject C2
-# oracle: while_as reject C2
-# oracle: field_as reject C2
 # oracle: match_place accept
 # oracle: plain_copies accept
 # oracle planned: if_as accept
