@@ -1,7 +1,7 @@
 struct Counter
   hits: Cell[Int]
 
-a =! [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+const a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
 
 sub main()
   for k in a

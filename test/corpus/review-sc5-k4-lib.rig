@@ -1,1 +1,1 @@
-pub SMALL: U8 =! 250
+pub const SMALL: U8 = 250

@@ -94,7 +94,7 @@ sub t1460
   print(x1460)
 
 sub t1670
-  cst1670: U64 =! 14
+  const cst1670: U64 = 14
   xs1670: [2]U64 = [cst1670, 0]
   print(xs1670)
 
@@ -143,7 +143,7 @@ sub t3205
   print(cmp3205 == (fu3205(false) ?? 5382), (fu3205(false) ?? 5382) < cmp3205, (fu3205(false) ?? 5382) >= cmp3205)
 
 sub t5615
-  cst5615: Float =! 3
+  const cst5615: Float = 3
   vw5615: Vec[Float] = Vec()
   pushit5615 = |!vw5615, x: Float| !vw5615.push(x)
   pushit5615(cst5615)

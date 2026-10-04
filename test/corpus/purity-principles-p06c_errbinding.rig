@@ -5,7 +5,7 @@ fun f(k: Int) -> Int!
   e = E.bad
   if k > 0
     return k
-  e
+  return e
 
 sub main
   print(f(1) catch -1, f(0) catch -1)

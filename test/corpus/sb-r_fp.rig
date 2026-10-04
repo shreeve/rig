@@ -3,7 +3,7 @@ sub f(a: [2]Int, b: ?[2]Int)
   b.fill(0)
 
 sub main
-  c =! [1, 2]
+  const c = [1, 2]
   c.fill(0)
   d = [1]
   d.fill(0)

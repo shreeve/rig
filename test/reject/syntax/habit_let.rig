@@ -4,4 +4,4 @@ sub main()
   let mut x = 5
   print(x)
 
-# error: 4:3: Rig has no `let`; bind a name with `x = 5`, or `x =! 5` for a fixed binding
+# error: 4:3: Rig has no `let`; bind a name with `x = 5`, or `const x = 5` for one that never changes

@@ -6,7 +6,7 @@ fun fail(k: Int) -> Int!
   k
 
 fun c(k: Int) -> Int!
-  E.bad if k > 0 else k
+  return E.bad if k > 0 else k
 
 fun d(k: Int) -> Int!
   return .bad if k > 0

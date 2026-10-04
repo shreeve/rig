@@ -3,7 +3,7 @@
 # constants.
 
 sub bucket(x: Int)
-  lim =! 10
+  const lim = 10
   match x
     -5..0 => print("negative")
     1..4 => print("low")

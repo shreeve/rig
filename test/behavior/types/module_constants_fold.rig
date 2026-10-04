@@ -1,4 +1,4 @@
-# A module constant folds as a local `=!` constant does, so a type can
+# A module constant folds as a local `const` binding does, so a type can
 # use it as an array length: wrapping literals take its declared type, a
 # shift is in its left operand's type, and an alias of a number type
 # names its limits.

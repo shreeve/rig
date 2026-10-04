@@ -58,7 +58,7 @@ fun tail_bang(ok: Bool) -> Int!
   eat(<x)
   maybe(ok)!
 
-# Errdefers at a tail that may be an error value.
+# Errdefers at a `return` of an error value from a tail branch.
 fun tail_value(ok: Bool) -> Int!
   x = R(n: 5)
   defer print("defer", x.n)
@@ -66,7 +66,7 @@ fun tail_value(ok: Bool) -> Int!
   if ok
     1
   else
-    E.bad
+    return E.bad
 
 # A defer in a loop body, at a `!` inside the loop.
 fun looped(ok: Bool) -> Int!

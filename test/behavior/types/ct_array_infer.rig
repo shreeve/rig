@@ -19,7 +19,7 @@ fun pair[n: Int](a: [n]Int, b: [n]Int) -> Int
 
 # A generic body passes its own parameter on, inferred or named.
 fun twice[n: Int](xs: [n]Int) -> Int
-  k =! n
+  const k = n
   ys: [k]Int = xs
   sum(ys) + sum[k](xs) + sum[n](xs)
 

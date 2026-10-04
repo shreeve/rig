@@ -1,4 +1,4 @@
-LIMIT =! 8
+const LIMIT = 8
 struct C
   n: Int = LIMIT
   xs: Vec[Int] = Vec()

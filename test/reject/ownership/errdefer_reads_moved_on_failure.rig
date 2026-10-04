@@ -1,5 +1,5 @@
-# An `errdefer` is checked at every exit that fails: `!`, and a return
-# of an error value, explicit or at the end of the function.
+# An `errdefer` is checked at every exit that fails: `!`, and a `return`
+# of an error value, also as a branch of the returned value.
 
 error E
   bad
@@ -31,7 +31,7 @@ fun tail(k: Int) -> Int!
   t = Tok(n: 3)
   errdefer print(t.n)
   eat(<t)
-  E.bad if k > 0 else k
+  return E.bad if k > 0 else k
 
 fun caught(k: Int) -> Int!
   t = Tok(n: 4)

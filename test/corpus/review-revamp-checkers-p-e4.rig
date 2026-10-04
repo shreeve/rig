@@ -14,7 +14,7 @@ fun f(k: Int) -> Int!
     !t.v.push(5)
     errdefer print("errdefer", t.v.len, t.v[0])
     eat(<t)
-    E.bad
+    return E.bad
   else
     0
 
@@ -26,7 +26,7 @@ fun g(k: Int) -> Int!
       !t.v.push(6)
       errdefer print("errdefer", t.v.len, t.v[0])
       eat(<t)
-      E.bad
+      return E.bad
 
 sub main
   print(f(1) catch -1)

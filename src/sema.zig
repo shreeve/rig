@@ -384,11 +384,11 @@ pub const SymbolKind = enum {
 };
 
 pub const SymbolFlags = packed struct(u16) {
-    /// `=!` binding: cannot be reassigned.
+    /// `const` binding: cannot be reassigned.
     fixed: bool = false,
     is_public: bool = false,
     /// Value known at compile time: a compile-time parameter
-    /// (`fun f[n: Int]`), or a `=!` binding
+    /// (`fun f[n: Int]`), or a `const` binding
     /// initialized with a compile-time-known expression.
     comptime_known: bool = false,
     /// Bound by a `for` loop or a match pattern: not assignable.
@@ -1106,7 +1106,7 @@ pub const SemContext = struct {
     quiet: u32 = 0,
     /// `minBytes` of each type sized so far.
     byte_sizes: std.AutoHashMapUnmanaged(TypeId, ?u128) = .empty,
-    /// A local `k =! n` binding of a compile-time integer parameter ->
+    /// A local `const k = n` binding of a compile-time integer parameter ->
     /// the `ct_param` it stands for, where an array length or a
     /// compile-time argument names it.
     ct_locals: std.AutoHashMapUnmanaged(SymbolId, TypeId) = .empty,
@@ -4277,7 +4277,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Declarations and their parts.
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
-        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=", .iter, .kwarg => .none,
+        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
@@ -5123,7 +5123,7 @@ test "facts: captures, parameters, and self resolve to their symbols" {
         \\    self.n
         \\
         \\sub main()
-        \\  s =! "hi"
+        \\  const s = "hi"
         \\  f = |+s|
         \\    print(s)
         \\  f()
@@ -5290,7 +5290,7 @@ test "symbols: binding flags" {
         \\  print(k)
         \\
         \\sub main()
-        \\  y =! 2
+        \\  const y = 2
         \\  show[y]()
         \\  print(read(?U(n: y)))
         \\

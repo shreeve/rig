@@ -337,9 +337,9 @@ sub main
 **10. `e!` propagates a failure, and `e?` propagates an absence.** Every
 fallible call says what happens to its failure: `!` or `catch`.
 *(built)* Failing is always written: an error value meets a `T!` only as
-the operand of `return`. *(planned)*
+the operand of `return`. *(built)*
 
-```rig pending
+```rig reject
 error Bad
   oops
 
@@ -623,10 +623,9 @@ while an earlier argument's read of it is in use
 ```
 
 **Bindings.** A local binding may be reassigned. Parameters and `const`
-bindings may not. *(built;* the word `const` is *planned*: today a
-binding that never changes is written `x =! 5`.*)*
+bindings may not. *(built)*
 
-```rig pending
+```rig
 sub main
   const limit = 3
   print(limit)
@@ -699,10 +698,9 @@ rule in SYNTAX is syntax too.
 - **`-x`:** as a statement, `-name` drops; as a value, `-x` negates. A
   statement `-f()`, or `-n` of plain data, is rejected. *(built)*
 - **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`. *(built)*
-- **`const x = e`:** a binding that never changes. *(planned)*
+- **`const x = e`:** a binding that never changes. *(built)*
 - **A write call whose `Bool` value is used** is written
-  `(!s).insert(k)`, everywhere. *(planned;* today only where its `!`
-  would start a condition or an operand of `and`, `or`, or `not`.*)*
+  `(!s).insert(k)`, everywhere. *(built)*
 - **Labels**, the `catch` forms, `pass`, and `??`.
 - **Habits from other languages that keep Rig's meaning,** documented
   rather than changed: integer `/` and `%` truncate as in C; `u?.n`
@@ -719,6 +717,26 @@ sub main
 
 ```error
 a statement `-e` drops a name
+```
+
+```rig reject
+struct Seen
+  items: Vec[Int]
+
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.items
+      return false if x == k
+    !self.items.push(k)
+    true
+
+sub main
+  s = Seen(items: Vec())
+  added = !s.insert(1)
+  print(added)
+```
+
+```error
+(!s).insert(...)
 ```
 
 ## 9. Inside the compiler

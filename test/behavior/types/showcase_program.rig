@@ -52,7 +52,7 @@ sub main()
   total = add(1, 2)
   print(total)
 
-  user =! loadUser(1)!         # fixed binding of a propagated result
+  const user = loadUser(1)!         # fixed binding of a propagated result
   print(user.name)
 
   other = <user                # a move: `user` is done

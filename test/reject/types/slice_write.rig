@@ -14,7 +14,7 @@ sub f(a: [2]Int, b: ?[2]Int, xs: []Int)
 sub main()
   s = "abc"
   w = !s[..]
-  c =! [1, 2]
+  const c = [1, 2]
   x = !c[..]
   rows = [[1, 2], [3, 4]]
   for row in rows

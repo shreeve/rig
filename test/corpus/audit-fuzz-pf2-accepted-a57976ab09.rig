@@ -86,7 +86,7 @@ sub t2391
   print(cc2391.get())
 
 sub t1639
-  cst1639: U8 =! 15
+  const cst1639: U8 = 15
   mk1639 = rt_int(1)
   mz1639: U8 = match mk1639
     1 => cst1639
@@ -121,7 +121,7 @@ sub t2545
   print(cmp2545 == (fal2545(false) catch 20), (fal2545(false) catch 20) < cmp2545, (fal2545(false) catch 20) >= cmp2545)
 
 sub t773
-  cst773: U64 =! 14
+  const cst773: U64 = 14
   vw773: Vec[U64] = Vec()
   pushit773 = |!vw773, x: U64| !vw773.push(x)
   pushit773(cst773)

@@ -1,11 +1,11 @@
-# `=!` declares a new binding, and a local may not silently reuse a
-# visible name: shadowing is written `new x = ...`.
+# `const` declares a new binding, and a local may not silently reuse a
+# visible name: shadowing is written `new const x = ...`.
 
 sub main()
   x = 1
   if x > 0
-    x =! 2
+    const x = 2
     print(x)
   print(x)
 
-# error: `x` is already bound; `=!` declares a new binding
+# error: `x` is already bound; `const` declares a new binding

@@ -91,10 +91,13 @@ pub fn children(node: Sexp) []const Sexp {
 // =============================================================================
 
 /// Exhaustive view of the op slot, so dispatch sites must handle every
-/// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), and the
-/// compound assignments (`x op= e`, one per binary arithmetic, wrapping,
-/// bitwise, and shift operator). Every kind but `default` is
-/// named after its tag in the schema's `op:tag(...)` for `set`.
+/// kind: `_` → default, `fixed` (`const x =`, and `new const x =`),
+/// `shadow` (`new x =`), and the compound assignments (`x op= e`, one per
+/// binary arithmetic, wrapping, bitwise, and shift operator). Every kind
+/// but `default` is named after its tag in the schema's `op:tag(...)` for
+/// `set`. `new const x = e` is the tag `shadow_fixed`, decoded as `fixed`:
+/// it binds as `const x = e` does, and only declaring the name tells the
+/// two apart (`shadows`).
 pub const BindingKind = enum {
     default,
     fixed,
@@ -135,10 +138,17 @@ pub fn bindingKindOf(op: Sexp) BindingKind {
     return switch (op) {
         .nil => .default,
         .tag => |t| switch (t) {
+            .shadow_fixed => .fixed,
             inline else => |c| if (@hasField(BindingKind, @tagName(c))) @field(BindingKind, @tagName(c)) else unreachable,
         },
         else => unreachable,
     };
+}
+
+/// Whether the op slot of `(set <op> ...)` binds a new name even where
+/// one is already visible: `new x = e` and `new const x = e`.
+pub fn shadows(op: Sexp) bool {
+    return op == .tag and (op.tag == .shadow or op.tag == .shadow_fixed);
 }
 
 // =============================================================================
@@ -146,7 +156,8 @@ pub fn bindingKindOf(op: Sexp) BindingKind {
 // =============================================================================
 
 /// Every Rig keyword is reserved, except `new`, which is a keyword only
-/// at the start of a statement followed by a name (`new x = ...`), so
+/// at the start of a statement followed by a name or `const` (`new x =
+/// ...`, `new const x = ...`), so
 /// `fun new(...)` and `Point.new(...)` stay ordinary names.
 const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "and", .@"and" },
@@ -303,8 +314,8 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //     parser decides (`[2]?T`), and the Parser wrapper checks the touch.
 //
 //   Token boundaries still matter, as in `!=` and `==`: `=!` is one
-//   token, so `x =!y` could be a fixed binding of `y` or `x = !y`; a
-//   `=!` touching the operand after it is an error.
+//   token, and an error wherever it stands, so `x =!y` is never quietly
+//   `x = !y`.
 //
 // `if`
 //   After `return`/`break`/`continue` or a value, `if` is a postfix guard
@@ -420,7 +431,7 @@ pub const Lexer = struct {
         radix_case,
         bad_number,
         too_long,
-        ambiguous_fixed,
+        fixed_assign,
         detached_prefix,
         semicolon,
         brace,
@@ -436,7 +447,7 @@ pub const Lexer = struct {
                 .radix_case => "radix prefixes are lowercase: `0x`, `0b`, `0o`",
                 .bad_number => "malformed number; `_` may separate digits, and a space or an operator ends a number",
                 .too_long => "token is longer than 65535 bytes",
-                .ambiguous_fixed => "`=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` for a write borrow",
+                .fixed_assign => "Rig has no `=!`: a binding that never changes is `const x = e`, and `x = !y` lends `y` to write",
                 .detached_prefix => "a prefix sigil touches its operand",
                 .semicolon => "unexpected `;`",
                 .brace => "Rig has no braces: a block is the lines indented under its header",
@@ -724,8 +735,9 @@ pub const Lexer = struct {
             } else return self.fail(if (self.literalFollows()) .or_fallback else .or_operator, tok.pos),
             .slash => if (self.charAfter(tok) == '/' or self.charAfter(tok) == '*') return self.fail(.slash_comment, tok.pos) else .slash,
             .power => return self.fail(.power_operator, tok.pos),
-            // `x =!y`: a fixed binding of `y`, or a write borrow?
-            .fixed_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_fixed, tok.pos) else tok.cat,
+            // `=!` is no operator: a binding that never changes is
+            // `const x = e`, and `x =!y` would pass for `x = !y`.
+            .fixed_assign => return self.fail(.fixed_assign, tok.pos),
             // `xs[a..]`: an open range ends at the `]`.
             .dotdot => if (self.nextJoined().cat == .rbracket) .dotdot_open else .dotdot,
             // `while i < n : i += 1`: the step; any other `:` in the
@@ -766,7 +778,7 @@ pub const Lexer = struct {
                 if (!self.after_value) return .@"if";
                 return if (self.elseFollows()) .ternary_if else .post_if;
             },
-            .new => return if (self.stmtStart() and self.nextIsName()) .new else .ident,
+            .new => return if (self.stmtStart() and (self.nextIsName() or self.nextIsConst())) .new else .ident,
             else => return self.memberName() orelse kw,
         };
         if (self.inParens() and self.nextCat() == .colon) return .kwarg_name;
@@ -827,11 +839,6 @@ pub const Lexer = struct {
         const name = probe.next();
         if (name.cat != .ident) return false;
         return probe.next().cat == .lparen;
-    }
-
-    /// The token touches the one after it.
-    fn touchesNext(self: *const Lexer, tok: Token) bool {
-        return isOperandStart(self.charAfter(tok));
     }
 
     /// The character right after `tok`, or 0 at the end of the source.
@@ -979,6 +986,12 @@ pub const Lexer = struct {
         return t.cat == .ident and keyword(self.base.text(t)) == null;
     }
 
+    fn nextIsConst(self: *const Lexer) bool {
+        var probe = self.base;
+        const t = probe.next();
+        return t.cat == .ident and std.mem.eql(u8, self.base.text(t), "const");
+    }
+
     /// Why the grammar produced an `err` token.
     fn lexError(self: *Lexer, tok: Token) Token {
         if (tok.len == std.math.maxInt(u16)) return self.fail(.too_long, tok.pos);
@@ -1042,13 +1055,6 @@ fn isValue(cat: TokenCat) bool {
 fn isSigil(cat: TokenCat) bool {
     return switch (cat) {
         .minus, .lt, .plus, .star, .question, .not_sym, .tilde => true,
-        else => false,
-    };
-}
-
-fn isOperandStart(c: u8) bool {
-    return isIdentStart(c) or (c >= '0' and c <= '9') or switch (c) {
-        '(', '[', '"', '\'', '.', '<', '?', '!', '+', '-', '*', '~', '@' => true,
         else => false,
     };
 }
@@ -1243,9 +1249,8 @@ pub const Parser = struct {
         .{ "fn", Foreign{ .fix = "declare a function with `fun` (it returns a value) or `sub`" } },
         .{ "func", Foreign{ .fix = "declare a function with `fun` (it returns a value) or `sub`" } },
         .{ "function", Foreign{ .fix = "declare a function with `fun` (it returns a value) or `sub`" } },
-        .{ "let", Foreign{ .fix = "bind a name with `x = 5`, or `x =! 5` for a fixed binding" } },
-        .{ "var", Foreign{ .fix = "bind a name with `x = 5`, or `x =! 5` for a fixed binding" } },
-        .{ "const", Foreign{ .fix = "a fixed local is `x =! 5`, and a module-level `X = 5` is a constant", .alone = true } },
+        .{ "let", Foreign{ .fix = "bind a name with `x = 5`, or `const x = 5` for one that never changes" } },
+        .{ "var", Foreign{ .fix = "bind a name with `x = 5`, or `const x = 5` for one that never changes" } },
         .{ "class", Foreign{ .fix = "declare a type with `struct`" } },
         .{ "impl", Foreign{ .fix = "methods go in the `struct` body", .alone = true } },
         .{ "switch", Foreign{ .fix = "write `match`" } },
@@ -1597,7 +1602,8 @@ pub const Parser = struct {
 
     /// A module-level binding is a constant, written with `=`: its
     /// `(set _ ...)` becomes `(set fixed ...)`, the fixed binding every
-    /// pass reads. A `=!` there is rejected, as it would say nothing more.
+    /// pass reads. A `const` there is rejected, as it would say nothing
+    /// more.
     fn moduleConsts(self: *Parser, module: Sexp) void {
         for (ir.Module.decls(module)) |decl| {
             const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
@@ -2125,8 +2131,12 @@ test "parser: every form parses" {
         \\
         \\sub main()
         \\  x = 1
-        \\  y: [2]Int =! [1, 2]
+        \\  const y: [2]Int = [1, 2]
+        \\  const y2 = y
         \\  new x = x + 1
+        \\  new x: Int = x + 1
+        \\  new const x = x + 1
+        \\  new const y2: [2]Int = y
         \\  x += 1
         \\  x <<= 2
         \\  z = <w

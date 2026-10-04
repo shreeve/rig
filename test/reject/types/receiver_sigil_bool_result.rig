@@ -1,6 +1,6 @@
-# A write-borrowing call whose value is a `Bool` is written with the
-# borrow in parentheses where a leading `!` could read as negation: a
-# condition and an operand of `and`, `or`, or `not`.
+# A write call whose `Bool` value is used is written with the lend in
+# parentheses, `(!s).m(...)`, so a leading `!` never reads as negation:
+# here, a condition and an operand of `and`, `or`, or `not`.
 
 struct Set
   items: Vec[Int]
@@ -38,8 +38,8 @@ sub main
   g = 1 if !set.insert(12) == true else 2
   print(e, f, g)
 
-# error: 16:6: a write-borrowing call that returns `Bool` is written `(!s).checked(...)`, so it is never read as negation
-# error: 22:6: a write-borrowing call that returns `Bool` is written `(!set).insert(...)`, so it is never read as negation
+# error: 16:6: a write call whose `Bool` value is used is written `(!s).checked(...)`, so its `!` never reads as negation
+# error: 22:6: a write call whose `Bool` value is used is written `(!set).insert(...)`, so its `!` never reads as negation
 # error: 24:9: `(!set).insert(...)`
 # error: 26:19: `(!set).insert(...)`
 # error: 27:16: `(!set).insert(...)`

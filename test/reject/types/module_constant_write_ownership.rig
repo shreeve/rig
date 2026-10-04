@@ -1,5 +1,5 @@
 # A module constant cannot be reassigned from a function: it is named a
-# constant, not a `=!` binding, in what the checkers say.
+# constant, not a `const` binding, in what the checkers say.
 
 LIMIT = 4
 

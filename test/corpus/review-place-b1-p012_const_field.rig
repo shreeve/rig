@@ -1,7 +1,7 @@
 struct P
   x: Int
 
-K =! P(x: 1)
+const K = P(x: 1)
 
 sub main
   K.x = 4

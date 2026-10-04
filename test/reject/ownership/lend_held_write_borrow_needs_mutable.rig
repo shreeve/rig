@@ -18,11 +18,11 @@ sub by_value(h: H)
 
 sub main
   n = 1
-  h =! H(w: !n)
+  const h = H(w: !n)
   poke(!h.w)
   poke(!mk(!n).w)
 
 # error: 16:9: cannot write-borrow parameter `h`; parameters are immutable
 # error: 17:3: cannot assign to parameter `h`; parameters are immutable
-# error: 22:9: cannot write-borrow fixed binding `h` (bound with `=!`)
+# error: 22:9: cannot write-borrow fixed binding `h` (bound with `const`)
 # error: 23:9: cannot write-borrow a temporary: the change would be lost

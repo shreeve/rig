@@ -855,12 +855,11 @@ does not take `!self` is rejected (it reads as negation, which is
 `not`), `<` before one that does not take `<self`, `?` before one that
 takes `!self` or `<self`, and any of them before a function with no
 receiver (`Point.origin()`). A
-write-borrowing call whose value is a `Bool` is written in the long
-form, `(!set).insert(k)`, where its `!` would start a condition (of
-`if`, `while`, a ternary, or a postfix guard) or an operand of `and`,
-`or`, or `not`, so it is never read as negation. Elsewhere (a binding,
-an argument, a return value) the short form is accepted:
-`added = !set.insert(k)`.
+write call whose `Bool` value is used is written in the long form,
+`(!set).insert(k)`, wherever the value goes (a condition, an operand,
+a binding, an argument, a return value), so its `!` never reads as
+negation. The short form stays for a call whose value is discarded: a
+statement `!set.insert(k)`, alone or under `!` or `catch`.
 
 ```rig
 struct Tally
@@ -881,14 +880,15 @@ struct Tally
 sub main
   t = Tally(seen: Vec())
   !t.seen.push(1)
-  added = !t.insert(2)
-  print(added, !t.insert(2))
+  added = (!t).insert(2)
+  print(added, (!t).insert(2))
+  !t.insert(3)
   print(<t.total())
 ```
 
 ```output
 true false
-3
+6
 ```
 
 ```rig reject
@@ -939,7 +939,7 @@ sub main
 ```
 
 ```error
-a write-borrowing call that returns `Bool` is written `(!t).insert(...)`, so it is never read as negation
+a write call whose `Bool` value is used is written `(!t).insert(...)`, so its `!` never reads as negation
 ```
 
 ```rig
@@ -958,7 +958,7 @@ sub main
     print("new")
   if not (!set).insert(1)
     print("seen")
-  print(!set.insert(2))
+  print((!set).insert(2))
 ```
 
 ```output
@@ -1626,10 +1626,10 @@ sub main
 ```
 
 There are no mutable module-level variables, so a module-level binding
-needs no `=!`, and one written with it is rejected:
+needs no `const`, and one written with it is rejected:
 
 ```rig reject
-LIMIT =! 4
+const LIMIT = 4
 
 sub main
   print(LIMIT)
@@ -1652,8 +1652,8 @@ declaration ([§14](#14-modules)), and `extern` declares a C symbol
 The forms are in [SYNTAX §9](SYNTAX.md#9-bindings-and-assignment).
 `x = e` binds a new local `x` when no `x` is visible, and otherwise
 assigns the visible one: through it, when `x` holds a write borrow
-([§7](#write-borrows)). `x =! e` binds a fixed local, which cannot be
-reassigned. `_ = e` evaluates `e` and discards it, and an owning value
+([§7](#write-borrows)). `const x = e` binds a fixed local, which cannot
+be reassigned. `_ = e` evaluates `e` and discards it, and an owning value
 discarded so is dropped at once. A binding's type comes from its
 annotation or its value.
 
@@ -1710,8 +1710,8 @@ index
 ```
 
 There is no implicit shadowing. A local may not reuse the name of a
-visible local, parameter, or module-level declaration, and `x =! e`
-always declares. To reuse a name on purpose, write `new`:
+visible local, parameter, or module-level declaration, and `const x =
+e` always declares. To reuse a name on purpose, write `new`:
 
 ```rig
 sub main
@@ -1725,6 +1725,22 @@ sub main
 ```output
 11
 now a string
+```
+
+`new` takes the other binding forms too: `new x: T = e`, and `new
+const x = e`, which shadows with a fixed local.
+
+```rig
+sub main
+  const limit = 3
+  new const limit = limit * 2
+  n = 7
+  new n: U8 = U8(n)
+  print(limit, n)
+```
+
+```output
+6 7
 ```
 
 ```rig reject
@@ -4684,13 +4700,45 @@ sub main
 
 ### Failing
 
-A fallible function fails by producing an error value where its `T` is
-expected: `return E.name` (a member of an error set,
-[§3](#error-sets)), a binding of an error set's type, or an error it
-caught. The failure leaves the function the way `!` does: every `defer`
-and `errdefer` of the scopes it leaves runs, including when the error
-is the final value of an `if` or `match` branch block. Only a function
-returning `T!` can fail.
+A fallible function fails by returning an error value: `return E.name`
+(a member of an error set, [§3](#error-sets)), a binding of an error
+set's type, or an error it caught. The error value may be a branch of
+the returned value, of a ternary or a `match` (`return n if ok else
+E.bad`), and nowhere deeper: failing is always written, so an error
+value anywhere else a `T!` is expected, such as a function's last
+expression or a branch block's, is rejected. The failure leaves the
+function the way `!` does: every `defer` and `errdefer` of the scopes it
+leaves runs. Only a function returning `T!` can fail.
+
+```rig
+error Bad
+  odd
+
+fun half(n: Int) -> Int!
+  return n / 2 if n % 2 == 0 else Bad.odd
+
+sub main
+  print(half(4) catch -1, half(3) catch -1)
+```
+
+```output
+2 -1
+```
+
+```rig reject
+error Bad
+  odd
+
+fun half(n: Int) -> Int!
+  if n % 2 == 1
+    Bad.odd
+  else
+    n / 2
+```
+
+```error
+an error value meets `Int!` only as the operand of `return`: write `return Bad.odd`
+```
 
 Failing always names the error set. Where a `T!` is expected, a bare
 `.name` is a variant of `T`, even when an error set has a member of the
@@ -5219,11 +5267,11 @@ the signature holds, may be left to inference
 ([generic functions](#generic-functions)), any other value never. A
 value argument must be known at compile time: a literal
 (`none` included), an enum value, a module constant, a compile-time
-parameter, a `=!` binding of one of these, or a comparison or `and`,
+parameter, a `const` binding of one of these, or a comparison or `and`,
 `or`, `not` of them. Arithmetic in a compile-time argument must fold to
 a constant (`LIMIT * 2`), which is checked like constant arithmetic;
 arithmetic on a compile-time parameter (`n + 1`), directly or through a
-`=!` binding, is rejected, since each instance would compute it
+`const` binding, is rejected, since each instance would compute it
 unchecked. Inside a body, a compile-time value is an ordinary value, and
 arithmetic on it is checked when it runs. Whether `x[...]` indexes `x`
 or gives it compile-time arguments is decided by what `x` names
@@ -5360,7 +5408,7 @@ not parse, and their words and sigils stay reserved:
 | `for *x in v` | `` `for *x in` is reserved `` |
 | `try` blocks | `` `try` blocks are reserved `` |
 | `zig "..."` | `` inline Zig is reserved `` |
-| `when`, `yield`, `const`, ... as a name | `` unexpected keyword `when` `` (every word held for later: `async` `await` `const` `impl` `trait` `when` `where` `yield`) |
+| `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
 | string and float match patterns | `` a pattern is a name, an integer, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet

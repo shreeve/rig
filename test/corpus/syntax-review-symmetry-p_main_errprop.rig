@@ -1,6 +1,6 @@
 error E
   bad
 fun g -> Int!
-  E.bad
+  return E.bad
 sub main
   print(g()!)

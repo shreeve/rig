@@ -109,9 +109,12 @@ const Checker = struct {
     handled: Sexp = .nil,
     /// The operand of the `*x` being checked.
     shared_operand: Sexp = .nil,
-    /// The condition, or operand of `and`, `or`, or `not`, being
-    /// checked: a `!` that starts it reads as negation.
-    negation_operand: Sexp = .nil,
+    /// The operand of the `return` being checked: an error value meets a
+    /// `T!` only in its branch leaves (`isReturnLeaf`).
+    return_operand: Sexp = .nil,
+    /// The expression statement being checked, whose value is
+    /// discarded (`isDiscardedCall`).
+    discarded: Sexp = .nil,
     /// The `!x` being checked where a write borrow is expected, the one
     /// place a write borrow of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
@@ -632,6 +635,9 @@ const Checker = struct {
             try self.errAt(stmt, "only a binding is dropped with `-x`; `{s}` is dropped with what holds it, or replaced by assigning to it", .{self.sourceText(ir.Neg.operand(stmt))});
             return;
         }
+        const saved = self.discarded;
+        defer self.discarded = saved;
+        self.discarded = stmt;
         const ty = try self.synthExpr(stmt);
         // A statement `-name` is a drop; any other `-e` there would negate
         // a value and throw it away.
@@ -689,7 +695,30 @@ const Checker = struct {
             } else try self.errAt(value, "a `sub` returns no value; remove the value or declare a `fun`", .{});
             return;
         }
+        const saved = self.return_operand;
+        defer self.return_operand = saved;
+        self.return_operand = value;
         try self.checkExpr(value, ret);
+    }
+
+    /// Whether `e` is a branch leaf of the `return` operand being
+    /// checked, where an error value may meet a `T!`: the operand, or a
+    /// branch of a ternary or an arm of a `match` that is a leaf, never
+    /// anything deeper.
+    fn isReturnLeaf(self: *const Checker, e: Sexp) bool {
+        return isBranchLeaf(self.return_operand, e);
+    }
+
+    fn isBranchLeaf(value: Sexp, e: Sexp) bool {
+        if (sameNode(value, e) or (value == .src and e == .src and value.src.pos == e.src.pos)) return true;
+        switch (value.kind() orelse return false) {
+            .@"if" => return isBranchLeaf(ir.If.then(value), e) or isBranchLeaf(ir.If.@"else"(value), e),
+            .match => for (ir.Match.arms(value)) |arm| {
+                if (isBranchLeaf(ir.Arm.body(arm), e)) return true;
+            },
+            else => {},
+        }
+        return false;
     }
 
     // ---- bindings and assignment --------------------------------------------
@@ -775,7 +804,7 @@ const Checker = struct {
 
         const saved_pending = self.pending;
         defer self.pending = saved_pending;
-        if (kind == .shadow) self.pending = sym_id;
+        if (rig.shadows(ir.Set.op(node))) self.pending = sym_id;
         var rhs_ty: TypeId = undefined;
         if (!self.isPoison(declared) or type_node != .nil) {
             try self.checkExpr(rhs, declared);
@@ -802,7 +831,7 @@ const Checker = struct {
         // a later constant may branch on it.
         const ternary_const = s.scope == self.module_scope and rhs.isKind(.@"if") and self.isConstExpr(rhs);
         if (kind == .fixed and (ternary_const or self.isComptimeKnown(rhs))) s.flags.comptime_known = true;
-        // `k =! n` stands for the compile-time parameter `n` where an
+        // `const k = n` stands for the compile-time parameter `n` where an
         // array length or a compile-time argument names it.
         if (kind == .fixed and is_decl and s.kind == .local) if (try self.ctParamOf(rhs)) |ct| try self.ctx.ct_locals.put(self.ctx.allocator, sym_id, ct);
         try self.ctx.recordType(target, s.ty);
@@ -873,7 +902,7 @@ const Checker = struct {
         }
         switch (kind) {
             .fixed, .shadow => {
-                try self.errAt(target, "`{s}` binds a name; a field or element can only be assigned with `=`", .{if (kind == .fixed) "=!" else "new"});
+                try self.errAt(target, "`{s}` binds a name; a field or element can only be assigned with `=`", .{if (kind == .fixed) "const" else "new"});
                 _ = try self.synthExpr(rhs);
                 return;
             },
@@ -1001,7 +1030,7 @@ const Checker = struct {
         /// A loop or pattern binding that holds a value: a copy of what
         /// it binds, unless a resource was moved into it.
         pattern,
-        /// A module-level binding: fixed (`=!`), or not.
+        /// A module-level binding: fixed (a constant), or not.
         constant,
         global,
         /// An imported module, whose binding is `module.name`.
@@ -1240,7 +1269,7 @@ const Checker = struct {
                 if (whole) return true;
                 if (root == .constant) {
                     try self.err(pos, "cannot {s} constant `{s}`", .{ verb, name });
-                } else try self.err(pos, "cannot {s} fixed binding `{s}` (bound with `=!`)", .{ verb, name });
+                } else try self.err(pos, "cannot {s} fixed binding `{s}` (bound with `const`)", .{ verb, name });
                 return false;
             } else if (sym.flags.pattern_bound) {
                 // A write borrow a match that only reads its subject binds
@@ -1323,7 +1352,7 @@ const Checker = struct {
         const prev = self.scope;
         // A ternary or a postfix guard has no block to bind a name for.
         if (!self.isBlockIf(node) and rig.bindsInCondition(cond)) {
-            try self.checkBoolOperand(cond);
+            try self.checkExpr(cond, self.t().bool_id);
         } else try self.checkCondition(cond);
         const then_ty = try self.branch(then_node, expected, position);
         self.scope = prev;
@@ -1380,7 +1409,7 @@ const Checker = struct {
             return self.ctx.recordType(cond, self.t().bool_id);
         }
         if (cond.isKind(.as)) return self.checkOptionalBinding(cond);
-        return self.checkBoolOperand(cond);
+        return self.checkExpr(cond, self.t().bool_id);
     }
 
     /// The step of `while cond: step` cannot use a binding of `cond` that
@@ -1442,35 +1471,29 @@ const Checker = struct {
         return at + 2 >= src.len or !(std.ascii.isAlphanumeric(src[at + 2]) or src[at + 2] == '_');
     }
 
-    /// A Bool where a leading `!` reads as negation: a condition, or an
-    /// operand of `and`, `or`, or `not`.
-    fn checkBoolOperand(self: *Checker, e: Sexp) Error!void {
-        const prev = self.negation_operand;
-        self.negation_operand = e;
-        defer self.negation_operand = prev;
-        return self.checkExpr(e, self.t().bool_id);
+    /// Whether the call on `recv`, returning `returns`, has a `Bool`
+    /// value that is used: such a write call is written `(!s).m(...)`.
+    fn usesBoolValue(self: *Checker, recv: Sexp, returns: TypeId) bool {
+        const result = self.ctx.types.get(returns);
+        const value = if (result == .fallible) result.fallible else returns;
+        return value == self.t().bool_id and !self.isDiscardedCall(recv);
     }
 
-    /// Whether `node` starts the condition or logical operand being
-    /// checked: it is that expression, or its leftmost part, reached
-    /// through the children that start where their parent does, or one
-    /// character on either side: a receiver sigil starts before the call
-    /// it was moved into, which starts after an operator's left side
-    /// (`!s.add(1) == x` starts at `!`, its call at `s`).
-    fn startsNegationOperand(self: *Checker, node: Sexp) bool {
-        var e = self.negation_operand;
-        outer: while (e == .list) {
-            if (e.list.id == node.list.id) return true;
-            const at = self.ctx.span(e).start;
-            for (rig.children(e)) |child| {
-                if (child == .list and self.ctx.span(child).start <= at + 1) {
-                    e = child;
-                    continue :outer;
-                }
-            }
-            return false;
-        }
-        return false;
+    /// Whether `recv` is the receiver of a call whose value is
+    /// discarded: the expression statement, or the operand of a `!`,
+    /// `?`, or `catch` that is, or is that operand in turn.
+    fn isDiscardedCall(self: *const Checker, recv: Sexp) bool {
+        var e = self.discarded;
+        while (true) switch (e.kind() orelse return false) {
+            .propagate => e = ir.Propagate.value(e),
+            .propagate_none => e = ir.PropagateNone.value(e),
+            .@"catch" => e = ir.Catch.value(e),
+            .call => {
+                const callee = ir.Call.callee(e);
+                return callee.isKind(.member) and sameNode(ir.Member.object(callee), recv);
+            },
+            else => return false,
+        };
     }
 
     /// `if expr as name` / `while expr as name`: `expr` is an optional,
@@ -1968,7 +1991,7 @@ const Checker = struct {
             }
             if (read_only) try self.rejectWriteBorrowBindings(pattern);
             if (guard != .nil) {
-                try self.checkBoolOperand(guard);
+                try self.checkExpr(guard, self.t().bool_id);
                 if (findMove(guard)) |m| try self.errAt(m, "a guard cannot move a value: when it fails, a later arm matches the same value", .{});
                 if (self.guardWrite(guard, subject, pattern)) |w| try self.errAt(w, "a guard cannot change the value being matched: when it fails, a later arm matches the same value", .{});
             }
@@ -2657,12 +2680,12 @@ const Checker = struct {
             .@"<", .@">", .@"<=", .@">=" => self.synthOrdering(e, @tagName(head)),
             .@"==", .@"!=" => self.synthEquality(e),
             .@"and", .@"or" => blk: {
-                try self.checkBoolOperand(ir.get(e, .left));
-                try self.checkBoolOperand(ir.get(e, .right));
+                try self.checkExpr(ir.get(e, .left), self.t().bool_id);
+                try self.checkExpr(ir.get(e, .right), self.t().bool_id);
                 break :blk self.t().bool_id;
             },
             .not => blk: {
-                try self.checkBoolOperand(ir.Not.operand(e));
+                try self.checkExpr(ir.Not.operand(e), self.t().bool_id);
                 break :blk self.t().bool_id;
             },
             .neg => self.synthNeg(e),
@@ -5099,7 +5122,7 @@ const Checker = struct {
                 .borrow_write => .write_borrow,
                 else => .owned_nominal,
             };
-            try self.checkReceiverMode(obj, .write, kind, method, pos, args.len > 0);
+            try self.checkReceiverMode(obj, .write, kind, method, pos, args.len > 0, self.t().void_id);
             // A Text made here would be changed and never dropped.
             try self.rejectResourceTemporary(obj, obj_ty);
         }
@@ -5333,11 +5356,11 @@ const Checker = struct {
         if (self.isCtArithmetic(a)) {
             try self.errAt(a, "compile-time argument {d} of `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; use a parameter or a constant", .{ i + 1, callee });
         } else if (fixed) {
-            try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; `{s}` is bound with `=!` to a value computed when the program runs", .{ i + 1, callee, self.text(a) });
-        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `=!` binding of one, or arithmetic on them", .{ i + 1, callee });
+            try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; `{s}` is bound with `const` to a value computed when the program runs", .{ i + 1, callee, self.text(a) });
+        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `const` binding of one, or arithmetic on them", .{ i + 1, callee });
     }
 
-    /// The `ct_param` of the compile-time integer parameter (or `k =! n`
+    /// The `ct_param` of the compile-time integer parameter (or `const k = n`
     /// binding of one) that `e` names; null for anything else.
     fn ctParamOf(self: *Checker, e: Sexp) Error!?TypeId {
         if (e != .src) return null;
@@ -6078,7 +6101,7 @@ const Checker = struct {
                     .not => self.isComptimeKnown(ir.get(e, .operand)),
                     .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
                     // Rig checks arithmetic only on constants: a compile-time
-                    // parameter or a `=!` binding of one differs per call.
+                    // parameter or a `const` binding of one differs per call.
                     .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
                     .member => blk: {
                         const obj = ir.Member.object(e);
@@ -6148,7 +6171,7 @@ const Checker = struct {
         return self.isCtArithmetic(o) or self.constInt(o) != null;
     }
 
-    /// Whether `e` names a compile-time parameter or a `=!` binding in a
+    /// Whether `e` names a compile-time parameter or a `const` binding in a
     /// function, whose value differs from call to call.
     fn mentionsCtLocal(self: *Checker, e: Sexp) bool {
         return switch (e) {
@@ -6519,7 +6542,7 @@ const Checker = struct {
             try self.synthArgs(args);
             return resolved.fn_ty.returns;
         }
-        if (!misplaced_sigil) try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos, args.len > 0);
+        if (!misplaced_sigil) try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos, args.len > 0, resolved.fn_ty.returns);
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
@@ -6965,7 +6988,7 @@ const Checker = struct {
     /// `?p.m(...)`, `!p.m(...)`, and `<p.m(...)` (see
     /// `Parser.receiverSigil`): the sigil is the receiver mode of `m`, so
     /// a `!` before a method that only reads is the habit of `!` as
-    /// negation, and a `!` call whose value is a `Bool` is written
+    /// negation, and a `!` call whose `Bool` value is used is written
     /// `(!p).m(...)` so it never reads as one. A `?` spells out the read
     /// receiver a call takes anyway. Returns whether it reported an
     /// error.
@@ -6978,14 +7001,13 @@ const Checker = struct {
             if (mode == .read) return false;
             const hint = if (returns == self.t().void_id) "" else try self.ctx.arena.allocator().print("; to borrow the call's result, write `?({s}.{s}(...))`", .{ name, method });
             if (mode == .write) {
-                try self.errAt(recv, "`{s}` writes its receiver: write `!{s}.{s}(...)`{s}", .{ method, name, method, hint });
+                const call = if (self.usesBoolValue(recv, returns)) try self.ctx.arena.allocator().print("(!{s}).{s}", .{ name, method }) else try self.ctx.arena.allocator().print("!{s}.{s}", .{ name, method });
+                try self.errAt(recv, "`{s}` writes its receiver: write `{s}(...)`{s}", .{ method, call, hint });
             } else try self.errAt(recv, "`{s}` consumes its receiver: write `<{s}.{s}(...)`{s}", .{ method, name, method, hint });
         } else if (recv.isKind(.write)) switch (mode) {
             .write => {
-                const result = self.ctx.types.get(returns);
-                const value = if (result == .fallible) result.fallible else returns;
-                if (value != self.t().bool_id or !self.startsNegationOperand(recv)) return false;
-                try self.errAt(recv, "a write-borrowing call that returns `Bool` is written `(!{s}).{s}(...)`, so it is never read as negation", .{ name, method });
+                if (!self.usesBoolValue(recv, returns)) return false;
+                try self.errAt(recv, "a write call whose `Bool` value is used is written `(!{s}).{s}(...)`, so its `!` never reads as negation", .{ name, method });
             },
             else => if (returns == self.t().bool_id) {
                 try self.errAt(recv, "`{s}` does not write its receiver; for negation use `not`", .{method});
@@ -7001,7 +7023,7 @@ const Checker = struct {
     /// Receiver rules: `?self` auto-borrows; `!self` needs an explicit
     /// `!x.m()`; a consuming `self` needs an explicit `<x.m()`. Write and
     /// consuming receivers are refused through `?T` and `*T`.
-    fn checkReceiverMode(self: *Checker, recv: Sexp, mode: MethodReceiver, kind: ReceiverTypeKind, method: []const u8, pos: u32, has_args: bool) Error!void {
+    fn checkReceiverMode(self: *Checker, recv: Sexp, mode: MethodReceiver, kind: ReceiverTypeKind, method: []const u8, pos: u32, has_args: bool, returns: TypeId) Error!void {
         const shape = self.receiverShape(recv);
         switch (mode) {
             .read => if (shape == .move_explicit) {
@@ -7031,7 +7053,8 @@ const Checker = struct {
                         try self.err(pos, "method `{s}` requires a write-borrowed receiver; use `!receiver.{s}(...)`", .{ method, method });
                     } else {
                         const name = self.sourceText(recv);
-                        try self.errAt(recv, "write `!{s}.{s}({s})`: the call writes `{s}`", .{ name, method, if (has_args) "..." else "", name });
+                        const call = if (self.usesBoolValue(recv, returns)) try self.ctx.arena.allocator().print("(!{s}).{s}", .{ name, method }) else try self.ctx.arena.allocator().print("!{s}.{s}", .{ name, method });
+                        try self.errAt(recv, "write `{s}({s})`: the call writes `{s}`", .{ call, if (has_args) "..." else "", name });
                     },
                 }
             },
@@ -7095,6 +7118,12 @@ const Checker = struct {
             if (sema.writeSliceElem(self.ctx, actual) != null and self.ctx.types.get(expected) == .slice) try self.ctx.recordReadView(e);
             if (sema.holdsWriteBorrow(self.ctx, expected)) _ = try self.requireAccess(self.placeOf(e), .pass_write, e);
             return;
+        }
+        // Failing is written: an error value meets a `T!` only as the
+        // operand of `return`.
+        if (self.ctx.types.get(expected) == .fallible and sema.isErrorValue(self.ctx, actual)) {
+            if (self.isReturnLeaf(e)) return;
+            return self.errAt(e, "an error value meets `{s}` only as the operand of `return`: write `return {s}`", .{ try self.tyName(expected), self.sourceText(e) });
         }
         // A fallible call where its value is expected: `synthCall`
         // reported the missing `!` / `catch`.
@@ -8137,7 +8166,9 @@ const Checker = struct {
                 }
                 continue;
             };
-            if (!compatible(self.ctx, ty, ret)) {
+            // Each site is a `return`, whose operand may be an error value.
+            const fails = self.ctx.types.get(ret) == .fallible and sema.isErrorValue(self.ctx, ty);
+            if (!fails and !compatible(self.ctx, ty, ret)) {
                 // A generic call only literals typed would take the type.
                 const hint = if (self.literalResult(ir.Return.value(site.node)) != null and sema.isNumeric(self.ctx, ret))
                     try self.ctx.arena.allocator().print("; give the closure its type where it goes (`f: fun(...) -> {s} = |...| ...`), and every `return` takes it", .{try self.tyName(ret)})
@@ -8373,8 +8404,9 @@ fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
             if (a == .none_literal) return true;
             return compatible(ctx, actual, inner);
         },
-        // A `T!` holds a `T`, or the error it failed with.
-        .fallible => |inner| return compatible(ctx, actual, inner) or sema.isErrorValue(ctx, actual),
+        // A `T!` holds a `T`; an error value meets it only as `return`'s
+        // operand (`Checker.isReturnLeaf`).
+        .fallible => |inner| return compatible(ctx, actual, inner),
         .borrow_read => |inner| if (a == .borrow_write) return a.borrow_write == inner,
         // A `![]T` (or a `?[]T`) reads as the `[]T` it borrows.
         .slice => switch (a) {

@@ -1,5 +1,5 @@
-# A block whose tail is the function's error value fails the function,
-# so its `errdefer` runs there and cannot read a value moved before it.
+# A `return` of an error value inside a block fails the function, so
+# the block's `errdefer` runs there and cannot read a value moved before it.
 
 error E
   bad
@@ -18,7 +18,7 @@ fun branch(k: Int) -> Int!
     t = Tok(n: 1)
     errdefer print("errdefer", t.n)
     eat(<t)
-    E.bad
+    return E.bad
   else
     0
 
@@ -29,7 +29,7 @@ fun arm(k: Int) -> Int!
       t = Tok(n: 2)
       errdefer print("errdefer", t.n)
       eat(<t)
-      E.bad
+      return E.bad
 
 sub main
   print(branch(1) catch -1, arm(1) catch -1)

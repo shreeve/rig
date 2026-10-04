@@ -2,11 +2,11 @@ struct P
   x: Int
   s: String
 
-LESS =! "a" < "b"
-SAME =! "a" == "a"
-NAME =! "rig"
-ARR =! [1, 2]
-ORD =! NAME >= "ri"
+const LESS = "a" < "b"
+const SAME = "a" == "a"
+const NAME = "rig"
+const ARR = [1, 2]
+const ORD = NAME >= "ri"
 
 fun f(p: ?P) -> Bool
   r = ?p.s

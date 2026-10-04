@@ -2,5 +2,5 @@ struct P
   o: String?
 
 sub main
-  p =! P(o: "a")
+  const p = P(o: "a")
   x = <p.o

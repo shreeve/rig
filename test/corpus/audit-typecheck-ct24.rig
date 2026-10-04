@@ -1,5 +1,5 @@
 fun f[n: Int]() -> Int
-  k =! n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n
+  const k = n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n
   k
 
 sub main()

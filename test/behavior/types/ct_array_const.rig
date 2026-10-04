@@ -16,7 +16,7 @@ sub main()
   d: [LIMIT * 2 + 1]U8 = [9 of 7]
   e: [(A + B) * 2][LIMIT - 2]Int = [6 of [1, 2]]
   f: [0]Int = []
-  k =! 3
+  const k = 3
   g: [k]Int = [1, 2, 3]
   h = |xs: [LIMIT + 1]Int| xs[4]
   print(b, c.len, d.len, e.len, e[5], f.len, g, h([1, 2, 3, 4, 5]))

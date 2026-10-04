@@ -1,0 +1,9 @@
+# A binding that never changes is `const x = e`; `x =! e` is an error
+# with that spelling, never a binding or a write lend.
+
+sub main()
+  done = false
+  ok =! done
+  print(ok)
+
+# error: 6:6: Rig has no `=!`: a binding that never changes is `const x = e`

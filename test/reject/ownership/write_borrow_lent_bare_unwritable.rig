@@ -18,7 +18,7 @@ sub by_read(r: ?H)
 
 sub main
   n = 1
-  h =! H(w: !n)
+  const h = H(w: !n)
   poke(h.w)
   by_value(H(w: !n))
   m = 2
@@ -28,5 +28,5 @@ sub main
 # error: 12:8: cannot write-borrow parameter `h`; parameters are immutable (bind a copy with `new h = h`, or take `h: !H` to write through to the caller)
 # error: 15:8: cannot lend the write borrow held here through a read borrow (`?T`)
 # error: 17:8: cannot lend the write borrow held here through a read borrow (`?T`)
-# error: 22:8: cannot write-borrow fixed binding `h` (bound with `=!`)
+# error: 22:8: cannot write-borrow fixed binding `h` (bound with `const`)
 # errors: 4

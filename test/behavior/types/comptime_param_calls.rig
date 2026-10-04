@@ -43,7 +43,7 @@ sub main()
   s = Scale.unit[6]()
   !s.bump[1]()
   print(s.times[5](), Scale.times[2](?s))
-  limit =! 7
+  const limit = 7
   show[limit]()
 
 # expect:

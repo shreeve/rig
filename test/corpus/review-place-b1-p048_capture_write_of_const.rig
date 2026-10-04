@@ -1,4 +1,4 @@
-K =! 1
+const K = 1
 
 sub main
   g = |!K| K += 1
