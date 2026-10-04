@@ -7,7 +7,8 @@
 #   filter      only run tests whose id contains one of these substrings;
 #               ids look like behavior/ownership/move_into_fn, known/emit/...,
 #               reject/types/..., examples/hello, ir/..., torture/..., cli/..., unit,
-#               parser, doc/SPEC/L120 (the ```rig block at SPEC.md line 120).
+#               parser, doc/SPEC/L120 (the ```rig block at SPEC.md line 120),
+#               oracle/corpus (the reference ownership checker over a set).
 #               A bare kind name (`known`, `doc`, ...) selects that kind.
 #   -v          also list passing and known-failing tests
 #   -j N        parallel jobs (default: CPU count)
@@ -337,6 +338,58 @@ check_ir() {
     return $ok
 }
 
+# The reference ownership checker (test/oracle/) over one set of
+# programs: every function it decides must get production's verdict,
+# or be listed in test/oracle/differences, and the set must keep its
+# floor of decided functions (test/oracle/coverage).
+ORACLE_FORBIDDEN='ownership\.zig|typecheck\.zig|\b(dropsTemp|temp_drops|readsInPlace|in_place_reads|takesSubject|taken_subjects|readsThrough|readsAsView|unboxes|unboxed|arrayViewOf|array_views|lendsText|text_lends|takes|recordTake|writesThrough|through_writes|lendsCellTemp|cell_temps|handsOver)\b|facts\.(reads|views)'
+check_oracle() { # <set> <outdir> <logfile>
+    local set=$1 outdir=$2 log=$3 list p
+    if [[ $set == lint ]]; then
+        # The oracle reads no ownership classification of the compiler's
+        # (comments aside), and the compiler never imports the oracle.
+        local hits
+        hits=$(sed 's#//.*##' test/oracle/*.zig | grep -nE "$ORACLE_FORBIDDEN")
+        if [[ -n "$hits" ]]; then echo "$hits" >"$log"; REASON="test/oracle/ uses a forbidden compiler fact: $(head -1 <<<"$hits")"; return 1; fi
+        hits=$(grep -lE '@import\("(lib\.zig|\.\./test/[^"]*)"\)' src/*.zig | grep -v '^src/lib\.zig$')
+        if [[ -n "$hits" ]]; then REASON="src/ imports the oracle's library or test code: $hits"; return 1; fi
+        return 0
+    fi
+    mkdir -p "$outdir"
+    list="$outdir.list"
+    : >"$list"
+    case $set in
+        matrix)
+            python3 test/matrix.py --oracle >"$log" 2>&1 || { REASON=$(grep -m1 -E '^(DIFF|FIXED|FAIL)' "$log" || tail -1 "$log"); return 1; }
+            return 0 ;;
+        tests)
+            for p in test/behavior/*/* test/reject/*/* test/known/*/* examples/*.rig; do
+                if [[ -f "$p/main.rig" ]]; then printf '%s\t%s\n' "$p" "$p/main.rig"
+                elif [[ $p == *.rig ]]; then printf '%s\t%s\n' "$p" "$p"; fi
+            done >"$list" ;;
+        corpus)
+            for p in test/corpus/*; do
+                if [[ -f "$p/main.rig" ]]; then printf '%s\t%s\n' "$p" "$p/main.rig"
+                elif [[ $p == *.rig ]]; then printf '%s\t%s\n' "$p" "$p"; fi
+            done >"$list" ;;
+        docs)
+            # The doc examples this run extracted (test/README.md).
+            local docs=${RESULTS%/results}/doc
+            for p in "$docs"/*/L*; do
+                [[ -f "$p/main.rig" ]] || continue
+                [[ $(cat "$p/mode") == fragment || $(cat "$p/mode") == doc\ convention* ]] && continue
+                printf 'doc/%s\t%s\n' "${p#"$docs"/}" "$p/main.rig"
+            done >"$list" ;;
+        *) REASON="no oracle set \`$set\`"; return 1 ;;
+    esac
+    "$TIMEOUT_CMD" "$TIMEOUT" "$ROOT/bin/rig-oracle" --set "$set" --allow test/oracle/differences \
+        --coverage test/oracle/coverage --list "$list" >"$log" 2>&1
+    local rc=$?
+    if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
+    if [[ $rc -ne 0 ]]; then REASON=$(grep -m1 -E '^(DIFF|FIXED|FAIL)' "$log" || tail -1 "$log"); return 1; fi
+    return 0
+}
+
 worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
     local id=$1 path=$2
     local res="$RESULTS/st/${id//\//__}"
@@ -375,6 +428,7 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
             esac
             ;;
         corpus)            check_corpus "$entry" "$outdir" "$log"; ok=$? ;;
+        oracle)            check_oracle "${id#oracle/}" "$outdir" "$log"; ok=$? ;;
         known)
             if grep -qE '^# error:' "$entry"; then check_reject "$entry" "$log"
             else check_behavior "$entry" "$outdir" "$log"; fi
@@ -499,7 +553,7 @@ fi
 export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE
 
 is_kind() {
-    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|doc|corpus) return 0 ;; esac
+    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|doc|corpus|oracle) return 0 ;; esac
     return 1
 }
 
@@ -536,6 +590,7 @@ for p in examples/*.rig; do [[ -e "$p" ]] && add "examples/$(basename "$p" .rig)
 for p in test/ir/*.rig; do [[ -e "$p" ]] && add "ir/$(basename "$p" .rig)" "$p"; done
 for p in test/torture/*.rig; do [[ -e "$p" ]] && add "torture/$(basename "$p" .rig)" "$p"; done
 for p in test/cli/[!_]*.sh; do [[ -e "$p" ]] && add "cli/$(basename "$p" .sh)" "$p"; done
+for set in lint tests corpus docs matrix; do add "oracle/$set" "test/oracle"; done
 # The corpus: a run with filters takes every program the filters select
 # (`./test/run corpus` takes them all); a run without takes one in
 # CORPUS_SAMPLE, picked by a hash of its name (see test/README.md).
@@ -680,6 +735,12 @@ if selected parser; then
     fi
 fi
 
+# The oracle's sets run bin/rig-oracle.
+if grep -q '^oracle/' "$LIST" && ! "$ZIG" build oracle 2>&1; then
+    printf '%sbuild of bin/rig-oracle failed%s\n' "$R" "$X"
+    exit 1
+fi
+
 TOTAL=$(wc -l <"$LIST" | tr -d ' ')
 if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected parser; then
     # Only kinds named (`./test/run known`) is not a mistyped filter: a
@@ -707,7 +768,7 @@ if [[ ${#FILTERS[@]} -eq 0 ]]; then
         }
         {
             rel = substr($0, length(root) + 1)
-            if (rel !~ /^(behavior|reject|known|examples|ir|torture|cli|doc|corpus)(\/|$)/) next
+            if (rel !~ /^(behavior|reject|known|examples|ir|torture|cli|doc|corpus|oracle)(\/|$)/) next
             n = split(rel, p, "/"); pre = p[1]; inside = 0
             for (i = 1; i < n; i++) { if (pre in keep || pre in gone) inside = 1; pre = pre "/" p[i + 1] }
             if (inside || rel in keep || rel in dir) next
