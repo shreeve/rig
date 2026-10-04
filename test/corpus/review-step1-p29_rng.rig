@@ -1,0 +1,16 @@
+use std.random
+
+struct Wrap[T]
+  item: T
+
+fun dup[T](x: T) -> Int
+  y = x
+  1
+
+sub main()
+  r = random.Random.seeded(3)
+  o: random.Random? = random.Random.seeded(4)
+  p = o
+  w = Wrap(item: random.Random.seeded(5))
+  v = w
+  print(dup(<r))

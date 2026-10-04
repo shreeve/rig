@@ -1,0 +1,11 @@
+struct P
+  n: Int
+
+sub main()
+  v: Vec[*P] = Vec()
+  !v.push(*P(n: 4))
+  saved: (?*P)? = none
+  for k in ?v
+    saved = k
+  if saved as s
+    print(s.n)

@@ -1,0 +1,29 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+enum F
+  w(e: E)
+  z
+
+sub main()
+  f = F.w(e: E.a(c: Counter(hits: Cell(0))))
+  match f
+    .w(e)
+      match e
+        .a(c) => c.hit()
+        .b => pass
+    .z => pass
+  print(f)
+  match F.w(e: E.a(c: Counter(hits: Cell(0))))
+    .w(e)
+      match e
+        .a(c) => c.hit()
+        .b => pass
+    .z => pass

@@ -1,0 +1,26 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+fun show(o: (?Counter)?) -> Int
+  if o as s
+    return s.hits.get()
+  -1
+
+sub main()
+  e = E.a(c: Counter(hits: Cell(4)))
+  r: (?Counter)? = match e
+    .a(c) => c
+    .b => none
+  print(show(r))
+  q: (?Counter)? = none
+  match e
+    .a(c) => q = c
+    .b => pass
+  print(show(q))

@@ -1,0 +1,38 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct H[T]
+  arr: [2]T
+  n: Int
+
+struct W[T]
+  item: T
+
+fun f1[T](h: ?H[T], f: ?fun(?T) -> Int) -> Int
+  f(?h.arr[1])
+
+fun f2[T](xs: ?[2][2]T, f: ?fun(?T) -> Int) -> Int
+  f(?xs[1][0])
+
+fun f3[T](xs: ?[2]W[T], f: ?fun(?T) -> Int) -> Int
+  f(?xs[1].item)
+
+fun f4[T](s: []W[T], f: ?fun(?T) -> Int) -> Int
+  f(?s[1].item)
+
+
+fun bump(c: ?Counter) -> Int
+  c.hit()
+  c.hits.get()
+
+sub main()
+  h = H(arr: [Counter(hits: Cell(0)), Counter(hits: Cell(0))], n: 1)
+  print(f1(?h, bump), h.arr[1].hits.get())
+  g = [[Counter(hits: Cell(0)), Counter(hits: Cell(0))], [Counter(hits: Cell(0)), Counter(hits: Cell(0))]]
+  print(f2(?g, bump), g[1][0].hits.get())
+  w = [W(item: Counter(hits: Cell(0))), W(item: Counter(hits: Cell(0)))]
+  print(f3(?w, bump), w[1].item.hits.get())
+  print(f4(?w, bump), w[1].item.hits.get())

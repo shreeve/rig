@@ -1,0 +1,23 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub apply[T](o: ?Opt[T], f: ?fun(?T) -> Int)
+  match o
+    .some(v) => print(f(?v))
+    .nothing => pass
+
+fun bump(c: ?Counter) -> Int
+  c.hit()
+  1
+
+sub main()
+  o = Opt.some(v: Counter(hits: Cell(0)))
+  apply(?o, bump)
+  print(o)

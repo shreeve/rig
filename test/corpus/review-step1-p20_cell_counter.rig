@@ -1,0 +1,10 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  box = Cell(Counter(hits: Cell(5)))
+  a = Counter(hits: Cell(1))
+  box.set(a)
+  a.hits.set(9)
+  old = box.replace(Counter(hits: Cell(6)))
+  print(old.hits.get())

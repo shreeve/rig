@@ -1,0 +1,10 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+  saved: (?Counter)? = none
+  for k in a
+    saved = k
+  if saved as s
+    print(s.hits.get())

@@ -1,0 +1,13 @@
+struct Counter
+  hits: Cell[Int]
+
+fun first[T](xs: []T) -> T?
+  for k in xs
+    return k
+  none
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  if first(?a[..]) as c
+    print(c)
+  print(a[0].hits.get())

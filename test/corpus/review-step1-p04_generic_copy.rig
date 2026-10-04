@@ -1,0 +1,11 @@
+struct Counter
+  hits: Cell[Int]
+
+fun twice[T](x: T) -> Int
+  y = x
+  z = x
+  1
+
+sub main()
+  a = Counter(hits: Cell(0))
+  print(twice(<a))

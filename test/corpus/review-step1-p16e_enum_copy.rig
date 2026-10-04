@@ -1,0 +1,11 @@
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter)
+  b
+
+sub main()
+  e = E.a(c: Counter(hits: Cell(0)))
+  f = e
+  print(f)

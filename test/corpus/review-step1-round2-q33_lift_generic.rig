@@ -1,0 +1,19 @@
+struct P
+  x: Int
+  y: Int
+
+fun wrap[T](x: T) -> T?
+  x
+
+fun first[T](x: T?, d: T) -> T
+  x ?? d
+
+sub main()
+  p = P(x: 1, y: 2)
+  r = ?p
+  o = wrap(r)
+  if o as s
+    print(s.x)
+  q: (?P)? = r
+  print(first(q, r).x)
+  print(first(r, r).x)

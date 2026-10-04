@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+fun pick() -> ?Counter
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  for k in a
+    return k
+  ?a[0]
+
+sub main()
+  k = pick()
+  print(k.hits.get())

@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+fun dup[T](x: ?T) -> T
+  x
+
+fun keep[T](x: T) -> T
+  y = x
+  y
+
+sub main()
+  a = Counter(hits: Cell(0))
+  b = dup(?a)
+  b.hits.set(5)
+  print(a.hits.get(), b.hits.get())

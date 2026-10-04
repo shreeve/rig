@@ -1,0 +1,17 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+fun two() -> [2]Counter
+  [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+
+sub main()
+  :outer for k in two()
+    for j in two()
+      j.hit()
+      if j.hits.get() > 2
+        continue :outer
+      k.hit()
+      print(k.hits.get())

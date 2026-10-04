@@ -1,0 +1,16 @@
+struct Counter
+  hits: Cell[Int]
+
+fun f(o: ?Counter?) -> Int?
+  k = o?
+  k.hits.set(3)
+  k.hits.get()
+
+fun g() -> Int?
+  o: Counter? = Counter(hits: Cell(0))
+  k = o?
+  k.hits.set(3)
+  o?.hits.get()
+
+sub main()
+  print(g())

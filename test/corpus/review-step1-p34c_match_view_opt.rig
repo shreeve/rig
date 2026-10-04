@@ -1,0 +1,17 @@
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter, n: Int)
+  b
+
+fun show(o: (?Counter)?) -> Int
+  if o as s
+    return s.hits.get()
+  0
+
+sub main()
+  e = E.a(c: Counter(hits: Cell(4)), n: 1)
+  match e
+    .a(c, _) => print(show(c))
+    .b => pass

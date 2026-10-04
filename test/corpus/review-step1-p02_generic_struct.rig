@@ -1,0 +1,11 @@
+struct Counter
+  hits: Cell[Int]
+
+struct Wrap[T]
+  item: T
+
+sub main()
+  w = Wrap(item: Counter(hits: Cell(0)))
+  v = w
+  v.item.hits.set(5)
+  print(w.item.hits.get(), v.item.hits.get())

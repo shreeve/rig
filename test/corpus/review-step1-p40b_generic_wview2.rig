@@ -1,0 +1,13 @@
+struct Pair[T]
+  a: T
+  b: T
+
+fun split[T](x: T) -> Pair[T]
+  Pair(a: x, b: x)
+
+sub main()
+  n = 1
+  p = split(!n)
+  p.a = 5
+  p.b = 7
+  print(n)

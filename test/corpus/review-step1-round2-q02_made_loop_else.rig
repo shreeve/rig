@@ -1,0 +1,20 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+fun two() -> [2]Counter
+  [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+
+sub main()
+  for k in two()
+    k.hit()
+    if k.hits.get() > 30
+      break
+  else
+    print("else")
+  for k, i in two()
+    if i == 0
+      continue
+    print(k.hits.get())
