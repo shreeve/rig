@@ -7,7 +7,7 @@ themselves are in [SPEC.md](../SPEC.md); the compiler is described in
 ## The idea
 
 Most of what makes systems code hard to read is invisible: a value is
-copied or moved, a buffer is borrowed or kept, a counter is bumped, an
+copied or moved, a buffer is lent or kept, a counter is bumped, an
 error is thrown past you, a destructor runs. Rig's central rule is that
 **an effect that matters is visible where it happens**, in a form short
 enough that writing it is no burden:
@@ -47,20 +47,20 @@ aims for rigor plus visibility.
 
 ## Principles
 
-**Effects stay visible.** Moves, borrows, clones, drops, shared and
+**Effects stay visible.** Moves, lends, clones, drops, shared and
 weak ownership, allocation, failure, mutation, capture modes,
 compile-time parameters, and the unsafe boundary each have a marker;
 the one mutation without one is inside a `Cell`, the interior-mutable
-type, which is why a `Cell` accepts only values that hold no borrow.
+type, which is why a `Cell` accepts only values that carry no loan.
 There is no hidden refcount traffic, no implicit error propagation, and
 no unmarked unsafe code. What stays implicit is cheap and cannot
 surprise: copying plain data, reading through a shared handle, lending
 a receiver to a `?self` method, and moving a local out with `return x`,
 where its scope ends anyway. Writing through a receiver
 (`!v.push(x)`) or consuming it (`<u.close()`) is always spelled out,
-and so is lending a write borrow a binding already holds
-(`v: !Vec[Int]` lends with `!v.push(x)` and `f(!v)`): at a call, `!`
-marks exactly the values it may change. A held read borrow is passed
+and so is lending on a write view a binding already holds
+(`v: !Vec[Int]` lends on with `!v.push(x)` and `f(!v)`): at a call, `!`
+marks exactly the values it may change. A held read view is passed
 on bare, since a copy of it can change nothing.
 
 **Effects survive into the IR.** Every sigil becomes a named node in
@@ -76,7 +76,7 @@ cannot lower yet is rejected with a Rig diagnostic that says so, never
 passed through to fail in Zig or silently dropped.
 
 **Safe code cannot corrupt memory.** Use after move, double free, use
-after free, dangling borrows, and leaks are compiler bugs in safe Rig.
+after free, dangling views, and leaks are compiler bugs in safe Rig.
 Only code inside a `raw` block may break these guarantees. The one leak
 the compiler does not prevent is a cycle of strong handles, as in Rust
 and Swift; weak handles exist to break cycles.
@@ -125,15 +125,15 @@ round trip is total going down (`~x`), fallible coming up
 (`upgrade()`).
 
 **Position picks the category; the symbol picks the family.** A prefix
-`?` or `!` is always a borrow, in an expression and in a type alike:
-`?x : ?T`, `!x : !T`. A suffix is never a borrow: suffix `?` belongs to
-absence and suffix `!` to failure.
+`?` or `!` is always about lending: it lends in an expression and names
+the view in a type, `?x : ?T`, `!x : !T`. A suffix never is: suffix `?`
+belongs to absence and suffix `!` to failure.
 
 ```text
-?x   prefix, expression   read borrow
-!x   prefix, expression   write borrow
-?T   prefix, type         read-borrowed parameter or value
-!T   prefix, type         write-borrowed parameter or value
+?x   prefix, expression   lend to read
+!x   prefix, expression   lend to write
+?T   prefix, type         read view: a parameter or value
+!T   prefix, type         write view: a parameter or value
 T?   suffix, type         optional: T or none
 T!   suffix, type         fallible: T or an error
 e!   suffix, expression   propagate the failure of a T!
@@ -142,37 +142,37 @@ e?   suffix, expression   propagate the absence of a T?
 
 Keeping absence and failure in suffix position is what lets `!` and
 `?` serve both families unambiguously: `-> !User` returns a write
-borrow, `-> User!` a fallible `User`. The price is Ruby's `valid?`
+view, `-> User!` a fallible `User`. The price is Ruby's `valid?`
 method names, which would collide with `Bool?`; Rig writes `is_valid`.
 
 **Composition.** Prefixes compose right to left, and in an expression
 suffixes bind tighter than prefixes. In a type the handle sigils `*`
 and `~` bind tightest, because a handle is a value: `*User?` is an
-optional handle. A borrow is a mode over the whole type after it,
-suffixes included, so `?User?` borrows an optional:
+optional handle. A view sigil is a mode over the whole type after
+it, suffixes included, so `?User?` views an optional:
 
 | Form | Reads as |
 |---|---|
 | `*<o` | move `o`, then share it |
 | `+p.a` | clone the handle held in field `a` |
-| `?*Node` | a read borrow of a shared handle |
+| `?*Node` | a read view of a shared handle |
 | `*User?` | an optional shared handle (what `upgrade()` returns) |
 | `*(User?)` | a shared handle to an optional `User` |
-| `?User?` | a read borrow of an optional `User` |
+| `?User?` | a read view of an optional `User` |
 | `*Cell[Vec[*sub()]]` | a shared cell holding a list of owned closures |
 | `+n.first()` | clone the handle `first` returns |
-| `!v.push(x)` | write-borrow `v`, then call a writing method |
+| `!v.push(x)` | lend `v` to write, then call a writing method |
 
 One exception is made, for method calls: `?`, `!`, or `<` directly
 before a place followed by a method call applies to the place, so
 `!v.push(x)` is `(!v).push(x)` and `<conn.close()` is
 `(<conn).close()`. The three are exactly the receiver modes a method
 declares (`?self`, `!self`, `<self`), so a call reads the same way
-whichever mode its method takes; `?p.m()` spells out the read borrow
-a plain `p.m()` takes anyway. On a call's result `!` and `<` would mean
+whichever mode its method takes; `?p.m()` spells out the read lend
+a plain `p.m()` makes anyway. On a call's result `!` and `<` would mean
 nothing (the result is a temporary the caller already owns, so writing
 through it would be lost and moving it is what happens anyway), and a
-borrow of a result is written around it, `?(p.m())`. `*`, `+`, `~`,
+lend of a result is written around it, `?(p.m())`. `*`, `+`, `~`,
 and `-` do mean something on a result (share it, clone the handle it
 is, take a weak handle, negate it), so they keep the rule:
 `*Point.origin()` shares the new point. The exception comes with checks
@@ -185,19 +185,19 @@ a `Bool` keeps its parentheses, `(!set).insert(k)`, wherever a leading
 **Absorption.** Operations that would add nothing are rejected rather
 than silently tolerated. Sharing a shared handle (`*x` when `x : *T`,
 or the type `*(*T)`) would add a second count for nothing; `+x` is the
-operation you want. A borrow of a borrow is the same borrow: forwarding
-a `?B` parameter as `?b` passes a `?B`, not a `??B`. And a write loan
+operation you want. A lend of a view lends on the same loan: forwarding
+a `?B` parameter as `?b` passes a `?B`, not a `??B`. And a write view
 can always be read: a `!T` is accepted where a `?T` is expected.
 
 **The same sigils, the same meanings, elsewhere.** A closure's bar list
 reuses the expression sigils for captures (`|+x|` clones, `|<x|` moves,
-`|?x|` and `|!x|` borrow, `|~x|` holds weakly). A loop over a Vec borrows its source
-(`for x in ?v`), and a `match` says the same of its subject (`match !e`
+`|?x|` and `|!x|` lend, `|~x|` holds weakly). A loop over a Vec says how its source
+is lent (`for x in ?v`), and a `match` says the same of its subject (`match !e`
 writes the payload in place, `match <e` takes it). Receivers are
 `?self`, `!self`, and `<self`, the only place a sigil may prefix a
 parameter name. A move-assignment is `a = <b`.
 The fixed binding `x =! e` is the one place `!` appears in an operator
-that is not about borrowing or failure.
+that is not about lending or failure.
 
 Here the algebra is at work in one small program:
 
@@ -233,10 +233,10 @@ drop 1
 
 ### Cost model
 
-The costs are where the sigils are. Moves, borrows, and plain values
+The costs are where the sigils are. Moves, views, and plain values
 cost what they cost in Zig or C. Reference counting happens only behind
 `*T`, and each count change is written: `*x` allocates, `+x` bumps,
-`-x` and scope exit release. Borrows are never counted. Drop glue is
+`-x` and scope exit release. Views are never counted. Drop glue is
 ordinary code the compiler generates, run at points you can see.
 
 ## Why these choices
@@ -246,7 +246,7 @@ ordinary code the compiler generates, run at points you can see.
 Sigils are bad when they are arbitrary. Rig spends them only on effects
 a reader should notice locally, keeps the set small and uniform, and
 gives each exactly one meaning. The alternative, `move(x)`,
-`borrow(x)`, `clone(x)` at every site, makes code longer without making
+`lend(x)`, `clone(x)` at every site, makes code longer without making
 it clearer once the set is learned. Most Rig code carries no sigils; they
 appear where the effect does. And because they appear at call sites,
 not only in signatures, a reader sees whether a value is lent or handed
@@ -258,7 +258,7 @@ over without looking up the callee.
 
 Rust calls this idea a *borrow*, and the word ends up meaning three
 different things: the act (`&v`), the reference that act makes, and the
-borrow checker's record of it. One reason is direction. Rust writes
+checker's record of it. One reason is direction. Rust writes
 `&v` on the owner, at the place where the owner hands something over,
 but names the act from the receiver's point of view.
 
@@ -279,23 +279,21 @@ results, and fields carry long after that line. Separate words also let
 an error say exactly who is blocked and why: *cannot lend `t` to write
 while a read loan is live*.
 
-Rig keeps *borrow* only as the everyday synonym, so the idea stays
-familiar while its vocabulary stays precise. The full rules are in
-[CORE](CORE.md).
+The full rules are in [CORE](CORE.md).
 
-### Borrows without lifetimes
+### Views without lifetimes
 
 Rig follows the second-class-reference model of Swift, Hylo, and Mojo
-rather than Rust's lifetime parameters. A borrow can live in a
+rather than Rust's lifetime parameters. A view can live in a
 parameter, a local, a struct field, or a function's result, and the
-checker tracks where each one came from: a returned borrow borrows from
-every borrowed argument of the call, and a struct holding a borrow
-keeps its source borrowed. A borrow lasts until its last use, not to the
-end of its block, as in Rust's non-lexical lifetimes. That rule is sound
-without annotations; the
-price is that some programs Rust can express with explicit lifetimes
-are rejected. Rig takes that trade for now and will revisit it when
-real programs push against it.
+checker tracks where each one came from: a returned view carries the
+loans of everything the call was lent, and a struct holding a view
+keeps its source lent. A loan lasts until the last use of every view
+that carries it, not to the end of its block, as in Rust's non-lexical
+lifetimes. That rule is sound without annotations; the price is that
+some programs Rust can express with explicit lifetimes are rejected.
+Rig takes that trade for now and will revisit it when real programs
+push against it.
 
 ### Explicit capture modes
 
@@ -307,16 +305,16 @@ list is always a parameter, never a capture: the spelling alone decides,
 so adding a local elsewhere can never change a closure's meaning.
 
 A closure passed to a call that only runs it (a comparator, a visitor)
-needs no heap and no count: it is a borrow. So a parameter that takes
-one is `?fun(A) -> R`, a read borrow of something to call, and it reuses
-the second-class borrow rules instead of adding closure lifetimes: the
+needs no heap and no count: it is a view. So a parameter that takes
+one is `?fun(A) -> R`, a callable view, and it reuses the second-class
+rules for views instead of adding closure lifetimes: the
 callee calls it and passes it on, and nothing stores it. The literal is
-written bare at the call, and its captures say what it borrows for the
-call: `sort.sort_by(!v[..], |a, b| a < b)`, or `each(?v, |!total, n| total +=
+written bare at the call, and its captures say what is lent to it for
+the call: `sort.sort_by(!v[..], |a, b| a < b)`, or `each(?v, |!total, n| total +=
 n)`, where the checker's ordinary same-call conflict check rejects
 `each(?total, |!total, n| ...)`. `fun(A) -> R` stays a plain function
 pointer, a Copy value that can be stored; `*fun` is the owned closure
-that can. A borrowed callable lowers to a context pointer and a call
+that can. A callable view lowers to a context pointer and a call
 function: one indirect call per invocation, no allocation.
 
 ### Drop by guarded defers
@@ -357,7 +355,7 @@ of code and review.
 ### `and`, `or`, `not`
 
 Words read better than `&&` and `||`, and they free `!` for its two
-jobs, borrowing and failure. `&&` and `||` are rejected with a pointer
+jobs, lending and failure. `&&` and `||` are rejected with a pointer
 to the words, and so is every `!` a C, Rust, or Zig reader would take
 for "not", such as `if !done` or `!q.is_empty()`, where it would start
 a condition or an operand of `and`, `or`, or `not`.
@@ -394,7 +392,7 @@ What this buys: generics without a trait system, whose design space
 supports what a body does works with it, with nothing to declare; and
 the model is Zig's, which Rig lowers to. Everything that does not depend
 on `T` is still checked once, in the body, and so is ownership: the body
-is checked as if `T` owns a resource, so moves, drops, and borrows are
+is checked as if `T` owns a resource, so moves, drops, and lends are
 right for every instance, and a copy of a `T` simply limits the body to
 plain data.
 
@@ -502,19 +500,19 @@ deliberately minimal.
 
 ## Influences
 
-Rig is its own language. It borrows specific ideas where they serve its
+Rig is its own language. It takes specific ideas where they serve its
 goals, and says no where they don't.
 
 | Source | Taken | Left behind |
 |---|---|---|
-| **Rust** | ownership, moves, the shared-or-exclusive borrow rule, `Rc`/`Weak` semantics, RAII drop in reverse field order, enums and `match`, errors as types, "a type with drop glue is not Copy" | lifetime syntax, traits (for now), heavy generic machinery, effects hidden in trait impls |
+| **Rust** | ownership, moves, the shared-or-exclusive rule, `Rc`/`Weak` semantics, RAII drop in reverse field order, enums and `match`, errors as types, "a type with drop glue is not Copy" | lifetime syntax, traits (for now), heavy generic machinery, effects hidden in trait impls |
 | **Zig** | the backend itself; `comptime` as bracketed compile-time parameters; generics checked per instance; error unions; `defer`/`errdefer`; no GC; generic types as type functions | its async history as a cautionary tale; leaving aliasing and lifetimes to convention |
 | **Go** | square brackets for type parameters and arguments, told from an index by what the name denotes | interfaces as constraints on type parameters |
 | **Python** | indentation, `and`/`or`/`not`, readable one-line calls, `print` with several values, bindings without declarations | dynamic typing, implicit shadowing |
 | **Ruby** | short keywords, readability first | `valid?` names, implicit mutation, calls without parentheses |
 | **CoffeeScript, Rip** | the aesthetic; Rip (a CoffeeScript-style language by Rig's author) and Zag (its Zig-targeted sibling) supplied the indentation lexer and much of the surface | reactive operators in the core language |
-| **Swift** | second-class borrows; `x?` optional propagation | |
-| **Hylo, Mojo** | borrows as parameter conventions rather than types with lifetimes; values first | |
+| **Swift** | second-class references; `x?` optional propagation | |
+| **Hylo, Mojo** | views as parameter conventions rather than types with lifetimes; values first | |
 | **Lisp** | S-expressions as the IR and a project contract | S-expression syntax; macros |
 
 ## Non-goals
@@ -525,6 +523,6 @@ goals, and says no where they don't.
 - macros
 - traits and interfaces, until a design keeps dispatch and ownership
   visible
-- lifetime annotations, unless second-class borrows prove too weak
+- lifetime annotations, unless second-class views prove too weak
 - marketing Rig as an AI language: that tools can read it well follows
   from its design, and is not the goal

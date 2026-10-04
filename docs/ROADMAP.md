@@ -11,7 +11,7 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 - **More compile-time values on generic types**: `Bool` and enum value parameters (`struct Ring[T, n: Int]` takes integers only).
 - **Owning values in more places**: arrays of owning values, and owned closures that take or return them.
 - **Strings**: matching on them.
-- **Reading more through temporaries and optionals**: `o?` of an owned optional parameter read through a borrow where only read (`o?.len`), and a read-only use of an owning field of a temporary (`print(mk().t)`), both rejected today.
+- **Reading more through temporaries and optionals**: `o?` of an owned optional parameter read through a view where only read (`o?.len`), and a read-only use of an owning field of a temporary (`print(mk().t)`), both rejected today.
 - **Quieter follow-on errors**: one mistake about a temporary can still give two diagnostics.
 - **Static Strings**: a String known to view only static bytes (a literal, an argument), which could go into a Cell, a Signal, an owned closure, or a generic `T` stored there, where a String that may view a Text cannot.
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `String`).

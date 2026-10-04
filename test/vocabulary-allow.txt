@@ -1,0 +1,20 @@
+WELCOME.md: Rust calls all three a "borrow". Rig gives each its own word, named from
+WELCOME.md: `!` is a write borrow; use `not` for negation
+WELCOME.md: method `bump` requires a write-borrowed receiver
+SYNTAX.md: | read view | `?T` | [SPEC §7](SPEC.md#borrows) |
+docs/DESIGN.md: Rust calls this idea a *borrow*, and the word ends up meaning three
+docs/STD.md: as a view of its argument ([SPEC §7](../SPEC.md#second-class-borrows)),
+docs/INTERNALS.md:   (fun size_of _ ((: p (borrow_read Packet))) Int (block (member p size)))
+docs/INTERNALS.md: `write_borrow` (`!p`, `!xs[a..b]`, an element method's receiver,
+docs/INTERNALS.md: | `arrayViewOf(node)` | for an array lent as a slice: `borrowed` for `?a` where a `[]T` is expected or `!a` where a `![]T` is (the ownership checker walks it as `?a[..]`, emit writes the array's address), `temporary` for a temporary array passed as a `[]T` argument to a call that keeps no view of it (emit writes `&` before it, which Zig keeps alive through the call) |
+docs/INTERNALS.md: | `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is recorded as an `arrayViewOf` `borrowed`, walked as `?t[..]` |
+docs/INTERNALS.md: `view` bit in a type's `Borrows` (reaching through optionals, fields,
+docs/INTERNALS.md: sema's type-level `holdsBorrow` ignores it (a struct holding a String
+docs/INTERNALS.md: (`Borrows.text`: a Text by value, through a handle, a Vec's, Box's,
+docs/INTERNALS.md:   `rig.ReadBorrow(T)`, which applies the same rule to each instance.
+docs/INTERNALS.md:   compile-time no-op for plain data), a `?T` is a `rig.ReadBorrow(T)`,
+docs/INTERNALS.md:   type `borrow_read(callable(F))`, which only `?fun(...)` written as
+docs/INTERNALS.md: | `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readBorrowIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `borrowed` reads the value |
+docs/BEYOND-RUST.md: Rust's *borrow* names three things at once: the act (`&v`), the
+docs/BEYOND-RUST.md: | borrow `v` (`&v`, `&mut v`) | `v` **lends** (`?v`, `!v`) | the act | the owner's side, where the sigil is written |
+docs/BEYOND-RUST.md: | "`v` is borrowed" | a **loan** of `v` | the record | stays with the owner, and limits it until every view is done |

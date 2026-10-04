@@ -4,7 +4,7 @@ Rig is a small, fast systems language that aims for the readability of
 Python and Ruby and the memory safety of Rust, without a garbage
 collector. Blocks are indented, most code carries no annotations at
 all, and the places where ownership matters are marked by a handful of
-one-character sigils: `<x` moves, `?x` borrows, `+x` clones, `-x`
+one-character sigils: `<x` moves, `?x` lends, `+x` clones, `-x`
 drops. The compiler checks every one of them, then lowers the program
 to [Zig](https://ziglang.org) 0.17, which does the optimizing, code
 generation, and linking.
@@ -38,7 +38,7 @@ hello, rig
 `sub` declares a routine that returns nothing; `fun` declares one that
 returns a value. Every call has its parentheses.
 
-### Borrowing
+### Lending
 
 ```rig
 struct User
@@ -64,9 +64,9 @@ sub main
 welcome back Ada
 ```
 
-`?User` is a read borrow and `!User` a write borrow. The same sigil
+`?User` is a read view and `!User` a write view. The same sigil
 appears at the call site, `greeting(?ada)` and `visit(!ada)`, so you can
-see what a call may do to your value without looking it up. Borrows are
+see what a call may do to your value without looking it up. Views are
 checked, never counted: they cost nothing at run time. A value can have
 many readers or one writer at a time, never both.
 
@@ -185,8 +185,8 @@ libraries are written in Rig itself (see
 | Sigil | In an expression | In a type |
 |---|---|---|
 | `<` | `<x` move `x` | |
-| `?` | `?x` read borrow; `x?` propagate `none` | `?T` read-borrowed; `T?` optional |
-| `!` | `!x` write borrow; `f()!` propagate failure | `!T` write-borrowed; `T!` fallible |
+| `?` | `?x` lend to read; `x?` propagate `none` | `?T` read view; `T?` optional |
+| `!` | `!x` lend to write; `f()!` propagate failure | `!T` write view; `T!` fallible |
 | `+` | `+x` clone (a new owner) | |
 | `-` | `-x` drop now (as a statement) | |
 | `*` | `*x` share: move into a counted box | `*T` shared handle |
@@ -258,12 +258,12 @@ and environment variable. The suite runs on Linux and macOS in
   `!xs[..b]`) with `copy`, `fill`, and `swap`, and fixed-width numbers
   in bytes (`buf.read[U16, .big](at)`)
 - loops as values (`x = for ... break v ... else w`), labeled loops
-- moves, read and write borrows (including borrows returned from
-  functions and held in structs) that end at their last use, clones,
+- moves, read and write views (including views returned from
+  functions and held in structs) whose loans end at their last use, clones,
   drops, automatic drop on every path, drop glue, user `drop` bodies
 - shared `*T` and weak `~T` handles, `Cell`, `Vec`, `Box`, and `Signal`
 - `Text`, owned text built with `Text(a, b)` and `!t.add(...)`, whose
-  Strings (`?t[a..b]`) borrow it
+  Strings (`?t[a..b]`) view it
 - stack and owned closures with explicit captures, any arity, inferred
   parameter types, and return values
 - optionals with `none`, `??`, `if x as v`, and `x?`; fallible functions

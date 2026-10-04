@@ -18,7 +18,7 @@ source.rig
   ▼
 modules          src/modules.zig   load `use`d files, check in dependency order
   │  sema        src/sema.zig      names, types, effects, the facts table
-  │  ownership   src/ownership.zig moves, borrows, drops, aliasing
+  │  ownership   src/ownership.zig moves, loans, drops, aliasing
   ▼
 emit             src/emit.zig      one Zig file per module
 runtime          src/runtime.zig   written next to them as rig/runtime.zig
@@ -34,7 +34,7 @@ and `check --facts=sema` every fact sema recorded for its expressions
 compiler ids, so two compilers' dumps of a program diff cleanly.
 A module whose sema reports an error (other than a local that is never
 read, a lint on well-typed code) is not ownership-checked: ownership
-reads the types sema settled, as Rust's borrow checker waits for its
+reads the types sema settled, as Rust's checker waits for its
 type checker.
 `tokens`, `parse`, and `normalize` print the lexer's tokens, the
 grammar's raw tree, and the semantic IR.
@@ -168,7 +168,7 @@ The grammar's own shape settles the rest:
 | Ambiguity | Resolution |
 |---|---|
 | a closure's body vs a call of the closure (`\|x\| f(...)`) | a closure is a lowest-precedence expression, never an operand, so nothing follows its body |
-| type prefixes vs `T?` / `T!` suffixes | types are stratified: borrows over suffixes over handles over atoms, so `*T?` is an optional handle and `?T?` a borrow of an optional; slice, array, and function types take no suffix (`ptype`) |
+| type prefixes vs `T?` / `T!` suffixes | types are stratified: views over suffixes over handles over atoms, so `*T?` is an optional handle and `?T?` a read view of an optional; slice, array, and function types take no suffix (`ptype`) |
 | `\|k\| (k)`: parameter list or parenthesized body | parameters live in the bar list; `name:` is a `KWARG_NAME` |
 | `return` / `break` / `continue` inside conditions | they are statements; a guard applies to a whole simple statement |
 | dangling `else` in guards and ternaries | conditions are block-free values; the ternary has its own token; `else` only follows a block |
@@ -283,7 +283,7 @@ tree.
 ## The semantic IR
 
 The IR's design rule: **every effect visible in the source stays a
-named node**: move, borrow, clone, drop, share, weak,
+named node**: move, lend, clone, drop, share, weak,
 capture mode, propagation (`propagate` for `e!`, `propagate_none` for
 `e?`), and compile-time parameters. The parse stage
 adds no type information; sema records types separately, keyed by node.
@@ -585,8 +585,8 @@ later pass reads. It runs these steps in order:
 4. **contents** (`computeContents`, then `checkInfiniteTypes`): what
    each declared type's values hold, computed once all declarations
    are resolved: whether they need drop glue, hold a `Cell` inline,
-   are or hold inline a type declared `unique`, hold a borrow or a
-   write borrow (even through a handle, and across modules), or are
+   are or hold inline a type declared `unique`, hold a `?T`, `!T`, or
+   slice, or a write view (even through a handle, and across modules), or are
    plain data (`Symbol.contents` for each nominal and generic type,
    `TypeInfo` for each interned type). Each declared type is computed
    after the types it holds, in the order of the strongly connected
@@ -642,7 +642,7 @@ statement and dropped at its end: `print(mk().n)` is `_t = mk()`,
 statement. A read passes through `a if c else b`, `??`, `catch`, `e!`,
 and `e?` (`readLeaves`): a branch that is a name is read where it is
 (`readsInPlace`), never moved, and a branching value all of whose
-branches are made is one temporary. A read borrow of a temporary
+branches are made is one temporary. A read lend of a temporary
 (`?S(n: 1)`, `?make()`, a slice of one) records it the same way,
 owning or not. A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
@@ -650,7 +650,7 @@ condition, a guard, a `match` or `for` subject) is its own statement:
 so a binding that still views `_t` is reported where the header ends.
 A call's result that `match` binds is taken, as `match <e` takes it
 (`takesSubject`). The ownership checker holds each temporary in a
-hidden var borrowed by what reads it, and drops it where its statement
+hidden var lent to what reads it, and drops it where its statement
 or header ends (`dropStmtTemps`); emit gives a header's temporaries a
 block of their own, `(label: { slots; break :label e; })`, whose
 `defer`s drop them as the header's value is yielded.
@@ -659,8 +659,8 @@ What may be done with a place is decided in one place. `placeOf(e)`
 reads a place expression (a name, or a field or element of one) once,
 into a `Place`: the expression its path starts from and what that is
 (`Root`: a local, parameter, capture, loop or pattern binding, module
-constant or global, imported module, temporary, or a borrow a call or
-sigil yields), the fields and elements on the way, whether a borrow or
+constant or global, imported module, temporary, or a view a call or
+sigil yields), the fields and elements on the way, whether a view or
 handle is on the way, the step that makes it read-only and why
 (`Block`: a `*T`, an element of a `[]T` or String, a `.len`, a `?T`),
 and the element of a `Cell[Vec[E]]` it goes through. Every consumer
@@ -670,9 +670,9 @@ diagnostics, for one `Access`: `assign` (`p = v`, `p op= v`),
 `|!x|`), `write_iterate` (`for x in !p`), `take` (`<p.f`),
 `lend_write` (`!p.f` of a held `!T`), `pass_write` (a place holding a
 `!T` where a value holding one goes), `write_through` (`p.f = v`
-writing the value a held `!T` borrows), or `set_cell` (a Cell's `set`,
+writing the value a held `!T` views), or `set_cell` (a Cell's `set`,
 `replace`, and its Vec's `c[i] = e`, `push`, `pop`, `clear`). The path
-must be writable, a temporary is never written, and without a borrow
+must be writable, a temporary is never written, and without a view
 or handle on the way the binding it starts from must be one that may
 change (`requireBinding`). Which field and element assignments write
 through a held `!T` is recorded (`writesThrough`) for the ownership
@@ -684,7 +684,7 @@ after a diagnostic and are compatible with everything, so one mistake
 does not cascade. `compatible` also accepts a literal where a numeric
 type is expected, `none` or a `T` where `T?` is expected, a `T` or an
 error value where `T!` is expected, `!T` where `?T` is expected, and a
-borrow of a Copy value where the value is expected. A bare `.name`
+view of a Copy value where the value is expected. A bare `.name`
 where a `T!` is expected is checked as a variant of `T`
 (`checkContextual`), so an error value there always has its set's type.
 The error a `catch |err|` names has the type `error`: any error, since
@@ -707,10 +707,10 @@ instead of re-deriving it by name:
 | `symbolOf(leaf)` | the symbol an identifier names, at its declaration or any use |
 | `typeOf(node)` | the type of an expression (literals get their contextual type) |
 | `bindingTypeOf(leaf)` | the declared or inferred type of the symbol a leaf names |
-| `readsThrough(node)` | whether the node yields a borrow (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a number, `Bool`, `String`, or plain enum where one is expected, an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced String or slice, or a clone. Typecheck records it wherever it admits the borrow as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that holds no borrow |
-| `arrayViewOf(node)` | for an array lent as a slice: `borrowed` for `?a` where a `[]T` is expected or `!a` where a `![]T` is (the ownership checker walks it as `?a[..]`, emit writes the array's address), `temporary` for a temporary array passed as a `[]T` argument to a call that keeps no borrow of it (emit writes `&` before it, which Zig keeps alive through the call) |
+| `readsThrough(node)` | whether the node yields a view (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a number, `Bool`, `String`, or plain enum where one is expected, an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced String or slice, or a clone. Typecheck records it wherever it admits the view as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that carries no loan |
+| `arrayViewOf(node)` | for an array lent as a slice: `borrowed` for `?a` where a `[]T` is expected or `!a` where a `![]T` is (the ownership checker walks it as `?a[..]`, emit writes the array's address), `temporary` for a temporary array passed as a `[]T` argument to a call that keeps no view of it (emit writes `&` before it, which Zig keeps alive through the call) |
 | `readsAsView(node)` | whether the node yields a `![]T` where a `[]T` is expected; the ownership checker lends such an argument to read, not to write |
-| `callableOf(node)` | for a closure literal, a function, or a borrowed owned closure lent where a borrowed callable `?fun(...)` is expected: the function type it is lent as. The ownership checker lets such a literal be an argument, and emit wraps the node in a `rig.FnRef` (hoisting a literal's environment before the call) |
+| `callableOf(node)` | for a closure literal, a function, or a lend of an owned closure, where a callable view `?fun(...)` is expected: the function type it is lent as. The ownership checker lets such a literal be an argument, and emit wraps the node in a `rig.FnRef` (hoisting a literal's environment before the call) |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
@@ -719,10 +719,10 @@ instead of re-deriving it by name:
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
-| `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read borrow lending it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
-| `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds borrows, rather than pointing the place elsewhere |
-| `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |
-| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary a read borrow lends. The ownership checker holds it in a hidden var named by its source, borrowed by what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a borrow of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
+| `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read lend of it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
+| `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
+| `unboxes(node)` | whether a lend of a `Box[T]` makes a view of its `T` (`?b` where a `?T` is expected) |
+| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `takesSubject(match)` | whether a `match` takes its subject, a call's result that owns a resource, as `match <e` would: its arms own the payloads |
 | `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is recorded as an `arrayViewOf` `borrowed`, walked as `?t[..]` |
@@ -770,9 +770,9 @@ ordering, `==`, integer operators, negation, a float or integer literal
 beside a `T`, a constant shift, `not_error` for a `T!` return (an
 error set cannot fill it), `no_move` where the body copies a value
 holding a `T` in a way the ownership checker does not see (cloning it,
-reading it out of a `Vec` or `Cell`, or moving it out of a borrow), and
+reading it out of a `Vec` or `Cell`, or moving it out of a view), and
 `no_cleanup` where it discards one, leaves it as a temporary, or puts it
-in an array. An operator's operand borrowed as `?T` or `!T` counts as a `T`
+in an array. An operator's operand of type `?T` or `!T` counts as a `T`
 (`operandValue`), and `==` on a value that holds a `T` (`T?`, `[4]T`,
 `Pair[T, Int]`) records `==` on that `T` (`sema.notEquatable`). Nothing about a `T` is assumed that is not recorded. A function's type parameters are `generic_param`
 symbols in its scope, and its `FunctionType.ct_params` holds the
@@ -924,8 +924,8 @@ abstract interpretation of the IR.
 **State.** Every binding in scope is a `Var` (name, type, kind: local,
 parameter, capture, pattern, loop element) paired with a `Flow`: its
 status (`live`, `moved`, `dropped`, with the position that caused it)
-and the **loans** its value holds. A `Loan` is a read or write borrow of
-a root var. Vars form a stack, truncated when a scope ends.
+and the **loans** its value holds. A `Loan` is the record of a read or write
+lend of a root var. Vars form a stack, truncated when a scope ends.
 
 The state is not copied at branches. Every write to a flow is recorded
 on a *trail* with the value it replaced, so going back to an earlier
@@ -935,53 +935,53 @@ point, and joins merge only those. Memory and time follow what a
 construct changes, not the number of vars in scope. What is allocated
 while checking a module-level function is freed when it is done.
 
-**Loans travel with values.** `r = ?a` stores a read loan on `a` in
+**Loans travel with values.** `r = ?a` stores a read loan of `a` in
 `r`; `View(box: ?a)` carries it into the struct; a call whose result
-type can hold a borrow carries the loans of all its borrowed arguments,
+type can hold a view carries the loans of all the arguments it is lent,
 and of the callee's value, whatever form the callee takes (a closure
-binding, a borrowed callable held by a local or parameter, `(?l)()`, a
+binding, a callable view held by a local or parameter, `(?l)()`, a
 call that returns one). This is sound because a callable's result can
 reach only what its body can: its captures (whose loans the closure
-binding holds, and `?l` passes on with a loan on `l`) and its
+binding holds, and `?l` passes on with a loan of `l`) and its
 arguments; so a result carrying both never outlives anything it may
 point into. (A closure's body is checked like a function, whose returned
 value is checked the same way);
 a call may store its arguments' loans into its receiver and into what
-its `!` arguments and other write borrows lead to, except a built-in
-element method (`!dst.copy(src)`) whose elements hold no borrow, which
-stores only plain elements. Assigning a local write borrow, or a field
+its `!` arguments and other write views lead to, except a built-in
+element method (`!dst.copy(src)`) whose elements hold no view, which
+stores only plain elements. Assigning a local write view, or a field
 or element through one (`w = v`, `w.f = v`), stores `v` in what `w`
-borrows (`storeThroughLocal`), and so does assigning a value to a
+views (`storeThroughLocal`), and so does assigning a value to a
 field or element that holds a `!T` (`h.w = v`, which writes through
-it): `v` lands in what the struct write-borrows (`writesThrough`).
-Unlike a call, an assignment knows how many write borrows it goes
+it): `v` lands in what the struct's `!T` views (`writesThrough`).
+Unlike a call, an assignment knows how many write views it goes
 through (`placeDepth`: `o.i = v` one, `o.i.x = v` two), so only the
-values within that many write loans may hold what `v` borrows, a write
-borrow var on the way counting as the value it borrows
-(`absorbThroughWrites`); the values further on are borrowed only by
+values within that many write loans may hold what `v` views, a write
+view var on the way counting as the value it views
+(`absorbThroughWrites`); the values further on are viewed only by
 what the assignment replaced.
 Cells, Signals, and
-owned closures hold no borrows (storing one there is rejected): every
+owned closures carry no loans (storing a view there is rejected): every
 handle to one reaches what it holds, so loans kept per handle var would
 miss the other handles. A loan not stored anywhere is a temporary and
 ends with its statement; the loans of a moved value stay in force
 until the call or statement that consumes it ends, so a later argument
-of the same call cannot borrow or move their roots. Likewise, an
+of the same call cannot lend or move their roots. Likewise, an
 argument that reads a place by value whose value shares storage the
 place owns (a Vec, a box, a handle, a struct holding one, or what a
-write borrow reaches: `print(v, grow(!v))`) leaves a read loan on the
+write view reaches: `print(v, grow(!v))`) leaves a read loan of the
 place's root, marked as an argument's read, until the call ends
-(`holdArgRead`), so a later argument cannot write-borrow or move it.
-A later read borrow can still change a Cell inside it, so the call
+(`holdArgRead`), so a later argument cannot lend it to write or move it.
+A later argument lent to read can still change a Cell inside it, so the call
 must read the place when it runs: `print` takes such a place by
 address (`Emitter.printsByAddress`). Plain data is copied whole when it
 is read and leaves none, so `print(v.len, grow(!v))` is accepted. A
-borrowed parameter holds an
-*external* loan on itself: a borrow from the caller, which may be
-returned or stored into other borrowed parameters and never conflicts.
-A closure's parameters are not: a borrow a closure receives lives only
+`?T` or `!T` parameter holds an
+*external* loan of itself: a view the caller lent, which may be
+returned or stored into other such parameters and never conflicts.
+A closure's parameters are not: a view a closure receives lives only
 for that call, as do the closure's locals and its own environment's
-values, while a captured write borrow (`|!v|`, `|<w|`) reaches a value
+values, while a captured write view (`|!v|`, `|<w|`) reaches a value
 that outlives every call. So a store through a capture may carry no
 loan whose root is declared in the closure (`storeThroughCapture`),
 and creating a closure lets each value its write captures lead to hold
@@ -989,7 +989,7 @@ the loans of all its captures, as a call's `!` arguments do with its
 arguments. This is sound because the only loans left to such a store
 are on values outside the closure that it captured, and the captured
 value's var now holds each of them for as long as it lives.
-A borrowed parameter is live at every exit, since the caller uses the
+A `?T` or `!T` parameter is live at every exit, since the caller uses the
 value it lent after the return, and every store into what a parameter
 reaches (an assignment through it, through a loop or `match !` binding
 or a local write view of it, a call, `swap`, `replace`, or making a
@@ -999,27 +999,27 @@ in another keeps the first lent for the rest of the body: after
 `a.r = ?b[..]`, `!b.push(x)` is rejected.
 **Strings are views.** A String points into a literal, the process's
 arguments and environment, or a Text's buffer, so the contents pass
-treats it as a borrow the value may or may not hold: `String` sets a
+treats it as a view the value may or may not hold: `String` sets a
 `view` bit in a type's `Borrows` (reaching through optionals, fields,
 handles, and a Vec's or Box's elements, but not into a Cell or Signal),
 and the checker tracks the loans of any value whose type has it, while
 sema's type-level `holdsBorrow` ignores it (a struct holding a String
 is not a view type, and `Vec[String]` is plain data). `?t[a..b]` of a
-Text borrows the Text as a slice borrows a Vec; a literal carries no
-loan, and a String parameter, like a borrowed one, holds an external
-loan on itself, so a function's String result borrows what its
-arguments do. A value that holds Strings but no borrow
+Text lends the Text as `?v[a..b]` lends a Vec; a literal carries no
+loan, and a String parameter, like a `?T` one, holds an external
+loan of itself, so a function's String result views what its
+arguments do. A value that holds Strings but no `?T`, `!T`, or slice
 (`sema.holdsViewOnly`) keeps only the loans that lead to a Text
 (`viewLoans`): its bytes lie in no value that reaches no Text
 (`Borrows.text`: a Text by value, through a handle, a Vec's, Box's,
-Cell's, or Signal's value, or a borrow, so a struct holding `!Text`
-reaches one), so a loan on a var whose type reaches none stands for
+Cell's, or Signal's value, or a view, so a struct holding `!Text`
+reaches one), so a loan of a var whose type reaches none stands for
 that var's own loans, read loans at that (a String never writes). So
-`!it.next()` of an iterator holding Strings borrows what `it` views,
+`!it.next()` of an iterator holding Strings views what `it` views,
 not `it`, and a String read through a `!String`, copied into a
 binding, or read out of a `Vec[String]` keeps what the String views.
 The loans of a `for` source no binding holds go to its elements, and
-the borrows deferred code stores stay when it runs at a scope's exit,
+the views deferred code stores stay when it runs at a scope's exit,
 so that exit checks them. A value whose loans
 the checker cannot follow per var (a Cell's or Signal's contents, an
 owned closure's captures) holds no String with a loan, which rejects
@@ -1028,13 +1028,13 @@ there records a `view` requirement (`PlainRequirement.view`), and an
 instance whose `T` holds a String is rejected (`checkViews`).
 A slice of an array (`?xs[a..b]`) held in the storage of the var it is
 reached from, which may be the function's own (a parameter taken by
-value, a loop or pattern binding), also holds a *frame* loan on that
+value, a loop or pattern binding), also holds a *frame* loan of that
 var: a local loan even when the var is a parameter, so the slice cannot
-be returned. An array reached through a borrow (a `?[N]T` parameter is
-a `*const [N]T`) is behind a pointer, and its slices carry the borrow's
+be returned. An array reached through a view (a `?[N]T` parameter is
+a `*const [N]T`) is behind a pointer, and its slices carry the view's
 loans, the caller's included. A write slice (`!xs[a..b]`)
-takes a write loan the same way; one of a `![]T` var reborrows it, as
-any borrow of a borrow does, while an array reached through an element
+takes a write loan the same way; one of a `![]T` var lends it on, as
+any lend of a view does, while an array reached through an element
 of a read-only `[]T` is viewed as that `[]T` views it, with its loans.
 
 **Liveness.** A loan held by a var is in force only while the var is
@@ -1045,9 +1045,9 @@ uses. A var is live after the current statement when it is used at or
 after the statement's start, or anywhere in an enclosing loop it was
 declared outside of (the next iteration), or in deferred code, or when
 it owns a value with drop glue (dropped at scope exit), or when a live
-var or temporary holds a loan on it. A closure binding whose
+var or temporary holds a loan of it. A closure binding whose
 environment has drop glue, a parameter, and the hidden var that keeps a
-`for` source borrowed are always live. The
+`for` source lent are always live. The
 conflict checks and the "does not live long enough" checks at scope ends
 and jumps skip loans whose holder is not live. This is textual, so it is
 the same on every path, and conservative where paths differ.
@@ -1057,22 +1057,22 @@ the same on every path, and conservative where paths differ.
 moved or dropped on any path means moved or dropped after, and loans
 are unioned. A
 `match` scrutinee is resolved as a place (a var, or a field path in
-one), whose root stays borrowed while a payload binding views it (a
-write borrow for `match !x`, whose bindings write through like a local
-write borrow); moving a payload out of a match that reads its subject
+one), whose root stays lent while a payload binding views it (lent
+to write for `match !x`, whose bindings write through like a local
+write view); moving a payload out of a match that reads its subject
 is rejected. `match <x` moves `x` first, and its bindings are owned
 vars holding what `x` held. A guard that fails runs on the way to
 the later arms: they, and the path where no arm runs, start from the
 join of the entry state with what each failed guard left. That path,
 like the one where a part of `if a as x and ...` fails, leaves the
-scope of the bindings, so a borrow of one stored in a surviving value
+scope of the bindings, so a view of one stored in a surviving value
 is reported as a jump out of the scope would be. Loops
 iterate to a fixpoint over the back edge: the loop-head state joins the
 entry, the end of the body, and every `continue`; the state after the
 loop joins the exit condition with every `break`. A loop's `else` is
 walked after the loop, where a jump leaves the enclosing loop. The value
 of a loop used as a value is the union of its `break` values, each
-consumed like a returned value and checked not to borrow the loop's own
+consumed like a returned value and checked not to view the loop's own
 vars, and its `else` value. Diagnostics are reported only on the final
 walk; inside another loop's fixpoint, where nothing is reported, the
 round that settles is the final walk, so nested loops are not walked
@@ -1084,15 +1084,15 @@ emit takes; when the value is consumed, the checker moves it there, as
 `<x` would, before the scopes the value leaves run their defers (a name
 the value declares itself, or one the function returns). A `defer` body
 is re-checked against the state at every exit of its scope, where what
-it reads may not borrow a var declared after the `defer` (dropped
+it reads may not view a var declared after the `defer` (dropped
 before it runs).
 An `errdefer` body is re-checked only at the exits that fail: a `!`,
 and a `return` or final value whose type is, or may be, an error,
 including the final value of an `if` or `match` branch block that is
 the function's result (`Checker.ret_block`). Where the path ends at the
 exit (a scope's end, a jump, `return`), the bodies run on it and their
-effects stay, so a borrow one stores is checked where it outlives what
-it borrows. Where the path goes on (`e!`, `e?`, a final value that may
+effects stay, so a view one stores is checked where it outlives what
+it views. Where the path goes on (`e!`, `e?`, a final value that may
 be an error), they run only on the path that leaves, so their effects
 are undone after the check (`Exit.goesOn`).
 
@@ -1100,32 +1100,32 @@ are undone after the check (`Exit.goesOn`).
 value; read loans exclude writes, moves, drops, and reassignment, and
 write loans exclude everything; no loan outlives its root, including
 through `break` and error propagation; a returned or stored value
-carries only borrows the caller handed in; values that move
-(`sema.moves`: owning and unique values) and write borrows are never
-copied implicitly (a bare write borrow of a Copy
+carries only the loans of what the caller lent; values that move
+(`sema.moves`: owning and unique values) and write views are never
+copied implicitly (a bare write view of a Copy
 value is copied only where the type checker recorded that its context
 reads the value, `SemContext.readsThrough`), and only whole bindings
 move; closures use outer
 locals only through captures, and never consume their captured
 resources; and a value whose drop runs a user `drop` body may not
-borrow, directly or through what it borrows, a value dropped before it
+view, directly or through what it views, a value dropped before it
 (declared later in the same scope), since the body could read it.
 
 Types come from the facts table; an unknown type is assumed to be able
-to hold a borrow, which keeps the checker sound after errors.
+to hold a view, which keeps the checker sound after errors.
 
 **Generic bodies** are walked once, with each type parameter's values
 treated as owning (moved, dropped, never copied implicitly) and as
-holding no borrow. A body that copies a `T`, or takes (moves, drops,
+holding no `?T`, `!T`, or slice. A body that copies a `T`, or takes (moves, drops,
 reassigns) a loop element of generic type from a collection the loop
 does not consume, records that in `plain_reqs`, with its position.
 After the module is checked they are kept in its
 `SemContext.plain_reqs`, where importers read them for the proxies of
 its parameters, and an importer's checker adds those it imported.
 `checkInstantiations` then rejects an instance whose argument there
-owns a resource, with a note at the copy, and a type argument that may
-hold a borrow, for a generic function and for a generic type with
-methods. A call site sees the instance's signature, so moves, borrows,
+owns a resource, with a note at the copy, and a type argument that
+holds a `?T`, `!T`, or slice, for a generic function and for a generic type with
+methods. A call site sees the instance's signature, so moves, lends,
 and the loans a result carries are checked there with the real types.
 
 ## Emit
@@ -1167,15 +1167,15 @@ lower is an internal error: sema must have rejected it.
 
   Zig's `defer` then releases the value on every exit path, in reverse
   order, including early returns, loop exits, and error propagation.
-- **Borrows.** `!T` parameters, `!self` receivers, and borrow bindings
-  are pointers, read through `.*`. A `?T` of a scalar or a view (a
+- **Views.** `!T` parameters, `!self` receivers, and bindings of a
+  write view are pointers, read through `.*`. A `?T` of a scalar or a view (a
   number, `Bool`, a plain enum, an error, a slice or `String`, a
   function, or an optional of one) is a copy: Zig parameters are
   immutable. Any other `?T` (a struct, an array, an enum with
   payloads) is a `*const T`, since a copy of a value with drop glue
-  would be dropped with whatever holds it, and a borrowed `Cell` can
-  change while it is borrowed. In a generic type, where that depends on
-  the type arguments (`?T`, `?Self`), the borrow is a
+  would be dropped with whatever holds it, and a `Cell` can change
+  while it is lent. In a generic type, where that depends on the type
+  arguments (`?T`, `?Self`), the view is a
   `rig.ReadBorrow(T)`, which applies the same rule to each instance.
   The rule is `sema.lendByValue`, which typecheck also uses to
   read through a `!T` lent where a copied `?T` is expected.
@@ -1254,7 +1254,7 @@ lower is an internal error: sema must have rejected it.
   indexes can act (a call, an assignment, a drop, a jump) evaluates the
   value into `__rig_new_N` and each index into `__rig_ix_N_k` first,
   then stores (`openAssign`): the order the ownership checker walks it
-  in (`walkFieldAssign`), and the order SPEC §4 gives. A borrow, a
+  in (`walkFieldAssign`), and the order SPEC §4 gives. A lend, a
   slice, or a receiver takes its place's address up to each index
   before the index runs, so there the checker holds the root read while
   the indexes are walked (`walkIndicesHeld`).
@@ -1262,10 +1262,10 @@ lower is an internal error: sema must have rejected it.
   with an `__rig_invoke` method. An owned closure allocates an environment
   struct per literal and erases it behind `rig.Closure(params, R)`, so
   every literal of one function type shares one runtime type; a call is
-  `cb.value.invoke(.{ args })`. A borrowed callable `?fun(...)`, the
+  `cb.value.invoke(.{ args })`. A callable view `?fun(...)`, the
   type `borrow_read(callable(F))`, which only `?fun(...)` written as
   such and `?f` of a closure produce (so a `?T` substituted with a
-  function type stays a read borrow of a function value), is a
+  function type stays a read view of a function value), is a
   `rig.FnRef(params, R)` passed by value, built by `.of(Env, &env)` for
   a stack closure, `.ofFn(f)` for a function, and `.ofClosure(cb)` for
   an owned closure; a call is `f.call(.{ args })`. A closure literal lent
@@ -1330,11 +1330,11 @@ reviewed.
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |
-| `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read borrow of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readBorrowIsPtr` applies the same rule to a known `T`. `lend` borrows through a pointer, `borrowed` reads the value |
+| `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readBorrowIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `borrowed` reads the value |
 | `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place |
 | `Text` | `Text`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `Text(...)` and `print` agree exactly; `bytes` is the String view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a Text's or a String's |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
-| `FnRef(params, R)` | a borrowed callable: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
+| `FnRef(params, R)` | a callable view: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
