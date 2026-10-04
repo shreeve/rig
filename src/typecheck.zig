@@ -3896,13 +3896,6 @@ const Checker = struct {
             return self.t().invalid_id;
         }
 
-        // A box of anything but a struct or enum is only lent or taken apart.
-        if (sema.boxedType(self.ctx, peeled) != null) {
-            const shown = self.sourceText(obj);
-            try self.err(pos, "a `{s}` reaches no fields of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.unbox()`", .{ try self.tyName(peeled), shown, shown, shown });
-            return self.t().invalid_id;
-        }
-
         if (try self.dataField(obj_ty, field, pos)) |ty| return ty;
         const decl = sema.nominalDecl(self.ctx, peeled) orelse {
             // An element method named without its call.
@@ -5111,7 +5104,10 @@ const Checker = struct {
     /// on the callee. Null when the receiver is no Text or the method
     /// none of these.
     fn textCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
-        if (sema.unwrapBorrows(self.ctx, obj_ty) != self.t().text_id) return null;
+        // A box lends the Text it holds.
+        var held = sema.unwrapBorrows(self.ctx, obj_ty);
+        while (sema.boxedType(self.ctx, held)) |inner| held = sema.unwrapBorrows(self.ctx, inner);
+        if (held != self.t().text_id) return null;
         const op = std.meta.stringToEnum(sema.TextCall, method) orelse return null;
         if (op == .new) return null;
         const recv = try self.ctx.intern(.{ .borrow_write = self.t().text_id });
@@ -6476,9 +6472,6 @@ const Checker = struct {
                 try self.err(pos, "a Vec has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
             } else if (has_len and std.mem.eql(u8, method, "len")) {
                 try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), self.sourceText(unborrowedNode(obj)) });
-            } else if (sema.boxedType(self.ctx, peeled) != null) {
-                const shown = self.sourceText(unborrowedNode(obj));
-                try self.err(pos, "a `{s}` reaches no methods of its value; lend the value with `?{s}` or `!{s}`, or move it out with `<{s}.unbox()`", .{ try self.tyName(peeled), shown, shown, shown });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
                 try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, try self.memberHint(sym.fields orelse &.{}, method, .method) });
@@ -8392,7 +8385,7 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
     const matches = struct {
         fn f(c: *const SemContext, id: TypeId, sym: SymbolId) bool {
             // A box's value is reached as the box is: owned, or borrowed.
-            if (sym != c.box_sym_id) if (sema.boxedNominal(c, id)) |inner| if (sema.boxedType(c, id) != null) return f(c, inner, sym);
+            if (sym != c.box_sym_id) if (sema.boxedType(c, id)) |inner| return f(c, inner, sym);
             return switch (c.types.get(id)) {
                 .nominal => |s| s == sym,
                 .parameterized_nominal => |pn| pn.sym == sym,
@@ -8490,10 +8483,11 @@ fn isArithmetic(e: Sexp) bool {
     };
 }
 
-/// `Text` for a `Box[Text]`, which is viewed through its box; any other
-/// type as it is.
+/// `Text` for a type that reaches a Text through boxes and handles
+/// (`sema.unwrapAccess`), which is viewed through them; any other type as
+/// it is.
 fn textOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
-    return if (sema.boxedType(ctx, ty) == ctx.types.text_id) ctx.types.text_id else ty;
+    return if (sema.unwrapAccess(ctx, ty) == ctx.types.text_id) ctx.types.text_id else ty;
 }
 
 fn numericBits(t: sema.Type) ?u16 {

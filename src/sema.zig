@@ -3197,11 +3197,12 @@ pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
 }
 
 /// The struct or enum a `Box[T]` (or a borrow or handle of one) holds,
-/// whose fields and methods are reached through the box; null for
-/// anything else. A box of another kind of value is only lent (`?b` as
-/// a `?T`) or taken apart (`<b.unbox()`).
+/// through any number of boxes, whose fields and methods are reached
+/// through them; null for anything else.
 pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
-    const inner = boxedType(ctx, unwrapReadAccess(ctx, ty_id)) orelse return null;
+    const box = unwrapReadAccess(ctx, ty_id);
+    if (boxedType(ctx, box) == null) return null;
+    const inner = unwrapAccess(ctx, box);
     return switch (ctx.types.get(inner)) {
         .nominal, .imported_nominal => inner,
         .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym)) null else inner,
@@ -3222,11 +3223,13 @@ pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
     return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id;
 }
 
-/// `unwrapReadAccess`, then through a box to the struct or enum it
-/// holds (`boxedNominal`): the value member access reaches.
+/// The value member access on a `ty_id` reaches: through views,
+/// handles, and boxes, each of which lends the views of what it holds
+/// (Core §4, `lendsAs`).
 pub fn unwrapAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
-    const peeled = unwrapReadAccess(ctx, ty_id);
-    return boxedNominal(ctx, peeled) orelse peeled;
+    var id = unwrapReadAccess(ctx, ty_id);
+    while (boxedType(ctx, id)) |inner| id = unwrapReadAccess(ctx, inner);
+    return id;
 }
 
 /// Where a nominal type is declared: the module's context and the
@@ -3861,12 +3864,14 @@ pub fn lookupDataFieldConst(ctx: *const SemContext, receiver_ty: TypeId, name: [
 }
 
 /// A callable method of the receiver's nominal (auto-deref through
-/// borrows and `*T`, then through a box: the box's own `unbox` comes
-/// first). The user `drop` body is not callable.
+/// borrows and `*T`, then through each box: a box's own `unbox` comes
+/// before its value's methods). The user `drop` body is not callable.
 pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
-    if (try methodIn(ctx, unwrapReadAccess(ctx, receiver_ty), name)) |found| return found;
-    const boxed = boxedNominal(ctx, receiver_ty) orelse return null;
-    return methodIn(ctx, boxed, name);
+    var t = unwrapReadAccess(ctx, receiver_ty);
+    while (true) {
+        if (try methodIn(ctx, t, name)) |found| return found;
+        t = unwrapReadAccess(ctx, boxedType(ctx, t) orelse return null);
+    }
 }
 
 /// How the method `name` that member access on `receiver_ty` reaches

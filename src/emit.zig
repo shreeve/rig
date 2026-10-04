@@ -3909,6 +3909,14 @@ pub const Emitter = struct {
             try self.w.writeAll(".len)");
             return;
         }
+        // The length of an array or Vec in a box.
+        if (std.mem.eql(u8, field, "len") and obj_ty != null and sema.boxedType(self.sema, sema.unwrapReadAccess(self.sema, obj_ty.?)) != null and self.hasLen(sema.unwrapAccess(self.sema, obj_ty.?))) {
+            try self.w.writeAll("rig.len(");
+            try self.emitMemberBase(obj, obj_ty);
+            try self.writeReach(obj_ty.?);
+            try self.w.writeAll(".len)");
+            return;
+        }
         // An imported constant is read at run time, like a local one.
         if (self.rt_names and !self.keep_comptime and self.isModuleValue(obj, sexp)) {
             try self.w.writeAll("rig.rt(");
@@ -3918,16 +3926,17 @@ pub const Emitter = struct {
         try self.emitMemberBase(obj, obj_ty);
         if (obj_ty) |t| if (!self.isBoxMethod(sexp, t, field)) {
             // A consuming method of an owned box's value takes the value
-            // out of the box, which is freed.
+            // out of each box, which is freed.
             if (sema.boxedType(self.sema, t) != null and sema.boxedNominal(self.sema, t) != null and sema.methodReceiver(self.sema, t, field) == .value) {
-                try self.w.writeAll(".unbox()");
+                var b = t;
+                while (sema.boxedType(self.sema, b)) |inner| : (b = inner) try self.w.writeAll(".unbox()");
             } else try self.writeReach(t);
         };
         try self.w.print(".{f}", .{ident(field)});
     }
 
-    /// `.value` for each shared handle, and then a box, that member
-    /// access on a `ty` reaches through (`sema.unwrapAccess`).
+    /// `.value` for each shared handle and box that member access on a
+    /// `ty` reaches through (`sema.unwrapAccess`).
     fn writeReach(self: *Emitter, ty: TypeId) Error!void {
         var t = ty;
         while (true) switch (self.sema.types.get(t)) {
@@ -3936,9 +3945,11 @@ pub const Emitter = struct {
                 try self.w.writeAll(".value");
                 t = inner;
             },
-            else => break,
+            else => {
+                t = sema.boxedType(self.sema, t) orelse break;
+                try self.w.writeAll(".value");
+            },
         };
-        if (sema.boxedNominal(self.sema, t) != null) try self.w.writeAll(".value");
     }
 
     /// `b.unbox` called: the box's own method, which comes before its
@@ -4152,10 +4163,16 @@ pub const Emitter = struct {
     /// How a value of type `ty` (borrowed or not) reaches the Text it
     /// views: directly, or through a `Box[Text]`; null for anything else.
     fn textReach(self: *Emitter, ty: TypeId) ?[]const u8 {
-        const t = self.peelBorrows(ty);
-        if (t == self.sema.types.text_id) return "";
-        if (sema.boxedType(self.sema, t) == self.sema.types.text_id) return ".value";
-        return null;
+        var t = self.peelBorrows(ty);
+        var reach: []const u8 = "";
+        while (t != self.sema.types.text_id) {
+            t = switch (self.sema.types.get(t)) {
+                .shared => |inner| self.peelBorrows(inner),
+                else => self.peelBorrows(sema.boxedType(self.sema, t) orelse return null),
+            };
+            reach = self.fmt("{s}.value", .{reach}) catch return null;
+        }
+        return reach;
     }
 
     /// The built-in Text operation `call` is: `Text(...)`, `!t.add(...)`,
@@ -4176,6 +4193,7 @@ pub const Emitter = struct {
             .add, .push, .clear => {
                 const recv = ir.Member.object(self.sema.calleeOf(call));
                 try self.emitMemberBase(recv, self.typeOf(recv));
+                if (self.typeOf(recv)) |t| try self.writeReach(t);
                 if (op == .clear) return self.w.writeAll(".clear()");
                 if (op == .push) {
                     try self.w.writeAll(".push(");

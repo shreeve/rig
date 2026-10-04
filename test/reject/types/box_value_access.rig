@@ -1,7 +1,7 @@
-# Only a boxed struct or enum has its fields and methods reached through
-# the box; a box of anything else is lent (`?b`, `!b`) or taken apart
-# (`<b.unbox()`). A box holds no borrow, has no `==`, and its own
-# consuming `unbox` and its value's consuming methods need an owned box.
+# A box's value has its fields and methods reached through the box (a
+# Vec's `push`), but a box has no field `value` of its own. A box holds
+# no borrow, has no `==`, and its own consuming `unbox` and its value's
+# consuming methods need an owned box.
 
 struct View
   p: ?Int
@@ -31,8 +31,7 @@ sub main
 
 # error: 16:6: method `eat` consumes the receiver; cannot consume through a borrowed value
 # error: 17:10: method `unbox` consumes the receiver; cannot consume through a borrowed value
-# error: 22:11: a `Box[Int]` reaches no fields of its value; lend the value with `?c` or `!c`, or move it out with `<c.unbox()`
-# error: 24:6: a `Box[Vec[Int]]` reaches no methods of its value
+# error: 22:11: type `Box[Int]` has no field `value`
 # error: 26:7: `Box[T]` owns its value, so `T` holds no borrow; got `View`
 # error: 29:9: `==` is not defined for `Box[R]`
 # error: 30:9: operator `+` requires numeric operands; got `Box[Int]`

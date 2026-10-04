@@ -3730,7 +3730,7 @@ Long chains of boxes are released without deep recursion.
 | Member | Meaning |
 |---|---|
 | `Box(v)` | move `v` into a new box |
-| `b.f`, `b.m(...)` | a field or method of a boxed struct or enum, reached through the box |
+| `b.f`, `b.m(...)` | a field or method of the boxed value, reached through the box (and through any boxes it holds): a struct's or enum's, a Vec's (`!b.push(x)`, `b.len`), a Text's (`!b.add(s)`, `b.len`) |
 | `?b`, `!b` | lend the box, or, where a view of the value is expected, that view: `?T` or `!T`, a `[]T` of a boxed array or Vec, a `String` of a boxed Text, through any number of boxes |
 | `<b.unbox()` | move the value out; the box is freed |
 | `<s.f` | take an optional box out of a field, leaving `none` ([§7](#moves)) |
@@ -3739,9 +3739,9 @@ Long chains of boxes are released without deep recursion.
 The box is reached as it is held: through an owned box or a `!Box[T]`
 its value can be written, through a `?Box[T]` only read. A consuming
 (`<self`) method of the value, `<b.m()`, takes the value out of the box
-first. `T` holds no borrow. A box of anything other than a struct or
-enum (a number, a Vec, an array) reaches no members through it: it is
-lent as its value or taken apart. A Vec holds boxes as it holds handles:
+first. `T` holds no borrow. A box has no field of its own: `b.value`
+of a `Box[Int]` names nothing, and the number is lent (`?b`) or taken
+apart. A Vec holds boxes as it holds handles:
 walked by borrowed slot and moved out with `pop` ([Vec](#vec)).
 
 A recursive enum holds its children in boxes, and a function reads one
