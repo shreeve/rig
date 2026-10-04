@@ -1,0 +1,7 @@
+# The fewest functions bin/rig-oracle must decide in each set of
+# test/run's oracle tests; raise a floor when the oracle grows.
+lint 0
+tests 0
+corpus 0
+docs 0
+matrix 0

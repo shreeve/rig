@@ -1,0 +1,11 @@
+# Every function the reference ownership checker (bin/rig-oracle) and the
+# compiler's own decide differently, one a line:
+#
+#   <program> <function> <prod-accepts|prod-rejects> <class> <note>
+#
+# prod-accepts: the compiler accepts, the oracle rejects; prod-rejects:
+# the reverse. Classes: prod-unsound (a hole in the compiler; it has a
+# test/known/ reproduction), prod-strict (the compiler rejects what the
+# Core allows), ref-gap (the oracle is wrong or less precise), core-gap
+# (docs/CORE.md does not decide it). A program is its test path, a doc
+# example's id (doc/CORE/L120), or a matrix cell (vec.print.place).
