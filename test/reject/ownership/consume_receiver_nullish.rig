@@ -1,0 +1,17 @@
+# A consuming method's receiver is taken like an argument: each name a
+# `??` receiver may be is moved with `<` (`(<o ?? <b)`).
+struct Bag
+  items: Vec[Int]
+
+  fun total(<self) -> Int
+    self.items.len
+
+sub main
+  o: Bag? = Bag(items: Vec())
+  b = Bag(items: Vec())
+  print((o ?? b).total())
+  print(b.items.len)
+
+# error: 12:10: bare use of `Bag` value `o` in call argument would alias an owning value
+# error: 12:15: bare use of `Bag` value `b` in call argument would alias an owning value
+# errors: 2

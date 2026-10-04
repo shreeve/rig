@@ -4553,7 +4553,7 @@ pub const Emitter = struct {
         const callee = self.sema.calleeOf(call);
         // Zig passes a temporary receiver to a `!self` method as a constant,
         // and a Cell a read borrow may change must not be in one.
-        if (self.receiverOf(call)) |recv| if ((!isPlace(recv) and recv.kind() != .move and self.receiverWrites(call)) or self.sema.lendsCellTemp(unborrowed(recv))) return true;
+        if (self.receiverOf(call)) |recv| if ((!self.hasStorage(recv) and recv.kind() != .move and self.receiverWrites(call)) or self.sema.lendsCellTemp(unborrowed(recv))) return true;
         for (args) |a| if (argValue(a).isKind(.read) and self.sema.lendsCellTemp(ir.Read.operand(argValue(a)))) return true;
         for (args) |a| if (self.sema.arrayViewOf(argValue(a)) == .temporary and self.sema.lendsCellTemp(argValue(a))) return true;
         var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or self.consumedTemporary(call) != null;
@@ -4578,7 +4578,7 @@ pub const Emitter = struct {
         const callee = self.sema.calleeOf(call);
         if (!callee.isKind(.member)) return null;
         const obj = ir.Member.object(callee);
-        if (isPlace(obj) or obj.isKind(.move) or self.isTypeCallee(obj) or !self.isOwnedValue(obj)) return null;
+        if (self.hasStorage(obj) or obj.isKind(.move) or self.isTypeCallee(obj) or !self.isOwnedValue(obj)) return null;
         const f = self.fnType(self.typeOf(callee)) orelse return null;
         if (f.params.len == 0) return null;
         return switch (self.sema.types.get(f.params[0])) {
@@ -4626,6 +4626,12 @@ pub const Emitter = struct {
         return obj;
     }
 
+    /// Whether `e` is read from storage, not made for its context
+    /// (`sema.Hands.hasStorage`).
+    fn hasStorage(self: *Emitter, e: Sexp) bool {
+        return sema.handsOver(self.sema, e).hasStorage();
+    }
+
     /// Whether the method of `value.method(...)` takes `!self`.
     fn receiverWrites(self: *Emitter, call: Sexp) bool {
         const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return false;
@@ -4641,7 +4647,7 @@ pub const Emitter = struct {
         const writes = self.receiverWrites(call);
         // A Cell-holding part of a temporary is copied into a mutable local.
         const cell = self.sema.lendsCellTemp(recv);
-        const temporary = (!isPlace(recv) and !recv.isKind(.move)) or cell;
+        const temporary = (!self.hasStorage(recv) and !recv.isKind(.move)) or cell;
         if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return;
         const name = try self.fmt("__rig_recv_{d}", .{id});
         try self.writeIndent(self.indent);

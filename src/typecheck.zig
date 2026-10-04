@@ -3402,6 +3402,24 @@ const Checker = struct {
         };
     }
 
+    /// Whether `e`'s value needs cleanup.
+    fn ownsResource(self: *Checker, e: Sexp) bool {
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return !self.isPoison(ty) and sema.typeHasDropGlue(self.ctx, ty);
+    }
+
+    /// How receiver `recv` is written (`ReceiverShape`).
+    fn receiverShape(self: *const Checker, recv: Sexp) ReceiverShape {
+        if (recv.isKind(.read)) return .read_explicit;
+        if (recv.isKind(.write)) return .write_explicit;
+        if (recv.isKind(.move)) return .move_explicit;
+        return switch (self.hands(recv).kind) {
+            .made => .made,
+            .branches => .branches,
+            .place, .part_of_made, .lend, .jump, .none => .place,
+        };
+    }
+
     /// What `e` hands over to its context (`sema.handsOver`).
     fn hands(self: *const Checker, e: Sexp) sema.Hands {
         return sema.handsOver(self.ctx, e);
@@ -6945,7 +6963,7 @@ const Checker = struct {
     /// `!x.m()`; a consuming `self` needs an explicit `<x.m()`. Write and
     /// consuming receivers are refused through `?T` and `*T`.
     fn checkReceiverMode(self: *Checker, recv: Sexp, mode: MethodReceiver, kind: ReceiverTypeKind, method: []const u8, pos: u32, has_args: bool) Error!void {
-        const shape = classifyReceiverShape(recv);
+        const shape = self.receiverShape(recv);
         switch (mode) {
             .read => if (shape == .move_explicit) {
                 try self.err(pos, "method `{s}` takes a read borrow of receiver; cannot move", .{method});
@@ -6955,14 +6973,22 @@ const Checker = struct {
                 if (kind == .shared) return self.err(pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{method});
                 switch (shape) {
                     .write_explicit => {},
-                    .rvalue => if (kind != .owned_nominal and kind != .write_borrow and kind != .other) {
+                    .made => if (kind != .owned_nominal and kind != .write_borrow and kind != .other) {
                         try self.err(pos, "method `{s}` requires a write-borrowed receiver; this expression yields a borrowed value, not an owned one", .{method});
+                    },
+                    // A branch that is a write view writes through it; one
+                    // that is a name's value would be written as a copy.
+                    // (One that owns a resource is reported as a temporary
+                    // nothing drops.)
+                    .branches => if (kind != .write_borrow and !self.ownsResource(recv)) {
+                        const leaf = self.namedLeaf(recv) orelse recv;
+                        try self.errAt(recv, "method `{s}` writes its receiver, and `{s}` may be `{s}`, a value a name holds, which the call would write as a copy; call `{s}` on the name in each branch", .{ method, self.sourceText(recv), self.sourceText(leaf), method });
                     },
                     .read_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; got `?...`; use `!receiver.{s}(...)`", .{ method, method }),
                     .move_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; cannot move; use `!receiver.{s}(...)`", .{ method, method }),
                     // A binding that already holds a write borrow (`x: !T`,
                     // `!self`) lends it visibly too.
-                    .lvalue_bare => if (kind != .write_borrow) {
+                    .place => if (kind != .write_borrow) {
                         try self.err(pos, "method `{s}` requires a write-borrowed receiver; use `!receiver.{s}(...)`", .{ method, method });
                     } else {
                         const name = self.sourceText(recv);
@@ -6977,9 +7003,11 @@ const Checker = struct {
                     else => {},
                 }
                 switch (shape) {
-                    .move_explicit, .rvalue => {},
+                    // A branching value is taken leaf by leaf: a name
+                    // there is moved with `<` (the ownership checker).
+                    .move_explicit, .made, .branches => {},
                     .read_explicit, .write_explicit => try self.err(pos, "method `{s}` consumes the receiver; borrow forms not allowed; use `<receiver.{s}(...)`", .{ method, method }),
-                    .lvalue_bare => try self.err(pos, "method `{s}` consumes the receiver; use `<receiver.{s}(...)`", .{ method, method }),
+                    .place => try self.err(pos, "method `{s}` consumes the receiver; use `<receiver.{s}(...)`", .{ method, method }),
                 }
             },
             .none => {},
@@ -8339,24 +8367,14 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
     };
 }
 
-const ReceiverShape = enum { read_explicit, write_explicit, move_explicit, rvalue, lvalue_bare };
+/// How a receiver is written: with a receiver sigil (`?v.m()`, `!v.m()`,
+/// `<v.m()`, Core §8), or bare, by what it hands over
+/// (`Checker.receiverShape`).
+const ReceiverShape = enum { read_explicit, write_explicit, move_explicit, made, branches, place };
 
 /// The sigil of a receiver sigil node, as written.
 fn sigilText(recv: Sexp) []const u8 {
     return if (recv.isKind(.read)) "?" else if (recv.isKind(.write)) "!" else "<";
-}
-
-/// How the receiver expression is written. Only heads that certainly
-/// produce a fresh value count as rvalues; everything else is a place.
-fn classifyReceiverShape(recv: Sexp) ReceiverShape {
-    const h = recv.kind() orelse return .lvalue_bare;
-    return switch (h) {
-        .read => .read_explicit,
-        .write => .write_explicit,
-        .move => .move_explicit,
-        .call, .builtin, .array, .array_fill, .clone, .share, .weak, .@"if", .match, .@"catch", .propagate, .propagate_none => .rvalue,
-        else => .lvalue_bare,
-    };
 }
 
 /// The element type of a Cell receiver (`Cell[T]`, `?Cell[T]`, `*Cell[T]`, ...).
