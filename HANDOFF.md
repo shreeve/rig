@@ -7,10 +7,13 @@ from).
 
 ## Current state
 
-- **Release:** `v0.1.0` is tagged on `main` at `2d9e490f`: Zig 0.17.0,
-  Nexus 2.0.0, CI green on Linux and macOS. The version string stays
-  `0.1.0` until a release is started.
-- **Branches:** `main` is the only branch, and nothing is in flight.
+- **Release:** `v0.1.1` is the latest release (Zig 0.17.0, Nexus
+  2.0.0), with CI green on Linux and macOS. It fixes three use-after-free
+  classes found in `v0.1.0`. The version string in `build.zig` changes
+  only when a release is cut.
+- **Branches:** `main` is the one long-lived branch. Work lands through
+  short-lived branches and pull requests; the `revamp` branch carries the
+  consolidation below.
   Every change reaches `main` through a pull request: the ruleset on
   `main` requires `test (ubuntu-latest)` and `test (macos-latest)`, and
   blocks force pushes and deletion.
