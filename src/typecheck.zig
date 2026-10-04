@@ -1381,9 +1381,9 @@ const Checker = struct {
         return self.checkBoolOperand(cond);
     }
 
-    /// The step of `while cond: step` cannot use an owning binding of
-    /// `cond`, which the body drops before the step runs, or a borrow
-    /// the condition binds, which lives only in the body.
+    /// The step of `while cond: step` cannot use a binding of `cond` that
+    /// moves, which the body owns and which ends before the step runs,
+    /// or a borrow the condition binds, which lives only in the body.
     fn checkStepUses(self: *Checker, cond: Sexp, step: Sexp) Error!void {
         if (rig.isConditionJoin(cond)) {
             try self.checkStepUses(ir.get(cond, .left), step);
@@ -1394,7 +1394,7 @@ const Checker = struct {
         const sym = self.ctx.symbols.items[b];
         const use = findUse(self.ctx, step, b) orelse return;
         if (try self.cannotCopy(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
-            try self.errAt(use, "the loop step cannot use `{s}`: it owns a `{s}`, which the body drops before the step runs", .{ sym.name, try self.tyName(sym.ty) });
+            try self.errAt(use, "the loop step cannot use `{s}`: the body owns this `{s}`, which ends with the body before the step runs", .{ sym.name, try self.tyName(sym.ty) });
         } else if (isBorrow(self.ctx, sym.ty)) {
             try self.errAt(use, "the loop step cannot use `{s}`: it is a borrow (`{s}`) that lives only in the body; use it at the end of the body instead", .{ sym.name, try self.tyName(sym.ty) });
         }
@@ -3541,7 +3541,7 @@ const Checker = struct {
         const value = try self.readThrough(operand, inner, sema.unwrapBorrows(self.ctx, inner));
         switch (sema.cloneable(self.ctx, inner)) {
             .copy, .bump, .text => {},
-            .depends => try self.requireOf(value, .copyable, self.startOf(operand), "clones a value"),
+            .depends => try self.requireOf(value, .no_move, self.startOf(operand), "clones a value"),
             .no => {
                 if (sema.typeHasDropGlue(self.ctx, value)) {
                     try self.errAt(operand, "`+x` cannot clone a `{s}`; only `*T` and `~T` handles (or optionals of them) and plain values can be cloned", .{try self.tyName(value)});
@@ -3596,13 +3596,13 @@ const Checker = struct {
     /// rejects `op`, which copies one. Inside a generic body a type
     /// holding type parameters may or may not: `op` is then allowed, and
     /// every instantiation must supply values that copy
-    /// (`Requirement.copyable`).
+    /// (`Requirement.no_move`).
     fn cannotCopy(self: *Checker, ty: TypeId, pos: u32, op: []const u8) Error!bool {
         return switch (sema.moves(self.ctx, ty)) {
             .yes => true,
             .no => false,
             .depends => {
-                try self.requireOf(ty, .copyable, pos, op);
+                try self.requireOf(ty, .no_move, pos, op);
                 return false;
             },
         };
@@ -8934,7 +8934,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
             const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
             switch (req.req) {
                 .no_cell => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` holds a Cell, which the copy would fork", .{ inst, pname, aname, req.op, pname, aname }),
-                .copyable, .no_cleanup => if (sema.typeHasDropGlue(ctx, arg))
+                .no_move, .no_cleanup => if (sema.typeHasDropGlue(ctx, arg))
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname })
                 else
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is unique", .{ inst, pname, aname, req.op, pname, aname }),
@@ -8949,7 +8949,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
-                .copyable, .no_cleanup, .no_cell => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
+                .no_move, .no_cleanup, .no_cell => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
@@ -9002,7 +9002,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
             .int => |info| v < intBounds(info).bits,
             else => false,
         },
-        .copyable => sema.moves(ctx, ty) != .yes,
+        .no_move => sema.moves(ctx, ty) != .yes,
         .no_cleanup => !sema.typeHasDropGlue(ctx, ty),
         .no_cell => !sema.holdsCellByValue(ctx, ty),
         .array_len => switch (ctx.types.get(ty)) {

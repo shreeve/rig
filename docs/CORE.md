@@ -668,17 +668,17 @@ a statement `-e` drops a name
 
 ## 9. Inside the compiler
 
-Not visible to programs, and *planned*: the compiler decides each of
-these once, and no pass decides them again by looking at syntax.
+Not visible to programs: the compiler decides each of these once, and
+no pass decides them again by looking at syntax.
 
 - **Per type, one fact each:** copyable; unique; needs cleanup; may hold
   a loan; cloneable; how a read view is represented (a copy, or a
-  pointer).
+  pointer). *(built)*
 - **Per expression, one classification** of what it hands over: a
   place, a made value, a lend, a view, branches, or a jump, including
-  whether the value lives for the whole program.
+  whether the value lives for the whole program. *(planned)*
 - **Per path, one exit primitive,** which runs defers, reports any loan
-  it would drop, and rewinds when the path goes on.
+  it would drop, and rewinds when the path goes on. *(planned)*
 
 ## 10. How a feature earns its way in
 

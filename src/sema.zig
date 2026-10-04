@@ -897,9 +897,9 @@ pub const Requirement = union(enum) {
     /// An integer wider than this many bits: the body shifts the value
     /// by a constant amount.
     shift: Wide,
-    /// Copies (`moves` is not `yes`): the body copies the parameter's
-    /// value.
-    copyable,
+    /// Does not move (`moves` is not `yes`): the body copies the
+    /// parameter's value.
+    no_move,
     /// Holds no Cell inline: the body binds a copy of a value holding the
     /// parameter (a loop element, a match payload) and may lend it, so a
     /// Cell in it would change in the copy only.
@@ -932,7 +932,7 @@ pub const Requirement = union(enum) {
             .float => "a float literal",
             .fits => "an integer literal",
             .shift => "a constant shift",
-            .copyable => "a value that copies",
+            .no_move => "a value that does not move",
             .no_cleanup => "a value that owns no resource",
             .no_cell => "a value that holds no Cell",
             .array_len => "an array length",

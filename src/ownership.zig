@@ -2529,7 +2529,7 @@ pub const Checker = struct {
             .unique => |tname| if (is_name) {
                 try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy a unique value; use `<{s}` to move it", .{ tname, what, where, what });
             } else {
-                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy a unique value; a field cannot be moved out of its parent", .{ tname, what, where });
+                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy a unique value; a field or element cannot be moved out of what holds it", .{ tname, what, where });
             },
             .drop_glue => |tname| if (is_name) {
                 try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<{s}` to move ownership", .{ tname, what, where, tname, what });

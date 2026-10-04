@@ -753,7 +753,7 @@ emitter ask these, never a predicate built for another question:
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
 | `readsAsValue` | a view of it reads as the value (a primitive or a plain enum) |
 
-A generic body that copies a `T` records `Requirement.copyable`; one
+A generic body that copies a `T` records `Requirement.no_move`; one
 that discards, overwrites, or stores a `T` in an array or slice records
 `Requirement.no_cleanup`. Each instance is checked against them.
 
@@ -768,7 +768,7 @@ only some types support records a `Requirement` on the parameter in
 `generic_requirements`, with the position of the operation: arithmetic,
 ordering, `==`, integer operators, negation, a float or integer literal
 beside a `T`, a constant shift, `not_error` for a `T!` return (an
-error set cannot fill it), `copyable` where the body copies a value
+error set cannot fill it), `no_move` where the body copies a value
 holding a `T` in a way the ownership checker does not see (cloning it,
 reading it out of a `Vec` or `Cell`, or moving it out of a borrow), and
 `no_cleanup` where it discards one, leaves it as a temporary, or puts it
@@ -1142,6 +1142,9 @@ lower is an internal error: sema must have rejected it.
   `cap_<name>`, in a struct that holds nothing else. A local that would
   shadow a visible Zig name is renamed.
 - **Automatic drop.** An owning binding gets a `defer` that releases
+  it. A binding of a value that moves but needs no cleanup (a unique
+  value) gets the same `defer` and guard, which `rig.drop` reduces to
+  nothing at compile time; the ownership checker counts no drop for
   it. When the binding may be moved, dropped, or returned first, the
   defer is guarded by a flag, and the consuming site clears it:
 
@@ -1184,9 +1187,9 @@ lower is an internal error: sema must have rejected it.
   the owning fields in reverse order.
 - **Values.** `if` and `match` in value position become labeled blocks
   when a branch needs statements; `match` is a `switch`, whose
-  captures copy the payload (`match e`, `match ?e`) except a field
-  that holds a Cell, which they point into as a read view, point into it
-  (`|*p|` for `match !e`), or own it (`match <e`: each bound field
+  captures copy the payload (`match e`, `match ?e`; a field that holds
+  a Cell is pointed into as a read view instead), point into it (`|*p|`
+  for `match !e`), or own it (`match <e`: each bound field
   becomes an owned local with its drop guard, and the rest is dropped
   by a `defer` in the prong). Alternatives are one prong's list of
   items. A Zig `switch` has no guards, so a match with a guarded arm
