@@ -231,7 +231,7 @@ const Scope = struct {
 /// an exit that fails.
 const Deferred = struct { body: Sexp, vars: u32, err_only: bool };
 
-/// An exit at which defers run, and so are re-checked (`exitDefers`).
+/// An exit at which defers run, and so are re-checked (`exitTo`).
 const Exit = union(enum) {
     /// The innermost scope's end, where the path falls through.
     scope_end,
@@ -747,7 +747,7 @@ pub const Checker = struct {
     fn popScope(self: *Checker) Error!void {
         const idx = self.scopes.items.len - 1;
         if (self.reachable) {
-            try self.exitDefers(.scope_end);
+            _ = try self.exitTo(.{ .exit = .scope_end });
             try self.checkDropOrder(self.scopes.items[idx].start);
         }
         var scope = self.scopes.pop().?;
@@ -766,15 +766,19 @@ pub const Checker = struct {
         const borrowed = for (self.loan_counts.items[@min(start, self.loan_counts.items.len)..]) |n| {
             if (n > 0) break true;
         } else false;
-        if (borrowed) for (0..@min(start, self.flows.items.len)) |holder| {
-            var f = self.flows.items[holder];
-            if (!hasLoanFrom(f.loans, start)) continue;
-            if (report and self.holderLive(@intCast(holder), end)) {
-                for (f.loans) |l| if (l.root >= start) try self.reportShortLived(l, @intCast(holder));
+        if (borrowed) {
+            if (report) for (self.flows.items[0..@min(start, self.flows.items.len)], 0..) |f, holder| {
+                if (hasLoanFrom(f.loans, start)) _ = try self.reportHolder(f, @intCast(holder), start, end);
+            };
+            for (0..@min(start, self.flows.items.len)) |holder| {
+                var f = self.flows.items[holder];
+                if (!hasLoanFrom(f.loans, start)) continue;
+                f.loans = try self.filterLoansBelow(f.loans, start);
+                try self.setFlow(@intCast(holder), f);
             }
-            f.loans = try self.filterLoansBelow(f.loans, start);
-            try self.setFlow(@intCast(holder), f);
-        };
+        }
+        // A temporary loan of the statement the scope ends in (a
+        // returned `?user.name`, an arm's `o = ?t[..]`) ends with it.
         var i: usize = 0;
         while (i < self.temps.items.len) {
             if (self.temps.items[i].root >= start) {
@@ -992,8 +996,11 @@ pub const Checker = struct {
     /// How a path ends (`exitTo`).
     const ExitTo = struct {
         /// The point the path leaves for: on it, the vars declared since
-        /// leave scope, and its state is relative to this point.
-        to: Point,
+        /// leave scope, and its state is relative to this point. Null
+        /// where the path leaves the function (`return`, `e!`, `e?`, a
+        /// failing result) or falls out of the innermost scope, whose end
+        /// reports and drops its own vars (`popScope`).
+        to: ?Point = null,
         /// The exit, whose defers run first; null where none run.
         exit: ?Exit = null,
         /// Where the path goes on, for liveness: a source position, or
@@ -1007,9 +1014,21 @@ pub const Checker = struct {
     /// on keeps (`reportDropped`), and gives the path's state relative to
     /// `x.to`.
     fn exitTo(self: *Checker, x: ExitTo) Error!State {
-        if (x.exit) |e| try self.exitDefers(e);
-        try self.reportDropped(x.to.vars, x.resume_at);
-        return self.capture(x.to);
+        if (x.exit) |e| {
+            // The defers that `e` runs, re-checked against the state here.
+            const back: ?Point = if (e.goesOn()) try self.here() else null;
+            const top = self.scopes.items.len - 1;
+            switch (e) {
+                .scope_end => try self.runDefers(top, false),
+                .failing_result => try self.runDefers(top, true),
+                .jump => |depth| try self.runDefersTo(depth, false),
+                .@"return", .propagate => |fails| try self.runDefersTo(0, fails),
+            }
+            if (back) |p| try self.rewind(p);
+        }
+        const to = x.to orelse return .{ .reachable = false };
+        try self.reportDropped(to.vars, x.resume_at);
+        return self.capture(to);
     }
 
     /// Report each var below `depth` that keeps a loan on a var at
@@ -1020,10 +1039,17 @@ pub const Checker = struct {
     fn reportDropped(self: *Checker, depth: u32, at: ?u32) Error!void {
         for (self.flows.items[0..@min(depth, self.flows.items.len)], 0..) |f, holder| {
             if (!hasLoanFrom(f.loans, depth)) continue;
-            if (self.holderLive(@intCast(holder), at)) {
-                for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, @intCast(holder));
-            } else try self.reportTempHolder(f, @intCast(holder), depth);
+            if (!(try self.reportHolder(f, @intCast(holder), depth, at))) try self.reportTempHolder(f, @intCast(holder), depth);
         }
+    }
+
+    /// Report each loan on a var at `depth` or above that `holder`
+    /// (whose flow is `f`) keeps, where the holder is live at `at` (after
+    /// the current statement when null). Whether it is.
+    fn reportHolder(self: *Checker, f: Flow, holder: VarId, depth: u32, at: ?u32) Error!bool {
+        if (!self.holderLive(holder, at)) return false;
+        for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, holder);
+        return true;
     }
 
     /// Make state `s` current. The current state must be its point's.
@@ -1345,7 +1371,7 @@ pub const Checker = struct {
                 defer self.cur_stmt = saved_stmt;
                 try self.walkReturnValue(stmt);
                 // An error returned here runs the body's `errdefer`s.
-                if (self.reachable and self.mayFail(stmt)) try self.exitDefers(.failing_result);
+                if (self.reachable and self.mayFail(stmt)) _ = try self.exitTo(.{ .exit = .failing_result });
             } else {
                 try self.walkStmt(stmt);
             }
@@ -1500,7 +1526,7 @@ pub const Checker = struct {
         }
         // An error the function returns from here runs the block's
         // `errdefer`s.
-        if (returns and self.reachable and stmts.len > 0 and self.mayFail(stmts[stmts.len - 1])) try self.exitDefers(.failing_result);
+        if (returns and self.reachable and stmts.len > 0 and self.mayFail(stmts[stmts.len - 1])) _ = try self.exitTo(.{ .exit = .failing_result });
         v = try self.checkValueEscapesScope(v);
         try self.popScope();
         return if (self.reachable) v else .{};
@@ -3441,7 +3467,7 @@ pub const Checker = struct {
     fn walkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
         if (value != .nil) try self.walkReturnValue(value);
-        try self.exitDefers(.{ .@"return" = value != .nil and self.mayFail(value) });
+        _ = try self.exitTo(.{ .exit = .{ .@"return" = value != .nil and self.mayFail(value) } });
         self.reachable = false;
     }
 
@@ -4042,7 +4068,7 @@ pub const Checker = struct {
     /// `e!` / `e?`: on failure or `none`, control leaves for the caller.
     fn walkPropagate(self: *Checker, node: Sexp) Error!Value {
         const v = try self.walk(ir.get(node, .value));
-        if (self.reachable) try self.exitDefers(.{ .propagate = node.isKind(.propagate) });
+        if (self.reachable) _ = try self.exitTo(.{ .exit = .{ .propagate = node.isKind(.propagate) } });
         return v;
     }
 
@@ -4090,20 +4116,6 @@ pub const Checker = struct {
                 break;
             }
         }
-    }
-
-    /// Re-check, against the state here, the defers that `exit` runs.
-    /// Their effects stay only where the path ends (`Exit.goesOn`).
-    fn exitDefers(self: *Checker, exit: Exit) Error!void {
-        const back: ?Point = if (exit.goesOn()) try self.here() else null;
-        const top = self.scopes.items.len - 1;
-        switch (exit) {
-            .scope_end => try self.runDefers(top, false),
-            .failing_result => try self.runDefers(top, true),
-            .jump => |depth| try self.runDefersTo(depth, false),
-            .@"return", .propagate => |fails| try self.runDefersTo(0, fails),
-        }
-        if (back) |p| try self.rewind(p);
     }
 
     /// Re-check the defers of scope `scope_idx` at an exit, with its
