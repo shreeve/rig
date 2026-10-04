@@ -1046,9 +1046,15 @@ vars, and its `else` value. Diagnostics are reported only on the final
 walk; inside another loop's fixpoint, where nothing is reported, the
 round that settles is the final walk, so nested loops are not walked
 exponentially often. `return`, `break`, and `continue` make
-the rest of their block unreachable. A `defer` body is re-checked
-against the state at every exit of its scope, where what it reads may
-not borrow a var declared after the `defer` (dropped before it runs).
+the rest of their block unreachable. A value's tail name (reached
+through the parts `sema.eachTailPart` lists: a block's last statement,
+branches, arms, a `catch` handler, `??`, a loop's `else`) is the name
+emit takes; when the value is consumed, the checker moves it there, as
+`<x` would, before the scopes the value leaves run their defers (a name
+the value declares itself, or one the function returns). A `defer` body
+is re-checked against the state at every exit of its scope, where what
+it reads may not borrow a var declared after the `defer` (dropped
+before it runs).
 An `errdefer` body is re-checked only at the exits that fail: a `!`,
 and a `return` or final value whose type is, or may be, an error,
 including the final value of an `if` or `match` branch block that is

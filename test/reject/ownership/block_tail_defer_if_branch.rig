@@ -1,0 +1,20 @@
+# A block-local name at the tail of an `if` branch moves out of the
+# branch before the branch's defer runs, as `<v` would: the defer
+# cannot write it.
+sub main
+  c = true
+  x = if c
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    v
+  else
+    w: Vec[Int] = Vec()
+    w
+  !x.push(3)
+  print(x.len, x[0])
+
+# error: 11:10: use of `v` after move
+# errors: 1

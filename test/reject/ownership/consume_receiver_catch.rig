@@ -1,0 +1,24 @@
+# A consuming method's receiver is taken like an argument: a name a
+# `catch` yields is moved with `<`.
+error E
+  bad
+
+struct Bag
+  items: Vec[Int]
+
+  fun total(<self) -> Int
+    self.items.len
+
+fun mk(ok: Bool) -> Bag!
+  if not ok
+    return E.bad
+  Bag(items: Vec())
+
+sub main
+  d = Bag(items: Vec())
+  !d.items.push(4)
+  print((mk(false) catch d).total())
+  print(d.items[0])
+
+# error: 20:26: bare use of `Bag` value `d` in call argument would alias an owning value
+# errors: 1

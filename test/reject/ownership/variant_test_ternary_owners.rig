@@ -1,0 +1,20 @@
+# Testing against a bare variant drops a value no name holds; a
+# branching value that may be a name's value cannot be tested that way.
+enum Shape
+  dot
+  line(v: Vec[Int])
+
+sub main
+  p: Vec[Int] = Vec()
+  !p.push(1)
+  a = Shape.line(<p)
+  b = Shape.dot
+  c = true
+  if (a if c else b) != .dot
+    print("line")
+  match ?a
+    .line(v) => print(v[0])
+    .dot => print("dot")
+
+# error: 13:7: cannot test `a if c else b` against `.dot`: it may be `a`, a value a name holds, and the test drops the value it tests
+# errors: 1

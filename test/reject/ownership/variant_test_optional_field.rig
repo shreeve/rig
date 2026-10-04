@@ -1,0 +1,25 @@
+# Testing `h.o?` against a bare variant would drop the value the field
+# holds.
+enum Shape
+  dot
+  line(v: Vec[Int])
+
+struct H
+  o: Shape?
+
+fun f(h: ?H) -> Bool?
+  r = h.o? != .dot
+  r
+
+sub main
+  p: Vec[Int] = Vec()
+  !p.push(1)
+  h = H(o: Shape.line(<p))
+  print(f(?h) ?? false)
+  if ?h.o as s
+    match s
+      .line(v) => print(v[0])
+      .dot => print("dot")
+
+# error: 11:7: cannot test `h.o?` against `.dot`: it may be `h.o`, a value a name holds, and the test drops the value it tests
+# errors: 1

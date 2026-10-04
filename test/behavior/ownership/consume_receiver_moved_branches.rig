@@ -1,0 +1,35 @@
+# A consuming receiver that branches takes each name with `<`; a read
+# receiver reads a name's value in place and drops a made one.
+struct Bag
+  items: Vec[Int]
+
+  fun total(<self) -> Int
+    self.items.len
+
+  fun size(?self) -> Int
+    self.items.len
+
+fun mk -> Bag
+  b = Bag(items: Vec())
+  !b.items.push(7)
+  b
+
+sub main
+  a = Bag(items: Vec())
+  b = Bag(items: Vec())
+  !a.items.push(1)
+  c = true
+  print((<a if c else <b).total())
+  d = Bag(items: Vec())
+  !d.items.push(1)
+  !d.items.push(2)
+  for i in 0..2
+    e = i == 0
+    print((d if e else mk()).size())
+  print(d.items[1])
+
+# expect:
+# 1
+# 2
+# 1
+# 2

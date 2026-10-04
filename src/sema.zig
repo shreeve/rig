@@ -3968,6 +3968,42 @@ pub fn breaksOut(source: []const u8, e: Sexp, label: []const u8, nested: bool, v
     return false;
 }
 
+/// Call `f(context, part)` for each part of `e` that yields its value:
+/// a block's last statement, a `raw` block's body, both branches of an
+/// `if`, each arm of a `match`, the right of `??`, a `catch` handler,
+/// and a loop's `else`. A bare name reached through these where the
+/// value leaves (a binding, an argument, a result) leaves its binding:
+/// emit takes it (`Scan.consumeTail`), and the ownership checker moves
+/// it at that point, before the scopes the value leaves run their
+/// defers. Nothing else yields a value through its parts.
+pub fn eachTailPart(e: Sexp, context: anytype, comptime f: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    switch (e.kind() orelse return) {
+        .block => {
+            const stmts = ir.Block.stmts(e);
+            if (stmts.len > 0) try f(context, stmts[stmts.len - 1]);
+        },
+        .raw_block => try f(context, ir.RawBlock.body(e)),
+        .@"if" => {
+            try f(context, ir.If.then(e));
+            if (ir.If.@"else"(e) != .nil) try f(context, ir.If.@"else"(e));
+        },
+        .match => for (ir.Match.arms(e)) |arm| try f(context, ir.Arm.body(arm)),
+        .@"??" => try f(context, ir.@"??".right(e)),
+        .@"catch" => try f(context, ir.Catch.handler(e)),
+        .@"while", .@"for" => if (ir.get(e, .@"else") != .nil) try f(context, ir.get(e, .@"else")),
+        .labeled => try f(context, ir.Labeled.stmt(e)),
+        else => {},
+    }
+}
+
+/// Whether `e` yields its value through parts (`eachTailPart`).
+pub fn yieldsThroughParts(e: Sexp) bool {
+    return switch (e.kind() orelse return false) {
+        .block, .raw_block, .@"if", .match, .@"??", .@"catch", .@"while", .@"for", .labeled => true,
+        else => false,
+    };
+}
+
 /// A loop used as a value: a `while` or `for`, labeled or not, that a
 /// `break` with a value leaves.
 pub fn hasValueBreaks(source: []const u8, e: Sexp) bool {
