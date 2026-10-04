@@ -1,0 +1,11 @@
+fun grow(t: !Text) -> Text
+  for _ in 0..100
+    !t.add("abcdefgh")
+  Text("x")
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  c = true
+  print((a if c else b) == grow(!a))
+  print(a.len)

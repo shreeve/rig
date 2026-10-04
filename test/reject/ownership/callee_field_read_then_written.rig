@@ -1,0 +1,17 @@
+# An owned closure held in a field is read before the call's arguments
+# run: an argument cannot lend the value holding it to write.
+
+struct H
+  f: *fun(Int) -> Int
+
+fun reset(h: !H) -> Int
+  h.f = *|k: Int| k + 2
+  1
+
+sub main
+  base = 40
+  h = H(f: *|<base, k: Int| base + k)
+  print(h.f(reset(!h)))
+
+# error: 14:20: cannot lend `h` to write while the callee's read of it is in use
+# errors: 1

@@ -2912,6 +2912,29 @@ sub main
 cannot write-borrow `v` while an earlier argument's read of it is in use
 ```
 
+The same holds wherever a value is read in place before a later
+operand of the same form runs: a read receiver that is no place
+(`(a if c else b).peek(!a)`), the value a call calls (`h.f(reset(!h))`
+for an owned closure in a field), the left operand of `==`, `!=`, or an
+ordering operator while its right operand runs, and a value that is no
+place while its index runs. A later operand cannot lend that place to
+write or move it. `grow(!a) == a` is accepted: the write finishes
+before `a` is read.
+
+```rig reject
+fun grow(t: !Text) -> Text
+  !t.add("more")
+  Text("x")
+
+sub main
+  a = Text("a")
+  print(a == grow(!a))
+```
+
+```error
+cannot lend `a` to write while the left operand's read of it is in use
+```
+
 A borrow of a place (`!v[i]`, `?p.xs[i]`, a slice `!v[i..]`, or the
 receiver of a method call) finds the place up to each index before the
 index runs, so an index cannot write-borrow or move the place's root:

@@ -7,11 +7,12 @@ from).
 
 ## Current state
 
-- **Release:** `v0.1.2` is the latest release (Zig 0.17.0, Nexus
+- **Release:** `v0.1.3` is the latest release (Zig 0.17.0, Nexus
   2.0.0), with CI green on Linux and macOS. It fixes a use-after-free
-  through a view stored in a borrowed parameter; `v0.1.1` fixed three
-  use-after-free classes found in `v0.1.0`. The version string in `build.zig` changes
-  only when a release is cut.
+  where a value read in place was written by a later operand of the same
+  call or operator; `v0.1.2` and `v0.1.1` fixed four earlier
+  use-after-free classes. The version string in `build.zig` changes only
+  when a release is cut.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests; the `revamp` branch carries the
   consolidation below.

@@ -1,0 +1,13 @@
+fun grow(t: !Text) -> Int
+  for _ in 0..100
+    !t.add("abcdefgh")
+  1
+
+fun two(x: ?Text, n: Int) -> Int
+  x.len + n
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  c = true
+  print(two(?a if c else ?b, grow(!a)))
