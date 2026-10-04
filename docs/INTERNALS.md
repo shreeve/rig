@@ -159,6 +159,7 @@ the Parser wrapper checks the touch on the type's node.
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
 | keywords | one token each | every keyword is reserved; `new` only at statement start |
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
+| `struct Random unique` vs `unique = 3`, `p.unique` | `UNIQUE` vs `IDENT` | `unique` is a keyword only on a `struct` header line, outside brackets, right after the name or the type parameters' `]`, where it fills the `unique` role of `struct` or `generic_struct` |
 | `xs[a..]`, `xs[..]` vs `xs[a..b]` | `DOTDOT_OPEN` vs `..` | a `..` whose next token is `]` (past a line break, which is whitespace inside brackets) ends an open range, so `xs[a == b..]` reduces `a == b` before it; a `..` that starts an operand (`xs[..b]`) needs no mark, since no expression starts with one |
 | `t.type`, `(type: 1)`, a member `type: Int`, `fun type` in a member list | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`; sema rejects a keyword parameter |
 
@@ -338,7 +339,7 @@ area of the language.
 ```text
 $ rig normalize packet.rig
 (module
-  (struct Packet (: size Int))
+  (struct Packet _ (: size Int))
   (fun size_of _ ((: p (borrow_read Packet))) Int (block (member p size)))
   (sub send _ ((: p Packet)) _ (block (call print (member p size))))
   (sub main _ _ _ (block
@@ -584,8 +585,9 @@ later pass reads. It runs these steps in order:
 4. **contents** (`computeContents`, then `checkInfiniteTypes`): what
    each declared type's values hold, computed once all declarations
    are resolved: whether they need drop glue, hold a `Cell` inline,
-   hold a borrow or a write borrow (even through a handle, and across
-   modules), or are plain data (`Symbol.contents` for each nominal and generic type,
+   are or hold inline a type declared `unique`, hold a borrow or a
+   write borrow (even through a handle, and across modules), or are
+   plain data (`Symbol.contents` for each nominal and generic type,
    `TypeInfo` for each interned type). Each declared type is computed
    after the types it holds, in the order of the strongly connected
    components of the by-value graph (`Components`, Tarjan's algorithm
@@ -733,6 +735,28 @@ its own). Binding facts live on the `Symbol`: whether it is
 reassigned, written through, fixed, known at compile time, or bound by
 a pattern, and for a capture the binding it captures.
 
+**Type facts.** Each question about a type is answered by one function
+in `sema.zig`, read from the type's `TypeInfo` (computed when the type
+is interned, from `Symbol.contents` and `Reach`); the checkers and the
+emitter ask these, never a predicate built for another question:
+
+| Function | Answer |
+|---|---|
+| `typeHasDropGlue` | needs cleanup: a user `drop`, or holds a `*T`, `~T`, Vec, Box, Text, or owned closure |
+| `maybeDropGlue` | holds a type parameter by value, so whether it needs cleanup depends on the instance |
+| `isUnique` | declared `unique`, or holds such a type inline: never copied |
+| `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
+| `copyable` | does not move and holds no write view: copied implicitly where it is used |
+| `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), Text copy, copy per instance, or nothing (a value that moves) |
+| `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
+| `isPlainData` | copies and holds no view: plain data |
+| `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
+| `readsAsValue` | a view of it reads as the value (a primitive or a plain enum) |
+
+A generic body that copies a `T` records `Requirement.no_move`; one
+that discards, overwrites, or stores a `T` in an array or slice records
+`Requirement.no_cleanup`. Each instance is checked against them.
+
 Sema's job includes everything emit cannot lower: a construct the
 backend cannot express yet is rejected with a diagnostic that says so.
 
@@ -744,11 +768,11 @@ only some types support records a `Requirement` on the parameter in
 `generic_requirements`, with the position of the operation: arithmetic,
 ordering, `==`, integer operators, negation, a float or integer literal
 beside a `T`, a constant shift, `not_error` for a `T!` return (an
-error set cannot fill it), and `plain` where the body copies a
-value holding a `T` in a way the ownership checker does not see:
-discarding it, leaving it as a temporary, cloning it, reading it out of
-a `Vec` or `Cell`, putting it in an array, or moving it out of a
-borrow. An operator's operand borrowed as `?T` or `!T` counts as a `T`
+error set cannot fill it), `no_move` where the body copies a value
+holding a `T` in a way the ownership checker does not see (cloning it,
+reading it out of a `Vec` or `Cell`, or moving it out of a borrow), and
+`no_cleanup` where it discards one, leaves it as a temporary, or puts it
+in an array. An operator's operand borrowed as `?T` or `!T` counts as a `T`
 (`operandValue`), and `==` on a value that holds a `T` (`T?`, `[4]T`,
 `Pair[T, Int]`) records `==` on that `T` (`sema.notEquatable`). Nothing about a `T` is assumed that is not recorded. A function's type parameters are `generic_param`
 symbols in its scope, and its `FunctionType.ct_params` holds the
@@ -1076,8 +1100,9 @@ are undone after the check (`Exit.goesOn`).
 value; read loans exclude writes, moves, drops, and reassignment, and
 write loans exclude everything; no loan outlives its root, including
 through `break` and error propagation; a returned or stored value
-carries only borrows the caller handed in; owning values and write
-borrows are never copied implicitly (a bare write borrow of a Copy
+carries only borrows the caller handed in; values that move
+(`sema.moves`: owning and unique values) and write borrows are never
+copied implicitly (a bare write borrow of a Copy
 value is copied only where the type checker recorded that its context
 reads the value, `SemContext.readsThrough`), and only whole bindings
 move; closures use outer
@@ -1112,7 +1137,8 @@ type it writes is spelled from a sema `TypeId`. A construct it cannot
 lower is an internal error: sema must have rejected it.
 
 - **Bindings** are `const` unless reassigned, written through, holding
-  a `Cell` or a value with drop glue (whose methods take `*Self`), or
+  a value that moves (`sema.moves`, which a `Cell` does; its methods
+  take `*Self`), or
   initialized by a compile-time-known value, which Zig would fold. Every Rig name is written through
   `rig.writeZigIdent`, which quotes Zig keywords and primitives
   (`@"var"`) and marks a name the emitter itself declares (`std`, `rig`,
@@ -1124,6 +1150,9 @@ lower is an internal error: sema must have rejected it.
   `cap_<name>`, in a struct that holds nothing else. A local that would
   shadow a visible Zig name is renamed.
 - **Automatic drop.** An owning binding gets a `defer` that releases
+  it. A binding of a value that moves but needs no cleanup (a unique
+  value) gets the same `defer` and guard, which `rig.drop` reduces to
+  nothing at compile time; the ownership checker counts no drop for
   it. When the binding may be moved, dropped, or returned first, the
   defer is guarded by a flag, and the consuming site clears it:
 
@@ -1148,7 +1177,7 @@ lower is an internal error: sema must have rejected it.
   change while it is borrowed. In a generic type, where that depends on
   the type arguments (`?T`, `?Self`), the borrow is a
   `rig.ReadBorrow(T)`, which applies the same rule to each instance.
-  The rule is `sema.readBorrowCopies`, which typecheck also uses to
+  The rule is `sema.lendByValue`, which typecheck also uses to
   read through a `!T` lent where a copied `?T` is expected.
   A `[]T` is a `[]const T` and a `![]T` a Zig `[]T`, not a pointer to
   one: the slice already points at its elements, so it is passed and

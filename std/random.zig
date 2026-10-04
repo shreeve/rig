@@ -1,4 +1,4 @@
-//! `std.random`: the operating system's entropy, for `Rng.new`.
+//! `std.random`: the operating system's entropy, for `Random.new`.
 
 const std = @import("std");
 const rig = @import("../runtime.zig");

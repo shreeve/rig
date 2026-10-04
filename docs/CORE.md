@@ -99,7 +99,7 @@ sub main
 
 - **A type that must not be copied but owns nothing**, such as a random
   generator whose copy would repeat its numbers, says so on the type:
-  `struct Rng unique`. It moves like an owner. *(planned)*
+  `struct Random unique`. It moves like an owner. *(built)*
 - **A type that holds a `Cell`**, or a bare `Cell[T]`, is unique too,
   because a copy would fork state that should be shared. *(planned)*
 
@@ -160,8 +160,8 @@ sub main
 **2. `<x` moves, `+x` makes a new owner, `-x` drops now.** `+x` is a
 copy, a count bump, or a deep copy, as the type says; a `unique` type,
 or one with a `drop` body, has none. *(built* for plain data, handles,
-closures, and `Text`; *planned* for `Vec`, `Box`, and structs holding an
-owner.*)*
+closures, `Text`, and `unique` types; *planned* for `Vec`, `Box`, and
+structs holding an owner.*)*
 
 ```rig
 struct File
@@ -721,17 +721,17 @@ a statement `-e` drops a name
 
 ## 9. Inside the compiler
 
-Not visible to programs, and *planned*: the compiler decides each of
-these once, and no pass decides them again by looking at syntax.
+Not visible to programs: the compiler decides each of these once, and
+no pass decides them again by looking at syntax.
 
 - **Per type, one fact each:** copyable; unique; needs cleanup; may hold
   a loan; cloneable; how a read view is represented (a copy, or a
-  pointer).
+  pointer). *(built)*
 - **Per expression, one classification** of what it hands over: a
   place, a made value, a lend, a view, branches, or a jump, including
-  whether the value lives for the whole program.
+  whether the value lives for the whole program. *(planned)*
 - **Per path, one exit primitive,** which runs defers, reports any loan
-  it would drop, and rewinds when the path goes on.
+  it would drop, and rewinds when the path goes on. *(planned)*
 
 ## 10. How a feature earns its way in
 

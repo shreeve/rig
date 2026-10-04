@@ -196,11 +196,13 @@ fun f(in: Int) -> Int
 `in` is a keyword and cannot name a parameter
 ```
 
-Three words are keywords only in one position. `new` is a keyword at
+Four words are keywords only in one position. `new` is a keyword at
 the start of a statement (`new x = ...`), so a method may be named
 `new`. `of` is a keyword only after a value directly inside `[ ]`,
 where it separates a fill literal's count from its element
-(`[n of x]`). `none` is a reserved name, the absent optional. The words
+(`[n of x]`). `unique` is a keyword only after a struct's name or type
+parameters (`struct Random unique`). `none` is a reserved name, the
+absent optional. The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
@@ -559,6 +561,24 @@ The sigil shorthand is only for `self`; other parameters put the sigil
 on the type (`other: ?Point`). A drop body is written like a method
 with the receiver `!self` and no name: `drop(!self)`. `pub` before a
 field or method exports it: `pub x: Int`, `pub fun sum(?self) -> Int`.
+
+`unique` after the name (or the type parameters) declares a unique
+struct, whose values move instead of copying
+([SPEC](SPEC.md#copy-values-and-owning-values)):
+
+```rig
+struct Ticket unique
+  id: Int
+
+sub main
+  t = Ticket(id: 7)
+  u = <t
+  print(u.id)
+```
+
+```output
+7
+```
 
 ### Enums
 
@@ -1427,7 +1447,7 @@ sub       = "sub" name [tparams] [params] ["!"] block
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
 params    = "(" [param, ...] ")"
 param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "self"
-struct    = "struct" name [tparams] INDENT member* DEDENT
+struct    = "struct" name [tparams] ["unique"] INDENT member* DEDENT
 enum      = "enum" name [tparams] INDENT member* DEDENT
 member    = ["pub"] (field | fun | sub) | variant | "drop" params block
 field     = name ":" type ["=" expr]

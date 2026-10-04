@@ -1,0 +1,32 @@
+# `<a` hands a value that holds a Cell over whole, Cell and all, and a
+# shared handle to one is cloned as a count.
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+fun take(c: Counter) -> Int
+  c.hit()
+  c.hits.get()
+
+sub main()
+  a = Counter(hits: Cell(1))
+  b = <a
+  b.hit()
+  print(take(<b))
+  c = Cell(10)
+  d = <c
+  d.set(11)
+  print(d.get())
+  h = *Counter(hits: Cell(0))
+  g = +h
+  g.hit()
+  h.hit()
+  print(h.hits.get(), g.hits.get())
+
+# expect:
+# 3
+# 11
+# 2 2

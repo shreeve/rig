@@ -4,8 +4,9 @@
 Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
-`drop`), plus the stores into a borrowed parameter (`store.`, below).
-The rule is the corpus's: `rig check` rejects the program with
+`drop`, a struct holding a Cell, a struct declared `unique`), plus the
+stores into a borrowed parameter (`store.`, below). The rule is the
+corpus's: `rig check` rejects the program with
 a file:line:col diagnostic, or it runs clean under the sanitizer (no leak,
 no use of freed memory, no Zig compile error, no crash).
 
@@ -58,6 +59,11 @@ TYPES = {
     "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
     "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
+    # A struct that holds a Cell (`poke` changes it through the binding),
+    # and one declared `unique`.
+    "cell": dict(ty="Counter", decls="struct Counter\n  hits: Cell[Int]\n\n  sub hit(?self)\n    self.hits.set(self.hits.get() + 1)\n",
+                 mk="Counter(hits: Cell(n))", ctor="Counter(hits: Cell(5))", poke="e.hit()"),
+    "unique": dict(ty="U", decls="struct U unique\n  v: Int\n", mk="U(v: n)", ctor="U(v: 5)"),
     # A payload enum: `== .variant` tests the variant.
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: Vec[Int])\n",
                  mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
@@ -102,6 +108,12 @@ CONTEXTS = {
     "elem_index_call": dict(block="vs[grow(!vs)] = E", needs="vs", after="print(vs.len)"),
     "match_subject": dict(inline="match E\n    y => print(look(?y))"),
     "for_source": dict(inline="for e in ?E\n    print(e)"),
+    # A loop over an array made in its header, which it takes.
+    "for_literal": dict(inline="for e in [E, mk(6)]\n    @POKE\n    print(look(?e))"),
+    # A loop over a branch whose arms are arrays: each element is a copy.
+    "for_branch": dict(inline="for e in ([E, mk(6)] if c else [mk(7), mk(8)])\n    @POKE\n    print(look(?e))"),
+    # A match on a part of a made value.
+    "match_part": dict(inline="match H(f: E).f\n    y\n      @POKY\n      print(look(?y))"),
     # A method that consumes its receiver (`<self`, `Box.unbox`).
     "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
     # `none` and a bare `.variant` test a value and drop it if no name holds it.
@@ -262,7 +274,11 @@ def program(tname, fname, cname):
         e = form
         if cname in ("borrow_arg", "for_source") and " " in e:
             e = f"({e})"
-        body.append(text.replace("E", e))
+        # `@POKE` and `@POKY` stand for the type's change through the loop
+        # or match binding, or `pass`; they are replaced before `E` is.
+        poke = t.get("poke", "pass")
+        text = text.replace("@POKY", "@Y").replace("@POKE", "@P")
+        body.append(text.replace("E", e).replace("@Y", poke.replace("e.", "y.")).replace("@P", poke))
     if "after" in ctx:
         body.append(ctx["after"])
     if not returns:

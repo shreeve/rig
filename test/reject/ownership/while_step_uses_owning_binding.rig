@@ -12,4 +12,4 @@ sub main()
     print(b.n)
   print(t)
 
-# error: the loop step cannot use `b`: it owns a `*B`
+# error: the loop step cannot use `b`: the body owns this `*B`

@@ -40,7 +40,7 @@ sub main()
   sort.sort(!empty)
   print(sort.search(?empty, 1), sort.lower_bound(?empty, 1))
 
-  r = random.Rng.seeded(3)
+  r = random.Random.seeded(3)
   ok = true
   for n in [0, 1, 2, 19, 20, 21, 39, 40, 41, 100, 257, 1000]
     v: Vec[Int] = Vec()

@@ -1,0 +1,23 @@
+# A write view of a plain enum reads as the enum's value, as a write
+# view of an `Int` does: `c = w` copies the value `w` reaches.
+
+enum Color
+  red
+  blue
+
+sub paint(w: !Color)
+  c = w
+  n: Int = 0
+  m = !n
+  k = m
+  w = .blue
+  print(c, k)
+
+sub main
+  x = Color.red
+  paint(!x)
+  print(x)
+
+# expect:
+# .red 0
+# .blue

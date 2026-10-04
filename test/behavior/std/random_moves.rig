@@ -1,13 +1,13 @@
-# An `Rng` moves, so no two owners draw the same stream by accident;
+# A `Random` moves, so no two owners draw the same stream by accident;
 # `fork` makes a second generator, seeded from the first, on purpose.
 use std.random
 
-fun roll(r: random.Rng) -> Int
+fun roll(r: random.Random) -> Int
   g = <r
   !g.int(1, 7)
 
 sub main()
-  r = random.Rng.seeded(5)
+  r = random.Random.seeded(5)
   a = <r
   first = !a.next()
   child = !a.fork()

@@ -1278,7 +1278,7 @@ pub const Emitter = struct {
                 try self.emitBorrowOf(expr);
             } else if (holds_ptr) {
                 try self.emitBorrowValue(expr);
-            } else try self.emitBare(expr);
+            } else try self.emitBareAs(expr, ty);
         }
 
         const stored = try self.declare(local, self.srcText(name_node));
@@ -1341,7 +1341,7 @@ pub const Emitter = struct {
         const kind = local.kind orelse {
             try self.writeLocalPlace(&local);
             try self.w.writeAll(" = ");
-            try self.emitBare(value);
+            try self.emitBareAs(value, local.ty);
             try self.w.writeAll(";");
             return;
         };
@@ -1403,7 +1403,7 @@ pub const Emitter = struct {
             const order = try self.openAssign(target, value, place_ty, .value);
             try self.emitPlace(target);
             try self.w.writeAll(" = ");
-            try self.emitBare(value);
+            try self.emitBareAs(value, place_ty);
             try self.w.writeAll(";");
             return self.closeAssign(order);
         }
@@ -1657,7 +1657,7 @@ pub const Emitter = struct {
     /// position (directly, or through `if`/`match` branches) are moved
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
-        if (self.fun.return_ty) |r| if (self.isPtrBorrowTy(self.unwrapOptional(r))) return self.emitBorrowValue(value);
+        if (self.fun.return_ty) |r| if (self.isPtrBorrowTy(self.unwrapOptionals(r))) return self.emitBorrowValue(value);
         try self.markReturningBlocks(value);
         self.bare = true;
         try self.emitValue(value, true);
@@ -3125,9 +3125,9 @@ pub const Emitter = struct {
     }
 
     /// A read borrow of a scalar or a view is a copy
-    /// (`sema.readBorrowCopies`); anything else is lent by address.
+    /// (`sema.lendByValue`); anything else is lent by address.
     fn readBorrowIsPtr(self: *Emitter, inner: TypeId) bool {
-        return !sema.readBorrowCopies(self.sema, inner);
+        return !sema.lendByValue(self.sema, inner);
     }
 
     /// The `T` of a read borrow `?T` whose form depends on a generic
@@ -3179,7 +3179,7 @@ pub const Emitter = struct {
     /// `e` yielded where a value of `ty` goes: a borrow yielded where a
     /// borrow or an optional borrow goes stays a borrow.
     fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
-        if (ty) |t| if (self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptional(t))) return self.emitBorrowValue(e);
+        if (ty) |t| if (self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptionals(t))) return self.emitBorrowValue(e);
         // A branch's String is a slice, so a literal in one branch and a
         // slice in another have one Zig type.
         if (ty) |t| if (self.unwrapOptional(t) == self.sema.types.string_id) {
@@ -3191,6 +3191,22 @@ pub const Emitter = struct {
             return self.w.writeAll(")");
         };
         try self.emitValue(e, true);
+    }
+
+    /// `e` where a value of type `target` goes: a view held by pointer
+    /// lifted into an optional of that view is the pointer itself, never
+    /// the value it reaches.
+    fn emitBareAs(self: *Emitter, e: Sexp, target: ?TypeId) Error!void {
+        if (target) |t| if (self.sema.types.get(t) == .optional and self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptionals(t))) return self.emitBorrowValue(e);
+        try self.emitBare(e);
+    }
+
+    /// The type `ty` holds under every level of optional; any other type
+    /// itself.
+    fn unwrapOptionals(self: *Emitter, ty: TypeId) TypeId {
+        var inner = ty;
+        while (self.sema.types.get(inner) == .optional) inner = self.sema.types.get(inner).optional;
+        return inner;
     }
 
     /// The type an optional `ty` holds; any other type itself.
@@ -3317,23 +3333,33 @@ pub const Emitter = struct {
             .clone => {
                 // `+b` of a borrowed handle clones the handle it borrows.
                 const operand = ir.Clone.operand(sexp);
-                const kind: ?ResourceKind = if (self.typeOf(operand)) |t| self.kindOf(self.peelBorrows(t)) else null;
-                if (kind == .optional) {
-                    try self.w.writeAll("rig.cloneOptional(");
-                    try self.emitBare(operand);
-                    return self.w.writeAll(")");
+                const ty = self.typeOf(operand).?;
+                switch (sema.cloneable(self.sema, ty)) {
+                    .bump => switch (self.sema.types.get(self.peelBorrows(ty))) {
+                        .optional => {
+                            try self.w.writeAll("rig.cloneOptional(");
+                            try self.emitBare(operand);
+                            try self.w.writeAll(")");
+                        },
+                        .shared => {
+                            try self.emitExpr(operand);
+                            try self.w.writeAll(".cloneStrong()");
+                        },
+                        else => {
+                            try self.emitExpr(operand);
+                            try self.w.writeAll(".cloneWeak()");
+                        },
+                    },
+                    // `+t` of a Text copies its bytes.
+                    .text => {
+                        try self.emitExpr(operand);
+                        try self.w.writeAll(".clone()");
+                    },
+                    // A generic `T` is cloned only where each instance
+                    // copies, so it is copied.
+                    .copy, .depends => try self.emitExpr(operand),
+                    .no => return self.unsupported(sexp, "a clone of a value that moves"),
                 }
-                // `+t` of a Text copies its bytes.
-                if (self.peelBorrows(self.typeOf(operand).?) == self.sema.types.text_id) {
-                    try self.emitExpr(operand);
-                    return self.w.writeAll(".clone()");
-                }
-                // A generic `T` is cloned only where each instance is plain
-                // data, so it is copied.
-                if (kind == .value and !sema.maybeDropGlue(self.sema, self.peelBorrows(self.typeOf(operand).?))) return self.unsupported(sexp, "a clone of a value with drop glue");
-                try self.emitExpr(operand);
-                if (kind == .shared) try self.w.writeAll(".cloneStrong()");
-                if (kind == .weak) try self.w.writeAll(".cloneWeak()");
             },
             .weak => {
                 try self.emitExpr(ir.Weak.operand(sexp));
@@ -3625,8 +3651,12 @@ pub const Emitter = struct {
         const n = array_len orelse {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
-            // is assigned through.
-            if (as_place) {
+            // is assigned through. An element that holds a Cell, or may in
+            // a generic instance, is reached where it is: a `?self` method
+            // or a Cell on it changes the element, not a copy.
+            const elem_ty = self.typeOf(sexp);
+            const in_place = if (elem_ty) |t| sema.holdsCellByValue(self.sema, t) or sema.maybeDropGlue(self.sema, t) else false;
+            if (as_place or in_place) {
                 try self.w.writeAll("rig.elemPtr(");
                 try self.emitIndexBase(base, base_ty, .bare);
                 try self.w.writeAll(", ");
@@ -3689,6 +3719,12 @@ pub const Emitter = struct {
             if (how == .address) try self.w.writeAll("&");
             try self.emitMemberBase(base, t);
             return self.writeReach(t);
+        };
+        // A generic view of an array (`rig.ReadBorrow([n]T)`, a pointer
+        // or a copy as the instance decides) is indexed as it is: indexing
+        // a copy of the whole array would lend its element from the copy.
+        if (how == .expr and base == .src) if (self.localOf(base)) |local| if (local.is_ptr and local.ty != null and self.genericReadBorrow(local.ty.?) != null) {
+            return self.w.writeAll(local.zig_name);
         };
         switch (how) {
             .expr => try self.emitExpr(base),
@@ -4412,7 +4448,7 @@ pub const Emitter = struct {
             return self.emitBare(value);
         }
         if (i < params.len and self.isPtrBorrowTy(params[i])) return self.emitBorrowValue(value);
-        try self.emitBare(value);
+        try self.emitBareAs(value, if (i < params.len) params[i] else null);
     }
 
     /// The number of compile-time arguments a call passes: those `given`
@@ -4519,6 +4555,7 @@ pub const Emitter = struct {
         // and a Cell a read borrow may change must not be in one.
         if (self.receiverOf(call)) |recv| if ((!isPlace(recv) and recv.kind() != .move and self.receiverWrites(call)) or self.sema.lendsCellTemp(unborrowed(recv))) return true;
         for (args) |a| if (argValue(a).isKind(.read) and self.sema.lendsCellTemp(ir.Read.operand(argValue(a)))) return true;
+        for (args) |a| if (self.sema.arrayViewOf(argValue(a)) == .temporary and self.sema.lendsCellTemp(argValue(a))) return true;
         var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or self.consumedTemporary(call) != null;
         for (args) |a| {
             const v = argValue(a);
@@ -4713,9 +4750,15 @@ pub const Emitter = struct {
         }
         const ty = self.typeOf(h.node);
         const ptr = slot < params.len and self.isPtrBorrowTy(params[slot]);
-        const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
+        // A temporary array lent as a slice stays in its slot, which owns
+        // nothing to release: an array holds no value that needs cleanup.
+        const lent_array = self.sema.arrayViewOf(h.node) == .temporary;
+        const kind: ?ResourceKind = if (ptr or lent_array) null else if (ty) |t| self.kindOf(t) else null;
+        // A temporary array whose elements hold a Cell is lent from a
+        // mutable slot, never from constant memory.
+        const mutable = lent_array and self.sema.lendsCellTemp(h.node);
         try self.writeIndent(self.indent);
-        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
+        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or mutable) "var" else "const", h.name });
         // The value alone may have no Zig type (`.empty`, `null`, a
         // literal). A borrow read through is read here, in argument order.
         // A box lent as its value has the parameter's type.
@@ -4727,6 +4770,7 @@ pub const Emitter = struct {
         try self.w.writeAll(" = ");
         if (fields) try self.emitStored(h.node) else if (self.sema.arrayViewOf(h.node) == .temporary) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
         try self.w.writeAll(";\n");
+        if (mutable) try self.line("_ = &{s};", .{h.name});
         const k = kind orelse return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
         try self.line("var {s} = true;", .{h.flag});
         try self.writeIndent(self.indent);
@@ -4906,7 +4950,7 @@ pub const Emitter = struct {
             else => false,
         };
         const ty = self.typeOf(a) orelse return false;
-        return place and self.kindOf(self.peelBorrows(ty)) != null;
+        return place and sema.readByAddress(self.sema, self.peelBorrows(ty));
     }
 
     // =========================================================================
@@ -5379,12 +5423,14 @@ pub const Emitter = struct {
         return null;
     }
 
-    /// How a value of this type is released, or null for plain data.
-    /// Sema decides whether it owns anything (`typeHasDropGlue`, or
-    /// `maybeDropGlue` for values of a type parameter, which `rig.drop`
-    /// releases only if the instance needs it); this only picks the call.
+    /// How a value of this type that moves (`sema.moves`) is held and
+    /// released, or null for a value that copies. A value that moves gets
+    /// `var` storage, owned `as` and payload bindings, and an owned
+    /// closure environment; the kind picks its drop call. `rig.drop`
+    /// releases only what needs cleanup: a unique value, or a value of a
+    /// type parameter whose instance needs none, drops nothing.
     fn kindOf(self: *Emitter, ty: TypeId) ?ResourceKind {
-        if (!sema.typeHasDropGlue(self.sema, ty) and !sema.maybeDropGlue(self.sema, ty)) return null;
+        if (sema.moves(self.sema, ty) == .no) return null;
         return switch (self.sema.types.get(ty)) {
             .shared => .shared,
             .weak => .weak,

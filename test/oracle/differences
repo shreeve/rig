@@ -18,10 +18,14 @@ test/corpus/review-box-p117.rig main prod-rejects prod-strict `y = x` of a `for 
 test/corpus/review-box-p142.rig main prod-rejects prod-strict `new x = x` of a `for x in ?v` element view
 test/corpus/syntax-review-complete-g7.rig Map.find prod-rejects prod-strict returns a `for e in ?self.es` element view of the receiver
 
-# `<v[i]` of a plain element copies it (Core s1; SPEC: `<p.f` of a Copy
-# field copies), as the compiler already does for an `Int` element.
-test/reject/ownership/move_vec_element.rig main prod-rejects prod-strict `<v[0]` of a plain struct element
-test/corpus/t-mv4.rig main prod-rejects prod-strict `<v[0]` of a plain struct element
+# A type declared `unique` (std.random's Random, and a struct holding one)
+# moves (Core s1); the oracle reads it as plain data, so it accepts the
+# copy the compiler rejects.
+test/corpus/review-std-r5.rig roll prod-rejects ref-gap a bare use of a Random parameter copies a unique value
+test/corpus/review-std-r5.rig main prod-rejects ref-gap a bare use of a Random binding copies a unique value
+test/corpus/t1-rr.rig main prod-rejects ref-gap `a = r` copies a unique Random
+test/reject/std/random_holder_moves.rig main prod-rejects ref-gap `h = g` copies a struct holding a Random
+test/reject/std/random_not_copy.rig main prod-rejects ref-gap `a = r` copies a unique Random
 
 # Whether writing through a fixed `w =! !n` (`w = 5`, `w += 1`) reassigns
 # `w`: Core §6 forbids reassigning a const binding, and SPEC §7 says a

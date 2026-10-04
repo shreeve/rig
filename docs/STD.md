@@ -192,19 +192,19 @@ true
 
 ## std.random
 
-`Rng` is a small, fast pseudorandom generator (splitmix64), written in
+`Random` is a small, fast pseudorandom generator (splitmix64), written in
 Rig. Its state is one `U64`, which its methods change, so they take
-`!self`. An `Rng` moves (`a = <r`) and is never copied, since a copy
-would draw the same numbers as the original; `fork` makes a second
-generator on purpose. A seeded `Rng` gives the same sequence on every
+`!self`. A `Random` is unique (`struct Random unique`): it moves (`a = <r`)
+and is never copied, since a copy would draw the same numbers as the
+original; `fork` makes a second generator on purpose. A seeded `Random` gives the same sequence on every
 platform. It is not for cryptography.
 
 | Member | Result |
 |---|---|
-| `Rng.seeded(seed: U64) -> Rng` | a generator whose sequence `seed` fixes |
-| `Rng.new() -> Rng` | a generator seeded from the operating system's entropy, different on each run |
+| `Random.seeded(seed: U64) -> Random` | a generator whose sequence `seed` fixes |
+| `Random.new() -> Random` | a generator seeded from the operating system's entropy, different on each run |
 | `!r.next() -> U64` | the next 64 random bits |
-| `!r.fork() -> Rng` | a new generator, seeded from `r`'s next number |
+| `!r.fork() -> Random` | a new generator, seeded from `r`'s next number |
 | `!r.int(lo: Int, hi: Int) -> Int` | an `Int` from `lo` up to but not including `hi`, each equally likely, for any range up to `Int.min` to `Int.max`; panics unless `lo < hi` |
 | `!r.float() -> Float` | a `Float` from 0 up to but not including 1 |
 | `!r.shuffle(!xs)` | put the elements of the slice `xs` in a random order, each order equally likely |
@@ -213,8 +213,8 @@ platform. It is not for cryptography.
 use std.random
 
 sub main
-  r = random.Rng.seeded(2024)
-  again = random.Rng.seeded(2024)
+  r = random.Random.seeded(2024)
+  again = random.Random.seeded(2024)
   print(!r.next() == !again.next())
   roll = !r.int(1, 7)
   print(roll >= 1 and roll <= 6, !r.float() < 1.0)

@@ -1,0 +1,32 @@
+# A payload a match binds from a made value is the arm's copy: it is not
+# a view, and a view of it does not outlive the arm.
+
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter)
+  b
+
+struct H
+  e: E
+
+fun mkh(n: Int) -> H
+  H(e: E.a(c: Counter(hits: Cell(n))))
+
+fun mk(n: Int) -> [1]E
+  [E.a(c: Counter(hits: Cell(n)))]
+
+sub main()
+  one = [Counter(hits: Cell(1))]
+  saved = ?one[0]
+  match mkh(7).e
+    .a(c) => saved = c
+    .b => pass
+  match mk(7)[0]
+    .a(c) => saved = c
+    .b => pass
+  print(saved.hits.get())
+
+# error: 24:22: type mismatch: expected `?Counter`, got `Counter`
+# error: 27:22: type mismatch: expected `?Counter`, got `Counter`

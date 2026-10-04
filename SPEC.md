@@ -701,6 +701,30 @@ declares a `drop` body. Owning values have **drop glue**: code the compiler
 generates to release them. They move instead of copying, and the
 ownership rules of [§7](#7-ownership) apply to them.
 
+A **unique** value owns nothing to release but must not be copied: a
+struct declared `unique` (`struct Random unique`, a generator whose
+copy would repeat its numbers), or any struct, enum, array, or generic
+instance that holds one inline. It moves like an owning value, has no
+clone (`+x`) and no `==`, and nothing copies it out of a place; it has
+no drop glue, so an array may hold it and a discarded one is simply
+dropped. A loop that reads an array or slice binds a copy of each
+element, so a loop over unique elements writes each in place (`for x
+in !a`) or takes the array (`for x in <a`).
+
+```rig reject
+struct Seed unique
+  n: Int
+
+sub main
+  a = Seed(n: 1)
+  b = a
+  print(b.n)
+```
+
+```error
+would copy a unique value; use `<a` to move it
+```
+
 ---
 
 ## 3. Declarations
@@ -3499,8 +3523,8 @@ mutable value.
 | `c[i]`, `c[i] = x`, `c.get(i)` | a `Cell[Vec[T]]` of Copy `T`: an element, bounds-checked, or `T?` |
 
 `T` is a Copy primitive, plain data (a struct, enum, optional, or array
-that owns nothing and holds no borrow), or an owning type. An owning
-value is never copied out of a cell: it moves in with `set` / `replace` and moves out
+that owns nothing and holds no borrow), an owning type, or a type
+declared `unique`. An owning or unique value is never copied out of a cell: it moves in with `set` / `replace` and moves out
 with `replace`. What goes into a cell, by any of its members or
 `c[i] = x`, holds no borrow, nor a String that may view a Text
 ([§10](#text)), since every handle to the cell reaches it.
@@ -3518,9 +3542,14 @@ with `pop`, or by taking the whole Vec out with `replace`.
 
 A Cell is interior-mutable: `set` and `replace` change it through any
 path to it, including a read borrow (`?Cell[T]`), a `?self` method of a
-struct holding one, and a shared handle. A by-value parameter is
-immutable, and a loop or match binding is only a copy, so neither can
-be changed (or lent to something that could change it).
+struct holding one, and a shared handle. A by-value parameter holds the
+callee's own value, and is immutable: `set` and `replace` are not
+called on a Cell reached from the parameter itself (`c.hits.set(v)`
+with `c: Counter`), though a `?self` method may change it and it may be
+lent (`bump(?c)`). A loop or match binding holds a copy of the element
+or payload it binds, so nothing changes a Cell through it: a `?self`
+method that may change one, a lend, `set`, and `replace` on it are
+rejected, since the change would reach only the copy.
 
 ```rig
 struct Counter

@@ -1,0 +1,8 @@
+# Only a struct is declared `unique`; an enum is unique when a payload
+# holds a unique value.
+
+enum Coin unique
+  heads
+  tails
+
+# error: 4:11: unexpected name `unique`; expected an indented block or `[`

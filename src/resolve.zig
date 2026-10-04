@@ -80,7 +80,8 @@ const SymbolResolver = struct {
             .use => try self.walkUse(sexp),
             .type => try self.walkTypeAlias(sexp),
             .generic_struct, .generic_enum => try self.walkGenericType(sexp),
-            .@"struct", .@"enum" => try self.walkNominalType(sexp, .{}),
+            .@"struct" => try self.walkNominalType(sexp, .{ .unique = ir.Struct.unique(sexp) != .nil }),
+            .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
             .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
             .zig_extern => {
@@ -337,7 +338,8 @@ const SymbolResolver = struct {
     /// A `generic_struct` or `generic_enum`.
     fn walkGenericType(self: *SymbolResolver, node: Sexp) Error!void {
         const name_node = ir.get(node, .name);
-        const id = (try self.declare(name_node, .generic_type, .{})) orelse return;
+        const unique = node.isKind(.generic_struct) and ir.GenericStruct.unique(node) != .nil;
+        const id = (try self.declare(name_node, .generic_type, .{ .unique = unique })) orelse return;
         const name = self.ctx.symbols.items[id].name;
         const params = ir.get(node, .tparams);
         var ids: std.ArrayList(SymbolId) = .empty;
@@ -654,7 +656,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             defer held.deinit(ctx.allocator);
             try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
             for (held.items) |param| {
-                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .plain, .pos = ctx.startOf(c.node), .op = "keeps in an array a value" });
+                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .no_cleanup, .pos = ctx.startOf(c.node), .op = "keeps in an array a value" });
             }
         },
         // A slice views plain data only: arrays hold nothing else, and a
@@ -668,7 +670,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             defer held.deinit(ctx.allocator);
             try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
             for (held.items) |param| {
-                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .plain, .pos = ctx.startOf(c.node), .op = "views in a slice a value" });
+                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .no_cleanup, .pos = ctx.startOf(c.node), .op = "views in a slice a value" });
             }
         },
         .builtin => |c| if (try builtinElementError(ctx, c.sym, c.args)) |msg| try ctx.err(c.pos, "{s}", .{msg}),
@@ -1860,7 +1862,7 @@ pub const TypeResolver = struct {
         const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(mod_id) orelse return false) orelse return false;
         const name = identAt(self.ctx.source, ir.Member.name(node)) orelse return false;
         const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
-            try self.ctx.errAt(node, "no member `{s}` in module `{s}`", .{ name, module_name });
+            try self.ctx.errAt(node, "no member `{s}` in module `{s}`{s}", .{ name, module_name, sema.stdNameHint(foreign, name) });
             return true;
         };
         const fsym = foreign.symbols.items[fid];
@@ -1983,7 +1985,7 @@ pub const TypeResolver = struct {
         const origin = self.ctx.module_refs.get(mod_id) orelse return null;
         const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
         const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
-            try self.ctx.err(pos, "no type `{s}` in module `{s}`", .{ name, module_name });
+            try self.ctx.err(pos, "no type `{s}` in module `{s}`{s}", .{ name, module_name, sema.stdNameHint(foreign, name) });
             return null;
         };
         return .{ .foreign = foreign, .origin = origin, .id = fid, .sym = foreign.symbols.items[fid], .module_name = module_name, .name = name, .pos = pos };
@@ -2114,8 +2116,8 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const a = ctx.arena.allocator();
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
-        if (sema.isCopyElement(ctx, args[0]) or sema.typeHasDropGlue(ctx, args[0])) return null;
-        return try a.print("`Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), or a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`); got `{s}`", .{arg});
+        if (sema.isCopyElement(ctx, args[0]) or sema.moves(ctx, args[0]) == .yes) return null;
+        return try a.print("`Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`), or a type declared `unique`; got `{s}`", .{arg});
     }
     if (sym_id == ctx.vec_sym_id) {
         const ok = sema.isCopyElement(ctx, args[0]) or switch (ctx.types.get(args[0])) {
