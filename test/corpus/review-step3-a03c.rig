@@ -1,0 +1,26 @@
+struct Bag
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+error Bad
+  boom
+
+fun two(a: ?Bag, b: ?Bag) -> Int
+  a.n + b.n
+
+fun mk(n: Int) -> Bag
+  Bag(n: n)
+
+fun mkf(n: Int) -> Bag!
+  if n > 5
+    return Bad.boom
+  Bag(n: n)
+
+fun run(n: Int) -> Int!
+  two(mk(1), ?mkf(n)!)
+
+sub main
+  print(run(2) catch -1)
+  print(run(9) catch -1)

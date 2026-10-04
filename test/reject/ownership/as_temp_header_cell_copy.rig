@@ -1,0 +1,23 @@
+# `if … as` over a view a call returns, whose header makes a temporary,
+# would bind a copy of a Cell holder inside the optional, and a change
+# to its Cell would be lost: it is rejected.
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct H
+  o: Counter?
+
+fun geto(h: ?H, n: Int) -> ?Counter?
+  ?h.o
+
+sub main
+  h = H(o: Counter(hits: Cell(1)))
+  if geto(h, Text("xyz").len) as c
+    c.hit()
+  print(h)
+
+# error: 19:6: `as` would bind a copy of the `Counter` inside this optional

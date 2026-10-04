@@ -1,0 +1,16 @@
+# A branching left operand of `!=` holds each place it may be until
+# the right operand has run.
+
+fun grow(t: !Text) -> Text
+  for _ in 0..100
+    !t.add("abcdefgh")
+  Text("x")
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  c = true
+  print((a if c else b) != grow(!a))
+
+# error: 13:34: cannot lend `a` to write while the left operand's read of it is in use
+# errors: 1

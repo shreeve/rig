@@ -1,0 +1,23 @@
+struct P
+  x: Int
+  y: Int
+
+enum E
+  a(p: P)
+  b(p: P)
+
+fun inner(e: ?E) -> ?P
+  match e
+    .a(p) => ?p
+    .b(p) => ?p
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1] + b[2]
+
+sub main
+  e = E.a(p: P(x: 1, y: 2))
+  x = inner(?e)
+  print(clobber(1000))
+  print(x.x, x.y)

@@ -1,0 +1,22 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum E
+  a(r: Res)
+  b
+
+struct H
+  e: E
+
+fun mkh(n: Int) -> H
+  H(e: E.a(r: Res(n: n)))
+
+sub main
+  match mkh(5).e
+    .a(r) if r.n > 9 => print("big", r.n)
+    .a(r) => print("small", r.n)
+    .b => pass
+  print("end")

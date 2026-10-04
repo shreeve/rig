@@ -1,0 +1,9 @@
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = *<v
+  g = +h
+  for x in h
+    -h
+    print(x)
+  print("x")

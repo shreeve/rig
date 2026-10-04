@@ -1,0 +1,15 @@
+sub eat(v: Vec[Int]?)
+  print("eat")
+
+sub main
+  o: Vec[Int]? = Vec()
+  k = 0
+  while o as x
+    print(x.len, k)
+    eat(<o)
+    k += 1
+    if k < 3
+      o = Vec()
+    else
+      o = none
+  print("end")

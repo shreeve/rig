@@ -1,0 +1,14 @@
+struct S
+  n: Int
+  t: Text
+
+fun first(s: String) -> String
+  s
+
+sub main
+  b = Box(Box(S(n: 1, t: Text("x"))))
+  b.t = Text("new")
+  print(first(b.t))
+  r = first(b.t)
+  b.t = Text("again and again and again")
+  print(b.t)

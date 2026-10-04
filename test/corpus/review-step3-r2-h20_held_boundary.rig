@@ -1,0 +1,36 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct H
+  arr: [2]Counter
+
+struct V
+  s: []Int
+  arr: [2]Counter
+
+fun mkh(n: Int) -> H
+  H(arr: [Counter(hits: Cell(n)), Counter(hits: Cell(n + 1))])
+
+fun mkf(f: ?fun(Int) -> Int) -> H
+  H(arr: [Counter(hits: Cell(f(1))), Counter(hits: Cell(f(2)))])
+
+fun mks(xs: []Int) -> H
+  H(arr: [Counter(hits: Cell(xs.len)), Counter(hits: Cell(0))])
+
+fun mkv(xs: []Int) -> V
+  V(s: xs, arr: [Counter(hits: Cell(xs.len)), Counter(hits: Cell(0))])
+
+sub main
+  k = 10
+  for c in mkf(|?k, x: Int| x + k).arr
+    c.hit()
+    print("f", c.hits.get())
+  n = 3
+  for c in mks([n, n, n]).arr
+    print("s", c.hits.get())
+  match mkh(mkh(1).arr[0].hits.get()).arr[1].hits.get()
+    3 => print("three")
+    _ => print("other")

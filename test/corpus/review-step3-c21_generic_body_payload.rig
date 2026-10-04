@@ -1,0 +1,18 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun peek[T](o: ?Opt[T]) -> Int
+  match o
+    .some(v) => 1
+    .nothing => 0
+
+sub main
+  o: Opt[Counter] = .some(v: Counter(hits: Cell(1)))
+  print(peek(o))

@@ -1,0 +1,14 @@
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  n = 0
+  for _ in v
+    n += 1
+    if n < 50
+      !v.push(n)
+  for x in v
+    print(x)
+    if n < 50
+      !v.push(n)
+  print(v.len)

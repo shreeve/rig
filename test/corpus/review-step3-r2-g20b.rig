@@ -1,0 +1,17 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct H
+  o: Counter?
+
+fun geto(h: ?H, n: Int) -> ?Counter?
+  ?h.o
+
+sub main
+  h = H(o: Counter(hits: Cell(1)))
+  if geto(?h, Text("xyz").len) as c
+    c.hit()
+  print(h)

@@ -1,0 +1,31 @@
+struct Res
+  n: Int
+  t: Text
+
+fun first(v: ?Vec[Box[Res]], d: ?Box[Res]) -> ?Box[Res]
+  for b in v
+    return ?b
+  d
+
+fun firsth(v: ?Vec[*Res], d: ?*Res) -> ?*Res
+  for h in v
+    return ?h
+  d
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  v: Vec[Box[Res]] = Vec()
+  !v.push(Box(Res(n: 5, t: Text("five"))))
+  d = Box(Res(n: 0, t: Text("d")))
+  x = first(?v, ?d)
+  print(clobber(1000))
+  print(x.n, x.t)
+  hv: Vec[*Res] = Vec()
+  !hv.push(*Res(n: 6, t: Text("six")))
+  hd = *Res(n: 0, t: Text("d"))
+  y = firsth(?hv, ?hd)
+  print(clobber(1000))
+  print(y.n, y.t)

@@ -18,7 +18,7 @@ sub main()
     .full(b) => eat(<b)
     .empty => print(0)
   match s
-    .full(b) => eat(<b)
+    .full(b) => print(b.payload)
     .empty => print(0)
 
 # error: 20:9: use of `s` after move

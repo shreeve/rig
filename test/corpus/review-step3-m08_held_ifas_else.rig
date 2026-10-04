@@ -1,0 +1,27 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Bag
+  o: Res?
+  p: Res?
+
+fun mk(n: Int) -> Bag
+  Bag(o: Res(n: n), p: none)
+
+sub main
+  if mk(1).p as r
+    print("in", r.n)
+  else
+    print("else")
+  if mk(2).o as r
+    print("in", r.n)
+  else
+    print("else")
+  x = if mk(3).o as r
+    r.n
+  else
+    0
+  print(x)

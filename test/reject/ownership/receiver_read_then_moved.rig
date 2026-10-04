@@ -1,0 +1,25 @@
+# A read receiver that is no place is held until the call runs: a later
+# argument cannot move what it may be.
+
+struct P
+  v: Vec[Int]
+
+  fun sum(?self, k: Int) -> Int
+    self.v[0] + k
+
+fun mk(k: Int) -> P
+  v: Vec[Int] = Vec()
+  !v.push(k)
+  P(v: <v)
+
+fun takep(p: P) -> Int
+  p.v[0]
+
+sub main
+  a = mk(1)
+  b = mk(2)
+  c = true
+  print((a if c else b).sum(takep(<a)))
+
+# error: 22:36: cannot move `a` while the receiver's read of it is in use
+# errors: 1

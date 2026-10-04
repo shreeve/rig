@@ -1,0 +1,8 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main
+  a = Counter(hits: Cell(0))
+  f = |+a| a.hits.set(5)
+  f()
+  print(a.hits.get())

@@ -1,0 +1,11 @@
+sub main
+  bt = Box(Text("ab"))
+  for b in bt
+    print(b)
+  h = *Text("cd")
+  for b in h
+    print(b)
+  o: Text? = Text("ef")
+  if o as s
+    for b in s
+      print(b)

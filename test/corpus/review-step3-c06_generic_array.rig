@@ -1,0 +1,19 @@
+struct Counter
+  hits: Cell[Int]
+
+fun dup[T](x: ?T) -> [2]T
+  [x, x]
+
+fun dup2[T](x: T) -> T
+  y = x
+  y
+
+fun firstof[T](xs: []T) -> T
+  xs[0]
+
+sub main
+  a = Counter(hits: Cell(0))
+  d = dup(?a)
+  arr = [Counter(hits: Cell(1))]
+  f = firstof(?arr)
+  e = dup2(<a)

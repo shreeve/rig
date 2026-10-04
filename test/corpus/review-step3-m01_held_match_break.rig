@@ -1,0 +1,39 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum E
+  a(r: Res)
+  b
+
+struct H
+  e: E
+  tag: Int
+
+fun mkh(n: Int) -> H
+  H(e: E.a(r: Res(n: n)), tag: n)
+
+fun run() -> Int
+  match mkh(5).e
+    .a(r)
+      if r.n == 5
+        return r.n
+      print("no")
+    .b => pass
+  0
+
+sub main
+  for i in 0..3
+    match mkh(i).e
+      .a(r)
+        if r.n == 0
+          continue
+        if r.n == 2
+          break
+        print("got", r.n)
+      .b => pass
+    print("i", i)
+  print(run())
+  print("end")

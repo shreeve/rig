@@ -1,0 +1,23 @@
+struct Res
+  n: Int
+  t: Text
+
+enum Pair[T]
+  a(r: Res, v: T)
+  b(r: Res)
+
+fun peek[T](o: ?Pair[T]) -> ?Res
+  match o
+    .a(r, _) => r
+    .b(r) => r
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1] + b[1]
+
+sub main
+  o: Pair[Int] = .a(r: Res(n: 7, t: Text("seven")), v: 1)
+  x = peek(o)
+  print(clobber(1000))
+  print(x.n, x.t)

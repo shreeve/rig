@@ -1,0 +1,24 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+sub main
+  match [E.a(c: Counter(hits: Cell(0))), E.b][0]
+    .a(c)
+      c.hit()
+      c.hit()
+      print(c.hits.get())
+    .b => pass
+  for k in [[Counter(hits: Cell(0)), Counter(hits: Cell(5))]][0]
+    k.hit()
+    print(k.hits.get())
+  n = 0
+  for k in [[Counter(hits: Cell(0)), Counter(hits: Cell(5))], [Counter(hits: Cell(9))  , Counter(hits: Cell(9))]][n + 1]
+    k.hit()
+    print(k.hits.get())

@@ -1,0 +1,25 @@
+# A field of a value that is no place, used as a receiver, is read
+# where the value is: a later argument cannot lend what the value may
+# be to write.
+
+struct P
+  v: Vec[Int]
+
+fun mk(k: Int) -> P
+  v: Vec[Int] = Vec()
+  !v.push(k)
+  P(v: <v)
+
+fun growp(p: !P) -> Int
+  for i in 0..100
+    !p.v.push(i)
+  0
+
+sub main
+  a = mk(1)
+  b = mk(2)
+  c = true
+  print((a if c else b).v.get(growp(!a)))
+
+# error: 22:38: cannot lend `a` to write while the receiver's read of it is in use
+# errors: 1

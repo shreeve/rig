@@ -1,0 +1,42 @@
+# A header that holds the value it makes, of which its subject is a part
+# that is not plain data, keeps that value for the whole construct; a
+# temporary made inside it would end with the header while the held
+# value, and what it views, lives on. Such a header is rejected: bind
+# the value to a name first. (A part of plain data is read in the
+# header: header_plain_part_temporary.rig.)
+
+struct Res
+  n: Int
+  t: Text
+
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter)
+  b
+
+struct H
+  e: E
+  arr: [2]Counter
+  o: Counter?
+
+fun mkh(r: ?Res) -> H
+  H(e: E.a(c: Counter(hits: Cell(r.n))), arr: [Counter(hits: Cell(r.n)), Counter(hits: Cell(2))], o: Counter(hits: Cell(r.n)))
+
+fun mkres(n: Int) -> Res
+  Res(n: n, t: Text("abc"))
+
+sub main
+  match mkh(?mkres(1)).e
+    .a(c) => print("a", c.hits.get())
+    .b => pass
+  for k in mkh(mkres(3)).arr
+    print("k", k.hits.get())
+  if mkh(?mkres(5)).o as c
+    print("o", c.hits.get())
+
+# error: 31:9: this header holds `mkh(?mkres(1))` for its construct, but a temporary made inside it ends with the header; bind `mkh(?mkres(1))` to a name first
+# error: 34:12: this header holds `mkh(mkres(3))`
+# error: 36:6: this header holds `mkh(?mkres(5))`
+# errors: 3

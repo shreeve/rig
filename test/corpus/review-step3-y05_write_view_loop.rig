@@ -1,0 +1,13 @@
+struct S
+  v: Vec[Int]
+
+sub go(w: !S)
+  for x in w.v
+    if x < 50
+      !w.v.push(x + 1)
+    print(x)
+
+sub main
+  s = S(v: Vec())
+  !s.v.push(1)
+  go(!s)

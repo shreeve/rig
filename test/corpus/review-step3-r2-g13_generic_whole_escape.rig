@@ -1,0 +1,17 @@
+struct Res
+  n: Int
+  t: Text
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun whole[T](o: ?Opt[T]) -> ?Opt[T]
+  match o
+    .nothing => o
+    x => ?x
+
+sub main
+  o: Opt[Res] = .some(v: Res(n: 7, t: Text("seven")))
+  x = whole(o)
+  print(x)

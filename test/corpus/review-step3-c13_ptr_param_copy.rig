@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+sub take(c: Counter)
+  c.hits.set(9)
+
+sub main
+  a = Counter(hits: Cell(1))
+  r = ?a
+  take(r)
+  take(a)
+  print(a.hits.get())

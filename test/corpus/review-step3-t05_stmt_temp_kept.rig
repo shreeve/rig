@@ -1,0 +1,13 @@
+struct Res
+  n: Int
+  t: Text
+
+fun id(r: ?Res) -> ?Res
+  r
+
+fun mkres(n: Int) -> Res
+  Res(n: n, t: Text("abc"))
+
+sub main
+  x = id(mkres(1))
+  print(x.n)

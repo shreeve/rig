@@ -1,0 +1,28 @@
+# A Cell of plain data, alone or in a struct, is unique (Core §1), so
+# `print` reads it where it is, when the call runs, as it reads a Cell of
+# a Vec (print_reads_cell_after_later_set.rig): a later argument that
+# changes the Cell through a read lend shows in what is printed.
+struct K
+  hits: Cell[Int]
+
+fun bump(k: ?K) -> Int
+  k.hits.set(99)
+  1
+
+fun bump2(c: ?Cell[Int]) -> Int
+  c.set(7)
+  2
+
+sub main
+  k = K(hits: Cell(1))
+  print(k, bump(?k))
+  print(k)
+  c = Cell(1)
+  print(c.get(), c, bump2(?c))
+  print(c)
+
+# expect:
+# K(hits: Cell(value: 99)) 1
+# K(hits: Cell(value: 99))
+# 1 Cell(value: 7) 2
+# Cell(value: 7)

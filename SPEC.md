@@ -2392,9 +2392,16 @@ written, as `!e` does, and while one of its bindings is live `e` cannot
 be used otherwise. `match <e` needs a value `e` owns, not a borrow. A
 boxed enum is matched where the box holds it, `match b` (as `match ?b`)
 or `match !b` ([§10](#box)), and so is the value a handle holds,
-`match h`, which reads it. A match on a part of a value made there
-(`match mk().e`) holds that value until the match ends, so its payloads
-are read where they are.
+`match h`, which reads it. A read binding that is not plain data is a
+view (`?F`) of the field where it is, and it is usable within its arm
+only: it may be read, lent to a call, and have its `Cell` changed there,
+but a view of it is not returned, stored past the arm, or given as the
+match's value ("a view of `r` does not outlive the `match` that reads
+`e`"); copy what it holds (`+r`, or a plain field), or take the subject
+with `match <e`. A match on a part of a value made there (`match mk().e`)
+holds that value until the match ends when the part is not plain data,
+so its payloads are read where they are; a part of plain data is read
+in the header, whose temporaries end with it.
 
 ```rig
 struct B
@@ -2935,6 +2942,29 @@ sub main
 
 ```error
 cannot write-borrow `v` while an earlier argument's read of it is in use
+```
+
+The same holds wherever a value is read in place before a later
+operand of the same form runs: a read receiver that is no place
+(`(a if c else b).peek(!a)`), the value a call calls (`h.f(reset(!h))`
+for an owned closure in a field), the left operand of `==`, `!=`, or an
+ordering operator while its right operand runs, and a value that is no
+place while its index runs. A later operand cannot lend that place to
+write or move it. `grow(!a) == a` is accepted: the write finishes
+before `a` is read.
+
+```rig reject
+fun grow(t: !Text) -> Text
+  !t.add("more")
+  Text("x")
+
+sub main
+  a = Text("a")
+  print(a == grow(!a))
+```
+
+```error
+cannot lend `a` to write while the left operand's read of it is in use
 ```
 
 A borrow of a place (`!v[i]`, `?p.xs[i]`, a slice `!v[i..]`, or the

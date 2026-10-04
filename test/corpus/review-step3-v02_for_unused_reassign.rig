@@ -1,0 +1,11 @@
+struct S
+  v: Vec[Int]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  s = S(v: <v)
+  for x in s.v
+    s = S(v: Vec())
+  print(s.v.len)

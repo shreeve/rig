@@ -1,0 +1,15 @@
+struct Res
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+sub main
+  b = Box(E.a(r: Res(t: Text("abc"))))
+  p = ?b
+  match p
+    .a(r)
+      b = Box(E.b)
+      print(r.t)
+    .b => pass

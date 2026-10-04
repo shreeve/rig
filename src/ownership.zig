@@ -131,6 +131,12 @@ const BorrowQuery = enum { any, write };
 
 const LoanKind = enum(u1) { read, write };
 
+/// What reads a value in place before the operands after it run: a call
+/// argument, a method's receiver, the value a call calls, the left
+/// operand of a binary operator, or a value that is no place being
+/// indexed (see `holdRead`).
+const Reader = enum(u3) { none, argument, receiver, callee, operand, base };
+
 const Loan = struct {
     root: VarId,
     kind: LoanKind,
@@ -143,9 +149,9 @@ const Loan = struct {
     /// into this function's frame even when the root is a parameter
     /// that carries the caller's borrows.
     frame: bool = false,
-    /// A call argument's read of the root by value, which shares storage
-    /// the root owns (see `holdArgRead`).
-    arg_read: bool = false,
+    /// What reads the root in place, by value, while the operands after
+    /// it run; the value shares storage the root owns (see `holdRead`).
+    held_read: Reader = .none,
     /// The root of a place whose address is being found while its
     /// indices run (see `walkIndicesHeld`).
     place_hold: bool = false,
@@ -204,6 +210,10 @@ const Var = struct {
     /// of, and the field's path (empty for the whole var).
     alias_of: ?VarId = null,
     alias_path: []const u8 = "",
+    /// The hidden var of a read match's arm that its bindings which are
+    /// no plain data view: the subject the match reads, as written. A
+    /// loan on it ends with the arm (`arm_view` bindings).
+    arm_of: []const u8 = "",
     /// The var with the same name this one hides, for name lookup.
     shadows: ?VarId = null,
     via: Via = .owned,
@@ -411,6 +421,11 @@ pub const Checker = struct {
     /// of its parts leave them. Set just before walking that node; see
     /// `takeTail`.
     tail: ?Tail = null,
+    /// The current read match arm's hidden var (`Var.arm_of`), made when
+    /// a binding first needs it.
+    arm_var: ?VarId = null,
+    /// The subject of the match whose arm is being bound, as written.
+    arm_subject: []const u8 = "",
     /// The value a header holds for its construct (`Header.held`): the
     /// node that makes it, read as the hidden var `id` holding it.
     held: ?Held = null,
@@ -695,9 +710,28 @@ pub const Checker = struct {
     fn noteLoan(self: *Checker, loan: Loan) Error!void {
         if (loan.place_hold) {
             try self.note(loan.pos, "`{s}` is borrowed here, and the place is found up to each index before the index runs", .{self.vars.items[loan.root].name});
-        } else if (loan.arg_read) {
-            try self.note(loan.pos, "`{s}` read here: the value shares its storage, and the call uses it after its later arguments run", .{self.vars.items[loan.root].name});
+        } else if (loan.held_read != .none) {
+            const uses = switch (loan.held_read) {
+                .none, .argument => "the call uses it after its later arguments run",
+                .receiver => "the call uses it as the receiver after its arguments run",
+                .callee => "the call runs it after its arguments run",
+                .operand => "the operator uses it after its right operand runs",
+                .base => "it is indexed after its index runs",
+            };
+            try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ self.vars.items[loan.root].name, uses });
         } else try self.note(loan.pos, "{s} borrow taken here", .{@tagName(loan.kind)});
+    }
+
+    /// The end of a conflict's message for a read held in place: what
+    /// holds it.
+    fn heldReadClause(reader: Reader) []const u8 {
+        return switch (reader) {
+            .none, .argument => "while an earlier argument's read of it is in use",
+            .receiver => "while the receiver's read of it is in use",
+            .callee => "while the callee's read of it is in use",
+            .operand => "while the left operand's read of it is in use",
+            .base => "while the indexed value's read of it is in use",
+        };
     }
 
     /// What is done to a var, for a borrow conflict.
@@ -714,21 +748,28 @@ pub const Checker = struct {
     fn conflicts(self: *Checker, id: VarId, access: Access, pos: u32) Error!bool {
         const l = self.findLoan(id, if (access == .read) .write else .any, null) orelse return false;
         const name = self.vars.items[id].name;
-        const earlier = "while an earlier argument's read of it is in use";
         const in_index = "in an index of a place borrowed from it";
+        const held = heldReadClause(l.held_read);
         switch (access) {
-            .read => if (l.arg_read)
-                try self.err(pos, "cannot read-borrow `{s}`, which holds a Cell, " ++ earlier, .{name})
-            else
-                try self.err(pos, "cannot read-borrow `{s}` while a write borrow is live", .{name}),
-            .write => if (l.place_hold) try self.err(pos, "cannot write-borrow `{s}` " ++ in_index, .{name}) else if (l.arg_read) try self.err(pos, "cannot write-borrow `{s}` " ++ earlier, .{name}) else switch (l.kind) {
+            .read => if (l.held_read != .none) {
+                if (l.held_read == .argument)
+                    try self.err(pos, "cannot read-borrow `{s}`, which holds a Cell, {s}", .{ name, held })
+                else
+                    try self.err(pos, "cannot lend `{s}` to read, which holds a Cell, {s}", .{ name, held });
+            } else try self.err(pos, "cannot read-borrow `{s}` while a write borrow is live", .{name}),
+            .write => if (l.place_hold) try self.err(pos, "cannot write-borrow `{s}` " ++ in_index, .{name}) else if (l.held_read != .none) {
+                if (l.held_read == .argument)
+                    try self.err(pos, "cannot write-borrow `{s}` {s}", .{ name, held })
+                else
+                    try self.err(pos, "cannot lend `{s}` to write {s}", .{ name, held });
+            } else switch (l.kind) {
                 .read => try self.err(pos, "cannot write-borrow `{s}` while a read borrow is live", .{name}),
                 .write => try self.err(pos, "cannot take a second write borrow on `{s}`", .{name}),
             },
             .consume => |verb| if (l.place_hold)
                 try self.err(pos, "cannot {s} `{s}` " ++ in_index, .{ verb, name })
-            else if (l.arg_read)
-                try self.err(pos, "cannot {s} `{s}` " ++ earlier, .{ verb, name })
+            else if (l.held_read != .none)
+                try self.err(pos, "cannot {s} `{s}` {s}", .{ verb, name, held })
             else
                 try self.err(pos, "cannot {s} `{s}` while it is {s}-borrowed", .{ verb, name, @tagName(l.kind) }),
         }
@@ -795,6 +836,7 @@ pub const Checker = struct {
 
     fn reportShortLived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
         const root = self.vars.items[l.root];
+        if (root.arm_of.len > 0) return self.reportArmView(l);
         if (root.kind == .hidden and root.name.len > 0) return self.reportTempOutlived(l, holder);
         try self.err(l.pos, "`{s}` does not live long enough", .{root.name});
         if (holder) |h| {
@@ -805,6 +847,15 @@ pub const Checker = struct {
             }
         }
         try self.note(root.decl, "`{s}` goes out of scope while still borrowed", .{root.name});
+    }
+
+    /// A view of a read match's binding `l` names, kept past its arm.
+    fn reportArmView(self: *Checker, l: Loan) Error!void {
+        var end = l.pos;
+        while (end < self.source.len and (std.ascii.isAlphanumeric(self.source[end]) or self.source[end] == '_')) end += 1;
+        const name = self.source[l.pos..end];
+        const subject = self.vars.items[l.root].arm_of;
+        try self.err(l.pos, "a view of `{s}` does not outlive the `match` that reads `{s}`: use it in the arm, copy what it holds (`+{s}`), or take the subject with `match <{s}`", .{ name, subject, name, subject });
     }
 
     /// Whether var `id` holds a statement's temporary (`holdTemp`).
@@ -1637,9 +1688,14 @@ pub const Checker = struct {
                 .array_fill => self.walkConsumed(ir.ArrayFill.value(sexp), .element),
                 .raw_block => self.walkTailPart(ir.RawBlock.body(sexp), self.takeTail(sexp)),
                 .enum_lit, .use, .type, .generic_struct, .generic_inst => .{},
-                // Operators on values produce fresh Copy results.
+                // Operators on values produce fresh Copy results. A binary
+                // operator reads its left operand where it runs, and uses
+                // it after the right one runs.
                 .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
-                    for (rig.children(sexp)) |c| _ = try self.walk(c);
+                    const operands = rig.children(sexp);
+                    if (operands.len == 2) {
+                        _ = try self.walkThenHeld(operands[0], .operand, operands[1]);
+                    } else for (operands) |c| _ = try self.walk(c);
                     break :blk .{};
                 },
                 else => blk: {
@@ -1919,8 +1975,16 @@ pub const Checker = struct {
 
     /// A `member` or `index`.
     fn walkMember(self: *Checker, e: Sexp) Error!Value {
-        const obj = try self.walk(ir.get(e, .object));
-        if (e.isKind(.index)) _ = try self.walk(ir.Index.index(e));
+        const object = ir.get(e, .object);
+        // A value that is no place is read where it runs, and indexed
+        // after its index runs; a place is found after it.
+        const obj = if (e.isKind(.index) and self.resolvePlace(object) == null)
+            try self.walkThenHeld(object, .base, ir.Index.index(e))
+        else blk: {
+            const v = try self.walk(object);
+            if (e.isKind(.index)) _ = try self.walk(ir.Index.index(e));
+            break :blk v;
+        };
         if (!self.mayCarryBorrow(self.exprType(e))) return .{};
         return self.viewLoans(self.exprType(e), obj);
     }
@@ -2911,10 +2975,15 @@ pub const Checker = struct {
         var recv_root: ?VarId = null;
         var recv_mode: sema.MethodReceiver = .read;
         var reservation: usize = 0;
+        // What the call reads in place before its arguments run (the value
+        // it calls, or a receiver that is no place) is copied there, so it
+        // is held until the call runs (`holdRead`).
+        const callee_found = self.errors_found;
         if (callee.isKind(.member) and self.callsFunctionField(callee)) {
             // A function held in a field is called with the arguments
             // alone; it reaches nothing of the value holding it.
             result = try self.walk(ir.Member.object(callee));
+            if (self.errors_found == callee_found) try self.holdRead(callee, .callee);
         } else if (callee.isKind(.member)) {
             var obj = ir.Member.object(callee);
             var explicit_write = false;
@@ -2951,16 +3020,19 @@ pub const Checker = struct {
                 result = try self.walkConsumed(ir.Member.object(callee), .argument);
             } else {
                 result = try self.walk(ir.Member.object(callee));
+                if (self.errors_found == callee_found) try self.holdRead(ir.Member.object(callee), .receiver);
             }
         } else if (callee == .src) {
             // A callable's result may borrow what the callable holds: a
             // closure its captures, a borrowed callable what it lends.
             result = try self.walkName(callee, true);
+            if (self.errors_found == callee_found) try self.holdRead(callee, .callee);
         } else if (isLambda(callee)) {
             self.lambda_ok = true;
             result = try self.walk(callee);
         } else {
             result = try self.walk(callee);
+            if (self.errors_found == callee_found) try self.holdRead(callee, .callee);
         }
 
         // `print`, `Text(...)`, and `!t.add(...)` only read their
@@ -2970,7 +3042,7 @@ pub const Checker = struct {
         if (self.isPrint(callee) or text_op != null) {
             for (args) |a| {
                 _ = try self.walk(a);
-                try self.holdArgRead(a);
+                try self.holdRead(a, .argument);
             }
             if (recv_root) |id| if (recv_mode == .write) {
                 const reserved = self.temps.orderedRemove(reservation);
@@ -2999,7 +3071,7 @@ pub const Checker = struct {
             self.in_rejected_call = self.rejected(node);
             const found = self.errors_found;
             v.* = try self.walkConsumed(a, .argument);
-            if (self.errors_found == found) try self.holdArgRead(a);
+            if (self.errors_found == found) try self.holdRead(a, .argument);
             // A generic body's `T` holds no loan here, but an instance's
             // may be a String viewing a Text.
             if (cell != null) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a));
@@ -3054,38 +3126,57 @@ pub const Checker = struct {
         return result;
     }
 
-    /// A call argument that reads a place by value whose value shares
-    /// storage the place owns (a Vec's buffer, a box, a shared handle, a
-    /// struct holding one; through a write borrow, what it reaches): the
-    /// call uses that value only after its later arguments run, so until
-    /// the call ends the place's root holds a read loan, and a later
-    /// argument cannot write-borrow or move it. Plain data is copied whole
-    /// when it is read, and what a read borrow reaches is covered by its
-    /// own loans.
-    fn holdArgRead(self: *Checker, arg: Sexp) Error!void {
+    /// A value read in place, by value, before the operands after it run
+    /// (`reader`: a call argument, a method's receiver, the value a call
+    /// calls, a binary operator's left operand, an indexed value that is
+    /// no place), when the value shares storage the place it reads owns
+    /// (a Vec's buffer, a box, a shared handle, a struct holding one;
+    /// through a write borrow, what it reaches). Its consumer uses that
+    /// value only after the later operands run, so until then the place's
+    /// root holds a read loan, and a later operand cannot write-borrow or
+    /// move it. Plain data is copied whole when it is read, and what a
+    /// read borrow reaches is covered by its own loans.
+    fn holdRead(self: *Checker, operand: Sexp, reader: Reader) Error!void {
         const ctx = self.sema orelse return;
-        const e = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
-        const place = self.resolvePlace(e) orelse return self.holdBranchReads(e);
+        const e = if (operand.isKind(.kwarg)) ir.Kwarg.value(operand) else operand;
+        const place = self.resolvePlace(e) orelse return self.holdBranchReads(e, reader);
         const v = self.vars.items[place.root];
         if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
         var ty = self.exprType(e) orelse return;
         while (ctx.types.get(ty) == .borrow_write) ty = ctx.types.get(ty).borrow_write;
         if (!sema.readByAddress(ctx, ty)) return;
-        try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(e), .arg_read = true });
+        try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(e), .held_read = reader });
     }
 
-    /// The places a read branching argument (`a if c else b`, `o ?? d`,
-    /// `e catch d`, `o?`) may be, held as `holdArgRead` holds a place
-    /// argument. The value is copied where the argument runs, so a place
-    /// holding a Cell is held against any later borrow: one that changes
-    /// the Cell would leave the copy stale.
-    fn holdBranchReads(self: *Checker, e: Sexp) Error!void {
+    /// The places a value that is no place reads in place: what a read
+    /// branching value (`a if c else b`, `o ?? d`, `e catch d`, `o?`) may
+    /// be (`sema.valueLeaves`), and a field or element of one, held as
+    /// `holdRead` holds a place. The value is copied where it runs, so a
+    /// place holding a Cell is held against any later lend: one that
+    /// changes the Cell would leave the copy stale.
+    fn holdBranchReads(self: *Checker, e: Sexp, reader: Reader) Error!void {
+        // A field or element that owns storage is read where the value
+        // holding it is.
+        if (self.isPartOfNoPlace(e)) {
+            const ctx = self.sema orelse return;
+            const ty = self.exprType(e) orelse return;
+            if (!sema.readByAddress(ctx, ty)) return;
+            return self.holdBranchReads(ir.get(e, .object), reader);
+        }
         var leaves: std.ArrayList(Sexp) = .empty;
         try sema.valueLeaves(self.arena(), e, &leaves);
-        for (leaves.items) |leaf| try self.holdBranchLeaf(leaf);
+        for (leaves.items) |leaf| {
+            if (self.isPartOfNoPlace(leaf)) try self.holdBranchReads(leaf, reader) else try self.holdBranchLeaf(leaf, reader);
+        }
     }
 
-    fn holdBranchLeaf(self: *Checker, leaf: Sexp) Error!void {
+    /// Whether `e` is a field or element of a value that is no place.
+    fn isPartOfNoPlace(self: *Checker, e: Sexp) bool {
+        if (!e.isKind(.member) and !e.isKind(.index)) return false;
+        return self.resolvePlace(e) == null and !rig.isRangeIndex(e);
+    }
+
+    fn holdBranchLeaf(self: *Checker, leaf: Sexp, reader: Reader) Error!void {
         const ctx = self.sema orelse return;
         const place = self.resolvePlace(leaf) orelse return;
         const v = self.vars.items[place.root];
@@ -3093,7 +3184,24 @@ pub const Checker = struct {
         const ty = self.exprType(leaf) orelse return;
         if (!sema.readByAddress(ctx, ty)) return;
         const kind: LoanKind = if (sema.holdsCellByValue(ctx, sema.unwrapBorrows(ctx, ty))) .write else .read;
-        try self.addTemp(.{ .root = place.root, .kind = kind, .pos = self.startOf(leaf), .arg_read = true });
+        try self.addTemp(.{ .root = place.root, .kind = kind, .pos = self.startOf(leaf), .held_read = reader });
+    }
+
+    /// Walk `earlier`, then `later` while what `earlier` reads in place is
+    /// held (`holdRead`): the consumer of both, a binary operator or an
+    /// index of a value that is no place, uses `earlier` after `later`
+    /// runs. The hold ends there.
+    fn walkThenHeld(self: *Checker, earlier: Sexp, reader: Reader, later: Sexp) Error!Value {
+        const found = self.errors_found;
+        const first = try self.walk(earlier);
+        const mark = self.temps.items.len;
+        if (self.errors_found == found) try self.holdRead(earlier, reader);
+        var held = self.temps.items.len - mark;
+        _ = try self.walk(later);
+        while (held > 0 and mark < self.temps.items.len and self.temps.items[mark].held_read == reader) : (held -= 1) {
+            _ = self.temps.orderedRemove(mark);
+        }
+        return first;
     }
 
     /// Whether call `call` may keep what argument `arg` borrows. No value
@@ -3550,6 +3658,10 @@ pub const Checker = struct {
             if (!self.isLocalLoan(l)) continue;
             if (self.func.in_closure and l.root < self.func.closure_base) continue;
             const r = self.vars.items[l.root];
+            if (r.arm_of.len > 0) {
+                try self.reportArmView(l);
+                continue;
+            }
             const seen = for (v.loans[0..i]) |p| {
                 if (p.root == l.root and !p.ext) break true;
             } else false;
@@ -3632,7 +3744,7 @@ pub const Checker = struct {
         const header = self.headerOf(cond);
         const saved_held = self.held;
         defer self.held = saved_held;
-        if (header == .held) try self.holdBase(ir.As.value(cond), cond);
+        if (header == .held) try self.holdBase(cond);
         const temps_start = self.temps.items.len;
         const drops = self.stmt_drops.items.len;
         const bound = if (header != null) try self.walkBorrow(ir.As.value(cond), .read) else try self.walkConsumed(ir.As.value(cond), .binding);
@@ -3681,13 +3793,13 @@ pub const Checker = struct {
         return ctx.headerOf(node);
     }
 
-    /// Hold `base`, the value a header makes of which its subject is a
-    /// part, in a hidden var of a scope opened for the construct `node`
-    /// (`Header.held`): `var _h = <base`, whose part the construct
+    /// Hold the value the header `node` makes of which its subject is a
+    /// part (`SemContext.heldBaseOf`) in a hidden var of a scope opened
+    /// for the construct: `var _h = <base`, whose part the construct
     /// views. The caller pops the scope where the construct ends.
-    fn holdBase(self: *Checker, subject: Sexp, node: Sexp) Error!void {
-        var base = subject;
-        while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+    fn holdBase(self: *Checker, node: Sexp) Error!void {
+        const ctx = self.sema orelse return;
+        const base = ctx.heldBaseOf(node) orelse return;
         const v = try self.walkConsumed(base, .binding);
         try self.pushScopeFor(.block, node);
         const id = try self.addVar(.{ .name = self.spanText(base), .decl = self.startOf(base), .ty = self.exprType(base), .kind = .hidden }, .{ .loans = v.loans });
@@ -3712,13 +3824,18 @@ pub const Checker = struct {
     fn walkMatch(self: *Checker, match: Sexp) Error!Value {
         const tail_ctx = self.takeTail(match);
         const scrut = ir.Match.subject(match);
+        const saved_arm = .{ self.arm_var, self.arm_subject };
+        defer {
+            self.arm_var = saved_arm[0];
+            self.arm_subject = saved_arm[1];
+        }
         // A bare place is matched as `match ?p`; a part of a made value
         // in a hidden var the match holds (docs/INTERNALS.md, "Header
         // subjects").
         const header = self.headerOf(match);
         const saved_held = self.held;
         defer self.held = saved_held;
-        if (header == .held) try self.holdBase(scrut, match);
+        if (header == .held) try self.holdBase(match);
         var info: Scrutinee = .{};
         var node = scrut;
         const written = scrut.isKind(.read) or scrut.isKind(.write);
@@ -3770,6 +3887,8 @@ pub const Checker = struct {
             const body = ir.Arm.body(arm);
             try self.apply(start);
             try self.pushScopeFor(.block, arm);
+            self.arm_var = null;
+            self.arm_subject = self.spanText(scrut);
             // A guarded arm may not run for the values its pattern
             // matches. The borrows the guard takes end with it.
             const bound = self.vars.items.len;
@@ -3865,6 +3984,19 @@ pub const Checker = struct {
                 loans = scrut_value.loans;
             }
         }
+        // A read match's binding that is no plain data is usable within
+        // its arm only: emit may match a copy of the subject (a guarded
+        // match evaluates it first, a generic one reads it as a value), so
+        // a view of the binding never outlives the arm (docs/INTERNALS.md,
+        // "Header subjects").
+        if (self.sema) |ctx| if (ctx.symbolAt(pos)) |sym| if (ctx.symbols.items[sym].flags.arm_view) {
+            const arm = self.arm_var orelse blk: {
+                const id = try self.addVar(.{ .name = "", .decl = pos, .kind = .hidden, .arm_of = self.arm_subject }, .{});
+                self.arm_var = id;
+                break :blk id;
+            };
+            loans = try self.unionLoans(loans, try self.oneLoan(.{ .root = arm, .kind = .read, .pos = pos }));
+        };
         return self.addVar(v, .{ .loans = loans });
     }
 
@@ -3929,7 +4061,7 @@ pub const Checker = struct {
         const header = self.headerOf(node);
         const saved_held = self.held;
         defer self.held = saved_held;
-        if (header == .held) try self.holdBase(source, node);
+        if (header == .held) try self.holdBase(node);
         // The source is a header: its temporaries end with it, before
         // the loop walks what it gives.
         const drops = self.stmt_drops.items.len;
@@ -4561,11 +4693,10 @@ pub const Checker = struct {
             .list => switch (e.kind() orelse return "expression") {
                 .member => return self.arena().print("{s}.{s}", .{ try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e)) }),
                 .index => return self.arena().print("{s}[...]", .{try self.placeText(ir.Index.object(e))}),
-                // A sigil or other wrapper: the place it wraps.
-                else => {
-                    const children = rig.children(e);
-                    return if (children.len > 0) self.placeText(children[0]) else "expression";
-                },
+                // A sigil: the place it wraps.
+                .read, .write, .move, .clone, .share, .weak => return self.placeText(ir.get(e, .operand)),
+                // Any other value (`mk()`): as written.
+                else => return self.spanText(e),
             },
             else => return "expression",
         }

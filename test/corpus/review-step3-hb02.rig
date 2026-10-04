@@ -1,0 +1,64 @@
+struct Noisy
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+struct H
+  e: E
+  arr: [2]Counter
+  z: Noisy
+
+error Bad
+  boom
+
+fun mk(n: Int) -> H
+  H(e: E.a(c: Counter(hits: Cell(n))), arr: [Counter(hits: Cell(n)), Counter(hits: Cell(n + 1))], z: Noisy(n: n))
+
+fun mkf(n: Int) -> H!
+  if n > 50
+    return Bad.boom
+  mk(n)
+
+fun mko(n: Int) -> H?
+  if n > 50
+    return none
+  mk(n)
+
+fun run(n: Int) -> Int!
+  match mkf(n)!.e
+    .a(c)
+      c.hit()
+      print("run", c.hits.get())
+    .b => pass
+  0
+
+fun runo(n: Int) -> Int?
+  for k in mko(n)?.arr
+    k.hit()
+    print("runo", k.hits.get())
+  0
+
+sub main
+  _ = run(1) catch -1
+  _ = run(99) catch -1
+  _ = runo(2) ?? -1
+  _ = runo(99) ?? -1
+  c = false
+  a = mk(5)
+  match (mk(6) if c else <a).e
+    .a(k)
+      k.hit()
+      print("branch", k.hits.get())
+    .b => pass
+  print("end")
