@@ -638,6 +638,11 @@ pub const Facts = struct {
     /// Branches of a read branching value that a name holds (`a` in
     /// `print(a if c else b)`): read where they are, never moved out.
     in_place_reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Values a context reads, takes, or lends (`Use`), keyed by the
+    /// value: a name, or a value that yields one of its parts
+    /// (`valueParts`). Emit moves a name at a tail of the value out of
+    /// its binding only where the value is taken.
+    uses: std.AutoHashMapUnmanaged(u64, Use) = .empty,
     /// `match` nodes whose subject is a call's result, which the match
     /// takes as `match <e` would.
     taken_subjects: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -663,6 +668,19 @@ pub const Facts = struct {
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
     }
+};
+
+/// What a context does with a value (Core §3).
+pub const Use = enum {
+    /// Reads it where it is: a `print` argument, an `==` operand, `+e`,
+    /// a `?self` receiver, a field or element read.
+    read,
+    /// Takes it: a binding, an argument, a stored field or element,
+    /// `return`, a `break` value, a consuming receiver, a header that
+    /// binds it.
+    take,
+    /// Lends it: `?e`, `!e`.
+    lend,
 };
 
 /// An array lent where a slice is expected.
@@ -859,7 +877,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        ArrayView, TextCall => try w.print(" {s}", .{@tagName(v)}),
+        ArrayView, TextCall, Use => try w.print(" {s}", .{@tagName(v)}),
         ElemCall => {
             try w.print(" {s} {s}", .{ @tagName(v.op), try formatTypeIn(ctx, a, v.elem) });
             if (v.num != type_invalid) try w.print(" {s}", .{try formatTypeIn(ctx, a, v.num)});
@@ -1550,6 +1568,20 @@ pub const SemContext = struct {
     /// a name holds it (`recordReadInPlace`).
     pub fn readsInPlace(self: *const SemContext, node: Sexp) bool {
         return self.facts.in_place_reads.contains(exprKey(node) orelse return false);
+    }
+
+    /// The context of `node` reads, takes, or lends it (`Facts.uses`).
+    /// A value has one use; a second record of the same use is no
+    /// change.
+    pub fn recordUse(self: *SemContext, node: Sexp, use: Use) !void {
+        const key = recordExprKey(node) orelse return;
+        const gop = try self.facts.uses.getOrPut(self.allocator, key);
+        gop.value_ptr.* = use;
+    }
+
+    /// What the context of `node` does with it, where one was recorded.
+    pub fn useOf(self: *const SemContext, node: Sexp) ?Use {
+        return self.facts.uses.get(exprKey(node) orelse return null);
     }
 
     pub fn recordTakenSubject(self: *SemContext, match: Sexp) !void {
@@ -4385,6 +4417,12 @@ pub fn tailOf(s: Sexp) Sexp {
         return tailOf(stmts[stmts.len - 1]);
     }
     return s;
+}
+
+/// Whether `e`'s value is one of its parts: it yields through them
+/// (`yieldsThroughParts`), or it is a branching value (`e!`, `e?`).
+pub fn yieldsPart(e: Sexp) bool {
+    return yieldsThroughParts(e) or isBranchingForm(e);
 }
 
 /// Whether `e` yields its value through parts (`eachTailPart`).

@@ -667,6 +667,7 @@ const Checker = struct {
 
     fn checkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
+        if (value != .nil) try self.recordUse(value, .take);
         const ret = self.body.ret;
         if (self.body.fail_to == .deferred) try self.errAt(node, "cannot `return` inside `defer`; the deferred code runs as the function exits", .{});
         if (self.body.returns) |sites| {
@@ -698,6 +699,8 @@ const Checker = struct {
         const target = ir.Set.target(node);
         const type_node = ir.Set.type(node);
         const rhs = ir.Set.value(node);
+        // A binding, an assignment, and `_ = e` take the value.
+        try self.recordUse(rhs, .take);
 
         if (target != .src) return self.checkPlaceAssign(kind, target, type_node, rhs);
 
@@ -1479,6 +1482,8 @@ const Checker = struct {
     fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         const expr = ir.As.value(node);
         const name = ir.As.name(node);
+        // The header binds the value inside: it takes the optional.
+        try self.recordUse(expr, .take);
         const ty = try self.synthExpr(expr);
         var inner = self.t().invalid_id;
         if (!self.isPoison(ty)) switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
@@ -1701,6 +1706,10 @@ const Checker = struct {
 
     /// A `break` value or an `else` value of a loop used as a value.
     fn loopValue(self: *Checker, lv: *LoopValue, value: Sexp) Error!void {
+        // A `break` value, or a loop's `else`, leaves the loop: its tail
+        // is taken.
+        try self.recordUse(value, .take);
+        try self.recordUse(sema.tailOf(value), .take);
         if (lv.expected) |e| return self.checkExpr(value, e);
         const ty = try self.synthExpr(value);
         try lv.values.append(self.ctx.allocator, .{ .node = value, .ty = ty });
@@ -1856,6 +1865,11 @@ const Checker = struct {
                 try self.ctx.recordTakenSubject(node);
             }
         }
+        try self.recordUse(subject, switch (mode) {
+            .read => .read,
+            .consume => .take,
+            .write => .lend,
+        });
         const scrut_pos = self.startOf(subject);
         // A value that may be a name's, or a part of one, is matched
         // where it is, and one made here is taken: a branching value
@@ -3313,6 +3327,7 @@ const Checker = struct {
     /// nesting (`?b` with `b: ?B` is `?B`).
     fn synthBorrow(self: *Checker, e: Sexp, kind: BorrowKind) Error!TypeId {
         const operand = ir.get(e, .operand);
+        try self.recordUse(operand, .lend);
         if (rig.isRangeIndex(operand)) return self.borrowSlice(operand, kind);
         // A temporary lent to read lives until its statement ends, which
         // drops it; the ownership checker keeps a borrow of it from
@@ -3403,6 +3418,19 @@ const Checker = struct {
             .made, .branches => if (self.ctx.typeOf(e)) |ty| !isBorrow(self.ctx, ty) else false,
             .place, .lend, .jump, .none => false,
         };
+    }
+
+    /// What the context of `e` does with it (`sema.Use`), recorded for a
+    /// name and for a value that yields one of its parts: emit moves a
+    /// name at a tail of the value out of its binding only where the
+    /// value is taken.
+    fn recordUse(self: *Checker, e: Sexp, use: sema.Use) Error!void {
+        const yields = switch (e) {
+            .src => self.hands(e).kind == .place,
+            .list => sema.yieldsPart(e),
+            else => false,
+        };
+        if (yields) try self.ctx.recordUse(e, use);
     }
 
     /// Whether `e`'s value needs cleanup.
@@ -3717,6 +3745,7 @@ const Checker = struct {
     /// `<x`, a block or `match` value) is a temporary: one that owns a
     /// resource is dropped when its statement ends.
     fn readLeaf(self: *Checker, e: Sexp) Error!void {
+        try self.recordUse(e, .read);
         var leaves: std.ArrayList(Sexp) = .empty;
         defer leaves.deinit(self.ctx.allocator);
         // A branching value whose every leaf is made here is itself a
@@ -5071,6 +5100,8 @@ const Checker = struct {
                 else => .owned_nominal,
             };
             try self.checkReceiverMode(obj, .write, kind, method, pos, args.len > 0);
+            // A Text made here would be changed and never dropped.
+            try self.rejectResourceTemporary(obj, obj_ty);
         }
         switch (op) {
             .add => try self.checkFormatArgs(args, "`add`", "write"),
@@ -6438,6 +6469,11 @@ const Checker = struct {
         const receiver = resolved.field.receiver;
         try self.noteCallee(resolved.fn_ty);
         const misplaced_sigil = receiver != .none and try self.checkReceiverSigil(obj, receiver, resolved.fn_ty.returns, method);
+        switch (receiver) {
+            .value => try self.recordUse(obj, .take),
+            .write => try self.recordUse(unborrowedNode(obj), .lend),
+            .read, .none => {},
+        }
         if (receiver == .read and !misplaced_sigil and !self.hands(obj).hasStorage()) {
             try self.readLeaf(obj);
         } else if (receiver != .value and !misplaced_sigil) try self.rejectResourceTemporary(obj, obj_ty);
@@ -7022,6 +7058,10 @@ const Checker = struct {
     // =========================================================================
 
     fn checkExpr(self: *Checker, e: Sexp, expected: TypeId) Error!void {
+        // A value checked against the type its context gives it is taken
+        // there: a typed binding, an argument, a field, an element, a
+        // result.
+        try self.recordUse(e, .take);
         const prev_lent = self.lent_write;
         defer self.lent_write = prev_lent;
         if (e.isKind(.write) and self.ctx.types.get(expected) == .borrow_write) self.lent_write = e;

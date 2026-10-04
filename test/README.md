@@ -36,6 +36,7 @@ off the sanitizer (see [below](#leak-checking-and-the-sanitizer)).
 | `test/corpus/<name>.rig` | a reviewer's probe: `rig check` rejects it with a `file:line:col` diagnostic, or it runs sanitizer-clean (see below) |
 | `unit` | `zig build test` |
 | `parser` | `src/parser.zig` matches what Nexus generates from `rig.grammar` |
+| `classify` | no pass in `src/` keeps a classifier of what an expression hands over beside `sema.handsOver` (`isPlaceExpr`, `isPlace`, `makesValue`, `isBranching`, `readLeaves`, `classifyReceiverShape`) |
 | `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
 | `oracle/<set>` | the reference ownership checker agrees with the compiler over a set of programs (see below) |
 

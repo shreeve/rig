@@ -57,7 +57,7 @@ TYPES = {
                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
     "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
-    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n',
+    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  sub bump(!self)\n    self.v += 1\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
     # A struct that holds a Cell (`poke` changes it through the binding),
     # and one declared `unique`.
@@ -116,9 +116,15 @@ CONTEXTS = {
     "match_part": dict(inline="match H(f: E).f\n    y\n      @POKY\n      print(look(?y))"),
     # A method that consumes its receiver (`<self`, `Box.unbox`).
     "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
+    # A method that writes its receiver: a value made there, or one
+    # lent with `!` (a place without one is rejected).
+    "recv_write": dict(inline="(E).M", recv={"vec": "push(1)", "text": 'add("x")', "drop": "bump()"}),
     # `none` and a bare `.variant` test a value and drop it if no name holds it.
     "eq_none": dict(inline="print(E == none)", optional=True),
     "eq_variant": dict(inline="print(E != .dot)", types=("enum",)),
+    # `+e` reads `e`, and `_ = e` drops what it takes.
+    "clone": dict(inline="x = +(E)\n  print(look(?x))"),
+    "discard": dict(inline="_ = E"),
 }
 
 # A block-local binding at the tail of a value block leaves it before the

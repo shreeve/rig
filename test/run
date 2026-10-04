@@ -7,7 +7,7 @@
 #   filter      only run tests whose id contains one of these substrings;
 #               ids look like behavior/ownership/move_into_fn, known/emit/...,
 #               reject/types/..., examples/hello, ir/..., torture/..., cli/..., unit,
-#               parser, doc/SPEC/L120 (the ```rig block at SPEC.md line 120),
+#               parser, classify, doc/SPEC/L120 (the ```rig block at SPEC.md line 120),
 #               oracle/corpus (the reference ownership checker over a set).
 #               A bare kind name (`known`, `doc`, ...) selects that kind.
 #   -v          also list passing and known-failing tests
@@ -553,7 +553,7 @@ fi
 export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE
 
 is_kind() {
-    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|doc|corpus|oracle) return 0 ;; esac
+    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|classify|doc|corpus|oracle) return 0 ;; esac
     return 1
 }
 
@@ -735,6 +735,17 @@ if selected parser; then
     fi
 fi
 
+# What an expression hands over is decided once, by `sema.handsOver`: no
+# pass keeps a classifier of its own.
+if selected classify; then
+    STRAY=$(grep -nE '\b(isPlaceExpr|isPlace|makesValue|isBranching|readLeaves|classifyReceiverShape)\(' src/*.zig)
+    if [[ -z "$STRAY" ]]; then
+        printf 'pass\tclassify\t\n' >"$RESULTS/st/classify"
+    else
+        printf 'fail\tclassify\ta classifier outside sema.handsOver: %s\n' "$(echo "$STRAY" | head -1)" >"$RESULTS/st/classify"
+    fi
+fi
+
 # The oracle's sets run bin/rig-oracle.
 if grep -q '^oracle/' "$LIST" && ! "$ZIG" build oracle 2>&1; then
     printf '%sbuild of bin/rig-oracle failed%s\n' "$R" "$X"
@@ -742,7 +753,7 @@ if grep -q '^oracle/' "$LIST" && ! "$ZIG" build oracle 2>&1; then
 fi
 
 TOTAL=$(wc -l <"$LIST" | tr -d ' ')
-if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected parser; then
+if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected parser && ! selected classify; then
     # Only kinds named (`./test/run known`) is not a mistyped filter: a
     # kind can be empty, as test/known/ is when no bug is open.
     for f in "${FILTERS[@]}"; do is_kind "$f" || { echo "no test matches ${FILTERS[*]}" >&2; exit 2; }; done

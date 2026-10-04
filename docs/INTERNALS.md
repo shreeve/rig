@@ -640,7 +640,7 @@ or element read) is bound to a hidden name `_t` at the start of its
 statement and dropped at its end: `print(mk().n)` is `_t = mk()`,
 `print(_t.n)`, `-_t`, with the drop also on every path out of the
 statement. A read passes through `a if c else b`, `??`, `catch`, `e!`,
-and `e?` (`readLeaves`): a branch that is a name is read where it is
+and `e?` (`sema.valueLeaves`): a branch that is a name is read where it is
 (`readsInPlace`), never moved, and a branching value all of whose
 branches are made is one temporary. A read borrow of a temporary
 (`?S(n: 1)`, `?make()`, a slice of one) records it the same way,
@@ -650,11 +650,56 @@ condition, a guard, a `match` or `for` subject) is its own statement:
 so a binding that still views `_t` is reported where the header ends.
 A value made in a `match` subject (`sema.handsOver`: a call's result,
 or a branching value whose every leaf is made there) that cannot be
-copied is taken, as `match <e` takes it (`takesSubject`). The ownership checker holds each temporary in a
+copied is taken, as `match <e` takes it (`takesSubject`); so is one
+in a `for` source. The ownership checker holds each temporary in a
 hidden var borrowed by what reads it, and drops it where its statement
 or header ends (`dropStmtTemps`); emit gives a header's temporaries a
 block of their own, `(label: { slots; break :label e; })`, whose
 `defer`s drop them as the header's value is yielded.
+
+### What an expression hands over
+
+What an expression hands over to the context that uses it is decided
+once, by `sema.handsOver(ctx, e)`, from the facts sema records
+(`symbolOf`, `typeOf`, `instanceOf`); typecheck, the ownership checker,
+and emit all ask it, and none decides it again from syntax. Its
+`Hands.kind` is one of:
+
+| Kind | What it is |
+|---|---|
+| `place` | a name of a binding or a constant (a function, a module's constant, `Enum.variant`), or a field or element path from a place, a lend, or a borrow (`v`, `p.f`, `xs[i]`, `(?v).f`, `mk_ref().f` where `mk_ref()` is a `?T`) |
+| `part_of_made` | a field or element path from a value that is no place (`mk().v[0]`, `[a, b][1]`, `(a if c else b).f`): a part of a temporary |
+| `made` | a call, a constructor, `+x`, `*x`, `~x`, `<x`, an array, a closure, an operator's result, a literal, `none`, an enum literal, a `match`, a block, a loop's value, and a branching value every leaf of which is made there or jumps |
+| `lend` | `?x`, `!x`, and their slices |
+| `branches` | `a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?` with a leaf that is not made there |
+| `jump` | `return`, `break`, `continue` |
+| `none` | a statement, a declaration, a type, a pattern |
+
+and `Hands.view` says its type is a view (Core §1). The list is an
+exhaustive switch over the IR's kinds (`shapeOf`), so a new kind does
+not compile until it is classified. `Hands.hasStorage` (a place, a part
+of a made value, or a lend) is what reads a value where it is, as
+opposed to a value made for its context. `sema.valueParts(e)` gives the
+values a compound value may be, one level down: the tails of an `if`
+with an `else`, of each `match` arm, and of a block, and the operands of
+`??`, `catch`, `e!`, and `e?`, each marked as a tail the value takes, an
+operand it passes through, or the optional `e?` unwraps.
+`sema.valueLeaves(e)` gives the leaves a read reaches through branching
+values, and `sema.yieldsValue(source, s)` whether a statement gives a
+value. Whether a receiver needs `!`, `<`, or nothing follows from what
+it hands over too (`receiverShape`); the receiver sigil itself is
+syntax (Core §8). The suite's `classify` check fails on any classifier
+of this kind left outside `handsOver`.
+
+What a context does with a value is recorded as its `Use`
+(`useOf(e)`): `read` (`readLeaf`), `take` (a binding, an argument, a
+stored field or element, `return`, a `break` value, a consuming
+receiver, a header that binds the value), or `lend` (`?e`, `!e`, a
+write receiver), for a name and for a value that yields one of its
+parts. Emit moves a name at a tail of a value out of its binding
+(`rig.take`) only where that value is taken, never where it is read
+in place; a part of the value inherits its use. A tail name with a drop
+flag and no recorded use is an internal error in a Debug build.
 
 What may be done with a place is decided in one place. `placeOf(e)`
 reads a place expression (a name, or a field or element of one) once,
@@ -725,6 +770,7 @@ instead of re-deriving it by name:
 | `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary a read borrow lends. The ownership checker holds it in a hidden var named by its source, borrowed by what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a borrow of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
+| `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `takesSubject(match)` | whether a `match` takes its subject, a value made there that cannot be copied, as `match <e` would: its arms own the payloads |
 | `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is recorded as an `arrayViewOf` `borrowed`, walked as `?t[..]` |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |

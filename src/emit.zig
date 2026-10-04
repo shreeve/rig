@@ -187,6 +187,11 @@ pub const Emitter = struct {
     /// The value being emitted is a write borrow: a pointer local in tail
     /// position yields the pointer, not the value behind it.
     ptr_tail: bool = false,
+    /// What the context of the value being emitted does with it
+    /// (`sema.Use`), and the value it was recorded for or a part of that
+    /// value (`sema.valueParts`) the use reaches.
+    use: ?sema.Use = null,
+    use_node: Sexp = .nil,
     /// The next expression is emitted as the pointer it yields, even where
     /// its context reads through it (`emitDeref`).
     want_ptr: bool = false,
@@ -2898,6 +2903,16 @@ pub const Emitter = struct {
     /// its scope (return, break value): resource bindings in tail
     /// position are moved out.
     fn emitValue(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
+        // A part of the value whose use is known has that use; any other
+        // value has the use its own context recorded.
+        const saved_use = self.use;
+        const saved_use_node = self.use_node;
+        defer {
+            self.use = saved_use;
+            self.use_node = saved_use_node;
+        }
+        if (!self.partOfUse(sexp)) self.use = self.sema.useOf(sexp);
+        self.use_node = sexp;
         const want_ptr = self.want_ptr;
         self.want_ptr = false;
         const bare = self.bare;
@@ -2968,7 +2983,7 @@ pub const Emitter = struct {
                 return self.w.print("rig.rt({s})", .{local.zig_name});
             }
             if (tail and self.ptr_tail and local.is_ptr) return self.w.writeAll(local.zig_name);
-            return if (tail and !self.sema.readsInPlace(sexp)) self.writeTake(local) else self.writeLocalPlace(local);
+            return if (tail and self.takesTail(sexp, local)) self.writeTake(local) else self.writeLocalPlace(local);
         }
         if (std.mem.eql(u8, name, "none")) return self.w.writeAll("null");
         if (name[0] == '\'') return writeSingleQuoted(self.w, name);
@@ -3007,6 +3022,31 @@ pub const Emitter = struct {
             break;
         };
         try self.w.print("{f}", .{ident(name)});
+    }
+
+    /// Whether `sexp`, the value being emitted, is the value whose use is
+    /// known or a part of it (`sema.valueParts`), directly or as the
+    /// block whose tail the part is.
+    fn partOfUse(self: *const Emitter, sexp: Sexp) bool {
+        if (self.use_node == .nil) return false;
+        if (sameNode(sexp, self.use_node)) return true;
+        var parts = sema.valueParts(self.use_node);
+        while (parts.next()) |p| if (sameNode(p.node, sexp) or sameNode(p.node, sema.tailOf(sexp))) return true;
+        return false;
+    }
+
+    /// Whether name `sexp`, at a tail of the value being emitted, moves
+    /// out of `local`: only where the value's context takes it
+    /// (`sema.Use`), never where it is read in place. A binding no drop
+    /// flag guards has nothing to disarm.
+    fn takesTail(self: *const Emitter, sexp: Sexp, local: *const Local) bool {
+        if (consumeFlag(local) == null) return false;
+        if (self.sema.readsInPlace(sexp)) return false;
+        const use = self.use orelse {
+            if (@import("builtin").mode == .debug) std.debug.panic("emit: no use is recorded for the value whose tail is `{s}`", .{self.source[sexp.src.pos..][0..sexp.src.len]});
+            return false;
+        };
+        return use == .take;
     }
 
     /// `local`'s value moving out: `rig.take(&flag, x)`, which yields `x`
