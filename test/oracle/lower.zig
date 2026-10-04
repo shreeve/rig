@@ -299,15 +299,17 @@ const Lowerer = struct {
         return self.vars.get(sym);
     }
 
-    /// Declare the binding a leaf names in the innermost scope.
-    fn bind(self: *Lowerer, leaf: Sexp, ty: ?TypeId) Error!VarId {
+    /// Declare the binding a leaf names in a region: a statement's
+    /// binding goes to the scope under the statement's own temporaries
+    /// (`under` 1); a pattern's or loop's to the region on top.
+    fn bind(self: *Lowerer, leaf: Sexp, under: usize) Error!VarId {
         const sym_id = self.ctx.symbolOf(leaf) orelse return abstain("a binding without a symbol");
         const sym = self.ctx.symbols.items[sym_id];
-        const v = try self.newVar(sym.name, ty orelse sym.ty, false, leaf.src.pos);
+        const v = try self.newVar(sym.name, sym.ty, false, leaf.src.pos);
         try self.vars.put(self.a, sym_id, v);
-        // The innermost scope: skip the statement's own temporaries.
-        try self.regions.items[self.regions.items.len - 2].vars.append(self.a, v);
-        try self.region_of.put(self.a, v, self.regions.items.len - 2);
+        const r = self.regions.items.len - 1 - under;
+        try self.regions.items[r].vars.append(self.a, v);
+        try self.region_of.put(self.a, v, r);
         return v;
     }
 
@@ -317,17 +319,13 @@ const Lowerer = struct {
         try self.reachable();
         try self.pushRegion();
         try self.stmtIn(s);
-        try self.popRegion(self.endOf(s));
+        try self.popRegion(self.posOf(s));
     }
 
     /// A statement right after a jump is a syntax error the compiler
     /// reports; the oracle leaves such a function alone.
     fn reachable(self: *Lowerer) Error!void {
         if (self.cur == null) return abstain("a statement after a jump");
-    }
-
-    fn endOf(self: *Lowerer, s: Sexp) u32 {
-        return self.posOf(s);
     }
 
     fn stmtIn(self: *Lowerer, s: Sexp) Error!void {
@@ -385,7 +383,7 @@ const Lowerer = struct {
             if (declares) {
                 // The value first, then the binding (Core §6).
                 const v = try self.eval(rhs, .take, sym.ty);
-                const x = try self.bind(target, null);
+                const x = try self.bind(target, 1);
                 try self.store(x, v, pos);
                 return;
             }
@@ -494,10 +492,11 @@ const Lowerer = struct {
     /// What `e as x` holds through the branch it binds in.
     const Held = struct { v: VarId, pos: u32 };
 
-    /// The value of `if e as x` or `while e as x`: a header, whose
-    /// temporaries end with it, and whose value a hidden var of the
-    /// statement holds (Core §3). A call's result is taken; a place is
-    /// read where it stands, or lent, or moved, as written.
+    /// The value of `if e as x`, `while e as x`, or a `match` subject: a
+    /// header, whose temporaries end with it, and whose value a hidden
+    /// var of the statement holds (Core §3). A call's result is taken; a
+    /// place is lent or moved as written, or, bare, taken as a binding
+    /// takes it (`as`) or read where it stands (`match`).
     fn asHeader(self: *Lowerer, value: Sexp, how: How) Error!Held {
         const pos = self.posOf(value);
         if (isBranching(value)) return abstain("an `as` of a branching value");
@@ -511,16 +510,24 @@ const Lowerer = struct {
         // A read view of a made value of plain data is read as its value,
         // which carries no loan (Core §4).
         if (value.isKind(.read) and !self.isPlaceSyntax(ir.Read.operand(value))) v = try self.readThrough(v, pos);
-        const vv = self.f.vars.items[v];
-        const h = try self.newVar("the `as` value", vv.ty, true, pos);
-        self.f.vars.items[h].kind = vv.kind;
-        self.f.vars.items[h].holds_views = vv.holds_views;
-        self.f.vars.items[h].holds_pointers = vv.holds_pointers;
-        self.f.vars.items[h].drop_reads = vv.drop_reads;
-        try self.regions.items[self.regions.items.len - 2].vars.append(self.a, h);
-        try self.store(h, v, pos);
+        const h = try self.hold(v, "the `as` value", pos);
         try self.popRegion(pos);
         return .{ .v = h, .pos = pos };
+    }
+
+    /// Move a header's value into a hidden var of the statement around
+    /// the header, which outlives the header's temporaries.
+    fn hold(self: *Lowerer, v: VarId, name: []const u8, pos: u32) Error!VarId {
+        const vv = self.f.vars.items[v];
+        const h = try self.newVar(name, vv.ty, true, pos);
+        const hv = &self.f.vars.items[h];
+        hv.kind = vv.kind;
+        hv.holds_views = vv.holds_views;
+        hv.holds_pointers = vv.holds_pointers;
+        hv.drop_reads = vv.drop_reads;
+        try self.regions.items[self.regions.items.len - 2].vars.append(self.a, h);
+        try self.store(h, v, pos);
+        return h;
     }
 
     /// Bind a payload of a held value: owned when the value is, else a
@@ -530,7 +537,7 @@ const Lowerer = struct {
             try self.emit(.{ .pos = h.pos, .what = .use, .uses = try self.one(h.v) });
             return;
         }
-        const x = try self.bind2(leaf);
+        const x = try self.bind(leaf, 0);
         const hv = self.f.vars.items[h.v];
         const xv = &self.f.vars.items[x];
         // The held value stays whole for the arms after a failed guard.
@@ -702,7 +709,7 @@ const Lowerer = struct {
         const pos = self.posOf(s);
         // The loop's own scope holds what the header binds: the source.
         try self.pushRegion();
-        var src_var: ?VarId = null;
+        var src_var: VarId = undefined;
         {
             try self.pushRegion();
             const v: ?VarId = switch (mode) {
@@ -720,21 +727,19 @@ const Lowerer = struct {
                 } else try self.eval(source, .take, null),
                 else => return abstain("an unusual `for`"),
             };
-            if (v) |sv| {
-                const held = try self.newVar("the `for` source", self.f.vars.items[sv].ty, true, pos);
-                self.f.vars.items[held].kind = self.f.vars.items[sv].kind;
-                self.f.vars.items[held].holds_views = self.f.vars.items[sv].holds_views;
-                self.f.vars.items[held].holds_pointers = self.f.vars.items[sv].holds_pointers;
-                try self.regions.items[self.regions.items.len - 2].vars.append(self.a, held);
-                try self.store(held, sv, pos);
-                src_var = held;
-            }
+            const src = v orelse blk: {
+                // A literal or constant source holds no loan.
+                const c = try self.temp(try self.typeOf(source), pos);
+                try self.emit(.{ .pos = pos, .what = .make, .def = c });
+                break :blk c;
+            };
+            src_var = try self.hold(src, "the `for` source", pos);
             try self.popRegion(pos);
         }
         const h = try self.newBlock();
         try self.goto(h);
         self.cur = h;
-        try self.emit(.{ .pos = pos, .what = .use, .uses = try self.list(src_var) });
+        try self.emit(.{ .pos = pos, .what = .use, .uses = try self.one(src_var) });
         const b = try self.newBlock();
         const x = try self.newBlock();
         const els = ir.For.@"else"(s);
@@ -743,16 +748,15 @@ const Lowerer = struct {
         try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = h, .depth = self.regions.items.len, .value = loop_value });
         self.cur = b;
         try self.pushRegion();
-        // Each element: a copy, a view, or owned, as its type says; it
-        // carries the source's loans.
+        // Each element: a copy, or owned when the source is, or else a
+        // view of the source, carrying its loans.
         const var_leaf = ir.For.@"var"(s);
         if (var_leaf != .nil and !std.mem.eql(u8, var_leaf.getText(self.src), "_")) {
-            const ev = try self.bind2(var_leaf);
-            try self.emit(.{ .pos = pos, .what = .make, .reads = try self.list(src_var), .def = ev });
+            try self.bindHeld(var_leaf, .{ .v = src_var, .pos = pos });
         }
         const idx_leaf = ir.For.index(s);
         if (idx_leaf != .nil and !std.mem.eql(u8, idx_leaf.getText(self.src), "_")) {
-            const iv = try self.bind2(idx_leaf);
+            const iv = try self.bind(idx_leaf, 0);
             try self.emit(.{ .pos = pos, .what = .make, .def = iv });
         }
         for (ir.Block.stmts(ir.For.body(s))) |st| try self.stmt(st);
@@ -766,17 +770,6 @@ const Lowerer = struct {
         }
         self.cur = x;
         try self.popRegion(pos);
-    }
-
-    /// Declare a binding in the innermost region, which is a scope.
-    fn bind2(self: *Lowerer, leaf: Sexp) Error!VarId {
-        const sym_id = self.ctx.symbolOf(leaf) orelse return abstain("a binding without a symbol");
-        const sym = self.ctx.symbols.items[sym_id];
-        const v = try self.newVar(sym.name, sym.ty, false, leaf.src.pos);
-        try self.vars.put(self.a, sym_id, v);
-        try self.regions.items[self.regions.items.len - 1].vars.append(self.a, v);
-        try self.region_of.put(self.a, v, self.regions.items.len - 1);
-        return v;
     }
 
     fn findLoop(self: *Lowerer, label: Sexp) Error!Loop {
@@ -905,7 +898,7 @@ const Lowerer = struct {
         if (e.isKind(.@"catch")) {
             const name = ir.Catch.name(e);
             if (name != .nil and !std.mem.eql(u8, name.getText(self.src), "_")) {
-                const err = try self.bind2(name);
+                const err = try self.bind(name, 0);
                 try self.emit(.{ .pos = pos, .what = .make, .def = err });
             }
         }
