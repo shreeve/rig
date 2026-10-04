@@ -1,0 +1,21 @@
+# Assigning write parameter `a` writes into the caller's value, which
+# keeps `b` lent for the rest of the body.
+
+struct Holder
+  r: []Int
+
+fun f(a: !Holder, b: !Vec[Int]) -> Int
+  a = Holder(r: ?b[..])
+  for i in 0..100
+    !b.push(i)
+  a.r[0]
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+# errors: 1
+# error: 10:5: cannot write-borrow `b` while a read borrow is live

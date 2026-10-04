@@ -1,0 +1,22 @@
+# A read view of `b` stored in parameter `a` keeps `b` lent: `b` cannot
+# be written while the read loan is live.
+
+struct Item
+  n: Int
+
+struct Holder
+  r: ?Item
+
+fun f(a: !Holder, b: !Item) -> Int
+  a.r = ?b
+  b.n = 5
+  a.r.n
+
+sub main
+  x = Item(n: 1)
+  y = Item(n: 2)
+  h = Holder(r: ?x)
+  print(f(!h, !y))
+
+# errors: 1
+# error: 12:3: cannot assign to `b.n` while `b` is borrowed

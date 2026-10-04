@@ -1,0 +1,18 @@
+# A store into an element of write slice `a` keeps `b` lent for the
+# rest of the body.
+
+fun f(a: ![2][]Int, b: !Vec[Int]) -> Int
+  a[0] = ?b[..]
+  for i in 0..100
+    !b.push(i)
+  a[0][0]
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  hs = [?x[..], ?x[..]]
+  print(f(!hs, !v))
+
+# errors: 1
+# error: 7:5: cannot write-borrow `b` while a read borrow is live

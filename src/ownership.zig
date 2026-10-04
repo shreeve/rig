@@ -31,7 +31,11 @@
 //!   that lead to a Text (`viewLoans`).
 //! * Borrowed parameters hold an *external* loan on themselves: it marks
 //!   a borrow that came from the caller, which may be returned or stored
-//!   into other borrowed parameters, and it never conflicts.
+//!   into other borrowed parameters, and it never conflicts. A loan
+//!   stored into what a borrowed parameter reaches goes in that
+//!   parameter's flow, and the parameter is live at every exit (the
+//!   caller uses its value after the return), so the loan stays in
+//!   force for the rest of the body.
 //! * Types come from ctx's facts table (`typeOf`, `symbolAt`); an
 //!   unknown type is assumed to be able to hold a borrow.
 //! * A loan is in force only while the var holding it is live: while
@@ -1169,6 +1173,8 @@ pub const Checker = struct {
         if (!self.nll or depth > 16) return true;
         const ctx = self.sema orelse return true;
         const v = self.vars.items[id];
+        // A parameter is live at every exit: the caller uses the value
+        // it lent a borrowed one after the return.
         if (v.kind == .hidden or v.kind == .param or v.env_drops or self.isGlobal(id)) return true;
         const sym = v.sym orelse return true;
         if (self.defer_used.contains(sym)) return true;
@@ -2664,12 +2670,14 @@ pub const Checker = struct {
             if (self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, 1);
             for (value.loans) |l| if (self.isLocalLoan(l)) {
                 const stored = self.vars.items[l.root].name;
-                if (self.borrowedRoot(id)) |root| {
+                if (v.kind != .param) if (self.borrowedRoot(id)) |root| {
                     try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: `{s}` borrows `{s}`, which outlives it", .{ stored, v.name, v.name, self.vars.items[root].name });
-                } else try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: what `{s}` borrows outlives it", .{ stored, v.name, v.name });
+                    return;
+                };
+                try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: what `{s}` borrows outlives it", .{ stored, v.name, v.name });
                 return;
             };
-            return;
+            return self.storeInLent(id, pos, value, 1);
         }
         // The old value is dropped (if still owned) and the binding is
         // live again with the new value.
@@ -2756,11 +2764,23 @@ pub const Checker = struct {
                 try self.err(pos, "cannot store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ stored, into, v.name });
                 return;
             };
-            return;
+            return self.storeInLent(id, pos, value, self.placeDepth(target, false));
         }
         var f = self.flows.items[id];
         f.loans = try self.unionLoans(f.loans, value.loans);
         try self.setFlow(id, f);
+    }
+
+    /// `value`, which carries only loans the caller handed in, was stored
+    /// into what var `id` reaches through a borrow: a parameter's value,
+    /// or the value a loop or pattern binding writes through. Whatever
+    /// holds the stored value now holds its loans: a parameter, as any
+    /// var does (`absorbLoans`), and a binding's write loans lead to it
+    /// within `depth` steps (`absorbThroughWrites`).
+    fn storeInLent(self: *Checker, id: VarId, pos: u32, value: Value, depth: u32) Error!void {
+        const v = self.vars.items[id];
+        if (v.kind == .param) return self.absorbLoans(id, value, pos, &.{}, v.name, false);
+        return self.absorbThroughWrites(self.varValue(id), value, pos, v.name, depth);
     }
 
     /// Whether place `target` is, or is a field of, an element of the Vec
@@ -3226,8 +3246,9 @@ pub const Checker = struct {
     /// there. `through` are the vars whose write borrows led to `id`;
     /// their own loans are the path, not something stored. A borrowed
     /// parameter or a module-level binding outlives this function's
-    /// values: storing a borrow of one into it is rejected. `via` is as
-    /// for `absorbThroughWrites`.
+    /// values: storing a borrow of one into it is rejected, and a
+    /// borrowed parameter holds the loans the caller handed in, as any
+    /// var does. `via` is as for `absorbThroughWrites`.
     fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool) Error!void {
         // A value that holds only Strings keeps only what leads to a Text.
         const v = try self.viewLoans(self.pointee(self.vars.items[id].ty), v_in);
@@ -3248,7 +3269,13 @@ pub const Checker = struct {
                 } else try self.err(pos, "cannot let this call store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ name, c.name, c.name });
                 return;
             };
-            return;
+            // The parameter holds what is stored in the value the caller
+            // lent it. It is live at every exit (`holderLive`), since the
+            // caller reads that value after the return, so each loan stays
+            // in force for the rest of the body.
+            var pf = self.flows.items[id];
+            pf.loans = try self.unionLoans(pf.loans, out.items);
+            return self.setFlow(id, pf);
         }
         var f = self.flows.items[id];
         const held = f.loans;

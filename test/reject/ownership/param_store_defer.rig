@@ -1,0 +1,23 @@
+# A `defer` that stores in parameter `a` runs when its block ends; from
+# there on, `b` stays lent for the rest of the body.
+
+struct Holder
+  r: []Int
+
+fun f(a: !Holder, b: !Vec[Int]) -> Int
+  if a.r.len > 0
+    defer a.r = ?b[..]
+    print(1)
+  for i in 0..100
+    !b.push(i)
+  a.r[0]
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+# errors: 1
+# error: 12:5: cannot write-borrow `b` while a read borrow is live

@@ -4,7 +4,9 @@
 Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
-`drop`, a struct holding a Cell, a struct declared `unique`). The rule is the corpus's: `rig check` rejects the program with
+`drop`, a struct holding a Cell, a struct declared `unique`), plus the
+stores into a borrowed parameter (`store.`, below). The rule is the
+corpus's: `rig check` rejects the program with
 a file:line:col diagnostic, or it runs clean under the sanitizer (no leak,
 no use of freed memory, no Zig compile error, no crash).
 
@@ -137,6 +139,72 @@ for shape in TAIL_SHAPES:
     for sink, ctx in TAIL_SINKS.items():
         for defer in ("defer", "plain"):
             CONTEXTS[f"tail_{shape}_{sink}_{defer}"] = dict(ctx, tail=shape, defer=defer == "defer")
+
+
+# -----------------------------------------------------------------------------
+# Stores into a borrowed parameter: `f` stores a view of its write
+# parameter `b` in what its parameter `a` reaches, by each store form,
+# then grows `b` (or only reads it) and reads the view through `a`. The
+# caller reads `a` after the return, so `b` stays lent: growing it must
+# be rejected. Cells are `store.<owner>.<form>.<then>`.
+# -----------------------------------------------------------------------------
+
+STORE_OWNERS = {
+    "vec": dict(ty="Vec[Int]", view="[]Int", lend="?b[..]", init="x = [9, 9]",
+                make="v: Vec[Int] = Vec()\n  !v.push(1)", grow=["for i in 0..100", "  !b.push(i)"]),
+    "text": dict(ty="Text", view="String", lend="?b[0..1]", init='x = Text("zz")',
+                 make='v = Text("abc")', grow=["for _ in 0..100", '  !b.add("abcdefgh")']),
+}
+# What `a` is: its type, how `main` makes it from the view `I`, and the
+# statements that read the stored view back.
+STORE_HOLDERS = {
+    "h": dict(ty="H", make="h = H(r: I)", read=["print(a.r[0])"]),
+    "o": dict(ty="O", make="h = O(h: H(r: I))", read=["print(a.h.r[0])"]),
+    "c": dict(ty="C", make="h0 = H(r: I)\n  h = C(w: !h0)", read=["print(a.w.r[0])"]),
+    "s": dict(ty="[]H", make="h = [H(r: I)]", read=["print(a[0].r[0])"]),
+    "e": dict(ty="E", make="h: E = .one(h: H(r: I))",
+              read=["match a", "  .one(h) => print(h.r[0])", "  .zero => print(0)"]),
+    "opt": dict(ty="H?", make="h: H? = H(r: I)", read=["if ?a as h", "  print(h.r[0])"]),
+}
+# Each form: its holder, and the statements that store the view `S`.
+STORE_FORMS = {
+    "field": ("h", ["a.r = S"]),
+    "method": ("h", ["!a.set(S)"]),
+    "call": ("h", ["put(!a, S)"]),
+    "alias": ("h", ["k = !a", "k.r = S"]),
+    "assign_whole": ("h", ["a = H(r: S)"]),
+    "read_back": ("h", ["a.r = S", "t = a.r"]),
+    "defer": ("h", ["if a.r.len > 0", "  defer a.r = S", "  print(1)"]),
+    "closure": ("h", ["g = |!a, ?b| a.r = S", "g()"]),
+    "replace": ("h", ["print(replace(!a.r, S))"]),
+    "swap": ("h", ["q = H(r: S)", "swap(!a, !q)"]),
+    "nested": ("o", ["a.h.r = S"]),
+    "write_field": ("c", ["a.w.r = S"]),
+    "write_through": ("c", ["a.w = H(r: S)"]),
+    "element": ("s", ["a[0].r = S"]),
+    "loop_element": ("s", ["for k in !a", "  k.r = S"]),
+    "loop_assign": ("s", ["for k in !a", "  k = H(r: S)"]),
+    "match_payload": ("e", ["match !a", "  .one(h) => h.r = S", "  .zero => print(0)"]),
+    "as_binding": ("opt", ["if !a as h", "  h.r = S"]),
+}
+
+
+def store_program(oname, fname, then):
+    """The program for one store cell."""
+    o = STORE_OWNERS[oname]
+    kind, lines = STORE_FORMS[fname]
+    h = STORE_HOLDERS[kind]
+    v = o["view"]
+    out = [f"struct H\n  r: {v}\n\n  sub set(!self, s: {v})\n    self.r = s\n",
+           "struct O\n  h: H\n", "struct C\n  w: !H\n", "enum E\n  one(h: H)\n  zero\n",
+           f"sub put(h: !H, s: {v})\n  h.r = s\n"]
+    body = [l.replace("S", o["lend"]) for l in lines]
+    body += o["grow"] if then == "grow" else ["print(b.len)"]
+    body += ["print(t[0])"] if fname == "read_back" else h["read"]
+    out.append(f"sub f(a: !{h['ty']}, b: !{o['ty']})\n{indent(body, 2)}\n")
+    main = [o["init"], o["make"], h["make"].replace("I", "?x[..]"), "f(!h, !v)"]
+    out.append("sub main\n" + indent(main, 2) + "\n")
+    return "\n".join(out)
 
 
 def indent(lines, n):
@@ -300,6 +368,16 @@ def main():
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
                     fh.write(src)
+                cells.append((ident, path))
+    for o in STORE_OWNERS:
+        for f in STORE_FORMS:
+            for then in ("grow", "read"):
+                ident = f"store.{o}.{f}.{then}"
+                if args.k and not any(k in ident for k in args.k):
+                    continue
+                path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                with open(path, "w") as fh:
+                    fh.write(store_program(o, f, then))
                 cells.append((ident, path))
     if args.oracle:
         sys.exit(run_oracle(work, cells, args))
