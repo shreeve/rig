@@ -85,9 +85,6 @@ const Local = struct {
     flag: []const u8 = "",
     /// The local of the same symbol this one hides until its scope ends.
     shadowed: ?LocalRef = null,
-    /// A by-value parameter copied into a `var` at the top of the body,
-    /// because it holds a Cell that a borrow of it may change.
-    mutable_copy: bool = false,
     /// A parameter copied into `zig_name` at the top of the body: the
     /// name the signature gives it.
     param_name: []const u8 = "",
@@ -761,15 +758,12 @@ pub const Emitter = struct {
             const ty = self.symType(sym) orelse return self.unsupported(p, "an untyped parameter");
             const unused = std.mem.eql(u8, rig_name, "_");
             var local: Local = .{ .sym = sym, .ty = ty };
-            if (!self.isPtrBorrowTy(ty)) {
-                local.kind = self.kindOf(ty);
-                local.mutable_copy = local.kind == null and !unused and sema.holdsCellByValue(self.sema, ty);
-            }
+            if (!self.isPtrBorrowTy(ty)) local.kind = self.kindOf(ty);
             if (local.kind != null) {
                 local.guard = self.resourceGuard(sym);
                 if (unused) local.zig_name = try self.fresh("__rig_unused");
             }
-            if (local.kind == .value or local.kind == .optional or local.mutable_copy) {
+            if (local.kind == .value or local.kind == .optional) {
                 local.param_name = try self.fmt("__rig_arg_{d}", .{self.nextId()});
             }
             _ = try self.declare(local, rig_name);
@@ -814,10 +808,6 @@ pub const Emitter = struct {
             const local = self.localOf(sema.paramNameNode(p) orelse continue) orelse continue;
             if (local.param_name.len > 0) {
                 try self.line("var {s} = {s};", .{ local.zig_name, local.param_name });
-                if (local.mutable_copy) {
-                    try self.line("_ = &{s};", .{local.zig_name});
-                    continue;
-                }
             }
             if (local.guard != .none) {
                 try self.writeIndent(self.indent);
@@ -4922,7 +4912,7 @@ pub const Emitter = struct {
             else => false,
         };
         const ty = self.typeOf(a) orelse return false;
-        return place and self.kindOf(self.peelBorrows(ty)) != null;
+        return place and sema.readsInPlace(self.sema, self.peelBorrows(ty));
     }
 
     // =========================================================================

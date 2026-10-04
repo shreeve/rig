@@ -101,9 +101,9 @@ sub main
   generator whose copy would repeat its numbers, says so on the type:
   `struct Rng unique`. It moves like an owner. *(built)*
 - **A type that holds a `Cell`**, or a bare `Cell[T]`, is unique too,
-  because a copy would fork state that should be shared. *(planned)*
+  because a copy would fork state that should be shared. *(built)*
 
-```rig pending
+```rig reject
 sub main
   c = Cell(1)
   d = c
@@ -160,8 +160,8 @@ sub main
 **2. `<x` moves, `+x` makes a new owner, `-x` drops now.** `+x` is a
 copy, a count bump, or a deep copy, as the type says; a `unique` type,
 or one with a `drop` body, has none. *(built* for plain data, handles,
-closures, and `Text`; *planned* for `Vec`, `Box`, and structs holding an
-owner.*)*
+closures, `Text`, and `unique` types; *planned* for `Vec`, `Box`, and
+structs holding an owner.*)*
 
 ```rig
 struct File

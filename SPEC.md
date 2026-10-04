@@ -690,7 +690,7 @@ borrow: `*(?User)` is rejected.
 ### Copy values and owning values
 
 A **Copy** value is plain data: numbers, `Bool`, `String`, plain enums,
-and optionals, arrays, structs, and `Cell`s that hold only Copy values.
+and optionals, arrays, and structs that hold only Copy values.
 Using one copies it. A copy of a String that views a Text carries the
 Text's borrow ([§10](#text)).
 
@@ -702,11 +702,13 @@ generates to release them. They move instead of copying, and the
 ownership rules of [§7](#7-ownership) apply to them.
 
 A **unique** value owns nothing to release but must not be copied: a
-struct declared `unique` (`struct Rng unique`, a generator whose copy
-would repeat its numbers), or any struct, enum, or generic instance
-that holds one. It moves like an owning value and has no clone (`+x`);
-it has no drop glue. Arrays, slices, `==`, and a discarded statement
-reject a unique value as they do an owning value.
+`Cell` (a copy would fork the state it shares), a struct declared
+`unique` (`struct Rng unique`, a generator whose copy would repeat its
+numbers), or any struct, enum, array, or generic instance that holds
+one inline. It moves like an owning value and has no clone (`+x`); it
+has no drop glue. Arrays, slices, `==`, and a discarded statement
+reject a value of a type declared `unique`, as they do an owning value.
+A shared `*Cell[T]` is a handle: `+h` adds a count.
 
 ```rig reject
 struct Seed unique
@@ -3520,8 +3522,8 @@ mutable value.
 | `c[i]`, `c[i] = x`, `c.get(i)` | a `Cell[Vec[T]]` of Copy `T`: an element, bounds-checked, or `T?` |
 
 `T` is a Copy primitive, plain data (a struct, enum, optional, or array
-that owns nothing and holds no borrow), or an owning type. An owning
-value is never copied out of a cell: it moves in with `set` / `replace` and moves out
+that owns nothing and holds no borrow), an owning type, or a unique
+type. An owning or unique value is never copied out of a cell: it moves in with `set` / `replace` and moves out
 with `replace`. What goes into a cell, by any of its members or
 `c[i] = x`, holds no borrow, nor a String that may view a Text
 ([§10](#text)), since every handle to the cell reaches it.

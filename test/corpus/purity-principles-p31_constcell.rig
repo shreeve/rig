@@ -16,5 +16,5 @@ sub main
   c = Cell(5)
   c.set(6)
   print(c.get())
-  bump(k)
+  bump(<k)
   bump(Counter(hits: Cell(40)))

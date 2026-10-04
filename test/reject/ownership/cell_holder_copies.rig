@@ -1,0 +1,32 @@
+# A value that holds a Cell is unique: a copy would fork the state the
+# Cell shares, so a bare use that would copy one is rejected, whether it
+# is a name, a field, an element, an array, or a `??` operand.
+
+struct Counter
+  hits: Cell[Int]
+
+struct Holder
+  c: Counter
+
+sub main()
+  a = Counter(hits: Cell(0))
+  b = a
+  c = Cell(1)
+  d = c
+  h = Holder(c: Counter(hits: Cell(2)))
+  k = h.c
+  arr = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  copy = arr
+  x = arr[1]
+  o: Counter? = Counter(hits: Cell(3))
+  e = Counter(hits: Cell(4))
+  f = o ?? e
+  print(b.hits.get(), d.get(), k.hits.get(), copy[0].hits.get(), x.hits.get(), f.hits.get())
+
+# error: 13:7: bare use of `Counter` value `a` in binding would copy a unique value; use `<a` to move it
+# error: 15:7: bare use of `Cell` value `c` in binding would copy a unique value; use `<c` to move it
+# error: 17:7: bare use of `Counter` value `h.c` in binding would copy a unique value
+# error: 19:10: bare use of `Counter` value `arr` in binding would copy a unique value; use `<arr` to move it
+# error: 20:7: bare use of `Counter` value `arr[...]` in binding would copy a unique value
+# error: 23:7: bare use of `Counter` value `o` in binding would copy a unique value
+# error: 23:12: bare use of `Counter` value `e` in binding would copy a unique value

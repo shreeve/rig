@@ -602,7 +602,9 @@ pub const Checker = struct {
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
             if (r.param != param or r.view) continue;
-            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
+            if (sema.typeHasDropGlue(ctx, arg)) {
+                try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
+            } else try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, and `{s}` is unique", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
             if (r.element) {
                 try self.noteIn(r.module_id, r.pos, "a `{s}` element is taken here while its collection still owns it; take the elements with `for x in <v`", .{pname});
             } else try self.noteIn(r.module_id, r.pos, "`{s}` copied here; move it with `<` instead", .{pname});
@@ -2968,7 +2970,7 @@ pub const Checker = struct {
         if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
         var ty = self.exprType(e) orelse return;
         while (ctx.types.get(ty) == .borrow_write) ty = ctx.types.get(ty).borrow_write;
-        if (self.owningKind(ty) == null) return;
+        if (!sema.readsInPlace(ctx, ty)) return;
         try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(e), .arg_read = true });
     }
 
@@ -3002,7 +3004,7 @@ pub const Checker = struct {
         const v = self.vars.items[place.root];
         if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
         const ty = self.exprType(leaf) orelse return;
-        if (self.owningKind(ty) == null) return;
+        if (!sema.readsInPlace(ctx, ty)) return;
         const kind: LoanKind = if (sema.holdsCellByValue(ctx, sema.unwrapBorrows(ctx, ty))) .write else .read;
         try self.addTemp(.{ .root = place.root, .kind = kind, .pos = self.startOf(leaf), .arg_read = true });
     }
@@ -4335,7 +4337,19 @@ pub const Checker = struct {
             .parameterized_nominal => |pn| ctx.symbols.items[pn.sym].name,
             else => if (sema.nominalDecl(ctx, inner)) |d| d.symbol().name else "value",
         };
-        if (!sema.typeHasDropGlue(ctx, t)) return .{ .unique = name };
+        if (!sema.typeHasDropGlue(ctx, t)) {
+            // An array of unique values is named by its element.
+            var elem = inner;
+            while (ctx.types.get(elem) == .array or ctx.types.get(elem) == .optional) elem = switch (ctx.types.get(elem)) {
+                .array => |a| a.elem,
+                .optional => |o| o,
+                else => unreachable,
+            };
+            return .{ .unique = switch (ctx.types.get(elem)) {
+                .parameterized_nominal => |pn| ctx.symbols.items[pn.sym].name,
+                else => if (sema.nominalDecl(ctx, elem)) |d| d.symbol().name else "value",
+            } };
+        }
         return switch (ctx.types.get(inner)) {
             .shared => .shared,
             .weak => .weak,

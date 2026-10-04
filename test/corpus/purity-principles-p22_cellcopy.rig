@@ -6,8 +6,8 @@ struct Counter
 
 sub main
   a = Counter(hits: Cell(0))
-  b = a
-  b.hit()
-  b.hit()
   a.hit()
-  print(a.hits.get(), b.hits.get())
+  b = <a
+  b.hit()
+  b.hit()
+  print(b.hits.get())
