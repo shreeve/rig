@@ -1213,7 +1213,7 @@ pub const Emitter = struct {
             // clone or move of a value that owns nothing is a copy.)
             var place = expr;
             if (place.isKind(.read) or place.isKind(.write) or place.isKind(.clone) or place.isKind(.move)) place = ir.get(place, .operand);
-            if (isPlace(place) and !place.isKind(.index)) {
+            if (self.hasStorage(place) and !place.isKind(.index)) {
                 try self.w.writeAll("_ = &");
                 try self.emitPlace(place);
                 return self.w.writeAll(";");
@@ -2130,7 +2130,7 @@ pub const Emitter = struct {
         const is_vec = src_ty != null and self.isVecTy(src_ty.?);
         // A Vec the loop consumes, or one its source expression creates,
         // hands its elements over one at a time.
-        if (is_vec and (mode == .move or (!isPlace(source) and self.kindOf(src_ty.?) != null))) {
+        if (is_vec and (mode == .move or (!self.hasStorage(source) and self.kindOf(src_ty.?) != null))) {
             return self.emitConsumingFor(sexp, label);
         }
         const elem_sym = self.sema.symbolOf(binding);
@@ -2326,7 +2326,7 @@ pub const Emitter = struct {
             // A match on a call returning a borrow held by pointer
             // switches on the value it points to.
             const h = try self.openHeader(subject);
-            if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
+            if (!self.hasStorage(subject) and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
             if (info.boxed) try self.w.writeAll(".value.*");
             try self.closeHeader(h);
         }
@@ -2413,7 +2413,7 @@ pub const Emitter = struct {
         }
         const name = try self.fmt("__rig_subject_{d}", .{self.nextId()});
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
-        if (isPlace(value) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
+        if (self.hasStorage(value) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
             try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
             info.reread = try self.fmt("{s}.*", .{name});
             return;
@@ -5897,12 +5897,6 @@ fn unborrowed(e: Sexp) Sexp {
     var x = e;
     while (x.isKind(.read) or x.isKind(.write)) x = ir.get(x, .operand);
     return x;
-}
-
-/// Storage with an owner: a name, a field or element, or a borrow of one.
-fn isPlace(e: Sexp) bool {
-    const h = e.kind() orelse return e == .src;
-    return h == .member or h == .index or h == .read or h == .write;
 }
 
 /// The value of a call argument: a `(kwarg name value)` stands for its value.
