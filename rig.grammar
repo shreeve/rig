@@ -17,8 +17,9 @@
 #   * classifies keywords (every keyword is reserved, but reads as a name
 #     where it names a member: after `.`, before `:` inside ( ), and in a
 #     member list before `:` or after `fun` / `sub`); `of` is a keyword
-#     only after a value directly inside [ ] (`[n of x]`), and a name
-#     everywhere else;
+#     only after a value directly inside [ ] (`[n of x]`), and `unique`
+#     only after a struct header's name or type parameters (`struct Rng
+#     unique`); each is a name everywhere else;
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
 #     open range (`xs[a..]`, `xs[..]`);
 #   * classifies the tokens the parser cannot tell apart by its own
@@ -164,6 +165,7 @@ tokens
     kwarg_name      # name directly followed by `:` inside ( )
     drop_stmt       # -x  drop, as a whole statement
     of              # of  after a value inside [ ]: a fill literal `[n of x]`
+    unique          # unique  after a struct header's name or `]`: the struct is unique
     dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
     nullish_jump    # ??  directly before `return`, `break`, or `continue`
     step_colon      # :   the first `:` of a `while` header: its step
@@ -287,8 +289,10 @@ tokens
     fun                         name:leaf tparams:group? params:group? returns? body:block?
     sub                         name:leaf tparams:group? params:group? fails:tag(fails)? body:block?
     lambda                      captures:captures? params:group? body:block
-    struct, enum, errors        name:leaf ...members
-    generic_struct, generic_enum name:leaf tparams:group ...members
+    struct                      name:leaf unique:tag(unique)? ...members
+    enum, errors                name:leaf ...members
+    generic_struct              name:leaf tparams:group unique:tag(unique)? ...members
+    generic_enum                name:leaf tparams:group ...members
     type                        name:leaf type
     test                        name:leaf body:block
     pub                         decl
@@ -373,7 +377,7 @@ tokens
     OUTDENT: "the end of the block"
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
     KWARG_NAME: "a keyword argument", DROP_STMT: "`-`"
-    OF: "`of`", DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`"
+    OF: "`of`", UNIQUE: "`unique`", DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -511,8 +515,12 @@ enum     = ENUM name:name INDENT members:members OUTDENT     → (enum)
                                                     → (generic_enum)
 errors   = ERROR name:name INDENT members:members OUTDENT    → (errors)
 struct   = STRUCT name:name INDENT members:members OUTDENT   → (struct)
+         | STRUCT name:name UNIQUE INDENT members:members OUTDENT
+                                                    → (struct unique:unique)
          | STRUCT name:name tparams:tparams INDENT members:members OUTDENT
                                                     → (generic_struct)
+         | STRUCT name:name tparams:tparams UNIQUE INDENT members:members OUTDENT
+                                                    → (generic_struct unique:unique)
 
 typedef  = TYPE name:name "=" type:type             → (type)
 

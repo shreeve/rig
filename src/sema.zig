@@ -5000,6 +5000,77 @@ test "type facts: moves, copyable, cloneable" {
     try std.testing.expect(!lendByValue(ctx, vec_int));
 }
 
+test "type facts: unique reaches what holds it inline" {
+    var r = try factsRun(
+        \\struct U unique
+        \\  n: Int
+        \\
+        \\struct Ring[T] unique
+        \\  item: T
+        \\
+        \\struct Wrap[T]
+        \\  item: T
+        \\
+        \\struct Holder
+        \\  u: U
+        \\
+        \\struct Far
+        \\  h: Holder
+        \\
+        \\struct Ptr
+        \\  u: *U
+        \\
+        \\enum Slot
+        \\  full(u: U)
+        \\  empty
+        \\
+    );
+    defer r.deinit();
+    const ctx = &r.ctx;
+    const nominal = struct {
+        fn of(c: *SemContext, name: []const u8) !TypeId {
+            return c.intern(.{ .nominal = c.lookup(module_scope, name).? });
+        }
+    }.of;
+    const u = try nominal(ctx, "U");
+    const wrap = ctx.lookup(module_scope, "Wrap").?;
+    const ring = ctx.lookup(module_scope, "Ring").?;
+    const two: TypeId = try ctx.intern(.{ .ct_value = .{ .int = 2 } });
+    const unique = [_]TypeId{
+        u,
+        try ctx.intern(.{ .array = .{ .elem = u, .len = two } }),
+        try ctx.intern(.{ .optional = u }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = wrap, .args = &.{u} } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ring, .args = &.{ctx.types.int_id} } }),
+        try nominal(ctx, "Holder"),
+        try nominal(ctx, "Far"),
+        try nominal(ctx, "Slot"),
+    };
+    for (unique, 0..) |t, i| {
+        errdefer std.debug.print("unique case {d}\n", .{i});
+        try std.testing.expect(isUnique(ctx, t));
+    }
+    const not_unique = [_]TypeId{
+        ctx.types.int_id,
+        try ctx.intern(.{ .shared = u }),
+        try ctx.intern(.{ .weak = u }),
+        try ctx.intern(.{ .borrow_read = u }),
+        try ctx.intern(.{ .borrow_write = u }),
+        try ctx.intern(.{ .slice = .{ .elem = u } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.vec_sym_id, .args = &.{u} } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{u} } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = wrap, .args = &.{ctx.types.int_id} } }),
+        try nominal(ctx, "Ptr"),
+    };
+    for (not_unique, 0..) |t, i| {
+        errdefer std.debug.print("not unique case {d}\n", .{i});
+        try std.testing.expect(!isUnique(ctx, t));
+    }
+    // Nothing reads the fact yet: a unique type with plain fields copies.
+    try std.testing.expectEqual(Answer.no, moves(ctx, u));
+    try std.testing.expectEqual(Answer.yes, copyable(ctx, u));
+}
+
 /// Walk every expression position of a body and report nodes sema left
 /// without a fact. Used to keep the facts table complete.
 const Coverage = struct {

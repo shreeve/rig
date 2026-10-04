@@ -80,7 +80,8 @@ const SymbolResolver = struct {
             .use => try self.walkUse(sexp),
             .type => try self.walkTypeAlias(sexp),
             .generic_struct, .generic_enum => try self.walkGenericType(sexp),
-            .@"struct", .@"enum" => try self.walkNominalType(sexp, .{}),
+            .@"struct" => try self.walkNominalType(sexp, .{ .unique = ir.Struct.unique(sexp) != .nil }),
+            .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
             .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
             .zig_extern => {
@@ -337,7 +338,8 @@ const SymbolResolver = struct {
     /// A `generic_struct` or `generic_enum`.
     fn walkGenericType(self: *SymbolResolver, node: Sexp) Error!void {
         const name_node = ir.get(node, .name);
-        const id = (try self.declare(name_node, .generic_type, .{})) orelse return;
+        const unique = node.isKind(.generic_struct) and ir.GenericStruct.unique(node) != .nil;
+        const id = (try self.declare(name_node, .generic_type, .{ .unique = unique })) orelse return;
         const name = self.ctx.symbols.items[id].name;
         const params = ir.get(node, .tparams);
         var ids: std.ArrayList(SymbolId) = .empty;

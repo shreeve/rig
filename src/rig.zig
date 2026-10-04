@@ -315,6 +315,10 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //   After a value directly inside [ ], `of` separates a fill literal's
 //   count from its element (`[n of x]`). Elsewhere it is a name.
 //
+// `unique`
+//   After a struct header's name or type parameters, `unique` marks the
+//   struct unique (`struct Rng unique`). Elsewhere it is a name.
+//
 // `..`
 //   Before `]` (past any line break, which is whitespace inside
 //   brackets), `..` ends an open range (`xs[a..]`, `xs[..]`):
@@ -767,7 +771,16 @@ pub const Lexer = struct {
         };
         if (self.inParens() and self.nextCat() == .colon) return .kwarg_name;
         if (std.mem.eql(u8, word, "of") and self.isFillOf()) return .of;
+        if (std.mem.eql(u8, word, "unique") and self.isStructUnique()) return .unique;
         return .ident;
+    }
+
+    /// `unique` after a struct header's name or its type parameters marks
+    /// the struct unique (`struct Rng unique`, `struct Ring[T] unique`);
+    /// anywhere else it is a name.
+    fn isStructUnique(self: *const Lexer) bool {
+        return self.line_head == .@"struct" and self.nesting == 0 and
+            (self.last_cat == .ident or self.last_cat == .rbracket);
     }
 
     /// `of` after a value directly inside [ ] separates a fill literal's
@@ -1889,6 +1902,19 @@ test "keywords are reserved; `new` only at statement start" {
     try expectCats("p = Point.new(1)", &.{ .ident, .assign, .ident, .dot, .ident, .lparen, .integer, .rparen });
 }
 
+test "`unique` is a keyword only after a struct header's name or type parameters" {
+    try testing.expect(keyword("unique") == null);
+    try expectCats("struct R unique", &.{ .@"struct", .ident, .unique });
+    try expectCats("pub struct R unique # note", &.{ .@"pub", .@"struct", .ident, .unique });
+    try expectCats("struct R[T] unique", &.{ .@"struct", .ident, .lbracket, .ident, .rbracket, .unique });
+    try expectCats("struct R[unique]", &.{ .@"struct", .ident, .lbracket, .ident, .rbracket });
+    try expectCats("struct unique", &.{ .@"struct", .ident });
+    try expectCats("enum E unique", &.{ .@"enum", .ident, .ident });
+    try expectCats("unique = x.unique", &.{ .ident, .assign, .ident, .dot, .ident });
+    try expectCats("struct R\n  unique: Bool", &.{ .@"struct", .ident, .indent, .ident, .colon, .ident });
+    try expectCats("f(unique: 1)", &.{ .ident, .lparen, .kwarg_name, .colon, .integer, .rparen });
+}
+
 test "a prefix sigil touches its operand; after a value it is infix or a suffix" {
     for ([_][]const u8{ "a < b", "a<b", "a <b", "a< b" }) |src| try expectCats(src, &.{ .ident, .lt, .ident });
     for ([_][]const u8{ "a - 1", "a-1", "a -1" }) |src| try expectCats(src, &.{ .ident, .minus, .integer });
@@ -2079,6 +2105,12 @@ test "parser: every form parses" {
         \\
         \\  drop(!self)
         \\    print(self.n)
+        \\
+        \\struct Rng unique
+        \\  seed: Int
+        \\
+        \\pub struct Ring[T] unique
+        \\  item: T
         \\
         \\extern fun abs(n: Int) -> Int
         \\extern fun tick(n: Int)
