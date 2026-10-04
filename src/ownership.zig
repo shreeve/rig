@@ -2429,7 +2429,11 @@ pub const Checker = struct {
         const ctx = self.sema orelse return id;
         const sym = ctx.symbolOf(expr) orelse return id;
         if (self.vars.items[id].sym == sym) return id;
-        for (self.vars.items) |v| if (v.sym == sym) return id;
+        var i = self.vars.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (self.vars.items[i].sym == sym) return @intCast(i);
+        }
         return null;
     }
 
