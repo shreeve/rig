@@ -1,0 +1,15 @@
+# An `if` condition is its own statement, and `==` holds its left
+# operand there as anywhere.
+
+fun grow(t: !Text) -> Text
+  for _ in 0..100
+    !t.add("abcdefgh")
+  Text("x")
+
+sub main
+  a = Text("a")
+  if a == grow(!a)
+    print("same")
+
+# error: 11:17: cannot lend `a` to write while the left operand's read of it is in use
+# errors: 1

@@ -1,0 +1,17 @@
+# A struct holding a Text compares field by field after the right
+# operand runs: the right operand cannot lend the left one to write.
+
+struct Q
+  t: Text
+
+fun growq(q: !Q) -> Q
+  for _ in 0..100
+    !q.t.add("abcdefgh")
+  Q(t: Text("x"))
+
+sub main
+  q = Q(t: Text("a"))
+  print(q == growq(!q))
+
+# error: 14:21: cannot lend `q` to write while the left operand's read of it is in use
+# errors: 1

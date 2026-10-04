@@ -1,0 +1,15 @@
+# `==` and `!=` read their left operand where it runs and compare it
+# after the right one runs: the right operand cannot lend it to write.
+# `grow(!a) == a` is accepted (behavior/ownership/operand_read_order.rig).
+
+fun grow(t: !Text) -> Text
+  for _ in 0..100
+    !t.add("abcdefgh")
+  Text("x")
+
+sub main
+  a = Text("a")
+  print(a == grow(!a))
+
+# error: 12:20: cannot lend `a` to write while the left operand's read of it is in use
+# errors: 1
