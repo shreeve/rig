@@ -1,0 +1,37 @@
+# A `break` value takes what it yields: each name a branching value
+# may be, a place, a field, a `??` operand, or a `catch` handler, is
+# moved with `<`, as in any other taking position.
+struct H
+  f: Text
+
+fun fail(c: Bool) -> Text!
+  return Bad.no if c
+  Text("ok")
+
+error Bad
+  no
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  h = H(f: Text("h"))
+  o: Text? = Text("o")
+  c = true
+  x = while true
+    break a if c else b
+  y = while true
+    break h.f if c else b
+  z = while true
+    break o ?? b
+  w = while true
+    break fail(c) catch b
+  print(x, y, z, w)
+
+# error: 21:11: bare use of `Text` value `a` in `break` value
+# error: 21:23: bare use of `Text` value `b` in `break` value
+# error: 23:11: bare use of `Text` value `h.f` in `break` value
+# error: 23:25: bare use of `Text` value `b` in `break` value
+# error: 25:11: bare use of `Text` value `o` in `break` value
+# error: 25:16: bare use of `Text` value `b` in `break` value
+# error: 27:25: bare use of `Text` value `b` in `break` value
+# errors: 7

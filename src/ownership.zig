@@ -231,7 +231,7 @@ const Scope = struct {
 /// an exit that fails.
 const Deferred = struct { body: Sexp, vars: u32, err_only: bool };
 
-/// An exit at which defers run, and so are re-checked (`exitDefers`).
+/// An exit at which defers run, and so are re-checked (`exitTo`).
 const Exit = union(enum) {
     /// The innermost scope's end, where the path falls through.
     scope_end,
@@ -747,7 +747,7 @@ pub const Checker = struct {
     fn popScope(self: *Checker) Error!void {
         const idx = self.scopes.items.len - 1;
         if (self.reachable) {
-            try self.exitDefers(.scope_end);
+            _ = try self.exitTo(.{ .exit = .scope_end });
             try self.checkDropOrder(self.scopes.items[idx].start);
         }
         var scope = self.scopes.pop().?;
@@ -766,15 +766,22 @@ pub const Checker = struct {
         const borrowed = for (self.loan_counts.items[@min(start, self.loan_counts.items.len)..]) |n| {
             if (n > 0) break true;
         } else false;
-        if (borrowed) for (0..@min(start, self.flows.items.len)) |holder| {
-            var f = self.flows.items[holder];
-            if (!hasLoanFrom(f.loans, start)) continue;
-            if (report and self.holderLive(@intCast(holder), end)) {
-                for (f.loans) |l| if (l.root >= start) try self.reportShortLived(l, @intCast(holder));
+        if (borrowed) {
+            if (report) for (self.flows.items[0..@min(start, self.flows.items.len)], 0..) |f, holder| {
+                if (hasLoanFrom(f.loans, start)) _ = try self.reportHolder(f, @intCast(holder), start, end);
+            };
+            for (0..@min(start, self.flows.items.len)) |holder| {
+                var f = self.flows.items[holder];
+                if (!hasLoanFrom(f.loans, start)) continue;
+                f.loans = try self.filterLoansBelow(f.loans, start);
+                try self.setFlow(@intCast(holder), f);
             }
-            f.loans = try self.filterLoansBelow(f.loans, start);
-            try self.setFlow(@intCast(holder), f);
-        };
+        }
+        // A `temps` entry reserves a var for the statement in flight (a
+        // returned `?user.name`, an arm's `o = ?t[..]`); it holds nothing
+        // past the statement, which every holder's own loans cover, so
+        // the scope's end removes it, and a reused var id is not left
+        // reserved.
         var i: usize = 0;
         while (i < self.temps.items.len) {
             if (self.temps.items[i].root >= start) {
@@ -927,10 +934,13 @@ pub const Checker = struct {
         };
     }
 
-    /// Go back to point `p`: undo every change since. The var stack is
-    /// back at `p`'s depth whenever this is called (scopes are balanced),
-    /// so changes to vars that have left scope since are skipped.
+    /// Go back to point `p`: undo every change since. Scopes are
+    /// balanced, so every var declared since `p` has left scope, except
+    /// hidden ones no scope holds (a statement's temporaries, a match's
+    /// `hold` var); changes to vars that have left are skipped.
     fn rewind(self: *Checker, p: Point) Error!void {
+        std.debug.assert(self.vars.items.len >= p.vars);
+        for (self.vars.items[p.vars..]) |v| std.debug.assert(v.kind == .hidden);
         var i = self.trail.items.len;
         while (i > p.trail) {
             i -= 1;
@@ -950,8 +960,8 @@ pub const Checker = struct {
 
     /// The current state relative to point `p`: of the vars in scope
     /// there, and of the loans on them. A path that leaves the scopes
-    /// opened since carries nothing else (`leaveTo` reports what it
-    /// loses).
+    /// opened since carries nothing else: `exitTo`, its only caller,
+    /// reports what it loses.
     fn capture(self: *Checker, p: Point) Error!State {
         const len = p.vars;
         self.scratch.clearRetainingCapacity();
@@ -965,13 +975,6 @@ pub const Checker = struct {
             if (prev == id) continue;
             prev = id;
             var f = self.flows.items[id];
-            // A statement's temporary made since `p` is out of the state:
-            // a value that still holds one after the statement outlives it.
-            if (hasLoanFrom(f.loans, len)) for (f.loans) |l| {
-                if (l.root < len or !self.isStmtTemp(l.root)) continue;
-                if (self.holderLive(id, extent(self.cur_stmt).hi +| 1)) try self.reportTempOutlived(l, id);
-                break;
-            };
             f.loans = try self.filterLoansBelow(f.loans, len);
             try entries.append(self.arena(), .{ .id = id, .flow = f });
         }
@@ -982,6 +985,76 @@ pub const Checker = struct {
         };
     }
 
+    /// A statement's temporary, made since there were `depth` vars, that
+    /// `holder` (whose flow is `f`) still borrows after the statement,
+    /// which drops it: reported once.
+    fn reportTempHolder(self: *Checker, f: Flow, holder: VarId, depth: u32) Error!void {
+        for (f.loans) |l| {
+            if (l.root < depth or !self.isStmtTemp(l.root)) continue;
+            if (self.holderLive(holder, extent(self.cur_stmt).hi +| 1)) try self.reportTempOutlived(l, holder);
+            return;
+        }
+    }
+
+    /// How a path ends (`exitTo`).
+    const ExitTo = struct {
+        /// The point the path leaves for: on it, the vars declared since
+        /// leave scope, and its state is relative to this point. Null
+        /// where the path leaves the function (`return`, `e!`, `e?`, a
+        /// failing result) or falls out of the innermost scope, whose end
+        /// reports and drops its own vars (`popScope`).
+        to: ?Point = null,
+        /// The exit, whose defers run first; null where none run.
+        exit: ?Exit = null,
+        /// Where the path goes on, for liveness: a source position, or
+        /// after the current statement when null.
+        resume_at: ?u32 = null,
+    };
+
+    /// The one way a path ends. It runs the defers its exit runs (their
+    /// effects stay only where the path ends, `Exit.goesOn`), reports
+    /// each loan the path drops that a holder still live where it goes
+    /// on keeps (`reportDropped`), and gives the path's state relative to
+    /// `x.to`.
+    fn exitTo(self: *Checker, x: ExitTo) Error!State {
+        if (x.exit) |e| {
+            // The defers that `e` runs, re-checked against the state here.
+            const back: ?Point = if (e.goesOn()) try self.here() else null;
+            const top = self.scopes.items.len - 1;
+            switch (e) {
+                .scope_end => try self.runDefers(top, false),
+                .failing_result => try self.runDefers(top, true),
+                .jump => |depth| try self.runDefersTo(depth, false),
+                .@"return", .propagate => |fails| try self.runDefersTo(0, fails),
+            }
+            if (back) |p| try self.rewind(p);
+        }
+        const to = x.to orelse return .{ .reachable = false };
+        try self.reportDropped(to.vars, x.resume_at);
+        return self.capture(to);
+    }
+
+    /// Report each var below `depth` that keeps a loan on a var at
+    /// `depth` or above, which leaves scope, where the holder is live at
+    /// `at` (after the current statement when null); or, when it is not,
+    /// a loan on a statement's temporary that it keeps past its
+    /// statement. Each holder is reported once.
+    fn reportDropped(self: *Checker, depth: u32, at: ?u32) Error!void {
+        for (self.flows.items[0..@min(depth, self.flows.items.len)], 0..) |f, holder| {
+            if (!hasLoanFrom(f.loans, depth)) continue;
+            if (!(try self.reportHolder(f, @intCast(holder), depth, at))) try self.reportTempHolder(f, @intCast(holder), depth);
+        }
+    }
+
+    /// Report each loan on a var at `depth` or above that `holder`
+    /// (whose flow is `f`) keeps, where the holder is live at `at` (after
+    /// the current statement when null). Whether it is.
+    fn reportHolder(self: *Checker, f: Flow, holder: VarId, depth: u32, at: ?u32) Error!bool {
+        if (!self.holderLive(holder, at)) return false;
+        for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, holder);
+        return true;
+    }
+
     /// Make state `s` current. The current state must be its point's.
     fn apply(self: *Checker, s: State) Error!void {
         for (s.changes) |e| try self.setFlow(e.id, e.flow);
@@ -990,18 +1063,18 @@ pub const Checker = struct {
         self.reachable = s.reachable;
     }
 
-    /// Leave the current path: its state relative to point `p`, after
-    /// going back to `p`.
-    fn leave(self: *Checker, p: Point) Error!State {
-        const s = try self.capture(p);
+    /// Leave the current path for point `p`, going on at `resume_at`
+    /// (`exitTo`): its state relative to `p`, after going back to `p`.
+    fn leave(self: *Checker, p: Point, resume_at: ?u32) Error!State {
+        const s = try self.exitTo(.{ .to = p, .resume_at = resume_at });
         try self.rewind(p);
         return s;
     }
 
-    /// Make current the join of the current state with `states`, all
-    /// relative to point `p`.
-    fn joinAt(self: *Checker, p: Point, states: []const State) Error!void {
-        var out = try self.leave(p);
+    /// Make current the join of the current state, which goes on at
+    /// `resume_at`, with `states`, all relative to point `p`.
+    fn joinAt(self: *Checker, p: Point, states: []const State, resume_at: ?u32) Error!void {
+        var out = try self.leave(p, resume_at);
         for (states) |s| out = try self.join(out, s);
         try self.apply(out);
     }
@@ -1301,7 +1374,7 @@ pub const Checker = struct {
                 defer self.cur_stmt = saved_stmt;
                 try self.walkReturnValue(stmt);
                 // An error returned here runs the body's `errdefer`s.
-                if (self.reachable and self.mayFail(stmt)) try self.exitDefers(.failing_result);
+                if (self.reachable and self.mayFail(stmt)) _ = try self.exitTo(.{ .exit = .failing_result });
             } else {
                 try self.walkStmt(stmt);
             }
@@ -1456,7 +1529,7 @@ pub const Checker = struct {
         }
         // An error the function returns from here runs the block's
         // `errdefer`s.
-        if (returns and self.reachable and stmts.len > 0 and self.mayFail(stmts[stmts.len - 1])) try self.exitDefers(.failing_result);
+        if (returns and self.reachable and stmts.len > 0 and self.mayFail(stmts[stmts.len - 1])) _ = try self.exitTo(.{ .exit = .failing_result });
         v = try self.checkValueEscapesScope(v);
         try self.popScope();
         return if (self.reachable) v else .{};
@@ -1672,11 +1745,15 @@ pub const Checker = struct {
     /// with a `!T` field): passing it on lends that borrow.
     fn isWriteBorrowPlace(self: *Checker, expr: Sexp) bool {
         if (!self.carriesWriteBorrow(self.exprType(expr))) return false;
-        return switch (expr) {
-            .src => true,
-            .list => expr.isKind(.member) or expr.isKind(.index),
-            else => false,
+        return switch (self.hands(expr).kind) {
+            .place, .part_of_made => true,
+            .made, .lend, .branches, .jump, .none => false,
         };
+    }
+
+    /// What `e` hands over to its context (`sema.handsOver`).
+    fn hands(self: *const Checker, e: Sexp) sema.Hands {
+        return sema.handsOverIn(self.source, self.sema, e);
     }
 
     /// A bare use of a name.
@@ -1778,10 +1855,11 @@ pub const Checker = struct {
         through_borrow: bool = false,
     };
 
-    /// The var a place expression starts from, and how it gets there.
-    /// Null for anything else, and for a name the closure body did not
-    /// capture (walking the expression reports it).
+    /// The var a place (`sema.Hands.Kind.place`) starts from, and how
+    /// it gets there. Null for anything else, and for a name the closure
+    /// body did not capture (walking the expression reports it).
     fn resolvePlace(self: *const Checker, e: Sexp) ?Place {
+        if (self.hands(e).kind != .place) return null;
         switch (e) {
             .src => {
                 const id = self.find(self.text(e)) orelse return null;
@@ -2084,32 +2162,14 @@ pub const Checker = struct {
     /// it, so the move is written where the place is. Reported; the
     /// offending place, or null.
     fn movedTail(self: *Checker, e: Sexp, top: Sexp, nested: bool) Error!?Sexp {
-        const kind = e.kind() orelse {
-            return if (nested and self.ownsPlace(e)) try self.reportMovedTail(e, top) else null;
-        };
-        switch (kind) {
-            .member, .index => return if (nested and self.ownsPlace(e)) try self.reportMovedTail(e, top) else null,
-            .@"if" => {
-                if (try self.movedTail(tailOf(ir.If.then(e)), top, true)) |p| return p;
-                return self.movedTail(tailOf(ir.If.@"else"(e)), top, true);
-            },
-            .match => {
-                for (ir.Match.arms(e)) |arm| if (try self.movedTail(tailOf(ir.Arm.body(arm)), top, true)) |p| return p;
-                return null;
-            },
-            .block => return if (ir.Block.stmts(e).len > 0) self.movedTail(tailOf(e), top, true) else null,
-            .@"??" => {
-                if (try self.movedTail(ir.@"??".left(e), top, true)) |p| return p;
-                return self.movedTail(ir.@"??".right(e), top, true);
-            },
-            .@"catch" => {
-                if (try self.movedTail(ir.Catch.value(e), top, true)) |p| return p;
-                return self.movedTail(tailOf(ir.Catch.handler(e)), top, true);
-            },
-            .propagate => return self.movedTail(ir.Propagate.value(e), top, true),
-            .propagate_none => return self.movedTail(ir.PropagateNone.value(e), top, true),
-            else => return null,
+        switch (self.hands(e).kind) {
+            .place, .part_of_made => return if (nested and self.ownsPlace(e)) try self.reportMovedTail(e, top) else null,
+            .made, .lend, .branches, .jump, .none => {},
         }
+        // A value one of whose parts it is (`sema.valueParts`).
+        var parts = sema.valueParts(e);
+        while (parts.next()) |p| if (try self.movedTail(p.node, top, true)) |place| return place;
+        return null;
     }
 
     /// A binding or field whose value owns a resource.
@@ -2386,46 +2446,33 @@ pub const Checker = struct {
                     try self.err(pos, "bare use of `{s}` in {s} would duplicate the write borrow it holds; use `<{s}` to move it", .{ name, sink.text(), name });
                 }
             },
-            .list => {
-                switch (expr.kind() orelse return) {
-                    .member, .index => {
-                        // `Enum.variant` is a new value, not a field.
-                        if (self.namesType(ir.get(expr, .object))) return;
-                        const ty = self.exprType(expr);
-                        if (self.owningKind(ty)) |k| {
-                            return self.reportAlias(self.startOf(expr), try self.placeText(expr), false, k, sink, ty);
-                        }
-                        if (sink != .argument and self.carriesWriteBorrow(ty)) {
-                            try self.errAt(expr, "bare use of `{s}` in {s} would duplicate a write borrow; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
-                        }
-                    },
-                    // A value returned through a branch moves out, like a bare return.
-                    .@"if" => {
-                        try self.checkNoImplicitCopy(tailOf(ir.If.then(expr)), sink, top_return);
-                        try self.checkNoImplicitCopy(tailOf(ir.If.@"else"(expr)), sink, top_return);
-                    },
-                    .match => for (ir.Match.arms(expr)) |arm| {
-                        try self.checkNoImplicitCopy(tailOf(ir.Arm.body(arm)), sink, top_return);
-                    },
-                    .block => if (ir.Block.stmts(expr).len > 0) try self.checkNoImplicitCopy(tailOf(expr), sink, top_return),
-                    // Operators that yield one of their operands.
-                    .@"??" => {
-                        try self.checkNoImplicitCopy(ir.@"??".left(expr), sink, false);
-                        try self.checkNoImplicitCopy(ir.@"??".right(expr), sink, false);
-                    },
-                    .@"catch" => {
-                        try self.checkNoImplicitCopy(ir.Catch.value(expr), sink, false);
-                        try self.checkNoImplicitCopy(tailOf(ir.Catch.handler(expr)), sink, false);
-                    },
-                    .propagate => try self.checkNoImplicitCopy(ir.Propagate.value(expr), sink, false),
-                    // `m?` copies out the value inside `m`, which only
-                    // matters when that value owns or holds a write borrow.
-                    .propagate_none => {
-                        const ty = self.exprType(expr);
-                        if (self.owningKind(ty) != null or self.carriesWriteBorrow(ty)) try self.checkNoImplicitCopy(ir.PropagateNone.value(expr), sink, false);
-                    },
-                    else => {},
-                }
+            .list => switch (self.hands(expr).kind) {
+                .place, .part_of_made => {
+                    // `Enum.variant` is a new value, not a field.
+                    if (self.namesType(ir.get(expr, .object))) return;
+                    const ty = self.exprType(expr);
+                    if (self.owningKind(ty)) |k| {
+                        return self.reportAlias(self.startOf(expr), try self.placeText(expr), false, k, sink, ty);
+                    }
+                    if (sink != .argument and self.carriesWriteBorrow(ty)) {
+                        try self.errAt(expr, "bare use of `{s}` in {s} would duplicate a write borrow; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
+                    }
+                },
+                // A value that is one of its parts (`sema.valueParts`):
+                // a tail it returns moves out, like a bare return; an
+                // operand it passes through does not. `m?` copies out
+                // the value inside `m`, which only matters when that
+                // value owns or holds a write borrow.
+                .made, .branches => {
+                    const ty = self.exprType(expr);
+                    var parts = sema.valueParts(expr);
+                    while (parts.next()) |p| switch (p.via) {
+                        .tail => try self.checkNoImplicitCopy(p.node, sink, top_return),
+                        .operand => try self.checkNoImplicitCopy(p.node, sink, false),
+                        .unwrapped => if (self.owningKind(ty) != null or self.carriesWriteBorrow(ty)) try self.checkNoImplicitCopy(p.node, sink, false),
+                    };
+                },
+                .lend, .jump, .none => {},
             },
             else => {},
         }
@@ -3000,22 +3047,9 @@ pub const Checker = struct {
     /// holding a Cell is held against any later borrow: one that changes
     /// the Cell would leave the copy stale.
     fn holdBranchReads(self: *Checker, e: Sexp) Error!void {
-        if (e.kind()) |kind| switch (kind) {
-            .@"if" => {
-                if (ir.If.@"else"(e) == .nil) return;
-                try self.holdBranchReads(ir.If.then(e));
-                return self.holdBranchReads(ir.If.@"else"(e));
-            },
-            .@"??" => {
-                try self.holdBranchReads(ir.@"??".left(e));
-                return self.holdBranchReads(ir.@"??".right(e));
-            },
-            .@"catch" => return self.holdBranchReads(ir.Catch.handler(e)),
-            .propagate => return self.holdBranchReads(ir.Propagate.value(e)),
-            .propagate_none => return self.holdBranchReads(ir.PropagateNone.value(e)),
-            else => {},
-        };
-        return self.holdBranchLeaf(e);
+        var leaves: std.ArrayList(Sexp) = .empty;
+        try sema.valueLeaves(self.arena(), e, &leaves);
+        for (leaves.items) |leaf| try self.holdBranchLeaf(leaf);
     }
 
     fn holdBranchLeaf(self: *Checker, leaf: Sexp) Error!void {
@@ -3436,7 +3470,7 @@ pub const Checker = struct {
     fn walkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
         if (value != .nil) try self.walkReturnValue(value);
-        try self.exitDefers(.{ .@"return" = value != .nil and self.mayFail(value) });
+        _ = try self.exitTo(.{ .exit = .{ .@"return" = value != .nil and self.mayFail(value) } });
         self.reachable = false;
     }
 
@@ -3510,10 +3544,11 @@ pub const Checker = struct {
         // The condition is a header, its own statement.
         try self.walkStmt(cond);
         const base = try self.here();
+        const past = resumeAt(.nil, node);
         const v1 = try self.walkTailBranch(then_b, t);
-        const s1 = try self.leave(base);
+        const s1 = try self.leave(base, past);
         const v2 = if (else_b != .nil) try self.walkTailBranch(else_b, t) else Value{};
-        const s2 = try self.leave(base);
+        const s2 = try self.leave(base, past);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
     }
@@ -3529,16 +3564,17 @@ pub const Checker = struct {
         const depth = self.scopes.items.len;
         try self.walkConditionParts(ir.If.cond(node), then_b);
         // A failing part goes on to the `else`, or past the `if`.
-        const failed = try self.leaveTo(base, resumeAt(else_b, node));
+        const failed = try self.exitTo(.{ .to = base, .resume_at = resumeAt(else_b, node) });
         var v1 = try self.walkTailBranch(then_b, t);
         while (self.scopes.items.len > depth) {
             v1 = try self.checkValueEscapesScope(v1);
             try self.popScope();
         }
-        const s1 = try self.leave(base);
+        const past = resumeAt(.nil, node);
+        const s1 = try self.leave(base, past);
         try self.apply(failed);
         const v2 = if (else_b != .nil) try self.walkTailBranch(else_b, t) else Value{};
-        const s2 = try self.leave(base);
+        const s2 = try self.leave(base, past);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
     }
@@ -3579,7 +3615,7 @@ pub const Checker = struct {
         var v2 = try self.walkTailPart(handler, t);
         v2 = try self.checkValueEscapesScope(v2);
         try self.popScope();
-        const s = try self.leave(base);
+        const s = try self.leave(base, resumeAt(.nil, node));
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
     }
@@ -3591,7 +3627,7 @@ pub const Checker = struct {
         const v1 = try self.walk(ir.@"??".left(node));
         const base = try self.here();
         const v2 = try self.walkTailPart(ir.@"??".right(node), t);
-        const s = try self.leave(base);
+        const s = try self.leave(base, resumeAt(.nil, node));
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
     }
@@ -3675,7 +3711,7 @@ pub const Checker = struct {
                 // A header, its own statement.
                 try self.walkStmt(guard);
                 // A failing guard goes on to the next arm, or past the match.
-                failed = try self.leaveTo(base, resumeAt(if (i + 1 < arms.len) arms[i + 1] else .nil, match));
+                failed = try self.exitTo(.{ .to = base, .resume_at = resumeAt(if (i + 1 < arms.len) arms[i + 1] else .nil, match) });
             }
             // The arm is chosen: the subject is read no more.
             if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
@@ -3683,7 +3719,7 @@ pub const Checker = struct {
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);
-            const s = try self.leave(base);
+            const s = try self.leave(base, resumeAt(.nil, match));
             acc = if (acc) |a| try self.join(a, s) else s;
             if (failed) |f| start = try self.join(start, f);
         }
@@ -3777,9 +3813,9 @@ pub const Checker = struct {
         elem_view: bool = false,
     };
 
-    /// An expression that yields a value, including a loop used as one.
+    /// A statement that gives a value (`sema.yieldsValue`).
     fn isValue(self: *const Checker, e: Sexp) bool {
-        return isValueExpr(e) or sema.hasValueBreaks(self.source, e);
+        return sema.yieldsValue(self.source, e);
     }
 
     fn walkWhile(self: *Checker, node: Sexp) Error!Value {
@@ -3852,7 +3888,7 @@ pub const Checker = struct {
         self.loop = &ctx;
         defer self.loop = ctx.parent;
         try self.walkStmt(stmt);
-        try self.joinAt(ctx.point, ctx.breaks.items);
+        try self.joinAt(ctx.point, ctx.breaks.items, resumeAt(.nil, node));
         return .{};
     }
 
@@ -3907,7 +3943,7 @@ pub const Checker = struct {
                 self.value_reads = false;
             } else try self.walkStmt(e);
         }
-        try self.joinAt(ctx.point, ctx.breaks.items);
+        try self.joinAt(ctx.point, ctx.breaks.items, resumeAt(.nil, spec.node));
         return value;
     }
 
@@ -3928,19 +3964,21 @@ pub const Checker = struct {
             // A failing part leaves the loop for its `else`, or past it.
             self.loop = ctx.parent;
             defer self.loop = ctx;
-            exit = try self.leaveTo(ctx.point, resumeAt(ir.get(spec.node, .@"else"), spec.node));
+            exit = try self.exitTo(.{ .to = ctx.point, .resume_at = resumeAt(ir.get(spec.node, .@"else"), spec.node) });
         } else {
             if (spec.cond) |c| try self.walkStmt(c);
-            if (!spec.cond_always_true) exit = try self.capture(ctx.point);
+            if (!spec.cond_always_true) exit = try self.exitTo(.{ .to = ctx.point, .resume_at = resumeAt(ir.get(spec.node, .@"else"), spec.node) });
         }
         try self.pushScopeFor(.block, spec.body);
         try self.bindLoopElems(spec);
         try self.walkStmt(spec.body);
         while (self.scopes.items.len > depth) try self.popScope();
 
-        if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items);
+        // A `continue` and the end of the body go back to the loop's
+        // head.
+        if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, ctx.start);
         if (spec.cont) |c| try self.walkStmt(c);
-        return .{ .back = try self.capture(ctx.point), .exit = exit };
+        return .{ .back = try self.exitTo(.{ .to = ctx.point, .resume_at = ctx.start }), .exit = exit };
     }
 
     fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {
@@ -4021,8 +4059,7 @@ pub const Checker = struct {
         }
         if (target) |t| {
             t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
-            try self.exitDefers(.{ .jump = t.scope_depth });
-            const s = try self.leaveTo(t.point, null);
+            const s = try self.exitTo(.{ .to = t.point, .exit = .{ .jump = t.scope_depth } });
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
                 .cont => try t.conts.append(self.arena(), s),
@@ -4031,23 +4068,10 @@ pub const Checker = struct {
         self.reachable = false;
     }
 
-    /// The state of a path that leaves for point `target`, relative to
-    /// it, dropping the vars declared since: a value that survives, and
-    /// is live where the path goes on (at position `at`, or after the
-    /// current statement), may not borrow one of them.
-    fn leaveTo(self: *Checker, target: Point, at: ?u32) Error!State {
-        const depth = target.vars;
-        for (self.flows.items[0..depth], 0..) |f, holder| {
-            if (!hasLoanFrom(f.loans, depth) or !self.holderLive(@intCast(holder), at)) continue;
-            for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, @intCast(holder));
-        }
-        return self.capture(target);
-    }
-
     /// `e!` / `e?`: on failure or `none`, control leaves for the caller.
     fn walkPropagate(self: *Checker, node: Sexp) Error!Value {
         const v = try self.walk(ir.get(node, .value));
-        if (self.reachable) try self.exitDefers(.{ .propagate = node.isKind(.propagate) });
+        if (self.reachable) _ = try self.exitTo(.{ .exit = .{ .propagate = node.isKind(.propagate) } });
         return v;
     }
 
@@ -4088,27 +4112,13 @@ pub const Checker = struct {
         self.loop = saved_loop;
         self.in_defer = saved_in_defer;
         if (!report_changes) return;
-        const after = try self.leave(snap);
+        const after = try self.leave(snap, null);
         for (after.changes) |e| {
             if (e.flow.status != self.flows.items[e.id].status) {
                 try self.errAt(body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
                 break;
             }
         }
-    }
-
-    /// Re-check, against the state here, the defers that `exit` runs.
-    /// Their effects stay only where the path ends (`Exit.goesOn`).
-    fn exitDefers(self: *Checker, exit: Exit) Error!void {
-        const back: ?Point = if (exit.goesOn()) try self.here() else null;
-        const top = self.scopes.items.len - 1;
-        switch (exit) {
-            .scope_end => try self.runDefers(top, false),
-            .failing_result => try self.runDefers(top, true),
-            .jump => |depth| try self.runDefersTo(depth, false),
-            .@"return", .propagate => |fails| try self.runDefersTo(0, fails),
-        }
-        if (back) |p| try self.rewind(p);
     }
 
     /// Re-check the defers of scope `scope_idx` at an exit, with its
@@ -4514,27 +4524,6 @@ fn loanSetEql(a: []const Loan, b: []const Loan) bool {
 fn hasLoanFrom(loans: []const Loan, start: u32) bool {
     for (loans) |l| if (l.root >= start) return true;
     return false;
-}
-
-/// The expression whose value a branch produces: the last statement of
-/// a block, or the branch itself.
-fn tailOf(s: Sexp) Sexp {
-    if (s.isKind(.block)) {
-        const stmts = ir.Block.stmts(s);
-        if (stmts.len == 0) return .nil;
-        return tailOf(stmts[stmts.len - 1]);
-    }
-    return s;
-}
-
-/// Whether a statement produces a value (as opposed to binding, jumping
-/// or looping).
-fn isValueExpr(s: Sexp) bool {
-    if (s != .list) return s == .src;
-    return switch (s.kind() orelse return false) {
-        .set, .@"return", .@"break", .@"continue", .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .labeled => false,
-        else => true,
-    };
 }
 
 fn refOfTypeSexp(t: Sexp) Ref {

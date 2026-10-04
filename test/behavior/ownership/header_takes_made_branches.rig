@@ -1,0 +1,55 @@
+# A `for` or `match` header takes a value made there, as `<e` would: a
+# call's result, and a branching value whose every leaf is made there
+# (`mk() if c else mk2()`, `<a if c else <b`).
+
+struct N
+  id: Int
+  t: Text
+
+  drop(!self)
+    print("drop", self.id)
+
+enum Shape
+  dot
+  line(n: N)
+
+fun mkv(k: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(k)
+  !v.push(k * 10)
+  v
+
+fun mks(k: Int) -> Shape
+  .line(n: N(id: k, t: Text("s")))
+
+sub main
+  c = true
+  for x in (mkv(1) if c else mkv(2))
+    print(x)
+  v = mkv(3)
+  w = mkv(4)
+  for x in (<v if not c else <w)
+    print(x)
+  print("loops done")
+  a = mks(5)
+  b = mks(6)
+  match <a if c else <b
+    .line(n) => print("line", n.id)
+    .dot => print("dot")
+  match mks(7) if not c else mks(8)
+    .line(n) => print("line", n.id)
+    .dot => print("dot")
+  print("matches done")
+
+# expect:
+# 1
+# 10
+# 4
+# 40
+# loops done
+# line 5
+# drop 5
+# line 8
+# drop 8
+# matches done
+# drop 6

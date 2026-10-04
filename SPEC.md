@@ -2216,10 +2216,11 @@ drop 2
 after
 ```
 
-A Vec source is a place, which the loop walks in place, or a call,
-whose new Vec the loop consumes as `<v` does. Any other expression
-(`o?`, a ternary, a `match`) could be a place on one path and a new
-Vec on another, so it is bound to a name first:
+A Vec source is a place, which the loop walks in place, or a value made
+there (a call, or a branching value whose every branch is made there),
+whose new Vec the loop consumes as `<v` does. A branching value that
+may be a name's (`o?`, `a if c else b`) could be a place on one path
+and a new Vec on another, so it is bound to a name first:
 
 ```rig reject
 sub main
@@ -3158,6 +3159,8 @@ sub main
 count; for a Copy value it copies. A struct with drop glue has no
 clone. `+p.a` clones the handle in a field. A value holding a write
 borrow cannot be cloned or weakly referenced: the borrow is unique.
+`+e` only reads `e`: a value made there (`+make()`) is a temporary its
+statement drops, and `+(a if c else b)` reads `a` or `b` where it is.
 
 ### Drop
 
@@ -3281,9 +3284,11 @@ field, a Vec, or a returned value, it is rejected.
 temporaries end with the header, before the body runs; what the header
 binds lives through the body. So `if text.starts_with(?Text(a, b),
 "x")` works, but `if text.cut(?Text(a, b), "=") as kv` must bind the
-Text first, because `kv` outlives the header. A call's result that `if
-… as`, `while … as`, `match`, or `for` binds is taken, as `<e` would
-take it: an arm of `match make()` may move a payload out. A lend of a
+Text first, because `kv` outlives the header. A value made there that
+`if … as`, `while … as`, `match`, or `for` binds is taken, as `<e`
+would take it: a call's result, or a branching value whose every
+branch is made there (`make() if c else <a`). An arm of `match make()`
+may move a payload out. A lend of a
 branching value that may be a name's (`?(a if c else b)`) would copy
 that name's value, so it is rejected: lend each branch, `?a if c else
 ?b`.

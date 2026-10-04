@@ -187,6 +187,11 @@ pub const Emitter = struct {
     /// The value being emitted is a write borrow: a pointer local in tail
     /// position yields the pointer, not the value behind it.
     ptr_tail: bool = false,
+    /// What the context of the value being emitted does with it
+    /// (`sema.Use`), and the value it was recorded for or a part of that
+    /// value (`sema.valueParts`) the use reaches.
+    use: ?sema.Use = null,
+    use_node: Sexp = .nil,
     /// The next expression is emitted as the pointer it yields, even where
     /// its context reads through it (`emitDeref`).
     want_ptr: bool = false,
@@ -1213,7 +1218,7 @@ pub const Emitter = struct {
             // clone or move of a value that owns nothing is a copy.)
             var place = expr;
             if (place.isKind(.read) or place.isKind(.write) or place.isKind(.clone) or place.isKind(.move)) place = ir.get(place, .operand);
-            if (isPlace(place) and !place.isKind(.index)) {
+            if (self.hasStorage(place) and !place.isKind(.index)) {
                 try self.w.writeAll("_ = &");
                 try self.emitPlace(place);
                 return self.w.writeAll(";");
@@ -2130,7 +2135,7 @@ pub const Emitter = struct {
         const is_vec = src_ty != null and self.isVecTy(src_ty.?);
         // A Vec the loop consumes, or one its source expression creates,
         // hands its elements over one at a time.
-        if (is_vec and (mode == .move or (!isPlace(source) and self.kindOf(src_ty.?) != null))) {
+        if (is_vec and (mode == .move or (!self.hasStorage(source) and self.kindOf(src_ty.?) != null))) {
             return self.emitConsumingFor(sexp, label);
         }
         const elem_sym = self.sema.symbolOf(binding);
@@ -2326,7 +2331,7 @@ pub const Emitter = struct {
             // A match on a call returning a borrow held by pointer
             // switches on the value it points to.
             const h = try self.openHeader(subject);
-            if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
+            if (!self.hasStorage(subject) and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
             if (info.boxed) try self.w.writeAll(".value.*");
             try self.closeHeader(h);
         }
@@ -2413,7 +2418,7 @@ pub const Emitter = struct {
         }
         const name = try self.fmt("__rig_subject_{d}", .{self.nextId()});
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
-        if (isPlace(value) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
+        if (self.hasStorage(value) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
             try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
             info.reread = try self.fmt("{s}.*", .{name});
             return;
@@ -2898,6 +2903,16 @@ pub const Emitter = struct {
     /// its scope (return, break value): resource bindings in tail
     /// position are moved out.
     fn emitValue(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
+        // A part of the value whose use is known has that use; any other
+        // value has the use its own context recorded.
+        const saved_use = self.use;
+        const saved_use_node = self.use_node;
+        defer {
+            self.use = saved_use;
+            self.use_node = saved_use_node;
+        }
+        if (!self.partOfUse(sexp)) self.use = self.sema.useOf(sexp);
+        self.use_node = sexp;
         const want_ptr = self.want_ptr;
         self.want_ptr = false;
         const bare = self.bare;
@@ -2968,7 +2983,7 @@ pub const Emitter = struct {
                 return self.w.print("rig.rt({s})", .{local.zig_name});
             }
             if (tail and self.ptr_tail and local.is_ptr) return self.w.writeAll(local.zig_name);
-            return if (tail and !self.sema.readsInPlace(sexp)) self.writeTake(local) else self.writeLocalPlace(local);
+            return if (tail and try self.takesTail(sexp, local)) self.writeTake(local) else self.writeLocalPlace(local);
         }
         if (std.mem.eql(u8, name, "none")) return self.w.writeAll("null");
         if (name[0] == '\'') return writeSingleQuoted(self.w, name);
@@ -3007,6 +3022,30 @@ pub const Emitter = struct {
             break;
         };
         try self.w.print("{f}", .{ident(name)});
+    }
+
+    /// Whether `sexp`, the value being emitted, is the value whose use is
+    /// known or a part of it (`sema.valueParts`), directly or as the
+    /// block whose tail the part is.
+    fn partOfUse(self: *const Emitter, sexp: Sexp) bool {
+        if (self.use_node == .nil) return false;
+        if (sameNode(sexp, self.use_node)) return true;
+        var parts = sema.valueParts(self.use_node);
+        while (parts.next()) |p| if (sameNode(p.node, sexp) or sameNode(p.node, sema.tailOf(sexp))) return true;
+        return false;
+    }
+
+    /// Whether name `sexp`, at a tail of the value being emitted, moves
+    /// out of `local`: only where the value's context takes it
+    /// (`sema.Use`), never where it is read in place. A binding no drop
+    /// flag guards has nothing to disarm. A value whose context recorded
+    /// no use is an internal error in every build: neither a move nor a
+    /// read is right without one.
+    fn takesTail(self: *Emitter, sexp: Sexp, local: *const Local) Error!bool {
+        if (consumeFlag(local) == null) return false;
+        if (self.sema.readsInPlace(sexp)) return false;
+        const use = self.use orelse return self.unsupported(sexp, "a value whose use no context recorded");
+        return use == .take;
     }
 
     /// `local`'s value moving out: `rig.take(&flag, x)`, which yields `x`
@@ -3499,9 +3538,9 @@ pub const Emitter = struct {
         }
     }
 
-    /// A statement that produces a value, including a loop used as one.
+    /// A statement that gives a value (`sema.yieldsValue`).
     fn yieldsValue(self: *Emitter, s: Sexp) bool {
-        return isValueStmt(s) or sema.hasValueBreaks(self.source, s);
+        return sema.yieldsValue(self.source, s);
     }
 
     fn isNoneLeaf(self: *Emitter, e: Sexp) bool {
@@ -3525,10 +3564,11 @@ pub const Emitter = struct {
         const op = @tagName(kind);
         const is_eq = kind == .@"==" or kind == .@"!=";
         const operands = [2]Sexp{ ir.get(sexp, .left), ir.get(sexp, .right) };
-        // A temporary optional resource compared with `none` is dropped.
+        // An optional resource made here and compared with `none` is
+        // dropped by the test.
         if (is_eq) for ([2]usize{ 0, 1 }) |i| {
             const other = operands[1 - i];
-            if (!self.isNoneLeaf(other) or isPlace(operands[i])) continue;
+            if (!self.isNoneLeaf(other) or !self.dropsWhenTested(operands[i])) continue;
             const t = self.typeOf(operands[i]) orelse continue;
             if (self.kindOf(t) == null) continue;
             if (kind == .@"!=") try self.w.writeAll("!");
@@ -3540,8 +3580,9 @@ pub const Emitter = struct {
         if (is_eq) for ([2]usize{ 0, 1 }) |i| {
             const value = operands[1 - i];
             if (!operands[i].isKind(.enum_lit) or !self.isPayloadEnumOperand(value)) continue;
-            // A temporary that owns a resource is dropped once tested.
-            const temp = !isPlace(value) and self.kindOf(self.typeOf(value).?) != null;
+            // A value made here that owns a resource is dropped once
+            // tested.
+            const temp = self.dropsWhenTested(value) and self.kindOf(self.typeOf(value).?) != null;
             if (kind == .@"!=") try self.w.writeAll("!");
             try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
             try self.emitExpr(value);
@@ -4553,7 +4594,7 @@ pub const Emitter = struct {
         const callee = self.sema.calleeOf(call);
         // Zig passes a temporary receiver to a `!self` method as a constant,
         // and a Cell a read borrow may change must not be in one.
-        if (self.receiverOf(call)) |recv| if ((!isPlace(recv) and recv.kind() != .move and self.receiverWrites(call)) or self.sema.lendsCellTemp(unborrowed(recv))) return true;
+        if (self.receiverOf(call)) |recv| if ((!self.hasStorage(recv) and recv.kind() != .move and self.receiverWrites(call)) or self.sema.lendsCellTemp(unborrowed(recv))) return true;
         for (args) |a| if (argValue(a).isKind(.read) and self.sema.lendsCellTemp(ir.Read.operand(argValue(a)))) return true;
         for (args) |a| if (self.sema.arrayViewOf(argValue(a)) == .temporary and self.sema.lendsCellTemp(argValue(a))) return true;
         var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or self.consumedTemporary(call) != null;
@@ -4578,7 +4619,7 @@ pub const Emitter = struct {
         const callee = self.sema.calleeOf(call);
         if (!callee.isKind(.member)) return null;
         const obj = ir.Member.object(callee);
-        if (isPlace(obj) or obj.isKind(.move) or self.isTypeCallee(obj) or !self.isOwnedValue(obj)) return null;
+        if (self.hasStorage(obj) or obj.isKind(.move) or self.isTypeCallee(obj) or !self.isOwnedValue(obj)) return null;
         const f = self.fnType(self.typeOf(callee)) orelse return null;
         if (f.params.len == 0) return null;
         return switch (self.sema.types.get(f.params[0])) {
@@ -4626,6 +4667,19 @@ pub const Emitter = struct {
         return obj;
     }
 
+    /// Whether an operand tested against `none` or a bare `.variant` is
+    /// a value made there that no slot holds, which the test drops. Any
+    /// other operand is read where it is.
+    fn dropsWhenTested(self: *Emitter, e: Sexp) bool {
+        return sema.handsOver(self.sema, e).kind == .made and !self.sema.dropsTemp(e);
+    }
+
+    /// Whether `e` is read from storage, not made for its context
+    /// (`sema.Hands.hasStorage`).
+    fn hasStorage(self: *Emitter, e: Sexp) bool {
+        return sema.handsOver(self.sema, e).hasStorage();
+    }
+
     /// Whether the method of `value.method(...)` takes `!self`.
     fn receiverWrites(self: *Emitter, call: Sexp) bool {
         const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return false;
@@ -4641,7 +4695,7 @@ pub const Emitter = struct {
         const writes = self.receiverWrites(call);
         // A Cell-holding part of a temporary is copied into a mutable local.
         const cell = self.sema.lendsCellTemp(recv);
-        const temporary = (!isPlace(recv) and !recv.isKind(.move)) or cell;
+        const temporary = (!self.hasStorage(recv) and !recv.isKind(.move)) or cell;
         if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return;
         const name = try self.fmt("__rig_recv_{d}", .{id});
         try self.writeIndent(self.indent);
@@ -5884,12 +5938,6 @@ fn unborrowed(e: Sexp) Sexp {
     return x;
 }
 
-/// Storage with an owner: a name, a field or element, or a borrow of one.
-fn isPlace(e: Sexp) bool {
-    const h = e.kind() orelse return e == .src;
-    return h == .member or h == .index or h == .read or h == .write;
-}
-
 /// The value of a call argument: a `(kwarg name value)` stands for its value.
 fn argValue(a: Sexp) Sexp {
     return if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
@@ -5929,16 +5977,6 @@ fn sameNode(a: Sexp, b: Sexp) bool {
         .src => |s| b == .src and b.src.pos == s.pos,
         .list => b == .list and a.items().ptr == b.items().ptr,
         else => false,
-    };
-}
-
-/// Statements that produce a value (and can end a value block).
-fn isValueStmt(s: Sexp) bool {
-    const h = s.kind() orelse return true;
-    return switch (h) {
-        .set, .drop, .pass, .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .block, .@"while", .@"for", .labeled => false,
-        .@"if" => ir.If.@"else"(s) != .nil,
-        else => true,
     };
 }
 

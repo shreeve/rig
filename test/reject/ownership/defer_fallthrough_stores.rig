@@ -1,0 +1,17 @@
+# A `defer` that stores a loan on a local of its scope runs as the
+# scope ends, after which the local is gone.
+struct H
+  r: ?Vec[Int]
+
+sub main
+  z: Vec[Int] = Vec()
+  h = H(r: ?z)
+  if true
+    inner: Vec[Int] = Vec()
+    !inner.push(9)
+    defer h.r = ?inner
+    print("in")
+  print(h.r[0])
+
+# error: 12:18: `inner` does not live long enough
+# errors: 1

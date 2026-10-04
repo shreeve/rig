@@ -638,6 +638,11 @@ pub const Facts = struct {
     /// Branches of a read branching value that a name holds (`a` in
     /// `print(a if c else b)`): read where they are, never moved out.
     in_place_reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Values a context reads, takes, or lends (`Use`), keyed by the
+    /// value: a name, or a value that yields one of its parts
+    /// (`valueParts`). Emit moves a name at a tail of the value out of
+    /// its binding only where the value is taken.
+    uses: std.AutoHashMapUnmanaged(u64, Use) = .empty,
     /// `match` nodes whose subject is a call's result, which the match
     /// takes as `match <e` would.
     taken_subjects: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -663,6 +668,19 @@ pub const Facts = struct {
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
     }
+};
+
+/// What a context does with a value (Core §3).
+pub const Use = enum {
+    /// Reads it where it is: a `print` argument, an `==` operand, `+e`,
+    /// a `?self` receiver, a field or element read.
+    read,
+    /// Takes it: a binding, an argument, a stored field or element,
+    /// `return`, a `break` value, a consuming receiver, a header that
+    /// binds it.
+    take,
+    /// Lends it: `?e`, `!e`.
+    lend,
 };
 
 /// An array lent where a slice is expected.
@@ -859,7 +877,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        ArrayView, TextCall => try w.print(" {s}", .{@tagName(v)}),
+        ArrayView, TextCall, Use => try w.print(" {s}", .{@tagName(v)}),
         ElemCall => {
             try w.print(" {s} {s}", .{ @tagName(v.op), try formatTypeIn(ctx, a, v.elem) });
             if (v.num != type_invalid) try w.print(" {s}", .{try formatTypeIn(ctx, a, v.num)});
@@ -1550,6 +1568,20 @@ pub const SemContext = struct {
     /// a name holds it (`recordReadInPlace`).
     pub fn readsInPlace(self: *const SemContext, node: Sexp) bool {
         return self.facts.in_place_reads.contains(exprKey(node) orelse return false);
+    }
+
+    /// The context of `node` reads, takes, or lends it (`Facts.uses`).
+    /// A value has one use: a second record of it must agree.
+    pub fn recordUse(self: *SemContext, node: Sexp, use: Use) !void {
+        const key = recordExprKey(node) orelse return;
+        const gop = try self.facts.uses.getOrPut(self.allocator, key);
+        if (gop.found_existing) std.debug.assert(gop.value_ptr.* == use);
+        gop.value_ptr.* = use;
+    }
+
+    /// What the context of `node` does with it, where one was recorded.
+    pub fn useOf(self: *const SemContext, node: Sexp) ?Use {
+        return self.facts.uses.get(exprKey(node) orelse return null);
     }
 
     pub fn recordTakenSubject(self: *SemContext, match: Sexp) !void {
@@ -4092,6 +4124,292 @@ pub fn eachTailPart(e: Sexp, context: anytype, comptime f: anytype) @typeInfo(@T
     }
 }
 
+// =============================================================================
+// What an expression hands over
+// =============================================================================
+
+/// What an expression hands over to the context that uses it (Core §9),
+/// decided once, here, by a positive list of IR kinds (`handsOver`).
+/// Every pass asks `handsOver`; none decides it again from syntax.
+pub const Hands = struct {
+    kind: Kind,
+
+    pub const Kind = enum {
+        /// Storage with an owner: a name of a binding or of a constant
+        /// (a function, a module's constant, `Enum.variant`), or a field
+        /// or element path from a place, a lend, or a borrow (`v`, `p.f`,
+        /// `xs[i].f`, `(?v).f`, `mk_ref().f` where `mk_ref()` is a `?T`).
+        place,
+        /// A field or element path from a value that is no place: one
+        /// made here, or a branching value (`mk().v[0]`, `[a, b][1]`,
+        /// `(a if c else b).f`). The path's base is evaluated into a
+        /// temporary, and the part lives only as long as it.
+        part_of_made,
+        /// A value made here: a call, a constructor, `+x`, `*x`, `~x`,
+        /// `<x`, an array, a closure, an operator's result, a literal,
+        /// `none`, an enum literal (`.red`), a `match`, a block, a loop's
+        /// value, and a branching value whose every leaf is made here or
+        /// jumps.
+        made,
+        /// `?x`, `!x`, and their slices (`?x[a..b]`): a view of `x`, lent
+        /// here.
+        lend,
+        /// A value that is one of its operands (`a if c else b`,
+        /// `a ?? b`, `e catch h`, `e!`, `e?`), at least one of whose
+        /// leaves (`valueLeaves`) is not made here.
+        branches,
+        /// `return`, `break`, `continue`: no value reaches the context.
+        jump,
+        /// Not a value: a statement, a declaration, a type, a pattern.
+        none,
+    };
+
+    /// The value is read from storage, not made for the context: a
+    /// place, a part of a value made here, or a lend.
+    pub fn hasStorage(h: Hands) bool {
+        return switch (h.kind) {
+            .place, .part_of_made, .lend => true,
+            .made, .branches, .jump, .none => false,
+        };
+    }
+};
+
+/// What expression `node` hands over (`Hands`). It reads only the facts
+/// sema records (`symbolOf`, `typeOf`, `instanceOf`), so every pass
+/// after type checking gets the same answer.
+pub fn handsOver(ctx: *const SemContext, node: Sexp) Hands {
+    return handsOverIn(ctx.source, ctx, node);
+}
+
+/// `handsOver` in `source`, with the facts of `ctx` when there are any.
+/// Without them (the ownership checker's own unit tests) every name is a
+/// binding's and no type is known.
+pub fn handsOverIn(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands {
+    return .{ .kind = handsOverKind(source, ctx, node) };
+}
+
+fn handsOverKind(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind {
+    switch (node) {
+        .src => return leafHands(source, ctx, node),
+        .list => {},
+        else => return .none,
+    }
+    // `f[Int]`: a function's instance is a value; a type's is none.
+    if (ctx) |c| if (c.instanceOf(node)) |inst| return if (inst == .function) .made else .none;
+    return switch (shapeOf(source, node)) {
+        .made => .made,
+        .lend => .lend,
+        .jump => .jump,
+        .none => .none,
+        .path => pathHands(source, ctx, node),
+        .branches => {
+            var parts = valueParts(node);
+            while (parts.next()) |p| switch (handsOverKind(source, ctx, p.node)) {
+                .made, .jump => {},
+                .place, .part_of_made, .lend, .branches, .none => return .branches,
+            };
+            return .made;
+        },
+    };
+}
+
+/// A name or a literal.
+fn leafHands(source: []const u8, ctx: ?*const SemContext, leaf: Sexp) Hands.Kind {
+    const text = identAt(source, leaf) orelse return .none;
+    const sym = (if (ctx) |c| c.symbolOf(leaf) else null) orelse {
+        if (isLiteralLeafText(text) or std.mem.eql(u8, text, "none")) return .made;
+        // A name sema could not resolve was reported; it stands for a
+        // binding.
+        return .place;
+    };
+    return switch (ctx.?.symbols.items[sym].kind) {
+        .param, .local, .capture, .@"extern", .generic_param, .function => .place,
+        .type_alias, .generic_type, .nominal_type, .module => .none,
+    };
+}
+
+/// `p.f` or `p[i]`: by the base the path starts from.
+fn pathHands(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind {
+    var base = node;
+    while (base.isKind(.member) or base.isKind(.index)) {
+        const object = ir.get(base, .object);
+        // `Enum.variant`, `Type.method`, `module.name`: a qualified
+        // name, not a part of another value.
+        if (base.isKind(.member)) if (ctx) |c| if (namesTypeOrModule(c, object)) return .place;
+        base = object;
+    }
+    return switch (handsOverKind(source, ctx, base)) {
+        .place, .lend => .place,
+        // A path through a borrow reaches what the borrow views, not the
+        // value made here that holds it.
+        .made, .branches, .part_of_made => if (ctx) |c| (if (c.typeOf(base)) |ty| (if (isBorrowType(c, ty)) .place else .part_of_made) else .part_of_made) else .part_of_made,
+        .jump, .none => .none,
+    };
+}
+
+/// A name of a type or module, or a generic type's instance
+/// (`Vec[Int]`): it has no value of its own.
+fn namesTypeOrModule(ctx: *const SemContext, e: Sexp) bool {
+    if (ctx.instanceOf(e)) |inst| return inst == .type;
+    const sym = ctx.symbolOf(e) orelse return false;
+    return switch (ctx.symbols.items[sym].kind) {
+        .type_alias, .generic_type, .nominal_type, .module => true,
+        .function, .param, .local, .generic_param, .@"extern", .capture => false,
+    };
+}
+
+/// A number, string, character, or Bool literal's text.
+fn isLiteralLeafText(text: []const u8) bool {
+    if (text.len == 0) return false;
+    if (text[0] == '"' or text[0] == '\'') return true;
+    if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return true;
+    return isIntLiteralText(text) or isFloatLiteralText(text);
+}
+
+/// What a list node is by its kind alone, the positive list `handsOver`
+/// refines with the facts. Every IR kind is listed: a new one is a
+/// compile error here until it is classified.
+const Shape = enum { made, lend, jump, none, path, branches };
+
+fn shapeOf(source: []const u8, node: Sexp) Shape {
+    const tag = node.kind() orelse return .none;
+    return switch (tag) {
+        // Declarations and their parts.
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        // Statements, and the parts of statements, conditions, and calls.
+        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=", .iter, .kwarg => .none,
+        // Patterns and arms.
+        .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
+        // Types.
+        .optional, .error_union, .borrow_read, .borrow_write, .shared, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed => .none,
+        .@"return", .@"break", .@"continue" => .jump,
+        .read, .write => .lend,
+        .member, .index => .path,
+        .@"if", .@"??", .@"catch", .propagate, .propagate_none => if (isBranchingForm(node)) .branches else .none,
+        // A loop, labeled or not, is a value when a `break` leaves it
+        // with one.
+        .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
+        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .move, .clone, .share, .weak => .made,
+        .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
+    };
+}
+
+/// Whether statement `s` gives a value: an expression, or a loop a
+/// `break` leaves with one. A jump, a declaration, and a statement that
+/// binds, assigns, or loops without a value give none.
+pub fn yieldsValue(source: []const u8, s: Sexp) bool {
+    return switch (s) {
+        .src => true,
+        .list => switch (shapeOf(source, s)) {
+            .made, .lend, .path, .branches => true,
+            .jump, .none => false,
+        },
+        else => false,
+    };
+}
+
+/// One value a compound value may be (`valueParts`).
+pub const ValuePart = struct {
+    node: Sexp,
+    via: Via,
+
+    pub const Via = enum {
+        /// The tail of an `if` branch, of a `match` arm, or of a block,
+        /// which the value takes.
+        tail,
+        /// An operand of `??` or `catch` (its value, or its handler's
+        /// tail), or the value of `e!`, which the value passes through.
+        operand,
+        /// The optional of `e?`: what the value gives is the value inside.
+        unwrapped,
+    };
+};
+
+/// The values `node` may be, one level down (`ValuePart`): the tails of
+/// an `if` with an `else`, of each `match` arm, and of a block, and the
+/// operands of `??`, `catch`, `e!`, and `e?`. None for any other node.
+/// This is the one place that knows which forms yield one of their
+/// parts.
+pub fn valueParts(node: Sexp) ValueParts {
+    return .{ .node = node };
+}
+
+pub const ValueParts = struct {
+    node: Sexp,
+    i: usize = 0,
+
+    pub fn next(self: *ValueParts) ?ValuePart {
+        const e = self.node;
+        const i = self.i;
+        self.i += 1;
+        return switch (e.kind() orelse return null) {
+            .@"if" => if (ir.If.@"else"(e) == .nil) null else switch (i) {
+                0 => .{ .node = tailOf(ir.If.then(e)), .via = .tail },
+                1 => .{ .node = tailOf(ir.If.@"else"(e)), .via = .tail },
+                else => null,
+            },
+            .match => {
+                const arms = ir.Match.arms(e);
+                return if (i < arms.len) .{ .node = tailOf(ir.Arm.body(arms[i])), .via = .tail } else null;
+            },
+            .block => if (i == 0 and ir.Block.stmts(e).len > 0) .{ .node = tailOf(e), .via = .tail } else null,
+            .@"??" => switch (i) {
+                0 => .{ .node = ir.@"??".left(e), .via = .operand },
+                1 => .{ .node = ir.@"??".right(e), .via = .operand },
+                else => null,
+            },
+            .@"catch" => switch (i) {
+                0 => .{ .node = ir.Catch.value(e), .via = .operand },
+                1 => .{ .node = tailOf(ir.Catch.handler(e)), .via = .operand },
+                else => null,
+            },
+            .propagate => if (i == 0) .{ .node = ir.Propagate.value(e), .via = .operand } else null,
+            .propagate_none => if (i == 0) .{ .node = ir.PropagateNone.value(e), .via = .unwrapped } else null,
+            else => null,
+        };
+    }
+};
+
+/// The leaves a read of `node` reaches, appended to `out`: through a
+/// branching value (`a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?`),
+/// the leaves of each operand in turn; any other node is its own leaf. A
+/// `match` or a block is a value made here, so a read stops there.
+pub fn valueLeaves(a: std.mem.Allocator, node: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    if (isBranchingForm(node)) {
+        var parts = valueParts(node);
+        while (parts.next()) |p| try valueLeaves(a, p.node, out);
+        return;
+    }
+    try out.append(a, node);
+}
+
+/// A value that is one of its operands: `a if c else b`, `a ?? b`,
+/// `e catch h`, `e!`, or `e?`. An `if` without an `else` is a statement.
+fn isBranchingForm(node: Sexp) bool {
+    return switch (node.kind() orelse return false) {
+        .@"if" => ir.If.@"else"(node) != .nil,
+        .@"??", .@"catch", .propagate, .propagate_none => true,
+        else => false,
+    };
+}
+
+/// The expression whose value a branch or block gives: a block's last
+/// statement, or the branch itself; `.nil` for an empty block.
+pub fn tailOf(s: Sexp) Sexp {
+    if (s.isKind(.block)) {
+        const stmts = ir.Block.stmts(s);
+        if (stmts.len == 0) return .nil;
+        return tailOf(stmts[stmts.len - 1]);
+    }
+    return s;
+}
+
+/// Whether `e`'s value is one of its parts: it yields through them
+/// (`yieldsThroughParts`), or it is a branching value (`e!`, `e?`).
+pub fn yieldsPart(e: Sexp) bool {
+    return yieldsThroughParts(e) or isBranchingForm(e);
+}
+
 /// Whether `e` yields its value through parts (`eachTailPart`).
 pub fn yieldsThroughParts(e: Sexp) bool {
     return switch (e.kind() orelse return false) {
@@ -5420,4 +5738,185 @@ test "facts: optional bindings, index bindings, defaults, and shadows have facts
     try std.testing.expectEqual(@as(usize, 0), cov.missing);
     try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("v", 0).?);
     try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("i", 0).?);
+}
+
+/// The `n`th (0-based, depth-first) list node of kind `tag` in `node`.
+fn nthNode(node: Sexp, tag: Tag, n: *usize) ?Sexp {
+    if (node != .list) return null;
+    if (node.kind() == tag) {
+        if (n.* == 0) return node;
+        n.* -= 1;
+    }
+    for (node.items()) |c| if (nthNode(c, tag, n)) |found| return found;
+    return null;
+}
+
+/// The leaf at source position `pos` in `node`.
+fn leafAt(node: Sexp, pos: u32) ?Sexp {
+    switch (node) {
+        .src => |s| return if (s.pos == pos) node else null,
+        .list => for (node.items()) |c| if (leafAt(c, pos)) |found| return found,
+        else => {},
+    }
+    return null;
+}
+
+const HandsRun = struct {
+    r: FactsRun,
+
+    fn node(self: *const HandsRun, tag: Tag, nth: usize) Sexp {
+        var n = nth;
+        return nthNode(self.r.tree, tag, &n) orelse std.debug.panic("no {s} #{d}", .{ @tagName(tag), nth });
+    }
+
+    fn leaf(self: *const HandsRun, needle: []const u8, nth: usize) Sexp {
+        return leafAt(self.r.tree, self.r.at(needle, nth)).?;
+    }
+
+    fn kind(self: *const HandsRun, e: Sexp) Hands.Kind {
+        return handsOver(&self.r.ctx, e).kind;
+    }
+};
+
+test "hands over: one kind per expression, by a positive list" {
+    var h: HandsRun = .{ .r = try factsRun(
+        \\struct P
+        \\  x: Int
+        \\  t: Text
+        \\
+        \\enum E
+        \\  a(n: Int)
+        \\  b
+        \\
+        \\fun mk() -> P
+        \\  P(x: 1, t: Text("a"))
+        \\
+        \\fun keep(p: ?P) -> ?P
+        \\  p
+        \\
+        \\fun maybe() -> Int?
+        \\  none
+        \\
+        \\sub main()
+        \\  p = mk()
+        \\  q = mk()
+        \\  c = true
+        \\  o: Int? = 3
+        \\  xs = [10, 20]
+        \\  print(p.x, xs[0], mk().x, keep(?p).x, [1, 2][1])
+        \\  print(p.t if c else q.t)
+        \\  print(Text("y") if c else Text("z"))
+        \\  print(mk().t if c else Text("w"))
+        \\  print(o ?? 0, maybe() ?? 0)
+        \\  e: E = .b
+        \\  print(e == E.b, -p.x, +p.x, mk)
+        \\  k: Int? = none
+        \\  print(k)
+        \\  n = o ?? return
+        \\  print(n)
+        \\  if c
+        \\    print(1)
+        \\
+    ) };
+    defer h.r.deinit();
+    // Names, functions, and literals.
+    try std.testing.expectEqual(.place, h.kind(h.leaf("p", 3)));
+    try std.testing.expectEqual(.made, h.kind(h.leaf("10", 0)));
+    try std.testing.expectEqual(.made, h.kind(h.leaf("none", 1)));
+    try std.testing.expectEqual(.place, h.kind(h.leaf("mk", 5)));
+    // Paths: from a place, from a value made here, through a borrow
+    // one holds.
+    try std.testing.expectEqual(.place, h.kind(h.node(.member, 0)));
+    try std.testing.expectEqual(.place, h.kind(h.node(.index, 0)));
+    try std.testing.expectEqual(.part_of_made, h.kind(h.node(.member, 1)));
+    try std.testing.expectEqual(.place, h.kind(h.node(.member, 2)));
+    try std.testing.expectEqual(.part_of_made, h.kind(h.node(.index, 1)));
+    // A lend.
+    try std.testing.expectEqual(.lend, h.kind(h.node(.read, 0)));
+    // Branching values: one that may be a name's, and one whose every
+    // leaf is made here, which is itself made here.
+    try std.testing.expectEqual(.branches, h.kind(h.node(.@"if", 0)));
+    try std.testing.expectEqual(.made, h.kind(h.node(.@"if", 1)));
+    try std.testing.expectEqual(.branches, h.kind(h.node(.@"if", 2)));
+    try std.testing.expectEqual(.branches, h.kind(h.node(.@"??", 0)));
+    try std.testing.expectEqual(.made, h.kind(h.node(.@"??", 1)));
+    // A leaf that jumps leaves the others to decide.
+    try std.testing.expectEqual(.branches, h.kind(h.node(.@"??", 2)));
+    try std.testing.expectEqual(.jump, h.kind(h.node(.@"return", 0)));
+    // Operators, clones, and enum literals are made; `Type.variant` is
+    // a qualified name.
+    try std.testing.expectEqual(.made, h.kind(h.node(.@"==", 0)));
+    try std.testing.expectEqual(.made, h.kind(h.node(.neg, 0)));
+    try std.testing.expectEqual(.made, h.kind(h.node(.clone, 0)));
+    try std.testing.expectEqual(.made, h.kind(h.node(.enum_lit, 0)));
+    try std.testing.expectEqual(.place, h.kind(h.node(.member, 6)));
+    try std.testing.expectEqual(.made, h.kind(h.node(.call, 0)));
+    try std.testing.expectEqual(.made, h.kind(h.node(.array, 0)));
+    // Statements and declarations hand over nothing.
+    try std.testing.expectEqual(.none, h.kind(h.node(.@"if", 3)));
+    try std.testing.expectEqual(.none, h.kind(h.node(.set, 0)));
+    try std.testing.expectEqual(.none, h.kind(h.node(.@"struct", 0)));
+}
+
+test "hands over: value parts, leaves, and value statements" {
+    var r = try factsRun(
+        \\fun pick(c: Bool, a: Int?, b: Int?, n: Int) -> Int?
+        \\  x = (a if c else b) ?? 0
+        \\  y = match n
+        \\    0 => n
+        \\    _
+        \\      x
+        \\  z = a?
+        \\  if c
+        \\    return x
+        \\  x + y + z
+        \\
+    );
+    defer r.deinit();
+    var n: usize = 0;
+    const nullish = nthNode(r.tree, .@"??", &n).?;
+    var parts = valueParts(nullish);
+    try std.testing.expectEqual(ValuePart.Via.operand, parts.next().?.via);
+    try std.testing.expectEqual(ValuePart.Via.operand, parts.next().?.via);
+    try std.testing.expect(parts.next() == null);
+    // A read reaches the leaves through nested branching values.
+    var leaves: std.ArrayList(Sexp) = .empty;
+    defer leaves.deinit(std.testing.allocator);
+    try valueLeaves(std.testing.allocator, nullish, &leaves);
+    try std.testing.expectEqual(@as(usize, 3), leaves.items.len);
+    try std.testing.expectEqual(r.at("a", 1), leaves.items[0].src.pos);
+    try std.testing.expectEqual(r.at("b", 1), leaves.items[1].src.pos);
+    // A match's arms are tails it takes; a block arm's is its last line.
+    n = 0;
+    const match = nthNode(r.tree, .match, &n).?;
+    var arms = valueParts(match);
+    try std.testing.expectEqual(r.at("n", 2), arms.next().?.node.src.pos);
+    const block_arm = arms.next().?;
+    try std.testing.expectEqual(ValuePart.Via.tail, block_arm.via);
+    try std.testing.expectEqual(r.at("x", 1), block_arm.node.src.pos);
+    try std.testing.expect(arms.next() == null);
+    // A read stops at a match: it is a value made here.
+    leaves.clearRetainingCapacity();
+    try valueLeaves(std.testing.allocator, match, &leaves);
+    try std.testing.expectEqual(@as(usize, 1), leaves.items.len);
+    n = 0;
+    var opt = valueParts(nthNode(r.tree, .propagate_none, &n).?);
+    try std.testing.expectEqual(ValuePart.Via.unwrapped, opt.next().?.via);
+    // Statements that give a value, and those that give none.
+    n = 0;
+    try std.testing.expect(yieldsValue(r.source, nthNode(r.tree, .@"if", &n).?));
+    n = 1;
+    try std.testing.expect(!yieldsValue(r.source, nthNode(r.tree, .@"if", &n).?));
+    n = 0;
+    try std.testing.expect(!yieldsValue(r.source, nthNode(r.tree, .@"return", &n).?));
+    n = 0;
+    try std.testing.expect(!yieldsValue(r.source, nthNode(r.tree, .set, &n).?));
+    n = 0;
+    try std.testing.expect(yieldsValue(r.source, nthNode(r.tree, .@"+", &n).?));
+    n = 0;
+    try std.testing.expect(yieldsValue(r.source, nthNode(r.tree, .match, &n).?));
+    // A block gives its last statement's value; nothing gives none.
+    n = 1;
+    try std.testing.expect(yieldsValue(r.source, nthNode(r.tree, .block, &n).?));
+    try std.testing.expect(!yieldsValue(r.source, .nil));
 }

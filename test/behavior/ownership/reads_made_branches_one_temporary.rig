@@ -1,0 +1,49 @@
+# A read passes through a branching value to its leaves: a name is read
+# where it is, and a value made there is a temporary. A branching value
+# whose every leaf is made there is one temporary, dropped when its
+# statement ends; `o?` reads `o` in place.
+
+struct N
+  id: Int
+  t: Text
+
+  drop(!self)
+    print("drop", self.id)
+
+fun mk(id: Int) -> N
+  N(id: id, t: Text("m"))
+
+fun maybe(id: Int) -> N?
+  N(id: id, t: Text("o"))
+
+fun show(o: N?) -> Int?
+  print(o?)
+  print(o?.id)
+  1
+
+sub main
+  a = mk(1)
+  c = true
+  print(a if c else mk(2))
+  print(a if not c else mk(3), "then")
+  print(maybe(4) if c else none, "then")
+  print(maybe(5) if not c else none, "then")
+  print(mk(6) if c else mk(7), "then")
+  print(show(maybe(8)))
+  print(a.id)
+
+# expect:
+# N(id: 1, t: "m")
+# N(id: 3, t: "m") then
+# drop 3
+# N(id: 4, t: "o") then
+# drop 4
+# none then
+# N(id: 6, t: "m") then
+# drop 6
+# N(id: 8, t: "o")
+# 8
+# drop 8
+# 1
+# 1
+# drop 1

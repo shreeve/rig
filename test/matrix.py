@@ -57,7 +57,7 @@ TYPES = {
                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
     "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
-    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n',
+    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  sub bump(!self)\n    self.v += 1\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
     # A struct that holds a Cell (`poke` changes it through the binding),
     # and one declared `unique`.
@@ -116,9 +116,22 @@ CONTEXTS = {
     "match_part": dict(inline="match H(f: E).f\n    y\n      @POKY\n      print(look(?y))"),
     # A method that consumes its receiver (`<self`, `Box.unbox`).
     "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
+    # A method that writes its receiver: a value made there, or one
+    # lent with `!` (a place without one is rejected).
+    "recv_write": dict(inline="(E).M", recv={"vec": "push(1)", "text": 'add("x")', "drop": "bump()"}),
     # `none` and a bare `.variant` test a value and drop it if no name holds it.
     "eq_none": dict(inline="print(E == none)", optional=True),
     "eq_variant": dict(inline="print(E != .dot)", types=("enum",)),
+    # A closure whose result is inferred returns its value: the tail of
+    # an expression body, and of a block body. (Its own `a`, `b`, `c`,
+    # `o` are parameters, in a function of their own.)
+    "closure_tail": dict(decl="fun ctail(k: Bool, p: @T?) -> @T\n  g = |a: @T, b: @T, c: Bool, o: @T?| E\n  g(mk(1), mk(2), k, <p)\n",
+                         inline="x = ctail(c, mk(3))\n  print(look(?x))"),
+    "closure_block": dict(decl="fun ctail(k: Bool, p: @T?) -> @T\n  g = |a: @T, b: @T, c: Bool, o: @T?|\n    print(0)\n    E\n  g(mk(1), mk(2), k, <p)\n",
+                          inline="x = ctail(c, mk(3))\n  print(look(?x))"),
+    # `+e` reads `e`, and `_ = e` drops what it takes.
+    "clone": dict(inline="x = +(E)\n  print(look(?x))"),
+    "discard": dict(inline="_ = E"),
 }
 
 # A block-local binding at the tail of a value block leaves it before the
@@ -247,6 +260,10 @@ def program(tname, fname, cname):
     out.append(f"fun mk(n: Int) -> {ty}\n  {t["mk"]}\n")
     out.append(f"fun fail(c: Bool) -> {ty}!\n  return E.bad if c\n  mk(7)\n")
     out.append(f"fun look(x: ?{ty}) -> Int\n  1\n")
+    if "decl" in ctx:
+        if isinstance(form, list):
+            return None
+        out.append(ctx["decl"].replace("@T", ty).replace("E", form))
     out.append(f"struct H\n  f: {ty}\n")
     returns = ctx.get("returns", False)
     needs = ctx.get("needs")
