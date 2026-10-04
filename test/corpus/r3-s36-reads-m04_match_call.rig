@@ -1,0 +1,13 @@
+enum Shape
+  circle(r: Int)
+  poly(pts: Vec[Int])
+
+fun mk() -> Shape
+  pts: Vec[Int] = Vec()
+  !pts.push(1)
+  Shape.poly(pts: <pts)
+
+sub main
+  match mk()
+    .circle(r) => print("c", r)
+    .poly(ps) => print("p", ps.len)

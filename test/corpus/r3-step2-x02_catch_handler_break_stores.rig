@@ -1,0 +1,22 @@
+error E
+  bad
+
+fun mk(ok: Bool) -> Int!
+  if not ok
+    return E.bad
+  1
+
+struct H
+  r: ?Vec[Int]
+
+sub main
+  z: Vec[Int] = Vec()
+  h = H(r: ?z)
+  for i in 0..2
+    n = mk(false) catch |_|
+      inner: Vec[Int] = Vec()
+      !inner.push(9)
+      h.r = ?inner
+      break
+    print(n)
+  print(h.r[0])

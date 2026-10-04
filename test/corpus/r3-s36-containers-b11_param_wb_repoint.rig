@@ -1,0 +1,9 @@
+sub f(w: !Int, other: !Int)
+  w = !other
+  w = 9
+
+sub main
+  m = 1
+  n = 2
+  f(!m, !n)
+  print(m, n)

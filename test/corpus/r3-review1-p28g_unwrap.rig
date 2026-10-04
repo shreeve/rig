@@ -1,0 +1,14 @@
+error Bad
+  oops
+
+struct Counter
+  hits: Cell[Int]
+
+fun g() -> Int!
+  o: Counter! = Counter(hits: Cell(0))
+  k = o!
+  k.hits.set(3)
+  1
+
+sub main()
+  print(g() catch 0)

@@ -1,0 +1,22 @@
+# A literal pattern under `match !place` of an Int is rejected.
+# Each subject, condition operand, and place is evaluated once.
+fun s(tag: String, v: Int) -> Int
+  print(tag)
+  v
+
+sub main
+  v = Vec[Int]()
+  !v.push(5)
+  !v.push(6)
+  print("-- guarded match on a call")
+  match s("subject", 3)
+    k if k > s("g1", 5) => print("arm1")
+    k if k > s("g2", 1) => print("arm2", k)
+    _ => print("other")
+  print("-- write match on an indexed place with catch-all")
+  w = [1, 2, 3]
+  match !w[s("index", 1)]
+    1 => print("one")
+    x
+      x += 10
+  print(w[1])

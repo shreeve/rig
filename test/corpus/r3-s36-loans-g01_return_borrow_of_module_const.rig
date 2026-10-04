@@ -1,0 +1,10 @@
+# A function with no borrowed parameter returns a view of a module
+# constant: it lives for the whole program and carries no loan.
+ROWS = [3, 4, 5]
+
+fun rows -> []Int
+  ?ROWS[..]
+
+sub main
+  r = rows()
+  print(r[1])

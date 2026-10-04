@@ -1,0 +1,9 @@
+# SPEC §7 Moves: "An optional field or element is the exception: `<p.f` takes"
+struct N
+  v: Int
+
+sub main
+  v: Vec[Box[N]?] = Vec()
+  !v.push(Box(N(v: 1)))
+  if <v[0] as b
+    print(b.v)

@@ -1,0 +1,8 @@
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  a: Vec[Int]? = <v
+  if a != none
+    print("some")
+  if ?a as x
+    print(x[0])

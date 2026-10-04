@@ -1,0 +1,7 @@
+sub paint(w: !Int)
+  c = w
+  print(c)
+
+sub main
+  x = 1
+  paint(!x)

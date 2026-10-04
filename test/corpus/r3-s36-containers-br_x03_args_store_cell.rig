@@ -1,0 +1,7 @@
+use std.os
+
+sub main
+  c = Cell("")
+  for a in os.args()
+    c.set(a)
+  print(c.get().len > 0)

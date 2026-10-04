@@ -1,0 +1,11 @@
+# Labeled match statement value with error in tail position.
+error E
+  bad
+
+fun f(n: Int) -> Int!
+  :m match n
+    0 => E.bad
+    _ => n
+
+sub main
+  print(f(0) catch -1)

@@ -1,0 +1,9 @@
+struct T
+  seen: Vec[Int]
+
+  fun total(<self) -> Int
+    self.seen.len
+
+sub main
+  t = T(seen: Vec())
+  print(t.total())

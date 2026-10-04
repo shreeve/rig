@@ -1,0 +1,15 @@
+# A caught error, bare, on the last line of a catch handler block: rethrows without `return`.
+error E
+  bad
+
+fun g() -> Int!
+  E.bad
+
+fun f() -> Int!
+  n = g() catch |e|
+    print("caught", e)
+    e
+  n + 1
+
+sub main
+  print(f() catch -7)

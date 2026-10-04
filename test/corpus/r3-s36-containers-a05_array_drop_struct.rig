@@ -1,0 +1,12 @@
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  a = [D(n: 1), D(n: 2)]
+  print(a[0].n)
+  r = ?a[1]
+  print(r.n)
+  !a.swap(0, 1)
+  print(a[0].n)

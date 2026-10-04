@@ -1,0 +1,17 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub bump(s: []Counter)
+  for k in s
+    k.hit()
+
+sub bump2(s: ?[1]Counter)
+  for k in s
+    k.hit()
+
+sub main()
+  bump([Counter(hits: Cell(0))])
+  print("ok")

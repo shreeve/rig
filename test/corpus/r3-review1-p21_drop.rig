@@ -1,0 +1,13 @@
+use std.random
+
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  a = Counter(hits: Cell(1))
+  -a
+  r = random.Rng.seeded(3)
+  -r
+  c = Cell(3)
+  -c
+  print("ok")

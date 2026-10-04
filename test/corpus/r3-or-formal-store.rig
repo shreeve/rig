@@ -1,0 +1,18 @@
+struct Item
+  n: Int
+
+struct Holder
+  r: ?Item
+
+sub set(h: !Holder, x: ?Item, y: ?Item)
+  h.r = x
+  print(y.n)
+
+sub main
+  a = Item(n: 1)
+  b = Item(n: 2)
+  c = Item(n: 3)
+  h = Holder(r: ?c)
+  set(!h, ?a, ?b)
+  b.n = 9
+  print(h.r.n, b.n)

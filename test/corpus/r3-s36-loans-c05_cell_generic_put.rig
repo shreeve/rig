@@ -1,0 +1,9 @@
+# Per type: a generic helper storing a T in a Cell is checked for a T
+# with no borrow.
+sub put[T](c: ?Cell[T], x: T)
+  c.set(x)
+
+sub main
+  c: Cell[Int] = Cell(0)
+  put(?c, 5)
+  print(c.get())

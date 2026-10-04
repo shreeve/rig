@@ -1,0 +1,21 @@
+use std.random
+
+sub adv(w: ![]random.Random)
+  for r in !w
+    print(!r.next() % 100)
+  w[0] = random.Random.seeded(7)
+  print(!w[0].next() % 100)
+
+fun peek(s: []random.Random) -> Int
+  n = 0
+  for r in s
+    print(r)
+    n += 1
+  n
+
+sub main()
+  a = [random.Random.seeded(1), random.Random.seeded(2)]
+  adv(!a)
+  print(peek(?a))
+  for r in a
+    print(r)

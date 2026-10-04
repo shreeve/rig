@@ -1,0 +1,13 @@
+enum Sh
+  circle(r: Vec[Int])
+  dot
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  b = Box(Sh.circle(<v))
+  match ?b
+    .circle(r)
+      b = Box(Sh.dot)
+      print(r.len)
+    .dot => print("dot")

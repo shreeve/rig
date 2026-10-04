@@ -1,0 +1,20 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+fun two() -> [2]Counter
+  [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+
+struct H
+  arr: [2]Counter
+
+fun bump(s: []Counter) -> Int
+  for k in s
+    k.hit()
+  s[0].hits.get() + s[1].hits.get()
+
+sub main()
+  print(bump(two()))
+  print(bump([Counter(hits: Cell(0)), Counter(hits: Cell(1))]))

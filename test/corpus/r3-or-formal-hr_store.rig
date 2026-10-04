@@ -1,0 +1,17 @@
+struct Item
+  n: Int
+
+struct Holder
+  r: ?Item
+
+sub each(v: ?[2]Item, f: ?sub(?Item))
+  f(?v[0])
+
+sub main
+  g = Item(n: 1)
+  h = Holder(r: ?g)
+  f = |!h, x: ?Item| h.r = x
+  if true
+    arr = [2 of Item(n: 5)]
+    each(?arr, ?f)
+  print(h.r.n)

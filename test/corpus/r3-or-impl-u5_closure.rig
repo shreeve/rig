@@ -1,0 +1,10 @@
+fun via(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+  g = |?b, k: Int| b
+  g(1)
+
+sub main
+  x: Vec[Int] = Vec()
+  y: Vec[Int] = Vec()
+  r = via(?x, ?y)
+  !y.push(1)
+  print(r.len)

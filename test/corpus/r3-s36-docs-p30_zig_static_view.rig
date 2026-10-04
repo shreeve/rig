@@ -1,0 +1,9 @@
+# Core sentence 7 has no static exception; std.os.args() returns a view of nothing lent
+use std.os
+
+fun first -> String
+  args = os.args()
+  args[0]
+
+sub main
+  print(first().len > 0)

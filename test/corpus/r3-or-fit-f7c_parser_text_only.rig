@@ -1,0 +1,14 @@
+struct Tok
+  kind: Int
+  start: Int
+  len: Int
+
+fun text(src: String, t: ?Tok) -> String
+  src[t.start..t.start + t.len]
+
+sub main
+  src = Text("let x")
+  toks = [Tok(kind: 1, start: 0, len: 3), Tok(kind: 2, start: 4, len: 1)]
+  name = text(?src, ?toks[1])
+  toks[0].kind = 9
+  print(name, toks[0].kind)

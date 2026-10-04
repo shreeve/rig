@@ -1,0 +1,9 @@
+use std.random
+
+sub main
+  p: random.Rng? = random.Rng.seeded(2)
+  if p as s
+    print(!s.next() != 0)
+  v: Vec[Int]? = Vec()
+  if v as w
+    print(w.len)

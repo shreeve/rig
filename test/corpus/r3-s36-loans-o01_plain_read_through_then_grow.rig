@@ -1,0 +1,27 @@
+# A read-through of plain data ends its loan at once; a later argument
+# may then grow the Vec. Does the call still read the old element?
+struct P
+  a: Int
+  b: Int
+  c: Int
+  d: Int
+  e: Int
+  f: Int
+  g: Int
+  h: Int
+
+fun at0(ps: ?Vec[P]) -> ?P
+  ?ps[0]
+
+fun grow(ps: !Vec[P]) -> Int
+  for i in 0..64
+    !ps.push(P(a: i, b: i, c: i, d: i, e: i, f: i, g: i, h: i))
+  ps.len
+
+sub show(p: P, n: Int)
+  print(p.a, p.h, n)
+
+sub main
+  ps: Vec[P] = Vec()
+  !ps.push(P(a: 7, b: 7, c: 7, d: 7, e: 7, f: 7, g: 7, h: 7))
+  show(at0(?ps), grow(!ps))

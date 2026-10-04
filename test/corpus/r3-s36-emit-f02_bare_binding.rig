@@ -1,0 +1,11 @@
+# A binding of an error-set type on the last line fails.
+error E
+  bad
+
+fun f(n: Int) -> Int!
+  e = E.bad
+  return n if n > 0
+  e
+
+sub main
+  print(f(0) catch -1, f(3) catch -1)

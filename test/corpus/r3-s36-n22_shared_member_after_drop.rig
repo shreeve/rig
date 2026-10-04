@@ -1,0 +1,11 @@
+struct S
+  v: Vec[Int]
+
+fun first(h: ?*S) -> Int
+  h.v[0]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  h = *S(v: <v)
+  print(first(?h))

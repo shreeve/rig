@@ -1,0 +1,6 @@
+struct P
+  x: Int
+
+sub main
+  r = ?P(x: 1)
+  print(r.x)

@@ -1,0 +1,22 @@
+error E
+  bad
+
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun pick(a: ?R, ok: Bool) -> (?R)!
+  return E.bad if not ok
+  a
+
+fun find(a: ?R, ok: Bool) -> (?R)?
+  return none if not ok
+  a
+
+sub main
+  x = R(n: 1)
+  r = pick(?x, true) catch return
+  s = find(?x, true) ?? return
+  -x
+  print(r.n, s.n)

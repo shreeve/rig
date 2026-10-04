@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+fun get(p: ?*P) -> Int
+  p.x
+
+sub main
+  v: Vec[*P] = Vec()
+  !v.push(*P(x: 1))
+  print(get(?v[0]))

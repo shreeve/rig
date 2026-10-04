@@ -1,0 +1,18 @@
+use std.random
+
+struct Counter
+  hits: Cell[Int]
+
+fun mk() -> Counter
+  Counter(hits: Cell(1))
+
+sub main()
+  a = Counter(hits: Cell(1))
+  _ = a
+  a.hits.set(4)
+  _ = mk()
+  mk()
+  r = random.Rng.seeded(1)
+  _ = r
+  print(a.hits.get(), !r.next() % 10)
+  _ = random.Rng.seeded(2)

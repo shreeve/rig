@@ -1,0 +1,10 @@
+sub zero(xs: ![]Int)
+  xs[0] = 0
+
+sub main
+  a = [4, 5]
+  zero(!a)
+  v: Vec[Int] = Vec()
+  !v.push(4)
+  zero(!v[..])
+  print(a, v)

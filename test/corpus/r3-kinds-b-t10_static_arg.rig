@@ -1,0 +1,12 @@
+use std.os
+
+fun first() -> String
+  a = os.args()
+  if a.len > 0
+    return a[0]
+  "none"
+
+sub main
+  c: Cell[String] = Cell("lit")
+  c.set(first())
+  print(c.get().len > 0)

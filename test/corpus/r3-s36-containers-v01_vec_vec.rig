@@ -1,0 +1,6 @@
+sub main
+  v: Vec[Vec[Int]] = Vec()
+  inner: Vec[Int] = Vec()
+  !inner.push(1)
+  !v.push(<inner)
+  print(v.len)

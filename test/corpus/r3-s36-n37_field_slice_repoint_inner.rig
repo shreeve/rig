@@ -1,0 +1,11 @@
+struct H
+  s: ![]Int
+
+sub main
+  a = [1, 2]
+  h = H(s: !a)
+  for i in 0..2
+    b = [i, 9]
+    h.s = !b
+  h.s[0] = 5
+  print(a)

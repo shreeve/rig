@@ -1,0 +1,9 @@
+error E
+  bad
+fun p(n: Int) -> Int?!
+  return E.bad if n < 0
+  return none if n == 0
+  n
+sub main
+  print(p(0) catch none ?? 7)
+  print((p(-1) catch none) ?? 8)

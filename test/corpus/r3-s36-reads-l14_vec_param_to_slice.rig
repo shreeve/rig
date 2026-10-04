@@ -1,0 +1,9 @@
+fun sum(xs: []Int) -> Int
+  xs.len
+
+fun f(v: ?Vec[Int]) -> Int
+  sum(v)
+
+sub main
+  v: Vec[Int] = Vec()
+  print(f(?v))

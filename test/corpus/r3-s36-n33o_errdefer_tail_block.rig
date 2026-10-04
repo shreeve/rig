@@ -1,0 +1,16 @@
+error E
+  bad
+
+fun g(c: Bool) -> Vec[Int]!
+  x = if c
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    errdefer !v.push(2)
+    v
+  else
+    return E.bad
+  x
+
+sub main
+  x = g(true)!
+  print(x.len)

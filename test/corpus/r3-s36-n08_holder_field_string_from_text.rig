@@ -1,0 +1,11 @@
+struct Holder[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+sub main
+  t = Text("abc")
+  h = Holder(v: ?t[..])
+  !t.add("def")
+  print(h.get())

@@ -1,0 +1,25 @@
+error E
+  bad
+
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(r: R)
+  print("eat", r.n)
+
+fun maybe(ok: Bool) -> Int!
+  return E.bad if not ok
+  1
+
+fun f(ok: Bool) -> Int!
+  x = R(n: 1)
+  errdefer x = R(n: 9)
+  eat(<x)
+  k = maybe(ok)!
+  print(x.n)
+  k
+
+sub main
+  print(f(true) catch 0)

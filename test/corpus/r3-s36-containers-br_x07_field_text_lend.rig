@@ -1,0 +1,10 @@
+use std.text
+
+struct Rec
+  name: Text
+
+sub main
+  r = Rec(name: Text("hello"))
+  print(text.contains(?r.name, "ell"), ?r.name[1..3])
+  b = Box(Rec(name: Text("boxed")))
+  print(text.contains(?b.name, "ox"))

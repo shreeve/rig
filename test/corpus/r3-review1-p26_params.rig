@@ -1,0 +1,31 @@
+use std.random
+
+struct Counter
+  hits: Cell[Int]
+
+fun peek(c: Counter) -> Int
+  c.hits.get()
+
+fun ignore(_: Counter) -> Int
+  1
+
+fun seed(r: random.Rng) -> Int
+  2
+
+fun pass_on(c: Counter) -> Counter
+  c
+
+fun cell_param(c: Cell[Int]) -> Int
+  c.get()
+
+sub main()
+  a = Counter(hits: Cell(3))
+  print(peek(<a))
+  b = Counter(hits: Cell(3))
+  print(ignore(<b))
+  print(seed(random.Rng.seeded(1)))
+  d = pass_on(Counter(hits: Cell(4)))
+  print(d.hits.get(), cell_param(Cell(5)))
+  e = <d
+  f = pass_on(<e)
+  print(f.hits.get())

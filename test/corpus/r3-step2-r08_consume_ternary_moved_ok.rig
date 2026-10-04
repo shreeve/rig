@@ -1,0 +1,12 @@
+struct Bag
+  items: Vec[Int]
+
+  fun total(<self) -> Int
+    self.items.len
+
+sub main
+  a = Bag(items: Vec())
+  b = Bag(items: Vec())
+  !a.items.push(1)
+  c = true
+  print((<a if c else <b).total())

@@ -1,0 +1,14 @@
+struct S
+  n: Int
+  v: Vec[Int]
+
+fun get(s: ?S) -> Int
+  s.n
+
+sub bump(s: !S)
+  s.n += 1
+
+sub main
+  b = Box(S(n: 3, v: Vec()))
+  bump(!b)
+  print(get(?b), b.n)

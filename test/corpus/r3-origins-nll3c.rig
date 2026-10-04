@@ -1,0 +1,10 @@
+struct Item
+  n: Int
+
+struct Bag
+  items: [4]Item
+
+fun get_and_add(b: !Bag) -> ?Item
+  r = ?b.items[0]
+  b.items[0] = Item(n: 7)
+  r

@@ -1,0 +1,17 @@
+# A defer that stores a borrow of a local declared after it.
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  r: ?R
+
+sub main
+  keep = R(n: 0)
+  v = V(r: ?keep)
+  if true
+    a = R(n: 1)
+    defer v = V(r: ?a)
+    print("in")
+  print(v.r.n)

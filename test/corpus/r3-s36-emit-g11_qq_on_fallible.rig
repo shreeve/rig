@@ -1,0 +1,8 @@
+# Core sentence 10 lists `??` as a failure handler; is it one?
+error E
+  bad
+fun p(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+sub main
+  print(p(-1) ?? 0)

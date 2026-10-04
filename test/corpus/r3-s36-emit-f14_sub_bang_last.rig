@@ -1,0 +1,10 @@
+# A fallible sub whose last statement is a bare error expression statement.
+error E
+  bad
+
+sub s(n: Int)!
+  print("in s", n)
+  E.bad
+
+sub main
+  s(1) catch |e| print("failed", e)

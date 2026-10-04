@@ -1,0 +1,15 @@
+sub main
+  k = 0
+  x = match k
+    0
+      v: Vec[Int] = Vec()
+      !v.push(1)
+      defer
+        for i in 0..100
+          !v.push(i)
+      v
+    _
+      w: Vec[Int] = Vec()
+      w
+  !x.push(3)
+  print(x.len, x[0])

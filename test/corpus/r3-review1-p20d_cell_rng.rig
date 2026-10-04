@@ -1,0 +1,7 @@
+use std.random
+
+sub main()
+  box = Cell(random.Rng.seeded(3))
+  r = random.Rng.seeded(4)
+  box.set(r)
+  print(!r.next() % 10)

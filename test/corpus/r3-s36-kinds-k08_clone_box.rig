@@ -1,0 +1,7 @@
+struct N
+  n: Int
+
+sub main
+  b = Box(N(n: 1))
+  c = +b
+  print(c.n)

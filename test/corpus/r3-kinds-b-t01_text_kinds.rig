@@ -1,0 +1,6 @@
+sub main
+  t = Text("ab")
+  u = +t
+  !u.add("c")
+  b = Box(Text("x"))
+  print(t, u, ?b)

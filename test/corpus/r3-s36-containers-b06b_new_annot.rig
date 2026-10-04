@@ -1,0 +1,4 @@
+sub main
+  x = 1
+  new x: Int = 2
+  print(x)

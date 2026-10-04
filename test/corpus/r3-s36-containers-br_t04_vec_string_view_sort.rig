@@ -1,0 +1,13 @@
+use std.sort
+
+sub main
+  t = Text("b a c")
+  v: Vec[String] = Vec()
+  !v.push(?t[0..1])
+  !v.push(?t[2..3])
+  !v.push(?t[4..5])
+  sort.sort(!v[..])
+  print(v)
+  -v
+  !t.add("!")
+  print(t)

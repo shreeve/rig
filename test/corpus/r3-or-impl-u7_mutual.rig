@@ -1,0 +1,16 @@
+fun ping(a: ?Vec[Int], b: ?Vec[Int], n: Int) -> ?Vec[Int]
+  if n == 0
+    return a
+  pong(a, b, n - 1)
+
+fun pong(a: ?Vec[Int], b: ?Vec[Int], n: Int) -> ?Vec[Int]
+  if n == 1
+    return b
+  ping(a, b, n - 1)
+
+sub main
+  x: Vec[Int] = Vec()
+  y: Vec[Int] = Vec()
+  r = ping(?x, ?y, 3)
+  !y.push(1)
+  print(r.len)

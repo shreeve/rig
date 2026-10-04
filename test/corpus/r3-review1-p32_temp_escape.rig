@@ -1,0 +1,13 @@
+struct Counter
+  hits: Cell[Int]
+
+fun two() -> [2]Counter
+  [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+
+fun pick() -> ?Counter
+  for k in two()
+    return k
+  panic
+
+sub main()
+  print(pick().hits.get())

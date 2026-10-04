@@ -1,0 +1,13 @@
+struct Pair
+  a: ?Vec[Int]
+
+fun geta(p: ?Pair) -> ?Vec[Int]
+  p.a
+
+sub main
+  x: Vec[Int] = Vec()
+  !x.push(4)
+  p = Pair(a: ?x)
+  r = geta(?p)
+  p = Pair(a: ?x)
+  print(r.len, p.a.len)

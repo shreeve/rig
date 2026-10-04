@@ -1,0 +1,11 @@
+# Core sentence 1 vs SPEC §12: `if m as x` over an owning optional binding
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  m: Res? = Res(n: 1)
+  if m as r
+    print(r.n)

@@ -1,0 +1,17 @@
+struct Wrap
+  n: Int
+  v: Vec[Int]
+
+fun better(a: ?Wrap, b: ?Wrap, score: ?fun(?Wrap) -> Int) -> ?Wrap
+  if score(a) >= score(b)
+    a
+  else
+    b
+
+sub main
+  x = Wrap(n: 1, v: Vec())
+  y = Wrap(n: 2, v: Vec())
+  bias = Wrap(n: 0, v: Vec())
+  r = better(?x, ?y, |?bias, w: ?Wrap| w.n + bias.n)
+  bias.n = 10
+  print(r.n, bias.n)

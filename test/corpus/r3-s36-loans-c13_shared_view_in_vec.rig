@@ -1,0 +1,14 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  r: ?R
+
+sub main
+  hs: Vec[*V] = Vec()
+  if true
+    a = R(n: 1)
+    !hs.push(*V(r: ?a))
+  print(hs[0].r.n)

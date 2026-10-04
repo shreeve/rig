@@ -1,0 +1,15 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  c = true
+  a = R(n: 1)
+  x = if c
+    a
+  else
+    R(n: 2)
+  print(x.n)
+  print(a.n)

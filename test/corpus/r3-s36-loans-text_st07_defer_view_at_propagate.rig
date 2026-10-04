@@ -1,0 +1,19 @@
+error E
+  bad
+
+fun maybe(ok: Bool) -> Int!
+  return E.bad if not ok
+  1
+
+fun f(ok: Bool) -> Int!
+  keep = Text("keep")
+  x = Text("x")
+  r: String = ?x[..]
+  defer r = ?keep[..]
+  k = maybe(ok)!
+  -x
+  print(r, k)
+  k
+
+sub main
+  print(f(true) catch 0)

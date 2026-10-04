@@ -1,0 +1,15 @@
+struct P
+  x: Int
+
+  sub bump(!self)
+    self.x += 1
+
+sub main
+  o: P? = P(x: 1)
+  if <o as p
+    !p.bump()
+    print(p.x)
+  e: P? = P(x: 5)
+  if <e as q
+    q.x = 9
+    print(q.x)

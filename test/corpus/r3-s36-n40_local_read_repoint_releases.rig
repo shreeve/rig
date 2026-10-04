@@ -1,0 +1,8 @@
+sub main
+  a = 1
+  b = 2
+  r = ?a
+  print(r)
+  r = ?b
+  a = 10
+  print(r, a)

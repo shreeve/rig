@@ -1,0 +1,9 @@
+struct S
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+sub main
+  h = *S(n: 3)
+  print(h.n, h.get())

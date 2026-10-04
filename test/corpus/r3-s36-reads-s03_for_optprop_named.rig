@@ -1,0 +1,15 @@
+struct H
+  o: Vec[Int]?
+
+fun total(h: ?H) -> Int?
+  n = 0
+  for x in h.o?
+    n += x
+  n
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(5)
+  h = H(o: <v)
+  print(total(?h))
+  print(total(?h))

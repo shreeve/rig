@@ -1,0 +1,10 @@
+type F = fun(Int) -> Int
+
+fun twice(f: ?F, x: Int) -> Int
+  f(f(x))
+
+fun inc(x: Int) -> Int
+  x + 1
+
+sub main
+  print(twice(inc, 1))

@@ -1,0 +1,23 @@
+# The holder both owns `Item`s and views them: the type rule cannot
+# free `c` (it answers "owned"), only `from self.items` (stage 3) can.
+struct Item
+  n: Int
+
+struct Cursor
+  items: ?Vec[Item]
+  scratch: Vec[Item]
+  i: Int
+
+  fun next(!self) -> ?Item
+    k = self.i
+    self.i += 1
+    ?self.items[k]
+
+sub main
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  !v.push(Item(n: 2))
+  c = Cursor(items: ?v, scratch: Vec(), i: 0)
+  a = !c.next()
+  b = !c.next()
+  print(a.n, b.n)

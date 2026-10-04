@@ -1,0 +1,11 @@
+# Over-borrowing with Strings: the result can only view `hay`, but it
+# borrows the key's Text too.
+fun after(hay: String, key: String) -> String
+  hay[key.len..]
+
+sub main
+  doc = Text("key=value")
+  k = Text("key=")
+  v = after(?doc, ?k)
+  !k.add("x")
+  print(v)

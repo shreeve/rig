@@ -1,0 +1,23 @@
+# Must stay rejected under D2 depth tokens: after `self.src = other`,
+# a projection of `self.src` is not `ext(self, src)` alone.
+struct Tok
+  n: Int
+
+struct Parser
+  src: ?Vec[Tok]
+  scratch: Vec[Tok]
+
+  fun next(!self, other: ?Vec[Tok]) -> ?Tok
+    self.src = other
+    ?self.src[0]
+
+sub main
+  a: Vec[Tok] = Vec()
+  !a.push(Tok(n: 1))
+  p = Parser(src: ?a, scratch: Vec())
+  t = ?a[0]
+  if true
+    b: Vec[Tok] = Vec()
+    !b.push(Tok(n: 2))
+    t = !p.next(?b)
+  print(t.n)

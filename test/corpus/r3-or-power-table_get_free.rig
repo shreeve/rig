@@ -1,0 +1,19 @@
+# Same as table_get, as a free function: isolates the read-receiver bug.
+struct Env
+  keys: []String
+  vals: []String
+
+fun get(e: ?Env, name: String) -> String?
+  for i in 0..e.keys.len
+    if e.keys[i] == name
+      return e.vals[i]
+  none
+
+sub main
+  ks = ["HOME", "PATH"]
+  vs = ["/h", "/bin"]
+  env = Env(keys: ?ks[..], vals: ?vs[..])
+  q = Text("HO", "ME")
+  v = get(?env, ?q) ?? "?"
+  !q.add("X")
+  print(v, q)

@@ -1,0 +1,7 @@
+sub f(w: ![]Int)
+  r = +w
+  print(r)
+
+sub main()
+  a = [1, 2]
+  f(!a)

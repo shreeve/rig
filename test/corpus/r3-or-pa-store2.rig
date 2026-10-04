@@ -1,0 +1,14 @@
+struct Holder
+  v: ?Vec[Int]
+
+sub put(h: !Holder, x: ?Vec[Int])
+  h.v = x
+
+sub main
+  a: Vec[Int] = Vec()
+  b: Vec[Int] = Vec()
+  !b.push(1)
+  h = Holder(v: ?a)
+  put(!h, ?b)
+  !b.push(2)
+  print(h.v.len)

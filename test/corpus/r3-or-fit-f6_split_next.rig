@@ -1,0 +1,8 @@
+use std.text
+
+sub main
+  line = Text("a,b,c")
+  parts = text.split(?line, ",")
+  a = !parts.next() ?? ""
+  b = !parts.next() ?? ""
+  print(a, b)

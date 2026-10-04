@@ -1,0 +1,6 @@
+sub main
+  o: Int? = 1
+  if !o as v
+    o = none
+    v += 1
+  print(o)

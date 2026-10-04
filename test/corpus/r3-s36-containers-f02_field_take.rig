@@ -1,0 +1,16 @@
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct H
+  d: D
+  o: D?
+
+sub main
+  h = H(d: D(n: 1), o: D(n: 2))
+  h.d = D(n: 3)
+  print("assigned")
+  t = <h.o
+  print("took")
+  x = h.d

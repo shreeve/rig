@@ -1,0 +1,40 @@
+struct P
+  x: Int
+  v: Vec[Int]
+
+  sub set(!self)
+    self.v[ix(0, "self-vec")] = val(1, "self-vec")
+    self.x += val(1, "self-compound")
+
+enum E
+  a(n: Int)
+  b
+
+fun val(n: Int, what: String) -> Int
+  print("value", what)
+  n
+
+fun ix(i: Int, what: String) -> Int
+  print("index", what)
+  i
+
+sub through_vec(w: !Vec[Int])
+  w[ix(0, "borrowed-vec")] = val(2, "borrowed-vec")
+
+sub main
+  p = P(x: 0, v: Vec())
+  !p.v.push(0)
+  !p.set()
+  through_vec(!p.v)
+  o: P? = P(x: 0, v: Vec())
+  if !o as q
+    q.x = val(3, "optional-binding")
+  e = E.a(n: 0)
+  match !e
+    .a(n) => n = val(4, "match-payload")
+    .b => pass
+  ws: Vec[Int] = Vec()
+  !ws.push(0)
+  w = !ws
+  w[ix(0, "local-wb-vec")] += val(5, "local-wb-vec")
+  print(p.x, p.v, o, e, ws)

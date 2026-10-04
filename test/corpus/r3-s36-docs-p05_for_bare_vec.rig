@@ -1,0 +1,6 @@
+# Core sentence 1 vs SPEC §6 for: `for x in v` over a Vec binding is rejected
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  for x in v
+    print(x)

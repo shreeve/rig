@@ -1,0 +1,21 @@
+# TODAY: accepted, and RIG_SANITIZE=1 crashes (use of freed memory).
+# A view of write parameter `b` (or `c`) stored into write parameter
+# `a` does not keep `b` lent inside the callee, so `!b.push` reallocs
+# under the stored view. Base compiler (rig-base) accepts it too.
+# A store through a write parameter does not put the stored loan in the
+# parameter's flow, so the owner can be written while the stored view is live.
+struct Holder
+  r: []Int
+
+fun f(a: !Holder, b: !Vec[Int]) -> Int
+  a.r = ?b[..]
+  for i in 0..100
+    !b.push(i)
+  a.r[0]
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, !v))

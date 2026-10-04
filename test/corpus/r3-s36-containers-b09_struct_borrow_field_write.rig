@@ -1,0 +1,15 @@
+struct P
+  x: Int
+
+struct H
+  p: !P
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  h = H(p: !a)
+  h.p.x = 9
+  h.p = P(x: 7)
+  h.p = !b
+  h.p.x = 8
+  print(a, b)

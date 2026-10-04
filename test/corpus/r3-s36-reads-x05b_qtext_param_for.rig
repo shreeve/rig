@@ -1,0 +1,9 @@
+fun loopit(t: ?Text) -> Int
+  n = 0
+  for b in t
+    n += 1
+  n
+
+sub main
+  t = Text("hello")
+  print(loopit(?t))

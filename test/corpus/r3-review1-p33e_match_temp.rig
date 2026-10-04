@@ -1,0 +1,17 @@
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter, n: Int)
+  b
+
+fun make(n: Int) -> E
+  .a(c: Counter(hits: Cell(n)), n: n)
+
+sub main()
+  one = [Counter(hits: Cell(1))]
+  saved = ?one[0]
+  match make(7)
+    .a(c, _) => saved = ?c
+    .b => pass
+  print(saved.hits.get())

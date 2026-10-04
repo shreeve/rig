@@ -1,0 +1,21 @@
+error E
+  bad
+
+enum Shape
+  dot
+  line(v: Vec[Int])
+
+fun mk(ok: Bool) -> Shape!
+  if not ok
+    return E.bad
+  .dot
+
+sub main
+  p: Vec[Int] = Vec()
+  !p.push(1)
+  d = Shape.line(<p)
+  if (mk(false) catch d) != .dot
+    print("line")
+  match ?d
+    .line(v) => print(v[0])
+    .dot => print("dot")

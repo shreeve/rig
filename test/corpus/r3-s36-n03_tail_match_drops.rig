@@ -1,0 +1,16 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun pick(k: Int) -> R
+  a = R(n: 1)
+  b = R(n: 2)
+  match k
+    0 => a
+    _ => b
+
+sub main
+  x = pick(0)
+  print(x.n)

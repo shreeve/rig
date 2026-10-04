@@ -1,0 +1,13 @@
+struct Holder
+  r: []Int
+
+fun f(a: !Holder) -> Int
+  b: Vec[Int] = Vec()
+  !b.push(1)
+  a.r = ?b[..]
+  0
+
+sub main
+  x = [9, 9]
+  h = Holder(r: ?x[..])
+  print(f(!h))

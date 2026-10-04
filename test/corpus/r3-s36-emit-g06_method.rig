@@ -1,0 +1,12 @@
+error E
+  bad
+struct S
+  n: Int
+  fun take(!self) -> Int!
+    return E.bad if self.n == 0
+    self.n -= 1
+    self.n
+sub main
+  s = S(n: 1)
+  print(!s.take() catch -1)
+  print(!s.take() catch -1)

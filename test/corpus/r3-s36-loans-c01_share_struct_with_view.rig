@@ -1,0 +1,14 @@
+# `*x` makes a counted box any handle reaches: a value holding a loan
+# may not go in.
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  r: ?R
+
+sub main
+  a = R(n: 1)
+  h = *V(r: ?a)
+  print(h.r.n)

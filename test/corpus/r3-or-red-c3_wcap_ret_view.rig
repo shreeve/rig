@@ -1,0 +1,12 @@
+struct Item
+  n: Int
+
+sub main
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  g = |!v|
+    !v.push(Item(n: 2))
+    ?v[0]
+  r = g()
+  s = g()
+  print(r.n, s.n)

@@ -1,0 +1,11 @@
+struct R
+  n: Int
+
+struct V
+  r: ?R
+
+sub main
+  a = R(n: 1)
+  h = *V(r: ?a)
+  f = *|+h| h.r.n
+  print(f())

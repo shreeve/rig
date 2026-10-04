@@ -1,0 +1,12 @@
+fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+  a
+
+fun mk -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  v
+
+sub main
+  y: Vec[Int] = Vec()
+  r = first(?mk(), ?y)
+  print(r.len)

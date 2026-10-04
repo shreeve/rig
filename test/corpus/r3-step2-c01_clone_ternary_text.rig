@@ -1,0 +1,6 @@
+sub main
+  a = Text("x")
+  b = Text("y")
+  c = true
+  d = +(a if c else b)
+  print(d, a)

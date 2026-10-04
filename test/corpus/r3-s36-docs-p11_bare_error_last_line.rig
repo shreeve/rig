@@ -1,0 +1,12 @@
+# Core sentence 10 / open decision 3: an error value on a branch's last line fails
+error E
+  bad
+
+fun check(n: Int) -> Int!
+  if n < 0
+    E.bad
+  else
+    n
+
+sub main
+  print(check(1) catch -1, check(-1) catch -1)

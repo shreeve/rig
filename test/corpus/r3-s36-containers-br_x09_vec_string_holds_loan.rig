@@ -1,0 +1,6 @@
+sub main
+  t = Text("a b")
+  views: Vec[String] = Vec()
+  !views.push(?t[..1])
+  !t.add("!")
+  print(views)

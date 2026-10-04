@@ -1,0 +1,14 @@
+struct Pair
+  a: ?Vec[Int]
+  b: ?Vec[Int]
+
+fun left(p: ?Pair) -> ?Vec[Int]
+  p.a
+
+sub main
+  x: Vec[Int] = Vec()
+  y: Vec[Int] = Vec()
+  p = Pair(a: ?x, b: ?y)
+  r = left(?p)
+  p = Pair(a: ?y, b: ?y)
+  print(r.len, p.a.len)

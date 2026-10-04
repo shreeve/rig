@@ -1,0 +1,7 @@
+fun mk -> Text
+  Text("temp")
+
+sub main
+  s: String = "x"
+  s = ?mk()[..]
+  print(s)

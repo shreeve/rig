@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+sub main
+  a = [*P(x: 1), *P(x: 2)]
+  print(a[0].x)
+  h = +a[1]
+  print(h.x)
+  a.swap(0, 1)
+  print(a[0].x)

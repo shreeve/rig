@@ -1,0 +1,11 @@
+struct R
+  n: Int
+
+struct V
+  r: ?R
+
+sub main
+  a = R(n: 1)
+  s: Signal[V?] = Signal(none)
+  s.set(V(r: ?a))
+  print("ok")

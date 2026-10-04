@@ -1,0 +1,17 @@
+struct H
+  r: ?Vec[Int]
+
+fun opt(n: Int) -> Int?
+  none
+
+sub main
+  z: Vec[Int] = Vec()
+  h = H(r: ?z)
+  i = 0
+  while i < 2 : i += 1
+    inner: Vec[Int] = Vec()
+    !inner.push(9)
+    h.r = ?inner
+    k = opt(i) ?? continue
+    print(k)
+  print(h.r[0])

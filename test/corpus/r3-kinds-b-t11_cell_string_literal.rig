@@ -1,0 +1,6 @@
+sub main
+  c: Cell[String] = Cell("lit")
+  c.set("other")
+  s: String = "x"
+  c.set(s)
+  print(c.get())

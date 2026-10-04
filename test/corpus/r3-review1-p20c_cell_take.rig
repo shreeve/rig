@@ -1,0 +1,10 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  box: Cell[Counter?] = Cell(Counter(hits: Cell(5)))
+  k = box.take()
+  print(k)
+  c2 = Cell(Cell(3))
+  inner = c2.replace(Cell(4))
+  print(inner.get())

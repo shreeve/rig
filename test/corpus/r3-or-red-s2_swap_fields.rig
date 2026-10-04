@@ -1,0 +1,17 @@
+struct Item
+  n: Int
+
+struct Holder
+  r: ?Item
+
+sub sw(a: !Holder, b: !Holder)
+  swap(!a.r, !b.r)
+
+sub main
+  x = Item(n: 1)
+  h = Holder(r: ?x)
+  if true
+    w = Item(n: 2)
+    g = Holder(r: ?w)
+    sw(!h, !g)
+  print(h.r.n)

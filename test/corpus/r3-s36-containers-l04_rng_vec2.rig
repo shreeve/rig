@@ -1,0 +1,6 @@
+use std.random
+
+sub main
+  rs: Vec[random.Rng] = Vec()
+  !rs.push(random.Rng.seeded(1))
+  print(rs.len)

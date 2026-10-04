@@ -1,0 +1,14 @@
+struct Box2
+  label: String
+
+  fun show(?self, s: String) -> Int
+    print(self.label, s)
+    s.len
+
+sub main
+  b = Box2(label: "x")
+  for n in ["a", "c"]
+    q = Text(n)
+    k = b.show(?q)
+    print(k)
+  print(b.label)

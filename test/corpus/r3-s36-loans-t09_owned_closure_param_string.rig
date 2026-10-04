@@ -1,0 +1,7 @@
+# An owned closure that captures a String parameter.
+fun greeter(name: String) -> *sub()
+  *|+name| print("hi", name)
+
+sub main
+  g = greeter("rig")
+  g()

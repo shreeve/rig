@@ -1,0 +1,10 @@
+use std.random
+
+sub main()
+  r = random.Rng.seeded(3)
+  cb: *sub() = *|<r| print(!r.next() % 100)
+  cb()
+  again = +cb
+  again()
+  -cb
+  again()

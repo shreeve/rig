@@ -1,0 +1,13 @@
+struct Holder
+  r: []Int
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  a = !h
+  a.r = ?v[..]
+  for i in 0..100
+    !v.push(i)
+  print(a.r[0])

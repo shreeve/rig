@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  c2 = Cell(Cell(3))
+  inner = c2.replace(Cell(4))
+  print(inner.get(), c2)
+  b = Cell(Counter(hits: Cell(1)))
+  a = Counter(hits: Cell(2))
+  b.set(<a)
+  print(b)
+  h = *Cell(Counter(hits: Cell(1)))
+  h2 = +h
+  old = h2.replace(Counter(hits: Cell(8)))
+  print(old.hits.get(), h)

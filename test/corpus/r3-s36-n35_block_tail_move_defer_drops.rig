@@ -1,0 +1,10 @@
+sub main
+  c = true
+  x = if c
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    defer -v
+    v
+  else
+    Vec()
+  print(x.len)

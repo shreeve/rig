@@ -1,0 +1,23 @@
+# Must stay rejected once `left` says `from a` and `right` says `from b`:
+# `choose`'s result type must not take `left`'s narrower origins.
+struct Item
+  n: Int
+
+fun left(a: ?Item, b: ?Item) -> ?Item
+  a
+
+fun right(a: ?Item, b: ?Item) -> ?Item
+  b
+
+fun choose(c: Bool) -> ?fun(?Item, ?Item) -> ?Item
+  if c
+    return ?left
+  ?right
+
+sub main
+  x = Item(n: 1)
+  y = Item(n: 2)
+  h = choose(y.n > 1)
+  r = h(?x, ?y)
+  y.n = 5
+  print(r.n)

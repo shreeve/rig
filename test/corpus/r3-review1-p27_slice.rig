@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+fun firstof(s: []Counter) -> Counter
+  s[0]
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  s = ?a[..]
+  x = s[0]
+  x.hits.set(4)
+  print(a[0].hits.get())

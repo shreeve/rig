@@ -1,0 +1,16 @@
+struct In
+  n: Int
+
+struct View
+  b: ?In
+
+sub show(v: !View, b: ?In)
+  print(v.b.n, b.n)
+
+sub main
+  a = In(n: 1)
+  v = View(b: ?a)
+  if true
+    y = In(n: 2)
+    show(!v, ?y)
+  print(v.b.n)

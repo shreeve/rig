@@ -1,0 +1,23 @@
+# A catch handler's local, borrowed into an outer var.
+error E
+  bad
+
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  r: ?R
+
+fun fail -> Int!
+  return E.bad
+
+sub main
+  keep = R(n: 0)
+  v = V(r: ?keep)
+  k = fail() catch |err|
+    inner = R(n: 5)
+    v = V(r: ?inner)
+    0
+  print(v.r.n, k)

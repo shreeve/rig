@@ -1,0 +1,9 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  c = Counter(hits: Cell(7))
+  !a.fill(c)
+  b = [2 of c]
+  print(a, b)

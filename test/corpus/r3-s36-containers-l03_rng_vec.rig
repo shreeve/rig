@@ -1,0 +1,5 @@
+use std.random
+
+sub main
+  rs = [random.Rng.seeded(1), random.Rng.seeded(2)]
+  print(rs.len)

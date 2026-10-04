@@ -1,0 +1,11 @@
+# Core sentence 8 says `*x` moves x; SPEC §9 requires `*<x` for a named owner
+struct S
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  x = S(n: 1)
+  h = *x
+  print(h.n)

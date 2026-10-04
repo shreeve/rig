@@ -1,0 +1,18 @@
+# `replace` moves a value into a place; if the value carries a loan,
+# the place's owner must take it.
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  r: ?R
+
+sub main
+  a = R(n: 1)
+  v = V(r: ?a)
+  if true
+    b = R(n: 2)
+    old = replace(!v, V(r: ?b))
+    print(old.r.n)
+  print(v.r.n)

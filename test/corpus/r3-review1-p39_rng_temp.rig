@@ -1,0 +1,23 @@
+use std.random
+
+struct Counter
+  hits: Cell[Int]
+
+  fun peek(?self) -> Int
+    self.hits.get()
+
+fun mk() -> Counter
+  Counter(hits: Cell(4))
+
+fun look(r: ?random.Rng) -> Int
+  1
+
+fun lookc(c: ?Counter) -> Int
+  c.hits.get()
+
+sub main()
+  print(look(?random.Rng.seeded(3)))
+  print(lookc(?mk()))
+  print(mk().peek())
+  print(mk())
+  print(random.Rng.seeded(3))

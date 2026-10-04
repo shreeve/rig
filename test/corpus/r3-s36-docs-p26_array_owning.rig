@@ -1,0 +1,7 @@
+# Core §5: arrays hold anything (decided); SPEC §18 rejects arrays of owning values
+struct B
+  n: Int
+
+sub main
+  hs = [*B(n: 1), *B(n: 2)]
+  print(hs[0].n)

@@ -1,0 +1,16 @@
+enum Color
+  red
+  blue
+
+sub paint(w: !Color)
+  c = w
+  n: Int = 0
+  m = !n
+  k = m
+  w = .blue
+  print(c, k)
+
+sub main
+  x = Color.red
+  paint(!x)
+  print(x)

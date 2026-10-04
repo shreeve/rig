@@ -1,0 +1,13 @@
+struct H
+  w: !Int
+
+  sub point(!self, to: !Int)
+    self.w = to
+
+sub main
+  m = 1
+  n = 2
+  h = H(w: !m)
+  !h.point(!n)
+  h.w = 4
+  print(m, n)

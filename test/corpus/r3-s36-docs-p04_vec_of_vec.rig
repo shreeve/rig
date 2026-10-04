@@ -1,0 +1,8 @@
+# SPEC §10 Vec: elements exclude owning values other than handles and boxes
+struct Row
+  cells: Vec[Int]
+
+sub main
+  rows: Vec[Vec[Int]] = Vec()
+  recs: Vec[Row] = Vec()
+  print(rows.len, recs.len)

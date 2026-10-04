@@ -1,0 +1,18 @@
+# Does a store through a write parameter update that parameter's flow?
+# If not, a recorder reading the returned value misses `b`.
+struct Item
+  n: Int
+
+struct Holder
+  r: ?Item
+
+fun f(a: !Holder, b: !Item) -> Int
+  a.r = ?b
+  b.n = 5
+  a.r.n
+
+sub main
+  x = Item(n: 1)
+  y = Item(n: 2)
+  h = Holder(r: ?x)
+  print(f(!h, !y))

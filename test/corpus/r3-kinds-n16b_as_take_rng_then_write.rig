@@ -1,0 +1,14 @@
+use std.random
+
+struct G
+  r: random.Rng
+  n: Int
+
+sub main
+  o: G? = G(r: random.Rng.seeded(1), n: 0)
+  if <o as g
+    g.n = 4
+    print(!g.r.next() != 0, g.n)
+  p: random.Rng? = random.Rng.seeded(1)
+  if <p as r
+    print(!r.next() != 0)

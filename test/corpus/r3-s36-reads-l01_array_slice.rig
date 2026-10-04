@@ -1,0 +1,9 @@
+fun sum(xs: []Int) -> Int
+  s = 0
+  for x in xs
+    s += x
+  s
+
+sub main
+  a = [1, 2, 3]
+  print(sum(?a), sum(?a[1..]))

@@ -1,0 +1,8 @@
+struct S
+  v: Vec[Int]
+
+sub main
+  o: S? = S(v: Vec())
+  print(o == none)
+  if ?o as x
+    print(x.v.len)

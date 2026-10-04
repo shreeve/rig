@@ -1,0 +1,15 @@
+struct Lexer
+  src: String
+  pos: Int
+
+  fun next(!self) -> String
+    start = self.pos
+    self.pos += 1
+    self.src[start..self.pos]
+
+sub main
+  t = Text("abc")
+  lx = Lexer(src: ?t, pos: 0)
+  a = !lx.next()
+  b = !lx.next()
+  print(a, b)

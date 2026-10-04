@@ -1,0 +1,20 @@
+struct Bag
+  items: Vec[Int]
+
+  fun at(?self, i: Int) -> Int
+    self.items[i]
+
+fun mk -> Bag
+  b = Bag(items: Vec())
+  !b.items.push(7)
+  b
+
+sub main
+  a = Bag(items: Vec())
+  !a.items.push(1)
+  !a.items.push(2)
+  v = [0, 1]
+  for i in 0..2
+    c = i == 0
+    print((a if c else mk()).at(v[0]))
+  print(a.items[1])

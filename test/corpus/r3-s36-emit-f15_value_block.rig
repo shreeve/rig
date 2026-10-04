@@ -1,0 +1,13 @@
+# An if-block value branch ending in a bare error binding.
+error E
+  bad
+
+fun f(n: Int) -> Int!
+  x = if n > 0
+    n
+  else
+    E.bad
+  x + 1
+
+sub main
+  print(f(0) catch -1, f(1) catch -1)

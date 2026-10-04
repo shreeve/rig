@@ -1,0 +1,26 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+struct H
+  e: E
+
+fun mkh() -> H
+  H(e: E.a(c: Counter(hits: Cell(0))))
+
+sub main()
+  match H(e: E.a(c: Counter(hits: Cell(0)))).e
+    .a(c) => c.hit()
+    .b => pass
+  match mkh().e
+    .a(c) => c.hit()
+    .b => pass
+  if H(e: E.b).e == .b
+    print("b")
+  print("ok")

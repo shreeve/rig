@@ -1,0 +1,17 @@
+# The store channel: a logger whose context holds a String field.
+# Today `m` stays lent because `log` is assumed to keep `msg` in `ctx`.
+# Fixed only by `into` (stores default to nothing) or inference.
+struct Ctx
+  name: String
+  count: Int
+
+sub log(ctx: !Ctx, msg: String)
+  ctx.count += 1
+  print(ctx.name, msg)
+
+sub main
+  ctx = Ctx(name: "app", count: 0)
+  for i in 0..3
+    m = Text("step ", i)
+    log(!ctx, ?m)
+  print(ctx.count)

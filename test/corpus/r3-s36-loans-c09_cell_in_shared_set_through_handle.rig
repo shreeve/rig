@@ -1,0 +1,15 @@
+# A view put into a Cell through a borrowed path of a shared handle.
+struct R
+  n: Int
+
+struct V
+  r: ?R
+
+sub stash(c: ?Cell[V?], v: V)
+  c.set(v)
+
+sub main
+  c: *Cell[V?] = *Cell(none)
+  a = R(n: 1)
+  stash(?c, V(r: ?a))
+  print("ok")

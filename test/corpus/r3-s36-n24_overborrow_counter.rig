@@ -1,0 +1,11 @@
+fun find(xs: ?Vec[Int], n: !Int) -> ?Int
+  n += 1
+  ?xs[0]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(5)
+  n = 0
+  r = find(?v, !n)
+  n += 1
+  print(r, n)

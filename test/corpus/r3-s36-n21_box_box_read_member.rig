@@ -1,0 +1,6 @@
+struct S
+  n: Int
+
+sub main
+  b = Box(Box(S(n: 4)))
+  print(b.n)

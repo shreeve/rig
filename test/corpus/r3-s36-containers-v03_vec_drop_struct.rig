@@ -1,0 +1,9 @@
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  v: Vec[D] = Vec()
+  !v.push(D(n: 1))
+  print(v.len)

@@ -1,0 +1,30 @@
+struct Bag
+  v: Vec[Int]
+
+fun mk() -> Bag
+  b = Bag(v: Vec())
+  return b
+
+fun mk2() -> Bag
+  b = Bag(v: Vec())
+  b
+
+fun mk4(c: Bool) -> Bag
+  b = Bag(v: Vec())
+  d = Bag(v: Vec())
+  b if c else d
+
+fun mk5(c: Bool) -> Bag
+  b = Bag(v: Vec())
+  d = Bag(v: Vec())
+  if c
+    b
+  else
+    d
+
+sub main
+  a = mk()
+  b = mk2()
+  c = mk4(false)
+  d = mk5(true)
+  print(a.v.len, b.v.len, c.v.len, d.v.len)

@@ -1,0 +1,5 @@
+fun first[T](a: T, b: T) -> T
+  a
+
+sub main
+  print(first("x", "y"))

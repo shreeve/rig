@@ -1,0 +1,16 @@
+struct Item
+  n: Int
+
+struct Holder
+  r: ?Item
+
+sub put(h: !Holder)
+  w = Item(n: 2)
+  g = |!h, ?w| h.r = w
+  g()
+
+sub main
+  x = Item(n: 1)
+  h = Holder(r: ?x)
+  put(!h)
+  print(h.r.n)

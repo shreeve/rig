@@ -1,0 +1,19 @@
+struct B
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> B
+  B(n: n)
+
+fun mko(n: Int) -> B?
+  B(n: n)
+
+sub main
+  d = mk(9)
+  print((mko(1) ?? d).n)
+  print(d.n)

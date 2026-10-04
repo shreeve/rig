@@ -1,0 +1,8 @@
+struct P
+  x: Int
+
+sub main
+  v: Vec[*P] = Vec()
+  !v.push(*P(x: 1))
+  h = +v[0]
+  print(h.x)

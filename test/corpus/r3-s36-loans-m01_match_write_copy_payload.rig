@@ -1,0 +1,14 @@
+# A `match !h` payload of plain data is a write view into `h`; `h`
+# may not be replaced while it is live.
+enum H
+  has(n: Int)
+  no
+
+sub main
+  h: H = .has(n: 1)
+  match !h
+    .has(n)
+      h = .no
+      n += 1
+    .no => print("no")
+  print(h)

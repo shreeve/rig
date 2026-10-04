@@ -1,0 +1,10 @@
+struct S
+  n: Int
+
+fun get(s: ?S) -> Int
+  s.n
+
+sub main
+  v: Vec[S] = Vec()
+  !v.push(S(n: 3))
+  print(get(?v[0]))

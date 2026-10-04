@@ -1,0 +1,17 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  r: ?R
+
+sub main
+  h2: *V? = none
+  if true
+    a = R(n: 1)
+    vv = V(r: ?a)
+    h = *(<vv)
+    h2 = +h
+  if h2 as h3
+    print(h3.r.n)

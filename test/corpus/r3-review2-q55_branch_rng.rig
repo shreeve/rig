@@ -1,0 +1,10 @@
+use std.random
+
+sub main()
+  a = [random.Random.seeded(1), random.Random.seeded(2)]
+  b = [random.Random.seeded(3), random.Random.seeded(4)]
+  f = true
+  for r in (a if f else b)
+    print(!r.next() % 1000)
+  for r in !a
+    print(!r.next() % 1000)

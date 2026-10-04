@@ -1,0 +1,5 @@
+# Core §6: `new` accepts every binding form (open)
+sub main
+  x = 1
+  new x: Int = x + 1
+  print(x)

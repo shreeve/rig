@@ -1,0 +1,14 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun show() -> Int?
+  o: B? = B(n: 1)
+  print(o?.n)
+  print(o?)
+  o?.n
+
+sub main
+  print(show() ?? 0)

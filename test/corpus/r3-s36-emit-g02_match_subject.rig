@@ -1,0 +1,8 @@
+error E
+  bad
+fun a() -> Int!
+  return E.bad
+sub main
+  match a()
+    0 => print("zero")
+    _ => print("other")

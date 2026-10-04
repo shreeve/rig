@@ -1,0 +1,16 @@
+struct Counter
+  hits: Cell[Int]
+
+struct H
+  c: Counter
+
+fun make() -> H
+  H(c: Counter(hits: Cell(1)))
+
+sub main
+  k = make().c
+  k.hits.set(2)
+  h = make()
+  j = h.c
+  j.hits.set(5)
+  print(k.hits.get(), h.c.hits.get(), j.hits.get())

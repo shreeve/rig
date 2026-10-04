@@ -1,0 +1,21 @@
+struct P
+  x: Int
+
+enum E
+  a(p: P)
+  b(n: Int)
+
+fun f(e: ?E) -> Int
+  match e
+    .a(p) => p.x
+    .b(n) => n
+
+sub main
+  e = E.a(p: P(x: 1))
+  match e
+    .a(p) => print(p.x)
+    .b(n) => print(n)
+  match !e
+    .a(p) => p.x = 5
+    .b(n) => print(n)
+  print(f(?e))

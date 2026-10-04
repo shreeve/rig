@@ -1,0 +1,5 @@
+sub main
+  a: Vec[Int] = Vec()
+  !a.push(1)
+  _ = a
+  print(a[0])

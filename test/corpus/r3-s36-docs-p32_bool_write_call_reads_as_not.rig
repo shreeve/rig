@@ -1,0 +1,15 @@
+# WELCOME "`!` is not not": "Every place where the habit would change a program's meaning is an error"
+# DESIGN `and`, `or`, `not`: "A habit can make a program fail to compile, never change what it means."
+struct Set
+  items: Vec[Int]
+
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.items
+      return false if x == k
+    !self.items.push(k)
+    true
+
+sub main
+  s = Set(items: Vec())
+  dup = !s.insert(1)
+  print(dup)

@@ -1,0 +1,10 @@
+fun find(hay: String, b: U8) -> String?
+  for c, i in hay
+    return hay[i..] if c == b
+  none
+
+sub main
+  t = Text("a=b")
+  rest = find(?t, 61) ?? ""
+  !t.add("c")
+  print(rest)

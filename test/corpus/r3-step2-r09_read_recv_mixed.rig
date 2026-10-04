@@ -1,0 +1,19 @@
+struct Bag
+  items: Vec[Int]
+
+  fun total(?self) -> Int
+    self.items.len
+
+fun mk -> Bag
+  b = Bag(items: Vec())
+  !b.items.push(7)
+  b
+
+sub main
+  a = Bag(items: Vec())
+  !a.items.push(1)
+  !a.items.push(2)
+  for i in 0..2
+    c = i == 0
+    print((a if c else mk()).total())
+  print(a.items[1])

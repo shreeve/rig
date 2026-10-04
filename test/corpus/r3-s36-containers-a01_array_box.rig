@@ -1,0 +1,8 @@
+struct P
+  x: Int
+
+sub main
+  a = [Box(P(x: 1)), Box(P(x: 2))]
+  print(a[0].x)
+  for p in ?a
+    print(p.x)

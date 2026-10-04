@@ -1,0 +1,20 @@
+# Must stay rejected once `left` says `from a` and `right` says `from b`:
+# a `?fun` local re-pointed in a branch holds the join of both.
+struct Item
+  n: Int
+
+fun left(a: ?Item, b: ?Item) -> ?Item
+  a
+
+fun right(a: ?Item, b: ?Item) -> ?Item
+  b
+
+sub main
+  x = Item(n: 1)
+  y = Item(n: 2)
+  h = ?left
+  if y.n > 1
+    h = ?right
+  r = h(?x, ?y)
+  y.n = 5
+  print(r.n)

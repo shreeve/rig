@@ -1,0 +1,14 @@
+# A bare `.bad` where `Int!` is expected: rejected per SPEC; but in a value of an enum type?
+error E
+  bad
+
+enum C
+  bad
+  ok
+
+fun f(n: Int) -> C!
+  return E.bad if n < 0
+  .bad if n == 0 else .ok
+
+sub main
+  print(f(-1) catch .ok, f(0) catch .ok, f(1) catch .ok)

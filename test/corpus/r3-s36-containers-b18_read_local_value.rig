@@ -1,0 +1,5 @@
+sub main
+  a = 1
+  r = ?a
+  r = 5
+  print(r, a)

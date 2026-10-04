@@ -1,0 +1,23 @@
+use std.random
+
+struct Counter
+  hits: Cell[Int]
+
+fun bump(c: ?Counter) -> Int
+  c.hits.set(c.hits.get() + 1)
+  c.hits.get()
+
+fun step(r: !random.Rng) -> U64
+  !r.next() % 10
+
+sub main()
+  k = Counter(hits: Cell(0))
+  print(k, bump(?k))
+  print(k.hits.get(), bump(?k))
+  print(k.hits, bump(?k))
+  f = true
+  a = Counter(hits: Cell(0))
+  b = Counter(hits: Cell(0))
+  print((a if f else b).hits.get(), bump(?a))
+  print(a if f else b, bump(?a))
+  r = random.Rng.seeded(3)

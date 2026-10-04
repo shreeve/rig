@@ -1,0 +1,13 @@
+sub main
+  i = 0
+  x = while i < 0 : i += 1
+    break Vec[Int]() if i > 5
+  else
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    defer
+      for k in 0..100
+        !v.push(k)
+    v
+  !x.push(3)
+  print(x.len, x[0])

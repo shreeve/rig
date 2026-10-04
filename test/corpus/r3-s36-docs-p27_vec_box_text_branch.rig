@@ -1,0 +1,4 @@
+# Branch SPEC §10 Text: `Vec[Text]` rejected, `Vec[Box[Text]]` the workaround (run on rig-text only)
+sub main
+  v: Vec[Text] = Vec()
+  print(v.len)

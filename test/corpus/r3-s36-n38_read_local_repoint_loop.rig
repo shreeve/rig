@@ -1,0 +1,8 @@
+sub main
+  a: Vec[Int] = Vec()
+  r = ?a
+  for i in 0..2
+    b: Vec[Int] = Vec()
+    !b.push(i)
+    r = ?b
+  print(r.len)

@@ -1,0 +1,11 @@
+# A match arm value that is an error.
+error E
+  bad
+
+fun f(n: Int) -> Int!
+  match n
+    0 => E.bad
+    _ => n
+
+sub main
+  print(f(0) catch -1, f(5) catch -1)

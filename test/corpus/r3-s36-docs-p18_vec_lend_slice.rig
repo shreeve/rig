@@ -1,0 +1,11 @@
+# Core §4: `?v` of a Vec lends a []T (decided)
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(4)
+  print(total(?v))

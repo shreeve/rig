@@ -1,0 +1,8 @@
+struct Bag
+  v: Vec[Int]
+
+sub main
+  x = while true
+    b = Bag(v: Vec())
+    break b
+  print(x.v.len)

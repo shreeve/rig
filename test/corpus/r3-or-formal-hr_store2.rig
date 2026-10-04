@@ -1,0 +1,14 @@
+struct Item
+  n: Int
+
+struct Holder
+  r: ?Item
+
+sub main
+  g = Item(n: 1)
+  h = Holder(r: ?g)
+  f = |!h, x: ?Item| h.r = x
+  if true
+    y = Item(n: 5)
+    f(?y)
+  print(h.r.n)

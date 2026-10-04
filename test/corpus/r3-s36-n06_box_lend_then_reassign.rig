@@ -1,0 +1,11 @@
+struct S
+  n: Int
+
+fun get(s: ?S) -> ?S
+  s
+
+sub main
+  b = Box(S(n: 1))
+  r = get(?b)
+  b = Box(S(n: 2))
+  print(r.n)

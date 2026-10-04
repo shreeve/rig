@@ -1,0 +1,7 @@
+sub main
+  a: Vec[Int] = Vec()
+  b: Vec[Int] = Vec()
+  !a.push(1)
+  c = true
+  !(a if c else b).push(2)
+  print(a.len)

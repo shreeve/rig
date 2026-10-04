@@ -1,0 +1,6 @@
+use std.sort
+
+sub main
+  a = Text("b")
+  b = Text("a")
+  print(a < b)

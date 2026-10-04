@@ -1,0 +1,30 @@
+use std.random
+
+fun roll(r: random.Rng) -> U64
+  g = <r
+  !g.next()
+
+struct G
+  r: random.Rng
+
+sub main
+  print(roll(random.Rng.seeded(1)) != 0)
+  o: G? = G(r: random.Rng.seeded(1))
+  if <o as g
+    print(!g.r.next() != 0)
+  e = Pick.a(r: random.Rng.seeded(2))
+  match <e
+    .a(r) => print(!r.next() != 0)
+    .b => pass
+  rs: Vec[*random.Rng] = Vec()
+  for x in <rs
+    print(x)
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = Cell(random.Rng.seeded(5))
+  old = w.replace(random.Rng.seeded(6))
+  print(!old.next() != 0)
+
+enum Pick
+  a(r: random.Rng)
+  b

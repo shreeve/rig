@@ -1,0 +1,19 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub f(a: [2]Counter)
+  for k in a
+    k.hit()
+  print(a[0].hits.get())
+
+sub g(a: ?[2]Counter)
+  for k in a
+    k.hit()
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  g(?a)
+  f(<a)

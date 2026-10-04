@@ -1,0 +1,21 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+sub poke(s: []E)
+  match s[0]
+    .a(c) => c.hit()
+    .b => pass
+
+sub main()
+  arr = [E.a(c: Counter(hits: Cell(0))), E.b]
+  poke(?arr)
+  match arr[0]
+    .a(c) => print(c.hits.get())
+    .b => pass

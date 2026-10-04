@@ -1,0 +1,9 @@
+# Core §4: `sort.sort(!v)` works for a Vec as for an array
+use std.sort
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(2)
+  !v.push(1)
+  sort.sort(!v)
+  print(v)

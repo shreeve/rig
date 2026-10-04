@@ -1,0 +1,10 @@
+# A generic type with methods, instantiated with String.
+struct Holder[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+sub main
+  h = Holder(v: "rig")
+  print(h.get())

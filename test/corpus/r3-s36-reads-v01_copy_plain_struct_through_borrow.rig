@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+fun get(r: ?P) -> P
+  r
+
+sub main
+  p = P(x: 1)
+  print(get(?p).x)

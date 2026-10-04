@@ -1,0 +1,14 @@
+struct P
+  n: Int
+
+fun mk() -> Vec[*P]
+  v: Vec[*P] = Vec()
+  !v.push(*P(n: 4))
+  v
+
+sub main()
+  one = *P(n: 1)
+  saved = ?one
+  for k in mk()
+    saved = k
+  print(saved.n)

@@ -1,0 +1,13 @@
+struct Item
+  n: Int
+
+fun call(f: ?fun(?Item) -> ?Item, k: ?Item) -> ?Item
+  f(k)
+
+sub main
+  x = Item(n: 1)
+  y = Item(n: 2)
+  f = |?x, k: ?Item| x
+  r = call(?f, ?y)
+  y.n = 3
+  print(r.n, y.n)

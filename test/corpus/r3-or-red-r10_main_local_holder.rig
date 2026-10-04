@@ -1,0 +1,15 @@
+struct Holder
+  r: []Int
+
+fun f(b: !Vec[Int]) -> Int
+  x = [9, 9]
+  h = Holder(r: ?x[..])
+  h.r = ?b[..]
+  for i in 0..100
+    !b.push(i)
+  h.r[0]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(f(!v))

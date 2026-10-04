@@ -1,0 +1,16 @@
+struct Counter
+  hits: Cell[Int]
+
+fun pair[T](x: T, y: T) -> [2]T
+  [x, y]
+
+fun first[T](a: [2]T) -> T
+  b = a
+  b[0]
+
+sub main()
+  a = Counter(hits: Cell(0))
+  b = Counter(hits: Cell(0))
+  p = pair(<a, <b)
+  k = first(<p)
+  print(k.hits.get())

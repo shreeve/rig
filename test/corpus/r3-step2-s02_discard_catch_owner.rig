@@ -1,0 +1,13 @@
+error E
+  bad
+
+fun mk(ok: Bool) -> Vec[Int]!
+  if not ok
+    return E.bad
+  Vec()
+
+sub main
+  d: Vec[Int] = Vec()
+  !d.push(1)
+  _ = mk(false) catch d
+  print(d[0])
