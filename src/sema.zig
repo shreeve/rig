@@ -900,6 +900,10 @@ pub const Requirement = union(enum) {
     /// Copies (`moves` is not `yes`): the body copies the parameter's
     /// value.
     copyable,
+    /// Holds no Cell inline: the body binds a copy of a value holding the
+    /// parameter (a loop element, a match payload) and may lend it, so a
+    /// Cell in it would change in the copy only.
+    no_cell,
     /// Needs no cleanup: the body discards the parameter's value, leaves
     /// a temporary of it, overwrites one, or keeps one in an array or a
     /// slice.
@@ -930,6 +934,7 @@ pub const Requirement = union(enum) {
             .shift => "a constant shift",
             .copyable => "a value that copies",
             .no_cleanup => "a value that owns no resource",
+            .no_cell => "a value that holds no Cell",
             .array_len => "an array length",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",

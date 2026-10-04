@@ -1,0 +1,13 @@
+# A slice views elements held elsewhere: a Cell reached through one is
+# changed where it is.
+
+sub bumps(s: []Cell[Int])
+  s[0].set(5)
+
+sub main()
+  a = [Cell(1), Cell(2)]
+  bumps(?a[..])
+  print(a[0].get(), a[1].get())
+
+# expect:
+# 5 2

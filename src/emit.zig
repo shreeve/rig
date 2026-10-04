@@ -3652,8 +3652,12 @@ pub const Emitter = struct {
         const n = array_len orelse {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
-            // is assigned through.
-            if (as_place) {
+            // is assigned through. An element that holds a Cell, or may in
+            // a generic instance, is reached where it is: a `?self` method
+            // or a Cell on it changes the element, not a copy.
+            const elem_ty = self.typeOf(sexp);
+            const in_place = if (elem_ty) |t| sema.holdsCellByValue(self.sema, t) or sema.maybeDropGlue(self.sema, t) else false;
+            if (as_place or in_place) {
                 try self.w.writeAll("rig.elemPtr(");
                 try self.emitIndexBase(base, base_ty, .bare);
                 try self.w.writeAll(", ");
@@ -3716,6 +3720,12 @@ pub const Emitter = struct {
             if (how == .address) try self.w.writeAll("&");
             try self.emitMemberBase(base, t);
             return self.writeReach(t);
+        };
+        // A generic view of an array (`rig.ReadBorrow([n]T)`, a pointer
+        // or a copy as the instance decides) is indexed as it is: indexing
+        // a copy of the whole array would lend its element from the copy.
+        if (how == .expr and base == .src) if (self.localOf(base)) |local| if (local.is_ptr and local.ty != null and self.genericReadBorrow(local.ty.?) != null) {
+            return self.w.writeAll(local.zig_name);
         };
         switch (how) {
             .expr => try self.emitExpr(base),

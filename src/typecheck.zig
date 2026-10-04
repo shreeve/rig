@@ -1100,7 +1100,8 @@ const Checker = struct {
                     place.indirect = true;
                     place.block(.read_borrow, self.startOf(p));
                 },
-                .borrow_write, .shared => place.indirect = true,
+                // A slice views elements held elsewhere.
+                .borrow_write, .shared, .slice => place.indirect = true,
                 else => {},
             }
             if (obj == .shared) place.block(.shared, 0);
@@ -1792,6 +1793,9 @@ const Checker = struct {
                 // and one of an array the loop takes (a value made in the
                 // header) is the binding's own.
                 if (mode != .move and sema.isUnique(self.ctx, a.elem) and (peeled != source_ty or self.placeOf(source).named())) return self.ctx.intern(.{ .borrow_read = a.elem });
+                // An element of a type parameter is bound by copy: no
+                // instance may hold a Cell the copy would fork.
+                if (mode != .move and sema.maybeDropGlue(self.ctx, a.elem)) try self.requireOf(a.elem, .no_cell, pos, "copies into a loop binding a value");
                 return a.elem;
             },
             .slice, .string => {
@@ -1805,7 +1809,11 @@ const Checker = struct {
                 }
                 return switch (self.ctx.types.get(peeled)) {
                     // A unique element is viewed where it is.
-                    .slice => |sl| if (sema.isUnique(self.ctx, sl.elem)) try self.ctx.intern(.{ .borrow_read = sl.elem }) else sl.elem,
+                    .slice => |sl| blk: {
+                        if (sema.isUnique(self.ctx, sl.elem)) break :blk try self.ctx.intern(.{ .borrow_read = sl.elem });
+                        if (sema.maybeDropGlue(self.ctx, sl.elem)) try self.requireOf(sl.elem, .no_cell, pos, "copies into a loop binding a value");
+                        break :blk sl.elem;
+                    },
                     else => try self.byteType(),
                 };
             },
@@ -2307,6 +2315,9 @@ const Checker = struct {
                 try self.ctx.intern(.{ .borrow_read = f.ty })
             else
                 f.ty;
+            // A payload of a type parameter read is bound by copy: no
+            // instance may hold a Cell the copy would fork.
+            if (mode == .read and view and sema.maybeDropGlue(self.ctx, f.ty)) try self.requireOf(f.ty, .no_cell, self.startOf(b), "copies into a match binding a value");
             try self.ctx.recordType(b, ty);
             if (self.ctx.symbolOf(b)) |sym| self.ctx.symbols.items[sym].ty = ty;
         }
@@ -8922,6 +8933,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
             const aname = try sema.formatType(ctx, arg);
             const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
             switch (req.req) {
+                .no_cell => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` holds a Cell, which the copy would fork", .{ inst, pname, aname, req.op, pname, aname }),
                 .copyable, .no_cleanup => if (sema.typeHasDropGlue(ctx, arg))
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname })
                 else
@@ -8937,7 +8949,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
-                .copyable, .no_cleanup => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
+                .copyable, .no_cleanup, .no_cell => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
@@ -8992,6 +9004,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         },
         .copyable => sema.moves(ctx, ty) != .yes,
         .no_cleanup => !sema.typeHasDropGlue(ctx, ty),
+        .no_cell => !sema.holdsCellByValue(ctx, ty),
         .array_len => switch (ctx.types.get(ty)) {
             .ct_value => |v| v.int >= 0 and v.int <= sema.max_array_len,
             else => false,
