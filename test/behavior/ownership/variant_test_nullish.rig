@@ -1,5 +1,5 @@
-# Testing `o ?? d` against a bare variant would drop the value `o` or `d`
-# holds.
+# Testing `o ?? d` against a bare variant reads it, as any `==` operand:
+# the value `o` or `d` holds is read where it is, never dropped.
 enum Shape
   dot
   line(v: Vec[Int])
@@ -15,5 +15,7 @@ sub main
     .line(v) => print(v[0])
     .dot => print("dot")
 
-# error: 12:7: cannot test `o ?? d` against `.dot`: it may be `o`, a value a name holds, and the test drops the value it tests
-# errors: 1
+
+# expect:
+# line
+# 1

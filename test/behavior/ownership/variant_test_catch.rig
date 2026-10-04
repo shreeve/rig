@@ -1,5 +1,6 @@
-# Testing against a bare variant drops a value no name holds; a `catch`
-# that may yield a name's value cannot be tested that way.
+# Testing a `catch` against a bare variant reads it, as any `==`
+# operand: the name its handler gives is read where it is, and a value
+# made there is dropped with the statement.
 error E
   bad
 
@@ -22,5 +23,7 @@ sub main
     .line(v) => print(v[0])
     .dot => print("dot")
 
-# error: 19:7: cannot test `mk(false) catch d` against `.dot`: it may be `d`, a value a name holds, and the test drops the value it tests
-# errors: 1
+
+# expect:
+# line
+# 1

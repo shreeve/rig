@@ -3525,10 +3525,11 @@ pub const Emitter = struct {
         const op = @tagName(kind);
         const is_eq = kind == .@"==" or kind == .@"!=";
         const operands = [2]Sexp{ ir.get(sexp, .left), ir.get(sexp, .right) };
-        // A temporary optional resource compared with `none` is dropped.
+        // An optional resource made here and compared with `none` is
+        // dropped by the test.
         if (is_eq) for ([2]usize{ 0, 1 }) |i| {
             const other = operands[1 - i];
-            if (!self.isNoneLeaf(other) or isPlace(operands[i])) continue;
+            if (!self.isNoneLeaf(other) or !self.dropsWhenTested(operands[i])) continue;
             const t = self.typeOf(operands[i]) orelse continue;
             if (self.kindOf(t) == null) continue;
             if (kind == .@"!=") try self.w.writeAll("!");
@@ -3540,8 +3541,9 @@ pub const Emitter = struct {
         if (is_eq) for ([2]usize{ 0, 1 }) |i| {
             const value = operands[1 - i];
             if (!operands[i].isKind(.enum_lit) or !self.isPayloadEnumOperand(value)) continue;
-            // A temporary that owns a resource is dropped once tested.
-            const temp = !isPlace(value) and self.kindOf(self.typeOf(value).?) != null;
+            // A value made here that owns a resource is dropped once
+            // tested.
+            const temp = self.dropsWhenTested(value) and self.kindOf(self.typeOf(value).?) != null;
             if (kind == .@"!=") try self.w.writeAll("!");
             try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
             try self.emitExpr(value);
@@ -4624,6 +4626,13 @@ pub const Emitter = struct {
         const obj = ir.Member.object(callee);
         if (self.isTypeCallee(obj)) return null;
         return obj;
+    }
+
+    /// Whether an operand tested against `none` or a bare `.variant` is
+    /// a value made there that no slot holds, which the test drops. Any
+    /// other operand is read where it is.
+    fn dropsWhenTested(self: *Emitter, e: Sexp) bool {
+        return sema.handsOver(self.sema, e).kind == .made and !self.sema.dropsTemp(e);
     }
 
     /// Whether `e` is read from storage, not made for its context

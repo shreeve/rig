@@ -1,0 +1,22 @@
+# `==` with a payload literal reads both operands: a name, or a name a
+# branching value may be, is read where it is, and a value made there,
+# the literal too, is a temporary the statement drops.
+enum S
+  dot
+  line(v: Text)
+
+fun mk(t: String) -> S
+  .line(v: Text(t))
+
+sub main
+  a: S = .line(v: Text("a"))
+  b: S = .dot
+  c = true
+  print(a == .line(v: Text("a")), (a if c else b) == .line(v: Text("a")))
+  print(mk("x") == .line(v: Text("x")), (b if c else mk("y")) != .line(v: Text("y")))
+  print(a, b)
+
+# expect:
+# true true
+# true true
+# .line(v: "a") .dot
