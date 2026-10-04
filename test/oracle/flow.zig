@@ -318,12 +318,13 @@ const Checker = struct {
                 }
             }
         };
-        // C8 (s9): an owned closure takes no value that carries a loan.
+        // C8 (s9): an owned closure, a Cell, or a Signal takes no value
+        // that carries a loan.
         if (op.no_loans) {
             for (op.moves) |v| {
                 for (self.f.loans.items, 0..) |l, li| {
                     if (!st.holds[v].has(li)) continue;
-                    try self.report(.C8, op.pos, "an owned closure would hold a view of `{s}`; it holds only values that carry no loan", .{self.name(l.root)});
+                    try self.report(.C8, op.pos, "a value carrying a loan of `{s}` would be stored where every handle reaches it; an owned closure, a Cell, or a Signal holds only values that carry no loan", .{self.name(l.root)});
                     return;
                 }
             }

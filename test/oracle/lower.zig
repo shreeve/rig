@@ -1357,6 +1357,14 @@ const Lowerer = struct {
                 return t;
             },
             .@"if", .block, .match, .@"??", .@"catch" => {
+                // A branching value read where it stands is copied there;
+                // a Cell of an owner in the copy shares what a later read
+                // lend of its place may change (Core s9), which the oracle
+                // does not model.
+                if (how == .read) {
+                    const ti = self.ctx.typeInfo(try self.typeOf(e));
+                    if (ti.cell and ti.glue) return abstain("a branching value holding a Cell of an owner, read");
+                }
                 const t = try self.temp(try self.typeOf(e), pos);
                 try self.valueInto(e, how, t);
                 return t;
@@ -1942,6 +1950,9 @@ const Lowerer = struct {
         if (self.ctx.genericCallOf(e)) |gc| for (gc.type_args) |t| try self.plainInstanceArg(t);
         try self.plainInstance(try self.typeOf(e));
 
+        // A Cell or Signal made, or one a method stores into (Core s9).
+        var cell_store = false;
+
         // What each argument goes to.
         var shapes: []const Shape = &.{};
         var all_read = false;
@@ -1973,6 +1984,7 @@ const Lowerer = struct {
                 },
                 .nominal_type, .generic_type, .type_alias => {
                     is_ctor = true;
+                    cell_store = sym_id.? == self.ctx.cell_sym_id or sym_id.? == self.ctx.signal_sym_id;
                 },
                 // A closure, a function value, or a view of one: the
                 // callee value first; the result carries its loans, the
@@ -2004,6 +2016,8 @@ const Lowerer = struct {
             } else {
                 // A method: the receiver first, then the arguments.
                 const recv_mode, const fn_params = try self.method(callee);
+                const recv_obj = if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
+                cell_store = self.isCell(try self.typeOf(recv_obj));
                 if (fn_params) |fp| {
                     shapes = try self.shapesOf(fp.ctx, fp.params);
                 } else all_read = true;
@@ -2078,7 +2092,7 @@ const Lowerer = struct {
             // Where a write view goes, a bare one would be copied (SPEC §7).
             const wants_view = is_ctor and arg.isKind(.kwarg) and self.fieldIsWriteView(e, ir.Kwarg.name(arg).getText(self.src));
             var v = try self.eval(val, arg_how, if (wants_view) self.ctx.typeOf(val) else null) orelse continue;
-            if ((arg_how == .take and !is_ctor) or all_read) v = try self.readThrough(v, self.posOf(val));
+            if ((arg_how == .take and (!is_ctor or cell_store)) or all_read) v = try self.readThrough(v, self.posOf(val));
             // A callable whose result holds no view hands the call none
             // of its captures' views: the call only calls it (Core s7).
             if (try self.callsOnly(v, try self.typeOf(e))) {
@@ -2110,6 +2124,7 @@ const Lowerer = struct {
             .access = access,
             .gains = gains.items,
             .through = through.items,
+            .no_loans = cell_store,
         });
         return result;
     }
@@ -2201,6 +2216,16 @@ const Lowerer = struct {
         return abstain("a generic instance at an owner or a view");
     }
 
+    /// Whether a value of `ty` is a Cell or Signal, or a view or handle
+    /// of one.
+    fn isCell(self: *Lowerer, ty: TypeId) bool {
+        return switch (self.ctx.types.get(ty)) {
+            .borrow_read, .borrow_write, .shared => |inner| self.isCell(inner),
+            .parameterized_nominal => |pn| pn.sym == self.ctx.cell_sym_id or pn.sym == self.ctx.signal_sym_id,
+            else => false,
+        };
+    }
+
     const MethodParams = struct { ctx: *const sema.SemContext, params: []const TypeId };
 
     /// How a method takes its receiver, and its other parameters' types.
@@ -2240,6 +2265,16 @@ const Lowerer = struct {
             if (sema.nominalDecl(self.ctx, boxed)) |inner_decl| {
                 if (try self.methodOf(inner_decl, mname)) |found_method| return found_method;
             }
+        }
+        // A `Cell[Vec[T]]` answers its Vec's members through any path,
+        // without `!` (SPEC "Cell").
+        switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, recv_ty))) {
+            .parameterized_nominal => |pn| if (pn.sym == self.ctx.cell_sym_id and pn.args.len == 1) {
+                if (sema.nominalDecl(self.ctx, pn.args[0])) |held| if (held.sym == self.ctx.vec_sym_id) {
+                    if (try self.methodOf(held, mname)) |found_method| return .{ .read, found_method[1] };
+                };
+            },
+            else => {},
         }
         return abstain("a method reached through a handle");
     }

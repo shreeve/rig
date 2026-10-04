@@ -170,14 +170,13 @@ const Scan = struct {
                 try self.fields(foreign, in.sym_id, depth, in_generic);
             },
             .parameterized_nominal => |pn| {
-                // A Cell or Signal of plain data changes through any path
-                // (Core s9); one that holds an owner or a view needs the
-                // rule that it accepts only values carrying no loan, which
-                // the oracle does not model yet.
+                // A Cell or Signal changes through any path, and holds
+                // only values that carry no loan (Core s9): what it holds
+                // carries none, and a store into it is checked (C8). One
+                // of a `?T`, `!T`, or slice is the compiler's to reject.
                 if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) {
                     for (pn.args) |arg| {
-                        const ai = ctx.typeInfo(arg);
-                        if (ai.glue or ai.unique or ai.borrows.any or ai.borrows.view or ai.has_type_var or ctx.types.get(arg) == .string) return self.mark("a `Cell` or `Signal` of an owner or a view");
+                        if (ctx.typeInfo(arg).borrows.any) return self.mark("a `Cell` or `Signal` of a view");
                         try self.walk(ctx, arg, depth + 1, in_generic);
                     }
                     return;
