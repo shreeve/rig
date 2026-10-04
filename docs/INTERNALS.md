@@ -786,6 +786,20 @@ guard reads; a write view under `match !e` and `for x in !e`; the
 construct's own under `match <e` and a taken subject. (A payload of a
 type parameter is a copy, which each instance must allow.)
 
+A read match's binding that is no plain data, a payload or the binding
+of a catch-all arm, is usable within its arm only (`SymbolFlags.arm_view`):
+it may be read, lent to a call, and have its `Cell` changed there, but a
+view of it may not be returned, stored in anything that outlives the
+arm, or yielded as the match's value. The ownership checker gives each
+such binding a loan on a hidden var of the arm (`Var.arm_of`), which
+ends with the arm. The reason is emit: it may match a copy of the
+subject (a guarded match evaluates the subject first, and a generic
+body reads a `?T` subject as a value), which lives exactly as long as
+the arm, while the checker walks the subject itself. Lowering matches
+before checking (HANDOFF step 10), so that the checker and emit see one
+program, lifts the rule. A subject that is a view a call returns is held
+as the pointer it is (`evalSubject`), never copied.
+
 A held header is rejected, conservatively, where its value could not
 be held for the construct: when the made value makes a statement
 temporary of its own (`match mk(?Text(...)).e`, `for x in mk(t()).v`),

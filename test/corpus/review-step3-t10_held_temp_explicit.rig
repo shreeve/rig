@@ -1,0 +1,34 @@
+struct Res
+  n: Int
+  t: Text
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter)
+  b
+
+struct H
+  e: E
+  arr: [2]Counter
+  o: Counter?
+
+fun mkh(r: ?Res) -> H
+  H(e: E.a(c: Counter(hits: Cell(r.n))), arr: [Counter(hits: Cell(r.n)), Counter(hits: Cell(2))], o: Counter(hits: Cell(r.n)))
+
+fun mkres(n: Int) -> Res
+  Res(n: n, t: Text("abc"))
+
+sub main
+  match mkh(?mkres(1)).e
+    .a(c) => print("a", c.hits.get())
+    .b => pass
+  for k in mkh(?mkres(3)).arr
+    print("k", k.hits.get())
+  if mkh(?mkres(5)).o as c
+    print("o", c.hits.get())
+  print("end")

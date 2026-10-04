@@ -1,0 +1,12 @@
+struct S
+  v: Vec[Int]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = *S(v: <v)
+  g = +h
+  for x in h.v
+    if x < 40
+      !g.v.push(x + 1)
+    print(x)

@@ -1,0 +1,8 @@
+sub eat(v: Vec[Int]?)
+  print("eat")
+
+sub main
+  o: Vec[Int]? = Vec()
+  while o as x
+    print(x.len)
+    eat(<o)

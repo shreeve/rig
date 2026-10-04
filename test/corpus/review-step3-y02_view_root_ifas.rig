@@ -1,0 +1,9 @@
+struct S
+  o: Text?
+
+sub main
+  s = S(o: Text("abc"))
+  r = ?s
+  if r.o as t
+    s.o = none
+    print(t)

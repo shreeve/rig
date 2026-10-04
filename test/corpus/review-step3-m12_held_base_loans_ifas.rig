@@ -1,0 +1,15 @@
+struct Res
+  n: Int
+  t: Text
+
+struct H
+  o: (?Res)?
+
+fun mkh(r: ?Res) -> H
+  H(o: r)
+
+sub main
+  x = Res(n: 1, t: Text("a"))
+  if mkh(?x).o as r
+    -x
+    print(r.n)

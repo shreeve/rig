@@ -1,0 +1,17 @@
+struct Bag
+  v: Vec[Int]
+  w: Vec[Int]
+
+fun mk(n: Int) -> Bag
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  Bag(v: <v, w: Vec())
+
+sub main
+  for x in mk(10).v
+    print("x", x)
+  x = for y in mk(3).v
+    break y
+  else
+    0
+  print(x)

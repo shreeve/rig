@@ -1,0 +1,23 @@
+struct Noisy
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum E
+  a(n: Int)
+  b
+
+struct H
+  e: E
+  arr: [2]Int
+  z: Noisy
+
+fun mkh(n: Int) -> H
+  H(e: E.a(n: n), arr: [n, n], z: Noisy(n: n))
+
+sub main
+  match mkh(3).e
+    .a(n) => print("arm", n)
+    .b => pass
+  print("end")

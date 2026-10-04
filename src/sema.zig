@@ -409,7 +409,11 @@ pub const SymbolFlags = packed struct(u16) {
     /// A type declared `unique` (`struct T unique`): its values are never
     /// copied (`Contents.unique`).
     unique: bool = false,
-    _: u6 = 0,
+    /// A read match's binding of a payload, or the whole value, that is
+    /// not plain data: usable within its arm only (docs/INTERNALS.md,
+    /// "Header subjects").
+    arm_view: bool = false,
+    _: u5 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.

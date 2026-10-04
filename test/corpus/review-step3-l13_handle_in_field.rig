@@ -1,0 +1,15 @@
+struct S
+  n: Int
+  t: Text
+
+struct W
+  h: *S
+
+fun keep(s: ?S) -> ?S
+  s
+
+sub main
+  w = W(h: *S(n: 1, t: Text("a")))
+  k = keep(w.h)
+  w.h = *S(n: 2, t: Text("b"))
+  print(k.n)

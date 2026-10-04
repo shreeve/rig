@@ -1,0 +1,16 @@
+struct Counter
+  hits: Cell[Int]
+
+struct Wrap[T]
+  v: T
+
+fun firstv[T](w: ?Wrap[T]) -> ?T
+  ?w.v
+
+fun fill2[T](x: T) -> [2]T
+  [2 of x]
+
+sub main
+  w: Wrap[Counter] = Wrap(v: Counter(hits: Cell(1)))
+  w2 = w
+  a = fill2(Counter(hits: Cell(1)))

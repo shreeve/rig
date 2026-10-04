@@ -1,0 +1,14 @@
+struct H
+  arr: [2]Int
+  t: Text
+
+fun mkh(n: Int) -> H
+  H(arr: [n, 2], t: Text("x"))
+
+sub main
+  match mkh(4).arr[0]
+    4 => print("four")
+    _ => print("other")
+  match [1, 2][0]
+    1 => print("one")
+    _ => print("other")

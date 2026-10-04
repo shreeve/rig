@@ -1,0 +1,12 @@
+struct S
+  n: Int
+  t: Text
+
+sub bump(s: (!S)?)
+  if s as x
+    x.n += 1
+
+sub main
+  o: S? = S(n: 5, t: Text("a"))
+  bump(!o)
+  print(o)

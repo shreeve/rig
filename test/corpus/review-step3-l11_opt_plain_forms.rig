@@ -1,0 +1,35 @@
+struct P
+  n: Int
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+fun maybe(s: (?P)?) -> Int
+  if s as x
+    return x.n
+  -1
+
+sub bumpo(c: (?Counter)?)
+  if c as k
+    k.hit()
+
+fun mkp(n: Int) -> P?
+  if n > 5
+    return none
+  P(n: n)
+
+fun mkc() -> Counter?
+  Counter(hits: Cell(0))
+
+sub main
+  print(maybe(mkp(1)), maybe(mkp(9)), maybe(none), maybe(P(n: 4)))
+  k: Counter? = Counter(hits: Cell(0))
+  bumpo(k)
+  bumpo(?k)
+  if k as kk
+    print(kk.hits.get())
+  arr = [P(n: 1), P(n: 2)]
+  print(maybe(arr[1]))

@@ -1,0 +1,8 @@
+struct S
+  n: Int
+  t: Text
+
+sub main
+  b = Box(Box(S(n: 1, t: Text("x"))))
+  t = <b.t
+  print(t)

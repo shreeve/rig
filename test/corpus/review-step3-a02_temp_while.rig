@@ -1,0 +1,25 @@
+struct Bag
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun size(b: ?Bag) -> Int
+  b.n
+
+fun mk(n: Int) -> Bag
+  Bag(n: n)
+
+sub main
+  i = 0
+  while size(mk(i)) < 3
+    i += 1
+  print("i", i)
+  match size(mk(9))
+    9 => print("nine")
+    _ => print("other")
+  if size(mk(8)) == 8
+    print("eight")
+  defer
+    print("defer", size(mk(7)))
+  print("end")

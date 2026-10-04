@@ -1,0 +1,21 @@
+struct Res
+  n: Int
+  t: Text
+
+  drop(!self)
+    print("drop", self.n)
+
+enum E
+  a(r: Res, s: Res)
+  b
+
+sub eat(r: Res)
+  print("eat", r.n)
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("x")), s: Res(n: 2, t: Text("y")))
+  match <e
+    .a(r, s) if r.n > 5 => eat(<r)
+    .a(r, _) => eat(<r)
+    .b => pass
+  print("end")

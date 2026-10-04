@@ -1,0 +1,12 @@
+struct S
+  n: Int
+  t: Text
+
+fun keep(s: ?S) -> ?S
+  s
+
+sub main
+  h = *S(n: 5, t: Text("a"))
+  k = keep(?h)
+  h = *S(n: 6, t: Text("b"))
+  print(k.n)

@@ -1,0 +1,50 @@
+struct S
+  n: Int
+
+fun get(s: ?S) -> Int
+  s.n
+
+fun first(s: String) -> String
+  s[..1]
+
+fun total(xs: []Int) -> Int
+  t = 0
+  for x in xs
+    t += x
+  t
+
+fun maybe(s: (?S)?) -> Int
+  if s as x
+    return x.n
+  -1
+
+fun mname(s: String?) -> String
+  s ?? "none"
+
+fun msl(xs: ([]Int)?) -> Int
+  if xs as s
+    return s.len
+  -1
+
+sub main
+  b3 = Box(Box(Box(Text("deep"))))
+  print(first(b3))
+  hb = *Box(S(n: 3))
+  print(get(hb))
+  ob: Box[S]? = Box(S(n: 4))
+  print(maybe(ob))
+  oh: (*S)? = *S(n: 5)
+  print(maybe(oh))
+  ot: (*Text)? = *Text("ht")
+  print(mname(ot))
+  bo = Box(Text("bo"))
+  ob2: Box[Text]? = <bo
+  print(mname(ob2))
+  hv = *Box([1, 2, 3])
+  print(total(hv))
+  ov: Box[Vec[Int]]? = Box(Vec())
+  print(msl(ov))
+  vv: Vec[Int] = Vec()
+  !vv.push(2)
+  bv = Box(Box(<vv))
+  print(total(bv))

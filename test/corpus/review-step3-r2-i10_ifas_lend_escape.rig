@@ -1,0 +1,33 @@
+struct Res
+  n: Int
+  t: Text
+
+struct H
+  o: Res?
+
+fun get(h: ?H) -> ?Res?
+  ?h.o
+
+fun pick(h: ?H, d: ?Res) -> ?Res
+  if get(h) as r
+    return r
+  d
+
+fun pick2(h: ?H, d: ?Res) -> ?Res
+  x = d
+  while get(h) as r
+    x = r
+    break
+  x
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  h = H(o: Res(n: 4, t: Text("four")))
+  d = Res(n: 0, t: Text("d"))
+  x = pick(h, d)
+  y = pick2(h, d)
+  print(clobber(1000))
+  print(x.n, x.t, y.n, y.t)

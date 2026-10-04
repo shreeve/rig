@@ -1,0 +1,6 @@
+sub main
+  o: Vec[Int]? = Vec()
+  if o as x
+    print(x.len)
+    o = none
+  print("ok")

@@ -124,8 +124,8 @@ x`, or `x` as the last value of a function or block. *(built* for copies,
 `return x`, a function's last value, and reading in place: an argument
 where a view is expected (`size(v)` for a `?Vec[Int]` parameter), and a
 header's subject (a `for` over a `Vec`, `if o as x`, a `match` on a
-`Box`); *planned:* a block's last value and `break x`, which take `<x`
-today.*)*
+`Box`, whose payload views are usable within their arm only, for now);
+*planned:* a block's last value and `break x`, which take `<x` today.*)*
 
 ```rig
 fun make -> Vec[Int]

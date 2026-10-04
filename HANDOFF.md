@@ -172,7 +172,9 @@ gate green.
    by their declaration.
 10. **Decide on lowering.** A pre-check lowering pass would let the
     checker and the emitter see one program (`core-audit/emit.md`).
-    Decide only after steps 1–4, from the bug rate that remains.
+    Decide only after steps 1–4, from the bug rate that remains. It
+    would also lift the arm-local rule for a read match's payload views
+    (escaping payload views stopped after step 3's second review round).
 
 **Invariants every step keeps:**
 
@@ -201,10 +203,14 @@ and run the corpus after:
 - **`defer`/`errdefer` at exits:** `Exit.goesOn()`.
 - **Owning values behind `Cell`, `Box`, and `*T`, and generic
   instances.**
-- **Copies of a type holding a `Cell`.** Such a type copies, so a copy
-  forks the state the `Cell` holds: `b = a`, `k = a[0]`, and `k = <a[0]`
-  each make an independent `Cell`. It is not a memory hole; step 3's
-  rule that a `Cell` holder is unique closes it.
+- **Escaping payload views.** A read match's binding that is no plain
+  data is a view usable within its arm only, because emit may match a
+  copy of the subject (a guarded match, a generic body). Step 10's
+  lowering lifts this.
+- **Copies of a type holding a `Cell`.** Such a type is unique, so no
+  bare use copies it. Emit still copies one in a few places the checker
+  rejects around: `if … as` over a view a call returns whose header
+  makes a temporary is rejected for a Cell holder for that reason.
 
 ## The gates
 

@@ -1,0 +1,11 @@
+struct Counter
+  hits: Cell[Int]
+
+struct W
+  c: Counter
+
+sub main
+  a = Counter(hits: Cell(0))
+  w = W(c: a)
+  w.c.hits.set(3)
+  print(a.hits.get())

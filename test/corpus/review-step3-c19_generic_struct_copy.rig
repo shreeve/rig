@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+struct Wrap[T]
+  v: T
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub main
+  w: Wrap[Counter] = Wrap(v: Counter(hits: Cell(1)))
+  w2 = w
+  w2.v.hits.set(5)
+  print(w.v.hits.get())

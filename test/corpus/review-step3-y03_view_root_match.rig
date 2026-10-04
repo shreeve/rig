@@ -1,0 +1,18 @@
+struct Res
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+struct S
+  e: E
+
+sub main
+  s = S(e: E.a(r: Res(t: Text("abc"))))
+  p = ?s
+  match p.e
+    .a(r)
+      s.e = E.b
+      print(r.t)
+    .b => pass

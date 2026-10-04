@@ -1,0 +1,27 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun get(e: ?E) -> ?E
+  e
+
+fun inner(e: ?E) -> ?Res
+  match get(e)
+    .a(r) if r.n > 0 => ?r
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1] + b[2]
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("hello")))
+  x = inner(?e)
+  print(clobber(1000))
+  print(x.n, x.t)

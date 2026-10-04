@@ -1,0 +1,40 @@
+struct Noisy
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Counter
+  hits: Cell[Int]
+
+struct H
+  arr: [2]Counter
+  z: Noisy
+
+enum E
+  a(c: Counter, z: Noisy)
+  b
+
+struct HE
+  e: E
+
+fun mk(n: Int) -> H
+  H(arr: [Counter(hits: Cell(n)), Counter(hits: Cell(n + 1))], z: Noisy(n: n))
+
+fun mke(n: Int) -> HE
+  HE(e: E.a(c: Counter(hits: Cell(n)), z: Noisy(n: n)))
+
+sub main
+  for k in mk(0).arr
+    defer
+      print("defer", k.hits.get())
+    if k.hits.get() == 1
+      break
+    print("body", k.hits.get())
+  match mke(7).e
+    .a(c, z)
+      defer
+        print("mdefer", c.hits.get(), z.n)
+      print("arm", z.n)
+    .b => pass
+  print("end")

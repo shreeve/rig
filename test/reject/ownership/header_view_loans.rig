@@ -49,5 +49,6 @@ sub main()
 # error: 22:5: cannot write-borrow `v` while a read borrow is live
 # error: 27:5: cannot reassign `o` while borrows are live
 # error: 34:8: cannot drop `b` while borrows are live
+# error: 42:8: a view of `r` does not outlive the `match` that reads `mkh().e`
 # error: 42:8: a borrow of the temporary `mkh()` outlives its statement
-# errors: 4
+# errors: 5

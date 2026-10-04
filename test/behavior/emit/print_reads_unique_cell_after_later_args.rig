@@ -1,7 +1,7 @@
-# Plain data is copied whole where it is read, so `print` shows a Cell
-# of plain data, alone or in a struct, as it was when its argument ran,
-# like any plain value a later argument changes (`print(p, bump(!p))`).
-# The Cell holds the new value after the call.
+# A Cell of plain data, alone or in a struct, is unique (Core §1), so
+# `print` reads it where it is, when the call runs, as it reads a Cell of
+# a Vec (print_reads_cell_after_later_set.rig): a later argument that
+# changes the Cell through a read lend shows in what is printed.
 struct K
   hits: Cell[Int]
 
@@ -22,7 +22,7 @@ sub main
   print(c)
 
 # expect:
-# K(hits: Cell(value: 1)) 1
+# K(hits: Cell(value: 99)) 1
 # K(hits: Cell(value: 99))
-# 1 Cell(value: 1) 2
+# 1 Cell(value: 7) 2
 # Cell(value: 7)

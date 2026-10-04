@@ -1,0 +1,13 @@
+struct S
+  v: Vec[Int]
+  w: Vec[Int]
+
+sub main
+  s = S(v: Vec(), w: Vec())
+  !s.v.push(1)
+  !s.v.push(2)
+  for x in s.v
+    !s.w.push(x)
+  for x in s.v
+    !s.v.push(x)
+  print(s.w.len)

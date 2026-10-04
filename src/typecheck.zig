@@ -1554,7 +1554,13 @@ const Checker = struct {
             if (expr.isKind(.write) or (writes and !self.hands(expr).hasStorage())) {
                 inner = try self.ctx.intern(.{ .borrow_write = inner });
             } else if (sema.holdsCellByValue(self.ctx, inner) or try self.cannotCopy(inner, self.startOf(expr), "moves out of a borrow a value")) {
-                if (writes) {
+                // Over a view a call returns, a header temporary makes emit
+                // bind a copy of the value inside, which a Cell change
+                // would fork.
+                if (sema.holdsCellByValue(self.ctx, inner) and !expr.isKind(.read) and self.makesTemps(expr, .nil)) {
+                    try self.errAt(expr, "`as` would bind a copy of the `{s}` inside this optional, since the header makes a temporary, and a change to its Cell would be lost: bind the optional to a name first", .{try self.tyName(inner)});
+                    inner = self.t().invalid_id;
+                } else if (writes) {
                     // A held write borrow is lent on visibly, as `!o`.
                     try self.errAt(expr, "`as` over a write borrow lends it on: write `!{s}` to borrow the value inside", .{self.sourceText(expr)});
                     try self.ctx.recordType(expr, self.t().invalid_id);
@@ -2000,8 +2006,11 @@ const Checker = struct {
                     scrutinee = self.t().invalid_id;
                 } else if (held or lends_inner or (!plain and !isBorrow(self.ctx, scrutinee))) {
                     try self.ctx.recordHeader(node, if (held) .held else .viewed, if (held) self.held_base else .nil);
-                    // A box or a handle lends the value it holds.
-                    if (!isBorrow(self.ctx, scrutinee) or lends_inner) scrutinee = try self.ctx.intern(.{ .borrow_read = reached });
+                    // A box or a handle lends the value it holds: plain
+                    // data is read as its value, anything else viewed.
+                    if (plain and lends_inner) {
+                        scrutinee = reached;
+                    } else if (!isBorrow(self.ctx, scrutinee) or lends_inner) scrutinee = try self.ctx.intern(.{ .borrow_read = reached });
                 }
             } else try self.readLeaf(subject),
             .lend, .branches, .jump, .none => try self.readLeaf(subject),
@@ -2411,6 +2420,9 @@ const Checker = struct {
                 cov.has_default = true;
                 if (resolve.patternBinds(self.ctx.source, pattern)) {
                     if (self.ctx.symbolOf(pattern)) |sym| {
+                        // A binding that is no plain data is usable in its
+                        // arm only.
+                        if (mode == .read and !self.isPoison(scrutinee) and sema.copyable(self.ctx, sema.unwrapBorrows(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
                         self.ctx.symbols.items[sym].ty = scrutinee;
                         try self.ctx.recordType(pattern, scrutinee);
                     }
@@ -2555,7 +2567,11 @@ const Checker = struct {
             // instance may hold a Cell the copy would fork.
             if (mode == .read and view and sema.maybeDropGlue(self.ctx, f.ty)) try self.requireOf(f.ty, .no_cell, self.startOf(b), "copies into a match binding a value");
             try self.ctx.recordType(b, ty);
-            if (self.ctx.symbolOf(b)) |sym| self.ctx.symbols.items[sym].ty = ty;
+            if (self.ctx.symbolOf(b)) |sym| {
+                self.ctx.symbols.items[sym].ty = ty;
+                // A binding that is no plain data is usable in its arm only.
+                if (mode == .read and view and sema.copyable(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+            }
         }
     }
 

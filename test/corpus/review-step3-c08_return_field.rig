@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+struct W
+  c: Counter
+
+fun get(w: ?W) -> Counter
+  w.c
+
+fun self_copy(c: ?Counter) -> Counter
+  c
+
+sub main
+  w = W(c: Counter(hits: Cell(1)))
+  print(get(?w).hits.get())

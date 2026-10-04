@@ -210,6 +210,10 @@ const Var = struct {
     /// of, and the field's path (empty for the whole var).
     alias_of: ?VarId = null,
     alias_path: []const u8 = "",
+    /// The hidden var of a read match's arm that its bindings which are
+    /// no plain data view: the subject the match reads, as written. A
+    /// loan on it ends with the arm (`arm_view` bindings).
+    arm_of: []const u8 = "",
     /// The var with the same name this one hides, for name lookup.
     shadows: ?VarId = null,
     via: Via = .owned,
@@ -417,6 +421,11 @@ pub const Checker = struct {
     /// of its parts leave them. Set just before walking that node; see
     /// `takeTail`.
     tail: ?Tail = null,
+    /// The current read match arm's hidden var (`Var.arm_of`), made when
+    /// a binding first needs it.
+    arm_var: ?VarId = null,
+    /// The subject of the match whose arm is being bound, as written.
+    arm_subject: []const u8 = "",
     /// The value a header holds for its construct (`Header.held`): the
     /// node that makes it, read as the hidden var `id` holding it.
     held: ?Held = null,
@@ -827,6 +836,7 @@ pub const Checker = struct {
 
     fn reportShortLived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
         const root = self.vars.items[l.root];
+        if (root.arm_of.len > 0) return self.reportArmView(l);
         if (root.kind == .hidden and root.name.len > 0) return self.reportTempOutlived(l, holder);
         try self.err(l.pos, "`{s}` does not live long enough", .{root.name});
         if (holder) |h| {
@@ -837,6 +847,15 @@ pub const Checker = struct {
             }
         }
         try self.note(root.decl, "`{s}` goes out of scope while still borrowed", .{root.name});
+    }
+
+    /// A view of a read match's binding `l` names, kept past its arm.
+    fn reportArmView(self: *Checker, l: Loan) Error!void {
+        var end = l.pos;
+        while (end < self.source.len and (std.ascii.isAlphanumeric(self.source[end]) or self.source[end] == '_')) end += 1;
+        const name = self.source[l.pos..end];
+        const subject = self.vars.items[l.root].arm_of;
+        try self.err(l.pos, "a view of `{s}` does not outlive the `match` that reads `{s}`: use it in the arm, copy what it holds (`+{s}`), or take the subject with `match <{s}`", .{ name, subject, name, subject });
     }
 
     /// Whether var `id` holds a statement's temporary (`holdTemp`).
@@ -3639,6 +3658,10 @@ pub const Checker = struct {
             if (!self.isLocalLoan(l)) continue;
             if (self.func.in_closure and l.root < self.func.closure_base) continue;
             const r = self.vars.items[l.root];
+            if (r.arm_of.len > 0) {
+                try self.reportArmView(l);
+                continue;
+            }
             const seen = for (v.loans[0..i]) |p| {
                 if (p.root == l.root and !p.ext) break true;
             } else false;
@@ -3801,6 +3824,11 @@ pub const Checker = struct {
     fn walkMatch(self: *Checker, match: Sexp) Error!Value {
         const tail_ctx = self.takeTail(match);
         const scrut = ir.Match.subject(match);
+        const saved_arm = .{ self.arm_var, self.arm_subject };
+        defer {
+            self.arm_var = saved_arm[0];
+            self.arm_subject = saved_arm[1];
+        }
         // A bare place is matched as `match ?p`; a part of a made value
         // in a hidden var the match holds (docs/INTERNALS.md, "Header
         // subjects").
@@ -3859,6 +3887,8 @@ pub const Checker = struct {
             const body = ir.Arm.body(arm);
             try self.apply(start);
             try self.pushScopeFor(.block, arm);
+            self.arm_var = null;
+            self.arm_subject = self.spanText(scrut);
             // A guarded arm may not run for the values its pattern
             // matches. The borrows the guard takes end with it.
             const bound = self.vars.items.len;
@@ -3954,6 +3984,19 @@ pub const Checker = struct {
                 loans = scrut_value.loans;
             }
         }
+        // A read match's binding that is no plain data is usable within
+        // its arm only: emit may match a copy of the subject (a guarded
+        // match evaluates it first, a generic one reads it as a value), so
+        // a view of the binding never outlives the arm (docs/INTERNALS.md,
+        // "Header subjects").
+        if (self.sema) |ctx| if (ctx.symbolAt(pos)) |sym| if (ctx.symbols.items[sym].flags.arm_view) {
+            const arm = self.arm_var orelse blk: {
+                const id = try self.addVar(.{ .name = "", .decl = pos, .kind = .hidden, .arm_of = self.arm_subject }, .{});
+                self.arm_var = id;
+                break :blk id;
+            };
+            loans = try self.unionLoans(loans, try self.oneLoan(.{ .root = arm, .kind = .read, .pos = pos }));
+        };
         return self.addVar(v, .{ .loans = loans });
     }
 

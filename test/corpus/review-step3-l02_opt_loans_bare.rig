@@ -1,0 +1,13 @@
+struct S
+  n: Int
+  t: Text
+
+fun keep(s: (?S)?) -> (?S)?
+  s
+
+sub main
+  o: S? = S(n: 5, t: Text("a"))
+  k = keep(o)
+  -o
+  if k as x
+    print(x.n)

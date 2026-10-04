@@ -1,0 +1,31 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun inner(e: ?E) -> ?Res
+  match e
+    .a(r) if r.n > 0 => r
+    .a(r) => r
+    .b(r) => r
+
+fun inner_box(b: ?Box[E]) -> ?Res
+  match b
+    .a(r) if r.n > 0 => r
+    .a(r) => r
+    .b(r) => r
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("hello")))
+  x = inner(e)
+  b = Box(E.a(r: Res(n: 2, t: Text("boxed"))))
+  y = inner_box(b)
+  print(clobber(1000))
+  print(x.n, x.t, y.n, y.t)

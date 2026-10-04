@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+struct H
+  arr: [2]Counter
+
+fun mk(n: Int) -> H
+  H(arr: [Counter(hits: Cell(n)), Counter(hits: Cell(n + 1))])
+
+sub main
+  one = Counter(hits: Cell(0))
+  f = |?one| one.hits.get()
+  for k in mk(3).arr
+    f = |?k| k.hits.get()
+  print(f())

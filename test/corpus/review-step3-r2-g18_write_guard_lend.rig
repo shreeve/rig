@@ -1,0 +1,22 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+fun getw(e: !E) -> !E
+  e
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("x")))
+  match getw(!e)
+    .a(r) if r.n > 0 => r.n = 50
+    .a(r) => r.n = 60
+    .b => pass
+  print(e)
+  match getw(!e)
+    .a(r) => r.n = 70
+    .b => pass
+  print(e)

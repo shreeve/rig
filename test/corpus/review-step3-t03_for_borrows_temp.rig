@@ -1,0 +1,14 @@
+fun first(v: ?Vec[Int]) -> ?Vec[Int]
+  v
+
+fun mk() -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  v
+
+sub main
+  for x in first(mk())
+    print(x)
+  for x in first(?mk())
+    print(x)

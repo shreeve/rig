@@ -1,0 +1,22 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+sub eat(r: Res)
+  print(r.n)
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("x")))
+  match e
+    .a(r) => eat(<r)
+    .b => pass
+  match e
+    .a(r) => -r
+    .b => pass
+  match e
+    .a(r) => eat(r)
+    .b => pass

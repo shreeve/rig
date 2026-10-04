@@ -2484,6 +2484,26 @@ pub const Emitter = struct {
             info.reread = try self.fmt("{s}.*", .{name});
             return;
         }
+        // A view a call returns (`match get(e)`) is held as the pointer it
+        // is, never copied: its bindings view the value it points to.
+        if (!info.subject.isKind(.move) and self.isPtrBorrowExpr(value)) {
+            try self.writeIndent(self.indent);
+            try self.w.print("const {s} = ", .{name});
+            const h = try self.openHeader(value);
+            try self.emitBorrowValue(value);
+            try self.closeHeader(h);
+            try self.w.writeAll(";\n");
+            var buf: Writer.Allocating = .init(self.arena.allocator());
+            {
+                const saved_w = self.w;
+                self.w = &buf.writer;
+                defer self.w = saved_w;
+                try self.w.print("{s}.*", .{name});
+                if (info.boxed) try self.writeMatchReach(self.typeOf(value).?);
+            }
+            info.reread = buf.written();
+            return;
+        }
         try self.writeIndent(self.indent);
         try self.w.print("var {s}", .{name});
         if (self.typeOf(value)) |t| {

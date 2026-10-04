@@ -1,0 +1,23 @@
+struct Bag
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun two(a: ?Bag, b: ?Bag) -> Int
+  a.n * 10 + b.n
+
+fun mk(n: Int) -> Bag
+  Bag(n: n)
+
+fun mko(n: Int) -> Bag?
+  if n > 5
+    return none
+  Bag(n: n)
+
+fun run(n: Int) -> Int?
+  two(mk(1), mko(n)?)
+
+sub main
+  print(run(2) ?? -1)
+  print(run(9) ?? -1)

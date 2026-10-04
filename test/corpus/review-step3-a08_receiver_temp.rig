@@ -1,0 +1,29 @@
+struct Bag
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+  fun plus(?self, o: ?Bag) -> Int
+    self.n + o.n
+
+fun mk(n: Int) -> Bag
+  Bag(n: n)
+
+error Bad
+  boom
+
+fun mkf(n: Int) -> Bag!
+  if n > 5
+    return Bad.boom
+  Bag(n: n)
+
+fun run(n: Int) -> Int!
+  mk(1).plus(mkf(n)!)
+
+sub main
+  print(mk(2).plus(mk(3)))
+  b = Bag(n: 4)
+  print(b.plus(mk(5)))
+  print(run(1) catch -1)
+  print(run(9) catch -1)
