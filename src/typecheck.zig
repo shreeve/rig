@@ -1741,6 +1741,25 @@ const Checker = struct {
         return self.ctx.intern(.{ .borrow_write = elem });
     }
 
+    /// A loop that reads an array or a slice binds a copy of each element.
+    /// A unique element is never copied: the loop must write each element
+    /// where it is (`!xs`) or take the array (`<xs`). Inside a generic
+    /// body every instance must supply an element that copies and holds
+    /// no Cell, which a copy would fork.
+    fn readsElementCopies(self: *Checker, pos: u32, source: Sexp, elem: TypeId) Error!void {
+        if (sema.isUnique(self.ctx, elem)) {
+            const shown = self.sourceText(source);
+            const what = try self.tyName(elem);
+            const slice = self.ctx.types.get(sema.unwrapBorrows(self.ctx, self.ctx.typeOf(source) orelse elem)) == .slice;
+            if (slice) return self.err(pos, "a loop that reads `{s}` binds a copy of each element, and `{s}` is unique; lend each by index (`?{s}[i]`), or loop over a write view with `for x in !{s}`", .{ shown, what, shown, shown });
+            if (!self.placeOf(source).named()) return self.err(pos, "a loop that reads `{s}` binds a copy of each element, and `{s}` is unique; bind the array to a name, then write each in place (`for x in !xs`) or take the array (`for x in <xs`)", .{ shown, what });
+            return self.err(pos, "a loop that reads `{s}` binds a copy of each element, and `{s}` is unique; write each in place with `for x in !{s}`, or take the array with `for x in <{s}`", .{ shown, what, shown, shown });
+        }
+        if (!sema.maybeDropGlue(self.ctx, elem)) return;
+        try self.requireOf(elem, .no_move, pos, "copies into a loop binding a value");
+        try self.requireOf(elem, .no_cell, pos, "copies into a loop binding a value");
+    }
+
     fn elementTypeForLoop(self: *Checker, source: Sexp, inner_source: Sexp, source_ty: TypeId, mode: ?Tag) Error!TypeId {
         const pos = self.startOf(source);
         if (self.isPoison(source_ty)) return self.t().invalid_id;
@@ -1782,9 +1801,7 @@ const Checker = struct {
                 if (mode != .move and sema.holdsWriteBorrow(self.ctx, a.elem)) {
                     try self.err(pos, "each element holds a write borrow, which a loop binding would copy; write through them with `for x in !xs`", .{});
                 }
-                // An element of a type parameter is bound by copy: no
-                // instance may hold a Cell the copy would fork.
-                if (mode != .move and sema.maybeDropGlue(self.ctx, a.elem)) try self.requireOf(a.elem, .no_cell, pos, "copies into a loop binding a value");
+                if (mode != .move) try self.readsElementCopies(pos, inner_source, a.elem);
                 return a.elem;
             },
             .slice, .string => {
@@ -1798,7 +1815,7 @@ const Checker = struct {
                 }
                 return switch (self.ctx.types.get(peeled)) {
                     .slice => |sl| blk: {
-                        if (sema.maybeDropGlue(self.ctx, sl.elem)) try self.requireOf(sl.elem, .no_cell, pos, "copies into a loop binding a value");
+                        try self.readsElementCopies(pos, inner_source, sl.elem);
                         break :blk sl.elem;
                     },
                     else => try self.byteType(),

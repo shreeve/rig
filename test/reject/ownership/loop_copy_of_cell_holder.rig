@@ -1,0 +1,39 @@
+# A loop binding holds a copy of each element, whatever the source:
+# a branch, `catch`, `??`, or `o?` over named arrays. A change through
+# the copy would not reach the element, so it is rejected.
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+error Bad
+  oops
+
+fun two(n: Int) -> ([2]Counter)!
+  return Bad.oops if n > 5
+  [Counter(hits: Cell(n)), Counter(hits: Cell(n))]
+
+fun run(o: ([2]Counter)?) -> Int?
+  for k in o?
+    k.hit()
+  o?[0].hits.get()
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  b = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  f = true
+  for k in (a if f else b)
+    k.hit()
+  for k in two(9) catch a
+    k.hit()
+  o: ([2]Counter)? = none
+  for k in o ?? b
+    k.hit()
+  print(run(none), a[0].hits.get(), b[0].hits.get())
+
+# error: 20:5: cannot call `hit` here: the value holds a Cell the method may change, and `k` is a loop or match binding, a copy
+# error: 28:5: cannot call `hit` here
+# error: 30:5: cannot call `hit` here
+# error: 33:5: cannot call `hit` here

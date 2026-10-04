@@ -707,7 +707,9 @@ copy would repeat its numbers), or any struct, enum, array, or generic
 instance that holds one inline. It moves like an owning value, has no
 clone (`+x`) and no `==`, and nothing copies it out of a place; it has
 no drop glue, so an array may hold it and a discarded one is simply
-dropped.
+dropped. A loop that reads an array or slice binds a copy of each
+element, so a loop over unique elements writes each in place (`for x
+in !a`) or takes the array (`for x in <a`).
 
 ```rig reject
 struct Seed unique

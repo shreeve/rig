@@ -1,0 +1,36 @@
+# A loop that reads an array or slice binds a copy of each element, and
+# a `Random` is unique: such a loop is rejected, whatever the source,
+# and a generic body whose loop copies a `T` cannot take `T = Random`.
+use std.random
+
+fun count[T](xs: ?[2]T) -> Int
+  new n = 0
+  for x in xs
+    n += 1
+  n
+
+sub look(s: []random.Random)
+  for r in s
+    print(r)
+
+sub main()
+  a = [random.Random.seeded(1), random.Random.seeded(2)]
+  b = [random.Random.seeded(3), random.Random.seeded(4)]
+  f = true
+  for r in a
+    print(r)
+  for r in ?a
+    print(r)
+  for r in (a if f else b)
+    print(r)
+  for r in [random.Random.seeded(5), random.Random.seeded(6)]
+    print(r)
+  look(?a[..])
+  print(count(?a))
+
+# error: 13:12: a loop that reads `s` binds a copy of each element, and `random.Random` is unique; lend each by index (`?s[i]`), or loop over a write view with `for x in !s`
+# error: 20:12: a loop that reads `a` binds a copy of each element, and `random.Random` is unique; write each in place with `for x in !a`, or take the array with `for x in <a`
+# error: 22:13: a loop that reads `a` binds a copy of each element
+# error: 24:13: a loop that reads `a if f else b` binds a copy of each element, and `random.Random` is unique; bind the array to a name
+# error: 26:12: a loop that reads `[random.Random.seeded(5), random.Random.seeded(6)]` binds a copy of each element
+# error: 29:9: `count[random.Random]` cannot use `T = random.Random`: the generic body copies into a loop binding a value that holds a `T`, and `random.Random` is unique

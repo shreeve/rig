@@ -1,0 +1,27 @@
+# A payload a match binds from a made value is the arm's copy: lending
+# it is rejected, since a change through the view, or a view kept past
+# the arm, would reach only the copy.
+
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter)
+  b
+
+struct H
+  e: E
+
+fun mkh(n: Int) -> H
+  H(e: E.a(c: Counter(hits: Cell(n))))
+
+sub main()
+  one = [Counter(hits: Cell(1))]
+  saved = ?one[0]
+  match mkh(7).e
+    .a(c)
+      saved = ?c
+    .b => pass
+  print(saved.hits.get())
+
+# error: 23:16: cannot borrow this: it holds a Cell, and `c` is a loop or match binding, a copy

@@ -109,7 +109,11 @@ CONTEXTS = {
     "match_subject": dict(inline="match E\n    y => print(look(?y))"),
     "for_source": dict(inline="for e in ?E\n    print(e)"),
     # A loop over an array made in its header, which it takes.
-    "for_literal": dict(inline="for e in [E, mk(6)]\n    POKE\n    print(look(?e))"),
+    "for_literal": dict(inline="for e in [E, mk(6)]\n    @POKE\n    print(look(?e))"),
+    # A loop over a branch whose arms are arrays: each element is a copy.
+    "for_branch": dict(inline="for e in ([E, mk(6)] if c else [mk(7), mk(8)])\n    @POKE\n    print(look(?e))"),
+    # A match on a part of a made value.
+    "match_part": dict(inline="match H(f: E).f\n    y\n      @POKY\n      print(look(?y))"),
     # A method that consumes its receiver (`<self`, `Box.unbox`).
     "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
     # `none` and a bare `.variant` test a value and drop it if no name holds it.
@@ -270,7 +274,11 @@ def program(tname, fname, cname):
         e = form
         if cname in ("borrow_arg", "for_source") and " " in e:
             e = f"({e})"
-        body.append(text.replace("E", e).replace("POKE", t.get("poke", "pass")))
+        # `@POKE` and `@POKY` stand for the type's change through the loop
+        # or match binding, or `pass`; they are replaced before `E` is.
+        poke = t.get("poke", "pass")
+        text = text.replace("@POKY", "@Y").replace("@POKE", "@P")
+        body.append(text.replace("E", e).replace("@Y", poke.replace("e.", "y.")).replace("@P", poke))
     if "after" in ctx:
         body.append(ctx["after"])
     if not returns:
