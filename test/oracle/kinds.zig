@@ -1,6 +1,9 @@
 //! The four kinds of value (Core §1), read from sema's types: what a
 //! bare use of a value does, whether it may carry a loan, and whether
-//! dropping it runs a user `drop` body.
+//! dropping it runs a user `drop` body. A unique type (`struct T
+//! unique`, or one holding it) moves like an owner (Core §1, built); a
+//! type holding a `Cell` copies, unless the planned rule that makes it
+//! unique too is on (`Kinds.planned`).
 
 const std = @import("std");
 const lib = @import("rig_lib");
@@ -42,10 +45,13 @@ pub const Info = struct {
 pub const Kinds = struct {
     a: std.mem.Allocator,
     ctx: *const SemContext,
+    /// Apply the Core's planned rules: a type holding a `Cell` is unique
+    /// (Core §1, planned).
+    planned: bool,
     memo: std.AutoHashMapUnmanaged(TypeId, Info) = .empty,
 
-    pub fn init(a: std.mem.Allocator, ctx: *const SemContext) Kinds {
-        return .{ .a = a, .ctx = ctx };
+    pub fn init(a: std.mem.Allocator, ctx: *const SemContext, planned: bool) Kinds {
+        return .{ .a = a, .ctx = ctx, .planned = planned };
     }
 
     pub fn of(self: *Kinds, ty: TypeId) !Info {
@@ -58,7 +64,10 @@ pub const Kinds = struct {
         const kind: Kind = switch (ctx.types.get(ty)) {
             .borrow_write => .write_view,
             .borrow_read, .slice, .string => .read_view,
-            else => if (ti.glue)
+            // A unique value moves and is dropped once, like an owner
+            // (Core §1): a declared one, and under the planned rule one
+            // holding a Cell.
+            else => if (ti.glue or ti.unique or (self.planned and ti.cell))
                 .owning
             else if (ti.borrows.write)
                 .write_view
@@ -110,7 +119,18 @@ const Scan = struct {
                 try self.fields(foreign, in.sym_id, depth, in_generic);
             },
             .parameterized_nominal => |pn| {
-                if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) return self.mark("a `Cell` or `Signal`");
+                // A Cell or Signal of plain data changes through any path
+                // (Core s9); one that holds an owner or a view needs the
+                // rule that it accepts only values carrying no loan, which
+                // the oracle does not model yet.
+                if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) {
+                    for (pn.args) |arg| {
+                        const ai = ctx.typeInfo(arg);
+                        if (ai.glue or ai.unique or ai.borrows.any or ai.borrows.view or ai.has_type_var or ctx.types.get(arg) == .string) return self.mark("a `Cell` or `Signal` of an owner or a view");
+                        try self.walk(ctx, arg, depth + 1, in_generic);
+                    }
+                    return;
+                }
                 for (pn.args) |arg| try self.walk(ctx, arg, depth + 1, in_generic);
                 if (pn.sym != ctx.vec_sym_id and pn.sym != ctx.box_sym_id) try self.fields(ctx, pn.sym, depth, true);
             },

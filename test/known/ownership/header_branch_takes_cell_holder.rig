@@ -1,0 +1,92 @@
+# A branching value in a `for` or `match` header (`if`, `catch`, `??`,
+# `o?`) is taken leaf by leaf, as a binding takes it (Core §3, §5): with
+# `<` on each name, every leaf is the header's own, so each element or
+# payload is the body's own place, which a `?self` method changes
+# (Core s9).
+#
+# Known bug: today each binding is a copy, and a change through it is
+# rejected ("`k` is a loop or match binding, a copy").
+#
+# oracle: loops accept
+# oracle: run accept
+# oracle: matches accept
+# oracle planned: loops accept
+# oracle planned: run accept
+# oracle planned: matches accept
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+error Bad
+  oops
+
+fun two(n: Int) -> ([2]Counter)!
+  return Bad.oops if n > 5
+  [Counter(hits: Cell(n)), Counter(hits: Cell(n))]
+
+fun pair(n: Int) -> [2]Counter
+  [Counter(hits: Cell(n)), Counter(hits: Cell(n))]
+
+sub loops(f: Bool)
+  a = pair(0)
+  b = pair(10)
+  for k in (<a if f else <b)
+    k.hit()
+    print(k.hits.get())
+  d = pair(20)
+  for k in two(9) catch <d
+    k.hit()
+    print(k.hits.get())
+  o: ([2]Counter)? = none
+  g = pair(30)
+  for k in (<o) ?? <g
+    k.hit()
+    print(k.hits.get())
+
+fun run(o: ([2]Counter)?) -> Int?
+  new n = 0
+  for k in (<o)?
+    k.hit()
+    n += k.hits.get()
+  n
+
+sub matches(f: Bool)
+  x = E.a(c: Counter(hits: Cell(40)))
+  y = E.b
+  match (<x if f else <y)
+    .a(c)
+      c.hit()
+      print(c.hits.get())
+    .b => pass
+  o: E? = none
+  d = E.a(c: Counter(hits: Cell(50)))
+  match (<o) ?? <d
+    .a(c)
+      c.hit()
+      print(c.hits.get())
+    .b => pass
+
+sub main()
+  loops(true)
+  print(run(pair(1)) ?? 0)
+  matches(false)
+  matches(true)
+
+# expect:
+# 1
+# 1
+# 21
+# 21
+# 31
+# 31
+# 4
+# 51
+# 41
+# 51

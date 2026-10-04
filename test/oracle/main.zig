@@ -9,6 +9,12 @@
 //!   --set NAME        the set these programs are, for --coverage
 //!   --explain FN      print the lowered core of every function named FN
 //!   --stats           count the reasons the oracle abstains
+//!   --planned         apply the Core's planned rules the oracle models:
+//!                     a type holding a `Cell` is unique (Core §1), and a
+//!                     `for` reads a bare place where it stands (Core s1)
+//!   --sema            also decide the functions of a module whose
+//!                     semantic checks failed (prod=sema), as a probe;
+//!                     they count toward nothing
 //!   -v                print every function's verdicts
 //!
 //! For each program it loads and checks the program as `rig check` does,
@@ -22,7 +28,18 @@
 //! soundness hole. One the compiler rejects is reported, and listed in
 //! the allowlist with its class once classified. The run also fails on
 //! a stale allowlist entry, and on fewer decided functions than the
-//! set's floor. The oracle reads only the IR, symbols, and types; it never
+//! set's floor.
+//!
+//! A program may also state the oracle's own verdicts, one a line, which
+//! every run checks, whatever the compiler decides:
+//!
+//!   # oracle: FUNCTION accept
+//!   # oracle: FUNCTION reject RULE
+//!   # oracle planned: FUNCTION reject RULE    (with --planned's rules)
+//!
+//! A verdict that differs, or no verdict, fails the run: these are the
+//! oracle's own tests, one shape each. The oracle reads only the IR,
+//! symbols, and types; it never
 //! reads the compiler's ownership classifications (see test/run's lint).
 
 const std = @import("std");
@@ -65,6 +82,8 @@ const Options = struct {
     explain: ?[]const u8 = null,
     stats: bool = false,
     verbose: bool = false,
+    planned: bool = false,
+    sema: bool = false,
 };
 
 const Totals = struct {
@@ -108,6 +127,10 @@ pub fn main(init: std.process.Init) !u8 {
             } else if (std.mem.eql(u8, a, "--allow")) opts.allow = v else if (std.mem.eql(u8, a, "--coverage")) opts.coverage = v else if (std.mem.eql(u8, a, "--set")) opts.set = v else opts.explain = v;
         } else if (std.mem.eql(u8, a, "--stats")) {
             opts.stats = true;
+        } else if (std.mem.eql(u8, a, "--planned")) {
+            opts.planned = true;
+        } else if (std.mem.eql(u8, a, "--sema")) {
+            opts.sema = true;
         } else if (std.mem.eql(u8, a, "-v")) {
             opts.verbose = true;
         } else if (std.mem.startsWith(u8, a, "-")) {
@@ -244,6 +267,7 @@ fn checkProgram(
         if (m.is_std or m.ir == .nil) continue;
         var units: std.ArrayList(Unit) = .empty;
         try collectUnits(a, m, &units);
+        try checkStated(a, m, units.items, name, out, totals);
         for (units.items) |unit| {
             totals.functions += 1;
             const span = m.parser.span(unit.decl);
@@ -253,10 +277,24 @@ fn checkProgram(
                 }
                 break :blk .accept;
             };
-            if (prod == .sema) continue;
+            if (prod == .sema) {
+                if (!opts.sema) continue;
+                const verdict = try decide(a, m, unit, opts.planned, null);
+                try out.print("{s} {s} prod=sema ref={s}", .{ name, unit.name, @tagName(verdict) });
+                switch (verdict) {
+                    .reject => |f| {
+                        const lc = diag.lineCol(m.source, f.pos);
+                        try out.print(" {s} {d}:{d} {s}", .{ @tagName(f.rule), lc.line, lc.col, f.reason });
+                    },
+                    .unknown => |why| try out.print(" ({s})", .{why}),
+                    .accept => {},
+                }
+                try out.writeAll("\n");
+                continue;
+            }
             totals.checked += 1;
             const explain = if (opts.explain) |fname| std.mem.eql(u8, fname, unit.name) else false;
-            const verdict = try decide(a, m, unit, if (explain) out else null);
+            const verdict = try decide(a, m, unit, opts.planned, if (explain) out else null);
             const qualified = if (graph.modules.items.len > 1 and m.id != 1)
                 try std.mem.concat(a, u8, &.{ m.name, ".", unit.name })
             else
@@ -312,6 +350,44 @@ fn checkProgram(
     }
 }
 
+/// Check the verdicts a module's `# oracle:` lines state.
+fn checkStated(a: std.mem.Allocator, m: *const modules.Module, units: []const Unit, name: []const u8, out: *std.Io.Writer, totals: *Totals) !void {
+    var lines = std.mem.tokenizeScalar(u8, m.source, '\n');
+    while (lines.next()) |line| {
+        const planned = std.mem.startsWith(u8, line, "# oracle planned: ");
+        if (!planned and !std.mem.startsWith(u8, line, "# oracle: ")) continue;
+        var words = std.mem.tokenizeScalar(u8, line[if (planned) "# oracle planned: ".len else "# oracle: ".len..], ' ');
+        const function = words.next() orelse "";
+        const want = words.next() orelse "";
+        const rule = words.next();
+        const unit = for (units) |u| {
+            if (std.mem.eql(u8, u.name, function)) break u;
+        } else {
+            try out.print("FAIL {s}: `{s}` states a verdict for `{s}`, which is not a function here\n", .{ name, line, function });
+            totals.failures += 1;
+            continue;
+        };
+        const verdict = try decide(a, m, unit, planned, null);
+        const ok = switch (verdict) {
+            .accept => std.mem.eql(u8, want, "accept") and rule == null,
+            .reject => |f| std.mem.eql(u8, want, "reject") and (rule == null or std.mem.eql(u8, rule.?, @tagName(f.rule))),
+            .unknown => false,
+        };
+        if (ok) continue;
+        try out.print("FAIL {s} {s}: `{s}`, but the oracle decides {s}", .{ name, function, line, @tagName(verdict) });
+        switch (verdict) {
+            .reject => |f| {
+                const lc = diag.lineCol(m.source, f.pos);
+                try out.print(" {s} {d}:{d} {s}", .{ @tagName(f.rule), lc.line, lc.col, f.reason });
+            },
+            .unknown => |why| try out.print(" ({s})", .{why}),
+            .accept => {},
+        }
+        try out.writeAll("\n");
+        totals.failures += 1;
+    }
+}
+
 /// The function bodies of a module, in declaration order.
 fn collectUnits(a: std.mem.Allocator, m: *const modules.Module, units: *std.ArrayList(Unit)) !void {
     var names: std.StringHashMapUnmanaged(u32) = .empty;
@@ -355,8 +431,8 @@ fn collectDecl(a: std.mem.Allocator, m: *const modules.Module, decl: Sexp, owner
 }
 
 /// The reference verdict on one function.
-fn decide(a: std.mem.Allocator, m: *const modules.Module, unit: Unit, explain: ?*std.Io.Writer) !Verdict {
-    var func = lower.lowerUnit(a, m, unit) catch |err| switch (err) {
+fn decide(a: std.mem.Allocator, m: *const modules.Module, unit: Unit, planned: bool, explain: ?*std.Io.Writer) !Verdict {
+    var func = lower.lowerUnit(a, m, unit, planned) catch |err| switch (err) {
         error.Abstain => return .{ .unknown = lower.abstain_reason },
         else => |e| return e,
     };

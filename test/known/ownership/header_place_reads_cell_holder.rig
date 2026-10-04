@@ -1,0 +1,86 @@
+# A `match` or `for` whose subject is a place reads it where it stands
+# (Core s1, §3): each payload or element is a view of the place, so a
+# `?self` method changes the place's own Cell (Core s9). Parentheses do
+# not make a place a made value. `for k in <a` takes the array, and its
+# elements are the loop's own.
+#
+# Known bug: today each binding is a copy, and a change through it is
+# rejected ("`c` is a loop or match binding, a copy").
+#
+# oracle: poke accept
+# oracle: nested accept
+# oracle: loops accept
+# oracle planned: poke accept
+# oracle planned: nested accept
+# oracle planned: loops accept
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+enum F
+  w(e: E)
+  z
+
+sub poke(s: []E)
+  match s[0]
+    .a(c) => c.hit()
+    .b => pass
+
+fun hits_of(e: ?E) -> Int
+  match e
+    .a(c) => c.hits.get()
+    .b => 0
+
+sub nested()
+  f = F.w(e: E.a(c: Counter(hits: Cell(0))))
+  match f
+    .w(e)
+      match e
+        .a(c) => c.hit()
+        .b => pass
+    .z => pass
+  match f
+    .w(e)
+      match e
+        .a(c) => print(c.hits.get())
+        .b => pass
+    .z => pass
+  match F.w(e: E.a(c: Counter(hits: Cell(4))))
+    .w(e)
+      match e
+        .a(c)
+          c.hit()
+          print(c.hits.get())
+        .b => pass
+    .z => pass
+
+sub loops()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  for k in (a)
+    k.hit()
+  print(a[0].hits.get(), a[1].hits.get())
+  for k in <a
+    k.hit()
+    print(k.hits.get())
+
+sub main()
+  arr = [E.a(c: Counter(hits: Cell(0))), E.b]
+  poke(?arr)
+  print(hits_of(?arr[0]))
+  nested()
+  loops()
+
+# expect:
+# 1
+# 1
+# 5
+# 1 1
+# 2
+# 2
