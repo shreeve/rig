@@ -951,14 +951,13 @@ pub const Emitter = struct {
         return if (self.usage.consumed.contains(sym)) .flag else .scope;
     }
 
-    /// `var _h = base`, for a header that holds the value it makes of
-    /// which `subject` is a part (`Header.held`), dropped where the
-    /// block the caller opened around the construct ends. Until
-    /// `unhold`, emitting the base reads `_h`. Returns the hoisted
-    /// count to restore.
-    fn emitHeld(self: *Emitter, subject: Sexp) Error!usize {
-        var base = subject;
-        while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+    /// `var _h = base`, for a `header` that holds the value it makes of
+    /// which its subject is a part (`SemContext.heldBaseOf`), dropped
+    /// where the block the caller opened around the construct ends.
+    /// Until the caller restores the returned hoisted count, emitting
+    /// the base reads `_h`.
+    fn emitHeld(self: *Emitter, header: Sexp) Error!usize {
+        const base = self.sema.heldBaseOf(header) orelse return self.unsupported(header, "a held header without its base");
         const mark = self.hoisted.items.len;
         const name = try self.fmt("__rig_held_{d}", .{self.nextId()});
         try self.writeIndent(self.indent);
@@ -1754,7 +1753,7 @@ pub const Emitter = struct {
         // around the `if`.
         if (cond.isKind(.as) and self.sema.headerOf(cond) == .held) {
             try self.openBrace();
-            const mark = try self.emitHeld(ir.As.value(cond));
+            const mark = try self.emitHeld(cond);
             defer self.hoisted.shrinkRetainingCapacity(mark);
             try self.writeIndent(self.indent);
             try self.emitIfAs(sexp);
@@ -2181,7 +2180,7 @@ pub const Emitter = struct {
         var mark: ?usize = null;
         if (owned or header == .held) {
             try self.openBrace();
-            if (header == .held) mark = try self.emitHeld(source);
+            if (header == .held) mark = try self.emitHeld(sexp);
             if (owned) {
                 taken = try self.fmt("__rig_src_{d}", .{self.nextId()});
                 try self.writeIndent(self.indent);
@@ -2370,7 +2369,7 @@ pub const Emitter = struct {
         if (block.len > 0) {
             if (value_pos) try self.w.print("{s}: ", .{block});
             try self.openBrace();
-            if (held) held_mark = try self.emitHeld(info.subject);
+            if (held) held_mark = try self.emitHeld(sexp);
             try self.evalSubject(&info);
             if (guarded) {
                 try self.emitGuardedMatch(sexp, value_pos, info, block);
@@ -2583,6 +2582,14 @@ pub const Emitter = struct {
         return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
     }
 
+    /// The matched value `subj` as a catch-all binding `pattern` holds
+    /// it: its address for a write view or a view in place (`?S`), the
+    /// value for a copy.
+    fn wholeExpr(self: *Emitter, pattern: Sexp, subj: []const u8, writes: bool) Error![]const u8 {
+        const viewed = if (self.payloadLocal(pattern)) |local| (if (local.ty) |t| self.isPtrBorrowTy(t) else false) else false;
+        return if (writes or viewed) self.fmt("&{s}", .{subj}) else subj;
+    }
+
     /// The prelude of a `match <x` arm on payload variant `fields`, held
     /// in `payload`: bound fields become owned locals, and the rest is
     /// dropped at the end of the arm.
@@ -2690,7 +2697,7 @@ pub const Emitter = struct {
         if (isCatchAll(self.source, pattern)) {
             const sym = self.sema.symbolOf(pattern) orelse return;
             if (!self.usesSymbol(guard, sym)) return;
-            const aliases = try self.wholeAlias(pattern, if (writes) try self.fmt("&{s}", .{subj}) else subj, .nil);
+            const aliases = try self.wholeAlias(pattern, try self.wholeExpr(pattern, subj, writes), .nil);
             return self.emitPrelude(.{ .aliases = aliases });
         }
         if (!pattern.isKind(.variant_pattern)) return;
@@ -2701,7 +2708,10 @@ pub const Emitter = struct {
             if (!self.usesSymbol(guard, sym)) continue;
             const local = self.payloadLocal(b) orelse continue;
             const stored = try self.declare(local, self.srcText(b));
-            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (writes and fieldIsPointee(self.sema, f.ty)) "&" else "", subj, ident(vname), ident(f.name) });
+            // A write binds a pointer to each field, and a read one to a
+            // field it views (`?F`).
+            const viewed = !writes and if (local.ty) |t| self.sema.types.get(t) == .borrow_read and self.sema.types.get(f.ty) != .borrow_read else false;
+            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if ((writes or viewed) and fieldIsPointee(self.sema, f.ty)) "&" else "", subj, ident(vname), ident(f.name) });
         }
     }
 
@@ -2734,7 +2744,7 @@ pub const Emitter = struct {
         const writes = info.mode == .write;
         if (isCatchAll(self.source, pattern)) {
             if (std.mem.eql(u8, self.srcText(pattern), "_")) return .{};
-            return .{ .aliases = try self.wholeAlias(pattern, if (writes) try self.fmt("&{s}", .{subj}) else subj, body) };
+            return .{ .aliases = try self.wholeAlias(pattern, try self.wholeExpr(pattern, subj, writes), body) };
         }
         if (!pattern.isKind(.variant_pattern)) return .{};
         const vname = self.srcText(ir.VariantPattern.name(pattern));
@@ -2817,11 +2827,13 @@ pub const Emitter = struct {
         return .{ .sym = sym, .ty = ty, .kind = if (ty) |t| self.kindOf(t) else null };
     }
 
-    /// `|name| ` for a payload or catch-all binding that the body uses.
+    /// `|name| ` for a payload or catch-all binding that the body uses:
+    /// `|*name| ` for one that views the matched value where it is.
     fn emitCapture(self: *Emitter, name_node: Sexp) Error!void {
         const local = self.payloadLocal(name_node) orelse return;
         const stored = try self.declare(local, self.srcText(name_node));
-        try self.w.print("|{s}| ", .{stored.zig_name});
+        const viewed = if (local.ty) |t| self.isPtrBorrowTy(t) else false;
+        try self.w.print("|{s}{s}| ", .{ if (viewed) "*" else "", stored.zig_name });
     }
 
     /// Bindings for a payload's fields that the arm uses (in `used_in`,
@@ -3025,7 +3037,9 @@ pub const Emitter = struct {
         // A value lent bare is lent around its temporary's slot, as `?e`
         // lends it (unless an argument hoisted before the call holds it).
         if (!sameNode(sexp, self.lending) and self.hoistedOf(sexp) == null) if (self.sema.lendOf(sexp)) |lend| if (lend.implicit) return self.emitLend(sexp, lend, tail, want_ptr);
-        if (self.sema.dropsTemp(sexp) and !sameNode(sexp, self.keeping)) {
+        // (An argument hoisted before its call was kept there: its name
+        // holds the kept value.)
+        if (self.sema.dropsTemp(sexp) and !sameNode(sexp, self.keeping) and self.hoistedOf(sexp) == null) {
             const slot = self.tempSlot(sexp) orelse return self.unsupported(sexp, "a temporary outside a statement");
             const saved = self.keeping;
             defer self.keeping = saved;

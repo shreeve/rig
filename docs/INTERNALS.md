@@ -764,7 +764,8 @@ lives through the body.
 | a place `p` (a name, or a field or element path from one or from a view) | `?p` | a view of the place's own: a copy when it is plain data, a view in place (`?E`) otherwise |
 | a lend `?p`, `!p`, or a take `<p` | itself | a read view, a write view, or the construct's own, as written |
 | a made value `e` (a call, a constructor, an array, a branching value every leaf of which is made there, `<p` included) | `var _h = <e`, then the header over `<_h` | the construct's own: a place in `_h` that a `?self` method may change and `<x` may move out |
-| a part of a made value `e.f`, `e[i]` | `var _h = <e`, then the header over `<_h.f` (`<_h[i]`) | as for a made value |
+| a part of a made value `e.f`, `e[i]` that is not plain data | `var _h = <e` for the whole construct, then the header over `?_h.f` (`?_h[i]`) | a view in place, as for a place: the made value is taken (Core §3), and the part is read where it stands (Core sentence 1) |
+| a part of a made value that is plain data | itself: `e` is a temporary of the header | a copy, read in the header |
 | a branching value one leaf of which is a place | itself, when its type copies | a copy; when the type moves (an owner, a `unique` type, a type holding a `Cell`) the header is rejected: bind the value to a name, or take each leaf with `<` |
 
 So `for x in v` is `for x in ?v`; `match b` on a `Box[E]` is `match ?b`
@@ -772,10 +773,26 @@ and `match h` on a `*E` is `match ?h`, whose payloads view the value
 the box or handle holds (the lend table, Core §4); `if o as x` over an
 owning optional place is `if ?o as x`, with `x: ?T`, while an optional
 of plain data binds a copy; and `match mk(7).e` holds `mk(7)` in a
-hidden `var` for the whole match, so each payload is the arm's own.
-Whether a branching value of a moving type could instead be viewed leaf
-by leaf is a question the Core leaves open; the checker takes the
-conservative reading above.
+hidden `var` for the whole match, so each payload views it there and
+may change its `Cell`, but not move out of it. Whether a branching
+value of a moving type could instead be viewed leaf by leaf is a
+question the Core leaves open; the checker takes the conservative
+reading above.
+
+A payload or element is bound by one rule, from its type: a copy of
+plain data (`sema.copyable`), a view (`?F`) of anything else, captured
+by pointer, including the binding of a catch-all arm and a binding a
+guard reads; a write view under `match !e` and `for x in !e`; the
+construct's own under `match <e` and a taken subject. (A payload of a
+type parameter is a copy, which each instance must allow.)
+
+A held header is rejected, conservatively, where its value could not
+be held for the construct: when the made value makes a statement
+temporary of its own (`match mk(?Text(...)).e`, `for x in mk(t()).v`),
+which would end with the header while the held value lives on, and,
+for `as`, in a joined condition (`if mk().o as r and c`), in a value
+`if`, and in a `while` condition, which is evaluated again each
+iteration. Each says to bind the value to a name first.
 
 Typecheck records the class where it binds: a bare place is recorded
 as a read lend of the subject (`lendOf`, `Lend.implicit`), which the
@@ -785,7 +802,10 @@ as `?p` (each element or payload captured by pointer, `|*x|`, never
 copied, so a `Cell` a binding changes is the place's own); a taken
 subject is recorded as taken (`takesSubject`), which the ownership
 checker walks as `<e` into a hidden var and emit holds in a `var`
-the construct iterates or switches on by pointer.
+the construct iterates or switches on by pointer; a held subject is
+recorded with the value it holds (`heldBaseOf`), which the ownership
+checker takes into a hidden var of a scope around the construct and
+emit declares as a `var` in a block around it.
 
 ### The facts table
 
@@ -813,7 +833,7 @@ instead of re-deriving it by name:
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
-| `takesSubject(match)` | whether a `match` takes its subject, a value made there that cannot be copied, as `match <e` would: its arms own the payloads |
+| `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
 | `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is a `lendOf` `text`, walked as `?t[..]` |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 

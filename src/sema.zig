@@ -639,7 +639,7 @@ pub const Facts = struct {
     uses: std.AutoHashMapUnmanaged(u64, Use) = .empty,
     /// Header nodes (`for`, `match`, `as`) whose subject is bare and
     /// not plain data -> how the header has it (`Header`).
-    headers: std.AutoHashMapUnmanaged(NodeKey, Header) = .empty,
+    headers: std.AutoHashMapUnmanaged(NodeKey, HeaderFact) = .empty,
     /// `Text(...)` call node, or `t.add` / `t.clear` callee node -> the
     /// built-in Text operation it is (`TextCall`).
     text_calls: std.AutoHashMapUnmanaged(NodeKey, TextCall) = .empty,
@@ -670,10 +670,14 @@ pub const Header = enum {
     /// A value made there, taken as `<e` would take it: each element or
     /// payload is the construct's own.
     taken,
-    /// A part of a value made there: the made value is held in a hidden
-    /// var for the whole construct, and the part is viewed in it.
+    /// A part, not plain data, of a value made there: the made value is
+    /// held in a hidden var for the whole construct, and the part is
+    /// viewed in it.
     held,
 };
+
+/// A header's `Header`, and the value it holds when `held`.
+pub const HeaderFact = struct { how: Header, base: Sexp = .nil };
 
 /// What a context does with a value (Core §3).
 pub const Use = enum {
@@ -872,7 +876,8 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        TextCall, Use, Header => try w.print(" {s}", .{@tagName(v)}),
+        TextCall, Use => try w.print(" {s}", .{@tagName(v)}),
+        HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
         Lend => {
             if (v.implicit) try w.writeAll(" implicit");
             for (v.steps()) |step| try w.print(" {s}", .{@tagName(step)});
@@ -1574,15 +1579,33 @@ pub const SemContext = struct {
         return self.facts.uses.get(exprKey(node) orelse return null);
     }
 
-    pub fn recordHeader(self: *SemContext, header: Sexp, how: Header) !void {
-        try self.facts.headers.put(self.allocator, recordKey(header), how);
+    /// `header` has its bare subject as `how`; for `held`, `base` is the
+    /// value made there that it holds.
+    pub fn recordHeader(self: *SemContext, header: Sexp, how: Header, base: Sexp) !void {
+        std.debug.assert((how == .held) == (base != .nil));
+        try self.facts.headers.put(self.allocator, recordKey(header), .{ .how = how, .base = base });
     }
 
     /// How the header `node` (a `for`, a `match`, or an `as`) has a bare
     /// subject (`Header`); null for a subject written with a sigil, or
     /// one whose value is copied.
     pub fn headerOf(self: *const SemContext, node: Sexp) ?Header {
-        return self.facts.headers.get(nodeKey(node) orelse return null);
+        const fact = self.facts.headers.get(nodeKey(node) orelse return null) orelse return null;
+        return fact.how;
+    }
+
+    /// The value made there that the header `node` holds for its
+    /// construct (`Header.held`): `mk()` in `match mk().e`.
+    pub fn heldBaseOf(self: *const SemContext, node: Sexp) ?Sexp {
+        const fact = self.facts.headers.get(nodeKey(node) orelse return null) orelse return null;
+        return if (fact.how == .held) fact.base else null;
+    }
+
+    /// Forget the use recorded for `node`: typecheck records a held base
+    /// as taken while it checks the header, and gives it back to an
+    /// ordinary read when the header holds nothing after all.
+    pub fn forgetUse(self: *SemContext, node: Sexp) void {
+        _ = self.facts.uses.remove(exprKey(node) orelse return);
     }
 
     /// Whether `match` takes its subject, a value made there, as

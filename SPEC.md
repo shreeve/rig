@@ -2392,9 +2392,12 @@ written, as `!e` does, and while one of its bindings is live `e` cannot
 be used otherwise. `match <e` needs a value `e` owns, not a borrow. A
 boxed enum is matched where the box holds it, `match b` (as `match ?b`)
 or `match !b` ([§10](#box)), and so is the value a handle holds,
-`match h`, which reads it. A match on a part of a value made there
-(`match mk().e`) holds that value until the match ends, so its payloads
-are read where they are.
+`match h`, which reads it. A read binding that is not plain data is a
+view (`?F`) of the field where it is, so it lives no longer than the
+matched value. A match on a part of a value made there (`match mk().e`)
+holds that value until the match ends when the part is not plain data,
+so its payloads are read where they are; a part of plain data is read
+in the header, whose temporaries end with it.
 
 ```rig
 struct B

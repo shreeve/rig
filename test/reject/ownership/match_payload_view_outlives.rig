@@ -1,0 +1,41 @@
+# A read match's payload, or catch-all binding, that is not plain data
+# is a view of the matched value (`?F`), so a view of it lives no longer
+# than that value: not past a local's scope, not out of a function, and
+# not past the statement of a temporary a header reads.
+
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun local() -> ?Res
+  e = E.a(r: Res(n: 1, t: Text("a")))
+  match e
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun whole() -> ?E
+  e = E.a(r: Res(n: 1, t: Text("a")))
+  match e
+    x => ?x
+
+sub scope()
+  keep = Res(n: 0, t: Text("k"))
+  saved = ?keep
+  if true
+    e = E.a(r: Res(n: 1, t: Text("a")))
+    match e
+      .a(r) => saved = ?r
+      .b(_) => pass
+  print(saved.n)
+
+sub main()
+  scope()
+
+# error: 17:8: does not originate from a borrowed parameter
+# error: 23:5: does not originate from a borrowed parameter
+# error: 31:10: `e` does not live long enough
+# errors: 3

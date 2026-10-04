@@ -27,4 +27,4 @@ sub main()
   print(1)
 
 # error: cannot move out of `v`: it is borrowed from `self`
-# error: cannot move out of `v`: it is borrowed from `o`
+# error: 23:17: incompatible types `?*B` and `*B`

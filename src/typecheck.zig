@@ -561,6 +561,7 @@ const Checker = struct {
             .drop => {
                 const name = ir.Drop.name(stmt);
                 const ty = try self.synthExpr(name);
+                if (try self.payloadViewTaken(name, "drop")) return;
                 // Plain data owns nothing, and ends a loan only when it
                 // may hold a view (a String may view a Text).
                 if (!self.isPoison(ty) and sema.isPlainData(self.ctx, ty) and !sema.mayHoldView(self.ctx, ty)) {
@@ -1568,18 +1569,22 @@ const Checker = struct {
         if (!borrowed and !self.isPoison(inner) and sema.copyable(self.ctx, inner) == .no) switch (self.hands(expr).kind) {
             .place => {
                 viewed = true;
-                try self.ctx.recordHeader(node, .viewed);
+                try self.ctx.recordHeader(node, .viewed, .nil);
                 try self.ctx.recordImplicitLend(expr);
             },
             .part_of_made => if (self.held_base != .nil) {
-                viewed = true;
-                try self.ctx.recordHeader(node, .held);
+                if (try self.holdsHeld(expr)) {
+                    viewed = true;
+                    try self.ctx.recordHeader(node, .held, self.held_base);
+                } else inner = self.t().invalid_id;
             } else {
                 try self.errAt(expr, "`as` binds the value inside a place or takes one made here: bind this `{s}` to a name first", .{try self.tyName(ty)});
                 inner = self.t().invalid_id;
             },
             .made, .lend, .branches, .jump, .none => {},
         };
+        // A part of plain data is read in the header, as any value is.
+        if (!viewed and self.held_base != .nil) try self.releaseHeld();
         if (viewed) inner = try self.ctx.intern(.{ .borrow_read = inner });
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
@@ -1659,6 +1664,8 @@ const Checker = struct {
         var elem_ty = self.t().invalid_id;
         // The loop's mode once a bare source is classified.
         var eff = mode;
+        // A held source was rejected (`holdsHeld`).
+        var elem_poisoned = false;
         if (source.isKind(.@"..")) {
             // Both bounds are integers of one type, the element's.
             elem_ty = try self.checkIntDefaultOperands(source, "..", .integer, null);
@@ -1684,18 +1691,22 @@ const Checker = struct {
             if (mode == .iter and !self.isPoison(source_ty)) switch (source_hands.kind) {
                 .place => {
                     eff = .read;
-                    try self.ctx.recordHeader(node, .viewed);
+                    try self.ctx.recordHeader(node, .viewed, .nil);
                 },
-                .part_of_made => if (self.held_base != .nil) {
+                .part_of_made => if (self.held_base != .nil and sema.copyable(self.ctx, source_ty) == .no) {
                     eff = .read;
-                    try self.ctx.recordHeader(node, .held);
+                    if (try self.holdsHeld(source)) {
+                        try self.ctx.recordHeader(node, .held, self.held_base);
+                    } else elem_poisoned = true;
                 },
                 .made => if (self.ctx.types.get(source_ty) == .array and sema.copyable(self.ctx, self.ctx.types.get(source_ty).array.elem) == .no) {
                     eff = .move;
-                    try self.ctx.recordHeader(node, .taken);
+                    try self.ctx.recordHeader(node, .taken, .nil);
                 },
                 .lend, .branches, .jump, .none => {},
             };
+            // A part of plain data is read in the header, as any value is.
+            if (self.held_base != .nil and self.ctx.headerOf(node) != .held and !elem_poisoned) try self.releaseHeld();
             // A loop walks a place, or takes a value made here. A branching
             // value that may be a name's (`o?`, `a if c else mk()`) may be
             // a place on one path and a new value on another, which one
@@ -1712,6 +1723,7 @@ const Checker = struct {
                 try self.errAt(peeled_source, "a `for` walks {s}: bind this `{s}` to a name first", .{ what, try self.tyName(source_ty) });
             }
             elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, eff);
+            if (elem_poisoned) elem_ty = self.t().invalid_id;
             // The source is a header: a temporary it reads into ends with
             // it, before the loop walks it.
             if (eff != .move) if (self.tempBase(source)) |temp| {
@@ -1890,7 +1902,7 @@ const Checker = struct {
                 if (is_resource) {
                     // (A Vec place walked bare is reported by `checkFor`.)
                     if (mode != .read and mode != .write and mode != .move and !(self.hands(inner_source).hasStorage() and vecElementType(self.ctx, source_ty) != null)) {
-                        try self.err(pos, "resource Vec[T] iteration requires an explicit read borrow; write `for x in ?vec`", .{});
+                        try self.err(pos, "a loop over a Vec of `{s}` made here takes it: write `for x in <{s}`, or bind it to a name first", .{ try self.tyName(elem), self.sourceText(inner_source) });
                     }
                     if (!self.placeOf(inner_source).fieldPath()) {
                         try self.err(pos, "resource Vec[T] iteration requires a Vec binding or a field of one as the source; got an expression. Bind the result to a `Vec[T]` local first.", .{});
@@ -1970,22 +1982,26 @@ const Checker = struct {
         if (mode == .read and !self.isPoison(scrutinee)) switch (subject_hands.kind) {
             .made => if (try self.cannotCopy(scrutinee, self.startOf(subject), "matches")) {
                 mode = .consume;
-                try self.ctx.recordHeader(node, .taken);
+                try self.ctx.recordHeader(node, .taken, .nil);
             },
-            // A place is matched where it stands, as `match ?p` would; a
-            // part of a made value where the match holds it.
-            // A place is matched where it stands, as `match ?p` would; a
-            // part of a made value where the match holds that value. (A
-            // part of a branching value, which may be a name's part, is
-            // checked below as a branching value is.)
+            // A place is matched where it stands, as `match ?p` would,
+            // and a part of a made value that is not plain data where the
+            // match holds that value. (A part of plain data is read in the
+            // header, and a part of a branching value, which may be a
+            // name's part, is checked below as a branching value is.)
             .place, .part_of_made => if (subject_hands.kind == .place or self.held_base != .nil) {
-                const held = subject_hands.kind == .part_of_made;
-                if (!held) try self.readLeaf(subject);
                 const reached = sema.unwrapAccess(self.ctx, scrutinee);
-                if (held or reached != sema.unwrapBorrows(self.ctx, scrutinee)) {
-                    try self.ctx.recordHeader(node, if (held) .held else .viewed);
+                const plain = sema.copyable(self.ctx, reached) != .no;
+                const held = subject_hands.kind == .part_of_made and !plain;
+                if (subject_hands.kind == .part_of_made and plain) try self.releaseHeld();
+                if (!held) try self.readLeaf(subject);
+                const lends_inner = reached != sema.unwrapBorrows(self.ctx, scrutinee);
+                if (held and !try self.holdsHeld(subject)) {
+                    scrutinee = self.t().invalid_id;
+                } else if (held or lends_inner or (!plain and !isBorrow(self.ctx, scrutinee))) {
+                    try self.ctx.recordHeader(node, if (held) .held else .viewed, if (held) self.held_base else .nil);
                     // A box or a handle lends the value it holds.
-                    if (!isBorrow(self.ctx, scrutinee) or reached != sema.unwrapBorrows(self.ctx, scrutinee)) scrutinee = try self.ctx.intern(.{ .borrow_read = reached });
+                    if (!isBorrow(self.ctx, scrutinee) or lends_inner) scrutinee = try self.ctx.intern(.{ .borrow_read = reached });
                 }
             } else try self.readLeaf(subject),
             .lend, .branches, .jump, .none => try self.readLeaf(subject),
@@ -2180,6 +2196,59 @@ const Checker = struct {
         var base = subject;
         while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
         return if (self.hands(base).kind == .made) base else .nil;
+    }
+
+    /// Report `e` when it is a read match's binding of a payload that is
+    /// not plain data, which views the payload where it is, taken by
+    /// `verb` (`move`, `drop`). True when reported.
+    fn payloadViewTaken(self: *Checker, e: Sexp, verb: []const u8) Error!bool {
+        if (e != .src) return false;
+        const sym = self.ctx.symbolOf(e) orelse return false;
+        const from = self.copied_from.get(sym) orelse return false;
+        if (from.kind != .match_copy and from.kind != .match_read) return false;
+        if (self.ctx.types.get(self.ctx.symbols.items[sym].ty) != .borrow_read) return false;
+        const name = self.text(e);
+        const shown = self.sourceText(from.place);
+        const place = self.placeOf(from.place);
+        const lent = from.kind == .match_read or place.indirect or if (self.ctx.typeOf(from.place)) |ty| isBorrow(self.ctx, ty) else false;
+        const shared = if (self.ctx.typeOf(place.base)) |ty| self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty)) == .shared else false;
+        if (place.root == .capture) {
+            try self.errAt(e, "cannot {s} captured resource `{s}`: `{s}` views a payload of it, and a closure never gives up what it captured", .{ verb, self.sourceText(place.base), name });
+        } else if (shared) {
+            try self.errAt(e, "cannot {s} out of `{s}`: `{s}` is a shared handle, which only reads its value", .{ verb, name, self.sourceText(place.base) });
+        } else if (lent or place.root == .temporary) {
+            try self.errAt(e, "cannot {s} out of `{s}`: it is borrowed from `{s}`", .{ verb, name, self.sourceText(place.base) });
+        } else try self.errAt(e, "cannot {s} `{s}` out of `{s}`: `match {s}` reads `{s}`; write `match <{s}` to take its fields", .{ verb, name, shown, shown, shown, shown });
+        return true;
+    }
+
+    /// The held base turns out to hold nothing (its part is plain data):
+    /// it is read in the header as a temporary, as any made value is.
+    fn releaseHeld(self: *Checker) Error!void {
+        const base = self.held_base;
+        self.held_base = .nil;
+        self.ctx.forgetUse(base);
+        try self.readLeaf(base);
+    }
+
+    /// Whether the header over `subject` may hold its base for the
+    /// construct: the base makes no statement temporary, which would
+    /// end with the header while the held value, and what it views,
+    /// lives on. Reported when not.
+    fn holdsHeld(self: *Checker, subject: Sexp) Error!bool {
+        const base = self.held_base;
+        if (!self.makesTemps(base, base)) return true;
+        try self.errAt(subject, "this header holds `{s}` for its construct, but a temporary made inside it ends with the header; bind `{s}` to a name first", .{ self.sourceText(base), self.sourceText(base) });
+        return false;
+    }
+
+    /// Whether `node`, inside the held base `base`, is or holds a
+    /// statement temporary (`dropsTemp`, `lendsCellTemp`).
+    fn makesTemps(self: *Checker, node: Sexp, base: Sexp) bool {
+        if (node != .list) return false;
+        if (!sameNode(node, base) and (self.ctx.dropsTemp(node) or self.ctx.lendsCellTemp(node))) return true;
+        for (node.items()) |item| if (self.makesTemps(item, base)) return true;
+        return false;
     }
 
     fn tempBase(self: *Checker, e: Sexp) ?Sexp {
@@ -2471,15 +2540,14 @@ const Checker = struct {
         for (bindings, resolved.payload) |b, f| {
             // `match !e` binds a write borrow of each field; a field that
             // is a borrow or a slice (a view) is bound as it is.
-            // A read binds a view of a unique payload, where the matched
-            // value is: a place, a lend, or a value the match holds (Core
-            // s1, docs/INTERNALS.md "Header subjects"). (An owner's
-            // binding reads it where it is, as an alias of the matched
-            // value.)
+            // A read binds a copy of a plain payload and a view of any
+            // other, where the matched value is: a place, a lend, or a
+            // value the match holds (Core s1, docs/INTERNALS.md "Header
+            // subjects").
             const view = !isBorrow(self.ctx, f.ty) and self.ctx.types.get(f.ty) != .slice and !self.isPoison(f.ty);
             const ty = if (mode == .write and view)
                 try self.ctx.intern(.{ .borrow_write = f.ty })
-            else if (mode == .read and view and sema.isUnique(self.ctx, f.ty))
+            else if (mode == .read and view and sema.copyable(self.ctx, f.ty) == .no)
                 try self.ctx.intern(.{ .borrow_read = f.ty })
             else
                 f.ty;
@@ -3536,13 +3604,10 @@ const Checker = struct {
     /// or not: a temporary is held to its statement's end. False when the
     /// lend is rejected (reported).
     fn lendsToRead(self: *Checker, operand: Sexp, inner: TypeId, place: Place) Error!bool {
-        // A borrow of a value holding a Cell can change the Cell, which a
-        // loop or match binding only copies.
+        // A borrow of a value holding a Cell can change the Cell, which
+        // needs a place. (A loop or match binding of one is a view or the
+        // construct's own: a Cell holder is unique, so never a copy.)
         if (sema.holdsCellByValue(self.ctx, inner)) {
-            if (place.root == .pattern and !place.indirect) {
-                try self.errAt(operand, "cannot borrow this: it holds a Cell, and `{s}` is a loop or match binding, a copy, so changes through the borrow would be lost", .{self.text(place.base)});
-                return false;
-            }
             if (place.root == .temporary and place.steps == 0) {
                 try self.errAt(operand, "cannot borrow a temporary that holds a Cell: a change through the borrow would have no place; bind it to a name first", .{});
                 return false;
@@ -3676,6 +3741,7 @@ const Checker = struct {
     fn synthMove(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Move.operand(e);
         const ty = try self.synthExpr(operand);
+        if (try self.payloadViewTaken(operand, "move")) return self.t().invalid_id;
         if (!operand.isKind(.member) and !operand.isKind(.index)) return ty;
         if (self.isPoison(ty)) return ty;
         // A part of a temporary is dropped with it.
@@ -4664,7 +4730,7 @@ const Checker = struct {
             },
             .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
                 if ((try self.cannotCopy(elem, self.startOf(object), "copies an element out of a Vec"))) {
-                    try self.errAt(object, "indexing a `{s}` would copy an owning element out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
+                    try self.errAt(object, "indexing a `{s}` would copy an owning element out of the Vec; iterate with `for x in v` instead", .{try self.tyName(peeled)});
                     return self.t().invalid_id;
                 }
                 return elem;
@@ -4694,7 +4760,7 @@ const Checker = struct {
             return null;
         };
         if (try self.needsCleanup(elem, self.startOf(object), "slices a Vec")) {
-            try self.errAt(object, "cannot slice a `{s}`: a slice would copy owning handles out of the Vec; iterate with `for x in ?v` or `for x in !v` instead", .{try self.tyName(peeled)});
+            try self.errAt(object, "cannot slice a `{s}`: a slice would copy owning handles out of the Vec; iterate with `for x in v` or `for x in !v` instead", .{try self.tyName(peeled)});
             return null;
         }
         return elem;
@@ -6636,13 +6702,11 @@ const Checker = struct {
             try self.readLeaf(obj);
         } else if (receiver != .value and !misplaced_sigil) try self.rejectResourceTemporary(obj, obj_ty);
 
-        // A `?self` method may change a Cell the value holds; a loop or
-        // match binding that is a copy of it would lose the change.
+        // A `?self` method may change a Cell the value holds, which needs
+        // a place.
         if (resolved.nominal_sym != self.ctx.cell_sym_id and receiver == .read and sema.holdsCellByValue(self.ctx, obj_ty)) {
             const place = self.placeOf(obj);
-            if (place.root == .pattern and !place.indirect and !self.ownsBinding(place)) {
-                try self.errAt(obj, "cannot call `{s}` here: the value holds a Cell the method may change, and `{s}` is a loop or match binding, a copy, so the change would be lost", .{ method, self.text(place.base) });
-            } else if (place.root == .temporary and place.steps == 0) {
+            if (place.root == .temporary and place.steps == 0) {
                 try self.errAt(obj, "cannot call `{s}` on a temporary that holds a Cell the method may change; bind it to a name first", .{method});
             } else if (place.root == .temporary) try self.ctx.recordCellTemp(obj);
         }
@@ -6664,7 +6728,7 @@ const Checker = struct {
         if (resolved.nominal_sym == self.ctx.vec_sym_id and std.mem.eql(u8, method, "get")) {
             if (resolved.fn_ty.returns != self.t().invalid_id) {
                 const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
-                if ((try self.cannotCopy(elem, pos, "copies an element out of a Vec"))) return self.badCall(args, pos, "`Vec.{s}` would copy an owning element out of a `Vec` of `{s}`; iterate with `for x in ?v` instead", .{ method, try self.tyName(elem) });
+                if ((try self.cannotCopy(elem, pos, "copies an element out of a Vec"))) return self.badCall(args, pos, "`Vec.{s}` would copy an owning element out of a `Vec` of `{s}`; iterate with `for x in v` instead", .{ method, try self.tyName(elem) });
             }
         }
 
@@ -7269,6 +7333,7 @@ const Checker = struct {
         // value a borrow reaches (`readValue`).
         switch (at) {
             .borrow_read, .borrow_write => |inner| if (compatible(self.ctx, inner, expected)) {
+                if (try self.payloadViewTaken(e, "move")) return;
                 const name = try self.tyName(inner);
                 return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; only a number, `Bool`, `String`, or plain enum is copied out of a borrow: take the borrow where it goes (`?{s}` or `!{s}`)", .{ try self.tyName(expected), try self.tyName(actual), name, name });
             },
@@ -8333,7 +8398,6 @@ const Checker = struct {
         const sym = self.ctx.symbols.items[id];
         const ty = sym.ty;
         if (self.isPoison(ty)) return ty;
-        const sigil: []const u8 = if (kind == .read) "?" else "!";
         switch (self.ctx.types.get(ty)) {
             .borrow_read => {
                 if (kind == .read) return ty;
@@ -8354,10 +8418,6 @@ const Checker = struct {
         }
         const root = self.rootOf(sym);
         if (kind == .write and !try self.requireAccess(.{ .pos = pos, .sym = id, .root = root }, .write_borrow, .nil)) return self.t().invalid_id;
-        if (kind == .read and root == .pattern and sema.holdsCellByValue(self.ctx, ty)) {
-            try self.err(pos, "cannot capture `{s}{s}`: it holds a Cell, and `{s}` is a loop or match binding, a copy, so changes through the borrow would be lost", .{ sigil, name, name });
-            return self.t().invalid_id;
-        }
         return self.ctx.intern(if (kind == .read) Type{ .borrow_read = ty } else Type{ .borrow_write = ty });
     }
 

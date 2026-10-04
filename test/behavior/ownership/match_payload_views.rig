@@ -1,0 +1,100 @@
+# A read match binds a payload that is not plain data as a view (`?F`)
+# of the field where it is, and so the binding of a catch-all arm, so a
+# view of it is a view of the matched value: through a place, a lent
+# box or handle, an outer local it is stored in, and a returned view
+# (Core sentence 1, docs/INTERNALS.md "Header subjects"). `clobber`
+# reuses the stack, so a view of a copy would print garbage.
+
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+enum F
+  a(r: Res)
+  b(n: Int)
+
+fun inner(e: ?E) -> ?Res
+  match e
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun boxed(b: ?Box[E]) -> ?Res
+  match b
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun shared(h: ?*E) -> ?Res
+  match h
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun whole(e: ?F) -> ?F
+  match e
+    .b(_) => e
+    x => ?x
+
+fun guarded(e: ?E) -> ?Res
+  match e
+    .a(r) if r.n > 0 => ?r
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1] + b[2]
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("place")))
+  x = inner(?e)
+  print(clobber(1000))
+  print(x.n, x.t)
+  b = Box(E.b(r: Res(n: 2, t: Text("box"))))
+  y = boxed(b)
+  print(clobber(2000))
+  print(y.n, y.t)
+  h = *E.a(r: Res(n: 3, t: Text("handle")))
+  z = shared(h)
+  print(clobber(3000))
+  print(z.n, z.t)
+  f = F.a(r: Res(n: 4, t: Text("whole")))
+  w = whole(f)
+  print(clobber(4000))
+  print(w)
+  g = guarded(e)
+  print(clobber(5000))
+  print(g.n, g.t)
+  k = F.b(n: 0)
+  saved = ?k
+  match f
+    .b(_) => pass
+    v => saved = ?v
+  print(clobber(6000))
+  print(saved)
+  keep = Res(n: 0, t: Text("keep"))
+  kept = ?keep
+  match e
+    .a(r) => kept = ?r
+    .b(_) => pass
+  print(clobber(7000))
+  print(kept.n, kept.t)
+
+# expect:
+# 2003
+# 1 place
+# 4003
+# 2 box
+# 6003
+# 3 handle
+# 8003
+# .a(r: Res(n: 4, t: "whole"))
+# 10003
+# 1 place
+# 12003
+# .a(r: Res(n: 4, t: "whole"))
+# 14003
+# 1 place

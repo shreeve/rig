@@ -1,0 +1,111 @@
+# A value made where a view argument goes is lent as a statement
+# temporary, also when the call's arguments are evaluated first into
+# names (keyword arguments out of order, a later `!` or `?`, a method's
+# receiver): it is kept once, and dropped once at the statement's end,
+# as `?mk(1)` is (the explicit forms are the controls).
+
+struct Bag
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+  fun plus2(?self, o: ?Bag, p: ?Bag) -> Int
+    self.n + o.n + p.n
+
+error Bad
+  boom
+
+fun two(a: ?Bag, b: ?Bag) -> Int
+  a.n * 10 + b.n
+
+fun mk(n: Int) -> Bag
+  print("mk", n)
+  Bag(n: n)
+
+fun mkf(n: Int) -> Bag!
+  if n > 5
+    return Bad.boom
+  Bag(n: n)
+
+fun mko(n: Int) -> Bag?
+  if n > 5
+    return none
+  Bag(n: n)
+
+fun val(n: Int) -> Int!
+  if n > 5
+    return Bad.boom
+  n
+
+fun one(a: ?Bag, n: Int) -> Int
+  a.n + n
+
+fun run_f(n: Int) -> Int!
+  two(mk(1), mkf(n)!)
+
+fun run_f2(n: Int) -> Int!
+  two(?mk(1), ?mkf(n)!)
+
+fun run_o(n: Int) -> Int?
+  two(mk(1), mko(n)?)
+
+fun run_m(n: Int) -> Int!
+  b = Bag(n: 100)
+  b.plus2(mk(1), mkf(n)!)
+
+fun run_v(n: Int) -> Int!
+  one(mk(1), val(n)!)
+
+sub main
+  print(two(b: mk(2), a: mk(1)))
+  print(two(b: ?mk(2), a: ?mk(1)))
+  print(run_f(2) catch -1)
+  print(run_f(9) catch -1)
+  print(run_f2(2) catch -1)
+  print(run_o(2) ?? -1)
+  print(run_o(9) ?? -1)
+  print(run_m(2) catch -1)
+  print(run_v(2) catch -1)
+  print(run_v(9) catch -1)
+
+# expect:
+# mk 2
+# mk 1
+# 12
+# drop 1
+# drop 2
+# mk 2
+# mk 1
+# 12
+# drop 1
+# drop 2
+# mk 1
+# drop 2
+# drop 1
+# 12
+# mk 1
+# drop 1
+# -1
+# mk 1
+# drop 2
+# drop 1
+# 12
+# mk 1
+# drop 2
+# drop 1
+# 12
+# mk 1
+# drop 1
+# -1
+# mk 1
+# drop 2
+# drop 1
+# drop 100
+# 103
+# mk 1
+# drop 1
+# 3
+# mk 1
+# drop 1
+# -1

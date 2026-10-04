@@ -3632,7 +3632,7 @@ pub const Checker = struct {
         const header = self.headerOf(cond);
         const saved_held = self.held;
         defer self.held = saved_held;
-        if (header == .held) try self.holdBase(ir.As.value(cond), cond);
+        if (header == .held) try self.holdBase(cond);
         const temps_start = self.temps.items.len;
         const drops = self.stmt_drops.items.len;
         const bound = if (header != null) try self.walkBorrow(ir.As.value(cond), .read) else try self.walkConsumed(ir.As.value(cond), .binding);
@@ -3681,13 +3681,13 @@ pub const Checker = struct {
         return ctx.headerOf(node);
     }
 
-    /// Hold `base`, the value a header makes of which its subject is a
-    /// part, in a hidden var of a scope opened for the construct `node`
-    /// (`Header.held`): `var _h = <base`, whose part the construct
+    /// Hold the value the header `node` makes of which its subject is a
+    /// part (`SemContext.heldBaseOf`) in a hidden var of a scope opened
+    /// for the construct: `var _h = <base`, whose part the construct
     /// views. The caller pops the scope where the construct ends.
-    fn holdBase(self: *Checker, subject: Sexp, node: Sexp) Error!void {
-        var base = subject;
-        while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+    fn holdBase(self: *Checker, node: Sexp) Error!void {
+        const ctx = self.sema orelse return;
+        const base = ctx.heldBaseOf(node) orelse return;
         const v = try self.walkConsumed(base, .binding);
         try self.pushScopeFor(.block, node);
         const id = try self.addVar(.{ .name = self.spanText(base), .decl = self.startOf(base), .ty = self.exprType(base), .kind = .hidden }, .{ .loans = v.loans });
@@ -3718,7 +3718,7 @@ pub const Checker = struct {
         const header = self.headerOf(match);
         const saved_held = self.held;
         defer self.held = saved_held;
-        if (header == .held) try self.holdBase(scrut, match);
+        if (header == .held) try self.holdBase(match);
         var info: Scrutinee = .{};
         var node = scrut;
         const written = scrut.isKind(.read) or scrut.isKind(.write);
@@ -3929,7 +3929,7 @@ pub const Checker = struct {
         const header = self.headerOf(node);
         const saved_held = self.held;
         defer self.held = saved_held;
-        if (header == .held) try self.holdBase(source, node);
+        if (header == .held) try self.holdBase(node);
         // The source is a header: its temporaries end with it, before
         // the loop walks what it gives.
         const drops = self.stmt_drops.items.len;
@@ -4561,11 +4561,10 @@ pub const Checker = struct {
             .list => switch (e.kind() orelse return "expression") {
                 .member => return self.arena().print("{s}.{s}", .{ try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e)) }),
                 .index => return self.arena().print("{s}[...]", .{try self.placeText(ir.Index.object(e))}),
-                // A sigil or other wrapper: the place it wraps.
-                else => {
-                    const children = rig.children(e);
-                    return if (children.len > 0) self.placeText(children[0]) else "expression";
-                },
+                // A sigil: the place it wraps.
+                .read, .write, .move, .clone, .share, .weak => return self.placeText(ir.get(e, .operand)),
+                // Any other value (`mk()`): as written.
+                else => return self.spanText(e),
             },
             else => return "expression",
         }

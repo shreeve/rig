@@ -1,6 +1,7 @@
-# A match payload that holds a write borrow write-borrows its scrutinee
-# while it is live, so a nested match on the same value cannot bind a
-# second view of that borrow.
+# A `match !h` payload write-borrows its scrutinee while it is live, so
+# a nested match on the same value cannot bind a second view of it. (A
+# read match views a payload holding a write borrow, `?Ed`, which only
+# reads.)
 
 struct Wrap
   v: Vec[Int]
@@ -16,10 +17,10 @@ sub main()
   x = Wrap(v: Vec())
   !x.v.push(1)
   h: Hold = .has(Ed(t: !x))
-  match h
+  match !h
     .has(a)
       for n in ?a.t.v
-        match h
+        match !h
           .has(b)
             b.t.v = Vec()
           .none_
@@ -28,4 +29,4 @@ sub main()
     .none_
       print("none")
 
-# error: 22:15: use of `h` while a write borrow is live
+# error: 23:16: cannot take a second write borrow on `h`

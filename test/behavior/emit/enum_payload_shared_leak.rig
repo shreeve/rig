@@ -12,7 +12,7 @@ sub main()
   rc = *Wrap(payload: 5)
   s: Slot = .full(b: <rc)
   match s
-    .full(b) => print(1)
+    .full(_) => print(1)
     .empty => print(0)
 
 # expect:
