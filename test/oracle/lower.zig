@@ -100,7 +100,8 @@ const Loop = struct {
 
 /// `planned` applies the Core's planned rules the oracle models: a type
 /// holding a `Cell` is unique (Core §1), and a bare place a `for` walks
-/// is read where it stands (Core s1).
+/// or an `if … as` or `while … as` binds is read where it stands, as
+/// `?p` (Core s1).
 pub fn lowerUnit(a: std.mem.Allocator, m: *const lib.modules.Module, unit: Unit, planned: bool) !core.Func {
     var l: Lowerer = .{
         .a = a,
@@ -529,15 +530,22 @@ const Lowerer = struct {
     fn asHeader(self: *Lowerer, value: Sexp, how: How) Error!Held {
         const pos = self.posOf(value);
         const ty = try self.typeOf(value);
+        // Under the planned rule a bare place an `as` binds is read where
+        // it stands, as `?p` (Core s1, planned; INTERNALS "Header
+        // subjects"); an optional of plain data still copies.
+        const is_place = self.isPlaceSyntax(value);
+        const bare: How = if (how == .take and self.planned and is_place) .read else how;
         try self.pushRegion();
-        var v = try self.subject(value, how, "the `as` value");
+        var v = try self.subject(value, bare, "the `as` value");
         // A read view of a made value of plain data is read as its value,
         // which carries no loan (Core §4).
         if (value.isKind(.read) and !self.isPlaceSyntax(ir.Read.operand(value))) v = try self.readThrough(v, pos);
         const h = try self.hold(v, "the `as` value", pos);
         try self.popRegion(pos);
         var carry_from: ?VarId = null;
-        if (value.isKind(.read)) if (self.rootVar(ir.Read.operand(value))) |r| {
+        // A bare place read where it stands is `?p`.
+        const lent_place: ?Sexp = if (value.isKind(.read)) ir.Read.operand(value) else if (is_place and bare == .read) value else null;
+        if (lent_place) |lp| if (self.rootVar(lp)) |r| {
             const rv = self.f.vars.items[r];
             if (rv.kind != .write_view and !rv.alias) carry_from = r;
         };

@@ -245,8 +245,8 @@ decides (also where the compiler's semantic checks stop first):
 The word after the function is `accept`, or `reject` with the rule
 the oracle names (C1–C7, B1). `oracle planned:` checks the verdict
 under the Core's planned rules the oracle models (`--planned`): a type
-holding a `Cell` is unique, and a `for` reads a bare place where it
-stands. A different verdict, or none, fails the set. These lines are
+holding a `Cell` is unique, and a `for`, `if … as`, or `while … as`
+reads a bare place where it stands (a `match` always does). A different verdict, or none, fails the set. These lines are
 the oracle's own tests: each of the oracle's header rules (a subject
 that is a place, a made value, a part of one, a lend of one, or a
 branching value) has tests that state its verdict, so the change that
