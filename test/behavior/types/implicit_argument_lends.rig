@@ -1,0 +1,71 @@
+# Where a parameter takes a view, a bare argument is lent to read where
+# it is, as `?x` would lend it (Core sentence 1): a place, a value made
+# there (lent as a temporary of the statement), a literal, a closure
+# binding, an owned closure, and through every row of the lend table.
+
+struct Bag
+  v: Vec[Int]
+
+struct S
+  n: Int
+
+type F = fun(Int) -> Int
+
+fun size(b: ?Bag) -> Int
+  b.v.len
+
+fun get(s: ?S) -> Int
+  s.n
+
+fun total(xs: []Int) -> Int
+  t = 0
+  for x in xs
+    t += x
+  t
+
+fun first(s: String) -> String
+  s[..1]
+
+fun mk(n: Int) -> Bag
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  Bag(v: <v)
+
+fun twice(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(f(x))
+
+fun thrice(f: ?F, x: Int) -> Int
+  f(f(f(x)))
+
+fun inc(x: Int) -> Int
+  x + 1
+
+fun show[T](x: ?T) -> Int
+  1
+
+sub add(a: !Int, b: ?Int)
+  a += b
+
+sub main
+  b = mk(3)
+  print(size(b), size(mk(4)), total(b.v), total([1, 2]))
+  a = [1, 2, 3]
+  t = Text("hey")
+  print(total(a), first(t), first(Text("zz")))
+  h = *S(n: 4)
+  bx = Box(S(n: 5))
+  print(get(h), get(bx), show(7), show(b.v.len))
+  k = 2
+  plus = |?k, x: Int| x + k
+  cb = *|x: Int| x * 10
+  print(twice(plus, 1), twice(cb, 1), thrice(inc, 0))
+  n = 1
+  add(!n, 2)
+  print(n)
+
+# expect:
+# 1 1 3 3
+# 6 h z
+# 4 5 1 1
+# 5 100 3
+# 3

@@ -1,0 +1,13 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  a = Counter(hits: Cell(0))
+  cb: *sub() = *|<a| a.hits.set(a.hits.get() + 1)
+  cb()
+  again = +cb
+  again()
+  cb()
+  -cb
+  again()
+  print("end")

@@ -1,0 +1,13 @@
+use std.random
+use std.random as rnd
+
+struct S
+  r: random.Random?
+  h: *random.Random
+
+fun f(x: [2]rnd.Random) -> Int
+  1
+
+sub main()
+  r = rnd.Random.seeded(1)
+  print(random.Random.seeded(1))

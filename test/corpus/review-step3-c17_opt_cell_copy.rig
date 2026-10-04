@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+fun pick(o: Counter?) -> Int
+  if o as k
+    return k.hits.get()
+  0
+
+sub main
+  o: Counter? = Counter(hits: Cell(1))
+  print(pick(o))
+  p = o

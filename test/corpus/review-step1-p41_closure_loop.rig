@@ -1,0 +1,26 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  f = |<a|
+    for k in a
+      k.hit()
+    print(a[0].hits.get())
+  f()
+  f()
+  b = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  g: *sub() = *|<b|
+    for k in b
+      k.hit()
+    print(b[1].hits.get())
+  g()
+  g()
+  c = Counter(hits: Cell(0))
+  h = |?c|
+    c.hit()
+  h()
+  print(c.hits.get())

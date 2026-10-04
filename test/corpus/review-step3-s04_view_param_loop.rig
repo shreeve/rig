@@ -1,0 +1,22 @@
+struct S
+  v: Vec[Int]
+
+fun total(s: ?S) -> Int
+  n = 0
+  for x in s.v
+    n += x
+  n
+
+fun get(s: ?S) -> ?Vec[Int]
+  ?s.v
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  s = S(v: <v)
+  print(total(s))
+  for x in get(s)
+    print(x)
+  for x in get(?s)
+    !s.v.push(x)

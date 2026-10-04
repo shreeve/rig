@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub main()
+  o: ([2]Counter)? = none
+  d = [Counter(hits: Cell(9)), Counter(hits: Cell(9))]
+  for k in o ?? d
+    k.hit()
+  print(d[0].hits.get())

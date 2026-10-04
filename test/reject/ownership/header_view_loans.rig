@@ -1,0 +1,54 @@
+# A header that reads a bare place keeps it lent while what it binds is
+# used, as `?p` does; a value it holds ends with the construct.
+
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+struct H
+  e: E
+
+fun mkh() -> H
+  H(e: E.a(r: Res(n: 1, t: Text("a"))))
+
+sub loops()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  for x in v
+    !v.push(x)
+
+sub ifs()
+  o: Vec[Int]? = Vec()
+  if o as x
+    o = none
+    print(x.len)
+
+sub boxes()
+  b = Box(E.a(r: Res(n: 2, t: Text("b"))))
+  match b
+    .a(r)
+      -b
+      print(r.n)
+    .b => pass
+
+sub held()
+  keep = Res(n: 0, t: Text("c"))
+  saved = ?keep
+  match mkh().e
+    .a(r) => saved = ?r
+    .b => pass
+  print(saved.n)
+
+sub main()
+  loops()
+
+# error: 22:5: cannot write-borrow `v` while a read borrow is live
+# error: 27:5: cannot reassign `o` while borrows are live
+# error: 34:8: cannot drop `b` while borrows are live
+# error: 42:8: a view of `r` does not outlive the `match` that reads `mkh().e`
+# error: 42:8: a borrow of the temporary `mkh()` outlives its statement
+# errors: 5

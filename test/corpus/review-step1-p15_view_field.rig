@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+struct Holder
+  c: Counter
+  n: Int
+
+fun get(h: ?Holder) -> Counter
+  h.c
+
+sub main()
+  h = Holder(c: Counter(hits: Cell(0)), n: 1)
+  k = get(?h)
+  k.hits.set(9)
+  print(h.c.hits.get(), k.hits.get())

@@ -1,0 +1,17 @@
+struct Counter
+  hits: Cell[Int]
+
+struct Box2[T]
+  item: T?
+
+fun grab[T](xs: ?[2]T, out: !Box2[T])
+  for k in xs
+    out.item = k
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  b: Box2[Counter] = Box2(item: none)
+  grab(?a, !b)
+  if !b.item as c
+    c.hits.set(9)
+  print(a[1].hits.get())

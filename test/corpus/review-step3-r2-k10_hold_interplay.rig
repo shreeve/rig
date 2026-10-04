@@ -1,0 +1,26 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+fun bump(c: ?Counter) -> Int
+  c.hit()
+  0
+
+fun reset(e: !E) -> Int
+  e = E.b
+  0
+
+sub main
+  c = Counter(hits: Cell(1))
+  print(c, bump(?c), c.hits.get())
+  e = E.a(r: Res(n: 1, t: Text("x")))

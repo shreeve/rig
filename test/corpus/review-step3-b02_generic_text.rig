@@ -1,0 +1,15 @@
+use std.math
+
+fun show[T](x: ?T) -> Int
+  1
+
+fun pick[T](a: T, b: T) -> T
+  a
+
+sub main
+  a = Text("abc")
+  b = Text("abd")
+  print(math.min(a, b))
+  print(math.min(?a, ?b))
+  print(show(a))
+  print(pick(a, b))

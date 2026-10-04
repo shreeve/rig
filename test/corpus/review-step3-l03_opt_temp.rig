@@ -1,0 +1,22 @@
+struct S
+  n: Int
+  t: Text
+
+  drop(!self)
+    print("drop", self.n)
+
+fun maybe(s: (?S)?) -> Int
+  if s as x
+    return x.n
+  -1
+
+fun mko(n: Int) -> S?
+  if n > 5
+    return none
+  S(n: n, t: Text("a"))
+
+sub main
+  print(maybe(mko(1)), maybe(mko(9)))
+  print(maybe(?mko(2)))
+  o: S? = S(n: 3, t: Text("o"))
+  print(maybe(o))

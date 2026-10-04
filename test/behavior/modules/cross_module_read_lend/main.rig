@@ -1,0 +1,10 @@
+# `a.log_box` takes a read view `?Wrap`; a bare `Wrap` argument is lent
+# to read, as `?b` would lend it, across modules too.
+use a
+
+sub main()
+  b = a.make_box(42)
+  a.log_box(b)
+
+# expect:
+# 42

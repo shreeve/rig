@@ -218,21 +218,23 @@ pub fn eql(a: anytype, b: anytype) bool {
     return eqlAs(T, a, b);
 }
 
-/// A `Text`, or a pointer to one (a borrowed Text).
+/// A `Text`, or a pointer to one (a borrowed Text), or a box or shared
+/// handle holding one.
 fn isText(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .@"struct" => @hasDecl(T, "__rig_text") or (@hasDecl(T, "__rig_box") and isText(@TypeOf(@as(T, undefined).value))),
+        .@"struct" => @hasDecl(T, "__rig_text") or ((@hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_rcbox")) and isText(@TypeOf(@as(T, undefined).value))),
         .pointer => |p| p.size == .one and isText(p.child),
         else => false,
     };
 }
 
-/// The bytes of a Text, a borrowed or boxed Text, or a String.
+/// The bytes of a Text, a borrowed, boxed, or shared Text, or a String.
 fn textBytes(x: anytype) []const u8 {
     const X = @TypeOf(x);
     if (comptime !isText(X)) return x;
     if (comptime @typeInfo(X) == .pointer) return textBytes(x.*);
     if (comptime @hasDecl(X, "__rig_box")) return textBytes(x.value.*);
+    if (comptime @hasDecl(X, "__rig_rcbox")) return textBytes(x.value);
     return x.list.items;
 }
 

@@ -1,0 +1,19 @@
+struct Res
+  n: Int
+  t: Text
+
+fun pick[T](o: ?(T?), d: ?T) -> ?T
+  if o as x
+    return ?x
+  d
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  o: Res? = Res(n: 5, t: Text("five"))
+  d = Res(n: 0, t: Text("d"))
+  x = pick(?o, d)
+  print(clobber(1000))
+  print(x.n, x.t)

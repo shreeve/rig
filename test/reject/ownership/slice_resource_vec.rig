@@ -11,5 +11,5 @@ sub main()
   w = !v[0..1]
   print(r.len, w.len)
 
-# error: 10:8: cannot slice a `Vec[*N]`: a slice would copy owning handles out of the Vec; iterate with `for x in ?v` or `for x in !v` instead
+# error: 10:8: cannot slice a `Vec[*N]`: a slice would copy owning handles out of the Vec; iterate with `for x in v` or `for x in !v` instead
 # error: 11:8: cannot slice a `Vec[*N]`

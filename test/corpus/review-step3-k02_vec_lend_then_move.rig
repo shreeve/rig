@@ -1,0 +1,13 @@
+fun total(xs: []Int, n: Int) -> Int
+  t = n
+  for x in xs
+    t += x
+  t
+
+fun eat(v: Vec[Int]) -> Int
+  v.len
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(total(v, eat(<v)))

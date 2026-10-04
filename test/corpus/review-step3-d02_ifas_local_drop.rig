@@ -1,0 +1,12 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  o: Res? = Res(n: 1)
+  if o as x
+    print("in", x.n)
+  print("after")
+  print("end")

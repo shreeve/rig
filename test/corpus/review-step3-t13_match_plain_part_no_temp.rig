@@ -1,0 +1,19 @@
+enum E
+  a(n: Int)
+  b
+
+struct H
+  e: E
+  t: Text
+
+fun mkh(n: Int) -> H
+  H(e: E.a(n: n), t: Text("x"))
+
+sub main
+  match mkh(3).e
+    .a(n) => print("a", n)
+    .b => pass
+  x = match mkh(4).e
+    .a(n) => n
+    .b => 0
+  print(x)

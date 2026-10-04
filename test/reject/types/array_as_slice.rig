@@ -1,6 +1,7 @@
-# A bare named array where a `[]T` is expected would borrow it unseen:
-# it is written `?a` (or `!a` for a `![]T`). A temporary array is lent
-# only to a call that keeps no borrow of it.
+# A bare named array where a `![]T` is expected would be written unseen:
+# it is written `!a`. A temporary array kept in a field is lent nowhere.
+# (A bare array, or a temporary one, as a `[]T` argument is lent to
+# read: test/behavior/types/implicit_argument_lends.rig.)
 
 fun total(xs: []Int) -> Int
   xs.len
@@ -22,7 +23,5 @@ sub main()
   v = View(xs: [1, 2])
   print(r, v.xs)
 
-# error: 19:15: type mismatch: expected `[]Int`, got `[3]Int`; write `?a` or `?a[..]`
-# error: 20:8: type mismatch: expected `![]Int`, got `[3]Int`; write `!a` or `!a[..]`
-# error: 21:10: a temporary array is lent as a `[]Int` only to a call that keeps no borrow of it; bind it to a name and pass `?name`
-# error: 22:16: a temporary array is lent as a `[]Int` only to a call that keeps no borrow of it; bind it to a name and pass `?name`
+# error: 21:8: type mismatch: expected `![]Int`, got `[3]Int`; write `!a` or `!a[..]`
+# error: 23:16: a temporary array is lent as a `[]Int` only to a call that keeps no borrow of it; bind it to a name and pass `?name`

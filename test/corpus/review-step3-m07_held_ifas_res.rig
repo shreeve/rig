@@ -1,0 +1,21 @@
+struct Res
+  n: Int
+  t: Text
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Bag
+  o: Res?
+  p: Res?
+
+fun mk(n: Int) -> Bag
+  Bag(o: Res(n: n, t: Text("a")), p: none)
+
+sub main
+  keep = Res(n: 0, t: Text("k"))
+  saved = ?keep
+  if mk(1).o as r
+    print("in", r.n)
+    saved = r
+  print(saved.n)

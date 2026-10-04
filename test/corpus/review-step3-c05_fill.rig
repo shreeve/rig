@@ -1,0 +1,8 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main
+  a: [2]Counter = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  k = Counter(hits: Cell(7))
+  !a.fill(k)
+  print(a[0].hits.get())

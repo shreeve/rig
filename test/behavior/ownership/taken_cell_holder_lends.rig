@@ -1,0 +1,49 @@
+# A loop or match binding of a Cell holder is never a copy (Core §1): a
+# taken one is the construct's own, a viewed one a view of the place,
+# and either may be lent, written or bare, and captured.
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+fun two() -> [2]Counter
+  [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+
+fun mk() -> E
+  E.a(c: Counter(hits: Cell(3)))
+
+sub touch(c: ?Counter)
+  c.hit()
+  print("touch", c.hits.get())
+
+sub main()
+  for k in two()
+    touch(?k)
+    touch(k)
+  match mk()
+    .a(c)
+      touch(?c)
+      f = |?c| c.hits.get()
+      print(f())
+    .b => pass
+  arr = [Counter(hits: Cell(0))]
+  for k in arr
+    touch(?k)
+    g = |?k| k.hits.get()
+    print(g())
+
+# expect:
+# touch 1
+# touch 2
+# touch 6
+# touch 7
+# touch 4
+# 4
+# touch 1
+# 1

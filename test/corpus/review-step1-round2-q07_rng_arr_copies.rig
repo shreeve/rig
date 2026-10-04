@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+use std.random
+
+fun mk() -> [2]random.Random
+  [random.Random.seeded(1), random.Random.seeded(2)]
+
+sub main()
+  a = mk()
+  b = a
+  x = a[0]

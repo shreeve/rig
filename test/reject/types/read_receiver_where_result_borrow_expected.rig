@@ -1,5 +1,6 @@
 # `?p.m()` reads `p` for the call; where a borrow of the call's result
-# is expected, the hint puts the borrow around the call.
+# is kept (a binding), the hint puts the borrow around the call. (As an
+# argument, the result is lent as a temporary of the statement.)
 
 struct Point
   x: Int
@@ -12,9 +13,11 @@ sub show(p: ?Point)
 
 sub main
   p = Point(x: 1)
-  show(?p.shifted(4))
+  r: ?Point = ?p.shifted(4)
   h = *Point(x: 9)
-  show(?h.shifted(1))
+  s: ?Point = ?h.shifted(1)
+  show(r)
+  show(s)
 
-# error: 15:8: `?p.shifted(4)` reads `p` for the call; write `?(p.shifted(4))` to borrow the call's result
-# error: 17:8: write `?(h.shifted(1))` to borrow the call's result
+# error: 16:15: `?p.shifted(4)` reads `p` for the call; write `?(p.shifted(4))` to borrow the call's result
+# error: 18:15: write `?(h.shifted(1))` to borrow the call's result

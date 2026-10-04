@@ -1,6 +1,7 @@
 # A generic body binds a loop element or a read payload of a type
-# parameter by copy, so an instance whose type argument holds a Cell is
-# rejected: a change through the copy would not reach the original.
+# parameter by copy, so an instance whose type argument holds a Cell (a
+# unique value) is rejected: a change through the copy would not reach
+# the original.
 
 struct Counter
   hits: Cell[Int]
@@ -29,6 +30,6 @@ sub main()
   n = [1, 2]
   each(?n, |x: ?Int| x)
 
-# error: 26:3: `each[Counter]` cannot use `T = Counter`: the generic body copies into a loop binding a value that holds a `T`, and `Counter` holds a Cell, which the copy would fork
-# error: 28:3: `apply[Counter]` cannot use `T = Counter`: the generic body copies into a match binding a value that holds a `T`, and `Counter` holds a Cell, which the copy would fork
+# error: 27:3: `each[Counter]` cannot use `T = Counter`: the generic body copies into a loop binding a value that holds a `T`, and `Counter` is unique
+# error: 29:3: `apply[Counter]` cannot use `T = Counter`: the generic body copies into a match binding a value that holds a `T`, and `Counter` holds a Cell, which the copy would fork
 # errors: 2

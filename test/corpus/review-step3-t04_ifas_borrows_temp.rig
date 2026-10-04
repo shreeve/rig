@@ -1,0 +1,16 @@
+struct Res
+  n: Int
+  t: Text
+
+fun opt(r: ?Res) -> (?Res)?
+  r
+
+fun mkres(n: Int) -> Res
+  Res(n: n, t: Text("abc"))
+
+sub main
+  if opt(mkres(1)) as r
+    print(r.n, r.t)
+  while opt(mkres(1)) as r
+    print(r.n, r.t)
+    break

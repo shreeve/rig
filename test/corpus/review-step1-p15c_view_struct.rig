@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+struct Holder
+  c: Counter
+  n: Int
+
+sub main()
+  a = Counter(hits: Cell(0))
+  h = Holder(c: a, n: 1)
+  h.c.hits.set(9)
+  print(a.hits.get())

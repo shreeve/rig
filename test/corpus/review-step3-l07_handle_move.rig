@@ -1,0 +1,15 @@
+struct S
+  n: Int
+  t: Text
+
+fun keep(s: ?S) -> ?S
+  s
+
+sub eat(h: *S)
+  print("eat", h.n)
+
+sub main
+  h = *S(n: 5, t: Text("a"))
+  k = keep(h)
+  eat(<h)
+  print(k.n)

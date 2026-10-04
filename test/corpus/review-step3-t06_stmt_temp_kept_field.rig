@@ -1,0 +1,16 @@
+struct Res
+  n: Int
+  t: Text
+
+struct V
+  r: ?Res
+
+fun mkres(n: Int) -> Res
+  Res(n: n, t: Text("abc"))
+
+fun wrap(r: ?Res) -> V
+  V(r: r)
+
+sub main
+  v = wrap(mkres(1))
+  print(v.r.n)

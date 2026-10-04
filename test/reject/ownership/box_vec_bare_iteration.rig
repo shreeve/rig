@@ -1,5 +1,6 @@
-# A Vec of boxes is walked by borrowed slot: a bare `for x in v` would
-# copy each box out of the Vec.
+# A Vec of boxes is walked by borrowed slot, written or not: each
+# element of `for x in v` is a view of a box the Vec still owns, which
+# cannot be moved out.
 
 struct R
   n: Int
@@ -16,4 +17,4 @@ sub main
   !v.push(Box(R(n: 1)))
   f(?v)
 
-# error: 11:12: resource Vec[T] iteration requires an explicit read borrow; write `for x in ?vec`
+# error: 13:9: type mismatch: expected `Box[R]`, got `?Box[R]`

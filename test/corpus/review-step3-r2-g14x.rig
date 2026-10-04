@@ -1,0 +1,41 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun get(e: ?E) -> ?E
+  e
+
+fun get2(e: ?E, n: Int) -> ?E
+  e
+
+fun inner(e: ?E) -> ?Res
+  match get(e)
+    .a(r) => r
+    .b(r) => r
+
+fun inner2(e: ?E) -> ?Res
+  match get2(e, Text("xyz").len)
+    .a(r) => r
+    .b(r) => r
+
+fun inner3(e: ?E) -> ?Res
+  match get2(e, Text("xyz").len)
+    .a(r) if r.n > 0 => r
+    .a(r) => r
+    .b(r) => r
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("hello")))
+  x = inner(?e)
+  y = inner2(?e)
+  z = inner3(?e)
+  print(clobber(1000))
+  print(x.n, x.t, y.n, y.t, z.n, z.t)

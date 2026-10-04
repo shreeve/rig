@@ -1,0 +1,11 @@
+struct Counter
+  hits: Cell[Int]
+
+struct S
+  c: Counter
+
+sub main
+  s = S(c: Counter(hits: Cell(1)))
+  t = S(c: s.c)
+  u = [s.c]
+  print(t, u)

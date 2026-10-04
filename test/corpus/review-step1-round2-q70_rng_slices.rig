@@ -1,0 +1,14 @@
+use std.random
+
+fun firsts(s: []random.Random) -> random.Random
+  s[0]
+
+sub adv(w: ![]random.Random)
+  for r in !w
+    print(!r.next() % 100)
+  x = w[0]
+  print(x)
+
+sub main()
+  a = [random.Random.seeded(1), random.Random.seeded(2)]
+  adv(!a)

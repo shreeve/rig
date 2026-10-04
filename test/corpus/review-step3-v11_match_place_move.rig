@@ -1,0 +1,15 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("x")))
+  match e
+    .a(r)
+      f = <e
+      print(r.n)
+    .b => pass

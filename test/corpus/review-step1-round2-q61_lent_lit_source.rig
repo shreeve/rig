@@ -1,0 +1,13 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub main()
+  one = [Counter(hits: Cell(1))]
+  saved = ?one[0]
+  for k in ?[Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+    k.hit()
+    saved = k
+  print(saved.hits.get())

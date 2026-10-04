@@ -751,6 +751,76 @@ literal's type, so every error value the emitter meets has its set.
 the error set `X` names (`isErrorMember`); a module's constant
 `m.NAME` of an error-set type is read as the constant.
 
+### Header subjects
+
+The subject of a `for`, a `match`, an `if … as`, or a `while … as` is
+classified once, by what it hands over (`sema.handsOver`), and each
+class desugars into forms the checkers already walk. A header is its
+own statement (Core §3): its temporaries end with it, and what it binds
+lives through the body.
+
+| The subject hands over | It desugars to | Each element or payload is |
+|---|---|---|
+| a place `p` (a name, or a field or element path from one or from a view) | `?p` | a view of the place's own: a copy when it is plain data, a view in place (`?E`) otherwise |
+| a lend `?p`, `!p`, or a take `<p` | itself | a read view, a write view, or the construct's own, as written |
+| a made value `e` (a call, a constructor, an array, a branching value every leaf of which is made there, `<p` included) | `var _h = <e`, then the header over `<_h` | the construct's own: a place in `_h` that a `?self` method may change and `<x` may move out |
+| a part of a made value `e.f`, `e[i]` that is not plain data | `var _h = <e` for the whole construct, then the header over `?_h.f` (`?_h[i]`) | a view in place, as for a place: the made value is taken (Core §3), and the part is read where it stands (Core sentence 1) |
+| a part of a made value that is plain data | itself: `e` is a temporary of the header | a copy, read in the header |
+| a branching value one leaf of which is a place | itself, when its type copies | a copy; when the type moves (an owner, a `unique` type, a type holding a `Cell`) the header is rejected: bind the value to a name, or take each leaf with `<` |
+
+So `for x in v` is `for x in ?v`; `match b` on a `Box[E]` is `match ?b`
+and `match h` on a `*E` is `match ?h`, whose payloads view the value
+the box or handle holds (the lend table, Core §4); `if o as x` over an
+owning optional place is `if ?o as x`, with `x: ?T`, while an optional
+of plain data binds a copy; and `match mk(7).e` holds `mk(7)` in a
+hidden `var` for the whole match, so each payload views it there and
+may change its `Cell`, but not move out of it. Whether a branching
+value of a moving type could instead be viewed leaf by leaf is a
+question the Core leaves open; the checker takes the conservative
+reading above.
+
+A payload or element is bound by one rule, from its type: a copy of
+plain data (`sema.copyable`), a view (`?F`) of anything else, captured
+by pointer, including the binding of a catch-all arm and a binding a
+guard reads; a write view under `match !e` and `for x in !e`; the
+construct's own under `match <e` and a taken subject. (A payload of a
+type parameter is a copy, which each instance must allow.)
+
+A read match's binding that is no plain data, a payload or the binding
+of a catch-all arm, is usable within its arm only (`SymbolFlags.arm_view`):
+it may be read, lent to a call, and have its `Cell` changed there, but a
+view of it may not be returned, stored in anything that outlives the
+arm, or yielded as the match's value. The ownership checker gives each
+such binding a loan on a hidden var of the arm (`Var.arm_of`), which
+ends with the arm. The reason is emit: it may match a copy of the
+subject (a guarded match evaluates the subject first, and a generic
+body reads a `?T` subject as a value), which lives exactly as long as
+the arm, while the checker walks the subject itself. Lowering matches
+before checking (HANDOFF step 10), so that the checker and emit see one
+program, lifts the rule. A subject that is a view a call returns is held
+as the pointer it is (`evalSubject`), never copied.
+
+A held header is rejected, conservatively, where its value could not
+be held for the construct: when the made value makes a statement
+temporary of its own (`match mk(?Text(...)).e`, `for x in mk(t()).v`),
+which would end with the header while the held value lives on, and,
+for `as`, in a joined condition (`if mk().o as r and c`), in a value
+`if`, and in a `while` condition, which is evaluated again each
+iteration. Each says to bind the value to a name first.
+
+Typecheck records the class where it binds: a bare place is recorded
+as a read lend of the subject (`lendOf`, `Lend.implicit`), which the
+ownership checker walks as `?p` (a read loan on the place's root,
+which the bindings carry for as long as they are used) and emit writes
+as `?p` (each element or payload captured by pointer, `|*x|`, never
+copied, so a `Cell` a binding changes is the place's own); a taken
+subject is recorded as taken (`takesSubject`), which the ownership
+checker walks as `<e` into a hidden var and emit holds in a `var`
+the construct iterates or switches on by pointer; a held subject is
+recorded with the value it holds (`heldBaseOf`), which the ownership
+checker takes into a hidden var of a scope around the construct and
+emit declares as a `var` in a block around it.
+
 ### The facts table
 
 Sema records what it learned about each node so that later passes ask
@@ -762,9 +832,8 @@ instead of re-deriving it by name:
 | `typeOf(node)` | the type of an expression (literals get their contextual type) |
 | `bindingTypeOf(leaf)` | the declared or inferred type of the symbol a leaf names |
 | `readsThrough(node)` | whether the node yields a view (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a number, `Bool`, `String`, or plain enum where one is expected, an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced String or slice, or a clone. Typecheck records it wherever it admits the view as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that carries no loan |
-| `arrayViewOf(node)` | for an array lent as a slice: `borrowed` for `?a` where a `[]T` is expected or `!a` where a `![]T` is (the ownership checker walks it as `?a[..]`, emit writes the array's address), `temporary` for a temporary array passed as a `[]T` argument to a call that keeps no view of it (emit writes `&` before it, which Zig keeps alive through the call) |
-| `readsAsView(node)` | whether the node yields a `![]T` where a `[]T` is expected; the ownership checker lends such an argument to read, not to write |
-| `callableOf(node)` | for a closure literal, a function, or a lend of an owned closure, where a callable view `?fun(...)` is expected: the function type it is lent as. The ownership checker lets such a literal be an argument, and emit wraps the node in a `rig.FnRef` (hoisting a literal's environment before the call) |
+| `lendOf(node)` | for a node lent where a view of another type is expected: the rows of the lend table that make the view (`sema.Lend`, from `sema.lendsAs`, below). The ownership checker walks a lend of an array's elements or a Text's bytes as `?a[..]`, lends a `![]T` lent on to read only to read, and lets a closure literal lent as a callable be an argument; emit writes each in one place (`emitLend`): an array's address, a Text's `.bytes()`, a box's value, or a `rig.FnRef` (hoisting a literal's environment before the call) |
+| `lendsTempArray(node)` | whether the node is a temporary array passed as a `[]T` argument to a call that keeps no view of it: emit writes `&` before it, which Zig keeps alive through the call |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
@@ -775,13 +844,23 @@ instead of re-deriving it by name:
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read lend of it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
-| `unboxes(node)` | whether a lend of a `Box[T]` makes a view of its `T` (`?b` where a `?T` is expected) |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
-| `takesSubject(match)` | whether a `match` takes its subject, a value made there that cannot be copied, as `match <e` would: its arms own the payloads |
-| `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is recorded as an `arrayViewOf` `borrowed`, walked as `?t[..]` |
+| `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
+| `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is a `lendOf` `text`, walked as `?t[..]` |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
+
+**The lend table.** Which views a value lends (Core §4) is decided in
+one place, `sema.lendsAs(from, kind, view)`: lending a value of type
+`from` to read or to write makes a view of type `view` through a list of
+rows (`LendStep`): `unbox` (a `Box[T]` lends the views of its `T`),
+`elems` (an array lends `[]T`, and `![]T` to write), `text` (a Text
+lends its bytes, a `String`), `read_only` (a `![]T` is lent on as a
+`[]T`), and `callable` (a function or an owned closure lends a
+`?fun(...)`). No rows is the first row, `?T` of a `T`. Typecheck asks it
+where a value meets an expected view (`lendView`) and records the rows
+it used (`lendOf`); the ownership checker and emit read that record.
 
 Leaves are keyed by source position and list nodes by their node id:
 the parser numbers every node it builds (`List.id`), and the Parser
@@ -799,7 +878,7 @@ emitter ask these, never a predicate built for another question:
 |---|---|
 | `typeHasDropGlue` | needs cleanup: a user `drop`, or holds a `*T`, `~T`, Vec, Box, Text, or owned closure |
 | `maybeDropGlue` | holds a type parameter by value, so whether it needs cleanup depends on the instance |
-| `isUnique` | declared `unique`, or holds such a type inline: never copied |
+| `isUnique` | declared `unique`, or a `Cell`, or holds one of those inline: never copied |
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
 | `copyable` | does not move and holds no write view: copied implicitly where it is used |
 | `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), Text copy, copy per instance, or nothing (a value that moves) |
@@ -1375,7 +1454,7 @@ lower is an internal error: sema must have rejected it.
   environment `var __rig_env_N = struct {...}{...}` (dropped at the end
   of the call's block when it owns captures) and then the `FnRef` over
   it. Sema records which expressions are lent this way
-  (`SemContext.callableOf`).
+  (`SemContext.lendOf`, the `callable` row).
 - **Zig-backed declarations.** An `extern zig "file.zig"` block imports
   the file, which `rig` writes into the package as `rig/std/file.zig`
   from the module graph (`Module.shims`, read where the module is), and

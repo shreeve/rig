@@ -1,0 +1,10 @@
+fun first(s: String) -> String
+  s
+
+sub main
+  h = *Text("abc")
+  g = +h
+  r = first(g)
+  -h
+  -g
+  print(r)

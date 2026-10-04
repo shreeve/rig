@@ -1,0 +1,42 @@
+# A branching value in a `for` or `match` header is taken leaf by leaf
+# (Core §3, §5): with `<` on each name, a unique value is moved, never
+# copied, so the loop's elements and the arm's payloads are its own.
+#
+# oracle: loops accept
+# oracle planned: loops accept
+use std.random
+
+struct Die
+  r: random.Random
+
+enum E
+  a(d: Die)
+  b
+
+fun pair(n: U64) -> [2]random.Random
+  [random.Random.seeded(n), random.Random.seeded(n + 1)]
+
+sub loops(f: Bool)
+  a = pair(1)
+  b = pair(3)
+  for r in (<a if f else <b)
+    new g = <r
+    print(!g.next() % 1000 >= 0)
+
+sub matches(f: Bool)
+  x = E.a(d: Die(r: random.Random.seeded(5)))
+  y = E.b
+  match (<x if f else <y)
+    .a(d)
+      new e = <d
+      print(!e.r.next() % 1000 >= 0)
+    .b => pass
+
+sub main()
+  loops(true)
+  matches(true)
+
+# expect:
+# true
+# true
+# true

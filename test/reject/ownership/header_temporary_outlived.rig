@@ -1,8 +1,9 @@
 # A header's temporaries end with the header, so nothing it binds may
-# view one: not a `match` binding, or what a `for` walks. A call's
-# result a `for` lends would end with the header too, and a part of a
-# temporary cannot be moved out of it. (`as` and `match` bindings that
-# borrow one: header_temporary_view_bound.rig.)
+# view one: not what a `for` lends. A call's result a `for` lends would
+# end with the header too, and a part of a temporary cannot be moved out
+# of it. (A bare part of a made value is held for the construct:
+# test/known/ownership/match_made_part_cell_holder.rig. `as` and `match`
+# bindings that borrow one: header_temporary_view_bound.rig.)
 
 struct B
   v: Vec[Int]
@@ -29,9 +30,6 @@ fun mv -> Vec[Int]
   v
 
 sub main
-  match H(e: mke()).e
-    .a(t) => print(t)
-    .z => pass
   for x in ?mk().v
     print(x)
   for n in ?mv()
@@ -39,8 +37,7 @@ sub main
   x = <mk().v
   print(x)
 
-# error: 32:9: the arms' bindings would outlive the temporary `H(e: mke())`
-# error: 35:13: the loop would walk the temporary `mk()` after its header drops it
-# error: 37:13: the loop would walk a borrow of the temporary `mv()` after its header drops it
-# error: 39:7: cannot move a part out of the temporary `mk()`
-# errors: 4
+# error: 33:13: the loop would walk the temporary `mk()` after its header drops it
+# error: 35:13: the loop would walk a borrow of the temporary `mv()` after its header drops it
+# error: 37:7: cannot move a part out of the temporary `mk()`
+# errors: 3

@@ -1,0 +1,22 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+fun geth(h: ?*E) -> ?*E
+  h
+
+sub main
+  h = *E.a(c: Counter(hits: Cell(1)))
+  match geth(h)
+    .a(c) if c.hits.get() > 0 => c.hit()
+    _ => pass
+  match h
+    .a(c) if c.hits.get() > 0 => c.hit()
+    _ => pass
+  print(h)

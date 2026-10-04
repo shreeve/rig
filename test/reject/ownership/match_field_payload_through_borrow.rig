@@ -29,4 +29,4 @@ sub main()
     .empty => print("empty")
 
 # error: cannot move out of `t`: it is borrowed from `h`
-# error: cannot move out of `t`: `sh` is a shared handle
+# error: cannot drop out of `t`: `sh` is a shared handle

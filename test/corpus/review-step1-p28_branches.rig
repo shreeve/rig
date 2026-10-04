@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  a = Counter(hits: Cell(0))
+  b = Counter(hits: Cell(0))
+  f = 1
+  k = match f
+    1 => a
+    _ => b
+  k.hits.set(5)
+  print(a.hits.get())

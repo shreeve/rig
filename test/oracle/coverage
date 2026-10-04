@@ -2,8 +2,10 @@
 # test/run's oracle tests; raise a floor when the oracle grows.
 # The oracle decides header subjects that are made values, parts of
 # made values, and branching values, `unique` types, and Cells and
-# Signals of plain data, so each floor is what it decides now.
+# Signals of plain data, so each floor is what it decides now. A type
+# holding a Cell is unique, so the matrix programs that copy one stop in
+# sema, before either checker decides them.
 tests 1845
 corpus 6091
 docs 315
-matrix 6125
+matrix 6042

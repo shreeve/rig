@@ -1,0 +1,23 @@
+struct Bag
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun size(b: ?Bag) -> Int
+  b.n
+
+fun mk(n: Int) -> Bag
+  print("mk", n)
+  Bag(n: n)
+
+sub main
+  c = false
+  print(size(mk(1)) if c else 0)
+  print(c and size(mk(2)) > 0)
+  o: Int? = 5
+  print(o ?? size(mk(3)))
+  d = true
+  print(size(mk(4)) if d else size(mk(5)))
+  print(d or size(mk(6)) > 0)
+  print("end")

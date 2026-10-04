@@ -1,8 +1,8 @@
 # Each mistake in lending a closure gets one diagnostic whose hint
-# compiles: a closure or a borrow is captured with `|?f|`, an owned
-# closure is lent from its binding with `?cb`, a closure literal goes to
-# a parameter declared `?fun(...)`, and no type argument is a borrowed
-# callable.
+# compiles: a closure or a borrow is captured with `|?f|`, a closure
+# literal goes to a parameter declared `?fun(...)`, and no type argument
+# is a borrowed callable. (An owned closure, bare or made, is lent to a
+# `?fun(...)` argument as `?cb` lends it.)
 
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
@@ -41,9 +41,6 @@ sub main
 
 # error: 22:9: `|+f|` copies a Copy value or clones a `*T` / `~T` handle, but `f` is `?fun(Int) -> Int`; capture it with `|?f|`
 # error: 31:9: but `f` is a closure of type `fun(Int) -> Int`; capture it with `|?f|`
-# error: 33:20: an owned closure is lent to a `?fun(Int) -> Int` parameter: write `?cb`
-# error: 33:34: an owned closure is lent to a `?fun(Int) -> Int` parameter: write `?cb`
-# error: 33:49: bind it first (`cb = ...`), then lend it with `?cb`
 # error: 34:7: `keep` cannot take a borrowed callable for `T`
 # error: 35:7: `Cell` cannot take a borrowed callable for `T`
 # error: 36:9: only a local can be captured; `double` is declared at module level

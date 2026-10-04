@@ -101,9 +101,9 @@ sub main
   generator whose copy would repeat its numbers, says so on the type:
   `struct Random unique`. It moves like an owner. *(built)*
 - **A type that holds a `Cell`**, or a bare `Cell[T]`, is unique too,
-  because a copy would fork state that should be shared. *(planned)*
+  because a copy would fork state that should be shared. *(built)*
 
-```rig pending
+```rig reject
 sub main
   c = Cell(1)
   d = c
@@ -121,10 +121,11 @@ use `<c`
 reads owners and handles in place. It never clones, writes, or drops,
 and it moves only where the value leaves for good: `return x`, `break
 x`, or `x` as the last value of a function or block. *(built* for copies,
-`return x`, and a function's last value; *planned:* a block's last value
-and `break x`, which take `<x` today, and reading in place where `?` is
-still required today, as for a `?T` argument, a `for` over a `Vec`,
-`if o as x`, or a `match` on a `Box`.*)*
+`return x`, a function's last value, and reading in place: an argument
+where a view is expected (`size(v)` for a `?Vec[Int]` parameter), and a
+header's subject (a `for` over a `Vec`, `if o as x`, a `match` on a
+`Box`, whose payload views are usable within their arm only, for now);
+*planned:* a block's last value and `break x`, which take `<x` today.*)*
 
 ```rig
 fun make -> Vec[Int]
@@ -141,7 +142,7 @@ sub main
 1
 ```
 
-```rig pending
+```rig
 sub main
   v: Vec[Int] = Vec()
   !v.push(1)
@@ -442,14 +443,14 @@ a borrow of the temporary `Text("k", "=v")` outlives its statement
 | Owner `x` | `?x` lends | `!x` lends | Status |
 |---|---|---|---|
 | any `T` | `?T` | `!T` | built |
-| `[N]T`, `Vec[T]` | `[]T` | `![]T` | arrays built; `Vec` planned |
+| `[N]T`, `Vec[T]` | `[]T` | `![]T` | built |
 | a place `p.f` or `v[i]` | the views of the field or element | its write views | fields built; elements planned |
 | a held `!T` | `?T` | `!T` (lent on) | built |
 | `![]T` | `[]T` | `![]T` (lent on) | built |
 | `Text` | `String` (also `String?`) | `!Text` | built |
-| `Box[T]` | the views of `T` | the write views of `T` | one level built; composing planned |
-| `*T` | the read views of `T` | nothing of the value (`!h` lends the handle itself) | planned |
-| `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | planned |
+| `Box[T]` | the views of `T` | the write views of `T` | built |
+| `*T` | the read views of `T` | nothing of the value (`!h` lends the handle itself) | built |
+| `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
 | a function or closure | `?fun` | | built |
 
 A read view of plain data copies, and carries no loan once copied out,
@@ -504,7 +505,7 @@ sub main
 cannot write-borrow `t` while a read borrow is live
 ```
 
-```rig pending
+```rig
 use std.sort
 
 sub main

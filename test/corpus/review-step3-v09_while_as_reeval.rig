@@ -1,0 +1,15 @@
+struct Node
+  n: Int
+  next: Box[Node]?
+
+sub main
+  o: Vec[Int]? = Vec()
+  k = 0
+  while o as x
+    k += 1
+    print(x.len, k)
+    if k == 2
+      o = none
+    else
+      o = Vec()
+  print("end")

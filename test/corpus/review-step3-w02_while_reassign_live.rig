@@ -1,0 +1,7 @@
+sub main
+  o: Vec[Int]? = Vec()
+  k = 0
+  while o as x
+    o = none
+    print(x.len)
+    k += 1

@@ -408,16 +408,18 @@ caller's array. An array parameter taken by value (`xs: [N]T`) is the
 function's own, so a borrow of it cannot be returned.
 
 An array goes where a slice is expected in three ways. Where a `[]T`
-is expected, `?a` of a named array (or a field or element of one)
-means `?a[..]`, and where a `![]T` is expected, `!a` means `!a[..]`:
-the sigil shows the borrow, which is the slice's. A bare named array
-there is rejected, since it would borrow the array unseen. A temporary
-array, a literal, a fill, or a call's result, is accepted as a `[]T`
-argument of a function or method call that keeps no borrow of its
-arguments (its result holds none, and it writes through no borrow into
-anything that could hold one): it borrows nothing named, and it lives
-until the call returns. Anywhere else, such as a struct field or a call
-that returns a slice, it is rejected; bind it to a name and pass `?a`.
+is expected, `?a` of an array means `?a[..]`, and where a `![]T` is
+expected, `!a` means `!a[..]`: the sigil shows the borrow, which is the
+slice's. A Vec is lent the same way (`sort.sort(!v)`), and so is an
+array or Vec in a box (`?b` of a `Box[[3]Int]`) or behind a read view
+(a `?Vec[Int]` parameter passed where a `[]Int` is expected). As an
+argument the `?` may go unwritten (`total(a)` lends `a` to read, as
+`total(?a)` does, [Borrows](#borrows)); anywhere else, such as a
+binding or a field, the lend is written. A temporary array, a literal,
+a fill, or a call's result, passed as a `[]T` argument is lent as a
+temporary of its statement: it lives until the statement ends, so a
+call that returns a view of it is rejected where the view outlives the
+statement; bind it to a name and pass `?a`.
 
 ```rig
 fun total(xs: []Int) -> Int
@@ -454,13 +456,25 @@ fun id(xs: []Int) -> []Int
 sub main
   a = [1, 2, 3]
   print(total(a))
+  s: []Int = a
+  print(s)
+```
+
+```error
+type mismatch: expected `[]Int`, got `[3]Int`; write `?a` or `?a[..]`
+```
+
+```rig reject
+fun id(xs: []Int) -> []Int
+  xs
+
+sub main
   r = id([1, 2])
   print(r)
 ```
 
 ```error
-type mismatch: expected `[]Int`, got `[3]Int`; write `?a` or `?a[..]`
-a temporary array is lent as a `[]Int` only to a call that keeps no borrow of it
+a borrow of the temporary `[1, 2]` outlives its statement
 ```
 
 `!xs[a..b]` is a **writable slice**, of type `![]T`: a write borrow of
@@ -690,7 +704,7 @@ borrow: `*(?User)` is rejected.
 ### Copy values and owning values
 
 A **Copy** value is plain data: numbers, `Bool`, `String`, plain enums,
-and optionals, arrays, structs, and `Cell`s that hold only Copy values.
+and optionals, arrays, and structs that hold only Copy values.
 Using one copies it. A copy of a String that views a Text carries the
 Text's borrow ([§10](#text)).
 
@@ -703,13 +717,13 @@ ownership rules of [§7](#7-ownership) apply to them.
 
 A **unique** value owns nothing to release but must not be copied: a
 struct declared `unique` (`struct Random unique`, a generator whose
-copy would repeat its numbers), or any struct, enum, array, or generic
-instance that holds one inline. It moves like an owning value, has no
+copy would repeat its numbers), a `Cell` (a copy would fork the state
+it shares), or any struct, enum, array, or generic instance that holds
+one of those inline. It moves like an owning value, has no
 clone (`+x`) and no `==`, and nothing copies it out of a place; it has
 no drop glue, so an array may hold it and a discarded one is simply
-dropped. A loop that reads an array or slice binds a copy of each
-element, so a loop over unique elements writes each in place (`for x
-in !a`) or takes the array (`for x in <a`).
+dropped. A loop that reads an array or slice of them binds a view of
+each element (`?E`), never a copy.
 
 ```rig reject
 struct Seed unique
@@ -2152,11 +2166,14 @@ evaluated once). `for x, i in xs` also binds the index (not for
 ranges); the element comes first, the reverse of Python's
 `enumerate`, and where a loop written index first gives a binding the
 other's type, the error says so. An `else` block runs when the loop ends without `break`. A
-`Vec` is walked in place, so the loop borrows it and says so:
-`for x in ?v` ([§10](#vec)); a bare `for x in v` over a Vec binding or
-field is rejected with that fix. An array is copied, and a slice or
-String is a view, so they are walked bare, as is a Vec a call returns,
-which the loop owns and drops.
+source that is a place is walked where it stands: `for x in v` is
+`for x in ?v`, which lends `v` to read for the whole loop ([§10](#vec)),
+so an element of plain data is a copy and any other element a view of
+its slot (`?E`). A value the source makes is taken: a Vec a call
+returns is consumed, and an array made there whose elements move is
+held for the loop, which owns its elements. A part of a value made
+there (`mk().items`) is walked in that value, which the loop holds
+until it ends.
 
 ```rig
 sub find(xs: ?[4]Int, target: Int)
@@ -2373,8 +2390,18 @@ negation and is rejected, as `!flag` is anywhere a `!Bool` is not
 expected. `match !e` needs a place that may be
 written, as `!e` does, and while one of its bindings is live `e` cannot
 be used otherwise. `match <e` needs a value `e` owns, not a borrow. A
-boxed enum is matched through a borrow of the box, `match ?b` or
-`match !b` ([§10](#box)).
+boxed enum is matched where the box holds it, `match b` (as `match ?b`)
+or `match !b` ([§10](#box)), and so is the value a handle holds,
+`match h`, which reads it. A read binding that is not plain data is a
+view (`?F`) of the field where it is, and it is usable within its arm
+only: it may be read, lent to a call, and have its `Cell` changed there,
+but a view of it is not returned, stored past the arm, or given as the
+match's value ("a view of `r` does not outlive the `match` that reads
+`e`"); copy what it holds (`+r`, or a plain field), or take the subject
+with `match <e`. A match on a part of a value made there (`match mk().e`)
+holds that value until the match ends when the part is not plain data,
+so its payloads are read where they are; a part of plain data is read
+in the header, whose temporaries end with it.
 
 ```rig
 struct B
@@ -2754,8 +2781,13 @@ A payload binding of `match <s` owns its field and may move it on
 
 A borrow lends a value without giving it up. `?x` is a read borrow and
 `!x` a write borrow, and borrowed parameter types say the same thing:
-`b: ?Wrap` reads, `b: !Wrap` writes. Every borrow is visible at the call
-site.
+`b: ?Wrap` reads, `b: !Wrap` writes. A write borrow is always visible
+at the call site; a read borrow of an argument may go unwritten: where
+a parameter takes a view, a bare argument is lent to read where it is,
+as `?x` would lend it, and its owner stays lent for as long as the
+view is used (`balance_of(acct)` is `balance_of(?acct)`). A value made
+there (`balance_of(open())`) is lent as a temporary of its statement.
+A lend kept in a binding or a field is always written.
 
 ```rig
 struct Account
@@ -3483,6 +3515,11 @@ write `<a` or `+a`. Sharing a value that is already a shared handle
 **Access is read-only.** Field reads, element reads (`h[i]` of a
 `*[N]T`, `*Vec[T]`, or `*String`), and `?self` methods reach through a
 handle automatically, including through fields and loop elements.
+`?h` lends the value's read views where one is expected: one
+`fun area(s: ?Shape)` takes a `?h` of a `*Shape`, and a `*Text` lends
+a String. The loan is on `h`, so `h` may not be dropped, moved, or
+reassigned while the view is used. `!h` lends only the handle itself
+(a `!*T`), never a write view of the value.
 Writing a field, calling a `!self` method, or consuming the value
 through a handle is rejected, because other handles share it; shared
 mutable state goes in a `Cell` ([§10](#cell)). The built-in `Vec` is no
@@ -3586,14 +3623,12 @@ with `pop`, or by taking the whole Vec out with `replace`.
 
 A Cell is interior-mutable: `set` and `replace` change it through any
 path to it, including a read borrow (`?Cell[T]`), a `?self` method of a
-struct holding one, and a shared handle. A by-value parameter holds the
-callee's own value, and is immutable: `set` and `replace` are not
-called on a Cell reached from the parameter itself (`c.hits.set(v)`
-with `c: Counter`), though a `?self` method may change it and it may be
-lent (`bump(?c)`). A loop or match binding holds a copy of the element
-or payload it binds, so nothing changes a Cell through it: a `?self`
-method that may change one, a lend, `set`, and `replace` on it are
-rejected, since the change would reach only the copy.
+struct holding one, and a shared handle. A value holding a Cell is
+unique ([§2](#copy-values-and-owning-values)), so every binding of one is its place: a
+by-value parameter owns the value moved into it (`c.hits.set(v)` with
+`c: Counter` changes the callee's own), and a loop or match binding is
+a view of the element or payload where it is, or owns one a loop or
+match takes; only a temporary's Cell has no place.
 
 ```rig
 struct Counter
@@ -3661,8 +3696,8 @@ shared handles (including owned closures), weak handles, or boxes.
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
 
-A `for` loop borrows the Vec for the whole loop, so it cannot be
-modified inside it, and the source says so: `for x in ?v`. Each element
+A `for` loop lends the Vec to read for the whole loop, so it cannot be
+modified inside it: `for x in v` is `for x in ?v`. Each element
 of Copy values is a copy; one of owning values is a borrowed slot,
 where `v` must be a binding or a field of one: the element can be
 read, called, and cloned (`+x` is a new handle), but not moved,
@@ -3746,8 +3781,8 @@ Long chains of boxes are released without deep recursion.
 | Member | Meaning |
 |---|---|
 | `Box(v)` | move `v` into a new box |
-| `b.f`, `b.m(...)` | a field or method of a boxed struct or enum, reached through the box |
-| `?b`, `!b` | lend the box, or, where a `?T` or `!T` is expected, the value inside it |
+| `b.f`, `b.m(...)` | a field or method of the boxed value, reached through the box (and through any boxes it holds): a struct's or enum's, a Vec's (`!b.push(x)`, `b.len`), a Text's (`!b.add(s)`, `b.len`) |
+| `?b`, `!b` | lend the box, or, where a view of the value is expected, that view: `?T` or `!T`, a `[]T` of a boxed array or Vec, a `String` of a boxed Text, through any number of boxes |
 | `<b.unbox()` | move the value out; the box is freed |
 | `<s.f` | take an optional box out of a field, leaving `none` ([§7](#moves)) |
 | `match ?b`, `match !b` | match a boxed enum where it is |
@@ -3755,9 +3790,9 @@ Long chains of boxes are released without deep recursion.
 The box is reached as it is held: through an owned box or a `!Box[T]`
 its value can be written, through a `?Box[T]` only read. A consuming
 (`<self`) method of the value, `<b.m()`, takes the value out of the box
-first. `T` holds no borrow. A box of anything other than a struct or
-enum (a number, a Vec, an array) reaches no members through it: it is
-lent as its value or taken apart. A Vec holds boxes as it holds handles:
+first. `T` holds no borrow. A box has no field of its own: `b.value`
+of a `Box[Int]` names nothing, and the number is lent (`?b`) or taken
+apart. A Vec holds boxes as it holds handles:
 walked by borrowed slot and moved out with `pop` ([Vec](#vec)).
 
 A recursive enum holds its children in boxes, and a function reads one
@@ -4361,6 +4396,7 @@ expected, and `none` needs a known optional type.
 | `a == v`, `a != v` | whether `a` holds the value `v`, a `T` |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
 | `if ?a as x`, `if !a as x` | the same, with `x` borrowing the value inside `a` |
+| `?a` where a `View?` is expected | a view of the value inside `a`, or `none`: `?a` of an `S?` where a `(?S)?` is expected, of a `Text?` where a `String?` is, of a `Vec[Int]?` where a `([]Int)?` is; `?a` itself is a `?(S?)` |
 | `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§7](#moves)) |
 | `while a as x` | repeat while `a` produces a value |
 | `if a as x and b as y`, `if a as x and x > 0` | bindings and `Bool` conditions joined by `and`; `else` runs when any fails |
@@ -4422,8 +4458,9 @@ grace none none
 An optional of an owning value (such as `*T?` from `upgrade()`) owns
 what it holds. `if e as x` over a temporary gives `x` ownership, and it
 is dropped at the end of the block. An optional held in a binding is
-bound by moving or cloning it: `if <m as x`, `if +m as x`, and
-unwrapped the same way: `(<m)?`.
+read where it is: `if m as x` is `if ?m as x`. To take its value, move
+or clone it: `if <m as x`, `if +m as x`, and it is unwrapped the same
+way: `(<m)?`.
 
 To use the value where it is, borrow the optional: `if ?m as x` binds
 `x` as a read borrow of the value (`?T`), and `if !m as x` as a write

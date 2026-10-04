@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+fun two() -> [2]Counter
+  [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+
+sub main()
+  one = [Counter(hits: Cell(1))]
+  saved = ?one[0]
+  for k in two()
+    saved = k
+  print(saved.hits.get())

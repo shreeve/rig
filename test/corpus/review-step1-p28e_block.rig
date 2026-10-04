@@ -1,0 +1,9 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  a = Counter(hits: Cell(0))
+  k = do
+    x = 1
+    a
+  print(k)

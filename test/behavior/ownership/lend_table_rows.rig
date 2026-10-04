@@ -1,0 +1,91 @@
+# Each row of the lend table (Core §4) makes the view its context
+# expects: a Vec lends `[]T` and `![]T` as an array does, a `*T` lends
+# the read views of its `T`, an `X?` lends a `View?`, a box lends the
+# views of its value through any number of boxes, and a view a
+# parameter holds lends what it views.
+use std.sort
+
+struct S
+  n: Int
+
+fun total(xs: []Int) -> Int
+  t = 0
+  for x in xs
+    t += x
+  t
+
+sub zero(xs: ![]Int)
+  xs[0] = 0
+
+fun get(s: ?S) -> Int
+  s.n
+
+sub inc(s: !S)
+  s.n += 1
+
+fun first(s: String) -> String
+  s[..1]
+
+fun maybe(s: (?S)?) -> Int
+  if s as x
+    return x.n
+  -1
+
+fun size(xs: ([]Int)?) -> Int
+  if xs as s
+    return s.len
+  -1
+
+fun name(s: String?) -> String
+  s ?? "none"
+
+sub sort_held(v: !Vec[Int])
+  sort.sort(!v)
+
+fun sum_held(v: ?Vec[Int]) -> Int
+  total(v)
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  !v.push(1)
+  !v.push(2)
+  sort.sort(!v)
+  print(v, total(?v), sum_held(?v))
+  !v.push(0)
+  sort_held(!v)
+  zero(!v)
+  print(v)
+  h = *S(n: 4)
+  t = *Text("hello")
+  print(get(?h), first(?t))
+  o: S? = S(n: 5)
+  e: S? = none
+  ot: Text? = Text("hi")
+  ov: Vec[Int]? = <v
+  print(maybe(?o), maybe(?e), name(?ot), size(?ov))
+  a = [1, 2, 3]
+  print(size(?a))
+  bb = Box(Box(S(n: 6)))
+  inc(!bb)
+  ba = Box([4, 5, 6])
+  bt = Box(Text("box"))
+  print(get(?bb), total(?ba), first(?bt))
+  w: Vec[Int] = Vec()
+  !w.push(7)
+  !w.push(8)
+  bv = Box(<w)
+  zero_boxed(!bv)
+  print(total(?bv))
+
+sub zero_boxed(b: !Box[Vec[Int]])
+  zero(!b)
+
+# expect:
+# [1, 2, 3] 6 6
+# [0, 1, 2, 3]
+# 4 h
+# 5 -1 hi 4
+# 3
+# 7 15 b
+# 8

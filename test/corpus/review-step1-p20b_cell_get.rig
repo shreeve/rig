@@ -1,0 +1,7 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  box = Cell(Counter(hits: Cell(5)))
+  k = box.get()
+  print(k.hits.get())

@@ -1,0 +1,22 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(n: Int)
+
+fun whole(e: ?E) -> ?E
+  match e
+    .b(_) => e
+    x => ?x
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("hello")))
+  x = whole(e)
+  print(clobber(1000))
+  print(x)

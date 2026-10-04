@@ -1,0 +1,15 @@
+fun first[T](xs: []T) -> ?T
+  ?xs[0]
+
+fun keep[T](x: ?T) -> ?T
+  x
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(4)
+  a = [1, 2]
+  print(first(v), first(a))
+  t = Text("q")
+  k = keep(t)
+  print(k)
+  !t.add("z")

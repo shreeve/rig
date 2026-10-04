@@ -1,0 +1,26 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+fun find(v: ?Vec[Box[E]], d: ?Res) -> ?Res
+  found = d
+  for e in v
+    match e
+      .a(r) if r.n > 1 => found = r
+      .a(r) => print("small", r.n)
+      .b => pass
+  found
+
+sub main
+  v: Vec[Box[E]] = Vec()
+  !v.push(Box(E.a(r: Res(n: 1, t: Text("one")))))
+  !v.push(Box(E.a(r: Res(n: 2, t: Text("two")))))
+  d = Res(n: 0, t: Text("d"))
+  x = find(v, d)
+  arr = [1, 2, 3, 4, 5, 6, 7, 8]
+  print(arr[2])
+  print(x.n, x.t)
