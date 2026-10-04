@@ -43,6 +43,9 @@ pub const Info = struct {
     drop_reads: bool,
     /// Why the oracle does not model values of this type yet.
     unsupported: ?[]const u8,
+    /// In a generic body: it moves only because it holds a type
+    /// parameter, whose instances may copy (SPEC "Generic bodies").
+    generic_copy: bool = false,
 };
 
 pub const Kinds = struct {
@@ -52,6 +55,11 @@ pub const Kinds = struct {
     /// (Core §1, planned).
     planned: bool,
     memo: std.AutoHashMapUnmanaged(TypeId, Info) = .empty,
+    /// Kinds in a generic body: a type parameter is owning and holds no
+    /// view (SPEC "Generic bodies"), which is what the compiler checks
+    /// the body for; each instance is checked against what the body
+    /// does with it.
+    generic: bool = false,
 
     pub fn init(a: std.mem.Allocator, ctx: *const SemContext, planned: bool) Kinds {
         return .{ .a = a, .ctx = ctx, .planned = planned };
@@ -67,14 +75,14 @@ pub const Kinds = struct {
         const ti = ctx.typeInfo(ty);
         var scan: Scan = .{ .a = self.a };
         defer scan.seen.deinit(self.a);
-        try scan.walk(ctx, ty, 0, false);
+        try scan.walk(ctx, ty, 0, self.generic);
         const kind: Kind = switch (ctx.types.get(ty)) {
             .borrow_write => .write_view,
             .borrow_read, .slice, .string => .read_view,
             // A unique value moves and is dropped once, like an owner
             // (Core §1): a declared one, and under the planned rule one
             // holding a Cell.
-            else => if (ti.glue or ti.unique or (self.planned and ti.cell))
+            else => if (ti.glue or ti.unique or (self.planned and ti.cell) or (self.generic and (ti.holds_type_var or ctx.types.get(ty) == .type_var)))
                 .owning
             else if (ti.borrows.write)
                 .write_view
@@ -90,6 +98,7 @@ pub const Kinds = struct {
             .reaches_text = ti.borrows.text or ctx.types.get(ty) == .text,
             .drop_reads = scan.drop_body and kind == .owning,
             .unsupported = if (ti.poison) "a type with an error" else scan.unsupported,
+            .generic_copy = kind == .owning and !(ti.glue or ti.unique or (self.planned and ti.cell)),
         };
         try self.memo.put(self.a, ty, info);
         return info;

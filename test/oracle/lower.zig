@@ -172,16 +172,21 @@ const Lowerer = struct {
     in_defer: bool = false,
     /// While a deferred body is lowered: the first var it declares.
     defer_vars: VarId = 0,
+    /// The payloads a pattern binds of a place the function owns.
+    owned_payloads: std.AutoHashMapUnmanaged(VarId, void) = .empty,
+    /// The elements a `for` binds.
+    loop_elems: std.AutoHashMapUnmanaged(VarId, void) = .empty,
     /// The locals a stack closure literal is bound to.
     closure_bindings: std.AutoHashMapUnmanaged(VarId, void) = .empty,
 
     // ---- the function ---------------------------------------------------
 
     fn run(self: *Lowerer, unit: Unit) Error!void {
-        if (unit.generic_owner) return abstain("a generic body");
         const decl = unit.decl;
         const kind = decl.kind().?;
-        if ((kind == .fun or kind == .sub) and ir.get(decl, .tparams) != .nil) return abstain("a generic body");
+        // A generic body is checked once, for every instance (SPEC
+        // "Generic bodies").
+        self.kinds.generic = unit.generic_owner or ((kind == .fun or kind == .sub) and ir.get(decl, .tparams) != .nil);
         const entry = try self.newBlock();
         self.cur = entry;
         try self.regions.append(self.a, .{});
@@ -601,6 +606,12 @@ const Lowerer = struct {
         }
         try self.keptByDefer(x, self.posOf(s));
         try self.keptByClosure(x, self.posOf(s));
+        // Dropping a generic loop element ends a copy (SPEC "Generic
+        // bodies").
+        if (self.loop_elems.contains(x) and (try self.kinds.of(xv.ty)).generic_copy) {
+            try self.emit(.{ .pos = self.posOf(s), .what = .use, .uses = try self.one(x) });
+            return;
+        }
         // A payload seen through a view is the subject's (§5).
         if (xv.alias) return self.found(.C7, self.posOf(s), "a payload seen through a view is not dropped; take the subject with `<`", .{});
         try self.emit(.{ .pos = self.posOf(s), .what = .kill, .uses = try self.one(x), .kill = x, .access = .{ .root = x, .kind = .whole } });
@@ -657,6 +668,9 @@ const Lowerer = struct {
         /// header's temporary, which the tests of the statement may read
         /// but no binding may view (Core §3).
         lent_temp: bool = false,
+        /// For a lend of a place the function owns: its payloads are that
+        /// place's.
+        of_owner: bool = false,
     };
 
     /// The value of `if e as x`, `while e as x`, or a `match` subject: a
@@ -680,14 +694,16 @@ const Lowerer = struct {
         const h = try self.hold(v, "the `as` value", pos);
         try self.popRegion(pos);
         var carry_from: ?VarId = null;
+        var of_owner = false;
         // A bare place read where it stands is `?p`.
         const lent_place: ?Sexp = if (value.isKind(.read)) ir.Read.operand(value) else if (is_place and bare == .read) value else null;
         if (lent_place) |lp| if (self.rootVar(lp)) |r| {
             const rv = self.f.vars.items[r];
             if (rv.kind != .write_view and !rv.alias) carry_from = r;
+            of_owner = rv.kind == .owning and !rv.alias;
         };
         const lent_temp = (value.isKind(.read) or value.isKind(.write)) and self.madeSubject(ir.get(value, .operand));
-        return .{ .v = h, .pos = pos, .ty = ty, .carry_from = carry_from, .lent_temp = lent_temp };
+        return .{ .v = h, .pos = pos, .ty = ty, .carry_from = carry_from, .lent_temp = lent_temp, .of_owner = of_owner };
     }
 
     /// What a header's subject hands over (Core §3), lowered inside the
@@ -823,6 +839,7 @@ const Lowerer = struct {
         if (held_view and xv.kind != .plain) {
             // An owner's payload seen through the view: an alias.
             xv.alias = xv.kind == .owning;
+            if (xv.alias and h.of_owner) try self.owned_payloads.put(self.a, x, {});
             xv.kind = hv.kind;
             xv.holds_views = true;
             xv.holds_pointers = true;
@@ -1104,6 +1121,7 @@ const Lowerer = struct {
         const var_leaf = ir.For.@"var"(s);
         if (var_leaf != .nil and !std.mem.eql(u8, var_leaf.getText(self.src), "_")) {
             try self.bindHeld(var_leaf, .{ .v = src_var, .pos = pos, .ty = src_ty }, self.elementOf(src_ty));
+            try self.loop_elems.put(self.a, @intCast(self.f.vars.items.len - 1), {});
         }
         const idx_leaf = ir.For.index(s);
         if (idx_leaf != .nil and !std.mem.eql(u8, idx_leaf.getText(self.src), "_")) {
@@ -1653,6 +1671,12 @@ const Lowerer = struct {
                     .ret => if (p.path.len == 0 and p.via == .own and !self.f.vars.items[p.root].hidden) return try self.moveWhole(p.root, pos),
                     .take => {},
                 }
+                // A generic body may copy a `T`, which each instance must
+                // allow (SPEC "Generic bodies"); not a payload of a place
+                // the function owns, as its result, which would move out
+                // of that place.
+                const payload = how == .ret and self.owned_payloads.contains(p.root);
+                if (info.generic_copy and !payload) return try self.copy(p, p.ty, pos);
                 return self.found(.C2, pos, "a bare `{s}` owns a resource and would be copied; write `<` or `+`", .{self.textOf(e)});
             },
         }
@@ -1680,6 +1704,10 @@ const Lowerer = struct {
     fn moveWhole(self: *Lowerer, root: VarId, pos: u32) Error!VarId {
         try self.keptByDefer(root, pos);
         try self.keptByClosure(root, pos);
+        // A loop element of a generic type taken from a collection the
+        // loop reads is a copy, which each instance must allow (SPEC
+        // "Generic bodies").
+        if (self.loop_elems.contains(root) and (try self.kinds.of(self.f.vars.items[root].ty)).generic_copy) return try self.copy(self.rootPlace(root), self.f.vars.items[root].ty, pos);
         if (self.f.vars.items[root].alias) return self.found(.C7, pos, "a payload seen through a view does not move out; take the subject with `<`", .{});
         if (self.isFinding(root)) return abstain("an index that moves its place's root");
         const t = try self.temp(self.f.vars.items[root].ty, pos);
@@ -1768,6 +1796,7 @@ const Lowerer = struct {
             .kinds = kinds.Kinds.init(self.a, self.ctx, self.planned),
             .planned = self.planned,
         };
+        inner.kinds.generic = self.kinds.generic;
         inner.runClosure(e) catch |err| switch (err) {
             error.Found => {},
             else => |x| return x,
@@ -1906,9 +1935,12 @@ const Lowerer = struct {
         var access: ?core.Access = null;
         var activation: ?core.LoanId = null;
 
-        // Whether an instance suits a generic body is not ownership's
-        // question here (SPEC "Generic bodies").
-        if (self.ctx.genericCallOf(e) != null) return abstain("a call of a generic function");
+        // A generic function or type at type arguments of plain data is
+        // checked by its signature here; at others, whether the body
+        // suits the instance is the instance's question (SPEC "Generic
+        // bodies"), which the oracle does not answer.
+        if (self.ctx.genericCallOf(e)) |gc| for (gc.type_args) |t| try self.plainInstanceArg(t);
+        try self.plainInstance(try self.typeOf(e));
 
         // What each argument goes to.
         var shapes: []const Shape = &.{};
@@ -1940,8 +1972,6 @@ const Lowerer = struct {
                     shapes = try self.shapesOf(self.ctx, ft.function.params);
                 },
                 .nominal_type, .generic_type, .type_alias => {
-                    const built_in = sym_id.? == self.ctx.vec_sym_id or sym_id.? == self.ctx.box_sym_id or sym_id.? == self.ctx.cell_sym_id or sym_id.? == self.ctx.signal_sym_id;
-                    if (s.kind == .generic_type and !built_in) return abstain("a generic constructor");
                     is_ctor = true;
                 },
                 // A closure, a function value, or a view of one: the
@@ -2108,7 +2138,10 @@ const Lowerer = struct {
             .borrow_read, .borrow_write => |t| t,
             else => return v,
         };
-        if (!(try self.kinds.of(inner_ty)).kind.copies()) return v;
+        // A generic body reads a `T` by value where its instances do
+        // (SPEC "Generic bodies": the copy is the instance's question).
+        const inner = try self.kinds.of(inner_ty);
+        if (!inner.kind.copies() and !inner.generic_copy) return v;
         const t = try self.temp(inner_ty, pos);
         try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(v), .def = t });
         return t;
@@ -2139,6 +2172,35 @@ const Lowerer = struct {
         return out;
     }
 
+    /// A value of a user generic type at type arguments of plain data;
+    /// any other type passes.
+    fn plainInstance(self: *Lowerer, ty: TypeId) Error!void {
+        switch (self.ctx.types.get(ty)) {
+            .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible => |inner| return self.plainInstance(inner),
+            .parameterized_nominal => |pn| {
+                if (sema.isBuiltinGeneric(self.ctx, pn.sym)) {
+                    for (pn.args) |a| try self.plainInstance(a);
+                    return;
+                }
+                for (pn.args) |a| try self.plainInstanceArg(a);
+            },
+            else => {},
+        }
+    }
+
+    /// A type argument of plain data. An instance at a String is checked
+    /// against whether the body stores a `T` where no loan may go (Core
+    /// s9), which the oracle does not answer either.
+    fn plainInstanceArg(self: *Lowerer, t: TypeId) Error!void {
+        if (t == sema.type_invalid) return;
+        // A generic body's own parameters: each instance of it is checked
+        // where it is made.
+        if (self.kinds.generic and self.ctx.typeInfo(t).has_type_var) return;
+        if (self.ctx.types.get(t) == .ct_value) return;
+        if ((try self.kinds.of(t)).kind == .plain) return;
+        return abstain("a generic instance at an owner or a view");
+    }
+
     const MethodParams = struct { ctx: *const sema.SemContext, params: []const TypeId };
 
     /// How a method takes its receiver, and its other parameters' types.
@@ -2154,6 +2216,7 @@ const Lowerer = struct {
         }
         const inner_obj = if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
         var recv_ty = try self.typeOf(inner_obj);
+        try self.plainInstance(recv_ty);
         // A method of what a handle holds reads it through the handle
         // (Core s8).
         switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, recv_ty))) {
