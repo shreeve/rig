@@ -2983,7 +2983,7 @@ pub const Emitter = struct {
                 return self.w.print("rig.rt({s})", .{local.zig_name});
             }
             if (tail and self.ptr_tail and local.is_ptr) return self.w.writeAll(local.zig_name);
-            return if (tail and self.takesTail(sexp, local)) self.writeTake(local) else self.writeLocalPlace(local);
+            return if (tail and try self.takesTail(sexp, local)) self.writeTake(local) else self.writeLocalPlace(local);
         }
         if (std.mem.eql(u8, name, "none")) return self.w.writeAll("null");
         if (name[0] == '\'') return writeSingleQuoted(self.w, name);
@@ -3038,14 +3038,13 @@ pub const Emitter = struct {
     /// Whether name `sexp`, at a tail of the value being emitted, moves
     /// out of `local`: only where the value's context takes it
     /// (`sema.Use`), never where it is read in place. A binding no drop
-    /// flag guards has nothing to disarm.
-    fn takesTail(self: *const Emitter, sexp: Sexp, local: *const Local) bool {
+    /// flag guards has nothing to disarm. A value whose context recorded
+    /// no use is an internal error in every build: neither a move nor a
+    /// read is right without one.
+    fn takesTail(self: *Emitter, sexp: Sexp, local: *const Local) Error!bool {
         if (consumeFlag(local) == null) return false;
         if (self.sema.readsInPlace(sexp)) return false;
-        const use = self.use orelse {
-            if (@import("builtin").mode == .debug) std.debug.panic("emit: no use is recorded for the value whose tail is `{s}`", .{self.source[sexp.src.pos..][0..sexp.src.len]});
-            return false;
-        };
+        const use = self.use orelse return self.unsupported(sexp, "a value whose use no context recorded");
         return use == .take;
     }
 
