@@ -101,9 +101,9 @@ sub main
   generator whose copy would repeat its numbers, says so on the type:
   `struct Random unique`. It moves like an owner. *(built)*
 - **A type that holds a `Cell`**, or a bare `Cell[T]`, is unique too,
-  because a copy would fork state that should be shared. *(planned)*
+  because a copy would fork state that should be shared. *(built)*
 
-```rig pending
+```rig reject
 sub main
   c = Cell(1)
   d = c

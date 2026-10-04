@@ -3,13 +3,8 @@
 # payload is the body's own, a place a `?self` method changes (Core s9),
 # and `<k` moves it out.
 #
-# Known bug: today each binding is a copy, and a change through it is
-# rejected ("`k` is a loop or match binding, a copy").
-#
 # oracle: loops accept
 # oracle: ifs accept
-# oracle planned: loops accept
-# oracle planned: ifs accept
 
 struct Counter
   hits: Cell[Int]

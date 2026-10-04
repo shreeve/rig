@@ -3498,10 +3498,12 @@ pub fn maybeDropGlue(ctx: *const SemContext, ty: TypeId) bool {
 /// `depends` when each instance answers for itself.
 pub const Answer = enum { no, yes, depends };
 
-/// Whether `ty` is declared `unique` or holds such a type inline (not
-/// behind a handle, a view, or a Vec's or Box's heap memory).
+/// Whether `ty` is unique: declared `unique`, or a `Cell`, or holds one
+/// of those inline (not behind a handle, a view, or a Vec's or Box's
+/// heap memory). A copy of a Cell would fork the state it shares.
 pub fn isUnique(ctx: *const SemContext, ty: TypeId) bool {
-    return ctx.holds(ty).unique;
+    const info = ctx.holds(ty);
+    return info.unique or info.cell;
 }
 
 /// Whether a bare use of a value of `ty` moves it rather than copying
@@ -5801,14 +5803,19 @@ test "type facts: unique reaches what holds it inline" {
         try std.testing.expectEqual(Clone.no, cloneable(ctx, t));
         try std.testing.expect(!isPlainData(ctx, t));
     }
-    // A Cell, and what holds one inline, is not unique: it copies.
+    // A Cell, and what holds one inline, is unique, but owns nothing: an
+    // array takes it. Behind a handle it is shared, not unique.
     const counter = try nominal(ctx, "Counter");
     const cell_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.cell_sym_id, .args = &.{ctx.types.int_id} } });
-    for ([_]TypeId{ counter, cell_int }) |t| {
-        try std.testing.expect(!isUnique(ctx, t));
-        try std.testing.expectEqual(Answer.no, moves(ctx, t));
-        try std.testing.expectEqual(Clone.copy, cloneable(ctx, t));
+    for ([_]TypeId{ counter, cell_int, try ctx.intern(.{ .array = .{ .elem = counter, .len = two } }) }) |t| {
+        try std.testing.expect(isUnique(ctx, t));
+        try std.testing.expectEqual(Answer.yes, moves(ctx, t));
+        try std.testing.expectEqual(Clone.no, cloneable(ctx, t));
+        try std.testing.expect(!typeHasDropGlue(ctx, t));
     }
+    const shared_counter = try ctx.intern(.{ .shared = counter });
+    try std.testing.expect(!isUnique(ctx, shared_counter));
+    try std.testing.expectEqual(Clone.bump, cloneable(ctx, shared_counter));
 }
 
 /// Walk every expression position of a body and report nodes sema left

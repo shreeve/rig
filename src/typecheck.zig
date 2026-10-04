@@ -1332,16 +1332,23 @@ const Checker = struct {
         } else false;
         if (reached or place.indirect) return true;
         switch (place.root) {
-            .local, .constant, .global, .capture, .borrowed => return true,
-            // A binding that owns what it binds: an `as` binding, or an
-            // element or payload of a value a loop or match takes.
-            .pattern => if (place.sym) |id| if (self.ctx.symbols.items[id].flags.as_bound or self.owned_bindings.contains(id)) return true,
+            // A by-value parameter owns the value moved into it.
+            .local, .constant, .global, .capture, .borrowed, .param => return true,
+            .pattern => if (self.ownsBinding(place)) return true,
             else => {},
         }
         if (at.isKind(.index)) {
             try self.errAt(at, cell_place, .{ "c[i] = e", "" });
         } else try self.errAt(at, cell_place, .{ "Cell.", self.text(at) });
         return false;
+    }
+
+    /// Whether `place` starts from a binding that owns what it binds: an
+    /// `as` binding, or an element or payload of a value a loop or match
+    /// takes.
+    fn ownsBinding(self: *Checker, place: Place) bool {
+        const id = place.sym orelse return false;
+        return self.ctx.symbols.items[id].flags.as_bound or self.owned_bindings.contains(id);
     }
 
     /// Synthesize without reporting diagnostics (the full check reports them).
@@ -1712,7 +1719,7 @@ const Checker = struct {
             };
             // `for x in ?e` and `for x in !e` lend `e`: one made here would
             // end with the header. A call's result is taken: `for x in e`.
-            if ((mode == .read or mode == .write) and !(unbound and vec) and !source_hands.hasStorage() and !self.isPoison(source_ty) and sema.typeHasDropGlue(self.ctx, source_ty)) {
+            if ((mode == .read or mode == .write) and !(unbound and vec) and !source_hands.hasStorage() and !self.isPoison(source_ty) and sema.moves(self.ctx, sema.unwrapBorrows(self.ctx, source_ty)) == .yes) {
                 try self.errAt(source, "the loop would walk a borrow of the temporary `{s}` after its header drops it; take it with `for {s} in {s}`, or bind it to a name first", .{ self.sourceText(source), self.text(binding), self.sourceText(source) });
             }
         }
@@ -6630,10 +6637,10 @@ const Checker = struct {
         } else if (receiver != .value and !misplaced_sigil) try self.rejectResourceTemporary(obj, obj_ty);
 
         // A `?self` method may change a Cell the value holds; a loop or
-        // match binding is only a copy of it.
+        // match binding that is a copy of it would lose the change.
         if (resolved.nominal_sym != self.ctx.cell_sym_id and receiver == .read and sema.holdsCellByValue(self.ctx, obj_ty)) {
             const place = self.placeOf(obj);
-            if (place.root == .pattern and !place.indirect) {
+            if (place.root == .pattern and !place.indirect and !self.ownsBinding(place)) {
                 try self.errAt(obj, "cannot call `{s}` here: the value holds a Cell the method may change, and `{s}` is a loop or match binding, a copy, so the change would be lost", .{ method, self.text(place.base) });
             } else if (place.root == .temporary and place.steps == 0) {
                 try self.errAt(obj, "cannot call `{s}` on a temporary that holds a Cell the method may change; bind it to a name first", .{method});
@@ -7313,7 +7320,10 @@ const Checker = struct {
         // is, as `?e` would lend it (Core sentence 1): a place, or a value
         // made here, which its statement holds. A function lends itself.
         const function = lend.callable() != null and self.ctx.types.get(from) == .function and !self.closureBinding(e);
-        if (!view and sameExpr(e, self.view_arg) and !function) {
+        // (A temporary array lent as a `[]T` to a call that keeps no view
+        // of it lives in a slot of the call: `arrayAsSlice`.)
+        const temp_array = sameNode(e, self.lent_temp) and self.ctx.types.get(from) == .array;
+        if (!view and sameExpr(e, self.view_arg) and !function and !temp_array) {
             switch (self.hands(e).kind) {
                 .place, .part_of_made, .made => {},
                 .lend, .branches, .jump, .none => return false,
@@ -8588,7 +8598,7 @@ fn cellVecElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return vecElementType(ctx, cellElementType(ctx, ty) orelse return null);
 }
 
-const cell_place = "`{s}{s}` needs a Cell that has a place: a local binding, a field of one, or one reached through a borrow (`?T` or `!T`) or a shared handle (`*T`). A by-value parameter, a loop or match binding (a copy), or a temporary cannot be changed.";
+const cell_place = "`{s}{s}` needs a Cell that has a place: a binding, a field of one, or one reached through a borrow (`?T` or `!T`) or a shared handle (`*T`). A loop or match binding that is a copy, or a temporary, cannot be changed.";
 
 const slice_of_temporary = "only a named array, Vec, or Text, or a field or element of one, can be sliced; bind this value to a name first";
 

@@ -4,17 +4,10 @@
 # be copied, forking its Cell: it is rejected, as for a declared unique
 # type (test/reject/ownership/header_branch_moves_unique.rig).
 #
-# Known bug: a type holding a Cell copies today, so each header copies
-# the named value and is accepted. Step 3 makes such a type unique.
-#
-# oracle: loops accept
-# oracle: run accept
-# oracle: matches accept
-# oracle: run2 accept
-# oracle planned: loops reject C2
-# oracle planned: run reject C2
-# oracle planned: matches reject C2
-# oracle planned: run2 reject C2
+# oracle: loops reject C2
+# oracle: run reject C2
+# oracle: matches reject C2
+# oracle: run2 reject C2
 struct Counter
   hits: Cell[Int]
 
@@ -73,11 +66,11 @@ sub main()
   print(run2(none) ?? 0)
 
 
-# error: 38:13: to a name
+# error: 31:13: to a name
+# error: 34:12: to a name
+# error: 37:12: to a name
 # error: 41:12: to a name
-# error: 44:12: to a name
-# error: 48:12: to a name
-# error: 55:10: to a name
-# error: 59:9: to a name
-# error: 64:9: to a name
+# error: 48:10: to a name
+# error: 52:9: to a name
+# error: 57:9: to a name
 # errors: 7

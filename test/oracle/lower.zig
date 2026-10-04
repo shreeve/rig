@@ -98,17 +98,18 @@ const Loop = struct {
     value: ?VarId,
 };
 
-/// `planned` applies the Core's planned rule the oracle models: a type
-/// holding a `Cell` is unique (Core §1). A bare place a `for` walks or
-/// an `if … as` or `while … as` binds is read where it stands, as `?p`
-/// (Core s1, built).
+/// The oracle models no planned rule today, so `planned` changes nothing:
+/// a type holding a `Cell` is unique (Core §1), and a bare place a `for`
+/// walks or an `if … as` or `while … as` binds is read where it stands,
+/// as `?p` (Core s1), in every run.
 pub fn lowerUnit(a: std.mem.Allocator, m: *const lib.modules.Module, unit: Unit, planned: bool) !core.Func {
+    _ = planned;
     var l: Lowerer = .{
         .a = a,
         .ctx = m.sema,
         .parser = m.parser,
         .src = m.source,
-        .kinds = kinds.Kinds.init(a, m.sema, planned),
+        .kinds = kinds.Kinds.init(a, m.sema, true),
         .planned = true,
     };
     l.run(unit) catch |err| switch (err) {

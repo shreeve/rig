@@ -704,7 +704,7 @@ borrow: `*(?User)` is rejected.
 ### Copy values and owning values
 
 A **Copy** value is plain data: numbers, `Bool`, `String`, plain enums,
-and optionals, arrays, structs, and `Cell`s that hold only Copy values.
+and optionals, arrays, and structs that hold only Copy values.
 Using one copies it. A copy of a String that views a Text carries the
 Text's borrow ([§10](#text)).
 
@@ -717,8 +717,9 @@ ownership rules of [§7](#7-ownership) apply to them.
 
 A **unique** value owns nothing to release but must not be copied: a
 struct declared `unique` (`struct Random unique`, a generator whose
-copy would repeat its numbers), or any struct, enum, array, or generic
-instance that holds one inline. It moves like an owning value, has no
+copy would repeat its numbers), a `Cell` (a copy would fork the state
+it shares), or any struct, enum, array, or generic instance that holds
+one of those inline. It moves like an owning value, has no
 clone (`+x`) and no `==`, and nothing copies it out of a place; it has
 no drop glue, so an array may hold it and a discarded one is simply
 dropped. A loop that reads an array or slice of them binds a view of
@@ -3592,14 +3593,12 @@ with `pop`, or by taking the whole Vec out with `replace`.
 
 A Cell is interior-mutable: `set` and `replace` change it through any
 path to it, including a read borrow (`?Cell[T]`), a `?self` method of a
-struct holding one, and a shared handle. A by-value parameter holds the
-callee's own value, and is immutable: `set` and `replace` are not
-called on a Cell reached from the parameter itself (`c.hits.set(v)`
-with `c: Counter`), though a `?self` method may change it and it may be
-lent (`bump(?c)`). A loop or match binding holds a copy of the element
-or payload it binds, so nothing changes a Cell through it: a `?self`
-method that may change one, a lend, `set`, and `replace` on it are
-rejected, since the change would reach only the copy.
+struct holding one, and a shared handle. A value holding a Cell is
+unique ([§2](#copy-values-and-owning-values)), so every binding of one is its place: a
+by-value parameter owns the value moved into it (`c.hits.set(v)` with
+`c: Counter` changes the callee's own), and a loop or match binding is
+a view of the element or payload where it is, or owns one a loop or
+match takes; only a temporary's Cell has no place.
 
 ```rig
 struct Counter

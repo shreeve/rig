@@ -4,12 +4,7 @@
 # unique (Core §1), so such a loop is rejected, as it is over a Vec
 # (`for p in ?mkv()`): take the value with `for k in two()`.
 #
-# Known bug: a type holding a Cell copies today, so the loop walks a
-# copy of the temporary and is accepted. Step 3 makes such a type
-# unique.
-#
-# oracle: main accept
-# oracle planned: main reject C5
+# oracle: main reject C5
 
 struct Counter
   hits: Cell[Int]
@@ -23,6 +18,6 @@ sub main()
   for k in ?[Counter(hits: Cell(1))]
     print(k.hits.get())
 
-# error: 21:13: the loop would walk a borrow of the temporary `two()` after its header drops it
-# error: 23:13: the loop would walk a borrow of the temporary `[Counter(hits: Cell(1))]` after its header drops it
+# error: 16:13: the loop would walk a borrow of the temporary `two()` after its header drops it
+# error: 18:13: the loop would walk a borrow of the temporary `[Counter(hits: Cell(1))]` after its header drops it
 # errors: 2

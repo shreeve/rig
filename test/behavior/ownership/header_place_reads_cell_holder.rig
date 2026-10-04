@@ -4,15 +4,9 @@
 # not make a place a made value. `for k in <a` takes the array, and its
 # elements are the loop's own.
 #
-# Known bug: today each binding is a copy, and a change through it is
-# rejected ("`c` is a loop or match binding, a copy").
-#
 # oracle: poke accept
 # oracle: nested accept
 # oracle: loops accept
-# oracle planned: poke accept
-# oracle planned: nested accept
-# oracle planned: loops accept
 
 struct Counter
   hits: Cell[Int]
