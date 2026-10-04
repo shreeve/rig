@@ -1,0 +1,59 @@
+# A view held by pointer lifted into an optional of that view stays the
+# pointer: a named view, a loop element view, and a payload view, bound,
+# assigned, passed, stored in a field, and returned.
+
+struct Counter
+  hits: Cell[Int]
+
+struct P
+  x: Int
+
+struct H
+  o: (?Counter)?
+
+enum E
+  a(c: Counter, n: Int)
+  b
+
+fun show(o: (?Counter)?) -> Int
+  if o as s
+    return s.hits.get()
+  0
+
+fun pick(r: ?Counter) -> (?Counter)?
+  r
+
+sub main()
+  a = Counter(hits: Cell(5))
+  r = ?a
+  saved: (?Counter)? = none
+  saved = r
+  if saved as s
+    print(s.hits.get())
+  decl: (?Counter)? = r
+  print(show(decl), show(r), show(pick(r)))
+  h = H(o: r)
+  h.o = r
+  print(show(h.o))
+  arr = [Counter(hits: Cell(0)), Counter(hits: Cell(7))]
+  for k in arr
+    print(show(k))
+  e = E.a(c: Counter(hits: Cell(4)), n: 1)
+  match e
+    .a(c, _) => print(show(c))
+    .b => pass
+  p = P(x: 1)
+  pr = ?p
+  ps: (?P)? = none
+  ps = pr
+  if ps as q
+    print(q.x)
+
+# expect:
+# 5
+# 5 5 5
+# 5
+# 0
+# 7
+# 4
+# 1

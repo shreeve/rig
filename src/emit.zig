@@ -1268,7 +1268,7 @@ pub const Emitter = struct {
                 try self.emitBorrowOf(expr);
             } else if (holds_ptr) {
                 try self.emitBorrowValue(expr);
-            } else try self.emitBare(expr);
+            } else try self.emitBareAs(expr, ty);
         }
 
         const stored = try self.declare(local, self.srcText(name_node));
@@ -1331,7 +1331,7 @@ pub const Emitter = struct {
         const kind = local.kind orelse {
             try self.writeLocalPlace(&local);
             try self.w.writeAll(" = ");
-            try self.emitBare(value);
+            try self.emitBareAs(value, local.ty);
             try self.w.writeAll(";");
             return;
         };
@@ -1393,7 +1393,7 @@ pub const Emitter = struct {
             const order = try self.openAssign(target, value, place_ty, .value);
             try self.emitPlace(target);
             try self.w.writeAll(" = ");
-            try self.emitBare(value);
+            try self.emitBareAs(value, place_ty);
             try self.w.writeAll(";");
             return self.closeAssign(order);
         }
@@ -3210,6 +3210,14 @@ pub const Emitter = struct {
         try self.emitValue(e, true);
     }
 
+    /// `e` where a value of type `target` goes: a view held by pointer
+    /// lifted into an optional of that view is the pointer itself, never
+    /// the value it reaches.
+    fn emitBareAs(self: *Emitter, e: Sexp, target: ?TypeId) Error!void {
+        if (target) |t| if (self.sema.types.get(t) == .optional and self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptional(t))) return self.emitBorrowValue(e);
+        try self.emitBare(e);
+    }
+
     /// The type an optional `ty` holds; any other type itself.
     fn unwrapOptional(self: *Emitter, ty: TypeId) TypeId {
         return switch (self.sema.types.get(ty)) {
@@ -4449,7 +4457,7 @@ pub const Emitter = struct {
             return self.emitBare(value);
         }
         if (i < params.len and self.isPtrBorrowTy(params[i])) return self.emitBorrowValue(value);
-        try self.emitBare(value);
+        try self.emitBareAs(value, if (i < params.len) params[i] else null);
     }
 
     /// The number of compile-time arguments a call passes: those `given`
