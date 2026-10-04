@@ -3,11 +3,11 @@ struct P
   c: Cell[Int]
 sub main
   c = Cell(1)
-  d = <c
+  d = c
   d.set(2)
   o: Int? = 3
   q = o
   p = P(x: 1, c: Cell(5))
-  r = <p
+  r = p
   r.c.set(7)
-  print(d.get(), o, q, r.c.get())
+  print(c.get(), d.get(), o, q, p.c.get(), r.c.get())

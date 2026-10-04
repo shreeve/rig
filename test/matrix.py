@@ -59,8 +59,8 @@ TYPES = {
     "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
     "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
-    # A unique value: it holds a Cell (`poke` changes it through a view),
-    # or is declared `unique`.
+    # A struct that holds a Cell (`poke` changes it through the binding),
+    # and one declared `unique`.
     "cell": dict(ty="Counter", decls="struct Counter\n  hits: Cell[Int]\n\n  sub hit(?self)\n    self.hits.set(self.hits.get() + 1)\n",
                  mk="Counter(hits: Cell(n))", ctor="Counter(hits: Cell(5))", poke="e.hit()"),
     "unique": dict(ty="U", decls="struct U unique\n  v: Int\n", mk="U(v: n)", ctor="U(v: 5)"),

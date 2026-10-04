@@ -1,19 +1,19 @@
 # A unique element stays in its array, and a field in its struct: `<`
 # cannot take one out while the container still holds it.
 
-struct Counter
-  hits: Cell[Int]
+struct Seed unique
+  n: Int
 
 struct H
-  c: Counter
+  s: Seed
   n: Int
 
 sub main()
-  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  a = [Seed(n: 0), Seed(n: 1)]
   k = <a[0]
-  h = H(c: Counter(hits: Cell(1)), n: 1)
-  j = <h.c
-  print(k.hits.get(), j.hits.get())
+  h = H(s: Seed(n: 2), n: 1)
+  j = <h.s
+  print(k.n, j.n)
 
 # error: 13:8: cannot move out of `a[...]`: elements cannot be moved out of their container
-# error: 15:8: cannot move out of `h.c`: `h` would still drop it
+# error: 15:8: cannot move out of `h.s`: `h` would still drop it

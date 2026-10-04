@@ -744,7 +744,7 @@ emitter ask these, never a predicate built for another question:
 |---|---|
 | `typeHasDropGlue` | needs cleanup: a user `drop`, or holds a `*T`, `~T`, Vec, Box, Text, or owned closure |
 | `maybeDropGlue` | holds a type parameter by value, so whether it needs cleanup depends on the instance |
-| `isUnique` | declared `unique`, or a `Cell`, or holds one of those inline: never copied |
+| `isUnique` | declared `unique`, or holds such a type inline: never copied |
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
 | `copyable` | does not move and holds no write view: copied implicitly where it is used |
 | `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), Text copy, copy per instance, or nothing (a value that moves) |

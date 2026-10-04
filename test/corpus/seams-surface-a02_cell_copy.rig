@@ -11,12 +11,12 @@ sub via(c: Counter)
 
 sub main
   a = Counter(hits: Cell(0))
-  b = <a
+  b = a
   b.hit()
-  r = ?b
+  a.hit()
+  via(a)
+  r = ?a
   r.hit()
-  print(b.hits.get())
-  via(<b)
   f =! Counter(hits: Cell(0))
   f.hit()
-  print(f.hits.get())
+  print(a.hits.get(), b.hits.get(), f.hits.get())
