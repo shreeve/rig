@@ -1,0 +1,22 @@
+# A block-local name at the tail of a branch stored in a field leaves the
+# branch before its defer runs; the defer cannot write it.
+struct H
+  v: Vec[Int]
+
+sub main
+  c = true
+  h = H(v: Vec())
+  h.v = if c
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    v
+  else
+    Vec[Int]()
+  !h.v.push(3)
+  print(h.v.len)
+
+# error: 14:10: use of `v` after move
+# errors: 1

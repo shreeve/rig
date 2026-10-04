@@ -1,0 +1,19 @@
+# A block-local struct at a branch's tail moves out before the branch's
+# defer writes it.
+struct R
+  v: Vec[Int]
+
+sub main
+  c = true
+  x = if c
+    r = R(v: Vec())
+    !r.v.push(1)
+    defer !r.v.push(2)
+    r
+  else
+    R(v: Vec())
+  !x.v.push(3)
+  print(x.v.len, x.v[0])
+
+# error: 11:12: use of `r` after move
+# errors: 1
