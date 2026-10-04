@@ -1,7 +1,7 @@
 use std.random
 
 sub main
-  a = random.Rng.seeded(1)
-  b = random.Rng.seeded(1)
+  a = random.Random.seeded(1)
+  b = random.Random.seeded(1)
   print(a == b)
-  random.Rng.seeded(3)
+  random.Random.seeded(3)

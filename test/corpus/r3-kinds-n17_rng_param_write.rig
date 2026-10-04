@@ -1,30 +1,30 @@
 use std.random
 
-fun roll(r: random.Rng) -> U64
+fun roll(r: random.Random) -> U64
   g = <r
   !g.next()
 
 struct G
-  r: random.Rng
+  r: random.Random
 
 sub main
-  print(roll(random.Rng.seeded(1)) != 0)
-  o: G? = G(r: random.Rng.seeded(1))
+  print(roll(random.Random.seeded(1)) != 0)
+  o: G? = G(r: random.Random.seeded(1))
   if <o as g
     print(!g.r.next() != 0)
-  e = Pick.a(r: random.Rng.seeded(2))
+  e = Pick.a(r: random.Random.seeded(2))
   match <e
     .a(r) => print(!r.next() != 0)
     .b => pass
-  rs: Vec[*random.Rng] = Vec()
+  rs: Vec[*random.Random] = Vec()
   for x in <rs
     print(x)
   v: Vec[Int] = Vec()
   !v.push(1)
-  w = Cell(random.Rng.seeded(5))
-  old = w.replace(random.Rng.seeded(6))
+  w = Cell(random.Random.seeded(5))
+  old = w.replace(random.Random.seeded(6))
   print(!old.next() != 0)
 
 enum Pick
-  a(r: random.Rng)
+  a(r: random.Random)
   b

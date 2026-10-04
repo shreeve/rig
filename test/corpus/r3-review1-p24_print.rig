@@ -7,7 +7,7 @@ fun bump(c: ?Counter) -> Int
   c.hits.set(c.hits.get() + 1)
   c.hits.get()
 
-fun step(r: !random.Rng) -> U64
+fun step(r: !random.Random) -> U64
   !r.next() % 10
 
 sub main()
@@ -20,4 +20,4 @@ sub main()
   b = Counter(hits: Cell(0))
   print((a if f else b).hits.get(), bump(?a))
   print(a if f else b, bump(?a))
-  r = random.Rng.seeded(3)
+  r = random.Random.seeded(3)

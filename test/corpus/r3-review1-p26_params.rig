@@ -9,7 +9,7 @@ fun peek(c: Counter) -> Int
 fun ignore(_: Counter) -> Int
   1
 
-fun seed(r: random.Rng) -> Int
+fun seed(r: random.Random) -> Int
   2
 
 fun pass_on(c: Counter) -> Counter
@@ -23,7 +23,7 @@ sub main()
   print(peek(<a))
   b = Counter(hits: Cell(3))
   print(ignore(<b))
-  print(seed(random.Rng.seeded(1)))
+  print(seed(random.Random.seeded(1)))
   d = pass_on(Counter(hits: Cell(4)))
   print(d.hits.get(), cell_param(Cell(5)))
   e = <d

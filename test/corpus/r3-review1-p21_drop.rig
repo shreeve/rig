@@ -6,7 +6,7 @@ struct Counter
 sub main()
   a = Counter(hits: Cell(1))
   -a
-  r = random.Rng.seeded(3)
+  r = random.Random.seeded(3)
   -r
   c = Cell(3)
   -c

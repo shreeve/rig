@@ -1,7 +1,7 @@
-# Core §1: Rng fakes a drop body to be move-only
+# Core §1: Random fakes a drop body to be move-only
 use std.random
 
 sub main
-  r = random.Rng.seeded(1)
+  r = random.Random.seeded(1)
   s = r
   print(!s.next())

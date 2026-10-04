@@ -9,15 +9,15 @@ struct Counter
 fun mk() -> Counter
   Counter(hits: Cell(4))
 
-fun look(r: ?random.Rng) -> Int
+fun look(r: ?random.Random) -> Int
   1
 
 fun lookc(c: ?Counter) -> Int
   c.hits.get()
 
 sub main()
-  print(look(?random.Rng.seeded(3)))
+  print(look(?random.Random.seeded(3)))
   print(lookc(?mk()))
   print(mk().peek())
   print(mk())
-  print(random.Rng.seeded(3))
+  print(random.Random.seeded(3))

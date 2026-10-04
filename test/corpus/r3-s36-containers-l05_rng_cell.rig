@@ -1,10 +1,10 @@
 use std.random
 
 struct Game
-  rng: random.Rng
+  rng: random.Random
   score: Int
 
 sub main
-  g = Game(rng: random.Rng.seeded(7), score: 0)
+  g = Game(rng: random.Random.seeded(7), score: 0)
   h = g
   print(h.score)

@@ -4,6 +4,6 @@ struct Counter
   hits: Cell[Int]
 
 sub main()
-  r = random.Rng.seeded(3)
-  s = random.Rng.seeded(3)
+  r = random.Random.seeded(3)
+  s = random.Random.seeded(3)
   print(r == s)
