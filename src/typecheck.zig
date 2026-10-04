@@ -6763,11 +6763,7 @@ const Checker = struct {
         if (!sema.containsTypeVar(self.ctx, ty)) {
             const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
             if (!gop.found_existing) gop.value_ptr.* = pos;
-        } else {
-            for (self.ctx.generic_uses.items) |u| {
-                if (u == ty) break;
-            } else try self.ctx.generic_uses.append(self.ctx.allocator, ty);
-        }
+        } else try self.ctx.addGeneric(.uses, ty);
         return ty;
     }
 
@@ -8684,6 +8680,17 @@ fn plural(n: usize) []const u8 {
 /// the type parameters (`self.value + 1` requires a numeric `T`). Checked
 /// after all bodies, against every instance the module's code makes.
 pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
+    var reqs: Requirements = .empty;
+    defer {
+        var lists = reqs.valueIterator();
+        while (lists.next()) |l| l.deinit(ctx.allocator);
+        reqs.deinit(ctx.allocator);
+    }
+    for (ctx.generic_requirements.items, 0..) |req, i| {
+        const gop = try reqs.getOrPut(ctx.allocator, req.param);
+        if (!gop.found_existing) gop.value_ptr.* = .empty;
+        try gop.value_ptr.append(ctx.allocator, @intCast(i));
+    }
     var it = ctx.instantiation_sites.iterator();
     while (it.next()) |entry| {
         const pn = switch (ctx.types.get(entry.key_ptr.*)) {
@@ -8692,7 +8699,7 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         };
         const params = ctx.symbols.items[pn.sym].type_params orelse continue;
         const of: sema.InstanceRoot = .{ .type = entry.key_ptr.* };
-        if (try checkRequirements(ctx, params, pn.args, entry.value_ptr.*, of)) try checkInstanceSizes(ctx, params, pn.args, entry.value_ptr.*, of);
+        if (try checkRequirements(ctx, &reqs, params, pn.args, entry.value_ptr.*, of)) try checkInstanceSizes(ctx, params, pn.args, entry.value_ptr.*, of);
     }
     // A method's instance checks only its own parameters; its type's
     // are checked with the receiver's instance.
@@ -8700,7 +8707,7 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     while (i < ctx.fn_instances.items.len) : (i += 1) {
         const f = ctx.fn_instances.items[i];
         const of: sema.InstanceRoot = .{ .func = f.inst };
-        if (try checkRequirements(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of)) {
+        if (try checkRequirements(ctx, &reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of)) {
             try checkInstanceSizes(ctx, f.inst.params, f.inst.args, f.site, of);
         } else if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
     }
@@ -8784,7 +8791,7 @@ const FrameWalker = struct {
         const tys = slots.items;
         if (tys.len == 0) return;
         for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) {
-            try ctx.generic_frames.append(ctx.allocator, .{ .label = label, .pos = pos, .tys = try ctx.arena.allocator().dupe(TypeId, tys) });
+            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = try ctx.arena.allocator().dupe(TypeId, tys) });
             return;
         };
         const bytes = (try frameBytes(ctx, tys)) orelse return;
@@ -8815,10 +8822,11 @@ fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?
 fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
     for (args) |a| if (sema.containsPoison(ctx, a)) return;
     const subst: sema.TypeSubst = .{ .params = params, .args = args };
-    var i: usize = 0;
-    while (i < ctx.generic_arrays.items.len) : (i += 1) {
+    var entries: std.ArrayList(u32) = .empty;
+    defer entries.deinit(ctx.allocator);
+    try ctx.genericEntries(.arrays, params, &entries);
+    for (entries.items) |i| {
         const g = ctx.generic_arrays.items[i];
-        if (!sema.usesParams(ctx, g.ty, params)) continue;
         const ty = try sema.substituteType(ctx, g.ty, subst);
         if (sema.containsTypeVar(ctx, ty) or sema.containsPoison(ctx, ty)) continue;
         const bytes = (try sema.arrayOversized(ctx, ty)) orelse continue;
@@ -8843,11 +8851,9 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
     };
     var buf: std.ArrayList(TypeId) = .empty;
     defer buf.deinit(ctx.allocator);
-    frames: for (ctx.generic_frames.items) |fr| {
-        const uses = for (fr.tys) |ty| {
-            if (sema.usesParams(ctx, ty, own)) break true;
-        } else false;
-        if (!uses) continue;
+    try ctx.genericEntries(.frames, own, &entries);
+    frames: for (entries.items) |i| {
+        const fr = ctx.generic_frames.items[i];
         buf.clearRetainingCapacity();
         for (fr.tys) |ty| {
             const t = try sema.substituteType(ctx, ty, subst);
@@ -8862,16 +8868,21 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
     }
 }
 
+/// The positions of `generic_requirements` on each parameter, in order.
+const Requirements = std.AutoHashMapUnmanaged(SymbolId, std.ArrayList(u32));
+
 /// False after a diagnostic.
-fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
+fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
     var ok = true;
     for (params, 0..) |param, i| {
         if (i >= args.len) break;
         const arg = args[i];
         // A diagnostic was reported about the argument.
         if (sema.containsPoison(ctx, arg)) continue;
-        for (ctx.generic_requirements.items) |req| {
-            if (req.param != param or try satisfies(ctx, arg, req.req)) continue;
+        const on = reqs.getPtr(param) orelse continue;
+        for (on.items) |r| {
+            const req = ctx.generic_requirements.items[r];
+            if (try satisfies(ctx, arg, req.req)) continue;
             const inst = try sema.rootName(ctx, of);
             const pname = ctx.symbols.items[param].name;
             const aname = try sema.formatType(ctx, arg);
