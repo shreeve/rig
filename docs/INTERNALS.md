@@ -751,6 +751,42 @@ literal's type, so every error value the emitter meets has its set.
 the error set `X` names (`isErrorMember`); a module's constant
 `m.NAME` of an error-set type is read as the constant.
 
+### Header subjects
+
+The subject of a `for`, a `match`, an `if … as`, or a `while … as` is
+classified once, by what it hands over (`sema.handsOver`), and each
+class desugars into forms the checkers already walk. A header is its
+own statement (Core §3): its temporaries end with it, and what it binds
+lives through the body.
+
+| The subject hands over | It desugars to | Each element or payload is |
+|---|---|---|
+| a place `p` (a name, or a field or element path from one or from a view) | `?p` | a view of the place's own: a copy when it is plain data, a view in place (`?E`) otherwise |
+| a lend `?p`, `!p`, or a take `<p` | itself | a read view, a write view, or the construct's own, as written |
+| a made value `e` (a call, a constructor, an array, a branching value every leaf of which is made there, `<p` included) | `var _h = <e`, then the header over `<_h` | the construct's own: a place in `_h` that a `?self` method may change and `<x` may move out |
+| a part of a made value `e.f`, `e[i]` | `var _h = <e`, then the header over `<_h.f` (`<_h[i]`) | as for a made value |
+| a branching value one leaf of which is a place | itself, when its type copies | a copy; when the type moves (an owner, a `unique` type, a type holding a `Cell`) the header is rejected: bind the value to a name, or take each leaf with `<` |
+
+So `for x in v` is `for x in ?v`; `match b` on a `Box[E]` is `match ?b`
+and `match h` on a `*E` is `match ?h`, whose payloads view the value
+the box or handle holds (the lend table, Core §4); `if o as x` over an
+owning optional place is `if ?o as x`, with `x: ?T`, while an optional
+of plain data binds a copy; and `match mk(7).e` holds `mk(7)` in a
+hidden `var` for the whole match, so each payload is the arm's own.
+Whether a branching value of a moving type could instead be viewed leaf
+by leaf is a question the Core leaves open; the checker takes the
+conservative reading above.
+
+Typecheck records the class where it binds: a bare place is recorded
+as a read lend of the subject (`lendOf`, `Lend.implicit`), which the
+ownership checker walks as `?p` (a read loan on the place's root,
+which the bindings carry for as long as they are used) and emit writes
+as `?p` (each element or payload captured by pointer, `|*x|`, never
+copied, so a `Cell` a binding changes is the place's own); a taken
+subject is recorded as taken (`takesSubject`), which the ownership
+checker walks as `<e` into a hidden var and emit holds in a `var`
+the construct iterates or switches on by pointer.
+
 ### The facts table
 
 Sema records what it learned about each node so that later passes ask
