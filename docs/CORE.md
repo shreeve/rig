@@ -567,6 +567,37 @@ sub main
 [0, 1, 0]
 ```
 
+A call evaluates its receiver and arguments left to right, then runs. A
+value an earlier argument reads stays lent until the call returns, so a
+later argument can't change it. A write lend in an argument acts as a
+read loan until the call starts, so `!v.push(v.len)` works. *(built)*
+
+```rig
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(v.len)
+  !v.push(v.len)
+  print(v)
+```
+
+```output
+[0, 1]
+```
+
+```rig reject
+fun grow(v: !Vec[Int]) -> Int
+  !v.push(1)
+  v.len
+
+sub main
+  v: Vec[Int] = Vec()
+  print(v, grow(!v))
+```
+
+```error
+while an earlier argument's read of it is in use
+```
+
 **Bindings.** A local binding may be reassigned. Parameters and `const`
 bindings may not. *(built;* the word `const` is *planned*: today a
 binding that never changes is written `x =! 5`.*)*
