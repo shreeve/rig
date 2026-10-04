@@ -196,7 +196,12 @@ a payload enum), and holds each to the corpus's rule. It also puts a
 block-local binding at the tail of each kind of value block (an `if`
 branch, a `match` arm, a `catch` handler, a loop's `else`, a nested
 `if`), with and without a `defer` that uses it, for a binding, a field
-store, and a result. It writes to a temporary directory
+store, and a result. And it uses a view of a read `match` payload in
+its arm, or returns or stores it, for each kind of type reached through
+each kind of subject, runs other code on the stack before reading it,
+and checks that a program that runs prints what the payload holds,
+since the sanitizer cannot see a stale stack slot. It
+writes to a temporary directory
 and commits nothing; `-k` picks cells by id and `-v` lists every result.
 
 ## Known bugs
