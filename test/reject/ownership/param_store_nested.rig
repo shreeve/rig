@@ -1,0 +1,24 @@
+# A store into a field of a field of parameter `a` keeps `b` lent for
+# the rest of the body.
+
+struct Holder
+  r: []Int
+
+struct Outer
+  h: Holder
+
+fun f(a: !Outer, b: !Vec[Int]) -> Int
+  a.h.r = ?b[..]
+  for i in 0..100
+    !b.push(i)
+  a.h.r[0]
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  o = Outer(h: Holder(r: ?x[..]))
+  print(f(!o, !v))
+
+# errors: 1
+# error: 13:5: cannot write-borrow `b` while a read borrow is live

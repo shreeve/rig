@@ -1,0 +1,24 @@
+# A method that stores its argument in `!self` stores a view of `b` in
+# parameter `a`, which keeps `b` lent for the rest of the body.
+
+struct Holder
+  r: []Int
+
+  sub set(!self, s: []Int)
+    self.r = s
+
+fun f(a: !Holder, b: !Vec[Int]) -> Int
+  !a.set(?b[..])
+  for i in 0..100
+    !b.push(i)
+  a.r[0]
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+# errors: 1
+# error: 13:5: cannot write-borrow `b` while a read borrow is live

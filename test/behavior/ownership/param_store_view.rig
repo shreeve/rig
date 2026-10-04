@@ -1,0 +1,110 @@
+# A view stored in a borrowed parameter keeps what it views lent for the
+# rest of the body. The owner can still be read, written before the
+# store, and written once the holder's caller is done with it; a caller's
+# view stored there lends nothing of the callee's.
+
+struct Holder
+  r: []Int
+
+  sub set(!self, s: []Int)
+    self.r = s
+
+struct Text2
+  s: String
+
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+# The owner is written first, then lent and only read.
+fun grow_then_store(a: !Holder, b: !Vec[Int]) -> Int
+  !b.push(5)
+  a.r = ?b[..]
+  print(b.len, total(?b[..]))
+  a.r[0] + a.r[1]
+
+# A method stores the view; the owner is read through other views.
+fun store_by_method(a: !Holder, b: !Vec[Int]) -> Int
+  !a.set(?b[..])
+  for x in ?b
+    print(x)
+  a.r.len
+
+# A caller's view stored in a parameter lends nothing here.
+fun store_caller_view(a: !Holder, b: []Int, c: !Vec[Int]) -> Int
+  a.r = b
+  !c.push(7)
+  a.r[0] + c.len
+
+# A local holder's loan ends at its last use.
+fun local_holder(b: !Vec[Int]) -> Int
+  x = [9, 9]
+  h = Holder(r: ?x[..])
+  h.r = ?b[..]
+  n = h.r[0]
+  !b.push(8)
+  n + b.len
+
+# A closure that captures `!a` and only reads leaves `b` readable.
+fun closure_reads(a: !Holder, b: !Vec[Int]) -> Int
+  g = |!a, ?b| print(a.r.len, b.len)
+  g()
+  b.len
+
+# A String viewing a Text stays readable beside the Text.
+fun text_view(a: !Text2, b: !Text) -> Int
+  !b.add("def")
+  a.s = ?b[1..4]
+  print(a.s, b)
+  b.len
+
+fun mk() -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  v
+
+sub main
+  x = [9, 9]
+  v1 = mk()
+  h1 = Holder(r: ?x[..])
+  print(grow_then_store(!h1, !v1))
+  print(h1.r.len)
+  !v1.push(3)
+  print(v1.len)
+  v2 = mk()
+  h2 = Holder(r: ?x[..])
+  print(store_by_method(!h2, !v2))
+  v3 = mk()
+  h3 = Holder(r: ?x[..])
+  print(store_caller_view(!h3, ?x[..], !v3))
+  print(h3.r[0])
+  v4 = mk()
+  print(local_holder(!v4))
+  v5 = mk()
+  h5 = Holder(r: ?x[..])
+  print(closure_reads(!h5, !v5))
+  t = Text("abc")
+  q = Text("zz")
+  w = Text2(s: ?q[..])
+  print(text_view(!w, !t))
+  print(w.s)
+
+# expect:
+# 3 8
+# 3
+# 3
+# 4
+# 1
+# 2
+# 2
+# 12
+# 9
+# 4
+# 2 2
+# 2
+# bcd abcdef
+# 6
+# bcd

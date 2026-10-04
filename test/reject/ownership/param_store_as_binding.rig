@@ -1,0 +1,24 @@
+# A store through an `if !a as h` binding lands in parameter `a`'s value,
+# which keeps `b` lent for the rest of the body.
+
+struct Holder
+  r: []Int
+
+fun f(a: !Holder?, b: !Vec[Int]) -> Int
+  if !a as h
+    h.r = ?b[..]
+  for i in 0..100
+    !b.push(i)
+  if ?a as h
+    return h.r[0]
+  0
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h: Holder? = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+# errors: 1
+# error: 11:5: cannot write-borrow `b` while a read borrow is live
