@@ -1,0 +1,22 @@
+# A view of `b` stored in parameter `a` and read back into a local keeps
+# `b` lent: `t` views `b`'s buffer through `a`.
+
+struct Holder
+  r: []Int
+
+fun f(a: !Holder, b: []Int, c: !Vec[Int]) -> Int
+  a.r = ?c[..]
+  t = a.r
+  for i in 0..100
+    !c.push(i)
+  t[0] + b.len
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, ?x[..], !v))
+
+# errors: 1
+# error: 11:5: cannot write-borrow `c` while a read borrow is live

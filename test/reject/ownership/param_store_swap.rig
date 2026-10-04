@@ -1,0 +1,22 @@
+# `swap` moves a value holding a String that views `b` into parameter
+# `a`, which keeps `b` lent for the rest of the body.
+
+struct Holder
+  s: String
+
+fun f(a: !Holder, b: !Text) -> Int
+  q = Holder(s: ?b[0..1])
+  swap(!a, !q)
+  for _ in 0..100
+    !b.add("abcdefgh")
+  print(a.s)
+  0
+
+sub main
+  t = Text("zz")
+  w = Text("abc")
+  h = Holder(s: ?t[..])
+  print(f(!h, !w))
+
+# errors: 1
+# error: 11:5: cannot write-borrow `b` while a read borrow is live

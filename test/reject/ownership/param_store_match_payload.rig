@@ -1,0 +1,29 @@
+# A store through a `match !a` payload lands in parameter `a`'s value,
+# which keeps `b` lent for the rest of the body.
+
+struct Holder
+  r: []Int
+
+enum E
+  one(h: Holder)
+  zero
+
+fun f(a: !E, b: !Vec[Int]) -> Int
+  match !a
+    .one(h) => h.r = ?b[..]
+    .zero => print(0)
+  for i in 0..100
+    !b.push(i)
+  match a
+    .one(h) => h.r[0]
+    .zero => 0
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e: E = .one(h: Holder(r: ?x[..]))
+  print(f(!e, !v))
+
+# errors: 1
+# error: 16:5: cannot write-borrow `b` while a read borrow is live
