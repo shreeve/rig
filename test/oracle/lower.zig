@@ -671,6 +671,9 @@ const Lowerer = struct {
         /// For a lend of a place the function owns: its payloads are that
         /// place's.
         of_owner: bool = false,
+        /// In an arm of a read `match`: the hidden var of the arm, on
+        /// which each binding that is no plain data holds a loan.
+        arm: ?VarId = null,
     };
 
     /// The value of `if e as x`, `while e as x`, or a `match` subject: a
@@ -712,7 +715,8 @@ const Lowerer = struct {
     /// - A value made in the header (a call's result, a constructor, a
     ///   literal) is taken. So is the made value the subject is a part
     ///   of (`mk().e`, `[a, b][0]`): a hidden var of the statement holds
-    ///   it through the body, and the subject is its part.
+    ///   it through the body, and the part is read where it stands, or
+    ///   copied in the header when it is plain data (`heldView`).
     /// - A lend of a made value (`?mk()`) lends the header's temporary:
     ///   the statement's tests may read it, but no binding may view it
     ///   (`Held.lent_temp`).
@@ -729,12 +733,10 @@ const Lowerer = struct {
             if (lent and isBranching(named)) return abstain("a lend of a branching value (Core §3, planned)");
             if (lent and value.isKind(.write)) return abstain("a write lend of a made value");
             const part = named.kind().? == .member or named.kind().? == .index;
-            if (part or lent) {
+            if (part and !lent) return self.heldView(named, name, bare);
+            if (lent) {
                 const hp = try self.heldPart(named, name);
-                if (lent) return try self.lend(hp.place, .read, value, try self.typeOf(value));
-                // The payloads a header binds of a value it holds are the
-                // body's own (or views of the holder: `bindHeld`).
-                return hp.held;
+                return try self.lend(hp.place, .read, value, try self.typeOf(value));
             }
             if (isBranching(root)) {
                 const t = try self.temp(try self.typeOf(root), pos);
@@ -762,6 +764,25 @@ const Lowerer = struct {
         defer self.made_root = saved;
         const p = try self.place(named) orelse return abstain("an unusual header subject");
         return .{ .held = held, .place = p };
+    }
+
+    /// A part of a value a header makes (INTERNALS "Header subjects"):
+    /// one of plain data is read in the header, its made value a
+    /// temporary there; any other is read where it stands, `?_h.f`, in
+    /// the made value the header takes into a hidden var of the whole
+    /// construct (Core §3: the made value is taken; Core s1: the part is
+    /// read in place).
+    fn heldView(self: *Lowerer, named: Sexp, name: []const u8, bare: How) Error!VarId {
+        const ty = try self.typeOf(named);
+        if ((try self.kinds.of(ty)).kind == .plain) {
+            return try self.eval(named, bare, null) orelse blk: {
+                const c = try self.temp(ty, self.posOf(named));
+                try self.emit(.{ .pos = self.posOf(named), .what = .make, .def = c });
+                break :blk c;
+            };
+        }
+        const hp = try self.heldPart(named, name);
+        return try self.lend(hp.place, .read, named, hp.place.ty);
     }
 
     /// Whether a header subject names a value the header makes, or a
@@ -845,7 +866,18 @@ const Lowerer = struct {
             xv.holds_pointers = true;
             xv.drop_reads = false;
         }
+        // What the binding sees: a payload of its declared type, or for a
+        // catch-all the subject's value. Plain data and views are copies.
+        const seen = if (stored) |st| (if (st == h.ty) sema.unwrapBorrows(self.ctx, st) else st) else sema.unwrapBorrows(self.ctx, xv.ty);
+        const seen_kind = (try self.kinds.of(seen)).kind;
+        const arm_local = h.arm != null and (seen_kind == .owning or seen_kind == .write_view);
         try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(h.v), .def = x });
+        if (arm_local) {
+            const arm = h.arm.?;
+            const loan = try self.newLoan(self.rootPlace(arm), .read, false, 0, h.pos);
+            self.f.loans.items[loan].reaches_text = (try self.kinds.of(hv.ty)).reaches_text;
+            try self.emit(.{ .pos = h.pos, .what = .lend, .reads = try self.one(arm), .weak = x, .loan = loan });
+        }
     }
 
     /// The type an `as` binds: what the optional subject holds.
@@ -910,7 +942,25 @@ const Lowerer = struct {
             if (sure or !falls) try self.goto(body) else try self.branch(body, next);
             self.cur = body;
             try self.pushRegion();
-            try self.bindPattern(pattern, h);
+            // A read match's binding that is no plain data is a view of
+            // the subject usable within its arm only (INTERNALS "Header
+            // subjects"): it holds a loan on a hidden var of the arm,
+            // which ends with the arm, so a view of it that outlives the
+            // arm is a loan that outlives its owner (Core s6).
+            var ha = h;
+            if (self.f.vars.items[h.v].kind == .read_view) {
+                const arm_var = try self.newVar("the arm", h.ty, true, self.posOf(arm));
+                const av = &self.f.vars.items[arm_var];
+                av.kind = .plain;
+                av.holds_views = false;
+                av.holds_pointers = false;
+                av.drop_reads = false;
+                av.arm = true;
+                try self.regions.items[self.regions.items.len - 1].vars.append(self.a, arm_var);
+                try self.emit(.{ .pos = self.posOf(arm), .what = .make, .def = arm_var });
+                ha.arm = arm_var;
+            }
+            try self.bindPattern(pattern, ha);
             if (guard != .nil) {
                 try self.header(guard);
                 const held_blk = try self.newBlock();
@@ -1085,7 +1135,7 @@ const Lowerer = struct {
                     // A value the header makes is taken, and so is the made
                     // value the source is a part of; a branching value is
                     // taken leaf by leaf (Core §3).
-                    if (source.isKind(.member) or source.isKind(.index)) break :blk (try self.heldPart(source, "the `for` source")).held;
+                    if (source.isKind(.member) or source.isKind(.index)) break :blk try self.heldView(source, "the `for` source", .read);
                     break :blk try self.eval(source, .take, null);
                 } else if (try self.place(source)) |p| blk: {
                     if ((try self.kinds.of(p.ty)).kind.copies()) break :blk try self.copy(p, p.ty, pos);
@@ -1363,9 +1413,17 @@ const Lowerer = struct {
                 // does not model.
                 if (how == .read) {
                     const ti = self.ctx.typeInfo(try self.typeOf(e));
-                    if (ti.cell and ti.glue) return abstain("a branching value holding a Cell of an owner, read");
+                    if (ti.cell) return abstain("a branching value holding a Cell, read");
                 }
-                const t = try self.temp(try self.typeOf(e), pos);
+                // Read where it stands, a branching value of a type that
+                // does not copy is each leaf read in place: a view, held
+                // until what reads it is done (Core §3, §6: `print(a if c
+                // else b, grow(!a))` reads `a` as `?a` would).
+                const ty = try self.typeOf(e);
+                const t = if ((how == .read or how == .view) and !(try self.kinds.of(ty)).kind.copies())
+                    try self.viewTemp(ty, .read_view, pos)
+                else
+                    try self.temp(ty, pos);
                 try self.valueInto(e, how, t);
                 return t;
             },
@@ -1993,7 +2051,15 @@ const Lowerer = struct {
                     const v = self.vars.get(sym_id.?) orelse return abstain("a call of a name the lowering did not bind");
                     if (self.f.vars.items[v].kind == .write_view) return abstain("a call through a write view of a closure");
                     shapes = try self.shapesOf(self.ctx, (self.fnTypeOf(s.ty) orelse return abstain("an unusual callee")).params);
-                    if (try self.callsOnly(v, try self.typeOf(e))) try uses.append(self.a, v) else try reads.append(self.a, v);
+                    // The value called is read first, and stays read until
+                    // the call runs (Core §6): a later argument may not
+                    // change it. A stack closure's binding never changes
+                    // (Core §7: it is only lent to read).
+                    const cv = if (self.ctx.types.get(self.f.vars.items[v].ty) == .function)
+                        v
+                    else
+                        (try self.placeValue(self.rootPlace(v), .read, null, callee)).?;
+                    if (try self.callsOnly(v, try self.typeOf(e))) try uses.append(self.a, cv) else try reads.append(self.a, cv);
                 },
                 else => return abstain("an unusual callee"),
             };
@@ -2093,6 +2159,13 @@ const Lowerer = struct {
             const wants_view = is_ctor and arg.isKind(.kwarg) and self.fieldIsWriteView(e, ir.Kwarg.name(arg).getText(self.src));
             var v = try self.eval(val, arg_how, if (wants_view) self.ctx.typeOf(val) else null) orelse continue;
             if ((arg_how == .take and (!is_ctor or cell_store)) or all_read) v = try self.readThrough(v, self.posOf(val));
+            // A value made where a view is expected is a temporary of the
+            // statement, lent to the call (Core s1, §3): the result's view
+            // of it ends with the statement.
+            if (arg_how == .view and self.f.vars.items[v].hidden and self.f.vars.items[v].kind == .owning) {
+                const vv = self.f.vars.items[v];
+                v = try self.lend(.{ .root = v, .path = &.{}, .ty = vv.ty }, .read, val, vv.ty);
+            }
             // A callable whose result holds no view hands the call none
             // of its captures' views: the call only calls it (Core s7).
             if (try self.callsOnly(v, try self.typeOf(e))) {

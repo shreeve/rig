@@ -67,6 +67,8 @@ pub const Var = struct {
     capture: bool = false,
     /// In a closure's body: a parameter, whose views last one call.
     call_only: bool = false,
+    /// The hidden var of a read `match` arm, which ends with the arm.
+    arm: bool = false,
     /// A binding that sees an owner's payload through a view (`match s`,
     /// `if ?o as x`): it reads and lends what it sees, never moves it.
     alias: bool = false,

@@ -309,7 +309,9 @@ const Checker = struct {
                     if (l.external or l.deref or l.root != k or !st.holds[u].has(li)) continue;
                     if (op.scope_end) {
                         const vr = self.f.vars.items[k];
-                        if (vr.hidden)
+                        if (vr.arm)
+                            try self.report(.C5, op.pos, "a view of a payload of a read `match` outlives its arm", .{})
+                        else if (vr.hidden)
                             try self.report(.C5, op.pos, "a loan of a temporary outlives its statement", .{})
                         else
                             try self.report(.C5, op.pos, "`{s}` does not live long enough: a loan of it is still live", .{vr.name});
@@ -370,7 +372,10 @@ const Checker = struct {
                 if (st.empty.has(v)) continue;
                 for (self.f.loans.items, 0..) |l, li| {
                     if (!st.holds[v].has(li) or l.external or l.deref) continue;
-                    try self.report(.C6, op.pos, "a view of `{s}` leaves the function, which was not lent it", .{self.name(l.root)});
+                    if (self.f.vars.items[l.root].arm)
+                        try self.report(.C6, op.pos, "a view of a payload of a read `match` leaves the function", .{})
+                    else
+                        try self.report(.C6, op.pos, "a view of `{s}` leaves the function, which was not lent it", .{self.name(l.root)});
                     return;
                 }
             };

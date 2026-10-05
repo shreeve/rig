@@ -2,13 +2,13 @@
 # test/run's oracle tests; raise a floor when the oracle grows.
 # The oracle decides header subjects that are made values, parts of
 # made values, and branching values, `unique` types, Cells and Signals,
-# `defer` and `errdefer` bodies, inlined at each exit of
-# their scope, handles (`*T`, `~T`), closures, stack and owned, whose
-# bodies it checks as functions of their own, and generic bodies, so
-# each floor is what it decides now. A type holding a
-# Cell is unique, so the matrix programs that copy one stop in sema,
-# before either checker decides them.
-tests 2826
-corpus 14056
-docs 408
-matrix 6943
+# `defer` and `errdefer` bodies, inlined at each exit of their scope,
+# handles (`*T`, `~T`), closures, stack and owned, whose bodies it
+# checks as functions of their own, generic bodies, held header parts,
+# and arm-local payload views, so each floor is what it decides now. A
+# type holding a Cell is unique, so the matrix programs that copy one
+# stop in sema, before either checker decides them.
+tests 2896
+corpus 14486
+docs 407
+matrix 8608
