@@ -1,0 +1,19 @@
+# s7: a write view reached through a held write view: two calls give two write views of one element? (expect reject at b)
+struct Item
+  n: Int
+
+struct Cur
+  items: !Vec[Item]
+
+  fun at(!self) -> !Item
+    !self.items[0]
+
+sub main
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  c = Cur(items: !v)
+  a = !c.at()
+  b = !c.at()
+  a.n = 5
+  b.n = 7
+  print(a.n, b.n)

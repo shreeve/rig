@@ -1825,7 +1825,11 @@ viewed value (the old value is dropped first). Assigning a view
 points the place at another place instead: `w = !m`, `w = <w2`, or a
 call returning a `!T` re-points a local `w`, which then lends `m`
 alone (a `![]T` local alike), and a bare `w = w2` reads the value `w2`
-reaches and writes it through `w`. A parameter is never re-pointed:
+reaches and writes it through `w`. A new local holds a write view the
+same way, with or without a type: `w = slot(!n)`, a call returning a
+`!Int`, holds the view, as `w: !Int = slot(!n)` does, so `w = 5`
+writes `n`; a bare name, a path, or a loop's value of type `!Int`
+binds the value it reaches. A parameter is never re-pointed:
 `w = !m` of a `!T` parameter is rejected, and `new w = !m` binds a new
 name instead. A field or element of type `!T` follows the same rule:
 `h.w = 5`, `h.w += 1`, `xs[i] += 1`, and `h.w = w2` write the
@@ -1874,6 +1878,21 @@ sub main
 
 ```output
 6 20
+```
+
+```rig
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  n = 1
+  w = slot(!n)
+  w = 5
+  print(n)
+```
+
+```output
+5
 ```
 
 ```rig
@@ -2766,8 +2785,10 @@ bare use of shared (`*T`) handle `a` in binding would alias the handle
 A view of a number, `Bool`, `String`, or plain enum reads as the value
 wherever the value is expected, whether a name holds the view or an
 expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`); the
-loan taken to reach it ends there. Other values are not copied out of
-a view: lend them on, as `?T` or `!T`.
+loan taken to reach it ends there. A binding with no type expects no
+value, so it holds a write view a call yields ([View
+places](#view-places)). Other values are not copied out of a view: lend
+them on, as `?T` or `!T`.
 
 ```rig
 fun slot(a: !Int) -> !Int

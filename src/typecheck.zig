@@ -835,11 +835,13 @@ const Checker = struct {
             rhs_ty = declared;
         } else {
             rhs_ty = try self.synthExpr(rhs);
-            // Binding a viewed Copy value copies the value; an explicit
-            // `?x` / `!x` binds the view, and so does `<w`, which moves
-            // a write view.
-            const moves_write_view = rhs.isKind(.move) and self.ctx.types.get(rhs_ty) == .write_view;
-            if (!rhs.isKind(.read) and !rhs.isKind(.write) and !moves_write_view) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
+            // A binding holds the write view its initializer hands over
+            // (`yieldsWriteView`), as `w: !T = e` does, so assigning it
+            // writes through (Core §6). A name, a path, or a loop's value
+            // of type `!T`, and a read view of a number, `Bool`,
+            // `String`, or plain enum, binds the value it reaches.
+            const holds_write_view = self.ctx.types.get(rhs_ty) == .write_view and yieldsWriteView(rhs);
+            if (!rhs.isKind(.read) and !holds_write_view) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
 
@@ -8674,6 +8676,25 @@ fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
         } else true,
         else => true,
     };
+}
+
+/// Whether `e` hands over a write view to a binding: a call's result,
+/// `!x`, `<w`, or a jump, or a branching value, `match`, or block each
+/// of whose values does.
+fn yieldsWriteView(e: Sexp) bool {
+    switch (e.kind() orelse return false) {
+        .call, .write, .move, .@"return", .@"break", .@"continue" => return true,
+        .@"if", .match, .block, .@"??", .@"catch", .propagate, .propagate_none => {
+            var parts = sema.valueParts(e);
+            var any = false;
+            while (parts.next()) |p| {
+                if (!yieldsWriteView(p.node)) return false;
+                any = true;
+            }
+            return any;
+        },
+        else => return false,
+    }
 }
 
 /// `x` of `?x`, `!x`, or `<x`; any other node as it is.
