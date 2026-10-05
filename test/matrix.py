@@ -5,10 +5,12 @@ Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
 `drop`, a struct holding a Cell, a struct declared `unique`), plus the
-stores into a borrowed parameter (`store.`, below). The rule is the
-corpus's: `rig check` rejects the program with
+stores into a borrowed parameter (`store.`, below) and the views of a
+read `match` payload, used in the arm or escaping (`payload.`). The rule
+is the corpus's: `rig check` rejects the program with
 a file:line:col diagnostic, or it runs clean under the sanitizer (no leak,
-no use of freed memory, no Zig compile error, no crash).
+no use of freed memory, no Zig compile error, no crash). A `payload.`
+program that runs must also print what the payload holds.
 
     test/matrix.py                 # generate, check, and run everything
     test/matrix.py -j 8 -k vec     # 8 at a time; only ids containing "vec"
@@ -226,6 +228,106 @@ STORE_FORMS = {
 }
 
 
+# -----------------------------------------------------------------------------
+# A view of a read `match` payload: used in its arm, or escaping the match
+# (returned from the function that matches, or stored in a binding it
+# returns). Each cell runs other code on the stack before it reads the
+# view, and must print what the payload holds, since the sanitizer cannot
+# see a stale stack slot. Cells are `payload.<type>.<subject>.<use>`.
+# -----------------------------------------------------------------------------
+
+# Each payload type: its spelling, `mk()` and `mk2()` bodies making two
+# different values, the statement that shows a view `v` of one, and what
+# it prints for `mk()`.
+PAYLOAD_TYPES = {
+    "int": dict(ty="Int", mk="4", mk2="40", show="print(v)", out="4"),
+    "plain": dict(ty="P", mk="P(x: 4, y: 5)", mk2="P(x: 40, y: 50)", show="print(v.x, v.y)", out="4 5"),
+    "owner": dict(ty="Res", mk='Res(n: 1, t: Text("hello"))', mk2='Res(n: 10, t: Text("k"))',
+                  show="print(v.n, v.t)", out="1 hello"),
+    "text": dict(ty="Text", mk='Text("tx")', mk2='Text("other")', show="print(v)", out="tx"),
+    "vec": dict(ty="Vec[Int]", mk="xs: Vec[Int] = Vec()\n  !xs.push(8)\n  xs",
+                mk2="xs: Vec[Int] = Vec()\n  !xs.push(80)\n  !xs.push(81)\n  xs",
+                show="print(v[0], v.len)", out="8 1"),
+    "box": dict(ty="Box[N]", mk="Box(N(v: 6))", mk2="Box(N(v: 60))", show="print(v.v)", out="6"),
+    "shared": dict(ty="*N", mk="*N(v: 7)", mk2="*N(v: 70)", show="print(v.v)", out="7"),
+}
+# How the match reaches the enum: a `?E` parameter matched bare or lent
+# again, a `?Box[E]` parameter, a field of a `?H` parameter, or a `?G[T]`
+# parameter of a generic function. `main` makes `e` from `mk()` and
+# passes `?e`.
+PAYLOAD_SUBJECTS = {
+    "param": dict(param="e: ?E", subj="e"),
+    "lend": dict(param="e: ?E", subj="?e"),
+    "box": dict(param="e: ?Box[E]", subj="e", make="e = Box(E.a(r: mk()))"),
+    "field": dict(param="e: ?H", subj="e.e", make="e = H(e: E.a(r: mk()))"),
+    "generic": dict(param="e: ?G[T]", subj="e", make="e: G[TY] = .a(r: mk())", generic=True),
+}
+# Where the view goes: the arms use it (`arm`, through `see`, which runs
+# `clobber` first), return it (`ret`), or store it (`store`) in a binding
+# that held a view of `k` and that the function returns.
+PAYLOAD_ESCAPES = {
+    "arm": dict(arm=[".a(r) => see(?r)", ".b(r) => see(?r)"]),
+    "arm_guard": dict(arm=[".a(r) if ok(?r) => see(?r)", "_ => pass"]),
+    "arm_local": dict(arm=[".a(r)", "  w = ?r", "  see(w)", ".b(_) => pass"]),
+    "arm_whole": dict(arm=[".b(_) => pass", "x => seee(?x)"]),
+    "return": dict(ret=[".a(r) => ?r", ".b(r) => ?r"]),
+    "guard": dict(ret=[".a(r) if ok(?r) => ?r", ".a(r) => ?r", ".b(r) => ?r"]),
+    "whole": dict(ret=["x => ?x"], whole=True),
+    "store": dict(store=[".a(r) => saved = ?r", ".b(_) => pass"]),
+    "guard_store": dict(store=[".a(r) if ok(?r) => saved = ?r", "_ => pass"]),
+    "whole_store": dict(store=[".b(_) => pass", "x => saved = ?x"], whole=True),
+}
+
+
+def payload_program(tname, sname, ename):
+    """The program for one payload cell, and the output it must print."""
+    t = PAYLOAD_TYPES[tname]
+    s = PAYLOAD_SUBJECTS[sname]
+    x = PAYLOAD_ESCAPES[ename]
+    ty = t["ty"]
+    out = ["struct N\n  v: Int\n", "struct P\n  x: Int\n  y: Int\n", "struct Res\n  n: Int\n  t: Text\n",
+           f"enum E\n  a(r: {ty})\n  b(r: {ty})\n", "struct H\n  e: E\n", "enum G[T]\n  a(r: T)\n  b(r: T)\n",
+           f"fun mk() -> {ty}\n  {t['mk']}\n", f"fun mk2() -> {ty}\n  {t['mk2']}\n",
+           f"fun ok(v: ?{ty}) -> Bool\n  true\n",
+           "fun clobber(n: Int) -> Int\n  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]\n"
+           "  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]\n  a[1] + b[2]\n"]
+    show = [t["show"]]
+    if x.get("whole"):
+        # A view of the whole value is shown through its payload.
+        show = ["match v", "  .a(p) => show(?p)", "  .b(p) => show(?p)"]
+        out.append(f"sub show(v: ?{ty})\n  {t['show']}\n")
+    main = [s.get("make", "e = E.a(r: mk())").replace("TY", ty)]
+    if "arm" in x:
+        if s.get("generic"):
+            return None, None
+        out.append(f"sub see(v: ?{ty})\n  print(clobber(1000))\n  {t['show']}\n")
+        out.append(f"sub seee(v: ?E)\n  match v\n    .a(p) => see(?p)\n    .b(p) => see(?p)\n")
+        out.append(f"sub inner({s['param']})\n  match {s['subj']}\n" + indent(x["arm"], 4) + "\n")
+        main.append("inner(?e)")
+        out.append("sub main\n" + indent(main, 2) + "\n")
+        return "\n".join(out), f"2003\n{t['out']}\n"
+    res = "E" if x.get("whole") else ty
+    fun = "inner"
+    if s.get("generic"):
+        # The payload type is the function's `T`; `gok` is `ok` for it.
+        res = "G[T]" if x.get("whole") else "T"
+        fun = "inner[T]"
+        out.append("fun gok[T](v: ?T) -> Bool\n  true\n")
+    arms = [a.replace("ok(", "gok(") if s.get("generic") else a for a in x.get("ret", x.get("store", []))]
+    if "ret" in x:
+        out.append(f"fun {fun}({s['param']}) -> ?{res}\n  match {s['subj']}\n" + indent(arms, 4) + "\n")
+        main.append("v = inner(?e)")
+    else:
+        body = ["saved = k", f"match {s['subj']}"] + ["  " + a for a in arms] + ["saved"]
+        out.append(f"fun {fun}({s['param']}, k: ?{res}) -> ?{res}\n" + indent(body, 2) + "\n")
+        whole_k = f"k: G[{ty}] = .b(r: mk2())" if s.get("generic") else "k = E.b(r: mk2())"
+        main += [whole_k if x.get("whole") else "k = mk2()", "v = inner(?e, ?k)"]
+    main.append("print(clobber(1000))")
+    main += show
+    out.append("sub main\n" + indent(main, 2) + "\n")
+    return "\n".join(out), f"2003\n{t['out']}\n"
+
+
 def store_program(oname, fname, then):
     """The program for one store cell."""
     o = STORE_OWNERS[oname]
@@ -331,8 +433,9 @@ def program(tname, fname, cname):
     return "\n".join(out)
 
 
-def run_one(path, keep):
-    """Classify one program: rejected, ok, or a failure with its reason."""
+def run_one(path, keep, expect=None):
+    """Classify one program: rejected, ok, or a failure with its reason.
+    With `expect`, a program that runs must print exactly that."""
     d = os.path.dirname(path)
     try:
         chk = subprocess.run([RIG, "check", path], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
@@ -348,7 +451,7 @@ def run_one(path, keep):
     outdir = path[:-4] + ".out"
     env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir)
     try:
-        r = subprocess.run([RIG, "run", path], capture_output=True, text=True, timeout=120, env=env, stdin=subprocess.DEVNULL)
+        r = subprocess.run([RIG, "run", path], capture_output=True, text=True, errors="replace", timeout=120, env=env, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         return "fail", "timed out"
     err = r.stderr
@@ -358,6 +461,8 @@ def run_one(path, keep):
     if m:
         line = next((l for l in err.splitlines() if BAD.search(l)), m.group(0))
         return "fail", line.strip()
+    if expect is not None and r.stdout != expect:
+        return "fail", "printed " + repr(r.stdout) + ", expected " + repr(expect)
     return "ok", ""
 
 
@@ -429,11 +534,26 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(store_program(o, f, then))
                 cells.append((ident, path))
+    expects = {}
+    for t in PAYLOAD_TYPES:
+        for sname in PAYLOAD_SUBJECTS:
+            for e in PAYLOAD_ESCAPES:
+                ident = f"payload.{t}.{sname}.{e}"
+                if args.k and not any(k in ident for k in args.k):
+                    continue
+                src, expects[ident] = payload_program(t, sname, e)
+                if src is None:
+                    skipped += 1
+                    continue
+                path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                with open(path, "w") as fh:
+                    fh.write(src)
+                cells.append((ident, path))
     if args.oracle:
         sys.exit(run_oracle(work, cells, args))
     results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
-        futs = {pool.submit(run_one, p, bool(args.keep)): i for i, p in cells}
+        futs = {pool.submit(run_one, p, bool(args.keep), expects.get(i)): i for i, p in cells}
         for fut in concurrent.futures.as_completed(futs):
             results[futs[fut]] = fut.result()
     counts = {}

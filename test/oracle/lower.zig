@@ -1034,8 +1034,9 @@ const Lowerer = struct {
     }
 
     /// The type of the `i`th payload a variant pattern binds, for an
-    /// enum of this module that is not generic.
-    fn payloadOf(self: *Lowerer, ty: TypeId, pattern: Sexp, i: usize) ?TypeId {
+    /// enum of this module that is not generic, matched or lent (`?E`).
+    fn payloadOf(self: *Lowerer, of: TypeId, pattern: Sexp, i: usize) ?TypeId {
+        const ty = sema.unwrapBorrows(self.ctx, of);
         if (self.ctx.types.get(ty) != .nominal) return null;
         const decl = sema.nominalDecl(self.ctx, ty) orelse return null;
         if (decl.ctx != self.ctx) return null;

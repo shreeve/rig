@@ -1,0 +1,74 @@
+# Bindings of a `match !e` point into the matched value: a write through
+# one, a view returned from one, and a whole-value write all land in it.
+
+struct P
+  x: Int
+  y: Int
+
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(p: P)
+  c(r: Res)
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun pick(e: !E, d: !Res) -> !Res
+  match !e
+    .a(r) => r
+    .c(r) => r
+    .b(_) => d
+
+sub grow(e: !E)
+  match !e
+    .a(r) if r.n > 0
+      r.n += 10
+      !r.t.add("!")
+    .a(r) => r.n = 0
+    .b(p) => p.x += 1
+    .c(_) => pass
+
+sub reset(e: !E)
+  match !e
+    .b(p) if p.y > 0 => p.y = 0
+    x => x = E.b(p: P(x: 9, y: 9))
+
+fun first(e: ?E) -> Int
+  match e
+    .a(r) => r.n
+    .b(p) => p.x * 100 + p.y
+    .c(r) => r.n
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("hi")))
+  d = Res(n: 0, t: Text("d"))
+  r = pick(!e, !d)
+  print(clobber(1))
+  r.n = 5
+  !r.t.add(" there")
+  print(first(?e))
+  grow(!e)
+  print(clobber(2))
+  match e
+    .a(q) => print(q.n, q.t)
+    _ => pass
+  reset(!e)
+  print(first(?e))
+  reset(!e)
+  print(first(?e))
+  grow(!e)
+  print(first(?e))
+
+# expect:
+# 2
+# 5
+# 3
+# 15 hi there!
+# 909
+# 900
+# 1000

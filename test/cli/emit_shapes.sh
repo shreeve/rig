@@ -1,6 +1,7 @@
 # The shape of the Zig `rig emit` writes for a few constructs: `const`
 # unless a binding changes or its initializer is a constant, `try` for
-# `!`, `anyerror!T` for fallible types, and escaped names.
+# `!`, `anyerror!T` for fallible types, escaped names, and how a read
+# `match` binds its payloads.
 source "$ROOT/test/cli/_lib.sh"
 
 cat >hello.rig <<'EOF'
@@ -58,3 +59,38 @@ EOF
 out=$("$RIG" emit names.rig 2>/dev/null) || fail "rig emit names.rig"
 expect_has "$out" 'var @"var": i64 = 3;' "Zig keyword"
 expect_has "$out" "var @\"rig'\": i64 = 4;" "emitter name"
+
+# A read `match` views a payload that is not plain data where it is, and
+# a catch-all binding of a lent subject is the address of the value
+# switched on.
+cat >payload.rig <<'EOF2'
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res, k: Int)
+  b(r: Res, k: Int)
+
+fun count(e: ?E) -> Int
+  match e
+    .a(r, k) => r.n + k
+    .b(_, k) => k
+
+fun whole(e: ?E) -> Int
+  match e
+    x => count(x)
+
+fun guarded(e: ?E) -> Int
+  match e
+    .a(_, k) if k > 5 => k
+    x => count(x)
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("x")), k: 2)
+  print(whole(?e), guarded(?e))
+EOF2
+out=$("$RIG" emit payload.rig 2>/dev/null) || fail "rig emit payload.rig"
+expect_has "$out" 'const r = &__rig_payload_1.r;' "payload viewed where it is"
+expect_has "$out" 'else => |*x| count(x),' "catch-all of a lent subject"
+expect_has "$out" 'const x = &e.*;' "guarded catch-all of a lent subject"
