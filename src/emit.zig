@@ -219,10 +219,6 @@ pub const Emitter = struct {
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayList(struct { rig: []const u8, zig: []const u8 }) = .empty,
-    /// Branch blocks whose value the function returns and which hold an
-    /// `errdefer`: they return it themselves, so that an error runs the
-    /// `errdefer` (`markReturningBlocks`).
-    returning: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// Where the `break` and `continue` of the `while` being emitted go
     /// when Zig cannot reach its loop with them (`JumpRedirect`).
     redirect: ?JumpRedirect = null,
@@ -266,7 +262,6 @@ pub const Emitter = struct {
         self.hoisted.deinit(self.allocator);
         self.temp_slots.deinit(self.allocator);
         self.labels.deinit(self.allocator);
-        self.returning.deinit(self.allocator);
         self.value_loops.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -1673,34 +1668,8 @@ pub const Emitter = struct {
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
         if (self.fun.return_ty) |r| if (self.isPtrBorrowTy(self.unwrapOptionals(r))) return self.emitBorrowValue(value);
-        try self.markReturningBlocks(value);
         self.bare = true;
         try self.emitValue(value, true);
-    }
-
-    /// Mark the branch blocks of returned `value` that hold an
-    /// `errdefer`. Zig runs an `errdefer` only when the function returns
-    /// an error from within its scope, not when a block breaks out with
-    /// one, so such a block returns its value itself.
-    fn markReturningBlocks(self: *Emitter, value: Sexp) Error!void {
-        const kind = value.kind() orelse return;
-        switch (kind) {
-            .@"if" => {
-                try self.markReturningBlocks(ir.If.then(value));
-                try self.markReturningBlocks(ir.If.@"else"(value));
-            },
-            .match => for (ir.Match.arms(value)) |arm| try self.markReturningBlocks(ir.Arm.body(arm)),
-            .block => {
-                const stmts = ir.Block.stmts(value);
-                if (stmts.len == 0) return;
-                for (stmts) |st| if (st.isKind(.@"errdefer")) {
-                    try self.returning.put(self.allocator, value.list.id, {});
-                    break;
-                };
-                try self.markReturningBlocks(stmts[stmts.len - 1]);
-            },
-            else => {},
-        }
     }
 
     /// `(break value-or-_ label?)`. A value leaves the block of the loop
@@ -4298,10 +4267,8 @@ pub const Emitter = struct {
 
         const terminates = isTerminatingStmt(last);
         if (!terminates and !self.yieldsValue(last)) return self.unsupported(last, "a block without a value in value position");
-        // A block marked by `markReturningBlocks` returns its value.
-        const returns = body.isKind(.block) and self.returning.contains(body.list.id);
         var label: []const u8 = "";
-        if (!terminates and !returns) {
+        if (!terminates) {
             label = try self.fmt("__rig_blk_{d}", .{self.nextId()});
             try self.w.print("{s}: ", .{label});
         }
@@ -4315,7 +4282,7 @@ pub const Emitter = struct {
             const first = self.temp_slots.items.len;
             defer self.temp_slots.shrinkRetainingCapacity(first);
             try self.emitTempSlots(last);
-            if (returns) try self.w.writeAll("return ") else try self.w.print("break :{s} ", .{label});
+            try self.w.print("break :{s} ", .{label});
             self.bare = true;
             try self.emitValueAs(last, result);
             try self.w.writeAll(";");

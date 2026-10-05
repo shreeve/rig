@@ -1236,20 +1236,19 @@ is re-checked against the state at every exit of its scope, where what
 it reads may not view a var declared after the `defer` (dropped
 before it runs).
 An `errdefer` body is re-checked only at the exits that fail: a `!`,
-and a `return` or final value whose type is, or may be, an error,
-including the final value of an `if` or `match` branch block that is
-the function's result (`Checker.ret_block`). Where the path ends at the
+and a `return` whose operand is, or may be, an error (an error value
+meets a `T!` nowhere else). Where the path ends at the
 exit (a scope's end, a jump, `return`), the bodies run on it and their
 effects stay, so a view one stores is checked where it outlives what
-it views. Where the path goes on (`e!`, `e?`, a final value that may
-be an error), they run only on the path that leaves, so their effects
-are undone after the check (`Exit.goesOn`).
+it views. Where the path goes on (`e!`, `e?`), they run only on the
+path that leaves, so their effects are undone after the check
+(`Exit.goesOn`).
 
 **Exits.** Every path ends through one primitive, `exitTo(.{ to,
 exit, resume_at })`, which desugars an exit into three steps:
 
 1. run the defers `exit` runs (`scope_end`, a `jump` to a scope depth,
-   `return`, `propagate`, `failing_result`), re-checked against the
+   `return`, `propagate`), re-checked against the
    state there, keeping their effects only where the path ends;
 2. report what the path drops (`reportDropped`): each var below `to`'s
    var count, live at `resume_at` (where the path goes on; after the
@@ -1268,7 +1267,7 @@ exit, resume_at })`, which desugars an exit into three steps:
 | a loop's condition failing; the end of its body | the loop's entry | | past the loop; its head |
 | the joins after a loop and a labeled block (`joinAt`) | the entry | | past it |
 | a `defer` body where it is written | before the body | | after the statement |
-| `return`, `e!`, `e?`, a result that may fail | none | `return`, `propagate`, `failing_result` | |
+| `return`, `e!`, `e?` | none | `return`, `propagate` | |
 | a scope's end (`popScope`) | none | `scope_end` | |
 
 A scope's end then reports, with the same per-holder reporter
@@ -1392,10 +1391,7 @@ lower is an internal error: sema must have rejected it.
   a value (one a `break` leaves with a value) becomes a labeled block
   holding the loop without its `else`, then `break :block else_value`;
   each `break v` leaves the block, so the `else` value is reached only
-  when no `break` gave one, for every form of loop. A branch block of a
-  returned value that holds an `errdefer` ends in `return v`, not
-  `break :blk v` (`markReturningBlocks`): Zig runs an `errdefer` only
-  when the function returns.
+  when no `break` gave one, for every form of loop.
 - **Compile-time parameters** are Zig `comptime` parameters, first in
   the signature, after a method's receiver (Zig's method call syntax
   needs the receiver first): `fun times[n: Int](?self)` is

@@ -251,9 +251,6 @@ const Exit = union(enum) {
     @"return": bool,
     /// `e!` (which fails) or `e?`: the path that leaves the function.
     propagate: bool,
-    /// A function result that may be an error, the innermost scope's
-    /// tail: the path where it is one runs the scope's `errdefer`s.
-    failing_result,
 
     /// Whether the path being checked goes on past the exit. Where it
     /// ends, the defers run on it and what they do stays, so a borrow
@@ -263,7 +260,7 @@ const Exit = union(enum) {
     fn goesOn(e: Exit) bool {
         return switch (e) {
             .scope_end, .jump, .@"return" => false,
-            .propagate, .failing_result => true,
+            .propagate => true,
         };
     }
 };
@@ -429,10 +426,6 @@ pub const Checker = struct {
     /// The value a header holds for its construct (`Header.held`): the
     /// node that makes it, read as the hidden var `id` holding it.
     held: ?Held = null,
-    /// A branch block whose tail is the function's result, set just
-    /// before walking it: an error there fails the function, running
-    /// the block's `errdefer`s.
-    ret_block: parser.NodeId = 0,
     /// A source position at or before the statement being walked, for
     /// statements without one of their own (`break`, `continue`).
     anchor: u32 = 0,
@@ -1077,7 +1070,6 @@ pub const Checker = struct {
             const top = self.scopes.items.len - 1;
             switch (e) {
                 .scope_end => try self.runDefers(top, false),
-                .failing_result => try self.runDefers(top, true),
                 .jump => |depth| try self.runDefersTo(depth, false),
                 .@"return", .propagate => |fails| try self.runDefersTo(0, fails),
             }
@@ -1427,8 +1419,6 @@ pub const Checker = struct {
                 self.cur_stmt = stmt;
                 defer self.cur_stmt = saved_stmt;
                 try self.walkReturnValue(stmt);
-                // An error returned here runs the body's `errdefer`s.
-                if (self.reachable and self.mayFail(stmt)) _ = try self.exitTo(.{ .exit = .failing_result });
             } else {
                 try self.walkStmt(stmt);
             }
@@ -1564,8 +1554,6 @@ pub const Checker = struct {
     fn walkBlock(self: *Checker, block: Sexp) Error!Value {
         const stmts = ir.Block.stmts(block);
         const t = self.takeTail(block);
-        const returns = self.ret_block != 0 and self.ret_block == block.list.id;
-        if (returns) self.ret_block = 0;
         try self.pushScopeFor(.block, block);
         var v: Value = .{};
         for (stmts, 0..) |s, i| {
@@ -1581,9 +1569,6 @@ pub const Checker = struct {
             v = try self.walkStmtValue(s, null);
             if (t) |ctx| if (s == .src and self.reachable) try self.consumeTailName(s, ctx);
         }
-        // An error the function returns from here runs the block's
-        // `errdefer`s.
-        if (returns and self.reachable and stmts.len > 0 and self.mayFail(stmts[stmts.len - 1])) _ = try self.exitTo(.{ .exit = .failing_result });
         v = try self.checkValueEscapesScope(v);
         try self.popScope();
         return if (self.reachable) v else .{};
@@ -1758,15 +1743,6 @@ pub const Checker = struct {
         if (t.node != node.list.id) return null;
         self.tail = null;
         return t;
-    }
-
-    /// Walk a branch of a consumed `if` or `match`: its tail leaves it.
-    /// A branch block of the function's result returns it (`ret_block`).
-    fn walkTailBranch(self: *Checker, body: Sexp, t: ?Tail) Error!Value {
-        if (t) |ctx| if (ctx.sink == .ret and body.isKind(.block)) {
-            self.ret_block = body.list.id;
-        };
-        return self.walkTailPart(body, t);
     }
 
     /// Walk a part of a consumed value (a branch, an arm, a handler):
@@ -3704,9 +3680,9 @@ pub const Checker = struct {
         try self.walkStmt(cond);
         const base = try self.here();
         const past = resumeAt(.nil, node);
-        const v1 = try self.walkTailBranch(then_b, t);
+        const v1 = try self.walkTailPart(then_b, t);
         const s1 = try self.leave(base, past);
-        const v2 = if (else_b != .nil) try self.walkTailBranch(else_b, t) else Value{};
+        const v2 = if (else_b != .nil) try self.walkTailPart(else_b, t) else Value{};
         const s2 = try self.leave(base, past);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
@@ -3724,7 +3700,7 @@ pub const Checker = struct {
         try self.walkConditionParts(ir.If.cond(node), then_b);
         // A failing part goes on to the `else`, or past the `if`.
         const failed = try self.exitTo(.{ .to = base, .resume_at = resumeAt(else_b, node) });
-        var v1 = try self.walkTailBranch(then_b, t);
+        var v1 = try self.walkTailPart(then_b, t);
         while (self.scopes.items.len > depth) {
             v1 = try self.checkValueEscapesScope(v1);
             try self.popScope();
@@ -3732,7 +3708,7 @@ pub const Checker = struct {
         const past = resumeAt(.nil, node);
         const s1 = try self.leave(base, past);
         try self.apply(failed);
-        const v2 = if (else_b != .nil) try self.walkTailBranch(else_b, t) else Value{};
+        const v2 = if (else_b != .nil) try self.walkTailPart(else_b, t) else Value{};
         const s2 = try self.leave(base, past);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
@@ -3926,7 +3902,7 @@ pub const Checker = struct {
             }
             // The arm is chosen: the subject is read no more.
             if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
-            var v = try self.walkTailBranch(body, tail_ctx);
+            var v = try self.walkTailPart(body, tail_ctx);
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);
