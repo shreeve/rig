@@ -9,9 +9,10 @@
 //!   --set NAME        the set these programs are, for --coverage
 //!   --explain FN      print the lowered core of every function named FN
 //!   --stats           count the reasons the oracle abstains
-//!   --planned         apply the Core's planned rules the oracle models
-//!                     (none today: a type holding a `Cell` is unique,
-//!                     and headers read bare places, in every run)
+//!   --planned         apply the Core's planned rules the oracle models:
+//!                     a bare `break x` of an owner declared in the loop
+//!                     moves it (a type holding a `Cell` is unique, and
+//!                     headers read bare places, in every run)
 //!   --sema            also decide the functions of a module whose
 //!                     semantic checks failed (prod=sema), as a probe;
 //!                     they count toward nothing
@@ -263,6 +264,9 @@ fn checkProgram(
         totals.failures += 1;
         return;
     };
+    // The generic bodies a call may run, in any module of the program.
+    lower.program_modules = graph.modules.items;
+    lower.copies_memo = .empty;
     for (graph.modules.items) |*m| {
         if (m.is_std or m.ir == .nil) continue;
         var units: std.ArrayList(Unit) = .empty;

@@ -1,0 +1,109 @@
+# A Vec or array of views holds the loans pushed into it until its last
+# use; an element read out of it carries the element's loans, not one
+# on the Vec; an element holding a write view is written through and
+# re-pointed (Core §4, §5, §6).
+
+sub dropped_then_assign
+  a = 1
+  b = 2
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  !v.insert(0, ?b)
+  print(v)
+  -v
+  a = 5
+  b = 6
+  print(a, b)
+
+sub popped_outlives_vec
+  a = 1
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  r = (!v).pop()
+  -v
+  print(r)
+
+sub got_then_push
+  a = 1
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  r = v.get(0)
+  !v.push(?a)
+  print(r, v.len)
+
+sub write_elements
+  a = 1
+  b = 2
+  c = 3
+  v: Vec[!Int] = Vec()
+  !v.push(!a)
+  !v.push(!b)
+  v[0] = 10
+  v[1] += 5
+  v[0] = !c
+  v[0] = 7
+  -v
+  print(a, b, c)
+
+sub write_array
+  a = 1
+  b = 2
+  v = [!a, !b]
+  v[0] = 10
+  v[1] += 5
+  -v
+  print(a, b)
+
+sub popped_write
+  a = 1
+  v: Vec[!Int] = Vec()
+  !v.push(!a)
+  if (!v).pop() as w
+    w = 4
+  -v
+  print(a)
+
+sub owners
+  rows: Vec[Vec[Int]] = Vec()
+  r: Vec[Int] = Vec()
+  !r.push(5)
+  !rows.push(<r)
+  !rows[0].push(6)
+  print(rows.len, rows[0].len)
+  o: Vec[Text?] = Vec()
+  !o.push(Text("a"))
+  if <o[0] as t
+    print(t)
+  print(o[0])
+  o[0] = Text("b")
+  print(o)
+
+sub main
+  dropped_then_assign()
+  popped_outlives_vec()
+  got_then_push()
+  write_elements()
+  write_array()
+  popped_write()
+  owners()
+
+# expect:
+# [2, 1]
+# 5 6
+# 1
+# 1 2
+# 10 7 7
+# 10 7
+# 4
+# 1 2
+# a
+# none
+# ["b"]
+
+# oracle: dropped_then_assign accept
+# oracle: popped_outlives_vec accept
+# oracle: got_then_push accept
+# oracle: write_elements accept
+# oracle: write_array accept
+# oracle: popped_write accept
+# oracle: owners accept

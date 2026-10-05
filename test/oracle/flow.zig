@@ -89,6 +89,8 @@ const Checker = struct {
     live_out: []Bits,
     /// The read loan each write loan reads as, in what a call returns.
     twins: []?LoanId,
+    /// Scratch: an op's flow before its write loans are read only.
+    full: Bits = undefined,
     finding: ?core.Finding = null,
 
     fn report(self: *Checker, rule: core.Rule, pos: u32, comptime fmt: []const u8, args: anytype) !void {
@@ -157,6 +159,16 @@ const Checker = struct {
                 if (l.pointer and !l.external) out.unset(li);
             }
         }
+        if (op.unpoint) {
+            const extra = self.full;
+            extra.clear();
+            for (self.f.loans.items, 0..) |l, li| {
+                if (!out.has(li) or !l.pointer or l.external) continue;
+                out.unset(li);
+                _ = extra.merge(st.holds[l.root]);
+            }
+            _ = out.merge(extra);
+        }
         if (op.loan) |l| out.set(l);
     }
 
@@ -202,10 +214,13 @@ const Checker = struct {
     fn transfer(self: *Checker, op: core.Op, st: State, flow: Bits) void {
         self.flowOf(op, st, flow);
         // What a call hands back or stores is a read view of what it was
-        // lent to write, unless it is itself a write view: a String made
-        // from a `!Text` reads it (Core s7).
+        // lent to write, unless it may itself be or hold a write view: a
+        // String made from a `!Text` reads it (Core s7), and a write view
+        // pushed into a Vec of them stays one (Core §5).
+        const full = self.full;
+        full.copyFrom(flow);
         if (op.what == .call) {
-            const wants_write = if (op.def) |d| self.f.vars.items[d].kind == .write_view else false;
+            const wants_write = if (op.def) |d| self.f.vars.items[d].kind == .write_view or self.f.vars.items[d].holds_writes else false;
             if (!wants_write) self.readOnly(flow);
         }
         for (op.moves) |v| {
@@ -220,13 +235,13 @@ const Checker = struct {
         if (op.weak) |w| self.take(w, st, flow);
         // A call may store what it was handed in what it was lent to
         // write (Core s6, SPEC §7 "Second-class borrows").
-        for (op.gains) |g| self.gain(g, st, flow);
+        for (op.gains) |g| self.gain(g, st, if (self.f.vars.items[g].holds_writes) full else flow);
         // What a write view stores into, or lets a call store into, is
         // what its write loans are on.
         for (op.through) |t| {
             for (self.f.loans.items, 0..) |l, li| {
                 if (!st.holds[t].has(li) or l.external or l.mode == .read or !l.stores_views) continue;
-                self.gain(l.root, st, flow);
+                self.gain(l.root, st, if (self.f.vars.items[l.root].holds_writes) full else flow);
             }
         }
         if (op.kill) |k| {
@@ -405,6 +420,7 @@ pub fn check(a: std.mem.Allocator, f: *core.Func) !?core.Finding {
     }
     var c: Checker = .{ .a = a, .f = f, .nv = f.vars.items.len, .nl = f.loans.items.len, .live_out = &.{}, .twins = twins };
     try c.liveness();
+    c.full = try Bits.init(a, c.nl);
 
     const blocks = f.blocks.items;
     const in_states = try a.alloc(?State, blocks.len);

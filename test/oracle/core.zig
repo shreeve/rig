@@ -58,6 +58,9 @@ pub const Var = struct {
     /// Values may hold a `?T`, `!T`, or slice: a loan that points at a
     /// place, which a value copied out through it does not carry.
     holds_pointers: bool,
+    /// Values may hold a write view: a write loan flowing into it stays
+    /// a write loan (a container of write views, Core §5).
+    holds_writes: bool = false,
     /// Dropping it runs a user `drop` body, which reads what it views.
     drop_reads: bool,
     hidden: bool = false,
@@ -173,6 +176,11 @@ pub const Op = struct {
     /// it carries that view's loans, not the loans that point at their
     /// holder (Core s7). The flow leaves out pointer loans.
     carry: bool = false,
+    /// A deep clone through a view (Core s2): what it makes is a new
+    /// owner of what the view sees, carrying what that holds, not the
+    /// loan that reaches it. The flow replaces each pointer loan on a
+    /// place by the loans that place carries.
+    unpoint: bool = false,
     /// What the op makes holds no value that carries a loan (Core s9:
     /// an owned closure's captures); a flowing loan is C8.
     no_loans: bool = false,
