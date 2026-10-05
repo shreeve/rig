@@ -309,7 +309,9 @@ const Checker = struct {
                     if (l.external or l.deref or l.root != k or !st.holds[u].has(li)) continue;
                     if (op.scope_end) {
                         const vr = self.f.vars.items[k];
-                        if (vr.hidden)
+                        if (vr.arm)
+                            try self.report(.C5, op.pos, "a view of a payload of a read `match` outlives its arm", .{})
+                        else if (vr.hidden)
                             try self.report(.C5, op.pos, "a loan of a temporary outlives its statement", .{})
                         else
                             try self.report(.C5, op.pos, "`{s}` does not live long enough: a loan of it is still live", .{vr.name});
@@ -318,14 +320,62 @@ const Checker = struct {
                 }
             }
         };
+        // C8 (s9): an owned closure, a Cell, or a Signal takes no value
+        // that carries a loan.
+        if (op.no_loans) {
+            for (op.moves) |v| {
+                for (self.f.loans.items, 0..) |l, li| {
+                    if (!st.holds[v].has(li)) continue;
+                    try self.report(.C8, op.pos, "a value carrying a loan of `{s}` would be stored where every handle reaches it; an owned closure, a Cell, or a Signal holds only values that carry no loan", .{self.name(l.root)});
+                    return;
+                }
+            }
+        }
         // C6 (s7): what leaves the function views only what it was lent,
-        // or what lives for the whole program.
+        // or what lives for the whole program. What a closure captured
+        // to write outlives each call, so it keeps no view of what one
+        // call received (Core §7).
         if (op.what == .ret) {
+            for (op.keep) |v| {
+                if (st.empty.has(v) or !self.f.vars.items[v].capture) continue;
+                for (self.f.loans.items, 0..) |l, li| {
+                    if (!st.holds[v].has(li) or !l.call_only) continue;
+                    try self.report(.C6, op.pos, "a view of `{s}`, which lasts one call, is stored in what the closure captured", .{self.name(l.root)});
+                    return;
+                }
+            }
+            // What one call received is the caller's, which may outlive
+            // the closure: it keeps no view of what the closure captured
+            // (Core §7; the call does not pass those loans on).
+            for (op.keep) |v| {
+                if (st.empty.has(v) or !self.f.vars.items[v].call_only) continue;
+                for (self.f.loans.items, 0..) |l, li| {
+                    if (!st.holds[v].has(li) or !self.f.vars.items[l.root].capture) continue;
+                    try self.report(.C6, op.pos, "a view of `{s}`, which the closure captured, is stored in what one call received", .{self.name(l.root)});
+                    return;
+                }
+            }
+            // A closure's result is handed out at every call: it views no
+            // place the closure captured to write (Core §7: only a
+            // captured read lend may be the closure's value).
+            for (op.reads) |v| {
+                if (st.empty.has(v)) continue;
+                for (self.f.loans.items, 0..) |l, li| {
+                    if (!st.holds[v].has(li)) continue;
+                    const root = self.f.vars.items[l.root];
+                    if (!root.capture or root.kind != .write_view) continue;
+                    try self.report(.C6, op.pos, "a view of `{s}`, which the closure captured to write, leaves each call", .{root.name});
+                    return;
+                }
+            }
             for ([_][]const VarId{ op.reads, op.keep }) |g| for (g) |v| {
                 if (st.empty.has(v)) continue;
                 for (self.f.loans.items, 0..) |l, li| {
                     if (!st.holds[v].has(li) or l.external or l.deref) continue;
-                    try self.report(.C6, op.pos, "a view of `{s}` leaves the function, which was not lent it", .{self.name(l.root)});
+                    if (self.f.vars.items[l.root].arm)
+                        try self.report(.C6, op.pos, "a view of a payload of a read `match` leaves the function", .{})
+                    else
+                        try self.report(.C6, op.pos, "a view of `{s}` leaves the function, which was not lent it", .{self.name(l.root)});
                     return;
                 }
             };
@@ -339,7 +389,7 @@ pub fn check(a: std.mem.Allocator, f: *core.Func) !?core.Finding {
     var entry_loans: std.ArrayList(struct { VarId, LoanId }) = .empty;
     for (f.params.items) |p| {
         if (!f.vars.items[p].holds_views) continue;
-        try f.loans.append(a, .{ .root = p, .path = &.{}, .mode = .read, .external = true, .pointer = false, .pos = 0 });
+        try f.loans.append(a, .{ .root = p, .path = &.{}, .mode = .read, .external = true, .call_only = f.vars.items[p].call_only, .pointer = false, .pos = 0 });
         try entry_loans.append(a, .{ p, @intCast(f.loans.items.len - 1) });
     }
     const n = f.loans.items.len;

@@ -18,6 +18,7 @@ const std = @import("std");
 const lib = @import("rig_lib");
 const core = @import("core.zig");
 const kinds = @import("kinds.zig");
+const flow = @import("flow.zig");
 const Unit = @import("main.zig").Unit;
 
 const sema = lib.sema;
@@ -76,15 +77,35 @@ const Place = struct {
     /// The path passed through a write view before it carried: reaching
     /// the stored view still reads the write view's place.
     under_write: bool = false,
+    /// The path passes through a counted handle: what it reaches is the
+    /// box's, which a loan on the handle keeps alive (Core s8: handles
+    /// only read).
+    handle: bool = false,
 
     const Via = enum { own, read, write };
 };
 
 /// A scope (a block's bindings) or a statement's temporaries; leaving
-/// either drops its vars, last first.
+/// either drops its vars, last first, and runs its scope's `defer`s.
 const Region = struct {
     vars: std.ArrayList(VarId) = .empty,
+    defers: std.ArrayList(Deferred) = .empty,
 };
+
+/// A `defer` or `errdefer` its scope has reached: its body runs at
+/// every exit of the scope, after the vars declared after it are
+/// dropped and before the ones declared before it (Core §7; SPEC
+/// "defer and errdefer").
+const Deferred = struct {
+    body: Sexp,
+    /// An `errdefer`: it runs only on the exits where the function fails.
+    err: bool,
+    /// How many of the region's vars were declared before it.
+    at: usize,
+};
+
+/// Whether an exit fails the function, which runs its `errdefer`s.
+const Fails = enum { no, yes, maybe };
 
 const Loop = struct {
     label: ?[]const u8,
@@ -146,23 +167,38 @@ const Lowerer = struct {
     /// While a header finds the place its subject names in a value it
     /// made: that value's node, and the var holding it.
     made_root: ?struct { start: u32, end: u32, v: VarId } = null,
+    /// While a deferred body is lowered: the loops it may leave start here.
+    loop_floor: usize = 0,
+    in_defer: bool = false,
+    /// While a deferred body is lowered: the first var it declares.
+    defer_vars: VarId = 0,
+    /// The payloads a pattern binds of a place the function owns.
+    owned_payloads: std.AutoHashMapUnmanaged(VarId, void) = .empty,
+    /// The elements a `for` binds.
+    loop_elems: std.AutoHashMapUnmanaged(VarId, void) = .empty,
+    /// The locals a stack closure literal is bound to.
+    closure_bindings: std.AutoHashMapUnmanaged(VarId, void) = .empty,
 
     // ---- the function ---------------------------------------------------
 
     fn run(self: *Lowerer, unit: Unit) Error!void {
-        if (unit.generic_owner) return abstain("a generic body");
         const decl = unit.decl;
         const kind = decl.kind().?;
-        if ((kind == .fun or kind == .sub) and ir.get(decl, .tparams) != .nil) return abstain("a generic body");
+        // A generic body is checked once, for every instance (SPEC
+        // "Generic bodies").
+        self.kinds.generic = unit.generic_owner or ((kind == .fun or kind == .sub) and ir.get(decl, .tparams) != .nil);
         const entry = try self.newBlock();
         self.cur = entry;
         try self.regions.append(self.a, .{});
         if (kind != .@"test") {
             for (ir.get(decl, .params).items()) |p| try self.param(p);
         }
-        const body = ir.get(decl, .body);
-        const returns = kind == .fun;
-        const stmts = ir.Block.stmts(body);
+        try self.lowerBody(ir.get(decl, .body), kind == .fun);
+    }
+
+    /// A body's statements, its last one its value when it `returns`.
+    fn lowerBody(self: *Lowerer, b: Sexp, returns: bool) Error!void {
+        const stmts = ir.Block.stmts(b);
         try self.regions.append(self.a, .{});
         for (stmts, 0..) |s, i| {
             if (returns and i + 1 == stmts.len and isValue(s)) {
@@ -170,19 +206,57 @@ const Lowerer = struct {
                 try self.retValue(s);
             } else try self.stmt(s);
         }
-        if (self.cur != null) try self.ret(null, self.posOf(body));
+        if (self.cur != null) try self.ret(null, self.posOf(b), .no);
+    }
+
+    /// A closure's body, checked as a function of its own (Core §7):
+    /// what it captured holds a value on entry and an external loan for
+    /// the closure's life, which its environment owns and never drops
+    /// here; its parameters are a function's, whose views last one call.
+    fn runClosure(self: *Lowerer, e: Sexp) Error!void {
+        const ft = switch (self.ctx.types.get(try self.typeOf(e))) {
+            .function => |f| f,
+            else => return abstain("a closure of an unusual type"),
+        };
+        self.cur = try self.newBlock();
+        try self.regions.append(self.a, .{});
+        for (sema.captureList(ir.Lambda.captures(e))) |cap| {
+            const leaf = sema.captureNameNode(cap) orelse return abstain("an unusual capture");
+            const sym_id = self.ctx.symbolOf(leaf) orelse return abstain("a capture without a symbol");
+            const sym = self.ctx.symbols.items[sym_id];
+            const v = try self.newVar(sym.name, sym.ty, false, leaf.src.pos);
+            self.f.vars.items[v].param = true;
+            self.f.vars.items[v].capture = true;
+            try self.vars.put(self.a, sym_id, v);
+            try self.f.params.append(self.a, v);
+            if (self.f.vars.items[v].kind == .write_view) try self.write_params.append(self.a, v);
+        }
+        for (ir.Lambda.params(e).items()) |p| {
+            try self.param(p);
+            const v = self.f.params.items[self.f.params.items.len - 1];
+            self.f.vars.items[v].call_only = true;
+        }
+        try self.lowerBody(ir.Lambda.body(e), self.ctx.types.get(ft.returns) != .void);
     }
 
     fn param(self: *Lowerer, p: Sexp) Error!void {
+        if (p == .src) return self.paramNamed(p);
         const name = switch (p.kind() orelse return abstain("an unusual parameter")) {
             .@":", .default => ir.get(p, .name),
             .read, .write, .move => ir.get(p, .operand),
             else => return abstain("an unusual parameter"),
         };
+        return self.paramNamed(name);
+    }
+
+    fn paramNamed(self: *Lowerer, name: Sexp) Error!void {
         const sym_id = self.ctx.symbolOf(name) orelse return abstain("a parameter without a symbol");
         const sym = self.ctx.symbols.items[sym_id];
         const v = try self.newVar(sym.name, sym.ty, false, name.src.pos);
         self.f.vars.items[v].param = true;
+        // A function value passed by value is a function or a closure
+        // that carries no loan: a stack closure is only lent (`?fun`).
+        if (self.ctx.types.get(sym.ty) == .function) self.f.vars.items[v].holds_views = false;
         try self.vars.put(self.a, sym_id, v);
         try self.f.params.append(self.a, v);
         // The caller owns what a view parameter sees; an owned parameter
@@ -290,27 +364,77 @@ const Lowerer = struct {
         try self.regions.append(self.a, .{});
     }
 
-    /// Drop a region's vars, last first, at `pos`.
-    fn killRegion(self: *Lowerer, r: Region, pos: u32) Error!void {
+    /// Leave a region at `pos`: drop its vars, last first, running each
+    /// `defer` it reached where it was written among them, and each
+    /// `errdefer` too on an exit that fails (Core §7: they run where
+    /// their scope ends; the code there is inlined at every exit, so the
+    /// checks apply to it as written).
+    fn killRegion(self: *Lowerer, r: Region, pos: u32, fails: bool) Error!void {
+        var di = r.defers.items.len;
         var i = r.vars.items.len;
-        while (i > 0) {
+        while (true) {
+            while (di > 0 and r.defers.items[di - 1].at >= i) {
+                di -= 1;
+                const d = r.defers.items[di];
+                if (!d.err or fails) try self.runDeferred(d.body);
+            }
+            if (i == 0) break;
             i -= 1;
             try self.emit(.{ .pos = pos, .what = .kill, .kill = r.vars.items[i], .scope_end = true });
         }
     }
 
-    fn popRegion(self: *Lowerer, pos: u32) Error!void {
-        const r = self.regions.pop().?;
-        if (self.cur != null) try self.killRegion(r, pos);
+    /// A deferred body at one exit: its own statements, which may not
+    /// leave it (a jump or a propagation out of deferred code is the
+    /// compiler's to reject; the oracle leaves such a function alone).
+    fn runDeferred(self: *Lowerer, body: Sexp) Error!void {
+        if (self.cur == null) return;
+        const saved_floor = self.tail_floor;
+        const saved_label = self.label;
+        const saved_made = self.made_root;
+        const saved_loops = self.loop_floor;
+        const saved_in = self.in_defer;
+        const saved_vars = self.defer_vars;
+        defer {
+            self.defer_vars = saved_vars;
+            self.tail_floor = saved_floor;
+            self.label = saved_label;
+            self.made_root = saved_made;
+            self.loop_floor = saved_loops;
+            self.in_defer = saved_in;
+        }
+        self.tail_floor = null;
+        self.label = null;
+        self.made_root = null;
+        self.loop_floor = self.loops.items.len;
+        self.in_defer = true;
+        self.defer_vars = @intCast(self.f.vars.items.len);
+        try self.pushRegion();
+        if (body.isKind(.block)) {
+            for (ir.Block.stmts(body)) |s| try self.stmt(s);
+        } else try self.stmt(body);
+        try self.popRegion(self.posOf(body));
     }
 
-    /// Leave every region above `depth`, innermost first (a jump).
-    fn unwind(self: *Lowerer, depth: usize, pos: u32) Error!void {
+    fn popRegion(self: *Lowerer, pos: u32) Error!void {
+        const r = self.regions.pop().?;
+        if (self.cur != null) try self.killRegion(r, pos, false);
+    }
+
+    /// Leave every region above `depth`, innermost first (a jump, or a
+    /// return that fails or not).
+    fn unwind(self: *Lowerer, depth: usize, pos: u32, fails: bool) Error!void {
         var i = self.regions.items.len;
         while (i > depth) {
             i -= 1;
-            try self.killRegion(self.regions.items[i], pos);
+            try self.killRegion(self.regions.items[i], pos, fails);
         }
+    }
+
+    /// Whether a region on the stack has reached an `errdefer`.
+    fn hasErrdefer(self: *Lowerer) bool {
+        for (self.regions.items) |r| for (r.defers.items) |d| if (d.err) return true;
+        return false;
     }
 
     fn varOf(self: *Lowerer, leaf: Sexp) ?VarId {
@@ -363,7 +487,7 @@ const Lowerer = struct {
             .@"for" => try self.forStmt(s, null),
             .@"return" => {
                 const v = ir.Return.value(s);
-                if (v == .nil) try self.ret(null, self.posOf(s)) else try self.retValue(v);
+                if (v == .nil) try self.ret(null, self.posOf(s), .no) else try self.retValue(v);
             },
             .@"break", .@"continue" => try self.jump(s),
             .labeled => {
@@ -372,7 +496,12 @@ const Lowerer = struct {
                 self.label = ir.Labeled.label(s).getText(self.src);
                 try self.stmtIn(inner);
             },
-            .@"defer", .@"errdefer" => return abstain("`defer`"),
+            // Registered on the scope under the statement's temporaries;
+            // its body runs at the scope's exits (`killRegion`).
+            .@"defer", .@"errdefer" => {
+                const scope = &self.regions.items[self.regions.items.len - 2];
+                try scope.defers.append(self.a, .{ .body = ir.get(s, .body), .err = k == .@"errdefer", .at = scope.vars.items.len });
+            },
             .raw_block => return abstain("`raw`"),
             else => _ = try self.eval(s, .read, null),
         }
@@ -401,14 +530,19 @@ const Lowerer = struct {
             }
             if (declares) {
                 // The value first, then the binding (Core §6).
-                const v = try self.eval(rhs, .take, sym.ty);
+                // A stack closure is bound to a local, which is fixed
+                // (Core §7, SPEC "Stack closures").
+                const lambda = rhs.isKind(.lambda);
+                const v = if (lambda) try self.closure(rhs, false) else try self.eval(rhs, .take, sym.ty);
                 const x = try self.bind(target, 1);
+                if (lambda) try self.closure_bindings.put(self.a, x, {});
                 try self.store(x, v, pos);
                 return;
             }
             const x = self.vars.get(sym_id).?;
             const xv = self.f.vars.items[x];
             if (xv.kind != .write_view) try self.reassignable(sym, pos);
+            if (self.closure_bindings.contains(x)) return self.found(.B1, pos, "a closure binding `{s}` is fixed", .{sym.name});
             if (xv.kind == .write_view) {
                 const vt = try self.typeOf(rhs);
                 if (self.ctx.types.get(vt) == .borrow_write) return abstain("assigning a write view to a write view (Core §6, planned)");
@@ -428,6 +562,7 @@ const Lowerer = struct {
         const v = try self.eval(rhs, .take, try self.typeOf(target));
         const p = try self.place(target) orelse return abstain("an assignment to something not a place");
         if (p.via == .read) return abstain("a write through a read view");
+        if (p.handle) return abstain("a write through a handle");
         if (self.f.vars.items[p.root].kind != .write_view and self.ctx.types.get(p.ty) == .borrow_write) return abstain("a write view stored in a place");
         // A store through a write view lands in what the view sees (s6).
         const through: []const VarId = if (p.via == .write) try self.one(p.root) else &.{};
@@ -438,6 +573,7 @@ const Lowerer = struct {
         var v = try self.eval(rhs, .read, null);
         if (v) |rv| v = try self.readThrough(rv, pos);
         const p = try self.place(target) orelse return abstain("a compound assignment to something not a place");
+        if (p.handle) return abstain("a write through a handle");
         if (target == .src and self.f.vars.items[p.root].kind != .write_view) {
             try self.reassignable(self.ctx.symbols.items[self.ctx.symbolOf(target).?], pos);
         }
@@ -450,6 +586,7 @@ const Lowerer = struct {
     /// bindings may not.
     fn reassignable(self: *Lowerer, sym: sema.Symbol, pos: u32) Error!void {
         if (sym.kind == .param) return self.found(.B1, pos, "a parameter `{s}` is not reassigned", .{sym.name});
+        if (sym.kind == .capture) return self.found(.B3, pos, "a closure does not reassign `{s}`, which it captured", .{sym.name});
         if (sym.flags.fixed) return self.found(.B1, pos, "a fixed binding `{s}` is not reassigned", .{sym.name});
     }
 
@@ -467,6 +604,16 @@ const Lowerer = struct {
         if (xv.param and self.ctx.types.get(xv.ty) != .string and xv.kind != .owning and xv.kind != .plain) {
             return self.found(.C5, self.posOf(s), "a parameter's view is the caller's; it is not dropped here", .{});
         }
+        try self.keptByDefer(x, self.posOf(s));
+        try self.keptByClosure(x, self.posOf(s));
+        // Dropping a generic loop element ends a copy (SPEC "Generic
+        // bodies").
+        if (self.loop_elems.contains(x) and (try self.kinds.of(xv.ty)).generic_copy) {
+            try self.emit(.{ .pos = self.posOf(s), .what = .use, .uses = try self.one(x) });
+            return;
+        }
+        // A payload seen through a view is the subject's (§5).
+        if (xv.alias) return self.found(.C7, self.posOf(s), "a payload seen through a view is not dropped; take the subject with `<`", .{});
         try self.emit(.{ .pos = self.posOf(s), .what = .kill, .uses = try self.one(x), .kill = x, .access = .{ .root = x, .kind = .whole } });
     }
 
@@ -521,6 +668,12 @@ const Lowerer = struct {
         /// header's temporary, which the tests of the statement may read
         /// but no binding may view (Core §3).
         lent_temp: bool = false,
+        /// For a lend of a place the function owns: its payloads are that
+        /// place's.
+        of_owner: bool = false,
+        /// In an arm of a read `match`: the hidden var of the arm, on
+        /// which each binding that is no plain data holds a loan.
+        arm: ?VarId = null,
     };
 
     /// The value of `if e as x`, `while e as x`, or a `match` subject: a
@@ -544,14 +697,16 @@ const Lowerer = struct {
         const h = try self.hold(v, "the `as` value", pos);
         try self.popRegion(pos);
         var carry_from: ?VarId = null;
+        var of_owner = false;
         // A bare place read where it stands is `?p`.
         const lent_place: ?Sexp = if (value.isKind(.read)) ir.Read.operand(value) else if (is_place and bare == .read) value else null;
         if (lent_place) |lp| if (self.rootVar(lp)) |r| {
             const rv = self.f.vars.items[r];
             if (rv.kind != .write_view and !rv.alias) carry_from = r;
+            of_owner = rv.kind == .owning and !rv.alias;
         };
         const lent_temp = (value.isKind(.read) or value.isKind(.write)) and self.madeSubject(ir.get(value, .operand));
-        return .{ .v = h, .pos = pos, .ty = ty, .carry_from = carry_from, .lent_temp = lent_temp };
+        return .{ .v = h, .pos = pos, .ty = ty, .carry_from = carry_from, .lent_temp = lent_temp, .of_owner = of_owner };
     }
 
     /// What a header's subject hands over (Core §3), lowered inside the
@@ -560,7 +715,8 @@ const Lowerer = struct {
     /// - A value made in the header (a call's result, a constructor, a
     ///   literal) is taken. So is the made value the subject is a part
     ///   of (`mk().e`, `[a, b][0]`): a hidden var of the statement holds
-    ///   it through the body, and the subject is its part.
+    ///   it through the body, and the part is read where it stands, or
+    ///   copied in the header when it is plain data (`heldView`).
     /// - A lend of a made value (`?mk()`) lends the header's temporary:
     ///   the statement's tests may read it, but no binding may view it
     ///   (`Held.lent_temp`).
@@ -577,12 +733,10 @@ const Lowerer = struct {
             if (lent and isBranching(named)) return abstain("a lend of a branching value (Core §3, planned)");
             if (lent and value.isKind(.write)) return abstain("a write lend of a made value");
             const part = named.kind().? == .member or named.kind().? == .index;
-            if (part or lent) {
+            if (part and !lent) return self.heldView(named, name, bare);
+            if (lent) {
                 const hp = try self.heldPart(named, name);
-                if (lent) return try self.lend(hp.place, .read, value, try self.typeOf(value));
-                // The payloads a header binds of a value it holds are the
-                // body's own (or views of the holder: `bindHeld`).
-                return hp.held;
+                return try self.lend(hp.place, .read, value, try self.typeOf(value));
             }
             if (isBranching(root)) {
                 const t = try self.temp(try self.typeOf(root), pos);
@@ -610,6 +764,25 @@ const Lowerer = struct {
         defer self.made_root = saved;
         const p = try self.place(named) orelse return abstain("an unusual header subject");
         return .{ .held = held, .place = p };
+    }
+
+    /// A part of a value a header makes (INTERNALS "Header subjects"):
+    /// one of plain data is read in the header, its made value a
+    /// temporary there; any other is read where it stands, `?_h.f`, in
+    /// the made value the header takes into a hidden var of the whole
+    /// construct (Core §3: the made value is taken; Core s1: the part is
+    /// read in place).
+    fn heldView(self: *Lowerer, named: Sexp, name: []const u8, bare: How) Error!VarId {
+        const ty = try self.typeOf(named);
+        if ((try self.kinds.of(ty)).kind == .plain) {
+            return try self.eval(named, bare, null) orelse blk: {
+                const c = try self.temp(ty, self.posOf(named));
+                try self.emit(.{ .pos = self.posOf(named), .what = .make, .def = c });
+                break :blk c;
+            };
+        }
+        const hp = try self.heldPart(named, name);
+        return try self.lend(hp.place, .read, named, hp.place.ty);
     }
 
     /// Whether a header subject names a value the header makes, or a
@@ -687,12 +860,24 @@ const Lowerer = struct {
         if (held_view and xv.kind != .plain) {
             // An owner's payload seen through the view: an alias.
             xv.alias = xv.kind == .owning;
+            if (xv.alias and h.of_owner) try self.owned_payloads.put(self.a, x, {});
             xv.kind = hv.kind;
             xv.holds_views = true;
             xv.holds_pointers = true;
             xv.drop_reads = false;
         }
+        // What the binding sees: a payload of its declared type, or for a
+        // catch-all the subject's value. Plain data and views are copies.
+        const seen = if (stored) |st| (if (st == h.ty) sema.unwrapBorrows(self.ctx, st) else st) else sema.unwrapBorrows(self.ctx, xv.ty);
+        const seen_kind = (try self.kinds.of(seen)).kind;
+        const arm_local = h.arm != null and (seen_kind == .owning or seen_kind == .write_view);
         try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(h.v), .def = x });
+        if (arm_local) {
+            const arm = h.arm.?;
+            const loan = try self.newLoan(self.rootPlace(arm), .read, false, 0, h.pos);
+            self.f.loans.items[loan].reaches_text = (try self.kinds.of(hv.ty)).reaches_text;
+            try self.emit(.{ .pos = h.pos, .what = .lend, .reads = try self.one(arm), .weak = x, .loan = loan });
+        }
     }
 
     /// The type an `as` binds: what the optional subject holds.
@@ -757,7 +942,25 @@ const Lowerer = struct {
             if (sure or !falls) try self.goto(body) else try self.branch(body, next);
             self.cur = body;
             try self.pushRegion();
-            try self.bindPattern(pattern, h);
+            // A read match's binding that is no plain data is a view of
+            // the subject usable within its arm only (INTERNALS "Header
+            // subjects"): it holds a loan on a hidden var of the arm,
+            // which ends with the arm, so a view of it that outlives the
+            // arm is a loan that outlives its owner (Core s6).
+            var ha = h;
+            if (self.f.vars.items[h.v].kind == .read_view) {
+                const arm_var = try self.newVar("the arm", h.ty, true, self.posOf(arm));
+                const av = &self.f.vars.items[arm_var];
+                av.kind = .plain;
+                av.holds_views = false;
+                av.holds_pointers = false;
+                av.drop_reads = false;
+                av.arm = true;
+                try self.regions.items[self.regions.items.len - 1].vars.append(self.a, arm_var);
+                try self.emit(.{ .pos = self.posOf(arm), .what = .make, .def = arm_var });
+                ha.arm = arm_var;
+            }
+            try self.bindPattern(pattern, ha);
             if (guard != .nil) {
                 try self.header(guard);
                 const held_blk = try self.newBlock();
@@ -765,7 +968,7 @@ const Lowerer = struct {
                 try self.branch(held_blk, if (falls) fail else held_blk);
                 // A failed guard leaves the arm's bindings.
                 self.cur = fail;
-                try self.killRegion(self.regions.items[self.regions.items.len - 1], self.posOf(guard));
+                try self.killRegion(self.regions.items[self.regions.items.len - 1], self.posOf(guard), false);
                 try self.goto(next);
                 self.cur = held_blk;
             }
@@ -932,7 +1135,7 @@ const Lowerer = struct {
                     // A value the header makes is taken, and so is the made
                     // value the source is a part of; a branching value is
                     // taken leaf by leaf (Core §3).
-                    if (source.isKind(.member) or source.isKind(.index)) break :blk (try self.heldPart(source, "the `for` source")).held;
+                    if (source.isKind(.member) or source.isKind(.index)) break :blk try self.heldView(source, "the `for` source", .read);
                     break :blk try self.eval(source, .take, null);
                 } else if (try self.place(source)) |p| blk: {
                     if ((try self.kinds.of(p.ty)).kind.copies()) break :blk try self.copy(p, p.ty, pos);
@@ -968,6 +1171,7 @@ const Lowerer = struct {
         const var_leaf = ir.For.@"var"(s);
         if (var_leaf != .nil and !std.mem.eql(u8, var_leaf.getText(self.src), "_")) {
             try self.bindHeld(var_leaf, .{ .v = src_var, .pos = pos, .ty = src_ty }, self.elementOf(src_ty));
+            try self.loop_elems.put(self.a, @intCast(self.f.vars.items.len - 1), {});
         }
         const idx_leaf = ir.For.index(s);
         if (idx_leaf != .nil and !std.mem.eql(u8, idx_leaf.getText(self.src), "_")) {
@@ -990,7 +1194,7 @@ const Lowerer = struct {
     fn findLoop(self: *Lowerer, label: Sexp) Error!Loop {
         var i = self.loops.items.len;
         const want = if (label == .nil) null else label.getText(self.src);
-        while (i > 0) {
+        while (i > self.loop_floor) {
             i -= 1;
             const lp = self.loops.items[i];
             // `break` inside a `match` leaves the loop (Core §8).
@@ -1007,7 +1211,7 @@ const Lowerer = struct {
         const pos = self.posOf(s);
         if (s.isKind(.@"continue")) {
             const lp = try self.findLoop(ir.Continue.label(s));
-            try self.unwind(lp.cont_depth orelse lp.depth, pos);
+            try self.unwind(lp.cont_depth orelse lp.depth, pos, false);
             try self.goto(lp.cont orelse return abstain("`continue` out of a `match`"));
             return;
         }
@@ -1019,7 +1223,7 @@ const Lowerer = struct {
             // the loop's value is read, a write view is read through.
             try self.storeTaken(v, lv);
         }
-        try self.unwind(lp.depth, pos);
+        try self.unwind(lp.depth, pos, false);
         try self.goto(lp.brk);
     }
 
@@ -1031,11 +1235,34 @@ const Lowerer = struct {
         try self.valueInto(e, .ret, r);
         try self.popRegion(self.posOf(e));
         if (self.cur == null) return;
-        try self.ret(r, self.posOf(e));
+        // The function fails when it returns an error value (SPEC
+        // "Failing"): always for one, on some paths for a branching value
+        // with an error leaf.
+        const ty = self.f.vars.items[r].ty;
+        const fails: Fails = if (sema.isErrorValue(self.ctx, ty)) .yes else if (self.ctx.types.get(ty) == .fallible) .maybe else .no;
+        try self.ret(r, self.posOf(e), fails);
     }
 
-    fn ret(self: *Lowerer, r: ?VarId, pos: u32) Error!void {
-        try self.unwind(0, pos);
+    /// Leave the function: every scope's drops and `defer`s, then the
+    /// return. Where it may fail, the `errdefer`s run on a path of their
+    /// own (SPEC "defer and errdefer").
+    fn ret(self: *Lowerer, r: ?VarId, pos: u32, fails: Fails) Error!void {
+        if (self.in_defer) return abstain("a return from deferred code");
+        if (fails == .maybe and self.hasErrdefer()) {
+            const ok = try self.newBlock();
+            const err = try self.newBlock();
+            try self.branch(ok, err);
+            self.cur = ok;
+            try self.retPath(r, pos, false);
+            self.cur = err;
+            try self.retPath(r, pos, true);
+            return;
+        }
+        try self.retPath(r, pos, fails == .yes);
+    }
+
+    fn retPath(self: *Lowerer, r: ?VarId, pos: u32, fails: bool) Error!void {
+        try self.unwind(0, pos, fails);
         // A write parameter's caller sees what it holds (Core s7).
         try self.emit(.{ .pos = pos, .what = .ret, .reads = try self.list(r), .keep = self.write_params.items });
         self.cur = null;
@@ -1180,7 +1407,23 @@ const Lowerer = struct {
                 return t;
             },
             .@"if", .block, .match, .@"??", .@"catch" => {
-                const t = try self.temp(try self.typeOf(e), pos);
+                // A branching value read where it stands is copied there;
+                // a Cell of an owner in the copy shares what a later read
+                // lend of its place may change (Core s9), which the oracle
+                // does not model.
+                if (how == .read) {
+                    const ti = self.ctx.typeInfo(try self.typeOf(e));
+                    if (ti.cell) return abstain("a branching value holding a Cell, read");
+                }
+                // Read where it stands, a branching value of a type that
+                // does not copy is each leaf read in place: a view, held
+                // until what reads it is done (Core §3, §6: `print(a if c
+                // else b, grow(!a))` reads `a` as `?a` would).
+                const ty = try self.typeOf(e);
+                const t = if ((how == .read or how == .view) and !(try self.kinds.of(ty)).kind.copies())
+                    try self.viewTemp(ty, .read_view, pos)
+                else
+                    try self.temp(ty, pos);
                 try self.valueInto(e, how, t);
                 return t;
             },
@@ -1192,7 +1435,8 @@ const Lowerer = struct {
                 const on = try self.newBlock();
                 try self.branch(on, exit);
                 self.cur = exit;
-                try self.ret(null, pos);
+                // `e!` fails the function; `e?` returns `none`.
+                try self.ret(null, pos, if (k == .propagate) .yes else .no);
                 self.cur = on;
                 return v;
             },
@@ -1246,7 +1490,32 @@ const Lowerer = struct {
                 return null;
             },
             .pass => return null,
-            .lambda, .share, .weak => return abstain("a closure or handle"),
+            // A stack closure is called where it is written, bound to a
+            // local, or lent to a call; it never leaves its function
+            // (Core §7: it may be lent, not stored).
+            .lambda => switch (how) {
+                .ret => return self.found(.B4, pos, "a stack closure does not leave the function that writes it; make it owned (`*|...|`)", .{}),
+                .take => return abstain("a stack closure stored"),
+                .read, .view => return try self.closure(e, false),
+            },
+            .share => {
+                // `*<x` moves `x` into a counted box and `*S(...)` boxes a
+                // new value: the box takes it, with its loans (Core s8, s9).
+                // An owned closure's environment is the box (Core §7).
+                const operand = ir.get(e, .operand);
+                const v = if (operand.isKind(.lambda)) try self.closure(operand, true) else try self.eval(operand, .take, null);
+                const t = try self.temp(try self.typeOf(e), pos);
+                try self.emit(.{ .pos = pos, .what = .make, .moves = try self.list(v), .def = t });
+                return t;
+            },
+            .weak => {
+                // `~h` reads the handle and holds its box weakly, with the
+                // contents' loans, as every handle does (Core s8, s9).
+                const p = try self.place(ir.get(e, .operand)) orelse return abstain("a weak handle of a made value");
+                const t = try self.temp(try self.typeOf(e), pos);
+                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .access = readAccess(p) });
+                return t;
+            },
             .builtin, .raw_block => return abstain("`raw`"),
             .inst => return abstain("compile-time arguments"),
             .kwarg => return abstain("a keyword argument out of place"),
@@ -1330,9 +1599,9 @@ const Lowerer = struct {
         const sym_id = self.ctx.symbolOf(e) orelse return null; // a literal
         const sym = self.ctx.symbols.items[sym_id];
         switch (sym.kind) {
-            .local, .param => {},
-            .function => return abstain("a function value"),
-            .capture => return abstain("a closure capture"),
+            // A function lives for the whole program and carries no loan.
+            .function => return null,
+            .local, .param, .capture => {},
             else => return abstain("an unusual name"),
         }
         // A module's constant lives for the whole program (Core s7).
@@ -1393,7 +1662,12 @@ const Lowerer = struct {
         var via = base.via;
         var carry = base.carry;
         var under_write = base.under_write;
+        var handle = base.handle;
         switch (self.ctx.types.get(base.ty)) {
+            // What a handle holds is read through it, and stays while the
+            // handle does: a loan on the handle (Core s8, §4's `*T` row).
+            .shared => handle = true,
+            .weak => return abstain("an access through a weak handle"),
             // A view reached through a slice or String carries that
             // view's loans, through a write view too (Core s7).
             .slice, .string => if (via != .read or !carry) {
@@ -1409,7 +1683,7 @@ const Lowerer = struct {
             },
             else => {},
         }
-        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice, .slice_of = if (slice) base.ty else 0, .carry = carry, .under_write = under_write };
+        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice, .slice_of = if (slice) base.ty else 0, .carry = carry, .under_write = under_write, .handle = handle };
     }
 
     /// A var as a place; an alias is the payload it sees.
@@ -1454,11 +1728,21 @@ const Lowerer = struct {
                 }
             },
             .owning => {
+                // Whether a function value copies depends on what it holds
+                // (a function, or a closure that never moves).
+                if (self.ctx.types.get(p.ty) == .function) return abstain("a bare function value");
+                if (how == .take or how == .ret) if (self.fnTypeOf(p.ty) != null) return abstain("a function value handed on");
                 switch (how) {
                     .read, .view => return try self.lend(p, .read, e, p.ty),
                     .ret => if (p.path.len == 0 and p.via == .own and !self.f.vars.items[p.root].hidden) return try self.moveWhole(p.root, pos),
                     .take => {},
                 }
+                // A generic body may copy a `T`, which each instance must
+                // allow (SPEC "Generic bodies"); not a payload of a place
+                // the function owns, as its result, which would move out
+                // of that place.
+                const payload = how == .ret and self.owned_payloads.contains(p.root);
+                if (info.generic_copy and !payload) return try self.copy(p, p.ty, pos);
                 return self.found(.C2, pos, "a bare `{s}` owns a resource and would be copied; write `<` or `+`", .{self.textOf(e)});
             },
         }
@@ -1484,11 +1768,125 @@ const Lowerer = struct {
     }
 
     fn moveWhole(self: *Lowerer, root: VarId, pos: u32) Error!VarId {
+        try self.keptByDefer(root, pos);
+        try self.keptByClosure(root, pos);
+        // A loop element of a generic type taken from a collection the
+        // loop reads is a copy, which each instance must allow (SPEC
+        // "Generic bodies").
+        if (self.loop_elems.contains(root) and (try self.kinds.of(self.f.vars.items[root].ty)).generic_copy) return try self.copy(self.rootPlace(root), self.f.vars.items[root].ty, pos);
         if (self.f.vars.items[root].alias) return self.found(.C7, pos, "a payload seen through a view does not move out; take the subject with `<`", .{});
         if (self.isFinding(root)) return abstain("an index that moves its place's root");
         const t = try self.temp(self.f.vars.items[root].ty, pos);
         try self.emit(.{ .pos = pos, .what = .move, .moves = try self.one(root), .def = t, .access = .{ .root = root, .kind = .whole } });
         return t;
+    }
+
+    /// Deferred code may read and write what is live where it runs
+    /// (Core §7), so it moves or drops only what it declares itself: it
+    /// runs at every exit of its scope (SPEC "defer and errdefer").
+    fn keptByDefer(self: *Lowerer, v: VarId, pos: u32) Error!void {
+        if (self.in_defer and v < self.defer_vars) return self.found(.B2, pos, "deferred code does not move or drop `{s}`, which it did not declare", .{self.f.vars.items[v].name});
+    }
+
+    /// A closure's environment holds what it captured for the closure's
+    /// life: the body uses it, and never moves or drops it (Core §7).
+    fn keptByClosure(self: *Lowerer, v: VarId, pos: u32) Error!void {
+        const vv = self.f.vars.items[v];
+        if (vv.capture) return self.found(.B3, pos, "a closure does not move or drop `{s}`, which it captured", .{vv.name});
+    }
+
+    /// Whether `v` is a closure or a view of one whose result holds no
+    /// view: a call it is handed to, or a call of it, can keep none of
+    /// what it captured (no value holds a stack closure or a `?fun`, and
+    /// an owned closure carries no loan).
+    fn callsOnly(self: *Lowerer, v: VarId, call_ty: TypeId) Error!bool {
+        const ft = self.fnTypeOf(self.f.vars.items[v].ty) orelse return false;
+        if (self.holdsCallable(call_ty)) return false;
+        if (self.ctx.types.get(ft.returns) == .void) return true;
+        return !(try self.kinds.of(ft.returns)).holds_views;
+    }
+
+    /// Whether a value of `ty` may be a closure or a view of one.
+    fn holdsCallable(self: *Lowerer, ty: TypeId) bool {
+        return switch (self.ctx.types.get(ty)) {
+            .function, .callable => true,
+            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak => |inner| self.holdsCallable(inner),
+            else => false,
+        };
+    }
+
+    /// The function type a callee value of type `ty` calls.
+    fn fnTypeOf(self: *Lowerer, ty: TypeId) ?sema.FunctionType {
+        var t = ty;
+        while (true) switch (self.ctx.types.get(t)) {
+            .function => |f| return f,
+            .callable, .borrow_read, .shared => |inner| t = inner,
+            else => return null,
+        };
+    }
+
+    /// A closure literal (Core §7): each capture in order, as its sigil
+    /// says (`?x` and `!x` lend, `<x` moves, `+x` copies or adds a count,
+    /// `~x` holds weakly), into the closure's environment, which carries
+    /// their loans; an owned closure's (`owned`) may carry none (Core
+    /// s9, C8). Its body is checked as a function of its own, and what
+    /// it finds is the enclosing function's.
+    fn closure(self: *Lowerer, e: Sexp, owned: bool) Error!VarId {
+        const pos = self.posOf(e);
+        var parts: std.ArrayList(VarId) = .empty;
+        for (sema.captureList(ir.Lambda.captures(e))) |cap| {
+            const leaf = sema.captureNameNode(cap) orelse return abstain("an unusual capture");
+            const sym_id = self.ctx.symbolOf(leaf) orelse return abstain("a capture without a symbol");
+            const sym = self.ctx.symbols.items[sym_id];
+            const outer = self.vars.get(sym.origin) orelse return abstain("a capture of a name the lowering did not bind");
+            const p = self.rootPlace(outer);
+            const v = switch (sema.captureModeOf(cap).?) {
+                .cap_read => try self.lend(p, .read, leaf, sym.ty),
+                .cap_write => try self.lend(p, .write, leaf, sym.ty),
+                .cap_move => try self.moveWhole(outer, leaf.src.pos),
+                .cap_clone, .cap_weak => blk: {
+                    const t = try self.temp(sym.ty, leaf.src.pos);
+                    try self.emit(.{ .pos = leaf.src.pos, .what = .make, .reads = try self.one(outer), .def = t, .access = readAccess(p) });
+                    break :blk t;
+                },
+            };
+            // Dropping the environment would run a `drop` body.
+            if (self.f.vars.items[v].drop_reads) return abstain("a closure holding a value with a `drop` body");
+            try parts.append(self.a, v);
+        }
+        var inner: Lowerer = .{
+            .a = self.a,
+            .ctx = self.ctx,
+            .parser = self.parser,
+            .src = self.src,
+            .kinds = kinds.Kinds.init(self.a, self.ctx, self.planned),
+            .planned = self.planned,
+        };
+        inner.kinds.generic = self.kinds.generic;
+        inner.runClosure(e) catch |err| switch (err) {
+            error.Found => {},
+            else => |x| return x,
+        };
+        const finding = inner.f.early orelse try flow.check(self.a, &inner.f);
+        if (finding) |f| {
+            if (self.f.early == null) self.f.early = f;
+            return error.Found;
+        }
+        const t = try self.temp(try self.typeOf(e), pos);
+        try self.emit(.{ .pos = pos, .what = .make, .moves = parts.items, .def = t, .no_loans = owned });
+        // Its calls may store what it captured through what it captured
+        // to write, as a call's write arguments may (SPEC §11 "Captures";
+        // what one call received it never stores there, as checked in
+        // its body): those places hold the captures' loans from here on.
+        try self.emit(.{ .pos = pos, .what = .call, .reads = try self.one(t), .through = try self.one(t) });
+        return t;
+    }
+
+    fn isHandle(self: *Lowerer, ty: TypeId) bool {
+        return switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
+            .shared, .weak => true,
+            else => false,
+        };
     }
 
     fn isFinding(self: *Lowerer, root: VarId) bool {
@@ -1501,6 +1899,7 @@ const Lowerer = struct {
         const pos = self.posOf(e);
         const kind: kinds.Kind = if (mode == .read) .read_view else .write_view;
         if (mode != .read and self.isFinding(p.root)) return abstain("an index that lends its place's root to write");
+        if (mode != .read and p.handle) return abstain("a write lend through a handle");
         const pk = (try self.kinds.of(p.ty)).kind;
         // Lending a view the place holds hands over a copy of it; lending
         // the place itself (`?p.s` as a `?String`, a slice) makes a loan.
@@ -1566,6 +1965,7 @@ const Lowerer = struct {
         const info = try self.kinds.of(p.ty);
         if (self.ctx.types.get(p.ty) == .optional) {
             if (p.via == .read) return self.found(.C7, pos, "nothing is taken out through a read view", .{});
+            if (p.handle) return abstain("a take through a handle");
             const t = try self.temp(p.ty, pos);
             try self.emit(.{ .pos = pos, .what = .take, .reads = try self.one(p.root), .def = t, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .write } });
             return t;
@@ -1580,7 +1980,7 @@ const Lowerer = struct {
 
     fn shapeOf(ctx: *const sema.SemContext, ty: TypeId) Shape {
         return switch (ctx.types.get(ty)) {
-            .borrow_read, .borrow_write, .slice, .string => .view,
+            .borrow_read, .borrow_write, .slice, .string, .callable => .view,
             .optional => |o| switch (ctx.types.get(o)) {
                 .borrow_read, .borrow_write, .slice, .string => .view,
                 else => .take,
@@ -1601,9 +2001,15 @@ const Lowerer = struct {
         var access: ?core.Access = null;
         var activation: ?core.LoanId = null;
 
-        // Whether an instance suits a generic body is not ownership's
-        // question here (SPEC "Generic bodies").
-        if (self.ctx.genericCallOf(e) != null) return abstain("a call of a generic function");
+        // A generic function or type at type arguments of plain data is
+        // checked by its signature here; at others, whether the body
+        // suits the instance is the instance's question (SPEC "Generic
+        // bodies"), which the oracle does not answer.
+        if (self.ctx.genericCallOf(e)) |gc| for (gc.type_args) |t| try self.plainInstanceArg(t);
+        try self.plainInstance(try self.typeOf(e));
+
+        // A Cell or Signal made, or one a method stores into (Core s9).
+        var cell_store = false;
 
         // What each argument goes to.
         var shapes: []const Shape = &.{};
@@ -1635,13 +2041,33 @@ const Lowerer = struct {
                     shapes = try self.shapesOf(self.ctx, ft.function.params);
                 },
                 .nominal_type, .generic_type, .type_alias => {
-                    const built_in = sym_id.? == self.ctx.vec_sym_id or sym_id.? == self.ctx.box_sym_id or sym_id.? == self.ctx.cell_sym_id or sym_id.? == self.ctx.signal_sym_id;
-                    if (s.kind == .generic_type and !built_in) return abstain("a generic constructor");
                     is_ctor = true;
+                    cell_store = sym_id.? == self.ctx.cell_sym_id or sym_id.? == self.ctx.signal_sym_id;
                 },
-                .local, .param, .capture => return abstain("a call of a closure"),
+                // A closure, a function value, or a view of one: the
+                // callee value first; the result carries its loans, the
+                // loans of what the closure captured (Core s7).
+                .local, .param, .capture => {
+                    const v = self.vars.get(sym_id.?) orelse return abstain("a call of a name the lowering did not bind");
+                    if (self.f.vars.items[v].kind == .write_view) return abstain("a call through a write view of a closure");
+                    shapes = try self.shapesOf(self.ctx, (self.fnTypeOf(s.ty) orelse return abstain("an unusual callee")).params);
+                    // The value called is read first, and stays read until
+                    // the call runs (Core §6): a later argument may not
+                    // change it. A stack closure's binding never changes
+                    // (Core §7: it is only lent to read).
+                    const cv = if (self.ctx.types.get(self.f.vars.items[v].ty) == .function)
+                        v
+                    else
+                        (try self.placeValue(self.rootPlace(v), .read, null, callee)).?;
+                    if (try self.callsOnly(v, try self.typeOf(e))) try uses.append(self.a, cv) else try reads.append(self.a, cv);
+                },
                 else => return abstain("an unusual callee"),
             };
+        } else if (callee.isKind(.lambda)) {
+            // A closure called where it is written: a temporary.
+            const v = try self.closure(callee, false);
+            shapes = try self.shapesOf(self.ctx, (self.fnTypeOf(try self.typeOf(callee)) orelse return abstain("an unusual callee")).params);
+            if (try self.callsOnly(v, try self.typeOf(e))) try uses.append(self.a, v) else try reads.append(self.a, v);
         } else if (callee.isKind(.member)) {
             const obj = ir.Member.object(callee);
             const obj_sym: ?sema.Symbol = if (obj == .src) if (self.ctx.symbolOf(obj)) |id| self.ctx.symbols.items[id] else null else null;
@@ -1656,6 +2082,8 @@ const Lowerer = struct {
             } else {
                 // A method: the receiver first, then the arguments.
                 const recv_mode, const fn_params = try self.method(callee);
+                const recv_obj = if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
+                cell_store = self.isCell(try self.typeOf(recv_obj));
                 if (fn_params) |fp| {
                     shapes = try self.shapesOf(fp.ctx, fp.params);
                 } else all_read = true;
@@ -1664,6 +2092,7 @@ const Lowerer = struct {
                     .write => {
                         if (!obj.isKind(.write)) return abstain("a write receiver without `!`");
                         const p = try self.place(ir.Write.operand(obj)) orelse return abstain("a write receiver of a made value");
+                        if (p.handle or self.isHandle(p.ty)) return abstain("a write receiver through a handle");
                         // A write receiver is lent when the call runs; its
                         // arguments may still read it (SPEC §7).
                         if (p.via == .read) return abstain("a write receiver through a read view");
@@ -1687,6 +2116,7 @@ const Lowerer = struct {
                         if (r) |rv| try reads.append(self.a, rv);
                     },
                     .value => {
+                        if (self.isHandle(try self.typeOf(obj))) return abstain("a by-value receiver through a handle");
                         const r = try self.eval(obj, .take, null);
                         if (r) |rv| try moves.append(self.a, rv);
                     },
@@ -1728,7 +2158,20 @@ const Lowerer = struct {
             // Where a write view goes, a bare one would be copied (SPEC §7).
             const wants_view = is_ctor and arg.isKind(.kwarg) and self.fieldIsWriteView(e, ir.Kwarg.name(arg).getText(self.src));
             var v = try self.eval(val, arg_how, if (wants_view) self.ctx.typeOf(val) else null) orelse continue;
-            if ((arg_how == .take and !is_ctor) or all_read) v = try self.readThrough(v, self.posOf(val));
+            if ((arg_how == .take and (!is_ctor or cell_store)) or all_read) v = try self.readThrough(v, self.posOf(val));
+            // A value made where a view is expected is a temporary of the
+            // statement, lent to the call (Core s1, §3): the result's view
+            // of it ends with the statement.
+            if (arg_how == .view and self.f.vars.items[v].hidden and self.f.vars.items[v].kind == .owning) {
+                const vv = self.f.vars.items[v];
+                v = try self.lend(.{ .root = v, .path = &.{}, .ty = vv.ty }, .read, val, vv.ty);
+            }
+            // A callable whose result holds no view hands the call none
+            // of its captures' views: the call only calls it (Core s7).
+            if (try self.callsOnly(v, try self.typeOf(e))) {
+                try uses.append(self.a, v);
+                continue;
+            }
             if (arg_how == .take) try moves.append(self.a, v) else try reads.append(self.a, v);
         }
 
@@ -1754,6 +2197,7 @@ const Lowerer = struct {
             .access = access,
             .gains = gains.items,
             .through = through.items,
+            .no_loans = cell_store,
         });
         return result;
     }
@@ -1782,7 +2226,10 @@ const Lowerer = struct {
             .borrow_read, .borrow_write => |t| t,
             else => return v,
         };
-        if (!(try self.kinds.of(inner_ty)).kind.copies()) return v;
+        // A generic body reads a `T` by value where its instances do
+        // (SPEC "Generic bodies": the copy is the instance's question).
+        const inner = try self.kinds.of(inner_ty);
+        if (!inner.kind.copies() and !inner.generic_copy) return v;
         const t = try self.temp(inner_ty, pos);
         try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(v), .def = t });
         return t;
@@ -1813,6 +2260,45 @@ const Lowerer = struct {
         return out;
     }
 
+    /// A value of a user generic type at type arguments of plain data;
+    /// any other type passes.
+    fn plainInstance(self: *Lowerer, ty: TypeId) Error!void {
+        switch (self.ctx.types.get(ty)) {
+            .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible => |inner| return self.plainInstance(inner),
+            .parameterized_nominal => |pn| {
+                if (sema.isBuiltinGeneric(self.ctx, pn.sym)) {
+                    for (pn.args) |a| try self.plainInstance(a);
+                    return;
+                }
+                for (pn.args) |a| try self.plainInstanceArg(a);
+            },
+            else => {},
+        }
+    }
+
+    /// A type argument of plain data. An instance at a String is checked
+    /// against whether the body stores a `T` where no loan may go (Core
+    /// s9), which the oracle does not answer either.
+    fn plainInstanceArg(self: *Lowerer, t: TypeId) Error!void {
+        if (t == sema.type_invalid) return;
+        // A generic body's own parameters: each instance of it is checked
+        // where it is made.
+        if (self.kinds.generic and self.ctx.typeInfo(t).has_type_var) return;
+        if (self.ctx.types.get(t) == .ct_value) return;
+        if ((try self.kinds.of(t)).kind == .plain) return;
+        return abstain("a generic instance at an owner or a view");
+    }
+
+    /// Whether a value of `ty` is a Cell or Signal, or a view or handle
+    /// of one.
+    fn isCell(self: *Lowerer, ty: TypeId) bool {
+        return switch (self.ctx.types.get(ty)) {
+            .borrow_read, .borrow_write, .shared => |inner| self.isCell(inner),
+            .parameterized_nominal => |pn| pn.sym == self.ctx.cell_sym_id or pn.sym == self.ctx.signal_sym_id,
+            else => false,
+        };
+    }
+
     const MethodParams = struct { ctx: *const sema.SemContext, params: []const TypeId };
 
     /// How a method takes its receiver, and its other parameters' types.
@@ -1827,7 +2313,17 @@ const Lowerer = struct {
             return .{ .write, null };
         }
         const inner_obj = if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
-        const recv_ty = try self.typeOf(inner_obj);
+        var recv_ty = try self.typeOf(inner_obj);
+        try self.plainInstance(recv_ty);
+        // A method of what a handle holds reads it through the handle
+        // (Core s8).
+        switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, recv_ty))) {
+            .shared => |inner| recv_ty = inner,
+            // `w.upgrade()` reads the weak handle; its result is a new
+            // count carrying the handle's loans (Core s8, s9).
+            .weak => if (std.mem.eql(u8, mname, "upgrade")) return .{ .read, null } else return abstain("a method of a weak handle"),
+            else => {},
+        }
         const decl = sema.nominalDecl(self.ctx, recv_ty) orelse {
             // A built-in method of an array, slice, or String: it writes
             // its receiver only where `!` says so.
@@ -1842,6 +2338,16 @@ const Lowerer = struct {
             if (sema.nominalDecl(self.ctx, boxed)) |inner_decl| {
                 if (try self.methodOf(inner_decl, mname)) |found_method| return found_method;
             }
+        }
+        // A `Cell[Vec[T]]` answers its Vec's members through any path,
+        // without `!` (SPEC "Cell").
+        switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, recv_ty))) {
+            .parameterized_nominal => |pn| if (pn.sym == self.ctx.cell_sym_id and pn.args.len == 1) {
+                if (sema.nominalDecl(self.ctx, pn.args[0])) |held| if (held.sym == self.ctx.vec_sym_id) {
+                    if (try self.methodOf(held, mname)) |found_method| return .{ .read, found_method[1] };
+                };
+            },
+            else => {},
         }
         return abstain("a method reached through a handle");
     }

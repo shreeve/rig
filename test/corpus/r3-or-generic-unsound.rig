@@ -1,0 +1,28 @@
+# The unsound neighbours of r3-or-generic-sound: a generic body's views
+# and moves follow the Core as any other body's do.
+#
+# oracle: local_view reject C5
+# oracle: used_after_move reject C1
+# oracle: grows_while_viewed reject C4
+
+fun local_view[T](x: T) -> ?T
+  w: Vec[T] = Vec()
+  !w.push(<x)
+  ?w[0]
+
+fun used_after_move[T](x: T) -> Vec[T]
+  out: Vec[T] = Vec()
+  !out.push(<x)
+  !out.push(<x)
+  out
+
+fun look[T](r: ?T) -> Int
+  1
+
+sub grows_while_viewed[T](v: !Vec[T], x: T)
+  r = ?v[0]
+  !v.push(<x)
+  print(look(r))
+
+sub main
+  print(used_after_move(1).len)

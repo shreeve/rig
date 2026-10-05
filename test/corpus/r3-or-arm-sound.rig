@@ -1,0 +1,61 @@
+# A read match's binding that is no plain data is a view of the subject
+# usable within its arm: it is read, lent to a call, and has its Cell
+# changed there, and what leaves the arm is a copy of plain data
+# (INTERNALS "Header subjects"). A generic payload is a copy, which each
+# instance must allow.
+#
+# oracle: in_arm accept
+# oracle: guarded accept
+# oracle: value_copy accept
+# oracle: Opt.or_else accept
+# oracle: main accept
+
+struct Res
+  n: Int
+  hits: Cell[Int]
+
+enum E
+  a(r: Res)
+  b
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+  fun or_else(?self, d: T) -> T
+    match self
+      .some(v) => v
+      .nothing => d
+
+fun size(r: ?Res) -> Int
+  r.n
+
+fun tag(e: ?E) -> Int
+  match e
+    .a(_) => 1
+    .b => 2
+
+sub in_arm(e: ?E)
+  match e
+    .a(r)
+      r.hits.set(r.hits.get() + 1)
+      print(size(?r), r.hits.get())
+    .b => pass
+
+sub guarded(e: ?E)
+  match e
+    .a(r) if r.n > 0 => print("pos", r.n)
+    x => print("other", tag(?x))
+
+fun value_copy(e: ?E) -> Int
+  match e
+    .a(r) => r.n
+    .b => 0
+
+sub main
+  e = E.a(r: Res(n: 2, hits: Cell(0)))
+  in_arm(?e)
+  guarded(?e)
+  print(value_copy(?e))
+  o: Opt[Int] = .some(v: 5)
+  print(o.or_else(1))

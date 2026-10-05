@@ -1,0 +1,63 @@
+# The unsound neighbours of r3-or-closure-sound: a lent capture used
+# while its owner changes, a closure argument whose capture conflicts
+# with an earlier argument, a closure that consumes or reassigns what
+# it captured, one that keeps a view it received for one call, and an
+# owned closure holding a view (Core §7, s9).
+#
+# oracle: write_while_read_captured reject C4
+# oracle: read_while_write_captured reject C4
+# oracle: literal_conflicts reject C4
+# oracle: moves_its_capture reject B3
+# oracle: keeps_a_call_view reject C6
+# oracle: owned_holds_a_view reject C8
+# oracle: used_after_move_capture reject C1
+
+struct Res
+  id: Int
+
+sub eat(r: Res)
+  print(r.id)
+
+sub each(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+sub write_while_read_captured()
+  v: Vec[Int] = Vec()
+  size = |?v| v.len
+  !v.push(1)
+  print(size())
+
+sub read_while_write_captured()
+  total = 0
+  add = |!total, k: Int| total += k
+  add(1)
+  print(total)
+  add(2)
+
+sub literal_conflicts()
+  c: Vec[Int] = Vec()
+  each(?c, |!c, n| !c.push(n))
+
+sub moves_its_capture()
+  r = Res(id: 1)
+  g = |<r| eat(<r)
+  g()
+
+sub keeps_a_call_view()
+  slot = "x"
+  keep = |!slot, s: String| slot = s
+  keep("y")
+  print(slot)
+
+fun owned_holds_a_view(s: String) -> *fun() -> Int
+  *|+s| s.len
+
+sub used_after_move_capture()
+  r = Res(id: 3)
+  g = |<r| print(r.id)
+  g()
+  print(r.id)
+
+sub main
+  write_while_read_captured()

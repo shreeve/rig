@@ -1,0 +1,13 @@
+# A `defer` written before a lend runs after the view is done: the
+# view `w` is declared after it, so it is dropped before the deferred
+# code runs (Core §7; SPEC "defer and errdefer"). The compiler checks
+# deferred code where it is written as well, and rejects this.
+#
+# oracle: main accept
+
+sub main
+  v: Vec[Int] = Vec()
+  defer !v.push(3)
+  w = !v
+  !w.push(1)
+  print(v.len)
