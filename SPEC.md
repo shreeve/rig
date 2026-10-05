@@ -3327,7 +3327,12 @@ a view of its receiver, is rejected, and `(?a if c else ?b).name()`
 lends each branch; a temporary receiver, plain data included, lives
 until its statement ends, so the view, a write view included, may not
 outlive the statement: not in a binding, and not as a function's or
-block's value, an arm's value, or a `break` or `return` value.
+block's value, an arm's value, or a `break` or `return` value. A method
+that may change its receiver (a `!self` one, or a `?self` one on a
+value holding a Cell) is rejected on a value that branches and may be a
+name's, or on a field or element of one, since the change would land in
+a copy: `(!a if c else !b).inc()` and `(?h1 if c else ?h2).q.bump()`
+change the value the branch takes.
 
 ```rig
 use std.text
