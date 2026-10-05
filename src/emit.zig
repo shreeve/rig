@@ -1257,7 +1257,14 @@ pub const Emitter = struct {
             .borrow_read, .borrow_write => true,
             else => false,
         } else true;
-        const is_borrow = binds_borrow and (expr.isKind(.read) or expr.isKind(.write)) and
+        // A read view that copies (`sema.lendByValue`) is held as the
+        // value it views, as every other `?T` of the type is, so a call's
+        // result can rebind it.
+        const copies = if (ty) |t| switch (self.sema.types.get(t)) {
+            .borrow_read => !self.isPtrBorrowTy(t) and self.genericReadBorrow(t) == null,
+            else => false,
+        } else false;
+        const is_borrow = binds_borrow and !copies and (expr.isKind(.read) or expr.isKind(.write)) and
             (ty == null or (sema.writeSliceElem(self.sema, ty.?) == null and sema.callableFn(self.sema, ty.?) == null));
         // A write borrow is held as a pointer however it was obtained.
         const holds_ptr = is_borrow or (ty != null and self.isPtrBorrowTy(ty.?));

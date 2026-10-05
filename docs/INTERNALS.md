@@ -1500,7 +1500,9 @@ lower is an internal error: sema must have rejected it.
   arguments (`?T`, `?Self`), the view is a
   `rig.ReadBorrow(T)`, which applies the same rule to each instance.
   The rule is `sema.lendByValue`, which typecheck also uses to
-  read through a `!T` lent where a copied `?T` is expected.
+  read through a `!T` lent where a copied `?T` is expected. A local
+  holds a view as every other `?T` of its type is held, whatever it is
+  first bound to, so `q = ?p.x` and later `q = p.left(?o)` agree.
   A `[]T` is a `[]const T` and a `![]T` a Zig `[]T`, not a pointer to
   one: the slice already points at its elements, so it is passed and
   bound as it is.
