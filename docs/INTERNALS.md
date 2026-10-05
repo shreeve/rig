@@ -1573,6 +1573,21 @@ program is checked rather than when it happens to touch freed memory.
 It sees the program's meaning, not the emitted Zig, so emit-side bugs
 stay with the sanitizer and `test/equiv.py`.
 
+Beyond straight-line code it inlines each `defer` and `errdefer` body
+at every exit of its scope, after the values declared after it are
+dropped (an `errdefer` only where the function fails); reads what a
+handle holds through a loan on the handle, every handle carrying its
+contents' loans; makes a closure a value carrying its captures' loans
+and checks its body as a function whose captures hold the caller's
+loans; lets no value carrying a loan into a Cell, a Signal, or an owned
+closure (Core s9); and checks a generic body once, each type parameter
+owning and holding no view, with a copy of one left to each instance
+(SPEC "Generic bodies"), and a call of a generic function or type only
+at type arguments of plain data. Header subjects follow the table in
+"Header subjects": a held part is a read lend of the held value, and a
+read match's binding that is no plain data holds a loan on a hidden var
+of its arm, which ends with the arm.
+
 ## Nexus notes
 
 - An `L(X)` list followed by its own separator is a shift/reduce

@@ -1,0 +1,12 @@
+# A closure never reassigns what it captured (Core §7): the compiler's
+# semantic checks reject it first, and the oracle names it B3.
+#
+# oracle: reassigns_its_capture reject B3
+
+sub reassigns_its_capture()
+  n = 1
+  g = |+n| n = 2
+  g()
+
+sub main
+  reassigns_its_capture()

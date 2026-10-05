@@ -1,0 +1,52 @@
+# A part of a value a header makes, that is no plain data, is read where
+# it stands: the made value is held for the whole construct (`var _h =
+# <e`), and the header reads `?_h.f` (INTERNALS "Header subjects"). A
+# part of plain data is a copy, read in the header.
+#
+# oracle: match_part accept
+# oracle: for_part accept
+# oracle: as_part accept
+# oracle: plain_part accept
+
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+struct H
+  e: E
+  v: Vec[Int]
+  o: Res?
+  k: Int
+
+fun mkh() -> H
+  v: Vec[Int] = Vec()
+  !v.push(4)
+  H(e: E.a(r: Res(n: 1, t: Text("a"))), v: <v, o: Res(n: 2, t: Text("b")), k: 3)
+
+sub match_part()
+  match mkh().e
+    .a(r) => print(r.n, r.t)
+    .b => pass
+
+sub for_part()
+  for x in mkh().v
+    print(x)
+
+sub as_part()
+  if mkh().o as r
+    print(r.n)
+
+sub plain_part()
+  match mkh().k
+    3 => print("three")
+    _ => pass
+
+sub main
+  match_part()
+  for_part()
+  as_part()
+  plain_part()

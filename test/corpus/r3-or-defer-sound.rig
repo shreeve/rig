@@ -1,0 +1,70 @@
+# A `defer` runs at every exit of its scope, after the values declared
+# after it are dropped, and an `errdefer` only where the function fails
+# (Core §7): the oracle inlines each body there and checks it as written.
+#
+# oracle: reads_at_end accept
+# oracle: in_a_loop accept
+# oracle: errdefer_failing_only accept
+# oracle: errdefer_maybe accept
+# oracle: errdefer_propagate accept
+# oracle: declares_and_moves accept
+
+error E
+  bad
+
+sub take(v: Vec[Int])
+  print(v.len)
+
+sub reads_at_end()
+  v: Vec[Int] = Vec()
+  defer print(v.len)
+  !v.push(1)
+  !v.push(2)
+
+sub in_a_loop()
+  k = 0
+  while k < 4 : k += 1
+    v: Vec[Int] = Vec()
+    defer print(k, v.len)
+    !v.push(k)
+    continue if k == 1
+    break if k == 2
+
+fun errdefer_failing_only(ok: Bool) -> Int!
+  v: Vec[Int] = Vec()
+  errdefer print("failed", v.len)
+  if ok
+    take(<v)
+    return 1
+  return E.bad
+
+fun errdefer_maybe(n: Int) -> Int!
+  v: Vec[Int] = Vec()
+  errdefer print("failed", v.len)
+  !v.push(n)
+  return n if n > 0 else E.bad
+
+fun half(n: Int) -> Int!
+  return n / 2 if n % 2 == 0 else E.bad
+
+fun errdefer_propagate(n: Int) -> Int!
+  v: Vec[Int] = Vec()
+  errdefer print("failed", v.len)
+  h = half(n)!
+  take(<v)
+  h
+
+sub declares_and_moves()
+  defer
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    take(<v)
+  print("body")
+
+sub main
+  reads_at_end()
+  in_a_loop()
+  print(errdefer_failing_only(true) catch -1, errdefer_failing_only(false) catch -1)
+  print(errdefer_maybe(1) catch -1, errdefer_maybe(0) catch -1)
+  print(errdefer_propagate(4) catch -1, errdefer_propagate(3) catch -1)
+  declares_and_moves()

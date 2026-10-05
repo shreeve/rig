@@ -1,0 +1,18 @@
+# The unsound neighbours of r3-or-cell-sound: a String that views a
+# Text, or a String parameter, stored where every handle to the Cell
+# reaches it (Core s9).
+#
+# oracle: keeps_a_text_view reject C8
+# oracle: keeps_a_param reject C8
+
+sub keeps_a_text_view()
+  t = Text("abc")
+  c: Cell[String] = Cell("x")
+  c.set(?t)
+  print(c.get())
+
+sub keeps_a_param(c: ?Cell[String], s: String)
+  c.set(s)
+
+sub main
+  keeps_a_text_view()
