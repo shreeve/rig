@@ -1804,7 +1804,7 @@ pub const Checker = struct {
         const k = self.owningKind(v.ty) orelse return;
         if (k == .generic and v.via != .owned) {
             // A copy for plain data; each instantiation is checked.
-            return self.reportAlias(node.src.pos, v.name, true, k, .binding, v.ty);
+            return self.reportAlias(node.src.pos, v.name, .name, k, .binding, v.ty);
         }
         _ = try self.movePayload(id, node.src.pos, "move");
     }
@@ -2533,7 +2533,7 @@ pub const Checker = struct {
                     return;
                 }
                 if (top_return) return;
-                if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, true, k, sink, v.ty);
+                if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, .name, k, sink, v.ty);
                 if (sink == .argument) return;
                 // A write borrow of a Copy value is copied where the
                 // value is read; where a `!T` goes, the borrow would be.
@@ -2549,7 +2549,7 @@ pub const Checker = struct {
                     if (self.namesType(ir.get(expr, .object))) return;
                     const ty = self.exprType(expr);
                     if (self.owningKind(ty)) |k| {
-                        return self.reportAlias(self.startOf(expr), try self.placeText(expr), false, k, sink, ty);
+                        return self.reportAlias(self.startOf(expr), try self.placeText(expr), if (expr.isKind(.index)) .element else .field, k, sink, ty);
                     }
                     if (sink != .argument and self.carriesWriteBorrow(ty)) {
                         try self.errAt(expr, "bare use of `{s}` in {s} would duplicate a write borrow; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
@@ -2648,8 +2648,15 @@ pub const Checker = struct {
         }
     }
 
-    fn reportAlias(self: *Checker, pos: u32, what: []const u8, is_name: bool, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
+    /// What a bare use that would copy a moving value names: a binding,
+    /// or a field or element, which stays where it is.
+    const Aliased = enum { name, field, element };
+
+    fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
         const where = sink.text();
+        const is_name = aliased == .name;
+        // Why a part cannot be moved out instead.
+        const stays = if (aliased == .element) "an element cannot be moved out of its container" else "a field cannot be moved out of its parent";
         switch (k) {
             // Fine for plain data: each instantiation is checked.
             .generic => if (ty) |t| try self.requirePlain(pos, t, false),
@@ -2664,17 +2671,17 @@ pub const Checker = struct {
             .vec => if (is_name) {
                 try self.err(pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer and double-free on scope exit; use `<{s}` to move ownership", .{ what, where, what });
             } else {
-                try self.err(pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer; a field cannot be moved out of its parent", .{ what, where });
+                try self.err(pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer; {s}", .{ what, where, stays });
             },
             .box => if (is_name) {
                 try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer and free its value twice; use `<{s}` to move ownership", .{ what, where, what });
             } else {
-                try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer; a field cannot be moved out of its parent. Borrow it instead: `?{s}` or `!{s}`", .{ what, where, what, what });
+                try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer; {s}. Borrow it instead: `?{s}` or `!{s}`", .{ what, where, stays, what, what });
             },
             .text => if (is_name) {
                 try self.err(pos, "bare use of `Text` value `{s}` in {s} would copy the buffer pointer and free it twice; use `<{s}` to move ownership, or `+{s}` to copy the text", .{ what, where, what, what });
             } else {
-                try self.err(pos, "bare use of `Text` value `{s}` in {s} would copy the buffer pointer; a field cannot be moved out of its parent. Borrow it (`?{s}`) or copy the text (`+{s}`)", .{ what, where, what, what });
+                try self.err(pos, "bare use of `Text` value `{s}` in {s} would copy the buffer pointer; {s}. Borrow it (`?{s}`) or copy the text (`+{s}`)", .{ what, where, stays, what, what });
             },
             .unique => |tname| if (is_name) {
                 try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy a unique value; use `<{s}` to move it", .{ tname, what, where, what });
@@ -2684,7 +2691,7 @@ pub const Checker = struct {
             .drop_glue => |tname| if (is_name) {
                 try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<{s}` to move ownership", .{ tname, what, where, tname, what });
             } else {
-                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue and a field cannot be moved out of its parent", .{ tname, what, where, tname });
+                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue and {s}", .{ tname, what, where, tname, stays });
             },
         }
     }
@@ -3459,7 +3466,10 @@ pub const Checker = struct {
         if (!deeper or through.len > 16) return;
         const next = try std.mem.concat(self.arena(), VarId, &.{ through, &.{id} });
         for (held) |l| {
-            if (l.kind == .write and std.mem.findScalar(VarId, next, l.root) == null) try self.absorbLoans(l.root, v, pos, next, via, true);
+            if (l.kind != .write or std.mem.findScalar(VarId, next, l.root) != null) continue;
+            // Only a value that can hold a borrow can have one stored in it.
+            if (!self.mayCarryBorrow(self.pointee(self.vars.items[l.root].ty))) continue;
+            try self.absorbLoans(l.root, v, pos, next, via, true);
         }
     }
 

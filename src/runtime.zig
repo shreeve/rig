@@ -1057,6 +1057,36 @@ pub fn notNan(x: anytype) @TypeOf(x) {
     return x;
 }
 
+/// `for x in <a` of an array whose elements move: each element handed
+/// over in order; those not handed over (the loop left early) are
+/// dropped, last first, as the array would drop them.
+pub fn ArrayIntoIter(comptime A: type) type {
+    const T = @typeInfo(A).array.child;
+    return struct {
+        items: A,
+        next_index: usize = 0,
+
+        pub fn next(it: *@This()) ?T {
+            if (it.next_index >= it.items.len) return null;
+            const value = it.items[it.next_index];
+            it.next_index += 1;
+            return value;
+        }
+
+        pub fn deinit(it: *@This()) void {
+            var i: usize = it.items.len;
+            while (i > it.next_index) {
+                i -= 1;
+                dropElement(T, &it.items[i]);
+            }
+        }
+    };
+}
+
+pub fn arrayIntoIter(items: anytype) ArrayIntoIter(@TypeOf(items)) {
+    return .{ .items = items };
+}
+
 /// The elements of the array `p` points to, as a slice. Zig rejects
 /// indexing an array of length 0, which an array sized by a compile-time
 /// parameter may be; a slice's index is checked when the program runs.

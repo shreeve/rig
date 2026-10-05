@@ -1406,7 +1406,8 @@ pub const Emitter = struct {
         if (target != .src and self.isPtrBorrowExpr(target) and !through) {
             // A field or element holding a write borrow is rebound.
             const order = try self.openAssign(target, value, null, .borrow);
-            try self.emitBorrowValue(target);
+            // An element is reached as the slot it is.
+            if (target.isKind(.index)) try self.emitIndex(target, true) else try self.emitBorrowValue(target);
             try self.w.writeAll(" = ");
             try self.emitBorrowValue(value);
             try self.w.writeAll(";");
@@ -2162,7 +2163,13 @@ pub const Emitter = struct {
         // A Vec the loop consumes, or one its source expression creates,
         // hands its elements over one at a time.
         if (is_vec and (mode == .move or (!self.hasStorage(source) and self.kindOf(src_ty.?) != null))) {
-            return self.emitConsumingFor(sexp, label);
+            return self.emitConsumingFor(sexp, label, false);
+        }
+        // So does an array of values that move, which the loop takes.
+        if (src_ty != null and self.sema.types.get(src_ty.?) == .array and self.kindOf(self.sema.types.get(src_ty.?).array.elem) != null and
+            (mode == .move or !self.hasStorage(source)))
+        {
+            return self.emitConsumingFor(sexp, label, true);
         }
         const elem_sym = self.sema.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
@@ -2226,13 +2233,13 @@ pub const Emitter = struct {
         }
     }
 
-    /// `for x in <v`: the Vec is consumed; each element is handed to `x`,
-    /// which owns it for one iteration. Elements a `break` or `return`
-    /// leaves behind are dropped with the buffer.
+    /// `for x in <v`: the Vec (or the array, `array`) is consumed; each
+    /// element is handed to `x`, which owns it for one iteration.
+    /// Elements a `break` or `return` leaves behind are dropped with it.
     ///
     ///     { var it = v.intoIter(); defer it.deinit();
     ///       while (it.next()) |e| { var x = e; defer rig.drop(&x); ... } }
-    fn emitConsumingFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+    fn emitConsumingFor(self: *Emitter, sexp: Sexp, label: ?[]const u8, array: bool) Error!void {
         const binding = ir.For.@"var"(sexp);
         const id = self.nextId();
         const it = try self.fmt("__rig_it_{d}", .{id});
@@ -2242,11 +2249,11 @@ pub const Emitter = struct {
 
         try self.openBrace();
         try self.writeIndent(self.indent);
-        try self.w.print("var {s} = (", .{it});
+        try self.w.print("var {s} = {s}(", .{ it, if (array) "rig.arrayIntoIter" else "" });
         const h = try self.openHeader(ir.For.source(sexp));
         try self.emitMoved(ir.For.source(sexp));
         try self.closeHeader(h);
-        try self.w.writeAll(").intoIter();\n");
+        try self.w.writeAll(if (array) ");\n" else ").intoIter();\n");
         try self.line("defer {s}.deinit();", .{it});
         if (indexed) try self.line("var {s}: usize = 0;", .{counter});
         try self.writeIndent(self.indent);
@@ -3904,13 +3911,16 @@ pub const Emitter = struct {
         }
         // A shared handle's element is its value's.
         const held_ty: ?TypeId = if (base_ty) |t| sema.unwrapReadAccess(self.sema, t) else null;
+        // An element that is not copied (`readsInPlace`) is reached
+        // where it is, as a field is: never a copy of its bits.
+        const in_place = as_place or self.elemInPlace(sexp);
         if (held_ty != null and self.isVecTy(held_ty.?)) {
             try self.emitIndexBase(base, base_ty, .expr);
-            try self.w.writeAll(if (!as_place) ".at(" else if (self.read_place) ".constSlot(" else ".slot(");
+            try self.w.writeAll(if (!in_place) ".at(" else if (self.read_place or !as_place) ".constSlot(" else ".slot(");
             // The index itself is a value, even inside an assignment target.
             self.place_chain = false;
             try self.emitBare(index);
-            try self.w.writeAll(if (as_place) ").*" else ")");
+            try self.w.writeAll(if (in_place) ").*" else ")");
             return;
         }
         const array_len: ?TypeId = if (held_ty) |t| switch (self.sema.types.get(t)) {
@@ -3920,12 +3930,8 @@ pub const Emitter = struct {
         const n = array_len orelse {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
-            // is assigned through. An element that holds a Cell, or may in
-            // a generic instance, is reached where it is: a `?self` method
-            // or a Cell on it changes the element, not a copy.
-            const elem_ty = self.typeOf(sexp);
-            const in_place = if (elem_ty) |t| sema.holdsCellByValue(self.sema, t) or sema.maybeDropGlue(self.sema, t) else false;
-            if (as_place or in_place) {
+            // is assigned through.
+            if (in_place) {
                 try self.w.writeAll("rig.elemPtr(");
                 try self.emitIndexBase(base, base_ty, .bare);
                 try self.w.writeAll(", ");
@@ -3978,6 +3984,14 @@ pub const Emitter = struct {
             try self.w.writeAll(")");
         }
         try self.w.writeAll("]");
+    }
+
+    /// Whether element `e` is read where it is rather than copied: its
+    /// type is not copied implicitly (`sema.copyable`), or holds a Cell
+    /// that a `?self` method or a `set` on it changes in the element.
+    fn elemInPlace(self: *Emitter, e: Sexp) bool {
+        const t = self.typeOf(e) orelse return false;
+        return sema.copyable(self.sema, t) != .yes or sema.holdsCellByValue(self.sema, t);
     }
 
     /// The object `base` of an index, emitted `how` the index needs it. A

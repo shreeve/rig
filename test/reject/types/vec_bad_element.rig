@@ -1,14 +1,10 @@
-# `Vec[T]` holds plain data or handles: not a struct holding a borrow,
-# and not a Vec by value.
+# `Vec[T]` holds any value, views included, but not a borrowed callable,
+# which only a parameter, a local, or a result holds.
 
-struct View
-  n: ?Int
-
-sub takeVec(v: Vec[View])
+sub takeVec(v: Vec[?fun() -> Int])
   print("placeholder")
 
 sub main()
-  w: Vec[Vec[Int]] = Vec()
+  print(1)
 
-# error: 7:16: `Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `View`
-# error: 11:6: `Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `Vec[Int]`
+# error: a borrowed callable `?fun() -> Int` is only a parameter's, a local's, or a result's type

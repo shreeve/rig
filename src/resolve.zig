@@ -634,8 +634,6 @@ pub const DeferredCheck = union(enum) {
     /// `[N]T` spelled at `at`, with `T` spelled at `node`; `ty` is the
     /// array type, when its size is still to be checked.
     array: struct { node: Sexp, elem: TypeId, at: Sexp, ty: ?TypeId },
-    /// `[]T`, with `T` spelled at `node`.
-    slice: struct { node: Sexp, elem: TypeId },
     /// `Vec[T]`, `Box[T]`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
@@ -645,10 +643,6 @@ pub const DeferredCheck = union(enum) {
 fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
     switch (check) {
         .array => |c| {
-            if (sema.typeHasDropGlue(ctx, c.elem)) {
-                try ctx.errAt(c.node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try sema.formatType(ctx, c.elem)});
-                return;
-            }
             if (c.ty) |ty| if (!try sema.checkArrayBytes(ctx, ctx.startOf(c.at), ty)) return;
             // `[N]T` in a generic type: every instance must supply plain
             // data for the parameters the element holds.
@@ -657,20 +651,6 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
             for (held.items) |param| {
                 try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .no_cleanup, .pos = ctx.startOf(c.node), .op = "keeps in an array a value" });
-            }
-        },
-        // A slice views plain data only: arrays hold nothing else, and a
-        // Vec of resources cannot be sliced.
-        .slice => |c| {
-            if (sema.typeHasDropGlue(ctx, c.elem)) {
-                try ctx.errAt(c.node, "slices cannot view values that own resources (`{s}`); borrow the Vec instead", .{try sema.formatType(ctx, c.elem)});
-                return;
-            }
-            var held: std.ArrayList(SymbolId) = .empty;
-            defer held.deinit(ctx.allocator);
-            try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
-            for (held.items) |param| {
-                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .no_cleanup, .pos = ctx.startOf(c.node), .op = "views in a slice a value" });
             }
         },
         .builtin => |c| if (try builtinElementError(ctx, c.sym, c.args)) |msg| try ctx.err(c.pos, "{s}", .{msg}),
@@ -1617,7 +1597,6 @@ pub const TypeResolver = struct {
                         // callable; a `?T` of a function type is a read
                         // borrow of a function value.
                         if (head == .borrow_read and inner_node.isKind(.fun_type)) return sema.callableOfFn(self.ctx, inner);
-                        if (head == .slice) try self.checkWhenResolved(.{ .slice = .{ .node = inner_node, .elem = inner } });
                         if (head == .weak and sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
                         return self.ctx.intern(switch (head) {
                             .optional => .{ .optional = inner },
@@ -2120,14 +2099,11 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
         return try a.print("`Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`), or a type declared `unique`; got `{s}`", .{arg});
     }
     if (sym_id == ctx.vec_sym_id) {
-        const ok = sema.isCopyElement(ctx, args[0]) or switch (ctx.types.get(args[0])) {
-            .shared, .weak => true,
-            // A box moves in and out whole, like a handle.
-            .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id,
-            else => false,
-        };
-        if (ok) return null;
-        return try a.print("`Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `{s}`", .{arg});
+        // A Vec holds any value, views included: its elements move in
+        // and out whole, and each is a place (Core §5). A borrowed
+        // callable is only a parameter's, a local's, or a result's.
+        if (!sema.holdsCallable(ctx, args[0])) return null;
+        return try a.print(sema.held_callable, .{arg});
     }
     if (sym_id == ctx.box_sym_id) {
         if (!sema.holdsBorrow(ctx, args[0])) return null;

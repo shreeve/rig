@@ -1,0 +1,52 @@
+# Vecs, arrays, and slices hold values that own resources, and drop
+# each once (Core §5).
+
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct A
+  items: [2]C
+
+struct C
+  h: *Int
+
+struct Bag
+  items: Vec[Int]
+
+fun total(s: []Bag) -> Int
+  n = 0
+  for b in s
+    n += b.items.len
+  n
+
+sub main()
+  a = *B(n: 1)
+  xs = [<a]
+  print(xs.len)
+  holder = A(items: [C(h: *1), C(h: *2)])
+  print(holder.items[0].h, holder.items[1].h)
+  v: Vec[*B] = Vec()
+  !v.push(*B(n: 2))
+  print(?v[0..1])
+  rows: Vec[Vec[Int]] = Vec()
+  bags: Vec[Bag] = Vec()
+  b: Vec[Int] = Vec()
+  !b.push(7)
+  !bags.push(Bag(items: <b))
+  print(rows.len, total(?bags[..]))
+  ts = [Text("x"), Text("y")]
+  for t in <ts
+    print(t)
+
+# expect:
+# 1
+# 1 2
+# [B(n: 2)]
+# 0 1
+# x
+# y
+# drop 2
+# drop 1

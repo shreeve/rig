@@ -444,7 +444,7 @@ a borrow of the temporary `Text("k", "=v")` outlives its statement
 |---|---|---|---|
 | any `T` | `?T` | `!T` | built |
 | `[N]T`, `Vec[T]` | `[]T` | `![]T` | built |
-| a place `p.f` or `v[i]` | the views of the field or element | its write views | fields built; elements planned |
+| a place `p.f` or `v[i]` | the views of the field or element | its write views | built |
 | a held `!T` | `?T` | `!T` (lent on) | built |
 | `![]T` | `[]T` | `![]T` (lent on) | built |
 | `Text` | `String` (also `String?`) | `!Text` | built |
@@ -531,13 +531,10 @@ field and element is a place:
 - assigning to it drops the old value.
 
 `<`'s operand is a place or a made value: `<(a if c else b)` is written
-`<a if c else <b`. `swap`, and so sorting, work for any element. `copy`,
-`fill`, and `[n of x]` duplicate values, so they need copyable elements.
-So `Vec[Text]`, `Vec[Vec[Int]]`, and a list of records that each own a
-string just work.
-
-*(built* for fields; *planned* for containers, which today hold plain
-data, handles, and boxes.*)*
+`<a if c else <b`. `swap` and `sort_by` work for any element; `sort`
+needs `<`. `copy`, `fill`, and `[n of x]` duplicate values, so they
+need copyable elements. So `Vec[Text]`, `Vec[Vec[Int]]`, and a list of
+records that each own a string just work. *(built)*
 
 ```rig
 struct Slot
@@ -555,7 +552,7 @@ sub main
 none
 ```
 
-```rig pending
+```rig
 sub main
   rows: Vec[Vec[Int]] = Vec()
   r: Vec[Int] = Vec()

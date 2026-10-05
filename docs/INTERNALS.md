@@ -1405,7 +1405,13 @@ lower is an internal error: sema must have rejected it.
   parameter's name. An element of an array whose length is a
   compile-time parameter is reached through a slice (`rig.elems`),
   since Zig rejects any index into an array of length 0, and `[n of x]`
-  is `@as([n]T, @splat(x))`.
+  is `@as([n]T, @splat(x))`. An element that is not copied
+  (`sema.copyable`), or holds a Cell, is reached where it is, as a
+  field is: a Vec's through `constSlot(i).*` or `slot(i).*`, a slice's
+  through `rig.elemPtr`, never a copy of its bits through `at(i)`. A
+  loop that takes an array of values that move hands them over one at
+  a time (`rig.arrayIntoIter`), as one that takes a Vec does
+  (`intoIter`), and drops what a `break` leaves.
 - **Defaults.** A field default is the Zig struct field's default
   value, which Zig copies into each value a constructor makes: a
   literal, a constant, `rig.Vec(T).empty`, a `rig.Cell(T)`, or
