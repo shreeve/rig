@@ -4531,11 +4531,15 @@ pub const Emitter = struct {
         var t = self.peelBorrows(ty);
         var reach: []const u8 = "";
         while (t != self.sema.types.text_id) {
+            const boxed = self.sema.types.get(t) != .shared;
             t = switch (self.sema.types.get(t)) {
                 .shared => |inner| self.peelBorrows(inner),
                 else => self.peelBorrows(sema.boxedType(self.sema, t) orelse return null),
             };
-            reach = self.fmt("{s}.value", .{reach}) catch return null;
+            // A box's value is behind a pointer; a handle it holds is one
+            // more, which Zig does not follow by itself.
+            const deref = boxed and self.sema.types.get(t) == .shared;
+            reach = self.fmt("{s}.value{s}", .{ reach, if (deref) ".*" else "" }) catch return null;
         }
         return reach;
     }

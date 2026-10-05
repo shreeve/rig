@@ -1,0 +1,32 @@
+# A Text reached through handles and boxes is sliced in place: the
+# String views the Text the handle shares, and the handle stays lent
+# while it is used.
+
+struct W
+  t: *Text
+
+fun first(s: String) -> String
+  s[0..1]
+
+sub main
+  h = *Text("hello")
+  s = ?h[1..]
+  g = +h
+  print(s, first(?g[..]))
+  w = W(t: +h)
+  u = ?w.t[..2]
+  vs: Vec[*Text] = Vec()
+  !vs.push(+h)
+  v = ?vs[0][3..]
+  b = Box(*Text("boxed"))
+  x = ?b[..3]
+  y = *Box(Text("handle"))
+  z = ?y[..1]
+  print(u, v, x, z)
+  -h
+  print(g)
+
+# expect:
+# ello h
+# he lo box h
+# hello

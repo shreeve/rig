@@ -2184,10 +2184,13 @@ pub const Checker = struct {
             try self.walkPlaceIndices(indices);
             return .{};
         }
+        // What it lends, as the type checker recorded it: the elements
+        // or bytes the value holds, through handles and boxes, or a
+        // `![]T` lent on. A view's elements are what the view views.
+        const lend = (if (self.sema) |ctx| ctx.sliceLendOf(slice) orelse ctx.lendOf(slice) else null) orelse return self.walkOperand(slice, object);
+        if (!lend.has(.elems) and !lend.has(.text) and !lend.has(.read_only)) return self.walkOperand(slice, object);
         const ty = self.exprType(object) orelse return self.walkOperand(slice, object);
         const peeled = self.pointee(ty) orelse ty;
-        const of_write_slice = if (self.sema) |ctx| sema.writeSliceElem(ctx, ty) != null else false;
-        if (self.typeData(peeled) != .array and !self.isVec(peeled) and !self.isText(peeled) and !of_write_slice) return self.walkOperand(slice, object);
         // An array reached through a read view (an element of a `[]T`)
         // is viewed as that view views it.
         if (self.throughReadView(object)) {

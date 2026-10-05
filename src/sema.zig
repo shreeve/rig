@@ -611,6 +611,9 @@ pub const Facts = struct {
     /// Expressions lent where a view of another type is expected ->
     /// the rows of the lend table that make it (`Lend`, `lendsAs`).
     lends: std.AutoHashMapUnmanaged(u64, Lend) = .empty,
+    /// Slices (`xs[a..b]`) -> what they lend of the value they slice
+    /// (`sliceLend`).
+    slice_lends: std.AutoHashMapUnmanaged(NodeKey, Lend) = .empty,
     /// Expressions that yield a borrow where their context reads the
     /// value it reaches (`SemContext.recordRead`).
     reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -1606,6 +1609,17 @@ pub const SemContext = struct {
     /// How `node` is lent where a view of another type is expected: the
     /// rows of the lend table that make the view (`recordLend`); null
     /// where its value is the view itself.
+    pub fn recordSliceLend(self: *SemContext, slice: Sexp, lend: Lend) !void {
+        try self.facts.slice_lends.put(self.allocator, recordKey(slice), lend);
+    }
+
+    /// What slice `slice` lends of the value it slices (`sliceLend`);
+    /// null for a node that is no checked slice.
+    pub fn sliceLendOf(self: *const SemContext, slice: Sexp) ?Lend {
+        const key = nodeKey(slice) orelse return null;
+        return self.facts.slice_lends.get(key);
+    }
+
     pub fn lendOf(self: *const SemContext, node: Sexp) ?Lend {
         return self.facts.lends.get(exprKey(node) orelse return null);
     }
@@ -4887,6 +4901,55 @@ pub const LendKind = enum { read, write };
 /// The lend table (Core §4): how lending a value of type `from` to read
 /// or to write (`kind`) makes a view of type `view`; null when no row
 /// does. The one place that knows which views a value lends.
+/// What a slice `xs[a..b]` of a value of type `from` lends, as rows of
+/// the lend table (`Lend`): the elements of an array or a Vec, or a
+/// Text's bytes reached through handles (`*Text`) and boxes, each a row
+/// on the way; nothing of a value that is itself a view (a String, a
+/// `[]T`), whose elements it views as that view does; a `![]T` lent on
+/// to read. Null for a value that cannot be sliced. The type checker
+/// slices by it and records it (`SemContext.sliceLendOf`), and the
+/// ownership checker lends by the record.
+pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
+    var lend: Lend = .{};
+    if (writeSliceElem(ctx, from) != null) {
+        _ = lend.push(.read_only);
+        return lend;
+    }
+    var t = unwrapBorrows(ctx, from);
+    if (unwrapAccess(ctx, t) == ctx.types.text_id) {
+        while (true) {
+            switch (ctx.types.get(t)) {
+                .borrow_read, .borrow_write => |inner| t = inner,
+                .shared => |inner| {
+                    if (!lend.push(.handle)) return null;
+                    t = inner;
+                },
+                .text => {
+                    _ = lend.push(.text);
+                    return lend;
+                },
+                else => {
+                    if (!lend.push(.unbox)) return null;
+                    t = boxedType(ctx, t) orelse return null;
+                },
+            }
+        }
+    }
+    switch (ctx.types.get(t)) {
+        .string, .slice => return lend,
+        .array => {
+            _ = lend.push(.elems);
+            return lend;
+        },
+        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id) {
+            _ = lend.push(.elems);
+            return lend;
+        },
+        else => {},
+    }
+    return null;
+}
+
 pub fn lendsAs(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId) ?Lend {
     var lend: Lend = .{ .view = view };
     return if (lendRows(ctx, from, kind, view, &lend)) lend else null;

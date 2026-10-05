@@ -3774,6 +3774,7 @@ const Checker = struct {
         const obj_ty = try self.synthOperand(object);
         try self.checkSliceRange(range);
         if (self.isPoison(obj_ty)) return obj_ty;
+        if (sema.sliceLend(self.ctx, obj_ty)) |lend| try self.ctx.recordSliceLend(slice, lend);
         const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
         var len: ?u64 = null;
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -4853,6 +4854,8 @@ const Checker = struct {
         const obj_ty = if (borrowed and !self.hands(object).hasStorage()) try self.synthExpr(object) else try self.synthOperand(object);
         try self.checkSliceRange(range);
         if (self.isPoison(obj_ty)) return obj_ty;
+        // What the slice lends, which the ownership checker reads.
+        if (sema.sliceLend(self.ctx, obj_ty)) |lend| try self.ctx.recordSliceLend(e, lend);
         // A boxed Text is sliced through its box.
         const peeled = textOrBoxed(self.ctx, sema.unwrapBorrows(self.ctx, obj_ty));
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
