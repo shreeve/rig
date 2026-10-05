@@ -289,22 +289,31 @@ pub const ArgumentHold = enum {
     cell_slot,
     /// Such a part of a temporary no slot keeps: a mutable copy.
     cell_copy,
+    /// A value lent as the view its parameter expects (`lendOf`): the
+    /// view, which points where the value is, a place or its
+    /// statement's slot.
+    lent,
     /// The argument's value.
     value,
-
-    pub fn by(hold: ArgumentHold) StorageBy {
-        return switch (hold) {
-            .closure, .callable, .value => .owned,
-            .cell_slot => .pointer,
-            .cell_copy => .copy,
-        };
-    }
 };
 
 pub fn argumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
     if (ctx.callableOf(v) != null) return if (v.isKind(.lambda)) .closure else .callable;
     if (v.isKind(.read) and ctx.lendsCellTemp(ir.Read.operand(v))) return if (keptInSlot(ctx, ir.Read.operand(v))) .cell_slot else .cell_copy;
+    if (ctx.lendOf(v) != null and !ctx.lendsTempArray(v)) return .lent;
     return .value;
+}
+
+/// The type of the parameter argument `a` of `call` fills, its
+/// receiver aside; null when unknown.
+fn argumentParam(ctx: *const SemContext, call: Sexp, ai: usize) ?TypeId {
+    const callee = ctx.calleeOf(call);
+    const f = fnType(ctx, typeOf(ctx, callee)) orelse return null;
+    const params = if (!callee.isKind(.member) or isTypeCallee(ctx, ir.Member.object(callee))) f.params else if (f.params.len > 0) f.params[1..] else f.params;
+    const slot = if (ctx.callSlotsOf(call)) |slots| for (slots, 0..) |s, i| {
+        if (s == .arg and s.arg == ai) break i;
+    } else ai else ai;
+    return if (slot < params.len) params[slot] else null;
 }
 
 /// Whether `e` is a value its statement's slot keeps (`dropsTemp`), or
@@ -720,12 +729,22 @@ const Planner = struct {
             const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else unborrowed(receiverOf(ctx, c).?);
             try p.record(recv, .receiver, hold.by(hasStorage(ctx, recv)), .call);
         }
-        for (ir.Call.args(c)) |a| {
+        for (ir.Call.args(c), 0..) |a, ai| {
             const v = argValue(a);
             if (isPureArg(ctx, v)) continue;
-            const hold = argumentHold(ctx, v);
-            if (hold == .closure) try p.record(v, .environment, .owned, .call);
-            try p.record(v, .argument, hold.by(), .call);
+            // What the storage holds: a value of its own, a copy, or a
+            // view, as the lend and the parameter say.
+            const by: StorageBy = switch (argumentHold(ctx, v)) {
+                .closure => by: {
+                    try p.record(v, .environment, .owned, .call);
+                    break :by .owned;
+                },
+                .callable => .owned,
+                .cell_slot, .lent => .pointer,
+                .cell_copy => .copy,
+                .value => if (argumentParam(ctx, c, ai)) |t| (if (isPtrBorrowTy(ctx, t)) .pointer else .owned) else .owned,
+            };
+            try p.record(v, .argument, by, .call);
         }
     }
 

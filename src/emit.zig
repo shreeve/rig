@@ -5110,7 +5110,13 @@ pub const Emitter = struct {
         const writes = self.receiverWrites(call);
         // A Cell-holding part of a temporary is copied into a mutable local.
         const cell = self.sema.lendsCellTemp(recv);
-        const name = try self.hiddenStorage(recv, .receiver, hold.by(self.hasStorage(recv)), .{ .id = id });
+        // Held as written below: an address, a copy of a part of a
+        // temporary, or a value made here.
+        const by: sema.StorageBy = switch (hold) {
+            .leaf, .slot, .place => .pointer,
+            .consumed, .value => if (cell) .copy else .owned,
+        };
+        const name = try self.hiddenStorage(recv, .receiver, by, .{ .id = id });
         try self.writeIndent(self.indent);
         // A value that branches is held as the address of the leaf it
         // takes, and a value kept in its statement's slot, or a part of
@@ -5183,7 +5189,7 @@ pub const Emitter = struct {
         try self.openBrace();
         const first = self.hoisted.items.len;
         if (self.consumedTemporary(call)) |recv| {
-            try self.hoist(.{ .node = recv, .name = try self.hiddenStorage(recv, .receiver, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, &.{}, 0, false);
+            try self.hoist(.{ .node = recv, .name = try self.hiddenStorage(recv, .receiver, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, &.{}, 0, false);
         } else try self.hoistReceiver(call, id);
         for (args, 0..) |a, ai| {
             const value = argValue(a);
@@ -5191,8 +5197,7 @@ pub const Emitter = struct {
             const slot: usize = if (slots) |ss| for (ss, 0..) |s, i| {
                 if (s == .arg and s.arg == ai) break i;
             } else ai else ai;
-            const name = try self.hiddenStorage(value, .argument, storage.argumentHold(self.sema, value).by(), .{ .pair = .{ id, @intCast(ai) } });
-            try self.hoist(.{ .node = value, .name = name, .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, params, slot, fields);
+            try self.hoist(.{ .node = value, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, .{ .pair = .{ id, @intCast(ai) } }, params, slot, fields);
         }
         try self.writeIndent(self.indent);
         try self.w.print("break :__rig_call_{d} ", .{id});
@@ -5206,10 +5211,14 @@ pub const Emitter = struct {
     /// field value when the call `fields` builds a value), into the
     /// temporary `h.name`. One that owns a resource is dropped at the end
     /// of the call's block unless the call takes it, clearing `h.flag`.
-    fn hoist(self: *Emitter, h: Hoisted, params: []const TypeId, slot: usize, fields: bool) Error!void {
+    /// An argument's storage is named here (`suffix`), held as it is
+    /// written: a receiver the method consumes comes named.
+    fn hoist(self: *Emitter, h_in: Hoisted, suffix: ?StorageSuffix, params: []const TypeId, slot: usize, fields: bool) Error!void {
+        var h = h_in;
         const hold = storage.argumentHold(self.sema, h.node);
         if (hold == .closure or hold == .callable) {
             const fn_ty = self.sema.callableOf(h.node).?;
+            if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, .owned, sx);
             if (hold == .closure) return self.hoistClosure(h, fn_ty);
             // The `rig.FnRef` has the type Zig gives it.
             try self.writeIndent(self.indent);
@@ -5224,6 +5233,7 @@ pub const Emitter = struct {
         // a mutable local, which the borrow points to.
         if (hold == .cell_slot or hold == .cell_copy) {
             const part = ir.Read.operand(h.node);
+            if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, if (hold == .cell_slot) .pointer else .copy, sx);
             try self.writeIndent(self.indent);
             if (hold == .cell_slot) {
                 try self.w.print("const {s} = ", .{h.name});
@@ -5240,10 +5250,14 @@ pub const Emitter = struct {
         }
         const ty = self.typeOf(h.node);
         const ptr = slot < params.len and self.isPtrBorrowTy(params[slot]);
+        // A value lent as the view its parameter expects is held as that
+        // view, of the parameter's type, which owns nothing.
+        const lent = hold == .lent;
         // A temporary array lent as a slice stays in its slot, which owns
         // nothing to release: an array holds no value that needs cleanup.
         const lent_array = self.sema.lendsTempArray(h.node);
-        const kind: ?ResourceKind = if (ptr or lent_array) null else if (ty) |t| self.kindOf(t) else null;
+        const kind: ?ResourceKind = if (ptr or lent or lent_array) null else if (ty) |t| self.kindOf(t) else null;
+        if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, if (ptr or lent) .pointer else .owned, sx);
         // A temporary array whose elements hold a Cell is lent from a
         // mutable slot, never from constant memory.
         const mutable = lent_array and self.sema.lendsCellTemp(h.node);
@@ -5251,9 +5265,8 @@ pub const Emitter = struct {
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or mutable) "var" else "const", h.name });
         // The value alone may have no Zig type (`.empty`, `null`, a
         // literal). A borrow read through is read here, in argument order.
-        // A box lent as its value has the parameter's type.
-        const unboxes = if (self.sema.lendOf(h.node)) |lend| lend.has(.unbox) else false;
-        const shown: ?TypeId = if (unboxes) (if (slot < params.len) params[slot] else null) else ty;
+        // A value lent has the parameter's type.
+        const shown: ?TypeId = if (lent) (if (slot < params.len) params[slot] else null) else ty;
         if (shown) |t| if (!ptr) {
             try self.w.writeAll(": ");
             try self.emitTypeTy(if (self.readsThrough(h.node)) self.peelBorrows(t) else t);

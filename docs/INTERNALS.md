@@ -975,7 +975,12 @@ not storage: alive and `else` flags, a loop's index counter, a guarded
 match's arm number, labels, and renamed parameters.
 
 The predicates that decide where emit makes storage are in
-`src/storage.zig`, and emit asks the same ones. Emit names every
+`src/storage.zig`, and emit asks the same ones. How storage holds its
+value is decided apart from how emit writes it: an argument lent as the
+view its parameter expects (`lendOf`) is held as that view, `pointer`,
+as is one whose parameter is a view held as a pointer, and emit gives
+each argument and receiver the `by` of what it writes there (an
+address, a copy, a value of its own), which must agree. Emit names every
 hidden storage location through one function, `Emitter.hiddenStorage`,
 which requires the fact, held the same way, and reaches an internal
 error otherwise; the suite's `classify` check fails on a storage name
