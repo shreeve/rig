@@ -1,0 +1,59 @@
+# Containers of owners handed to generic code: a generic body that never
+# copies a `T` serves a `T` that owns (SPEC "Generic bodies"), so
+# `sort.sort_by` sorts a Vec of Texts, and `swap` exchanges owners
+# (Core §5).
+use std.sort
+
+fun longer(a: ?Text, b: ?Text) -> Bool
+  a.len > b.len
+
+fun count[T](xs: ?Vec[T]) -> Int
+  n = 0
+  for x in xs
+    n += 1
+  n
+
+fun last[T](xs: !Vec[T]) -> T?
+  (!xs).pop()
+
+struct Stack[T]
+  items: Vec[T]
+
+  sub push(!self, x: T)
+    !self.items.push(<x)
+
+  fun size(?self) -> Int
+    self.items.len
+
+sub sorted
+  v: Vec[Text] = Vec()
+  !v.push(Text("ccc"))
+  !v.push(Text("a"))
+  !v.push(Text("bb"))
+  sort.sort_by(!v, longer)
+  print(v)
+  !v.swap(0, 2)
+  print(v, count(?v))
+  if last(!v) as t
+    print(t)
+
+sub stacked
+  s: Stack[Text] = Stack(items: Vec())
+  !s.push(Text("x"))
+  !s.push(Text("y"))
+  print(s.size())
+
+sub main
+  sorted()
+  stacked()
+
+# expect:
+# ["ccc", "bb", "a"]
+# ["a", "bb", "ccc"] 3
+# ccc
+# 2
+
+# oracle: sorted accept
+# oracle: stacked accept
+# oracle: count accept
+# oracle: last accept

@@ -58,6 +58,9 @@ pub const Var = struct {
     /// Values may hold a `?T`, `!T`, or slice: a loan that points at a
     /// place, which a value copied out through it does not carry.
     holds_pointers: bool,
+    /// Values may hold a write view: a write loan flowing into it stays
+    /// a write loan (a container of write views, Core §5).
+    holds_writes: bool = false,
     /// Dropping it runs a user `drop` body, which reads what it views.
     drop_reads: bool,
     hidden: bool = false,

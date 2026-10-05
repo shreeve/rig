@@ -1582,8 +1582,15 @@ and checks its body as a function whose captures hold the caller's
 loans; lets no value carrying a loan into a Cell, a Signal, or an owned
 closure (Core s9); and checks a generic body once, each type parameter
 owning and holding no view, with a copy of one left to each instance
-(SPEC "Generic bodies"), and a call of a generic function or type only
-at type arguments of plain data. Header subjects follow the table in
+(SPEC "Generic bodies"), and a call of a generic function or type at
+type arguments of plain data, or of owners where the bodies it runs
+never copy a type parameter. Every element of a Vec, an array, or a
+slice is a place: what `push`, `insert`, a store, or a literal puts in
+a container joins the loans the container carries, an element read out
+of it (`v[i]`, `get`, `pop`, `remove`) carries those and no loan on the
+container, and `swap` and `replace` exchange what their places hold. A
+place holding a write view, an element or a field, is written through
+by a value and re-pointed by a new view. Header subjects follow the table in
 "Header subjects": a held part is a read lend of the held value, and a
 read match's binding that is no plain data holds a loan on a hidden var
 of its arm, which ends with the arm.
