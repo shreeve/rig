@@ -3587,11 +3587,22 @@ const Checker = struct {
     /// that may be a name's value would copy that value into the slot:
     /// each branch is lent instead.
     fn lendTemp(self: *Checker, operand: Sexp) Error!void {
+        return self.lendTempTo(operand, null);
+    }
+
+    /// `lendTemp` of `operand`, or, given `method`, of the receiver a
+    /// `?self` method lends when the call may keep a borrow of it (in
+    /// its result, or stored through a write argument), as `?operand`
+    /// would be lent.
+    fn lendTempTo(self: *Checker, operand: Sexp, method: ?[]const u8) Error!void {
         const base = if (isPlaceExpr(operand)) self.placeOf(operand).base else operand;
         if (base != .list) return;
         const ty = self.ctx.typeOf(base) orelse return;
         if (sema.typeHasDropGlue(self.ctx, ty)) if (self.namedLeaf(base)) |leaf| {
-            try self.errAt(base, "cannot lend `{s}`: it may be `{s}`, a value a name holds, which lending the branching value would copy; lend what each branch reaches instead (`?a if c else ?b`, `if ?o as x`)", .{ self.sourceText(base), self.sourceText(leaf) });
+            const what = "a value a name holds, which lending the branching value would copy; lend what each branch reaches instead";
+            if (method) |m| {
+                try self.errAt(base, "cannot lend `{s}` to `{s}`, which may keep the borrow: it may be `{s}`, {s} (`(?a if c else ?b).{s}(...)`, `if ?o as x`)", .{ self.sourceText(base), m, self.sourceText(leaf), what, m });
+            } else try self.errAt(base, "cannot lend `{s}`: it may be `{s}`, {s} (`?a if c else ?b`, `if ?o as x`)", .{ self.sourceText(base), self.sourceText(leaf), what });
             return;
         };
         try self.ctx.recordTempDrop(base);
@@ -6340,6 +6351,21 @@ const Checker = struct {
             try self.readLeaf(obj);
         } else if (receiver != .value and !misplaced_sigil) try self.rejectResourceTemporary(obj, obj_ty);
 
+        // A method that may change its receiver (a `!self` one, or a
+        // `?self` one on a value holding a Cell) called on a value that
+        // branches and may be a name's, or on a field or element of one,
+        // would change a copy of that value: each branch is lent instead.
+        const changes = receiver == .write or (receiver == .read and resolved.nominal_sym != self.ctx.cell_sym_id and sema.holdsCellByValue(self.ctx, obj_ty));
+        if (changes and !misplaced_sigil and !obj.isKind(.read)) {
+            const lent = if (obj.isKind(.write)) ir.get(obj, .operand) else obj;
+            if (self.isTemporary(lent)) if (self.namedLeaf(self.placeOf(lent).base)) |leaf| {
+                const base = self.placeOf(lent).base;
+                const sigil: []const u8 = if (receiver == .write) "!" else "?";
+                try self.errAt(base, "cannot call `{s}` here: `{s}` may be `{s}`, a value a name holds, and the call would change a copy of it; lend what each branch reaches instead (`({s}a if c else {s}b).{s}(...)`, `if {s}o as x`)", .{ method, self.sourceText(base), self.sourceText(leaf), sigil, sigil, method, sigil });
+                try self.synthArgs(args);
+                return self.t().invalid_id;
+            };
+        }
         // A `?self` method may change a Cell the value holds; a loop or
         // match binding is only a copy of it.
         if (resolved.nominal_sym != self.ctx.cell_sym_id and receiver == .read and sema.holdsCellByValue(self.ctx, obj_ty)) {
@@ -6390,6 +6416,14 @@ const Checker = struct {
             .returns = f.returns,
             .is_sub = f.is_sub,
         };
+        // A `?self` or `!self` method that may keep a borrow of a
+        // temporary receiver, in its result or through a write argument,
+        // lends it, as `?obj` does: the temporary is kept in a slot until
+        // its statement ends, so a view of it, a write view included,
+        // does not leave the statement; and a branching value that may be
+        // a name's is lent branch by branch instead.
+        const lent = if (obj.isKind(.write)) ir.get(obj, .operand) else obj;
+        if ((receiver == .read or receiver == .write) and !misplaced_sigil and !obj.isKind(.read) and self.isTemporary(lent) and (sema.mayHoldView(self.ctx, f.returns) or self.callRetains(rest, null))) try self.lendTempTo(lent, method);
         self.lend_call = true;
         self.lend_recv = f.params[0];
         try self.checkArgs(args, rest, info, method, pos);

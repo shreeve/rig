@@ -639,7 +639,14 @@ and `e?` (`readLeaves`): a branch that is a name is read where it is
 (`readsInPlace`), never moved, and a branching value all of whose
 branches are made is one temporary. A read borrow of a temporary
 (`?S(n: 1)`, `?make()`, a slice of one) records it the same way,
-owning or not. A header (`sema.isHeaderOf`: an `if` or `while`
+owning or not (`lendTemp`), and so does a `?self` or `!self` receiver
+whose method's result may keep a view of it (a result that may hold a view,
+or a call that may store a borrow, `callRetains`): `r = mk().arr()` is
+`_t = mk()`, `r = P.arr(?_t)`, `-_t`, plain data too, and
+`(a if c else b).inner()` is `S.inner(?(a if c else b))`, rejected as
+that lend is. The ownership checker lends such a receiver where its
+path starts (`walkBorrowedPath`), whatever each field or element on
+the way holds. A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
 `if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
 so a binding that still views `_t` is reported where the header ends.
@@ -714,7 +721,7 @@ instead of re-deriving it by name:
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
-| `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read borrow lending it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
+| `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read borrow lending it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory, unless it is a receiver evaluated first that its statement's slot keeps, which is reached there (`keptInSlot`) |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds borrows, rather than pointing the place elsewhere |
 | `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary a read borrow lends. The ownership checker holds it in a hidden var named by its source, borrowed by what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a borrow of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
@@ -919,7 +926,9 @@ binding holds, and `?l` passes on with a loan on `l`) and its
 arguments; so a result carrying both never outlives anything it may
 point into. (A closure's body is checked like a function, whose returned
 value is checked the same way);
-a call may store its arguments' loans into its receiver and into what
+a call may store its arguments' loans, and what its receiver lends or
+holds (a method's receiver is passed as an argument is:
+`out.r = ?self.items[..]`), into its receiver and into what
 its `!` arguments and other write borrows lead to, except a built-in
 element method (`!dst.copy(src)`) whose elements hold no borrow, which
 stores only plain elements. Assigning a local write borrow, or a field
@@ -1235,7 +1244,13 @@ lower is an internal error: sema must have rejected it.
   when needed: when binding keyword arguments reorders two with side
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's
-  guarded `defer` then drops.
+  guarded `defer` then drops. A receiver evaluated before such
+  arguments that its statement's slot keeps, or a field or element of
+  one (`keptInSlot`), is held as its address there,
+  `const __rig_recv_N = &(rig.keep(...).*)`, so the slot alone drops
+  it and a view the method returns views the slot; a value that
+  branches is copied into the call's block and never dropped there,
+  since the name or slot its leaf comes from owns it.
 - **Assignments.** Zig finds the address of `place.* = f()` before it
   calls `f`, so an assignment to a field or element whose value or
   indexes can act (a call, an assignment, a drop, a jump) evaluates the

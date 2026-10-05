@@ -96,8 +96,9 @@ const Local = struct {
 const LocalRef = struct { scope: u32, index: u32 };
 
 /// An argument evaluated into the temporary `name`. An owned one is
-/// dropped at scope exit while `flag` is set; the call clears it.
-const Hoisted = struct { node: Sexp, name: []const u8, flag: []const u8 = "" };
+/// dropped at scope exit while `flag` is set; the call clears it. With
+/// `ptr`, `name` holds the address of `node`, which stays where it is.
+const Hoisted = struct { node: Sexp, name: []const u8, flag: []const u8 = "", ptr: bool = false };
 
 /// The slot an owning temporary is kept in until its statement ends,
 /// and the flag saying it holds one.
@@ -2918,6 +2919,8 @@ pub const Emitter = struct {
             try self.emitValue(sexp, tail);
             return self.w.print("){s}.bytes()", .{reach});
         }
+        // A receiver evaluated first is read where its address points.
+        if (self.hoistedOf(sexp)) |h| if (h.ptr) return self.w.print("{s}.*", .{h.name});
         // An owning temporary is kept in its statement's slot, which
         // drops it at the statement's end.
         if (self.sema.dropsTemp(sexp) and !sameNode(sexp, self.keeping)) {
@@ -3489,7 +3492,7 @@ pub const Emitter = struct {
 
     /// `&place`, or the pointer itself when the place is already one.
     fn emitAddressOf(self: *Emitter, place: Sexp) Error!void {
-        if (self.hoistedOf(place)) |h| return self.w.print("&{s}", .{h.name});
+        if (self.hoistedOf(place)) |h| return self.w.print("{s}{s}", .{ if (h.ptr) "" else "&", h.name });
         if (place == .src) if (self.localOf(place)) |local| {
             if (local.is_ptr) return self.w.writeAll(local.zig_name);
         };
@@ -3839,6 +3842,10 @@ pub const Emitter = struct {
         // in place, reached through the element's slot, unless it was
         // hoisted to run before the arguments.
         if (obj.isKind(.write) and (o.isKind(.index) or o.isKind(.member)) and self.hoistedOf(o) == null) return self.emitPlace(o);
+        // A receiver evaluated first and held by address, where its
+        // statement's slot keeps it: Zig reaches a field or method through
+        // the pointer.
+        if (self.hoistedOf(o)) |h| if (h.ptr) return self.w.writeAll(h.name);
         // `Pair[Int, String].make(...)`: the instance named.
         if (self.sema.instanceOf(o)) |inst| if (inst == .type) return self.emitTypeTy(inst.type);
         // `Wrap.make(...)` of a generic type: the instance sema inferred.
@@ -4613,6 +4620,15 @@ pub const Emitter = struct {
         if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return;
         const name = try self.fmt("__rig_recv_{d}", .{id});
         try self.writeIndent(self.indent);
+        // A value its statement's slot keeps, or a part of one, is held
+        // as its address there: the slot alone drops it, when the
+        // statement ends, and a view the method returns views the slot.
+        if (temporary and self.keptInSlot(recv)) {
+            try self.w.print("const {s} = ", .{name});
+            try self.emitSlotAddress(recv);
+            try self.w.writeAll(";\n");
+            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name, .ptr = true });
+        }
         if (!temporary) {
             const saved = self.read_place;
             defer self.read_place = saved;
@@ -4624,7 +4640,10 @@ pub const Emitter = struct {
         }
         const ty = self.typeOf(recv);
         const ptr = if (ty) |t| self.isPtrBorrowTy(t) else false;
-        const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
+        // A value that branches is a copy of a leaf a name holds or a
+        // slot keeps, which that owner drops.
+        const branches = recv.isKind(.@"if") or recv.isKind(.@"??") or recv.isKind(.@"catch") or recv.isKind(.propagate) or recv.isKind(.propagate_none);
+        const kind: ?ResourceKind = if (ptr or branches) null else if (ty) |t| self.kindOf(t) else null;
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or (writes and !ptr) or cell) "var" else "const", name });
         if (ty) |t| {
             try self.w.writeAll(": ");
@@ -4634,11 +4653,12 @@ pub const Emitter = struct {
         try self.emitBare(recv);
         try self.w.writeAll(";\n");
         if (cell) try self.line("_ = &{s};", .{name});
-        // Sema rejects a borrowed temporary receiver that owns a resource
-        // (a consumed one is hoisted by `consumedTemporary`), so only a
-        // value holding a type parameter gets here (`self.twice()` of a
-        // `Wrap[T]`): plain data in every instance sema accepts, dropped
-        // like a resource in the generic body.
+        // An owning temporary receiver is kept in its statement's slot
+        // (above), or rejected (a consumed one is hoisted by
+        // `consumedTemporary`), so only a value holding a type parameter
+        // is dropped here (`self.twice()` of a `Wrap[T]`): plain data in
+        // every instance sema accepts, dropped like a resource in the
+        // generic body.
         if (kind) |k| {
             try self.writeIndent(self.indent);
             try self.w.writeAll("defer ");
@@ -4739,6 +4759,28 @@ pub const Emitter = struct {
         try self.writeDrop(h.name, k);
         try self.w.writeAll(";\n");
         try self.hoisted.append(self.allocator, h);
+    }
+
+    /// Whether `e` is a value its statement's slot keeps (`dropsTemp`), or
+    /// a field or element of one: storage that lives until the statement
+    /// ends.
+    fn keptInSlot(self: *Emitter, e: Sexp) bool {
+        var p = unborrowed(e);
+        while (true) {
+            if (self.sema.dropsTemp(p)) return true;
+            if (!p.isKind(.member) and !p.isKind(.index)) return false;
+            p = unborrowed(ir.get(p, .object));
+        }
+    }
+
+    /// The address of `e` in its statement's slot (`keptInSlot`).
+    fn emitSlotAddress(self: *Emitter, e: Sexp) Error!void {
+        const saved = self.read_place;
+        defer self.read_place = saved;
+        self.read_place = true;
+        try self.w.writeAll("&(");
+        if (self.sema.dropsTemp(e)) try self.emitBare(e) else try self.emitPlace(e);
+        try self.w.writeAll(")");
     }
 
     /// The temporary an argument or receiver was evaluated into, if it was.

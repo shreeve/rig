@@ -3097,7 +3097,10 @@ tracks where every one came from.
 - A struct holding a borrow keeps the borrowed value borrowed while the
   struct is alive. So does a stack closure that captured a borrow, and
   a value a call may have stored a borrow into (its receiver, and what
-  its `!` arguments and other write borrows lead to).
+  its `!` arguments and other write borrows lead to). A method's
+  receiver is passed as an argument is: what it lends or holds may be
+  stored there too, so `s.put(!h)` keeps `s` borrowed while `h` may
+  hold a view of it.
 - A borrow may not outlive the value it borrows: not past the end of
   its block, not through `break`, and not out of the function.
 
@@ -3318,7 +3321,18 @@ Text first, because `kv` outlives the header. A call's result that `if
 take it: an arm of `match make()` may move a payload out. A lend of a
 branching value that may be a name's (`?(a if c else b)`) would copy
 that name's value, so it is rejected: lend each branch, `?a if c else
-?b`.
+?b`. A `?self` or `!self` receiver is lent this way when the call may
+keep a view of it: `(a if c else b).name()`, for a `name` that returns
+a view of its receiver, is rejected, and `(?a if c else ?b).name()`
+lends each branch; a temporary receiver, plain data included, lives
+until its statement ends, so the view, a write view included, may not
+outlive the statement: not in a binding, and not as a function's or
+block's value, an arm's value, or a `break` or `return` value. A method
+that may change its receiver (a `!self` one, or a `?self` one on a
+value holding a Cell) is rejected on a value that branches and may be a
+name's, or on a field or element of one, since the change would land in
+a copy: `(!a if c else !b).inc()` and `(?h1 if c else ?h2).q.bump()`
+change the value the branch takes.
 
 ```rig
 use std.text
@@ -3337,6 +3351,42 @@ sub main
 true
 starts
 k v
+```
+
+```rig
+struct S
+  t: Text
+
+  fun name(?self) -> String
+    ?self.t
+
+sub main
+  a = S(t: Text("aa"))
+  b = S(t: Text("bb"))
+  n = (?a if a.t.len > 1 else ?b).name()
+  print(n, S(t: Text("cc")).name())
+```
+
+```output
+aa cc
+```
+
+```rig reject
+struct S
+  t: Text
+
+  fun name(?self) -> String
+    ?self.t
+
+sub main
+  a = S(t: Text("aa"))
+  b = S(t: Text("bb"))
+  n = (a if a.t.len > 1 else b).name()
+  print(n)
+```
+
+```error
+cannot lend `a if a.t.len > 1 else b` to `name`
 ```
 
 ```rig reject

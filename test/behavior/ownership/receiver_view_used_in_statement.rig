@@ -1,0 +1,50 @@
+# A view a `?self` method returns of a temporary receiver, plain data
+# included, or of a value that branches through data only, is used within
+# its statement, where its statement keeps the receiver. A method whose
+# result keeps no view reads a value that branches as before, and one
+# called on what each branch lends keeps every branch lent.
+
+struct P
+  xs: [4]Int
+
+  fun arr(?self) -> ?[4]Int
+    ?self.xs
+
+struct S
+  t: Text
+
+  fun inner(?self) -> ?Text
+    ?self.t
+
+  fun size(?self) -> Int
+    self.t.len
+
+fun mk(n: Int) -> P
+  P(xs: [n, n, n, n])
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun first(xs: ?[4]Int, n: Int) -> Int
+  xs[0] * 10 + n
+
+sub main
+  ps = [P(xs: [1, 1, 1, 1]), P(xs: [2, 2, 2, 2])]
+  qs = [P(xs: [3, 3, 3, 3]), P(xs: [4, 4, 4, 4])]
+  c = clobber(0) == 1
+  print(mk(5).arr(), first(mk(6).arr(), clobber(9)))
+  print((ps if c else qs)[1].arr(), first((qs if c else ps)[0].arr(), clobber(7)))
+  a = S(t: Text("aa"))
+  b = S(t: Text("bbb"))
+  print((a if c else b).size(), (b if c else a).size())
+  r = (?a if c else ?b).inner()
+  print(clobber(1000))
+  print(r)
+
+# expect:
+# [5, 5, 5, 5] 70
+# [2, 2, 2, 2] 38
+# 2 3
+# 1001
+# aa

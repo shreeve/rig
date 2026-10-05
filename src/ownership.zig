@@ -2935,6 +2935,9 @@ pub const Checker = struct {
         // write receiver is reserved (read) while the arguments are
         // evaluated and must be otherwise unborrowed when the call starts.
         var recv_root: ?VarId = null;
+        // What a method's receiver lends or hands the call, which the
+        // call may store where its arguments' loans may go.
+        var recv_value: Value = .{};
         var recv_mode: sema.MethodReceiver = .read;
         var reservation: usize = 0;
         // What the call reads in place before its arguments run (the value
@@ -2976,12 +2979,18 @@ pub const Checker = struct {
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
                     result = if (self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.reborrow(id, .{ .root = id, .kind = kind, .pos = pos }));
                 }
+                recv_value = result;
             } else if (recv_mode == .value) {
                 // A consuming receiver is taken like an argument: a name
                 // it yields through a branch is moved with `<`.
                 result = try self.walkConsumed(ir.Member.object(callee), .argument);
+                recv_value = result;
             } else {
-                result = try self.walk(ir.Member.object(callee));
+                // A receiver that is no place is lent where its path
+                // starts: what the method returns may keep what that start
+                // keeps (a temporary's slot), whatever each step's type.
+                result = try self.walkBorrowedPath(ir.Member.object(callee));
+                recv_value = result;
                 if (self.errors_found == callee_found) try self.holdRead(ir.Member.object(callee), .receiver);
             }
         } else if (callee == .src) {
@@ -3052,7 +3061,18 @@ pub const Checker = struct {
             if (!self.keepsCallable(node, a)) continue;
             stored = try self.valueUnion(stored, v.*);
         }
+        // The receiver is passed as an argument is: the call may store
+        // what it lends (`out.r = ?self.items[..]`) or holds.
+        stored = try self.valueUnion(stored, recv_value);
         result = try self.valueUnion(result, stored);
+
+        if (recv_root) |id| if (recv_mode == .write) {
+            // The reservation itself is no conflict. The receiver is
+            // checked as the call starts, before the call stores anything.
+            const reserved = self.temps.orderedRemove(reservation);
+            _ = try self.conflicts(id, .write, self.startOf(ir.Member.object(callee)));
+            try self.temps.insert(self.gpa, reservation, reserved);
+        };
 
         // The callee may store what its arguments borrow into anything it
         // can mutate: the receiver, and whatever the write borrows passed
@@ -3068,13 +3088,6 @@ pub const Checker = struct {
             try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
             for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
         }
-
-        if (recv_root) |id| if (recv_mode == .write) {
-            // The reservation itself is no conflict.
-            const reserved = self.temps.orderedRemove(reservation);
-            _ = try self.conflicts(id, .write, self.startOf(ir.Member.object(callee)));
-            try self.temps.insert(self.gpa, reservation, reserved);
-        };
 
         // The borrows passed to the call end when it returns, unless its
         // result can carry them.

@@ -1,0 +1,22 @@
+# A method may store a view of what its receiver holds in what it was
+# lent to write: the receiver stays lent while that view lives.
+
+struct Holder
+  r: []Int
+
+struct Src
+  items: Vec[Int]
+
+  sub put(?self, out: !Holder)
+    out.r = ?self.items[..]
+
+sub main
+  x = [1, 2]
+  h = Holder(r: ?x[..])
+  s = Src(items: Vec())
+  !s.items.push(5)
+  s.put(!h)
+  -s
+  print(h.r[0])
+
+# error: 19:4: cannot drop `s` while borrows are live

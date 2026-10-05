@@ -47,7 +47,7 @@ CRASH = re.compile(r"panic:|Segmentation fault|reached unreachable|Bus error")
 # fresh one, and a constructor expression.
 # -----------------------------------------------------------------------------
 
-N_DECL = "struct N\n  v: Int\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n"
+N_DECL = "struct N\n  v: Int\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?N\n    self\n"
 TYPES = {
     "int": dict(ty="Int", decls="", mk="n", ctor="Int(5)"),
     "string": dict(ty="String", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
@@ -56,7 +56,7 @@ TYPES = {
                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
     "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
-    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n',
+    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?D\n    self\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
     # A payload enum: `== .variant` tests the variant.
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: Vec[Int])\n",
@@ -117,6 +117,14 @@ CONTEXTS = {
                                        for t in ("vec", "shared", "box", "drop")}),
     "eq_then_write": dict(inline="print((E) == pokev(!W))", write=True, types=("int", "string", "text")),
     "index_then_write": dict(inline="print((E)[poke(!W)])", write=True, types=("vec",)),
+    # A `?self` method returning a view of its receiver (`me`): the view
+    # held past the statement, used after a later operand writes what the
+    # form reads, or held while a later statement writes it.
+    "recv_view": dict(inline="x = (E).M", after="print(x.v)", recv={"drop": "me()", "shared": "me()"}),
+    "recv_view_then_write": dict(inline="print((E).M.v, poke(!W))", write=True,
+                                 recv={"drop": "me()", "shared": "me()"}),
+    "recv_view_held_then_write": dict(inline="x = (E).M", after="print(poke(!W), x.v)", write=True,
+                                      recv={"drop": "me()", "shared": "me()"}),
 }
 
 # How `poke` changes a value of each type: it grows the buffer, or
@@ -388,7 +396,10 @@ def program(tname, fname, cname):
             e = f"({e})"
         body.append(text.replace("E", e))
     if "after" in ctx:
-        body.append(ctx["after"])
+        after = ctx["after"]
+        if ctx.get("write"):
+            after = after.replace("!W", "!" + WRITE_TARGETS.get(fname, "a"))
+        body.append(after)
     if not returns:
         body.append("0")
     out.append(f"fun run(c: Bool, o: {ty}?) -> {ret_ty}\n{indent(body, 2)}\n")
