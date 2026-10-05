@@ -657,6 +657,24 @@ or header ends (`dropStmtTemps`); emit gives a header's temporaries a
 block of their own, `(label: { slots; break :label e; })`, whose
 `defer`s drop them as the header's value is yielded.
 
+So what a `match`, `if … as`, `while … as`, or `for` header binds is in
+the value that block yields, a copy of its subject, whenever the
+subject makes a statement temporary (`sema.firstStmtTemp`, which emit's
+`hasTemps` reads too): a write, a Cell change, or a view through a
+binding would reach the copy, not the place. Typecheck decides once,
+per header, that such a header is rejected at the temporary, whatever
+it binds (`rejectHeaderTemp`), with "bind the index (the argument,
+`e`) to a name first". The exemptions are the headers whose binding is
+the value either way: one that takes what it binds (`<p`, a `match`
+that takes its subject, a consuming `for`, or a call's result that is
+not a view), a `for` over a slice, which walks where the slice points,
+one that binds plain data, only read, of a value made there, and a
+`match` on a view a call returns that is held as a pointer
+(`sema.viewHeldAsPointer`), which is matched where it points. That
+match reads its tag and payloads after the header, so the ownership
+checker reports such a subject whose value carries a loan on a
+temporary the header made (`walkMatch`).
+
 What may be done with a place is decided in one place. `placeOf(e)`
 reads a place expression (a name, or a field or element of one) once,
 into a `Place`: the expression its path starts from and what that is

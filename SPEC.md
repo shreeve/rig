@@ -3332,7 +3332,13 @@ that may change its receiver (a `!self` one, or a `?self` one on a
 value holding a Cell) is rejected on a value that branches and may be a
 name's, or on a field or element of one, since the change would land in
 a copy: `(!a if c else !b).inc()` and `(?h1 if c else ?h2).q.bump()`
-change the value the branch takes.
+change the value the branch takes. A `match`, `if … as`, `while … as`,
+or `for` header that makes a temporary is evaluated before that
+temporary ends, so what it binds would be a copy of its subject, which
+a write or a Cell change through the binding would miss: it is
+rejected, whatever it binds, unless it takes a value made there
+(`match parse(?Text(s))`, `if find(?Text(s)) as i`). Bind the index or
+the argument to a name first: `i = idx(?t)`, then `match !arr[i]`.
 
 ```rig
 use std.text
@@ -3407,6 +3413,37 @@ sub main
 a borrow of the temporary `S(n: 1)` outlives its statement, which drops it; bind the value to a name first
 a borrow of the temporary `Text(" a ")` outlives its statement
 a borrow of the temporary `Text("k=v")` outlives its statement
+```
+
+```rig reject
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main
+  arr: [1]Int? = [1]
+  if !arr[idx(?Text("a"))] as n
+    n = 50
+  print(arr)
+```
+
+```error
+this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
+```
+
+```rig
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main
+  arr: [1]Int? = [1]
+  i = idx(?Text("a"))
+  if !arr[i] as n
+    n = 50
+  print(arr)
+```
+
+```output
+[50]
 ```
 
 ---

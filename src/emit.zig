@@ -1065,7 +1065,7 @@ pub const Emitter = struct {
         if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
         // The parts first: they are made first, so their `defer`s run
         // after those of what holds them.
-        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c)) try self.emitTempSlots(c);
+        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !sema.isWhileStep(stmt, c)) try self.emitTempSlots(c);
         if (self.sema.dropsTemp(stmt) and self.tempSlot(stmt) == null) {
             const name = try self.fmt("__rig_tmp_{d}", .{self.nextId()});
             try self.w.print("var {s}: ", .{name});
@@ -1075,26 +1075,16 @@ pub const Emitter = struct {
         }
     }
 
-    /// Whether `child` is the step of `while` loop `parent`: a statement
-    /// of its own, run after each pass (`emitStep`).
-    fn isWhileStep(parent: Sexp, child: Sexp) bool {
-        if (!parent.isKind(.@"while")) return false;
-        const step = ir.While.step(parent);
-        return step == .list and child == .list and step.list.id == child.list.id;
-    }
-
     fn tempSlot(self: *Emitter, node: Sexp) ?TempSlot {
         if (node != .list) return null;
         for (self.temp_slots.items) |t| if (t.node == node.list.id) return t;
         return null;
     }
 
-    /// Whether statement `stmt` holds an owning temporary its end drops.
+    /// Whether statement `stmt` holds an owning temporary its end drops
+    /// (`sema.firstStmtTemp`, which typecheck's header rule reads too).
     fn hasTemps(self: *Emitter, stmt: Sexp) bool {
-        if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return false;
-        if (self.sema.dropsTemp(stmt)) return true;
-        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c) and self.hasTemps(c)) return true;
-        return false;
+        return sema.firstStmtTemp(self.sema, stmt) != null;
     }
 
     /// Start header `e` (`sema.isHeaderOf`), its own statement: when it
@@ -2789,10 +2779,10 @@ pub const Emitter = struct {
         const sym = self.sema.symbolOf(name);
         // Over a borrow of an optional, a borrowed binding points into it.
         if (self.borrowsOptionalValue(value) and self.hasTemps(value)) {
-            // A borrow of a temporary the header drops: the optional is
-            // read inside the header, and the binding views a copy of the
-            // value inside, which the ownership checker lets nothing use
-            // past the header.
+            // A view a call returns, in a header that makes a temporary:
+            // the optional is read inside the header, and the binding is
+            // a copy of the plain data inside, the only binding typecheck
+            // lets such a header make (`rejectHeaderTemp`).
             try self.w.writeAll("(");
             const h = try self.openHeader(value);
             try self.w.writeAll("(");

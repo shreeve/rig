@@ -102,6 +102,10 @@ CONTEXTS = {
     "elem_index_call": dict(block="vs[grow(!vs)] = E", needs="vs", after="print(vs.len)"),
     "match_subject": dict(inline="match E\n    y => print(look(?y))"),
     "for_source": dict(inline="for e in ?E\n    print(e)"),
+    # A header whose subject makes a temporary (`?Text(...)`): it takes
+    # the value a call makes there, so it binds that value.
+    "match_subject_temp": dict(inline='match pass_t(E, ?Text("t"))\n    y => print(look(?y))', temp=True),
+    "as_temp": dict(inline='if some_t(E, ?Text("t")) as y\n    print(look(?y))', temp=True),
     # A method that consumes its receiver (`<self`, `Box.unbox`).
     "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
     # `none` and a bare `.variant` test a value and drop it if no name holds it.
@@ -369,6 +373,9 @@ def program(tname, fname, cname):
         # Calls that grow the Vec an element assignment stores into.
         out.append(f"fun through(v: !Vec[{ty}], x: {ty}) -> {ty}\n  for i in 0..100\n    !v.push(mk(i))\n  x\n")
         out.append(f"fun grow(v: !Vec[{ty}]) -> Int\n  for i in 0..100\n    !v.push(mk(i))\n  0\n")
+    if ctx.get("temp"):
+        out.append(f"fun pass_t(x: {ty}, t: ?Text) -> {ty}\n  x\n")
+        out.append(f"fun some_t(x: {ty}, t: ?Text) -> {ty}?\n  x\n")
     if ctx.get("write"):
         out.append(f"fun poke(x: !{ty}) -> Int\n  {POKES[tname]}\n  0\n")
         out.append(f"fun pokev(x: !{ty}) -> {ty}\n  n = poke(!x)\n  mk(n + 9)\n")

@@ -1,15 +1,10 @@
-# A borrow of a temporary may be printed, since `print` keeps nothing.
-# A borrow of a plain temporary may also be the optional an `if` or
-# `while` binds with `as`, a `match` subject, or a `for` source: the
-# header copies what it binds out of the plain value before its
-# temporaries end.
+# A borrow of a temporary may be printed, since `print` keeps nothing,
+# and a `for` walks a borrow of an array it makes, whose plain elements
+# it copies. (A header that binds a borrow of a temporary it makes is
+# rejected: `test/reject/ownership/header_temporary_rejected.rig`.)
 
 struct P
   x: Int
-
-enum E
-  a(n: Int)
-  b
 
 fun mk(n: Int) -> P
   P(x: n)
@@ -19,24 +14,12 @@ fun opt(n: Int) -> P?
     return mk(n)
   none
 
-fun e(n: Int) -> E
-  .a(n: n)
-
 sub main()
   print(?mk(1), ?opt(2))
-  if ?opt(3) as p
-    print(p.x)
-  while ?opt(0) as q
-    print(q.x)
-  match ?e(5)
-    .a(n) => print(n)
-    .b => print(0)
   for x in ?[mk(6), mk(7)]
     print(x.x)
 
 # expect:
 # P(x: 1) P(x: 2)
-# 3
-# 5
 # 6
 # 7

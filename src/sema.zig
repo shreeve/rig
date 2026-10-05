@@ -3219,6 +3219,52 @@ pub fn isHeaderOf(parent: Sexp, child: Sexp) bool {
     return header == .list and child == .list and header.list.id == child.list.id;
 }
 
+/// A call, or a call's value propagated (`mk()!`, `mk()?`): an
+/// expression that makes a new value.
+pub fn makesValue(e: Sexp) bool {
+    const h = e.kind() orelse return false;
+    return switch (h) {
+        .call => true,
+        .propagate, .propagate_none => makesValue(ir.get(e, .value)),
+        else => false,
+    };
+}
+
+/// The first owning temporary statement `stmt` makes (`dropsTemp`), not
+/// counting the blocks and closures it holds or its own headers and
+/// `while` step, which are statements of their own. A header that makes
+/// one is evaluated in a block that drops it before the construct runs
+/// (emit's `openHeader`): what the construct binds is in the value that
+/// block yields, not in the header's subject.
+pub fn firstStmtTemp(ctx: *const SemContext, stmt: Sexp) ?Sexp {
+    if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return null;
+    if (ctx.dropsTemp(stmt)) return stmt;
+    for (rig.children(stmt)) |c| {
+        if (isHeaderOf(stmt, c) or isWhileStep(stmt, c)) continue;
+        if (firstStmtTemp(ctx, c)) |t| return t;
+    }
+    return null;
+}
+
+/// Whether `child` is the step of `while` loop `parent`: a statement
+/// of its own, run after each pass.
+pub fn isWhileStep(parent: Sexp, child: Sexp) bool {
+    if (!parent.isKind(.@"while")) return false;
+    const step = ir.While.step(parent);
+    return step == .list and child == .list and step.list.id == child.list.id;
+}
+
+/// Whether a view of type `ty` is held as a pointer: a write view (but
+/// a `![]T`, a slice), or a read view that does not copy its value
+/// (`readBorrowCopies`).
+pub fn viewHeldAsPointer(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .borrow_write => writeSliceElem(ctx, ty) == null,
+        .borrow_read => |inner| !readBorrowCopies(ctx, inner),
+        else => false,
+    };
+}
+
 /// Whether a value of `ty` holds a String but no borrow or type
 /// parameter: it may view a Text, and nothing else.
 pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
