@@ -330,6 +330,12 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //   After a struct header's name or type parameters, `unique` marks the
 //   struct unique (`struct Random unique`). Elsewhere it is a name.
 //
+// `from`, `static`
+//   After a function's result type, on its header's line, `from` says
+//   what the result views (`-> ?Item from a, b`), and `static` right
+//   after it says the result views only what lives for the whole
+//   program (`-> String from static`). Elsewhere each is a name.
+//
 // `..`
 //   Before `]` (past any line break, which is whitespace inside
 //   brackets), `..` ends an open range (`xs[a..]`, `xs[..]`):
@@ -375,6 +381,9 @@ pub const Lexer = struct {
     /// The bracket nesting of the `while` header being lexed, whose first
     /// `:` there starts the step; null outside one.
     while_header: ?u32 = null,
+    /// The line is a function's header, past the `->` of its result
+    /// type, where `from` may follow the type (`isResultFrom`).
+    fun_arrow: bool = false,
     /// Start and end of the last real (non-layout) token; an unexpected
     /// end of block or file is reported at its end.
     prev_pos: u32 = 0,
@@ -484,6 +493,13 @@ pub const Lexer = struct {
         switch (tok.cat) {
             .@"while" => self.while_header = self.nesting,
             .newline, .indent, .outdent, .eof, .step_colon => self.while_header = null,
+            else => {},
+        }
+        switch (tok.cat) {
+            .arrow => if (self.nesting == 0 and (self.line_head == .fun or self.line_head == .@"extern")) {
+                self.fun_arrow = true;
+            },
+            .newline, .indent, .outdent, .eof => self.fun_arrow = false,
             else => {},
         }
         if (tok.len > 0 and tok.cat != .err) { // a real token, not layout
@@ -784,7 +800,16 @@ pub const Lexer = struct {
         if (self.inParens() and self.nextCat() == .colon) return .kwarg_name;
         if (std.mem.eql(u8, word, "of") and self.isFillOf()) return .of;
         if (std.mem.eql(u8, word, "unique") and self.isStructUnique()) return .unique;
+        if (std.mem.eql(u8, word, "from") and self.isResultFrom()) return .from;
+        if (std.mem.eql(u8, word, "static") and self.last_cat == .from) return .static;
         return .ident;
+    }
+
+    /// `from` after a function's result type says what the result views
+    /// (`fun first(a: ?T, b: ?T) -> ?T from a`); anywhere else it is a
+    /// name.
+    fn isResultFrom(self: *const Lexer) bool {
+        return self.fun_arrow and self.after_value and self.nesting == 0;
     }
 
     /// `unique` after a struct header's name or its type parameters marks
@@ -1919,6 +1944,19 @@ test "`unique` is a keyword only after a struct header's name or type parameters
     try expectCats("unique = x.unique", &.{ .ident, .assign, .ident, .dot, .ident });
     try expectCats("struct R\n  unique: Bool", &.{ .@"struct", .ident, .indent, .ident, .colon, .ident });
     try expectCats("f(unique: 1)", &.{ .ident, .lparen, .kwarg_name, .colon, .integer, .rparen });
+}
+
+test "`from` and `static` are keywords only after a function's result type" {
+    try testing.expect(keyword("from") == null and keyword("static") == null);
+    try expectCats("fun f(a: ?T) -> ?T from a", &.{ .fun, .ident, .lparen, .kwarg_name, .colon, .question, .ident, .rparen, .arrow, .question, .ident, .from, .ident });
+    try expectCats("pub fun f -> String from static", &.{ .@"pub", .fun, .ident, .arrow, .ident, .from, .static });
+    try expectCats("fun f -> T? from a, b", &.{ .fun, .ident, .arrow, .ident, .question, .from, .ident, .comma, .ident });
+    try expectCats("extern fun f(s: String) -> String from s", &.{ .@"extern", .fun, .ident, .lparen, .kwarg_name, .colon, .ident, .rparen, .arrow, .ident, .from, .ident });
+    try expectCats("fun span(from: Int) -> Int", &.{ .fun, .ident, .lparen, .kwarg_name, .colon, .ident, .rparen, .arrow, .ident });
+    try expectCats("from = static", &.{ .ident, .assign, .ident });
+    try expectCats("f = |x: Int| x\nfrom = 1", &.{ .ident, .assign, .bar_capture, .ident, .colon, .ident, .bar_capture, .ident, .newline, .ident });
+    try expectCats("fun f -> Int\n  from", &.{ .fun, .ident, .arrow, .ident, .indent, .ident });
+    try expectCats("fun f(g: fun(Int) -> Int, from: Int)", &.{ .fun, .ident, .lparen, .kwarg_name, .colon, .fun, .lparen, .ident, .rparen, .arrow, .ident, .comma, .kwarg_name });
 }
 
 test "a prefix sigil touches its operand; after a value it is infix or a suffix" {

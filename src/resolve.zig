@@ -862,6 +862,7 @@ pub const TypeResolver = struct {
             .ct_syms = try self.ctx.arena.allocator().dupe(SymbolId, ct_syms.items),
         } });
         try self.ctx.recordType(name, fn_ty);
+        try self.rejectFrom(node);
         if (nominal_sym == sema.symbol_invalid) {
             if (self.ctx.symbolOf(name)) |fid| {
                 self.ctx.symbols.items[fid].ty = fn_ty;
@@ -1040,7 +1041,16 @@ pub const TypeResolver = struct {
         const id = self.ctx.symbolOf(name) orelse return;
         self.ctx.symbols.items[id].ty = fn_ty;
         self.ctx.symbols.items[id].param_names = try self.paramNames(params);
+        try self.rejectFrom(node);
         try self.checkExternSignature(name, fn_ty);
+    }
+
+    /// A `from` clause parses, but no pass reads it yet.
+    fn rejectFrom(self: *TypeResolver, node: Sexp) Error!void {
+        if (!node.isKind(.fun) and !node.isKind(.extern_fun)) return;
+        const names = ir.get(node, .origins);
+        if (names == .nil) return;
+        try self.ctx.errAt(names, "a `from` clause is not checked yet", .{});
     }
 
     /// C functions take and return only integers, floats, and Bool.
