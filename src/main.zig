@@ -452,7 +452,8 @@ const Package = struct {
 
 /// Write the runtime and every module to the output directory. With
 /// `RIG_LEAK_TRACE` or `RIG_SANITIZE` set, the root module asks the
-/// runtime for stack-trace leak reports or the sanitizer.
+/// runtime for stack-trace leak reports or the sanitizer; with
+/// `RIG_SANITIZE`, emit also poisons hidden storage when its scope ends.
 fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modules.ModuleGraph) !Package {
     const dir = try outputDir(allocator, env, graph.root());
 
@@ -464,6 +465,7 @@ fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modul
         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
         var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, m.sema);
         defer em.deinit();
+        em.poison = env.sanitize();
         try em.emit(m.ir);
         links_libc = links_libc or em.links_libc;
         if (i == 0 and (env.leakTrace() or env.sanitize())) {

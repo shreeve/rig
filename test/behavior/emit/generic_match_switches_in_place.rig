@@ -1,0 +1,28 @@
+# A `match` on a generic read view a name holds (`?self` of a generic
+# type) switches on the value the view reaches, where it is: a binding
+# captured by pointer views that value, in every instance.
+
+enum Opt[T]
+  some(v: T)
+  none
+
+  fun get(?self) -> Int
+    match self
+      .some(v) => size(?v)
+      .none => 0
+
+  fun all(?self) -> Int
+    match self
+      x => x.get() + 10
+
+fun size[T](v: ?T) -> Int
+  1
+
+sub main
+  a = Opt.some(v: 3)
+  b: Opt[Text] = Opt.some(v: Text("x"))
+  n: Opt[Text] = .none
+  print(a.get(), b.get(), n.get(), a.all(), b.all(), n.all())
+
+# expect:
+# 1 1 0 11 11 10
