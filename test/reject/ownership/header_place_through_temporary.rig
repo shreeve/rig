@@ -57,7 +57,7 @@ sub fine(v: !Vec[Text?])
 sub main
   print(1)
 
-# error: 21:17: this header views a place reached through a temporary that ends with the header: bind the index to a name first
+# error: 21:17: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
 # error: 27:16: bind the index to a name first
 # error: 32:17: bind the index to a name first
 # error: 37:14: bind the index to a name first

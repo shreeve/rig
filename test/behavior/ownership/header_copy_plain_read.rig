@@ -1,0 +1,27 @@
+# A header whose subject makes a temporary binds a copy of the subject,
+# which is the subject's value when it is plain data and only read.
+
+enum E
+  a(n: Int)
+  b
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  arr: [2]Int? = [7, none]
+  e = [E.a(n: 3), E.b]
+  if arr[idx(?Text("a"))] as n
+    print(n)
+  match e[idx(?Text("a"))]
+    .a(n) if n > 1 => print("a", n)
+    .a(_) => print("small")
+    .b => print("b")
+  for x in [[1, 2], [3, 4]][idx(?Text("ab"))]
+    print(x)
+
+# expect:
+# 7
+# a 3
+# 3
+# 4

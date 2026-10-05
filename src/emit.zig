@@ -1073,7 +1073,7 @@ pub const Emitter = struct {
         if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
         // The parts first: they are made first, so their `defer`s run
         // after those of what holds them.
-        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c)) try self.emitTempSlots(c);
+        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !sema.isWhileStep(stmt, c)) try self.emitTempSlots(c);
         if (self.sema.dropsTemp(stmt) and self.tempSlot(stmt) == null) {
             const name = try self.fmt("__rig_tmp_{d}", .{self.nextId()});
             try self.w.print("var {s}: ", .{name});
@@ -1083,13 +1083,6 @@ pub const Emitter = struct {
         }
     }
 
-    /// Whether `child` is the step of `while` loop `parent`: a statement
-    /// of its own, run after each pass (`emitStep`).
-    fn isWhileStep(parent: Sexp, child: Sexp) bool {
-        if (!parent.isKind(.@"while")) return false;
-        const step = ir.While.step(parent);
-        return step == .list and child == .list and step.list.id == child.list.id;
-    }
 
     fn tempSlot(self: *Emitter, node: Sexp) ?TempSlot {
         if (node != .list) return null;
@@ -1097,12 +1090,10 @@ pub const Emitter = struct {
         return null;
     }
 
-    /// Whether statement `stmt` holds an owning temporary its end drops.
+    /// Whether statement `stmt` holds an owning temporary its end drops
+    /// (`sema.firstStmtTemp`).
     fn hasTemps(self: *Emitter, stmt: Sexp) bool {
-        if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return false;
-        if (self.sema.dropsTemp(stmt)) return true;
-        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c) and self.hasTemps(c)) return true;
-        return false;
+        return sema.firstStmtTemp(self.sema, stmt) != null;
     }
 
     /// Start header `e` (`sema.isHeaderOf`), its own statement: when it
@@ -2143,6 +2134,10 @@ pub const Emitter = struct {
         const elem_sym = self.sema.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         const header = self.sema.headerOf(sexp);
+        // A source with temporaries is walked as a copy, which the checker
+        // records (`copiesHeader`) and allows only for plain data read.
+        if (mode != .move and header != .taken and !rig.isRangeIndex(source) and self.hasTemps(source) != self.sema.copiesHeader(sexp))
+            return self.unsupported(sexp, "a header copy the checker did not record");
         // An array the loop takes is held in a `var`, and each element is
         // reached through a pointer into it, as the body's own.
         const owned = header == .taken;
@@ -2325,6 +2320,12 @@ pub const Emitter = struct {
             .subject = unborrowed(scrutinee),
             .boxed = boxed != null,
         };
+        // A subject with temporaries is matched as a copy, which the
+        // checker records (`copiesHeader`) and allows only for plain data
+        // read.
+        const held_view = !self.hasStorage(scrutinee) and self.isPtrBorrowExpr(scrutinee);
+        if (info.mode != .consume and !held_view and self.hasTemps(scrutinee) != self.sema.copiesHeader(sexp))
+            return self.unsupported(sexp, "a header copy the checker did not record");
         var guarded = false;
         // A `match !x` binding of the whole value points at the place, and
         // a `match <x` arm with alternatives drops the value from it: the
@@ -2362,11 +2363,20 @@ pub const Emitter = struct {
             try self.w.writeAll(info.reread);
         } else {
             // A match on a call returning a borrow held by pointer
-            // switches on the value it points to.
+            // switches on the value it points to, where it is: a header
+            // with temporaries yields the pointer, never the value.
+            const by_ptr = !self.hasStorage(subject) and self.isPtrBorrowExpr(subject);
             const h = try self.openHeader(subject);
-            if (!self.hasStorage(subject) and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
-            if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
-            try self.closeHeader(h);
+            if (by_ptr and h.label.len > 0) {
+                try self.emitBorrowValue(subject);
+                try self.closeHeader(h);
+                try self.w.writeAll(".*");
+            } else {
+                if (by_ptr) try self.emitDeref(subject) else try self.emitBare(subject);
+                if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
+                try self.closeHeader(h);
+            }
+            if (by_ptr and h.label.len > 0 and info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
         }
         try self.w.writeAll(") ");
         try self.openBrace();
@@ -2897,8 +2907,12 @@ pub const Emitter = struct {
             try self.w.print("|*{s}| ", .{tmp});
             return .{ .lent = .{ .name = name, .tmp = tmp, .copy = false } };
         }
+        // The header binds a copy of its subject (`copiesHeader`), which
+        // the checker allows only for plain data read.
+        const owns = value.isKind(.move) or (sema.handsOver(self.sema, value).kind == .made and !sema.isBorrowType(self.sema, self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
+        if (!owns and self.hasTemps(value) != self.sema.copiesHeader(cond)) return self.unsupported(cond, "a header copy the checker did not record");
         // Over a borrow of an optional, a borrowed binding points into it.
-        if (self.borrowsOptionalValue(value) and self.hasTemps(value)) {
+        if (self.borrowsOptionalValue(value) and self.sema.copiesHeader(cond)) {
             // A borrow of a temporary the header drops: the optional is
             // read inside the header, and the binding views a copy of the
             // value inside, which the ownership checker lets nothing use
@@ -3370,11 +3384,7 @@ pub const Emitter = struct {
     /// value that owns resources or holds a `Cell` (see `readBorrowIsPtr`).
     /// A `![]T` is a Zig slice, which points at its elements itself.
     fn isPtrBorrowTy(self: *Emitter, ty: TypeId) bool {
-        return switch (self.sema.types.get(ty)) {
-            .borrow_write => sema.writeSliceElem(self.sema, ty) == null,
-            .borrow_read => |inner| self.readBorrowIsPtr(inner),
-            else => false,
-        };
+        return sema.viewHeldAsPointer(self.sema, ty);
     }
 
     /// A read borrow of a scalar or a view is a copy

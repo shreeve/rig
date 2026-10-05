@@ -808,13 +808,20 @@ for `as`, in a joined condition (`if mk().o as r and c`), in a value
 `if`, and in a `while` condition, which is evaluated again each
 iteration. Each says to bind the value to a name first.
 
-A `match`, `if … as`, `while … as`, or `for` whose subject is a place
-reached through a statement temporary its header makes (an index, or a
-call's argument, on the place's path: `match !v[idx(?Text("a"))]`) is
-rejected too, read or write, at the temporary (`rejectsTempPath`): emit
-evaluates such a header in a block that yields the place's value, a
-copy, while the checker views the place. `<p` is unaffected. Lowering headers before checking (HANDOFF step 10) lifts
-the rule.
+A header whose subject makes a statement temporary
+(`sema.firstStmtTemp`, which emit's header blocks use too) is evaluated
+in a block that ends the temporary and yields the subject's value, so
+what the construct binds views a copy, whatever the subject's shape: a
+place, a lend, or a branching value. Typecheck records that once per
+header (`copiesHeader`), unless the construct owns what it binds (`<p`,
+a value made there, a `match` that takes its subject), walks a slice,
+or matches a view a call returns, which is held as the pointer it is.
+Emit reads the fact and fails if its own shape disagrees. A copy is
+rejected at the temporary under a write binding, or a read binding of a
+value that is not plain data (`rejectHeaderCopy`), with "bind the index
+(the argument, `e`) to a name first"; a copy of plain data that is only
+read is the subject's value. Lowering headers before checking (HANDOFF
+step 10) lifts the rule.
 
 Typecheck records the class where it binds: a bare place is recorded
 as a read lend of the subject (`lendOf`, `Lend.implicit`), which the
@@ -852,6 +859,7 @@ instead of re-deriving it by name:
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read lend of it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
+| `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary (`rejectHeaderCopy`); emit reads it and checks its own shape against it |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |

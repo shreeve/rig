@@ -26,7 +26,7 @@ sub main()
     print(t)
   print(v.len, w.len, a, m.len)
 
-# error: 15:20: this header views a place reached through a temporary that ends with the header: bind the index to a name first
+# error: 15:20: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
 # error: 19:19: bind the index to a name first
 # error: 22:20: bind the index to a name first
 # error: 25:19: bind the index to a name first

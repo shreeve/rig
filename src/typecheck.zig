@@ -1551,8 +1551,7 @@ const Checker = struct {
         const saved_held = self.held_base;
         defer self.held_base = saved_held;
         if (!self.no_hold) self.held_base = self.madeBase(expr);
-        var ty = try self.synthExpr(expr);
-        if (!self.isPoison(ty) and try self.rejectsTempPath(expr)) ty = self.t().invalid_id;
+        const ty = try self.synthExpr(expr);
         var inner = self.t().invalid_id;
         if (!self.isPoison(ty)) switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
             .optional => |i| inner = i,
@@ -1603,6 +1602,10 @@ const Checker = struct {
         // A part of plain data is read in the header, as any value is.
         if (!viewed and self.held_base != .nil) try self.releaseHeld();
         if (viewed) inner = try self.ctx.intern(.{ .borrow_read = inner });
+        // What the binding views, unless it owns a value made here or
+        // taken with `<`, may be a copy (`rejectHeaderCopy`).
+        const owns = expr.isKind(.move) or (self.hands(expr).kind == .made and !borrowed);
+        if (!owns and !self.isPoison(inner)) try self.rejectHeaderCopy(node, expr, self.ctx.types.get(inner) == .borrow_write, inner);
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
             self.ctx.symbols.items[sym].ty = inner;
@@ -1695,13 +1698,10 @@ const Checker = struct {
             defer self.held_base = saved_held;
             if (mode == .iter) self.held_base = self.madeBase(source);
             // `for x in ?xs[a..b]` walks a slice of `xs`.
-            var source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
+            const source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
                 try self.borrowSlice(source, if (mode == .read) .read else .write)
             else
                 try self.synthExpr(source);
-            // A source place reached through a temporary of the header is
-            // rejected, as a `match` subject is (`rejectsTempPath`).
-            if (mode != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty) and try self.rejectsTempPath(source)) source_ty = self.t().invalid_id;
             // How the loop has a bare source (docs/INTERNALS.md, "Header
             // subjects"): a place is walked where it stands, as
             // `for x in ?p`; an array made here whose elements move is
@@ -1744,6 +1744,9 @@ const Checker = struct {
             }
             elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, eff);
             if (elem_poisoned) elem_ty = self.t().invalid_id;
+            // What the loop binds views the source, unless it takes it or
+            // walks a slice of it, and may view a copy (`rejectHeaderCopy`).
+            if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, mode == .write, elem_ty);
             // The source is a header: a temporary it reads into ends with
             // it, before the loop walks it.
             if (eff != .move) if (self.tempBase(source)) |temp| {
@@ -2013,7 +2016,6 @@ const Checker = struct {
         defer self.held_base = saved_held;
         if (mode == .read) self.held_base = self.madeBase(subject);
         var scrutinee = if (mode == .write) try self.synthOperand(subject) else try self.synthExpr(subject);
-        if (!self.isPoison(scrutinee) and mode != .consume and try self.rejectsTempPath(subject)) scrutinee = self.t().invalid_id;
         const subject_hands = self.hands(subject);
         if (mode == .read and !self.isPoison(scrutinee)) switch (subject_hands.kind) {
             .made => if (try self.cannotCopy(scrutinee, self.startOf(subject), "matches")) {
@@ -2050,6 +2052,12 @@ const Checker = struct {
             const reached = sema.unwrapAccess(self.ctx, scrutinee);
             if (self.ctx.types.get(sema.unwrapBorrows(self.ctx, scrutinee)) == .shared) scrutinee = try self.ctx.intern(.{ .borrow_read = reached });
         }
+        // What the arms bind views the subject, unless the match takes it,
+        // and may view a copy (`rejectHeaderCopy`).
+        // (A view a call returns, held as a pointer, is matched where it
+        // points, temporaries or not.)
+        const held_view = !subject_hands.hasStorage() and sema.viewHeldAsPointer(self.ctx, self.ctx.typeOf(subject) orelse scrutinee);
+        if (mode != .consume and !held_view and !self.isPoison(scrutinee)) try self.rejectHeaderCopy(node, subject, mode == .write, sema.unwrapAccess(self.ctx, scrutinee));
         try self.recordUse(subject, switch (mode) {
             .read => .read,
             .consume => .take,
@@ -2290,37 +2298,27 @@ const Checker = struct {
         return false;
     }
 
-    /// A `match`, `if … as`, `while … as`, or `for` whose subject is a place
-    /// reached through a statement temporary its header makes (in an
-    /// index, or a call's argument on the place's path) is rejected
-    /// (reported, true): emit evaluates such a header in a block that
-    /// yields the place's value, a copy, while the checker views the
-    /// place (docs/INTERNALS.md, "Header subjects"). Lowering headers
-    /// before checking lifts this.
-    fn rejectsTempPath(self: *Checker, subject: Sexp) Error!bool {
-        const p = if (subject.isKind(.read) or subject.isKind(.write)) ir.get(subject, .operand) else subject;
-        if (self.hands(p).kind != .place) return false;
-        const temp = self.firstTemp(p) orelse return false;
-        try self.errAt(temp, "this header views a place reached through a temporary that ends with the header: bind the {s} to a name first", .{if (self.inIndex(p, temp)) "index" else "argument"});
-        return true;
-    }
-
-    /// The first statement temporary in `node` (`dropsTemp`,
-    /// `lendsCellTemp`).
-    fn firstTemp(self: *Checker, node: Sexp) ?Sexp {
-        if (node != .list) return null;
-        if (self.ctx.dropsTemp(node) or self.ctx.lendsCellTemp(node)) return node;
-        for (node.items()) |item| if (self.firstTemp(item)) |found| return found;
-        return null;
-    }
-
-    /// Whether `node` lies in an index of place `p`'s path.
-    fn inIndex(self: *Checker, p: Sexp, node: Sexp) bool {
-        var e = p;
-        while (e.isKind(.member) or e.isKind(.index)) : (e = ir.get(e, .object)) {
-            if (e.isKind(.index) and self.firstTemp(ir.Index.index(e)) != null and contains(ir.Index.index(e), node)) return true;
-        }
-        return false;
+    /// Whether header `node` (a `match`, a `for`, or an `as`) over
+    /// `subject` is emitted over a copy of it: the subject makes a
+    /// statement temporary (`sema.firstStmtTemp`), so emit evaluates it
+    /// in a block that ends the temporary and yields the subject's
+    /// value, and what the construct binds views that copy. Recorded
+    /// (`copiesHeader`) for emit. A copy under a write binding, or a
+    /// read binding of a value that is not plain data, would take the
+    /// writes, the Cell changes, or the views meant for the subject: it
+    /// is rejected at the temporary, until headers are lowered before
+    /// checking. A copy of plain data that is only read is the subject's
+    /// value.
+    fn rejectHeaderCopy(self: *Checker, node: Sexp, subject: Sexp, writes: bool, bound: TypeId) Error!void {
+        const temp = sema.firstStmtTemp(self.ctx, subject) orelse return;
+        try self.ctx.recordHeaderCopy(node);
+        if (self.isPoison(bound)) return;
+        if (!writes and sema.isPlainData(self.ctx, sema.unwrapBorrows(self.ctx, bound))) return;
+        if (inIndex(subject, temp)) {
+            try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first", .{});
+        } else if (inArgument(subject, temp)) {
+            try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the argument to a name first", .{});
+        } else try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind `{s}` to a name first", .{self.sourceText(temp)});
     }
 
     fn tempBase(self: *Checker, e: Sexp) ?Sexp {
@@ -8730,6 +8728,22 @@ fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
 }
 
 /// The element type of a Cell holding a Vec (`Cell[Vec[E]]`, `?Cell[Vec[E]]`, `*Cell[Vec[E]]`, ...).
+/// Whether `node` lies in the index of an element read in `tree`.
+fn inIndex(tree: Sexp, node: Sexp) bool {
+    if (tree != .list) return false;
+    if (tree.isKind(.index) and contains(ir.Index.index(tree), node)) return true;
+    for (tree.items()) |item| if (inIndex(item, node)) return true;
+    return false;
+}
+
+/// Whether `node` lies in an argument of a call in `tree`.
+fn inArgument(tree: Sexp, node: Sexp) bool {
+    if (tree != .list) return false;
+    if (tree.isKind(.call)) for (ir.Call.args(tree)) |a| if (contains(a, node)) return true;
+    for (tree.items()) |item| if (inArgument(item, node)) return true;
+    return false;
+}
+
 /// Whether `node` is `tree` or inside it.
 fn contains(tree: Sexp, node: Sexp) bool {
     if (sameNode(tree, node)) return true;
