@@ -50,12 +50,12 @@ fn ownsValue(ctx: *const SemContext, e: Sexp) bool {
 }
 
 /// A view held as a pointer (`sema.viewHeldAsPointer`).
-pub fn isPtrBorrowTy(ctx: *const SemContext, ty: TypeId) bool {
+pub fn isPtrViewTy(ctx: *const SemContext, ty: TypeId) bool {
     return sema.viewHeldAsPointer(ctx, ty);
 }
 
-pub fn isPtrBorrowExpr(ctx: *const SemContext, e: Sexp) bool {
-    return isPtrBorrowTy(ctx, typeOf(ctx, e) orelse return false);
+pub fn isPtrViewExpr(ctx: *const SemContext, e: Sexp) bool {
+    return isPtrViewTy(ctx, typeOf(ctx, e) orelse return false);
 }
 
 fn srcText(ctx: *const SemContext, leaf: Sexp) []const u8 {
@@ -227,7 +227,7 @@ pub fn hoistsArgs(ctx: *const SemContext, call: Sexp) bool {
     const callee = ctx.calleeOf(call);
     // Zig passes a temporary receiver to a `!self` method as a constant,
     // and a Cell a read borrow may change must not be in one.
-    if (receiverOf(ctx, call)) |recv| if ((!hasStorage(ctx, recv) and recv.kind() != .move and receiverWrites(ctx, call)) or ctx.lendsCellTemp(unborrowed(recv))) return true;
+    if (receiverOf(ctx, call)) |recv| if ((!hasStorage(ctx, recv) and recv.kind() != .move and receiverWrites(ctx, call)) or ctx.lendsCellTemp(lentPlace(recv))) return true;
     for (args) |a| if (argValue(a).isKind(.read) and ctx.lendsCellTemp(ir.Read.operand(argValue(a)))) return true;
     for (args) |a| if (ctx.lendsTempArray(argValue(a)) and ctx.lendsCellTemp(argValue(a))) return true;
     var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or consumedTemporary(ctx, call) != null;
@@ -274,7 +274,7 @@ pub const ReceiverHold = enum {
 pub fn receiverHold(ctx: *const SemContext, call: Sexp) ?ReceiverHold {
     if (consumedTemporary(ctx, call) != null) return .consumed;
     // Borrow sigils on a receiver are implicit in Zig's method calls.
-    const recv = unborrowed(receiverOf(ctx, call) orelse return null);
+    const recv = lentPlace(receiverOf(ctx, call) orelse return null);
     const writes = receiverWrites(ctx, call);
     // A Cell-holding part of a temporary is held where it can change.
     const cell = ctx.lendsCellTemp(recv);
@@ -337,11 +337,11 @@ fn argumentParam(ctx: *const SemContext, call: Sexp, ai: usize) ?TypeId {
 /// a field or element of one: Zig storage that lives until the
 /// statement ends.
 pub fn keptInSlot(ctx: *const SemContext, e: Sexp) bool {
-    var p = unborrowed(e);
+    var p = lentPlace(e);
     while (true) {
         if (ctx.dropsTemp(p)) return true;
         if (!p.isKind(.member) and !p.isKind(.index)) return false;
-        p = unborrowed(ir.get(p, .object));
+        p = lentPlace(ir.get(p, .object));
     }
 }
 
@@ -366,9 +366,9 @@ pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
 
 /// Whether `if o as x` over `value` borrows the value inside the
 /// optional rather than copying it (`checkOptionalBinding`).
-pub fn borrowsOptionalValue(ctx: *const SemContext, value: Sexp) bool {
+pub fn viewsOptionalValue(ctx: *const SemContext, value: Sexp) bool {
     const ty = typeOf(ctx, value) orelse return false;
-    return isPtrBorrowTy(ctx, ty) and !ctx.readsThrough(value);
+    return isPtrViewTy(ctx, ty) and !ctx.readsThrough(value);
 }
 
 /// Whether a `match` subject can be read again as it is written: a
@@ -391,7 +391,7 @@ pub fn matchedType(ctx: *const SemContext, match: Sexp) ?TypeId {
     const scrutinee = ir.Match.subject(match);
     const ty = typeOf(ctx, scrutinee) orelse return null;
     const reached = sema.unwrapAccess(ctx, ty);
-    return if (reached != sema.unwrapBorrows(ctx, ty)) reached else ty;
+    return if (reached != sema.unwrapViews(ctx, ty)) reached else ty;
 }
 
 pub fn matchMode(ctx: *const SemContext, match: Sexp) MatchMode {
@@ -430,7 +430,7 @@ pub fn matchRereads(ctx: *const SemContext, match: Sexp) bool {
 /// a part of (`Header.held`), in a block around the match.
 pub fn matchBlock(ctx: *const SemContext, match: Sexp) bool {
     return ctx.headerOf(match) == .held or matchGuarded(match) or
-        (matchRereads(ctx, match) and !subjectRereadable(unborrowed(ir.Match.subject(match))));
+        (matchRereads(ctx, match) and !subjectRereadable(lentPlace(ir.Match.subject(match))));
 }
 
 /// How a `match` that evaluates its subject first (`matchBlock`) holds
@@ -438,11 +438,11 @@ pub fn matchBlock(ctx: *const SemContext, match: Sexp) bool {
 /// as the pointer it is, or the value; null when it reads the subject
 /// again as it is written.
 pub fn subjectHold(ctx: *const SemContext, match: Sexp) ?StorageBy {
-    const subject = unborrowed(ir.Match.subject(match));
+    const subject = lentPlace(ir.Match.subject(match));
     if (subjectRereadable(subject)) return null;
     const value = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
     if (hasStorage(ctx, value) and !subject.isKind(.move) and sema.firstStmtTemp(ctx, value) == null) return .pointer;
-    if (!subject.isKind(.move) and isPtrBorrowExpr(ctx, value)) return .pointer;
+    if (!subject.isKind(.move) and isPtrViewExpr(ctx, value)) return .pointer;
     return if (matchMode(ctx, match) == .consume) .owned else .copy;
 }
 
@@ -502,7 +502,7 @@ pub fn contains(e: Sexp, kinds: []const Tag) bool {
 }
 
 /// `e` without the borrow sigils around it.
-pub fn unborrowed(e: Sexp) Sexp {
+pub fn lentPlace(e: Sexp) Sexp {
     var x = e;
     while (x.isKind(.read) or x.isKind(.write)) x = ir.get(x, .operand);
     return x;
@@ -580,7 +580,7 @@ const Planner = struct {
             // A value read where its leaves are is reached through the
             // address of the leaf it takes, for a field, an element, or a
             // method.
-            .member => try p.leaves(unborrowed(ir.Member.object(e))),
+            .member => try p.leaves(lentPlace(ir.Member.object(e))),
             .index => try p.leaves(ir.Index.object(e)),
             .call => try p.call(e),
             .set => try p.assignment(e),
@@ -624,7 +624,7 @@ const Planner = struct {
             if (used) try p.record(cond, .as_value, .pointer, .body);
             return;
         }
-        if (borrowsOptionalValue(ctx, value)) {
+        if (viewsOptionalValue(ctx, value)) {
             // A borrow of a temporary the header drops: the binding views
             // a copy of the value inside.
             const copy = ctx.copiesHeader(cond) or (value.isKind(.read) and ctx.lendsCellTemp(ir.Read.operand(value)));
@@ -637,7 +637,7 @@ const Planner = struct {
         }
         try p.header(value);
         const sym = ctx.symbolOf(name);
-        const ty: ?TypeId = if (sym) |s| known(ctx, ctx.symbols.items[s].ty) else if (typeOf(ctx, value)) |t| switch (ctx.types.get(sema.unwrapBorrows(ctx, t))) {
+        const ty: ?TypeId = if (sym) |s| known(ctx, ctx.symbols.items[s].ty) else if (typeOf(ctx, value)) |t| switch (ctx.types.get(sema.unwrapViews(ctx, t))) {
             .optional => |inner| inner,
             else => null,
         } else null;
@@ -676,14 +676,14 @@ const Planner = struct {
         // Writing an array's elements in place iterates through a pointer.
         const elem_ty: ?TypeId = if (ctx.symbolOf(ir.For.@"var"(loop))) |s| known(ctx, ctx.symbols.items[s].ty) else null;
         const by_ptr = mode == .write or (elem_ty != null and ctx.types.get(elem_ty.?) == .read_view);
-        const array_ptr = by_ptr and !is_vec and src_ty != null and ctx.types.get(sema.unwrapBorrows(ctx, src_ty.?)) == .array;
+        const array_ptr = by_ptr and !is_vec and src_ty != null and ctx.types.get(sema.unwrapViews(ctx, src_ty.?)) == .array;
         if (!array_ptr) try p.header(source);
     }
 
     fn match(p: *Planner, m: Sexp) !void {
         const ctx = p.ctx;
         const mode = matchMode(ctx, m);
-        const subject = unborrowed(ir.Match.subject(m));
+        const subject = lentPlace(ir.Match.subject(m));
         if (ctx.headerOf(m) == .held) try p.record(m, .held, .owned, .construct);
         var reread = false;
         var temp = false;
@@ -743,7 +743,7 @@ const Planner = struct {
         if (callee.isKind(.lambda)) try p.record(callee, .invoked, .owned, .call);
         if (!hoistsArgs(ctx, c)) return;
         if (receiverHold(ctx, c)) |hold| {
-            const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else unborrowed(receiverOf(ctx, c).?);
+            const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else lentPlace(receiverOf(ctx, c).?);
             try p.record(recv, .receiver, hold.by(hasStorage(ctx, recv)), .call);
         }
         for (ir.Call.args(c), 0..) |a, ai| {
@@ -759,7 +759,7 @@ const Planner = struct {
                 .callable => .owned,
                 .cell_slot, .lent => .pointer,
                 .cell_copy => .copy,
-                .value => if (argumentParam(ctx, c, ai)) |t| (if (isPtrBorrowTy(ctx, t)) .pointer else .owned) else .owned,
+                .value => if (argumentParam(ctx, c, ai)) |t| (if (isPtrViewTy(ctx, t)) .pointer else .owned) else .owned,
             };
             try p.record(v, .argument, by, .call);
         }
@@ -786,9 +786,9 @@ const Planner = struct {
         // A reassigned resource's new value is made before the old one
         // is dropped.
         const ty = known(ctx, s.ty) orelse return;
-        const ptr = isPtrBorrowTy(ctx, ty);
+        const ptr = isPtrViewTy(ctx, ty);
         const writes_through = !ctx.repoints(set) and sema.assignWritesThrough(ctx, s.ty);
-        if ((ptr and writes_through and owns(ctx, sema.unwrapBorrows(ctx, ty))) or (!ptr and owns(ctx, ty)))
+        if ((ptr and writes_through and owns(ctx, sema.unwrapViews(ctx, ty))) or (!ptr and owns(ctx, ty)))
             try p.record(value, .new_value, .owned, .assignment);
     }
 
@@ -797,9 +797,9 @@ const Planner = struct {
         const ctx = p.ctx;
         const through = ctx.writesThrough(target);
         const target_ty = typeOf(ctx, target);
-        const place_ty = if (through) sema.unwrapBorrows(ctx, target_ty.?) else target_ty;
+        const place_ty = if (through) sema.unwrapViews(ctx, target_ty.?) else target_ty;
         if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellVecTy(ctx, t)) return p.openAssign(target, value);
-        if (target != .src and isPtrBorrowExpr(ctx, target) and !through) return p.openAssign(target, value);
+        if (target != .src and isPtrViewExpr(ctx, target) and !through) return p.openAssign(target, value);
         if (place_ty != null and !owns(ctx, place_ty.?)) return p.openAssign(target, value);
         try p.record(value, .new_value, .owned, .assignment);
         if (actsBeforeStore(target, value)) try p.indexes(target);
@@ -867,7 +867,7 @@ fn divides(ctx: *const SemContext, op: Tag, target: Sexp, value: Sexp) bool {
         .@"/" => {
             for ([2]Sexp{ target, value }) |e| {
                 const ty = typeOf(ctx, e) orelse continue;
-                switch (ctx.types.get(sema.unwrapBorrows(ctx, ty))) {
+                switch (ctx.types.get(sema.unwrapViews(ctx, ty))) {
                     .float, .float_literal => return false,
                     else => {},
                 }
@@ -879,7 +879,7 @@ fn divides(ctx: *const SemContext, op: Tag, target: Sexp, value: Sexp) bool {
 }
 
 fn isVecTy(ctx: *const SemContext, ty: TypeId) bool {
-    return switch (ctx.types.get(sema.unwrapBorrows(ctx, ty))) {
+    return switch (ctx.types.get(sema.unwrapViews(ctx, ty))) {
         .parameterized_nominal => |pn| pn.sym == ctx.vec_sym_id,
         else => false,
     };

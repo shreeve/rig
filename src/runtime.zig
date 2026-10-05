@@ -87,26 +87,26 @@ fn holdsCell(comptime T: type) bool {
 /// emitter decides this itself for a known `T` (`sema.lendByValue`), by
 /// the same rule, and uses this in a generic type, where `T` depends on
 /// the type arguments.
-pub fn ReadBorrow(comptime T: type) type {
-    return if (needsDrop(T) or holdsCell(T) or !copiedBorrow(T)) *const T else T;
+pub fn ReadView(comptime T: type) type {
+    return if (needsDrop(T) or holdsCell(T) or !copiedByReadView(T)) *const T else T;
 }
 
-fn copiedBorrow(comptime T: type) bool {
+fn copiedByReadView(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer => true,
-        .optional => |o| copiedBorrow(o.child),
+        .optional => |o| copiedByReadView(o.child),
         else => false,
     };
 }
 
 /// A read borrow of what `ptr` points to.
-pub fn lend(ptr: anytype) ReadBorrow(@TypeOf(ptr.*)) {
-    return if (comptime ReadBorrow(@TypeOf(ptr.*)) == @TypeOf(ptr.*)) ptr.* else ptr;
+pub fn lend(ptr: anytype) ReadView(@TypeOf(ptr.*)) {
+    return if (comptime ReadView(@TypeOf(ptr.*)) == @TypeOf(ptr.*)) ptr.* else ptr;
 }
 
 /// The `T` a read borrow `?T` reaches.
-pub fn borrowed(comptime T: type, borrow: ReadBorrow(T)) T {
-    return if (comptime ReadBorrow(T) == T) borrow else borrow.*;
+pub fn viewed(comptime T: type, view: ReadView(T)) T {
+    return if (comptime ReadView(T) == T) view else view.*;
 }
 
 /// Fill hidden storage whose scope has ended with `0xAA` under the
@@ -119,8 +119,8 @@ pub fn poison(ptr: anytype) void {
 
 /// The `T` a read borrow `?T`, held where `borrow` points, reaches:
 /// the value itself when the borrow is a pointer, else the borrow's copy.
-pub fn borrowedPtr(comptime T: type, borrow: *const ReadBorrow(T)) *const T {
-    return if (comptime ReadBorrow(T) == T) borrow else borrow.*;
+pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) *const T {
+    return if (comptime ReadView(T) == T) view else view.*;
 }
 
 /// Release whatever `value` owns: a strong handle drops its count, a
@@ -2000,10 +2000,10 @@ test "guardStack holds the stack to 16 MiB on Linux" {
 test "borrowedPtr reaches what a read borrow views, or the borrow's own copy" {
     const Pair = struct { a: i64, t: Text };
     var p: Pair = .{ .a = 3, .t = .{} };
-    const b: ReadBorrow(Pair) = lend(&p);
-    try std.testing.expect(borrowedPtr(Pair, &b) == &p);
-    const n: ReadBorrow(i64) = 7;
-    try std.testing.expect(borrowedPtr(i64, &n) == &n);
+    const b: ReadView(Pair) = lend(&p);
+    try std.testing.expect(viewedPtr(Pair, &b) == &p);
+    const n: ReadView(i64) = 7;
+    try std.testing.expect(viewedPtr(i64, &n) == &n);
 }
 
 test "strong and weak handles free the box once" {

@@ -945,7 +945,7 @@ pub const TypeResolver = struct {
 
     /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a borrow is
     /// no value it could keep.
-    fn handleOfBorrow(self: *TypeResolver, node: Sexp, inner: TypeId) Error!TypeId {
+    fn handleOfView(self: *TypeResolver, node: Sexp, inner: TypeId) Error!TypeId {
         try self.ctx.errAt(node, "a handle holds a value, not a borrow: `{s}` has no handle", .{try sema.formatType(self.ctx, inner)});
         return self.ctx.types.invalid_id;
     }
@@ -1610,7 +1610,7 @@ pub const TypeResolver = struct {
                         // callable; a `?T` of a function type is a read
                         // borrow of a function value.
                         if (head == .read_view and inner_node.isKind(.fun_type)) return sema.callableOfFn(self.ctx, inner);
-                        if (head == .weak and sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
+                        if (head == .weak and sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
                         return self.ctx.intern(switch (head) {
                             .optional => .{ .optional = inner },
                             .read_view => .{ .read_view = inner },
@@ -1628,7 +1628,7 @@ pub const TypeResolver = struct {
                             try self.ctx.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
                             return t.invalid_id;
                         }
-                        if (sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
+                        if (sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
                         if (self.ctx.types.get(inner) == .function) try self.checkWhenResolved(.{ .owned_closure = .{ .node = inner_node, .ty = inner } });
                         return self.ctx.intern(.{ .shared = inner });
                     },
@@ -2119,7 +2119,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
         return try a.print(sema.held_callable, .{arg});
     }
     if (sym_id == ctx.box_sym_id) {
-        if (!sema.holdsBorrow(ctx, args[0])) return null;
+        if (!sema.holdsMarkedView(ctx, args[0])) return null;
         return try a.print("`Box[T]` owns its value, so `T` holds no borrow; got `{s}`", .{arg});
     }
     if (sym_id == ctx.signal_sym_id) {

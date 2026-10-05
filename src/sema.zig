@@ -2587,7 +2587,7 @@ pub const Contents = struct {
     /// A generic type: which of its parameters it holds by value.
     held: []const bool = &.{},
     /// Holds a borrow, or a write borrow (see `Borrows`).
-    borrows: Borrows = .{},
+    views: Views = .{},
     /// Holds itself by value, which `checkInfiniteTypes` reports: it has
     /// no size.
     cyclic: bool = false,
@@ -2600,10 +2600,10 @@ pub const Contents = struct {
 /// instance. What a Cell or Signal holds holds no borrow. A String is no
 /// borrow to the type rules (`holdsBorrow`); the ownership checker
 /// follows the loans its values carry (`mayHoldView`).
-pub const Borrows = packed struct(u4) {
-    any: bool = false,
+pub const Views = packed struct(u4) {
+    marked: bool = false,
     write: bool = false,
-    view: bool = false,
+    string: bool = false,
     /// Reaches a Text, which a String may view: by value, through a
     /// handle, a Vec's, Box's, Cell's, or Signal's value, or a borrow.
     text: bool = false,
@@ -2628,7 +2628,7 @@ pub const TypeInfo = packed struct(u19) {
     /// user `drop` can be plain and still have glue (see `isPlainData`).
     plain: bool = false,
     /// Holds a borrow, or a write borrow (see `Borrows`).
-    borrows: Borrows = .{},
+    views: Views = .{},
     /// Is or mentions `invalid` or `unknown`: a diagnostic was reported.
     poison: bool = false,
     /// How deeply wrappers and generic instances nest in it (saturating).
@@ -2746,15 +2746,15 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
 const Reach = packed struct(u6) {
     cell: bool = false,
     unique: bool = false,
-    borrows: Borrows = .{},
+    views: Views = .{},
 
-    const all: Reach = .{ .cell = true, .unique = true, .borrows = .{ .any = true, .write = true, .view = true, .text = true } };
+    const all: Reach = .{ .cell = true, .unique = true, .views = .{ .marked = true, .write = true, .string = true, .text = true } };
     /// What reaches through a handle or heap memory: no Cell or unique
     /// value is inline.
-    const borrows_only: Reach = .{ .borrows = .{ .any = true, .write = true, .view = true, .text = true } };
+    const views_only: Reach = .{ .views = .{ .marked = true, .write = true, .string = true, .text = true } };
     /// What reaches through a borrow, or into a Cell's or Signal's value:
     /// only a Text matters.
-    const text_only: Reach = .{ .borrows = .{ .text = true } };
+    const text_only: Reach = .{ .views = .{ .text = true } };
 
     fn with(a: Reach, b: Reach) Reach {
         return @bitCast(@as(u6, @bitCast(a)) | @as(u6, @bitCast(b)));
@@ -2765,7 +2765,7 @@ const Reach = packed struct(u6) {
     }
 
     fn of(c: Contents) Reach {
-        return .{ .cell = c.cell, .unique = c.unique, .borrows = c.borrows };
+        return .{ .cell = c.cell, .unique = c.unique, .views = c.views };
     }
 };
 
@@ -2805,7 +2805,7 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
         };
         ctx.symbols.items[id].contents.cell = r.cell;
         ctx.symbols.items[id].contents.unique = r.unique;
-        ctx.symbols.items[id].contents.borrows = r.borrows;
+        ctx.symbols.items[id].contents.views = r.views;
         if (r != Reach{}) try work.append(ctx.allocator, id);
     }
     std.mem.sort(ReachEdge, edges.items, {}, ReachEdge.lessThan);
@@ -2818,7 +2818,7 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
             if (now == Reach.of(to.*)) continue;
             to.cell = now.cell;
             to.unique = now.unique;
-            to.borrows = now.borrows;
+            to.views = now.views;
             try work.append(ctx.allocator, edges.items[i].to);
         }
     }
@@ -2832,14 +2832,14 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// to `into.owner` is added instead.
 fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edges: *std.ArrayList(ReachEdge), owner: SymbolId }) std.mem.Allocator.Error!Reach {
     const r: Reach = switch (ctx.types.get(ty)) {
-        .slice => .{ .borrows = .{ .any = true } },
-        .read_view => |inner| (Reach{ .borrows = .{ .any = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
-        .write_view => |inner| (Reach{ .borrows = .{ .any = true, .write = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
-        .string => .{ .borrows = .{ .view = true } },
-        .text => .{ .borrows = .{ .text = true } },
+        .slice => .{ .views = .{ .marked = true } },
+        .read_view => |inner| (Reach{ .views = .{ .marked = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
+        .write_view => |inner| (Reach{ .views = .{ .marked = true, .write = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
+        .string => .{ .views = .{ .string = true } },
+        .text => .{ .views = .{ .text = true } },
         .optional, .fallible => |inner| return reachOf(ctx, inner, mask, into),
         .array => |a| return reachOf(ctx, a.elem, mask, into),
-        .shared, .weak => |inner| return reachOf(ctx, inner, mask.within(Reach.borrows_only), into),
+        .shared, .weak => |inner| return reachOf(ctx, inner, mask.within(Reach.views_only), into),
         .nominal => |sym| blk: {
             const e = into orelse break :blk Reach.of(ctx.symbols.items[sym].contents);
             try e.edges.append(ctx.allocator, .{ .from = sym, .to = e.owner, .mask = mask });
@@ -2852,7 +2852,7 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
                 for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask.within(Reach.text_only), into));
                 break :blk r;
             }
-            const m = if (isHeapBuiltin(ctx, pn.sym)) mask.within(Reach.borrows_only) else mask;
+            const m = if (isHeapBuiltin(ctx, pn.sym)) mask.within(Reach.views_only) else mask;
             var r: Reach = .{};
             if (into) |e| {
                 try e.edges.append(ctx.allocator, .{ .from = pn.sym, .to = e.owner, .mask = m });
@@ -2892,7 +2892,7 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     const r = try reachOf(ctx, id, .all, null);
     info.cell = r.cell;
     info.unique = r.unique;
-    info.borrows = r.borrows;
+    info.views = r.views;
     return info;
 }
 
@@ -3301,7 +3301,7 @@ pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
 /// The signature of an owned closure handle `*fun(...) -> R` / `*sub(...)`
 /// (possibly borrowed), or null.
 pub fn ownedClosureFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
-    return switch (ctx.types.get(unwrapBorrows(ctx, ty))) {
+    return switch (ctx.types.get(unwrapViews(ctx, ty))) {
         .shared => |inner| switch (ctx.types.get(inner)) {
             .function => |f| f,
             else => null,
@@ -3452,7 +3452,7 @@ pub const NotEquatable = struct {
         /// Vec, Cell, Signal, or `Void`.
         no_eq,
         /// A borrow held in a field or payload: the value is a view.
-        borrow,
+        view,
         /// A struct that declares `drop`.
         drop,
         /// A struct declared `unique`.
@@ -3525,8 +3525,8 @@ const EquatableWalk = struct {
         switch (ctx.types.get(item.ty)) {
             .optional => |inner| try self.push(i, inner, ""),
             .array => |a| try self.push(i, a.elem, ""),
-            .slice => |sl| if (item.in_decl) return .borrow else try self.push(i, sl.elem, ""),
-            .read_view, .write_view => return .borrow,
+            .slice => |sl| if (item.in_decl) return .view else try self.push(i, sl.elem, ""),
+            .read_view, .write_view => return .view,
             .shared => |inner| return if (ctx.types.get(inner) == .function) .closure else .handle,
             .weak => return .handle,
             .function => return .function,
@@ -3607,7 +3607,7 @@ pub fn isInteger(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// A read or write borrow type: `?T`, `!T`.
-pub fn isBorrowType(ctx: *const SemContext, ty: TypeId) bool {
+pub fn isReadOrWriteView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .read_view, .write_view => true,
         else => false,
@@ -3634,7 +3634,7 @@ pub fn writeSliceElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
 }
 
 /// Peel `?T` / `!T`.
-pub fn unwrapBorrows(ctx: *const SemContext, ty_id: TypeId) TypeId {
+pub fn unwrapViews(ctx: *const SemContext, ty_id: TypeId) TypeId {
     var id = ty_id;
     while (true) {
         switch (ctx.types.get(id)) {
@@ -3710,7 +3710,7 @@ pub const NominalDecl = struct {
 /// The declaration behind a (possibly borrowed) nominal type, local or
 /// imported.
 pub fn nominalDecl(ctx: *const SemContext, ty_id: TypeId) ?NominalDecl {
-    return switch (ctx.types.get(unwrapBorrows(ctx, ty_id))) {
+    return switch (ctx.types.get(unwrapViews(ctx, ty_id))) {
         .nominal => |s| .{ .ctx = ctx, .sym = s },
         .parameterized_nominal => |pn| .{ .ctx = ctx, .sym = pn.sym },
         .imported_nominal => |in| blk: {
@@ -3823,17 +3823,17 @@ pub fn containsPoison(ctx: *const SemContext, ty_id: TypeId) bool {
 /// generic `?T`.
 pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
     if (typeHasDropGlue(ctx, inner) or maybeDropGlue(ctx, inner) or holdsCellByValue(ctx, inner)) return false;
-    return copiedByBorrow(ctx, inner);
+    return copiedByReadView(ctx, inner);
 }
 
 /// A type a read borrow copies: a number, `Bool`, `String`, a slice, a
 /// function or borrowed callable (a `rig.FnRef`), a plain enum, an
 /// error, or an optional of one of those.
-fn copiedByBorrow(ctx: *const SemContext, ty: TypeId) bool {
+fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
         .write_view => writeSliceElem(ctx, ty) != null,
-        .optional => |inner| copiedByBorrow(ctx, inner),
+        .optional => |inner| copiedByReadView(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
         else => false,
     };
@@ -3848,27 +3848,27 @@ pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
 
 /// Whether a value of `ty` can hold a borrow (see `Borrows`). A generic
 /// parameter holds none: an instantiation with a borrow is checked apart.
-pub fn holdsBorrow(ctx: *const SemContext, ty: TypeId) bool {
-    return ctx.holds(ty).borrows.any;
+pub fn holdsMarkedView(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.holds(ty).views.marked;
 }
 
 /// Whether a value of `ty` holds, or in some instance may hold, a borrow.
-pub fn mayHoldBorrow(ctx: *const SemContext, ty: TypeId) bool {
+pub fn mayHoldMarkedView(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
-    return info.borrows.any or info.holds_type_var;
+    return info.views.marked or info.holds_type_var;
 }
 
 /// Whether a value of `ty` holds a borrow or a String, which may view a
 /// Text: the ownership checker tracks the loans such a value carries.
 pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
-    const b = ctx.holds(ty).borrows;
-    return b.any or b.view;
+    const b = ctx.holds(ty).views;
+    return b.marked or b.string;
 }
 
 /// Whether a value of `ty` reaches a Text (`Borrows.text`), which a
 /// String may view.
 pub fn reachesText(ctx: *const SemContext, ty: TypeId) bool {
-    return ctx.holds(ty).borrows.text;
+    return ctx.holds(ty).views.text;
 }
 
 /// Whether `child` is a header of `parent`: an `if` or `while`
@@ -3924,7 +3924,7 @@ pub fn isWhileStep(parent: Sexp, child: Sexp) bool {
 /// parameter: it may view a Text, and nothing else.
 pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
-    return info.borrows.view and !info.borrows.any and !info.holds_type_var and !info.poison;
+    return info.views.string and !info.views.marked and !info.holds_type_var and !info.poison;
 }
 
 // -----------------------------------------------------------------------------
@@ -4319,8 +4319,8 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
 }
 
 /// Whether a value of `ty` holds a write borrow, which is unique.
-pub fn holdsWriteBorrow(ctx: *const SemContext, ty: TypeId) bool {
-    return ctx.holds(ty).borrows.write;
+pub fn holdsWriteView(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.holds(ty).views.write;
 }
 
 /// A value `Vec`, `Cell`, and `Signal` copy in and out like a number: a
@@ -4387,7 +4387,7 @@ pub fn readByAddress(ctx: *const SemContext, ty: TypeId) bool {
 /// (`moves`) and holds no write view (`!T`), of which there is only
 /// one. `depends` when each instance decides.
 pub fn copyable(ctx: *const SemContext, ty: TypeId) Answer {
-    if (ctx.holds(ty).borrows.write) return .no;
+    if (ctx.holds(ty).views.write) return .no;
     return switch (moves(ctx, ty)) {
         .no => .yes,
         .yes => .no,
@@ -4420,7 +4420,7 @@ pub const Clone = enum {
 /// second path to them.
 pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
     if (writeSliceElem(ctx, ty) != null) return .no;
-    const value = unwrapBorrows(ctx, ty);
+    const value = unwrapViews(ctx, ty);
     switch (ctx.types.get(value)) {
         .shared, .weak => return .bump,
         .text => return .text,
@@ -4460,7 +4460,7 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
         else => {},
     }
     const info = ctx.holds(ty);
-    if (info.unique or info.cell or info.borrows.write or info.poison) return false;
+    if (info.unique or info.cell or info.views.write or info.poison) return false;
     if (!info.glue and !info.holds_type_var) return true;
     return switch (ctx.types.get(ty)) {
         .text, .shared, .weak => true,
@@ -4851,7 +4851,7 @@ fn methodIn(ctx: *SemContext, peeled: TypeId, name: []const u8) std.mem.Allocato
 /// An enum variant of the receiver's nominal, local or imported.
 pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedVariant {
     const decl = nominalDecl(ctx, receiver_ty) orelse return null;
-    const subst = if (membersOf(ctx, unwrapBorrows(ctx, receiver_ty))) |m| m.subst else TypeSubst.empty;
+    const subst = if (membersOf(ctx, unwrapViews(ctx, receiver_ty))) |m| m.subst else TypeSubst.empty;
     for (decl.symbol().fields orelse return null) |f| {
         if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
         var payload = f.payload orelse &.{};
@@ -5138,7 +5138,7 @@ pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
         _ = lend.push(.read_only);
         return lend;
     }
-    var t = unwrapBorrows(ctx, from);
+    var t = unwrapViews(ctx, from);
     if (unwrapAccess(ctx, t) == ctx.types.text_id) {
         while (true) {
             switch (ctx.types.get(t)) {
@@ -5253,7 +5253,7 @@ fn lendElems(ctx: *const SemContext, elem: TypeId, kind: LendKind, view: TypeId,
 /// an array's or a Vec's, reached through views, boxes, and handles;
 /// null for any other type. Generic inference matches a `[]T` with it.
 pub fn lentElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    var t = unwrapBorrows(ctx, ty);
+    var t = unwrapViews(ctx, ty);
     while (true) switch (ctx.types.get(t)) {
         .array => |a| return a.elem,
         .shared => |inner| t = inner,
@@ -5390,7 +5390,7 @@ fn pathHands(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind
         .place, .lend => .place,
         // A path through a borrow reaches what the borrow views, not the
         // value made here that holds it.
-        .made, .branches, .part_of_made => if (ctx) |c| (if (c.typeOf(base)) |ty| (if (isBorrowType(c, ty)) .place else .part_of_made) else .part_of_made) else .part_of_made,
+        .made, .branches, .part_of_made => if (ctx) |c| (if (c.typeOf(base)) |ty| (if (isReadOrWriteView(c, ty)) .place else .part_of_made) else .part_of_made) else .part_of_made,
         .jump, .none => .none,
     };
 }

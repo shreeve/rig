@@ -85,18 +85,18 @@ pub const Kinds = struct {
             // holding a Cell.
             else => if (ti.glue or ti.unique or (self.planned and ti.cell) or (self.generic and (ti.holds_type_var or ctx.types.get(ty) == .type_var)))
                 .owning
-            else if (ti.borrows.write)
+            else if (ti.views.write)
                 .write_view
-            else if (ti.borrows.any or ti.borrows.view)
+            else if (ti.views.marked or ti.views.string)
                 .read_view
             else
                 .plain,
         };
         const info: Info = .{
             .kind = kind,
-            .holds_views = ti.borrows.any or ti.borrows.view,
-            .holds_pointers = ti.borrows.any,
-            .holds_writes = ti.borrows.write,
+            .holds_views = ti.views.marked or ti.views.string,
+            .holds_pointers = ti.views.marked,
+            .holds_writes = ti.views.write,
             .drop_reads = scan.drop_body and kind == .owning,
             .unsupported = if (ti.poison) "a type with an error" else scan.unsupported,
             .generic_copy = kind == .owning and !(ti.glue or ti.unique or (self.planned and ti.cell)),
@@ -197,7 +197,7 @@ const Scan = struct {
                 // of a `?T`, `!T`, or slice is the compiler's to reject.
                 if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) {
                     for (pn.args) |arg| {
-                        if (ctx.typeInfo(arg).borrows.any) return self.mark("a `Cell` or `Signal` of a view");
+                        if (ctx.typeInfo(arg).views.marked) return self.mark("a `Cell` or `Signal` of a view");
                         try self.walk(ctx, arg, depth + 1, in_generic);
                     }
                     return;

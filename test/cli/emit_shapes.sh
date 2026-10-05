@@ -166,7 +166,7 @@ sub main
   print(a.all())
 EOF2
 out=$("$RIG" emit generic.rig 2>/dev/null) || fail "rig emit generic.rig"
-expect_has "$out" 'switch (rig.borrowedPtr(__rig_Self, &self).*)' "generic subject switched in place"
+expect_has "$out" 'switch (rig.viewedPtr(__rig_Self, &self).*)' "generic subject switched in place"
 
 # Under the sanitizer, each storage location emit adds is filled with
 # `0xAA` when its scope ends (`rig.poison`), after its drop; without it,

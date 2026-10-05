@@ -1053,7 +1053,7 @@ const Lowerer = struct {
         }
         // What the binding sees: a payload of its declared type, or for a
         // catch-all the subject's value. Plain data and views are copies.
-        const seen = if (stored) |st| (if (st == h.ty) sema.unwrapBorrows(self.ctx, st) else st) else sema.unwrapBorrows(self.ctx, xv.ty);
+        const seen = if (stored) |st| (if (st == h.ty) sema.unwrapViews(self.ctx, st) else st) else sema.unwrapViews(self.ctx, xv.ty);
         const seen_kind = (try self.kinds.of(seen)).kind;
         const arm_local = h.arm != null and (seen_kind == .owning or seen_kind == .write_view);
         try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(h.v), .def = x });
@@ -1086,7 +1086,7 @@ const Lowerer = struct {
     /// The type of the `i`th payload a variant pattern binds, for an
     /// enum of this module that is not generic, matched or lent (`?E`).
     fn payloadOf(self: *Lowerer, of: TypeId, pattern: Sexp, i: usize) ?TypeId {
-        const ty = sema.unwrapBorrows(self.ctx, of);
+        const ty = sema.unwrapViews(self.ctx, of);
         if (self.ctx.types.get(ty) != .nominal) return null;
         const decl = sema.nominalDecl(self.ctx, ty) orelse return null;
         if (decl.ctx != self.ctx) return null;
@@ -1282,7 +1282,7 @@ const Lowerer = struct {
         const mode = ir.For.mode(s).tag;
         const source = ir.For.source(s);
         const pos = self.posOf(s);
-        const src_ty = sema.unwrapBorrows(self.ctx, try self.typeOf(source));
+        const src_ty = sema.unwrapViews(self.ctx, try self.typeOf(source));
         // The loop's own scope holds what the header binds: the source.
         try self.pushRegion();
         var src_var: VarId = undefined;
@@ -2112,7 +2112,7 @@ const Lowerer = struct {
     }
 
     fn isHandle(self: *Lowerer, ty: TypeId) bool {
-        return switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
+        return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
             .shared, .weak => true,
             else => false,
         };
@@ -2590,7 +2590,7 @@ const Lowerer = struct {
 
     /// Whether `ty` is a Vec, or a view of one.
     fn isVec(self: *Lowerer, ty: TypeId) bool {
-        return switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
+        return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
             .parameterized_nominal => |pn| pn.sym == self.ctx.vec_sym_id,
             else => false,
         };
@@ -2600,7 +2600,7 @@ const Lowerer = struct {
     /// arguments: `push(x: T)` of a `Vec[?Int]` takes a `?Int`, which it
     /// stores (Core §5).
     fn instParams(self: *Lowerer, recv_ty: TypeId, params: []const TypeId) Error![]const TypeId {
-        const pn = switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, recv_ty))) {
+        const pn = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
             .parameterized_nominal => |pn| pn,
             else => return params,
         };
@@ -2888,7 +2888,7 @@ const Lowerer = struct {
         try self.plainInstance(recv_ty);
         // A method of what a handle holds reads it through the handle
         // (Core s8).
-        switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, recv_ty))) {
+        switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
             .shared => |inner| recv_ty = inner,
             // `w.upgrade()` reads the weak handle; its result is a new
             // count carrying the handle's loans (Core s8, s9).
@@ -2898,7 +2898,7 @@ const Lowerer = struct {
         const decl = sema.nominalDecl(self.ctx, recv_ty) orelse {
             // A built-in method of an array, slice, or String: it writes
             // its receiver only where `!` says so.
-            return switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, recv_ty))) {
+            return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
                 .array, .slice, .string => .{ if (obj.isKind(.write)) .write else .read, null },
                 else => abstain("a method of an unusual type"),
             };
@@ -2912,7 +2912,7 @@ const Lowerer = struct {
         }
         // A `Cell[Vec[T]]` answers its Vec's members through any path,
         // without `!` (SPEC "Cell").
-        switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, recv_ty))) {
+        switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
             .parameterized_nominal => |pn| if (pn.sym == self.ctx.cell_sym_id and pn.args.len == 1) {
                 if (sema.nominalDecl(self.ctx, pn.args[0])) |held| if (held.sym == self.ctx.vec_sym_id) {
                     if (try self.methodOf(held, mname)) |found_method| return .{ .read, found_method[1] };
