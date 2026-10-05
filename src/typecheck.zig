@@ -3591,8 +3591,9 @@ const Checker = struct {
     }
 
     /// `lendTemp` of `operand`, or, given `method`, of the receiver a
-    /// `?self` method whose result may keep the borrow lends, as
-    /// `?operand` would be lent.
+    /// `?self` method lends when the call may keep a borrow of it (in
+    /// its result, or stored through a write argument), as `?operand`
+    /// would be lent.
     fn lendTempTo(self: *Checker, operand: Sexp, method: ?[]const u8) Error!void {
         const base = if (isPlaceExpr(operand)) self.placeOf(operand).base else operand;
         if (base != .list) return;
@@ -3600,7 +3601,7 @@ const Checker = struct {
         if (sema.typeHasDropGlue(self.ctx, ty)) if (self.namedLeaf(base)) |leaf| {
             const what = "a value a name holds, which lending the branching value would copy; lend what each branch reaches instead";
             if (method) |m| {
-                try self.errAt(base, "cannot lend `{s}` to `{s}`, whose result may keep the borrow: it may be `{s}`, {s} (`(?a if c else ?b).{s}(...)`, `if ?o as x`)", .{ self.sourceText(base), m, self.sourceText(leaf), what, m });
+                try self.errAt(base, "cannot lend `{s}` to `{s}`, which may keep the borrow: it may be `{s}`, {s} (`(?a if c else ?b).{s}(...)`, `if ?o as x`)", .{ self.sourceText(base), m, self.sourceText(leaf), what, m });
             } else try self.errAt(base, "cannot lend `{s}`: it may be `{s}`, {s} (`?a if c else ?b`, `if ?o as x`)", .{ self.sourceText(base), self.sourceText(leaf), what });
             return;
         };

@@ -1,0 +1,111 @@
+# A method may store what its receiver lends or holds in what it was lent
+# to write, as it may an argument's: a write receiver, a view of the
+# receiver itself, a field or element of a value, a value reached
+# through a handle, a consumed receiver's views, and a temporary
+# receiver, which ends with its statement.
+
+struct Holder
+  r: []Int
+
+struct VH
+  s: ?Src
+
+struct Src
+  items: Vec[Int]
+
+  sub put(?self, out: !Holder)
+    out.r = ?self.items[..]
+
+  sub putw(!self, out: !Holder)
+    out.r = ?self.items[..]
+
+  sub me(?self, out: !VH)
+    out.s = self
+
+struct Outer
+  b: Src
+
+struct P
+  xs: [2]Int
+
+  sub put(?self, out: !Holder)
+    out.r = ?self.xs[..]
+
+struct HV
+  r: []Int
+
+  sub give(<self, out: !Holder)
+    out.r = self.r
+
+fun mk -> Src
+  s = Src(items: Vec())
+  !s.items.push(4)
+  s
+
+sub write_receiver(h: !Holder)
+  s = Src(items: Vec())
+  !s.items.push(5)
+  !s.putw(!h)
+  -s
+  print(h.r[0])
+
+sub view_of_self(t: ?Src)
+  v = VH(s: t)
+  s = Src(items: Vec())
+  s.me(!v)
+  -s
+  print(v.s.items.len)
+
+sub nested_field(h: !Holder)
+  o = Outer(b: Src(items: Vec()))
+  !o.b.items.push(5)
+  o.b.put(!h)
+  -o
+  print(h.r[0])
+
+sub element(h: !Holder)
+  ps = [P(xs: [1, 1]), P(xs: [2, 2])]
+  ps[1].put(!h)
+  ps[1].xs[0] = 9
+  print(h.r[0])
+
+sub through_handle(h: !Holder)
+  v: Vec[Int] = Vec()
+  !v.push(5)
+  s = *Src(items: <v)
+  s.put(!h)
+  -s
+  print(h.r[0])
+
+sub consumed(h: !Holder)
+  y: Vec[Int] = Vec()
+  !y.push(9)
+  hv = HV(r: ?y[..])
+  <hv.give(!h)
+  -y
+  print(h.r[0])
+
+sub temporary(h: !Holder)
+  mk().put(!h)
+  print(h.r[0])
+
+sub main
+  x = [1, 2]
+  h = Holder(r: ?x[..])
+  write_receiver(!h)
+  t = Src(items: Vec())
+  view_of_self(?t)
+  nested_field(!h)
+  element(!h)
+  through_handle(!h)
+  consumed(!h)
+  temporary(!h)
+
+# error: 48:11: cannot let this call store a borrow of `s` in `h`
+# error: 56:4: cannot drop `s` while borrows are live
+# error: 62:11: cannot let this call store a borrow of `o` in `h`
+# error: 68:13: cannot let this call store a borrow of `ps` in `h`
+# error: 76:9: cannot let this call store a borrow of `s` in `h`
+# error: 84:12: cannot let this call store a borrow of `y` in `h`
+# error: 89:12: cannot let this call store a borrow of `mk()` in `h`
+# errors: 7

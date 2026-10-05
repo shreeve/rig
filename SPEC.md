@@ -3097,7 +3097,10 @@ tracks where every one came from.
 - A struct holding a borrow keeps the borrowed value borrowed while the
   struct is alive. So does a stack closure that captured a borrow, and
   a value a call may have stored a borrow into (its receiver, and what
-  its `!` arguments and other write borrows lead to).
+  its `!` arguments and other write borrows lead to). A method's
+  receiver is passed as an argument is: what it lends or holds may be
+  stored there too, so `s.put(!h)` keeps `s` borrowed while `h` may
+  hold a view of it.
 - A borrow may not outlive the value it borrows: not past the end of
   its block, not through `break`, and not out of the function.
 

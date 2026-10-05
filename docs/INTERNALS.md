@@ -926,7 +926,9 @@ binding holds, and `?l` passes on with a loan on `l`) and its
 arguments; so a result carrying both never outlives anything it may
 point into. (A closure's body is checked like a function, whose returned
 value is checked the same way);
-a call may store its arguments' loans into its receiver and into what
+a call may store its arguments' loans, and what its receiver lends or
+holds (a method's receiver is passed as an argument is:
+`out.r = ?self.items[..]`), into its receiver and into what
 its `!` arguments and other write borrows lead to, except a built-in
 element method (`!dst.copy(src)`) whose elements hold no borrow, which
 stores only plain elements. Assigning a local write borrow, or a field

@@ -67,8 +67,8 @@ sub main
   !vs.clear()
   print(r, n, x, w, u, e, y, first(maybe(true)) ?? 0)
 
-# error: 44:7: cannot lend `o?` to `inner`, whose result may keep the borrow: it may be `o`
-# error: 51:8: cannot lend `a if c else b` to `inner`, whose result may keep the borrow: it may be `a`
+# error: 44:7: cannot lend `o?` to `inner`, which may keep the borrow: it may be `o`
+# error: 51:8: cannot lend `a if c else b` to `inner`, which may keep the borrow: it may be `a`
 # error: 52:8: cannot lend `a if c else b` to `name`
 # error: 53:8: cannot lend `a if c else b` to `arr`
 # error: 56:8: cannot lend `wa if c else wb` to `inner`
