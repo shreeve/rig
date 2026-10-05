@@ -1,0 +1,46 @@
+# A view reached through another view carries that view's loans, not a
+# loan on its holder (Core sentence 7): a cursor holding a view of a Vec
+# hands out views of the Vec's items, and stays free to move on.
+
+struct Item
+  n: Int
+
+struct Cursor
+  items: ?Vec[Item]
+  i: Int
+
+  fun next(!self) -> ?Item
+    k = self.i
+    self.i += 1
+    ?self.items[k]
+
+struct Pair
+  a: ?Vec[Int]
+  b: ?Vec[Int]
+
+fun left(p: ?Pair) -> ?Vec[Int]
+  p.a
+
+sub main
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  !v.push(Item(n: 2))
+  c = Cursor(items: ?v, i: 0)
+  a = !c.next()
+  b = !c.next()
+  print(a.n, b.n)
+  r = ?c.items[0]
+  c.i = 5
+  print(r.n, c.i)
+  x: Vec[Int] = Vec()
+  y: Vec[Int] = Vec()
+  !x.push(4)
+  p = Pair(a: ?x, b: ?y)
+  l = left(?p)
+  p = Pair(a: ?y, b: ?y)
+  print(l.len, p.a.len)
+
+# expect:
+# 1 2
+# 1 5
+# 1 0

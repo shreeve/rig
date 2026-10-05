@@ -258,9 +258,9 @@ the whole program (literals, module constants, `os.args()`). Its result
 carries the loans of the arguments whose types could hold what it views,
 or, when the result says `from a`, of `a` alone. A view reached through
 another view carries that view's loans, not a loan on its holder. The
-compiler checks each body against its signature. *(built:* the result
-carries the loans of everything it was lent; *planned:* the narrowing
-to the arguments that could hold it, and `from`.*)*
+compiler checks each body against its signature. *(built:* the
+narrowing to the arguments that could hold it, and a view reached
+through another; *planned:* `from`.*)*
 
 ```rig reject
 fun pick(a: ?Vec[Int]) -> ?Vec[Int]
@@ -270,6 +270,35 @@ fun pick(a: ?Vec[Int]) -> ?Vec[Int]
 
 ```error
 does not originate from a borrowed parameter
+```
+
+A `Cursor` holds only a view of the items, so an item `next` hands out
+views the Vec, not the cursor, which moves on:
+
+```rig
+struct Item
+  n: Int
+
+struct Cursor
+  items: ?Vec[Item]
+  i: Int
+
+  fun next(!self) -> ?Item
+    self.i += 1
+    ?self.items[self.i - 1]
+
+sub main
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  !v.push(Item(n: 2))
+  c = Cursor(items: ?v, i: 0)
+  a = !c.next()
+  b = !c.next()
+  print(a.n, b.n)
+```
+
+```output
+1 2
 ```
 
 ```rig pending

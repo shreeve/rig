@@ -3164,12 +3164,19 @@ struct field (a **view**), or a function's result, and the checker
 tracks where every one came from.
 
 - A function may return a borrow only of something its caller lent it.
-  The result then borrows from every borrowed argument of the call,
-  a String argument included: it may view a Text ([§10](#text)).
+  The result then borrows from every argument whose type could hold
+  what it views, a String argument included: it may view a Text
+  ([§10](#text)). An argument that could not (an `Int` key for a
+  `?Item` result, a String for a `?Item`) is free again after the call.
+- A view reached through another view borrows what that view borrows,
+  not what holds it: `?c.items[0]`, with `items: ?Vec[Item]`, borrows
+  the Vec, not `c`.
 - A struct holding a borrow keeps the borrowed value borrowed while the
   struct is alive. So does a stack closure that captured a borrow, and
-  a value a call may have stored a borrow into (its receiver, and what
-  its `!` arguments and other write borrows lead to).
+  a value a call may have stored a borrow into (its receiver lent to
+  write, and what its `!` arguments and other write borrows lead to):
+  a borrow of each argument, the receiver among them, whose type could
+  be held there.
 - A borrow may not outlive the value it borrows: not past the end of
   its block, not through `break`, and not out of the function.
 

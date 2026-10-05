@@ -48,8 +48,9 @@ Rust reasons about lifetimes: regions such as `'a`, written in
 signatures and solved across a whole function. Rig has none. Each value
 carries the set of loans it holds, the checker follows each path of a
 function on its own, and loan sets meet where paths join. What a result
-views comes from the signature alone: it carries the loans of
-everything it was lent ([CORE sentence 7](CORE.md#2-the-core-in-ten-sentences)).
+views comes from the signature alone: it carries the loans of every
+argument whose type could hold what it views
+([CORE sentence 7](CORE.md#2-the-core-in-ten-sentences)).
 
 The difference shows in the case Rust's non-lexical lifetimes RFC lists
 as *problem case #3*: take a view, return it on one path, and change the

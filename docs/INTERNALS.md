@@ -852,6 +852,7 @@ instead of re-deriving it by name:
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
+| `callParamsOf(call)` | for every call checked against a signature, what fills each parameter (the receiver too) and which arguments the call passes loans on from ([Call origins](#call-origins)) |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
@@ -1088,19 +1089,18 @@ while checking a module-level function is freed when it is done.
 
 **Loans travel with values.** `r = ?a` stores a read loan of `a` in
 `r`; `View(box: ?a)` carries it into the struct; a call whose result
-type can hold a view carries the loans of all the arguments it is lent,
-and of the callee's value, whatever form the callee takes (a closure
-binding, a callable view held by a local or parameter, `(?l)()`, a
-call that returns one). This is sound because a callable's result can
-reach only what its body can: its captures (whose loans the closure
-binding holds, and `?l` passes on with a loan of `l`) and its
-arguments; so a result carrying both never outlives anything it may
-point into. (A closure's body is checked like a function, whose returned
-value is checked the same way);
-a call may store its arguments' loans into its receiver and into what
-its `!` arguments and other write views lead to, except a built-in
-element method (`!dst.copy(src)`) whose elements hold no view, which
-stores only plain elements. Assigning a local write view, or a field
+type can hold a view carries the loans of the callee's value, whatever
+form the callee takes (a closure binding, a callable view held by a
+local or parameter, `(?l)()`, a call that returns one), and of the
+arguments its origins name (see [Call origins](#call-origins)). A
+callable's result can reach only what its body can: its captures (whose
+loans the closure binding holds, and `?l` passes on with a loan of `l`)
+and its arguments, and its body is checked against its origins; so the
+result never outlives anything it may point into. A call may store the
+loans of the arguments its origins name, its receiver among them, into
+its write receiver and into what its `!` arguments and other write
+views lead to, except a built-in element method (`!dst.copy(src)`)
+whose elements hold no view, which stores only plain elements. Assigning a local write view, or a field
 or element through one (`w = v`, `w.f = v`), stores `v` in what `w`
 views (`storeThroughLocal`), unless the assignment gives `w` a view
 (`repoints`): then `w` points elsewhere and holds that view's loans
@@ -1176,16 +1176,18 @@ is not a view type, and `Vec[String]` is plain data). `?t[a..b]` of a
 Text lends the Text as `?v[a..b]` lends a Vec; a literal carries no
 loan, and a String parameter, like a `?T` one, holds an external
 loan of itself, so a function's String result views what its
-arguments do. A value that holds Strings but no `?T`, `!T`, or slice
-(`sema.holdsViewOnly`) keeps only the loans that lead to a Text
-(`viewLoans`): its bytes lie in no value that reaches no Text
-(`Borrows.text`: a Text by value, through a handle, a Vec's, Box's,
-Cell's, or Signal's value, or a view, so a struct holding `!Text`
-reaches one), so a loan of a var whose type reaches none stands for
-that var's own loans, read loans at that (a String never writes). So
-`!it.next()` of an iterator holding Strings views what `it` views,
-not `it`, and a String read through a `!String`, copied into a
-binding, or read out of a `Vec[String]` keeps what the String views.
+arguments do. A value of a type that holds views keeps only the loans
+that lead to what could hold what it views (`carry`, Core sentence 7):
+a loan of a var whose type reaches that memory only through a read view
+it holds, or not at all (`sema.ViewReach`), stands for that var's own
+loans, judged the same way. A String's memory is a Text's or a
+literal's bytes, which a var reaches by owning a Text, or a `!Text`. A
+value that holds only Strings (`sema.holdsViewOnly`) reads what it
+views, so the loans it keeps are read loans. So `!it.next()` of an
+iterator holding Strings views what `it` views, not `it`, and a String
+read through a `!String`, copied into a binding, or read out of a
+`Vec[String]` keeps what the String views. A value holding a write
+view, a type parameter, or a type not known keeps every loan.
 The loans of a `for` source no binding holds go to its elements, and
 the views deferred code stores stay when it runs at a scope's exit,
 so that exit checks them. A value whose loans
@@ -1202,8 +1204,12 @@ be returned. An array reached through a view (a `?[N]T` parameter is
 a `*const [N]T`) is behind a pointer, and its slices carry the view's
 loans, the caller's included. A write slice (`!xs[a..b]`)
 takes a write loan the same way; one of a `![]T` var lends it on, as
-any lend of a view does, while an array reached through an element
-of a read-only `[]T` is viewed as that `[]T` views it, with its loans.
+any lend of a view does. A lend of a place reached through a read view
+(an element of a read-only `[]T`, `?c.items[0]` with `items:
+?Vec[Item]`, a String's bytes) is the lend through a copy of that view
+(`t = c.items` then `?t[0]`): it keeps what the view keeps, which the
+place's var holds, and no loan on the var (`walkThroughView`). The var
+is still held while the place's indexes run.
 
 **Liveness.** A loan held by a var is in force only while the var is
 live: while it may still be used. Before checking a function, one walk
@@ -1331,6 +1337,89 @@ owns a resource, with a note at the copy, and a type argument that
 holds a `?T`, `!T`, or slice, for a generic function and for a generic type with
 methods. A call site sees the instance's signature, so moves, lends,
 and the loans a result carries are checked there with the real types.
+
+### Call origins
+
+Core sentence 7: *a call passes on only the loans its signature shows.*
+Which arguments a call passes loans on from is one fact per callee,
+decided from its signature and never from a body, and one fact per call,
+which argument fills which parameter.
+
+**Origins.** `sema.Origins` holds two parameter sets (`ParamMask`, bit
+`i` for run-time parameter `i`, a method's receiver being 0): `result`,
+the parameters whose arguments' loans a call's result carries, and
+`stores`, those whose loans it may store in what its write receiver and
+write arguments lead to. Each function and method a module declares
+gets its origins where it is declared (`sema.computeOrigins`, after the
+contents of every type are known), from its own signature, a generic
+one's with its type parameters:
+
+- `result`: each parameter whose type could hold what the result views
+  (`sema.defaultOrigins`);
+- `stores`: each parameter whose type could hold what may be stored in
+  memory a write parameter leads to (`sema.storeTargets`).
+
+The built-in generics' methods keep every argument's (`all_params`). A
+call of a function value (a closure, a lent callable) takes the origins
+of its type, computed at the call; the body of every function and
+closure is checked against the same ones, so every body satisfies the
+origins its type gives.
+
+**Could hold** is one classifier, `sema.viewReach` (and
+`reachTargets`). A view's *targets* are the memory its views point
+into: a `?T`'s or `!T`'s `T`, a `[]T`'s or `![]T`'s `T` elements, a
+String's bytes (a Text's, or a literal's); a function, a lent callable,
+a type parameter, or a type not known points anywhere. A holder type
+reaches a target `owned` when a path of parts it holds by value (fields,
+payloads, an optional's, array's, Vec's, Box's, Cell's or Signal's
+contents, a handle's) and write views leads to memory of the target's
+type, `through_view` when every path crosses a read view (`?T`, `[]T`,
+a String), and `none` when no path does. Types are compared across
+modules by their declaration (`viewAtom`), and two types that compare
+equal may stand for unequal ones, which only keeps more loans. A
+parameter's own memory is the callee's copy, so for origins only memory
+past a view counts (`ReachFrom.views`): `k: !Int` cannot hold an
+`?Item`, and neither can an `Int` taken by value. A value's loans are
+narrowed by the same classifier (`carry`, above): a loan on a holder
+that does not reach the memory `owned` stands for the holder's loans.
+
+**The fact.** `checkArgs` records, for every call it checks completely,
+`CallParams`: what fills each of the callee's run-time parameters (the
+receiver of a method called on a value, an argument by its index, or a
+default) and the callee's origins. Keyword arguments and defaults map
+through the same slots emit reads, so a keyword call carries the
+argument that fills the parameter, wherever it is written. A call with
+no fact (a constructor, `print`, a call sema rejected) carries and
+stores every argument.
+
+**The call rule** (`walkCall`). The result carries the callee's value,
+the receiver's value when the receiver's parameter is in `result`, and
+each argument whose parameter is; what the call may store (into its
+write receiver, and through the write loans its arguments lead to) is
+the receiver's value and each argument whose parameter is in `stores`.
+A receiver lent to read is never stored into. The stores apply first,
+then the result is narrowed by `carry`, so a holder the result does not
+view stands for its loans after the call: `next(!self, extra)`, which
+re-points `self.items` at `extra`, gives a result that carries
+`extra`'s loans. Every lend made in an argument still ends with its
+statement (the statement's temporaries are as before).
+
+**The body check** (`checkOrigins`). At every return and tail value the
+recorder notes the parameters whose loans the value carries
+(`recordResult`), and at every store into what a parameter leads to,
+the parameters whose loans are stored (`recordStore`). A function or
+closure whose body returns or stores the loans of a parameter its
+origins leave out is rejected there. With origins from the signature's
+types this fires only when the classifier misses an edge: a compiler
+bug becomes a rejection, never a hole in a caller.
+
+**Desugaring.** A lend through a read view is the lend through a copy
+of the view, as above. A call `r = f(e1, ..., en)` is
+`t1 = e1; ...; tn = en; r = f(t1, ..., tn)` with each `ti` a statement
+temporary (Core §3): `r` holds the loans of the `ti` whose parameters
+are in `result`, the owners of the write arguments those in `stores`,
+and every other `ti`'s loans end with the statement. The narrowing is
+sentence 7's own: no other form says that a result does not view `b`.
 
 ## Emit
 
@@ -1617,6 +1706,16 @@ through. Header subjects follow the table in
 "Header subjects": a held part is a read lend of the held value, and a
 read match's binding that is no plain data holds a loan on a hidden var
 of its arm, which ends with the arm.
+
+Sentence 7 it models on its own (`kinds.Reach`), from types it spells
+the same in every module: a call's result carries the arguments whose
+declared parameter types lead, past a view, to the memory the result
+views, and what it stores those whose types lead to what memory past a
+write view may hold; a var carries a loan it was lent only where the
+lent place's type may own what the var's views view, transitively, or
+reach it through a write view, and otherwise the loans that place's
+var holds after the call's stores. It maps arguments to parameters
+itself, positionally or through the call's slots.
 
 ## Nexus notes
 

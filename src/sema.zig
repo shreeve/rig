@@ -866,6 +866,11 @@ pub const CallParams = struct {
         return self.filled(.receiver, self.origins.result);
     }
 
+    /// Whether the call may store the loans of its receiver.
+    pub fn storesReceiver(self: CallParams) bool {
+        return self.filled(.receiver, self.origins.stores);
+    }
+
     /// Whether the call may store the loans of the argument at index
     /// `arg`.
     pub fn stores(self: CallParams, arg: usize) bool {
@@ -1983,6 +1988,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     const order = try computeContents(&ctx);
     try checkInfiniteTypes(&ctx);
     try checkTypeSizes(&ctx, order);
+    try computeOrigins(&ctx);
     try resolve.checkDeclarations(&ctx);
     try typecheck.checkModule(&ctx, tree, module_scope);
     try typecheck.checkFrames(&ctx, tree);
@@ -3673,6 +3679,352 @@ pub fn isWhileStep(parent: Sexp, child: Sexp) bool {
 pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
     return info.borrows.view and !info.borrows.any and !info.holds_type_var and !info.poison;
+}
+
+// -----------------------------------------------------------------------------
+// What a view can point into (Core sentence 7)
+// -----------------------------------------------------------------------------
+
+/// How a value of a holder type leads to the memory a view points into
+/// (docs/INTERNALS.md, "Call origins"). One classifier answers both
+/// questions sentence 7 asks of a type: whether a value of it could hold
+/// what a view views (`!= .none`), and whether that memory may be its
+/// own (`== .owned`) rather than a read view's it holds.
+pub const ViewReach = enum(u2) {
+    /// It never does.
+    none,
+    /// Only by crossing a read view it holds (`?T`, `[]T`, a String):
+    /// the memory is that view's, never the holder's own.
+    through_view,
+    /// Through what it owns, or a write view it holds: the memory may be
+    /// its own, or memory it can change.
+    owned,
+};
+
+/// The memory a view may point into: a set of `ViewAtom`s, a Text's or
+/// a literal's bytes, or anything at all.
+pub const ViewTargets = struct {
+    any: bool = false,
+    bytes: bool = false,
+    atoms: std.ArrayList(u64) = .empty,
+
+    fn add(self: *ViewTargets, a: std.mem.Allocator, atom: u64) std.mem.Allocator.Error!void {
+        if (std.mem.findScalar(u64, self.atoms.items, atom) == null) try self.atoms.append(a, atom);
+    }
+
+    pub fn isEmpty(self: ViewTargets) bool {
+        return !self.any and !self.bytes and self.atoms.items.len == 0;
+    }
+};
+
+/// A type as `viewReach` compares types across modules: the same in
+/// every module for one type, and so the same for two equal types. A
+/// declared type is its declaration; any other, its kind (and a
+/// number's size). Unequal types may share one, which only makes the
+/// answer more cautious.
+fn viewAtom(ctx: *const SemContext, ty: TypeId) u64 {
+    const t = ctx.types.get(ty);
+    const tag: u64 = @intFromEnum(std.meta.activeTag(t));
+    const decl: ?struct { module: u32, sym: SymbolId } = switch (t) {
+        .nominal => |sym| if (sym == ctx.endian_sym_id) .{ .module = 0, .sym = symbol_invalid } else .{ .module = ctx.module_id, .sym = sym },
+        .imported_nominal => |n| .{ .module = n.module_id, .sym = n.sym_id },
+        .parameterized_nominal => |pn| blk: {
+            const sym = ctx.symbols.items[pn.sym];
+            if (sym.decl_pos == builtin_decl_pos) break :blk .{ .module = 0, .sym = pn.sym };
+            if (isProxy(sym)) break :blk .{ .module = sym.from.module_id, .sym = sym.from.sym };
+            break :blk .{ .module = ctx.module_id, .sym = pn.sym };
+        },
+        else => null,
+    };
+    if (decl) |d| return 1 << 63 | @as(u64, d.module) << 32 | d.sym;
+    return switch (t) {
+        .int => |i| tag << 32 | @as(u64, i.bits) << 1 | @intFromBool(i.signed),
+        .float => |f| tag << 32 | f.bits,
+        else => tag << 32,
+    };
+}
+
+/// A type in the module whose types it is written in. A generic type's
+/// declared field is read in its generic context, where a type
+/// parameter stands for the instance's arguments (`args`), which are
+/// read where the instance is.
+const ViewNode = struct {
+    ctx: *const SemContext,
+    ty: TypeId,
+    args: ?struct { ctx: *const SemContext, tys: []const TypeId } = null,
+};
+
+/// The types a value of `node` holds by value (fields, payloads, an
+/// optional's, array's, Vec's, Box's, Cell's or Signal's contents, a
+/// handle's), each passed to `f.visit`. A generic instance holds its
+/// arguments, and its declared fields in the generic context.
+fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
+    const ctx = node.ctx;
+    switch (ctx.types.get(node.ty)) {
+        .optional, .fallible, .shared, .weak => |inner| try f.visit(.{ .ctx = ctx, .ty = inner, .args = node.args }),
+        .array => |a| try f.visit(.{ .ctx = ctx, .ty = a.elem, .args = node.args }),
+        .nominal, .imported_nominal => {
+            const decl = nominalDecl(ctx, node.ty) orelse return;
+            for (decl.symbol().fields orelse &.{}) |*fld| {
+                for (dataFields(fld)) |d| try f.visit(.{ .ctx = decl.ctx, .ty = d.ty });
+            }
+        },
+        .parameterized_nominal => |pn| {
+            for (pn.args) |arg| try f.visit(.{ .ctx = ctx, .ty = arg, .args = node.args });
+            for (ctx.symbols.items[pn.sym].fields orelse &.{}) |*fld| {
+                for (dataFields(fld)) |d| try f.visit(.{ .ctx = ctx, .ty = d.ty, .args = .{ .ctx = ctx, .tys = pn.args } });
+            }
+        },
+        else => {},
+    }
+}
+
+/// What a type's own views point into: the target of each view it
+/// holds by value, not what those targets hold in turn (a view of a
+/// value that holds views keeps that value's loans, which keep the
+/// rest). A function, a lent callable, a type parameter, or a type
+/// not known points anywhere.
+pub fn viewTargets(ctx: *const SemContext, a: std.mem.Allocator, view: TypeId) std.mem.Allocator.Error!ViewTargets {
+    var w: TargetWalk = .{ .a = a };
+    try w.visit(.{ .ctx = ctx, .ty = view });
+    return w.out;
+}
+
+const TargetWalk = struct {
+    a: std.mem.Allocator,
+    out: ViewTargets = .{},
+    seen: std.AutoHashMapUnmanaged(SeenKey, void) = .empty,
+    /// Only the views of written memory: storage a write view leads to.
+    written_only: bool = false,
+    written: bool = false,
+
+    const SeenKey = struct { ctx: usize, ty: TypeId, args: usize, written: bool };
+
+    fn target(self: *TargetWalk, node: ViewNode) std.mem.Allocator.Error!void {
+        const ctx = node.ctx;
+        switch (ctx.types.get(node.ty)) {
+            .type_var => if (node.args) |args| {
+                for (args.tys) |t| switch (args.ctx.types.get(t)) {
+                    .type_var, .invalid, .unknown => self.out.any = true,
+                    else => try self.target(.{ .ctx = args.ctx, .ty = t }),
+                };
+            } else {
+                self.out.any = true;
+            },
+            .function, .callable, .invalid, .unknown => self.out.any = true,
+            else => try self.out.add(self.a, viewAtom(ctx, node.ty)),
+        }
+    }
+
+    fn visit(self: *TargetWalk, node: ViewNode) std.mem.Allocator.Error!void {
+        const ctx = node.ctx;
+        const t = ctx.types.get(node.ty);
+        const is_view = switch (t) {
+            .borrow_read, .borrow_write, .slice, .string, .function, .callable => true,
+            else => false,
+        };
+        if (is_view and (!self.written_only or self.written)) switch (t) {
+            // A `![]T` points at its elements; a `?[]T` at a slice.
+            .borrow_write => |inner| try self.target(.{ .ctx = ctx, .ty = switch (ctx.types.get(inner)) {
+                .slice => |sl| sl.elem,
+                else => inner,
+            }, .args = node.args }),
+            .borrow_read => |inner| try self.target(.{ .ctx = ctx, .ty = inner, .args = node.args }),
+            .slice => |sl| try self.target(.{ .ctx = ctx, .ty = sl.elem, .args = node.args }),
+            .string => self.out.bytes = true,
+            else => self.out.any = true,
+        };
+        switch (t) {
+            .borrow_write => |inner| if (self.written_only) {
+                // What a write view leads to may be written.
+                const saved = self.written;
+                defer self.written = saved;
+                self.written = true;
+                const elem = switch (ctx.types.get(inner)) {
+                    .slice => |sl| sl.elem,
+                    else => inner,
+                };
+                return self.visit(.{ .ctx = ctx, .ty = elem, .args = node.args });
+            },
+            .type_var => if (node.args) |args| {
+                if (self.written_only and !self.written) return;
+                // The instance's arguments, read where it is.
+                for (args.tys) |arg| try self.visit(.{ .ctx = args.ctx, .ty = arg });
+            } else if (!self.written_only or self.written) {
+                self.out.any = true;
+            },
+            .invalid, .unknown => if (!self.written_only or self.written) {
+                self.out.any = true;
+            },
+            else => {},
+        }
+        if (is_view) return;
+        // Each type is walked once per context.
+        const key: SeenKey = .{ .ctx = @intFromPtr(ctx), .ty = node.ty, .args = if (node.args) |args| @intFromPtr(args.tys.ptr) else 0, .written = self.written };
+        if ((try self.seen.getOrPut(self.a, key)).found_existing) return;
+        try ownedParts(node, self);
+    }
+};
+
+/// What a call may store through write parameters of types `params`:
+/// the targets of the views a value stored in memory a write view among
+/// them leads to may hold, a handle's contents included. A parameter
+/// taken by value is the callee's own copy, so only what its write
+/// views lead to counts; what a read view leads to is never written.
+pub fn storeTargets(ctx: *const SemContext, a: std.mem.Allocator, params: []const TypeId) std.mem.Allocator.Error!ViewTargets {
+    var w: TargetWalk = .{ .a = a, .written_only = true };
+    for (params) |p| try w.visit(.{ .ctx = ctx, .ty = p });
+    return w.out;
+}
+
+/// Which of a holder's memory counts: all of it, or only what it leads
+/// to through a view (`?T`, `!T`, `[]T`, a String), as for a parameter
+/// taken by value, whose own memory is the callee's copy.
+pub const ReachFrom = enum { all, views };
+
+/// How a value of type `holder` leads to the memory a value of type
+/// `view` points into (`ViewReach`).
+pub fn viewReach(ctx: *const SemContext, a: std.mem.Allocator, holder: TypeId, view: TypeId) std.mem.Allocator.Error!ViewReach {
+    const targets = try viewTargets(ctx, a, view);
+    return reachTargets(ctx, a, holder, targets, .all);
+}
+
+/// How a value of type `holder` leads to memory `targets` names,
+/// counting the memory `from` says.
+pub fn reachTargets(ctx: *const SemContext, a: std.mem.Allocator, holder: TypeId, targets: ViewTargets, from: ReachFrom) std.mem.Allocator.Error!ViewReach {
+    if (targets.isEmpty()) return .none;
+    var w: ReachWalk = .{ .a = a, .targets = targets, .from = from };
+    try w.push(.{ .ctx = ctx, .ty = holder }, .{});
+    while (w.queue.pop()) |item| {
+        try w.step(item);
+        if (w.found == .owned) return .owned;
+    }
+    return w.found;
+}
+
+const ReachWalk = struct {
+    a: std.mem.Allocator,
+    targets: ViewTargets,
+    from: ReachFrom,
+    found: ViewReach = .none,
+    queue: std.ArrayList(Item) = .empty,
+    seen: std.AutoHashMapUnmanaged(SeenKey, void) = .empty,
+    /// How the parts `ownedParts` passes to `visit` are reached.
+    cur: Path = .{},
+
+    /// How a node is reached: past a read view, and past any view.
+    const Path = struct { read: bool = false, viewed: bool = false };
+    const Item = struct { node: ViewNode, path: Path };
+    const SeenKey = struct { ctx: usize, ty: TypeId, path: Path, generic: bool };
+
+    /// Memory of a target type is reached by `path`; `viewed` when it
+    /// may be a view's.
+    fn reached(self: *ReachWalk, path: Path, viewed: bool) void {
+        if (self.from == .views and !viewed) return;
+        const r: ViewReach = if (path.read) .through_view else .owned;
+        if (@intFromEnum(r) > @intFromEnum(self.found)) self.found = r;
+    }
+
+    fn push(self: *ReachWalk, node: ViewNode, path: Path) std.mem.Allocator.Error!void {
+        const key: SeenKey = .{ .ctx = @intFromPtr(node.ctx), .ty = node.ty, .path = path, .generic = node.args != null };
+        if ((try self.seen.getOrPut(self.a, key)).found_existing) return;
+        try self.queue.append(self.a, .{ .node = node, .path = path });
+    }
+
+    fn visit(self: *ReachWalk, node: ViewNode) std.mem.Allocator.Error!void {
+        try self.push(node, self.cur);
+    }
+
+    fn step(self: *ReachWalk, item: Item) std.mem.Allocator.Error!void {
+        const node = item.node;
+        const path = item.path;
+        const ctx = node.ctx;
+        const t = ctx.types.get(node.ty);
+        const read: Path = .{ .read = true, .viewed = true };
+        switch (t) {
+            // Anything at all, a view among them.
+            .function, .callable, .invalid, .unknown => return self.reached(path, true),
+            // A type parameter stands for anything; in a generic type's
+            // field, for the instance's arguments, which are walked apart.
+            .type_var => {
+                if (node.args == null) self.reached(path, true);
+                return;
+            },
+            else => {},
+        }
+        if (self.targets.any or std.mem.findScalar(u64, self.targets.atoms.items, viewAtom(ctx, node.ty)) != null) self.reached(path, path.viewed);
+        switch (t) {
+            .borrow_read => |inner| try self.push(.{ .ctx = ctx, .ty = inner, .args = node.args }, read),
+            .slice => |sl| try self.push(.{ .ctx = ctx, .ty = sl.elem, .args = node.args }, read),
+            .borrow_write => |inner| {
+                const elem = switch (ctx.types.get(inner)) {
+                    .slice => |sl| sl.elem,
+                    else => inner,
+                };
+                try self.push(.{ .ctx = ctx, .ty = elem, .args = node.args }, .{ .read = path.read, .viewed = true });
+            },
+            // A String views bytes; a Text owns them.
+            .string => if (self.targets.bytes) self.reached(read, true),
+            .text => if (self.targets.bytes) self.reached(path, path.viewed),
+            else => {
+                self.cur = path;
+                try ownedParts(node, self);
+            },
+        }
+    }
+};
+
+/// The origins of a function of type `f` (Core sentence 7): its result
+/// carries the loans of each parameter whose type could hold what the
+/// result views, and it may store those of each parameter whose type
+/// could hold what memory its write parameters lead to holds. A generic
+/// function's are its own signature's, where a type parameter could
+/// hold anything, never an instance's.
+pub fn defaultOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: FunctionType) std.mem.Allocator.Error!Origins {
+    var o: Origins = .{ .result = 0, .stores = 0 };
+    const results = try viewTargets(ctx, a, f.returns);
+    const stored = try storeTargets(ctx, a, f.params);
+    for (f.params, 0..) |p, i| {
+        if (try reachTargets(ctx, a, p, results, .views) != .none) o.result |= paramBit(i);
+        if (try reachTargets(ctx, a, p, stored, .views) != .none) o.stores |= paramBit(i);
+    }
+    return o;
+}
+
+/// Set the origins of every function and method this module declares
+/// (`defaultOrigins`); the built-in generics' methods keep every
+/// argument's loans.
+fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer scratch.deinit();
+    for (ctx.symbols.items) |*sym| {
+        if (isProxy(sym.*) or sym.decl_pos == builtin_decl_pos or sym.decl_pos >= imported_decl_pos) continue;
+        switch (sym.kind) {
+            .function, .@"extern" => {
+                const f = switch (ctx.types.get(sym.ty)) {
+                    .function => |f| f,
+                    else => continue,
+                };
+                sym.origins = try defaultOrigins(ctx, scratch.allocator(), f);
+                _ = scratch.reset(.retain_capacity);
+            },
+            .nominal_type, .generic_type => {
+                const fields = sym.fields orelse continue;
+                const out = try ctx.arena.allocator().dupe(Field, fields);
+                for (out) |*fld| {
+                    if (!fld.is_method or fld.is_drop_method) continue;
+                    const f = switch (ctx.types.get(fld.ty)) {
+                        .function => |f| f,
+                        else => continue,
+                    };
+                    fld.origins = try defaultOrigins(ctx, scratch.allocator(), f);
+                    _ = scratch.reset(.retain_capacity);
+                }
+                sym.fields = out;
+            },
+            else => {},
+        }
+    }
 }
 
 /// Whether a value of `ty` holds a write borrow, which is unique.
@@ -5706,6 +6058,119 @@ test "facts: keyword and omitted arguments record their slots" {
     try std.testing.expectEqual(@as(u32, 1), slots[0].arg);
     try std.testing.expectEqualStrings("10", r.source[slots[1].default.expr.src.pos..][0..2]);
     try std.testing.expectEqual(@as(u32, 0), slots[2].arg);
+}
+
+test "origins: a result carries what could hold what it views" {
+    var r = try factsRun(
+        \\struct Item
+        \\  n: Int
+        \\
+        \\struct Holder
+        \\  r: []Int
+        \\
+        \\fun at(v: ?[4]Item, k: !Int) -> ?Item
+        \\  k += 1
+        \\  ?v[0]
+        \\
+        \\fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+        \\  a
+        \\
+        \\fun pick(s: String, t: ?Text, n: Int, u: ?Item) -> String
+        \\  s
+        \\
+        \\sub fill(h: !Holder, x: []Int, k: Int, s: String)
+        \\  h.r = x
+        \\
+        \\fun same[T](a: ?T, k: Int) -> ?T
+        \\  a
+        \\
+    );
+    defer r.deinit();
+    const o = struct {
+        fn of(run: *const FactsRun, name: []const u8) Origins {
+            return run.ctx.symbols.items[run.sym(name, 0).?].origins;
+        }
+    }.of;
+    try std.testing.expectEqual(@as(ParamMask, 0b01), o(&r, "at").result);
+    try std.testing.expectEqual(@as(ParamMask, 0), o(&r, "at").stores);
+    try std.testing.expectEqual(@as(ParamMask, 0b11), o(&r, "first").result);
+    try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "pick").result);
+    // `fill` may store `x` in `h.r`; a number or a String it cannot.
+    try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "fill").stores);
+    // A type parameter could be anything, but a value taken by value is
+    // the callee's own.
+    try std.testing.expectEqual(@as(ParamMask, 0b01), o(&r, "same").result);
+}
+
+test "origins: a view reached through a read view is that view's" {
+    var r = try factsRun(
+        \\struct Item
+        \\  n: Int
+        \\
+        \\struct Cursor
+        \\  items: ?Vec[Item]
+        \\  i: Int
+        \\
+        \\struct Owner
+        \\  items: ?Vec[Item]
+        \\  scratch: Vec[Item]
+        \\
+        \\struct Writer
+        \\  items: ![]Item
+        \\
+        \\struct Cut
+        \\  before: String
+        \\
+        \\struct Keeps
+        \\  t: ?Text
+        \\
+        \\struct Edits
+        \\  t: !Text
+        \\
+        \\struct Shared
+        \\  item: *Item
+        \\
+        \\struct Boxed
+        \\  b: Box[Item]
+        \\
+        \\enum Maybe
+        \\  one(item: ?Item)
+        \\  two(item: Item)
+        \\
+    );
+    defer r.deinit();
+    const a = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const ty = struct {
+        fn of(run: *FactsRun, name: []const u8) TypeId {
+            return run.ctx.intern(.{ .nominal = run.sym(name, 0).? }) catch unreachable;
+        }
+    }.of;
+    const item = ty(&r, "Item");
+    const view = try r.ctx.intern(.{ .borrow_read = item });
+    const write = try r.ctx.intern(.{ .borrow_write = item });
+    const string = r.ctx.types.string_id;
+    const reach = struct {
+        fn of(run: *FactsRun, al: std.mem.Allocator, h: TypeId, v: TypeId) !ViewReach {
+            return viewReach(&run.ctx, al, h, v);
+        }
+    }.of;
+    const al = arena.allocator();
+    try std.testing.expectEqual(ViewReach.through_view, try reach(&r, al, ty(&r, "Cursor"), view));
+    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Owner"), view));
+    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Writer"), write));
+    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, item, view));
+    try std.testing.expectEqual(ViewReach.none, try reach(&r, al, r.ctx.types.int_id, view));
+    try std.testing.expectEqual(ViewReach.none, try reach(&r, al, string, view));
+    try std.testing.expectEqual(ViewReach.through_view, try reach(&r, al, ty(&r, "Cut"), string));
+    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, r.ctx.types.text_id, string));
+    try std.testing.expectEqual(ViewReach.through_view, try reach(&r, al, ty(&r, "Keeps"), string));
+    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Edits"), string));
+    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Shared"), view));
+    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Boxed"), view));
+    try std.testing.expectEqual(ViewReach.owned, try reach(&r, al, ty(&r, "Maybe"), view));
+    try std.testing.expectEqual(ViewReach.none, try reach(&r, al, ty(&r, "Cut"), view));
 }
 
 test "facts: a checked call records what fills each parameter" {

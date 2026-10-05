@@ -5181,7 +5181,9 @@ const Checker = struct {
             .function => |f| f,
             else => return self.badCall(args, pos, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(ty) }),
         };
-        try self.checkArgs(args, f, .{}, name, pos, .{});
+        var scratch = std.heap.ArenaAllocator.init(self.ctx.allocator);
+        defer scratch.deinit();
+        try self.checkArgs(args, f, .{}, name, pos, .{ .origins = try sema.defaultOrigins(self.ctx, scratch.allocator(), f) });
         return f.returns;
     }
 
