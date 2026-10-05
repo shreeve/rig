@@ -50,7 +50,7 @@ CRASH = re.compile(r"panic:|Segmentation fault|reached unreachable|Bus error")
 # fresh one, and a constructor expression.
 # -----------------------------------------------------------------------------
 
-N_DECL = "struct N\n  v: Int\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n"
+N_DECL = "struct N\n  v: Int\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?N\n    self\n"
 TYPES = {
     "int": dict(ty="Int", decls="", mk="n", ctor="Int(5)"),
     "string": dict(ty="String", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
@@ -59,7 +59,7 @@ TYPES = {
                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
     "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
-    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  sub bump(!self)\n    self.v += 1\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n',
+    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  sub bump(!self)\n    self.v += 1\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?D\n    self\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
     # A struct that holds a Cell (`poke` changes it through the binding),
     # and one declared `unique`.
@@ -142,6 +142,11 @@ CONTEXTS = {
     "recv_read_then_write": dict(inline="print((E).M)", write=True,
                                  recv={t: "get(poke(!W))" if t == "vec" else "peek(poke(!W))"
                                        for t in ("vec", "shared", "box", "drop")}),
+    # A view a method returns of its receiver, kept while the receiver's
+    # place is lent to write: the view keeps every place the receiver may
+    # be lent, and one of a value made there ends with its statement.
+    "recv_view_then_write": dict(inline="r = (E).M\n  _ = poke(!W)\n  print(r.v)", write=True,
+                                 recv={t: "me()" for t in ("shared", "box", "drop")}),
     "eq_then_write": dict(inline="print((E) == pokev(!W))", write=True, types=("int", "string", "text")),
     "index_then_write": dict(inline="print((E)[poke(!W)])", write=True, types=("vec",)),
 }

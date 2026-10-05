@@ -17,9 +17,11 @@
 #   * classifies keywords (every keyword is reserved, but reads as a name
 #     where it names a member: after `.`, before `:` inside ( ), and in a
 #     member list before `:` or after `fun` / `sub`); `of` is a keyword
-#     only after a value directly inside [ ] (`[n of x]`), and `unique`
-#     only after a struct header's name or type parameters (`struct Random
-#     unique`); each is a name everywhere else;
+#     only after a value directly inside [ ] (`[n of x]`), `unique` only
+#     after a struct header's name or type parameters (`struct Random
+#     unique`), `from` only after a function's result type (`-> ?Item
+#     from a`), and `static` only right after that `from`; each is a
+#     name everywhere else;
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
 #     open range (`xs[a..]`, `xs[..]`);
 #   * classifies the tokens the parser cannot tell apart by its own
@@ -166,6 +168,8 @@ tokens
     drop_stmt       # -x  drop, as a whole statement
     of              # of  after a value inside [ ]: a fill literal `[n of x]`
     unique          # unique  after a struct header's name or `]`: the struct is unique
+    from            # from  after a function's result type: what the result views
+    static          # static  right after that `from`: the result views only what lives for the whole program
     dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
     nullish_jump    # ??  directly before `return`, `break`, or `continue`
     step_colon      # :   the first `:` of a `while` header: its step
@@ -286,7 +290,7 @@ tokens
     # Declarations
     module                      ...decls
     use                         name alias:leaf?
-    fun                         name:leaf tparams:group? params:group? returns? body:block?
+    fun                         name:leaf tparams:group? params:group? returns? origins:group? body:block?
     sub                         name:leaf tparams:group? params:group? fails:tag(fails)? body:block?
     lambda                      captures:captures? params:group? body:block
     struct                      name:leaf unique:tag(unique)? ...members
@@ -297,7 +301,7 @@ tokens
     test                        name:leaf body:block
     pub                         decl
     extern                      name:leaf type
-    extern_fun                  name:leaf params:group? returns?
+    extern_fun                  name:leaf params:group? returns? origins:group?
     extern_sub                  name:leaf params:group?
     zig_extern                  file:leaf ...decls
     drop_decl                   params:group body:block
@@ -377,7 +381,8 @@ tokens
     OUTDENT: "the end of the block"
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
     KWARG_NAME: "a keyword argument", DROP_STMT: "`-`"
-    OF: "`of`", UNIQUE: "`unique`", DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`"
+    OF: "`of`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`"
+    DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -478,11 +483,20 @@ use      = USE name:mpath                           → (use)
 mpath    = name
          | object:name "." name:name                → (member)
 
-fun      = FUN name:name [tparams:tparams] [params:params] [returns:returns] body:block → (fun)
+fun      = FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] body:block → (fun)
 sub      = SUB name:name [tparams:tparams] [params:params] body:block → (sub)
          | SUB name:name [tparams:tparams] [params:params] "!" body:block → (sub fails:fails)  # `sub save(p: Page)!`
 
 returns  = "->" type                                → 2
+
+# What a function's result views, after its type: some of its
+# parameters (`-> ?Item from a, b`, `-> String from self`), or only what
+# lives for the whole program (`-> String from static`).
+origins  = FROM onames                              → (...2)
+         | FROM STATIC                              → ()
+
+onames   = name                                     → (1)
+         | onames "," name                          → (...1 3)
 
 params   = "(" fields ![","] ")"                     → (...2)
          | "(" ")"                                  → ()
@@ -543,7 +557,7 @@ test     = TEST name:(STRING_DQ | STRING_SQ) body:block → (test)
 
 extvar   = EXTERN name:name ":" type:type           → (extern)
 
-ext_fun  = EXTERN FUN name:name [params:params] [returns:returns] → (extern_fun)
+ext_fun  = EXTERN FUN name:name [params:params] [returns:returns] [origins:origins] → (extern_fun)
 ext_sub  = EXTERN SUB name:name [params:params]     → (extern_sub)
 
 # Declarations the Zig file `file` implements (the standard library's
@@ -558,7 +572,7 @@ zdecls   = zdecl                                    → (1)
 zdecl    = zfun
          | PUB decl:zfun                            → (pub)
 
-zfun     = FUN name:name [tparams:tparams] [params:params] [returns:returns] → (fun)
+zfun     = FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] → (fun)
          | SUB name:name [tparams:tparams] [params:params] → (sub)
          | SUB name:name [tparams:tparams] [params:params] "!" → (sub fails:fails)
 

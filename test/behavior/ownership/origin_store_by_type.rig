@@ -1,0 +1,35 @@
+# What a call stores through a write argument carries the loans of only
+# the arguments whose types could be held there (Core sentence 7): a
+# counter's name is free after the call, while the view stored stays.
+
+struct Counter
+  n: Int
+
+struct Holder
+  r: []Int
+
+sub bump(c: !Counter, name: String)
+  c.n += name.len
+
+sub keep(h: !Holder, x: []Int, label: String)
+  h.r = x
+  print(label)
+
+sub main
+  c = Counter(n: 0)
+  t = Text("abc")
+  bump(!c, ?t)
+  !t.add("d")
+  print(c.n, t)
+  a = [1, 2]
+  b = [3, 4]
+  h = Holder(r: ?a[..])
+  l = Text("kept")
+  keep(!h, ?b[..], ?l)
+  -l
+  print(h.r[0])
+
+# expect:
+# 3 abcd
+# kept
+# 3

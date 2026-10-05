@@ -1,0 +1,26 @@
+# A cursor that also owns items of the type it hands out keeps itself
+# lent: its result may view its own `scratch`.
+
+struct Item
+  n: Int
+
+struct Cursor
+  items: ?Vec[Item]
+  scratch: Vec[Item]
+  i: Int
+
+  fun next(!self) -> ?Item
+    k = self.i
+    self.i += 1
+    ?self.items[k]
+
+sub main
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  !v.push(Item(n: 2))
+  c = Cursor(items: ?v, scratch: Vec(), i: 0)
+  a = !c.next()
+  b = !c.next()
+  print(a.n, b.n)
+
+# error: 23:8: use of `c` while a write borrow is live

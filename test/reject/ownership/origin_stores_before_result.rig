@@ -1,0 +1,25 @@
+# A call stores before its result is handed back: `next` re-points
+# `self.items` at `extra`, so its result views `w`, which ends first.
+
+struct Item
+  n: Int
+
+struct Cursor
+  items: ?Vec[Item]
+
+  fun next(!self, extra: ?Vec[Item]) -> ?Item
+    self.items = extra
+    ?self.items[0]
+
+sub main
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  c = Cursor(items: ?v)
+  r = ?v[0]
+  if true
+    w: Vec[Item] = Vec()
+    !w.push(Item(n: 2))
+    r = !c.next(?w)
+  print(r.n)
+
+# error: `w` does not live long enough

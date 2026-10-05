@@ -285,8 +285,10 @@ Rig follows the second-class-reference model of Swift, Hylo, and Mojo
 rather than Rust's lifetime parameters. A view can live in a
 parameter, a local, a struct field, or a function's result, and the
 checker tracks where each one came from: a returned view carries the
-loans of everything the call was lent, and a struct holding a view
-keeps its source lent. A loan lasts until the last use of every view
+loans of every argument whose type could hold what it views, or of
+only those a `from` clause names (`-> ?Item from a`), which the
+compiler checks against the body; and a struct holding a view keeps
+its source lent. A loan lasts until the last use of every view
 that carries it, not to the end of its block, as in Rust's non-lexical
 lifetimes. That rule is sound without annotations; the price is that
 some programs Rust can express with explicit lifetimes are rejected.

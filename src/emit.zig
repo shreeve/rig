@@ -1257,7 +1257,14 @@ pub const Emitter = struct {
             .borrow_read, .borrow_write => true,
             else => false,
         } else true;
-        const is_borrow = binds_borrow and (expr.isKind(.read) or expr.isKind(.write)) and
+        // A read view that copies (`sema.lendByValue`) is held as the
+        // value it views, as every other `?T` of the type is, so a call's
+        // result can rebind it.
+        const copies = if (ty) |t| switch (self.sema.types.get(t)) {
+            .borrow_read => !self.isPtrBorrowTy(t) and self.genericReadBorrow(t) == null,
+            else => false,
+        } else false;
+        const is_borrow = binds_borrow and !copies and (expr.isKind(.read) or expr.isKind(.write)) and
             (ty == null or (sema.writeSliceElem(self.sema, ty.?) == null and sema.callableFn(self.sema, ty.?) == null));
         // A write borrow is held as a pointer however it was obtained.
         const holds_ptr = is_borrow or (ty != null and self.isPtrBorrowTy(ty.?));
@@ -4531,11 +4538,15 @@ pub const Emitter = struct {
         var t = self.peelBorrows(ty);
         var reach: []const u8 = "";
         while (t != self.sema.types.text_id) {
+            const boxed = self.sema.types.get(t) != .shared;
             t = switch (self.sema.types.get(t)) {
                 .shared => |inner| self.peelBorrows(inner),
                 else => self.peelBorrows(sema.boxedType(self.sema, t) orelse return null),
             };
-            reach = self.fmt("{s}.value", .{reach}) catch return null;
+            // A box's value is behind a pointer; a handle it holds is one
+            // more, which Zig does not follow by itself.
+            const deref = boxed and self.sema.types.get(t) == .shared;
+            reach = self.fmt("{s}.value{s}", .{ reach, if (deref) ".*" else "" }) catch return null;
         }
         return reach;
     }

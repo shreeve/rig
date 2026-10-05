@@ -197,13 +197,15 @@ fun f(in: Int) -> Int
 `in` is a keyword and cannot name a parameter
 ```
 
-Four words are keywords only in one position. `new` is a keyword at
+Six words are keywords only in one position. `new` is a keyword at
 the start of a statement (`new x = ...`, `new const x = ...`), so a
 method may be named `new`. `of` is a keyword only after a value directly inside `[ ]`,
 where it separates a fill literal's count from its element
 (`[n of x]`). `unique` is a keyword only after a struct's name or type
-parameters (`struct Random unique`). `none` is a reserved name, the
-absent optional. The words
+parameters (`struct Random unique`). `from` is a keyword only after a
+function's result type (`-> ?Item from a`), and `static` only right
+after that `from`; a parameter or a local may be named either. `none`
+is a reserved name, the absent optional. The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
@@ -508,6 +510,10 @@ sign -1
 - A function with no parameters may leave out the empty `()`:
   `sub main` is `sub main()`, and the docs write the shorter one.
 - The body's last expression is its value; `return e` leaves early.
+- A result that holds a view may say which parameters it views, after
+  its type: `-> ?Item from a`, `-> String from a, b`, `-> ?T from
+  self`, or `-> String from static` for only what lives for the whole
+  program ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - Compile-time parameters go in brackets after the name:
   `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]`
   ([Generics](#generics-and-compile-time-parameters)).
@@ -1443,7 +1449,8 @@ program   = decl*
 decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | test | constant)
           | use | extern
 use       = "use" ["std" "."] name ["as" name]
-fun       = "fun" name [tparams] [params] "->" type block
+fun       = "fun" name [tparams] [params] "->" type [from] block
+from      = "from" (name, ... | "static")
 sub       = "sub" name [tparams] [params] ["!"] block
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
 params    = "(" [param, ...] ")"
@@ -1457,11 +1464,11 @@ errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type
 constant  = name [":" type] "=" tail
 test      = "test" string block
-extern    = "extern" "fun" name [params] ["->" type]
+extern    = "extern" "fun" name [params] ["->" type [from]]
           | "extern" "sub" name [params]
           | "extern" name ":" type
           | "extern" "zig" string INDENT (["pub"] zdecl)* DEDENT
-zdecl     = "fun" name [tparams] [params] ["->" type]
+zdecl     = "fun" name [tparams] [params] ["->" type [from]]
           | "sub" name [tparams] [params] ["!"]
 
 type      = ("?" | "!") type | ptype | tsuffix

@@ -1,0 +1,25 @@
+# A method may store a view of what it is handed in an argument it was
+# lent to write; its receiver is lent to write only for the call, so
+# the argument keeps what it stored, and the receiver is free after.
+
+struct View
+  xs: []Int
+
+struct Counter
+  n: Int
+
+  sub stash(!self, v: !View, ys: []Int)
+    self.n += 1
+    v.xs = ys
+
+sub main
+  b = [9]
+  a = [1, 2, 3]
+  v = View(xs: ?b)
+  c = Counter(n: 0)
+  !c.stash(!v, ?a)
+  c.n += 1
+  print(v.xs, c.n)
+
+# expect:
+# [1, 2, 3] 2

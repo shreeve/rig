@@ -197,8 +197,9 @@ and run the corpus after:
   binds a copy), stopped the feature: a header whose subject makes a
   temporary is rejected, unless it only reads plain data or owns what it
   binds (`copiesHeader`), until step 10.
-- **String views of a `Text`:** `viewLoans`, `mayOwnText`, and String
-  values in Cells, generics, and closures.
+- **What a view could hold:** `carry` and `sema.viewReach`, which
+  narrow the loans a value and a call's result carry, and String values
+  in Cells, generics, and closures.
 - **Evaluation order versus what is emitted:** call arguments, `print`
   and `Text(...)` arguments, and assignment targets. All are fixed today,
   and all are the "checker models a different program than emit"

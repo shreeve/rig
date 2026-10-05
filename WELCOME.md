@@ -246,6 +246,7 @@ file.
 | function | `fn f(a: i64) -> i64 { a }` | `fn f(a: i64) i64 { return a; }` | `fun f(a: Int) -> Int` / `  a` |
 | no result | `fn f() {}` | `fn f() void {}` | `sub f` |
 | fallible, no result | `fn f() -> Result<(), E>` | `fn f() !void` | `sub f()!` |
+| result views one argument | `fn f<'a>(a: &'a T, b: &T) -> &'a T` | (no check) | `fun f(a: ?T, b: ?T) -> ?T from a` |
 | call | `f(a)` | `f(a)` | `f(a)` |
 | struct literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
 | method receiver | `&self`, `&mut self`, `self` | `self: *const P`, `self: *P`, `self: P` | `?self`, `!self`, `<self` |

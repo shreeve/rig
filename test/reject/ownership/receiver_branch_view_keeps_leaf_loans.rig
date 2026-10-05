@@ -1,0 +1,43 @@
+# A method runs on its receiver where it is: called on a value that
+# branches, it runs on the leaf the branch picks, so the view it returns
+# keeps every leaf lent (Core sentence 7), through `if`, `??`, `catch`,
+# and an element of a branching value.
+
+struct S
+  t: Text
+
+  fun inner(?self) -> ?Text
+    ?self.t
+
+sub branch
+  a = S(t: Text("aa"))
+  b = S(t: Text("bb"))
+  c = a.t.len == 2
+  r = (a if c else b).inner()
+  a.t = Text("zz")
+  print(r, b.t)
+
+sub fallback
+  b = S(t: Text("bb"))
+  o: S? = S(t: Text("oo"))
+  r = (o ?? b).inner()
+  b.t = Text("zz")
+  print(r)
+
+sub element
+  ts = [S(t: Text("a")), S(t: Text("b"))]
+  us = [S(t: Text("c")), S(t: Text("d"))]
+  c = ts[0].t.len == 1
+  e = (ts if c else us)[1].inner()
+  ts[1].t = Text("zz")
+  print(e)
+
+sub main
+  branch()
+  fallback()
+  element()
+
+# errors: 3
+# error: 17:3: cannot assign to `a.t` while `a` is borrowed
+# error: 24:3: cannot assign to `b.t` while `b` is borrowed
+# error: 32:3: cannot assign to `ts[...].t` while `ts` is borrowed

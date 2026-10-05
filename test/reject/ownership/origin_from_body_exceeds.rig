@@ -1,0 +1,35 @@
+# A body is checked against its `from` clause, whatever form returns the
+# view: a tail value, a `return`, a branch, a fallback, or a call.
+
+fun tail(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
+  b
+
+fun early(a: ?Vec[Int], b: ?Vec[Int], c: Bool) -> ?Vec[Int] from a
+  return b if c
+  a
+
+fun branch(a: ?Vec[Int], b: ?Vec[Int], c: Bool) -> ?Vec[Int] from a
+  a if c else b
+
+fun fallback(a: (?Vec[Int])?, b: ?Vec[Int]) -> ?Vec[Int] from a
+  a ?? b
+
+fun both(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+  a
+
+fun through(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
+  both(a, b)
+
+fun only(s: String) -> String from static
+  s
+
+sub main
+  pass
+
+# errors: 6
+# error: 5:3: `tail` returns a view of `b`, but its signature says it views only `a`
+# error: 8:10: `early` returns a view of `b`
+# error: 12:3: `branch` returns a view of `b`
+# error: 15:3: `fallback` returns a view of `b`
+# error: 21:3: `through` returns a view of `b`
+# error: 24:3: `only` returns a view of `s`, but its signature says it views only what lives for the whole program

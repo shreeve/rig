@@ -20,3 +20,4 @@ sub main
 # error: 6:4: returned borrow of `t` does not originate from a borrowed parameter
 # error: 9:4: cannot return a borrow of `t`
 # error: 12:9: cannot return a borrow of `t`
+# errors: 3
