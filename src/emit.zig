@@ -4446,12 +4446,12 @@ pub const Emitter = struct {
     }
 
     /// The types of the run-time parameters a call's arguments fill, in
-    /// slot order: all of them for `f(...)`, `Type.method(...)`, and
-    /// `module.f(...)`; all but the receiver for `value.method(...)`.
+    /// slot order: all of them for `f(...)`, `Type.method(...)`,
+    /// `module.f(...)`, and a callable a field holds (`s.cb(...)`); all
+    /// but the receiver for `value.method(...)` (`receiverOf`).
     fn callParams(self: *Emitter, call: Sexp) []const TypeId {
-        const callee = self.sema.calleeOf(call);
-        const f = self.fnType(self.typeOf(callee)) orelse return &.{};
-        if (!callee.isKind(.member) or self.isTypeCallee(ir.Member.object(callee))) return f.params;
+        const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return &.{};
+        if (self.receiverOf(call) == null) return f.params;
         return if (f.params.len > 0) f.params[1..] else f.params;
     }
 
@@ -4540,11 +4540,9 @@ pub const Emitter = struct {
     /// The receiver of `value.method(...)` when it is an owned temporary
     /// the method consumes (`mk().consume(...)`).
     fn consumedTemporary(self: *Emitter, call: Sexp) ?Sexp {
-        const callee = self.sema.calleeOf(call);
-        if (!callee.isKind(.member)) return null;
-        const obj = ir.Member.object(callee);
-        if (isPlace(obj) or obj.isKind(.move) or self.isTypeCallee(obj) or !self.isOwnedValue(obj)) return null;
-        const f = self.fnType(self.typeOf(callee)) orelse return null;
+        const obj = self.receiverOf(call) orelse return null;
+        if (isPlace(obj) or obj.isKind(.move) or !self.isOwnedValue(obj)) return null;
+        const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return null;
         if (f.params.len == 0) return null;
         return switch (self.sema.types.get(f.params[0])) {
             .borrow_read, .borrow_write => null,
@@ -4582,10 +4580,14 @@ pub const Emitter = struct {
         return self.kindOf(t) != null;
     }
 
-    /// The receiver of `value.method(...)`.
+    /// The receiver of `value.method(...)`, which the call passes as its
+    /// first parameter: the one place emit decides a call has one. Not
+    /// `Type.f(...)` or `module.f(...)`, or a callable a data field holds
+    /// (`s.cb(...)`, `sema.callsField`), whose arguments fill every
+    /// parameter.
     fn receiverOf(self: *Emitter, call: Sexp) ?Sexp {
         const callee = self.sema.calleeOf(call);
-        if (!callee.isKind(.member)) return null;
+        if (!callee.isKind(.member) or self.sema.callsField(callee)) return null;
         const obj = ir.Member.object(callee);
         if (self.isTypeCallee(obj)) return null;
         return obj;
@@ -4593,6 +4595,7 @@ pub const Emitter = struct {
 
     /// Whether the method of `value.method(...)` takes `!self`.
     fn receiverWrites(self: *Emitter, call: Sexp) bool {
+        if (self.receiverOf(call) == null) return false;
         const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return false;
         return f.params.len > 0 and self.sema.types.get(f.params[0]) == .borrow_write;
     }

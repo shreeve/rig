@@ -6305,6 +6305,7 @@ const Checker = struct {
         if (ct != null and resolved_method == null) {
             const field_ty = try self.memberOf(callee, obj, obj_ty);
             try self.ctx.recordType(callee, field_ty);
+            try self.ctx.recordFieldCallee(callee);
             const elem_ty = try self.indexInto(ct.?, field_ty);
             try self.ctx.recordType(ct.?, elem_ty);
             if (self.isReceiverSigil(obj)) {
@@ -6357,6 +6358,7 @@ const Checker = struct {
                     if (self.isReceiverSigil(obj)) {
                         try self.fieldCallSigil(obj, method, "a field holding a function", ty);
                     } else try self.rejectResourceTemporary(obj, obj_ty);
+                    try self.ctx.recordFieldCallee(callee);
                     try self.noteCalleeType(ty);
                     return self.callValue(callee, ty, args, method);
                 }

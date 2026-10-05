@@ -638,6 +638,10 @@ pub const Facts = struct {
     /// `match` nodes whose subject is a call's result, which the match
     /// takes as `match <e` would.
     taken_subjects: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Callees `value.f` of calls `value.f(...)` (or `value.f[i](...)`)
+    /// that call a function or closure a data field holds, not a method:
+    /// such a call passes no receiver (`callsField`).
+    field_callees: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Borrows of a Text (`?Text` call results and names) lent as a
     /// String where one is expected (`SemContext.lendsText`).
     text_lends: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -1433,6 +1437,17 @@ pub const SemContext = struct {
     /// would (`recordTakenSubject`).
     pub fn takesSubject(self: *const SemContext, match: Sexp) bool {
         return self.facts.taken_subjects.contains(nodeKey(match) orelse return false);
+    }
+
+    pub fn recordFieldCallee(self: *SemContext, callee: Sexp) !void {
+        try self.facts.field_callees.put(self.allocator, recordKey(callee), {});
+    }
+
+    /// Whether `callee`, a call's `value.f`, calls a function or closure
+    /// a data field holds (`recordFieldCallee`): the call passes no
+    /// receiver, and its arguments fill every parameter.
+    pub fn callsField(self: *const SemContext, callee: Sexp) bool {
+        return self.facts.field_callees.contains(nodeKey(callee) orelse return false);
     }
 
     pub fn recordTextCall(self: *SemContext, call: Sexp, op: TextCall) !void {

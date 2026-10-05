@@ -4570,16 +4570,11 @@ pub const Checker = struct {
     /// resolved for the callee: `!self` writes, a `Self` value is consumed,
     /// anything else reads. A shared handle is only ever read through.
     /// `p.f(...)` where `f` is a data field holding a plain function or
-    /// an owned closure (not a method): neither can keep a borrow of an
-    /// argument in `p`.
+    /// an owned closure (not a method, `sema.callsField`): the call has no
+    /// receiver, and neither can keep a borrow of an argument in `p`.
     fn callsFunctionField(self: *const Checker, callee: Sexp) bool {
         const ctx = self.sema orelse return false;
-        const obj = ir.Member.object(callee);
-        const obj_ty = self.exprType(if (obj.isKind(.write) or obj.isKind(.read)) ir.get(obj, .operand) else obj) orelse return false;
-        const name = self.text(ir.Member.name(callee));
-        if (sema.hasMethodNamed(ctx, obj_ty, name)) return false;
-        const field = sema.lookupDataFieldConst(ctx, obj_ty, name) orelse return false;
-        return ctx.types.get(field.ty) == .function or sema.ownedClosureFn(ctx, field.ty) != null;
+        return ctx.callsField(callee);
     }
 
     fn receiverMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.MethodReceiver {
