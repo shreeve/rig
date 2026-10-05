@@ -13,7 +13,7 @@
 # checker decides them. A header whose subject makes a temporary is
 # rejected in sema (`rejectHeaderCopy`), so the corpus programs that have
 # one stop there too.
-tests 3039
-corpus 15435
-docs 415
-matrix 13793
+tests 3275
+corpus 15775
+docs 422
+matrix 15911
