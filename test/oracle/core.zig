@@ -105,19 +105,12 @@ pub const Loan = struct {
     /// The lend made a `?T` or `!T` pointing at the place (not a slice
     /// or a String, which view its bytes).
     pointer: bool = true,
-    /// The place reaches a Text, whose bytes a String made through the
-    /// pointer may view.
-    reaches_text: bool = false,
+    /// The type of what is lent: the place, or what a slice slices. A
+    /// view carries the loan only where that type could hold what it
+    /// views (`Func.keeps`); a loan without one, which marks where a view
+    /// is usable (a header's or a match arm's), is carried always.
+    ty: TypeId = lib.sema.type_invalid,
     pos: u32,
-
-    /// Whether a value of a type that holds views but no pointer or
-    /// slice (a String, a struct of Strings) can carry this loan: a
-    /// String views only a Text's bytes, so it carries a loan on a
-    /// place that reaches a Text, never one on a String it was copied
-    /// out of or on an array (Core s7).
-    pub fn reachesStrings(l: Loan) bool {
-        return l.external or l.reaches_text;
-    }
 };
 
 pub const AccessKind = enum {
@@ -184,6 +177,15 @@ pub const Op = struct {
     /// What the op makes holds no value that carries a loan (Core s9:
     /// an owned closure's captures); a flowing loan is C8.
     no_loans: bool = false,
+    /// A call's result carries the loans of none of these vars of
+    /// `reads` and `moves` (Core s7: only of the arguments whose
+    /// parameters could hold what it views), nor its own `loan` when
+    /// not `result_loan`.
+    no_result: []const VarId = &.{},
+    result_loan: bool = true,
+    /// What a call may store in what it was lent to write (`gains`,
+    /// `through`) carries the loans of none of these.
+    no_store: []const VarId = &.{},
 
     pub const What = enum { copy, move, take, lend, make, call, assign, use, kill, ret };
 };
@@ -201,6 +203,21 @@ pub const Func = struct {
     params: std.ArrayList(VarId) = .empty,
     /// The first finding the lowering made (C2, C3, C7).
     early: ?Finding = null,
+    /// Per var and loan (var-major, `loans.len` to a var): whether the
+    /// var may carry the loan itself. A view carries the loans of only
+    /// what could hold what it views (Core s7): a loan on a place whose
+    /// type cannot own that memory, nor reach it through a write view,
+    /// is not its own; the read views the place holds see the memory,
+    /// and the var carries their loans, which its flow brings too.
+    /// Empty: every var may carry every loan.
+    keep: []const bool = &.{},
+    /// The loans `keep` covers per var.
+    keep_loans: usize = 0,
+
+    pub fn keeps(f: *const Func, v: VarId, l: usize) bool {
+        if (f.keep.len == 0 or l >= f.keep_loans) return true;
+        return f.keep[v * f.keep_loans + l];
+    }
 };
 
 fn vn(func: *const Func, v: VarId, buf: []u8) []const u8 {
