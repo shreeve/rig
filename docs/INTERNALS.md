@@ -1680,7 +1680,12 @@ lower is an internal error: sema must have rejected it.
   `rig.dropElement` release a `T` only when the instance needs it (a
   compile-time no-op for plain data), a `?T` is a `rig.ReadBorrow(T)`,
   `/` on a `T` is `rig.div`, and the operators sema's requirements allow.
-- **Calls.** Arguments are evaluated in source order, into temporaries
+- **Calls.** Whether a call passes a receiver as its first parameter
+  is read from the parameters it fills (`callParamsOf`,
+  `storage.hasReceiver`), by emit, the storage facts, and the ownership
+  checker alike: `value.method(...)` does, and `Type.f(...)`,
+  `module.f(...)`, and a callable a field holds, `s.cb(...)`, do not.
+  Arguments are evaluated in source order, into temporaries
   when needed: when binding keyword arguments reorders two with side
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's

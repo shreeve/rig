@@ -160,15 +160,25 @@ pub fn isPureArg(ctx: *const SemContext, e: Sexp) bool {
 
 /// The receiver of `value.method(...)`.
 pub fn receiverOf(ctx: *const SemContext, call: Sexp) ?Sexp {
+    if (!hasReceiver(ctx, call)) return null;
+    return ir.Member.object(ctx.calleeOf(call));
+}
+
+/// Whether `call` passes a receiver, its callee's object, as its first
+/// parameter (`value.method(...)`), as its recorded parameters say
+/// (`SemContext.callParamsOf`): not `Type.f(...)`, `module.f(...)`, or a
+/// callable a field holds (`s.cb(...)`). A call checked against no
+/// signature has a receiver when its callee is a member of a value.
+pub fn hasReceiver(ctx: *const SemContext, call: Sexp) bool {
     const callee = ctx.calleeOf(call);
-    if (!callee.isKind(.member)) return null;
-    const obj = ir.Member.object(callee);
-    if (isTypeCallee(ctx, obj)) return null;
-    return obj;
+    if (!callee.isKind(.member)) return false;
+    if (ctx.callParamsOf(call)) |filled| return filled.fills.len > 0 and filled.fills[0] == .receiver;
+    return !isTypeCallee(ctx, ir.Member.object(callee));
 }
 
 /// Whether the method of `value.method(...)` takes `!self`.
 pub fn receiverWrites(ctx: *const SemContext, call: Sexp) bool {
+    if (!hasReceiver(ctx, call)) return false;
     const f = fnType(ctx, typeOf(ctx, ctx.calleeOf(call))) orelse return false;
     return f.params.len > 0 and ctx.types.get(f.params[0]) == .borrow_write;
 }
@@ -176,10 +186,10 @@ pub fn receiverWrites(ctx: *const SemContext, call: Sexp) bool {
 /// The receiver of `value.method(...)` when it is an owned temporary
 /// the method consumes (`mk().consume(...)`).
 pub fn consumedTemporary(ctx: *const SemContext, call: Sexp) ?Sexp {
+    if (!hasReceiver(ctx, call)) return null;
     const callee = ctx.calleeOf(call);
-    if (!callee.isKind(.member)) return null;
     const obj = ir.Member.object(callee);
-    if (hasStorage(ctx, obj) or obj.isKind(.move) or isTypeCallee(ctx, obj) or !ownsValue(ctx, obj)) return null;
+    if (hasStorage(ctx, obj) or obj.isKind(.move) or !ownsValue(ctx, obj)) return null;
     const f = fnType(ctx, typeOf(ctx, callee)) orelse return null;
     if (f.params.len == 0) return null;
     return switch (ctx.types.get(f.params[0])) {
@@ -304,12 +314,19 @@ pub fn argumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
     return .value;
 }
 
-/// The type of the parameter argument `a` of `call` fills, its
-/// receiver aside; null when unknown.
+/// The types of the run-time parameters a call's arguments fill, in
+/// slot order: every parameter but the one its receiver fills, as the
+/// call's recorded parameters say (`SemContext.callParamsOf`). A callable
+/// a field holds (`s.cb(...)`) has no receiver; `value.method(...)` does.
+pub fn argParams(ctx: *const SemContext, call: Sexp) []const TypeId {
+    const f = fnType(ctx, typeOf(ctx, ctx.calleeOf(call))) orelse return &.{};
+    return if (hasReceiver(ctx, call) and f.params.len > 0) f.params[1..] else f.params;
+}
+
+/// The type of the parameter argument `a` of `call` fills; null when
+/// unknown.
 fn argumentParam(ctx: *const SemContext, call: Sexp, ai: usize) ?TypeId {
-    const callee = ctx.calleeOf(call);
-    const f = fnType(ctx, typeOf(ctx, callee)) orelse return null;
-    const params = if (!callee.isKind(.member) or isTypeCallee(ctx, ir.Member.object(callee))) f.params else if (f.params.len > 0) f.params[1..] else f.params;
+    const params = argParams(ctx, call);
     const slot = if (ctx.callSlotsOf(call)) |slots| for (slots, 0..) |s, i| {
         if (s == .arg and s.arg == ai) break i;
     } else ai else ai;

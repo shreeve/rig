@@ -5025,14 +5025,9 @@ pub const Emitter = struct {
         try self.emitBare(arg);
     }
 
-    /// The types of the run-time parameters a call's arguments fill, in
-    /// slot order: all of them for `f(...)`, `Type.method(...)`, and
-    /// `module.f(...)`; all but the receiver for `value.method(...)`.
+    /// `storage.argParams`.
     fn callParams(self: *Emitter, call: Sexp) []const TypeId {
-        const callee = self.sema.calleeOf(call);
-        const f = self.fnType(self.typeOf(callee)) orelse return &.{};
-        if (!callee.isKind(.member) or self.isTypeCallee(ir.Member.object(callee))) return f.params;
-        return if (f.params.len > 0) f.params[1..] else f.params;
+        return storage.argParams(self.sema, call);
     }
 
     /// `storage.isTypeCallee`.
