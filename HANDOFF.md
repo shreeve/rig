@@ -7,11 +7,11 @@ from).
 
 ## Current state
 
-- **Release:** `v0.1.5` is the latest release (Zig 0.17.0, Nexus
-  2.0.0), with CI green on Linux and macOS. It fixes use-after-frees and
-  lost changes through method receivers: views of branching or temporary
-  receivers, a receiver stored into a write argument, and changes to a
-  branching receiver. `v0.1.4` through `v0.1.1` fixed six earlier
+- **Release:** `v0.1.6` is the latest release (Zig 0.17.0, Nexus
+  2.0.0), with CI green on Linux and macOS. It rejects every header that
+  binds a copy of its subject (a use-after-free and lost writes), passes
+  a field callable's arguments to their own parameters (a leak), and fixes
+  two Zig compile errors. `v0.1.5` through `v0.1.1` fixed earlier
   use-after-free classes. The version string in `build.zig` changes only
   when a release is cut.
 - **Branches:** `main` is the one long-lived branch. Work lands through
