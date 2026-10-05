@@ -1,4 +1,4 @@
-# A borrow used earlier in a loop body is used again by the next
+# A view used earlier in a loop body is used again by the next
 # iteration: it is live at the end of the body.
 
 struct Wrap

@@ -1,6 +1,6 @@
-# Moving a borrow (or a value holding one) into an argument or a field
+# Moving a view (or a value holding one) into an argument or a field
 # keeps its loans in force until the call or construction ends, so a
-# later argument cannot borrow or move the same root.
+# later argument cannot lend or move the same root.
 
 struct Wrap
   v: Vec[Int]

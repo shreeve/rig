@@ -1,5 +1,5 @@
-# A read borrow cannot be upgraded to a write borrow of a part of the
-# value: a field reached through `?T` cannot be write-borrowed, given to
+# A read view cannot be upgraded to a write view of a part of the
+# value: a field reached through `?T` cannot be lent to write, given to
 # a `!self` method, or write-iterated.
 
 struct Counter

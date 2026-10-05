@@ -1,6 +1,6 @@
-# An element that is itself a write borrow (`[2]!Int`) is written
-# through by index, `xs[i] += 1`: a loop binding would be a borrow of
-# the borrow. A loop still walks elements that hold write borrows in
+# An element that is itself a write view (`[2]!Int`) is written
+# through by index, `xs[i] += 1`: a loop binding would be a view of
+# the view. A loop still walks elements that hold write views in
 # their fields with `for x in !xs`.
 
 struct H

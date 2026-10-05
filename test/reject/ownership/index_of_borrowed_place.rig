@@ -1,6 +1,6 @@
-# A borrow, a slice, or a method's receiver takes the address of its
+# A view, a slice, or a method's receiver takes the address of its
 # place, found up to each index before the index runs: an index cannot
-# write-borrow or move the place's root, which could grow or free the
+# lend the place's root to write, or move it, which could grow or free the
 # memory the place is in. (An assignment's target is found after its
 # indices run, so there an index may.)
 

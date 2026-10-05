@@ -1,5 +1,5 @@
 # `<self` is only a method's first parameter, and only `self` takes it; a
-# drop body borrows its receiver, so it cannot take `<self`.
+# drop body views its receiver, so it cannot take `<self`.
 
 struct Conn
   name: String

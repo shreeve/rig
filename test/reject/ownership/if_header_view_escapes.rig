@@ -1,6 +1,6 @@
 # The temporaries of an `if` header live through the `if`, and no
 # longer: a view of one the body leaves in a binding, a Vec, or through
-# a borrow outlives them.
+# a view outlives them.
 
 use std.text
 

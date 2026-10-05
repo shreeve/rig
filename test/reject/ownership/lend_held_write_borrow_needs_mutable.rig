@@ -1,4 +1,4 @@
-# Lending a write borrow held in a field (`!h.w`) writes through it, as
+# Lending a write view held in a field (`!h.w`) writes through it, as
 # `h.w += 1` does, so it needs write access to what holds it: a plain
 # parameter and a fixed binding do not give it, and a temporary would
 # be gone after the statement.

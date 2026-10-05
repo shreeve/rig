@@ -1,4 +1,4 @@
-# A write-borrowed counter argument stays write-borrowed while the
+# A lent to write counter argument stays lent to write while the
 # result lives, so it cannot even be read.
 struct Entry
   name: String

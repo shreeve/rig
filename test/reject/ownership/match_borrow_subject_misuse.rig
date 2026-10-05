@@ -1,6 +1,6 @@
-# `match <s` on a write borrow points at `match !s`; `match !s` through a
-# read borrow is one error, not a cascade; a bare match's binding of a
-# write borrow, or of the whole borrowed value, only reads.
+# `match <s` on a write view points at `match !s`; `match !s` through a
+# read view is one error, not a cascade; a bare match's binding of a
+# write view, or of the whole viewed value, only reads.
 
 struct B
   n: Int

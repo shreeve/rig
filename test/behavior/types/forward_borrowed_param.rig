@@ -1,4 +1,4 @@
-# A read-borrowed parameter can be forwarded: `?b` with `b: ?B` reborrows
+# A lent to read parameter can be forwarded: `?b` with `b: ?B` lends on
 # as `?B` rather than nesting.
 
 struct B

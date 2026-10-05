@@ -1,4 +1,4 @@
-# `for x in !xs` write-borrows `xs` for the whole loop.
+# `for x in !xs` lends `xs` to write for the whole loop.
 
 sub main()
   v: Vec[Int] = Vec()

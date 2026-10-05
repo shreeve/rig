@@ -1,5 +1,5 @@
 # Loop element of a read loop over plain data: a copy; the source stays
-# read-borrowed for the loop.
+# lent to read for the loop.
 sub main
   xs = [1, 2, 3]
   for x in ?xs

@@ -148,7 +148,7 @@ grep -qE 'var __rig_(arg|recv)_' <<<"$out" && fail "a temporary copied into the 
 grep -qE '__rig_recv_[0-9]+ = &\(rig\.keep\(' <<<"$out" || fail "kept receiver not reached in its slot: $out"
 
 # A `match` on a generic read view a name holds switches on the value
-# where the view reaches it, never on a copy (`rig.borrowed`).
+# where the view reaches it, never on a copy (`rig.viewed`).
 cat >generic.rig <<'EOF2'
 enum Opt[T]
   some(v: T)

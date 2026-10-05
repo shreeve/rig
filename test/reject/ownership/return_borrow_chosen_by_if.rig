@@ -1,4 +1,4 @@
-# A borrow returned through an if-expression must come from a borrowed
+# A view returned through an if-expression must come from a viewed
 # parameter on every branch.
 
 struct Wrap

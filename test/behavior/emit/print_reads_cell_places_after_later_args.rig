@@ -1,6 +1,6 @@
 # `print` reads every place that owns storage when it is called, after
 # its later arguments ran, however the place is reached: through a read
-# or write borrow, a generic `?T`, an optional, a Box, or a closure's
+# or write view, a generic `?T`, an optional, a Box, or a closure's
 # capture. Each later argument here grows the Cell's Vec, which moves
 # its buffer.
 struct S

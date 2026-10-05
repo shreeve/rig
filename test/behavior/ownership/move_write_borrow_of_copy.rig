@@ -1,4 +1,4 @@
-# Moving a write borrow into a local moves the borrow, whatever it
+# Moving a write view into a local moves the view, whatever it
 # points to: `w = <a` of an `a: !Int` binds a `!Int`, and writing `w`
 # writes the caller's value, as it does for a struct.
 

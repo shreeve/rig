@@ -1,5 +1,5 @@
 # Deferred code runs as its scope exits, before the scope's values are
-# dropped: a borrow it stores in a binding from outside the scope would
+# dropped: a view it stores in a binding from outside the scope would
 # outlive them.
 
 sub main

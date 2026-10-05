@@ -1,8 +1,8 @@
-# A borrow a closure receives as a parameter lives only for that call,
-# as do the closure's own locals, while a captured write borrow reaches
+# A view a closure receives as a parameter lives only for that call,
+# as do the closure's own locals, while a captured write view reaches
 # a value that outlives every call. So neither may be stored through the
-# capture, by field or by whole assignment; a borrow the closure
-# captured may, and the captured value then borrows it.
+# capture, by field or by whole assignment; a view the closure
+# captured may, and the captured value then views it.
 
 struct View
   w: ?Vec[Int]

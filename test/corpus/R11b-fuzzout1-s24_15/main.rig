@@ -1,6 +1,6 @@
 # The ownership checker checks each instance of another module's
 # generic against that module's body: an owning argument where the body
-# copies a `T` (the note points into the body), and a borrow where a
+# copies a `T` (the note points into the body), and a view where a
 # generic function, or a generic type with methods, takes a `T`.
 
 use lib

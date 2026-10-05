@@ -1,5 +1,5 @@
-# A value holding a Cell is borrowed by `if ?o as x`, not copied, so a
-# change through the Cell reaches `o`. A write borrow a call returns is
+# A value holding a Cell is lent by `if ?o as x`, not copied, so a
+# change through the Cell reaches `o`. A write view a call returns is
 # bound as one, as `!o` is.
 
 struct C

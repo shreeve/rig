@@ -1,4 +1,4 @@
-# The matched value stays borrowed while a payload binding is in use:
+# The matched value stays lent while a payload binding is in use:
 # overwriting it would drop the value the payload views.
 
 struct Tok

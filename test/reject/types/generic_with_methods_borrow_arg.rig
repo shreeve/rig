@@ -1,5 +1,5 @@
 # The methods of a generic type are checked for a `T` that holds no
-# borrow, so such a type cannot be instantiated with a borrow. (A generic
+# view, so such a type cannot be instantiated with a view. (A generic
 # type without methods can hold one.)
 
 struct P

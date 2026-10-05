@@ -1,4 +1,4 @@
-# After `!b.copy(?a[..])`, `a` stays read-borrowed for as long as `b` lives.
+# After `!b.copy(?a[..])`, `a` stays lent to read for as long as `b` lives.
 sub main()
   a = [1, 2, 3]
   b = [0, 0, 0]

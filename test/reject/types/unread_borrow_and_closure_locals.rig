@@ -1,4 +1,4 @@
-# A borrow binding and a local of a closure body must be read too.
+# A view binding and a local of a closure body must be read too.
 
 sub main()
   v: Vec[Int] = Vec()

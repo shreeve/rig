@@ -1,5 +1,5 @@
 # Taking an optional out of a field writes the field: not through a read
-# borrow or a shared handle.
+# view or a shared handle.
 
 struct N
   v: Int

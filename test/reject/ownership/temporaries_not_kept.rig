@@ -1,5 +1,5 @@
 # An owning temporary lives until its statement ends, so nothing may
-# keep a borrow of it: not a binding, a field, a call's String result,
+# keep a view of it: not a binding, a field, a call's String result,
 # or a slice. A `match` takes a call's result: a view of a payload it
 # binds ends with the arm.
 

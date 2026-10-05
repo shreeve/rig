@@ -1,4 +1,4 @@
-# The result borrows the `?Int` argument as well.
+# The result views the `?Int` argument as well.
 struct Entry
   name: String
 

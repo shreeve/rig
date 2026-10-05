@@ -1,5 +1,5 @@
-# A clone of a shared handle whose value holds a borrow reaches that
-# borrow too: the borrowed value stays borrowed while the clone lives.
+# A clone of a shared handle whose value holds a view reaches that
+# view too: the viewed value stays lent while the clone lives.
 
 struct Wrap
   payload: Int

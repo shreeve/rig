@@ -1,5 +1,5 @@
 # generic: in a generic body, `w: ?Wrap[T]` is read through
-# `rig.borrowed(Wrap(T), w)`, a copy. A guarded `match ?w.e` on a plain
+# `rig.viewed(Wrap(T), w)`, a copy. A guarded `match ?w.e` on a plain
 # field holds `&<w.e>` as its subject; the plain catch-all `x: ?E` is
 # not arm-local and is returned. Is the address into the copy?
 enum E

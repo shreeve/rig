@@ -1,4 +1,4 @@
-# A borrow of a local stored in a returned struct escapes the function.
+# A view of a local stored in a returned struct escapes the function.
 
 struct User
   age: Int

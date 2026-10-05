@@ -1,4 +1,4 @@
-# A write borrow of a value that cannot hold a borrow keeps no loan of
+# A write view of a value that cannot hold a view keeps no loan of
 # the call's other arguments.
 
 sub f(a: !Int, b: !Int)

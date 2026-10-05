@@ -1,8 +1,8 @@
 # A call evaluates its arguments left to right and uses them all when
 # it runs. An argument that reads a value owning storage (a Vec, a Box,
 # a shared handle, or a struct holding one) shares that storage with
-# the place it reads, so a later argument cannot write-borrow or move
-# that place: the call would see a stale or freed value. A borrow, a
+# the place it reads, so a later argument cannot lend to write or move
+# that place: the call would see a stale or freed value. A view, a
 # slice, or a read receiver in an earlier argument holds it the same
 # way.
 

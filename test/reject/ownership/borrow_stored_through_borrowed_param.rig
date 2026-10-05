@@ -1,4 +1,4 @@
-# A function cannot store a borrow of its own local into a struct the
+# A function cannot store a view of its own local into a struct the
 # caller owns: the local dies when the function returns.
 
 struct Wrap

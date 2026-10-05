@@ -1,4 +1,4 @@
-# A read borrow of a Vec element through a read-borrowed receiver reads
+# A read view of a Vec element through a lent to read receiver reads
 # the element in place.
 
 struct P

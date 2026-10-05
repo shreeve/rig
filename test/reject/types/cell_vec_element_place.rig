@@ -1,4 +1,4 @@
-# An element of a Cell's Vec is a copy: it cannot be borrowed, and it is
+# An element of a Cell's Vec is a copy: it cannot be lent, and it is
 # written whole with `c[i] = e`, not through a field or `+=`.
 
 struct P

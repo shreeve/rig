@@ -1,6 +1,6 @@
 # `!xs[a..b]` needs elements the code may write: not a String's, not a
 # `[]T`'s, and not those of a fixed binding, a loop binding (a copy), a
-# by-value or read-borrowed parameter, or a temporary.
+# by-value or lent to read parameter, or a temporary.
 
 fun make -> [2]Int
   [1, 2]

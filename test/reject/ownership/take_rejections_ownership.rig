@@ -1,5 +1,5 @@
 # Taking an optional out of a field writes the field: not while another
-# borrow of the value is live, and not twice in one call. A field that
+# view of the value is live, and not twice in one call. A field that
 # is not optional still cannot be moved out; it is exchanged with
 # `replace`. A local is moved as a whole, and cannot be used after.
 

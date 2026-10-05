@@ -1,6 +1,6 @@
-# A field assigned through a local write borrow is part of the place it
-# borrows, which outlives a later local and the function's own values
-# when it is a borrowed parameter.
+# A field assigned through a local write view is part of the place it
+# views, which outlives a later local and the function's own values
+# when it is a view parameter.
 
 struct In
   n: Int

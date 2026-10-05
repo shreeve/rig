@@ -1,5 +1,5 @@
-# A call whose result can hold a borrow borrows from its borrowed
-# arguments: `v` keeps `h` borrowed.
+# A call whose result can hold a view views from its viewed
+# arguments: `v` keeps `h` viewed.
 
 struct Wrap
   payload: Int

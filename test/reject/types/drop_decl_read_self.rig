@@ -1,5 +1,5 @@
-# A `drop` declaration's receiver is write-borrowed, `drop(!self)`; a
-# read borrow is rejected.
+# A `drop` declaration's receiver is lent to write, `drop(!self)`; a
+# read view is rejected.
 
 struct File
   fd: Int

@@ -1,7 +1,7 @@
-# Only a `?fun(...)` / `?sub(...)` written as such is a borrowed
-# callable. A `?T` whose `T` is a function type is a read borrow of a
+# Only a `?fun(...)` / `?sub(...)` written as such is a viewed
+# callable. A `?T` whose `T` is a function type is a read view of a
 # function value, in a generic function, field, or payload, and a
-# function value may be write-borrowed and reassigned through `!T`. A
+# function value may be lent to write and reassigned through `!T`. A
 # closure captured with `|?f|` is lent, and can be passed on.
 
 struct View[T]

@@ -1,6 +1,6 @@
-# A handle keeps a value alive, and a borrow is no value it could keep:
-# a handle to a borrow is rejected as a type, as a type argument, and
-# when a borrow is shared.
+# A handle keeps a value alive, and a view is no value it could keep:
+# a handle to a view is rejected as a type, as a type argument, and
+# when a view is shared.
 
 struct P
   x: Int

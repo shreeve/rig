@@ -1,4 +1,4 @@
-# Only `!T` parameters are assignable; a `?T` parameter is a read borrow.
+# Only `!T` parameters are assignable; a `?T` parameter is a read view.
 
 sub bump(c: ?Int)
   c = c + 1

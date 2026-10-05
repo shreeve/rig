@@ -1,4 +1,4 @@
-# A borrowed `T` operand records the requirement a `T` operand would:
+# A viewed `T` operand records the requirement a `T` operand would:
 # an instance whose type lacks the operation is reported at the call,
 # with a note at the body line.
 

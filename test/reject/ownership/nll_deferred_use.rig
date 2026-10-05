@@ -1,4 +1,4 @@
-# Deferred code runs at scope exit: a borrow it uses is live until
+# Deferred code runs at scope exit: a view it uses is live until
 # then.
 
 struct Wrap

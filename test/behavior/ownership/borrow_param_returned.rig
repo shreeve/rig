@@ -1,5 +1,5 @@
-# A function may return one of its borrowed parameters, chosen by an
-# if-expression; the result borrows from both arguments.
+# A function may return one of its view parameters, chosen by an
+# if-expression; the result views from both arguments.
 
 struct Wrap
   payload: Int

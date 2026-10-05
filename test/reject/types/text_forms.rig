@@ -1,5 +1,5 @@
 # A Text is changed only through its `!` methods, and viewed only
-# through a visible `?` borrow.
+# through a visible `?` view.
 
 sub main
   t = Text("abc")

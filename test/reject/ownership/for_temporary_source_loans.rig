@@ -1,6 +1,6 @@
 # The elements of a `for` over a value no binding holds (an array
-# literal, or a call's result) carry what that value borrows, so one
-# stored outside the loop keeps it borrowed.
+# literal, or a call's result) carry what that value views, so one
+# stored outside the loop keeps it viewed.
 
 struct C
   s: String

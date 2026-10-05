@@ -1,4 +1,4 @@
-# A `?self` method may return a borrow into `self`.
+# A `?self` method may return a view into `self`.
 
 struct Wrap
   payload: Int

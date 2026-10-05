@@ -1,4 +1,4 @@
-# `.len` of a Vec reads through a read or write borrow and a shared
+# `.len` of a Vec reads through a read or write view and a shared
 # handle, like `.len` of an array.
 
 fun count(v: ?Vec[Int]) -> Int

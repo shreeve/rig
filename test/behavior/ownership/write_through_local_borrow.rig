@@ -1,5 +1,5 @@
-# A local write borrow is assigned like a `!T` parameter: `w = v` and
-# `w += 1` write through to the borrowed value (a resource's old value
+# A local write view is assigned like a `!T` parameter: `w = v` and
+# `w += 1` write through to the viewed value (a resource's old value
 # is dropped), and `new w = !m` points a new binding at another place.
 
 struct R

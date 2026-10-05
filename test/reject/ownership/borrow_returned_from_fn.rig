@@ -1,4 +1,4 @@
-# A borrow returned from a function borrows from the borrowed argument,
+# A view returned from a function views from the viewed argument,
 # so `h` cannot be dropped while `r` is live.
 
 struct Wrap

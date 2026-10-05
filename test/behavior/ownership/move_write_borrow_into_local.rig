@@ -1,4 +1,4 @@
-# Moving a write borrow into a local moves the borrow: writes through the
+# Moving a write view into a local moves the view: writes through the
 # local reach the caller's value.
 
 struct B

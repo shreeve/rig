@@ -1,5 +1,5 @@
-# A write borrow held in a field of a binding that cannot lend it (a
-# plain parameter, a fixed binding, a read borrow) is not lent by adding
+# A write view held in a field of a binding that cannot lend it (a
+# plain parameter, a fixed binding, a read view) is not lent by adding
 # `!`: the diagnostic says what would let it be lent instead.
 
 struct H

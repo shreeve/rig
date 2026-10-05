@@ -1,4 +1,4 @@
-# A write borrow held in a field of a value no binding holds is used as
+# A write view held in a field of a value no binding holds is used as
 # `!mk().w` is: writing through it, like lending it, needs the value
 # bound first.
 

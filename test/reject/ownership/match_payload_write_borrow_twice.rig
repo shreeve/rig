@@ -1,6 +1,6 @@
-# A `match !h` payload write-borrows its scrutinee while it is live, so
+# A `match !h` payload lends to write its scrutinee while it is live, so
 # a nested match on the same value cannot bind a second view of it. (A
-# read match views a payload holding a write borrow, `?Ed`, which only
+# read match views a payload holding a write view, `?Ed`, which only
 # reads.)
 
 struct Wrap

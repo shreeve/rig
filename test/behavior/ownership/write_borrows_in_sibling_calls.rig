@@ -1,5 +1,5 @@
-# A borrow passed to a call ends when the call returns, so two calls in
-# one statement may each write-borrow the same value.
+# A view passed to a call ends when the call returns, so two calls in
+# one statement may each lend the same value to write.
 
 fun bump(c: !Int) -> Int
   c = c + 1

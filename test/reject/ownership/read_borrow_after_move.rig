@@ -1,4 +1,4 @@
-# Taking a read borrow (`?packet`) of a moved value is rejected.
+# Taking a read view (`?packet`) of a moved value is rejected.
 
 struct Packet
   payload: Int

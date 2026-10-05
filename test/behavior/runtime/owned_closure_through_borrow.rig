@@ -1,5 +1,5 @@
-# An owned closure is called through a borrow of its handle: one a
-# method returns, one bound to a name, and a borrowed parameter.
+# An owned closure is called through a view of its handle: one a
+# method returns, one bound to a name, and a view parameter.
 
 struct Hold
   v: *fun(Int) -> Int

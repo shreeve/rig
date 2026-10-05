@@ -1,4 +1,4 @@
-# A method returning a read borrow of a handle it holds: the borrow is a
+# A method returning a read view of a handle it holds: the view is a
 # pointer to the handle, and a field is reached through it.
 
 struct B

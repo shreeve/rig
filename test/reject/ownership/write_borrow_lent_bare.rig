@@ -1,7 +1,7 @@
-# Lending a write borrow always shows its sigil: a held write borrow (a
+# Lending a write view always shows its sigil: a held write view (a
 # `!T` parameter, `self` in a `!self` method, a local, a field) is lent
 # to a `!T` parameter, a `!self` receiver, a field, or an element
-# method as `!w`. A held read borrow is lent on bare.
+# method as `!w`. A held read view is lent on bare.
 
 struct Counter
   n: Int

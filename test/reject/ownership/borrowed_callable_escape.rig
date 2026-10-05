@@ -1,8 +1,8 @@
-# A borrowed callable follows the second-class borrow rules. It may not
+# A callable view follows the second-class view rules. It may not
 # outlive the closure it lends or what that closure captured, be
 # captured by an owned closure, or be returned from a function that was
-# lent nothing; and a closure literal's captures borrow for the call, so
-# they conflict with the call's other borrows.
+# lent nothing; and a closure literal's captures view for the call, so
+# they conflict with the call's other views.
 
 struct Res
   id: Int

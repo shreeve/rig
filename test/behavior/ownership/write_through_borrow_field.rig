@@ -1,6 +1,6 @@
 # A field of type `!T` is written through the way a local `!T` binding
 # is: assigning a `T` value, or a compound assignment, writes the
-# borrowed place. Assigning a `!T` (`h.w = !m`) points the field
+# viewed place. Assigning a `!T` (`h.w = !m`) points the field
 # elsewhere.
 
 struct H

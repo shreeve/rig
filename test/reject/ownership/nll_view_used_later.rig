@@ -1,4 +1,4 @@
-# A view holding a borrow keeps it until the view's last use.
+# A view holding a view keeps it until the view's last use.
 
 struct Wrap
   n: Int

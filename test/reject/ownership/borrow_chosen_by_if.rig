@@ -1,5 +1,5 @@
-# A borrow chosen by an if-expression borrows from every candidate, so
-# `h` stays borrowed while `r` is live.
+# A view chosen by an if-expression views from every candidate, so
+# `h` stays lent while `r` is live.
 
 struct Wrap
   payload: Int

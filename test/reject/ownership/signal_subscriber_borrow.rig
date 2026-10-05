@@ -1,5 +1,5 @@
 # A Signal keeps its subscribers, owned closures that any handle to the
-# Signal can run, so a subscriber cannot capture a borrow.
+# Signal can run, so a subscriber cannot capture a view.
 
 struct Wrap
   payload: Int

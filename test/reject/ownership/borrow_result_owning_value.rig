@@ -1,5 +1,5 @@
 # Only a number, `Bool`, `String`, or plain enum reads as the value a
-# borrow reaches. A borrow of an owning value, or of a `T` that may own
+# view reaches. A view of an owning value, or of a `T` that may own
 # one, is not copied out where the value is expected.
 
 fun wv(a: !Vec[Int]) -> !Vec[Int]

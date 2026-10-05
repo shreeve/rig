@@ -1,6 +1,6 @@
 # A box of a handle, a boxed value's data field named `unbox` (the box's
 # own `unbox` is only called), and `match` on each boxed enum a loop
-# walks by borrowed slot.
+# walks by viewed slot.
 
 struct R
   n: Int

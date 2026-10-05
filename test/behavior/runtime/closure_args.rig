@@ -1,4 +1,4 @@
-# A `?fun` / `?sub` parameter takes a borrowed callable: a closure
+# A `?fun` / `?sub` parameter takes a callable view: a closure
 # literal written in the call, a named stack closure lent as `?f`, a
 # function, or an owned closure lent as `?cb`. The callee calls it and
 # forwards it, here into a recursive helper. A literal's environment

@@ -31,7 +31,7 @@ sub main()
   sig.set(7)                        # sig 7
   sig.set(99)                       # sig 99
 
-  # A Vec of closures, walked by borrowed slot.
+  # A Vec of closures, walked by viewed slot.
   notes: *Cell[I128] = *Cell(0)
   steps: Vec[*sub()] = Vec()
   !steps.push(*|+notes| notes.set(notes.get() + 1))

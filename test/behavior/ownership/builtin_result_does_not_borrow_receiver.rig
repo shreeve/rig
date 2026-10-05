@@ -1,5 +1,5 @@
 # A value taken out of a Vec or Cell (`pop`, `replace`) is handed over:
-# it does not keep the container borrowed.
+# it does not keep the container viewed.
 
 sub main()
   v: Vec[*sub()] = Vec()

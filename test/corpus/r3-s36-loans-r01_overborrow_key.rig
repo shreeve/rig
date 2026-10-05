@@ -1,4 +1,4 @@
-# Sentence 7 over-borrows: the result borrows `key` too, though no
+# Sentence 7 over-lends: the result views `key` too, though no
 # `?Entry` can come from a `?Key`. Editing the key while the entry is
 # in use is rejected.
 struct Entry

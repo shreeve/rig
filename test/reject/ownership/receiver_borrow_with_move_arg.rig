@@ -1,4 +1,4 @@
-# A method call borrows its receiver for the whole call, so
+# A method call views its receiver for the whole call, so
 # `rc.show(<rc)` is rejected like `show(?rc, <rc)`.
 
 struct Inner

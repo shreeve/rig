@@ -1,4 +1,4 @@
-# A condition part or guard may store a borrow of its binding in an
+# A condition part or guard may store a view of its binding in an
 # outer value that is not used where the failing path goes on.
 
 struct Big

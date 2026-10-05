@@ -1,4 +1,4 @@
-# A write borrow held in an element of a slice is lent on only through
+# A write view held in an element of a slice is lent on only through
 # storage that may be written; a `[]T` is read-only.
 
 struct H

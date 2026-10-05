@@ -1,7 +1,7 @@
-# A value stored through nested write borrows lands in the value the
-# last one reaches, which must not outlive what the value borrows:
+# A value stored through nested write views lands in the value the
+# last one reaches, which must not outlive what the value views:
 # `o.i = Inner(x: !k)` stores into `inn`, and `o.i.x = R(y: !k)` into
-# `r`, however the path gets there: through a local write borrow, an
+# `r`, however the path gets there: through a local write view, an
 # element, or a `match !e` binding.
 
 struct R

@@ -1,4 +1,4 @@
-# A `[]T` is read-only: its elements cannot be assigned, write-borrowed,
+# A `[]T` is read-only: its elements cannot be assigned, lent to write,
 # or reached by a `!self` method.
 
 struct P

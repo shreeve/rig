@@ -1,4 +1,4 @@
-# A guard that fails runs on the way to the later arms: a borrow it
+# A guard that fails runs on the way to the later arms: a view it
 # stored in an outer value is still there after the match, even when
 # the guarded arm's body never falls through.
 

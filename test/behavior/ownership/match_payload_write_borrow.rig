@@ -1,4 +1,4 @@
-# A payload holding a write borrow can be written through under
+# A payload holding a write view can be written through under
 # `match !h`, and the scrutinee is usable again once the payload binding
 # is done. (A read match views the payload, `?Ed`, which only reads.)
 

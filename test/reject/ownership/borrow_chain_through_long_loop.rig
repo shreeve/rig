@@ -1,4 +1,4 @@
-# A borrow handed down a 70-link chain, one link per loop iteration,
+# A view handed down a 70-link chain, one link per loop iteration,
 # still reaches the first link: the loop analysis runs to its fixpoint
 # however many rounds that takes, so dropping `b` is rejected.
 

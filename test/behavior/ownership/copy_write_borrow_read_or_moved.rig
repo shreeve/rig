@@ -1,4 +1,4 @@
-# A bare write borrow of a Copy value is read where its context wants
+# A bare write view of a Copy value is read where its context wants
 # the value: a binding, a field or argument of the value's type, a
 # `break` value of a loop whose value is read, or a branch of one.
 # Where a `!T` goes, it is moved with `<w`.

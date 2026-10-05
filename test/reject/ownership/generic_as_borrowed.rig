@@ -1,5 +1,5 @@
-# In a generic body, `if o as v` or `while o as v` over a borrowed
-# optional of `T` moves a `T` out of a borrow, so every instance must
+# In a generic body, `if o as v` or `while o as v` over a viewed
+# optional of `T` moves a `T` out of a view, so every instance must
 # be plain data.
 
 struct Res

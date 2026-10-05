@@ -1,5 +1,5 @@
-# A call may store a borrow through a write borrow it is given: the
-# store lands in the value the borrow leads to, which then holds it.
+# A call may store a view through a write view it is given: the
+# store lands in the value the view leads to, which then holds it.
 
 struct In
   n: Int

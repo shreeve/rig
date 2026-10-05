@@ -1,7 +1,7 @@
-# What a borrowed callable returns may borrow what it captured: a call's
-# result, and what its write borrows lead to, carry those borrows, so
+# What a callable view returns may lend what it captured: a call's
+# result, and what its write views lead to, carry those views, so
 # they cannot outlive the captured values; and a callable's result that
-# borrows the callee's own local cannot be returned.
+# views the callee's own local cannot be returned.
 
 struct Wrap
   n: Int

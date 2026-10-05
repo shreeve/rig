@@ -1,4 +1,4 @@
-# A closure's value cannot borrow the closure's own locals.
+# A closure's value cannot lend the closure's own locals.
 
 struct Wrap
   v: Vec[Int]

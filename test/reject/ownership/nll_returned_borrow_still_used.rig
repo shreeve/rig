@@ -1,4 +1,4 @@
-# A borrow a function returns borrows every borrowed argument, until
+# A view a function returns views every viewed argument, until
 # its last use.
 
 struct Wrap

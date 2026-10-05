@@ -1,4 +1,4 @@
-# A labeled block's break leaves a scope; a borrow of a var declared
+# A labeled block's break leaves a scope; a view of a var declared
 # in it, stored into an outer var before the break, must be reported.
 struct R
   n: Int

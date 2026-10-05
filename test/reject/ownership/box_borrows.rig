@@ -1,4 +1,4 @@
-# A read borrow of a boxed value cannot write the value or lend it to
+# A read view of a boxed value cannot write the value or lend it to
 # write.
 
 struct Node

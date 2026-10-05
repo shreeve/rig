@@ -1,5 +1,5 @@
 # std.text's iterators are made by `split`, `lines`, and `words`, which
-# check their arguments, and advanced through a write borrow.
+# check their arguments, and advanced through a write view.
 use std.text
 
 sub main()

@@ -1,7 +1,7 @@
-# A Cell is reached through every clone of its handle and every borrow
+# A Cell is reached through every clone of its handle and every view
 # of it, so a value put in it (`Cell(v)`, `set`, `replace`) may
-# not hold a borrow: another path to the cell could read it after the
-# borrowed value is gone.
+# not hold a view: another path to the cell could read it after the
+# viewed value is gone.
 
 struct Wrap
   v: Vec[Int]

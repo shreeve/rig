@@ -1,5 +1,5 @@
-# A generic function's body is checked for a `T` that holds no borrow,
-# so a type argument cannot be a borrow, or hold one: take `?T` or `!T`
+# A generic function's body is checked for a `T` that holds no view,
+# so a type argument cannot be a view, or hold one: take `?T` or `!T`
 # in the signature instead.
 
 struct P

@@ -1,4 +1,4 @@
-# Writing through a borrow held in a field needs write access to the
+# Writing through a view held in a field needs write access to the
 # struct, as writing any field does: not through a plain parameter or
 # a captured value.
 

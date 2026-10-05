@@ -1,5 +1,5 @@
-# A shared handle whose value holds a write borrow cannot lend it: other
-# handles reach the same write borrow.
+# A shared handle whose value holds a write view cannot lend it: other
+# handles reach the same write view.
 
 struct Wrap
   v: Vec[Int]

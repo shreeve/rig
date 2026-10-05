@@ -1,6 +1,6 @@
-# A binding that already holds a write borrow (`x: !T`, `!self`, a local
+# A binding that already holds a write view (`x: !T`, `!self`, a local
 # `w = !v`) calls a `!self` method as an owned binding does, `!x.m()`:
-# lending a write borrow always shows its sigil.
+# lending a write view always shows its sigil.
 
 struct Counter
   n: Int

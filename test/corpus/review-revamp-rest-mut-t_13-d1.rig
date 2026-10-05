@@ -1,5 +1,5 @@
 # `e?` chains through fields, works in a function returning `T?!`,
-# leaves a loop with the function, and reads through a borrowed optional.
+# leaves a loop with the function, and reads through a viewed optional.
 
 error Bad
   odd

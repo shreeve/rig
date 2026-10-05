@@ -1,6 +1,6 @@
 # Assigning a new write view to a `!T` local re-points it: the local
 # then holds the new loan only, so the old place is free again (Core §6
-# "Borrow places"). A bare write view on the right is read as its value.
+# "View places"). A bare write view on the right is read as its value.
 
 sub old_place_free
   m = 1

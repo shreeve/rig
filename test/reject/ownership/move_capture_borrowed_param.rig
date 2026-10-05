@@ -1,4 +1,4 @@
-# `*|<rc| ...` cannot take ownership of a borrowed parameter;
+# `*|<rc| ...` cannot take ownership of a view parameter;
 # the caller still owns it.
 
 struct Wrap

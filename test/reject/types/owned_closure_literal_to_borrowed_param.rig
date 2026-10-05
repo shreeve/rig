@@ -1,4 +1,4 @@
-# A closure literal passed where a borrowed owned closure (`?*fun`) is
+# A closure literal passed where a viewed owned closure (`?*fun`) is
 # expected is rejected with a diagnostic (the checker used to crash).
 
 fun apply(f: ?*fun(Int) -> Int) -> Int

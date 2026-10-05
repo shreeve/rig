@@ -1,4 +1,4 @@
-# `!xs[a..b]` is a `![]T`: a write borrow of the elements from `a` up to
+# `!xs[a..b]` is a `![]T`: a write view of the elements from `a` up to
 # `b`, of an array or a Vec of plain data. Its elements are assigned
 # with `s[i] = v`, written in a loop with `for x in !s`, and resliced
 # with `!s[a..b]`. It is accepted where a `[]T` is expected.

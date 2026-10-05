@@ -1,5 +1,5 @@
 # Every binary arithmetic, bitwise, and shift operator has a compound
-# assignment `x op= e`, on names, fields, elements, and write-borrowed
+# assignment `x op= e`, on names, fields, elements, and lent to write
 # parameters. The place is evaluated once.
 
 struct P

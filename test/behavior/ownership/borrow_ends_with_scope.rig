@@ -1,4 +1,4 @@
-# A borrow bound in an inner block ends with the block, so the owner can
+# A view bound in an inner block ends with the block, so the owner can
 # be dropped afterwards.
 
 struct Wrap

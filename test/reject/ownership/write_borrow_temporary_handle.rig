@@ -1,4 +1,4 @@
-# A handle no binding holds is a temporary: write-borrowing it would
+# A handle no binding holds is a temporary: lending it to write would
 # lose the change with it, whether it is a call's result, a moved or
 # cloned handle, or the value inside an optional.
 

@@ -1,4 +1,4 @@
-# A stock room: methods that change it through a write borrow, fallible
+# A stock room: methods that change it through a write view, fallible
 # operations, and callers that propagate or handle each failure.
 
 error StockError

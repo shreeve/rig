@@ -1,8 +1,8 @@
-# A read-borrowed array parameter points at the caller's array, so a
-# slice or element borrow of it, or of an array field of a read-borrowed
-# struct, may be returned or stored in the caller's values: it borrows
-# what the parameter borrows. A local read borrow of an array is a
-# pointer too, so a slice of it may outlive the borrow.
+# A lent to read array parameter points at the caller's array, so a
+# slice or element view of it, or of an array field of a lent to read
+# struct, may be returned or stored in the caller's values: it views
+# what the parameter views. A local read view of an array is a
+# pointer too, so a slice of it may outlive the view.
 
 struct View
   xs: []Int

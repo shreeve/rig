@@ -1,5 +1,5 @@
 # `for x in <w` hands each element over and frees the Vec, which it may
-# do only to a Vec it owns. Through a borrow the elements stay with the
+# do only to a Vec it owns. Through a view the elements stay with the
 # lender, so the loop reads or writes them in place instead.
 
 struct N

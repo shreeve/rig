@@ -1,4 +1,4 @@
-# A view stored in a borrowed parameter keeps what it views lent for the
+# A view stored in a view parameter keeps what it views lent for the
 # rest of the body. The owner can still be read, written before the
 # store, and written once the holder's caller is done with it; a caller's
 # view stored there lends nothing of the callee's.

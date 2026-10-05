@@ -1,4 +1,4 @@
-# A write-receiver method call needs the receiver unborrowed.
+# A write-receiver method call needs the receiver not lent.
 
 struct User
   age: Int

@@ -1,6 +1,6 @@
-# A value borrowed by `as` keeps its optional borrowed for the block:
-# the optional cannot be used under a write borrow, nor dropped or
-# reassigned under any borrow.
+# A value viewed by `as` keeps its optional viewed for the block:
+# the optional cannot be used under a write view, nor dropped or
+# reassigned under any view.
 
 struct Res
   n: Int

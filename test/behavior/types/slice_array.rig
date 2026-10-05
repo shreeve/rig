@@ -1,5 +1,5 @@
 # `?xs[a..b]` of an array or a Vec is a `[]T`: a read-only view of the
-# elements from `a` up to `b`, which borrows `xs`.
+# elements from `a` up to `b`, which views `xs`.
 
 fun total(xs: []Int) -> Int
   n = 0

@@ -1,4 +1,4 @@
-# A local closure cannot move-capture a borrowed parameter; the caller
+# A local closure cannot move-capture a view parameter; the caller
 # still owns it.
 
 struct Wrap

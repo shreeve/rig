@@ -1,4 +1,4 @@
-# A borrow the condition of `while e as x` binds lives only in the body,
+# A view the condition of `while e as x` binds lives only in the body,
 # so the step, which runs after it, cannot use it; a box's value is
 # reached the same way.
 

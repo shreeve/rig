@@ -1,5 +1,5 @@
-# A write borrow is exclusive for every type: while `w` is used later,
-# `n` cannot be read, copied, borrowed, or called on, even when it is
+# A write view is exclusive for every type: while `w` is used later,
+# `n` cannot be read, copied, viewed, or called on, even when it is
 # a Copy value, and even in the statement that writes through `w`.
 
 struct P

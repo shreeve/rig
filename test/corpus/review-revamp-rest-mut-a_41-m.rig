@@ -1,4 +1,4 @@
-# A read borrow as the value of a branch does not move its owner, which
+# A read view as the value of a branch does not move its owner, which
 # is still dropped at scope exit even though it may be moved elsewhere.
 
 struct B

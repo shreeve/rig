@@ -1,5 +1,5 @@
 # `x ?? return` hands over the optional's value only when `x` owns it.
-# Through a borrow of an optional the handle inside still belongs to
+# Through a view of an optional the handle inside still belongs to
 # the lender, so taking it out would free it twice.
 
 struct N

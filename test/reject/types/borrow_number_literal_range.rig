@@ -1,4 +1,4 @@
-# A lent literal must fit the borrowed type.
+# A lent literal must fit the viewed type.
 
 fun h(b: ?U8) -> Int
   Int(b)

@@ -1,6 +1,6 @@
-# A write borrow may be lent where a read borrow is expected. A read
-# borrow of a scalar, or of an optional one, is a copy of the value, so
-# the write borrow is read through there.
+# A write view may be lent where a read view is expected. A read
+# view of a scalar, or of an optional one, is a copy of the value, so
+# the write view is read through there.
 
 fun peek(m: ?(Int?)) -> Int
   m ?? 0

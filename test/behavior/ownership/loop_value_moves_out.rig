@@ -1,6 +1,6 @@
 # A `break` value leaves its loop like a returned value leaves its
 # function: an owning value moves out (the rest of a consumed Vec is
-# dropped), and a borrow keeps what it borrows borrowed.
+# dropped), and a view keeps what it views lent.
 
 struct Wrap
   n: Int

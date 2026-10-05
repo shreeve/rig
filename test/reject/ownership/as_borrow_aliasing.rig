@@ -1,4 +1,4 @@
-# A value borrowed by `as` is a borrow for the block: it cannot be
+# A value viewed by `as` is a view for the block: it cannot be
 # copied out as an owner.
 
 struct Res

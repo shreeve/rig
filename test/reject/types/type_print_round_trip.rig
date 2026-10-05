@@ -2,7 +2,7 @@
 # the same type: each binding below is written either in a type's
 # printed spelling or another spelling of it, and the message prints the
 # former. Handles bind tighter than suffixes, `N??` would lex as `??`,
-# and a borrow, slice, array, or function type takes parentheses before
+# and a view, slice, array, or function type takes parentheses before
 # a suffix.
 
 struct N

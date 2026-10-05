@@ -1,4 +1,4 @@
-# A write borrow needs storage to change: a call's result, a struct
+# A write view needs storage to change: a call's result, a struct
 # literal, or a field of one would drop the change with the temporary.
 
 struct S

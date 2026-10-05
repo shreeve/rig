@@ -1,4 +1,4 @@
-# A bare write borrow of a Copy value is read where its context wants
+# A bare write view of a Copy value is read where its context wants
 # the value (`h.w = w2` writes the value `w2` reaches through `h.w`), but
 # where a `!T` is expected it would be a second writer: a `!T` binding,
 # an element, a `break` value, or a branch of a view assigned to a field

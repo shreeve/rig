@@ -1,5 +1,5 @@
-# Borrows in a generic function follow the ordinary rules: a borrow of
-# a `?T` parameter may be returned, but not a borrow of a local copy.
+# Views in a generic function follow the ordinary rules: a view of
+# a `?T` parameter may be returned, but not a view of a local copy.
 
 fun keep[T](x: ?T) -> ?T
   x

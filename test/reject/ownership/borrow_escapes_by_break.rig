@@ -1,4 +1,4 @@
-# `break` leaves the loop body's scope: a borrow of one of its locals
+# `break` leaves the loop body's scope: a view of one of its locals
 # cannot be carried out.
 
 struct Wrap

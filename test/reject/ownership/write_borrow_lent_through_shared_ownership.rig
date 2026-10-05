@@ -1,6 +1,6 @@
-# A shared handle whose value holds a write borrow cannot be cloned, even
-# through a read borrow of its holder: two handles would write through
-# one borrow.
+# A shared handle whose value holds a write view cannot be cloned, even
+# through a read view of its holder: two handles would write through
+# one view.
 
 struct Wrap
   v: Vec[Int]

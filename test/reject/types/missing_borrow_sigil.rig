@@ -1,4 +1,4 @@
-# A value where a borrow of it is expected, and the lend is written (a
+# A value where a view of it is expected, and the lend is written (a
 # binding keeps it; a write lend is always written): the message names
 # the sigil that lends it.
 

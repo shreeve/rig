@@ -1,5 +1,5 @@
-# A borrow of a field reached through a borrow a call returns keeps what
-# the call borrows, bound by `=` or by `as`.
+# A view of a field reached through a view a call returns keeps what
+# the call views, bound by `=` or by `as`.
 
 struct R
   n: Int

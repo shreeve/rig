@@ -1,6 +1,6 @@
 # A branching `print` argument is copied where it runs, before the
 # later arguments: a place it may be that holds a Cell is held against
-# any later borrow, which could change the Cell under the copy.
+# any later view, which could change the Cell under the copy.
 
 struct S
   c: Cell[Vec[Int]]

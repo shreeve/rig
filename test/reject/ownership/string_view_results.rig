@@ -1,6 +1,6 @@
 # A function returning a String, a `String?`, or a struct holding
 # Strings may return a view of a String it was passed: its result keeps
-# borrowed every Text its arguments view, and so does an iterator built
+# viewed every Text its arguments view, and so does an iterator built
 # from one, and each part it gives.
 
 fun trim(s: String) -> String

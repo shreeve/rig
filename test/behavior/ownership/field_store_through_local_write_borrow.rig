@@ -1,5 +1,5 @@
-# Assigning a field through a local write borrow stores the value in
-# the place it borrows, as assigning the whole value does: a borrow of
+# Assigning a field through a local write view stores the value in
+# the place it views, as assigning the whole value does: a view of
 # a value that outlives that place may go there.
 
 struct In

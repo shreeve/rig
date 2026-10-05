@@ -1,4 +1,4 @@
-# A weak handle to a box holding a view, upgraded after the borrowed
+# A weak handle to a box holding a view, upgraded after the viewed
 # value's scope ended.
 struct R
   n: Int

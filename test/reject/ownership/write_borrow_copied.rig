@@ -1,4 +1,4 @@
-# Copying a write borrow into a second binding would give two live
+# Copying a write view into a second binding would give two live
 # mutable paths to the same value; move it with `<w` instead.
 
 struct Wrap

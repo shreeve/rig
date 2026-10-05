@@ -1,5 +1,5 @@
-# A number literal lent where a read borrow of a number is expected
-# (`?1` for a `?Int`) takes the borrowed type, as `?"ab"` does for a
+# A number literal lent where a read view of a number is expected
+# (`?1` for a `?Int`) takes the viewed type, as `?"ab"` does for a
 # `?String`.
 
 struct Map[K]

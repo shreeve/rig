@@ -1,5 +1,5 @@
-# Calling a closure yields a value that may borrow what the closure
-# captured, so it cannot outlive the borrowed value.
+# Calling a closure yields a value that may lend what the closure
+# captured, so it cannot outlive the viewed value.
 
 struct Wrap
   v: Vec[Int]

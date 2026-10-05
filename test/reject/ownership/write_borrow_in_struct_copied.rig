@@ -1,5 +1,5 @@
-# A struct holding a write borrow cannot be copied: the copy would be a
-# second live mutable path to the borrowed value. Move it with `<e`.
+# A struct holding a write view cannot be copied: the copy would be a
+# second live mutable path to the viewed value. Move it with `<e`.
 
 struct Wrap
   payload: Int

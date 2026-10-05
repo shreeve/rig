@@ -1,5 +1,5 @@
-# A borrowed `as` binding reaches the optional through any place: a
-# field, a call returning a borrow, a local holding one. `as _` tests
+# A viewed `as` binding reaches the optional through any place: a
+# field, a call returning a view, a local holding one. `as _` tests
 # without binding, and `while !o as v` changes the value each time.
 
 struct Res

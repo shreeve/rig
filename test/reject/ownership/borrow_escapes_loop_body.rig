@@ -1,4 +1,4 @@
-# A borrow of a loop-body local cannot survive into the next iteration or
+# A view of a loop-body local cannot survive into the next iteration or
 # past the loop.
 
 struct Wrap

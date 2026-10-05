@@ -1,6 +1,6 @@
-# A write borrow of a Copy value meets plain values as the value it
+# A write view of a Copy value meets plain values as the value it
 # reaches: an array element, an `if` branch, and a `match` arm read
-# through it, whether the borrow is a name, `!m`, or a call's result.
+# through it, whether the view is a name, `!m`, or a call's result.
 
 struct S
   n: Int

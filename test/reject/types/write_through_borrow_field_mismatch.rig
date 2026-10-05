@@ -1,5 +1,5 @@
-# Assigning a value to a `!T` field writes the value it borrows, so the
-# value is a `T`; another write borrow, `h.w = !m`, points the field
+# Assigning a value to a `!T` field writes the value it views, so the
+# value is a `T`; another write view, `h.w = !m`, points the field
 # elsewhere.
 
 struct H

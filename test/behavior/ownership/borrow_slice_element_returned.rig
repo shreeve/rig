@@ -1,4 +1,4 @@
-# A borrow of an element of a `[]T` parameter points into the caller's
+# A view of an element of a `[]T` parameter points into the caller's
 # memory, so it may be returned; it keeps what the slice keeps.
 
 struct Val

@@ -1,5 +1,5 @@
-# A view is live while a borrow of it is: its last use as a value does
-# not end the borrow it holds.
+# A view is live while a view of it is: its last use as a value does
+# not end the view it holds.
 
 struct Wrap
   n: Int

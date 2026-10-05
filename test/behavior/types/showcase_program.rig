@@ -1,5 +1,5 @@
 # The original language showcase: fallible functions return plain
-# values, `?input` reborrows a borrowed parameter, a compile-time
+# values, `?input` lends on a view parameter, a compile-time
 # parameter specializes the function, and a user type may be named `Bytes`.
 
 struct User

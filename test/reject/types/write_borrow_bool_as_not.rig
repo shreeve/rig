@@ -1,4 +1,4 @@
-# `!` is a write borrow, never negation: a write borrow of a `Bool`
+# `!` is a write view, never negation: a write view of a `Bool`
 # read as a `Bool` is rejected wherever it appears, and so is `!` before
 # a method that only reads its receiver (`!c.ok()`).
 

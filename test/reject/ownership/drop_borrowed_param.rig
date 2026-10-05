@@ -1,4 +1,4 @@
-# A borrowed parameter cannot be dropped; the caller owns it.
+# A view parameter cannot be dropped; the caller owns it.
 
 struct Wrap
   payload: Int

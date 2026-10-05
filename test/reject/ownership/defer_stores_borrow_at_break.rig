@@ -1,4 +1,4 @@
-# A `defer` body runs when a `break` leaves its scope: a borrow it
+# A `defer` body runs when a `break` leaves its scope: a view it
 # stores outside the loop, of a var the loop body drops, does not live
 # long enough.
 

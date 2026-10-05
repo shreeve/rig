@@ -1,6 +1,6 @@
-# A borrowed `T` operand (`?T` or `!T`) acts as a `T`: it records the
+# A viewed `T` operand (`?T` or `!T`) acts as a `T`: it records the
 # same requirement and gives the same result type, and the operator
-# reads through the borrow, whether a name holds it or a call yields it.
+# reads through the view, whether a name holds it or a call yields it.
 
 enum Color
   red

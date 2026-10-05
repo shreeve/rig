@@ -1,7 +1,7 @@
-# A borrowed callable `?fun(...)` is only a parameter's, a local's, or a
+# A callable view `?fun(...)` is only a parameter's, a local's, or a
 # result's type: no field, Vec, array, optional, or type argument holds
 # one, and neither does a module-level binding. A call never changes a
-# closure's environment, so a closure is not write-borrowed. A closure
+# closure's environment, so a closure is not lent to write. A closure
 # literal is lent only as a call's argument, without `*`, and not to a
 # call whose result could hold it.
 

@@ -1,4 +1,4 @@
-# A slice is a read borrow of its array: the array cannot be written
+# A slice is a read view of its array: the array cannot be written
 # while the slice is live.
 
 sub main()

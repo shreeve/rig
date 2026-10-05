@@ -1,5 +1,5 @@
-# A callee may store a borrow wherever a write borrow passed to it
-# leads, however the write borrow gets there: moved in from a local,
+# A callee may store a view wherever a write view passed to it
+# leads, however the write view gets there: moved in from a local,
 # held by a struct moved in, or held by a constructed argument.
 
 struct Res

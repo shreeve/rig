@@ -1,5 +1,5 @@
-# A borrow stored through a moved write borrow is held by the value the
-# borrow leads to, whose `drop` body could read it after it is dropped.
+# A view stored through a moved write view is held by the value the
+# view leads to, whose `drop` body could read it after it is dropped.
 
 struct Res
   v: Vec[Int]

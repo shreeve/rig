@@ -1,4 +1,4 @@
-# Assigning a write borrow writes through it, so the borrow must still be
+# Assigning a write view writes through it, so the view must still be
 # held: once moved on, it cannot be written through.
 
 sub g(p: !Int)

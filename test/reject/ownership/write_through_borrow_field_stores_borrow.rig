@@ -1,5 +1,5 @@
-# A value written through a `!T` field lands in what the field borrows,
-# so a borrow it carries must outlive that place.
+# A value written through a `!T` field lands in what the field views,
+# so a view it carries must outlive that place.
 
 struct V
   r: ?Int

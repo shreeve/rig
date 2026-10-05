@@ -1,4 +1,4 @@
-# Capturing a borrow into a closure is a use of it.
+# Capturing a view into a closure is a use of it.
 
 struct Wrap
   n: Int

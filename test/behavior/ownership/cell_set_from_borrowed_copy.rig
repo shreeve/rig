@@ -1,5 +1,5 @@
-# A borrow of a Copy value put in a Cell is read by value: the Cell
-# holds the number, not the borrow.
+# A view of a Copy value put in a Cell is read by value: the Cell
+# holds the number, not the view.
 
 sub put(c: ?Cell[Int], k: ?Int)
   c.set(k)

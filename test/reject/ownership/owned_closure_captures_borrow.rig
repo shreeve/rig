@@ -1,6 +1,6 @@
 # An owned closure is a shared handle that can be stored anywhere,
 # including in a Cell or Signal that other handles reach, so it holds no
-# borrow: it cannot capture a borrow, a borrowed parameter, or a view.
+# view: it cannot capture a view, a view parameter, or a view.
 
 struct Wrap
   n: Int

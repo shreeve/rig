@@ -1,5 +1,5 @@
-# A closure does not move a borrow out of its capture: a borrowed
-# parameter is captured with `|?f|`, and a captured borrow stays with the
+# A closure does not move a view out of its capture: a viewed
+# parameter is captured with `|?f|`, and a captured view stays with the
 # closure for every call.
 
 struct Res

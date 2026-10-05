@@ -1,4 +1,4 @@
-# An operator reads through a borrow that an expression yields: a call
+# An operator reads through a view that an expression yields: a call
 # returning `!Int` or `?Int`, and `!x` itself.
 
 fun wr(a: !Int) -> !Int

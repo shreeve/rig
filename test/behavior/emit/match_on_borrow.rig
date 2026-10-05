@@ -1,4 +1,4 @@
-# `match ?t` and `match !t` match the value borrowed.
+# `match ?t` and `match !t` match the value viewed.
 
 enum S
   a(n: Int)

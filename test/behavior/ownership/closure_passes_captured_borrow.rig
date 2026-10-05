@@ -1,6 +1,6 @@
-# A closure may pass a borrow it captured to a call, which borrows it
-# for the call, and call methods through a captured write borrow; the
-# closure keeps the borrow for its next call.
+# A closure may pass a view it captured to a call, which views it
+# for the call, and call methods through a captured write view; the
+# closure keeps the view for its next call.
 
 struct Wrap
   n: Int

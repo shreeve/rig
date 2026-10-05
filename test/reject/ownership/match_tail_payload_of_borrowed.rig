@@ -1,5 +1,5 @@
-# A match that yields a payload of a borrowed scrutinee as its value
-# would copy the handle out of the borrowed value (and drop it twice),
+# A match that yields a payload of a viewed scrutinee as its value
+# would copy the handle out of the viewed value (and drop it twice),
 # whether the match is returned or bound.
 
 struct B

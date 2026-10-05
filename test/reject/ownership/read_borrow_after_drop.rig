@@ -1,4 +1,4 @@
-# Taking a read borrow (`?user`) of a dropped value is rejected.
+# Taking a read view (`?user`) of a dropped value is rejected.
 
 struct User
   name: String

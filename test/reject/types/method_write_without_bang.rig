@@ -1,4 +1,4 @@
-# A write receiver (`!self`) needs an explicit write borrow at the call
+# A write receiver (`!self`) needs an explicit write view at the call
 # site: `!u.rename(...)`.
 
 struct User

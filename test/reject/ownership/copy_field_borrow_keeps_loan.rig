@@ -1,5 +1,5 @@
-# A struct holding `!Int` keeps its write borrow while it is used
-# later, so the Int it borrows cannot be read until then.
+# A struct holding `!Int` keeps its write view while it is used
+# later, so the Int it views cannot be read until then.
 
 struct H
   w: !Int

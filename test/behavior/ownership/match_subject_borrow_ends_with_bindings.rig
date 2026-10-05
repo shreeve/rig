@@ -1,4 +1,4 @@
-# The borrow `match !t` takes lasts while its bindings are live: once
+# The view `match !t` takes lasts while its bindings are live: once
 # they are done, an arm may reassign `t`.
 
 enum Tree

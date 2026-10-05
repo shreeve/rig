@@ -1,4 +1,4 @@
-# A slice of a `![]T` borrows it, like a slice of an array: it is taken
+# A slice of a `![]T` views it, like a slice of an array: it is taken
 # with `?` or `!`.
 
 sub main()

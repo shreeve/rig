@@ -1,5 +1,5 @@
 # Values are dropped youngest first at the end of their block. A value
-# whose `drop` body runs must not borrow a younger value, directly or
+# whose `drop` body runs must not lend a younger value, directly or
 # through a view: the younger one is dropped first, and the body would
 # read it after.
 

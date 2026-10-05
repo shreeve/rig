@@ -1,5 +1,5 @@
-# A store through a local write borrow lands in what it borrows, and in
-# what a write borrow held there borrows in turn: here the parameter
+# A store through a local write view lands in what it views, and in
+# what a write view held there views in turn: here the parameter
 # `p`, which outlives the local `t`. The error names the store, not a
 # call.
 

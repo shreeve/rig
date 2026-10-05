@@ -1,6 +1,6 @@
-# A call whose place argument (a write borrow, or a receiver) is taken
-# before its later arguments run: a later argument cannot write-borrow
-# the place's root, as Rust's two-phase borrows also forbid.
+# A call whose place argument (a write view, or a receiver) is taken
+# before its later arguments run: a later argument cannot lend to write
+# the place's root, as Rust's two-phase views also forbid.
 
 struct B
   xs: Vec[Int]

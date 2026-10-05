@@ -1,4 +1,4 @@
-# A slice of an array borrows it, and borrows are spelled: `?xs[a..b]`.
+# A slice of an array views it, and views are spelled: `?xs[a..b]`.
 
 sub main()
   a = [1, 2, 3]

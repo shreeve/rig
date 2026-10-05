@@ -1,4 +1,4 @@
-# A borrow of a temporary lives only until its statement ends. Held in
+# A view of a temporary lives only until its statement ends. Held in
 # a binding, a field, or a returned value, it would outlive the
 # temporary it points to; used within the statement, it is fine.
 

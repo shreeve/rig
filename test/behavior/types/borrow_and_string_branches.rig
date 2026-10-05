@@ -1,4 +1,4 @@
-# A borrow compared with `==`, whether a call returns it or a branch
+# A view compared with `==`, whether a call returns it or a branch
 # picks it, owns nothing, so it is read where it stands and nothing is
 # dropped. A String chosen by a branch is one slice type, whether it is
 # a literal or a view.

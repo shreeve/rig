@@ -1,5 +1,5 @@
-# A stack closure may return a captured read borrow or a moved-in Copy
-# value; the result borrows what the closure holds.
+# A stack closure may return a captured read view or a moved-in Copy
+# value; the result views what the closure holds.
 
 struct Wrap
   v: Vec[Int]

@@ -1,4 +1,4 @@
-# A write borrow passed on keeps its holder borrowed while the result
+# A write view passed on keeps its holder viewed while the result
 # is used.
 
 struct Wrap

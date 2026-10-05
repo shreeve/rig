@@ -1,4 +1,4 @@
-# `|!x|` write-borrows `x` as `!x` does: a loop binding that copies an
+# `|!x|` lends `x` to write as `!x` does: a loop binding that copies an
 # element is not written, and the diagnostic says how to loop instead.
 
 sub main

@@ -1,4 +1,4 @@
-# A write borrow is written against its operand: `!n`.
+# A write view is written against its operand: `!n`.
 
 sub bump(n: !Int)
   n += 1

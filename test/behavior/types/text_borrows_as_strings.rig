@@ -1,6 +1,6 @@
-# A borrow of a Text lends its bytes where a String, or a `String?`, is
+# A view of a Text lends its bytes where a String, or a `String?`, is
 # expected, whether written `?t` or returned by a call; a slice of such a
-# borrow is a view without another `?`; `for b in ?t` walks its bytes;
+# view is a view without another `?`; `for b in ?t` walks its bytes;
 # and a part of a temporary is read through it, as by `get`.
 
 use std.text

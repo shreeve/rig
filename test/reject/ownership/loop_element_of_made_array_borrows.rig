@@ -1,5 +1,5 @@
-# The elements of an array a `for` source makes carry the borrows the
-# array holds: a borrow stored from one keeps its root borrowed.
+# The elements of an array a `for` source makes carry the views the
+# array holds: a view stored from one keeps its root viewed.
 
 sub main
   v: Vec[Int] = Vec()

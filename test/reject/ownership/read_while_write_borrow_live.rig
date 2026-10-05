@@ -1,4 +1,4 @@
-# Reading a value while a write borrow of it is live (used later) is
+# Reading a value while a write view of it is live (used later) is
 # rejected.
 
 struct User

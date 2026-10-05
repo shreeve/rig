@@ -1,4 +1,4 @@
-# A view put into a Cell through a borrowed path of a shared handle.
+# A view put into a Cell through a viewed path of a shared handle.
 struct R
   n: Int
 

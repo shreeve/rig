@@ -1,7 +1,7 @@
 # Each mistake in lending a closure gets one diagnostic whose hint
-# compiles: a closure or a borrow is captured with `|?f|`, a closure
+# compiles: a closure or a view is captured with `|?f|`, a closure
 # literal goes to a parameter declared `?fun(...)`, and no type argument
-# is a borrowed callable. (An owned closure, bare or made, is lent to a
+# is a callable view. (An owned closure, bare or made, is lent to a
 # `?fun(...)` argument as `?cb` lends it.)
 
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int

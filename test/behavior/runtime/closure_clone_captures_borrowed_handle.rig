@@ -1,6 +1,6 @@
-# `|+b|` of a borrowed handle (a `for b in ?v` element, a `?*B`
+# `|+b|` of a viewed handle (a `for b in ?v` element, a `?*B`
 # parameter) clones the handle into the closure, which then outlives the
-# borrow and the Vec.
+# view and the Vec.
 
 struct B
   n: Int

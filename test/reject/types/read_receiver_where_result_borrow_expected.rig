@@ -1,5 +1,5 @@
-# `?p.m()` reads `p` for the call; where a borrow of the call's result
-# is kept (a binding), the hint puts the borrow around the call. (As an
+# `?p.m()` reads `p` for the call; where a view of the call's result
+# is kept (a binding), the hint puts the view around the call. (As an
 # argument, the result is lent as a temporary of the statement.)
 
 struct Point

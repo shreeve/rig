@@ -1,5 +1,5 @@
 # What `if … as`, `while … as`, or `match` binds lives through the
-# body, past its header, so it may not borrow a temporary the header
+# body, past its header, so it may not lend a temporary the header
 # made.
 #
 # oracle: main reject C5

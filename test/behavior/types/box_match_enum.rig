@@ -1,4 +1,4 @@
-# `match` over a boxed enum, read or written through a borrow of the box.
+# `match` over a boxed enum, read or written through a view of the box.
 
 enum Shape
   circle(r: Int)

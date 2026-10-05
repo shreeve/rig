@@ -1,5 +1,5 @@
 # `copy` writes its receiver while it reads its argument: the two cannot
-# borrow the same array, so they never overlap.
+# view the same array, so they never overlap.
 
 sub halves()
   a = [1, 2, 3, 4]

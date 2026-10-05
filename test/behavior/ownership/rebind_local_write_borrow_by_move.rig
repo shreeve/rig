@@ -1,5 +1,5 @@
-# `new w = <w2` points a local write borrow's name at the place `w2`
-# borrowed, as `new w = !n` would; a bare `w = w3` writes the value `w3`
+# `new w = <w2` points a local write view's name at the place `w2`
+# viewed, as `new w = !n` would; a bare `w = w3` writes the value `w3`
 # reaches through `w`.
 
 sub main

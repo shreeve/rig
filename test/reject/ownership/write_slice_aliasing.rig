@@ -1,4 +1,4 @@
-# A `![]T` is a write borrow of its root: two live write slices of one
+# A `![]T` is a write view of its root: two live write slices of one
 # array are rejected, and so are a push to a Vec, a use of the root, and
 # a write through the slice while a reslice of it is live.
 

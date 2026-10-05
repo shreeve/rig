@@ -1,5 +1,5 @@
 # An imported module's bindings are constants, as in their own module:
-# they cannot be assigned, write-borrowed, or written through a loop.
+# they cannot be assigned, lent to write, or written through a loop.
 
 use lib
 

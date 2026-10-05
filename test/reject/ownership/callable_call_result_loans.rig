@@ -1,5 +1,5 @@
-# Calling a callable gives a result that borrows what the callable
-# holds, whatever form the callee takes: a closure binding, a borrowed
+# Calling a callable gives a result that views what the callable
+# holds, whatever form the callee takes: a closure binding, a viewed
 # callable held by a local, a lent closure called in place, or one a
 # call returned. So `|?c| c` called through any of them cannot outlive
 # `c`, or be returned from the function that owns `c`.

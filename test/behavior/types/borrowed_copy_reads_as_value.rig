@@ -1,4 +1,4 @@
-# A read borrow of a Copy value (a number, a plain enum, an error) reads
+# A read view of a Copy value (a number, a plain enum, an error) reads
 # as the value: in branches, array elements, comparisons, and indexes.
 
 enum E

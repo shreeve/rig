@@ -1,4 +1,4 @@
-# An imported struct holding a write borrow carries the loans stored
+# An imported struct holding a write view carries the loans stored
 # through it, as a local one does: `put` stores `?x` into `holder`,
 # which outlives `x`.
 

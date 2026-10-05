@@ -1,6 +1,6 @@
-# Writing through a `!T` field changes what the field borrows, so the
-# path to the field must allow writing: a read borrow of the struct
-# does not, since other read borrows may reach the same write borrow.
+# Writing through a `!T` field changes what the field views, so the
+# path to the field must allow writing: a read view of the struct
+# does not, since other read views may reach the same write view.
 
 struct H
   w: !Int

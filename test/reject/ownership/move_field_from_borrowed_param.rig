@@ -1,4 +1,4 @@
-# A field cannot be moved out of a borrowed parameter: the caller still
+# A field cannot be moved out of a view parameter: the caller still
 # owns and drops it.
 
 struct Wrap

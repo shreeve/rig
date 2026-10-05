@@ -1,5 +1,5 @@
 # A String viewing a Text reached through a struct that holds `!Text`
-# keeps that struct borrowed: a write through the struct could move the
+# keeps that struct viewed: a write through the struct could move the
 # Text's bytes. So does a part an iterator holding `!Text` gives.
 
 struct W

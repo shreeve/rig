@@ -1,5 +1,5 @@
-# Assigning through a local write borrow stores the value in the place
-# it borrows, which outlives a borrow of a later local.
+# Assigning through a local write view stores the value in the place
+# it views, which outlives a view of a later local.
 
 struct In
   n: Int

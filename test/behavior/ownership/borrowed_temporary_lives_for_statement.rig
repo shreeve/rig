@@ -1,6 +1,6 @@
-# A borrow of a temporary may be printed, since `print` keeps nothing,
-# and a `for` walks a borrow of an array it makes, whose plain elements
-# it copies. (A header that binds a borrow of a temporary it makes is
+# A view of a temporary may be printed, since `print` keeps nothing,
+# and a `for` walks a view of an array it makes, whose plain elements
+# it copies. (A header that binds a view of a temporary it makes is
 # rejected: `test/reject/ownership/header_temporary_rejected.rig`.)
 
 struct P

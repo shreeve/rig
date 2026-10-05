@@ -1,6 +1,6 @@
-# A value stored through a `!T` field lands in what that field borrows,
+# A value stored through a `!T` field lands in what that field views,
 # not further: `o.i = Inner(x: !v2)` writes `inn`, so `v2` needs to
-# outlive only `inn`, not the `v` that `inn` borrowed before.
+# outlive only `inn`, not the `v` that `inn` viewed before.
 
 struct Inner
   x: !Vec[Int]

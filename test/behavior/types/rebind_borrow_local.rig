@@ -1,4 +1,4 @@
-# A local holding a borrow can be rebound to borrow something else.
+# A local holding a view can be rebound to lend something else.
 
 sub main()
   a = 1

@@ -1,7 +1,7 @@
 # A `match` reads its subject again after a guard runs, to test the next
 # arm's pattern: what the subject views stays lent through every guard,
 # in a nested match too. A write lend of it there is rejected, as is one
-# in an arm whose subject views it through a write borrow still in use,
+# in an arm whose subject views it through a write view still in use,
 # in the body of an `if … as` whose binding views it and is used after,
 # and in a loop walking a view of it.
 

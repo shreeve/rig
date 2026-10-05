@@ -1,4 +1,4 @@
-# A payload cannot be moved out of a borrowed value.
+# A payload cannot be moved out of a viewed value.
 
 struct Wrap
   payload: Int

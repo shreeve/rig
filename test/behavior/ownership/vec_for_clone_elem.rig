@@ -1,4 +1,4 @@
-# The element of `for x in ?v` borrows its slot; cloning it (`+x`) makes
+# The element of `for x in ?v` views its slot; cloning it (`+x`) makes
 # an independent strong handle, which may be kept after the loop and
 # outlive the Vec.
 

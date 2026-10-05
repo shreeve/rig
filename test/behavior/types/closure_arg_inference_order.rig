@@ -1,6 +1,6 @@
 # Closure literals are inferred in any order: one whose parameters are
 # not known yet waits until another literal's result gives them. Through
-# a captured write borrow, `!c.inc()` and `!v.push(x)` lend it on, as on
+# a captured write view, `!c.inc()` and `!v.push(x)` lend it on, as on
 # a `!T` parameter.
 
 struct Counter

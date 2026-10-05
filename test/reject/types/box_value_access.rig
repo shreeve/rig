@@ -1,6 +1,6 @@
 # A box's value has its fields and methods reached through the box (a
 # Vec's `push`), but a box has no field `value` of its own. A box holds
-# no borrow, has no `==`, and its own consuming `unbox` and its value's
+# no view, has no `==`, and its own consuming `unbox` and its value's
 # consuming methods need an owned box.
 
 struct View

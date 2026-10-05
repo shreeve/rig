@@ -1,4 +1,4 @@
-# An imported struct holding a write borrow cannot be copied: the copy
+# An imported struct holding a write view cannot be copied: the copy
 # would be a second writer.
 
 use wv

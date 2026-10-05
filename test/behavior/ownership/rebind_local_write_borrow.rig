@@ -1,5 +1,5 @@
-# `new w = !y` points the name of a local write borrow at another value;
-# the first is free again once nothing borrows it.
+# `new w = !y` points the name of a local write view at another value;
+# the first is free again once nothing views it.
 
 struct Wrap
   n: Int

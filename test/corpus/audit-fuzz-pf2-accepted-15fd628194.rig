@@ -1,4 +1,4 @@
-# The read borrow a `for cb in ?subs` loop holds on `subs` ends with the
+# The read view a `for cb in ?subs` loop holds on `subs` ends with the
 # loop, so pushing to `subs` afterwards is allowed.
 
 sub main()
@@ -17,6 +17,6 @@ sub main()
 
   print(count.get())                # 1 + (1 + 10) = 12
 
-# The read borrow a `for cb in ?subs` loop holds on `subs` ends with the
+# The read view a `for cb in ?subs` loop holds on `subs` ends with the
 # expect:
 # 12

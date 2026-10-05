@@ -1,6 +1,6 @@
-# A read borrow of a value that owns resources is held by pointer, so a
-# struct, box, or closure holding the borrow never drops what it borrows.
-# (Owned closures cannot capture borrows; stack closures can.)
+# A read view of a value that owns resources is held by pointer, so a
+# struct, box, or closure holding the view never drops what it views.
+# (Owned closures cannot capture views; stack closures can.)
 
 struct Wrap
   v: Vec[Int]

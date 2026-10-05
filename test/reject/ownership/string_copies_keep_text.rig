@@ -1,4 +1,4 @@
-# A String copied out of a Vec or a slice of one borrows the Text it
+# A String copied out of a Vec or a slice of one views the Text it
 # views, not the Vec: dropping the Vec is fine, changing the Text is not,
 # and the Text must outlive the copy.
 

@@ -1,5 +1,5 @@
-# An `if`, ternary, or `match` yielding a borrow where an optional
-# borrow is expected yields the borrow itself.
+# An `if`, ternary, or `match` yielding a view where an optional
+# view is expected yields the view itself.
 
 struct D
   n: Int

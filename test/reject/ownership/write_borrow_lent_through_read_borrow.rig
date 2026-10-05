@@ -1,5 +1,5 @@
-# A write borrow held in a field is read-only through a `?T`: two read
-# borrows of one `Ed` reach the same `!Holder`, so neither may lend it
+# A write view held in a field is read-only through a `?T`: two read
+# views of one `Ed` reach the same `!Holder`, so neither may lend it
 # to a `!self` receiver, a `!T` parameter, or a new value holding it.
 
 struct Node

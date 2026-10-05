@@ -1,4 +1,4 @@
-# Core sentence 1 (plain copies) vs SPEC §7: only numbers, Bool, String, plain enums read out of a borrow
+# Core sentence 1 (plain copies) vs SPEC §7: only numbers, Bool, String, plain enums read out of a view
 struct P
   x: Int
   y: Int

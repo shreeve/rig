@@ -1,5 +1,5 @@
 # A shared handle is read-only all the way down: a field reached through
-# it cannot be write-borrowed, lent to a `!T` parameter, given to a
+# it cannot be lent to write, lent to a `!T` parameter, given to a
 # `!self` method, or write-iterated.
 
 struct Counter

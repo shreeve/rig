@@ -1,4 +1,4 @@
-# A borrow held by a binding, or by a view holding one, ends at its
+# A view held by a binding, or by a view holding one, ends at its
 # last use, not at the end of the block: after that the value can be
 # written, moved, dropped, or reassigned.
 

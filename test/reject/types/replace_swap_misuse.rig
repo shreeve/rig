@@ -1,5 +1,5 @@
-# `replace` and `swap` take write-borrowed places (`!x`) of one type,
-# whose values hold no borrow, and the value `replace` stores has the
+# `replace` and `swap` take lent to write places (`!x`) of one type,
+# whose values hold no view, and the value `replace` stores has the
 # place's type.
 
 struct V

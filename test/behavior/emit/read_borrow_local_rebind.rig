@@ -1,5 +1,5 @@
-# A read-borrow local of plain data rebound to a function's `?T`
-# result: a local, a parameter, and a result hold a plain read borrow
+# A read view local of plain data rebound to a function's `?T`
+# result: a local, a parameter, and a result hold a plain read view
 # the same way.
 
 struct Wrap

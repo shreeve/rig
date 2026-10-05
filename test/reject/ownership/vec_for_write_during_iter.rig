@@ -1,5 +1,5 @@
 # Writing to a Vec while iterating over it is rejected (the loop holds a
-# read borrow).
+# read view).
 
 sub main()
   count: *Cell[Int] = *Cell(0)

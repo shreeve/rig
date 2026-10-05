@@ -1,4 +1,4 @@
-# Deferred code may read a borrow of a local declared before the
+# Deferred code may read a view of a local declared before the
 # `defer`, which is dropped after it runs.
 
 struct Res

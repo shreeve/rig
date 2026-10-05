@@ -1,5 +1,5 @@
-# `+` of a call that returns a borrow of a handle clones the handle it
-# borrows, as it does for a binding holding that borrow.
+# `+` of a call that returns a view of a handle clones the handle it
+# views, as it does for a binding holding that view.
 
 struct Leaf
   n: Int

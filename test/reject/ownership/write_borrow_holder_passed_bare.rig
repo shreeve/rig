@@ -1,5 +1,5 @@
-# A value holding a write borrow, passed bare to a call or placed bare in
-# a constructor, lends that borrow: the holder cannot be used while the
+# A value holding a write view, passed bare to a call or placed bare in
+# a constructor, lends that view: the holder cannot be used while the
 # result is live (here it would free the Vec the result iterates).
 
 struct Tok

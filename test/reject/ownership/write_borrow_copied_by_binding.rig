@@ -1,4 +1,4 @@
-# A match or loop binding copies what it binds. A copy of a write borrow
+# A match or loop binding copies what it binds. A copy of a write view
 # is a second writer, so it is refused where the matched value is only
 # read, and a loop walks such elements with `for x in !xs`.
 

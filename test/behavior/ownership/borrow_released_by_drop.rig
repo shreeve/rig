@@ -1,4 +1,4 @@
-# Dropping a borrow binding ends the borrow.
+# Dropping a view binding ends the view.
 
 struct Wrap
   payload: Int

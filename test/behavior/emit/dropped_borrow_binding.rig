@@ -1,5 +1,5 @@
-# A borrow binding read only by its drop: dropping the read borrow `r`
-# ends it, so the write borrow `w` is allowed.
+# A view binding read only by its drop: dropping the read view `r`
+# ends it, so the write view `w` is allowed.
 
 struct User
   name: String

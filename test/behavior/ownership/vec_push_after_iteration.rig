@@ -1,4 +1,4 @@
-# Iterating a Vec borrows it for the loop only; it can be written again
+# Iterating a Vec views it for the loop only; it can be written again
 # after the loop.
 
 sub main()

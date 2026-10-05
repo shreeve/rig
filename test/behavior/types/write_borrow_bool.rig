@@ -1,4 +1,4 @@
-# A write borrow of a `Bool` goes where a `!Bool` is expected: a
+# A write view of a `Bool` goes where a `!Bool` is expected: a
 # parameter, a field of a struct, a declared binding, forwarded on.
 
 sub flip(f: !Bool)

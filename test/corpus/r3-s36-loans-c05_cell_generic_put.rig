@@ -1,5 +1,5 @@
 # Per type: a generic helper storing a T in a Cell is checked for a T
-# with no borrow.
+# with no view.
 sub put[T](c: ?Cell[T], x: T)
   c.set(x)
 

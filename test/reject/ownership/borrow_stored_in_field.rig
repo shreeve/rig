@@ -1,4 +1,4 @@
-# A borrow stored in a struct field keeps its owner borrowed while the
+# A view stored in a struct field keeps its owner viewed while the
 # struct is live.
 
 struct Wrap

@@ -1,4 +1,4 @@
-# Building a second view from the write borrow a first view holds lends
+# Building a second view from the write view a first view holds lends
 # the first view out: it cannot be used while the second is live (here
 # the second iterates while the first would push, freeing the buffer).
 

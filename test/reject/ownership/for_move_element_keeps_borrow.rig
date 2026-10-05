@@ -1,5 +1,5 @@
-# The elements of `for x in <v` carry the borrows the Vec held, so an
-# element moved elsewhere cannot outlive what it borrows.
+# The elements of `for x in <v` carry the views the Vec held, so an
+# element moved elsewhere cannot outlive what it views.
 
 struct Wrap
   v: Vec[Int]

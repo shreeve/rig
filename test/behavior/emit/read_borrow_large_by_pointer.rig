@@ -1,4 +1,4 @@
-# A read borrow of large plain data is passed by pointer, not copied:
+# A read view of large plain data is passed by pointer, not copied:
 # each of these frames would otherwise hold a 3.2 MB copy, and fifty of
 # them overflow the stack. Small plain data is still passed as a copy.
 

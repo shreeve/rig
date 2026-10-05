@@ -1,5 +1,5 @@
-# A value whose `drop` body uses a borrow may hold one of an older
-# value: the younger value is dropped first, while what it borrows is
+# A value whose `drop` body uses a view may hold one of an older
+# value: the younger value is dropped first, while what it views is
 # still alive.
 
 struct Wrap

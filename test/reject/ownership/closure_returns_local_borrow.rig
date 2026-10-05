@@ -1,4 +1,4 @@
-# An owned closure can be returned, so it cannot capture a borrow (here
+# An owned closure can be returned, so it cannot capture a view (here
 # of a local that the return would outlive).
 
 struct Wrap

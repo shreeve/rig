@@ -1,5 +1,5 @@
 # `?p.m()` names a read receiver: a method that writes or consumes its
-# receiver is called with `!` or `<`, and a call's result is borrowed
+# receiver is called with `!` or `<`, and a call's result is lent
 # with `?(p.m())`.
 
 struct Counter

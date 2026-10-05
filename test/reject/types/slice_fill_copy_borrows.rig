@@ -1,6 +1,6 @@
 # `fill` and `copy` copy values into the elements, so, as in `[n of x]`,
-# the elements must be plain data: a copy of a value holding a borrow
-# would duplicate it (a write borrow would then have two holders).
+# the elements must be plain data: a copy of a value holding a view
+# would duplicate it (a write view would then have two holders).
 
 struct V
   s: ![]Int

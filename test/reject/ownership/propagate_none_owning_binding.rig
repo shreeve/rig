@@ -1,4 +1,4 @@
-# `m?` hands over the handle inside `m`, and a borrow cannot give up
+# `m?` hands over the handle inside `m`, and a view cannot give up
 # what it holds.
 
 struct Wrap

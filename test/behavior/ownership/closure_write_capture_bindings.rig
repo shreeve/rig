@@ -1,7 +1,7 @@
 # `|!x|` writes the binding it captures whatever its initializer: a
-# call's result, a struct holding a borrow, a shared handle. A closure
+# call's result, a struct holding a view, a shared handle. A closure
 # may store what it captured to read through a write capture: the
-# written value then borrows it.
+# written value then views it.
 
 struct View
   w: ?Vec[Int]

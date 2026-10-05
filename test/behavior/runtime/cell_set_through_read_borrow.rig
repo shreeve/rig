@@ -1,5 +1,5 @@
 # A Cell is interior-mutable: `set` and `replace` change it through a
-# read borrow, and through a `?self` method of a struct holding one. A
+# read view, and through a `?self` method of a struct holding one. A
 # value holding a Cell is unique: a by-value parameter owns the value
 # moved into it, which it may lend out.
 

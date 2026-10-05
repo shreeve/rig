@@ -1,4 +1,4 @@
-# A view, a struct holding a borrow, has no `==`.
+# A view, a struct holding a view, has no `==`.
 
 struct Window
   items: []Int

@@ -1,5 +1,5 @@
 # `for x in <v` moves `v`: it cannot be used afterwards, consumed while
-# borrowed, or consumed again by a later loop iteration.
+# viewed, or consumed again by a later loop iteration.
 
 struct B
   n: Int

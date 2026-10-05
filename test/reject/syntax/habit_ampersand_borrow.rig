@@ -1,4 +1,4 @@
-# Rust and C take an address or a reference with `&`; Rig borrows with
+# Rust and C take an address or a reference with `&`; Rig views with
 # `?x` to read and `!x` to write.
 
 sub show(n: ?Int)

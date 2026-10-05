@@ -1,5 +1,5 @@
-# A call may store the borrows it is given into its `!` arguments, so
-# after `put(!v, ?b)` the view keeps `b` borrowed.
+# A call may store the views it is given into its `!` arguments, so
+# after `put(!v, ?b)` the view keeps `b` viewed.
 
 struct Wrap
   payload: Int

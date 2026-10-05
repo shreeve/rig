@@ -1,5 +1,5 @@
 # Pushing a shared view into a Vec makes the Vec hold that view's
-# borrow.
+# view.
 
 struct Wrap
   payload: Int

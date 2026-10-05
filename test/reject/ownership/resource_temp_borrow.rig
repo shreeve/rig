@@ -1,5 +1,5 @@
-# Borrowing a fresh `*Cell(...)` into a binding is rejected: the
-# handle is dropped when its statement ends, before the borrow's use.
+# Lending a fresh `*Cell(...)` into a binding is rejected: the
+# handle is dropped when its statement ends, before the view's use.
 
 sub main()
   c = ?(*Cell(0))

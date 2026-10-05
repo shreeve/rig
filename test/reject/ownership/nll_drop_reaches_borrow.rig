@@ -1,5 +1,5 @@
 # A value whose type has drop glue is used by its drop at scope exit,
-# which may reach what it borrows.
+# which may reach what it views.
 
 struct Wrap
   n: Int

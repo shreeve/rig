@@ -1,5 +1,5 @@
-# A borrow a call stores through a write borrow lands in the value the
-# write borrow leads to, so it may not outlive that value.
+# A view a call stores through a write view lands in the value the
+# write view leads to, so it may not outlive that value.
 
 struct In
   v: Vec[Int]

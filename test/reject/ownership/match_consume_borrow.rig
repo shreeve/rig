@@ -1,5 +1,5 @@
-# `match <e` consumes an owned value: a borrow owns no fields to hand
-# over, and a box is matched through a borrow of it.
+# `match <e` consumes an owned value: a view owns no fields to hand
+# over, and a box is matched through a view of it.
 
 enum Shape
   circle(r: Int)

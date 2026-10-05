@@ -1,10 +1,10 @@
-# A borrow of a Copy value that an expression yields (a call returning
+# A view of a Copy value that an expression yields (a call returning
 # `!Int`, `!p.get()`) reads as the value wherever a value is expected:
 # `not`, `and`/`or`, `??`, String and enum equality, compound
 # assignment, bindings, arguments, returns, fields, payloads, array
 # elements, indexes, ranges, slices, conversions, conditions, `if … as`,
 # `?`, branches, loop values, and clones. The value read is a copy, so
-# the borrow taken to reach it ends there, and it is read in argument
+# the view taken to reach it ends there, and it is read in argument
 # order, also where a call evaluates its arguments first.
 
 error Bad

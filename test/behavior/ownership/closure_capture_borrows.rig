@@ -1,5 +1,5 @@
-# `|?x|` captures a read borrow and `|!x|` a write borrow, held while the
-# closure lives. Through a captured write borrow the body writes fields,
+# `|?x|` captures a read view and `|!x|` a write view, held while the
+# closure lives. Through a captured write view the body writes fields,
 # calls `!self` methods, and assigns the whole value, which writes
 # through; after the closure's last call, the value is free again.
 

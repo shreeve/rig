@@ -1,7 +1,7 @@
-# `|?x|` and `|!x|` follow the rules of `?x` and `!x`: a write borrow
-# excludes every other borrow while the closure lives; an owned closure
-# borrows nothing; and nothing borrowed from the closure's own values is
-# stored through a captured write borrow.
+# `|?x|` and `|!x|` follow the rules of `?x` and `!x`: a write view
+# excludes every other view while the closure lives; an owned closure
+# views nothing; and nothing a view of the closure's own values is
+# stored through a captured write view.
 
 struct Wrap
   n: Int

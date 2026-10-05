@@ -1,5 +1,5 @@
 # A place whose path starts at a temporary is not written, even where a
-# write borrow on the way reaches storage that outlives it: `<p.f`
+# write view on the way reaches storage that outlives it: `<p.f`
 # follows the rule of `p.f = v` and `!p.f`.
 
 struct B

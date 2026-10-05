@@ -1,4 +1,4 @@
-# A payload of a field reached through a borrow or a shared handle is
+# A payload of a field reached through a view or a shared handle is
 # owned by someone else: it cannot be moved or dropped.
 
 struct Tok

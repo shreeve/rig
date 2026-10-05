@@ -1,5 +1,5 @@
-# Several write borrows passed to one call, none of which can hold a
-# borrow, leave their values usable after it.
+# Several write views passed to one call, none of which can hold a
+# view, leave their values usable after it.
 
 sub f(s: !String, a: ![3]Int, n: !Int, o: !Int?)
   s = "changed"

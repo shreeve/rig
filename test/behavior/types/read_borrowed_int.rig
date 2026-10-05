@@ -1,4 +1,4 @@
-# A borrow of a Copy value reads as the value in arithmetic.
+# A view of a Copy value reads as the value in arithmetic.
 
 fun inc(n: ?Int) -> Int
   n + 1

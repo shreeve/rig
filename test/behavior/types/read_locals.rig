@@ -1,4 +1,4 @@
-# Every local is read, in any way: an argument, a borrow, a move, a
+# Every local is read, in any way: an argument, a view, a move, a
 # clone, a field write, a closure capture, or a drop. `_` binds nothing,
 # `_ = e` discards a value, and a value with drop glue is read by its
 # own release, so a guard held to the end of its scope needs no other

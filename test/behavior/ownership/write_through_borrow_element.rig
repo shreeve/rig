@@ -1,5 +1,5 @@
 # An element of type `!T` is written through the way a `!T` field is:
-# assigning a `T` value, or a compound assignment, writes the borrowed
+# assigning a `T` value, or a compound assignment, writes the viewed
 # place (dropping the value it held), while assigning a `!T` points the
 # element elsewhere.
 

@@ -1,4 +1,4 @@
-# Borrows reach a boxed value through the box: its owner cannot be
+# Views reach a boxed value through the box: its owner cannot be
 # reassigned or dropped while one is live.
 
 struct Node

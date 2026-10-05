@@ -1,4 +1,4 @@
-# A catch handler's local, borrowed into an outer var.
+# A catch handler's local, viewed into an outer var.
 error E
   bad
 

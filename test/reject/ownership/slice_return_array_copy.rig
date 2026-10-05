@@ -1,6 +1,6 @@
 # A parameter taken by value, and a loop's copy of an element, belong to
-# the function, so a borrow of them cannot be returned. A borrow returned
-# from a read-borrowed array parameter borrows the caller's array, which
+# the function, so a view of them cannot be returned. A view returned
+# from a lent to read array parameter views the caller's array, which
 # must outlive it.
 
 struct Pt

@@ -1,4 +1,4 @@
-# A `[]T` is read-only, so a write borrow of one, which would be a
+# A `[]T` is read-only, so a write view of one, which would be a
 # writable `![]T`, is rejected: of a local, a parameter, or a field.
 
 struct View

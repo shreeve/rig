@@ -1,4 +1,4 @@
-# A closure that captured a borrow keeps the owner borrowed while the
+# A closure that captured a view keeps the owner viewed while the
 # closure binding is live.
 
 struct Wrap

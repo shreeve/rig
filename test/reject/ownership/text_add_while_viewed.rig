@@ -1,4 +1,4 @@
-# A String taken from a Text borrows it: the Text cannot change while
+# A String taken from a Text views it: the Text cannot change while
 # the view is in use, since the change may move its bytes.
 
 sub main

@@ -1,4 +1,4 @@
-# Cloning through a borrow clones the value borrowed: `+b` of a `?Bag`
+# Cloning through a view clones the value viewed: `+b` of a `?Bag`
 # is a new `Bag`, whose Vec is a copy of the Vec `b` views.
 
 struct Bag

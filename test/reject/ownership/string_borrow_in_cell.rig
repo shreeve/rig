@@ -1,4 +1,4 @@
-# A borrow of a String is read as the String it reaches, so storing one
+# A view of a String is read as the String it reaches, so storing one
 # in a Cell or Signal stores that view: rejected when it views a Text or
 # may (a parameter), and accepted for a literal.
 
