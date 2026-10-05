@@ -2405,6 +2405,11 @@ pub const Emitter = struct {
         const name = try self.fmt("__rig_subject_{d}", .{self.nextId()});
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
         if (isPlace(value) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
+            // A read match reaches an element as a read does: a Vec it
+            // reaches through a read borrow is constant.
+            const saved = self.read_place;
+            defer self.read_place = saved;
+            self.read_place = info.mode == .read;
             try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
             info.reread = try self.fmt("{s}.*", .{name});
             return;
