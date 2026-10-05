@@ -652,7 +652,13 @@ and `e?` (`sema.valueLeaves`): a branch that is a name is read where it is
 (`readsInPlace`), never moved, and a branching value all of whose
 branches are made is one temporary. A read lend of a temporary
 (`?S(n: 1)`, `?make()`, a slice of one) records it the same way,
-owning or not. A header (`sema.isHeaderOf`: an `if` or `while`
+owning or not (`lendTemp`), and so does a `?self` or `!self` receiver
+made here, or a field or element of one, whose method may keep a view
+of it (a result that may hold a view, or a call that may store one,
+`callRetains`): `r = mk().arr()` is `_t = mk()`, `r = P.arr(?_t)`,
+`-_t`, plain data too, so the view may be used until the statement
+ends. A receiver that branches lends each leaf where it is instead
+(`receiverLeaves`). A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
 `if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
 so a binding that still views `_t` is reported where the header ends.
@@ -1003,9 +1009,10 @@ that value (`discardsValue`: typecheck records the value of each
 expression statement, and what passes it on, as discarded), or that a
 var the call stored it in keeps, is reported, and no other path ends the
 var with a loan on it unreported, "a view of `e` outlives the call, which holds `e` only while
-it runs; bind `e` to a name first". The Core keeps such a temporary
-until its statement ends, so this is the compiler's limit until emit
-keeps it in its statement's slot (`test/known/`). The other storage
+it runs; bind `e` to a name first". A temporary receiver of a method
+that may keep a view of it is kept in its statement's slot instead
+(`lendTemp`), as the Core keeps it, so only a receiver whose method
+keeps no view of it is held by the call. The other storage
 needs no walk of its own. Owned storage of a construct (`held`,
 `taken`, the consuming `for`'s) is the hidden var the construct already
 takes its value into; pointers are loans on what they point at; a
@@ -1717,10 +1724,6 @@ lower is an internal error: sema must have rejected it.
   the ownership checker confines to the statement and Zig keeps today
   (it emits no lifetime markers), but which no storage fact names:
 
-  - a `?self` method called on a value made here that no statement slot
-    keeps (`mkq().me().n` is `((mkq()).me()).n`), also as a hoisted
-    call's argument, whose block the view then outlives
-    (`const __rig_arg_1_1 = (mkq(5)).me();`);
   - a `?self` method on a branching value with a leaf made there, which
     `reachesLeaf` does not reach, so the receiver is a copy:
     `(@as(Q, if (c) mkq(5) else b)).me()`;

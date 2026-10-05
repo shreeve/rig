@@ -1,0 +1,42 @@
+# A guarded match reads its subject where it is: an element of a Vec a
+# read borrow reaches is read through a constant pointer, whether the
+# subject is the element, a lend of it, or a field of it.
+
+enum E
+  a(n: Int)
+  b(n: Int)
+
+struct W
+  e: E
+
+fun f(v: ?Vec[E]) -> Int
+  match v[0]
+    .a(n) if n > 1 => n
+    .a(_) => 1
+    .b(n) => n
+
+fun g(v: ?Vec[E], i: Int) -> Int
+  match ?v[i]
+    .a(n) if n > 10 => 10
+    .a(n) => n
+    .b(n) => -n
+
+fun h(ws: ?Vec[W]) -> Int
+  match ws[1].e
+    .b(n) if n < 0 => 0
+    .b(n) => n
+    _ => -1
+
+sub main
+  e: Vec[E] = Vec()
+  !e.push(E.a(n: 5))
+  !e.push(E.b(n: 7))
+  print(f(?e), g(?e, 0), g(?e, 1))
+  ws: Vec[W] = Vec()
+  !ws.push(W(e: E.a(n: 1)))
+  !ws.push(W(e: E.b(n: 3)))
+  print(h(?ws))
+
+# expect:
+# 5 5 -7
+# 3

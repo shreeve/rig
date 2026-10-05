@@ -1,0 +1,75 @@
+# A `?self` method whose result may keep a view of its receiver lends the
+# receiver, as `?e` does. A receiver that branches lends each leaf it may
+# be, where it is: whether the branch is the receiver itself, the value a
+# field or element of it is read from, or `??`, `catch`, or `o?`. So a
+# view of it keeps a loan on each name a leaf names, and a change to one
+# of them while the view is live is rejected; a view of a leaf made there
+# may not outlive its statement. (The forms that keep working:
+# `test/behavior/ownership/receiver_view_of_branch_lends_leaves.rig`.)
+
+struct S
+  t: Text
+  xs: [4]Int
+
+  fun inner(?self) -> ?Text
+    ?self.t
+
+  fun name(?self) -> String
+    ?self.t
+
+  fun arr(?self) -> ?[4]Int
+    ?self.xs
+
+struct W
+  s: S
+
+struct P
+  xs: [4]Int
+
+  fun arr(?self) -> ?[4]Int
+    ?self.xs
+
+error E
+  bad
+
+fun maybe(c: Bool) -> S?
+  if c
+    return S(t: Text("oo"), xs: [9, 9, 9, 9])
+  none
+
+fun fails(c: Bool) -> S!
+  if c
+    return E.bad
+  S(t: Text("ff"), xs: [8, 8, 8, 8])
+
+fun first(o: S?) -> Int?
+  r = o?.inner()
+  r.len
+
+sub main
+  a = S(t: Text("aa"), xs: [1, 2, 3, 4])
+  b = S(t: Text("bb"), xs: [5, 6, 7, 8])
+  c = a.t.len == 2
+  r = (a if c else b).inner()
+  n = (a if c else b).name()
+  x = (a if c else b).arr()
+  wa = W(s: S(t: Text("wa"), xs: [0, 0, 0, 0]))
+  wb = W(s: S(t: Text("wb"), xs: [0, 0, 0, 0]))
+  w = (wa if c else wb).s.inner()
+  o = maybe(true)
+  u = (o ?? a).inner()
+  e = (fails(false) catch b).inner()
+  vs: Vec[P] = Vec()
+  !vs.push(P(xs: [1, 1, 1, 1]))
+  ws: Vec[P] = Vec()
+  !ws.push(P(xs: [2, 2, 2, 2]))
+  y = (vs if c else ws)[0].arr()
+  print((a if c else b).inner())
+  a.t = Text("zz")
+  !vs.clear()
+  print(r, n, x, w, u, e, y, first(maybe(true)) ?? 0)
+
+# error: 61:8: a view of the temporary `fails(false)` outlives its statement
+# error: 68:3: cannot assign to `a.t` while `a` is lent
+# error: 69:3: cannot lend `vs` to write while a read loan is live
+# errors: 3

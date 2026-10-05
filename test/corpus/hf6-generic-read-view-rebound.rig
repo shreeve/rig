@@ -1,0 +1,14 @@
+# A generic method `left(?self, other: ?T) -> ?T` at `T = Int`, its result
+# bound to a name that held a lend of a place.
+struct Pair[T]
+  x: T
+
+  fun left(?self, other: ?T) -> ?T
+    ?self.x
+
+sub main
+  p = Pair(x: 5)
+  q = ?p.x
+  o = 6
+  q = p.left(?o)
+  print(q)

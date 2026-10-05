@@ -1,8 +1,9 @@
-# A view of what a call holds only while it runs (a temporary receiver,
-# or a copy of a Cell-holding part of one) outlives the call wherever the
-# call's value is used, not only where a statement binds it: the tail of
-# a function, a `return`, a `break` value, and the tail of a value `if`
-# or `match` block all yield it.
+# A view of a temporary receiver, or of a Cell-holding part of one, of a
+# call whose arguments may run first lives only until the statement that
+# keeps the temporary ends, wherever the call's value is used, not only
+# where a statement binds it: the tail of a function, a `return`, a
+# `break` value, and the tail of a value `if` or `match` block all yield
+# it past that statement.
 
 struct S
   n: Int
@@ -60,8 +61,8 @@ sub main
   print(r.n, s.n, t.n)
 
 # errors: 5
-# error: 34:4: a view of `mk(42)` outlives the call
-# error: 37:11: a view of `mk(1)` outlives the call
-# error: 49:7: a view of `mkh(42).q` outlives the call
-# error: 53:5: a view of `mkh(43).q` outlives the call
-# error: 57:11: a view of `mkh(44).q` outlives the call
+# error: 35:4: cannot return a view of `mk(42)`, which this function was not lent
+# error: 38:11: cannot return a view of `mk(1)`, which this function was not lent
+# error: 50:7: a view of the temporary `mkh(42)` outlives its statement
+# error: 54:5: a view of the temporary `mkh(43)` outlives its statement
+# error: 58:11: a view of the temporary `mkh(44)` outlives its statement

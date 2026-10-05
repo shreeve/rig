@@ -7,12 +7,13 @@ from).
 
 ## Current state
 
-- **Release:** `v0.1.4` is the latest release (Zig 0.17.0, Nexus
-  2.0.0), with CI green on Linux and macOS. It keeps a view of a read
-  `match` binding within its arm, so it no longer dangles past the match;
-  `v0.1.3`, `v0.1.2` and `v0.1.1` fixed five earlier use-after-free
-  classes. The version string in `build.zig` changes only when a release
-  is cut.
+- **Release:** `v0.1.6` is the latest release (Zig 0.17.0, Nexus
+  2.0.0), with CI green on Linux and macOS. It rejects every header that
+  binds a copy of its subject (a use-after-free and lost writes), passes
+  a field callable's arguments to their own parameters (a leak), and fixes
+  two Zig compile errors. `v0.1.5` through `v0.1.1` fixed earlier
+  use-after-free classes. The version string in `build.zig` changes only
+  when a release is cut.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests; the `revamp` branch carries the
   consolidation below.

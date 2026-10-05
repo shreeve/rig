@@ -1,0 +1,64 @@
+# A header that would make a temporary binds what it needs to a name
+# first, so it is matched where it is: a write through a binding lands
+# in the place, and a Cell change is seen. A header that takes a value
+# made there binds that value, temporaries or not.
+
+enum E
+  a(xs: [4]Int)
+  b
+
+enum F
+  a(n: Int)
+  b(n: Int)
+
+struct C
+  c: Cell[Int]
+
+struct P
+  x: Int
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun opt(n: ?Text) -> P?
+  if n.len > 0
+    return P(x: n.len)
+  none
+
+fun mke(s: ?Text) -> E
+  .a(xs: [s.len, 0, 0, 0])
+
+sub main
+  i = idx(?Text("a"))
+  arr = [F.a(n: 1)]
+  match !arr[i]
+    .a(n) if n > 5 => n = 50
+    .a(n) => n = 60
+    .b(n) => print(n)
+  ints: [1]Int? = [1]
+  if !ints[i] as n
+    n = n + 7
+  while !ints[i] as n
+    n = n + 1
+    break
+  cs: [1]C? = [C(c: Cell(1))]
+  if ?cs[i] as c
+    c.c.set(5)
+  if ?cs[0] as c
+    print(c.c.get())
+  print(arr, ints)
+  match mke(?Text("abc"))
+    .a(xs) => print(xs[0])
+    .b => pass
+  if opt(?Text("abcd")) as p
+    print(p.x)
+  for x in [[1, 2], [3, 4]][i]
+    print(x)
+
+# expect:
+# 5
+# [.a(n: 60)] [9]
+# 3
+# 4
+# 1
+# 2

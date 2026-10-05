@@ -1,0 +1,45 @@
+# A `?self` method whose result may keep a view of a temporary receiver
+# lends the temporary, which lives until its statement ends, plain data
+# too: the view may be used within the statement, and nowhere after.
+# So does a field or element of a temporary, a Cell-holding part
+# included, and a branching value all of whose values are plain data.
+
+struct P
+  xs: [4]Int
+
+  fun arr(?self) -> ?[4]Int
+    ?self.xs
+
+struct Q
+  c: Cell[Int]
+  n: Int
+
+  fun me(?self) -> ?Q
+    self
+
+struct H
+  q: Q
+  p: P
+
+fun mk -> P
+  P(xs: [9, 9, 9, 9])
+
+fun mkh -> H
+  H(q: Q(c: Cell(1), n: 42), p: P(xs: [3, 3, 3, 3]))
+
+sub main
+  print(mk().arr(), mkh().q.me().n)
+  r = mk().arr()
+  s = mkh().q.me()
+  t = mkh().p.arr()
+  ps = [P(xs: [1, 1, 1, 1]), P(xs: [2, 2, 2, 2])]
+  qs = [P(xs: [3, 3, 3, 3]), P(xs: [4, 4, 4, 4])]
+  c = ps[0].xs[0] == 1
+  u = (ps if c else qs)[1].arr()
+  print(r, s.n, t, u)
+
+# error: 32:7: a view of the temporary `mk()` outlives its statement
+# error: 33:7: a view of the temporary `mkh()` outlives its statement
+# error: 34:7: a view of the temporary `mkh()` outlives its statement
+# error: 38:8: a view of the temporary `ps if c else qs` outlives its statement
+# errors: 4

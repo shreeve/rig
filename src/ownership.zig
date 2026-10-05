@@ -3445,6 +3445,17 @@ pub const Checker = struct {
     fn receiverLeaves(self: *Checker, obj: Sexp, kind: LoanKind) Error!Value {
         var base = obj;
         while (self.isPartOfNoPlace(base)) base = ir.get(base, .object);
+        // A value its statement keeps in a slot (`dropsTemp`), a copy of a
+        // branching value's leaf included, is lent there.
+        if (self.sema) |ctx| if (ctx.dropsTemp(base)) {
+            const pos = self.startOf(base);
+            var i = self.stmt_drops.items.len;
+            while (i > 0) {
+                i -= 1;
+                const d = self.stmt_drops.items[i];
+                if (d.pos == pos) return .{ .loans = try self.oneLoan(.{ .root = d.id, .kind = .read, .pos = pos }) };
+            }
+        };
         var leaves: std.ArrayList(Sexp) = .empty;
         try sema.valueLeaves(self.arena(), base, &leaves);
         var out: Value = .{};
