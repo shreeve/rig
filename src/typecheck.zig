@@ -651,6 +651,7 @@ const Checker = struct {
         const saved = self.discarded;
         defer self.discarded = saved;
         self.discarded = stmt;
+        try self.ctx.recordDiscard(stmt);
         const ty = try self.synthExpr(stmt);
         // A statement `-name` is a drop; any other `-e` there would negate
         // a value and throw it away.

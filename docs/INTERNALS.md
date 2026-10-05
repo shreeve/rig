@@ -871,6 +871,7 @@ instead of re-deriving it by name:
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary (`rejectHeaderCopy`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
+| `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or borrow sigil that is one. Kept beside the table, not in `check --facts=sema` |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
@@ -977,9 +978,11 @@ the Core gives the value it holds: what a call whose arguments run
 first holds while it runs (`life` `call`). A receiver the call holds as
 a value or a copy, or an argument it copies, is a hidden var the call is
 lent (`holdForCall`), which ends when the call returns (`endCallHeld`):
-a view of it that the call's result still carries, unless its statement
-discards the result, or that a var the call stored it in keeps, is
-reported, "a view of `e` outlives the call, which holds `e` only while
+a view of it that the call's result still carries, unless nothing uses
+that value (`discardsValue`: typecheck records the value of each
+expression statement, and what passes it on, as discarded), or that a
+var the call stored it in keeps, is reported, and no other path ends the
+var with a loan on it unreported, "a view of `e` outlives the call, which holds `e` only while
 it runs; bind `e` to a name first". The Core keeps such a temporary
 until its statement ends, so this is the compiler's limit until emit
 keeps it in its statement's slot (`test/known/`). The other storage

@@ -3149,11 +3149,9 @@ pub const Checker = struct {
             i -= 1;
             const id = self.call_held.items[i];
             if (self.reachable) {
-                // A call that is its statement, as written (`!mk().at()`),
-                // leaves its value unused.
-                var stmt = storage.unborrowed(self.cur_stmt);
-                while (stmt.isKind(.propagate)) stmt = storage.unborrowed(ir.Propagate.value(stmt));
-                const discarded = stmt == .list and node == .list and stmt.list.id == node.list.id;
+                // Only a value nothing uses (an expression statement's,
+                // `sema.discardsValue`) may keep no loan without a report.
+                const discarded = if (self.sema) |ctx| ctx.discardsValue(node) else false;
                 if (!discarded) for (out.loans) |l| if (l.root == id) {
                     try self.reportCallHeld(l, null);
                     break;

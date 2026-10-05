@@ -1427,6 +1427,8 @@ pub const SemContext = struct {
     /// `header_copies`): recorded after the expressions are checked
     /// (`storage.plan`).
     storage: std.AutoHashMapUnmanaged(StorageKey, Storage) = .empty,
+    /// The values expression statements discard (`discardsValue`).
+    discards: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The `from` clause of each function and method that writes one
     /// (`-> T from a, b`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
@@ -1488,6 +1490,7 @@ pub const SemContext = struct {
         self.imported_entries.deinit(self.allocator);
         self.plain_reqs.deinit(self.allocator);
         self.storage.deinit(self.allocator);
+        self.discards.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -1913,6 +1916,29 @@ pub const SemContext = struct {
             .header_copy => if (self.copiesHeader(node)) .{ .kind = .header_copy, .by = .copy, .life = .construct } else null,
             else => self.storage.get(.{ .node = exprKey(node) orelse return null, .kind = kind }),
         };
+    }
+
+    /// `stmt` is an expression statement, whose value nothing uses: the
+    /// value it yields, and each value it passes on to it (the operand of
+    /// `!`, `?`, `catch`, and a borrow sigil), is discarded.
+    pub fn recordDiscard(self: *SemContext, stmt: Sexp) !void {
+        var e = stmt;
+        while (true) {
+            try self.discards.put(self.allocator, recordExprKey(e) orelse return, {});
+            e = switch (e.kind() orelse return) {
+                .propagate => ir.Propagate.value(e),
+                .propagate_none => ir.PropagateNone.value(e),
+                .@"catch" => ir.Catch.value(e),
+                .read, .write => ir.get(e, .operand),
+                else => return,
+            };
+        }
+    }
+
+    /// Whether nothing uses the value of `node`: it is, or its value
+    /// passes on to, an expression statement (`recordDiscard`).
+    pub fn discardsValue(self: *const SemContext, node: Sexp) bool {
+        return self.discards.contains(exprKey(node) orelse return false);
     }
 
     pub fn recordTempDrop(self: *SemContext, node: Sexp) !void {

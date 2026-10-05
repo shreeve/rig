@@ -1,0 +1,67 @@
+# A view of what a call holds only while it runs (a temporary receiver,
+# or a copy of a Cell-holding part of one) outlives the call wherever the
+# call's value is used, not only where a statement binds it: the tail of
+# a function, a `return`, a `break` value, and the tail of a value `if`
+# or `match` block all yield it.
+
+struct S
+  n: Int
+  m: Int
+
+  fun at(!self) -> !Int
+    !self.n
+
+struct Q
+  c: Cell[Int]
+  n: Int
+
+  fun me(?self, j: Int, k: Int) -> ?Q
+    self
+
+struct H
+  q: Q
+
+fun mk(k: Int) -> S
+  S(n: k, m: 6)
+
+fun mkh(k: Int) -> H
+  H(q: Q(c: Cell(1), n: k))
+
+fun g(k: Int) -> Int
+  k
+
+fun view(d: !Int) -> !Int from d
+  !mk(42).at()
+
+fun early(d: !Int, c: Bool) -> !Int from d
+  return !mk(1).at() if c
+  d
+
+sub main
+  y = 0
+  z = 0
+  print(view(!y), early(!z, true))
+  d = Q(c: Cell(0), n: 0)
+  k = g(0)
+  r = match k
+    0
+      print("arm")
+      mkh(42).q.me(k: g(1), j: g(2))
+    _ => ?d
+  s = if k == 0
+    print("block")
+    mkh(43).q.me(k: g(1), j: g(2))
+  else
+    ?d
+  t = while true
+    break mkh(44).q.me(k: g(1), j: g(2))
+  else
+    ?d
+  print(r.n, s.n, t.n)
+
+# errors: 5
+# error: 34:4: a view of `mk(42)` outlives the call
+# error: 37:11: a view of `mk(1)` outlives the call
+# error: 49:7: a view of `mkh(42).q` outlives the call
+# error: 53:5: a view of `mkh(43).q` outlives the call
+# error: 57:11: a view of `mkh(44).q` outlives the call
