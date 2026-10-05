@@ -3141,6 +3141,12 @@ pub const Checker = struct {
             } else {
                 recv_value = try self.walk(ir.Member.object(callee));
                 if (self.errors_found == callee_found) try self.holdRead(ir.Member.object(callee), .receiver);
+                // A built-in's methods hand out values, never borrows of
+                // the receiver.
+                if ((recv_mode == .read or recv_mode == .write) and !self.namesType(callee) and self.builtinName(self.exprType(obj)) == null) {
+                    const kind: LoanKind = if (recv_mode == .write) .write else .read;
+                    recv_value = try self.valueUnion(recv_value, try self.receiverLeaves(obj, kind));
+                }
             }
         } else if (callee == .src) {
             // A callable's result may borrow what the callable holds: a
@@ -3302,6 +3308,45 @@ pub const Checker = struct {
         for (leaves.items) |leaf| {
             if (self.isPartOfNoPlace(leaf)) try self.holdBranchReads(leaf, reader) else try self.holdBranchLeaf(leaf, reader);
         }
+    }
+
+    /// What a method called on `obj`, a receiver that is no place, is
+    /// lent: the method runs on the receiver where it is, so a view it
+    /// returns may view whatever the receiver may be (Core sentence 7).
+    /// For each leaf of the value its fields and elements are read from
+    /// (`sema.valueLeaves`: each branch of `a if c else b`, `o ?? d`,
+    /// `e catch d`), a loan on the place a name holds, or on the
+    /// statement's temporary a made value is, which ends with the
+    /// statement (Core §3).
+    fn receiverLeaves(self: *Checker, obj: Sexp, kind: LoanKind) Error!Value {
+        var base = obj;
+        while (self.isPartOfNoPlace(base)) base = ir.get(base, .object);
+        var leaves: std.ArrayList(Sexp) = .empty;
+        try sema.valueLeaves(self.arena(), base, &leaves);
+        var out: Value = .{};
+        for (leaves.items) |leaf| {
+            const pos = self.startOf(leaf);
+            if (self.resolvePlace(leaf)) |p| {
+                if (!self.flowLive(p.root)) continue;
+                out = try self.valueUnion(out, try self.reborrow(p.root, .{ .root = p.root, .kind = kind, .pos = pos }));
+                continue;
+            }
+            if (self.isPartOfNoPlace(leaf)) {
+                out = try self.valueUnion(out, try self.receiverLeaves(leaf, kind));
+                continue;
+            }
+            // A name that is no var (a module's, a constant's) names no
+            // storage of this function.
+            if (leaf == .src) continue;
+            // A made value: the temporary its statement holds, made here
+            // if the value needs no drop.
+            const held = for (self.stmt_drops.items) |d| {
+                if (d.pos == pos) break d.id;
+            } else null;
+            const loan: Loan = .{ .root = held orelse (try self.holdTemp(leaf, .{})).loans[0].root, .kind = .read, .pos = pos };
+            out = try self.valueUnion(out, .{ .loans = try self.oneLoan(loan) });
+        }
+        return out;
     }
 
     /// Whether `e` is a field or element of a value that is no place.

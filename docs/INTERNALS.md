@@ -1407,7 +1407,12 @@ the receiver's value when the receiver's parameter is in `result`, and
 each argument whose parameter is; what the call may store (into its
 write receiver, and through the write loans its arguments lead to) is
 the receiver's value and each argument whose parameter is in `stores`.
-A receiver lent to read is never stored into. The stores apply first,
+A receiver lent to read is never stored into. A method runs on its
+receiver where it is, so a receiver that is no place is lent at each
+leaf the value may be (`receiverLeaves`, through `if`, `??`, `catch`, and
+the fields and elements of such a value): a loan on the place a name
+holds, or on the statement's temporary a made value is, which ends with
+the statement (Core §3). The stores apply first,
 then the result is narrowed by `carry`, so a holder the result does not
 view stands for its loans after the call: `next(!self, extra)`, which
 re-points `self.items` at `extra`, gives a result that carries
@@ -1754,7 +1759,9 @@ carries a loan it was lent only where the
 lent place's type may own what the var's views view, transitively, or
 reach it through a write view, and otherwise the loans that place's
 var holds after the call's stores. It maps arguments to parameters
-itself, positionally or through the call's slots.
+itself, positionally or through the call's slots. A method called on a
+value made there (a call, a clone, a shared allocation) lends that
+temporary, so a view it returns ends with the statement.
 
 ## Nexus notes
 
