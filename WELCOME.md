@@ -574,9 +574,10 @@ fun twice(s: String) -> Int!
 ```
 
 **`+` on strings.** A `String` is a view of text it does not own, so
-there is nothing for `+` to write into. Text is built in a `Text`,
-which owns its bytes: `Text(a, b)` writes each value as `print` would,
-and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
+there is nothing for `+` to write into. Rig's `String` is Go's or
+Odin's `string`; Rust's `String` is Rig's `Text`. Text is built in a
+`Text`, which owns its bytes: `Text(a, b)` writes each value as
+`print` would, and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
 
 ```rig reject
 sub main

@@ -320,6 +320,8 @@ const FnCtx = struct {
     /// The return type can carry views: returned values are checked
     /// for loans on locals.
     ret_may_view: bool = false,
+    /// The return type, when the body returns a value.
+    ret_ty: ?TypeId = null,
     /// Checking a closure body.
     in_closure: bool = false,
     /// In a closure body, the first var declared in it: a returned
@@ -878,10 +880,20 @@ pub const Checker = struct {
             const hv = self.vars.items[h];
             if (hv.name.len > 0) {
                 try self.note(root.decl, "`{s}` goes out of scope while `{s}` still views it", .{ root.name, hv.name });
-                return;
+                return self.noteStringOfText(l, hv.ty);
             }
         }
         try self.note(root.decl, "`{s}` goes out of scope while it is still lent", .{root.name});
+    }
+
+    /// Where loan `l` of a Text outlives the Text in a value of type
+    /// `held` whose only views are Strings (a String field or result):
+    /// the String was meant to own its text.
+    fn noteStringOfText(self: *Checker, l: Loan, held: ?TypeId) Error!void {
+        const ctx = self.sema orelse return;
+        const t = held orelse return;
+        if (!self.isText(self.vars.items[l.root].ty) or !sema.holdsViewOnly(ctx, t)) return;
+        try self.note(l.pos, "a `String` views text it doesn't own; store a `Text` to own it", .{});
     }
 
     /// A view of a read match's binding `l` names, kept past its arm.
@@ -1435,7 +1447,7 @@ pub const Checker = struct {
         }
         const ret_ty = self.fnReturnType(name);
         const returns_value = returns != .nil and !self.isVoid(ret_ty);
-        self.func = .{ .ret_may_view = returns_value and self.returnMayView(ret_ty, returns), .origins = self.declOrigins(name) };
+        self.func = .{ .ret_may_view = returns_value and self.returnMayView(ret_ty, returns), .ret_ty = if (returns_value) ret_ty else null, .origins = self.declOrigins(name) };
         self.loop = null;
         // The body runs when called, not here: its effects on anything
         // outside it are undone afterwards.
@@ -3048,7 +3060,7 @@ pub const Checker = struct {
                     return;
                 };
                 try self.err(pos, "cannot store a view of `{s}` in `{s}`: `{s}` outlives it", .{ stored, into, v.name });
-                return;
+                return self.noteStringOfText(l, self.exprType(target));
             };
             return self.storeInLent(id, pos, value, self.placeDepth(target, false));
         }
@@ -3845,6 +3857,7 @@ pub const Checker = struct {
         self.func = .{
             .in_closure = true,
             .ret_may_view = returns_value and self.mayCarryLoan(ret_ty),
+            .ret_ty = if (returns_value) ret_ty else null,
             .closure_base = @intCast(self.vars.items.len),
             .origins = try self.typeOrigins(fn_ty),
         };
@@ -4103,10 +4116,12 @@ pub const Checker = struct {
             if (r.kind == .param) {
                 const shown = if (self.sema != null and r.ty != null) try sema.formatTypeIn(self.sema.?, self.arena(), r.ty.?) else "T";
                 try self.err(l.pos, "cannot return a view of `{s}`: a parameter taken by value belongs to this function and ends with it; take `{s}: ?{s}` to return a view of the caller's value", .{ r.name, r.name, shown });
+                try self.noteStringOfText(l, self.func.ret_ty);
                 continue;
             }
             try self.err(l.pos, "cannot return a view of `{s}`, which this function was not lent", .{r.name});
             try self.note(r.decl, "`{s}` is local to this {s}", .{ r.name, if (self.func.in_closure) "closure" else "function" });
+            try self.noteStringOfText(l, self.func.ret_ty);
         }
     }
 
