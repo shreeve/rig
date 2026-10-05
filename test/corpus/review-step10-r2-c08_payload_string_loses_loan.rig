@@ -1,0 +1,17 @@
+# Is c04 about headers, or does a match payload copy of a String lose the
+# loan on the Text it views? `e` holds a String view of `t`; the arm
+# copies it into `r`; `t` is then changed (the buffer reallocated).
+enum E
+  a(s: String)
+  b
+
+sub main
+  t = Text("short")
+  e = E.a(s: ?t)
+  r = "none"
+  match e
+    .a(s) => r = s
+    .b => print("b")
+  for _ in 0..20
+    !t.add("grow the buffer so it moves on the heap")
+  print(r)

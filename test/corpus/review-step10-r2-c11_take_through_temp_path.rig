@@ -1,0 +1,31 @@
+# Header exception "takes": `<p` through a path that makes a header
+# temporary. The place must be left empty (none), the value owned by the
+# construct, no leak and no double drop.
+enum E
+  a(t: Text)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("first text long enough to live on the heap"))
+  if <v[idx(?Text("a"))] as t
+    print(t)
+  print(v[0] == none)
+  w: Vec[E?] = Vec()
+  !w.push(E.a(t: Text("an enum text long enough for the heap")))
+  if <w[idx(?Text("a"))] as e
+    match <e
+      .a(t) => print(t)
+      .b => print("b")
+  print(w.len)
+  o: [1](Vec[Int]?) = [none]
+  vv: Vec[Int] = Vec()
+  !vv.push(3)
+  o[0] = <vv
+  while <o[idx(?Text("a"))] as xs
+    for x in xs
+      print(x)
+  print(o[0] == none)

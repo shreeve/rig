@@ -1,0 +1,19 @@
+# Header exception, `if … as` sibling of c04: `pick(?mkh(?Text(..)))`
+# returns `?Q?`, a view of an optional inside the header's temporary
+# `mkh(...)`; the plain-data binding copies it when the body starts.
+struct Q
+  s: String
+  n: Int
+
+struct H
+  q: Q?
+
+fun mkh(s: String) -> H from s
+  H(q: Q(s: s, n: 7))
+
+fun pick(h: ?H) -> ?Q? from h
+  ?h.q
+
+sub main
+  if pick(?mkh(?Text("a text long enough to live on the heap"))) as x
+    print(x.n, x.s)

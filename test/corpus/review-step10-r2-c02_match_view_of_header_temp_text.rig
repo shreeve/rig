@@ -1,0 +1,23 @@
+# c01 with a Text payload: the made `mkh(7)` owns a Text and is dropped
+# when the header ends; the arm reads the payload through the view the
+# call returned. (Plain `n` copied in the arm; `t` viewed.)
+enum E
+  a(n: Int, t: Text)
+  b
+
+struct H
+  e: E
+
+fun mkh(k: Int) -> H
+  H(e: E.a(n: k, t: Text("a payload text long enough for the heap")))
+
+fun pick(h: ?H) -> ?E
+  ?h.e
+
+sub main
+  match pick(?mkh(7))
+    .a(n, _) => print(n)
+    _ => print(0)
+  match pick(?mkh(8))
+    .a(_, t) => print(t)
+    _ => print(0)

@@ -1,0 +1,19 @@
+# h14 with an explicit `?x`: a generic `T` local lent to `?T`, directly
+# and in a hoisted call.
+fun g(k: Int) -> Int
+  k
+
+fun pick[T](q: ?T, n: Int) -> ?T from q
+  q
+
+fun direct[T](x: T) -> Int
+  print(pick(?x, 1))
+  1
+
+fun hoisted[T](x: T) -> Int
+  print(pick(n: g(1), q: ?x))
+  1
+
+sub main
+  print(direct(5))
+  print(hoisted(5))

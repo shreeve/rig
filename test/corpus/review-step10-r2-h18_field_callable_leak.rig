@@ -1,0 +1,33 @@
+# h17 where a later argument fails (`gf(2)!`) after the owned Text was
+# made: misaligned with the field callable's parameters, the Text is held
+# as a pointer view, with no drop flag, so the early exit leaks it.
+error Bad
+  no
+
+struct Q
+  c: Cell[Int]
+  n: Int
+
+struct H
+  q: Q
+
+struct S
+  cb: fun(Text, ?Q, Int) -> Int
+
+fun gf(k: Int) -> Int!
+  if k > 1
+    return Bad.no
+  k
+
+fun mkh(k: Int) -> H
+  H(q: Q(c: Cell(k), n: k))
+
+fun usq(t: Text, q: ?Q, n: Int) -> Int
+  t.len + q.c.get() + n
+
+fun run(s: ?S) -> Int!
+  s.cb(Text("a text long enough to live on the heap"), ?mkh(5).q, gf(2)!)
+
+sub main
+  s = S(cb: usq)
+  print(run(?s) catch -1)

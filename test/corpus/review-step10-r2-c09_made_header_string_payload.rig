@@ -1,0 +1,13 @@
+# Header exception "a value made in the header whose bindings are plain
+# data": `match mke(?Text(..))` makes an E whose String payload views the
+# header's Text temporary, dropped when the header ends.
+enum E
+  a(s: String)
+  b
+
+fun mke(s: String) -> E from s
+  E.a(s: s)
+
+sub main
+  match mke(?Text("a second text long enough for the heap"))
+    x => print(x)
