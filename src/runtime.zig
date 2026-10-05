@@ -109,6 +109,12 @@ pub fn borrowed(comptime T: type, borrow: ReadBorrow(T)) T {
     return if (comptime ReadBorrow(T) == T) borrow else borrow.*;
 }
 
+/// The `T` a read borrow `?T`, held where `borrow` points, reaches:
+/// the value itself when the borrow is a pointer, else the borrow's copy.
+pub fn borrowedPtr(comptime T: type, borrow: *const ReadBorrow(T)) *const T {
+    return if (comptime ReadBorrow(T) == T) borrow else borrow.*;
+}
+
 /// Release whatever `value` owns: a strong handle drops its count, a
 /// type with `__rig_drop` runs it, and aggregates drop their parts.
 /// Plain data is a no-op, decided at compile time.
