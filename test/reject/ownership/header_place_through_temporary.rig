@@ -1,0 +1,70 @@
+# A `match`, `if … as`, or `while … as` whose subject is a place reached
+# through a temporary its header makes (an index or a call's argument)
+# is rejected until headers are lowered before checking: emit evaluates
+# such a header in a block that yields the place's value, a copy, while
+# the checker views the place. A `for` source, and `<` of the place, are
+# not affected.
+
+struct C
+  c: Cell[Int]
+
+enum E
+  a(t: Text)
+  b(n: Int)
+
+struct S
+  e: E
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub write_match(v: !Vec[E])
+  match !v[idx(?Text("a"))]
+    .a(t) if t.len > 0 => !t.add("x")
+    .a(t) => !t.add("?")
+    .b(n) => print(n)
+
+sub read_match(v: ?Vec[E])
+  match v[idx(?Text("a"))]
+    .a(t) => print(t)
+    .b(n) => print(n)
+
+sub field_match(v: !Vec[S])
+  match !v[idx(?Text("a"))].e
+    .a(t) => !t.add("x")
+    .b(n) => print(n)
+
+sub write_as(v: !Vec[Text?])
+  if !v[idx(?Text("a"))] as t
+    !t.add("x")
+
+sub read_as(v: ?Vec[C?])
+  if v[idx(?Text("a"))] as c
+    c.c.set(5)
+
+sub write_while(v: !Vec[Text?])
+  while !v[idx(?Text("a"))] as t
+    !t.add("x")
+    break
+
+sub plain(arr: ![1]Int?)
+  if !arr[idx(?Text("a"))] as n
+    n = 50
+
+sub fine(v: !Vec[Text?], m: !Vec[Vec[Text]])
+  if <v[idx(?Text("a"))] as t
+    print(t)
+  for t in !m[idx(?Text("a"))]
+    !t.add("x")
+
+sub main
+  print(1)
+
+# error: 22:17: this header views a place reached through a temporary that ends with the header: bind the index to a name first
+# error: 28:16: bind the index to a name first
+# error: 33:17: bind the index to a name first
+# error: 38:14: bind the index to a name first
+# error: 42:13: bind the index to a name first
+# error: 46:17: bind the index to a name first
+# error: 51:16: bind the index to a name first
+# errors: 7

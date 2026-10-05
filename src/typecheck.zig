@@ -1551,7 +1551,8 @@ const Checker = struct {
         const saved_held = self.held_base;
         defer self.held_base = saved_held;
         if (!self.no_hold) self.held_base = self.madeBase(expr);
-        const ty = try self.synthExpr(expr);
+        var ty = try self.synthExpr(expr);
+        if (!self.isPoison(ty) and try self.rejectsTempPath(expr)) ty = self.t().invalid_id;
         var inner = self.t().invalid_id;
         if (!self.isPoison(ty)) switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
             .optional => |i| inner = i,
@@ -2004,6 +2005,7 @@ const Checker = struct {
         defer self.held_base = saved_held;
         if (mode == .read) self.held_base = self.madeBase(subject);
         var scrutinee = if (mode == .write) try self.synthOperand(subject) else try self.synthExpr(subject);
+        if (!self.isPoison(scrutinee) and mode != .consume and try self.rejectsTempPath(subject)) scrutinee = self.t().invalid_id;
         const subject_hands = self.hands(subject);
         if (mode == .read and !self.isPoison(scrutinee)) switch (subject_hands.kind) {
             .made => if (try self.cannotCopy(scrutinee, self.startOf(subject), "matches")) {
@@ -2277,6 +2279,39 @@ const Checker = struct {
         if (node != .list) return false;
         if (!sameNode(node, base) and (self.ctx.dropsTemp(node) or self.ctx.lendsCellTemp(node))) return true;
         for (node.items()) |item| if (self.makesTemps(item, base)) return true;
+        return false;
+    }
+
+    /// A `match`, `if … as`, or `while … as` whose subject is a place
+    /// reached through a statement temporary its header makes (in an
+    /// index, or a call's argument on the place's path) is rejected
+    /// (reported, true): emit evaluates such a header in a block that
+    /// yields the place's value, a copy, while the checker views the
+    /// place (docs/INTERNALS.md, "Header subjects"). Lowering headers
+    /// before checking lifts this.
+    fn rejectsTempPath(self: *Checker, subject: Sexp) Error!bool {
+        const p = if (subject.isKind(.read) or subject.isKind(.write)) ir.get(subject, .operand) else subject;
+        if (self.hands(p).kind != .place) return false;
+        const temp = self.firstTemp(p) orelse return false;
+        try self.errAt(temp, "this header views a place reached through a temporary that ends with the header: bind the {s} to a name first", .{if (self.inIndex(p, temp)) "index" else "argument"});
+        return true;
+    }
+
+    /// The first statement temporary in `node` (`dropsTemp`,
+    /// `lendsCellTemp`).
+    fn firstTemp(self: *Checker, node: Sexp) ?Sexp {
+        if (node != .list) return null;
+        if (self.ctx.dropsTemp(node) or self.ctx.lendsCellTemp(node)) return node;
+        for (node.items()) |item| if (self.firstTemp(item)) |found| return found;
+        return null;
+    }
+
+    /// Whether `node` lies in an index of place `p`'s path.
+    fn inIndex(self: *Checker, p: Sexp, node: Sexp) bool {
+        var e = p;
+        while (e.isKind(.member) or e.isKind(.index)) : (e = ir.get(e, .object)) {
+            if (e.isKind(.index) and self.firstTemp(ir.Index.index(e)) != null and contains(ir.Index.index(e), node)) return true;
+        }
         return false;
     }
 
@@ -8682,6 +8717,14 @@ fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
 }
 
 /// The element type of a Cell holding a Vec (`Cell[Vec[E]]`, `?Cell[Vec[E]]`, `*Cell[Vec[E]]`, ...).
+/// Whether `node` is `tree` or inside it.
+fn contains(tree: Sexp, node: Sexp) bool {
+    if (sameNode(tree, node)) return true;
+    if (tree != .list) return false;
+    for (tree.items()) |item| if (contains(item, node)) return true;
+    return false;
+}
+
 fn cellVecElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return vecElementType(ctx, cellElementType(ctx, ty) orelse return null);
 }
