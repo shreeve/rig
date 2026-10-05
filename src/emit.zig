@@ -4535,7 +4535,7 @@ pub const Emitter = struct {
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
                 try self.w.writeAll("@constCast(");
-                try self.emitAddressOf(unborrowed(ir.Member.object(callee)));
+                try self.emitCellAddress(ir.Member.object(callee));
                 try self.w.print(").{s}(", .{m});
                 try self.emitArgs(sexp);
                 return self.w.writeAll(")");
@@ -4565,8 +4565,18 @@ pub const Emitter = struct {
             return self.w.writeAll(".value)");
         }
         try self.w.writeAll("@constCast(");
-        try self.emitAddressOf(unborrowed(obj));
+        try self.emitCellAddress(obj);
         try self.w.writeAll(")");
+    }
+
+    /// The address of the Cell `obj` denotes, which `@constCast` makes
+    /// mutable: an element on its path is reached through `constSlot`,
+    /// since the Vec holding it may be reached through a read view.
+    fn emitCellAddress(self: *Emitter, obj: Sexp) Error!void {
+        const saved = self.read_place;
+        defer self.read_place = saved;
+        self.read_place = true;
+        try self.emitAddressOf(unborrowed(obj));
     }
 
     /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin
