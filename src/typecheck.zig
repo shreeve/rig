@@ -8430,7 +8430,7 @@ const Checker = struct {
                 try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) -> Int = |{s}| ...`)", .{ name, name, name });
             }
             if (owned and given == null and !sema.isClosureValue(self.ctx, pty)) {
-                try self.errAt(pn, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); parameter `{s}` is `{s}`", .{ name, try self.tyName(pty) });
+                try self.errAt(pn, "an owned closure takes values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); parameter `{s}` is `{s}`", .{ name, try self.tyName(pty) });
             }
             try params.append(self.ctx.allocator, pty);
             if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
@@ -8480,7 +8480,7 @@ const Checker = struct {
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
         ret = try self.reconcileReturns(sites.items, ret, ends_in_return, body);
         if (owned and ret != self.t().void_id and !sema.isClosureResult(self.ctx, ret)) {
-            try self.errAt(body, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; this one returns `{s}`", .{try self.tyName(ret)});
+            try self.errAt(body, "an owned closure returns values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; this one returns `{s}`", .{try self.tyName(ret)});
         }
 
         return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = sema.returnsNothing(self.ctx, ret) } });
@@ -8637,9 +8637,9 @@ const Checker = struct {
         } else if (outer_sym.flags.closure or sema.isReadOrWriteView(self.ctx, outer_ty)) {
             // A closure or a view is captured as a view.
             const sigil: []const u8 = if (self.ctx.types.get(outer_ty) == .write_view) "!" else "?";
-            try self.err(pos, "`|+{s}|` copies a Copy value or clones a `*T` / `~T` handle, but `{s}` is {s}`{s}`; capture it with `|{s}{s}|`", .{ name, name, if (outer_sym.flags.closure) "a closure of type " else "", try self.tyName(outer_ty), sigil, name });
+            try self.err(pos, "`|+{s}|` copies plain data or clones a `*T` / `~T` handle, but `{s}` is {s}`{s}`; capture it with `|{s}{s}|`", .{ name, name, if (outer_sym.flags.closure) "a closure of type " else "", try self.tyName(outer_ty), sigil, name });
         } else {
-            try self.err(pos, "`|+{s}|` copies a Copy value or clones a `*T` / `~T` handle, but `{s}` is `{s}`; move it in with `|<{s}|`, or clone a handle into a local first and capture that", .{ name, name, try self.tyName(outer_ty), name });
+            try self.err(pos, "`|+{s}|` copies plain data or clones a `*T` / `~T` handle, but `{s}` is `{s}`; move it in with `|<{s}|`, or clone a handle into a local first and capture that", .{ name, name, try self.tyName(outer_ty), name });
         };
         self.ctx.symbols.items[cap_sym].ty = bound orelse self.t().invalid_id;
         self.ctx.symbols.items[cap_sym].origin = outer_id;

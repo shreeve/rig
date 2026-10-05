@@ -5720,7 +5720,7 @@ The rest parse, and the checker rejects them as not supported yet
 |---|---|
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
-| an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |
+| an owned closure taking or returning an owning value | `` an owned closure takes values that copy `` |
 | a payload field bound by name, `.rect(w: a, h: b)` | `` binding a payload field by name is not supported yet `` |
 
 ```rig reject
