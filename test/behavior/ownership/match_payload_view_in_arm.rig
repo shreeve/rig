@@ -2,6 +2,7 @@
 # reaches the subject, and a copy (`+r.t`) leaves the match. A catch-all
 # binding of a lent subject views the subject where it is. A payload field
 # that is itself a view points where it pointed, so it may leave.
+# oracle: pick accept
 
 struct P
   x: Int
