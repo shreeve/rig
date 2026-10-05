@@ -1988,7 +1988,7 @@ pub const Checker = struct {
                     if (self.exprType(object)) |t| {
                         const ty = self.typeData(t);
                         if (ty == .shared) p.through_shared = true;
-                        if (ty == .borrow_read or ty == .borrow_write) p.through_borrow = true;
+                        if (ty == .read_view or ty == .write_view) p.through_borrow = true;
                     }
                     return p;
                 },
@@ -2253,7 +2253,7 @@ pub const Checker = struct {
         while (p.isKind(.member) or p.isKind(.index)) {
             const obj = ir.get(p, .object);
             if (self.exprType(obj)) |t| switch (self.typeData(t)) {
-                .borrow_read, .slice, .string => return true,
+                .read_view, .slice, .string => return true,
                 else => {},
             };
             p = obj;
@@ -2280,7 +2280,7 @@ pub const Checker = struct {
     /// through one is behind a pointer.
     fn inVarStorage(self: *const Checker, e: Sexp) bool {
         if (self.exprType(e)) |ty| switch (self.typeData(ty)) {
-            .borrow_write, .borrow_read, .shared, .slice => return false,
+            .write_view, .read_view, .shared, .slice => return false,
             else => if (self.isVec(ty)) return false,
         };
         if (e.isKind(.member) or e.isKind(.index)) return self.inVarStorage(ir.get(e, .object));
@@ -3398,7 +3398,7 @@ pub const Checker = struct {
         const v = self.vars.items[place.root];
         if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
         var ty = self.exprType(e) orelse return;
-        while (ctx.types.get(ty) == .borrow_write) ty = ctx.types.get(ty).borrow_write;
+        while (ctx.types.get(ty) == .write_view) ty = ctx.types.get(ty).write_view;
         if (!sema.readByAddress(ctx, ty)) return;
         try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(e), .held_read = reader });
     }
@@ -3528,7 +3528,7 @@ pub const Checker = struct {
         const ctx = self.sema orelse return false;
         const arg = if (e.isKind(.kwarg)) ir.Kwarg.value(e) else e;
         return switch (self.typeData(self.exprType(arg) orelse return false)) {
-            .borrow_read, .borrow_write => |inner| sema.isPlainData(ctx, inner) and !self.mayCarryBorrow(inner),
+            .read_view, .write_view => |inner| sema.isPlainData(ctx, inner) and !self.mayCarryBorrow(inner),
             else => false,
         };
     }
@@ -3622,7 +3622,7 @@ pub const Checker = struct {
         const ctx = self.sema orelse return null;
         var t = ty orelse return null;
         while (true) switch (ctx.types.get(t)) {
-            .borrow_read, .borrow_write, .shared => |i| t = i,
+            .read_view, .write_view, .shared => |i| t = i,
             .parameterized_nominal => |pn| {
                 if (pn.sym == ctx.cell_sym_id) return "Cell";
                 if (pn.sym == ctx.signal_sym_id) return "Signal";
@@ -3704,7 +3704,7 @@ pub const Checker = struct {
             // A root var holding a write borrow (a `match !x` binding
             // among them, whatever its type) is one.
             const root_borrows = e == .src and if (self.find(self.text(e))) |id| self.vars.items[id].ref == .write else false;
-            const is_borrow = if (self.exprType(e)) |t| self.typeData(t) == .borrow_write else false;
+            const is_borrow = if (self.exprType(e)) |t| self.typeData(t) == .write_view else false;
             if (root_borrows or is_borrow) n += 1;
         }
         return n;
@@ -4966,8 +4966,8 @@ pub const Checker = struct {
     fn refOfType(self: *const Checker, ty: ?TypeId) Ref {
         const t = ty orelse return .none;
         return switch (self.typeData(t)) {
-            .borrow_read => .read,
-            .borrow_write => .write,
+            .read_view => .read,
+            .write_view => .write,
             else => .none,
         };
     }
@@ -4976,7 +4976,7 @@ pub const Checker = struct {
     fn pointee(self: *const Checker, ty: ?TypeId) ?TypeId {
         const t = ty orelse return null;
         return switch (self.typeData(t)) {
-            .borrow_read, .borrow_write => |inner| inner,
+            .read_view, .write_view => |inner| inner,
             else => t,
         };
     }
@@ -5124,7 +5124,7 @@ pub const Checker = struct {
         const f = self.typeData(self.exprType(callee) orelse return .read);
         if (f != .function or f.function.params.len == 0) return .read;
         return switch (self.typeData(f.function.params[0])) {
-            .borrow_write => .write,
+            .write_view => .write,
             .nominal, .parameterized_nominal, .imported_nominal => .value,
             else => .read,
         };
@@ -5204,15 +5204,15 @@ fn hasLoanOn(loans: []const Loan, root: VarId) bool {
 }
 
 fn refOfTypeSexp(t: Sexp) Ref {
-    if (t.isKind(.borrow_read)) return .read;
-    if (t.isKind(.borrow_write)) return .write;
+    if (t.isKind(.read_view)) return .read;
+    if (t.isKind(.write_view)) return .write;
     return .none;
 }
 
 fn sexpMentionsBorrow(t: Sexp) bool {
     if (t != .list) return false;
     for (t.items()) |c| {
-        if (c == .tag and (c.tag == .borrow_read or c.tag == .borrow_write)) return true;
+        if (c == .tag and (c.tag == .read_view or c.tag == .write_view)) return true;
         if (sexpMentionsBorrow(c)) return true;
     }
     return false;

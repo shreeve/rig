@@ -1012,8 +1012,8 @@ pub const Tag = enum(u8) {
     @"weak",
     @"optional",
     @"error_union",
-    @"borrow_read",
-    @"borrow_write",
+    @"read_view",
+    @"write_view",
     @"shared",
     @"slice",
     @"generic_inst",
@@ -3387,14 +3387,14 @@ pub const ir = struct {
             return @"ir.at"(@"ir.node", .@"error_union", 1, "ir.ErrorUnion.type");
         }
     };
-    pub const BorrowRead = struct {
+    pub const ReadView = struct {
         pub fn @"type"(@"ir.node": @"ir.Sexp") @"ir.Sexp" {
-            return @"ir.at"(@"ir.node", .@"borrow_read", 1, "ir.BorrowRead.type");
+            return @"ir.at"(@"ir.node", .@"read_view", 1, "ir.ReadView.type");
         }
     };
-    pub const BorrowWrite = struct {
+    pub const WriteView = struct {
         pub fn @"type"(@"ir.node": @"ir.Sexp") @"ir.Sexp" {
-            return @"ir.at"(@"ir.node", .@"borrow_write", 1, "ir.BorrowWrite.type");
+            return @"ir.at"(@"ir.node", .@"write_view", 1, "ir.WriteView.type");
         }
     };
     pub const Shared = struct {
@@ -3743,8 +3743,8 @@ fn executeAction(self: *BaseParser, ruleId: u16, pass: []Sexp) Sexp {
         178 => self.buildOf(&.{ .{ .tag = .@"sub" }, .{ .elem = 1 }, .{ .elem = 2 }, .nil, .{ .tag = .@"fails" }, .nil }, pass, .tree, false),
         179 => self.buildOf(&.{ .{ .tag = .@"sub" }, .{ .elem = 1 }, .nil, .{ .elem = 2 }, .{ .tag = .@"fails" }, .nil }, pass, .tree, false),
         180 => self.buildOf(&.{ .{ .tag = .@"sub" }, .{ .elem = 1 }, .{ .elem = 2 }, .{ .elem = 3 }, .{ .tag = .@"fails" }, .nil }, pass, .tree, false),
-        181 => self.buildOf(&.{ .{ .tag = .@"borrow_read" }, .{ .elem = 1 } }, pass, .tree, false),
-        182 => self.buildOf(&.{ .{ .tag = .@"borrow_write" }, .{ .elem = 1 } }, pass, .tree, false),
+        181 => self.buildOf(&.{ .{ .tag = .@"read_view" }, .{ .elem = 1 } }, pass, .tree, false),
+        182 => self.buildOf(&.{ .{ .tag = .@"write_view" }, .{ .elem = 1 } }, pass, .tree, false),
         185 => self.buildOf(&.{ .{ .tag = .@"slice" }, .{ .elem = 2 } }, pass, .tree, false),
         186 => self.buildOf(&.{ .{ .tag = .@"array_type" }, .{ .elem = 1 }, .{ .elem = 3 } }, pass, .tree, false),
         187 => self.buildOf(&.{ .{ .elem = 0 } }, pass, .tree, false),
@@ -5340,11 +5340,11 @@ fn slotOf(kind: Tag, role: Role) ?usize {
             .@"type" => 1,
             else => null,
         },
-        .@"borrow_read" => switch (role) {
+        .@"read_view" => switch (role) {
             .@"type" => 1,
             else => null,
         },
-        .@"borrow_write" => switch (role) {
+        .@"write_view" => switch (role) {
             .@"type" => 1,
             else => null,
         },
@@ -5827,11 +5827,11 @@ fn roleAt(kind: Tag, slot: usize) ?Role {
             1 => .@"type",
             else => null,
         },
-        .@"borrow_read" => switch (slot) {
+        .@"read_view" => switch (slot) {
             1 => .@"type",
             else => null,
         },
-        .@"borrow_write" => switch (slot) {
+        .@"write_view" => switch (slot) {
             1 => .@"type",
             else => null,
         },

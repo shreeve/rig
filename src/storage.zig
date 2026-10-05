@@ -180,7 +180,7 @@ pub fn hasReceiver(ctx: *const SemContext, call: Sexp) bool {
 pub fn receiverWrites(ctx: *const SemContext, call: Sexp) bool {
     if (!hasReceiver(ctx, call)) return false;
     const f = fnType(ctx, typeOf(ctx, ctx.calleeOf(call))) orelse return false;
-    return f.params.len > 0 and ctx.types.get(f.params[0]) == .borrow_write;
+    return f.params.len > 0 and ctx.types.get(f.params[0]) == .write_view;
 }
 
 /// The receiver of `value.method(...)` when it is an owned temporary
@@ -193,7 +193,7 @@ pub fn consumedTemporary(ctx: *const SemContext, call: Sexp) ?Sexp {
     const f = fnType(ctx, typeOf(ctx, callee)) orelse return null;
     if (f.params.len == 0) return null;
     return switch (ctx.types.get(f.params[0])) {
-        .borrow_read, .borrow_write => null,
+        .read_view, .write_view => null,
         else => obj,
     };
 }
@@ -459,7 +459,7 @@ pub fn variantPayload(ctx: *const SemContext, enum_ty: TypeId, vname: []const u8
 /// field: every field but a borrow or slice, which is bound as it is.
 pub fn fieldIsPointee(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .borrow_read, .borrow_write, .slice => false,
+        .read_view, .write_view, .slice => false,
         else => true,
     };
 }
@@ -469,7 +469,7 @@ pub fn fieldIsPointee(ctx: *const SemContext, ty: TypeId) bool {
 /// and a read binds one to a field it views (`?F` of a field that is no
 /// view).
 pub fn payloadByAddress(ctx: *const SemContext, binding: ?TypeId, f: sema.Field, writes: bool) bool {
-    const viewed = !writes and if (binding) |t| ctx.types.get(t) == .borrow_read and ctx.types.get(f.ty) != .borrow_read else false;
+    const viewed = !writes and if (binding) |t| ctx.types.get(t) == .read_view and ctx.types.get(f.ty) != .read_view else false;
     return (writes or viewed) and fieldIsPointee(ctx, f.ty);
 }
 
@@ -675,7 +675,7 @@ const Planner = struct {
         }
         // Writing an array's elements in place iterates through a pointer.
         const elem_ty: ?TypeId = if (ctx.symbolOf(ir.For.@"var"(loop))) |s| known(ctx, ctx.symbols.items[s].ty) else null;
-        const by_ptr = mode == .write or (elem_ty != null and ctx.types.get(elem_ty.?) == .borrow_read);
+        const by_ptr = mode == .write or (elem_ty != null and ctx.types.get(elem_ty.?) == .read_view);
         const array_ptr = by_ptr and !is_vec and src_ty != null and ctx.types.get(sema.unwrapBorrows(ctx, src_ty.?)) == .array;
         if (!array_ptr) try p.header(source);
     }

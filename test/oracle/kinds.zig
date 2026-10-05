@@ -78,8 +78,8 @@ pub const Kinds = struct {
         defer scan.seen.deinit(self.a);
         try scan.walk(ctx, ty, 0, self.generic);
         const kind: Kind = switch (ctx.types.get(ty)) {
-            .borrow_write => .write_view,
-            .borrow_read, .slice, .string => .read_view,
+            .write_view => .write_view,
+            .read_view, .slice, .string => .read_view,
             // A unique value moves and is dropped once, like an owner
             // (Core §1): a declared one, and under the planned rule one
             // holding a Cell.
@@ -116,8 +116,8 @@ fn callableInfo(ctx: *const SemContext, ty: TypeId) ?Info {
     return switch (t) {
         .function => env,
         .callable => .{ .kind = .read_view, .holds_views = true, .holds_pointers = true, .drop_reads = false, .unsupported = null },
-        .borrow_read, .borrow_write => |inner| if (ctx.types.get(inner) == .function or ctx.types.get(inner) == .callable) .{
-            .kind = if (t == .borrow_read) .read_view else .write_view,
+        .read_view, .write_view => |inner| if (ctx.types.get(inner) == .function or ctx.types.get(inner) == .callable) .{
+            .kind = if (t == .read_view) .read_view else .write_view,
             .holds_views = true,
             .holds_pointers = true,
             .drop_reads = false,
@@ -172,11 +172,11 @@ const Scan = struct {
             // and a write goes through it (Core §5, §6). One a read view
             // or a handle reaches could only be read, which the oracle
             // does not model.
-            .borrow_write => |inner| {
+            .write_view => |inner| {
                 if (self.read_only) self.mark("a write view seen through a read view or a handle");
                 try self.walk(ctx, inner, depth + 1, in_generic);
             },
-            .borrow_read => |inner| {
+            .read_view => |inner| {
                 const saved = self.read_only;
                 self.read_only = true;
                 defer self.read_only = saved;
@@ -262,7 +262,7 @@ pub const Reach = struct {
                 try w.writeAll("]");
             },
             .type_var => |sym| if (subst) |s| if (s.lookup(sym)) |b| return spell(w, b.ctx, b.ty, null, depth + 1),
-            .borrow_read, .borrow_write, .optional, .fallible, .shared, .weak => |inner| {
+            .read_view, .write_view, .optional, .fallible, .shared, .weak => |inner| {
                 try w.print("{s}(", .{@tagName(t)});
                 try spell(w, ctx, inner, subst, depth + 1);
                 try w.writeAll(")");
@@ -383,9 +383,9 @@ pub const Reach = struct {
             // the views there view in turn: each target's own views point
             // into more targets.
             const target: ?Node = switch (n.ctx.types.get(n.ty)) {
-                .borrow_read => |inner| .{ .ctx = n.ctx, .ty = inner, .subst = n.subst },
+                .read_view => |inner| .{ .ctx = n.ctx, .ty = inner, .subst = n.subst },
                 // A `![]T` points at its elements.
-                .borrow_write => |inner| switch (n.ctx.types.get(inner)) {
+                .write_view => |inner| switch (n.ctx.types.get(inner)) {
                     .slice => |sl| .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .elem = true },
                     else => .{ .ctx = n.ctx, .ty = inner, .subst = n.subst },
                 },
@@ -442,9 +442,9 @@ pub const Reach = struct {
             const k = try std.fmt.allocPrint(self.a, "{s}|{}{}{}", .{ try self.key(n.ctx, n.ty, n.subst), n.past_read, n.past_view, n.elem });
             if ((try seen.getOrPut(self.a, k)).found_existing) continue;
             switch (n.ctx.types.get(n.ty)) {
-                .borrow_read => |inner| try work.append(self.a, .{ .ctx = n.ctx, .ty = inner, .subst = n.subst, .past_read = true, .past_view = true }),
+                .read_view => |inner| try work.append(self.a, .{ .ctx = n.ctx, .ty = inner, .subst = n.subst, .past_read = true, .past_view = true }),
                 .slice => |sl| try work.append(self.a, .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .past_read = true, .past_view = true, .elem = true }),
-                .borrow_write => |inner| switch (n.ctx.types.get(inner)) {
+                .write_view => |inner| switch (n.ctx.types.get(inner)) {
                     .slice => |sl| try work.append(self.a, .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .past_read = n.past_read, .past_view = true, .elem = true }),
                     else => try work.append(self.a, .{ .ctx = n.ctx, .ty = inner, .subst = n.subst, .past_read = n.past_read, .past_view = true }),
                 },
@@ -503,7 +503,7 @@ pub const Reach = struct {
             const tt = n.ctx.types.get(n.ty);
             // A slot in written memory may get any value of its type.
             if (n.past_view) switch (tt) {
-                .borrow_read, .borrow_write, .slice, .string => {
+                .read_view, .write_view, .slice, .string => {
                     const v = try self.targetsOf(n.ctx, n.ty);
                     if (v.any) t.any = true;
                     if (v.bytes) t.bytes = true;
@@ -513,14 +513,14 @@ pub const Reach = struct {
                 else => {},
             };
             switch (tt) {
-                .borrow_write => |inner| {
+                .write_view => |inner| {
                     const elem = switch (n.ctx.types.get(inner)) {
                         .slice => |sl| sl.elem,
                         else => inner,
                     };
                     try work.append(self.a, .{ .ctx = n.ctx, .ty = elem, .subst = n.subst, .past_view = true });
                 },
-                .borrow_read, .slice, .string => {},
+                .read_view, .slice, .string => {},
                 // What a handle holds is only read, but a handle stored in
                 // a slot brings what its box holds.
                 .shared, .weak => |inner| if (n.past_view) {

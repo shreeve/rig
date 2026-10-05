@@ -1311,14 +1311,14 @@ pub const Emitter = struct {
         const s = self.sema.symbols.items[sym];
         const ty = self.symType(sym);
         const binds_borrow = if (ty) |t| switch (self.sema.types.get(t)) {
-            .borrow_read, .borrow_write => true,
+            .read_view, .write_view => true,
             else => false,
         } else true;
         // A read view that copies (`sema.lendByValue`) is held as the
         // value it views, as every other `?T` of the type is, so a call's
         // result can rebind it.
         const copies = if (ty) |t| switch (self.sema.types.get(t)) {
-            .borrow_read => !self.isPtrBorrowTy(t) and self.genericReadBorrow(t) == null,
+            .read_view => !self.isPtrBorrowTy(t) and self.genericReadBorrow(t) == null,
             else => false,
         } else false;
         const is_borrow = binds_borrow and !copies and (expr.isKind(.read) or expr.isKind(.write)) and
@@ -2224,7 +2224,7 @@ pub const Emitter = struct {
         const owned = header == .taken;
         // A resource element is a borrowed view of its slot.
         const by_ptr = mode == .write or owned or
-            (elem_ty != null and self.sema.types.get(elem_ty.?) == .borrow_read);
+            (elem_ty != null and self.sema.types.get(elem_ty.?) == .read_view);
 
         // A value the loop holds, or the array it takes, lives in a block
         // around it.
@@ -2783,7 +2783,7 @@ pub const Emitter = struct {
             const stored = try self.declare(local, self.srcText(b));
             // A write binds a pointer to each field, and a read one to a
             // field it views (`?F`).
-            const viewed = !writes and if (local.ty) |t| self.sema.types.get(t) == .borrow_read and self.sema.types.get(f.ty) != .borrow_read else false;
+            const viewed = !writes and if (local.ty) |t| self.sema.types.get(t) == .read_view and self.sema.types.get(f.ty) != .read_view else false;
             try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if ((writes or viewed) and fieldIsPointee(self.sema, f.ty)) "&" else "", subj, ident(vname), ident(f.name) });
         }
     }
@@ -3272,7 +3272,7 @@ pub const Emitter = struct {
         };
         const ptr = if (at.ptr) at.text else try self.fmt("&{s}", .{at.text});
         return switch (types.get(view)) {
-            .borrow_read => if (as_ptr) ptr else self.fmt("rig.lend({s})", .{ptr}),
+            .read_view => if (as_ptr) ptr else self.fmt("rig.lend({s})", .{ptr}),
             else => ptr,
         };
     }
@@ -3476,7 +3476,7 @@ pub const Emitter = struct {
     /// Zig reaches fields and methods through either.
     fn genericReadBorrow(self: *Emitter, ty: TypeId) ?TypeId {
         const inner = switch (self.sema.types.get(ty)) {
-            .borrow_read => |inner| inner,
+            .read_view => |inner| inner,
             else => return null,
         };
         if (!sema.maybeDropGlue(self.sema, inner) or sema.holdsCellByValue(self.sema, inner)) return null;
@@ -3497,7 +3497,7 @@ pub const Emitter = struct {
         const saved_read = self.read_place;
         defer self.read_place = saved_read;
         self.read_place = borrow.isKind(.read);
-        const reborrow = if (self.typeOf(operand)) |t| self.sema.types.get(t) == .borrow_read else false;
+        const reborrow = if (self.typeOf(operand)) |t| self.sema.types.get(t) == .read_view else false;
         if (reborrow or !borrow.isKind(.read)) return self.emitAddressOf(operand);
         return self.emitReadLend(operand, self.genericReadBorrowOf(borrow) != null);
     }
@@ -3619,8 +3619,8 @@ pub const Emitter = struct {
     fn emitPointerTy(self: *Emitter, ty: TypeId) Error!void {
         if (self.genericReadBorrow(ty) != null) return self.emitTypeTy(ty);
         switch (self.sema.types.get(ty)) {
-            .borrow_read, .borrow_write => |inner| {
-                try self.w.writeAll(if (self.sema.types.get(ty) == .borrow_read) "*const " else "*");
+            .read_view, .write_view => |inner| {
+                try self.w.writeAll(if (self.sema.types.get(ty) == .read_view) "*const " else "*");
                 try self.emitTypeTy(inner);
             },
             else => try self.emitTypeTy(ty),
@@ -4087,7 +4087,7 @@ pub const Emitter = struct {
         while (true) {
             if (p.isKind(.read)) return true;
             if (self.typeOf(p)) |t| switch (self.sema.types.get(t)) {
-                .borrow_read, .shared => return true,
+                .read_view, .shared => return true,
                 else => {},
             };
             if (!p.isKind(.member) and !p.isKind(.index)) return false;
@@ -4234,7 +4234,7 @@ pub const Emitter = struct {
     fn writeReach(self: *Emitter, ty: TypeId) Error!void {
         var t = ty;
         while (true) switch (self.sema.types.get(t)) {
-            .borrow_read, .borrow_write => |inner| t = inner,
+            .read_view, .write_view => |inner| t = inner,
             .shared => |inner| {
                 try self.w.writeAll(".value");
                 t = inner;
@@ -5619,7 +5619,7 @@ pub const Emitter = struct {
             return self.w.print(".of(@TypeOf({s}), &{s})", .{ outer.zig_name, outer.zig_name });
         };
         const outer_borrows = if (outer.ty) |t| switch (self.sema.types.get(t)) {
-            .borrow_read, .borrow_write => true,
+            .read_view, .write_view => true,
             else => false,
         } else false;
         // A `![]T` is the slice itself; a borrow of a borrow passes it on.
@@ -5782,7 +5782,7 @@ pub const Emitter = struct {
                 try self.w.writeAll("anyerror!");
                 try self.emitTypeTy(inner);
             },
-            .borrow_read => |inner| {
+            .read_view => |inner| {
                 if (sema.callableFn(ctx, ty)) |f| return self.emitCallableTy("FnRef", f);
                 if (self.genericReadBorrow(ty) != null) {
                     try self.w.writeAll("rig.ReadBorrow(");
@@ -5792,7 +5792,7 @@ pub const Emitter = struct {
                 if (self.readBorrowIsPtr(inner)) try self.w.writeAll("*const ");
                 try self.emitTypeTy(inner);
             },
-            .borrow_write => |inner| {
+            .write_view => |inner| {
                 // A `![]T` is the Zig slice itself, writable.
                 if (sema.writeSliceElem(ctx, ty)) |elem| {
                     try self.w.writeAll("[]");

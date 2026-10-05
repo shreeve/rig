@@ -344,7 +344,7 @@ area of the language.
 $ rig normalize packet.rig
 (module
   (struct Packet _ (: size Int))
-  (fun size_of _ ((: p (borrow_read Packet))) Int (block (member p size)))
+  (fun size_of _ ((: p (read_view Packet))) Int (block (member p size)))
   (sub send _ ((: p Packet)) _ (block (call print (member p size))))
   (sub main _ _ _ (block
     (set _ p _ (call Packet (kwarg size 512)))
@@ -1749,7 +1749,7 @@ lower is an internal error: sema must have rejected it.
   struct per literal and erases it behind `rig.Closure(params, R)`, so
   every literal of one function type shares one runtime type; a call is
   `cb.value.invoke(.{ args })`. A callable view `?fun(...)`, the
-  type `borrow_read(callable(F))`, which only `?fun(...)` written as
+  type `read_view(callable(F))`, which only `?fun(...)` written as
   such and `?f` of a closure produce (so a `?T` substituted with a
   function type stays a read view of a function value), is a
   `rig.FnRef(params, R)` passed by value, built by `.of(Env, &env)` for

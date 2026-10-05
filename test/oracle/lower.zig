@@ -734,7 +734,7 @@ const Lowerer = struct {
     /// clones what it sees through.
     fn isRef(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(ty)) {
-            .borrow_read, .borrow_write => true,
+            .read_view, .write_view => true,
             else => false,
         };
     }
@@ -743,7 +743,7 @@ const Lowerer = struct {
     /// value holding one): assigning a value to its place writes
     /// through it, and lending it lends on what it sees.
     fn isWriteRef(self: *Lowerer, ty: TypeId) bool {
-        return self.ctx.types.get(ty) == .borrow_write;
+        return self.ctx.types.get(ty) == .write_view;
     }
 
     fn compound(self: *Lowerer, target: Sexp, rhs: Sexp, pos: u32) Error!void {
@@ -1033,8 +1033,8 @@ const Lowerer = struct {
         };
         const held_view = hv.kind == .read_view or hv.kind == .write_view;
         if (!held_view) switch (self.ctx.types.get(xv.ty)) {
-            .borrow_read, .borrow_write => if (stored == null or stored.? != xv.ty) {
-                const mode: core.Mode = if (self.ctx.types.get(xv.ty) == .borrow_write) .write else .read;
+            .read_view, .write_view => if (stored == null or stored.? != xv.ty) {
+                const mode: core.Mode = if (self.ctx.types.get(xv.ty) == .write_view) .write else .read;
                 const loan = try self.newLoan(self.rootPlace(h.v), mode, false, 0, h.pos);
                 try self.emit(.{ .pos = h.pos, .what = .lend, .reads = try self.one(h.v), .def = x, .loan = loan, .access = .{ .root = h.v, .kind = if (mode == .read) .read else .write } });
                 return;
@@ -1478,7 +1478,7 @@ const Lowerer = struct {
 
     fn innerOf(self: *Lowerer, ty: TypeId) Error!TypeId {
         return switch (self.ctx.types.get(ty)) {
-            .borrow_write, .borrow_read => |t| t,
+            .write_view, .read_view => |t| t,
             else => abstain("an unexpected view type"),
         };
     }
@@ -1733,7 +1733,7 @@ const Lowerer = struct {
                 // A loop that `break` leaves with a value (SPEC §6); a
                 // write view's value is read through there.
                 var ty = try self.typeOf(e);
-                if (self.ctx.types.get(ty) == .borrow_write) ty = try self.innerOf(ty);
+                if (self.ctx.types.get(ty) == .write_view) ty = try self.innerOf(ty);
                 const t = try self.temp(ty, pos);
                 if (k == .@"while") try self.whileStmt(e, t) else try self.forStmt(e, t);
                 return t;
@@ -1885,10 +1885,10 @@ const Lowerer = struct {
                 via = .read;
                 carry = true;
             },
-            .borrow_read => if (via == .own) {
+            .read_view => if (via == .own) {
                 via = .read;
             },
-            .borrow_write => if (via == .own) {
+            .write_view => if (via == .own) {
                 via = .write;
             },
             else => {},
@@ -1924,7 +1924,7 @@ const Lowerer = struct {
                 // A write view read as its value copies what it reaches
                 // (SPEC §7); a write slice read as a slice views the same
                 // elements, a reborrow. A write view itself never copies.
-                const wants_view = if (want) |w| self.ctx.types.get(w) == .borrow_write else false;
+                const wants_view = if (want) |w| self.ctx.types.get(w) == .write_view else false;
                 const t_ty = try self.innerOf(p.ty);
                 const ti = try self.kinds.of(t_ty);
                 const through: Place = .{ .root = p.root, .path = p.path, .ty = t_ty, .via = .write };
@@ -2034,7 +2034,7 @@ const Lowerer = struct {
     fn holdsCallable(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(ty)) {
             .function, .callable => true,
-            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak => |inner| self.holdsCallable(inner),
+            .optional, .fallible, .read_view, .write_view, .shared, .weak => |inner| self.holdsCallable(inner),
             else => false,
         };
     }
@@ -2044,7 +2044,7 @@ const Lowerer = struct {
         var t = ty;
         while (true) switch (self.ctx.types.get(t)) {
             .function => |f| return f,
-            .callable, .borrow_read, .shared => |inner| t = inner,
+            .callable, .read_view, .shared => |inner| t = inner,
             else => return null,
         };
     }
@@ -2133,7 +2133,7 @@ const Lowerer = struct {
         // Lending a view the place holds hands over a copy of it; lending
         // the place itself (`?p.s` as a `?String`, a slice) makes a loan.
         const pointer = switch (self.ctx.types.get(ty)) {
-            .borrow_read, .borrow_write => ty != p.ty,
+            .read_view, .write_view => ty != p.ty,
             else => false,
         };
         // A generic loop's element of a `?Vec[T]` is a copy the iteration
@@ -2225,9 +2225,9 @@ const Lowerer = struct {
 
     fn shapeOf(ctx: *const sema.SemContext, ty: TypeId) Shape {
         return switch (ctx.types.get(ty)) {
-            .borrow_read, .borrow_write, .slice, .string, .callable => .view,
+            .read_view, .write_view, .slice, .string, .callable => .view,
             .optional => |o| switch (ctx.types.get(o)) {
-                .borrow_read, .borrow_write, .slice, .string => .view,
+                .read_view, .write_view, .slice, .string => .view,
                 else => .take,
             },
             else => .take,
@@ -2620,7 +2620,7 @@ const Lowerer = struct {
     /// the lend reaches can hold one.
     fn storesViews(self: *Lowerer, p: Place) Error!bool {
         var ty = p.ty;
-        if (self.ctx.types.get(ty) == .borrow_write) ty = try self.innerOf(ty);
+        if (self.ctx.types.get(ty) == .write_view) ty = try self.innerOf(ty);
         // A slice's place is its elements; a slice of a Text, its bytes.
         switch (self.ctx.types.get(ty)) {
             .slice => |sl| ty = sl.elem,
@@ -2637,7 +2637,7 @@ const Lowerer = struct {
         const vv = self.f.vars.items[v];
         if (!vv.hidden) return v;
         const inner_ty = switch (self.ctx.types.get(vv.ty)) {
-            .borrow_read, .borrow_write => |t| t,
+            .read_view, .write_view => |t| t,
             else => return v,
         };
         // A generic body reads a `T` by value where its instances do
@@ -2655,7 +2655,7 @@ const Lowerer = struct {
         const decl = sema.nominalDecl(self.ctx, ty) orelse return false;
         for (decl.symbol().fields orelse &.{}) |*f| {
             for (sema.dataFields(f)) |d| {
-                if (std.mem.eql(u8, d.name, name) and decl.ctx.types.get(d.ty) == .borrow_write) return true;
+                if (std.mem.eql(u8, d.name, name) and decl.ctx.types.get(d.ty) == .write_view) return true;
             }
         }
         return false;
@@ -2712,7 +2712,7 @@ const Lowerer = struct {
     /// any other type passes.
     fn plainInstance(self: *Lowerer, ty: TypeId) Error!void {
         switch (self.ctx.types.get(ty)) {
-            .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible => |inner| return self.plainInstance(inner),
+            .read_view, .write_view, .shared, .weak, .optional, .fallible => |inner| return self.plainInstance(inner),
             .parameterized_nominal => |pn| {
                 if (sema.isBuiltinGeneric(self.ctx, pn.sym)) {
                     for (pn.args) |a| try self.plainInstance(a);
@@ -2844,7 +2844,7 @@ const Lowerer = struct {
     /// of one.
     fn isCell(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(ty)) {
-            .borrow_read, .borrow_write, .shared => |inner| self.isCell(inner),
+            .read_view, .write_view, .shared => |inner| self.isCell(inner),
             .parameterized_nominal => |pn| pn.sym == self.ctx.cell_sym_id or pn.sym == self.ctx.signal_sym_id,
             else => false,
         };

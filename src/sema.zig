@@ -180,8 +180,8 @@ pub const Type = union(enum) {
 
     optional: TypeId, // T?
     fallible: TypeId, // T!
-    borrow_read: TypeId, // ?T
-    borrow_write: TypeId, // !T
+    read_view: TypeId, // ?T
+    write_view: TypeId, // !T
     shared: TypeId, // *T
     weak: TypeId, // ~T
 
@@ -2833,8 +2833,8 @@ fn computeReach(ctx: *SemContext) std.mem.Allocator.Error!void {
 fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edges: *std.ArrayList(ReachEdge), owner: SymbolId }) std.mem.Allocator.Error!Reach {
     const r: Reach = switch (ctx.types.get(ty)) {
         .slice => .{ .borrows = .{ .any = true } },
-        .borrow_read => |inner| (Reach{ .borrows = .{ .any = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
-        .borrow_write => |inner| (Reach{ .borrows = .{ .any = true, .write = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
+        .read_view => |inner| (Reach{ .borrows = .{ .any = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
+        .write_view => |inner| (Reach{ .borrows = .{ .any = true, .write = true } }).with(try reachOf(ctx, inner, mask.within(Reach.text_only), into)),
         .string => .{ .borrows = .{ .view = true } },
         .text => .{ .borrows = .{ .text = true } },
         .optional, .fallible => |inner| return reachOf(ctx, inner, mask, into),
@@ -3096,7 +3096,7 @@ pub const TypeChildren = struct {
         const i = self.i;
         self.i += 1;
         return switch (self.ty) {
-            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range, .callable => |inner| if (i == 0) inner else null,
+            .optional, .fallible, .read_view, .write_view, .shared, .weak, .range, .callable => |inner| if (i == 0) inner else null,
             .slice => |s| if (i == 0) s.elem else null,
             .array => |a| if (i == 0) a.elem else if (i == 1) a.len else null,
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
@@ -3201,7 +3201,7 @@ fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocat
 /// 0: an optional of it is null there.
 fn isAddress(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .shared, .weak, .borrow_read, .borrow_write, .string, .slice => true,
+        .shared, .weak, .read_view, .write_view, .string, .slice => true,
         else => false,
     };
 }
@@ -3320,7 +3320,7 @@ pub fn callableFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
 /// anything else follows a diagnostic.)
 pub fn callableFnTy(ctx: *const SemContext, ty: TypeId) ?TypeId {
     const inner = switch (ctx.types.get(ty)) {
-        .borrow_read => |inner| inner,
+        .read_view => |inner| inner,
         else => return null,
     };
     const f = switch (ctx.types.get(inner)) {
@@ -3332,7 +3332,7 @@ pub fn callableFnTy(ctx: *const SemContext, ty: TypeId) ?TypeId {
 
 /// The borrowed callable of function type `fn_ty`: `?fun(...)`.
 pub fn callableOfFn(ctx: *SemContext, fn_ty: TypeId) !TypeId {
-    return ctx.intern(.{ .borrow_read = try ctx.intern(.{ .callable = fn_ty }) });
+    return ctx.intern(.{ .read_view = try ctx.intern(.{ .callable = fn_ty }) });
 }
 
 /// Whether a value of `ty` holds a borrowed callable inside it (in an
@@ -3341,7 +3341,7 @@ pub fn callableOfFn(ctx: *SemContext, fn_ty: TypeId) !TypeId {
 pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
     switch (ctx.types.get(ty)) {
         .callable => return true,
-        .borrow_read, .borrow_write, .optional, .fallible, .shared, .weak => |inner| return holdsCallable(ctx, inner),
+        .read_view, .write_view, .optional, .fallible, .shared, .weak => |inner| return holdsCallable(ctx, inner),
         .slice => |sl| return holdsCallable(ctx, sl.elem),
         .array => |a| return holdsCallable(ctx, a.elem),
         .parameterized_nominal => |pn| for (pn.args) |a| {
@@ -3526,7 +3526,7 @@ const EquatableWalk = struct {
             .optional => |inner| try self.push(i, inner, ""),
             .array => |a| try self.push(i, a.elem, ""),
             .slice => |sl| if (item.in_decl) return .borrow else try self.push(i, sl.elem, ""),
-            .borrow_read, .borrow_write => return .borrow,
+            .read_view, .write_view => return .borrow,
             .shared => |inner| return if (ctx.types.get(inner) == .function) .closure else .handle,
             .weak => return .handle,
             .function => return .function,
@@ -3609,7 +3609,7 @@ pub fn isInteger(ctx: *const SemContext, ty: TypeId) bool {
 /// A read or write borrow type: `?T`, `!T`.
 pub fn isBorrowType(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .borrow_read, .borrow_write => true,
+        .read_view, .write_view => true,
         else => false,
     };
 }
@@ -3619,13 +3619,13 @@ pub fn isBorrowType(ctx: *const SemContext, ty: TypeId) bool {
 /// borrow does, a `!T` parameter, local, capture, or loop or pattern
 /// binding alike (`new w = !m` binds a new one).
 pub fn assignWritesThrough(ctx: *const SemContext, ty: TypeId) bool {
-    return ctx.types.get(ty) == .borrow_write;
+    return ctx.types.get(ty) == .write_view;
 }
 
 /// The element type of a writable slice `![]T`; null for any other type.
 pub fn writeSliceElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .borrow_write => |inner| switch (ctx.types.get(inner)) {
+        .write_view => |inner| switch (ctx.types.get(inner)) {
             .slice => |s| s.elem,
             else => null,
         },
@@ -3638,7 +3638,7 @@ pub fn unwrapBorrows(ctx: *const SemContext, ty_id: TypeId) TypeId {
     var id = ty_id;
     while (true) {
         switch (ctx.types.get(id)) {
-            .borrow_read, .borrow_write => |inner| id = inner,
+            .read_view, .write_view => |inner| id = inner,
             else => return id,
         }
     }
@@ -3651,7 +3651,7 @@ pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
     var id = ty_id;
     while (true) {
         switch (ctx.types.get(id)) {
-            .borrow_read, .borrow_write, .shared => |inner| id = inner,
+            .read_view, .write_view, .shared => |inner| id = inner,
             else => return id,
         }
     }
@@ -3747,7 +3747,7 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     const ty = ctx.types.get(ty_id);
     switch (ty) {
         .type_var, .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
-        inline .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range, .callable => |inner, tag| {
+        inline .read_view, .write_view, .shared, .weak, .optional, .fallible, .range, .callable => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) return ty_id;
             return ctx.intern(@unionInit(Type, @tagName(tag), new_inner));
@@ -3832,7 +3832,7 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 fn copiedByBorrow(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
-        .borrow_write => writeSliceElem(ctx, ty) != null,
+        .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByBorrow(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
         else => false,
@@ -3906,8 +3906,8 @@ pub fn firstStmtTemp(ctx: *const SemContext, stmt: Sexp) ?Sexp {
 /// value (`lendByValue`).
 pub fn viewHeldAsPointer(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .borrow_write => writeSliceElem(ctx, ty) == null,
-        .borrow_read => |inner| !lendByValue(ctx, inner),
+        .write_view => writeSliceElem(ctx, ty) == null,
+        .read_view => |inner| !lendByValue(ctx, inner),
         else => false,
     };
 }
@@ -4073,22 +4073,22 @@ const TargetWalk = struct {
         const ctx = node.ctx;
         const t = ctx.types.get(node.ty);
         const is_view = switch (t) {
-            .borrow_read, .borrow_write, .slice, .string, .function, .callable => true,
+            .read_view, .write_view, .slice, .string, .function, .callable => true,
             else => false,
         };
         if (is_view and (!self.written_only or self.written)) switch (t) {
             // A `![]T` points at its elements; a `?[]T` at a slice.
-            .borrow_write => |inner| try self.target(switch (ctx.types.get(inner)) {
+            .write_view => |inner| try self.target(switch (ctx.types.get(inner)) {
                 .slice => |sl| .{ .ctx = ctx, .ty = sl.elem, .args = node.args, .elem = true },
                 else => .{ .ctx = ctx, .ty = inner, .args = node.args },
             }),
-            .borrow_read => |inner| try self.target(.{ .ctx = ctx, .ty = inner, .args = node.args }),
+            .read_view => |inner| try self.target(.{ .ctx = ctx, .ty = inner, .args = node.args }),
             .slice => |sl| try self.target(.{ .ctx = ctx, .ty = sl.elem, .args = node.args, .elem = true }),
             .string => self.out.bytes = true,
             else => self.out.any = true,
         };
         switch (t) {
-            .borrow_write => |inner| if (self.written_only) {
+            .write_view => |inner| if (self.written_only) {
                 // What a write view leads to may be written.
                 const saved = self.written;
                 defer self.written = saved;
@@ -4210,9 +4210,9 @@ const ReachWalk = struct {
             (node.elem and std.mem.findScalar(u64, self.targets.atoms.items, atom | elem_view) != null);
         if (self.targets.any or hit) self.reached(path, path.viewed);
         switch (t) {
-            .borrow_read => |inner| try self.push(.{ .ctx = ctx, .ty = inner, .args = node.args }, read),
+            .read_view => |inner| try self.push(.{ .ctx = ctx, .ty = inner, .args = node.args }, read),
             .slice => |sl| try self.push(.{ .ctx = ctx, .ty = sl.elem, .args = node.args, .elem = true }, read),
-            .borrow_write => |inner| {
+            .write_view => |inner| {
                 const next: ViewNode = switch (ctx.types.get(inner)) {
                     .slice => |sl| .{ .ctx = ctx, .ty = sl.elem, .args = node.args, .elem = true },
                     else => .{ .ctx = ctx, .ty = inner, .args = node.args },
@@ -4531,7 +4531,7 @@ pub fn importType(
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
         .invalid, .unknown, .void, .bool, .string, .text, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
-        inline .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range, .callable => |inner, tag| {
+        inline .optional, .fallible, .read_view, .write_view, .shared, .weak, .range, .callable => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
         },
@@ -4909,9 +4909,9 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .noreturn => "NoReturn",
         .optional => |inner| try formatSuffixed(ctx, a, inner, '?'),
         .fallible => |inner| try formatSuffixed(ctx, a, inner, '!'),
-        .borrow_read => |inner| try a.print("?{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .read_view => |inner| try a.print("?{s}", .{try formatTypeIn(ctx, a, inner)}),
         .callable => |f| try formatTypeIn(ctx, a, f),
-        .borrow_write => |inner| try a.print("!{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .write_view => |inner| try a.print("!{s}", .{try formatTypeIn(ctx, a, inner)}),
         .shared => |inner| try formatHandle(ctx, a, inner, '*'),
         .weak => |inner| try formatHandle(ctx, a, inner, '~'),
         .slice => |s| try a.print("[]{s}", .{try formatTypeIn(ctx, a, s.elem)}),
@@ -4968,7 +4968,7 @@ fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, s
 /// type (`fun(Int) -> Int?` returns an optional), or a handle to one.
 fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .borrow_read, .borrow_write, .function, .slice, .array => true,
+        .read_view, .write_view, .function, .slice, .array => true,
         .shared, .weak => |inner| takesNoSuffix(ctx, inner),
         else => false,
     };
@@ -4980,7 +4980,7 @@ fn formatHandle(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, sig
     const s = try formatTypeIn(ctx, a, inner);
     return switch (ctx.types.get(inner)) {
         // A handle binds tighter than a suffix, and takes no borrow prefix.
-        .optional, .fallible, .borrow_read, .borrow_write => a.print("{c}({s})", .{ sigil, s }),
+        .optional, .fallible, .read_view, .write_view => a.print("{c}({s})", .{ sigil, s }),
         else => a.print("{c}{s}", .{ sigil, s }),
     };
 }
@@ -5142,7 +5142,7 @@ pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
     if (unwrapAccess(ctx, t) == ctx.types.text_id) {
         while (true) {
             switch (ctx.types.get(t)) {
-                .borrow_read, .borrow_write => |inner| t = inner,
+                .read_view, .write_view => |inner| t = inner,
                 .shared => |inner| {
                     if (!lend.push(.handle)) return null;
                     t = inner;
@@ -5182,8 +5182,8 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
     const types = &ctx.types;
     // Any `T` lends `?T`, and `!T` to write; a write lend may be read.
     switch (types.get(view)) {
-        .borrow_read => |t| if (t == from) return true,
-        .borrow_write => |t| if (t == from and kind == .write) return true,
+        .read_view => |t| if (t == from) return true,
+        .write_view => |t| if (t == from and kind == .write) return true,
         else => {},
     }
     // A function, or an owned closure, lends a `?fun(...)`.
@@ -5429,7 +5429,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
-        .optional, .error_union, .borrow_read, .borrow_write, .shared, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed => .none,
+        .optional, .error_union, .read_view, .write_view, .shared, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed => .none,
         .@"return", .@"break", .@"continue" => .jump,
         .read, .write => .lend,
         .member, .index => .path,
@@ -6488,8 +6488,8 @@ test "origins: a view reached through a read view is that view's" {
         }
     }.of;
     const item = ty(&r, "Item");
-    const view = try r.ctx.intern(.{ .borrow_read = item });
-    const write = try r.ctx.intern(.{ .borrow_write = item });
+    const view = try r.ctx.intern(.{ .read_view = item });
+    const write = try r.ctx.intern(.{ .write_view = item });
     const string = r.ctx.types.string_id;
     const reach = struct {
         fn of(run: *FactsRun, al: std.mem.Allocator, h: TypeId, v: TypeId) !ViewReach {
@@ -6614,10 +6614,10 @@ test "declarations: wrapper, sized, and alias types" {
     try std.testing.expect(r.ctx.types.get(a.returns) == .fallible);
     const b = r.ctx.types.get(r.ctx.symbols.items[r.ctx.lookup(1, "b").?].ty).function;
     const x = r.ctx.types.get(b.params[0]);
-    try std.testing.expect(x == .borrow_read);
-    try std.testing.expectEqual(IntInfo{ .bits = 32, .signed = true }, r.ctx.types.get(x.borrow_read).int);
+    try std.testing.expect(x == .read_view);
+    try std.testing.expectEqual(IntInfo{ .bits = 32, .signed = true }, r.ctx.types.get(x.read_view).int);
     const u64_ty = try r.ctx.intern(.{ .int = .{ .bits = 64, .signed = false } });
-    try std.testing.expectEqual(try r.ctx.intern(.{ .borrow_write = u64_ty }), b.params[1]);
+    try std.testing.expectEqual(try r.ctx.intern(.{ .write_view = u64_ty }), b.params[1]);
     try std.testing.expectEqual(u64_ty, r.ctx.symbols.items[r.ctx.lookup(1, "UserId").?].ty);
     const ret = r.ctx.types.get(b.returns);
     // `F64` is `Float`.
@@ -6696,14 +6696,14 @@ test "type facts: moves, copyable, cloneable" {
     const vec_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.vec_sym_id, .args = &.{ty.int_id} } });
     const wrap_t = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{t} } });
     const wrap_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{ty.int_id} } });
-    const read_p = try ctx.intern(.{ .borrow_read = p });
-    const write_p = try ctx.intern(.{ .borrow_write = p });
+    const read_p = try ctx.intern(.{ .read_view = p });
+    const write_p = try ctx.intern(.{ .write_view = p });
     const shared_p = try ctx.intern(.{ .shared = p });
     const weak_p = try ctx.intern(.{ .weak = p });
     const opt_shared = try ctx.intern(.{ .optional = shared_p });
     const opt_t = try ctx.intern(.{ .optional = t });
     const int_slice = try ctx.intern(.{ .slice = .{ .elem = ty.int_id } });
-    const write_slice = try ctx.intern(.{ .borrow_write = int_slice });
+    const write_slice = try ctx.intern(.{ .write_view = int_slice });
 
     const Case = struct { ty: TypeId, moves: Answer, copyable: Answer, clone: Clone };
     const cases = [_]Case{
@@ -6733,8 +6733,8 @@ test "type facts: moves, copyable, cloneable" {
         try std.testing.expect(!isUnique(ctx, c.ty));
     }
     // A clone reads what a view reaches.
-    try std.testing.expectEqual(Clone.bump, cloneable(ctx, try ctx.intern(.{ .borrow_read = shared_p })));
-    try std.testing.expectEqual(Clone.deep, cloneable(ctx, try ctx.intern(.{ .borrow_read = vec_int })));
+    try std.testing.expectEqual(Clone.bump, cloneable(ctx, try ctx.intern(.{ .read_view = shared_p })));
+    try std.testing.expectEqual(Clone.deep, cloneable(ctx, try ctx.intern(.{ .read_view = vec_int })));
     // A view of a scalar or a plain enum reads as the value.
     try std.testing.expect(readsAsValue(ctx, ty.int_id));
     try std.testing.expect(!readsAsValue(ctx, p));
@@ -6754,12 +6754,12 @@ test "lend table: each row makes its view" {
     const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
     const read = struct {
         fn f(c: *SemContext, t: TypeId) !TypeId {
-            return c.intern(.{ .borrow_read = t });
+            return c.intern(.{ .read_view = t });
         }
     }.f;
     const write = struct {
         fn f(c: *SemContext, t: TypeId) !TypeId {
-            return c.intern(.{ .borrow_write = t });
+            return c.intern(.{ .write_view = t });
         }
     }.f;
     const arr = try ctx.intern(.{ .array = .{ .elem = ty.int_id, .len = try ctInt(ctx, 3) } });
@@ -6897,8 +6897,8 @@ test "type facts: unique reaches what holds it inline" {
         ctx.types.int_id,
         try ctx.intern(.{ .shared = u }),
         try ctx.intern(.{ .weak = u }),
-        try ctx.intern(.{ .borrow_read = u }),
-        try ctx.intern(.{ .borrow_write = u }),
+        try ctx.intern(.{ .read_view = u }),
+        try ctx.intern(.{ .write_view = u }),
         try ctx.intern(.{ .slice = .{ .elem = u } }),
         try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.vec_sym_id, .args = &.{u} } }),
         try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{u} } }),

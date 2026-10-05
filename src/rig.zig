@@ -1612,7 +1612,7 @@ pub const Parser = struct {
                 self.touchesOperand(out);
                 try self.noteParenSuffix(out);
             },
-            .borrow_read, .borrow_write, .shared => self.touchesOperand(out),
+            .read_view, .write_view, .shared => self.touchesOperand(out),
             // The body's value is returned.
             .fun => if (ir.Fun.returns(out) != .nil) try self.valueTail(ir.Fun.body(out), true),
             // The expression's value is bound or returned.

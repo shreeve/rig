@@ -984,8 +984,8 @@ pub const TypeResolver = struct {
                             return self.ctx.types.invalid_id;
                         }
                         return switch (h) {
-                            .read => self.ctx.intern(.{ .borrow_read = self.nominal.self_type }),
-                            .write => self.ctx.intern(.{ .borrow_write = self.nominal.self_type }),
+                            .read => self.ctx.intern(.{ .read_view = self.nominal.self_type }),
+                            .write => self.ctx.intern(.{ .write_view = self.nominal.self_type }),
                             else => self.nominal.self_type,
                         };
                     },
@@ -1438,11 +1438,11 @@ pub const TypeResolver = struct {
         const nom = self.ctx.symbols.items[nominal_sym].name;
         const self_ty = self.nominal.self_type;
         switch (self.ctx.types.get(pty_id)) {
-            .borrow_read => |inner| {
+            .read_view => |inner| {
                 if (inner == self_ty) return .read;
                 try self.ctx.err(mpos, "`self` receiver type must be `?Self` or `?{s}`", .{nom});
             },
-            .borrow_write => |inner| {
+            .write_view => |inner| {
                 if (inner == self_ty) return .write;
                 try self.ctx.err(mpos, "`self` receiver type must be `!Self` or `!{s}`", .{nom});
             },
@@ -1484,8 +1484,8 @@ pub const TypeResolver = struct {
             return;
         }
         const pty = self.ctx.types.get(ptys[0]);
-        const ok = pty == .borrow_write and blk: {
-            break :blk switch (self.ctx.types.get(pty.borrow_write)) {
+        const ok = pty == .write_view and blk: {
+            break :blk switch (self.ctx.types.get(pty.write_view)) {
                 .nominal => |s| s == nominal_sym,
                 else => false,
             };
@@ -1601,7 +1601,7 @@ pub const TypeResolver = struct {
                         try self.ctx.errAt(sexp, "a fallible type `{s}` is only allowed as a function's return type", .{try sema.formatType(self.ctx, ty)});
                         return t.invalid_id;
                     },
-                    .optional, .borrow_read, .borrow_write, .weak, .slice => {
+                    .optional, .read_view, .write_view, .weak, .slice => {
                         const inner_node = if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type);
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
@@ -1609,12 +1609,12 @@ pub const TypeResolver = struct {
                         // `?fun(...)` written as such is a borrowed
                         // callable; a `?T` of a function type is a read
                         // borrow of a function value.
-                        if (head == .borrow_read and inner_node.isKind(.fun_type)) return sema.callableOfFn(self.ctx, inner);
+                        if (head == .read_view and inner_node.isKind(.fun_type)) return sema.callableOfFn(self.ctx, inner);
                         if (head == .weak and sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
                         return self.ctx.intern(switch (head) {
                             .optional => .{ .optional = inner },
-                            .borrow_read => .{ .borrow_read = inner },
-                            .borrow_write => .{ .borrow_write = inner },
+                            .read_view => .{ .read_view = inner },
+                            .write_view => .{ .write_view = inner },
                             .weak => .{ .weak = inner },
                             else => .{ .slice = .{ .elem = inner } },
                         });
@@ -2225,7 +2225,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const g = try addGeneric(ctx, module_scope, "Cell", &.{"T"});
         ctx.cell_sym_id = g.sym;
         const t = g.params[0];
-        const self_ty = try ctx.intern(.{ .borrow_read = g.self_ty });
+        const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
             try method(ctx, "get", .read, &.{self_ty}, t),
@@ -2240,8 +2240,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const g = try addGeneric(ctx, module_scope, "Vec", &.{"T"});
         ctx.vec_sym_id = g.sym;
         const t = g.params[0];
-        const read_self = try ctx.intern(.{ .borrow_read = g.self_ty });
-        const write_self = try ctx.intern(.{ .borrow_write = g.self_ty });
+        const read_self = try ctx.intern(.{ .read_view = g.self_ty });
+        const write_self = try ctx.intern(.{ .write_view = g.self_ty });
         const opt_t = try ctx.intern(.{ .optional = t });
         try setFields(ctx, g.sym, &.{
             try method(ctx, "push", .write, &.{ write_self, t }, ctx.types.void_id),
@@ -2287,7 +2287,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const g = try addGeneric(ctx, module_scope, "Signal", &.{"T"});
         ctx.signal_sym_id = g.sym;
         const t = g.params[0];
-        const self_ty = try ctx.intern(.{ .borrow_read = g.self_ty });
+        const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
         // Subscribers are owned closures `*sub()`.
         const callback = try ctx.intern(.{ .function = .{ .params = &.{}, .returns = ctx.types.void_id, .is_sub = true } });
         const closure_handle = try ctx.intern(.{ .shared = callback });
