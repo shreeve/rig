@@ -1,0 +1,56 @@
+# A method called on a temporary its statement keeps, or on a field of
+# one, runs on the value where the statement's slot holds it, also when
+# its arguments are evaluated first: the slot alone drops the value, once,
+# when the statement ends, and a view the method returns views the slot.
+
+struct P
+  c: Cell[Int]
+  n: Int
+  t: Text
+
+  fun me(?self) -> ?P
+    self
+
+  fun tick(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+struct H
+  p: P
+  u: Text
+
+struct S
+  t: Text
+
+  fun pick(?self, x: Int, y: Int) -> ?Text
+    ?self.t
+
+  fun size(?self, x: Int, y: Int) -> Int
+    self.t.len * 100 + x * 10 + y
+
+fun f(n: Int) -> Int
+  n
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun mk(s: String) -> S
+  S(t: Text(s))
+
+fun mkh -> H
+  H(p: P(c: Cell(1), n: 42, t: Text("pt")), u: Text("u"))
+
+sub main
+  print(mk("a").pick(y: f(1), x: f(2)))
+  print((mk("b") if f(0) == 0 else mk("c")).pick(y: f(1), x: f(2)))
+  print(mk("dd").size(y: f(1), x: f(2)))
+  print(mkh().p.me().n, clobber(5))
+  print(mkh().p.me().t, mkh().p.tick())
+
+# expect:
+# a
+# b
+# 221
+# 42 6
+# pt 2

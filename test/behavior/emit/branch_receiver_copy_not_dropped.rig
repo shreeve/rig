@@ -1,0 +1,71 @@
+# A receiver that branches, evaluated before arguments that run first
+# (keyword arguments given in another order), is a copy of the leaf it
+# takes, a name's value or a temporary its statement keeps: the call's
+# block reads the copy and never drops it, so the owner drops the value
+# once. So for `a if c else b`, a field of one, `o ?? b`, `e catch b`,
+# `o?`, and `e!`.
+
+struct S
+  t: Text
+
+  fun size(?self, x: Int, y: Int) -> Int
+    self.t.len * 100 + x * 10 + y
+
+struct W
+  s: S
+
+error E
+  bad
+
+fun f(n: Int) -> Int
+  n
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun maybe(c: Bool) -> S?
+  if c
+    return S(t: Text("oo"))
+  none
+
+fun fails(c: Bool) -> S!
+  if c
+    return E.bad
+  S(t: Text("ff"))
+
+fun first(c: Bool) -> Int?
+  o = maybe(c)
+  n = o?.size(y: f(1), x: f(2))
+  print(clobber(n))
+  n
+
+fun second(c: Bool) -> Int!
+  fails(c)!.size(y: f(1), x: f(2))
+
+sub main
+  a = S(t: Text("aa"))
+  b = S(t: Text("bbb"))
+  c = f(1) == 1
+  print((a if f(0) == 0 and c else b).size(y: f(1), x: f(2)))
+  w = W(s: S(t: Text("ww")))
+  v = W(s: S(t: Text("v")))
+  print((w if f(0) == 0 else v).s.size(y: f(3), x: f(4)))
+  o = maybe(true)
+  print((o ?? a).size(y: f(5), x: f(6)), (maybe(false) ?? b).size(y: f(7), x: f(8)))
+  print((fails(false) catch a).size(y: f(1), x: f(1)), (fails(true) catch b).size(y: f(2), x: f(2)))
+  print(first(true) ?? 0, first(false) ?? 0)
+  print(second(false) catch 0, second(true) catch 0)
+  print(clobber(1000))
+  print(a.t, b.t, w.s.t, v.s.t)
+
+# expect:
+# 221
+# 243
+# 265 387
+# 211 322
+# 222
+# 221 0
+# 221 0
+# 1001
+# aa bbb ww v
