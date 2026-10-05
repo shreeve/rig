@@ -831,6 +831,11 @@ included, would reach the copy. The one exception is a value made there,
 which no name holds, of which the construct binds plain data: what it
 binds is a copy either way. Headers with temporaries stay rejected until
 emit points at the subject instead of copying it (HANDOFF, weak spots).
+A `match` on a view a call returns is matched where the view points,
+after its header: its tag and payloads are read there. So the ownership
+checker reports such a subject whose value carries a loan on a
+temporary the header made (`walkMatch`), which the header has dropped by
+then; a view of a place, or of what a name holds, is matched where it is.
 
 A read catch-all binding has the subject's type, so over a lend of plain
 data (`match ?v[i]`, `x => ...`) it is a view of the place, not the copy
