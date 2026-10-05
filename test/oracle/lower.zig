@@ -811,10 +811,14 @@ const Lowerer = struct {
         const el = if (els == .nil) x else try self.newBlock();
         try self.branch(t, el);
         self.cur = t;
-        try self.pushRegion();
+        // A branch is no statement of its own (Core §3): a value branch's
+        // temporaries are its statement's, and only the bindings an `as`
+        // makes leave with it.
+        const region = held != null or j == null;
+        if (region) try self.pushRegion();
         if (held) |h| try self.bindHeld(ir.As.name(cond), h, self.optionalInner(h.ty));
         if (j) |jv| try self.armValue(ir.If.then(e), how, jv) else try self.blockStmts(ir.If.then(e));
-        try self.popRegion(self.posOf(e));
+        if (region) try self.popRegion(self.posOf(e));
         try self.goto(x);
         if (els != .nil) {
             self.cur = el;
