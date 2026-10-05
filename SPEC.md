@@ -258,9 +258,10 @@ writes an element, with an index of any integer type; an index outside the half-
 panics, and a constant one is rejected where the length is known.
 `xs.get(i)` reads one as a `T?`, `none` when `i` is out of range, as a
 Vec's does.
-Arrays hold plain data and borrows, never a value that owns a
-resource, and `[n of x]` copies `x` into every slot; a collection of
-resources is a `Vec`. An array of arrays is `[2][3]T`:
+An array holds any value, as a Vec does, and drops its elements with
+itself; `for x in <a` hands them over one at a time. `[n of x]`
+copies `x` into every slot, so it needs a value that copies. An array
+of arrays is `[2][3]T`:
 two rows of three.
 
 ```rig
@@ -478,7 +479,7 @@ a borrow of the temporary `[1, 2]` outlives its statement
 ```
 
 `!xs[a..b]` is a **writable slice**, of type `![]T`: a write borrow of
-the elements, taken of an array or a `Vec` of plain data that could be
+the elements, taken of an array or a `Vec` that could be
 write-borrowed (`!xs`), or of another `![]T`. A String and a `[]T` are
 read-only, and so is what a fixed binding, a loop or pattern binding,
 or a parameter other than a `!T` one holds. A `![]T` is a write borrow
@@ -495,9 +496,8 @@ rejected). A `![]T` is accepted wherever a `[]T` is expected; as an
 argument it is then lent to read, like `?s[..]`, so `sum2(w, w)` with
 two `[]T` parameters reads `w` twice, and `w` can be read, but not
 written, while a view returned from it lives. A `[]T` is never
-write-borrowed: `!t` of one is rejected. A slice's
-elements are plain data: `[]T` and `![]T` with a `T` that owns a
-resource are rejected.
+write-borrowed: `!t` of one is rejected. A slice views any element
+type, owning ones included.
 
 ```rig
 fun total(xs: []Int) -> Int
@@ -2999,11 +2999,14 @@ cannot write-borrow `ps` in an index of a place borrowed from it
 
 A write borrow is assignable, whether a `!T` parameter or a local
 holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
-borrowed value (the old value is dropped first). A new binding points
-a name at another place: `new w = !m`, or `new w = <w2`. Assigning a
-write borrow to one (`w = !m`, `w = <w2`, or a call returning a `!T`)
-is rejected, since it would write through `w`. A field or element of type `!T` reads and
-writes through too: `h.w = 5`, `h.w += 1`, and `xs[i] += 1` write the
+borrowed value (the old value is dropped first). Assigning a view
+points the place at another place instead: `w = !m`, `w = <w2`, or a
+call returning a `!T` re-points a local `w`, which then lends `m`
+alone (a `![]T` local alike), and a bare `w = w2` reads the value `w2`
+reaches and writes it through `w`. A parameter is never re-pointed:
+`w = !m` of a `!T` parameter is rejected, and `new w = !m` binds a new
+name instead. A field or element of type `!T` follows the same rule:
+`h.w = 5`, `h.w += 1`, `xs[i] += 1`, and `h.w = w2` write the
 value the place borrows, while assigning another write borrow,
 `h.w = !m`, points the place at `m`. Writing through a borrow held in
 a field, or lending it with `!h.w`, needs write access to the struct,
@@ -3011,8 +3014,9 @@ as writing any field does, so a plain parameter `h: H`, a capture, or
 a temporary cannot. A write borrow can be
 lent on, written `!p` as an owned value's borrow is, or moved into a
 local with `<p`, but not copied. A bare `w` of type `!Int` where an
-`Int` goes copies the value it reaches (`x = w`); where a `!Int` goes
-(`h.w = w`), it would copy the borrow, and is written `<w`. One held
+`Int` goes copies the value it reaches (`x = w`), and so does one
+assigned to a `!Int` place (`h.w = w`); `h.w = <w` moves the borrow
+there instead. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
 that path reaches: it cannot be written through or passed on from
 there, and a `match` through one cannot bind it. A loop walks elements
@@ -3227,8 +3231,14 @@ sub main
 ### Clone
 
 `+x` makes a new owner. For a shared or weak handle it bumps the
-count; for a Copy value it copies. A struct with drop glue has no
-clone. `+p.a` clones the handle in a field. A value holding a write
+count; for a Copy value it copies; for a Text, a Vec, a box, an
+optional, an array, or a struct or enum declared in the module that
+holds them, it clones each part the same way: a Text's bytes and a
+Vec's elements are copied, a box's value is boxed again, and a handle
+inside is counted again (a deep copy). A type with a `drop` body, a
+unique type (one holding a `Cell`, or declared `unique`), a `Signal`,
+and a type imported from another module have no clone. `+p.a` clones
+the value in a field, and `+v[i]` an element. A value holding a write
 borrow cannot be cloned or weakly referenced: the borrow is unique.
 `+e` only reads `e`: a value made there (`+make()`) is a temporary its
 statement drops, and `+(a if c else b)` reads `a` or `b` where it is.
@@ -3679,18 +3689,17 @@ popped 8 1
 
 `Vec[T]` is a growable array that owns its elements. The binding is the
 buffer: a `Vec` is an owning value even when its elements are Copy.
-Elements are Copy primitives (numbers, `Bool`, `String`), plain data
-(structs, enums, optionals, and arrays that own nothing and hold no
-borrow),
-shared handles (including owned closures), weak handles, or boxes.
+Elements are any value that is not a view: Copy primitives (numbers,
+`Bool`, `String`), plain data, and owning values (a `Text`, a `Vec`, a
+box, a handle, a struct that owns one).
 
 | Member | Meaning |
 |---|---|
 | `Vec()`, `Vec(capacity: n)` | an empty Vec (typed by context) |
 | `!v.push(x)` | append; an owning `x` is moved or cloned in |
 | `v.len` | the number of elements |
-| `v[i]`, `v[i] = x` | read or write an element, or a field of one (Copy `T`; bounds-checked) |
-| `v.get(i)` | the element as `T?` (Copy `T`) |
+| `v[i]`, `v[i] = x` | the element at `i`, a place as a field is: read in place, lent with `?v[i]` or `!v[i]`, taken with `<v[i]` when `T` is optional, and assigned, which drops the old value (bounds-checked) |
+| `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
 | `!v.insert(i, x)` | put `x` at index `i`, moving the elements from `i` on up by one; `i` may be `v.len`; panics past it |
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
@@ -3699,7 +3708,7 @@ shared handles (including owned closures), weak handles, or boxes.
 A `for` loop lends the Vec to read for the whole loop, so it cannot be
 modified inside it: `for x in v` is `for x in ?v`. Each element
 of Copy values is a copy; one of owning values is a borrowed slot,
-where `v` must be a binding or a field of one: the element can be
+where `v` must be a binding, or a field or element of one: the element can be
 read, called, and cloned (`+x` is a new handle), but not moved,
 dropped, or stored. `for x in !v` and `for x in <v` write and
 consume the elements ([§6](#for)).
@@ -3987,8 +3996,8 @@ closure cannot be instantiated with a `T` that holds a String, even
 when every String passed is a literal. Where a String must outlive the
 Text it came from, copy it into a Text of its own: `Text(s)`.
 
-A Text owns its bytes, so it is not the plain data a `Vec` holds:
-`Vec[Text]` is rejected, and `Vec[Box[Text]]` holds Texts. A Vec that
+A Text owns its bytes, and a `Vec[Text]` owns its Texts, as
+`Vec[Box[Text]]` does through its boxes. A Vec that
 holds views keeps their Texts borrowed until it is dropped, since it is
 in use until then; drop it early with `-v` to change them sooner.
 
@@ -5478,7 +5487,6 @@ The rest parse, and the checker rejects them as not supported yet
 |---|---|
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
-| an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |
 | an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |
 | a payload field bound by name, `.rect(w: a, h: b)` | `` binding a payload field by name is not supported yet `` |
 

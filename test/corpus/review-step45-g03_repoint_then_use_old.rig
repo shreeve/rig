@@ -1,0 +1,10 @@
+# re-point, then use the old target freely (sound), w then written
+sub main
+  m = Text("m")
+  n = Text("n")
+  w = !m
+  !w.add("1")
+  w = !n
+  m = Text("M")
+  !w.add("2")
+  print(m, n)

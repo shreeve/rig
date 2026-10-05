@@ -1,0 +1,9 @@
+struct P
+  n: Int
+
+sub main
+  v: Vec[*P] = Vec()
+  !v.push(*P(n: 1))
+  h = +v[0]
+  print(h.n, v[0].n)
+  x = v[0]

@@ -1,0 +1,11 @@
+# w = !m; r = ?w; w = !n (re-point) then replace m while r still views m
+sub main
+  m = Text("mmmm")
+  n = Text("nnnn")
+  w = !m
+  r = ?w
+  w = !n
+  m = Text("zzzz")
+  print(r)
+  w = Text("x")
+  print(n)

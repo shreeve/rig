@@ -1,0 +1,6 @@
+sub main
+  v: Vec[Box[Int]] = Vec()
+  !v.push(Box(1))
+  print(v[0], v[0] + 1)
+  v[0] = Box(5)
+  print(v)

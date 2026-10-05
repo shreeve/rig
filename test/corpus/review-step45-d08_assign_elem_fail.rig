@@ -1,0 +1,20 @@
+# v[0] = mk()! where mk fails: no drop of old, no leak
+error Bad
+  oops
+
+fun mk(ok: Bool) -> Text!
+  if not ok
+    return Bad.oops
+  Text("new")
+
+fun run(v: !Vec[Text], ok: Bool) -> Int!
+  v[0] = mk(ok)!
+  1
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  print(run(!v, false) catch 0)
+  print(v)
+  print(run(!v, true) catch 0)
+  print(v)

@@ -1,0 +1,10 @@
+# +s where s holds a Cell must be rejected
+struct S
+  c: Cell[Int]
+  t: Text
+
+sub main
+  s = S(c: Cell(1), t: Text("x"))
+  d = +s
+  d.c.set(2)
+  print(s.c.get())

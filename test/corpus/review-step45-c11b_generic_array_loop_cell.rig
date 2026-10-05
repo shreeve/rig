@@ -1,0 +1,15 @@
+# base-comparable: generic loop over a ?[1]T with T = C (Cell holder), ?self method changes the Cell
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+sub each[T](v: ?[1]T, f: ?sub(?T))
+  for x in v
+    f(x)
+
+sub main
+  a = [C(c: Cell(1))]
+  each(?a, |x| x.hit())
+  print(a[0].c.get())

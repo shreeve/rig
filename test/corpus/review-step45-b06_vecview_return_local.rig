@@ -1,0 +1,9 @@
+# return a Vec holding a view of a local
+fun mk -> Vec[String]
+  t = Text("x")
+  v: Vec[String] = Vec()
+  !v.push(?t)
+  <v
+
+sub main
+  print(mk())

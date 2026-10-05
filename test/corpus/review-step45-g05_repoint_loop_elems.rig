@@ -1,0 +1,11 @@
+# re-point at each element of a Vec in a loop
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  m = Text("m")
+  w = !m
+  for i in 0..v.len
+    w = !v[i]
+    !w.add("!")
+  print(v, m)

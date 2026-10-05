@@ -1,0 +1,14 @@
+# An element of a Vec of handles is a place: a bare use would copy the
+# handle out of it.
+
+struct N
+  v: Int
+
+sub main()
+  xs: Vec[*N] = Vec()
+  a = *N(v: 1)
+  !xs.push(<a)
+  b = xs[0]
+  print(b.v)
+
+# error: 11:7: bare use of shared (`*T`) handle `xs[...]` in binding would alias the handle; use `+xs[...]` to clone

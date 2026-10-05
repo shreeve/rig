@@ -1,0 +1,14 @@
+struct Stack[T]
+  items: Vec[T]
+
+fun copy_of[T](x: ?T) -> T
+  +x
+
+sub main
+  s: Stack[Text] = Stack(items: Vec())
+  !s.items.push(Text("s"))
+  t = +s
+  !t.items.push(Text("u"))
+  print(s.items, t.items)
+  v: Vec[Int] = Vec()
+  print(copy_of(?v))

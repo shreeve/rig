@@ -1,0 +1,17 @@
+# return of a match whose arms yield an error value or an owner, with errdefer
+error Bad
+  oops
+
+fun f(k: Int) -> Text!
+  held = Text("held")
+  errdefer print("errdefer")
+  defer print("defer")
+  return match k
+    0 => Bad.oops
+    1 => Text("one")
+    _ => <held
+
+sub main
+  print(f(0) catch Text("caught"))
+  print(f(1) catch Text("caught"))
+  print(f(2) catch Text("caught"))

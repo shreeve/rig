@@ -1,0 +1,9 @@
+# std.slices.contains / index_of over Vec[Text]
+use std.slices
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  print(slices.contains(?v, Text("b")))
+  print(slices.index_of(?v, Text("b")))

@@ -1,0 +1,28 @@
+# `v[i] = e` evaluates `e`, then the index, then finds the element: a
+# value or an index that grows the Vec leaves the store in the new buffer.
+
+fun grow(v: !Vec[Text]) -> Text
+  !v.push(Text("x"))
+  !v.push(Text("y"))
+  !v.push(Text("z"))
+  !v.push(Text("w"))
+  Text("new")
+
+fun at_end(v: !Vec[Text]) -> Int
+  !v.push(Text("p"))
+  !v.push(Text("q"))
+  !v.push(Text("r"))
+  !v.push(Text("s"))
+  0
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  v[0] = grow(!v)
+  print(v)
+  v[at_end(!v)] = Text("n")
+  print(v)
+
+# expect:
+# ["new", "x", "y", "z", "w"]
+# ["n", "x", "y", "z", "w", "p", "q", "r", "s"]

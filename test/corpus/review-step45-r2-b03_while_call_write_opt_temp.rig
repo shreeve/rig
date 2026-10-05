@@ -1,0 +1,14 @@
+# while getw(!o, ?Text("a")) as t: re-evaluated each iteration, grow t, break
+fun getw(o: !Text?, s: String) -> !Text?
+  o
+
+sub main
+  o: Text? = Text("q")
+  n = 0
+  while getw(!o, ?Text("a")) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+    n += 1
+    if n == 2
+      break
+  print(o)

@@ -1,0 +1,20 @@
+# right side can leave through a catch handler's return inside a nested call
+error Bad
+  oops
+
+fun g(t: !Text, fail: Bool) -> !Text!
+  if fail
+    return Bad.oops
+  t
+
+fun h(fail: Bool) -> Int
+  a = Text("a")
+  b = Text("b")
+  w = !a
+  w = g(!b, fail) catch return 0
+  !w.add("!")
+  print(a, b)
+  1
+
+sub main
+  print(h(true), h(false))

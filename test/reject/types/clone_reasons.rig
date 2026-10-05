@@ -1,0 +1,20 @@
+# `+x` names why a value has no clone: it holds a unique value, or, in
+# a generic body, a type parameter, which has no deep clone there.
+
+struct R unique
+  seed: Int
+
+struct S
+  rs: [1]R
+  t: Text
+
+fun dup[T](v: ?Vec[T]) -> Vec[T]
+  +v
+
+sub main
+  s = S(rs: [R(seed: 1)], t: Text("x"))
+  c = +s
+  print(c.t)
+
+# error: 12:4: `+x` cannot clone a `Vec[T]`: a type parameter has no deep clone in a generic body
+# error: 16:8: `+x` cannot clone a `S`: it holds a unique value, which a copy would duplicate

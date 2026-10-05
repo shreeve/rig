@@ -1,0 +1,46 @@
+# A header whose subject makes a temporary binds a copy of the subject,
+# whatever its shape: a branching value too, even when the branch taken
+# makes no temporary. A write binding, or a read binding that is not
+# plain data, over that copy is rejected.
+
+struct S
+  o: Text?
+
+struct H
+  f: Vec[S]
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("q"))
+  w: Text? = Text("w")
+  c = v.len == 1
+  if (!v[idx(?Text("a"))] if c else !w) as t
+    !t.add("x")
+  if (!w if c else !v[idx(?Text("a"))]) as t
+    !t.add("x")
+  n = 0
+  while (!v[idx(?Text("a"))] if c else !w) as t
+    !t.add("x")
+    break
+  h = H(f: Vec())
+  !h.f.push(S(o: Text("q")))
+  if (!h.f[idx(?Text("a"))].o if c else !w) as t
+    !t.add("x")
+  if (?v[idx(?Text("a"))] if c else ?w) as t
+    print(t)
+  arr: [1]Int? = [1]
+  m: Int? = 2
+  if (!arr[idx(?Text("a"))] if c else !m) as k
+    k = 50
+  print(v, w, h.f.len, arr, m, n)
+
+# error: 20:15: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
+# error: 22:28: bind the index to a name first
+# error: 25:18: bind the index to a name first
+# error: 30:17: bind the index to a name first
+# error: 32:15: bind the index to a name first
+# error: 36:17: bind the index to a name first
+# errors: 6

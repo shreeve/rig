@@ -1,0 +1,10 @@
+sub both(a: !Text, b: !Text)
+  !a.add("1")
+  !b.add("2")
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  both(!v[0], !v[1])
+  print(v)

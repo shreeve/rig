@@ -1,0 +1,38 @@
+# A write-view local re-pointed by a view ends its old view there: the
+# old one is never used again, so its loan is over (Core sentence 6),
+# also in a loop and when the new view is of the place it viewed.
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  w = !a
+  for i in 0..4
+    if i % 2 == 0
+      w = !b
+    else
+      w = !a
+    !w.add("x")
+  print(a, b)
+  v: Vec[Text] = Vec()
+  !v.push(Text("p"))
+  !v.push(Text("q"))
+  m = Text("m")
+  u = !m
+  for i in 0..v.len
+    u = !v[i]
+    !u.add("!")
+  print(v, m)
+  c = Text("c")
+  d = Text("d")
+  z: !Text = !c
+  k = 2
+  z = match k
+    1 => !c
+    _ => !d
+  !z.add("!")
+  print(c, d)
+
+# expect:
+# axx bxx
+# ["p!", "q!"] m
+# c d!

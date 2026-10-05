@@ -1,0 +1,27 @@
+# sort_by on Vec[Text] and on an array of Box
+use std.sort
+
+struct P
+  n: Int
+
+fun longer(a: ?Text, b: ?Text) -> Bool
+  a.len > b.len
+
+fun bigger(a: ?Box[P], b: ?Box[P]) -> Bool
+  a.n > b.n
+
+sub main
+  v: Vec[Text] = Vec()
+  for i in 0..30
+    t = Text("")
+    for _ in 0..(30 - i)
+      !t.add("x")
+    !v.push(<t)
+  !v.push(Text("a"))
+  !v.push(Text("ccc"))
+  !v.push(Text("bb"))
+  sort.sort_by(!v, longer)
+  print(v[0], v[1], v[2], v.len)
+  a = [Box(P(n: 1)), Box(P(n: 3)), Box(P(n: 2))]
+  sort.sort_by(!a, bigger)
+  print(a[0].n, a[1].n, a[2].n)

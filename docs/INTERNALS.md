@@ -808,6 +808,21 @@ for `as`, in a joined condition (`if mk().o as r and c`), in a value
 `if`, and in a `while` condition, which is evaluated again each
 iteration. Each says to bind the value to a name first.
 
+A header whose subject makes a statement temporary
+(`sema.firstStmtTemp`, which emit's header blocks use too) is evaluated
+in a block that ends the temporary and yields the subject's value, so
+what the construct binds views a copy, whatever the subject's shape: a
+place, a lend, or a branching value. Typecheck records that once per
+header (`copiesHeader`), unless the construct owns what it binds (`<p`,
+a value made there, a `match` that takes its subject), walks a slice,
+or matches a view a call returns, which is held as the pointer it is.
+Emit reads the fact and fails if its own shape disagrees. A copy is
+rejected at the temporary under a write binding, or a read binding of a
+value that is not plain data (`rejectHeaderCopy`), with "bind the index
+(the argument, `e`) to a name first"; a copy of plain data that is only
+read is the subject's value. Lowering headers before checking (HANDOFF
+step 10) lifts the rule.
+
 Typecheck records the class where it binds: a bare place is recorded
 as a read lend of the subject (`lendOf`, `Lend.implicit`), which the
 ownership checker walks as `?p` (a read loan on the place's root,
@@ -844,6 +859,8 @@ instead of re-deriving it by name:
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read lend of it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
+| `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary (`rejectHeaderCopy`); emit reads it and checks its own shape against it |
+| `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
@@ -881,7 +898,7 @@ emitter ask these, never a predicate built for another question:
 | `isUnique` | declared `unique`, or a `Cell`, or holds one of those inline: never copied |
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
 | `copyable` | does not move and holds no write view: copied implicitly where it is used |
-| `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), Text copy, copy per instance, or nothing (a value that moves) |
+| `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), Text copy, copy per instance, a deep copy part by part (`deep`: a Vec, a box, an array, an optional, or a struct or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
 | `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
 | `isPlainData` | copies and holds no view: plain data |
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
@@ -1085,9 +1102,16 @@ its `!` arguments and other write views lead to, except a built-in
 element method (`!dst.copy(src)`) whose elements hold no view, which
 stores only plain elements. Assigning a local write view, or a field
 or element through one (`w = v`, `w.f = v`), stores `v` in what `w`
-views (`storeThroughLocal`), and so does assigning a value to a
+views (`storeThroughLocal`), unless the assignment gives `w` a view
+(`repoints`): then `w` points elsewhere and holds that view's loans
+alone, as a local given a new value does. When the right side does not
+read `w` and cannot leave early, `w`'s old loans end before the right
+side runs, since its old view is never used again (`w = !b` while `w`
+views `b`, or in a loop). Assigning a value to a
 field or element that holds a `!T` (`h.w = v`, which writes through
-it): `v` lands in what the struct's `!T` views (`writesThrough`).
+it) stores `v` in what the struct's `!T` views (`writesThrough`); one
+given a view (`h.w = !n`) adds the view's loans to its holder's, which
+keeps the old ones too, since loans are kept per var, not per field.
 Unlike a call, an assignment knows how many write views it goes
 through (`placeDepth`: `o.i = v` one, `o.i.x = v` two), so only the
 values within that many write loans may hold what `v` views, a write
@@ -1231,20 +1255,19 @@ is re-checked against the state at every exit of its scope, where what
 it reads may not view a var declared after the `defer` (dropped
 before it runs).
 An `errdefer` body is re-checked only at the exits that fail: a `!`,
-and a `return` or final value whose type is, or may be, an error,
-including the final value of an `if` or `match` branch block that is
-the function's result (`Checker.ret_block`). Where the path ends at the
+and a `return` whose operand is, or may be, an error (an error value
+meets a `T!` nowhere else). Where the path ends at the
 exit (a scope's end, a jump, `return`), the bodies run on it and their
 effects stay, so a view one stores is checked where it outlives what
-it views. Where the path goes on (`e!`, `e?`, a final value that may
-be an error), they run only on the path that leaves, so their effects
-are undone after the check (`Exit.goesOn`).
+it views. Where the path goes on (`e!`, `e?`), they run only on the
+path that leaves, so their effects are undone after the check
+(`Exit.goesOn`).
 
 **Exits.** Every path ends through one primitive, `exitTo(.{ to,
 exit, resume_at })`, which desugars an exit into three steps:
 
 1. run the defers `exit` runs (`scope_end`, a `jump` to a scope depth,
-   `return`, `propagate`, `failing_result`), re-checked against the
+   `return`, `propagate`), re-checked against the
    state there, keeping their effects only where the path ends;
 2. report what the path drops (`reportDropped`): each var below `to`'s
    var count, live at `resume_at` (where the path goes on; after the
@@ -1263,7 +1286,7 @@ exit, resume_at })`, which desugars an exit into three steps:
 | a loop's condition failing; the end of its body | the loop's entry | | past the loop; its head |
 | the joins after a loop and a labeled block (`joinAt`) | the entry | | past it |
 | a `defer` body where it is written | before the body | | after the statement |
-| `return`, `e!`, `e?`, a result that may fail | none | `return`, `propagate`, `failing_result` | |
+| `return`, `e!`, `e?` | none | `return`, `propagate` | |
 | a scope's end (`popScope`) | none | `scope_end` | |
 
 A scope's end then reports, with the same per-holder reporter
@@ -1387,10 +1410,7 @@ lower is an internal error: sema must have rejected it.
   a value (one a `break` leaves with a value) becomes a labeled block
   holding the loop without its `else`, then `break :block else_value`;
   each `break v` leaves the block, so the `else` value is reached only
-  when no `break` gave one, for every form of loop. A branch block of a
-  returned value that holds an `errdefer` ends in `return v`, not
-  `break :blk v` (`markReturningBlocks`): Zig runs an `errdefer` only
-  when the function returns.
+  when no `break` gave one, for every form of loop.
 - **Compile-time parameters** are Zig `comptime` parameters, first in
   the signature, after a method's receiver (Zig's method call syntax
   needs the receiver first): `fun times[n: Int](?self)` is
@@ -1405,7 +1425,13 @@ lower is an internal error: sema must have rejected it.
   parameter's name. An element of an array whose length is a
   compile-time parameter is reached through a slice (`rig.elems`),
   since Zig rejects any index into an array of length 0, and `[n of x]`
-  is `@as([n]T, @splat(x))`.
+  is `@as([n]T, @splat(x))`. An element that is not copied
+  (`sema.copyable`), or holds a Cell, is reached where it is, as a
+  field is: a Vec's through `constSlot(i).*` or `slot(i).*`, a slice's
+  through `rig.elemPtr`, never a copy of its bits through `at(i)`. A
+  loop that takes an array of values that move hands them over one at
+  a time (`rig.arrayIntoIter`), as one that takes a Vec does
+  (`intoIter`), and drops what a `break` leaves.
 - **Defaults.** A field default is the Zig struct field's default
   value, which Zig copies into each value a constructor makes: a
   literal, a constant, `rig.Vec(T).empty`, a `rig.Cell(T)`, or
@@ -1512,7 +1538,8 @@ reviewed.
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |
 | `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readBorrowIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `borrowed` reads the value |
-| `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place |
+| `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place; `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
+| `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a Text's bytes and a Vec's elements copied (`Vec.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `Text` | `Text`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `Text(...)` and `print` agree exactly; `bytes` is the String view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a Text's or a String's |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a callable view: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |

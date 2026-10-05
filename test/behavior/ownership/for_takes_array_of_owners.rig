@@ -1,0 +1,32 @@
+# `for x in <a` over an array whose elements own hands each one over
+# in turn; the loop drops the ones a `break` leaves, and the array is
+# not dropped again. An array made in the header is taken the same way.
+
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk -> [2]Text
+  [Text("a"), Text("b")]
+
+sub main
+  a = [D(n: 1), D(n: 2), D(n: 3)]
+  for d in <a
+    print("got", d.n)
+    break if d.n == 1
+  keep: Vec[Text] = Vec()
+  for t in mk()
+    !keep.push(<t)
+  ts = [Text("c"), Text("d")]
+  for t in <ts
+    !keep.push(<t)
+  print(keep)
+
+# expect:
+# got 1
+# drop 1
+# drop 3
+# drop 2
+# ["a", "b", "c", "d"]

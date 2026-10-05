@@ -1,0 +1,9 @@
+struct Bag
+  items: Vec[?Int]
+
+sub main
+  a = 1
+  bag = Bag(items: Vec())
+  !bag.items.push(?a)
+  a = 3
+  print(bag.items.len)

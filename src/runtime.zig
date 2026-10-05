@@ -437,6 +437,37 @@ pub fn WeakHandle(comptime T: type) type {
     };
 }
 
+/// `+x` of a value that owns: a new value holding a clone of each part,
+/// as `+` gives it: a handle counted again, a Text's bytes and a Vec's
+/// elements copied, a box's value boxed again, plain data copied. Sema
+/// clones only types with no `drop` body and nothing unique
+/// (`sema.cloneable`).
+pub fn cloneValue(value: anytype) @TypeOf(value.*) {
+    const T = @TypeOf(value.*);
+    if (comptime !needsDrop(T)) return value.*;
+    switch (@typeInfo(T)) {
+        .pointer => return value.*.cloneStrong(),
+        .optional => return if (value.*) |*inner| cloneValue(inner) else null,
+        .array => {
+            var out: T = undefined;
+            for (&out, value) |*o, *v| o.* = cloneValue(v);
+            return out;
+        },
+        .@"struct" => |s| {
+            if (comptime @hasDecl(T, "__rig_text") or @hasDecl(T, "__rig_vec")) return value.clone();
+            if (comptime @hasDecl(T, "__rig_box")) return T.init(cloneValue(value.value));
+            if (comptime @hasDecl(T, "cloneWeak")) return value.cloneWeak();
+            var out: T = undefined;
+            inline for (s.field_names) |f| @field(out, f) = cloneValue(&@field(value, f));
+            return out;
+        },
+        .@"union" => switch (value.*) {
+            inline else => |*payload, tag| return @unionInit(T, @tagName(tag), cloneValue(payload)),
+        },
+        else => @compileError("rig: cannot clone " ++ @typeName(T)),
+    }
+}
+
 /// `+x` for an optional handle: another handle to the same box, or null.
 pub fn cloneOptional(value: anytype) @TypeOf(value) {
     const h = value orelse return null;
@@ -813,6 +844,16 @@ pub fn Vec(comptime T: type) type {
             try writeList(w, self.items());
         }
 
+        pub const __rig_vec = {};
+
+        /// `+v`: a new Vec holding a clone of each element (`cloneValue`).
+        pub fn clone(self: *const Self) Self {
+            var out: Self = .empty;
+            out.reserve(self.len);
+            for (self.items()) |*e| out.push(cloneValue(e));
+            return out;
+        }
+
         /// The live elements. Invalidated by `push`.
         pub fn items(self: *const Self) []T {
             return self.buf[0..self.len];
@@ -1055,6 +1096,36 @@ pub fn index(i: anytype, count: usize) usize {
 pub fn notNan(x: anytype) @TypeOf(x) {
     if (comptime builtin.optimize.runtimeSafety()) if (std.math.isNan(x)) @panic("integer part of floating point value out of bounds");
     return x;
+}
+
+/// `for x in <a` of an array whose elements move: each element handed
+/// over in order; those not handed over (the loop left early) are
+/// dropped, last first, as the array would drop them.
+pub fn ArrayIntoIter(comptime A: type) type {
+    const T = @typeInfo(A).array.child;
+    return struct {
+        items: A,
+        next_index: usize = 0,
+
+        pub fn next(it: *@This()) ?T {
+            if (it.next_index >= it.items.len) return null;
+            const value = it.items[it.next_index];
+            it.next_index += 1;
+            return value;
+        }
+
+        pub fn deinit(it: *@This()) void {
+            var i: usize = it.items.len;
+            while (i > it.next_index) {
+                i -= 1;
+                dropElement(T, &it.items[i]);
+            }
+        }
+    };
+}
+
+pub fn arrayIntoIter(items: anytype) ArrayIntoIter(@TypeOf(items)) {
+    return .{ .items = items };
 }
 
 /// The elements of the array `p` points to, as a slice. Zig rejects

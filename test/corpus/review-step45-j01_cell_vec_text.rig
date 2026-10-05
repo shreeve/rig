@@ -1,0 +1,11 @@
+# Cell holding a Vec[Text]: set, replace, take
+sub main
+  c = Cell(Vec[Text]())
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  c.set(<v)
+  w: Vec[Text] = Vec()
+  !w.push(Text("b"))
+  old = c.replace(<w)
+  print(old)
+  -old

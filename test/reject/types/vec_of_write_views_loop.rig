@@ -1,0 +1,13 @@
+# A loop binding cannot hold a write view out of a Vec, and `get`
+# cannot copy one.
+
+sub main
+  a = 1
+  w: Vec[!Int] = Vec()
+  !w.push(!a)
+  for x in w
+    print(x)
+  print(w.get(0))
+
+# error: each element of `w` is a write borrow, which a loop binding cannot hold
+# error: `Vec.get` would copy an element out of a `Vec` of `!Int`

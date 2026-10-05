@@ -1,0 +1,13 @@
+# Cell change through a loop over a ?Vec[C] parameter, and over an element Vec
+struct C
+  c: Cell[Int]
+
+sub bump(v: ?Vec[C])
+  for x in v
+    x.c.set(x.c.get() + 1)
+
+sub main
+  v: Vec[C] = Vec()
+  !v.push(C(c: Cell(3)))
+  bump(?v)
+  print(v[0].c.get())

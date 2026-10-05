@@ -1,0 +1,11 @@
+# branching if-as subject where the temp is elsewhere in the leaf: (!o if f(?Text("a")) else !w)
+fun f(s: String) -> Bool
+  s.len == 1
+
+sub main
+  o: Text? = Text("q")
+  w: Text? = Text("w")
+  if (!o if f(?Text("a")) else !w) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(o, w)

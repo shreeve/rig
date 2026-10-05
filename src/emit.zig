@@ -219,10 +219,6 @@ pub const Emitter = struct {
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayList(struct { rig: []const u8, zig: []const u8 }) = .empty,
-    /// Branch blocks whose value the function returns and which hold an
-    /// `errdefer`: they return it themselves, so that an error runs the
-    /// `errdefer` (`markReturningBlocks`).
-    returning: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// Where the `break` and `continue` of the `while` being emitted go
     /// when Zig cannot reach its loop with them (`JumpRedirect`).
     redirect: ?JumpRedirect = null,
@@ -266,7 +262,6 @@ pub const Emitter = struct {
         self.hoisted.deinit(self.allocator);
         self.temp_slots.deinit(self.allocator);
         self.labels.deinit(self.allocator);
-        self.returning.deinit(self.allocator);
         self.value_loops.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -1078,7 +1073,7 @@ pub const Emitter = struct {
         if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
         // The parts first: they are made first, so their `defer`s run
         // after those of what holds them.
-        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c)) try self.emitTempSlots(c);
+        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !sema.isWhileStep(stmt, c)) try self.emitTempSlots(c);
         if (self.sema.dropsTemp(stmt) and self.tempSlot(stmt) == null) {
             const name = try self.fmt("__rig_tmp_{d}", .{self.nextId()});
             try self.w.print("var {s}: ", .{name});
@@ -1088,13 +1083,6 @@ pub const Emitter = struct {
         }
     }
 
-    /// Whether `child` is the step of `while` loop `parent`: a statement
-    /// of its own, run after each pass (`emitStep`).
-    fn isWhileStep(parent: Sexp, child: Sexp) bool {
-        if (!parent.isKind(.@"while")) return false;
-        const step = ir.While.step(parent);
-        return step == .list and child == .list and step.list.id == child.list.id;
-    }
 
     fn tempSlot(self: *Emitter, node: Sexp) ?TempSlot {
         if (node != .list) return null;
@@ -1102,12 +1090,10 @@ pub const Emitter = struct {
         return null;
     }
 
-    /// Whether statement `stmt` holds an owning temporary its end drops.
+    /// Whether statement `stmt` holds an owning temporary its end drops
+    /// (`sema.firstStmtTemp`).
     fn hasTemps(self: *Emitter, stmt: Sexp) bool {
-        if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return false;
-        if (self.sema.dropsTemp(stmt)) return true;
-        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c) and self.hasTemps(c)) return true;
-        return false;
+        return sema.firstStmtTemp(self.sema, stmt) != null;
     }
 
     /// Start header `e` (`sema.isHeaderOf`), its own statement: when it
@@ -1244,7 +1230,7 @@ pub const Emitter = struct {
             try self.emitBind(target, sym, type_node, expr);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
-            try self.emitRebind(local.*, expr);
+            try self.emitRebind(local.*, expr, self.sema.repoints(sexp));
         }
     }
 
@@ -1274,7 +1260,7 @@ pub const Emitter = struct {
             (ty != null and sema.holdsCellByValue(self.sema, ty.?));
         // Assigning a write borrow writes through it, leaving the
         // pointer as it is.
-        const rebound = s.flags.reassigned and !(ty != null and sema.assignWritesThrough(self.sema, ty.?));
+        const rebound = s.flags.repointed or (s.flags.reassigned and !(ty != null and sema.assignWritesThrough(self.sema, ty.?)));
         // A constant initializer would make a Zig `const` compile-time
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
@@ -1335,9 +1321,9 @@ pub const Emitter = struct {
     /// Reassign an existing binding. A resource's old value is dropped
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
-    fn emitRebind(self: *Emitter, local: Local, value: Sexp) Error!void {
+    fn emitRebind(self: *Emitter, local: Local, value: Sexp, repoints: bool) Error!void {
         const s = self.sema.symbols.items[local.sym];
-        const writes_through = sema.assignWritesThrough(self.sema, s.ty);
+        const writes_through = !repoints and sema.assignWritesThrough(self.sema, s.ty);
         if (local.is_ptr and !writes_through) {
             // A borrow local is rebound to borrow something else.
             try self.w.print("{s} = ", .{local.zig_name});
@@ -1406,7 +1392,8 @@ pub const Emitter = struct {
         if (target != .src and self.isPtrBorrowExpr(target) and !through) {
             // A field or element holding a write borrow is rebound.
             const order = try self.openAssign(target, value, null, .borrow);
-            try self.emitBorrowValue(target);
+            // An element is reached as the slot it is.
+            if (target.isKind(.index)) try self.emitIndex(target, true) else try self.emitBorrowValue(target);
             try self.w.writeAll(" = ");
             try self.emitBorrowValue(value);
             try self.w.writeAll(";");
@@ -1672,34 +1659,8 @@ pub const Emitter = struct {
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
         if (self.fun.return_ty) |r| if (self.isPtrBorrowTy(self.unwrapOptionals(r))) return self.emitBorrowValue(value);
-        try self.markReturningBlocks(value);
         self.bare = true;
         try self.emitValue(value, true);
-    }
-
-    /// Mark the branch blocks of returned `value` that hold an
-    /// `errdefer`. Zig runs an `errdefer` only when the function returns
-    /// an error from within its scope, not when a block breaks out with
-    /// one, so such a block returns its value itself.
-    fn markReturningBlocks(self: *Emitter, value: Sexp) Error!void {
-        const kind = value.kind() orelse return;
-        switch (kind) {
-            .@"if" => {
-                try self.markReturningBlocks(ir.If.then(value));
-                try self.markReturningBlocks(ir.If.@"else"(value));
-            },
-            .match => for (ir.Match.arms(value)) |arm| try self.markReturningBlocks(ir.Arm.body(arm)),
-            .block => {
-                const stmts = ir.Block.stmts(value);
-                if (stmts.len == 0) return;
-                for (stmts) |st| if (st.isKind(.@"errdefer")) {
-                    try self.returning.put(self.allocator, value.list.id, {});
-                    break;
-                };
-                try self.markReturningBlocks(stmts[stmts.len - 1]);
-            },
-            else => {},
-        }
     }
 
     /// `(break value-or-_ label?)`. A value leaves the block of the loop
@@ -2162,11 +2123,21 @@ pub const Emitter = struct {
         // A Vec the loop consumes, or one its source expression creates,
         // hands its elements over one at a time.
         if (is_vec and (mode == .move or (!self.hasStorage(source) and self.kindOf(src_ty.?) != null))) {
-            return self.emitConsumingFor(sexp, label);
+            return self.emitConsumingFor(sexp, label, false);
+        }
+        // So does an array of values that move, which the loop takes.
+        if (src_ty != null and self.sema.types.get(src_ty.?) == .array and self.kindOf(self.sema.types.get(src_ty.?).array.elem) != null and
+            (mode == .move or !self.hasStorage(source)))
+        {
+            return self.emitConsumingFor(sexp, label, true);
         }
         const elem_sym = self.sema.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         const header = self.sema.headerOf(sexp);
+        // A source with temporaries is walked as a copy, which the checker
+        // records (`copiesHeader`) and allows only for plain data read.
+        if (mode != .move and header != .taken and !rig.isRangeIndex(source) and self.hasTemps(source) != self.sema.copiesHeader(sexp))
+            return self.unsupported(sexp, "a header copy the checker did not record");
         // An array the loop takes is held in a `var`, and each element is
         // reached through a pointer into it, as the body's own.
         const owned = header == .taken;
@@ -2226,13 +2197,13 @@ pub const Emitter = struct {
         }
     }
 
-    /// `for x in <v`: the Vec is consumed; each element is handed to `x`,
-    /// which owns it for one iteration. Elements a `break` or `return`
-    /// leaves behind are dropped with the buffer.
+    /// `for x in <v`: the Vec (or the array, `array`) is consumed; each
+    /// element is handed to `x`, which owns it for one iteration.
+    /// Elements a `break` or `return` leaves behind are dropped with it.
     ///
     ///     { var it = v.intoIter(); defer it.deinit();
     ///       while (it.next()) |e| { var x = e; defer rig.drop(&x); ... } }
-    fn emitConsumingFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+    fn emitConsumingFor(self: *Emitter, sexp: Sexp, label: ?[]const u8, array: bool) Error!void {
         const binding = ir.For.@"var"(sexp);
         const id = self.nextId();
         const it = try self.fmt("__rig_it_{d}", .{id});
@@ -2242,11 +2213,11 @@ pub const Emitter = struct {
 
         try self.openBrace();
         try self.writeIndent(self.indent);
-        try self.w.print("var {s} = (", .{it});
+        try self.w.print("var {s} = {s}(", .{ it, if (array) "rig.arrayIntoIter" else "" });
         const h = try self.openHeader(ir.For.source(sexp));
         try self.emitMoved(ir.For.source(sexp));
         try self.closeHeader(h);
-        try self.w.writeAll(").intoIter();\n");
+        try self.w.writeAll(if (array) ");\n" else ").intoIter();\n");
         try self.line("defer {s}.deinit();", .{it});
         if (indexed) try self.line("var {s}: usize = 0;", .{counter});
         try self.writeIndent(self.indent);
@@ -2349,6 +2320,12 @@ pub const Emitter = struct {
             .subject = unborrowed(scrutinee),
             .boxed = boxed != null,
         };
+        // A subject with temporaries is matched as a copy, which the
+        // checker records (`copiesHeader`) and allows only for plain data
+        // read.
+        const held_view = !self.hasStorage(scrutinee) and self.isPtrBorrowExpr(scrutinee);
+        if (info.mode != .consume and !held_view and self.hasTemps(scrutinee) != self.sema.copiesHeader(sexp))
+            return self.unsupported(sexp, "a header copy the checker did not record");
         var guarded = false;
         // A `match !x` binding of the whole value points at the place, and
         // a `match <x` arm with alternatives drops the value from it: the
@@ -2386,11 +2363,20 @@ pub const Emitter = struct {
             try self.w.writeAll(info.reread);
         } else {
             // A match on a call returning a borrow held by pointer
-            // switches on the value it points to.
+            // switches on the value it points to, where it is: a header
+            // with temporaries yields the pointer, never the value.
+            const by_ptr = !self.hasStorage(subject) and self.isPtrBorrowExpr(subject);
             const h = try self.openHeader(subject);
-            if (!self.hasStorage(subject) and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
-            if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
-            try self.closeHeader(h);
+            if (by_ptr and h.label.len > 0) {
+                try self.emitBorrowValue(subject);
+                try self.closeHeader(h);
+                try self.w.writeAll(".*");
+            } else {
+                if (by_ptr) try self.emitDeref(subject) else try self.emitBare(subject);
+                if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
+                try self.closeHeader(h);
+            }
+            if (by_ptr and h.label.len > 0 and info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
         }
         try self.w.writeAll(") ");
         try self.openBrace();
@@ -2921,8 +2907,12 @@ pub const Emitter = struct {
             try self.w.print("|*{s}| ", .{tmp});
             return .{ .lent = .{ .name = name, .tmp = tmp, .copy = false } };
         }
+        // The header binds a copy of its subject (`copiesHeader`), which
+        // the checker allows only for plain data read.
+        const owns = value.isKind(.move) or (sema.handsOver(self.sema, value).kind == .made and !sema.isBorrowType(self.sema, self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
+        if (!owns and self.hasTemps(value) != self.sema.copiesHeader(cond)) return self.unsupported(cond, "a header copy the checker did not record");
         // Over a borrow of an optional, a borrowed binding points into it.
-        if (self.borrowsOptionalValue(value) and self.hasTemps(value)) {
+        if (self.borrowsOptionalValue(value) and self.sema.copiesHeader(cond)) {
             // A borrow of a temporary the header drops: the optional is
             // read inside the header, and the binding views a copy of the
             // value inside, which the ownership checker lets nothing use
@@ -3394,11 +3384,7 @@ pub const Emitter = struct {
     /// value that owns resources or holds a `Cell` (see `readBorrowIsPtr`).
     /// A `![]T` is a Zig slice, which points at its elements itself.
     fn isPtrBorrowTy(self: *Emitter, ty: TypeId) bool {
-        return switch (self.sema.types.get(ty)) {
-            .borrow_write => sema.writeSliceElem(self.sema, ty) == null,
-            .borrow_read => |inner| self.readBorrowIsPtr(inner),
-            else => false,
-        };
+        return sema.viewHeldAsPointer(self.sema, ty);
     }
 
     /// A read borrow of a scalar or a view is a copy
@@ -3621,6 +3607,12 @@ pub const Emitter = struct {
                     .text => {
                         try self.emitExpr(operand);
                         try self.w.writeAll(".clone()");
+                    },
+                    // Each part cloned as `+` clones it.
+                    .deep => {
+                        try self.w.writeAll("rig.cloneValue(&(");
+                        try self.emitExpr(operand);
+                        try self.w.writeAll("))");
                     },
                     // A generic `T` is cloned only where each instance
                     // copies, so it is copied.
@@ -3904,13 +3896,16 @@ pub const Emitter = struct {
         }
         // A shared handle's element is its value's.
         const held_ty: ?TypeId = if (base_ty) |t| sema.unwrapReadAccess(self.sema, t) else null;
+        // An element that is not copied (`readsInPlace`) is reached
+        // where it is, as a field is: never a copy of its bits.
+        const in_place = as_place or self.elemInPlace(sexp);
         if (held_ty != null and self.isVecTy(held_ty.?)) {
             try self.emitIndexBase(base, base_ty, .expr);
-            try self.w.writeAll(if (!as_place) ".at(" else if (self.read_place) ".constSlot(" else ".slot(");
+            try self.w.writeAll(if (!in_place) ".at(" else if (self.read_place or !as_place or self.throughReadView(base)) ".constSlot(" else ".slot(");
             // The index itself is a value, even inside an assignment target.
             self.place_chain = false;
             try self.emitBare(index);
-            try self.w.writeAll(if (as_place) ").*" else ")");
+            try self.w.writeAll(if (in_place) ").*" else ")");
             return;
         }
         const array_len: ?TypeId = if (held_ty) |t| switch (self.sema.types.get(t)) {
@@ -3920,12 +3915,8 @@ pub const Emitter = struct {
         const n = array_len orelse {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
-            // is assigned through. An element that holds a Cell, or may in
-            // a generic instance, is reached where it is: a `?self` method
-            // or a Cell on it changes the element, not a copy.
-            const elem_ty = self.typeOf(sexp);
-            const in_place = if (elem_ty) |t| sema.holdsCellByValue(self.sema, t) or sema.maybeDropGlue(self.sema, t) else false;
-            if (as_place or in_place) {
+            // is assigned through.
+            if (in_place) {
                 try self.w.writeAll("rig.elemPtr(");
                 try self.emitIndexBase(base, base_ty, .bare);
                 try self.w.writeAll(", ");
@@ -3978,6 +3969,31 @@ pub const Emitter = struct {
             try self.w.writeAll(")");
         }
         try self.w.writeAll("]");
+    }
+
+    /// Whether place `e` is reached through a read view or a shared
+    /// handle, whose value is read-only: an element on the way is
+    /// reached through `constSlot` (a Cell in it is changed through a
+    /// `@constCast` of its address).
+    fn throughReadView(self: *Emitter, e: Sexp) bool {
+        var p = e;
+        while (true) {
+            if (p.isKind(.read)) return true;
+            if (self.typeOf(p)) |t| switch (self.sema.types.get(t)) {
+                .borrow_read, .shared => return true,
+                else => {},
+            };
+            if (!p.isKind(.member) and !p.isKind(.index)) return false;
+            p = ir.get(p, .object);
+        }
+    }
+
+    /// Whether element `e` is read where it is rather than copied: its
+    /// type is not copied implicitly (`sema.copyable`), or holds a Cell
+    /// that a `?self` method or a `set` on it changes in the element.
+    fn elemInPlace(self: *Emitter, e: Sexp) bool {
+        const t = self.typeOf(e) orelse return false;
+        return sema.copyable(self.sema, t) != .yes or sema.holdsCellByValue(self.sema, t);
     }
 
     /// The object `base` of an index, emitted `how` the index needs it. A
@@ -4278,10 +4294,8 @@ pub const Emitter = struct {
 
         const terminates = isTerminatingStmt(last);
         if (!terminates and !self.yieldsValue(last)) return self.unsupported(last, "a block without a value in value position");
-        // A block marked by `markReturningBlocks` returns its value.
-        const returns = body.isKind(.block) and self.returning.contains(body.list.id);
         var label: []const u8 = "";
-        if (!terminates and !returns) {
+        if (!terminates) {
             label = try self.fmt("__rig_blk_{d}", .{self.nextId()});
             try self.w.print("{s}: ", .{label});
         }
@@ -4295,7 +4309,7 @@ pub const Emitter = struct {
             const first = self.temp_slots.items.len;
             defer self.temp_slots.shrinkRetainingCapacity(first);
             try self.emitTempSlots(last);
-            if (returns) try self.w.writeAll("return ") else try self.w.print("break :{s} ", .{label});
+            try self.w.print("break :{s} ", .{label});
             self.bare = true;
             try self.emitValueAs(last, result);
             try self.w.writeAll(";");
@@ -4548,7 +4562,7 @@ pub const Emitter = struct {
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
                 try self.w.writeAll("@constCast(");
-                try self.emitAddressOf(unborrowed(ir.Member.object(callee)));
+                try self.emitCellAddress(ir.Member.object(callee));
                 try self.w.print(").{s}(", .{m});
                 try self.emitArgs(sexp);
                 return self.w.writeAll(")");
@@ -4578,8 +4592,18 @@ pub const Emitter = struct {
             return self.w.writeAll(".value)");
         }
         try self.w.writeAll("@constCast(");
-        try self.emitAddressOf(unborrowed(obj));
+        try self.emitCellAddress(obj);
         try self.w.writeAll(")");
+    }
+
+    /// The address of the Cell `obj` denotes, which `@constCast` makes
+    /// mutable: an element on its path is reached through `constSlot`,
+    /// since the Vec holding it may be reached through a read view.
+    fn emitCellAddress(self: *Emitter, obj: Sexp) Error!void {
+        const saved = self.read_place;
+        defer self.read_place = saved;
+        self.read_place = true;
+        try self.emitAddressOf(unborrowed(obj));
     }
 
     /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin

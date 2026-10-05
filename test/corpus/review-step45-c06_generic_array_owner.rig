@@ -1,0 +1,7 @@
+# generic fn that builds an array of T and returns it; T = Text
+fun two[T](a: T, b: T) -> [2]T
+  [<a, <b]
+
+sub main
+  x = two(Text("a"), Text("b"))
+  print(x)

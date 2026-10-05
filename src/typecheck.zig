@@ -763,7 +763,21 @@ const Checker = struct {
         const sym = self.ctx.symbols.items[sym_id];
         const is_decl = sym.decl_pos == target.src.pos;
 
-        const writes_through = sema.assignWritesThrough(self.ctx, sym.ty);
+        // Assigning a view to a `!T` local points it at another place;
+        // assigning a value writes the value it views (Core §6). A
+        // parameter never changes: a `!T` one only writes through.
+        const repoints = !is_decl and sema.assignWritesThrough(self.ctx, sym.ty) and kind == .default and try self.handsOverWriteBorrow(rhs);
+        if (repoints and (sym.kind != .local or sym.flags.fixed or sym.flags.pattern_bound or sym.flags.as_bound)) {
+            const src = self.sourceText(rhs);
+            if (sym.kind == .param) {
+                if (sema.writeSliceElem(self.ctx, sym.ty) != null) {
+                    try self.errAt(rhs, "cannot point parameter `{s}` at another place: parameters are immutable, and `{s}[i] = v` writes its elements; bind another name to `{s}`", .{ name, name, src });
+                } else try self.errAt(rhs, "cannot point parameter `{s}` at another place: parameters are immutable, and `{s} = v` writes the value it views; bind another name to `{s}`", .{ name, name, src });
+            } else try self.errAt(rhs, "`{s} = {s}` would point `{s}` at another place, which only a local's own name does; write `new {s} = {s}`", .{ name, src, name, name, src });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        const writes_through = !repoints and sema.assignWritesThrough(self.ctx, sym.ty);
         // A `![]T` binding views elements it does not own; there is no
         // whole value to write through to.
         if (!is_decl and writes_through and sema.writeSliceElem(self.ctx, sym.ty) != null) {
@@ -771,17 +785,13 @@ const Checker = struct {
             _ = try self.synthExpr(rhs);
             return;
         }
-        // `w = !m` writes through `w`, so it would store a borrow where a
-        // value goes; a new binding points the name elsewhere.
-        if (!is_decl and writes_through and kind == .default and try self.handsOverWriteBorrow(rhs)) {
-            const src = self.sourceText(rhs);
-            try self.errAt(rhs, "`{s} = {s}` would write through `{s}`; to point `{s}` at another place, write `new {s} = {s}`", .{ name, src, name, name, name, src });
-            _ = try self.synthExpr(rhs);
-            return;
+        if (repoints) {
+            try self.ctx.recordRepoint(node);
+            self.ctx.symbols.items[sym_id].flags.repointed = true;
         }
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the borrowed value.
-        if (!is_decl and self.ctx.types.get(sym.ty) != .borrow_write) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
+        if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .borrow_write)) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
         // The binding must be one that may change.
         if (!is_decl and !try self.requireAccess(self.placeOf(target), .assign, target)) {
             if (kind.operator() == null) try self.checkExpr(rhs, if (writes_through) sema.unwrapBorrows(self.ctx, sym.ty) else sym.ty) else _ = try self.synthExpr(rhs);
@@ -940,7 +950,7 @@ const Checker = struct {
         // given a `!T`, it is pointed elsewhere. (A `![]T` views elements
         // it does not own, and is never written whole.)
         const through = sema.assignWritesThrough(self.ctx, place_ty) and sema.writeSliceElem(self.ctx, place_ty) == null and
-            (kind.operator() != null or (!rhs.isKind(.write) and self.ctx.types.get(try self.argType(rhs)) != .borrow_write));
+            (kind.operator() != null or !try self.handsOverWriteBorrow(rhs));
         if (!try self.requireAccess(place, if (through) .write_through else .assign, target)) {
             _ = try self.synthExpr(rhs);
             return;
@@ -957,10 +967,10 @@ const Checker = struct {
             }
             return;
         }
-        if (head == .index and (try self.needsCleanup(place_ty, self.startOf(target), "overwrites an element"))) {
-            try self.errAt(target, "cannot replace an element of type `{s}` by assignment; the old handle would leak", .{try self.tyName(place_ty)});
-            return;
-        }
+        // Assigning an element drops the value it held, as assigning a
+        // field does; a generic body's element of a `T` needs each
+        // instance to own nothing.
+        if (head == .index) _ = try self.needsCleanup(place_ty, self.startOf(target), "overwrites an element");
         if (kind.operator() != null) return self.checkCompound(kind, place_ty, rhs, self.startOf(target), "this place has type");
         try self.checkExpr(rhs, place_ty);
     }
@@ -1592,6 +1602,10 @@ const Checker = struct {
         // A part of plain data is read in the header, as any value is.
         if (!viewed and self.held_base != .nil) try self.releaseHeld();
         if (viewed) inner = try self.ctx.intern(.{ .borrow_read = inner });
+        // What the binding views, unless it owns a value made here or
+        // taken with `<`, may be a copy (`rejectHeaderCopy`).
+        const owns = expr.isKind(.move) or (self.hands(expr).kind == .made and !borrowed);
+        if (!owns and !self.isPoison(inner)) try self.rejectHeaderCopy(node, expr, self.ctx.types.get(inner) == .borrow_write, inner);
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
             self.ctx.symbols.items[sym].ty = inner;
@@ -1730,6 +1744,9 @@ const Checker = struct {
             }
             elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, eff);
             if (elem_poisoned) elem_ty = self.t().invalid_id;
+            // What the loop binds views the source, unless it takes it or
+            // walks a slice of it, and may view a copy (`rejectHeaderCopy`).
+            if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, mode == .write, elem_ty);
             // The source is a header: a temporary it reads into ends with
             // it, before the loop walks it.
             if (eff != .move) if (self.tempBase(source)) |temp| {
@@ -1873,8 +1890,8 @@ const Checker = struct {
     /// source must be a place the loop may write.
     fn writeElement(self: *Checker, source: Sexp, inner_source: Sexp, elem: TypeId) Error!TypeId {
         const place = self.placeOf(inner_source);
-        if (!place.fieldPath()) {
-            try self.errAt(source, "`for x in !xs` writes each element in place; `xs` must be a binding or a field of one", .{});
+        if (!place.named()) {
+            try self.errAt(source, "`for x in !xs` writes each element in place; `xs` must be a binding, or a field or element of one", .{});
         } else _ = try self.requireAccess(place, .write_iterate, source);
         return self.ctx.intern(.{ .borrow_write = elem });
     }
@@ -1896,12 +1913,31 @@ const Checker = struct {
         }
     }
 
+    /// Whether a loop over elements that hold a write view, which a
+    /// binding would copy or view again, is rejected (reported): unless
+    /// the loop takes them (`for x in <xs`), it loops over the indices,
+    /// or writes through a view held whole with `for x in !xs`.
+    fn loopHoldsWriteView(self: *Checker, source: Sexp, inner_source: Sexp, elem: TypeId, mode: ?Tag) Error!bool {
+        if (mode == .move) return false;
+        const pos = self.startOf(source);
+        if (self.ctx.types.get(elem) == .borrow_write) {
+            const shown = self.sourceText(inner_source);
+            try self.err(pos, "each element of `{s}` is a write borrow, which a loop binding cannot hold; loop over the indices and write `{s}[i]`", .{ shown, shown });
+            return true;
+        }
+        if (mode != .write and sema.holdsWriteBorrow(self.ctx, elem)) {
+            try self.err(pos, "each element holds a write borrow, which a loop binding would copy; write through them with `for x in !xs`", .{});
+        }
+        return false;
+    }
+
     fn elementTypeForLoop(self: *Checker, source: Sexp, inner_source: Sexp, source_ty: TypeId, mode: ?Tag) Error!TypeId {
         const pos = self.startOf(source);
         if (self.isPoison(source_ty)) return self.t().invalid_id;
         const peeled = sema.unwrapBorrows(self.ctx, source_ty);
         switch (self.ctx.types.get(peeled)) {
             .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
+                if (try self.loopHoldsWriteView(source, inner_source, elem, mode)) return self.t().invalid_id;
                 // Elements that move (handles and boxes) are walked by
                 // view; every other element is plain data.
                 const is_resource = sema.moves(self.ctx, elem) == .yes;
@@ -1910,8 +1946,8 @@ const Checker = struct {
                     if (mode != .read and mode != .write and mode != .move and !(self.hands(inner_source).hasStorage() and vecElementType(self.ctx, source_ty) != null)) {
                         try self.err(pos, "a loop over a Vec of `{s}` made here takes it: write `for x in <{s}`, or bind it to a name first", .{ try self.tyName(elem), self.sourceText(inner_source) });
                     }
-                    if (!self.placeOf(inner_source).fieldPath()) {
-                        try self.err(pos, "resource Vec[T] iteration requires a Vec binding or a field of one as the source; got an expression. Bind the result to a `Vec[T]` local first.", .{});
+                    if (!self.placeOf(inner_source).named()) {
+                        try self.err(pos, "resource Vec[T] iteration requires a Vec binding, or a field or element of one, as the source; got an expression. Bind the result to a `Vec[T]` local first.", .{});
                     }
                 }
                 if (mode == .write) return self.writeElement(source, inner_source, elem);
@@ -1923,20 +1959,16 @@ const Checker = struct {
                     try self.err(pos, "`<{s}` would move the elements out of a Vec that `{s}` only borrows; loop over `?{s}` or `!{s}`, or move the Vec itself", .{ shown, shown, shown, shown });
                     return self.ctx.intern(.{ .borrow_read = elem });
                 }
-                return if (is_resource) try self.ctx.intern(.{ .borrow_read = elem }) else elem;
+                if (is_resource) return self.ctx.intern(.{ .borrow_read = elem });
+                // Inside a generic body an element whose type depends on
+                // the instance is bound as a copy, which is only read: a
+                // Cell in it would change in the copy alone.
+                if (sema.copyable(self.ctx, elem) == .depends) try self.requireOf(elem, .no_cell, pos, "copies into a loop binding a value");
+                return elem;
             },
             .array => |a| {
-                // A binding of an element that is itself a write borrow
-                // would be a borrow of the borrow, or a copy of it.
-                if (mode != .move and self.ctx.types.get(a.elem) == .borrow_write) {
-                    const shown = self.sourceText(inner_source);
-                    try self.err(pos, "each element of `{s}` is a write borrow, which a loop binding cannot hold; loop over the indices and write `{s}[i]`", .{ shown, shown });
-                    return self.t().invalid_id;
-                }
+                if (try self.loopHoldsWriteView(source, inner_source, a.elem, mode)) return self.t().invalid_id;
                 if (mode == .write) return self.writeElement(source, inner_source, a.elem);
-                if (mode != .move and sema.holdsWriteBorrow(self.ctx, a.elem)) {
-                    try self.err(pos, "each element holds a write borrow, which a loop binding would copy; write through them with `for x in !xs`", .{});
-                }
                 if (mode != .move) return self.readElement(pos, a.elem);
                 return a.elem;
             },
@@ -2020,6 +2052,12 @@ const Checker = struct {
             const reached = sema.unwrapAccess(self.ctx, scrutinee);
             if (self.ctx.types.get(sema.unwrapBorrows(self.ctx, scrutinee)) == .shared) scrutinee = try self.ctx.intern(.{ .borrow_read = reached });
         }
+        // What the arms bind views the subject, unless the match takes it,
+        // and may view a copy (`rejectHeaderCopy`).
+        // (A view a call returns, held as a pointer, is matched where it
+        // points, temporaries or not.)
+        const held_view = !subject_hands.hasStorage() and sema.viewHeldAsPointer(self.ctx, self.ctx.typeOf(subject) orelse scrutinee);
+        if (mode != .consume and !held_view and !self.isPoison(scrutinee)) try self.rejectHeaderCopy(node, subject, mode == .write, sema.unwrapAccess(self.ctx, scrutinee));
         try self.recordUse(subject, switch (mode) {
             .read => .read,
             .consume => .take,
@@ -2258,6 +2296,29 @@ const Checker = struct {
         if (!sameNode(node, base) and (self.ctx.dropsTemp(node) or self.ctx.lendsCellTemp(node))) return true;
         for (node.items()) |item| if (self.makesTemps(item, base)) return true;
         return false;
+    }
+
+    /// Whether header `node` (a `match`, a `for`, or an `as`) over
+    /// `subject` is emitted over a copy of it: the subject makes a
+    /// statement temporary (`sema.firstStmtTemp`), so emit evaluates it
+    /// in a block that ends the temporary and yields the subject's
+    /// value, and what the construct binds views that copy. Recorded
+    /// (`copiesHeader`) for emit. A copy under a write binding, or a
+    /// read binding of a value that is not plain data, would take the
+    /// writes, the Cell changes, or the views meant for the subject: it
+    /// is rejected at the temporary, until headers are lowered before
+    /// checking. A copy of plain data that is only read is the subject's
+    /// value.
+    fn rejectHeaderCopy(self: *Checker, node: Sexp, subject: Sexp, writes: bool, bound: TypeId) Error!void {
+        const temp = sema.firstStmtTemp(self.ctx, subject) orelse return;
+        try self.ctx.recordHeaderCopy(node);
+        if (self.isPoison(bound)) return;
+        if (!writes and sema.isPlainData(self.ctx, sema.unwrapBorrows(self.ctx, bound))) return;
+        if (inIndex(subject, temp)) {
+            try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first", .{});
+        } else if (inArgument(subject, temp)) {
+            try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the argument to a name first", .{});
+        } else try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind `{s}` to a name first", .{self.sourceText(temp)});
     }
 
     fn tempBase(self: *Checker, e: Sexp) ?Sexp {
@@ -3847,12 +3908,17 @@ const Checker = struct {
         // A clone reads the value a borrow reaches.
         const value = try self.readThrough(operand, inner, sema.unwrapBorrows(self.ctx, inner));
         switch (sema.cloneable(self.ctx, inner)) {
-            .copy, .bump, .text => {},
+            .copy, .bump, .text, .deep => {},
             .depends => try self.requireOf(value, .no_move, self.startOf(operand), "clones a value"),
             .no => {
-                if (sema.typeHasDropGlue(self.ctx, value)) {
-                    try self.errAt(operand, "`+x` cannot clone a `{s}`; only `*T` and `~T` handles (or optionals of them) and plain values can be cloned", .{try self.tyName(value)});
-                } else try self.errAt(operand, "`+x` cannot clone a `{s}`: it is unique, and a copy would duplicate it; move it with `<x`", .{try self.tyName(value)});
+                const shown = try self.tyName(value);
+                if (!sema.typeHasDropGlue(self.ctx, value)) {
+                    try self.errAt(operand, "`+x` cannot clone a `{s}`: it is unique, and a copy would duplicate it; move it with `<x`", .{shown});
+                } else if (sema.isUnique(self.ctx, value)) {
+                    try self.errAt(operand, "`+x` cannot clone a `{s}`: it holds a unique value, which a copy would duplicate; move it with `<x`, or lend it", .{shown});
+                } else if (sema.containsTypeVar(self.ctx, value)) {
+                    try self.errAt(operand, "`+x` cannot clone a `{s}`: a type parameter has no deep clone in a generic body; move it with `<x`, or lend it", .{shown});
+                } else try self.errAt(operand, "`+x` cannot clone a `{s}`: a value with a `drop` body, or holding a Signal, a write view, or a type from another module, has no clone; move it with `<x`, or lend it", .{shown});
                 return self.t().invalid_id;
             },
         }
@@ -4744,11 +4810,9 @@ const Checker = struct {
                 _ = try self.readThrough(object, obj_ty, sema.unwrapBorrows(self.ctx, obj_ty));
                 return self.byteType();
             },
+            // A Vec's element is a place, as a field is: what its context
+            // does with it is checked where it is used.
             .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
-                if ((try self.cannotCopy(elem, self.startOf(object), "copies an element out of a Vec"))) {
-                    try self.errAt(object, "indexing a `{s}` would copy an owning element out of the Vec; iterate with `for x in v` instead", .{try self.tyName(peeled)});
-                    return self.t().invalid_id;
-                }
                 return elem;
             } else if (cellVecElement(self.ctx, peeled)) |elem| {
                 if ((try self.cannotCopy(elem, self.startOf(object), "reads an element of a Cell's Vec"))) {
@@ -4767,18 +4831,13 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
-    /// The element of Vec `peeled` (the type of `object`), sliced: plain
-    /// data only, since a slice would copy owning handles out. Null
+    /// The element of Vec `peeled` (the type of `object`), sliced. Null
     /// after a diagnostic.
     fn vecSliceElem(self: *Checker, object: Sexp, obj_ty: TypeId, peeled: TypeId) Error!?TypeId {
         const elem = vecElementType(self.ctx, peeled) orelse {
             try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a Vec, or a `[]T`", .{try self.tyName(obj_ty)});
             return null;
         };
-        if (try self.needsCleanup(elem, self.startOf(object), "slices a Vec")) {
-            try self.errAt(object, "cannot slice a `{s}`: a slice would copy owning handles out of the Vec; iterate with `for x in v` or `for x in !v` instead", .{try self.tyName(peeled)});
-            return null;
-        }
         return elem;
     }
 
@@ -4890,10 +4949,9 @@ const Checker = struct {
         if (concrete != elem) {
             for (elems) |e| try self.checkExpr(e, concrete);
         } else for (elems, elem_tys) |e, ty| try self.adaptLiteral(e, ty, concrete);
-        if ((try self.needsCleanup(concrete, self.startOf(node), "puts in an array a value"))) {
-            try self.errAt(node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try self.tyName(concrete)});
-            return self.t().invalid_id;
-        }
+        // An array holds owners as a Vec does; a generic body's array
+        // of a `T` needs each instance to own nothing.
+        _ = try self.needsCleanup(concrete, self.startOf(node), "puts in an array a value");
         const ty = try self.ctx.intern(.{ .array = .{ .elem = concrete, .len = try sema.ctInt(self.ctx, elems.len) } });
         if (self.under_poison) return ty;
         return if (try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) ty else self.t().invalid_id;
@@ -6744,7 +6802,7 @@ const Checker = struct {
         if (resolved.nominal_sym == self.ctx.vec_sym_id and std.mem.eql(u8, method, "get")) {
             if (resolved.fn_ty.returns != self.t().invalid_id) {
                 const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
-                if ((try self.cannotCopy(elem, pos, "copies an element out of a Vec"))) return self.badCall(args, pos, "`Vec.{s}` would copy an owning element out of a `Vec` of `{s}`; iterate with `for x in v` instead", .{ method, try self.tyName(elem) });
+                if (sema.holdsWriteBorrow(self.ctx, elem) or try self.cannotCopy(elem, pos, "copies an element out of a Vec")) return self.badCall(args, pos, "`Vec.{s}` would copy an element out of a `Vec` of `{s}`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`", .{ method, try self.tyName(elem) });
             }
         }
 
@@ -8670,6 +8728,30 @@ fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
 }
 
 /// The element type of a Cell holding a Vec (`Cell[Vec[E]]`, `?Cell[Vec[E]]`, `*Cell[Vec[E]]`, ...).
+/// Whether `node` lies in the index of an element read in `tree`.
+fn inIndex(tree: Sexp, node: Sexp) bool {
+    if (tree != .list) return false;
+    if (tree.isKind(.index) and contains(ir.Index.index(tree), node)) return true;
+    for (tree.items()) |item| if (inIndex(item, node)) return true;
+    return false;
+}
+
+/// Whether `node` lies in an argument of a call in `tree`.
+fn inArgument(tree: Sexp, node: Sexp) bool {
+    if (tree != .list) return false;
+    if (tree.isKind(.call)) for (ir.Call.args(tree)) |a| if (contains(a, node)) return true;
+    for (tree.items()) |item| if (inArgument(item, node)) return true;
+    return false;
+}
+
+/// Whether `node` is `tree` or inside it.
+fn contains(tree: Sexp, node: Sexp) bool {
+    if (sameNode(tree, node)) return true;
+    if (tree != .list) return false;
+    for (tree.items()) |item| if (contains(item, node)) return true;
+    return false;
+}
+
 fn cellVecElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return vecElementType(ctx, cellElementType(ctx, ty) orelse return null);
 }

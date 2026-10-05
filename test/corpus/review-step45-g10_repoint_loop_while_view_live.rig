@@ -1,0 +1,12 @@
+# within a loop, re-point; the loan from the previous iteration must end
+sub main
+  a = Text("a")
+  b = Text("b")
+  w = !a
+  for i in 0..4
+    if i % 2 == 0
+      w = !b
+    else
+      w = !a
+    !w.add("x")
+  print(a, b)

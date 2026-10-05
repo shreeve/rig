@@ -1,0 +1,8 @@
+sub main
+  a = 1
+  b = 2
+  v: [2]!Int = [!a, !b]
+  v[0] = 10
+  v[1] += 5
+  -v
+  print(a, b)

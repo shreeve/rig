@@ -1,0 +1,20 @@
+# match !v[idx(?Text("a"))] WITHOUT a guard: a write payload grows the Text in the arm
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("hi")))
+  match !v[idx(?Text("a"))]
+    .a(t)
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .b(n)
+      print(n)
+  match v[0]
+    .a(t) => print(t.len)
+    .b(n) => print(n)

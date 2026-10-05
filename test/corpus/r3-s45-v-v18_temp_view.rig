@@ -1,0 +1,7 @@
+fun mk -> Int
+  3
+
+sub main
+  v: Vec[?Int] = Vec()
+  !v.push(?mk())
+  print(v)

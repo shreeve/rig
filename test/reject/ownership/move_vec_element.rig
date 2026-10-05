@@ -12,4 +12,4 @@ sub main()
   !v.push(*P(n: 7))
   eat(<v[0])
 
-# error: 13:8: indexing a `Vec[*P]` would copy an owning element out of the Vec
+# error: 13:8: cannot move out of `v[...]`: elements cannot be moved out of their container

@@ -1,0 +1,32 @@
+# A value with a `drop` body has no clone, nor one holding one, nor a
+# unique value, nor one holding a write view (Core sentence 2).
+
+struct File
+  name: Text
+
+  drop(!self)
+    print("closing", self.name)
+
+struct Holder
+  f: File
+
+struct C
+  n: Cell[Int]
+  t: Text
+
+sub main
+  a = File(name: Text("a"))
+  b = +a
+  hs: Vec[Holder] = Vec()
+  c = +hs
+  d = C(n: Cell(1), t: Text("x"))
+  e = +d
+  m = 1
+  v: Vec[!Int] = Vec()
+  !v.push(!m)
+  w = +v
+
+# error: 19:8: `+x` cannot clone a `File`: a value with a `drop` body
+# error: 21:8: `+x` cannot clone a `Vec[Holder]`
+# error: 23:8: `+x` cannot clone a `C`
+# error: 27:8: `+x` cannot clone a `Vec[!Int]`

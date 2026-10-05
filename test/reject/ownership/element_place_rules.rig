@@ -1,0 +1,24 @@
+# An element that owns a resource is read where it is, and stays there:
+# it is not copied out, moved out, or changed while it is lent.
+
+sub take(t: Text)
+  print(t)
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  x = v[0]
+  take(v[0])
+  r = ?v[0]
+  !v.push(Text("b"))
+  print(r)
+  t = <v[0]
+  s = ?v[0]
+  v[0] = Text("c")
+  print(s)
+
+# error: 10:7: bare use of `Text` value `v[...]` in binding would copy the buffer pointer; an element cannot be moved out of its container
+# error: 11:8: bare use of `Text` value `v[...]` in call argument
+# error: 13:3: cannot write-borrow `v` while a read borrow is live
+# error: 15:8: cannot move out of `v[...]`: elements cannot be moved out of their container
+# error: 17:3: cannot assign to `v[...]` while `v` is borrowed

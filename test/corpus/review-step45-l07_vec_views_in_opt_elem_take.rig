@@ -1,0 +1,10 @@
+# take a Vec of views out of an optional element, then drop the source
+sub main
+  t = Text("x")
+  inner: Vec[String] = Vec()
+  !inner.push(?t)
+  outer: Vec[Vec[String]?] = Vec()
+  !outer.push(<inner)
+  if <outer[0] as got
+    -t
+    print(got)

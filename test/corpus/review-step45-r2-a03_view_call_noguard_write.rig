@@ -1,0 +1,22 @@
+# match !getw(!v)[0] guarded, NO temporary: subject has no storage -> evalSubject copy?
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun getw(v: !Vec[E]) -> !Vec[E]
+  v
+
+sub main
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("hi")))
+  match !getw(!v)[0]
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match v[0]
+    .a(t) => print(t.len)
+    .b(n) => print(n)

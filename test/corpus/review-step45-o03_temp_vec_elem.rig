@@ -1,0 +1,16 @@
+# index the Vec a call returns: print, bind, lend, take
+fun mk -> Vec[Text]
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  <v
+
+fun mko -> Vec[Text?]
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  <v
+
+sub main
+  print(mk()[1], mk()[0].len)
+  t = <mko()[0]
+  print(t)

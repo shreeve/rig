@@ -1,0 +1,9 @@
+# s = w[0] copies a String view out of a Vec[String]; drop w then t
+sub main
+  t = Text("x")
+  w: Vec[String] = Vec()
+  !w.push(?t)
+  s = w[0]
+  -w
+  -t
+  print(s)

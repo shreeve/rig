@@ -1,0 +1,56 @@
+# A `!T` or `![]T` local is pointed at another place by any view: a
+# lend, a moved view, a branch of moved views, or a call returning one.
+
+fun slot(a: !Int) -> !Int
+  a
+
+sub moved
+  m = 1
+  n = 2
+  w = !m
+  w2 = !n
+  w = <w2
+  w = 5
+  print(m, n)
+
+sub branches(c: Bool)
+  m = 1
+  n = 2
+  k = 3
+  w = !m
+  w2 = !n
+  w3 = !k
+  w = <w2 if c else <w3
+  w = 9
+  print(m, n, k)
+
+sub called
+  m = 1
+  n = 2
+  w = !m
+  w = slot(!n)
+  w = 4
+  print(m, n)
+
+sub slice
+  a = [1, 2]
+  b = [3, 4]
+  s = !a
+  s2 = !b
+  s = <s2
+  s[1] = 0
+  print(a, b)
+
+sub main
+  moved()
+  branches(true)
+  branches(false)
+  called()
+  slice()
+
+# expect:
+# 1 5
+# 1 9 3
+# 1 2 9
+# 1 4
+# [1, 2] [3, 0]

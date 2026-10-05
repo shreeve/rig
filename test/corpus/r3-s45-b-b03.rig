@@ -1,0 +1,17 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  i = 0
+  x = while i < 3
+    r = R(n: i)
+    defer print("defer", r.n)
+    i += 1
+    if i == 2
+      break r
+  else
+    R(n: 99)
+  print(x.n)

@@ -1,0 +1,27 @@
+struct Rec
+  name: Text
+  n: Int
+
+sub main
+  v: Vec[Text] = Vec()
+  t = Text("a")
+  !v.push(<t)
+  !v.push(Text("b"))
+  print(v.len, v)
+  rows: Vec[Vec[Int]] = Vec()
+  r: Vec[Int] = Vec()
+  !r.push(5)
+  !rows.push(<r)
+  print(rows.len)
+  rs: Vec[Rec] = Vec()
+  !rs.push(Rec(name: Text("x"), n: 1))
+  print(rs.len)
+  bs = [Box(1), Box(2)]
+  print(bs)
+  for x in v
+    print(x)
+  for b in bs
+    print(b)
+  if (!v).pop() as last
+    print(last)
+  print(v)

@@ -413,7 +413,10 @@ pub const SymbolFlags = packed struct(u16) {
     /// not plain data: usable within its arm only (docs/INTERNALS.md,
     /// "Header subjects").
     arm_view: bool = false,
-    _: u5 = 0,
+    /// A `!T` or `![]T` local assigned a view somewhere
+    /// (`SemContext.repoints`): it lowers to a Zig `var` pointer.
+    repointed: bool = false,
+    _: u4 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -653,6 +656,13 @@ pub const Facts = struct {
     /// Field and element assignment targets that write through the `!T`
     /// the place holds (`SemContext.recordThroughWrite`).
     through_writes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Header nodes (`match`, `for`, `as`) emitted over a copy of their
+    /// subject: the subject makes a statement temporary and the
+    /// construct does not own what it binds (`SemContext.recordHeaderCopy`).
+    header_copies: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Assignments of a view to a `!T` or `![]T` local, which point it
+    /// at another place (`SemContext.recordRepoint`).
+    repoints: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Fields and elements of a temporary, holding a Cell, that a read
     /// borrow lends (`SemContext.recordCellTemp`).
     cell_temps: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -1509,6 +1519,29 @@ pub const SemContext = struct {
         return self.facts.through_writes.contains(nodeKey(node) orelse return false);
     }
 
+    /// Header `node` (a `match`, `for`, or `as`) is evaluated in a block
+    /// that ends the temporaries its subject makes (`firstHeaderTemp`)
+    /// and yields the subject's value, so what it binds views a copy of
+    /// that value, not the subject itself.
+    pub fn recordHeaderCopy(self: *SemContext, node: Sexp) !void {
+        try self.facts.header_copies.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn copiesHeader(self: *const SemContext, node: Sexp) bool {
+        return self.facts.header_copies.contains(nodeKey(node) orelse return false);
+    }
+
+    /// `node`, an assignment of a `!T` or `![]T` local, gives it a view
+    /// (`w = !n`, `w = <w2`): the local points at another place, rather
+    /// than writing the value it views.
+    pub fn recordRepoint(self: *SemContext, node: Sexp) !void {
+        try self.facts.repoints.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn repoints(self: *const SemContext, node: Sexp) bool {
+        return self.facts.repoints.contains(nodeKey(node) orelse return false);
+    }
+
     /// `node`, a field or element of a temporary (`mk().p`), holds a Cell
     /// that the read borrow lending it (`?mk().p`, or a `?self` receiver)
     /// may change: the temporary is constant, so the part is copied into
@@ -1563,10 +1596,14 @@ pub const SemContext = struct {
     }
 
     /// The context of `node` reads, takes, or lends it (`Facts.uses`).
-    /// A value has one use: a second record of it must agree.
+    /// A value has one use: a second record of it must agree. A value
+    /// lent implicitly where a view goes was first recorded as taken
+    /// (`recordImplicitLend`); checking its context again records the
+    /// take before the lend, and keeps the lend.
     pub fn recordUse(self: *SemContext, node: Sexp, use: Use) !void {
         const key = recordExprKey(node) orelse return;
         const gop = try self.facts.uses.getOrPut(self.allocator, key);
+        if (gop.found_existing and gop.value_ptr.* == .lend and use == .take) return;
         if (gop.found_existing) std.debug.assert(gop.value_ptr.* == use);
         gop.value_ptr.* = use;
     }
@@ -3482,6 +3519,39 @@ pub fn isHeaderOf(parent: Sexp, child: Sexp) bool {
     return header == .list and child == .list and header.list.id == child.list.id;
 }
 
+/// The first statement temporary (`dropsTemp`) that `stmt`, a statement
+/// or a header, makes itself: not one inside a block or closure it
+/// holds, a header of its own (an `if`'s condition, a `match`'s
+/// subject), or a `while` loop's step, each of which ends its own.
+pub fn firstStmtTemp(ctx: *const SemContext, stmt: Sexp) ?Sexp {
+    if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return null;
+    if (ctx.dropsTemp(stmt)) return stmt;
+    for (rig.children(stmt)) |c| {
+        if (isHeaderOf(stmt, c) or isWhileStep(stmt, c)) continue;
+        if (firstStmtTemp(ctx, c)) |t| return t;
+    }
+    return null;
+}
+
+/// Whether a view of type `ty` is held as a pointer: a write view (but
+/// a `![]T`, a slice), or a read view of a value that is not lent by
+/// value (`lendByValue`).
+pub fn viewHeldAsPointer(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .borrow_write => writeSliceElem(ctx, ty) == null,
+        .borrow_read => |inner| !lendByValue(ctx, inner),
+        else => false,
+    };
+}
+
+/// Whether `child` is the step of `while` loop `parent`: a statement
+/// of its own, run after each pass.
+pub fn isWhileStep(parent: Sexp, child: Sexp) bool {
+    if (!parent.isKind(.@"while")) return false;
+    const step = ir.While.step(parent);
+    return step == .list and child == .list and step.list.id == child.list.id;
+}
+
 /// Whether a value of `ty` holds a String but no borrow or type
 /// parameter: it may view a Text, and nothing else.
 pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
@@ -3577,6 +3647,10 @@ pub const Clone = enum {
     /// Copies the value, where each instance of the type parameters it
     /// holds is copied.
     depends,
+    /// Makes a new owner part by part (`deepCloneable`): a Text's bytes
+    /// and a Vec's elements copied, a box's value boxed again, a handle
+    /// counted again, plain data and read views copied.
+    deep,
     /// Cannot clone it.
     no,
 };
@@ -3599,9 +3673,68 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
     }
     return switch (moves(ctx, value)) {
         .no => .copy,
-        .yes => .no,
+        .yes => if (deepCloneable(ctx, value, null, &.{})) .deep else .no,
         .depends => .depends,
     };
+}
+
+/// The type arguments a generic type's field types are read with, and
+/// the frame those arguments are read in.
+const CloneFrame = struct { params: []const SymbolId, args: []const TypeId, parent: ?*const CloneFrame };
+
+/// Whether `+x` can make a new owner of a `ty` part by part (Core
+/// sentence 2): a Text, a Vec, a box, an optional, an array, or a
+/// struct or enum declared in this module, of parts that clone; a
+/// handle, counted again; plain data and read views, copied. A type with
+/// a `drop` body has no clone, and neither has a unique type, a Cell, a
+/// Signal, a write view, or a type parameter. `seen` holds the declared
+/// types being checked: one reached again (a box of a recursive type)
+/// clones if the rest of it does.
+fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, seen: []const SymbolId) bool {
+    if (seen.len > 32) return false;
+    switch (ctx.types.get(ty)) {
+        .type_var => |sym| {
+            const f = frame orelse return false;
+            const i = std.mem.findScalar(SymbolId, f.params, sym) orelse return false;
+            return deepCloneable(ctx, f.args[i], f.parent, seen);
+        },
+        else => {},
+    }
+    const info = ctx.holds(ty);
+    if (info.unique or info.cell or info.borrows.write or info.poison) return false;
+    if (!info.glue and !info.holds_type_var) return true;
+    return switch (ctx.types.get(ty)) {
+        .text, .shared, .weak => true,
+        .optional => |inner| deepCloneable(ctx, inner, frame, seen),
+        .array => |a| deepCloneable(ctx, a.elem, frame, seen),
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.box_sym_id) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            const sym = ctx.symbols.items[pn.sym];
+            if (sym.kind != .generic_type or isProxy(sym)) break :blk false;
+            const inner: CloneFrame = .{ .params = sym.type_params orelse &.{}, .args = pn.args, .parent = frame };
+            break :blk fieldsCloneable(ctx, pn.sym, &inner, seen);
+        },
+        .nominal => |sym| fieldsCloneable(ctx, sym, null, seen),
+        else => false,
+    };
+}
+
+/// Whether every part of declared type `sym` clones (`deepCloneable`),
+/// and it has no `drop` body.
+fn fieldsCloneable(ctx: *const SemContext, sym: SymbolId, frame: ?*const CloneFrame, seen: []const SymbolId) bool {
+    if (std.mem.findScalar(SymbolId, seen, sym) != null) return true;
+    const s = ctx.symbols.items[sym];
+    if (isProxy(s)) return false;
+    var buf: [33]SymbolId = undefined;
+    @memcpy(buf[0..seen.len], seen);
+    buf[seen.len] = sym;
+    const inner = buf[0 .. seen.len + 1];
+    for (s.fields orelse &.{}) |*f| {
+        if (f.is_drop_method) return false;
+        for (dataFields(f)) |d| if (!deepCloneable(ctx, d.ty, frame, inner)) return false;
+    }
+    return true;
 }
 
 /// Whether a value of `ty` read through a view reads as the value
@@ -5629,7 +5762,7 @@ test "type facts: moves, copyable, cloneable" {
         .{ .ty = write_p, .moves = .no, .copyable = .no, .clone = .copy },
         .{ .ty = v, .moves = .no, .copyable = .yes, .clone = .copy },
         .{ .ty = w, .moves = .no, .copyable = .no, .clone = .copy },
-        .{ .ty = vec_int, .moves = .yes, .copyable = .no, .clone = .no },
+        .{ .ty = vec_int, .moves = .yes, .copyable = .no, .clone = .deep },
         .{ .ty = ty.text_id, .moves = .yes, .copyable = .no, .clone = .text },
         .{ .ty = shared_p, .moves = .yes, .copyable = .no, .clone = .bump },
         .{ .ty = weak_p, .moves = .yes, .copyable = .no, .clone = .bump },
@@ -5649,7 +5782,7 @@ test "type facts: moves, copyable, cloneable" {
     }
     // A clone reads what a view reaches.
     try std.testing.expectEqual(Clone.bump, cloneable(ctx, try ctx.intern(.{ .borrow_read = shared_p })));
-    try std.testing.expectEqual(Clone.no, cloneable(ctx, try ctx.intern(.{ .borrow_read = vec_int })));
+    try std.testing.expectEqual(Clone.deep, cloneable(ctx, try ctx.intern(.{ .borrow_read = vec_int })));
     // A view of a scalar or a plain enum reads as the value.
     try std.testing.expect(readsAsValue(ctx, ty.int_id));
     try std.testing.expect(!readsAsValue(ctx, p));

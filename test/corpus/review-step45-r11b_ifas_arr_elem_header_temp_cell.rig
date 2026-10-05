@@ -1,0 +1,13 @@
+# base-comparable r11: if arr[idx(?Text("a"))] as c over [1]C? (Cell holder)
+struct C
+  c: Cell[Int]
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  arr: [1]C? = [C(c: Cell(1))]
+  if arr[idx(?Text("a"))] as c
+    c.c.set(5)
+  if arr[0] as c
+    print(c.c.get())

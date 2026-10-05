@@ -1,2 +1,6 @@
 fun f(xs: [2]~(Int)) -> Int
   3
+
+sub main
+  a = *1
+  print(f([~a, ~a]))

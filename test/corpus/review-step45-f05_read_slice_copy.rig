@@ -1,0 +1,8 @@
+# copying an owner out of a read slice must be rejected
+fun first(s: []Text) -> Text
+  s[0]
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  print(first(?v))

@@ -1,0 +1,21 @@
+# H3: generic loop over ?Vec[T], body: capture +x in a closure
+struct S
+  t: Text
+
+struct Holder[T]
+  x: T?
+
+
+
+fun cap[T](v: ?Vec[T]) -> Int
+  n = 0
+  for x in v
+    f = |+x| 1
+    n += f()
+  n
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  print(cap(?v))

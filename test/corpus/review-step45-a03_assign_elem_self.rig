@@ -1,0 +1,6 @@
+# v[0] = <v[0]? and v[0] = v[0]
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  v[0] = <v[0]
+  print(v)

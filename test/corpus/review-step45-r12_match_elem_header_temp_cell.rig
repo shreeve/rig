@@ -1,0 +1,21 @@
+# match v[idx(?Text("a"))] with a guard over Vec[E] holding a Cell holder
+struct C
+  c: Cell[Int]
+
+enum E
+  a(x: C)
+  b(n: Int)
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[E] = Vec()
+  !v.push(E.a(x: C(c: Cell(1))))
+  match v[idx(?Text("a"))]
+    .a(x) if x.c.get() == 1 => x.c.set(5)
+    .a(x) => x.c.set(6)
+    .b(n) => print(n)
+  match v[0]
+    .a(x) => print(x.c.get())
+    .b(n) => print(n)

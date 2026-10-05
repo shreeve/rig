@@ -1,0 +1,9 @@
+struct R
+  name: Text
+
+sub main
+  v: Vec[R] = Vec()
+  !v.push(R(name: Text("a")))
+  s = ?v[0].name
+  !v.push(R(name: Text("b")))
+  print(s)

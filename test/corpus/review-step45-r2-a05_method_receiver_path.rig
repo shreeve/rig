@@ -1,0 +1,25 @@
+# match on a field of a view returned by a method whose argument is a temp
+enum E
+  a(t: Text)
+  b(n: Int)
+
+struct S
+  es: Vec[E]
+
+  fun at(!self, s: String) -> !E
+    !self.es[s.len - 1]
+
+sub main
+  s = S(es: Vec())
+  !s.es.push(E.a(t: Text("hi")))
+  match !(!s).at(?Text("a"))
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match s.es[0]
+    .a(t) => print(t.len)
+    .b(n) => print(n)

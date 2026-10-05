@@ -1,0 +1,8 @@
+fun idx(s: ?Text) -> Int
+  0
+
+sub main()
+  a = [[1, 2], [3, 4]]
+  for x in !a[idx(?Text("k"))]
+    x = 9
+  print(a[0][0], a[0][1])

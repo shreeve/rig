@@ -1,0 +1,10 @@
+# re-point an element of a Vec[!Text], then use the old target
+sub main
+  a = Text("a")
+  b = Text("b")
+  ws: Vec[!Text] = Vec()
+  !ws.push(!a)
+  ws[0] = !b
+  a = Text("A")
+  !ws[0].add("!")
+  print(a, b)

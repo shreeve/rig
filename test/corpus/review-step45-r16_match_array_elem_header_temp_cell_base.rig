@@ -1,0 +1,20 @@
+# guarded match on an array element (Cell holder) with a header temporary (base comparison)
+struct C
+  c: Cell[Int]
+
+enum E
+  a(x: C)
+  b(n: Int)
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  arr = [E.a(x: C(c: Cell(1)))]
+  match arr[idx(?Text("a"))]
+    .a(x) if x.c.get() == 1 => x.c.set(5)
+    .a(x) => x.c.set(6)
+    .b(n) => print(n)
+  match arr[0]
+    .a(x) => print(x.c.get())
+    .b(n) => print(n)

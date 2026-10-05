@@ -1,0 +1,24 @@
+# H3: generic loop over ?Vec[T], body: if <x as y : take out of the T? loop binding
+struct S
+  t: Text
+
+struct Holder[T]
+  x: T?
+
+
+
+fun grab[T](v: ?Vec[T?]) -> T?
+  for x in v
+    if <x as y
+      return <y
+  none
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  o: Vec[Text?] = Vec()
+  !o.push(Text("q"))
+  r = grab(?o)
+  -o
+  print(r)

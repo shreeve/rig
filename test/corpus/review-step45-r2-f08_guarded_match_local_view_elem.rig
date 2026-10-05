@@ -1,0 +1,13 @@
+# guarded match on an element of a local read view of a Vec
+enum E
+  a(n: Int)
+  b(n: Int)
+
+sub main
+  e: Vec[E] = Vec()
+  !e.push(E.a(n: 5))
+  r = ?e
+  match r[0]
+    .a(n) if n > 1 => print(n)
+    .a(_) => print(1)
+    .b(n) => print(n)

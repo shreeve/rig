@@ -1,0 +1,10 @@
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  !v.push(none)
+  if v[0] as t
+    print(t)
+  if v[1] as t
+    print(t)
+  else
+    print("none")

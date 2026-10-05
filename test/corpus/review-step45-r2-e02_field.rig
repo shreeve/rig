@@ -1,0 +1,20 @@
+# H3: generic loop over ?Vec[T], body: store into a struct field
+struct S
+  t: Text
+
+struct Holder[T]
+  x: T?
+
+
+
+fun hold[T](v: ?Vec[T]) -> Holder[T]
+  h = Holder[T](x: none)
+  for x in v
+    h.x = x
+  <h
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  print(hold(?v).x)

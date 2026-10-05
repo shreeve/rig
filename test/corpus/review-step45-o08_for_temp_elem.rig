@@ -1,0 +1,11 @@
+# for over an element of a temporary: for t in mk()[0]
+fun mk -> Vec[Vec[Text]]
+  m: Vec[Vec[Text]] = Vec()
+  r: Vec[Text] = Vec()
+  !r.push(Text("a"))
+  !m.push(<r)
+  <m
+
+sub main
+  for t in mk()[0]
+    print(t)

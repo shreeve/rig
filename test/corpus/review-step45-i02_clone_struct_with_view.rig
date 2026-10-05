@@ -1,0 +1,11 @@
+# +s where s owns a Text and holds a read view of another Text
+struct S
+  own: Text
+  see: String
+
+sub main
+  t = Text("viewed")
+  s = S(own: Text("own"), see: ?t)
+  c = +s
+  -s
+  print(c.own, c.see)

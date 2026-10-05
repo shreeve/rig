@@ -1,0 +1,27 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+fun getb(b: ?Box[E], n: Int) -> ?Box[E]
+  b
+
+fun get(e: ?E, n: Int) -> ?E
+  e
+
+sub main
+  e = E.a(c: Counter(hits: Cell(1)))
+  match get(e, Text("xy").len)
+    .a(c) => c.hit()
+    .b => pass
+  print(e)
+  b = Box(E.a(c: Counter(hits: Cell(1))))
+  match getb(b, Text("xyz").len)
+    .a(c) => c.hit()
+    _ => pass
+  print(b)

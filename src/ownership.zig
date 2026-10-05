@@ -251,9 +251,6 @@ const Exit = union(enum) {
     @"return": bool,
     /// `e!` (which fails) or `e?`: the path that leaves the function.
     propagate: bool,
-    /// A function result that may be an error, the innermost scope's
-    /// tail: the path where it is one runs the scope's `errdefer`s.
-    failing_result,
 
     /// Whether the path being checked goes on past the exit. Where it
     /// ends, the defers run on it and what they do stays, so a borrow
@@ -263,7 +260,7 @@ const Exit = union(enum) {
     fn goesOn(e: Exit) bool {
         return switch (e) {
             .scope_end, .jump, .@"return" => false,
-            .propagate, .failing_result => true,
+            .propagate => true,
         };
     }
 };
@@ -429,10 +426,6 @@ pub const Checker = struct {
     /// The value a header holds for its construct (`Header.held`): the
     /// node that makes it, read as the hidden var `id` holding it.
     held: ?Held = null,
-    /// A branch block whose tail is the function's result, set just
-    /// before walking it: an error there fails the function, running
-    /// the block's `errdefer`s.
-    ret_block: parser.NodeId = 0,
     /// A source position at or before the statement being walked, for
     /// statements without one of their own (`break`, `continue`).
     anchor: u32 = 0,
@@ -1077,7 +1070,6 @@ pub const Checker = struct {
             const top = self.scopes.items.len - 1;
             switch (e) {
                 .scope_end => try self.runDefers(top, false),
-                .failing_result => try self.runDefers(top, true),
                 .jump => |depth| try self.runDefersTo(depth, false),
                 .@"return", .propagate => |fails| try self.runDefersTo(0, fails),
             }
@@ -1427,8 +1419,6 @@ pub const Checker = struct {
                 self.cur_stmt = stmt;
                 defer self.cur_stmt = saved_stmt;
                 try self.walkReturnValue(stmt);
-                // An error returned here runs the body's `errdefer`s.
-                if (self.reachable and self.mayFail(stmt)) _ = try self.exitTo(.{ .exit = .failing_result });
             } else {
                 try self.walkStmt(stmt);
             }
@@ -1564,8 +1554,6 @@ pub const Checker = struct {
     fn walkBlock(self: *Checker, block: Sexp) Error!Value {
         const stmts = ir.Block.stmts(block);
         const t = self.takeTail(block);
-        const returns = self.ret_block != 0 and self.ret_block == block.list.id;
-        if (returns) self.ret_block = 0;
         try self.pushScopeFor(.block, block);
         var v: Value = .{};
         for (stmts, 0..) |s, i| {
@@ -1581,9 +1569,6 @@ pub const Checker = struct {
             v = try self.walkStmtValue(s, null);
             if (t) |ctx| if (s == .src and self.reachable) try self.consumeTailName(s, ctx);
         }
-        // An error the function returns from here runs the block's
-        // `errdefer`s.
-        if (returns and self.reachable and stmts.len > 0 and self.mayFail(stmts[stmts.len - 1])) _ = try self.exitTo(.{ .exit = .failing_result });
         v = try self.checkValueEscapesScope(v);
         try self.popScope();
         return if (self.reachable) v else .{};
@@ -1760,15 +1745,6 @@ pub const Checker = struct {
         return t;
     }
 
-    /// Walk a branch of a consumed `if` or `match`: its tail leaves it.
-    /// A branch block of the function's result returns it (`ret_block`).
-    fn walkTailBranch(self: *Checker, body: Sexp, t: ?Tail) Error!Value {
-        if (t) |ctx| if (ctx.sink == .ret and body.isKind(.block)) {
-            self.ret_block = body.list.id;
-        };
-        return self.walkTailPart(body, t);
-    }
-
     /// Walk a part of a consumed value (a branch, an arm, a handler):
     /// its tail leaves it. A block part moves its tail name before its
     /// defers run (`walkBlock`); a bare name part moves here.
@@ -1804,7 +1780,7 @@ pub const Checker = struct {
         const k = self.owningKind(v.ty) orelse return;
         if (k == .generic and v.via != .owned) {
             // A copy for plain data; each instantiation is checked.
-            return self.reportAlias(node.src.pos, v.name, true, k, .binding, v.ty);
+            return self.reportAlias(node.src.pos, v.name, .name, k, .binding, v.ty);
         }
         _ = try self.movePayload(id, node.src.pos, "move");
     }
@@ -2533,7 +2509,7 @@ pub const Checker = struct {
                     return;
                 }
                 if (top_return) return;
-                if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, true, k, sink, v.ty);
+                if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, .name, k, sink, v.ty);
                 if (sink == .argument) return;
                 // A write borrow of a Copy value is copied where the
                 // value is read; where a `!T` goes, the borrow would be.
@@ -2549,7 +2525,7 @@ pub const Checker = struct {
                     if (self.namesType(ir.get(expr, .object))) return;
                     const ty = self.exprType(expr);
                     if (self.owningKind(ty)) |k| {
-                        return self.reportAlias(self.startOf(expr), try self.placeText(expr), false, k, sink, ty);
+                        return self.reportAlias(self.startOf(expr), try self.placeText(expr), if (expr.isKind(.index)) .element else .field, k, sink, ty);
                     }
                     if (sink != .argument and self.carriesWriteBorrow(ty)) {
                         try self.errAt(expr, "bare use of `{s}` in {s} would duplicate a write borrow; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
@@ -2648,8 +2624,30 @@ pub const Checker = struct {
         }
     }
 
-    fn reportAlias(self: *Checker, pos: u32, what: []const u8, is_name: bool, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
+    /// What a bare use that would copy a moving value names: a binding,
+    /// or a field or element, which stays where it is.
+    const Aliased = enum { name, field, element };
+
+    /// Whether `ty`, or the value an optional of it holds, is an array.
+    fn isArrayOf(self: *const Checker, ty: TypeId) bool {
+        var t = ty;
+        while (self.typeData(t) == .optional) t = self.typeData(t).optional;
+        return self.typeData(t) == .array;
+    }
+
+    fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
         const where = sink.text();
+        const is_name = aliased == .name;
+        // Why a part cannot be moved out instead.
+        const stays = if (aliased == .element) "an element cannot be moved out of its container" else "a field cannot be moved out of its parent";
+        // An array whose elements own is named by its type.
+        if (ty) |t| if (self.sema) |ctx| if (k == .drop_glue and self.isArrayOf(t)) {
+            const shown = try sema.formatTypeIn(ctx, self.arena(), t);
+            if (is_name) {
+                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy its owning elements, which both would drop. Use `<{s}` to move it", .{ shown, what, where, what });
+            } else try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy its owning elements; {s}", .{ shown, what, where, stays });
+            return;
+        };
         switch (k) {
             // Fine for plain data: each instantiation is checked.
             .generic => if (ty) |t| try self.requirePlain(pos, t, false),
@@ -2664,17 +2662,17 @@ pub const Checker = struct {
             .vec => if (is_name) {
                 try self.err(pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer and double-free on scope exit; use `<{s}` to move ownership", .{ what, where, what });
             } else {
-                try self.err(pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer; a field cannot be moved out of its parent", .{ what, where });
+                try self.err(pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer; {s}", .{ what, where, stays });
             },
             .box => if (is_name) {
                 try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer and free its value twice; use `<{s}` to move ownership", .{ what, where, what });
             } else {
-                try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer; a field cannot be moved out of its parent. Borrow it instead: `?{s}` or `!{s}`", .{ what, where, what, what });
+                try self.err(pos, "bare use of `Box` value `{s}` in {s} would copy the box's pointer; {s}. Borrow it instead: `?{s}` or `!{s}`", .{ what, where, stays, what, what });
             },
             .text => if (is_name) {
                 try self.err(pos, "bare use of `Text` value `{s}` in {s} would copy the buffer pointer and free it twice; use `<{s}` to move ownership, or `+{s}` to copy the text", .{ what, where, what, what });
             } else {
-                try self.err(pos, "bare use of `Text` value `{s}` in {s} would copy the buffer pointer; a field cannot be moved out of its parent. Borrow it (`?{s}`) or copy the text (`+{s}`)", .{ what, where, what, what });
+                try self.err(pos, "bare use of `Text` value `{s}` in {s} would copy the buffer pointer; {s}. Borrow it (`?{s}`) or copy the text (`+{s}`)", .{ what, where, stays, what, what });
             },
             .unique => |tname| if (is_name) {
                 try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy a unique value; use `<{s}` to move it", .{ tname, what, where, what });
@@ -2684,7 +2682,7 @@ pub const Checker = struct {
             .drop_glue => |tname| if (is_name) {
                 try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<{s}` to move ownership", .{ tname, what, where, tname, what });
             } else {
-                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue and a field cannot be moved out of its parent", .{ tname, what, where, tname });
+                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue and {s}", .{ tname, what, where, tname, stays });
             },
         }
     }
@@ -2702,6 +2700,13 @@ pub const Checker = struct {
         const pos = target.src.pos;
         const name = self.text(target);
         const is_lambda = isLambda(expr);
+        // A write-view local re-pointed by a view its right side does not
+        // read, and cannot leave early, never uses its old view again:
+        // that view's loans end here (Core sentence 6), before the right
+        // side lends anew.
+        if (kind == .default and (if (self.sema) |ctx| ctx.repoints(node) else false)) if (self.find(name)) |id| {
+            if (!self.readsName(expr, name) and !leavesEarly(expr)) try self.setFlow(id, .{ .status = self.flows.items[id].status, .at = self.flows.items[id].at });
+        };
         const value: Value = switch (kind) {
             .default, .fixed, .shadow => if (is_lambda) blk: {
                 self.lambda_ok = true;
@@ -2717,7 +2722,8 @@ pub const Checker = struct {
             .fixed => try self.bindNew(target, true, is_lambda, value),
             .default => {
                 if (self.find(name)) |id| {
-                    try self.reassign(id, pos, value);
+                    const repoints = if (self.sema) |ctx| ctx.repoints(node) else false;
+                    try self.reassign(id, pos, value, repoints);
                     return;
                 } else {
                     try self.bindNew(target, false, is_lambda, value);
@@ -2732,6 +2738,30 @@ pub const Checker = struct {
             },
         }
         if (is_lambda) self.vars.items[self.vars.items.len - 1].env_drops = self.envDrops(expr);
+    }
+
+    /// Whether `e` names `name` anywhere.
+    fn readsName(self: *const Checker, e: Sexp, name: []const u8) bool {
+        switch (e) {
+            .src => return std.mem.eql(u8, self.text(e), name),
+            .list => {
+                for (e.items()) |item| if (self.readsName(item, name)) return true;
+                return false;
+            },
+            else => return false,
+        }
+    }
+
+    /// Whether evaluating `e` may leave before it gives its value: a
+    /// propagation, a `return`, a `break`, or a `continue` inside it.
+    fn leavesEarly(e: Sexp) bool {
+        if (e != .list) return false;
+        if (e.kind()) |k| switch (k) {
+            .propagate, .propagate_none, .@"return", .@"break", .@"continue" => return true,
+            else => {},
+        };
+        for (e.items()) |item| if (leavesEarly(item)) return true;
+        return false;
     }
 
     /// Whether the environment of closure literal `lambda` has drop glue.
@@ -2791,7 +2821,10 @@ pub const Checker = struct {
         }
     }
 
-    fn reassign(self: *Checker, id: VarId, pos: u32, value: Value) Error!void {
+    /// `x = value`. A `!T` local given a view (`repoints`) points at
+    /// another place, as any binding takes a new value: the loans it held
+    /// end, and it holds the view's.
+    fn reassign(self: *Checker, id: VarId, pos: u32, value: Value, repoints: bool) Error!void {
         const before = self.diagnostics.items.len;
         try self.checkAssignable(id, pos);
         if (self.diagnostics.items.len != before and self.quiet == 0) return;
@@ -2804,7 +2837,7 @@ pub const Checker = struct {
         if (v.closure or v.fixed or v.loop_borrow or v.capture_resource) return;
         if (self.isGlobal(id) and !self.copies(v.ty)) return;
         if (self.findLoan(id, .any, null) != null) return;
-        if (v.ref == .write) {
+        if (v.ref == .write and !repoints) {
             // Assigning a write borrow writes into the value it borrows:
             // it still borrows it. Through a `!T` parameter (or a loop or
             // pattern binding) the new value may only carry borrows the
@@ -3459,7 +3492,10 @@ pub const Checker = struct {
         if (!deeper or through.len > 16) return;
         const next = try std.mem.concat(self.arena(), VarId, &.{ through, &.{id} });
         for (held) |l| {
-            if (l.kind == .write and std.mem.findScalar(VarId, next, l.root) == null) try self.absorbLoans(l.root, v, pos, next, via, true);
+            if (l.kind != .write or std.mem.findScalar(VarId, next, l.root) != null) continue;
+            // Only a value that can hold a borrow can have one stored in it.
+            if (!self.mayCarryBorrow(self.pointee(self.vars.items[l.root].ty))) continue;
+            try self.absorbLoans(l.root, v, pos, next, via, true);
         }
     }
 
@@ -3690,9 +3726,9 @@ pub const Checker = struct {
         try self.walkStmt(cond);
         const base = try self.here();
         const past = resumeAt(.nil, node);
-        const v1 = try self.walkTailBranch(then_b, t);
+        const v1 = try self.walkTailPart(then_b, t);
         const s1 = try self.leave(base, past);
-        const v2 = if (else_b != .nil) try self.walkTailBranch(else_b, t) else Value{};
+        const v2 = if (else_b != .nil) try self.walkTailPart(else_b, t) else Value{};
         const s2 = try self.leave(base, past);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
@@ -3710,7 +3746,7 @@ pub const Checker = struct {
         try self.walkConditionParts(ir.If.cond(node), then_b);
         // A failing part goes on to the `else`, or past the `if`.
         const failed = try self.exitTo(.{ .to = base, .resume_at = resumeAt(else_b, node) });
-        var v1 = try self.walkTailBranch(then_b, t);
+        var v1 = try self.walkTailPart(then_b, t);
         while (self.scopes.items.len > depth) {
             v1 = try self.checkValueEscapesScope(v1);
             try self.popScope();
@@ -3718,7 +3754,7 @@ pub const Checker = struct {
         const past = resumeAt(.nil, node);
         const s1 = try self.leave(base, past);
         try self.apply(failed);
-        const v2 = if (else_b != .nil) try self.walkTailBranch(else_b, t) else Value{};
+        const v2 = if (else_b != .nil) try self.walkTailPart(else_b, t) else Value{};
         const s2 = try self.leave(base, past);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
@@ -3912,7 +3948,7 @@ pub const Checker = struct {
             }
             // The arm is chosen: the subject is read no more.
             if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
-            var v = try self.walkTailBranch(body, tail_ctx);
+            var v = try self.walkTailPart(body, tail_ctx);
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);

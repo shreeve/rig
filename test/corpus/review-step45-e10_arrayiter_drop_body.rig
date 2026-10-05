@@ -1,0 +1,14 @@
+# array of types with a drop body; break mid-way, check order and count
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  a = [D(n: 1), D(n: 2), D(n: 3)]
+  for x in <a
+    print("see", x.n)
+    if x.n == 1
+      break
+  print("end")

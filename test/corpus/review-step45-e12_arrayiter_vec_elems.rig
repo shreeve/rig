@@ -1,0 +1,9 @@
+# consuming loop over an array of Vec[Text], moving some into an outer Vec, break midway
+sub main
+  a = [Vec[Text](), Vec[Text](), Vec[Text]()]
+  keep: Vec[Vec[Text]] = Vec()
+  for v, i in <a
+    if i == 2
+      break
+    !keep.push(<v)
+  print(keep.len)

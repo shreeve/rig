@@ -1,0 +1,8 @@
+sub main
+  a = 1
+  b = 2
+  v: Vec[!Int] = Vec()
+  !v.push(!a)
+  !v.push(!b)
+  -v
+  print(a, b)

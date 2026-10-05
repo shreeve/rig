@@ -1,0 +1,14 @@
+# two levels of write views, store at the bottom
+sub put(v: !Vec[String], s: String)
+  !v.push(s)
+
+sub main
+  inner: Vec[String] = Vec()
+  w = !inner
+  ws: Vec[!Vec[String]] = Vec()
+  !ws.push(<w)
+  t = Text("x")
+  put(!ws[0], ?t)
+  -ws
+  -t
+  print(inner)

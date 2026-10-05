@@ -1,0 +1,11 @@
+# for x in !getv(!v, ?Text("a")): write loop over a Vec view returned by a call with temp
+fun getv(v: !Vec[Text], s: String) -> !Vec[Text]
+  v
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("p"))
+  for x in !getv(!v, ?Text("a"))
+    for _ in 0..40
+      !x.add("xxxxxxxx")
+  print(v[0].len)

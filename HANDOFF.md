@@ -192,8 +192,11 @@ and run the corpus after:
 
 - **Statement temporaries** (Core §3). Two soundness slips since the
   redesign, both caught by the corpus before merging: a view of a
-  temporary's part, and a match subject's loan across guards. AGENTS.md
-  says a third slip stops the feature for redesign.
+  temporary's part, and a match subject's loan across guards. A third
+  slip, a header subject reached through a header temporary (emit
+  binds a copy), stopped the feature: a header whose subject makes a
+  temporary is rejected, unless it only reads plain data or owns what it
+  binds (`copiesHeader`), until step 10.
 - **String views of a `Text`:** `viewLoans`, `mayOwnText`, and String
   values in Cells, generics, and closures.
 - **Evaluation order versus what is emitted:** call arguments, `print`

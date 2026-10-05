@@ -1,0 +1,14 @@
+# tail is a block whose last value is an error, with an owner in the block
+error Bad
+  oops
+
+fun f(c: Bool) -> Text!
+  t = Text("x")
+  if c
+    u = Text("y")
+    Bad.oops
+  else
+    <t
+
+sub main
+  print(f(true) catch Text("caught"))

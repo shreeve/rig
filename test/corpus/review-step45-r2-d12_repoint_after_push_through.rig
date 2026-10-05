@@ -1,0 +1,10 @@
+# push a view through w into its target Vec, re-point w, then drop the viewed Text
+sub main
+  inner: Vec[String] = Vec()
+  other: Vec[String] = Vec()
+  w = !inner
+  t = Text("t")
+  !w.push(?t)
+  w = !other
+  -t
+  print(inner)

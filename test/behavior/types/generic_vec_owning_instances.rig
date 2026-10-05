@@ -1,0 +1,16 @@
+# `Vec[T]` in a generic type holds whatever each instance gives it.
+
+struct Stack[T]
+  items: Vec[T]
+
+struct Owner
+  h: *Int
+
+sub main()
+  s: Stack[Vec[Int]] = Stack(items: Vec())
+  o: Stack[Owner] = Stack(items: Vec())
+  !o.items.push(Owner(h: *3))
+  print(s.items.len, o.items.len)
+
+# expect:
+# 0 1

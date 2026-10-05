@@ -1,0 +1,6 @@
+# +o where o: (?Text)? 
+sub main
+  t = Text("x")
+  o: String? = ?t
+  p = +o
+  print(p)

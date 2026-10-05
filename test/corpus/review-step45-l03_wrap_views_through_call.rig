@@ -1,0 +1,11 @@
+# a Vec of views passed by value through a function and returned
+fun wrap(v: Vec[String]) -> Vec[String]
+  <v
+
+sub main
+  t = Text("x")
+  v: Vec[String] = Vec()
+  !v.push(?t)
+  w = wrap(<v)
+  -t
+  print(w)

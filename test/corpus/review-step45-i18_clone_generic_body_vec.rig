@@ -1,0 +1,9 @@
+# +v of a Vec[T] in a generic body with T = Int (false rejection?)
+fun dup[T](v: ?Vec[T]) -> Vec[T]
+  +v
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = dup(?v)
+  print(w)
