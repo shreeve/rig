@@ -1043,7 +1043,15 @@ are unioned. A
 one), whose root stays borrowed while a payload binding views it (a
 write borrow for `match !x`, whose bindings write through like a local
 write borrow); moving a payload out of a match that reads its subject
-is rejected. `match <x` moves `x` first, and its bindings are owned
+is rejected. A binding of a `match` that reads its subject (a
+payload, or a catch-all binding, other than a copied primitive or a
+payload field that is itself a borrow, which points where it pointed)
+is the arm's copy: a view of it (`?r`, `?r.f`, or the binding itself when it is
+a borrow) also holds a frame loan on the binding (`Var.arm_view`), so it
+is used in the arm and does not outlive the match. A view that points
+into a buffer or box the payload owns (a String of a Text, a slice of a
+Vec, a box's value) or a read borrow that is a copy holds no frame loan.
+`match <x` moves `x` first, and its bindings are owned
 vars holding what `x` held. A guard that fails runs on the way to
 the later arms: they, and the path where no arm runs, start from the
 join of the entry state with what each failed guard left. That path,
@@ -1173,7 +1181,8 @@ lower is an internal error: sema must have rejected it.
   the owning fields in reverse order.
 - **Values.** `if` and `match` in value position become labeled blocks
   when a branch needs statements; `match` is a `switch`, whose
-  captures copy the payload (`match e`, `match ?e`), point into it
+  captures copy the payload (`match e`, `match ?e`; a catch-all
+  binding of a lent subject points at it, `|*x|`), point into it
   (`|*p|` for `match !e`), or own it (`match <e`: each bound field
   becomes an owned local with its drop guard, and the rest is dropped
   by a `defer` in the prong). Alternatives are one prong's list of

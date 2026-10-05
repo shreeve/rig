@@ -2322,7 +2322,12 @@ source and `if … as` do:
 | `match <e` | own the fields: `e` is consumed, and what an arm does not move on is dropped at the end of the arm |
 
 A bare `match e` of a place only reads it, so moving a payload out of
-it is rejected; that takes `match <e`. A call's result is taken, as
+it is rejected; that takes `match <e`. An arm reads its bindings from a
+copy of the subject, so a view of one (`?r`, `?r.f`, or a catch-all
+binding of a lent subject) is used in the arm and does not outlive the
+`match`; return or store a copy (`+r`), or take the payload with
+`match <e`. A String or slice viewing a buffer the payload owns is not
+in the copy, and may leave. A call's result is taken, as
 `match <e` would take it ([§7](#temporaries)): `match make()` owns its
 payloads. Its bindings only read, too, even of a
 field or value that is itself a write borrow. A binding of `match <e`
@@ -2393,6 +2398,34 @@ sub main
 
 ```error
 cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fields
+```
+
+```rig reject
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun inner(e: ?E) -> ?Res
+  match e
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun name(e: ?E) -> String
+  match e
+    .a(r) => ?r.t
+    .b(r) => ?r.t
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("hi")))
+  print(name(?e), inner(?e).n)
+```
+
+```error
+a view of `r` does not outlive the `match` that reads `e`; use it in the arm
 ```
 
 ### pass

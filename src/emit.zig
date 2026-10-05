@@ -2349,7 +2349,7 @@ pub const Emitter = struct {
                 switch (info.mode) {
                     .read => if (named) try self.emitCapture(pattern),
                     .write => if (named) {
-                        prelude.aliases = try self.wholeAlias(pattern, try self.fmt("&{s}", .{place}), .nil);
+                        prelude.aliases = try self.wholeAlias(pattern, place, true, .nil);
                     },
                     .consume => {
                         const whole = try self.fresh("__rig_whole");
@@ -2484,11 +2484,14 @@ pub const Emitter = struct {
         return pattern == .src and !isLiteralText(source[pattern.src.pos..][0..pattern.src.len]);
     }
 
-    /// `x => ...` binding the whole value as `expr`, when the arm uses it
-    /// (in `used_in`, when given).
-    fn wholeAlias(self: *Emitter, pattern: Sexp, expr: []const u8, used_in: Sexp) Error![]const Alias {
-        const local = self.usedPayloadLocal(pattern, used_in) orelse return &.{};
+    /// `x => ...` binding the whole value `subj`, when the arm uses it
+    /// (in `used_in`, when given): by its address for `match !x`, and
+    /// for a binding that is a borrow held by pointer (of a `?E` subject).
+    fn wholeAlias(self: *Emitter, pattern: Sexp, subj: []const u8, writes: bool, used_in: Sexp) Error![]const Alias {
+        var local = self.usedPayloadLocal(pattern, used_in) orelse return &.{};
+        local.is_ptr = writes;
         const stored = try self.declare(local, self.srcText(pattern));
+        const expr = if (stored.is_ptr) try self.fmt("&{s}", .{subj}) else subj;
         return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
     }
 
@@ -2599,7 +2602,7 @@ pub const Emitter = struct {
         if (isCatchAll(self.source, pattern)) {
             const sym = self.sema.symbolOf(pattern) orelse return;
             if (!self.usesSymbol(guard, sym)) return;
-            const aliases = try self.wholeAlias(pattern, if (writes) try self.fmt("&{s}", .{subj}) else subj, .nil);
+            const aliases = try self.wholeAlias(pattern, subj, writes, .nil);
             return self.emitPrelude(.{ .aliases = aliases });
         }
         if (!pattern.isKind(.variant_pattern)) return;
@@ -2643,7 +2646,7 @@ pub const Emitter = struct {
         const writes = info.mode == .write;
         if (isCatchAll(self.source, pattern)) {
             if (std.mem.eql(u8, self.srcText(pattern), "_")) return .{};
-            return .{ .aliases = try self.wholeAlias(pattern, if (writes) try self.fmt("&{s}", .{subj}) else subj, body) };
+            return .{ .aliases = try self.wholeAlias(pattern, subj, writes, body) };
         }
         if (!pattern.isKind(.variant_pattern)) return .{};
         const vname = self.srcText(ir.VariantPattern.name(pattern));
@@ -2726,11 +2729,13 @@ pub const Emitter = struct {
         return .{ .sym = sym, .ty = ty, .kind = if (ty) |t| self.kindOf(t) else null };
     }
 
-    /// `|name| ` for a payload or catch-all binding that the body uses.
+    /// `|name| ` for a read `match`'s catch-all binding that the body
+    /// uses, or `|*name| ` when the binding is a borrow held by pointer
+    /// (of a `?E` subject), which points at the value switched on.
     fn emitCapture(self: *Emitter, name_node: Sexp) Error!void {
         const local = self.payloadLocal(name_node) orelse return;
         const stored = try self.declare(local, self.srcText(name_node));
-        try self.w.print("|{s}| ", .{stored.zig_name});
+        try self.w.print("|{s}{s}| ", .{ if (stored.is_ptr) "*" else "", stored.zig_name });
     }
 
     /// Bindings for a payload's fields that the arm uses (in `used_in`,

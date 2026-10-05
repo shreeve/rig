@@ -1,0 +1,131 @@
+# A view of a read `match` binding is used in its arm, however the arm
+# reaches the subject, and a copy (`+r.t`) leaves the match. A catch-all
+# binding of a lent subject is the subject's own view. A payload field
+# that is itself a view points where it pointed, so it may leave.
+
+struct P
+  x: Int
+  y: Int
+
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(p: P)
+
+struct H
+  e: E
+
+enum V
+  a(r: ?Res)
+  b
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1] + b[2]
+
+sub see(r: ?Res)
+  print(clobber(1000))
+  print(r.n, r.t)
+
+sub seep(p: ?P)
+  print(clobber(2000))
+  print(p.x, p.y)
+
+fun count(e: ?E) -> Int
+  match e
+    .a(r) => r.n
+    .b(p) => p.x
+
+sub arms(e: ?E)
+  match e
+    .a(r) => see(?r)
+    .b(p) => seep(?p)
+
+sub local(h: ?H)
+  match h.e
+    .a(r)
+      w = ?r
+      print(clobber(3000))
+      print(w.n, w.t)
+    .b(_) => pass
+
+sub guarded(b: ?Box[E])
+  match b
+    .a(r) if r.n > 0 => see(?r)
+    _ => print("other")
+
+fun whole(e: ?E) -> Int
+  match e
+    .b(p) if p.y > 0 => p.y
+    x => count(x)
+
+fun whole2(e: ?E) -> Int
+  match e
+    .b(_) => 0
+    x => count(x)
+
+fun copied(e: ?E) -> Text
+  match e
+    .a(r) => +r.t
+    .b(_) => Text("none")
+
+fun pick(v: ?V, d: ?Res) -> ?Res
+  match v
+    .a(r) => r
+    .b => d
+
+fun gen[T](o: ?Opt[T]) -> Int
+  match o
+    .nothing => 0
+    x => gsize(x)
+
+fun gsize[T](o: ?Opt[T]) -> Int
+  match o
+    .some(_) => 1
+    .nothing => 0
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("hello")))
+  arms(?e)
+  f = E.b(p: P(x: 4, y: 5))
+  arms(?f)
+  h = H(e: E.a(r: Res(n: 2, t: Text("field"))))
+  local(?h)
+  b = Box(E.a(r: Res(n: 3, t: Text("boxed"))))
+  guarded(?b)
+  print(whole(?e), whole(?f), whole2(?e))
+  c = copied(?e)
+  print(clobber(4000))
+  print(c)
+  o: Opt[Res] = .some(v: Res(n: 5, t: Text("gen")))
+  print(gen(?o))
+  k = Res(n: 9, t: Text("kept"))
+  v: V = .a(r: ?k)
+  dr = Res(n: 0, t: Text("d"))
+  y = pick(?v, ?dr)
+  print(clobber(5000))
+  print(y.n, y.t)
+
+# expect:
+# 2003
+# 1 hello
+# 4003
+# 4 5
+# 6003
+# 2 field
+# 2003
+# 3 boxed
+# 1 5 1
+# 8003
+# hello
+# 1
+# 10003
+# 9 kept
