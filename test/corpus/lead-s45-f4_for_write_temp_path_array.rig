@@ -1,0 +1,9 @@
+fun idx(s: ?Text) -> Int
+  0
+
+sub main()
+  v: Vec[[2]Int] = Vec()
+  !v.push([1, 2])
+  for x in !v[idx(?Text("k"))]
+    x = 9
+  print(v[0][0], v[0][1])

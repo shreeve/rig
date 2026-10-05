@@ -1,0 +1,14 @@
+enum E
+  a(t: Text)
+  b
+
+fun idx(s: ?Text) -> Int
+  0
+
+sub main()
+  v: Vec[E?] = Vec()
+  !v.push(E.a(t: Text("hello")))
+  match <v[idx(?Text("k"))]
+    .a(t) => print(t)
+    .b => pass
+  print(v.len)
