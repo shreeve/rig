@@ -2403,6 +2403,13 @@ const Lowerer = struct {
                             if (elem_method) elem_from = p.root;
                         } else {
                             r = try self.eval(obj, .read, null);
+                            // A value made there is a temporary of the
+                            // statement, which the method sees where it is
+                            // (Core §3): what it returns may view it.
+                            if (r) |rv| if (self.f.vars.items[rv].hidden and !elem_method and (recv_obj.isKind(.call) or recv_obj.isKind(.clone) or recv_obj.isKind(.share))) {
+                                const vv = self.f.vars.items[rv];
+                                r = try self.lend(.{ .root = rv, .path = &.{}, .ty = vv.ty }, .read, recv_obj, vv.ty);
+                            };
                             if (elem_method) elem_from = r;
                         }
                         if (r) |rv| {
