@@ -1,0 +1,10 @@
+# view of an element through a write slice returned
+fun first(s: ![]Text) -> !Text
+  !s[0]
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  t = first(!v)
+  !t.add("b")
+  print(v)

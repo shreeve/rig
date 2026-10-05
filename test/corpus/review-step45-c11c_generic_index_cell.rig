@@ -1,0 +1,16 @@
+# generic body passes ?v[0] (view of element) with T = C: Cell change must land
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+sub first[T](v: ?Vec[T], f: ?sub(?T))
+  f(?v[0])
+  f(v[0])
+
+sub main
+  v: Vec[C] = Vec()
+  !v.push(C(c: Cell(1)))
+  first(?v, |x| x.hit())
+  print(v[0].c.get())

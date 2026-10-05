@@ -1,0 +1,9 @@
+# assign an element through a read view: reject
+fun set(v: ?Vec[Text])
+  v[0] = Text("z")
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  set(?v)
+  print(v)

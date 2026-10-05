@@ -1,0 +1,8 @@
+# v[0] = x where x reads v (clone of v[1])
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  v[0] = +v[1]
+  v[1] = +v[1]
+  print(v)

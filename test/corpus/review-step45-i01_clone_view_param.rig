@@ -1,0 +1,10 @@
+# +v where v is a read view of a Vec[Text]
+fun dup(v: ?Vec[Text]) -> Vec[Text]
+  +v
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  w = dup(?v)
+  !w.push(Text("b"))
+  print(v, w)

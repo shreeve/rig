@@ -1,0 +1,10 @@
+# generic fn returning a view of an element; instantiated with Text
+fun at[T](v: ?Vec[T], i: Int) -> ?T
+  ?v[i]
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  t = at(?v, 1)
+  print(t)

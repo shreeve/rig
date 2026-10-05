@@ -1,0 +1,9 @@
+# take from a write slice of optional owners
+fun grab(s: ![]Text?) -> Text?
+  <s[0]
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  t = grab(!v)
+  print(t, v)

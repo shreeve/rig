@@ -1,0 +1,10 @@
+# take an optional element of a Vec reached through a shared handle: reject
+struct S
+  v: Vec[Text?]
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  h = *S(v: <v)
+  t = <h.v[0]
+  print(t)

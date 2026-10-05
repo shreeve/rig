@@ -1,0 +1,6 @@
+# for x in <v[0] with v: Vec[[2]Text] (non-optional element): reject
+sub main
+  v: Vec[[2]Text] = Vec()
+  !v.push([Text("a"), Text("b")])
+  for x in <v[0]
+    print(x)

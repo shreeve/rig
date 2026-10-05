@@ -1,0 +1,7 @@
+# view of element, then assign the element (drop old) while view live
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  s = ?v[0]
+  v[0] = Text("b")
+  print(s)

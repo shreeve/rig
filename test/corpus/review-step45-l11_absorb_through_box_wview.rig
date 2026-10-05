@@ -1,0 +1,8 @@
+# store a view through a local write view of a Box of a Vec of views
+sub main
+  b = Box(Vec[String]())
+  w = !b
+  t = Text("x")
+  !w.push(?t)
+  -t
+  print(b)

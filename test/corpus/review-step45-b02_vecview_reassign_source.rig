@@ -1,0 +1,7 @@
+# Vec of views; reassign the source Text (drops old buffer)
+sub main
+  t = Text("hello")
+  v: Vec[String] = Vec()
+  !v.push(?t)
+  t = Text("world")
+  print(v)

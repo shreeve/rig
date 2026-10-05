@@ -1,0 +1,16 @@
+# guarded match on an element with a header temporary; owner payload view used in arm
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("hello")))
+  match v[idx(?Text("a"))]
+    .a(t) if t.len > 2 => print("long", t)
+    .a(t) => print("short", t)
+    .b(n) => print(n)
+  print(v.len)

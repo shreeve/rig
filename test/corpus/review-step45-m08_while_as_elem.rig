@@ -1,0 +1,11 @@
+# while <v[i] as t: take elements in a loop
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  i = 0
+  while i < v.len
+    if <v[i] as t
+      print(t)
+    i += 1
+  print(v)

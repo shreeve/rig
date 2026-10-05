@@ -1,0 +1,8 @@
+# for x in !v: assign x = Text(...) drops old each element
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  for x in !v
+    x = Text(x, "!")
+  print(v)

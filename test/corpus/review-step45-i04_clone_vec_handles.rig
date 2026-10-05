@@ -1,0 +1,18 @@
+# +v of Vec[*D]: each handle counted again; D dropped once, after the last
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  a = *D(n: 1)
+  v: Vec[*D] = Vec()
+  !v.push(+a)
+  !v.push(+a)
+  w = +v
+  -a
+  -v
+  print("v gone")
+  -w
+  print("end")

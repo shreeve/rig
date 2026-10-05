@@ -1,0 +1,17 @@
+# fallible tail returned through return with owners live, errdefer
+error Bad
+  oops
+
+fun g(n: Int) -> Text!
+  if n == 0
+    return Bad.oops
+  Text("ok")
+
+fun f(n: Int) -> Text!
+  t = Text("held")
+  errdefer print("errdefer", t)
+  return g(n)
+
+sub main
+  print(f(0) catch Text("caught"))
+  print(f(1) catch Text("caught"))

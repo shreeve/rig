@@ -1,0 +1,9 @@
+# for over an element place source (Vec[Vec[Text]]), push to outer inside
+sub main
+  m: Vec[Vec[Text]] = Vec()
+  row: Vec[Text] = Vec()
+  !row.push(Text("q"))
+  !m.push(<row)
+  for t in m[0]
+    !m.push(Vec())
+    print(t)

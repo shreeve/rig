@@ -1,0 +1,9 @@
+# defer reads an element; the Vec is moved out before scope end
+fun take(v: Vec[Text]) -> Int
+  v.len
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  defer print(v[0])
+  print(take(<v))

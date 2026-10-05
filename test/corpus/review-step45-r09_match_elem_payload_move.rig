@@ -1,0 +1,11 @@
+# match v[0] arm moves payload: reject
+enum E
+  a(t: Text)
+  b(n: Int)
+
+sub main
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("hi")))
+  match v[0]
+    .a(t) => (k = <t)
+    .b(n) => print(n)

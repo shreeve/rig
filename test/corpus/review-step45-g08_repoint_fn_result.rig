@@ -1,0 +1,13 @@
+# w = f(!v) re-points at a returned element view
+fun last(v: !Vec[Text]) -> !Text
+  !v[v.len - 1]
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  m = Text("m")
+  w = !m
+  w = last(!v)
+  !w.add("!")
+  print(v, m)

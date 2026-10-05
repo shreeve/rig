@@ -1,0 +1,8 @@
+# <v[1] while ?v[0] is live (take writes v)
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  r = ?v[0]
+  t = <v[1]
+  print(r, t)

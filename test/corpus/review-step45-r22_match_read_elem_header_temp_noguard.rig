@@ -1,0 +1,14 @@
+# unguarded read match on element with a header temporary (r11 sibling, no Cell)
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("hi")))
+  match v[idx(?Text("a"))]
+    .a(t) => print(t)
+    .b(n) => print(n)

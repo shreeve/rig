@@ -1,0 +1,12 @@
+# struct holding a Vec of views moved into a Vec of structs, then source dropped
+struct Bag
+  items: Vec[String]
+
+sub main
+  t = Text("x")
+  b = Bag(items: Vec())
+  !b.items.push(?t)
+  bags: Vec[Bag] = Vec()
+  !bags.push(<b)
+  -t
+  print(bags[0].items)

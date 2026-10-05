@@ -1,0 +1,8 @@
+# array of optional owners, consuming loop
+sub main
+  a: [2]Text? = [Text("a"), none]
+  for x in <a
+    if x as t
+      print(t)
+    else
+      print("none")

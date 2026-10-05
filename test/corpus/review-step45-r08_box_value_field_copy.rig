@@ -1,0 +1,5 @@
+# x = b.value of a Box[Text]: copy of an owner, reject
+sub main
+  b = Box(Text("a"))
+  x = b.value
+  print(x, b)
