@@ -678,6 +678,14 @@ const Lowerer = struct {
         return self.isWriteRef(try self.typeOf(rhs)) and !self.isPlaceSyntax(rhs);
     }
 
+    /// Whether a loop element is a generic body's copy of a `T` element
+    /// it only reads (SPEC "Generic bodies").
+    fn genericLoopCopy(self: *Lowerer, v: VarId) bool {
+        if (!self.kinds.generic) return false;
+        const info = self.kinds.of(self.f.vars.items[v].ty) catch return false;
+        return info.generic_copy;
+    }
+
     /// Whether a value of `ty` is a `?T` or `!T` itself, which `+`
     /// clones what it sees through.
     fn isRef(self: *Lowerer, ty: TypeId) bool {
@@ -2076,6 +2084,16 @@ const Lowerer = struct {
             .borrow_read, .borrow_write => ty != p.ty,
             else => false,
         };
+        // A generic loop's element of a `?Vec[T]` is a copy the iteration
+        // holds (SPEC "Generic bodies"): `?x` lends that copy, whose loan
+        // ends with the iteration.
+        const loop_copy = p.path.len == 0 and mode == .read and self.loop_elems.contains(p.root) and self.genericLoopCopy(p.root);
+        if (loop_copy) {
+            const loan = try self.newLoan(p, .read, false, 0, pos);
+            const t = try self.viewTemp(ty, kind, pos);
+            try self.emit(.{ .pos = pos, .what = .lend, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{ .root = p.root, .kind = .read } });
+            return t;
+        }
         if (p.via == .read or (p.via == .own and pk == .read_view and !p.slice and !pointer)) {
             if (mode != .read) return abstain("a write lend through a read view");
             const t = try self.viewTemp(ty, kind, pos);
