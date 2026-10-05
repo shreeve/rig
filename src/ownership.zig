@@ -1437,7 +1437,7 @@ pub const Checker = struct {
         try self.bindParams(params);
         try self.walkBody(body, returns_value);
         try self.popScope();
-        if (name != .nil) try self.checkOrigins(try std.fmt.allocPrint(self.arena(), "`{s}`", .{self.text(name)}), params);
+        if (name != .nil) try self.checkOrigins(try std.fmt.allocPrint(self.arena(), "`{s}`", .{self.text(name)}), name, params);
         try self.rewind(outer);
         // Nothing allocated for a module-level function outlives it.
         if (self.fn_depth == 1) _ = self.fn_arena_state.reset(.{ .retain_with_limit = 1 << 20 });
@@ -3712,7 +3712,7 @@ pub const Checker = struct {
         try self.bindParams(params);
         try self.walkBody(body, returns_value);
         try self.popScope();
-        try self.checkOrigins("this closure", params);
+        try self.checkOrigins("this closure", .nil, params);
         self.func = saved_func;
         self.loop = saved_loop;
         try self.rewind(snap);
@@ -3864,13 +3864,25 @@ pub const Checker = struct {
     /// A body passes on only the loans its signature shows (Core
     /// sentence 7): what it returns and stores comes from the parameters
     /// its origins name. `params` are its run-time parameters.
-    fn checkOrigins(self: *Checker, what: []const u8, params: Sexp) Error!void {
+    fn checkOrigins(self: *Checker, what: []const u8, name: Sexp, params: Sexp) Error!void {
         const o = self.func.origins;
         const items = params.items();
-        for (0..@min(items.len, @bitSizeOf(sema.ParamMask))) |i| {
+        const n = @min(items.len, @bitSizeOf(sema.ParamMask));
+        for (0..n) |i| {
             const bit = sema.paramBit(i);
-            const pname = if (sema.paramNameNode(items[i])) |n| self.text(n) else "?";
+            const pname = if (sema.paramNameNode(items[i])) |pn| self.text(pn) else "?";
             if (self.func.returned & bit != 0 and o.result & bit == 0) {
+                if (o.declared) {
+                    const only = try self.paramList(items, o.result, true);
+                    if (only.len == 0) {
+                        try self.err(self.func.returned_at[i], "{s} returns a view of `{s}`, but its signature says it views only what lives for the whole program", .{ what, pname });
+                    } else try self.err(self.func.returned_at[i], "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, pname, only });
+                    if (self.declaredFrom(name)) |d| {
+                        const all = try self.paramList(items, self.func.returned, false);
+                        try self.note(self.startOf(d.returns), "say so: `-> {s} from {s}`, or return a view of what it names only", .{ self.spanText(d.returns), all });
+                    }
+                    return;
+                }
                 try self.err(self.func.returned_at[i], "{s} returns a view of `{s}`, but a call of it carries no loan of `{s}`: its type cannot hold what the result views", .{ what, pname, pname });
             }
             if (self.func.stored & bit != 0 and o.stores & bit == 0) {
@@ -3878,6 +3890,29 @@ pub const Checker = struct {
             }
         }
     }
+
+    /// The `from` clause of the function named `name`, if it writes one.
+    fn declaredFrom(self: *const Checker, name: Sexp) ?sema.DeclaredOrigins {
+        const ctx = self.sema orelse return null;
+        if (name != .src) return null;
+        return ctx.declared_origins.get(name.src.pos);
+    }
+
+    /// The parameters of `mask` among `items`, as a `from` list (`a, b`),
+    /// each in backquotes when `quoted`.
+    fn paramList(self: *Checker, items: []const Sexp, mask: sema.ParamMask, quoted: bool) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        for (items, 0..) |p, i| {
+            if (mask & sema.paramBit(i) == 0) continue;
+            const pn = if (sema.paramNameNode(p)) |n| self.text(n) else continue;
+            if (out.items.len > 0) try out.appendSlice(self.arena(), ", ");
+            if (quoted) try out.append(self.arena(), '`');
+            try out.appendSlice(self.arena(), pn);
+            if (quoted) try out.append(self.arena(), '`');
+        }
+        return out.items;
+    }
+
 
     fn checkEscape(self: *Checker, v: Value) Error!void {
         for (v.loans, 0..) |l, i| {

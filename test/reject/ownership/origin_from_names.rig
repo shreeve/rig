@@ -1,0 +1,19 @@
+# `from` names parameters whose types could hold what the result views,
+# on a result that views something.
+
+fun a(v: ?Vec[Int], k: ?Int) -> ?Vec[Int] from k
+  v
+
+fun b(v: ?Vec[Int]) -> ?Vec[Int] from w
+  v
+
+fun c(n: Int) -> Int from n
+  n
+
+sub main
+  pass
+
+# errors: 3
+# error: 4:48: `k: ?Int` cannot hold a view of what `a` returns
+# error: 7:39: `b` has no parameter `w`
+# error: 10:22: `c` returns `Int`, which views nothing

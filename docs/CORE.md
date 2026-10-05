@@ -258,9 +258,7 @@ the whole program (literals, module constants, `os.args()`). Its result
 carries the loans of the arguments whose types could hold what it views,
 or, when the result says `from a`, of `a` alone. A view reached through
 another view carries that view's loans, not a loan on its holder. The
-compiler checks each body against its signature. *(built:* the
-narrowing to the arguments that could hold it, and a view reached
-through another; *planned:* `from`.*)*
+compiler checks each body against its signature. *(built)*
 
 ```rig reject
 fun pick(a: ?Vec[Int]) -> ?Vec[Int]
@@ -301,7 +299,7 @@ sub main
 1 2
 ```
 
-```rig pending
+```rig
 fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
   a
 

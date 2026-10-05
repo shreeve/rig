@@ -1,0 +1,54 @@
+# More forms a body returns a view through, each checked against its
+# `from` clause: a match arm, a loop's `break` value, `if … as`, a field
+# of a local struct, a payload of a parameter, and a method's argument.
+
+struct Pair
+  x: ?Vec[Int]
+  y: ?Vec[Int]
+
+enum Pick
+  one(v: ?Vec[Int])
+  none_
+
+struct Table
+  rows: Vec[Int]
+
+  fun get(?self, other: ?Vec[Int]) -> ?Vec[Int] from self
+    other
+
+fun arm(a: ?Vec[Int], b: ?Vec[Int], n: Int) -> ?Vec[Int] from a
+  match n
+    0 => a
+    _ => b
+
+fun loop(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
+  r = while true
+    break b
+  else
+    a
+  r
+
+fun unwrap(a: ?Vec[Int], b: (?Vec[Int])?) -> ?Vec[Int] from a
+  if b as v
+    return v
+  a
+
+fun field(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
+  p = Pair(x: a, y: b)
+  p.y
+
+fun payload(a: ?Vec[Int], b: ?Pick) -> ?Vec[Int] from a
+  match b
+    .one(v) => v
+    .none_ => a
+
+sub main
+  pass
+
+# errors: 6
+# error: 17:5: `get` returns a view of `other`, but its signature says it views only `self`
+# error: 20:3: `arm` returns a view of `b`
+# error: 29:3: `loop` returns a view of `b`
+# error: 33:12: `unwrap` returns a view of `b`
+# error: 38:3: `field` returns a view of `b`
+# error: 41:3: `payload` returns a view of `b`

@@ -160,6 +160,7 @@ the Parser wrapper checks the touch on the type's node.
 | keywords | one token each | every keyword is reserved; `new` only at statement start |
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
 | `struct Random unique` vs `unique = 3`, `p.unique` | `UNIQUE` vs `IDENT` | `unique` is a keyword only on a `struct` header line, outside brackets, right after the name or the type parameters' `]`, where it fills the `unique` role of `struct` or `generic_struct` |
+| `-> ?T from a, b`, `-> String from static` vs `from = 3`, `f(from: 1)` | `FROM`, `STATIC` vs `IDENT` | on the header line of a `fun` or `extern fun`, outside brackets, past the `->` of its result type and right after a value (the type's last token), `from` is a keyword that starts the `origins` list of `fun` or `extern_fun`; `static` is one only right after that `from`. A function type inside the parameters is in brackets, so its `->` starts nothing |
 | `xs[a..]`, `xs[..]` vs `xs[a..b]` | `DOTDOT_OPEN` vs `..` | a `..` whose next token is `]` (past a line break, which is whitespace inside brackets) ends an open range, so `xs[a == b..]` reduces `a == b` before it; a `..` that starts an operand (`xs[..b]`) needs no mark, since no expression starts with one |
 | `t.type`, `(type: 1)`, a member `type: Int`, `fun type` in a member list | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`; sema rejects a keyword parameter |
 
@@ -1359,7 +1360,13 @@ one's with its type parameters:
 - `stores`: each parameter whose type could hold what may be stored in
   memory a write parameter leads to (`sema.storeTargets`).
 
-The built-in generics' methods keep every argument's (`all_params`). A
+A `from` clause (`-> T from a, b`, `from static`) narrows `result` to
+the parameters it names (`sema.declOrigins`, `Origins.declared`); a
+name that is no parameter, one whose type cannot hold what the result
+views, and a clause on a result that views nothing are reported there.
+Resolve records each clause (`declared_origins`) before types are
+complete. The built-in generics' methods keep every argument's
+(`all_params`). A
 call of a function value (a closure, a lent callable) takes the origins
 of its type, computed at the call; the body of every function and
 closure is checked against the same ones, so every body satisfies the
@@ -1409,9 +1416,16 @@ recorder notes the parameters whose loans the value carries
 (`recordResult`), and at every store into what a parameter leads to,
 the parameters whose loans are stored (`recordStore`). A function or
 closure whose body returns or stores the loans of a parameter its
-origins leave out is rejected there. With origins from the signature's
+origins leave out is rejected there, with a note writing the clause the
+body satisfies (`-> T from a, b`). With origins from the signature's
 types this fires only when the classifier misses an edge: a compiler
-bug becomes a rejection, never a hole in a caller.
+bug becomes a rejection, never a hole in a caller. A `from` clause is
+part of a declaration, not of its function type: a function lent as a
+value (`?first`) is called with its type's origins, which every body
+satisfies. Recursion needs no fixpoint: a call of the function from its
+own body uses the origins being proved (each returning run is finite).
+An `extern zig` declaration's clause is trusted, as the rest of its
+signature is.
 
 **Desugaring.** A lend through a read view is the lend through a copy
 of the view, as above. A call `r = f(e1, ..., en)` is
@@ -1419,7 +1433,10 @@ of the view, as above. A call `r = f(e1, ..., en)` is
 temporary (Core §3): `r` holds the loans of the `ti` whose parameters
 are in `result`, the owners of the write arguments those in `stores`,
 and every other `ti`'s loans end with the statement. The narrowing is
-sentence 7's own: no other form says that a result does not view `b`.
+sentence 7's own: no other form says that a result does not view `b`,
+so a `from` clause is sentence 7's refinement rather than a form that
+desugars, and its checker rule is the call rule with the named set plus
+the body check.
 
 ## Emit
 

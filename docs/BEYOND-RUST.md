@@ -49,8 +49,10 @@ signatures and solved across a whole function. Rig has none. Each value
 carries the set of loans it holds, the checker follows each path of a
 function on its own, and loan sets meet where paths join. What a result
 views comes from the signature alone: it carries the loans of every
-argument whose type could hold what it views
-([CORE sentence 7](CORE.md#2-the-core-in-ten-sentences)).
+argument whose type could hold what it views, or of only those its
+signature names with `from a`, which the compiler proves from the body
+([CORE sentence 7](CORE.md#2-the-core-in-ten-sentences)). There is no
+lifetime variable to declare and none to thread through a struct.
 
 The difference shows in the case Rust's non-lexical lifetimes RFC lists
 as *problem case #3*: take a view, return it on one path, and change the

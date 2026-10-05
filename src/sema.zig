@@ -837,7 +837,13 @@ pub fn paramBit(i: usize) ParamMask {
 pub const Origins = struct {
     result: ParamMask = all_params,
     stores: ParamMask = all_params,
+    /// `result` is what a `from` clause names, not the signature's types.
+    declared: bool = false,
 };
+
+/// A function's `from` clause: the names it lists (empty for `from
+/// static`), and the function's parameters.
+pub const DeclaredOrigins = struct { names: Sexp, params: Sexp, returns: Sexp };
 
 /// What fills a run-time parameter of a call: the receiver of a method
 /// called on a value, the argument at an index of the call's argument
@@ -1247,6 +1253,10 @@ pub const SemContext = struct {
     /// the ownership checker finds: this module's own, recorded after it
     /// is checked, and those of the proxies' bodies, imported with them.
     plain_reqs: std.ArrayList(PlainRequirement) = .empty,
+    /// The `from` clause of each function and method that writes one
+    /// (`-> T from a, b`), by where its name is declared, with its
+    /// parameters (`computeOrigins`).
+    declared_origins: std.AutoHashMapUnmanaged(u32, DeclaredOrigins) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -1280,6 +1290,7 @@ pub const SemContext = struct {
         self.diagnostics.deinit(self.allocator);
         self.reported.deinit(self.allocator);
         self.facts.deinit(self.allocator);
+        self.declared_origins.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.reach.deinit(self.allocator);
         self.alias_targets.deinit(self.allocator);
@@ -3991,6 +4002,39 @@ pub fn defaultOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: FunctionT
     return o;
 }
 
+/// The origins of function `name`, declared at `pos` with type `f`:
+/// its signature's (`defaultOrigins`), with the result's narrowed to the
+/// parameters its `from` clause names. A name that is no parameter, or
+/// one whose type cannot hold what the result views, is reported, as is
+/// a clause on a result that views nothing.
+fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType) std.mem.Allocator.Error!Origins {
+    var o = try defaultOrigins(ctx, a, f);
+    const d = ctx.declared_origins.get(pos) orelse return o;
+    const results = try viewTargets(ctx, a, f.returns);
+    if (results.isEmpty()) {
+        try ctx.errAt(d.names, "`{s}` returns `{s}`, which views nothing; `from` names what a result views", .{ name, try formatType(ctx, f.returns) });
+        return o;
+    }
+    var named: ParamMask = 0;
+    for (d.names.items()) |n| {
+        const text = identAt(ctx.source, n) orelse continue;
+        const i = for (d.params.items(), 0..) |p, i| {
+            if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
+        } else {
+            try ctx.errAt(n, "`{s}` has no parameter `{s}`; `from` names parameters, `self`, or `static`", .{ name, text });
+            continue;
+        };
+        if (i < f.params.len and try reachTargets(ctx, a, f.params[i], results, .views) == .none) {
+            try ctx.errAt(n, "`{s}: {s}` cannot hold a view of what `{s}` returns, so its result never views it", .{ text, try formatType(ctx, f.params[i]), name });
+            continue;
+        }
+        named |= paramBit(i);
+    }
+    o.result &= named;
+    o.declared = true;
+    return o;
+}
+
 /// Set the origins of every function and method this module declares
 /// (`defaultOrigins`); the built-in generics' methods keep every
 /// argument's loans.
@@ -4005,7 +4049,7 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
                     .function => |f| f,
                     else => continue,
                 };
-                sym.origins = try defaultOrigins(ctx, scratch.allocator(), f);
+                sym.origins = try declOrigins(ctx, scratch.allocator(), sym.name, sym.decl_pos, f);
                 _ = scratch.reset(.retain_capacity);
             },
             .nominal_type, .generic_type => {
@@ -4017,7 +4061,7 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
                         .function => |f| f,
                         else => continue,
                     };
-                    fld.origins = try defaultOrigins(ctx, scratch.allocator(), f);
+                    fld.origins = try declOrigins(ctx, scratch.allocator(), fld.name, fld.decl_pos, f);
                     _ = scratch.reset(.retain_capacity);
                 }
                 sym.fields = out;

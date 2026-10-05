@@ -3168,6 +3168,14 @@ tracks where every one came from.
   what it views, a String argument included: it may view a Text
   ([§10](#text)). An argument that could not (an `Int` key for a
   `?Item` result, a String for a `?Item`) is free again after the call.
+- A result may say which parameters it views: `-> ?Item from a` (also
+  `from a, b`, `from self`, and `from static`, for only what lives for
+  the whole program). The result then borrows from those arguments
+  alone, and the compiler checks the body against the clause: a body
+  that returns a view of a parameter it does not name is rejected. A
+  name must be a parameter whose type could hold what the result
+  views. A function lent as a value (`?first`) is called with what its
+  type says, as if it had no clause.
 - A view reached through another view borrows what that view borrows,
   not what holds it: `?c.items[0]`, with `items: ?Vec[Item]`, borrows
   the Vec, not `c`.
