@@ -1,0 +1,25 @@
+# subject copy: a guarded `match ?mk()` of a plain-data enum copies the
+# subject into `__rig_subject_N` (poisoned at the match's end). The
+# catch-all binding is `?E`, plain data, so not arm-local. Store it.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun mk(k: Int) -> E
+  E.a(xs: [k, k, k, k])
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  z = E.b
+  r = ?z
+  k = 3
+  match ?mk(7)
+    x if k > 2 => r = x
+    _ => print(0)
+  print(clobber(1))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")

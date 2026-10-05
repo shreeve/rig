@@ -651,6 +651,7 @@ const Checker = struct {
         const saved = self.discarded;
         defer self.discarded = saved;
         self.discarded = stmt;
+        try self.ctx.recordDiscard(stmt);
         const ty = try self.synthExpr(stmt);
         // A statement `-name` is a drop; any other `-e` there would negate
         // a value and throw it away.
@@ -1605,7 +1606,7 @@ const Checker = struct {
         // What the binding views, unless it owns a value made here or
         // taken with `<`, may be a copy (`rejectHeaderCopy`).
         const owns = expr.isKind(.move) or (self.hands(expr).kind == .made and !borrowed);
-        if (!owns and !self.isPoison(inner)) try self.rejectHeaderCopy(node, expr, self.ctx.types.get(inner) == .borrow_write, inner);
+        if (!owns and !self.isPoison(inner)) try self.rejectHeaderCopy(node, expr, inner);
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
             self.ctx.symbols.items[sym].ty = inner;
@@ -1746,12 +1747,12 @@ const Checker = struct {
             if (elem_poisoned) elem_ty = self.t().invalid_id;
             // What the loop binds views the source, unless it takes it or
             // walks a slice of it, and may view a copy (`rejectHeaderCopy`).
-            if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, mode == .write, elem_ty);
             // The source is a header: a temporary it reads into ends with
             // it, before the loop walks it.
-            if (eff != .move) if (self.tempBase(source)) |temp| {
+            const walks_temp = if (eff != .move) self.tempBase(source) else null;
+            if (walks_temp) |temp| {
                 try self.errAt(temp, "the loop would walk the temporary `{s}` after its header drops it; bind it to a name first", .{self.sourceText(temp)});
-            };
+            } else if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, elem_ty);
             // `for x in ?e` and `for x in !e` lend `e`: one made here would
             // end with the header. A call's result is taken: `for x in e`.
             if ((mode == .read or mode == .write) and !(unbound and vec) and !source_hands.hasStorage() and !self.isPoison(source_ty) and sema.moves(self.ctx, sema.unwrapBorrows(self.ctx, source_ty)) == .yes) {
@@ -2057,7 +2058,7 @@ const Checker = struct {
         // (A view a call returns, held as a pointer, is matched where it
         // points, temporaries or not.)
         const held_view = !subject_hands.hasStorage() and sema.viewHeldAsPointer(self.ctx, self.ctx.typeOf(subject) orelse scrutinee);
-        if (mode != .consume and !held_view and !self.isPoison(scrutinee)) try self.rejectHeaderCopy(node, subject, mode == .write, sema.unwrapAccess(self.ctx, scrutinee));
+        if (mode != .consume and !held_view and !self.isPoison(scrutinee)) try self.rejectHeaderCopy(node, subject, sema.unwrapAccess(self.ctx, scrutinee));
         try self.recordUse(subject, switch (mode) {
             .read => .read,
             .consume => .take,
@@ -2302,18 +2303,19 @@ const Checker = struct {
     /// `subject` is emitted over a copy of it: the subject makes a
     /// statement temporary (`sema.firstStmtTemp`), so emit evaluates it
     /// in a block that ends the temporary and yields the subject's
-    /// value, and what the construct binds views that copy. Recorded
-    /// (`copiesHeader`) for emit. A copy under a write binding, or a
-    /// read binding of a value that is not plain data, would take the
-    /// writes, the Cell changes, or the views meant for the subject: it
-    /// is rejected at the temporary, until headers are lowered before
-    /// checking. A copy of plain data that is only read is the subject's
-    /// value.
-    fn rejectHeaderCopy(self: *Checker, node: Sexp, subject: Sexp, writes: bool, bound: TypeId) Error!void {
+    /// value, and what the construct binds is in that copy, not the
+    /// subject. Recorded (the storage fact `header_copy`) for emit.
+    /// Such a header is rejected at the temporary, whatever it binds,
+    /// until emit points at the subject instead of copying it: a write,
+    /// a Cell change, or a view, a catch-all's of plain data included,
+    /// would reach the copy. A value made here, which no name holds, is
+    /// the construct's own: it binds plain data of it by copy, which is
+    /// what the copy holds.
+    fn rejectHeaderCopy(self: *Checker, node: Sexp, subject: Sexp, bound: TypeId) Error!void {
         const temp = sema.firstStmtTemp(self.ctx, subject) orelse return;
         try self.ctx.recordHeaderCopy(node);
         if (self.isPoison(bound)) return;
-        if (!writes and sema.isPlainData(self.ctx, sema.unwrapBorrows(self.ctx, bound))) return;
+        if (self.hands(subject).kind == .made and sema.isPlainData(self.ctx, sema.unwrapBorrows(self.ctx, bound))) return;
         if (inIndex(subject, temp)) {
             try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first", .{});
         } else if (inArgument(subject, temp)) {

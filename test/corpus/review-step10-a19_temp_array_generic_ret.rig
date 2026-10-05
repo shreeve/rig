@@ -1,0 +1,17 @@
+# lendsTempArray: a temporary array lent as a `[]T` to a call that
+# "keeps no view of it" (callRetains). With a generic element type the
+# result is an element: can it view the array's slot?
+struct P
+  xs: [4]Int
+
+fun firstOf[T](xs: []T, k: Int) -> T
+  xs[k]
+
+fun g(k: Int) -> Int
+  k
+
+sub main
+  a = P(xs: [1, 2, 3, 4])
+  b = P(xs: [5, 6, 7, 8])
+  r = firstOf(k: g(1), xs: [?a, ?b])
+  print(r.xs[3])

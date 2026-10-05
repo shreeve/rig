@@ -1,0 +1,12 @@
+# argument (`owned`), a14: as a13 with a `?Text` parameter: the Text
+# temporary is lent by pointer from its statement slot; the call's result
+# views it.
+fun g(k: Int) -> Int
+  print("g")
+  k
+
+fun pick(s: ?Text, n: Int) -> ?Text
+  s
+
+sub main
+  print(pick(n: g(1), s: Text("hello world, long enough to be on the heap")))

@@ -1,0 +1,21 @@
+# generic subject: a guarded `match` whose subject is a call returning
+# `?T` (a pointer in the generic body's view of its type, a value for
+# T = Int at run time). The catch-all view escapes into `r`, a `?T`
+# parameter-rooted view the function returns.
+fun get[T](xs: ?[2]T, i: Int) -> ?T from xs
+  ?xs[i]
+
+fun pick[T](xs: ?[2]T, d: ?T, k: Int) -> ?T from xs, d
+  r = d
+  match get(xs, k)
+    x if k > 0 => r = x
+    _ => r = d
+  r
+
+sub main
+  a = [10, 20]
+  d = 0
+  print(pick(?a, ?d, 1))
+  b = [[1, 2, 3, 4], [5, 6, 7, 8]]
+  e = [0, 0, 0, 0]
+  print(pick(?b, ?e, 1))

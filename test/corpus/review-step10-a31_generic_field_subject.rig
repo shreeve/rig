@@ -1,0 +1,38 @@
+# generic: in a generic body, `w: ?Wrap[T]` is read through
+# `rig.borrowed(Wrap(T), w)`, a copy. A guarded `match ?w.e` on a plain
+# field holds `&<w.e>` as its subject; the plain catch-all `x: ?E` is
+# not arm-local and is returned. Is the address into the copy?
+enum E
+  a(xs: [4]Int)
+  b
+
+struct Wrap[T]
+  e: E
+  v: T
+
+fun f[T](w: ?Wrap[T], d: ?E, k: Int) -> ?E from w, d
+  r = d
+  match ?w.e
+    x if k > 0 => r = x
+    _ => r = d
+  r
+
+fun h[T](w: ?Wrap[T]) -> ?E from w
+  ?w.e
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  w = Wrap(e: E.a(xs: [7, 7, 7, 7]), v: 5)
+  d = E.b
+  r = f(?w, ?d, 1)
+  s = h(?w)
+  print(clobber(3))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+  match s
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")

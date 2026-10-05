@@ -35,6 +35,8 @@ const usage =
     \\                         kind, span, and role-named children
     \\  --facts=sema           Print the facts sema recorded for the root
     \\                         module's expressions instead (check)
+    \\  --facts=storage        Print the hidden storage emit makes for the
+    \\                         root module instead (check)
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
     \\                         `--release=safe` are Zig's safe mode, which
     \\                         keeps overflow and bounds checks;
@@ -82,8 +84,9 @@ const Mode = enum {
     }
 };
 
-/// What `check --facts` prints: the IR's syntax facts, or sema's.
-const Facts = enum { none, syntax, sema };
+/// What `check --facts` prints: the IR's syntax facts, sema's, or the
+/// hidden storage emit makes.
+const Facts = enum { none, syntax, sema, storage };
 
 const Options = struct {
     command: Command,
@@ -153,11 +156,14 @@ pub fn main(init: std.process.Init) !void {
             switch (opts.facts) {
                 .none => {},
                 .syntax => try printFacts(io, graph.root()),
-                .sema => {
+                .sema, .storage => {
                     const m = graph.root();
                     var buffer: [4096]u8 = undefined;
                     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
-                    try sema.writeFactsDump(m.sema, allocator, m.ir, &writer.interface);
+                    if (opts.facts == .sema)
+                        try sema.writeFactsDump(m.sema, allocator, m.ir, &writer.interface)
+                    else
+                        try sema.writeStorageDump(m.sema, allocator, m.ir, &writer.interface);
                     try writer.interface.flush();
                 },
             }
@@ -199,6 +205,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             facts = .syntax;
         } else if (eql(arg, "--facts=sema")) {
             facts = .sema;
+        } else if (eql(arg, "--facts=storage")) {
+            facts = .storage;
         } else if (eql(arg, "-o")) {
             i += 1;
             if (i == args.len) usageError("-o needs a path", .{});

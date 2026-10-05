@@ -1,0 +1,16 @@
+# a13 with an explicit lend `?Text(...)`: keyword arguments written out of order hoist each
+# argument into `__rig_arg_N_k`. A Text temporary lent as a `String`
+# parameter is declared `var __rig_arg: rig.Text = keep(...).bytes()`
+# with a drop: the fact says owned, but the value is a view of the
+# statement's slot. Accepted; the Zig does not compile.
+fun g(k: Int) -> Int
+  print("g")
+  k
+
+fun pick(s: String, n: Int) -> String
+  if n > 0
+    return s
+  "none"
+
+sub main
+  print(pick(n: g(1), s: ?Text("hello world, long enough to be on the heap")))

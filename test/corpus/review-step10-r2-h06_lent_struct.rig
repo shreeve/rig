@@ -1,0 +1,27 @@
+# H1: a made struct lent as `?Q`, as an argument of a hoisted call (keyword
+# arguments out of order), held as the view its parameter expects.
+struct Q
+  xs: [4]Int
+  t: Text
+
+fun g(k: Int) -> Int
+  k
+
+fun mkq(k: Int) -> Q
+  Q(xs: [k, k, k, k], t: Text("a long text that lives on the heap"))
+
+fun mkv(k: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..4
+    !v.push(k + i)
+  v
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun pick(q: ?Q, n: Int) -> ?Q from q
+  q
+
+sub main
+  print(pick(n: g(1), q: mkq(5)).t)

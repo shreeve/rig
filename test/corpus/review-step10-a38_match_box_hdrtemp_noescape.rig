@@ -1,0 +1,21 @@
+# a37 without any escape: a guarded `match ?bs[idx(?Text("a"))]` on an
+# element of an array of Box[E]. The subject is copied (`__rig_subject_N`
+# typed `rig.Box(E)`) but assigned the boxed `E`: the Zig does not compile.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main
+  bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
+  k = 3
+  match ?bs[idx(?Text("a"))]
+    .a(xs) if k > 2 => print(xs[0])
+    _ => print(0)
+  v: Vec[Box[E]] = Vec()
+  !v.push(Box(E.a(xs: [8, 8, 8, 8])))
+  match ?v[idx(?Text("a"))]
+    .a(xs) if k > 2 => print(xs[0])
+    _ => print(0)

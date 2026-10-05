@@ -1,0 +1,28 @@
+# B3 receiver (copy): `mkh().q.put(!h)` as a statement discards its
+# result, so only holders that are live after the call are reported
+# (`holderLive`). Here `h` is read only on the NEXT iteration, through the
+# loop's back edge, after the call's storage (`__rig_recv_N`, a mutable
+# copy of `mkh().q`, poisoned) has ended.
+struct Q
+  c: Cell[Int]
+  n: Int
+
+  fun put(?self, h: !Holder) -> Int
+    h.r = self
+    self.n
+
+struct Holder
+  r: (?Q)?
+
+struct H
+  q: Q
+
+fun mkh(k: Int) -> H
+  H(q: Q(c: Cell(1), n: k))
+
+sub main
+  h = Holder(r: none)
+  for _ in 0..2
+    if h.r as q
+      print(q.n)
+    mkh(42).q.put(!h)

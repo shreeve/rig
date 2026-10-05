@@ -1,0 +1,28 @@
+# a35 with a Q that owns a Text: the call's copy of the Cell-holding part
+# `mkh(43).q` is dropped (`defer rig.drop(&__rig_recv_N)`) when the call
+# returns, and the value block yields a view of it: use of freed memory.
+struct Q
+  c: Cell[Int]
+  t: Text
+
+  fun me(?self, j: Int, k: Int) -> ?Q
+    self
+
+struct H
+  q: Q
+
+fun mkh(k: Int) -> H
+  H(q: Q(c: Cell(1), t: Text("a text long enough to live on the heap")))
+
+fun g(k: Int) -> Int
+  k
+
+sub main
+  d = Q(c: Cell(0), t: Text("d"))
+  k = g(0)
+  s = if k == 0
+    print("block")
+    mkh(43).q.me(k: g(1), j: g(2))
+  else
+    ?d
+  print(s.t)

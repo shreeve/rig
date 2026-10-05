@@ -1,0 +1,37 @@
+# H1: inside a generic body, a `T` local and a `?T` parameter lent to a
+# `?T` parameter of a hoisted call (keyword arguments out of order); and
+# a `?Vec[Int]` parameter lent as `[]Int`, a `*Q` place as `?Q`.
+struct Q
+  xs: [4]Int
+  t: Text
+
+fun g(k: Int) -> Int
+  k
+
+fun pick[T](q: ?T, n: Int) -> ?T from q
+  q
+
+fun outer[T](x: T, y: ?T) -> Int
+  a = pick(n: g(1), q: x)
+  b = pick(n: g(2), q: y)
+  print(a, b)
+  1
+
+fun sl(s: []Int, n: Int) -> []Int from s
+  s[n..]
+
+fun pq(q: ?Q, n: Int) -> ?Q from q
+  q
+
+fun viaview(v: ?Vec[Int]) -> []Int from v
+  sl(n: g(1), s: v)
+
+sub main
+  print(outer(5, ?g(6)))
+  print(outer([1, 2], ?[3, 4]))
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  print(viaview(?v))
+  h = *Q(xs: [1, 2, 3, 4], t: Text("handle text long enough for the heap"))
+  print(pq(n: g(1), q: h).t)

@@ -1,0 +1,20 @@
+# (c04 without `from`, for v0.1.4)
+# c03 with a String payload that views a Text temporary of the header:
+# does the arm's copy of the String read freed memory?
+enum E
+  a(s: String)
+  b
+
+struct H
+  e: E
+
+fun mkh(s: String) -> H
+  H(e: E.a(s: s))
+
+fun pick(h: ?H) -> ?E
+  ?h.e
+
+sub main
+  match pick(?mkh(?Text("a text long enough to live on the heap")))
+    .a(s) => print(s)
+    .b => print("b")

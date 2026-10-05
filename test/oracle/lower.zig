@@ -811,10 +811,14 @@ const Lowerer = struct {
         const el = if (els == .nil) x else try self.newBlock();
         try self.branch(t, el);
         self.cur = t;
-        try self.pushRegion();
+        // A branch is no statement of its own (Core §3): a value branch's
+        // temporaries are its statement's, and only the bindings an `as`
+        // makes leave with it.
+        const region = held != null or j == null;
+        if (region) try self.pushRegion();
         if (held) |h| try self.bindHeld(ir.As.name(cond), h, self.optionalInner(h.ty));
         if (j) |jv| try self.armValue(ir.If.then(e), how, jv) else try self.blockStmts(ir.If.then(e));
-        try self.popRegion(self.posOf(e));
+        if (region) try self.popRegion(self.posOf(e));
         try self.goto(x);
         if (els != .nil) {
             self.cur = el;
@@ -869,9 +873,11 @@ const Lowerer = struct {
         const bare: How = if (how == .take and self.planned and is_place) .read else how;
         try self.pushRegion();
         var v = try self.subject(value, bare, "the `as` value");
-        // A read view of a made value of plain data is read as its value,
-        // which carries no loan (Core §4).
-        if (value.isKind(.read) and !self.isPlaceSyntax(ir.Read.operand(value))) v = try self.readThrough(v, pos);
+        // A read view of plain data that is no place's, written `?mk()`
+        // or a call's result, is read as its value in the header, which
+        // carries no loan (Core §4).
+        const named = if (value.isKind(.read)) ir.Read.operand(value) else value;
+        if (!value.isKind(.write) and !self.isPlaceSyntax(named)) v = try self.readThrough(v, pos);
         const h = try self.hold(v, "the `as` value", pos);
         try self.popRegion(pos);
         var carry_from: ?VarId = null;

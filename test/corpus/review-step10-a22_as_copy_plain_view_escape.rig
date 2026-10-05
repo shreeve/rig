@@ -1,0 +1,20 @@
+# as_value + as_copy (copy): `if pick(?h, ?Text("k")) as x` over a view
+# of an optional whose header makes a temporary binds `x = &copy`
+# (`__rig_opt_N_v`, poisoned when the body ends). Plain data is accepted.
+# Can a view of x be stored past the body?
+struct Q
+  xs: [4]Int
+
+struct H
+  q: Q?
+
+fun pick(h: ?H, k: ?Text) -> ?Q? from h
+  ?h.q
+
+sub main
+  h = H(q: Q(xs: [1, 2, 3, 4]))
+  d = Q(xs: [0, 0, 0, 0])
+  r = ?d
+  if pick(?h, ?Text("k")) as x
+    r = x
+  print(r.xs[3])

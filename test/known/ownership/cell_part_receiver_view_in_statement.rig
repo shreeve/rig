@@ -1,9 +1,9 @@
 # Known bug: a `?self` method called on a Cell-holding field of a
 # temporary its statement does not keep in a slot runs on a copy of the
-# field in the call's block, and a view it returns is read after that
-# block ends, from dead storage (garbage under the sanitizer's stack
-# poisoning). The temporary must live, in a slot, until the statement
-# ends.
+# field in the call's block, so the view it returns would be read after
+# that block ends, from dead storage; the compiler rejects the program
+# (`a view of `mkh().q` outlives the call`). The temporary must live, in
+# a slot, until the statement ends.
 
 struct Q
   c: Cell[Int]

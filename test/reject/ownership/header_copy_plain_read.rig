@@ -1,5 +1,6 @@
 # A header whose subject makes a temporary binds a copy of the subject,
-# which is the subject's value when it is plain data and only read.
+# even of plain data that is only read: it is rejected, as every such
+# header is (`header_temporary_rejected.rig`).
 
 enum E
   a(n: Int)
@@ -20,8 +21,7 @@ sub main
   for x in [[1, 2], [3, 4]][idx(?Text("ab"))]
     print(x)
 
-# expect:
-# 7
-# a 3
-# 3
-# 4
+# errors: 3
+# error: 15:15: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
+# error: 17:16: bind the index to a name first
+# error: 21:34: bind the index to a name first

@@ -1,0 +1,26 @@
+# c03's `if … as` and `while … as` siblings: `pick(?mkh(k))` returns
+# `?Q?`, a view of an optional inside the header's own temporary (which
+# owns a Text, dropped when the header ends); the plain-data binding
+# copies the value out of it after the header block.
+struct Q
+  xs: [4]Int
+
+struct H
+  q: Q?
+  t: Text
+
+fun mkh(k: Int) -> H
+  H(q: Q(xs: [k, k, k, k]), t: Text("a text long enough to live on the heap"))
+
+fun pick(h: ?H) -> ?Q?
+  ?h.q
+
+sub main
+  if pick(?mkh(7)) as x
+    print(x.xs[0], x.xs[3])
+  n = 0
+  while pick(?mkh(8)) as y
+    print(y.xs[0], y.xs[3])
+    n += 1
+    if n > 0
+      break

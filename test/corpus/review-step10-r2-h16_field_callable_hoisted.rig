@@ -1,0 +1,26 @@
+# H1 / argumentParam: a callable held in a field, `s.cb(...)`, in a call
+# whose arguments are evaluated first (one lends a Cell-holding part of
+# a temporary). The plan drops the first parameter as if `s` were a
+# receiver, so `g(1)` is planned against `?Q` instead of `Int`.
+struct Q
+  c: Cell[Int]
+  n: Int
+
+struct H
+  q: Q
+
+struct S
+  cb: fun(Int, ?Q, Int) -> Int
+
+fun g(k: Int) -> Int
+  k
+
+fun mkh(k: Int) -> H
+  H(q: Q(c: Cell(k), n: k))
+
+fun usq(a: Int, q: ?Q, n: Int) -> Int
+  a + q.c.get() + n
+
+sub main
+  s = S(cb: usq)
+  print(s.cb(g(1), ?mkh(5).q, g(2)))

@@ -1,0 +1,19 @@
+# a38 with a shared handle: a guarded `match ?hs[idx(?Text("a"))]` on an
+# element of an array of `*E` reads the E the handle holds; the header
+# temporary makes the match copy its subject.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main
+  hs = [*E.a(xs: [7, 7, 7, 7]), *E.b]
+  k = 3
+  match ?hs[idx(?Text("a"))]
+    .a(xs) if k > 2 => print(xs[0])
+    _ => print(0)
+  match ?hs[idx(?Text("a"))]
+    .a(xs) => print(xs[3])
+    _ => print(0)

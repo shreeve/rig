@@ -194,9 +194,13 @@ and run the corpus after:
   redesign, both caught by the corpus before merging: a view of a
   temporary's part, and a match subject's loan across guards. A third
   slip, a header subject reached through a header temporary (emit
-  binds a copy), stopped the feature: a header whose subject makes a
-  temporary is rejected, unless it only reads plain data or owns what it
-  binds (`copiesHeader`), until step 10.
+  binds a copy), stopped the feature. A fourth, a plain-data catch-all
+  that views that copy, made the rule outright: a `match`, `if … as`,
+  `while … as`, or `for` header whose subject makes a temporary is
+  rejected, whatever it binds, unless it takes its subject or binds plain
+  data of a value made there (`copiesHeader`, the storage fact
+  `header_copy`), until emit points at the subject instead of copying it
+  (step 10's B4).
 - **What a view could hold:** `carry` and `sema.viewReach`, which
   narrow the loans a value and a call's result carry, and String values
   in Cells, generics, and closures.
@@ -215,6 +219,20 @@ and run the corpus after:
   bare use copies it. Emit still copies one in a few places the checker
   rejects around: `if … as` over a view a call returns whose header
   makes a temporary is rejected for a Cell holder for that reason.
+- **Addresses of Zig rvalues (step 10's next structural step).** Every
+  hidden storage location emit makes is a storage fact
+  (`src/storage.zig`), but emit still takes the address of a few Zig
+  rvalues no fact names: a `?self` method on a made value no slot keeps
+  (`mkq().me().n`, also inside a hoisted call's block), on a branching
+  value with a made leaf (`(@as(Q, if (c) mkq(5) else b)).me()`),
+  `emitLeafPtr`'s `&@as(T, value)` fallback, labeled value blocks'
+  yields, and a temporary array lent to a call (docs/INTERNALS.md, Emit,
+  "Addresses of Zig temporaries"). They are latent: the checker keeps
+  each view within its statement, and Zig keeps the rvalue's slot today.
+  Next: make the chokepoint structural (every `&` and `|*x|` targets a
+  place, a slot, or fact-named storage, and the chokepoint checks the
+  fact's `life`), then B4: emit points at a header's subject instead of
+  copying it, which lifts the rejection of headers with temporaries.
 
 ## The gates
 

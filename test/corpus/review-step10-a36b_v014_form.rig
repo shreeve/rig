@@ -1,0 +1,27 @@
+# (a36 without `from`, for v0.1.4)
+# B3 "discarded" rule, function tail: the tail call of a function is its
+# statement, so `endCallHeld` drops the result's loans on what the call
+# holds, and the function returns a view of `__rig_recv_N` (a value of
+# `mk()` the call holds while it runs) with no loan left to check.
+struct S
+  n: Int
+  m: Int
+
+  fun at(!self) -> !Int
+    !self.n
+
+fun mk(k: Int) -> S
+  S(n: k, m: 6)
+
+fun view(d: !Int) -> !Int
+  !mk(42).at()
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  z = 0
+  r = view(!z)
+  print(clobber(1))
+  print(r)

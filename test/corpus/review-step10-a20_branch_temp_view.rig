@@ -1,0 +1,12 @@
+# temp in a value branch: a single-expression branch with a temporary is
+# emitted as a labelled block `__rig_blk_N` holding its temp slot, which
+# ends with the block, while the Core keeps the temporary until the
+# statement ends. The branch yields a String view of the Text temporary.
+fun pick(s: String) -> String
+  s
+
+sub main
+  c = pick("x").len == 1
+  print(pick(?Text("a long text that lives on the heap, hello")) if c else "d")
+  n = (pick(?Text("a long text that lives on the heap, hello")) if c else "d").len
+  print(n)

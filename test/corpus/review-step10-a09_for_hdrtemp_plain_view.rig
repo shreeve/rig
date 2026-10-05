@@ -1,0 +1,21 @@
+# header_value copy, `for` sibling of a05: `for ?x in vs[idx(?Text("a"))]`
+# makes a header temporary, so the loop iterates a copy of the array.
+# Store the plain-data element view and read it after the loop.
+struct P
+  n: [4]Int
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  vs = [[P(n: [7, 7, 7, 7]), P(n: [8, 8, 8, 8])]]
+  z = P(n: [0, 0, 0, 0])
+  r = ?z
+  for x in ?vs[idx(?Text("a"))]
+    r = x
+  print(clobber(1))
+  print(r.n[0], r.n[3])

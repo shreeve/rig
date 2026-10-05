@@ -1,0 +1,40 @@
+# B3 "discarded" rule: a call that is its statement is taken to discard
+# its result. A match arm's or value block's tail IS its statement but
+# yields its value. Here the call holds `mkh(42).q` (a Cell-holding part
+# of a temporary) in a mutable copy `__rig_recv_N` while it runs; the
+# view it returns is yielded out of the arm into `r`.
+struct Q
+  c: Cell[Int]
+  n: Int
+
+  fun me(?self, j: Int, k: Int) -> ?Q
+    self
+
+struct H
+  q: Q
+
+fun mkh(k: Int) -> H
+  H(q: Q(c: Cell(1), n: k))
+
+fun g(k: Int) -> Int
+  k
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  d = Q(c: Cell(0), n: 0)
+  k = g(0)
+  r = match k
+    0
+      print("arm")
+      mkh(42).q.me(k: g(1), j: g(2))
+    _ => ?d
+  s = if k == 0
+    print("block")
+    mkh(43).q.me(k: g(1), j: g(2))
+  else
+    ?d
+  print(clobber(1))
+  print(r.n, s.n)

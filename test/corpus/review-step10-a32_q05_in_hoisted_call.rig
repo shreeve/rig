@@ -1,0 +1,22 @@
+# q05 class: `mkq(5).me()`, a `?self` method on a made value no slot
+# keeps, takes `&` of a Zig rvalue. As an argument of a hoisted call
+# (keyword arguments out of order) the rvalue is made inside the call's
+# block `__rig_call_N`, and the call's result, a view of it, is read
+# after that block ends. (Latent: Zig keeps the rvalue's stack slot.)
+struct Q
+  xs: [4]Int
+
+  fun me(?self) -> ?Q
+    self
+
+fun mkq(k: Int) -> Q
+  Q(xs: [k, k, k, k])
+
+fun g(k: Int) -> Int
+  k
+
+fun pick(q: ?Q, n: Int) -> ?Q
+  q
+
+sub main
+  print(pick(n: g(1), q: mkq(5).me()).xs[3])

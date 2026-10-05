@@ -1,0 +1,23 @@
+# leaf: a branching receiver `(mkq(5) if c else b)` with a made leaf and
+# a place leaf, read where its leaves are (`reachesLeaf`). Is the made
+# leaf in a slot, or `&mkq(5)`, the address of a Zig rvalue? A hoisted
+# call (keyword arguments out of order) holds it in `__rig_recv_N`.
+struct Q
+  xs: [4]Int
+
+  fun me(?self) -> ?Q
+    self
+
+  fun pick(?self, k: Int, j: Int) -> ?Q
+    self
+
+fun mkq(k: Int) -> Q
+  Q(xs: [k, k, k, k])
+
+fun g(k: Int) -> Int
+  k
+
+sub main
+  b = Q(xs: [0, 0, 0, 0])
+  c = g(1) == 1
+  print((mkq(5) if c else b).me().xs[3])

@@ -1,0 +1,26 @@
+# Header exception "a value made in the header": `for` over a Vec made
+# by a call whose argument is a header temporary (plain elements, and
+# Text elements taken), and over a made array of plain data.
+fun idx(s: ?Text) -> Int
+  s.len
+
+fun mkv(k: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..k
+    !v.push(i)
+  v
+
+fun mkt(s: String) -> Vec[Text]
+  v: Vec[Text] = Vec()
+  !v.push(Text(s, " one, long enough for the heap"))
+  !v.push(Text(s, " two, long enough for the heap"))
+  v
+
+fun mka(k: Int) -> [3]Int
+  [k, k + 1, k + 2]
+
+sub main
+  for x in mkv(idx(?Text("abc")))
+    print(x)
+  for y in mka(idx(?Text("ab")))
+    print(y)

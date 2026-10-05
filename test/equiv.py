@@ -6,7 +6,8 @@
 Runs both compilers over every tracked program (tests, examples, std,
 corpus) and every ```rig block in the Markdown docs, and compares what
 each prints for `parse`, `normalize`, `check`, `check --facts`, and, for
-a program `check` accepts, `check --facts=sema` and `emit`. It prints
+a program `check` accepts, `check --facts=sema`, `check --facts=storage`,
+and `emit`. It prints
 each program whose output differs, with the sections that differ, and
 exits 1 if any does. Both compilers run from the repository root, so
 paths in diagnostics match. A section one compiler does not support
@@ -29,6 +30,7 @@ SECTIONS = (
 )
 ACCEPTED = (
     ("sema", ["check", "--facts=sema"]),
+    ("storage", ["check", "--facts=storage"]),
     ("emit", ["emit"]),
 )
 

@@ -1,0 +1,24 @@
+# held: `match ?mk(7).e` holds `mk(7)` (it owns a Text) in `__rig_held_N`
+# for the match; the plain-data catch-all `x: ?E` is not arm-local and
+# views the held value. Store it past the match.
+enum E
+  a(xs: [4]Int)
+  b
+
+struct M
+  t: Text
+  e: E
+
+fun mk(k: Int) -> M
+  M(t: Text("m"), e: E.a(xs: [k, k, k, k]))
+
+sub main
+  z = E.b
+  r = ?z
+  k = 1
+  match ?mk(7).e
+    x if k > 0 => r = x
+    _ => print("skip")
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")

@@ -1,0 +1,22 @@
+# lent (pointer): `?mko(k)` where a `(?Q)?` is expected lends the value
+# inside the made optional, captured `|*__rig_lent_N|`. Is the operand an
+# lvalue (a slot) or a Zig rvalue? The result views it after the call.
+struct Q
+  xs: [4]Int
+  n: Int
+
+fun mko(k: Int) -> Q?
+  if k > 0
+    return Q(xs: [k, k, k, k], n: k)
+  none
+
+fun first(o: (?Q)?, d: ?Q) -> ?Q
+  o ?? d
+
+fun g(k: Int) -> Int
+  k
+
+sub main
+  d = Q(xs: [0, 0, 0, 0], n: 0)
+  print(first(?mko(3), ?d).xs[3])
+  print(first(d: ?d, o: ?mko(g(4))).xs[3])

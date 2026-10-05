@@ -1,0 +1,74 @@
+# A `match`, `if … as`, `while … as`, or `for` header that makes a
+# statement temporary is emitted over a copy of its subject, in the
+# block that ends the temporary, so what it binds would be in that copy:
+# it is rejected, whatever it binds, until emit points at the subject.
+# Only a value made there that the construct owns is bound from the
+# copy: `match mk(?Text("a"))` of plain data, or one it takes.
+
+enum E
+  a(xs: [4]Int)
+  b
+
+struct P
+  x: Int
+
+struct H
+  e: E
+  t: Text
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun opt(n: Int) -> P?
+  if n > 0
+    return P(x: n)
+  none
+
+fun mkh(n: Int) -> H
+  H(e: E.a(xs: [n, n, n, n]), t: Text("h"))
+
+fun mke(s: ?Text) -> E
+  .a(xs: [s.len, 0, 0, 0])
+
+fun at2(v: ?Vec[E]) -> ?E from v
+  match ?v[idx(?Text("a"))]
+    x => x
+
+sub main
+  v = [E.a(xs: [7, 7, 7, 7]), E.b]
+  z = E.b
+  r = ?z
+  k = 3
+  match ?v[idx(?Text("a"))]
+    x if k > 2 => r = x
+    _ => print(0)
+  bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
+  match ?bs[idx(?Text("a"))]
+    .a(xs) if k > 2 => print(xs[0])
+    _ => print(0)
+  hs = [*E.a(xs: [7, 7, 7, 7]), *E.b]
+  match ?hs[idx(?Text("a"))]
+    .a(xs) => print(xs[3])
+    _ => print(0)
+  if ?opt(3) as p
+    print(p.x)
+  while ?opt(0) as q
+    print(q.x)
+  match mkh(4).e
+    .a(xs) => print(xs[0])
+    .b => pass
+  for x in [[1, 2], [3, 4]][idx(?Text("ab"))]
+    print(x)
+  match mke(?Text("a"))
+    .a(xs) => print(xs[0], r)
+    .b => pass
+
+# errors: 8
+# error: 34:17: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
+# error: 42:17: bind the index to a name first
+# error: 46:18: bind the index to a name first
+# error: 50:18: bind the index to a name first
+# error: 53:7: bind `opt(3)` to a name first
+# error: 55:10: bind `opt(0)` to a name first
+# error: 57:9: bind `mkh(4)` to a name first
+# error: 60:34: bind the index to a name first

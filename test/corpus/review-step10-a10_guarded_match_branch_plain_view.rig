@@ -1,0 +1,25 @@
+# subject copy of a BRANCHING subject with no temporaries: a guarded
+# `match (a if c else b)` holds the subject by copy in `__rig_subject_N`
+# (storage.subjectHold: no storage, not a pointer view). The plain-data
+# catch-all `x: ?E` is not arm-local; the checker roots it at a and b.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  a = E.a(xs: [7, 7, 7, 7])
+  b = E.b
+  c = clobber(0) == 1
+  z = E.b
+  r = ?z
+  match ?(a if c else b)
+    x if c => r = x
+    _ => print("skip")
+  print(clobber(1))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")

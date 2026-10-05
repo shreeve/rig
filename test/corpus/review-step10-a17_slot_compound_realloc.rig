@@ -1,0 +1,17 @@
+# slot (pointer): `v[0] %= grow(!v)` lowers to a builtin that assigns its
+# result, so its place is found once in `__rig_slot`. If the slot is
+# taken before the value runs, growing `v` frees the buffer it points to.
+fun grow(v: !Vec[Int]) -> Int
+  for i in 0..100
+    !v.push(i)
+  7
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(100)
+  v[0] %= grow(!v)
+  print(v[0], v.len)
+  w: Vec[Int] = Vec()
+  !w.push(100)
+  w[0] += grow(!w)
+  print(w[0], w.len)
