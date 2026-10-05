@@ -44,13 +44,15 @@ pub fun trim_end(s: String) -> String
     n -= 1
   s[..n]
 
-# `s` after `prefix`, or `none` when `s` does not begin with it.
-pub fun strip_prefix(s: String, prefix: String) -> String?
+# `s` after `prefix`, or `none` when `s` does not begin with it. The
+# result views `s` alone.
+pub fun strip_prefix(s: String, prefix: String) -> String? from s
   return none if not starts_with(s, prefix)
   s[prefix.len..]
 
-# `s` before `suffix`, or `none` when `s` does not end with it.
-pub fun strip_suffix(s: String, suffix: String) -> String?
+# `s` before `suffix`, or `none` when `s` does not end with it. The
+# result views `s` alone.
+pub fun strip_suffix(s: String, suffix: String) -> String? from s
   return none if not ends_with(s, suffix)
   s[..s.len - suffix.len]
 
@@ -60,8 +62,9 @@ pub struct Cut
   pub after: String
 
 # `s` around the first `sep` in it: the part before it and the part
-# after it, or `none` when `sep` does not occur in `s`.
-pub fun cut(s: String, sep: String) -> Cut?
+# after it, or `none` when `sep` does not occur in `s`. Both view `s`
+# alone.
+pub fun cut(s: String, sep: String) -> Cut? from s
   i = find(s, sep)?
   Cut(before: s[..i], after: s[i + sep.len..])
 

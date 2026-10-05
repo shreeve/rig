@@ -111,15 +111,15 @@ true -3.0 -2.0
 The arguments and environment the program started with. Their Strings
 live as long as the program, as a literal's do, and view no `Text`.
 They hold the bytes the operating system gave, which are not checked
-to be UTF-8. Like any function returning a String, `env(name)` counts
-as a view of its argument ([SPEC §7](../SPEC.md#second-class-borrows)),
-so its result is as free as `name` is: with a literal name, it can be
-kept, returned, and stored anywhere.
+to be UTF-8. `env` says so in its signature (`from static`,
+[SPEC §7](../SPEC.md#second-class-borrows)), so its result views
+nothing its caller lent: it can be kept, returned, and stored anywhere,
+whatever `name` is.
 
 | Function | Result |
 |---|---|
 | `args() -> []String` | every argument, the program's name first |
-| `env(name: String) -> String?` | the value of the environment variable `name`, or `none` when it is not set |
+| `env(name: String) -> String? from static` | the value of the environment variable `name`, or `none` when it is not set |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
@@ -361,9 +361,9 @@ part these functions return.
 | `count(s: String, pat: String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
 | `trim(s: String) -> String` | `s` without its leading and trailing ASCII whitespace |
 | `trim_start(s: String) -> String`, `trim_end(s: String) -> String` | `s` without its leading, or its trailing, ASCII whitespace |
-| `strip_prefix(s: String, prefix: String) -> String?` | `s` after `prefix`, or `none` when `s` does not begin with it |
-| `strip_suffix(s: String, suffix: String) -> String?` | `s` before `suffix`, or `none` when `s` does not end with it |
-| `cut(s: String, sep: String) -> Cut?` | `s` around the first `sep`: a `Cut` of the part `before` it and the part `after` it, or `none` when `sep` does not occur |
+| `strip_prefix(s: String, prefix: String) -> String? from s` | `s` after `prefix`, or `none` when `s` does not begin with it |
+| `strip_suffix(s: String, suffix: String) -> String? from s` | `s` before `suffix`, or `none` when `s` does not end with it |
+| `cut(s: String, sep: String) -> Cut? from s` | `s` around the first `sep`: a `Cut` of the part `before` it and the part `after` it, or `none` when `sep` does not occur |
 | `split(s: String, sep: String) -> Split` | the parts of `s` between the occurrences of `sep`, one more than `count(s, sep)`, some perhaps empty; panics when `sep` is `""` |
 | `lines(s: String) -> Lines` | the lines of `s`, without their endings, `\n` or `\r\n`; a line ending at the end of `s` adds no empty line, so `""` has none |
 | `words(s: String) -> Words` | the words of `s`: the nonempty runs of bytes between ASCII whitespace |

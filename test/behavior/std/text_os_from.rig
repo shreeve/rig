@@ -1,0 +1,47 @@
+# std's text helpers and `os.env` say what their results view (Core
+# sentence 7): `strip_prefix`, `strip_suffix`, and `cut` view `s` alone,
+# and `os.env` only what lives for the whole program, so a computed key,
+# prefix, or separator is free again after the call.
+
+use std.text
+use std.os
+
+sub main
+  line = Text("name=ada")
+  names = ["id", "name", "age"]
+  found: Vec[String] = Vec()
+  for name in names
+    key = Text(name, "=")
+    if text.strip_prefix(?line, ?key) as v
+      !found.push(v)
+  print(found)
+  key = Text("name", "=")
+  w = text.strip_prefix(?line, ?key) ?? ""
+  -key
+  print(w)
+  t = Text("abc")
+  p = Text("a")
+  r = text.strip_prefix(?t, ?p)
+  !p.add("x")
+  print(r ?? "", p)
+  q = Text("c")
+  s = text.strip_suffix(?t, ?q)
+  -q
+  print(s ?? "")
+  kv = Text("k=v")
+  sep = Text("=")
+  if text.cut(?kv, ?sep) as parts
+    !sep.add("x")
+    print(parts.before, parts.after, sep)
+  n = Text("NO_SUCH_RIG_VARIABLE_", "X")
+  e = os.env(?n) ?? "unset"
+  -n
+  print(e)
+
+# expect:
+# ["ada"]
+# ada
+# bc ax
+# ab
+# k v =x
+# unset

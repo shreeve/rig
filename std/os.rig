@@ -6,5 +6,7 @@ extern zig "os.zig"
   pub fun args -> []String
 
   # The value of the environment variable `name`, or `none` when it is
-  # not set. The String lives as long as the program.
-  pub fun env(name: String) -> String?
+  # not set. The String lives as long as the program: it views the
+  # environment the process started with, which nothing in std changes
+  # (a `set_env` would have to revisit this `from static`).
+  pub fun env(name: String) -> String? from static
