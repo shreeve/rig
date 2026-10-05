@@ -22,6 +22,7 @@
 //!                   `sema.zig`       then every local must be read
 //!   7. generics     `sema.zig`,      the instances generic bodies reach,
 //!                   `typecheck.zig`  and each instance's requirements
+//!   8. storage      `storage.zig`    the hidden storage emit makes
 //!
 //! ## The facts table
 //!
@@ -53,6 +54,7 @@ const rig = @import("rig.zig");
 pub const diag = @import("diag.zig");
 const resolve = @import("resolve.zig");
 const typecheck = @import("typecheck.zig");
+const storage = @import("storage.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -704,6 +706,124 @@ pub const Header = enum {
 /// A header's `Header`, and the value it holds when `held`.
 pub const HeaderFact = struct { how: Header, base: Sexp = .nil };
 
+/// A hidden storage location emit makes for an expression or construct
+/// (docs/INTERNALS.md, "Storage facts"): decided once, before ownership
+/// is checked, so the ownership checker walks the storage the emitted
+/// program has, and emit declares no storage without one
+/// (`SemContext.storageOf`).
+pub const Storage = struct {
+    kind: StorageKind,
+    by: StorageBy,
+    life: StorageLife,
+};
+
+/// What a hidden storage location holds, and the Zig name emit gives it.
+pub const StorageKind = enum {
+    /// An owning temporary its statement or header drops at its end
+    /// (`__rig_tmp`): `dropsTemp`.
+    temp,
+    /// The value of a header that makes statement temporaries, yielded
+    /// by the block that ends them (`__rig_hdr`).
+    header_value,
+    /// The construct (`match`, `for`, `as`) binds the parts of that
+    /// yielded value, a copy of its subject: `copiesHeader`. No name of
+    /// its own: the storage is the header's value.
+    header_copy,
+    /// The made value a header's subject is a part of, held for the
+    /// construct (`__rig_held`): `Header.held`.
+    held,
+    /// The array a `for` takes, held for the loop (`__rig_src`):
+    /// `Header.taken`.
+    taken,
+    /// The iterator a consuming `for` hands its elements over from
+    /// (`__rig_it`).
+    iterator,
+    /// The element a consuming `for` hands over, before its binding
+    /// takes it (`__rig_elem`).
+    element,
+    /// A range `for`'s counter, from the range's start (`__rig_i`).
+    range_start,
+    /// A range `for`'s end (`__rig_end`).
+    range_end,
+    /// A `match` subject evaluated once, before its arms (`__rig_subject`).
+    subject,
+    /// The whole value a `match <x` arm takes (`__rig_whole`).
+    whole,
+    /// A variant's payload an arm captures (`__rig_payload`).
+    payload,
+    /// What `if … as` or `while … as` captures (`__rig_opt`).
+    as_value,
+    /// A mutable copy of what an `as` captures, which its binding views
+    /// (`__rig_opt_N_v`).
+    as_copy,
+    /// The value inside an optional a lend reaches (`__rig_lent`).
+    lent,
+    /// The payload a branch of a value read where its leaves are takes,
+    /// captured by address (`__rig_leaf`).
+    leaf,
+    /// The error a `catch |e|` handler names (`__rig_err`).
+    error_value,
+    /// An argument of a call whose arguments are evaluated first
+    /// (`__rig_arg`).
+    argument,
+    /// The receiver of such a call (`__rig_recv`).
+    receiver,
+    /// The environment of a closure literal lent to a call (`__rig_env`).
+    environment,
+    /// A closure literal called where it is written (`__rig_fn`).
+    invoked,
+    /// The environment an owned closure allocates (`__rig_env`), which
+    /// the closure value then owns.
+    closure_env,
+    /// An assignment's value, made before the store (`__rig_new`).
+    new_value,
+    /// An index of an assignment's target, evaluated before the store
+    /// (`__rig_ix`).
+    index,
+    /// The place an assignment stores to, found once (`__rig_slot`).
+    slot,
+};
+
+/// How a hidden storage location holds what it holds.
+pub const StorageBy = enum {
+    /// The value is its own: made there, or taken, and dropped there if
+    /// nothing takes it on.
+    owned,
+    /// A copy of a value that is still held where it was: a view of the
+    /// storage views the copy, not that value.
+    copy,
+    /// The address of a place, or of storage another fact records.
+    pointer,
+};
+
+/// How long a hidden storage location lives.
+pub const StorageLife = enum {
+    /// Until its statement ends; a header is its own statement.
+    statement,
+    /// Until its header ends.
+    header,
+    /// Until the construct (`match`, `for`, `if … as`) ends.
+    construct,
+    /// For one iteration of a loop.
+    iteration,
+    /// Until its `match` arm ends.
+    arm,
+    /// Until the body of its `if … as` or `while … as` ends.
+    body,
+    /// Until its `catch` handler ends.
+    handler,
+    /// Until the expression it is made in ends.
+    expression,
+    /// Until its call returns.
+    call,
+    /// Until its assignment's store.
+    assignment,
+};
+
+/// The key of a storage fact: the expression or construct (`exprKey`)
+/// and the kind of storage made for it.
+pub const StorageKey = struct { node: u64, kind: StorageKind };
+
 /// What a context does with a value (Core §3).
 pub const Use = enum {
     /// Reads it where it is: a `print` argument, an `==` operand, `+e`,
@@ -966,6 +1086,52 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
             } else try t.print("node#{d}", .{id});
             try writeFactValue(ctx, a, t, name, e.value_ptr.*);
             try out.append(a, .{ .fact = fact, .start = span.start, .end = span.end, .text = text.written() });
+        }
+    }
+    std.mem.sort(Line, out.items, {}, Line.lessThan);
+    for (out.items) |l| try w.print("{s}\n", .{l.text});
+}
+
+/// `rig check --facts=storage`: every hidden storage location emit makes
+/// for the root module (`Storage`), one per line, in source order:
+///
+///   KIND NODE L:C-L:C "TEXT" BY LIFE
+///
+/// with the node it is made for, as `writeFactsDump` shows one.
+pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *std.Io.Writer) !void {
+    const Line = struct {
+        start: u32,
+        end: u32,
+        text: []const u8,
+
+        fn lessThan(_: void, x: @This(), y: @This()) bool {
+            if (x.start != y.start) return x.start < y.start;
+            if (x.end != y.end) return x.end > y.end;
+            return std.mem.order(u8, x.text, y.text) == .lt;
+        }
+    };
+    var out: std.ArrayList(Line) = .empty;
+    var lines: diag.Lines = .{ .source = ctx.source };
+    var stack: std.ArrayList(Sexp) = .empty;
+    try stack.append(a, root);
+    while (stack.pop()) |n| {
+        if (n == .list) try stack.appendSlice(a, n.list.items());
+        if (n != .src and !(n == .list and n.list.id != 0)) continue;
+        inline for (@typeInfo(StorageKind).@"enum".field_names) |name| {
+            const kind = @field(StorageKind, name);
+            if (ctx.storageOf(n, kind)) |s| {
+                const span = if (ctx.parser) |p| p.base.span(n) else diag.leafSpan(n);
+                const from = lines.at(span.start);
+                const to = lines.at(span.end);
+                var text: std.Io.Writer.Allocating = .init(a);
+                const t = &text.writer;
+                const node_kind = if (n == .src) "leaf" else if (n.kind()) |k| @tagName(k) else "group";
+                try t.print("{s} {s} {d}:{d}-{d}:{d} \"", .{ @tagName(kind), node_kind, from.line, from.col, to.line, to.col });
+                for (ctx.source[span.start..@min(span.end, span.start + 40)]) |c|
+                    if (c == '\n') try t.writeAll("\\n") else try t.writeByte(c);
+                try t.print("\" {s} {s}", .{ @tagName(s.by), @tagName(s.life) });
+                try out.append(a, .{ .start = span.start, .end = span.end, .text = text.written() });
+            }
         }
     }
     std.mem.sort(Line, out.items, {}, Line.lessThan);
@@ -1256,6 +1422,11 @@ pub const SemContext = struct {
     /// the ownership checker finds: this module's own, recorded after it
     /// is checked, and those of the proxies' bodies, imported with them.
     plain_reqs: std.ArrayList(PlainRequirement) = .empty,
+    /// The hidden storage emit makes (`Storage`), but for the kinds the
+    /// facts table keeps (`temp` is `temp_drops`, `header_copy` is
+    /// `header_copies`): recorded after the expressions are checked
+    /// (`storage.plan`).
+    storage: std.AutoHashMapUnmanaged(StorageKey, Storage) = .empty,
     /// The `from` clause of each function and method that writes one
     /// (`-> T from a, b`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
@@ -1316,6 +1487,7 @@ pub const SemContext = struct {
         self.imported.deinit(self.allocator);
         self.imported_entries.deinit(self.allocator);
         self.plain_reqs.deinit(self.allocator);
+        self.storage.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -1721,6 +1893,28 @@ pub const SemContext = struct {
         return self.facts.elem_calls.get(nodeKey(callee) orelse return null);
     }
 
+    /// Emit holds a value of `node` in hidden storage `s`
+    /// (`storage.plan`). A `temp` is recorded as `recordTempDrop`, and a
+    /// `header_copy` as `recordHeaderCopy`.
+    pub fn recordStorage(self: *SemContext, node: Sexp, s: Storage) !void {
+        std.debug.assert(s.kind != .temp and s.kind != .header_copy);
+        const key = recordExprKey(node) orelse return;
+        const gop = try self.storage.getOrPut(self.allocator, .{ .node = key, .kind = s.kind });
+        // One node's storage of one kind is decided once.
+        if (gop.found_existing) std.debug.assert(std.meta.eql(gop.value_ptr.*, s));
+        gop.value_ptr.* = s;
+    }
+
+    /// The hidden storage of `kind` emit makes for `node`, if any
+    /// (`Storage`).
+    pub fn storageOf(self: *const SemContext, node: Sexp, kind: StorageKind) ?Storage {
+        return switch (kind) {
+            .temp => if (self.dropsTemp(node)) .{ .kind = .temp, .by = .owned, .life = .statement } else null,
+            .header_copy => if (self.copiesHeader(node)) .{ .kind = .header_copy, .by = .copy, .life = .construct } else null,
+            else => self.storage.get(.{ .node = exprKey(node) orelse return null, .kind = kind }),
+        };
+    }
+
     pub fn recordTempDrop(self: *SemContext, node: Sexp) !void {
         try self.facts.temp_drops.put(self.allocator, recordKey(node), {});
     }
@@ -2020,6 +2214,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
+    try storage.plan(&ctx, tree);
     return ctx;
 }
 
@@ -3749,7 +3944,7 @@ pub const ViewTargets = struct {
 /// answer more cautious.
 fn viewAtom(ctx: *const SemContext, ty: TypeId) u64 {
     const t = ctx.types.get(ty);
-    const tag: u64 = @intFromEnum(std.meta.activeTag(t));
+    const tag: u64 = @backingInt(std.meta.activeTag(t));
     const decl: ?struct { module: u32, sym: SymbolId } = switch (t) {
         .nominal => |sym| if (sym == ctx.endian_sym_id) .{ .module = 0, .sym = symbol_invalid } else .{ .module = ctx.module_id, .sym = sym },
         .imported_nominal => |n| .{ .module = n.module_id, .sym = n.sym_id },
@@ -3954,7 +4149,7 @@ const ReachWalk = struct {
     fn reached(self: *ReachWalk, path: Path, viewed: bool) void {
         if (self.from == .views and !viewed) return;
         const r: ViewReach = if (path.read) .through_view else .owned;
-        if (@intFromEnum(r) > @intFromEnum(self.found)) self.found = r;
+        if (@backingInt(r) > @backingInt(self.found)) self.found = r;
     }
 
     fn push(self: *ReachWalk, node: ViewNode, path: Path) std.mem.Allocator.Error!void {

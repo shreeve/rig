@@ -18,6 +18,7 @@ source.rig
   ▼
 modules          src/modules.zig   load `use`d files, check in dependency order
   │  sema        src/sema.zig      names, types, effects, the facts table
+  │  storage     src/storage.zig   the hidden storage emit makes
   │  ownership   src/ownership.zig moves, loans, drops, aliasing
   ▼
 emit             src/emit.zig      one Zig file per module
@@ -29,9 +30,11 @@ zig run / zig build-exe            debug (leak-checked), safe, or fast
 `src/main.zig` is the CLI; `rig --help` is its reference. `check` runs
 every checker on the program and its imports. `check --facts` then
 prints the root module's IR as flat facts ([Syntax facts](#syntax-facts)),
-and `check --facts=sema` every fact sema recorded for its expressions
-(`sema.Facts`), one per line, keyed by node kind and span with no
-compiler ids, so two compilers' dumps of a program diff cleanly.
+`check --facts=sema` every fact sema recorded for its expressions
+(`sema.Facts`), and `check --facts=storage` the hidden storage emit makes
+for them ([Storage facts](#storage-facts)), one per line, keyed by node
+kind and span with no compiler ids, so two compilers' dumps of a program
+diff cleanly.
 A module whose sema reports an error (other than a local that is never
 read, a lint on well-typed code) is not ownership-checked: ownership
 reads the types sema settled, as Rust's checker waits for its
@@ -86,6 +89,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
 | `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Box`, `Signal` as built-in generics, `Endian` as a built-in enum, and the built-in type names (`Int`, `String`, `Text`, ...), symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
+| `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
@@ -613,6 +617,8 @@ later pass reads. It runs these steps in order:
    through generic bodies are added, and every instance is checked
    against the operations its bodies apply to the type parameters
    ([Generics](#generics)).
+8. **storage** (`storage.plan`): the hidden storage emit makes for each
+   expression or construct is recorded ([Storage facts](#storage-facts)).
 
 The expression walk also checks the two effects that are not about
 ownership:
@@ -862,9 +868,9 @@ instead of re-deriving it by name:
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read lend of it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
-| `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary (`rejectHeaderCopy`); emit reads it and checks its own shape against it |
+| `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary (`rejectHeaderCopy`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
-| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
+| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
@@ -913,6 +919,58 @@ that discards, overwrites, or stores a `T` in an array or slice records
 
 Sema's job includes everything emit cannot lower: a construct the
 backend cannot express yet is rejected with a diagnostic that says so.
+
+### Storage facts
+
+Every hidden storage location emit makes, a Zig `var`, `const`, or
+capture holding a value of the program that no Rig name holds, is a
+recorded fact (`sema.Storage`), decided once, before the ownership
+checker runs, so the checker walks the storage the emitted program has
+(AGENTS.md: the checker checks exactly what is emitted). After the
+expressions are checked, `storage.plan` walks the module and records,
+for each expression or construct, the storage emit makes for it
+(`SemContext.storageOf(node, kind)`): what it holds (`kind`, which also
+gives its Zig name), how (`by`), and how long it lives (`life`).
+`rig check --facts=storage` prints them, one per line, in source order.
+
+| Kind | Zig name | Made for | By | Life |
+|---|---|---|---|---|
+| `temp` | `__rig_tmp` | an owning temporary its statement or header drops (`dropsTemp`) | owned | statement |
+| `header_value` | `__rig_hdr` | a header that makes temporaries: the block that ends them yields its value | copy | header |
+| `header_copy` | (the header's value) | a `match`, `for`, or `as` that binds the parts of that value (`copiesHeader`) | copy | construct |
+| `held` | `__rig_held` | the made value a header's subject is a part of (`Header.held`) | owned | construct |
+| `taken` | `__rig_src` | the array a `for` takes (`Header.taken`) | owned | construct |
+| `iterator`, `element` | `__rig_it`, `__rig_elem` | a consuming `for` | owned | construct, iteration |
+| `range_start`, `range_end` | `__rig_i`, `__rig_end` | a range `for`'s counter and end | owned | construct |
+| `subject` | `__rig_subject` | a `match` that evaluates its subject before its arms (`storage.subjectHold`) | pointer, copy, or owned | construct |
+| `whole`, `payload` | `__rig_whole`, `__rig_payload` | what an arm captures: the value `match <x` takes, or a variant's payload | owned, pointer, or copy | arm |
+| `as_value`, `as_copy` | `__rig_opt`, `__rig_opt_N_v` | what `if … as` or `while … as` captures, and a mutable copy its binding views | pointer, copy, or owned | body |
+| `lent` | `__rig_lent` | the value inside an optional a lend reaches | pointer | expression |
+| `leaf` | `__rig_leaf` | the payload a branch of a value read where its leaves are takes (`storage.reachesLeaf`) | pointer | expression |
+| `error_value` | `__rig_err` | the error a `catch \|e\|` handler names | copy | handler |
+| `argument`, `receiver` | `__rig_arg`, `__rig_recv` | a call whose arguments are evaluated first (`storage.hoistsArgs`, `receiverHold`, `argumentHold`) | owned, copy, or pointer | call |
+| `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
+| `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
+| `new_value`, `index`, `slot` | `__rig_new`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then finds its place (`storage.actsBeforeStore`) | owned, owned, pointer | assignment |
+
+`owned` storage holds a value of its own, made there or taken; `copy`
+holds a copy of a value still held where it was, so a view of the
+storage views the copy; `pointer` holds the address of a place, or of
+storage another fact records. Two kinds are facts the table already
+keeps: `temp` is `dropsTemp` and `header_copy` is `copiesHeader`, which
+typecheck records where it decides them (`recordTempDrop`,
+`rejectHeaderCopy`). Bookkeeping that holds no value of the program is
+not storage: alive and `else` flags, a loop's index counter, a guarded
+match's arm number, labels, and renamed parameters.
+
+The predicates that decide where emit makes storage are in
+`src/storage.zig`, and emit asks the same ones. Emit names every
+hidden storage location through one function, `Emitter.hiddenStorage`,
+which requires the fact, held the same way, and reaches an internal
+error otherwise; the suite's `classify` check fails on a storage name
+spelled anywhere else. A capture is storage only for a binding something
+reads, which `plan` decides as emit does: a name other than its
+declaration names it, or a closure captures it.
 
 ### Generics
 
@@ -1581,6 +1639,10 @@ lower is an internal error: sema must have rejected it.
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's
   guarded `defer` then drops.
+- **Hidden storage.** Every `__rig_` location that holds a value of
+  the program is named by `hiddenStorage`, which requires its storage
+  fact ([Storage facts](#storage-facts)): emit makes no storage the
+  ownership checker did not walk.
 - **No address of a Zig temporary.** Emit takes an address only of
   storage that lives as long as a view of it may. A value that branches
   with a leaf a name holds, read where its leaves are (`reachesLeaf`:
@@ -1723,8 +1785,8 @@ green.
 suite runs beside `src/ownership.zig`, written from
 [CORE](CORE.md) and sharing none of the compiler's ownership code: it
 reads only the IR, symbols, and types (`src/lib.zig`), never the facts
-typecheck and ownership record about what an expression hands over, and
-a lint keeps it so. It lowers each function to a small core in which
+typecheck and ownership record about what an expression hands over, nor
+the storage facts, and a lint keeps it so. It lowers each function to a small core in which
 statement temporaries are hidden bindings and evaluation order is
 explicit, then runs one dataflow over the core's control flow: which
 vars are live, which loans each var holds, and the checks each Core

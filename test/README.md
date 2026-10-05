@@ -36,7 +36,7 @@ off the sanitizer (see [below](#leak-checking-and-the-sanitizer)).
 | `test/corpus/<name>.rig` | a reviewer's probe: `rig check` rejects it with a `file:line:col` diagnostic, or it runs sanitizer-clean (see below) |
 | `unit` | `zig build test` |
 | `parser` | `src/parser.zig` matches what Nexus generates from `rig.grammar` |
-| `classify` | no pass in `src/` keeps a classifier of what an expression hands over beside `sema.handsOver` (`isPlaceExpr`, `isPlace`, `makesValue`, `isBranching`, `readLeaves`, `classifyReceiverShape`) |
+| `classify` | no pass in `src/` keeps a classifier of what an expression hands over beside `sema.handsOver` (`isPlaceExpr`, `isPlace`, `makesValue`, `isBranching`, `readLeaves`, `classifyReceiverShape`), and emit names hidden storage only through its storage facts (`Emitter.hiddenStorage`) |
 | `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
 | `oracle/<set>` | the reference ownership checker agrees with the compiler over a set of programs (see below) |
 
@@ -283,7 +283,7 @@ test/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR]
 runs two compilers over every tracked program and every ```` ```rig ````
 block in the docs, and compares what they print for `parse`,
 `normalize`, `check`, `check --facts`, and, for an accepted program,
-`check --facts=sema` and `emit`. It lists each program whose output
+`check --facts=sema`, `check --facts=storage`, and `emit`. It lists each program whose output
 differs, with the sections that differ (`--keep` saves both outputs),
 and exits 1 if any does. Build the old compiler from the base commit
 and copy `bin/rig` aside first. A refactor's every difference is a
