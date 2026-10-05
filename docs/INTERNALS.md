@@ -818,17 +818,27 @@ iteration. Each says to bind the value to a name first.
 A header whose subject makes a statement temporary
 (`sema.firstStmtTemp`, which emit's header blocks use too) is evaluated
 in a block that ends the temporary and yields the subject's value, so
-what the construct binds views a copy, whatever the subject's shape: a
+what the construct binds is in a copy, whatever the subject's shape: a
 place, a lend, or a branching value. Typecheck records that once per
-header (`copiesHeader`), unless the construct owns what it binds (`<p`,
-a value made there, a `match` that takes its subject), walks a slice,
-or matches a view a call returns, which is held as the pointer it is.
-Emit reads the fact and fails if its own shape disagrees. A copy is
-rejected at the temporary under a write binding, or a read binding of a
-value that is not plain data (`rejectHeaderCopy`), with "bind the index
-(the argument, `e`) to a name first"; a copy of plain data that is only
-read is the subject's value. Lowering headers before checking (HANDOFF
-step 10) lifts the rule.
+header (`copiesHeader`, the storage fact `header_copy`), unless the
+construct takes its subject (`<p`, a `match` that takes it), walks a
+slice, or matches a view a call returns, which is held as the pointer it
+is. Emit reads the fact and fails if its own shape disagrees. Such a
+header is rejected at the temporary, whatever it binds and of whatever
+type (`rejectHeaderCopy`), with "bind the index (the argument, `e`) to a
+name first": a write, a Cell change, or a view, a plain-data catch-all's
+included, would reach the copy. The one exception is a value made there,
+which no name holds, of which the construct binds plain data: what it
+binds is a copy either way. Headers with temporaries stay rejected until
+emit points at the subject instead of copying it (HANDOFF, weak spots).
+
+A read catch-all binding has the subject's type, so over a lend of plain
+data (`match ?v[i]`, `x => ...`) it is a view of the place, not the copy
+the rule above states for payloads. Making it a copy would reject a
+program that returns or stores it as a view (`x => x` in a function
+returning `?E`), so it stays a view; it is sound because such a header
+either makes no temporary, and so is matched where the place is, or is
+rejected.
 
 Typecheck records the class where it binds: a bare place is recorded
 as a read lend of the subject (`lendOf`, `Lend.implicit`), which the
@@ -989,9 +999,10 @@ keeps it in its statement's slot (`test/known/`). The other storage
 needs no walk of its own. Owned storage of a construct (`held`,
 `taken`, the consuming `for`'s) is the hidden var the construct already
 takes its value into; pointers are loans on what they point at; a
-statement's temporaries are `dropsTemp`'s. Of the copies, one a header
-binds is rejected where typecheck records it (`rejectHeaderCopy`), and
-so is a write, a move, or a Cell change through it; a read match's
+statement's temporaries are `dropsTemp`'s. Of the copies, a header
+that binds one is rejected where typecheck records it
+(`rejectHeaderCopy`), unless it binds plain data of a value made there;
+a read match's
 payload view, which may view a `subject` copy, lives for its arm
 (`arm_view`); a `payload` copy only copies fields out, and an
 `error_value` is plain data.

@@ -194,9 +194,13 @@ and run the corpus after:
   redesign, both caught by the corpus before merging: a view of a
   temporary's part, and a match subject's loan across guards. A third
   slip, a header subject reached through a header temporary (emit
-  binds a copy), stopped the feature: a header whose subject makes a
-  temporary is rejected, unless it only reads plain data or owns what it
-  binds (`copiesHeader`), until step 10.
+  binds a copy), stopped the feature. A fourth, a plain-data catch-all
+  that views that copy, made the rule outright: a `match`, `if … as`,
+  `while … as`, or `for` header whose subject makes a temporary is
+  rejected, whatever it binds, unless it takes its subject or binds plain
+  data of a value made there (`copiesHeader`, the storage fact
+  `header_copy`), until emit points at the subject instead of copying it
+  (step 10's B4).
 - **What a view could hold:** `carry` and `sema.viewReach`, which
   narrow the loans a value and a call's result carry, and String values
   in Cells, generics, and closures.

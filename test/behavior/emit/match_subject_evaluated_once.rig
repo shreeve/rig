@@ -1,6 +1,6 @@
 # A match evaluates its subject once, however its arms are tested: a
-# guarded match on a call, a borrow of a call's result, or an element
-# whose index has an effect runs the call once, and a `match <` of a
+# guarded match on a call, or on an element whose index has an effect,
+# runs the call once, and a `match <` of a
 # call owns and drops what the call made; so does a `match <` of a
 # call with alternatives, and a `match !` of an element bound whole.
 
@@ -49,7 +49,7 @@ sub main
   print(x.n)
   match <make(5)
     .full(_, _), .empty => print("either")
-  match ?(mk())
+  match mk()
     .circle(r) if r > 5 => print("big")
     .circle(r) if r > 1 => print("mid", r)
     _ => print("other")

@@ -1,24 +1,8 @@
 # A part of a value made in a header that is plain data is read in the
-# header, as any value is, and the made value is a temporary that ends
-# with the header: literal patterns match it, a copy of it outlives the
-# header, and the made value is dropped before the arms run.
-
-struct Noisy
-  n: Int
-
-  drop(!self)
-    print("drop", self.n)
-
-enum E
-  a(n: Int)
-  b
-
-struct H
-  e: E
-  z: Noisy
-
-fun mkh(n: Int) -> H
-  H(e: E.a(n: n), z: Noisy(n: n))
+# header, as any value is: literal patterns match it, and a copy of it
+# outlives the header. (One whose made value is a temporary that ends
+# with the header is rejected:
+# `test/reject/ownership/header_temporary_rejected.rig`.)
 
 struct P
   x: Int
@@ -41,9 +25,6 @@ sub main()
   match G(n: 3).n
     3 => print("three")
     _ => print("other")
-  match mkh(4).e
-    .a(n) => print("arm", n)
-    .b => pass
   for k in [[5, 6], [7, 8]][1]
     print("k", k)
   base = P(x: 3, y: 4)
@@ -57,8 +38,6 @@ sub main()
 # expect:
 # one
 # three
-# drop 4
-# arm 4
 # k 7
 # k 8
 # 3
