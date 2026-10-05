@@ -167,3 +167,31 @@ sub main
 EOF2
 out=$("$RIG" emit generic.rig 2>/dev/null) || fail "rig emit generic.rig"
 expect_has "$out" 'switch (rig.borrowedPtr(__rig_Self, &self).*)' "generic subject switched in place"
+
+# Under the sanitizer, each storage location emit adds is filled with
+# `0xAA` when its scope ends (`rig.poison`), after its drop; without it,
+# nothing is written.
+cat >poison.rig <<'EOF2'
+fun mk(n: Int) -> Vec[Int]!
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  v
+
+fun pair(a: Vec[Int], b: Vec[Int]) -> Int
+  a[0] + b[0]
+
+fun run -> Int!
+  pair(mk(1)!, mk(2)!)
+
+sub main
+  print(run() catch 0, Text("abc").len)
+EOF2
+out=$(RIG_SANITIZE=1 "$RIG" emit poison.rig 2>/dev/null) || fail "rig emit poison.rig"
+expect_has "$out" 'defer rig.poison(&__rig_arg_' "hoisted argument poisoned"
+expect_has "$out" 'defer rig.poison(&__rig_tmp_' "statement temporary poisoned"
+grep -qE 'rig\.drop\(&__rig_tmp_[0-9]+\); \} rig\.poison\(&__rig_tmp_' <<<"$out" || fail "statement temporary not poisoned when the statement ends: $out"
+out=$(RIG_SANITIZE=0 "$RIG" emit poison.rig 2>/dev/null) || fail "rig emit poison.rig"
+grep -q 'rig.poison' <<<"$out" && fail "poisoned without the sanitizer: $out"
+out=$(RIG_SANITIZE=1 "$RIG" run poison.rig 2>&1) || fail "rig run poison.rig: $out"
+expect_eq "$out" "3 3" "poisoned program runs"
+true

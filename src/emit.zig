@@ -239,6 +239,10 @@ pub const Emitter = struct {
     uses_module: bool = false,
     /// The module declares an `extern "c"`, so the program links libc.
     links_libc: bool = false,
+    /// Fill each hidden storage location with `0xAA` when its scope ends
+    /// (`rig.poison`), so a view that outlives it reads garbage: set for
+    /// the sanitizer (`RIG_SANITIZE`).
+    poison: bool = false,
     /// The Zig error set of every error of the module's error sets,
     /// which its fallible Zig-backed functions may return.
     module_errors: []const u8 = "error{}",
@@ -964,6 +968,7 @@ pub const Emitter = struct {
         try self.w.print("var {s} = ", .{name});
         try self.emitBare(base);
         try self.w.writeAll(";\n");
+        try self.poisonAtExit(name);
         const k = if (self.typeOf(base)) |t| self.kindOf(t) else null;
         if (k) |kind| {
             try self.writeIndent(self.indent);
@@ -1068,6 +1073,7 @@ pub const Emitter = struct {
 
     fn writeTempDrop(self: *Emitter, name: []const u8) Error!void {
         try self.w.print(" if ({s}_live) {{ {s}_live = false; rig.drop(&{s}); }}", .{ name, name, name });
+        if (self.poison) try self.w.print(" rig.poison(&{s});", .{name});
     }
 
     /// Declare a slot for each owning temporary in statement `stmt` (not
@@ -1083,7 +1089,9 @@ pub const Emitter = struct {
             const name = try self.fmt("__rig_tmp_{d}", .{self.nextId()});
             try self.w.print("var {s}: ", .{name});
             try self.emitTypeTy(self.typeOf(stmt) orelse return self.unsupported(stmt, "an untyped temporary"));
-            try self.w.print(" = undefined; var {s}_live = false; defer if ({s}_live) rig.drop(&{s}); ", .{ name, name, name });
+            try self.w.print(" = undefined; var {s}_live = false; ", .{name});
+            if (self.poison) try self.w.print("defer rig.poison(&{s}); ", .{name});
+            try self.w.print("defer if ({s}_live) rig.drop(&{s}); ", .{ name, name });
             try self.temp_slots.append(self.allocator, .{ .node = stmt.list.id, .name = name });
         }
     }
@@ -2507,6 +2515,7 @@ pub const Emitter = struct {
         if (info.boxed and self.hasTemps(value)) try self.w.writeAll(".value.*");
         try self.closeHeader(h);
         try self.w.print("; _ = &{s};\n", .{name});
+        try self.poisonAtExit(name);
         info.reread = name;
         info.temp = info.mode == .consume;
     }
@@ -2990,6 +2999,7 @@ pub const Emitter = struct {
         const local = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(o.name));
         if (o.copy) {
             try self.line("var {s}_v = {s};", .{ o.tmp, o.tmp });
+            if (self.poison) try self.line("defer rig.poison(&{s}_v);", .{o.tmp});
             return self.line("const {s} = &{s}_v;", .{ local.zig_name, o.tmp });
         }
         try self.line("const {s} = {s}{s};", .{ local.zig_name, o.tmp, if (local.is_ptr) "" else ".*" });
@@ -5172,6 +5182,7 @@ pub const Emitter = struct {
         try self.emitBare(recv);
         try self.w.writeAll(";\n");
         if (cell) try self.line("_ = &{s};", .{name});
+        if (kind == .value or kind == .optional or (writes and !ptr) or cell) try self.poisonAtExit(name);
         // Sema rejects a borrowed temporary receiver that owns a resource
         // (a consumed one is hoisted by `consumedTemporary`), so only a
         // value holding a type parameter gets here (`self.twice()` of a
@@ -5260,6 +5271,7 @@ pub const Emitter = struct {
             try self.emitBare(part);
             try self.w.writeAll(";\n");
             try self.line("_ = &{s};", .{h.name});
+            try self.poisonAtExit(h.name);
             return self.hoisted.append(self.allocator, .{ .node = part, .name = h.name });
         }
         const ty = self.typeOf(h.node);
@@ -5286,6 +5298,7 @@ pub const Emitter = struct {
         if (fields) try self.emitStored(h.node) else if (self.sema.lendsTempArray(h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
         try self.w.writeAll(";\n");
         if (mutable) try self.line("_ = &{s};", .{h.name});
+        if (kind == .value or kind == .optional or mutable) try self.poisonAtExit(h.name);
         const k = kind orelse return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
         try self.line("var {s} = true;", .{h.flag});
         try self.writeIndent(self.indent);
@@ -5749,6 +5762,7 @@ pub const Emitter = struct {
         try self.writeIndent(self.indent);
         const owns = try self.emitStackClosure(env, h.node);
         try self.w.writeAll("\n");
+        try self.poisonAtExit(env);
         if (owns) try self.line("defer rig.dropFields(&{s});", .{env});
         try self.writeIndent(self.indent);
         try self.w.print("const {s} = ", .{h.name});
@@ -6162,6 +6176,12 @@ pub const Emitter = struct {
     fn line(self: *Emitter, comptime f: []const u8, args: anytype) Error!void {
         try self.writeIndent(self.indent);
         try self.w.print(f ++ "\n", args);
+    }
+
+    /// `defer rig.poison(&name);` for the hidden `var` `name` (`poison`),
+    /// written before its drop's `defer`, so it runs after the drop.
+    fn poisonAtExit(self: *Emitter, name: []const u8) Error!void {
+        if (self.poison) try self.line("defer rig.poison(&{s});", .{name});
     }
 
     /// Report a construct the emitter cannot lower. Sema is responsible

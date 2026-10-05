@@ -1468,7 +1468,12 @@ lower is an internal error: sema must have rejected it.
   call whose arguments are evaluated first is held as its address in
   the slot its statement keeps it in (`keptInSlot`), never as a copy in
   the call's block. A `match` on a generic read view a name holds
-  switches on `rig.borrowedPtr(T, &v).*`.
+  switches on `rig.borrowedPtr(T, &v).*`. With `RIG_SANITIZE`, each
+  `var` emit adds (a call's argument, receiver, or closure environment,
+  a statement's or header's temporary slot, a held or matched subject,
+  an `as` binding's copy) is filled with `0xAA` when its scope ends
+  (`rig.poison`), after its drop, so a view that outlives it reads
+  garbage: a dynamic check of the class that sees the stack.
 - **Assignments.** Zig finds the address of `place.* = f()` before it
   calls `f`, so an assignment to a field or element whose value or
   indexes can act (a call, an assignment, a drop, a jump) evaluates the
@@ -1566,6 +1571,7 @@ reviewed.
 | `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
+| `poison` | under the sanitizer, fills hidden storage whose scope has ended with `0xAA`; nothing otherwise |
 | `discard`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
