@@ -8,6 +8,18 @@ another language is [WELCOME.md](WELCOME.md). For the reasons behind
 the rules, see [docs/DESIGN.md](docs/DESIGN.md); for what is not built
 yet, see [docs/ROADMAP.md](docs/ROADMAP.md).
 
+**The Core.** [docs/CORE.md](docs/CORE.md) states the whole ownership
+model in ten sentences, and every ownership rule here follows from one
+of them. Each ownership subsection opens with the one it follows: *Core
+4* is sentence 4 of [CORE §2](docs/CORE.md#2-the-core-in-ten-sentences),
+and *Core §3* is CORE's section 3. Where CORE marks a rule *planned*,
+this reference states today's rule.
+
+**Three words.** *You lend a view; the compiler remembers the loan.*
+`?x` **lends** `x` to read and `!x` to write; the receiver gets a
+**view**, and the owner keeps a **loan**, which limits it while it is
+live.
+
 Every example is run by `./test/run`: a program followed by an `output`
 block must print exactly that output with no leaks, and a program
 marked as rejected must fail with the errors shown.
@@ -95,7 +107,7 @@ every mode.
 | `U8` `U16` `U32` `U64` `U128` | unsigned integers | `u8` ... `u128` |
 | `F32` `F64` | floats | `f32`, `f64` |
 | `Bool` | `true` or `false` | `bool` |
-| `String` | a view of text: bytes, UTF-8 by convention, that it does not own; a Copy value | `[]const u8` |
+| `String` | a read view of text: bytes, UTF-8 by convention, that it does not own ([Strings](#strings)) | `[]const u8` |
 | `Void` | no value (what a `sub` returns) | `void` |
 
 `Int` is `I64` and `Float` is `F64`: one type under two names. Every
@@ -217,20 +229,20 @@ sub main
 integer value `16777217` does not fit exactly in `F32`
 ```
 
+### Strings
+
 A `String` has a length `s.len` and can be indexed (`s[0]`, or
 `s.get(i)`, a `U8?` that is `none` past the end), and a `for` loop over
 it yields its bytes as `U8`. Strings compare with `==` and
 `!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
 ([§5](#operators)).
 
-A String is a view: it points at bytes it does not own. Those of a
-literal, a module constant, or the program's arguments and environment
-([std.os](docs/STD.md)) last as long as the program, so such a String
-is free to copy anywhere. One taken from a `Text` (`?t[..]`) is a view
-of the Text: the lend makes a loan on the Text, which the String
-carries wherever it goes ([§10](#text)). The bytes are UTF-8 by convention, and nothing checks
-it: lengths and indexes count bytes, and a slice checks only its
-bounds.
+A String is a read view of bytes it does not own. Those of a literal, a
+module constant, or the program's arguments and environment
+([std.os](docs/STD.md)) last as long as the program; one taken from a
+`Text` (`?t[..]`) carries the Text's loan ([§10](#text)). The bytes are
+UTF-8 by convention, and nothing checks it: lengths and indexes count
+bytes, and a slice checks only its bounds.
 
 ### Arrays
 
@@ -358,9 +370,9 @@ sub main
 ### Slices
 
 `xs[a..b]` is the part of `xs` from index `a` up to, not including,
-`b`. Of a `String` it is a `String`. Of an array or a `Vec` of plain
-data it is written `?xs[a..b]`: a `[]T`, a read-only view that views
-`xs` like any `?` view ([§7](#7-ownership)), so `xs` cannot be
+`b`. Of a `String` it is a `String`. Of an array or a `Vec` it is
+written `?xs[a..b]`: a `[]T`, a read view of the elements, which lends
+part of `xs` ([§7](#lending)), so `xs` cannot be
 written, moved, or dropped while the slice is in use, and the slice
 cannot outlive it. A `[]T` has `.len` and `get(i)`, is indexed and
 iterated like an array, and is sliced again with `s[a..b]`, which views the same
@@ -408,14 +420,10 @@ element, as it may of a `[]T` parameter; the result views the
 caller's array. An array parameter taken by value (`xs: [N]T`) is the
 function's own, so a view of it cannot be returned.
 
-An array goes where a slice is expected in three ways. Where a `[]T`
-is expected, `?a` of an array means `?a[..]`, and where a `![]T` is
-expected, `!a` means `!a[..]`: the sigil shows the view, which is the
-slice's. A Vec is lent the same way (`sort.sort(!v)`), and so is an
-array or Vec in a box (`?b` of a `Box[[3]Int]`) or behind a read view
-(a `?Vec[Int]` parameter passed where a `[]Int` is expected). As an
-argument the `?` may go unwritten (`total(a)` lends `a` to read, as
-`total(?a)` does, [Views](#views)); anywhere else, such as a
+Where a `[]T` is expected, `?a` of an array or a Vec means `?a[..]`,
+and where a `![]T` is expected, `!a` means `!a[..]`, also through a box
+or a read view ([§7](#lending) has every lend). As an argument the `?`
+may go unwritten (`total(a)` is `total(?a)`); anywhere else, such as a
 binding or a field, the lend is written. A temporary array, a literal,
 a fill, or a call's result, passed as a `[]T` argument is lent as a
 temporary of its statement: it lives until the statement ends, so a
@@ -545,13 +553,11 @@ Three methods write the elements of a `![]T`, an array, or a Vec,
 whose receiver is written `!xs` (or is a `![]T` binding):
 `!dst.copy(src)` copies a `[]T` of the same length into them, and
 panics in every build mode when the lengths differ; `!s.fill(v)` sets
-every element to `v`; `!s.swap(i, j)` exchanges two elements, with both
-indexes checked. `copy` and `fill` copy values in, so, as in
-`[n of x]`, the elements are plain data: they own no resource and hold
-no `?T`, `!T`, or slice, which a copy would duplicate. `swap` also moves the handles
-of a `Vec` of them. `copy`'s
-receiver and argument never overlap: the write view of the receiver
-excludes a read of the same value.
+every element to `v`; `!s.swap(i, j)` exchanges two elements of any
+type, with both indexes checked. `copy` and `fill` duplicate values, as
+`[n of x]` does, so their elements are plain data
+([§2](#kinds-of-value)). `copy`'s receiver and argument never overlap:
+the write view of the receiver excludes a read of the same value.
 
 ```rig
 sub main
@@ -560,11 +566,15 @@ sub main
   !a[..3].copy(?b[..])
   !a[3..].fill(0)
   !a.swap(0, 5)
-  print(a)
+  t: Vec[Text] = Vec()
+  !t.push(Text("x"))
+  !t.push(Text("y"))
+  !t.swap(0, 1)
+  print(a, t)
 ```
 
 ```output
-[0, 8, 7, 0, 0, 9]
+[0, 8, 7, 0, 0, 9] ["y", "x"]
 ```
 
 A recursive function passes on write slices of its own write slice:
@@ -690,7 +700,7 @@ no variant `native` on enum `Endian`
 | `~T` | weak handle to a shared value | [§9](#9-shared-and-weak-handles) |
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§11](#11-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§11](#11-closures) |
-| `?fun(A) -> R`, `?sub(A)` | callable view: a closure, function, or owned closure lent to a call | [§11](#closure-parameters) |
+| `?fun(A) -> R`, `?sub(A)` | callable view: a closure, function, or owned closure lent to a call | [§11](#callable-views) |
 | `Cell[T]`, `Vec[T]`, `Box[T]`, `Signal[T]` | built-in generic types | [§10](#10-cell-vec-box-text-and-signal) |
 | `Text` | owned, growable text | [§10](#text) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
@@ -699,21 +709,33 @@ no variant `native` on enum `Endian`
 How the sigils of a type combine (`*User?` is an optional handle,
 `?User?` a view of an optional) is in
 [SYNTAX §7](SYNTAX.md#7-types). A handle holds a value, never a
-view: `*(?User)` is rejected.
+`?T`, `!T`, or slice: `*(?User)` is rejected.
 
-### Copy values and owning values
+### Kinds of value
 
-A **Copy** value is plain data: numbers, `Bool`, `String`, plain enums,
-and optionals, arrays, and structs that hold only Copy values.
-Using one copies it. A copy of a String that views a Text carries the
-Text's view ([§10](#text)).
+> **Core §1:** A struct's or enum's kind follows from its parts.
 
-An **owning** value holds a resource that must be released exactly
-once: a `*T` or `~T` handle, a `Vec`, a `Box`, a `Text`, a `Signal`, an
-owned closure, and any struct, enum, or generic instance that contains one or
-declares a `drop` body. Owning values have **drop glue**: code the compiler
-generates to release them. They move instead of copying, and the
-ownership rules of [§7](#7-ownership) apply to them.
+Every type is one of four kinds, which decide what a bare name does
+where its value is taken ([§7](#reading)):
+
+| Kind | Types | A bare name where the value is taken |
+|---|---|---|
+| **plain** | numbers, `Bool`, plain enums, and optionals, arrays, structs, and enums of them | copies it |
+| **owning** | `Vec`, `Box`, `Text`, `Signal`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x` or a function's last value; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
+| **handle** | `*T`, `~T`, and owned closures | the same: `<h` moves it, `+h` adds a count |
+| **view** | `?T`, `!T`, `[]T`, `![]T`, `String`, `?fun(...)`, and any type that holds one | copies a read view; a write view is rejected: `<w` moves it |
+
+A struct, enum, optional, or array is owning if any part is owning or a
+handle; otherwise a view if any part is a view (moving, if one is a
+write view); otherwise plain. Copying a read view copies the view, not
+what it views, and every copy carries the same loan. Owning values and
+handles have **drop glue** ([§8](#8-drop-and-drop-glue)): code the
+compiler generates to release them.
+
+**Plain data**, in this reference, is a value that owns nothing and
+holds no `?T`, `!T`, or slice: a plain value, a `String`, or an
+optional, array, struct, or enum of them. It copies freely. A String in
+it is still a view, which may carry a Text's loan ([Strings](#strings)).
 
 A **unique** value owns nothing to release but must not be copied: a
 struct declared `unique` (`struct Random unique`, a generator whose
@@ -721,9 +743,9 @@ copy would repeat its numbers), a `Cell` (a copy would fork the state
 it shares), or any struct, enum, array, or generic instance that holds
 one of those inline. It moves like an owning value, has no
 clone (`+x`) and no `==`, and nothing copies it out of a place; it has
-no drop glue, so an array may hold it and a discarded one is simply
-dropped. A loop that reads an array or slice of them binds a view of
-each element (`?E`), never a copy.
+no drop glue, so a discarded one is simply dropped. A loop that reads
+an array or slice of them binds a view of each element (`?E`), never a
+copy.
 
 ```rig reject
 struct Seed unique
@@ -753,16 +775,16 @@ and its type is `sub(Int)!` ([§13](#13-errors)). A function's value is
 its last expression, or the value of a `return`. A call always has its
 parentheses, `greet()`: the name alone is the function as a value.
 
-Parameters are immutable, except a lent to write `!T` parameter, which
-can be assigned ([§7](#write-views)). A parameter the body ignores
+Parameters are immutable; assigning a `!T` parameter writes through to
+the value it views ([§4](#view-places)). A parameter the body ignores
 may be named `_`, any number of times. A parameter may have a default
-value: a literal or a module constant (`LIMIT`, `lib.LIMIT`,
-`U8.max`), which means the same value at every call, in any module. A
-call passes arguments by position, by keyword, or both, positional
-arguments first ([SYNTAX §11](SYNTAX.md#calls)). Each parameter gets
-exactly one argument, and every parameter without a default needs one;
-arity, keyword names, and argument types are checked. Arguments are
-evaluated in the order written.
+value: a literal or a module constant (`LIMIT`, `lib.LIMIT`, `U8.max`),
+which means the same value at every call, in any module. A call passes
+arguments by position, by keyword, or both, positional arguments first
+([SYNTAX §11](SYNTAX.md#calls)). Each parameter gets exactly one
+argument, and every parameter without a default needs one; arity,
+keyword names, and argument types are checked. Arguments are evaluated
+in the order written.
 
 ```rig reject
 fun scaled(n: Int, by: Int = 10) -> Int
@@ -833,13 +855,11 @@ how the method uses the value, and the call site says the same thing:
 | `!self` (= `self: !Self`) | modifies the value | `!p.m()` |
 | `<self` (= `self: Self`) | consumes the value | `<p.m()`, or on a temporary |
 
-Write views and moves are never implicit, so calling a `!self` method
-as `p.m()` is an error. That holds for a binding that already holds a
-write view too (a `!T` parameter, `self` in a `!self` method, a local
-`w = !p`): it lends that view visibly, `!w.m()` and `!self.m()`, as it
-lends it to a `!T` parameter or field with `!w`. Lending a write view
-always shows its sigil; a held read view is lent on bare, since
-another copy of it changes nothing.
+A write lend and a move are always written ([§7](#lending)), so
+calling a `!self` method as `p.m()` is an error, also on a binding that
+already holds a write view (a `!T` parameter, `self` in a `!self`
+method, a local `w = !p`), which lends it on visibly: `!w.m()`,
+`!self.m()`. A held read view is lent on bare.
 
 ```rig reject
 struct Counter
@@ -1663,13 +1683,13 @@ declaration ([§14](#14-modules)), and `extern` declares a C symbol
 
 ## 4. Bindings and assignment
 
-The forms are in [SYNTAX §9](SYNTAX.md#9-bindings-and-assignment).
-`x = e` binds a new local `x` when no `x` is visible, and otherwise
-assigns the visible one: through it, when `x` holds a write view
-([§7](#write-views)). `const x = e` binds a fixed local, which cannot
-be reassigned. `_ = e` evaluates `e` and discards it, and an owning value
-discarded so is dropped at once. A binding's type comes from its
-annotation or its value.
+The forms are in [SYNTAX §9](SYNTAX.md#9-bindings-and-assignment). `x =
+e` binds a new local `x` when no `x` is visible, and otherwise assigns
+the visible one: through it, when `x` holds a write view
+([View places](#view-places)). `const x = e` binds a fixed local, which
+cannot be reassigned. `_ = e` evaluates `e` and discards it, and an
+owning value discarded so is dropped at once. A binding's type comes
+from its annotation or its value.
 
 A compound assignment `x op= e` stores `x op e` in `x`, finding the
 place `x` once, and keeps its target's type: an arithmetic operator
@@ -1770,7 +1790,9 @@ local `total` has the same name as the module-level declaration `total`
 ```
 
 A binding cannot refer to itself in its own initializer. Parameters,
-loop bindings, and names bound by patterns and `as` are immutable.
+loop bindings, and names bound by patterns and `as` are immutable,
+though one that holds a write view writes through it
+([View places](#view-places)).
 
 Every local must be read. Any use counts: an argument, an operand, a
 view `?x` or `!x`, a move `<x`, a clone, a field access, a closure
@@ -1791,6 +1813,95 @@ sub main
 
 ```error
 `totl` is assigned but never read
+```
+
+### View places
+
+> **Core §6:** Assigning a view to a place that holds one re-points it, and assigning a value writes through.
+
+A write view is assignable, whether a `!T` parameter or a local
+holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
+viewed value (the old value is dropped first). Assigning a view
+points the place at another place instead: `w = !m`, `w = <w2`, or a
+call returning a `!T` re-points a local `w`, which then lends `m`
+alone (a `![]T` local alike), and a bare `w = w2` reads the value `w2`
+reaches and writes it through `w`. A parameter is never re-pointed:
+`w = !m` of a `!T` parameter is rejected, and `new w = !m` binds a new
+name instead. A field or element of type `!T` follows the same rule:
+`h.w = 5`, `h.w += 1`, `xs[i] += 1`, and `h.w = w2` write the
+value the place views, while assigning another write view,
+`h.w = !m`, points the place at `m`. Writing through a view held in
+a field, or lending it with `!h.w`, needs write access to the struct,
+as writing any field does, so a plain parameter `h: H`, a capture, or
+a temporary cannot. A bare `w` of type `!Int` where an `Int` goes
+copies the value it reaches (`x = w`), and so does one assigned to a
+`!Int` place (`h.w = w`); `h.w = <w` moves the view there instead.
+
+```rig
+struct Counter
+  hits: Int
+
+sub bump(c: !Counter)
+  c.hits += 1
+
+sub reset(c: !Counter)
+  c = Counter(hits: 0)
+
+sub main
+  c = Counter(hits: 5)
+  bump(!c)
+  print(c.hits)
+  reset(!c)
+  print(c.hits)
+```
+
+```output
+6
+0
+```
+
+```rig
+sub main
+  n = 1
+  w = !n
+  w = 5
+  w += 1
+  m = 10
+  new w = !m
+  w *= 2
+  print(n, m)
+```
+
+```output
+6 20
+```
+
+```rig
+struct Tally
+  count: !Int
+
+  sub add(!self, k: Int)
+    self.count += k
+
+sub main
+  n = 0
+  m = 100
+  t = Tally(count: !n)
+  t.count += 1
+  !t.add(2)
+  t.count = t.count * 10
+  t.count = !m
+  t.count += 1
+  print(n, m)
+  xs = [!n, !m]
+  for i in 0..xs.len
+    xs[i] += 1
+  print(n, m)
+```
+
+```output
+30 101
+31 102
 ```
 
 ---
@@ -1899,8 +2010,8 @@ called by `==`.
 
 A handle `*T` or `~T` has no `==`, since it could compare identity or
 content; nor does a function or closure, a Vec, Cell, or Signal, a
-struct that declares `drop`, or a view (a struct or payload that holds a
-view). Neither does a type that holds one of these, and the
+struct that declares `drop`, or a struct or payload that holds a `?T`,
+`!T`, or slice. Neither does a type that holds one of these, and the
 diagnostic names the field that does.
 
 Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, or two
@@ -2132,6 +2243,12 @@ The forms of each statement are in
 [SYNTAX §10](SYNTAX.md#10-statements-and-control-flow); this section
 says what they do.
 
+**Headers.** An `if` or `while` condition, a `match` guard, and the
+subject of a `match` or `for` are each a statement of their own
+([§7](#temporaries)). A bare place there is read where it is, `?` and
+`!` lend it, and `<`, or a value made there, is taken
+([§7](#reading)).
+
 ### if
 
 Conditions must be `Bool`. `if e as name` tests an optional and binds
@@ -2172,8 +2289,8 @@ so an element of plain data is a copy and any other element a view of
 its slot (`?E`). A value the source makes is taken: a Vec a call
 returns is consumed, and an array made there whose elements move is
 held for the loop, which owns its elements. A part of a value made
-there (`mk().items`) is walked in that value, which the loop holds
-until it ends.
+there (`mk().arr`) is walked in that value, which the loop holds until
+it ends.
 
 ```rig
 sub find(xs: ?[4]Int, target: Int)
@@ -2253,18 +2370,29 @@ A Vec source is a place, which the loop walks in place, or a value made
 there (a call, or a branching value whose every branch is made there),
 whose new Vec the loop consumes as `<v` does. A branching value that
 may be a name's (`o?`, `a if c else b`) could be a place on one path
-and a new Vec on another, so it is bound to a name first:
+and a new Vec on another, so it is bound to a name first, and so is a
+Vec whose elements own a resource that is a part of a value made there
+(`mk().items` of a `Vec[Text]`):
 
 ```rig reject
+struct H
+  items: Vec[Text]
+
+fun mk -> H
+  H(items: Vec())
+
 sub main
   a: Vec[Int] = Vec()
   b: Vec[Int] = Vec()
   for e in ?(a if a.len > 0 else b)
     print(e)
+  for t in mk().items
+    print(t)
 ```
 
 ```error
 a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int]` to a name first
+requires a Vec binding, or a field or element of one, as the source
 ```
 
 ### Labels, break, and continue
@@ -2570,29 +2698,25 @@ sub main
 
 ## 7. Ownership
 
-[docs/CORE.md](docs/CORE.md) is the summary this section derives from:
-the whole ownership model in ten sentences, with each rule marked built
-or planned.
-
-Every owning value has exactly one owner, and the owner decides when it
-is released. The sigils make each ownership effect visible where it
+Every owning value and handle has exactly one owner, which decides when
+it is released. The sigils make each ownership effect visible where it
 happens:
 
 | Sigil | Name | Effect |
 |---|---|---|
 | `<x` | move | ownership passes on; `x` is unusable until reassigned |
-| `?x` | lend to read | a temporary read-only view; `x` keeps ownership |
-| `!x` | lend to write | a temporary exclusive, writable view |
-| `+x` | clone | a new owner: a refcount bump for a handle, a copy for a Copy value |
+| `?x` | lend to read | a read view; `x` keeps ownership |
+| `!x` | lend to write | a write view, the only view while it lives |
+| `+x` | clone | a new owner, as the type says ([Clone](#clone)) |
 | `-x` | drop | release `x` now |
 | `*x` | share | move `x` into a new shared box ([§9](#9-shared-and-weak-handles)) |
 | `~x` | weak | a weak handle to a shared value ([§9](#9-shared-and-weak-handles)) |
 
-A Copy value can be used freely: a bare use copies it. `<x` always
-means "done with `x`", whatever its type: a Copy value or a view is
-copied out, and `x` is unusable until it is assigned again. (`<p.f` of a
-Copy field copies the field and leaves `p` whole.) The rest of this
-section is about owning values.
+Plain data and read views copy, so they are used freely
+([§2](#kinds-of-value)). `<x` always means "done with `x`", whatever its
+type: a value that copies is copied out, and `x` is unusable until it
+is assigned again. (`<p.f` of a plain field copies the field and leaves
+`p` whole.)
 
 ```rig reject
 sub main
@@ -2605,7 +2729,63 @@ sub main
 use of `n` after move
 ```
 
+### Reading
+
+> **Core 1:** A bare name only reads.
+
+An expression either **takes** its value or only **reads** it. A
+binding, an argument to a parameter that owns it, `return`, a stored
+field or element, and `<` take. A `print` or `Text(...)` argument, an
+`==` operand, `?e`, a `?self` receiver, and a field or element read
+only read. Reading never moves a name, whatever form reads it: a read
+passes through `a if c else b`, `??`, `catch`, `e!`, and `e?` to their
+operands, so `print(a if c else b)` reads `a` or `b` where it is and
+moves nothing.
+
+Where its value is taken, a bare name copies plain data and read views
+([§2](#kinds-of-value)). It never clones, so a bare owner or handle
+there is an error, because two owners would release it twice: write
+`<x` to move it or `+x` to make a new owner. It moves only where the
+value leaves for good: `return x`, or `x` as the last expression. As
+an argument where a parameter takes a view, or as a header's subject,
+it is lent to read where it is ([Lending](#lending)).
+
+```rig reject
+struct Wrap
+  n: Int
+
+sub main
+  a = *Wrap(n: 1)
+  b = a
+```
+
+```error
+bare use of shared (`*T`) handle `a` in binding would alias the handle
+```
+
+A view of a number, `Bool`, `String`, or plain enum reads as the value
+wherever the value is expected, whether a name holds the view or an
+expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`); the
+loan taken to reach it ends there. Other values are not copied out of
+a view: lend them on, as `?T` or `!T`.
+
+```rig
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  n = 4
+  m: Int = slot(!n)
+  print(slot(!n) + slot(!n), Float(slot(!n)), m)
+```
+
+```output
+8 4.0 4
+```
+
 ### Moves
+
+> **Core 2:** `<x` moves, `+x` makes a new owner, `-x` drops now.
 
 A value moves when it is passed to a parameter of owning type, bound to
 another name, stored in a field, or returned. The move is written
@@ -2662,23 +2842,6 @@ sub main
 use of `p` after move
 ```
 
-Writing a bare name where an owning value would be copied is an error,
-because two owners would release it twice. Write `<x` to move it or
-`+x` to clone it:
-
-```rig reject
-struct Wrap
-  n: Int
-
-sub main
-  a = *Wrap(n: 1)
-  b = a
-```
-
-```error
-bare use of shared (`*T`) handle `a` in binding would alias the handle
-```
-
 The checker follows every path. A value moved in one branch of an `if`
 or `match` is moved after it; a value moved inside a loop is moved at
 the top of the next iteration, unless the loop is left or the value is
@@ -2704,119 +2867,89 @@ use of `b` after move
 
 Only whole bindings move. Moving a field out of a struct is rejected
 (the struct would still drop it); clone a shared field with `+p.a`,
-move the struct as a whole, or exchange the field with `replace` or
-`swap` ([below](#replace-and-swap)). A Copy field can be read or copied
-freely.
+move the struct as a whole, take an optional field, or exchange the
+field with `replace` or `swap` ([Places](#places)). A plain field can
+be read or copied freely.
 
-An optional field or element is the exception (an element only of a
-plain optional, since no Vec or array holds one that owns): `<p.f` **takes** the
-value out and leaves `none` behind, in one step, so the struct stays
-whole and nothing is dropped twice. Taking writes the field, so it
-needs a path that may write it (an owned local, a `!T`, not a `?T` or a
-`*T`), and no other view of the value may be live, and it needs an
-owner: a field of a temporary cannot be taken. Whether a field can be
-taken is decided by its type where it is named: inside a generic body a
-`T?` field can be, a `T` field cannot, whatever `T` is. An `as` binding
-that owns a resource moved into it (`if <o as n`) has fields that can
-be written and taken, like a local's. A local binding is still moved
-whole: `<x` leaves `x` unusable, never `none`. Only a binding or a
-field is moved or taken: `<(a if c else b)` and `<o?` are rejected, and
-written `<a if c else <b` and `(<o)?`.
+### Clone
+
+`+x` makes a new owner. For a shared or weak handle it bumps the
+count; for plain data it copies; for a Text, a Vec, a box, an
+optional, an array, or a struct or enum declared in the module that
+holds them, it clones each part the same way: a Text's bytes and a
+Vec's elements are copied, a box's value is boxed again, and a handle
+inside is counted again (a deep copy). A type with a `drop` body, a
+unique type (one holding a `Cell`, or declared `unique`), a `Signal`,
+and a type imported from another module have no clone. `+p.a` clones
+the value in a field, and `+v[i]` an element. A value holding a write
+view cannot be cloned or weakly referenced: the view is unique.
+`+e` only reads `e`: a value made there (`+make()`) is a temporary its
+statement drops, and `+(a if c else b)` reads `a` or `b` where it is.
+
+### Drop
+
+> **Core 3:** An owner that is not moved is dropped where its scope ends.
+
+`-x` as a statement releases `x` now; afterwards `x` cannot be used.
+Every owning local and parameter that is still live is dropped
+automatically when its block ends, including on early `return`,
+`break`, and `continue`, and on every path through branches. So `-x`
+is only needed to release something early, or to end a view a
+binding holds. A view parameter cannot be dropped: the caller owns
+what it views. Plain data owns nothing, so `-n` of an `Int` or a struct of
+numbers drops nothing, and is rejected. A String may view a `Text`
+(§10), so `-s` of a String, or of a struct holding one, ends the loan
+it carries.
 
 ```rig
-struct Node
-  value: Int
-  next: Box[Node]?
+struct Noisy
+  id: Int
 
-struct Stack
-  top: Box[Node]?
+  drop(!self)
+    print("drop", self.id)
 
-  sub push(!self, v: Int)
-    self.top = Box(Node(value: v, next: <self.top))
-
-  fun pop(!self) -> Int?
-    if <self.top as n
-      self.top = <n.next
-      return n.value
-    none
-
-  sub reverse(!self)
-    cur = <self.top
-    prev: Box[Node]? = none
-    while <cur as n
-      cur = <n.next
-      n.next = <prev
-      prev = <n
-    self.top = <prev
+sub run(early: Bool)
+  a = Noisy(id: 1)
+  b = Noisy(id: 2)
+  if early
+    -b
+    print("dropped b early")
+  print("end of run")
 
 sub main
-  s = Stack(top: none)
-  for v in [1, 2, 3]
-    !s.push(v)
-  !s.reverse()
-  print(!s.pop(), !s.pop(), !s.pop(), !s.pop())
+  run(true)
+  run(false)
 ```
 
 ```output
-1 2 3 none
+drop 2
+dropped b early
+end of run
+drop 1
+end of run
+drop 2
+drop 1
 ```
 
-#### Replace and swap
+Automatic drops at the end of a block run in reverse order of
+declaration. So a value whose drop runs a `drop` body may not view a
+value declared after it: that value is dropped first.
 
-`replace(!place, v)` stores `v` in a place and hands back the value that
-was there, owned; `swap(!a, !b)` exchanges the values of two places of
-one type, which may be different fields of one value
-(`swap(!t.left, !t.right)`). The places are lent to write for the call,
-and the values hold no `?T`, `!T`, or slice. Like `print`, both are names a
-declaration may hide.
+### Lending
 
-```rig
-struct Pair
-  left: String
-  right: String
+> **Core 4:** `?x` lends `x` to read, and `!x` lends it to write, as whichever view the context expects.
 
-sub main
-  p = Pair(left: "a", right: "b")
-  swap(!p.left, !p.right)
-  old = replace(!p.left, "c")
-  print(p, old)
-```
-
-```output
-Pair(left: "c", right: "a") b
-```
-
-Two elements of one collection are not two places: `swap(!a[i],
-!a[j])` lends `a` to write twice, and is rejected with the collection's
-own `swap`, which exchanges them ([§2](#slices)):
-
-```rig reject
-sub main
-  a = [1, 2, 3]
-  swap(!a[0], !a[2])
-  print(a)
-```
-
-```error
-cannot lend `a` to write while a write loan is live: to swap two elements of `a`, write `!a.swap(0, 2)`
-```
-
-A payload binding of `match <s` owns its field and may move it on
-(`.full(b) => eat(<b)`); a bare `match s` only reads `s`
-([match](#match)).
-
-### Views
-
-A lend hands over a view of a value without giving it up. `?x` lends
-`x` to read and `!x` lends it to write, and view parameter types say
-the same thing: `b: ?Wrap` reads, `b: !Wrap` writes. A write lend is
-always visible at the call site; a read lend of an argument may go
-unwritten: where
-a parameter takes a view, a bare argument is lent to read where it is,
-as `?x` would lend it, and its owner stays lent for as long as the
-view is used (`balance_of(acct)` is `balance_of(?acct)`). A value made
-there (`balance_of(open())`) is lent as a temporary of its statement.
-A lend kept in a binding or a field is always written.
+A lend hands over a view of a value without giving it up, and view
+parameter types say the same thing: `b: ?Wrap` reads, `b: !Wrap`
+writes. A write lend is always written. A read lend may go unwritten
+where its view lasts only for the use: an argument to a view parameter
+(`balance_of(acct)` is `balance_of(?acct)`), a method's receiver
+([§3](#structs)), the subject of a `for`, `if … as`, or `match`
+([§6](#6-control-flow)), and a held view or a function name lent on to
+read ([§11](#callable-views)). A lend kept in a binding or a field is
+always written: `r = ?x`. The owner stays lent for as long as the view
+is used, and a value made there (`balance_of(open())`) is lent as a
+temporary of its statement.
 
 ```rig
 struct Account
@@ -2831,19 +2964,90 @@ sub deposit(a: !Account, n: Int)
 sub main
   acct = Account(balance: 100)
   deposit(!acct, 50)
-  print(balance_of(?acct))
+  print(balance_of(?acct), balance_of(acct))
 ```
 
 ```output
-150
+150 150
 ```
 
-**The aliasing rule.** At any point a value may have any number of read
-views or one write view, not both. While a read loan is live the
-owner cannot be written, moved, or dropped; while a write loan is
-live the owner cannot be used at all, whatever its type: even a number
-is not read until the view's last use, so `w = !n` then `w += n` is
-rejected.
+`?x` and `!x` lend the view the context expects:
+
+| Owner `x` | `?x` lends | `!x` lends |
+|---|---|---|
+| any `T` | `?T` | `!T` |
+| `[N]T`, `Vec[T]` | `[]T` | `![]T` |
+| a place `p.f` or `v[i]` | the views of the field or element | its write views |
+| a held `!T` | `?T` | `!T` (lent on) |
+| `![]T` | `[]T` | `![]T` (lent on) |
+| `Text` | `String` (also `String?`) | `!Text` |
+| `Box[T]` | the views of `T`, through any number of boxes | the write views of `T` |
+| `*T` | the read views of `T` | `!*T`, the handle itself, never a view of the value |
+| `X?` | `View?` for each view of `X` | `!(X?)`, by the first row |
+| a function or closure | `?fun` | |
+
+So `sort.sort(!v)` works on a Vec as it does on an array, and one `fun
+area(s: ?Shape)` takes `?s` of a `Shape`, a `Box[Shape]`, and a
+`*Shape` ([§9](#shared-handles), [§10](#box)). A slice `x[a..b]` is the
+same lend, of part of `x` ([§2](#slices)).
+
+A `!x` view needs a binding that may change: a parameter (other than
+`!T`), a fixed binding, a capture, or a loop binding cannot be
+lent to write. Nor can a temporary, such as a call's result or a
+struct literal, since the change would be lost with it.
+
+```rig reject
+struct Wrap
+  n: Int
+
+sub grow(b: !Wrap)
+  b.n += 1
+
+sub main
+  grow(!Wrap(n: 1))
+```
+
+```error
+cannot lend a temporary to write: the change would be lost; bind it to a name first
+```
+
+#### Write views
+
+A write view is the only view of what it views while it lives. It can be
+lent on, written `!p` as an owned value's view is, or moved into a local
+with `<p`, but not copied; assigning it writes through
+([View places](#view-places)). One held in a field is read-only through
+a `?T` or `*T`, like the rest of what that path reaches: it cannot be
+written through or passed on from there, and a `match` through one
+cannot bind it. A loop walks elements whose fields hold write views with
+`for x in !xs`; an element that is itself a write view (in a `[2]!Int`)
+is written by index, `xs[i] = v`, since a loop binding cannot hold it.
+
+```rig reject
+struct Tally
+  count: !Int
+
+sub peek(t: ?Tally)
+  t.count += 1
+
+sub main
+  n = 0
+  t = Tally(count: !n)
+  peek(?t)
+```
+
+```error
+cannot write through the write view held here: it is reached through a read view (`?T`)
+```
+
+### One writer or many readers
+
+> **Core 5:** A value has any number of read loans, or one write loan, never both.
+
+While a read loan is live the owner cannot be written, moved, or
+dropped; while a write loan is live the owner cannot be used at all,
+whatever its type: even a number is not read until the view's last use,
+so `w = !n` then `w += n` is rejected.
 
 ```rig reject
 struct User
@@ -2860,17 +3064,21 @@ sub main
 cannot lend `u` to write while a read loan is live
 ```
 
-**How long a view lives.** A view passed to a call ends when the
-call returns, so two calls in one statement may each lend the
-same value to write. A method call lends its receiver for the whole
-call, so `rc.show(<rc)` is rejected. A view stored in a binding, or in a view
-([below](#second-class-views)), lasts until its last use. Every later
-use counts: a use further on, a use anywhere in a loop around it that
-the binding was declared outside of (the next iteration runs it again),
-a closure that captured it (and every use of that closure), a binding
-that views the view in turn, deferred code, and the drop at scope
-exit of a value whose type has drop glue. The binding's block ending,
-`-r`, or reassigning it also end the view.
+### How long a loan lasts
+
+> **Core 6:** A loan lasts until the last use of every view that carries it.
+
+A view passed to a call ends when the call returns, so two calls in one
+statement may each lend the same value to write. A method call lends
+its receiver for the whole call, so `rc.show(<rc)` is rejected. A view
+stored in a binding, or in a view ([below](#second-class-views)), lasts
+until its last use. Every later use counts: a use further on, a use
+anywhere in a loop around it that the binding was declared outside of
+(the next iteration runs it again), a closure that captured it (and
+every use of that closure), a binding that views the view in turn,
+deferred code, and the drop at scope exit of a value whose type has
+drop glue. The binding's block ending, `-r`, or reassigning it also end
+the view.
 
 ```rig
 struct Wrap
@@ -2919,18 +3127,19 @@ sub main
 cannot lend `x` to write while a read loan is live
 ```
 
-**Evaluation order within a call.** A call evaluates its arguments
-left to right and uses them all when it runs, so what an earlier
-argument holds is still in use while the later ones are evaluated. A
-view (`?v`) or a slice (`?v[..]`) in an earlier argument keeps its
-loan until the call ends. So does an argument that reads a place by
-value when that value shares storage the place owns: a Vec, a `Box`, a
-`*T` or `~T` handle, a struct holding one, or what a write view
-reaches, as `print(v)` reads it. A later argument of the same call
-(`print` included) cannot lend that place to write or move it, since the
-call would see a stale value, or memory already freed. Plain data is
-copied whole when it is read, so `print(v.len, grow(!v))` and
-`print(p, bump(!p))` for a Copy struct `p` are accepted, and print the
+**Evaluation order within a call.** A call evaluates its arguments left
+to right and uses them all when it runs, so what an earlier argument
+holds is still in use while the later ones are evaluated. A view (`?v`)
+or a slice (`?v[..]`) in an earlier argument keeps its loan until the
+call ends. So does an argument that reads a place by value when that
+value shares storage the place owns: a Vec, a `Box`, a `*T` or `~T`
+handle, a struct holding one, or what a write view reaches, as
+`print(v)` reads it. A later argument of the same call (`print`
+included) cannot lend that place to write or move it, since the call
+would see a stale value, or memory already freed: `print(v, grow(!v))`
+is rejected ([CORE §6](docs/CORE.md#6-bindings-and-assignment)). Plain
+data is copied whole when it is read, so `print(v.len, grow(!v))` and
+`print(p, bump(!p))` for a plain struct `p` are accepted, and print the
 values as they were read. A write receiver's arguments may read it,
 `!v.push(v.len)`, since they finish before the call writes.
 
@@ -2957,20 +3166,6 @@ sub main
 ```output
 1 2 [0, 7]
 P(x: 1) 2 P(x: 2)
-```
-
-```rig reject
-fun grow(v: !Vec[Int]) -> Int
-  !v.push(7)
-  v.len
-
-sub main
-  v: Vec[Int] = Vec()
-  print(v, grow(!v))
-```
-
-```error
-cannot lend `v` to write while an earlier argument's read of it is in use
 ```
 
 The same holds wherever a value is read in place before a later
@@ -3024,151 +3219,23 @@ sub main
 cannot lend `ps` to write in an index of a place it is lending
 ```
 
-#### Write views
+### Second-class views
 
-A write view is assignable, whether a `!T` parameter or a local
-holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
-viewed value (the old value is dropped first). Assigning a view
-points the place at another place instead: `w = !m`, `w = <w2`, or a
-call returning a `!T` re-points a local `w`, which then lends `m`
-alone (a `![]T` local alike), and a bare `w = w2` reads the value `w2`
-reaches and writes it through `w`. A parameter is never re-pointed:
-`w = !m` of a `!T` parameter is rejected, and `new w = !m` binds a new
-name instead. A field or element of type `!T` follows the same rule:
-`h.w = 5`, `h.w += 1`, `xs[i] += 1`, and `h.w = w2` write the
-value the place views, while assigning another write view,
-`h.w = !m`, points the place at `m`. Writing through a view held in
-a field, or lending it with `!h.w`, needs write access to the struct,
-as writing any field does, so a plain parameter `h: H`, a capture, or
-a temporary cannot. A write view can be
-lent on, written `!p` as an owned value's view is, or moved into a
-local with `<p`, but not copied. A bare `w` of type `!Int` where an
-`Int` goes copies the value it reaches (`x = w`), and so does one
-assigned to a `!Int` place (`h.w = w`); `h.w = <w` moves the view
-there instead. One held
-in a field is read-only through a `?T` or `*T`, like the rest of what
-that path reaches: it cannot be written through or passed on from
-there, and a `match` through one cannot bind it. A loop walks elements
-whose fields hold write views with `for x in !xs`; an element that
-is itself a write view (in a `[2]!Int`) is written by index,
-`xs[i] = v`, since a loop binding cannot hold it.
+> **Core 7:** A call passes on only the loans its signature shows.
 
-```rig
-struct Counter
-  hits: Int
+Views are values the checker follows, not types you annotate: there is
+no lifetime syntax. A view can be held by a parameter, a local, a struct
+field (which makes the struct a view too), or a function's result, and
+the checker tracks where every one came from.
 
-sub bump(c: !Counter)
-  c.hits += 1
-
-sub reset(c: !Counter)
-  c = Counter(hits: 0)
-
-sub main
-  c = Counter(hits: 5)
-  bump(!c)
-  print(c.hits)
-  reset(!c)
-  print(c.hits)
-```
-
-```output
-6
-0
-```
-
-```rig
-sub main
-  n = 1
-  w = !n
-  w = 5
-  w += 1
-  m = 10
-  new w = !m
-  w *= 2
-  print(n, m)
-```
-
-```output
-6 20
-```
-
-```rig
-struct Tally
-  count: !Int
-
-  sub add(!self, k: Int)
-    self.count += k
-
-sub main
-  n = 0
-  m = 100
-  t = Tally(count: !n)
-  t.count += 1
-  !t.add(2)
-  t.count = t.count * 10
-  t.count = !m
-  t.count += 1
-  print(n, m)
-  xs = [!n, !m]
-  for i in 0..xs.len
-    xs[i] += 1
-  print(n, m)
-```
-
-```output
-30 101
-31 102
-```
-
-```rig reject
-struct Tally
-  count: !Int
-
-sub peek(t: ?Tally)
-  t.count += 1
-
-sub main
-  n = 0
-  t = Tally(count: !n)
-  peek(?t)
-```
-
-```error
-cannot write through the write view held here: it is reached through a read view (`?T`)
-```
-
-A `!x` view needs a binding that may change: a parameter (other than
-`!T`), a fixed binding, a capture, or a loop binding cannot be
-lent to write. Nor can a temporary, such as a call's result or a
-struct literal, since the change would be lost with it.
-
-```rig reject
-struct Wrap
-  n: Int
-
-sub grow(b: !Wrap)
-  b.n += 1
-
-sub main
-  grow(!Wrap(n: 1))
-```
-
-```error
-cannot lend a temporary to write: the change would be lost; bind it to a name first
-```
-
-#### Second-class views
-
-Views are values the checker follows, not types you annotate: there
-is no lifetime syntax. A view can be held by a parameter, a local, a
-struct field (a **view**), or a function's result, and the checker
-tracks where every one came from.
-
-- A function may return a view only of something its caller lent it.
-  The result then views from every argument whose type could hold
-  what it views, a String argument included: it may view a Text
-  ([§10](#text)). An argument that could not (an `Int` key for a
-  `?Item` result, a String for a `?Item`) is free again after the call.
+- A function may return a view only of something its caller lent it, or
+  of something that lives for the whole program (literals, module
+  constants, `std.os.args()`): a view of its own local is rejected
+  ([CORE 7](docs/CORE.md#2-the-core-in-ten-sentences)). The result then
+  views from every argument whose type could hold what it views, a
+  String argument included: it may view a Text ([§10](#text)). An
+  argument that could not (an `Int` key for a `?Item` result, a String
+  for a `?Item`) is free again after the call.
 - A result may say which parameters it views: `-> ?Item from a` (also
   `from a, b`, `from self`, and `from static`, for only what lives for
   the whole program). The result then views from those arguments
@@ -3215,19 +3282,6 @@ sub main
 ```
 
 ```rig reject
-struct User
-  name: String
-
-fun make -> ?User
-  u = User(name: "ada")
-  ?u
-```
-
-```error
-cannot return a view of `u`, which this function was not lent
-```
-
-```rig reject
 struct Wrap
   payload: Int
 
@@ -3249,101 +3303,13 @@ sub main
 cannot drop `y` while it is lent
 ```
 
-A view parameter can be forwarded (`g(?b)` with `b: ?B`), and a
-view of a number, `Bool`, `String`, or plain enum reads as the value
-wherever the value is expected, whether a name holds the view or an
-expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`); the
-view taken to reach it ends there. Other values, which may own
-resources, are not copied out of a view. The caller still owns a
-viewed value: a view parameter cannot be dropped or move-captured,
-and a field cannot be moved out of it.
-
-```rig
-fun slot(a: !Int) -> !Int
-  a
-
-sub main
-  n = 4
-  m: Int = slot(!n)
-  print(slot(!n) + slot(!n), Float(slot(!n)), m)
-```
-
-```output
-8 4.0 4
-```
-
-### Clone
-
-`+x` makes a new owner. For a shared or weak handle it bumps the
-count; for a Copy value it copies; for a Text, a Vec, a box, an
-optional, an array, or a struct or enum declared in the module that
-holds them, it clones each part the same way: a Text's bytes and a
-Vec's elements are copied, a box's value is boxed again, and a handle
-inside is counted again (a deep copy). A type with a `drop` body, a
-unique type (one holding a `Cell`, or declared `unique`), a `Signal`,
-and a type imported from another module have no clone. `+p.a` clones
-the value in a field, and `+v[i]` an element. A value holding a write
-view cannot be cloned or weakly referenced: the view is unique.
-`+e` only reads `e`: a value made there (`+make()`) is a temporary its
-statement drops, and `+(a if c else b)` reads `a` or `b` where it is.
-
-### Drop
-
-`-x` as a statement releases `x` now; afterwards `x` cannot be used.
-Every owning local and parameter that is still live is dropped
-automatically when its block ends, including on early `return`,
-`break`, and `continue`, and on every path through branches. So `-x`
-is only needed to release something early, or to end a view a
-binding holds. A view parameter cannot be dropped: the caller owns
-it. Plain data owns nothing, so `-n` of an `Int` or a struct of
-numbers drops nothing, and is rejected. A String may view a `Text`
-(§10), so `-s` of a String, or of a struct holding one, ends the loan
-it carries.
-
-```rig
-struct Noisy
-  id: Int
-
-  drop(!self)
-    print("drop", self.id)
-
-sub run(early: Bool)
-  a = Noisy(id: 1)
-  b = Noisy(id: 2)
-  if early
-    -b
-    print("dropped b early")
-  print("end of run")
-
-sub main
-  run(true)
-  run(false)
-```
-
-```output
-drop 2
-dropped b early
-end of run
-drop 1
-end of run
-drop 2
-drop 1
-```
-
-Automatic drops at the end of a block run in reverse order of
-declaration. So a value whose drop runs a `drop` body may not view a
-value declared after it: that value is dropped first.
+A view parameter can be forwarded (`g(?b)` with `b: ?B`). The caller
+still owns a viewed value: a view parameter cannot be dropped or
+move-captured, and a field cannot be moved out of it.
 
 ### Temporaries
 
-An expression either **takes** its value or only **reads** it. A
-binding, an argument to a parameter that owns it, `return`, a stored
-field or element, and `<` take. A `print` or `Text(...)` argument, an
-`==` operand, `?e`, a `?self` receiver, and a field or element read
-only read. Reading never moves a name, whatever form reads it: a read
-passes through `a if c else b`, `??`, `catch`, `e!`, and `e?` to their
-operands, so `print(a if c else b)` reads `a` or `b` where it is and
-moves nothing.
+> **Core §3:** A view of a temporary may be used only within its statement.
 
 A value made where it is only read (a call's result, a constructor's
 included, `+x`, `<x`, or a block or `match` value) has no name: its
@@ -3446,16 +3412,121 @@ struct S
 sub main
   r = ?S(n: 1)
   s = text.trim(?Text(" a "))
-  if text.cut(?Text("k=v"), "=") as kv
-    print(kv.after)
   print(r.n, s)
 ```
 
 ```error
 a view of the temporary `S(n: 1)` outlives its statement, which drops it; bind the value to a name first
 a view of the temporary `Text(" a ")` outlives its statement
-a view of the temporary `Text("k=v")` outlives its statement
 ```
+
+### Places
+
+> **Core §5:** Each field and element is a place.
+
+A field `p.f` or an element `v[i]` is read bare ([Reading](#reading)),
+lent with `?` and `!` ([Lending](#lending)), and assigned, which drops
+its old value. An optional field or element is also **taken**: `<p.f`
+takes the value out and leaves `none` behind, in one step, so the struct
+stays whole and nothing is dropped twice. Taking writes the place, so it
+needs a path that may write it (an owned local, a `!T`, not a `?T` or a
+`*T`), and no other view of the value may be live, and it needs an
+owner: a field of a temporary cannot be taken. Whether a field can be
+taken is decided by its type where it is named: inside a generic body a
+`T?` field can be, a `T` field cannot, whatever `T` is. An `as` binding
+that owns a resource moved into it (`if <o as n`) has fields that can be
+written and taken, like a local's. A local binding is still moved whole:
+`<x` leaves `x` unusable, never `none`. `<`'s operand is a place or a
+value made there: `<(a if c else b)` and `<o?` are rejected, and written
+`<a if c else <b` and `(<o)?`.
+
+```rig
+struct Node
+  value: Int
+  next: Box[Node]?
+
+struct Stack
+  top: Box[Node]?
+
+  sub push(!self, v: Int)
+    self.top = Box(Node(value: v, next: <self.top))
+
+  fun pop(!self) -> Int?
+    if <self.top as n
+      self.top = <n.next
+      return n.value
+    none
+
+  sub reverse(!self)
+    cur = <self.top
+    prev: Box[Node]? = none
+    while <cur as n
+      cur = <n.next
+      n.next = <prev
+      prev = <n
+    self.top = <prev
+
+sub main
+  s = Stack(top: none)
+  for v in [1, 2, 3]
+    !s.push(v)
+  !s.reverse()
+  print(!s.pop(), !s.pop(), !s.pop(), !s.pop())
+```
+
+```output
+1 2 3 none
+```
+
+#### Replace and swap
+
+`replace(!place, v)` stores `v` in a place and hands back the value that
+was there, owned; `swap(!a, !b)` exchanges the values of two places of
+one type, which may be different fields of one value
+(`swap(!t.left, !t.right)`). The places are lent to write for the call,
+and the values hold no `?T`, `!T`, or slice. Like `print`, both are names a
+declaration may hide.
+
+```rig
+struct Pair
+  left: String
+  right: String
+
+sub main
+  p = Pair(left: "a", right: "b")
+  swap(!p.left, !p.right)
+  old = replace(!p.left, "c")
+  print(p, old)
+```
+
+```output
+Pair(left: "c", right: "a") b
+```
+
+Two elements of one collection are not two places: `swap(!a[i],
+!a[j])` lends `a` to write twice, and is rejected with the collection's
+own `swap`, which exchanges them ([§2](#slices)):
+
+```rig reject
+sub main
+  a = [1, 2, 3]
+  swap(!a[0], !a[2])
+  print(a)
+```
+
+```error
+cannot lend `a` to write while a write loan is live: to swap two elements of `a`, write `!a.swap(0, 2)`
+```
+
+### Changes and shared storage
+
+> **Core 9:** Every change is marked by `!` where it is lent, with one exception: a `Cell` changes through any path.
+
+A name's own value changes by assigning it
+([§4](#4-bindings-and-assignment)). A `Cell` changes through any path
+to it, a read view and a shared handle included ([§10](#cell)), so a
+`Cell`, a `Signal`, and an owned closure accept only values that carry
+no loan ([§10](#text), [§11](#owned-closures)).
 
 ---
 
@@ -3530,6 +3601,8 @@ structs get structural glue only.
 
 ### Shared handles
 
+> **Core 8:** `*<x` moves `x` into a counted box, and `*S(...)` boxes a new value.
+
 `*T` is a shared handle: a reference-counted box holding a `T`,
 single-threaded, like Rust's `Rc<T>`. `*expr` moves a value into a new
 box; for a named owning value, write the move: `*<x`. `+h` makes
@@ -3562,23 +3635,22 @@ list, does not exhaust the stack: past 256 nested releases, a release
 is queued, and the queue runs, in the order the nested releases would
 have, once the releases in progress finish.
 
-Handles are owning values: a bare copy (`b = a`, `f(a)`) is rejected;
-write `<a` or `+a`. Sharing a value that is already a shared handle
-(`*a` with `a: *T`, or the type `*(*T)`) is rejected; clone it instead.
+A handle is its own kind ([§2](#kinds-of-value)): a bare copy (`b = a`,
+`f(a)`) is rejected; write `<a` or `+a`. Sharing a value that is already
+a shared handle (`*a` with `a: *T`, or the type `*(*T)`) is rejected;
+clone it instead.
 
 **Access is read-only.** Field reads, element reads (`h[i]` of a
 `*[N]T`, `*Vec[T]`, or `*String`), and `?self` methods reach through a
-handle automatically, including through fields and loop elements.
-`?h` lends the value's read views where one is expected: one
-`fun area(s: ?Shape)` takes a `?h` of a `*Shape`, and a `*Text` lends
-a String. The loan is on `h`, so `h` may not be dropped, moved, or
-reassigned while the view is used. `!h` lends only the handle itself
-(a `!*T`), never a write view of the value.
-Writing a field, calling a `!self` method, or consuming the value
-through a handle is rejected, because other handles share it; shared
-mutable state goes in a `Cell` ([§10](#cell)). The built-in `Vec` is no
-exception: `!h.push(x)` through a `*Vec[T]` is rejected, and a shared
-Vec is a `*Cell[Vec[T]]`.
+handle automatically, including through fields and loop elements. `?h`
+lends the value's read views ([§7](#lending)), a `?Shape` of a `*Shape`
+and a String of a `*Text`, with the loan on `h`, so `h` may not be
+dropped, moved, or reassigned while the view is used. `!h` lends only
+the handle itself (a `!*T`), never a write view of the value. Writing a
+field, calling a `!self` method, or consuming the value through a handle
+is rejected, because other handles share it, so `!h.push(x)` through a
+`*Vec[T]` is rejected too. Shared state that changes goes in a `Cell`
+([§10](#cell)): a shared Vec is a `*Cell[Vec[T]]`.
 
 ```rig reject
 struct User
@@ -3645,24 +3717,25 @@ are reserved.
 ### Cell
 
 `Cell[T]` holds one value that can be replaced through a read-only
-path. It is the way to mutate shared state: `*Cell[T]` is a shared,
-mutable value.
+path, the one exception to "every change is marked by `!`"
+([§7](#changes-and-shared-storage)): `*Cell[T]` is a shared value that
+changes.
 
 | Member | Meaning |
 |---|---|
 | `Cell(v)` | construct |
-| `c.get()` | a copy of the value (Copy or plain-data `T` only) |
+| `c.get()` | a copy of the value (a `T` of plain data only) |
 | `c.set(v)` | store `v`; the old value is dropped |
 | `c.replace(v)` | store `v` and return the old value |
 | `c.push(x)`, `c.pop()`, `c.clear()`, `c.len` | a `Cell[Vec[T]]`: its Vec's members |
-| `c[i]`, `c[i] = x`, `c.get(i)` | a `Cell[Vec[T]]` of Copy `T`: an element, bounds-checked, or `T?` |
+| `c[i]`, `c[i] = x`, `c.get(i)` | a `Cell[Vec[T]]` of plain data: an element, bounds-checked, or `T?` |
 
-`T` is a Copy primitive, plain data (a struct, enum, optional, or array
-that owns nothing and holds no `?T`, `!T`, or slice), an owning type, or a type
-declared `unique`. An owning or unique value is never copied out of a cell: it moves in with `set` / `replace` and moves out
-with `replace`. What goes into a cell, by any of its members or
-`c[i] = x`, holds no `?T`, `!T`, or slice, nor a String that may view a Text
-([§10](#text)), since every handle to the cell reaches it.
+`T` is plain data ([§2](#kinds-of-value)), an owning type, or a type
+declared `unique`. An owning or unique value is never copied out of a
+cell: it moves in with `set` / `replace` and moves out with `replace`.
+What goes into a cell, by any of its members or `c[i] = x`, carries no
+loan: it holds no `?T`, `!T`, or slice, nor a String that may view a
+Text ([Text](#text)), since every handle to the cell reaches it.
 
 A `Cell[Vec[T]]` answers its Vec's members as `set` does, without `!`:
 `push` moves or clones an owning element in (`<x`, `+x`), `pop` hands
@@ -3671,14 +3744,14 @@ while the cell's Vec is in use: `clear` leaves the cell holding an empty
 Vec before it drops the elements, so a `drop` body that reaches back
 into the cell finds a valid Vec. For the same reason an element is a
 copy: `c[i]` and `c.get(i)` read one and `c[i] = x` writes one only
-when `T` is Copy, an element cannot be lent, and a field of one is
+when `T` is plain data, an element cannot be lent, and a field of one is
 not written in place. The elements of a Vec of handles are taken out
 with `pop`, or by taking the whole Vec out with `replace`.
 
-A Cell is interior-mutable: `set` and `replace` change it through any
-path to it, including a read view (`?Cell[T]`), a `?self` method of a
-struct holding one, and a shared handle. A value holding a Cell is
-unique ([§2](#copy-values-and-owning-values)), so every binding of one is its place: a
+`set` and `replace` change a Cell through any path to it, including a
+read view (`?Cell[T]`), a `?self` method of a struct holding one, and a
+shared handle. A value holding a Cell is unique
+([§2](#kinds-of-value)), so every binding of one is its place: a
 by-value parameter owns the value moved into it (`c.hits.set(v)` with
 `c: Counter` changes the callee's own), and a loop or match binding is
 a view of the element or payload where it is, or owns one a loop or
@@ -3732,10 +3805,10 @@ popped 8 1
 ### Vec
 
 `Vec[T]` is a growable array that owns its elements. The binding is the
-buffer: a `Vec` is an owning value even when its elements are Copy.
-Elements are any value that is not a view: Copy primitives (numbers,
-`Bool`, `String`), plain data, and owning values (a `Text`, a `Vec`, a
-box, a handle, a struct that owns one).
+buffer: a `Vec` is an owning value whatever its elements are, and they
+are of any type ([CORE §5](docs/CORE.md#5-containers-and-fields-hold-anything)):
+plain data, owning values (a `Text`, a `Vec`, a box, a handle, a struct
+that owns one), and views.
 
 | Member | Meaning |
 |---|---|
@@ -3749,13 +3822,11 @@ box, a handle, a struct that owns one).
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
 
-A `for` loop lends the Vec to read for the whole loop, so it cannot be
-modified inside it: `for x in v` is `for x in ?v`. Each element
-of Copy values is a copy; one of owning values is a viewed slot,
-where `v` must be a binding, or a field or element of one: the element can be
-read, called, and cloned (`+x` is a new handle), but not moved,
-dropped, or stored. `for x in !v` and `for x in <v` write and
-consume the elements ([§6](#for)).
+A `for` loop lends the Vec to read for the whole loop ([§6](#for)), so
+it cannot be modified inside it. An element that owns a resource is a
+view of its slot, where `v` must be a binding, or a field or element of
+one: it can be read, called, and cloned (`+x` is a new handle), but not
+moved, dropped, or stored.
 
 ```rig
 sub main
@@ -3828,7 +3899,8 @@ drop 1
 `Box[T]` owns one `T` on the heap. A struct or enum can hold itself
 through a box (`next: Box[Node]?`), since a box is a pointer whatever
 `T` is. A box is the value's one owner: it moves (`<b`), is never
-copied or cloned, and dropping it drops the value and frees the memory.
+copied, `+b` boxes a clone of its value ([§7](#clone)), and dropping it
+drops the value and frees the memory.
 Long chains of boxes are released without deep recursion.
 
 | Member | Meaning |
@@ -3837,8 +3909,8 @@ Long chains of boxes are released without deep recursion.
 | `b.f`, `b.m(...)` | a field or method of the boxed value, reached through the box (and through any boxes it holds): a struct's or enum's, a Vec's (`!b.push(x)`, `b.len`), a Text's (`!b.add(s)`, `b.len`) |
 | `?b`, `!b` | lend the box, or, where a view of the value is expected, that view: `?T` or `!T`, a `[]T` of a boxed array or Vec, a `String` of a boxed Text, through any number of boxes |
 | `<b.unbox()` | move the value out; the box is freed |
-| `<s.f` | take an optional box out of a field, leaving `none` ([§7](#moves)) |
-| `match ?b`, `match !b` | match a boxed enum where it is |
+| `<s.f` | take an optional box out of a field, leaving `none` ([§7](#places)) |
+| `match b`, `match !b` | match a boxed enum where it is |
 
 The box is reached as it is held: through an owned box or a `!Box[T]`
 its value can be written, through a `?Box[T]` only read. A consuming
@@ -3927,9 +3999,9 @@ Text. A `String` is the view of text; a Text is where text is built.
 | `!t.clear()` | empty it, keeping its buffer |
 | `t.len` | its length in bytes, read-only |
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
-| `?t` where a String or `String?` is expected | `?t[..]` |
+| `?t` where a String or `String?` is expected | `?t[..]`; a bare `t` argument too ([§7](#lending)) |
 | a view `p: ?Text` (a name, or a call's result) where a String is expected | its bytes; `p[a..b]` is a view of them, with no further `?` |
-| `for b in ?t` | its bytes, as `U8`s |
+| `for b in t`, `for b in ?t` | its bytes, as `U8`s |
 | `?b[a..b]`, `?b` of a `Box[Text]` | the same, through the box |
 | `+t` | a new Text holding the same bytes |
 | `t == u`, `t == s` | compares its bytes with a Text's or a String's; a boxed Text too |
@@ -4079,10 +4151,9 @@ cannot store a view of `s` in a `Cell`
 
 ### Signal
 
-`Signal[T]` holds a Copy or plain-data value (as a `Cell` does) and a
-list of subscribers, owned closures
-of type `*sub()`. It lives behind a shared handle: a stack `Signal` is
-rejected.
+`Signal[T]` holds a value of plain data and a list of subscribers, owned
+closures of type `*sub()`. It lives behind a shared handle: a stack
+`Signal` is rejected.
 
 | Member | Meaning |
 |---|---|
@@ -4142,7 +4213,7 @@ closure parameter `n` has the name of the local `n`
 
 | Capture | Outer value | Inside the closure |
 |---|---|---|
-| `\|+x\|` | Copy value | a copy |
+| `\|+x\|` | plain data | a copy |
 | `\|+x\|` | `*T` or `~T` | a clone of the handle |
 | `\|<x\|` | any | the value, moved in; the outer `x` is gone |
 | `\|?x\|` | any | a read view `?T`, as `?x` gives it |
@@ -4167,7 +4238,8 @@ list.
 `|?x|` and `|!x|` lend `x` for as long as the closure lives, which is
 until its last use: `|!x|` is `w = !x` followed by `|<w|`. While the
 closure lives, `x` follows the aliasing rule
-([§7](#views)); after its last call, `x` is free again.
+([§7](#one-writer-or-many-readers)); after its last call, `x` is free
+again.
 
 ```rig
 sub main
@@ -4254,7 +4326,7 @@ sub main
 | `sub(String)` | takes a `String`, returns nothing |
 | `*fun(Int) -> Int`, `*sub()` | an owned closure of that shape |
 | `~fun(Int) -> Int`, `~sub()` | a weak handle to an owned closure |
-| `?fun(Int) -> Int`, `?sub()` | a callable view ([below](#closure-parameters)) |
+| `?fun(Int) -> Int`, `?sub()` | a callable view ([below](#callable-views)) |
 
 Function types describe closures bound to locals and function names
 used as values. A function type writes its result after `->`, as a
@@ -4283,7 +4355,7 @@ true
 A closure literal without `*` lives in the stack frame of the function
 that writes it, so it may not escape. It may be bound to a local
 (`f = |...| body`, then called as `f(...)`), called where it is written
-(`(|+n| print(n))()`), or lent to a call ([below](#closure-parameters)).
+(`(|+n| print(n))()`), or lent to a call ([below](#callable-views)).
 Anywhere else (a field, an array element, a return value) it is
 rejected; make it owned instead. A closure binding is fixed and cannot
 be copied or moved; `?f` lends it.
@@ -4298,7 +4370,7 @@ fun make -> fun() -> Int
 closures cannot escape their defining scope
 ```
 
-### Closure parameters
+### Callable views
 
 A parameter of type `?fun(A) -> R` or `?sub(A)` takes a **callable
 view**: a read view of something to call. It accepts
@@ -4429,11 +4501,13 @@ sub main
 ```
 
 An owned closure is type-erased at run time, so its parameters and
-result are plain Copy values: numbers, `Bool`, `String`, plain enums,
-and optionals of these. Pass owning values in as captures. An owned
-closure can be stored anywhere, so it cannot capture a view or a
-value holding one; a stack closure can. `*` applies only to a closure
-literal, not to a function name or a closure binding.
+result are numbers, `Bool`, `String`, plain enums, and optionals of
+these. Pass owning values in as captures. An owned closure can be stored
+anywhere, so it carries no loan ([§7](#changes-and-shared-storage)): it
+cannot capture a `?T`, `!T`, or slice, or a value holding one, nor a
+String that may view a Text ([§10](#text)); a stack closure can. `*`
+applies only to a closure literal, not to a function name or a closure
+binding.
 
 ---
 
@@ -4450,7 +4524,7 @@ expected, and `none` needs a known optional type.
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
 | `if ?a as x`, `if !a as x` | the same, with `x` a view of the value inside `a` |
 | `?a` where a `View?` is expected | a view of the value inside `a`, or `none`: `?a` of an `S?` where a `(?S)?` is expected, of a `Text?` where a `String?` is, of a `Vec[Int]?` where a `([]Int)?` is; `?a` itself is a `?(S?)` |
-| `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§7](#moves)) |
+| `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§7](#places)) |
 | `while a as x` | repeat while `a` produces a value |
 | `if a as x and b as y`, `if a as x and x > 0` | bindings and `Bool` conditions joined by `and`; `else` runs when any fails |
 | `a?` | the value inside `a`; when `a` is `none`, the enclosing function returns `none` |
@@ -4683,6 +4757,8 @@ sub main
 
 ## 13. Errors
 
+> **Core 10:** `e!` propagates a failure, and `e?` propagates an absence.
+
 A function whose return type is `T!` may fail, and so may a `sub`
 marked `!` (`sub save(n: Int)!`, of type `sub(Int)!`). A call to it
 must say what happens to the failure, visibly:
@@ -4819,9 +4895,11 @@ set's type, or an error it caught. The error value may be a branch of
 the returned value, of a ternary or a `match` (`return n if ok else
 E.bad`), and nowhere deeper: failing is always written, so an error
 value anywhere else a `T!` is expected, such as a function's last
-expression or a branch block's, is rejected. The failure leaves the
-function the way `!` does: every `defer` and `errdefer` of the scopes it
-leaves runs. Only a function returning `T!` can fail.
+expression or a branch block's, is rejected
+([CORE 10](docs/CORE.md#2-the-core-in-ten-sentences) shows it). The
+failure leaves the function the way `!` does: every `defer` and
+`errdefer` of the scopes it leaves runs. Only a function returning `T!`
+can fail.
 
 ```rig
 error Bad
@@ -4836,21 +4914,6 @@ sub main
 
 ```output
 2 -1
-```
-
-```rig reject
-error Bad
-  odd
-
-fun half(n: Int) -> Int!
-  if n % 2 == 1
-    Bad.odd
-  else
-    n / 2
-```
-
-```error
-an error value meets `Int!` only as the operand of `return`: write `return Bad.odd`
 ```
 
 Failing always names the error set. Where a `T!` is expected, a bare
