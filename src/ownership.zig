@@ -3799,6 +3799,17 @@ pub const Checker = struct {
         const scrut_value = try self.walk(scrut);
         const header_temps = try self.arena().alloc(VarId, self.stmt_drops.items.len - @min(drops, self.stmt_drops.items.len));
         for (header_temps, self.stmt_drops.items[self.stmt_drops.items.len - header_temps.len ..]) |*t, d| t.* = d.id;
+        // A view a call returns, held as a pointer, is matched where it
+        // points (its tag, its payloads) after the header: one that
+        // carries a loan on a temporary the header made reads it after
+        // the header drops it.
+        if (self.sema) |ctx| if (sema.makesValue(scrut)) if (ctx.typeOf(scrut)) |ty| if (sema.viewHeldAsPointer(ctx, ty)) {
+            for (scrut_value.loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null) {
+                const temp = self.vars.items[l.root].name;
+                try self.err(l.pos, "this `match` reads the view its subject returns after its header drops the temporary `{s}` it points into; bind `{s}` to a name first", .{ temp, temp });
+                break;
+            };
+        };
         try self.dropStmtTemps(drops);
         var outlived = false;
         // A payload binding holds its own loan on the matched place, so
@@ -4559,16 +4570,11 @@ pub const Checker = struct {
     /// resolved for the callee: `!self` writes, a `Self` value is consumed,
     /// anything else reads. A shared handle is only ever read through.
     /// `p.f(...)` where `f` is a data field holding a plain function or
-    /// an owned closure (not a method): neither can keep a borrow of an
-    /// argument in `p`.
+    /// an owned closure (not a method, `sema.callsField`): the call has no
+    /// receiver, and neither can keep a borrow of an argument in `p`.
     fn callsFunctionField(self: *const Checker, callee: Sexp) bool {
         const ctx = self.sema orelse return false;
-        const obj = ir.Member.object(callee);
-        const obj_ty = self.exprType(if (obj.isKind(.write) or obj.isKind(.read)) ir.get(obj, .operand) else obj) orelse return false;
-        const name = self.text(ir.Member.name(callee));
-        if (sema.hasMethodNamed(ctx, obj_ty, name)) return false;
-        const field = sema.lookupDataFieldConst(ctx, obj_ty, name) orelse return false;
-        return ctx.types.get(field.ty) == .function or sema.ownedClosureFn(ctx, field.ty) != null;
+        return ctx.callsField(callee);
     }
 
     fn receiverMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.MethodReceiver {

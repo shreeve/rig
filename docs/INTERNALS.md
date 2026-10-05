@@ -657,6 +657,24 @@ or header ends (`dropStmtTemps`); emit gives a header's temporaries a
 block of their own, `(label: { slots; break :label e; })`, whose
 `defer`s drop them as the header's value is yielded.
 
+So what a `match`, `if … as`, `while … as`, or `for` header binds is in
+the value that block yields, a copy of its subject, whenever the
+subject makes a statement temporary (`sema.firstStmtTemp`, which emit's
+`hasTemps` reads too): a write, a Cell change, or a view through a
+binding would reach the copy, not the place. Typecheck decides once,
+per header, that such a header is rejected at the temporary, whatever
+it binds (`rejectHeaderTemp`), with "bind the index (the argument,
+`e`) to a name first". The exemptions are the headers whose binding is
+the value either way: one that takes what it binds (`<p`, a `match`
+that takes its subject, a consuming `for`, or a call's result that is
+not a view), a `for` over a slice, which walks where the slice points,
+one that binds plain data, only read, of a value made there, and a
+`match` on a view a call returns that is held as a pointer
+(`sema.viewHeldAsPointer`), which is matched where it points. That
+match reads its tag and payloads after the header, so the ownership
+checker reports such a subject whose value carries a loan on a
+temporary the header made (`walkMatch`).
+
 What may be done with a place is decided in one place. `placeOf(e)`
 reads a place expression (a name, or a field or element of one) once,
 into a `Place`: the expression its path starts from and what that is
@@ -726,6 +744,7 @@ instead of re-deriving it by name:
 | `unboxes(node)` | whether a borrow of a `Box[T]` is lent as a borrow of its `T` (`?b` where a `?T` is expected) |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary a read borrow lends. The ownership checker holds it in a hidden var named by its source, borrowed by what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a borrow of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
+| `callsField(callee)` | whether `value.f` in `value.f(...)` calls a function or closure a data field holds, not a method: the call passes no receiver, so its arguments fill every parameter. Emit's `receiverOf`, and through it `callParams`, `receiverWrites`, and `consumedTemporary`, and the ownership checker's `callsFunctionField` read it |
 | `takesSubject(match)` | whether a `match` takes its subject, a call's result that owns a resource, as `match <e` would: its arms own the payloads |
 | `textCallOf(node)` | for a `Text(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in Text operation it is. `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.Text.of` and `add` take; `?t` of a Text lent as a String is recorded as an `arrayViewOf` `borrowed`, walked as `?t[..]` |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
@@ -1240,7 +1259,12 @@ lower is an internal error: sema must have rejected it.
   `rig.dropElement` release a `T` only when the instance needs it (a
   compile-time no-op for plain data), a `?T` is a `rig.ReadBorrow(T)`,
   `/` on a `T` is `rig.div`, and the operators sema's requirements allow.
-- **Calls.** Arguments are evaluated in source order, into temporaries
+- **Calls.** Whether a call passes a receiver as its first parameter
+  is decided in one place, emit's `receiverOf`: `value.method(...)`
+  does, and `Type.f(...)`, `module.f(...)`, and a callable a field
+  holds, `s.cb(...)` (`callsField`), do not. The parameters a call's
+  arguments fill (`callParams`) follow from it.
+  Arguments are evaluated in source order, into temporaries
   when needed: when binding keyword arguments reorders two with side
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's

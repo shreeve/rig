@@ -1,0 +1,15 @@
+# `if ?arr[idx(?Text("a"))] as x` over a Cell holder: the header makes a
+# temporary, so the Cell change would land in a copy.
+
+struct C
+  c: Cell[Int]
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  arr: [1]C? = [C(c: Cell(1))]
+  if ?arr[idx(?Text("a"))] as x
+    x.c.set(5)
+  if ?arr[0] as x
+    print(x.c.get())

@@ -1,0 +1,55 @@
+# A `match` on a view a call returns reads its subject, the tag and every
+# payload, where the view points, after the header that made the call: a
+# view into a temporary the header made reads it after the header drops
+# it. A view of a place is matched where it points (`match pick(?h)`).
+
+enum E
+  a(n: Int)
+  b
+
+enum F
+  a(s: String)
+  b
+
+struct H
+  e: E
+  t: Text
+
+struct G
+  f: F
+
+fun mkh(k: Int) -> H
+  H(e: E.a(n: k), t: Text("a text long enough to live on the heap"))
+
+fun mkg(s: String) -> G
+  G(f: F.a(s: s))
+
+fun pick(h: ?H) -> ?E
+  ?h.e
+
+fun pickf(g: ?G) -> ?F
+  ?g.f
+
+sub main
+  k = 1
+  match pick(?mkh(7))
+    .a(n) => print("a", n)
+    .b => print("b")
+  match pick(?mkh(8))
+    .a(n) if k > 0 => print("a", n)
+    _ => print("other")
+  match pickf(?mkg(?Text("a text long enough to live on the heap")))
+    .a(s) => print(s)
+    .b => print("b")
+  h = mkh(9)
+  match pick(?h)
+    .a(n) => print("a", n)
+    .b => print("b")
+  match pick(?h)
+    .a(n) if n > k => print("a", n)
+    _ => print("other")
+
+# errors: 3
+# error: 35:15: this `match` reads the view its subject returns after its header drops the temporary `mkh(7)` it points into; bind `mkh(7)` to a name first
+# error: 38:15: the temporary `mkh(8)`
+# error: 41:16: the temporary `mkg(?Text("a text long enough to live on the heap"))`

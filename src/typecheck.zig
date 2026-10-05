@@ -1498,6 +1498,8 @@ const Checker = struct {
                 } else inner = try self.ctx.intern(.{ .borrow_read = inner });
             } else _ = try self.readThrough(expr, ty, sema.unwrapBorrows(self.ctx, ty));
         } else _ = try self.readThrough(expr, ty, sema.unwrapBorrows(self.ctx, ty));
+        // `<p`, or a value made here, is taken into the binding.
+        if (!self.isPoison(ty)) try self.rejectHeaderTemp(expr, inner, expr.isKind(.move) or self.takesMade(expr, ty));
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
             self.ctx.symbols.items[sym].ty = inner;
@@ -1597,14 +1599,21 @@ const Checker = struct {
             elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, mode);
             // The source is a header: a temporary it reads into ends with
             // it, before the loop walks it.
-            if (mode != .move) if (self.tempBase(source)) |temp| {
+            const walks_temp = if (mode != .move) self.tempBase(source) else null;
+            if (walks_temp) |temp| {
                 try self.errAt(temp, "the loop would walk the temporary `{s}` after its header drops it; bind it to a name first", .{self.sourceText(temp)});
-            };
+            }
             // `for x in ?e` and `for x in !e` lend `e`: one made here would
             // end with the header. A call's result is taken: `for x in e`.
             const unbound = vecElementType(self.ctx, source_ty) != null and !isPlaceExpr(peeled_source) and !makesValue(peeled_source);
-            if ((mode == .read or mode == .write) and !unbound and !isPlaceExpr(source) and !self.isPoison(source_ty) and sema.typeHasDropGlue(self.ctx, source_ty)) {
+            const lends_temp = (mode == .read or mode == .write) and !unbound and !isPlaceExpr(source) and !self.isPoison(source_ty) and sema.typeHasDropGlue(self.ctx, source_ty);
+            if (lends_temp) {
                 try self.errAt(source, "the loop would walk a borrow of the temporary `{s}` after its header drops it; take it with `for {s} in {s}`, or bind it to a name first", .{ self.sourceText(source), self.text(binding), self.sourceText(source) });
+            }
+            // A consuming loop owns what it binds, and a loop over a slice
+            // walks where the slice points.
+            if (walks_temp == null and !lends_temp and !self.isPoison(source_ty)) {
+                try self.rejectHeaderTemp(source, elem_ty, mode == .move or rig.isRangeIndex(source) or self.takesMade(source, source_ty));
             }
         }
 
@@ -1939,9 +1948,15 @@ const Checker = struct {
 
         // A binding views the subject through the body, and a temporary
         // the subject reads ends with the subject.
-        if (self.tempBase(subject)) |temp| if (self.armsBind(node)) {
+        const outlives = if (self.tempBase(subject)) |temp| self.armsBind(node) and blk: {
             try self.errAt(temp, "the arms' bindings would outlive the temporary `{s}`, which the `match` subject drops; bind it to a name first", .{self.sourceText(temp)});
-        };
+            break :blk true;
+        } else false;
+        // A match that takes its subject owns what it binds; a view a call
+        // returns, held as a pointer, is matched where it points (the
+        // ownership checker reports one into the header's temporaries).
+        const held_view = makesValue(subject) and sema.viewHeldAsPointer(self.ctx, self.ctx.typeOf(subject) orelse scrutinee);
+        if (!outlives) try self.rejectHeaderTemp(subject, sema.unwrapBorrows(self.ctx, scrutinee), mode == .consume or held_view or self.takesMade(subject, scrutinee));
         if (result) |r| for (arm_values.items) |av| try self.adaptLiteral(av.node, av.ty, r);
         const exhaustive = self.coversAll(&cov, scrutinee);
         if (exhaustive) try self.ctx.recordExhaustive(node);
@@ -1991,6 +2006,30 @@ const Checker = struct {
         };
         for (g.items()) |c| if (self.guardWrite(c, subject, pattern)) |w| return w;
         return null;
+    }
+
+    /// A `match`, `if … as`, `while … as`, or `for` header whose subject
+    /// makes a statement temporary (`sema.firstStmtTemp`) is evaluated by
+    /// emit in a block that drops the temporary and yields the subject's
+    /// value, so what the construct binds is in that copy, not in the
+    /// subject: a write, a Cell change, or a view through a binding
+    /// would reach the copy. Such a header is rejected at the temporary,
+    /// whatever it binds, unless the construct `takes` what it binds,
+    /// which is the value either way, or binds plain data of a value made
+    /// here (`bound`, read, not written), which the copy holds.
+    fn rejectHeaderTemp(self: *Checker, subject: Sexp, bound: TypeId, takes: bool) Error!void {
+        const temp = sema.firstStmtTemp(self.ctx, subject) orelse return;
+        if (takes or self.isPoison(bound)) return;
+        if (makesValue(subject) and self.ctx.types.get(bound) != .borrow_write and sema.isPlainData(self.ctx, sema.unwrapBorrows(self.ctx, bound))) return;
+        const what = if (inIndex(subject, temp)) "the index" else if (inArgument(subject, temp)) "the argument" else try self.ctx.arena.allocator().print("`{s}`", .{self.sourceText(temp)});
+        try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind {s} to a name first", .{what});
+    }
+
+    /// Whether `subject`, of type `ty`, is a value made here that is not a
+    /// view (a call's result, or one propagated): a header takes it, so
+    /// what it binds is that value, as `<e` would bind it.
+    fn takesMade(self: *Checker, subject: Sexp, ty: TypeId) bool {
+        return makesValue(subject) and !isBorrow(self.ctx, ty);
     }
 
     /// The temporary place `e` reads into, where `e` is a field or
@@ -6266,6 +6305,7 @@ const Checker = struct {
         if (ct != null and resolved_method == null) {
             const field_ty = try self.memberOf(callee, obj, obj_ty);
             try self.ctx.recordType(callee, field_ty);
+            try self.ctx.recordFieldCallee(callee);
             const elem_ty = try self.indexInto(ct.?, field_ty);
             try self.ctx.recordType(ct.?, elem_ty);
             if (self.isReceiverSigil(obj)) {
@@ -6318,6 +6358,7 @@ const Checker = struct {
                     if (self.isReceiverSigil(obj)) {
                         try self.fieldCallSigil(obj, method, "a field holding a function", ty);
                     } else try self.rejectResourceTemporary(obj, obj_ty);
+                    try self.ctx.recordFieldCallee(callee);
                     try self.noteCalleeType(ty);
                     return self.callValue(callee, ty, args, method);
                 }
@@ -8387,16 +8428,7 @@ fn textOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
     return if (sema.boxedType(ctx, ty) == ctx.types.text_id) ctx.types.text_id else ty;
 }
 
-/// A call, or a call's value propagated (`mk()!`, `mk()?`): an
-/// expression that makes a new value.
-fn makesValue(e: Sexp) bool {
-    const h = e.kind() orelse return false;
-    return switch (h) {
-        .call => true,
-        .propagate, .propagate_none => makesValue(ir.get(e, .value)),
-        else => false,
-    };
-}
+const makesValue = sema.makesValue;
 
 /// A value that is one of its operands: `a if c else b`, `a ?? b`,
 /// `e catch h`, `e!`, or `e?`.
@@ -8639,6 +8671,30 @@ fn arrayElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
         .array => |a| a.elem,
         else => null,
     };
+}
+
+/// Whether `node` lies in the index of an element in `tree`.
+fn inIndex(tree: Sexp, node: Sexp) bool {
+    if (tree != .list) return false;
+    if (tree.isKind(.index) and contains(ir.Index.index(tree), node)) return true;
+    for (tree.items()) |item| if (inIndex(item, node)) return true;
+    return false;
+}
+
+/// Whether `node` lies in an argument of a call in `tree`.
+fn inArgument(tree: Sexp, node: Sexp) bool {
+    if (tree != .list) return false;
+    if (tree.isKind(.call)) for (ir.Call.args(tree)) |a| if (contains(a, node)) return true;
+    for (tree.items()) |item| if (inArgument(item, node)) return true;
+    return false;
+}
+
+/// Whether `node` is `tree` or inside it.
+fn contains(tree: Sexp, node: Sexp) bool {
+    if (sameNode(tree, node)) return true;
+    if (tree != .list) return false;
+    for (tree.items()) |item| if (contains(item, node)) return true;
+    return false;
 }
 
 /// `a` and `b` are the same parsed node.

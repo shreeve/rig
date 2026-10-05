@@ -638,6 +638,10 @@ pub const Facts = struct {
     /// `match` nodes whose subject is a call's result, which the match
     /// takes as `match <e` would.
     taken_subjects: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Callees `value.f` of calls `value.f(...)` (or `value.f[i](...)`)
+    /// that call a function or closure a data field holds, not a method:
+    /// such a call passes no receiver (`callsField`).
+    field_callees: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Borrows of a Text (`?Text` call results and names) lent as a
     /// String where one is expected (`SemContext.lendsText`).
     text_lends: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -1433,6 +1437,17 @@ pub const SemContext = struct {
     /// would (`recordTakenSubject`).
     pub fn takesSubject(self: *const SemContext, match: Sexp) bool {
         return self.facts.taken_subjects.contains(nodeKey(match) orelse return false);
+    }
+
+    pub fn recordFieldCallee(self: *SemContext, callee: Sexp) !void {
+        try self.facts.field_callees.put(self.allocator, recordKey(callee), {});
+    }
+
+    /// Whether `callee`, a call's `value.f`, calls a function or closure
+    /// a data field holds (`recordFieldCallee`): the call passes no
+    /// receiver, and its arguments fill every parameter.
+    pub fn callsField(self: *const SemContext, callee: Sexp) bool {
+        return self.facts.field_callees.contains(nodeKey(callee) orelse return false);
     }
 
     pub fn recordTextCall(self: *SemContext, call: Sexp, op: TextCall) !void {
@@ -3217,6 +3232,52 @@ pub fn isHeaderOf(parent: Sexp, child: Sexp) bool {
         else => return false,
     };
     return header == .list and child == .list and header.list.id == child.list.id;
+}
+
+/// A call, or a call's value propagated (`mk()!`, `mk()?`): an
+/// expression that makes a new value.
+pub fn makesValue(e: Sexp) bool {
+    const h = e.kind() orelse return false;
+    return switch (h) {
+        .call => true,
+        .propagate, .propagate_none => makesValue(ir.get(e, .value)),
+        else => false,
+    };
+}
+
+/// The first owning temporary statement `stmt` makes (`dropsTemp`), not
+/// counting the blocks and closures it holds or its own headers and
+/// `while` step, which are statements of their own. A header that makes
+/// one is evaluated in a block that drops it before the construct runs
+/// (emit's `openHeader`): what the construct binds is in the value that
+/// block yields, not in the header's subject.
+pub fn firstStmtTemp(ctx: *const SemContext, stmt: Sexp) ?Sexp {
+    if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return null;
+    if (ctx.dropsTemp(stmt)) return stmt;
+    for (rig.children(stmt)) |c| {
+        if (isHeaderOf(stmt, c) or isWhileStep(stmt, c)) continue;
+        if (firstStmtTemp(ctx, c)) |t| return t;
+    }
+    return null;
+}
+
+/// Whether `child` is the step of `while` loop `parent`: a statement
+/// of its own, run after each pass.
+pub fn isWhileStep(parent: Sexp, child: Sexp) bool {
+    if (!parent.isKind(.@"while")) return false;
+    const step = ir.While.step(parent);
+    return step == .list and child == .list and step.list.id == child.list.id;
+}
+
+/// Whether a view of type `ty` is held as a pointer: a write view (but
+/// a `![]T`, a slice), or a read view that does not copy its value
+/// (`readBorrowCopies`).
+pub fn viewHeldAsPointer(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .borrow_write => writeSliceElem(ctx, ty) == null,
+        .borrow_read => |inner| !readBorrowCopies(ctx, inner),
+        else => false,
+    };
 }
 
 /// Whether a value of `ty` holds a String but no borrow or type

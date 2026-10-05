@@ -1,0 +1,19 @@
+# A match on a view a call returns that points into a temporary its
+# header made, whose String payload views a Text temporary.
+enum E
+  a(s: String)
+  b
+
+struct H
+  e: E
+
+fun mkh(s: String) -> H
+  H(e: E.a(s: s))
+
+fun pick(h: ?H) -> ?E
+  ?h.e
+
+sub main
+  match pick(?mkh(?Text("a text long enough to live on the heap")))
+    .a(s) => print(s)
+    .b => print("b")

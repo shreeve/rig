@@ -1065,7 +1065,7 @@ pub const Emitter = struct {
         if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
         // The parts first: they are made first, so their `defer`s run
         // after those of what holds them.
-        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c)) try self.emitTempSlots(c);
+        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !sema.isWhileStep(stmt, c)) try self.emitTempSlots(c);
         if (self.sema.dropsTemp(stmt) and self.tempSlot(stmt) == null) {
             const name = try self.fmt("__rig_tmp_{d}", .{self.nextId()});
             try self.w.print("var {s}: ", .{name});
@@ -1075,26 +1075,16 @@ pub const Emitter = struct {
         }
     }
 
-    /// Whether `child` is the step of `while` loop `parent`: a statement
-    /// of its own, run after each pass (`emitStep`).
-    fn isWhileStep(parent: Sexp, child: Sexp) bool {
-        if (!parent.isKind(.@"while")) return false;
-        const step = ir.While.step(parent);
-        return step == .list and child == .list and step.list.id == child.list.id;
-    }
-
     fn tempSlot(self: *Emitter, node: Sexp) ?TempSlot {
         if (node != .list) return null;
         for (self.temp_slots.items) |t| if (t.node == node.list.id) return t;
         return null;
     }
 
-    /// Whether statement `stmt` holds an owning temporary its end drops.
+    /// Whether statement `stmt` holds an owning temporary its end drops
+    /// (`sema.firstStmtTemp`, which typecheck's header rule reads too).
     fn hasTemps(self: *Emitter, stmt: Sexp) bool {
-        if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return false;
-        if (self.sema.dropsTemp(stmt)) return true;
-        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !isWhileStep(stmt, c) and self.hasTemps(c)) return true;
-        return false;
+        return sema.firstStmtTemp(self.sema, stmt) != null;
     }
 
     /// Start header `e` (`sema.isHeaderOf`), its own statement: when it
@@ -1245,7 +1235,11 @@ pub const Emitter = struct {
             .borrow_read, .borrow_write => true,
             else => false,
         } else true;
-        const is_borrow = binds_borrow and (expr.isKind(.read) or expr.isKind(.write)) and
+        // A read borrow that copies its value (`sema.readBorrowCopies`) is
+        // held as that copy when the name is bound again, since a call
+        // returns one so (`q = pick(?a, ?b)`).
+        const copied = ty != null and s.flags.reassigned and self.sema.types.get(ty.?) == .borrow_read and !self.isPtrBorrowTy(ty.?) and self.genericReadBorrow(ty.?) == null;
+        const is_borrow = binds_borrow and !copied and (expr.isKind(.read) or expr.isKind(.write)) and
             (ty == null or (sema.writeSliceElem(self.sema, ty.?) == null and sema.callableFn(self.sema, ty.?) == null));
         // A write borrow is held as a pointer however it was obtained.
         const holds_ptr = is_borrow or (ty != null and self.isPtrBorrowTy(ty.?));
@@ -2415,6 +2409,11 @@ pub const Emitter = struct {
         const name = try self.fmt("__rig_subject_{d}", .{self.nextId()});
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
         if (isPlace(value) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
+            // A read match reaches an element as a read does: a Vec it
+            // reaches through a read borrow is constant.
+            const saved = self.read_place;
+            defer self.read_place = saved;
+            self.read_place = info.mode == .read;
             try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
             info.reread = try self.fmt("{s}.*", .{name});
             return;
@@ -2789,10 +2788,10 @@ pub const Emitter = struct {
         const sym = self.sema.symbolOf(name);
         // Over a borrow of an optional, a borrowed binding points into it.
         if (self.borrowsOptionalValue(value) and self.hasTemps(value)) {
-            // A borrow of a temporary the header drops: the optional is
-            // read inside the header, and the binding views a copy of the
-            // value inside, which the ownership checker lets nothing use
-            // past the header.
+            // A view a call returns, in a header that makes a temporary:
+            // the optional is read inside the header, and the binding is
+            // a copy of the plain data inside, the only binding typecheck
+            // lets such a header make (`rejectHeaderTemp`).
             try self.w.writeAll("(");
             const h = try self.openHeader(value);
             try self.w.writeAll("(");
@@ -3125,11 +3124,7 @@ pub const Emitter = struct {
     /// value that owns resources or holds a `Cell` (see `readBorrowIsPtr`).
     /// A `![]T` is a Zig slice, which points at its elements itself.
     fn isPtrBorrowTy(self: *Emitter, ty: TypeId) bool {
-        return switch (self.sema.types.get(ty)) {
-            .borrow_write => sema.writeSliceElem(self.sema, ty) == null,
-            .borrow_read => |inner| self.readBorrowIsPtr(inner),
-            else => false,
-        };
+        return sema.viewHeldAsPointer(self.sema, ty);
     }
 
     /// A read borrow of a scalar or a view is a copy
@@ -4456,12 +4451,12 @@ pub const Emitter = struct {
     }
 
     /// The types of the run-time parameters a call's arguments fill, in
-    /// slot order: all of them for `f(...)`, `Type.method(...)`, and
-    /// `module.f(...)`; all but the receiver for `value.method(...)`.
+    /// slot order: all of them for `f(...)`, `Type.method(...)`,
+    /// `module.f(...)`, and a callable a field holds (`s.cb(...)`); all
+    /// but the receiver for `value.method(...)` (`receiverOf`).
     fn callParams(self: *Emitter, call: Sexp) []const TypeId {
-        const callee = self.sema.calleeOf(call);
-        const f = self.fnType(self.typeOf(callee)) orelse return &.{};
-        if (!callee.isKind(.member) or self.isTypeCallee(ir.Member.object(callee))) return f.params;
+        const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return &.{};
+        if (self.receiverOf(call) == null) return f.params;
         return if (f.params.len > 0) f.params[1..] else f.params;
     }
 
@@ -4550,11 +4545,9 @@ pub const Emitter = struct {
     /// The receiver of `value.method(...)` when it is an owned temporary
     /// the method consumes (`mk().consume(...)`).
     fn consumedTemporary(self: *Emitter, call: Sexp) ?Sexp {
-        const callee = self.sema.calleeOf(call);
-        if (!callee.isKind(.member)) return null;
-        const obj = ir.Member.object(callee);
-        if (isPlace(obj) or obj.isKind(.move) or self.isTypeCallee(obj) or !self.isOwnedValue(obj)) return null;
-        const f = self.fnType(self.typeOf(callee)) orelse return null;
+        const obj = self.receiverOf(call) orelse return null;
+        if (isPlace(obj) or obj.isKind(.move) or !self.isOwnedValue(obj)) return null;
+        const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return null;
         if (f.params.len == 0) return null;
         return switch (self.sema.types.get(f.params[0])) {
             .borrow_read, .borrow_write => null,
@@ -4592,10 +4585,14 @@ pub const Emitter = struct {
         return self.kindOf(t) != null;
     }
 
-    /// The receiver of `value.method(...)`.
+    /// The receiver of `value.method(...)`, which the call passes as its
+    /// first parameter: the one place emit decides a call has one. Not
+    /// `Type.f(...)` or `module.f(...)`, or a callable a data field holds
+    /// (`s.cb(...)`, `sema.callsField`), whose arguments fill every
+    /// parameter.
     fn receiverOf(self: *Emitter, call: Sexp) ?Sexp {
         const callee = self.sema.calleeOf(call);
-        if (!callee.isKind(.member)) return null;
+        if (!callee.isKind(.member) or self.sema.callsField(callee)) return null;
         const obj = ir.Member.object(callee);
         if (self.isTypeCallee(obj)) return null;
         return obj;
@@ -4603,6 +4600,7 @@ pub const Emitter = struct {
 
     /// Whether the method of `value.method(...)` takes `!self`.
     fn receiverWrites(self: *Emitter, call: Sexp) bool {
+        if (self.receiverOf(call) == null) return false;
         const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return false;
         return f.params.len > 0 and self.sema.types.get(f.params[0]) == .borrow_write;
     }
