@@ -1,0 +1,16 @@
+# A view a `?self` method returns of a receiver that branches (`(a if c
+# else b).inner()`), held while `a.t` is replaced: rejected.
+
+struct S
+  t: Text
+
+  fun inner(?self) -> ?Text
+    ?self.t
+
+sub main
+  a = S(t: Text("aa"))
+  b = S(t: Text("bb"))
+  c = a.t.len == 2
+  r = (a if c else b).inner()
+  a.t = Text("zz")
+  print(r, b.t)

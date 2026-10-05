@@ -3318,7 +3318,11 @@ Text first, because `kv` outlives the header. A call's result that `if
 take it: an arm of `match make()` may move a payload out. A lend of a
 branching value that may be a name's (`?(a if c else b)`) would copy
 that name's value, so it is rejected: lend each branch, `?a if c else
-?b`.
+?b`. A `?self` receiver is lent this way when the method's result may
+keep a view of it: `(a if c else b).name()`, for a `name` that returns
+a view of its receiver, is rejected, and `(?a if c else ?b).name()`
+lends each branch; a temporary receiver, plain data included, lives
+until its statement ends, so the view may not outlive the statement.
 
 ```rig
 use std.text
@@ -3337,6 +3341,42 @@ sub main
 true
 starts
 k v
+```
+
+```rig
+struct S
+  t: Text
+
+  fun name(?self) -> String
+    ?self.t
+
+sub main
+  a = S(t: Text("aa"))
+  b = S(t: Text("bb"))
+  n = (?a if a.t.len > 1 else ?b).name()
+  print(n, S(t: Text("cc")).name())
+```
+
+```output
+aa cc
+```
+
+```rig reject
+struct S
+  t: Text
+
+  fun name(?self) -> String
+    ?self.t
+
+sub main
+  a = S(t: Text("aa"))
+  b = S(t: Text("bb"))
+  n = (a if a.t.len > 1 else b).name()
+  print(n)
+```
+
+```error
+cannot lend `a if a.t.len > 1 else b` to `name`
 ```
 
 ```rig reject

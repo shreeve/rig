@@ -639,7 +639,14 @@ and `e?` (`readLeaves`): a branch that is a name is read where it is
 (`readsInPlace`), never moved, and a branching value all of whose
 branches are made is one temporary. A read borrow of a temporary
 (`?S(n: 1)`, `?make()`, a slice of one) records it the same way,
-owning or not. A header (`sema.isHeaderOf`: an `if` or `while`
+owning or not (`lendTemp`), and so does a `?self` receiver whose
+method's result may keep a view of it (a result that may hold a view,
+or a call that may store a borrow, `callRetains`): `r = mk().arr()` is
+`_t = mk()`, `r = P.arr(?_t)`, `-_t`, plain data too, and
+`(a if c else b).inner()` is `S.inner(?(a if c else b))`, rejected as
+that lend is. The ownership checker lends such a receiver where its
+path starts (`walkBorrowedPath`), whatever each field or element on
+the way holds. A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
 `if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
 so a binding that still views `_t` is reported where the header ends.

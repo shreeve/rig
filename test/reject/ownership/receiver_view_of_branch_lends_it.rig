@@ -1,0 +1,79 @@
+# A `?self` method whose result may keep a view of its receiver lends the
+# receiver, as `?e` does. A receiver that branches and may be a value a
+# name holds would be lent as a copy of that value, which the view would
+# outlive or see go stale: whether the branch is the receiver itself, the
+# value a field or element of it is read from, or `??`, `catch`, or `o?`.
+# Each branch is lent instead, or the method is called on each.
+
+struct S
+  t: Text
+  xs: [4]Int
+
+  fun inner(?self) -> ?Text
+    ?self.t
+
+  fun name(?self) -> String
+    ?self.t
+
+  fun arr(?self) -> ?[4]Int
+    ?self.xs
+
+struct W
+  s: S
+
+struct P
+  xs: [4]Int
+
+  fun arr(?self) -> ?[4]Int
+    ?self.xs
+
+error E
+  bad
+
+fun maybe(c: Bool) -> S?
+  if c
+    return S(t: Text("oo"), xs: [9, 9, 9, 9])
+  none
+
+fun fails(c: Bool) -> S!
+  if c
+    return E.bad
+  S(t: Text("ff"), xs: [8, 8, 8, 8])
+
+fun first(o: S?) -> Int?
+  r = o?.inner()
+  r.len
+
+sub main
+  a = S(t: Text("aa"), xs: [1, 2, 3, 4])
+  b = S(t: Text("bb"), xs: [5, 6, 7, 8])
+  c = a.t.len == 2
+  r = (a if c else b).inner()
+  n = (a if c else b).name()
+  x = (a if c else b).arr()
+  wa = W(s: S(t: Text("wa"), xs: [0, 0, 0, 0]))
+  wb = W(s: S(t: Text("wb"), xs: [0, 0, 0, 0]))
+  w = (wa if c else wb).s.inner()
+  o = maybe(true)
+  u = (o ?? a).inner()
+  e = (fails(false) catch b).inner()
+  vs: Vec[P] = Vec()
+  !vs.push(P(xs: [1, 1, 1, 1]))
+  ws: Vec[P] = Vec()
+  !ws.push(P(xs: [2, 2, 2, 2]))
+  y = (vs if c else ws)[0].arr()
+  print((a if c else b).inner())
+  a.t = Text("zz")
+  !vs.clear()
+  print(r, n, x, w, u, e, y, first(maybe(true)) ?? 0)
+
+# error: 44:7: cannot lend `o?` to `inner`, whose result may keep the borrow: it may be `o`
+# error: 51:8: cannot lend `a if c else b` to `inner`, whose result may keep the borrow: it may be `a`
+# error: 52:8: cannot lend `a if c else b` to `name`
+# error: 53:8: cannot lend `a if c else b` to `arr`
+# error: 56:8: cannot lend `wa if c else wb` to `inner`
+# error: 58:8: cannot lend `o ?? a` to `inner`
+# error: 59:8: cannot lend `fails(false) catch b` to `inner`
+# error: 64:8: cannot lend `vs if c else ws` to `arr`
+# error: 65:10: cannot lend `a if c else b` to `inner`
+# errors: 9

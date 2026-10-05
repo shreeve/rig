@@ -2981,7 +2981,10 @@ pub const Checker = struct {
                 // it yields through a branch is moved with `<`.
                 result = try self.walkConsumed(ir.Member.object(callee), .argument);
             } else {
-                result = try self.walk(ir.Member.object(callee));
+                // A receiver that is no place is lent where its path
+                // starts: what the method returns may keep what that start
+                // keeps (a temporary's slot), whatever each step's type.
+                result = try self.walkBorrowedPath(ir.Member.object(callee));
                 if (self.errors_found == callee_found) try self.holdRead(ir.Member.object(callee), .receiver);
             }
         } else if (callee == .src) {

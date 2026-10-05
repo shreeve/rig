@@ -3587,11 +3587,21 @@ const Checker = struct {
     /// that may be a name's value would copy that value into the slot:
     /// each branch is lent instead.
     fn lendTemp(self: *Checker, operand: Sexp) Error!void {
+        return self.lendTempTo(operand, null);
+    }
+
+    /// `lendTemp` of `operand`, or, given `method`, of the receiver a
+    /// `?self` method whose result may keep the borrow lends, as
+    /// `?operand` would be lent.
+    fn lendTempTo(self: *Checker, operand: Sexp, method: ?[]const u8) Error!void {
         const base = if (isPlaceExpr(operand)) self.placeOf(operand).base else operand;
         if (base != .list) return;
         const ty = self.ctx.typeOf(base) orelse return;
         if (sema.typeHasDropGlue(self.ctx, ty)) if (self.namedLeaf(base)) |leaf| {
-            try self.errAt(base, "cannot lend `{s}`: it may be `{s}`, a value a name holds, which lending the branching value would copy; lend what each branch reaches instead (`?a if c else ?b`, `if ?o as x`)", .{ self.sourceText(base), self.sourceText(leaf) });
+            const what = "a value a name holds, which lending the branching value would copy; lend what each branch reaches instead";
+            if (method) |m| {
+                try self.errAt(base, "cannot lend `{s}` to `{s}`, whose result may keep the borrow: it may be `{s}`, {s} (`(?a if c else ?b).{s}(...)`, `if ?o as x`)", .{ self.sourceText(base), m, self.sourceText(leaf), what, m });
+            } else try self.errAt(base, "cannot lend `{s}`: it may be `{s}`, {s} (`?a if c else ?b`, `if ?o as x`)", .{ self.sourceText(base), self.sourceText(leaf), what });
             return;
         };
         try self.ctx.recordTempDrop(base);
@@ -6385,6 +6395,11 @@ const Checker = struct {
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
+        // A `?self` method whose result may keep a borrow of a temporary
+        // receiver lends it, as `?obj` does: the temporary is kept in a
+        // slot until its statement ends, and a branching value that may
+        // be a name's is lent branch by branch instead.
+        if (receiver == .read and !misplaced_sigil and !obj.isKind(.read) and self.isTemporary(obj) and (sema.mayHoldView(self.ctx, f.returns) or self.callRetains(f, null))) try self.lendTempTo(obj, method);
         const rest: FunctionType = .{
             .params = f.params[1..],
             .returns = f.returns,
