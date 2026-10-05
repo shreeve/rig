@@ -24,4 +24,4 @@ sub main()
   print(r, v.xs)
 
 # error: 21:8: type mismatch: expected `![]Int`, got `[3]Int`; write `!a` or `!a[..]`
-# error: 23:16: a temporary array is lent as a `[]Int` only to a call that keeps no borrow of it; bind it to a name and pass `?name`
+# error: 23:16: a temporary array is lent as a `[]Int` only to a call that keeps no view of it; bind it to a name and pass `?name`

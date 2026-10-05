@@ -1,5 +1,5 @@
 # An imported module's bindings are constants, as in their own module:
-# they cannot be assigned, write-borrowed, or written through a loop.
+# they cannot be assigned, lent to write, or written through a loop.
 
 use lib
 
@@ -15,6 +15,6 @@ sub main()
   print(lib.xs)
 
 # error: 10:3: cannot assign to constant `lib.xs`
-# error: 11:9: cannot write-borrow constant `lib.xs`
+# error: 11:9: cannot lend constant `lib.xs` to write
 # error: 12:3: cannot assign to constant `lib.xs`
 # error: 13:13: cannot write-iterate constant `lib.xs`

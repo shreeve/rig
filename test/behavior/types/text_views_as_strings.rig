@@ -1,0 +1,52 @@
+# A view of a Text lends its bytes where a String, or a `String?`, is
+# expected, whether written `?t` or returned by a call; a slice of such a
+# view is a view without another `?`; `for b in ?t` walks its bytes;
+# and a part of a temporary is read through it, as by `get`.
+
+use std.text
+
+struct S
+  t: Text
+
+  fun get(?self) -> ?Text
+    ?self.t
+
+struct E
+  value: Text
+
+fun find(e: ?E, ok: Bool) -> String?
+  if ok
+    return ?e.value
+  none
+
+fun n(p: ?Text) -> Int
+  text.trim(p).len + p[1..].len
+
+struct W
+  s: Vec[String]
+
+fun mkw -> W
+  s: Vec[String] = Vec()
+  !s.push("lit")
+  W(s: <s)
+
+sub main
+  s = S(t: Text(" padded "))
+  print(text.trim(s.get()), text.trim(s.get()[1..]), n(s.get()))
+  e = E(value: Text("v"))
+  print(find(?e, true) ?? "none", find(?e, false) ?? "none")
+  t = Text("ab")
+  for b in ?t
+    print(b)
+  bx = Box(Text("c"))
+  for b in ?bx
+    print(b)
+  print(mkw().s.get(0), mkw().s[0])
+
+# expect:
+# padded padded 13
+# v none
+# 97
+# 98
+# 99
+# lit lit

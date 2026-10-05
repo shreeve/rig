@@ -1,5 +1,5 @@
-# `get` copies an element out, so an array of write borrows has none:
-# the copy would be a second write borrow.
+# `get` copies an element out, so an array of write views has none:
+# the copy would be a second write view.
 
 sub main
   a = 1

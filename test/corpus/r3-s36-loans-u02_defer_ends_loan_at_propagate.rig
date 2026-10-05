@@ -1,6 +1,6 @@
 # UNSOUND on main: the defer re-points `r` at `keep`. The `!` exit
 # runs it and keeps its effect on the path that goes on, so there `r`
-# seems to borrow only `keep`, `x` can be dropped, and `r` reads it.
+# seems to lend only `keep`, `x` can be dropped, and `r` reads it.
 error E
   bad
 

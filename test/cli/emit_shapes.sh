@@ -148,7 +148,7 @@ grep -qE 'var __rig_(arg|recv)_' <<<"$out" && fail "a temporary copied into the 
 grep -qE '__rig_recv_[0-9]+ = &\(rig\.keep\(' <<<"$out" || fail "kept receiver not reached in its slot: $out"
 
 # A `match` on a generic read view a name holds switches on the value
-# where the view reaches it, never on a copy (`rig.borrowed`).
+# where the view reaches it, never on a copy (`rig.viewed`).
 cat >generic.rig <<'EOF2'
 enum Opt[T]
   some(v: T)
@@ -166,7 +166,7 @@ sub main
   print(a.all())
 EOF2
 out=$("$RIG" emit generic.rig 2>/dev/null) || fail "rig emit generic.rig"
-expect_has "$out" 'switch (rig.borrowedPtr(__rig_Self, &self).*)' "generic subject switched in place"
+expect_has "$out" 'switch (rig.viewedPtr(__rig_Self, &self).*)' "generic subject switched in place"
 
 # Under the sanitizer, each storage location emit adds is filled with
 # `0xAA` when its scope ends (`rig.poison`), after its drop; without it,

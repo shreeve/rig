@@ -5,7 +5,7 @@ Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
 `drop`, a struct holding a Cell, a struct declared `unique`), plus the
-stores into a borrowed parameter (`store.`, below) and the views of a
+stores into a view parameter (`store.`, below) and the views of a
 read `match` payload, used in the arm or escaping (`payload.`). The rule
 is the corpus's: `rig check` rejects the program with
 a file:line:col diagnostic, or it runs clean under the sanitizer (no leak,
@@ -99,7 +99,7 @@ FORMS = {
 
 CONTEXTS = {
     "print": dict(inline="print(E)"),
-    "borrow_arg": dict(inline="print(look(?E))"),
+    "lend_arg": dict(inline="print(look(?E))"),
     "eq": dict(inline="print(E == a)"),
     "binding": dict(block="x = E", after="print(look(?x))"),
     "field_store": dict(block="h.f = E", needs="h", after="print(look(?h.f))"),
@@ -186,7 +186,7 @@ for shape in TAIL_SHAPES:
 
 
 # -----------------------------------------------------------------------------
-# Stores into a borrowed parameter: `f` stores a view of its write
+# Stores into a view parameter: `f` stores a view of its write
 # parameter `b` in what its parameter `a` reaches, by each store form,
 # then grows `b` (or only reads it) and reads the view through `a`. The
 # caller reads `a` after the return, so `b` stays lent: growing it must
@@ -421,7 +421,7 @@ def program(tname, fname, cname):
         if ctx.get("write"):
             text = text.replace("!W", "!" + WRITE_TARGETS.get(fname, "a"))
         e = form
-        if cname in ("borrow_arg", "for_source") and " " in e:
+        if cname in ("lend_arg", "for_source") and " " in e:
             e = f"({e})"
         # `@POKE` and `@POKY` stand for the type's change through the loop
         # or match binding, or `pass`; they are replaced before `E` is.

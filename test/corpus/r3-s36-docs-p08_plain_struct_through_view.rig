@@ -1,0 +1,11 @@
+# Core sentence 1 (plain copies) vs SPEC §7: only numbers, Bool, String, plain enums read out of a view
+struct P
+  x: Int
+  y: Int
+
+fun copy_of(p: ?P) -> P
+  p
+
+sub main
+  a = P(x: 1, y: 2)
+  print(copy_of(?a))

@@ -1,0 +1,17 @@
+# A function cannot store a view of its own local into a struct the
+# caller owns: the local dies when the function returns.
+
+struct Wrap
+  payload: Int
+
+struct View
+  box: ?Wrap
+
+sub put(v: !View)
+  b = Wrap(payload: 1)
+  v.box = ?b
+
+sub main()
+  print(1)
+
+# error: cannot store a view of `b` in `v.box`: `v` outlives it

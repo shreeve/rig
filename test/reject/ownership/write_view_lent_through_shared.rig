@@ -1,0 +1,22 @@
+# A shared handle whose value holds a write view cannot lend it: other
+# handles reach the same write view.
+
+struct Wrap
+  v: Vec[Int]
+
+struct WV
+  b: !Wrap
+
+struct Hold
+  h: *WV
+
+sub reset(b: !Wrap)
+  b.v = Vec()
+
+sub main()
+  x = Wrap(v: Vec())
+  !x.v.push(1)
+  k = Hold(h: *WV(b: !x))
+  reset(!k.h.b)
+
+# error: 20:10: cannot lend the write view held here: it is reached through a shared handle

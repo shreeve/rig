@@ -1,0 +1,28 @@
+# The defers checked at `e!` leave no effects on the path that goes on,
+# but they still run when that path leaves the block: the view the
+# defer stores there, of a var the block drops, does not live long
+# enough.
+error E
+  bad
+
+fun maybe(ok: Bool) -> Int!
+  return E.bad if not ok
+  1
+
+fun f(ok: Bool) -> Int!
+  e: Vec[Int] = Vec()
+  s = ?e[..]
+  if ok
+    v: Vec[Int] = Vec()
+    !v.push(7)
+    defer s = ?v[..]
+    k = maybe(ok)!
+    print(k)
+  print(s)
+  1
+
+sub main
+  print(f(true) catch 0)
+
+# error: 18:16: `v` does not live long enough
+# errors: 1

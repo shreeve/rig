@@ -1,0 +1,19 @@
+# A method call views its receiver for the whole call, so
+# `rc.show(<rc)` is rejected like `show(?rc, <rc)`.
+
+struct Inner
+  x: Int
+
+struct Wrap
+  inner: *Inner
+
+  sub show(?self, other: *Wrap)
+    -other
+    y = +self.inner
+    print(y.x)
+
+sub main()
+  rc = *Wrap(inner: *Inner(x: 5))
+  rc.show(<rc)
+
+# error: cannot move `rc` while a read loan is live

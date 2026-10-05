@@ -1,6 +1,6 @@
 # A `sub` that may fail is declared `sub f(...)!`: it fails with
 # `return E.name` or by propagating with `!`, and its type is
-# `sub(...)!`. A method, a function value, and a borrowed callable
+# `sub(...)!`. A method, a function value, and a callable view
 # parameter all take that form.
 
 error Bad

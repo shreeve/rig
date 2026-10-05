@@ -1,4 +1,4 @@
-# `copy` stores elements, never its argument's borrow: a local copied
+# `copy` stores elements, never its argument's view: a local copied
 # into a caller's buffer (a `![]T`, `![N]T`, or `!Vec[T]` parameter, or a
 # reslice of one) is fine, and the source is free again once the call
 # returns.

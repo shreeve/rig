@@ -13,5 +13,5 @@ sub main
     !v.push(?x)
   print(v, mk())
 
-# error: does not originate from a borrowed parameter
+# error: which this function was not lent
 # error: `x` does not live long enough

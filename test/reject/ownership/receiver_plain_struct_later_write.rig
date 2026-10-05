@@ -16,4 +16,4 @@ sub main
   a = P(x: 1)
   _ = a.show(bump(!a))
 
-# error: 17:20: cannot write-borrow `a` while a read borrow is live
+# error: 17:20: cannot lend `a` to write while a read loan is live

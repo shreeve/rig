@@ -11,4 +11,4 @@ sub main
   !x.push(1)
   print(r.len)
 
-# error: 11:3: cannot write-borrow `x` while a read borrow is live
+# error: 11:3: cannot lend `x` to write while a read loan is live

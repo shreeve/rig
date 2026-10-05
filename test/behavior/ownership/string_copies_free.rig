@@ -1,7 +1,7 @@
-# A String copied out of a borrow, a struct, or a Vec views what the
+# A String copied out of a view, a struct, or a Vec views what the
 # String views, not the place it was read from: the place is free again,
 # and a String a function copies out of its parameter can be returned.
-# A value borrows a Text only where it can reach one.
+# A value views a Text only where it can reach one.
 
 struct Person
   name: String

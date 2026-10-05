@@ -1,6 +1,6 @@
 # A shared handle reads: indexing a `*[N]T`, `*Vec[T]`, or `*String`
 # reads an element of the value it holds, as a field read does, through
-# a borrow of the handle, a field holding one, and a nested index.
+# a view of the handle, a field holding one, and a nested index.
 
 struct Grid
   rows: *[2][2]Int

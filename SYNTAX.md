@@ -401,7 +401,7 @@ operator does, and which types it takes, is in
 | a generic instance | `Vec[Int]`, `Pair[Int, String]`, `Ring[Int, 4]`, `lib.Wrap[Int]` | [SPEC §3](SPEC.md#generic-types) |
 | optional | `T?` | a `T` or `none` |
 | fallible | `T!` | a `T` or an error; a return type only |
-| read view | `?T` | [SPEC §7](SPEC.md#borrows) |
+| read view | `?T` | [SPEC §7](SPEC.md#views) |
 | write view | `!T` | |
 | shared handle | `*T` | [SPEC §9](SPEC.md#9-shared-and-weak-handles) |
 | weak handle | `~T` | |

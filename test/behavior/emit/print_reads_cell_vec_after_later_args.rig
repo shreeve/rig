@@ -1,5 +1,5 @@
 # `print` reads each argument when it is called, after every argument
-# has run: a Cell a later argument grows through a read borrow prints
+# has run: a Cell a later argument grows through a read view prints
 # as it is then.
 fun grow(c: ?Cell[Vec[Int]]) -> Int
   for i in 0..20

@@ -1,5 +1,5 @@
 # `<x` ends `x` whatever its type: a number, a Bool, a String, or a
-# borrow is done after it is moved, even though the value was copied.
+# view is done after it is moved, even though the value was copied.
 
 struct Wrap
   n: Int

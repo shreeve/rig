@@ -34,8 +34,8 @@ sub main
     "c"
   print(o, h.s, q, g())
 
-# error: 11:29: a borrow of the temporary `Text("pre-fix")` outlives its statement
-# error: 19:29: a borrow of the temporary `Text("pre-fix")` outlives its statement
-# error: 24:22: a borrow of the temporary `Text("k=v")` outlives its statement
-# error: 31:21: a borrow of the temporary `Text("k=v")` outlives its statement
+# error: 11:29: a view of the temporary `Text("pre-fix")` outlives its statement
+# error: 19:29: a view of the temporary `Text("pre-fix")` outlives its statement
+# error: 24:22: a view of the temporary `Text("k=v")` outlives its statement
+# error: 31:21: a view of the temporary `Text("k=v")` outlives its statement
 # errors: 4

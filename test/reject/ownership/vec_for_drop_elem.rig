@@ -1,4 +1,4 @@
-# Dropping the borrowed element of `for cb in ?subs` is rejected.
+# Dropping the viewed element of `for cb in ?subs` is rejected.
 
 sub main()
   count: *Cell[Int] = *Cell(0)
@@ -10,4 +10,4 @@ sub main()
   for cb in ?subs
     -cb
 
-# error: cannot drop loop-borrow alias `cb`
+# error: cannot drop loop view `cb`

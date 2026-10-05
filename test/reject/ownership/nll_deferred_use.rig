@@ -1,4 +1,4 @@
-# Deferred code runs at scope exit: a borrow it uses is live until
+# Deferred code runs at scope exit: a view it uses is live until
 # then.
 
 struct Wrap
@@ -16,4 +16,4 @@ sub main()
   defer print(r.n)
   !x.bump()
 
-# error: cannot write-borrow `x` while a read borrow is live
+# error: cannot lend `x` to write while a read loan is live

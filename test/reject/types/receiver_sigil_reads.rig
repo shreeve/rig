@@ -1,4 +1,4 @@
-# `!` before a method call write-borrows the receiver, so a method that
+# `!` before a method call lends to write the receiver, so a method that
 # only reads it is the habit of `!` as negation: use `not`, or drop the
 # `!` when the method returns no `Bool`.
 

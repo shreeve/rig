@@ -1,5 +1,5 @@
 # `==` never calls a method named `eq`: it compares fields. A write
-# borrowed operand compares as the value it reaches, like a read borrow.
+# viewed operand compares as the value it reaches, like a read view.
 
 struct P
   x: Int

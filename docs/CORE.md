@@ -54,15 +54,13 @@ sub main
 ```
 
 ```error
-cannot write-borrow `v` while a read borrow is live
+cannot lend `v` to write while a read loan is live
 ```
 
 The lend is on line 4 (`?v[..]`). The loan stays with `v` while the
 views `a` and `b` are still used below, so `!v.push(2)` is rejected.
 *Borrow*, the word Rust uses, names the same event from the receiver's
-side; Rig names everything from the side the sigil is on, and SPEC's
-*borrow* means a lend or the view it makes. *(Error messages still say
-"borrow"; their wording moves to lend/loan with the SPEC rewrite.)*
+side; Rig names everything from the side the sigil is on.
 
 ---
 
@@ -233,7 +231,7 @@ sub main
 ```
 
 ```error
-cannot read-borrow `n` while a write borrow is live
+cannot lend `n` to read while a write loan is live
 ```
 
 **6. A loan lasts until the last use of every view that carries it,**
@@ -249,7 +247,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow `v` while a read borrow is live
+cannot lend `v` to write while a read loan is live
 ```
 
 **7. A call passes on only the loans its signature shows.** A function
@@ -267,7 +265,7 @@ fun pick(a: ?Vec[Int]) -> ?Vec[Int]
 ```
 
 ```error
-does not originate from a borrowed parameter
+which this function was not lent
 ```
 
 A `Cursor` holds only a view of the items, so an item `next` hands out
@@ -458,7 +456,7 @@ sub main
 ```
 
 ```error
-a borrow of the temporary `Text("k", "=v")` outlives its statement
+a view of the temporary `Text("k", "=v")` outlives its statement
 ```
 
 ## 4. One lend table
@@ -527,7 +525,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow `t` while a read borrow is live
+cannot lend `t` to write while a read loan is live
 ```
 
 ```rig
@@ -658,7 +656,7 @@ sub main
 3
 ```
 
-**Borrow places.** Assigning a view to a place that holds one re-points
+**View places.** Assigning a view to a place that holds one re-points
 it, and assigning a value writes through. This holds for locals and
 fields alike. `new` only shadows, and accepts every binding form.
 *(built)*
@@ -679,8 +677,8 @@ sub main
 
 ## 7. Closures and defer
 
-**Closures.** A closure captures each name with a sigil: `?x` borrows
-`x` for the closure's life, `!x` borrows it to write, `<x` moves it in,
+**Closures.** A closure captures each name with a sigil: `?x` lends
+`x` to read for the closure's life, `!x` lends it to write, `<x` moves it in,
 and `+x` captures a new owner. A stack closure may be lent (`?fun`) but
 not stored. An owned closure (`*fun`) may be stored, and follows
 sentence 9. *(built)*

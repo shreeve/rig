@@ -138,7 +138,7 @@ gate green.
 4. **Containers hold anything** (Core §5). Remove about six early
    rejections so `Vec[Text]`, `Vec[Vec[Int]]`, and records that own text
    work, and `?v[i]`, `!v[i]`, and `<v[i]` lend or take elements.
-   Assigning to a borrow place gets one rule: a view re-points, a value
+   Assigning to a view place gets one rule: a view re-points, a value
    writes through. See `core-audit/containers.md`.
 5. **The remaining planned rules:**
    - an error value meets `T!` only as `return`'s operand;
@@ -152,9 +152,9 @@ gate green.
    - The signature-based refinement of which arguments a result's loans
      come from.
 7. **The vocabulary pass.** One focused change rewrites every remaining
-   "borrow" — in diagnostics, test expectations, comments, internal
-   names (`borrow_read` and friends), and every document — into lend,
-   view, and loan, by meaning:
+   use of Rust's word — in diagnostics, test expectations, comments,
+   internal names (`read_view` and friends), and every document — into
+   lend, view, and loan, by meaning:
    - the act is a lend: "cannot lend `v` to write";
    - the value is a view;
    - the record is a loan: "while a read loan is live".
@@ -162,7 +162,7 @@ gate green.
    Plan it with reviewers from several viewpoints: a programmer, a
    newcomer, a documenter, the compiler, and a language designer. Merge
    their findings into one terminology guide, then edit by it. A lint
-   fails on any stray "borrow". It changes no behavior.
+   fails on any stray use of the old word. It changes no behavior.
 8. **The SPEC rewrite,** around the Core, in the new vocabulary. About
    65 exception lists become derivations, for about 20% less text.
    `core-audit/docs.md` maps it section by section.
@@ -260,7 +260,7 @@ zig build test --cache-dir "$(mktemp -d)"     # unit tests; a plain rerun replay
   - view: the value handed over;
   - loan: the owner-side record.
 
-  Add no new "borrow" for the act. Step 7 removes the rest.
+  Add no new use of Rust's word for the act. Step 7 removes the rest.
 - **Commits:** short, imperative, with no AI attribution.
 - **Comments:** timeless, describing the code as it is. History belongs
   in git.

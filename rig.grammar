@@ -367,7 +367,7 @@ tokens
     move, read, write, clone, share, weak  operand
 
     # Types
-    optional, error_union, borrow_read, borrow_write, shared, slice  type
+    optional, error_union, read_view, write_view, shared, slice  type
     generic_inst                name ...args
     array_type                  size type
     fun_type                    params:group? returns? fails:tag(fails)?
@@ -582,13 +582,14 @@ zfun     = FUN name:name [tparams:tparams] [params:params] [returns:returns] [or
 #
 # The handle sigils `*` and `~` bind to the type after them, tighter than
 # the suffixes: `*User?` is an optional shared handle, and a handle to an
-# optional is `*(User?)`. A borrow applies to the whole type after it,
-# suffixes included: `?User?` borrows an optional User. The element of a
-# slice or array takes the suffixes too (`[]Int?`), and a function type
-# takes none, so an optional of one is written in parentheses.
+# optional is `*(User?)`. A view sigil applies to the whole type after
+# it, suffixes included: `?User?` is a read view of an optional User. The
+# element of a slice or array takes the suffixes too (`[]Int?`), and a
+# function type takes none, so an optional of one is written in
+# parentheses.
 
-type     = "?" type:type                            → (borrow_read)
-         | "!" type:type                            → (borrow_write)
+type     = "?" type:type                            → (read_view)
+         | "!" type:type                            → (write_view)
          | ptype
          | tsuffix
 
@@ -795,7 +796,7 @@ pbind    = name
 # A closure starts with its bar list. An entry with a sigil is a capture;
 # a bare name is a parameter, optionally typed:
 #   |+x| clone (a copy, for a Copy value)   |<x| move   |~x| weak
-#   |?x| read borrow   |!x| write borrow
+#   |?x| lend to read   |!x| lend to write
 #   |a, b| a + b      |+v, a: Int| v.set(a)      || print("tick")
 # `*` before the bars makes an owned closure: `*|+v, a| v.set(a)`. The
 # grammar puts every entry in `params`; the Parser wrapper moves the

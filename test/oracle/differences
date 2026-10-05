@@ -47,11 +47,11 @@ test/corpus/review-take-p54.rig main prod-rejects prod-strict deferred `<s.a` ru
 test/corpus/r3-review1-p33b_vec_store_opt.rig main prod-rejects prod-strict `saved = k` of a `for k in ?v` element view
 test/corpus/review-step1-p33b_vec_store_opt.rig main prod-rejects prod-strict `saved = k` of a `for k in ?v` element view
 
-# `<x` of a view copies it out (SPEC §7), so moving a borrowed parameter
+# `<x` of a view copies it out (SPEC §7), so moving a view parameter
 # into a stack closure, which never leaves the function, holds the
 # caller's loan for the closure's life as `|?x|` would (Core §7).
 test/corpus/R16-c6.rig outer prod-rejects prod-strict `|<f|` of a `?fun` parameter
-test/reject/ownership/move_capture_borrowed_param_lambda.rig f prod-rejects prod-strict `|<rc|` of a `?*Wrap` parameter
+test/reject/ownership/move_capture_view_param_lambda.rig f prod-rejects prod-strict `|<rc|` of a `?*Wrap` parameter
 test/reject/types/closure_lending_hints_ownership.rig outer prod-rejects prod-strict `|<f|` of a `?fun` parameter
 
 # A closure's loans end with its last use, deferred code included; the

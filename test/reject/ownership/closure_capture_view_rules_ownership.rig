@@ -1,0 +1,50 @@
+# `|?x|` and `|!x|` follow the rules of `?x` and `!x`: a write view
+# excludes every other view while the closure lives; an owned closure
+# views nothing; and nothing a view of the closure's own values is
+# stored through a captured write view.
+
+struct Wrap
+  n: Int
+
+struct View
+  w: ?Wrap
+
+sub go
+  total = 0
+  a = |!total|
+    total += 1
+  b = |!total|
+    total += 2
+  a()
+  b()
+
+sub main
+  go()
+  x = 1
+  owned = *|?x| x + 1
+  owned2 = *|!x|
+    x += 1
+  c = Wrap(n: 0)
+  add = |!c|
+    c.n += 1
+  add()
+  print(c.n)
+  add()
+  outer = Wrap(n: 1)
+  v = View(w: ?outer)
+  keep = |!v|
+    inner = Wrap(n: 2)
+    v = View(w: ?inner)
+  keep()
+  r = ?c
+  late = |!c|
+    c.n = 5
+  late()
+  print(r.n)
+
+# error: 16:9: cannot lend `total` to write while a write loan is live
+# error: 24:14: an owned closure cannot capture a view of `x`: it can be stored anywhere
+# error: 25:15: an owned closure cannot capture a view of `x`
+# error: 31:9: use of `c` while a write loan is live
+# error: 37:5: cannot store a view of `inner` through captured `v`
+# error: 40:12: cannot lend `c` to write while a read loan is live

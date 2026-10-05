@@ -1,4 +1,4 @@
-# A read borrow whose type holds a generic type's parameter (`?T`,
+# A read view whose type holds a generic type's parameter (`?T`,
 # `?Self`) takes the form each instance needs: a copy of plain data, a
 # pointer to a value that owns resources or holds a Cell. Both sides of a
 # method call, a field, and a payload agree.

@@ -1,0 +1,50 @@
+# A field of type `!T` is written through the way a local `!T` binding
+# is: assigning a `T` value, or a compound assignment, writes the
+# viewed place. Assigning a `!T` (`h.w = !m`) points the field
+# elsewhere.
+
+struct H
+  w: !Int
+
+  sub bump(!self)
+    self.w += 10
+
+struct A
+  b: H
+
+sub add(h: !H, k: Int)
+  h.w += k
+
+sub main
+  n = 1
+  h = H(w: !n)
+  h.w += 1
+  h.w *= 3
+  h.w -= 2
+  h.w <<= 1
+  h.w /= 2
+  h.w %= 3
+  print(h.w)
+  h.w = 5
+  print(h.w)
+  !h.bump()
+  add(!h, 100)
+  print(h.w)
+  m = 7
+  h.w = !m
+  h.w += 1
+  print(h.w)
+  print(n, m)
+  k = 0
+  a = A(b: H(w: !k))
+  a.b.w += 4
+  a.b.w = a.b.w * 2
+  print(k)
+
+# expect:
+# 1
+# 5
+# 115
+# 8
+# 115 8
+# 8

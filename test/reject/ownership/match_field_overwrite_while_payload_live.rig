@@ -1,4 +1,4 @@
-# The matched value stays borrowed while a payload binding is in use:
+# The matched value stays lent while a payload binding is in use:
 # overwriting it would drop the value the payload views.
 
 struct Tok
@@ -28,5 +28,5 @@ sub main()
       print(t.v[0])
     .empty => print("empty")
 
-# error: cannot assign to `h.s` while `h` is borrowed
-# error: cannot reassign `h` while borrows are live
+# error: cannot assign to `h.s` while `h` is lent
+# error: cannot reassign `h` while it is lent

@@ -17,6 +17,6 @@ sub main
       continue :outer
   print(p)
 
-# error: 9:19: a borrow of the temporary `Text("k=v")` outlives its statement
-# error: 15:21: a borrow of the temporary `Text("a=b")` outlives its statement
+# error: 9:19: a view of the temporary `Text("k=v")` outlives its statement
+# error: 15:21: a view of the temporary `Text("a=b")` outlives its statement
 # errors: 2

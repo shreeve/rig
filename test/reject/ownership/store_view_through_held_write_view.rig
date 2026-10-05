@@ -1,0 +1,28 @@
+# A store through a local write view lands in what it views, and in
+# what a write view held there views in turn: here the parameter
+# `p`, which outlives the local `t`. The error names the store, not a
+# call.
+
+struct S
+  n: Int
+
+struct H
+  r: ?S
+
+struct V
+  h: !H
+
+sub put(p: !H)
+  v = V(h: !p)
+  w = !v
+  t = S(n: 99)
+  w.h.r = ?t
+
+sub main()
+  a = S(n: 1)
+  outer = H(r: ?a)
+  put(!outer)
+  print(outer.r.n)
+
+# error: 19:3: cannot store a view of `t` through `w`: `p` outlives it
+# errors: 1

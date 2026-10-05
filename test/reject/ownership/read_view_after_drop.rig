@@ -1,0 +1,12 @@
+# Taking a read view (`?user`) of a dropped value is rejected.
+
+struct User
+  name: String
+  tags: Vec[String]
+
+sub main()
+  user = User(name: "Steve", tags: Vec())
+  -user
+  print(?user)
+
+# error: use of `user` after drop

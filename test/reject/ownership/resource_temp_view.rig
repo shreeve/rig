@@ -1,0 +1,9 @@
+# Lending a fresh `*Cell(...)` into a binding is rejected: the
+# handle is dropped when its statement ends, before the view's use.
+
+sub main()
+  c = ?(*Cell(0))
+  print(c.get())
+
+# error: 5:9: a view of the temporary `*Cell(0)` outlives its statement, which drops it; bind the value to a name first
+# errors: 1

@@ -1,0 +1,16 @@
+# A view binding read only by its drop: dropping the read view `r`
+# ends it, so the write view `w` is allowed.
+
+struct User
+  name: String
+
+sub main()
+  user = User(name: "Steve")
+  r = ?user
+  -r
+  w = !user
+  w.name = "Ada"
+  print(user.name)
+
+# expect:
+# Ada

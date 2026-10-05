@@ -1524,7 +1524,7 @@ pub const Parser = struct {
             .of => "a fill literal `[n of x]` holds one count and one element; it cannot share brackets with a list",
             .nullish => "`??` is the fallback operator; an optional of an optional is written `(T?)?`",
             // Where no operator could come: C and Rust's address-of.
-            .ampersand => "Rig borrows with `?x` (read) or `!x` (write)",
+            .ampersand => "Rig lends with `?x` (to read) or `!x` (to write)",
             else => null,
         };
     }
@@ -1612,7 +1612,7 @@ pub const Parser = struct {
                 self.touchesOperand(out);
                 try self.noteParenSuffix(out);
             },
-            .borrow_read, .borrow_write, .shared => self.touchesOperand(out),
+            .read_view, .write_view, .shared => self.touchesOperand(out),
             // The body's value is returned.
             .fun => if (ir.Fun.returns(out) != .nil) try self.valueTail(ir.Fun.body(out), true),
             // The expression's value is bound or returned.
@@ -1769,7 +1769,7 @@ pub const Parser = struct {
 
     /// `?`, `!`, and `<` before a place (a name and the fields and elements
     /// after it) followed by a method call apply to the place; the call
-    /// and every postfix after it apply to the borrowed or moved place:
+    /// and every postfix after it apply to the lent or moved place:
     ///   (write (propagate_none (call (member v pop))))
     ///   → (propagate_none (call (member (write v) pop)))
     /// Anything else keeps its sigil outside: a chain that is all place
@@ -2089,7 +2089,7 @@ test "parser: a receiver sigil moves onto the place before the method" {
     try testing.expect(stmts[2].isKind(.write));
     // A called head is not a place.
     try testing.expect(stmts[3].isKind(.write));
-    // `?` reaches the receiver too, and borrows a parenthesized call.
+    // `?` reaches the receiver too, and lends a parenthesized call.
     const read = ir.Member.object(ir.Call.callee(stmts[4]));
     try testing.expect(read.isKind(.read) and p.isReceiverSigil(read));
     try testing.expect(stmts[5].isKind(.read));

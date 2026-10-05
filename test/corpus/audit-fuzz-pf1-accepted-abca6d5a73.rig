@@ -47,7 +47,7 @@ sub main
   print(acc1)
   v10: U128 = id_u128(2)
   r11: U128 = v10
-# error: cannot drop `a` while borrows are live
+# error: cannot drop `a` while it is lent
   print(r11)
   r12: I32 = (-18)
   print(r12)

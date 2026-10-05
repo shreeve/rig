@@ -1,4 +1,4 @@
-# A String viewing a boxed Text borrows the box: the box cannot be
+# A String viewing a boxed Text views the box: the box cannot be
 # dropped or changed while the view is in use.
 
 sub main
@@ -11,6 +11,6 @@ sub main
   c = Box(Text("d"))
   print(w, c)
 
-# error: 7:4: cannot drop `b` while borrows are live
-# error: 11:3: cannot reassign `c` while borrows are live
+# error: 7:4: cannot drop `b` while it is lent
+# error: 11:3: cannot reassign `c` while it is lent
 # errors: 2

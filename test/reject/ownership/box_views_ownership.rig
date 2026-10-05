@@ -1,0 +1,26 @@
+# Views reach a boxed value through the box: its owner cannot be
+# reassigned or dropped while one is live.
+
+struct Node
+  key: Int
+  left: Box[Node]?
+
+fun first(n: ?Box[Node]) -> ?Node
+  ?n
+
+sub main
+  root: Box[Node]? = Box(Node(key: 1, left: none))
+  if !root as n
+    root = none
+    print(n.key)
+  a = Box(Node(key: 1, left: none))
+  f = first(?a)
+  a = Box(Node(key: 2, left: none))
+  print(f.key)
+  r = ?a
+  -a
+  print(r.key)
+
+# error: 14:5: cannot reassign `root` while it is lent
+# error: 18:3: cannot reassign `a` while it is lent
+# error: 21:4: cannot drop `a` while it is lent

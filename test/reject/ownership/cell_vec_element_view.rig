@@ -18,7 +18,7 @@ sub main
   fill(?cv, "x")
   print(cv[0])
 
-# error: 6:3: cannot store a borrow of `s` in a `Cell`
-# error: 16:3: cannot store a borrow of `t` in a `Cell`
+# error: 6:3: cannot store a view of `s` in a `Cell`
+# error: 16:3: cannot store a view of `t` in a `Cell`
 # error: 18:3: `fill[String]` cannot use `T = String`
 # errors: 3

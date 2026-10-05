@@ -1,0 +1,16 @@
+# A `defer` body runs when a `break` leaves its scope: a view it
+# stores outside the loop, of a var the loop body drops, does not live
+# long enough.
+
+sub main
+  e: Vec[Int] = Vec()
+  s = ?e[..]
+  for _ in 0..2
+    v: Vec[Int] = Vec()
+    !v.push(7)
+    defer s = ?v[..]
+    break
+  print(s)
+
+# error: 11:16: `v` does not live long enough
+# errors: 1

@@ -1,0 +1,23 @@
+# A write view passed on keeps its holder viewed while the result
+# is used.
+
+struct Wrap
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop(!self)
+    print("drop", self.n)
+
+fun lend(b: !Wrap) -> !Wrap
+  b
+
+sub main()
+  x = Wrap(n: 1)
+  w = !x
+  w2 = lend(<w)
+  print(x.n)
+  !w2.bump()
+
+# error: use of `x` while a write loan is live

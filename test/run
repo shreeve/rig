@@ -7,7 +7,7 @@
 #   filter      only run tests whose id contains one of these substrings;
 #               ids look like behavior/ownership/move_into_fn, known/emit/...,
 #               reject/types/..., examples/hello, ir/..., torture/..., cli/..., unit,
-#               parser, classify, doc/SPEC/L120 (the ```rig block at SPEC.md line 120),
+#               parser, classify, vocab, doc/SPEC/L120 (the ```rig block at SPEC.md line 120),
 #               oracle/corpus (the reference ownership checker over a set).
 #               A bare kind name (`known`, `doc`, ...) selects that kind.
 #   -v          also list passing and known-failing tests
@@ -553,7 +553,7 @@ fi
 export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE SANITIZE CORPUS_BAD_RE
 
 is_kind() {
-    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|classify|doc|corpus|oracle) return 0 ;; esac
+    case $1 in behavior|reject|known|examples|ir|torture|cli|unit|parser|classify|vocab|doc|corpus|oracle) return 0 ;; esac
     return 1
 }
 
@@ -752,6 +752,67 @@ if selected classify; then
     fi
 fi
 
+# The vocabulary (docs/CORE.md, "Three words"): what users read says
+# lend, view, and loan, never Rust's single word for all three. The
+# check reads the Markdown docs, std/, the string literals in src/, and
+# the `# error:` lines of tests and examples, and fails on that word, on
+# the forms the three words never take (a hyphenated read or write lend
+# as a verb, lending "again", a loan used as a verb), and on a path that
+# contains the word. test/vocabulary-allow.txt lists the only lines
+# allowed to quote it, each as `path: line text`; an entry that matches
+# no such line, or appears twice, fails too.
+if selected vocab; then
+    { git ls-files --cached --others --exclude-standard; } | sort -u | perl -e '
+        my $word = qr/borr[o]w/i;   # spelled so that this script never matches itself
+        my $forms = qr/\b(?:read|write)-l[e]n(?:d|ds|t|ding)\b|\bre-?l[e]nd|\bl[o]an(?:ed|ing)\b/i;
+        my $allow_file = "test/vocabulary-allow.txt";
+        my (%allow, @bad);
+        if (open(my $a, "<", $allow_file)) {
+            while (my $l = <$a>) {
+                chomp $l;
+                next if $l =~ /^(#|\s*$)/;
+                push @bad, "$allow_file: duplicate entry: $l" if $allow{$l}++;
+            }
+        }
+        my %used;
+        while (my $path = <STDIN>) {
+            chomp $path;
+            next if $path eq $allow_file || !-f $path;
+            push @bad, "$path: a path that says the word" if $path =~ $word;
+            my $md = $path =~ /\.md$/;
+            my $std = $path =~ m{^std/};
+            my $src = $path =~ m{^src/.*\.zig$};
+            my $exp = $path =~ m{^(test|examples)/.*\.rig$};
+            next unless $md || $std || $src || $exp;
+            open(my $fh, "<", $path) or next;
+            while (my $line = <$fh>) {
+                chomp $line;
+                my $text = $line;
+                if ($src) {
+                    my @lits = $line =~ /"((?:[^"\\]|\\.)*)"/g;
+                    push @lits, $1 if $line =~ /^\s*\\\\(.*)$/;
+                    $text = join("\n", @lits);
+                } elsif ($exp) {
+                    $text = $line =~ /^\s*#\s*error:(.*)$/ ? $1 : "";
+                }
+                next unless $text =~ $word || $text =~ $forms;
+                my $key = "$path: $line";
+                if ($allow{$key}) { $used{$key} = 1; next }
+                push @bad, "$path:$.: $line";
+            }
+        }
+        for my $k (sort keys %allow) { push @bad, "$allow_file: stale entry: $k" unless $used{$k} }
+        print "$_\n" for @bad;
+    ' >"$WORK/vocab"
+    if [[ -s "$WORK/vocab" ]]; then
+        cp "$WORK/vocab" "$RESULTS/log/vocab"
+        printf 'fail\tvocab\t%s (%s in all; say lend, view, or loan: docs/CORE.md, "Three words")\n' \
+            "$(head -1 "$WORK/vocab")" "$(wc -l <"$WORK/vocab" | tr -d ' ')" >"$RESULTS/st/vocab"
+    else
+        printf 'pass\tvocab\t\n' >"$RESULTS/st/vocab"
+    fi
+fi
+
 # The oracle's sets run bin/rig-oracle.
 if grep -q '^oracle/' "$LIST" && ! "$ZIG" build oracle 2>&1; then
     printf '%sbuild of bin/rig-oracle failed%s\n' "$R" "$X"
@@ -759,7 +820,7 @@ if grep -q '^oracle/' "$LIST" && ! "$ZIG" build oracle 2>&1; then
 fi
 
 TOTAL=$(wc -l <"$LIST" | tr -d ' ')
-if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected parser && ! selected classify; then
+if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected parser && ! selected classify && ! selected vocab; then
     # Only kinds named (`./test/run known`) is not a mistyped filter: a
     # kind can be empty, as test/known/ is when no bug is open.
     for f in "${FILTERS[@]}"; do is_kind "$f" || { echo "no test matches ${FILTERS[*]}" >&2; exit 2; }; done

@@ -307,7 +307,7 @@ const SymbolResolver = struct {
         const name = identAt(self.ctx.source, name_node) orelse return;
         const parent = self.ctx.scopes.items[self.scope].parent orelse return;
         if (self.visibleLocal(parent, name)) |prev| {
-            try self.ctx.errAt(name_node, "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` borrows it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name, name, name });
+            try self.ctx.errAt(name_node, "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` lends it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name, name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
             return;
         }
@@ -943,10 +943,10 @@ pub const TypeResolver = struct {
         return self.resolveType(node);
     }
 
-    /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a borrow is
+    /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a view is
     /// no value it could keep.
-    fn handleOfBorrow(self: *TypeResolver, node: Sexp, inner: TypeId) Error!TypeId {
-        try self.ctx.errAt(node, "a handle holds a value, not a borrow: `{s}` has no handle", .{try sema.formatType(self.ctx, inner)});
+    fn handleOfView(self: *TypeResolver, node: Sexp, inner: TypeId) Error!TypeId {
+        try self.ctx.errAt(node, "a handle holds a value, not a view: `{s}` has no handle", .{try sema.formatType(self.ctx, inner)});
         return self.ctx.types.invalid_id;
     }
 
@@ -984,8 +984,8 @@ pub const TypeResolver = struct {
                             return self.ctx.types.invalid_id;
                         }
                         return switch (h) {
-                            .read => self.ctx.intern(.{ .borrow_read = self.nominal.self_type }),
-                            .write => self.ctx.intern(.{ .borrow_write = self.nominal.self_type }),
+                            .read => self.ctx.intern(.{ .read_view = self.nominal.self_type }),
+                            .write => self.ctx.intern(.{ .write_view = self.nominal.self_type }),
                             else => self.nominal.self_type,
                         };
                     },
@@ -1240,14 +1240,14 @@ pub const TypeResolver = struct {
     }
 
     /// Whether `ty`, written `node` inside another type, is or holds a
-    /// borrowed callable, which no value holds. Reported.
+    /// callable view, which no value holds. Reported.
     fn heldCallable(self: *TypeResolver, node: Sexp, ty: TypeId) Error!bool {
         if (!sema.holdsCallable(self.ctx, ty)) return false;
         try self.ctx.errAt(node, sema.held_callable, .{try sema.formatType(self.ctx, ty)});
         return true;
     }
 
-    /// A field's type `ty`, written `node`: a borrowed callable is not
+    /// A field's type `ty`, written `node`: a callable view is not
     /// one. Reported.
     fn fieldCallable(self: *TypeResolver, node: Sexp, ty: TypeId) Error!bool {
         if (sema.callableFn(self.ctx, ty) == null) return false;
@@ -1438,11 +1438,11 @@ pub const TypeResolver = struct {
         const nom = self.ctx.symbols.items[nominal_sym].name;
         const self_ty = self.nominal.self_type;
         switch (self.ctx.types.get(pty_id)) {
-            .borrow_read => |inner| {
+            .read_view => |inner| {
                 if (inner == self_ty) return .read;
                 try self.ctx.err(mpos, "`self` receiver type must be `?Self` or `?{s}`", .{nom});
             },
-            .borrow_write => |inner| {
+            .write_view => |inner| {
                 if (inner == self_ty) return .write;
                 try self.ctx.err(mpos, "`self` receiver type must be `!Self` or `!{s}`", .{nom});
             },
@@ -1484,14 +1484,14 @@ pub const TypeResolver = struct {
             return;
         }
         const pty = self.ctx.types.get(ptys[0]);
-        const ok = pty == .borrow_write and blk: {
-            break :blk switch (self.ctx.types.get(pty.borrow_write)) {
+        const ok = pty == .write_view and blk: {
+            break :blk switch (self.ctx.types.get(pty.write_view)) {
                 .nominal => |s| s == nominal_sym,
                 else => false,
             };
         };
         if (!ok) {
-            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver write-borrowed: `drop(!self)`", .{});
+            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver lent to write: `drop(!self)`", .{});
             return;
         }
         const fn_ty = try self.ctx.intern(.{ .function = .{
@@ -1601,20 +1601,20 @@ pub const TypeResolver = struct {
                         try self.ctx.errAt(sexp, "a fallible type `{s}` is only allowed as a function's return type", .{try sema.formatType(self.ctx, ty)});
                         return t.invalid_id;
                     },
-                    .optional, .borrow_read, .borrow_write, .weak, .slice => {
+                    .optional, .read_view, .write_view, .weak, .slice => {
                         const inner_node = if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type);
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
                         if (try self.heldCallable(inner_node, inner)) return t.invalid_id;
-                        // `?fun(...)` written as such is a borrowed
-                        // callable; a `?T` of a function type is a read
-                        // borrow of a function value.
-                        if (head == .borrow_read and inner_node.isKind(.fun_type)) return sema.callableOfFn(self.ctx, inner);
-                        if (head == .weak and sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
+                        // `?fun(...)` written as such is a callable
+                        // view; a `?T` of a function type is a read
+                        // view of a function value.
+                        if (head == .read_view and inner_node.isKind(.fun_type)) return sema.callableOfFn(self.ctx, inner);
+                        if (head == .weak and sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
                         return self.ctx.intern(switch (head) {
                             .optional => .{ .optional = inner },
-                            .borrow_read => .{ .borrow_read = inner },
-                            .borrow_write => .{ .borrow_write = inner },
+                            .read_view => .{ .read_view = inner },
+                            .write_view => .{ .write_view = inner },
                             .weak => .{ .weak = inner },
                             else => .{ .slice = .{ .elem = inner } },
                         });
@@ -1628,7 +1628,7 @@ pub const TypeResolver = struct {
                             try self.ctx.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
                             return t.invalid_id;
                         }
-                        if (sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
+                        if (sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
                         if (self.ctx.types.get(inner) == .function) try self.checkWhenResolved(.{ .owned_closure = .{ .node = inner_node, .ty = inner } });
                         return self.ctx.intern(.{ .shared = inner });
                     },
@@ -2113,14 +2113,14 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     }
     if (sym_id == ctx.vec_sym_id) {
         // A Vec holds any value, views included: its elements move in
-        // and out whole, and each is a place (Core §5). A borrowed
+        // and out whole, and each is a place (Core §5). A viewed
         // callable is only a parameter's, a local's, or a result's.
         if (!sema.holdsCallable(ctx, args[0])) return null;
         return try a.print(sema.held_callable, .{arg});
     }
     if (sym_id == ctx.box_sym_id) {
-        if (!sema.holdsBorrow(ctx, args[0])) return null;
-        return try a.print("`Box[T]` owns its value, so `T` holds no borrow; got `{s}`", .{arg});
+        if (!sema.holdsMarkedView(ctx, args[0])) return null;
+        return try a.print("`Box[T]` owns its value, so the value holds no `?T`, `!T`, or slice; got `{s}`", .{arg});
     }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isCopyElement(ctx, args[0])) return null;
@@ -2225,7 +2225,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const g = try addGeneric(ctx, module_scope, "Cell", &.{"T"});
         ctx.cell_sym_id = g.sym;
         const t = g.params[0];
-        const self_ty = try ctx.intern(.{ .borrow_read = g.self_ty });
+        const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
             try method(ctx, "get", .read, &.{self_ty}, t),
@@ -2240,8 +2240,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const g = try addGeneric(ctx, module_scope, "Vec", &.{"T"});
         ctx.vec_sym_id = g.sym;
         const t = g.params[0];
-        const read_self = try ctx.intern(.{ .borrow_read = g.self_ty });
-        const write_self = try ctx.intern(.{ .borrow_write = g.self_ty });
+        const read_self = try ctx.intern(.{ .read_view = g.self_ty });
+        const write_self = try ctx.intern(.{ .write_view = g.self_ty });
         const opt_t = try ctx.intern(.{ .optional = t });
         try setFields(ctx, g.sym, &.{
             try method(ctx, "push", .write, &.{ write_self, t }, ctx.types.void_id),
@@ -2287,7 +2287,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const g = try addGeneric(ctx, module_scope, "Signal", &.{"T"});
         ctx.signal_sym_id = g.sym;
         const t = g.params[0];
-        const self_ty = try ctx.intern(.{ .borrow_read = g.self_ty });
+        const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
         // Subscribers are owned closures `*sub()`.
         const callback = try ctx.intern(.{ .function = .{ .params = &.{}, .returns = ctx.types.void_id, .is_sub = true } });
         const closure_handle = try ctx.intern(.{ .shared = callback });

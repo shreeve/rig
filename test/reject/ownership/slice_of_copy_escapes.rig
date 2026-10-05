@@ -1,6 +1,6 @@
 # A loop element is a copy: a slice of one points into the copy and
-# cannot outlive it. (A read borrow of an array points at the array, so
-# a slice of it may outlive the borrow; see
+# cannot outlive it. (A read view of an array points at the array, so
+# a slice of it may outlive the view; see
 # test/behavior/ownership/slice_return_array_param.rig.)
 
 sub main()

@@ -20,5 +20,5 @@ sub main
   c = true
   print((a if c else b).v, growp(!a))
 
-# error: 21:35: cannot write-borrow `a` while an earlier argument's read of it is in use
+# error: 21:35: cannot lend `a` to write while an earlier argument's read of it is in use
 # errors: 1

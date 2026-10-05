@@ -1,5 +1,5 @@
 # `replace` and `swap` in generic bodies: the places hold a `T`, which an
-# instance never makes a borrow.
+# instance never makes a view.
 
 struct W[T]
   x: T

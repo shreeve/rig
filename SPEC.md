@@ -359,8 +359,8 @@ sub main
 
 `xs[a..b]` is the part of `xs` from index `a` up to, not including,
 `b`. Of a `String` it is a `String`. Of an array or a `Vec` of plain
-data it is written `?xs[a..b]`: a `[]T`, a read-only view that borrows
-`xs` like any `?` borrow ([§7](#7-ownership)), so `xs` cannot be
+data it is written `?xs[a..b]`: a `[]T`, a read-only view that views
+`xs` like any `?` view ([§7](#7-ownership)), so `xs` cannot be
 written, moved, or dropped while the slice is in use, and the slice
 cannot outlive it. A `[]T` has `.len` and `get(i)`, is indexed and
 iterated like an array, and is sliced again with `s[a..b]`, which views the same
@@ -402,20 +402,20 @@ sub main
 a range needs an end; only a slice leaves a side open
 ```
 
-A borrowed array parameter (`xs: ?[N]T`) points at the caller's array,
-so a function may return a slice of it (`?xs[1..3]`) or a borrow of an
-element, as it may of a `[]T` parameter; the result borrows the
+A viewed array parameter (`xs: ?[N]T`) points at the caller's array,
+so a function may return a slice of it (`?xs[1..3]`) or a view of an
+element, as it may of a `[]T` parameter; the result views the
 caller's array. An array parameter taken by value (`xs: [N]T`) is the
-function's own, so a borrow of it cannot be returned.
+function's own, so a view of it cannot be returned.
 
 An array goes where a slice is expected in three ways. Where a `[]T`
 is expected, `?a` of an array means `?a[..]`, and where a `![]T` is
-expected, `!a` means `!a[..]`: the sigil shows the borrow, which is the
+expected, `!a` means `!a[..]`: the sigil shows the view, which is the
 slice's. A Vec is lent the same way (`sort.sort(!v)`), and so is an
 array or Vec in a box (`?b` of a `Box[[3]Int]`) or behind a read view
 (a `?Vec[Int]` parameter passed where a `[]Int` is expected). As an
 argument the `?` may go unwritten (`total(a)` lends `a` to read, as
-`total(?a)` does, [Borrows](#borrows)); anywhere else, such as a
+`total(?a)` does, [Views](#views)); anywhere else, such as a
 binding or a field, the lend is written. A temporary array, a literal,
 a fill, or a call's result, passed as a `[]T` argument is lent as a
 temporary of its statement: it lives until the statement ends, so a
@@ -475,28 +475,28 @@ sub main
 ```
 
 ```error
-a borrow of the temporary `[1, 2]` outlives its statement
+a view of the temporary `[1, 2]` outlives its statement
 ```
 
-`!xs[a..b]` is a **writable slice**, of type `![]T`: a write borrow of
+`!xs[a..b]` is a **writable slice**, of type `![]T`: a write view of
 the elements, taken of an array or a `Vec` that could be
-write-borrowed (`!xs`), or of another `![]T`. A String and a `[]T` are
+lent to write (`!xs`), or of another `![]T`. A String and a `[]T` are
 read-only, and so is what a fixed binding, a loop or pattern binding,
-or a parameter other than a `!T` one holds. A `![]T` is a write borrow
-like any other ([§7](#write-borrows)): while it is live, what it
-borrows cannot otherwise be used, so two live write slices of one
+or a parameter other than a `!T` one holds. A `![]T` is a write view
+like any other ([§7](#write-views)): while it is live, what it
+views cannot otherwise be used, so two live write slices of one
 array, or a `push` to a Vec while a slice of it is live, are rejected;
-it cannot be copied or cloned (`<s` moves it), a call reborrows it, and
-it is returned only when it borrows from a `!` parameter. Its elements
-are assigned (`s[i] = v`, `s[i] += 1`), write-borrowed (`!s[i]`), and
+it cannot be copied or cloned (`<s` moves it), a call lends on it, and
+it is returned only when it views from a `!` parameter. Its elements
+are assigned (`s[i] = v`, `s[i] += 1`), lent to write (`!s[i]`), and
 written in a loop (`for x in !s`); `!s[a..b]` reslices it, and
 `?s[a..b]` takes a read slice, which keeps `s` from being written while
-it lives (a bare `s[a..b]`, which would borrow `s` unseen, is
+it lives (a bare `s[a..b]`, which would lend `s` unseen, is
 rejected). A `![]T` is accepted wherever a `[]T` is expected; as an
 argument it is then lent to read, like `?s[..]`, so `sum2(w, w)` with
 two `[]T` parameters reads `w` twice, and `w` can be read, but not
 written, while a view returned from it lives. A `[]T` is never
-write-borrowed: `!t` of one is rejected. A slice views any element
+lent to write: `!t` of one is rejected. A slice views any element
 type, owning ones included.
 
 ```rig
@@ -538,7 +538,7 @@ sub main
 ```
 
 ```error
-cannot take a second write borrow on `a`
+cannot lend `a` to write while a write loan is live
 ```
 
 Three methods write the elements of a `![]T`, an array, or a Vec,
@@ -548,9 +548,9 @@ panics in every build mode when the lengths differ; `!s.fill(v)` sets
 every element to `v`; `!s.swap(i, j)` exchanges two elements, with both
 indexes checked. `copy` and `fill` copy values in, so, as in
 `[n of x]`, the elements are plain data: they own no resource and hold
-no borrow, which a copy would duplicate. `swap` also moves the handles
+no `?T`, `!T`, or slice, which a copy would duplicate. `swap` also moves the handles
 of a `Vec` of them. `copy`'s
-receiver and argument never overlap: the write borrow of the receiver
+receiver and argument never overlap: the write view of the receiver
 excludes a read of the same value.
 
 ```rig
@@ -602,7 +602,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow `a` while a read borrow is live
+cannot lend `a` to write while a read loan is live
 ```
 
 ```rig reject
@@ -615,7 +615,7 @@ sub main
 ```
 
 ```error
-use of `v` while a write borrow is live
+use of `v` while a write loan is live
 ```
 
 ```rig reject
@@ -626,7 +626,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow a slice of a String; a String is read-only
+cannot lend a slice of a String to write; a String is read-only
 ```
 
 ### Bytes
@@ -681,32 +681,32 @@ no variant `native` on enum `Endian`
 | Type | Meaning | Section |
 |---|---|---|
 | `[]T` | slice: a read-only view of elements | [§2](#slices) |
-| `![]T` | writable slice: a write borrow of elements | [§2](#slices) |
+| `![]T` | writable slice: a write view of elements | [§2](#slices) |
 | `T?` | optional: a `T` or `none` | [§12](#12-optionals) |
 | `T!` | fallible: a `T` or an error; only as a return type, including a function type's | [§13](#13-errors) |
-| `?T` | read borrow of a `T` (parameters, returns, locals, fields) | [§7](#7-ownership) |
-| `!T` | write borrow of a `T` | [§7](#7-ownership) |
+| `?T` | read view of a `T` (parameters, returns, locals, fields) | [§7](#7-ownership) |
+| `!T` | write view of a `T` | [§7](#7-ownership) |
 | `*T` | shared handle: reference-counted, single-threaded | [§9](#9-shared-and-weak-handles) |
 | `~T` | weak handle to a shared value | [§9](#9-shared-and-weak-handles) |
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§11](#11-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§11](#11-closures) |
-| `?fun(A) -> R`, `?sub(A)` | borrowed callable: a closure, function, or owned closure lent to a call | [§11](#closure-parameters) |
+| `?fun(A) -> R`, `?sub(A)` | callable view: a closure, function, or owned closure lent to a call | [§11](#closure-parameters) |
 | `Cell[T]`, `Vec[T]`, `Box[T]`, `Signal[T]` | built-in generic types | [§10](#10-cell-vec-box-text-and-signal) |
 | `Text` | owned, growable text | [§10](#text) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
 
 How the sigils of a type combine (`*User?` is an optional handle,
-`?User?` a borrow of an optional) is in
+`?User?` a view of an optional) is in
 [SYNTAX §7](SYNTAX.md#7-types). A handle holds a value, never a
-borrow: `*(?User)` is rejected.
+view: `*(?User)` is rejected.
 
 ### Copy values and owning values
 
 A **Copy** value is plain data: numbers, `Bool`, `String`, plain enums,
 and optionals, arrays, and structs that hold only Copy values.
 Using one copies it. A copy of a String that views a Text carries the
-Text's borrow ([§10](#text)).
+Text's view ([§10](#text)).
 
 An **owning** value holds a resource that must be released exactly
 once: a `*T` or `~T` handle, a `Vec`, a `Box`, a `Text`, a `Signal`, an
@@ -753,8 +753,8 @@ and its type is `sub(Int)!` ([§13](#13-errors)). A function's value is
 its last expression, or the value of a `return`. A call always has its
 parentheses, `greet()`: the name alone is the function as a value.
 
-Parameters are immutable, except a write-borrowed `!T` parameter, which
-can be assigned ([§7](#write-borrows)). A parameter the body ignores
+Parameters are immutable, except a lent to write `!T` parameter, which
+can be assigned ([§7](#write-views)). A parameter the body ignores
 may be named `_`, any number of times. A parameter may have a default
 value: a literal or a module constant (`LIMIT`, `lib.LIMIT`,
 `U8.max`), which means the same value at every call, in any module. A
@@ -829,16 +829,16 @@ how the method uses the value, and the call site says the same thing:
 
 | Receiver | Meaning | Call |
 |---|---|---|
-| `?self` (= `self: ?Self`) | reads the value | `p.m()`, or `?p.m()`: the read borrow may be left implicit |
+| `?self` (= `self: ?Self`) | reads the value | `p.m()`, or `?p.m()`: the read view may be left implicit |
 | `!self` (= `self: !Self`) | modifies the value | `!p.m()` |
 | `<self` (= `self: Self`) | consumes the value | `<p.m()`, or on a temporary |
 
-Write borrows and moves are never implicit, so calling a `!self` method
+Write views and moves are never implicit, so calling a `!self` method
 as `p.m()` is an error. That holds for a binding that already holds a
-write borrow too (a `!T` parameter, `self` in a `!self` method, a local
-`w = !p`): it lends that borrow visibly, `!w.m()` and `!self.m()`, as it
-lends it to a `!T` parameter or field with `!w`. Lending a write borrow
-always shows its sigil; a held read borrow is lent on bare, since
+write view too (a `!T` parameter, `self` in a `!self` method, a local
+`w = !p`): it lends that view visibly, `!w.m()` and `!self.m()`, as it
+lends it to a `!T` parameter or field with `!w`. Lending a write view
+always shows its sigil; a held read view is lent on bare, since
 another copy of it changes nothing.
 
 ```rig reject
@@ -1406,7 +1406,7 @@ A generic type's methods and a generic function's body are checked
 once, with each type parameter standing for any type. There are no
 traits or bounds. What the body does with a `T` that only some types
 support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
-`T`) is recorded, a borrowed operand (`?T`, `!T`) as the `T` it
+`T`) is recorded, a viewed operand (`?T`, `!T`) as the `T` it
 reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, in any module, is
 checked against it. On a `T`, `==` compares whatever `==` compares
@@ -1435,13 +1435,13 @@ sub main
 ```
 
 The body is ownership-checked once, for a `T` that may own a resource
-and holds no borrow. A `T` that owns a resource moves where the body
+and holds no `?T`, `!T`, or slice. A `T` that owns a resource moves where the body
 moves it, and is dropped where the body lets it go. Where the body
 copies a `T`, every instance must be plain data; the same holds where it
 takes (moves, drops, or returns) an element of a loop that does not
 consume its collection (`for x in ?v`), or unwraps a `T` out of a
-borrowed optional with `as`, since the collection or the owner still
-holds the value. A type argument cannot be a borrow or hold one, for a
+viewed optional with `as`, since the collection or the owner still
+holds the value. A type argument cannot be or hold a `?T`, `!T`, or slice, for a
 generic function or a generic type with methods: the parameter is
 written `?T` or `!T` instead.
 
@@ -1547,7 +1547,7 @@ sub main
 ```error
 `twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
 `T` copied here; move it with `<` instead
-`same[?Res]` cannot use `T = ?Res`: a generic function is checked for a `T` that holds no borrow
+`same[?Res]` cannot use `T = ?Res`: a generic function is checked for a `T` that holds no `?T`, `!T`, or slice
 ```
 
 ### Type aliases
@@ -1665,8 +1665,8 @@ declaration ([§14](#14-modules)), and `extern` declares a C symbol
 
 The forms are in [SYNTAX §9](SYNTAX.md#9-bindings-and-assignment).
 `x = e` binds a new local `x` when no `x` is visible, and otherwise
-assigns the visible one: through it, when `x` holds a write borrow
-([§7](#write-borrows)). `const x = e` binds a fixed local, which cannot
+assigns the visible one: through it, when `x` holds a write view
+([§7](#write-views)). `const x = e` binds a fixed local, which cannot
 be reassigned. `_ = e` evaluates `e` and discards it, and an owning value
 discarded so is dropped at once. A binding's type comes from its
 annotation or its value.
@@ -1773,7 +1773,7 @@ A binding cannot refer to itself in its own initializer. Parameters,
 loop bindings, and names bound by patterns and `as` are immutable.
 
 Every local must be read. Any use counts: an argument, an operand, a
-borrow `?x` or `!x`, a move `<x`, a clone, a field access, a closure
+view `?x` or `!x`, a move `<x`, a clone, a field access, a closure
 capture, a drop `-x`. Assigning does not: a local that is only ever
 assigned, like a misspelled `totl = 5`, is rejected. A name bound by
 `for`, a match pattern, `as`, or `catch |e|` must be read too, or be
@@ -1893,14 +1893,14 @@ either side. A bare `.variant` tests only which variant a value holds,
 so it compares with any enum, or optional of one, whatever its payloads
 hold; a payload literal compares the payload too, so the enum must have
 `==`. Floats compare as IEEE numbers wherever they are, so a
-struct holding a NaN is not equal to itself. A borrowed operand (`?P`,
+struct holding a NaN is not equal to itself. A viewed operand (`?P`,
 `!P`) compares as the value it reaches. A method named `eq` is never
 called by `==`.
 
 A handle `*T` or `~T` has no `==`, since it could compare identity or
 content; nor does a function or closure, a Vec, Cell, or Signal, a
 struct that declares `drop`, or a view (a struct or payload that holds a
-borrow). Neither does a type that holds one of these, and the
+view). Neither does a type that holds one of these, and the
 diagnostic names the field that does.
 
 Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, or two
@@ -1986,7 +1986,7 @@ sub main
 
 `and`, `or`, and `not` take `Bool`s, and `and` and `or` short-circuit:
 the right side runs only when the left does not decide. The spellings
-`&&` and `||` are rejected with a hint. Prefix `!` is always a write borrow, never
+`&&` and `||` are rejected with a hint. Prefix `!` always lends to write, never
 negation: a `!x` whose `Bool` value would be read (a condition, an
 operand, a binding, an argument) is rejected. It is valid only where a
 `!Bool` is expected, as for an argument to a `flag: !Bool` parameter.
@@ -1999,7 +1999,7 @@ sub main
 ```
 
 ```error
-`!` is a write borrow; use `not` for negation
+`!` lends to write; use `not` for negation
 ```
 
 ```rig
@@ -2083,7 +2083,7 @@ only a binding is dropped with `-x`
 A statement must have some use. An expression whose value is used (the
 last line of a `fun`, a binding, an argument) may be anything, but one
 whose value would be thrown away must do something: call, propagate
-(`e!`, `e?`), or `catch`. A name, literal, field read, or borrow alone on
+(`e!`, `e?`), or `catch`. A name, literal, field read, or lend alone on
 a line has no use and is rejected, and a function name alone is taken
 for a forgotten call.
 
@@ -2203,14 +2203,14 @@ not found
 Loop bindings are immutable, and may not reuse a visible name. Two
 source sigils change that:
 
-- `for x in !xs` borrows each element of a `Vec` or array for writing:
+- `for x in !xs` views each element of a `Vec` or array for writing:
   assigning `x` (or a field of it) writes the element in place, and a
   resource element that is replaced is dropped. `xs` must be a binding
   or a field of one.
 - `for x in <v` consumes the Vec: each element is handed to `x`, which
   owns it for one iteration and may move it on. Elements a `break` or
   `return` leaves behind are dropped with the buffer, and `v` is moved.
-  `v` must own the Vec: through a borrow, loop over `?v` or `!v`.
+  `v` must own the Vec: through a view, loop over `?v` or `!v`.
 
 ```rig
 struct B
@@ -2295,8 +2295,8 @@ from an inner loop) is an expression. Its value is the value of the
 of its `else` block, which it therefore needs (only `while true` can do
 without). Every `break` leaving it carries a value, and they and the
 `else` value meet in one type. A `break` value is consumed like a
-returned value: an owning binding is moved out with `<x`, and a borrow
-may not outlive what it borrows. The value must be used; a `break`
+returned value: an owning binding is moved out with `<x`, and a view
+may not outlive what it views. The value must be used; a `break`
 cannot carry a value out of a loop whose value is not.
 
 ### match
@@ -2314,7 +2314,7 @@ arms are rejected. An arm with no work to do is `_ => pass`
 A guard `if cond` after a pattern is a `Bool` that may read the
 pattern's bindings; when it is false, the later arms are tried, as if
 the arm's pattern had not matched. A guard changes nothing it matches:
-it moves nothing, and write-borrows neither the matched value nor a
+it moves nothing, and lends to write neither the matched value nor a
 binding of the arm (as Rust's guards do not). A guarded arm covers none
 of its values: a later arm may repeat its pattern, and
 the match still needs arms for them. Alternatives
@@ -2376,20 +2376,20 @@ source and `if … as` do:
 | Subject | Payload bindings |
 |---|---|
 | `match e`, `match ?e` | read the fields: a copy of plain data, a read view of anything else |
-| `match !e` | write borrows of the fields: assigning one writes the field in place |
+| `match !e` | write views of the fields: assigning one writes the field in place |
 | `match <e` | own the fields: `e` is consumed, and what an arm does not move on is dropped at the end of the arm |
 
 A bare `match e` of a place only reads it, so moving a payload out of
 it is rejected; that takes `match <e`. A call's result is taken, as
 `match <e` would take it ([§7](#temporaries)): `match make()` owns its
 payloads. Its bindings only read, too, even of a
-field or value that is itself a write borrow. A binding of `match <e`
+field or value that is itself a write view. A binding of `match <e`
 owns what it binds: a resource it holds may be written and lent for
 writing. A `Bool` is not matched with `!`: `match !flag` reads as
 negation and is rejected, as `!flag` is anywhere a `!Bool` is not
 expected. `match !e` needs a place that may be
 written, as `!e` does, and while one of its bindings is live `e` cannot
-be used otherwise. `match <e` needs a value `e` owns, not a borrow. A
+be used otherwise. `match <e` needs a value `e` owns, not a view. A
 boxed enum is matched where the box holds it, `match b` (as `match ?b`)
 or `match !b` ([§10](#box)), and so is the value a handle holds,
 `match h`, which reads it. A read binding that is not plain data is a
@@ -2538,7 +2538,7 @@ a `fun ... -> T!`, a `sub f()!`, `sub main`, a closure whose type can
 fail, or a test. In a function, closure, or `drop` body that cannot
 fail, or inside deferred code, it is rejected: write `defer`. A deferred body may not move or drop
 outer bindings, or propagate with `!`. It runs after the values declared
-after it are dropped, so it may not read one through a borrow. A
+after it are dropped, so it may not read one through a view. A
 one-line `defer` or `errdefer` cannot declare a name; a deferred block
 can.
 
@@ -2581,15 +2581,15 @@ happens:
 | Sigil | Name | Effect |
 |---|---|---|
 | `<x` | move | ownership passes on; `x` is unusable until reassigned |
-| `?x` | read borrow | a temporary read-only view; `x` keeps ownership |
-| `!x` | write borrow | a temporary exclusive, writable view |
+| `?x` | lend to read | a temporary read-only view; `x` keeps ownership |
+| `!x` | lend to write | a temporary exclusive, writable view |
 | `+x` | clone | a new owner: a refcount bump for a handle, a copy for a Copy value |
 | `-x` | drop | release `x` now |
 | `*x` | share | move `x` into a new shared box ([§9](#9-shared-and-weak-handles)) |
 | `~x` | weak | a weak handle to a shared value ([§9](#9-shared-and-weak-handles)) |
 
 A Copy value can be used freely: a bare use copies it. `<x` always
-means "done with `x`", whatever its type: a Copy value or a borrow is
+means "done with `x`", whatever its type: a Copy value or a view is
 copied out, and `x` is unusable until it is assigned again. (`<p.f` of a
 Copy field copies the field and leaves `p` whole.) The rest of this
 section is about owning values.
@@ -2713,7 +2713,7 @@ plain optional, since no Vec or array holds one that owns): `<p.f` **takes** the
 value out and leaves `none` behind, in one step, so the struct stays
 whole and nothing is dropped twice. Taking writes the field, so it
 needs a path that may write it (an owned local, a `!T`, not a `?T` or a
-`*T`), and no other borrow of the value may be live, and it needs an
+`*T`), and no other view of the value may be live, and it needs an
 owner: a field of a temporary cannot be taken. Whether a field can be
 taken is decided by its type where it is named: inside a generic body a
 `T?` field can be, a `T` field cannot, whatever `T` is. An `as` binding
@@ -2766,8 +2766,8 @@ sub main
 `replace(!place, v)` stores `v` in a place and hands back the value that
 was there, owned; `swap(!a, !b)` exchanges the values of two places of
 one type, which may be different fields of one value
-(`swap(!t.left, !t.right)`). The places are write-borrowed for the call,
-and the values hold no borrow. Like `print`, both are names a
+(`swap(!t.left, !t.right)`). The places are lent to write for the call,
+and the values hold no `?T`, `!T`, or slice. Like `print`, both are names a
 declaration may hide.
 
 ```rig
@@ -2787,7 +2787,7 @@ Pair(left: "c", right: "a") b
 ```
 
 Two elements of one collection are not two places: `swap(!a[i],
-!a[j])` write-borrows `a` twice, and is rejected with the collection's
+!a[j])` lends `a` to write twice, and is rejected with the collection's
 own `swap`, which exchanges them ([§2](#slices)):
 
 ```rig reject
@@ -2798,19 +2798,20 @@ sub main
 ```
 
 ```error
-cannot take a second write borrow on `a`: to swap two elements of `a`, write `!a.swap(0, 2)`
+cannot lend `a` to write while a write loan is live: to swap two elements of `a`, write `!a.swap(0, 2)`
 ```
 
 A payload binding of `match <s` owns its field and may move it on
 (`.full(b) => eat(<b)`); a bare `match s` only reads `s`
 ([match](#match)).
 
-### Borrows
+### Views
 
-A borrow lends a value without giving it up. `?x` is a read borrow and
-`!x` a write borrow, and borrowed parameter types say the same thing:
-`b: ?Wrap` reads, `b: !Wrap` writes. A write borrow is always visible
-at the call site; a read borrow of an argument may go unwritten: where
+A lend hands over a view of a value without giving it up. `?x` lends
+`x` to read and `!x` lends it to write, and view parameter types say
+the same thing: `b: ?Wrap` reads, `b: !Wrap` writes. A write lend is
+always visible at the call site; a read lend of an argument may go
+unwritten: where
 a parameter takes a view, a bare argument is lent to read where it is,
 as `?x` would lend it, and its owner stays lent for as long as the
 view is used (`balance_of(acct)` is `balance_of(?acct)`). A value made
@@ -2838,10 +2839,10 @@ sub main
 ```
 
 **The aliasing rule.** At any point a value may have any number of read
-borrows or one write borrow, not both. While a read borrow is live the
-owner cannot be written, moved, or dropped; while a write borrow is
+views or one write view, not both. While a read loan is live the
+owner cannot be written, moved, or dropped; while a write loan is
 live the owner cannot be used at all, whatever its type: even a number
-is not read until the borrow's last use, so `w = !n` then `w += n` is
+is not read until the view's last use, so `w = !n` then `w += n` is
 rejected.
 
 ```rig reject
@@ -2856,20 +2857,20 @@ sub main
 ```
 
 ```error
-cannot write-borrow `u` while a read borrow is live
+cannot lend `u` to write while a read loan is live
 ```
 
-**How long a borrow lives.** A borrow passed to a call ends when the
-call returns, so two calls in one statement may each write-borrow the
-same value. A method call borrows its receiver for the whole call, so
-`rc.show(<rc)` is rejected. A borrow stored in a binding, or in a view
-([below](#second-class-borrows)), lasts until its last use. Every later
+**How long a view lives.** A view passed to a call ends when the
+call returns, so two calls in one statement may each lend the
+same value to write. A method call lends its receiver for the whole
+call, so `rc.show(<rc)` is rejected. A view stored in a binding, or in a view
+([below](#second-class-views)), lasts until its last use. Every later
 use counts: a use further on, a use anywhere in a loop around it that
 the binding was declared outside of (the next iteration runs it again),
 a closure that captured it (and every use of that closure), a binding
-that borrows the view in turn, deferred code, and the drop at scope
+that views the view in turn, deferred code, and the drop at scope
 exit of a value whose type has drop glue. The binding's block ending,
-`-r`, or reassigning it also end the borrow.
+`-r`, or reassigning it also end the view.
 
 ```rig
 struct Wrap
@@ -2915,18 +2916,18 @@ sub main
 ```
 
 ```error
-cannot write-borrow `x` while a read borrow is live
+cannot lend `x` to write while a read loan is live
 ```
 
 **Evaluation order within a call.** A call evaluates its arguments
 left to right and uses them all when it runs, so what an earlier
 argument holds is still in use while the later ones are evaluated. A
-borrow (`?v`) or a slice (`?v[..]`) in an earlier argument keeps its
+view (`?v`) or a slice (`?v[..]`) in an earlier argument keeps its
 loan until the call ends. So does an argument that reads a place by
 value when that value shares storage the place owns: a Vec, a `Box`, a
-`*T` or `~T` handle, a struct holding one, or what a write borrow
+`*T` or `~T` handle, a struct holding one, or what a write view
 reaches, as `print(v)` reads it. A later argument of the same call
-(`print` included) cannot write-borrow or move that place, since the
+(`print` included) cannot lend that place to write or move it, since the
 call would see a stale value, or memory already freed. Plain data is
 copied whole when it is read, so `print(v.len, grow(!v))` and
 `print(p, bump(!p))` for a Copy struct `p` are accepted, and print the
@@ -2969,7 +2970,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow `v` while an earlier argument's read of it is in use
+cannot lend `v` to write while an earlier argument's read of it is in use
 ```
 
 The same holds wherever a value is read in place before a later
@@ -2995,9 +2996,9 @@ sub main
 cannot lend `a` to write while the left operand's read of it is in use
 ```
 
-A borrow of a place (`!v[i]`, `?p.xs[i]`, a slice `!v[i..]`, or the
+A view of a place (`!v[i]`, `?p.xs[i]`, a slice `!v[i..]`, or the
 receiver of a method call) finds the place up to each index before the
-index runs, so an index cannot write-borrow or move the place's root:
+index runs, so an index cannot write lend or move the place's root:
 it could grow or free the memory the place is in. An assignment finds
 its target only after the indexes run ([§4](#4-bindings-and-assignment)),
 so `v[grow(!v)] = 1` is accepted.
@@ -3020,14 +3021,14 @@ sub main
 ```
 
 ```error
-cannot write-borrow `ps` in an index of a place borrowed from it
+cannot lend `ps` to write in an index of a place it is lending
 ```
 
-#### Write borrows
+#### Write views
 
-A write borrow is assignable, whether a `!T` parameter or a local
+A write view is assignable, whether a `!T` parameter or a local
 holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
-borrowed value (the old value is dropped first). Assigning a view
+viewed value (the old value is dropped first). Assigning a view
 points the place at another place instead: `w = !m`, `w = <w2`, or a
 call returning a `!T` re-points a local `w`, which then lends `m`
 alone (a `![]T` local alike), and a bare `w = w2` reads the value `w2`
@@ -3035,21 +3036,21 @@ reaches and writes it through `w`. A parameter is never re-pointed:
 `w = !m` of a `!T` parameter is rejected, and `new w = !m` binds a new
 name instead. A field or element of type `!T` follows the same rule:
 `h.w = 5`, `h.w += 1`, `xs[i] += 1`, and `h.w = w2` write the
-value the place borrows, while assigning another write borrow,
-`h.w = !m`, points the place at `m`. Writing through a borrow held in
+value the place views, while assigning another write view,
+`h.w = !m`, points the place at `m`. Writing through a view held in
 a field, or lending it with `!h.w`, needs write access to the struct,
 as writing any field does, so a plain parameter `h: H`, a capture, or
-a temporary cannot. A write borrow can be
-lent on, written `!p` as an owned value's borrow is, or moved into a
+a temporary cannot. A write view can be
+lent on, written `!p` as an owned value's view is, or moved into a
 local with `<p`, but not copied. A bare `w` of type `!Int` where an
 `Int` goes copies the value it reaches (`x = w`), and so does one
-assigned to a `!Int` place (`h.w = w`); `h.w = <w` moves the borrow
+assigned to a `!Int` place (`h.w = w`); `h.w = <w` moves the view
 there instead. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
 that path reaches: it cannot be written through or passed on from
 there, and a `match` through one cannot bind it. A loop walks elements
-whose fields hold write borrows with `for x in !xs`; an element that
-is itself a write borrow (in a `[2]!Int`) is written by index,
+whose fields hold write views with `for x in !xs`; an element that
+is itself a write view (in a `[2]!Int`) is written by index,
 `xs[i] = v`, since a loop binding cannot hold it.
 
 ```rig
@@ -3133,12 +3134,12 @@ sub main
 ```
 
 ```error
-cannot write through the write borrow held here through a read borrow (`?T`)
+cannot write through the write view held here: it is reached through a read view (`?T`)
 ```
 
-A `!x` borrow needs a binding that may change: a parameter (other than
+A `!x` view needs a binding that may change: a parameter (other than
 `!T`), a fixed binding, a capture, or a loop binding cannot be
-write-borrowed. Nor can a temporary, such as a call's result or a
+lent to write. Nor can a temporary, such as a call's result or a
 struct literal, since the change would be lost with it.
 
 ```rig reject
@@ -3153,39 +3154,39 @@ sub main
 ```
 
 ```error
-cannot write-borrow a temporary: the change would be lost; bind it to a name first
+cannot lend a temporary to write: the change would be lost; bind it to a name first
 ```
 
-#### Second-class borrows
+#### Second-class views
 
-Borrows are values the checker follows, not types you annotate: there
-is no lifetime syntax. A borrow can be held by a parameter, a local, a
+Views are values the checker follows, not types you annotate: there
+is no lifetime syntax. A view can be held by a parameter, a local, a
 struct field (a **view**), or a function's result, and the checker
 tracks where every one came from.
 
-- A function may return a borrow only of something its caller lent it.
-  The result then borrows from every argument whose type could hold
+- A function may return a view only of something its caller lent it.
+  The result then views from every argument whose type could hold
   what it views, a String argument included: it may view a Text
   ([§10](#text)). An argument that could not (an `Int` key for a
   `?Item` result, a String for a `?Item`) is free again after the call.
 - A result may say which parameters it views: `-> ?Item from a` (also
   `from a, b`, `from self`, and `from static`, for only what lives for
-  the whole program). The result then borrows from those arguments
+  the whole program). The result then views from those arguments
   alone, and the compiler checks the body against the clause: a body
   that returns a view of a parameter it does not name is rejected. A
   name must be a parameter whose type could hold what the result
   views. A function lent as a value (`?first`) is called with what its
   type says, as if it had no clause.
-- A view reached through another view borrows what that view borrows,
-  not what holds it: `?c.items[0]`, with `items: ?Vec[Item]`, borrows
+- A view reached through another view views what that view views,
+  not what holds it: `?c.items[0]`, with `items: ?Vec[Item]`, views
   the Vec, not `c`.
-- A struct holding a borrow keeps the borrowed value borrowed while the
-  struct is alive. So does a stack closure that captured a borrow, and
-  a value a call may have stored a borrow into (its receiver lent to
-  write, and what its `!` arguments and other write borrows lead to):
-  a borrow of each argument, the receiver among them, whose type could
+- A struct holding a view keeps the viewed value lent while the
+  struct is alive. So does a stack closure that captured a view, and
+  a value a call may have stored a view into (its receiver lent to
+  write, and what its `!` arguments and other write views lead to):
+  a view of each argument, the receiver among them, whose type could
   be held there.
-- A borrow may not outlive the value it borrows: not past the end of
+- A view may not outlive the value it views: not past the end of
   its block, not through `break`, and not out of the function.
 
 ```rig
@@ -3223,7 +3224,7 @@ fun make -> ?User
 ```
 
 ```error
-returned borrow of `u` does not originate from a borrowed parameter
+cannot return a view of `u`, which this function was not lent
 ```
 
 ```rig reject
@@ -3245,16 +3246,16 @@ sub main
 ```
 
 ```error
-cannot drop `y` while borrows are live
+cannot drop `y` while it is lent
 ```
 
-A borrowed parameter can be forwarded (`g(?b)` with `b: ?B`), and a
-borrow of a number, `Bool`, `String`, or plain enum reads as the value
-wherever the value is expected, whether a name holds the borrow or an
+A view parameter can be forwarded (`g(?b)` with `b: ?B`), and a
+view of a number, `Bool`, `String`, or plain enum reads as the value
+wherever the value is expected, whether a name holds the view or an
 expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`); the
-borrow taken to reach it ends there. Other values, which may own
-resources, are not copied out of a borrow. The caller still owns a
-borrowed value: a borrowed parameter cannot be dropped or move-captured,
+view taken to reach it ends there. Other values, which may own
+resources, are not copied out of a view. The caller still owns a
+viewed value: a view parameter cannot be dropped or move-captured,
 and a field cannot be moved out of it.
 
 ```rig
@@ -3282,7 +3283,7 @@ inside is counted again (a deep copy). A type with a `drop` body, a
 unique type (one holding a `Cell`, or declared `unique`), a `Signal`,
 and a type imported from another module have no clone. `+p.a` clones
 the value in a field, and `+v[i]` an element. A value holding a write
-borrow cannot be cloned or weakly referenced: the borrow is unique.
+view cannot be cloned or weakly referenced: the view is unique.
 `+e` only reads `e`: a value made there (`+make()`) is a temporary its
 statement drops, and `+(a if c else b)` reads `a` or `b` where it is.
 
@@ -3292,8 +3293,8 @@ statement drops, and `+(a if c else b)` reads `a` or `b` where it is.
 Every owning local and parameter that is still live is dropped
 automatically when its block ends, including on early `return`,
 `break`, and `continue`, and on every path through branches. So `-x`
-is only needed to release something early, or to end a borrow a
-binding holds. A borrowed parameter cannot be dropped: the caller owns
+is only needed to release something early, or to end a view a
+binding holds. A view parameter cannot be dropped: the caller owns
 it. Plain data owns nothing, so `-n` of an `Int` or a struct of
 numbers drops nothing, and is rejected. A String may view a `Text`
 (§10), so `-s` of a String, or of a struct holding one, ends the loan
@@ -3330,7 +3331,7 @@ drop 1
 ```
 
 Automatic drops at the end of a block run in reverse order of
-declaration. So a value whose drop runs a `drop` body may not borrow a
+declaration. So a value whose drop runs a `drop` body may not view a
 value declared after it: that value is dropped first.
 
 ### Temporaries
@@ -3398,8 +3399,8 @@ sub main
 0 0
 ```
 
-A borrow of a temporary (`?S(n: 1)`, `?make()`, `?make()[1..]`), and
-any view made from one (a call's result that borrows it), may be used
+A view of a temporary (`?S(n: 1)`, `?make()`, `?make()[1..]`), and
+any view made from one (a call's result that views it), may be used
 anywhere in its statement, and nowhere after: held by a binding, a
 field, a Vec, or a returned value, it is rejected.
 
@@ -3451,9 +3452,9 @@ sub main
 ```
 
 ```error
-a borrow of the temporary `S(n: 1)` outlives its statement, which drops it; bind the value to a name first
-a borrow of the temporary `Text(" a ")` outlives its statement
-a borrow of the temporary `Text("k=v")` outlives its statement
+a view of the temporary `S(n: 1)` outlives its statement, which drops it; bind the value to a name first
+a view of the temporary `Text(" a ")` outlives its statement
+a view of the temporary `Text("k=v")` outlives its statement
 ```
 
 ---
@@ -3461,8 +3462,8 @@ a borrow of the temporary `Text("k=v")` outlives its statement
 ## 8. Drop and drop glue
 
 A struct may declare one `drop` body, which runs when a value of the
-type is released. It takes exactly one parameter, its write-borrowed
-receiver, spelled as a method's: `drop(!self)`, or `drop(self: !Self)`.
+type is released. It takes exactly one parameter, its receiver
+lent to write, spelled as a method's: `drop(!self)`, or `drop(self: !Self)`.
 
 ```rig
 struct File
@@ -3657,10 +3658,10 @@ mutable value.
 | `c[i]`, `c[i] = x`, `c.get(i)` | a `Cell[Vec[T]]` of Copy `T`: an element, bounds-checked, or `T?` |
 
 `T` is a Copy primitive, plain data (a struct, enum, optional, or array
-that owns nothing and holds no borrow), an owning type, or a type
+that owns nothing and holds no `?T`, `!T`, or slice), an owning type, or a type
 declared `unique`. An owning or unique value is never copied out of a cell: it moves in with `set` / `replace` and moves out
 with `replace`. What goes into a cell, by any of its members or
-`c[i] = x`, holds no borrow, nor a String that may view a Text
+`c[i] = x`, holds no `?T`, `!T`, or slice, nor a String that may view a Text
 ([§10](#text)), since every handle to the cell reaches it.
 
 A `Cell[Vec[T]]` answers its Vec's members as `set` does, without `!`:
@@ -3670,12 +3671,12 @@ while the cell's Vec is in use: `clear` leaves the cell holding an empty
 Vec before it drops the elements, so a `drop` body that reaches back
 into the cell finds a valid Vec. For the same reason an element is a
 copy: `c[i]` and `c.get(i)` read one and `c[i] = x` writes one only
-when `T` is Copy, an element cannot be borrowed, and a field of one is
+when `T` is Copy, an element cannot be lent, and a field of one is
 not written in place. The elements of a Vec of handles are taken out
 with `pop`, or by taking the whole Vec out with `replace`.
 
 A Cell is interior-mutable: `set` and `replace` change it through any
-path to it, including a read borrow (`?Cell[T]`), a `?self` method of a
+path to it, including a read view (`?Cell[T]`), a `?self` method of a
 struct holding one, and a shared handle. A value holding a Cell is
 unique ([§2](#copy-values-and-owning-values)), so every binding of one is its place: a
 by-value parameter owns the value moved into it (`c.hits.set(v)` with
@@ -3750,7 +3751,7 @@ box, a handle, a struct that owns one).
 
 A `for` loop lends the Vec to read for the whole loop, so it cannot be
 modified inside it: `for x in v` is `for x in ?v`. Each element
-of Copy values is a copy; one of owning values is a borrowed slot,
+of Copy values is a copy; one of owning values is a viewed slot,
 where `v` must be a binding, or a field or element of one: the element can be
 read, called, and cloned (`+x` is a new handle), but not moved,
 dropped, or stored. `for x in !v` and `for x in <v` write and
@@ -3842,13 +3843,13 @@ Long chains of boxes are released without deep recursion.
 The box is reached as it is held: through an owned box or a `!Box[T]`
 its value can be written, through a `?Box[T]` only read. A consuming
 (`<self`) method of the value, `<b.m()`, takes the value out of the box
-first. `T` holds no borrow. A box has no field of its own: `b.value`
+first. `T` holds no `?T`, `!T`, or slice. A box has no field of its own: `b.value`
 of a `Box[Int]` names nothing, and the number is lent (`?b`) or taken
 apart. A Vec holds boxes as it holds handles:
-walked by borrowed slot and moved out with `pop` ([Vec](#vec)).
+walked by viewed slot and moved out with `pop` ([Vec](#vec)).
 
 A recursive enum holds its children in boxes, and a function reads one
-through a borrow of the box:
+through a view of the box:
 
 ```rig
 enum Expr
@@ -3927,7 +3928,7 @@ Text. A `String` is the view of text; a Text is where text is built.
 | `t.len` | its length in bytes, read-only |
 | `?t[a..b]`, `?t[a..]`, `?t[..]` | a String viewing its bytes from `a` up to `b`, bounds-checked like any slice ([§2](#slices)) |
 | `?t` where a String or `String?` is expected | `?t[..]` |
-| a borrow `p: ?Text` (a name, or a call's result) where a String is expected | its bytes; `p[a..b]` is a view of them, with no further `?` |
+| a view `p: ?Text` (a name, or a call's result) where a String is expected | its bytes; `p[a..b]` is a view of them, with no further `?` |
 | `for b in ?t` | its bytes, as `U8`s |
 | `?b[a..b]`, `?b` of a `Box[Text]` | the same, through the box |
 | `+t` | a new Text holding the same bytes |
@@ -3969,7 +3970,7 @@ and the String cannot outlive it. The loan goes wherever the String
 goes: into a binding, a struct field, a `Vec[String]`, an optional, a
 closure's captures, and a call's result, since a function returning a
 String may return a view of a String it was passed
-([§7](#second-class-borrows)). Once the last use of the String, and of
+([§7](#second-class-views)). Once the last use of the String, and of
 every value holding it, is past, the Text is free again; a Vec holding
 one is in use until it is dropped.
 
@@ -4024,12 +4025,12 @@ sub main
 ```
 
 ```error
-cannot write-borrow `t` while a read borrow is live
-returned borrow of `t` does not originate from a borrowed parameter
+cannot lend `t` to write while a read loan is live
+cannot return a view of `t`, which this function was not lent
 ```
 
 A String whose origin a function cannot see, a parameter or a value
-built from one, may view a Text, so it stays where borrows are
+built from one, may view a Text, so it stays where views are
 followed. It cannot be stored in a `Cell` or a `Signal` (by `Cell(v)`,
 `set`, `replace`, `push`, or `c[i] = v`), or captured by an owned
 closure, since every handle to those reaches what they hold;
@@ -4041,7 +4042,7 @@ Text it came from, copy it into a Text of its own: `Text(s)`.
 
 A Text owns its bytes, and a `Vec[Text]` owns its Texts, as
 `Vec[Box[Text]]` does through its boxes. A Vec that
-holds views keeps their Texts borrowed until it is dropped, since it is
+holds views keeps their Texts lent until it is dropped, since it is
 in use until then; drop it early with `-v` to change them sooner.
 
 ```rig
@@ -4073,7 +4074,7 @@ sub main
 ```
 
 ```error
-cannot store a borrow of `s` in a `Cell`
+cannot store a view of `s` in a `Cell`
 ```
 
 ### Signal
@@ -4144,29 +4145,29 @@ closure parameter `n` has the name of the local `n`
 | `\|+x\|` | Copy value | a copy |
 | `\|+x\|` | `*T` or `~T` | a clone of the handle |
 | `\|<x\|` | any | the value, moved in; the outer `x` is gone |
-| `\|?x\|` | any | a read borrow `?T`, as `?x` gives it |
-| `\|!x\|` | any a write borrow may take | a write borrow `!T`, as `!x` gives it |
+| `\|?x\|` | any | a read view `?T`, as `?x` gives it |
+| `\|!x\|` | any a write view may take | a write view `!T`, as `!x` gives it |
 | `\|~x\|` | `*T` | a weak handle `~T` |
 
 The closure's environment owns what it captured and releases it once,
 when the closure is released, not after each call. The body may use,
 call, and clone a captured owning value, but not move, drop, or
 reassign it: the closure may be called again, so it cannot be the
-closure's value either. A captured borrow may be passed to a call,
-which borrows it for the call. A captured read borrow may be the
-closure's value, and a call's result then borrows what the closure
-captured. Through a captured write borrow the body can write fields,
+closure's value either. A captured view may be passed to a call,
+which views it for the call. A captured read view may be the
+closure's value, and a call's result then views what the closure
+captured. Through a captured write view the body can write fields,
 call `!self` methods (`!w.push(x)`), lend it on for a
 call (`!w`), and assign the whole value (`w = v`, `w += 1`), which
-writes through to what it borrows. Nothing the closure owns or receives
+writes through to what it views. Nothing the closure owns or receives
 as a parameter may be stored through it: those last one call at most,
 and the captured value outlives them. A name may be captured once per
 list.
 
-`|?x|` and `|!x|` borrow `x` for as long as the closure lives, which is
+`|?x|` and `|!x|` lend `x` for as long as the closure lives, which is
 until its last use: `|!x|` is `w = !x` followed by `|<w|`. While the
 closure lives, `x` follows the aliasing rule
-([§7](#borrows)); after its last call, `x` is free again.
+([§7](#views)); after its last call, `x` is free again.
 
 ```rig
 sub main
@@ -4253,7 +4254,7 @@ sub main
 | `sub(String)` | takes a `String`, returns nothing |
 | `*fun(Int) -> Int`, `*sub()` | an owned closure of that shape |
 | `~fun(Int) -> Int`, `~sub()` | a weak handle to an owned closure |
-| `?fun(Int) -> Int`, `?sub()` | a borrowed callable ([below](#closure-parameters)) |
+| `?fun(Int) -> Int`, `?sub()` | a callable view ([below](#closure-parameters)) |
 
 Function types describe closures bound to locals and function names
 used as values. A function type writes its result after `->`, as a
@@ -4299,19 +4300,19 @@ closures cannot escape their defining scope
 
 ### Closure parameters
 
-A parameter of type `?fun(A) -> R` or `?sub(A)` takes a **borrowed
-callable**: a read borrow of something to call. It accepts
+A parameter of type `?fun(A) -> R` or `?sub(A)` takes a **callable
+view**: a read view of something to call. It accepts
 
 - a closure literal written in the argument, without `*`;
 - a named stack closure lent as `?f`;
 - a function name or a `fun` value, as it is;
 - an owned closure lent as `?cb`.
 
-A borrowed callable is a borrow like any `?T` ([§7](#second-class-borrows)):
+A callable view is a view like any `?T` ([§7](#second-class-views)):
 the callee may call it and forward it, and the caller's values stay
-borrowed while it lives. A lent closure literal borrows what it
+viewed while it lives. A lent closure literal views what it
 captures for the call, so its captures conflict with the call's other
-borrows, and its environment lives until the call returns, dropping
+views, and its environment lives until the call returns, dropping
 what it moved in. It costs one indirect call per invocation and
 allocates nothing.
 
@@ -4353,17 +4354,17 @@ drop 7
 8
 ```
 
-No value holds a borrowed callable: it is only a parameter's, a local's,
+No value holds a callable view: it is only a parameter's, a local's,
 or a result's type, never a field's, an element's, a module-level
 binding's, or a type argument. A function may return one only where it
-returns a borrow its caller lent it, and a closure literal is not lent
+returns a view its caller lent it, and a closure literal is not lent
 to a call whose result could hold it. A call never changes a closure's
 environment, so a closure is lent only to read: `!f` is rejected.
 
-Only `?fun(...)` and `?sub(...)` written as such are borrowed callables.
+Only `?fun(...)` and `?sub(...)` written as such are callable views.
 A `?T` whose `T` is a function type, in a generic function, a field, or
-a payload, is a read borrow of a function value, and `!fun(...)` a
-write borrow of one, which can be reassigned through; a closure is not
+a payload, is a read view of a function value, and `!fun(...)` a
+write view of one, which can be reassigned through; a closure is not
 lent there (`?f` of a closure where a `?T` goes is rejected).
 `*|...|` makes an owned closure, which is not what a `?fun` parameter
 takes:
@@ -4377,7 +4378,7 @@ sub main
 ```
 
 ```error
-borrows a closure for the call; write the closure without `*` (drop the `*`)
+views a closure for the call; write the closure without `*` (drop the `*`)
 ```
 
 A closure lent to a call is checked with the call's other arguments:
@@ -4394,7 +4395,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow `c` while a read borrow is live
+cannot lend `c` to write while a read loan is live
 ```
 
 ### Owned closures
@@ -4430,7 +4431,7 @@ sub main
 An owned closure is type-erased at run time, so its parameters and
 result are plain Copy values: numbers, `Bool`, `String`, plain enums,
 and optionals of these. Pass owning values in as captures. An owned
-closure can be stored anywhere, so it cannot capture a borrow or a
+closure can be stored anywhere, so it cannot capture a view or a
 value holding one; a stack closure can. `*` applies only to a closure
 literal, not to a function name or a closure binding.
 
@@ -4447,7 +4448,7 @@ expected, and `none` needs a known optional type.
 | `a == none`, `a != none` | test for absence |
 | `a == v`, `a != v` | whether `a` holds the value `v`, a `T` |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
-| `if ?a as x`, `if !a as x` | the same, with `x` borrowing the value inside `a` |
+| `if ?a as x`, `if !a as x` | the same, with `x` a view of the value inside `a` |
 | `?a` where a `View?` is expected | a view of the value inside `a`, or `none`: `?a` of an `S?` where a `(?S)?` is expected, of a `Text?` where a `String?` is, of a `Vec[Int]?` where a `([]Int)?` is; `?a` itself is a `?(S?)` |
 | `if <a.f as x` | the same, taking the value out of a field and leaving `none` ([§7](#moves)) |
 | `while a as x` | repeat while `a` produces a value |
@@ -4514,15 +4515,15 @@ read where it is: `if m as x` is `if ?m as x`. To take its value, move
 or clone it: `if <m as x`, `if +m as x`, and it is unwrapped the same
 way: `(<m)?`.
 
-To use the value where it is, borrow the optional: `if ?m as x` binds
-`x` as a read borrow of the value (`?T`), and `if !m as x` as a write
-borrow (`!T`), through which `x.f = v` changes the value in place and
-`x = v` replaces it. `m` stays borrowed for the block, as for any
-borrow. A `?T?` parameter, or another read borrow of an optional,
-lends its value the same way with `if p as x`; a held write borrow is
-lent on as `!p`, and a write borrow a call returns is bound as one.
+To use the value where it is, lend the optional: `if ?m as x` binds
+`x` as a read view of the value (`?T`), and `if !m as x` as a write
+view (`!T`), through which `x.f = v` changes the value in place and
+`x = v` replaces it. `m` stays lent for the block, as for any
+lend. A `?T?` parameter, or another read view of an optional,
+lends its value the same way with `if p as x`; a held write view is
+lent on as `!p`, and a write view a call returns is bound as one.
 Plain data read through a `?T?` is copied (in a generic body, so is
-every `T`); a value holding a Cell is borrowed. A borrow cannot give up
+every `T`); a value holding a Cell is lent. A view cannot give up
 a resource it holds, so `?` and `??` reject one.
 
 ```rig
@@ -4580,7 +4581,7 @@ tighter than `and`, and the parts run in order, each only when the ones
 before it held. Each binding is visible to the parts after it and to
 the body, not to `else`, which runs when any part fails (and a loop
 ends then). Each binding takes its own form: `if ?o as x and !p as y`
-borrows from both. A binding made before a part that fails is dropped
+views from both. A binding made before a part that fails is dropped
 before `else` runs. A `while` step may read the bindings (it runs
 after the body, before they go) when every binding of the condition is
 plain data and no `continue` in the condition can skip one. `as` stands
@@ -4645,7 +4646,7 @@ where it is ([§7](#temporaries)). Where it is taken, it takes from each
 side: the optional may hold an owning value when it is made there
 (`make(k) ?? return`, `make(k) ?? make(0)`) or moved (`<o ?? return`,
 `<h.f ?? return`, which leaves `none`), but not when it is reached
-through a borrow, which gives up nothing. Anything
+through a view, which gives up nothing. Anything
 else on the right of `??` is a value of the optional's type, so a bare
 error value is no fallback: `?? E.missing` is rejected, and failing is
 written `?? return E.missing` in a fallible function.
@@ -5115,7 +5116,7 @@ A field or method is private to its module unless it is declared `pub`:
 `pub sub push(!self, x: Int)`. Inside the declaring module every member
 is visible; another module that reads or writes a private field, or
 calls a private method or associated function, is rejected, whichever
-way it reaches the member: through a borrow, a `*T` handle, a `Box`, or
+way it reaches the member: through a view, a `*T` handle, a `Box`, or
 an instance of a generic type. Another module constructs a struct only
 when every one of its fields is `pub`; a type with a private field is
 made by its own module, which can hand it out through a `pub` function.
@@ -5237,7 +5238,7 @@ sub main
 ```
 
 Every check (types, arity, keyword
-arguments, borrow modes, fallibility, ownership) applies across modules
+arguments, lend modes, fallibility, ownership) applies across modules
 exactly as within one, and a type is identified by the module that
 declares it: `a.Point` and `b.Point` are different types. A module
 whose import has errors is not checked; the import's errors are
@@ -5303,12 +5304,12 @@ The standard library binds declarations to Zig code: a `fun` or `sub`
 without a body inside `extern zig "file.zig"` is the function of the
 same name in that Zig file, which ships with the library. A call to one
 is checked exactly as a call to a Rig function with that signature
-(moves, borrows, and the loans its result carries) and needs no `raw`:
+(moves, lends, and the loans its result carries) and needs no `raw`:
 the Zig file is trusted as the runtime is, and each function's Zig type
 is checked, when the program is compiled, to be the one its Rig
 signature lowers to. Such a function takes no compile-time parameters.
 Its signature is trusted where the checker cannot see a body: one that
-returns a borrow and takes no borrowed parameter, as
+returns a view and takes no view parameter, as
 `std.os.args() -> []String` does, returns something that lives as long
 as the program.
 

@@ -1,4 +1,4 @@
-# An array behind a pointer (a write-borrowed parameter, a Vec's buffer)
+# An array behind a pointer (a lent to write parameter, a Vec's buffer)
 # is not the function's copy, so a slice of it can be returned.
 
 struct S

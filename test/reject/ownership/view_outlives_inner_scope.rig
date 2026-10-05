@@ -1,0 +1,15 @@
+# A view stored in an outer binding may not outlive the inner-scope
+# value it views.
+
+struct Wrap
+  payload: Int
+
+sub main()
+  a = Wrap(payload: 1)
+  r = ?a
+  if true
+    b = Wrap(payload: 2)
+    r = ?b
+  print(r.payload)
+
+# error: `b` does not live long enough

@@ -1,0 +1,22 @@
+# The loans of a view moved into a call end when the call returns, so
+# the next statement can write the root again.
+
+struct Wrap
+  v: Vec[Int]
+
+sub show(a: ?Wrap)
+  print(a.v.len)
+
+sub main()
+  x = Wrap(v: Vec())
+  !x.v.push(1)
+  r = ?x
+  show(<r)
+  !x.v.push(2)
+  w = !x
+  !w.v.push(3)
+  show(?x)
+
+# expect:
+# 1
+# 3

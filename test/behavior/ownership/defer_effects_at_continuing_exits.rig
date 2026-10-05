@@ -37,7 +37,7 @@ fun revive(ok: Bool) -> Int!
   print("again", x.n)
   k
 
-# A defer that re-points a borrow, at a `?` that may leave with none.
+# A defer that re-points a view, at a `?` that may leave with none.
 fun repoint(o: Int?) -> Int?
   a: Vec[Int] = Vec()
   !a.push(10)

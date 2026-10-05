@@ -1,5 +1,5 @@
 # `print` reads a struct holding a Cell when it is called, after a later
-# argument has grown the Cell's Vec through a read borrow of the struct.
+# argument has grown the Cell's Vec through a read view of the struct.
 struct S
   c: Cell[Vec[Int]]
 

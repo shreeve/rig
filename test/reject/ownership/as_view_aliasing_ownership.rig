@@ -1,0 +1,25 @@
+# A value viewed by `as` keeps its optional viewed for the block:
+# the optional cannot be used under a write view, nor dropped or
+# reassigned under any view.
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  r: Res? = Res(n: 1)
+  if !r as v
+    print(r)
+    v.n = 2
+  if ?r as v
+    -r
+    print(v.n)
+  if !r as v
+    r = none
+    v.n = 3
+
+# error: 14:11: use of `r` while a write loan is live
+# error: 17:6: cannot drop `r` while it is lent
+# error: 20:5: cannot reassign `r` while it is lent

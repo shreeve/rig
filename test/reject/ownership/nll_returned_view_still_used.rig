@@ -1,0 +1,23 @@
+# A view a function returns views every viewed argument, until
+# its last use.
+
+struct Wrap
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop(!self)
+    print("drop", self.n)
+
+fun first(a: ?Wrap, b: ?Wrap) -> ?Wrap
+  a
+
+sub main()
+  x = Wrap(n: 1)
+  y = Wrap(n: 2)
+  r = first(?x, ?y)
+  -y
+  print(r.n)
+
+# error: cannot drop `y` while it is lent

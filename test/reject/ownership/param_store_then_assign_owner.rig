@@ -19,4 +19,4 @@ sub main
   print(f(!h, !y))
 
 # errors: 1
-# error: 12:3: cannot assign to `b.n` while `b` is borrowed
+# error: 12:3: cannot assign to `b.n` while `b` is lent

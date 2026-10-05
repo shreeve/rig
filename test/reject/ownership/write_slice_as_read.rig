@@ -20,5 +20,5 @@ sub main()
   two(!w, w)
   view()
 
-# error: 14:3: cannot assign to `w[...]` while `w` is borrowed
-# error: 20:11: cannot read-borrow `w` while a write borrow is live
+# error: 14:3: cannot assign to `w[...]` while `w` is lent
+# error: 20:11: cannot lend `w` to read while a write loan is live

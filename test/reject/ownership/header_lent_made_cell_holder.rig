@@ -18,6 +18,6 @@ sub main()
   for k in ?[Counter(hits: Cell(1))]
     print(k.hits.get())
 
-# error: 16:13: the loop would walk a borrow of the temporary `two()` after its header drops it
-# error: 18:13: the loop would walk a borrow of the temporary `[Counter(hits: Cell(1))]` after its header drops it
+# error: 16:13: the loop would walk a view of the temporary `two()` after its header drops it
+# error: 18:13: the loop would walk a view of the temporary `[Counter(hits: Cell(1))]` after its header drops it
 # errors: 2

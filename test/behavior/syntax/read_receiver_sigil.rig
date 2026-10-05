@@ -1,6 +1,6 @@
 # `?p.m()` spells out the read receiver a call takes anyway, on a place
 # and its fields and elements, and in a `while` step; `?(p.m())`
-# borrows the call's result.
+# views the call's result.
 
 struct Point
   x: Int

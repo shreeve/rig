@@ -1,5 +1,5 @@
 # An in-place quicksort over a `![]Int`: each half is a reslice of the
-# write borrow, passed on to the recursive call.
+# write view, passed on to the recursive call.
 
 sub quicksort(s: ![]Int)
   if s.len < 2

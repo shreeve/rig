@@ -1,5 +1,5 @@
-# A returned borrow of a slice element keeps the slice's source
-# borrowed, so the source cannot go first.
+# A returned view of a slice element keeps the slice's source
+# viewed, so the source cannot go first.
 
 struct Val
   n: Int

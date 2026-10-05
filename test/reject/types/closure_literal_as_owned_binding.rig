@@ -1,6 +1,6 @@
 # A closure literal bound to a `*fun` binding is rejected once: the
 # binding keeps its declared type, so lending it (`?f`) is checked as a
-# borrow of an owned closure, with no second error.
+# view of an owned closure, with no second error.
 
 fun ap(f: ?*fun(Int) -> Int) -> Int
   f(1)

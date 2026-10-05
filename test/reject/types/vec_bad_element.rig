@@ -1,4 +1,4 @@
-# `Vec[T]` holds any value, views included, but not a borrowed callable,
+# `Vec[T]` holds any value, views included, but not a callable view,
 # which only a parameter, a local, or a result holds.
 
 sub takeVec(v: Vec[?fun() -> Int])
@@ -7,4 +7,4 @@ sub takeVec(v: Vec[?fun() -> Int])
 sub main()
   print(1)
 
-# error: a borrowed callable `?fun() -> Int` is only a parameter's, a local's, or a result's type
+# error: a callable view `?fun() -> Int` is only a parameter's, a local's, or a result's type

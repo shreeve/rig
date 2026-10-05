@@ -1,5 +1,5 @@
 # An owning temporary that is only read (a `print` or `Text` argument,
-# a borrow lent to a call that keeps none, an `==` operand) is dropped
+# a view lent to a call that keeps none, an `==` operand) is dropped
 # when its statement ends, also when the statement fails or leaves
 # early; one in a loop's condition, a header, when the condition ends.
 # A `match` takes a call's result and drops what its arms leave.

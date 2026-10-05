@@ -1,0 +1,13 @@
+# A view passed to a call ends when the call returns, so two calls in
+# one statement may each lend the same value to write.
+
+fun bump(c: !Int) -> Int
+  c = c + 1
+  c
+
+sub main()
+  n = 1
+  print(bump(!n), bump(!n))
+
+# expect:
+# 2 3

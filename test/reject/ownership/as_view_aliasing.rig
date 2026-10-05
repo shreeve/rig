@@ -1,0 +1,17 @@
+# A value viewed by `as` is a view for the block: it cannot be
+# copied out as an owner.
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  r: Res? = Res(n: 1)
+  keep: Res? = none
+  if ?r as v
+    keep = <v
+  print(keep)
+
+# error: 14:12: expected `Res?`, got `?Res`

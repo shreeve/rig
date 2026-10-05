@@ -1,0 +1,20 @@
+# A view chosen by an if-expression views from every candidate, so
+# `h` stays lent while `r` is live.
+
+struct Wrap
+  payload: Int
+
+struct Holder
+  inner: *Wrap
+
+sub main()
+  h = Holder(inner: *Wrap(payload: 5))
+  r = if true
+    ?h
+  else
+    ?h
+  -h
+  x = +r.inner
+  print(x.payload)
+
+# error: cannot drop `h` while it is lent

@@ -1,0 +1,19 @@
+# `as` over a held write view of an optional lends it on, so it is
+# written `!o`, as when passing it on.
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub spin(o: !Res?)
+  while o as v
+    v.n += 1
+    break
+
+sub main()
+  r: Res? = Res(n: 1)
+  spin(!r)
+
+# error: 11:9: `as` over a write view lends it on: write `!o` to lend the value inside

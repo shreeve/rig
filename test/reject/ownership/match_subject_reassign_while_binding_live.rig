@@ -20,6 +20,6 @@ sub main
       print(l)
     _ => print("x")
 
-# error: 12:7: cannot reassign `t` while borrows are live
-# error: 15:7: cannot reassign `t` while borrows are live
-# error: 19:7: cannot reassign `t` while borrows are live
+# error: 12:7: cannot reassign `t` while it is lent
+# error: 15:7: cannot reassign `t` while it is lent
+# error: 19:7: cannot reassign `t` while it is lent

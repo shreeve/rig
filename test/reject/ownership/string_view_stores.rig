@@ -25,5 +25,5 @@ sub main
   -t
   print(a, c, s, old, u, d, n)
 
-# error: 25:4: cannot drop `t` while borrows are live
+# error: 25:4: cannot drop `t` while it is lent
 # errors: 1

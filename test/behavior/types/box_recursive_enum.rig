@@ -1,6 +1,6 @@
 # A recursive enum holds its children in boxes. `match` reaches a boxed
-# enum through a borrow of the box (`match ?e`, or a `?Box[E]`
-# parameter), and a payload box is lent on as a borrow of its value.
+# enum through a view of the box (`match ?e`, or a `?Box[E]`
+# parameter), and a payload box is lent on as a view of its value.
 
 enum Expr
   num(n: Int)

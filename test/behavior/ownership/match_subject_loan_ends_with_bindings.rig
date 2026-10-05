@@ -1,0 +1,35 @@
+# The view `match !t` takes lasts while its bindings are live: once
+# they are done, an arm may reassign `t`.
+
+enum Tree
+  leaf(v: Int)
+  node(l: Box[Tree], r: Box[Tree])
+
+sub prune(t: !Tree)
+  match !t
+    .node(l, _)
+      l = Box(Tree.leaf(v: 7))
+      t = .leaf(v: 5)
+    .leaf(v) => v += 1
+
+sub show(t: ?Tree)
+  match t
+    .leaf(v) => print(v)
+    _ => print("node")
+
+sub main
+  t: Tree = .node(l: Box(Tree.leaf(v: 1)), r: Box(Tree.leaf(v: 3)))
+  match !t
+    .node(l, _)
+      l = Box(Tree.leaf(v: 7))
+      t = .leaf(v: 4)
+    .leaf(v) => v += 1
+  show(?t)
+  u: Tree = .node(l: Box(Tree.leaf(v: 1)), r: Box(Tree.leaf(v: 3)))
+  prune(!u)
+  prune(!u)
+  show(?u)
+
+# expect:
+# 4
+# 6

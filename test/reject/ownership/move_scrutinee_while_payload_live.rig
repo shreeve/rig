@@ -18,4 +18,4 @@ sub main()
     .full(b) => both(<s, ?b)
     .empty => print(0)
 
-# error: cannot move `s` while it is read-borrowed
+# error: cannot move `s` while a read loan is live

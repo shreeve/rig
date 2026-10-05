@@ -1,0 +1,24 @@
+# A handle keeps a value alive, and a view is no value it could keep:
+# a handle to a view is rejected as a type, as a type argument, and
+# when a view is shared.
+
+struct P
+  x: Int
+
+  fun boxed(?self) -> Int
+    h = *self
+    1
+
+fun f(a: *(?Int), b: ~(!P)) -> Int
+  1
+
+sub main()
+  y = 3
+  h = *(?y)
+  c = Cell[*(?Int)](none)
+
+# error: 9:10: a handle holds a value, not a view; `?P` is a view: share an owned value instead
+# error: 12:10: a handle holds a value, not a view: `?Int` has no handle
+# error: 12:22: a handle holds a value, not a view: `!P` has no handle
+# error: 17:9: a handle holds a value, not a view; `?Int` is a view
+# error: 18:12: a handle holds a value, not a view: `?Int` has no handle

@@ -1,0 +1,17 @@
+# A view returned through an if-expression must come from a viewed
+# parameter on every branch.
+
+struct Wrap
+  payload: Int
+
+fun pick(a: ?Wrap, c: Bool) -> ?Wrap
+  b = Wrap(payload: 1)
+  if c
+    ?b
+  else
+    a
+
+sub main()
+  print(1)
+
+# error: cannot return a view of `b`, which this function was not lent

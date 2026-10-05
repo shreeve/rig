@@ -1,7 +1,7 @@
 # Only `?`, `!`, and `<` reach a method's receiver. The other prefix
 # sigils, and `?` / `!` / `<` before a place with no method call after
 
-# it, apply to the whole expression; `?(p.m())` borrows a call's result.
+# it, apply to the whole expression; `?(p.m())` views a call's result.
 
 struct Point
   x: Int

@@ -1,7 +1,7 @@
 # A take writes its owner, so a plain-data local, a field of a field,
 # and an array element are emptied in place; `(<s.a)?` takes, then
 # returns `none` when there was nothing; `if <slot as t` moves a held
-# write borrow of an optional into the binding.
+# write view of an optional into the binding.
 
 struct S
   a: Int?

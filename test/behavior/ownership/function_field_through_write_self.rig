@@ -1,6 +1,6 @@
 # A function held in a field is called with its arguments alone, so a
-# `!self` method may lend it a borrow of a local: nothing of `self` can
-# keep the borrow.
+# `!self` method may lend it a view of a local: nothing of `self` can
+# keep the view.
 
 struct Map[K]
   hash: fun(?K) -> U64

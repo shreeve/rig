@@ -1,4 +1,4 @@
-# A Vec of boxes is walked by borrowed slot, written or not: each
+# A Vec of boxes is walked by viewed slot, written or not: each
 # element of `for x in v` is a view of a box the Vec still owns, which
 # cannot be moved out.
 

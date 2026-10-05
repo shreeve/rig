@@ -1,0 +1,16 @@
+# `*|<rc| ...` cannot take ownership of a view parameter;
+# the caller still owns it.
+
+struct Wrap
+  payload: Int
+
+fun f(rc: ?*Wrap) -> *sub()
+  *|<rc| print(rc.payload)
+
+sub main()
+  rc = *Wrap(payload: 5)
+  cb = f(?rc)
+  cb()
+  print(rc.payload)
+
+# error: cannot move-capture view

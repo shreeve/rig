@@ -1,0 +1,14 @@
+# A struct holding `!Int` keeps its write view while it is used
+# later, so the Int it views cannot be read until then.
+
+struct H
+  w: !Int
+
+sub main
+  n = 1
+  h = H(w: !n)
+  print(n)
+  h.w += 1
+
+# error: 10:9: use of `n` while a write loan is live
+# errors: 1

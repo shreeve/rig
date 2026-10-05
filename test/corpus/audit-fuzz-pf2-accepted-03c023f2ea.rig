@@ -1,4 +1,4 @@
-# `+b` on a borrowed shared handle makes a new strong handle; the caller's
+# `+b` on a viewed shared handle makes a new strong handle; the caller's
 # handle stays valid.
 
 struct B

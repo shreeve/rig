@@ -1,0 +1,14 @@
+# An imported struct holding a write view cannot be copied: the copy
+# would be a second writer.
+
+use wv
+
+sub main()
+  x: wv.Wrap = wv.Wrap(v: Vec())
+  !x.v.push(1)
+  a = wv.WV(b: !x)
+  b = a
+  b.b.v = Vec()
+  print(a.b.v.len)
+
+# error: 10:7: bare use of `a` in binding would copy the write view it holds

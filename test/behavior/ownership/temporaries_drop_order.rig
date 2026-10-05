@@ -2,7 +2,7 @@
 # path: after the statement, and when it fails. A loop's condition is a
 # header, its own statement: its temporaries are dropped before each
 # pass's body runs. A value whose `drop` body reads a temporary it
-# borrows is dropped before that temporary.
+# views is dropped before that temporary.
 
 struct N
   id: Int

@@ -1,4 +1,4 @@
-# A `break` value may not borrow what the loop declared: it goes out of
+# A `break` value may not lend what the loop declared: it goes out of
 # scope as the loop ends.
 
 struct P

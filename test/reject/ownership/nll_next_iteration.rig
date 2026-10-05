@@ -1,4 +1,4 @@
-# A borrow used earlier in a loop body is used again by the next
+# A view used earlier in a loop body is used again by the next
 # iteration: it is live at the end of the body.
 
 struct Wrap
@@ -18,4 +18,4 @@ sub main()
     print(r.n)
     !x.bump()
 
-# error: cannot write-borrow `x` while a read borrow is live
+# error: cannot lend `x` to write while a read loan is live

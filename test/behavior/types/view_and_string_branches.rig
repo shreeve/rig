@@ -1,0 +1,47 @@
+# A view compared with `==`, whether a call returns it or a branch
+# picks it, owns nothing, so it is read where it stands and nothing is
+# dropped. A String chosen by a branch is one slice type, whether it is
+# a literal or a view.
+
+use std.text
+
+struct S
+  t: Text
+
+  fun get(?self) -> ?Text
+    ?self.t
+
+fun pick(a: ?Text, ok: Bool) -> (?Text)?
+  a if ok else none
+
+fun g(a: ?Text) -> Int?
+  print(pick(a, true)? == "aa", pick(a, true)?.len)
+  1
+
+fun either(a: ?Text, b: ?Text, c: Bool) -> Bool
+  (a if c else b) == "bb"
+
+fun f(s: String, c: Bool) -> Int
+  ("b" if c else s).len
+
+fun mkt -> Text
+  Text("made")
+
+sub main
+  s = S(t: Text("aa"))
+  print(s.get() == "x", s.get() == s.get(), mkt() == s.get())
+  print(g(?s.t))
+  a = Text("aa")
+  b = Text("bb")
+  c = false
+  print((?a if c else ?b) == "bb", either(?a, ?b, c))
+  print(f("abc", false), f("abc", true), ("b" if c else text.trim(" abc ")).len)
+  print(s, a, b)
+
+# expect:
+# false true false
+# true 2
+# 1
+# true true
+# 3 1 3
+# S(t: "aa") aa bb

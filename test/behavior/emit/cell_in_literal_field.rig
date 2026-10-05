@@ -1,5 +1,5 @@
 # A Cell in a field or element of a temporary, a constructor literal
-# included, is changed through a read borrow lent to a call or a `?self`
+# included, is changed through a read view lent to a call or a `?self`
 # receiver: the temporary's part is emitted into a mutable local, never
 # written where Zig keeps a constant. An `as` binding outlives its
 # header's temporaries, so it binds a part of a named value.

@@ -1,0 +1,16 @@
+# Writing through a `!T` field uses the write view the struct holds:
+# while the struct is used later, what it views cannot be read.
+
+struct H
+  w: !Vec[Int]
+
+sub main
+  v: Vec[Int] = Vec()
+  h = H(w: !v)
+  print(v.len)
+  u: Vec[Int] = Vec()
+  h.w = <u
+  print(v.len)
+
+# error: 10:9: use of `v` while a write loan is live
+# errors: 1

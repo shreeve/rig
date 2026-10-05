@@ -1,5 +1,5 @@
 # `!self` is sugar for `self: !Self`; the call site must write the
-# borrow explicitly as `!u.modify(...)`. The body may read fields.
+# view explicitly as `!u.modify(...)`. The body may read fields.
 
 struct User
   name: String

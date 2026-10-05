@@ -1,0 +1,17 @@
+# `|!x|` follows the rules of `!x`: a write view needs a binding that
+# may change.
+
+sub go(n: Int)
+  f = |!n|
+    n += 1
+  f()
+  const k = 3
+  g = |!k|
+    k += 1
+  g()
+
+sub main
+  go(1)
+
+# error: 5:9: cannot lend parameter `n` to write
+# error: 9:9: cannot lend fixed binding `k` to write

@@ -344,7 +344,7 @@ area of the language.
 $ rig normalize packet.rig
 (module
   (struct Packet _ (: size Int))
-  (fun size_of _ ((: p (borrow_read Packet))) Int (block (member p size)))
+  (fun size_of _ ((: p (read_view Packet))) Int (block (member p size)))
   (sub send _ ((: p Packet)) _ (block (call print (member p size))))
   (sub main _ _ _ (block
     (set _ p _ (call Packet (kwarg size 512)))
@@ -675,7 +675,7 @@ and emit all ask it, and none decides it again from syntax. Its
 
 | Kind | What it is |
 |---|---|
-| `place` | a name of a binding or a constant (a function, a module's constant, `Enum.variant`), or a field or element path from a place, a lend, or a borrow (`v`, `p.f`, `xs[i]`, `(?v).f`, `mk_ref().f` where `mk_ref()` is a `?T`) |
+| `place` | a name of a binding or a constant (a function, a module's constant, `Enum.variant`), or a field or element path from a place, a lend, or a view (`v`, `p.f`, `xs[i]`, `(?v).f`, `mk_ref().f` where `mk_ref()` is a `?T`) |
 | `part_of_made` | a field or element path from a value that is no place (`mk().v[0]`, `[a, b][1]`, `(a if c else b).f`): a part of a temporary |
 | `made` | a call, a constructor, `+x`, `*x`, `~x`, `<x`, an array, a closure, an operator's result, a literal, `none`, an enum literal, a `match`, a block, a loop's value, and a branching value every leaf of which is made there or jumps |
 | `lend` | `?x`, `!x`, and their slices |
@@ -725,9 +725,9 @@ handle is on the way, the step that makes it read-only and why
 and the element of a `Cell[Vec[E]]` it goes through. Every consumer
 then asks `requireAccess(place, access, at)`, which owns the
 diagnostics, for one `Access`: `assign` (`p = v`, `p op= v`),
-`write_borrow` (`!p`, `!xs[a..b]`, an element method's receiver,
+`lend_write` (`!p`, `!xs[a..b]`, an element method's receiver,
 `|!x|`), `write_iterate` (`for x in !p`), `take` (`<p.f`),
-`lend_write` (`!p.f` of a held `!T`), `pass_write` (a place holding a
+`lend_on` (`!p.f` of a held `!T`), `pass_write` (a place holding a
 `!T` where a value holding one goes), `write_through` (`p.f = v`
 writing the value a held `!T` views), or `set_cell` (a Cell's `set`,
 `replace`, and its Vec's `c[i] = e`, `push`, `pop`, `clear`). The path
@@ -886,7 +886,7 @@ instead of re-deriving it by name:
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary (`rejectHeaderCopy`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
-| `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or borrow sigil that is one. Kept beside the table, not in `check --facts=sema` |
+| `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or lend sigil that is one. Kept beside the table, not in `check --facts=sema` |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
@@ -1273,10 +1273,10 @@ in another keeps the first lent for the rest of the body: after
 **Strings are views.** A String points into a literal, the process's
 arguments and environment, or a Text's buffer, so the contents pass
 treats it as a view the value may or may not hold: `String` sets a
-`view` bit in a type's `Borrows` (reaching through optionals, fields,
+`string` bit in a type's `Views` (reaching through optionals, fields,
 handles, and a Vec's or Box's elements, but not into a Cell or Signal),
 and the checker tracks the loans of any value whose type has it, while
-sema's type-level `holdsBorrow` ignores it (a struct holding a String
+sema's type-level `holdsMarkedView` ignores it (a struct holding a String
 is not a view type, and `Vec[String]` is plain data). `?t[a..b]` of a
 Text lends the Text as `?v[a..b]` lends a Vec; a literal carries no
 loan, and a String parameter, like a `?T` one, holds an external
@@ -1606,7 +1606,7 @@ lower is an internal error: sema must have rejected it.
   would be dropped with whatever holds it, and a `Cell` can change
   while it is lent. In a generic type, where that depends on the type
   arguments (`?T`, `?Self`), the view is a
-  `rig.ReadBorrow(T)`, which applies the same rule to each instance.
+  `rig.ReadView(T)`, which applies the same rule to each instance.
   The rule is `sema.lendByValue`, which typecheck also uses to
   read through a `!T` lent where a copied `?T` is expected. A local
   holds a view as every other `?T` of its type is held, whatever it is
@@ -1678,7 +1678,7 @@ lower is an internal error: sema must have rejected it.
   It is sound because the body depends on `T` only through forms that
   already work for every instance of a generic type: `rig.drop` and
   `rig.dropElement` release a `T` only when the instance needs it (a
-  compile-time no-op for plain data), a `?T` is a `rig.ReadBorrow(T)`,
+  compile-time no-op for plain data), a `?T` is a `rig.ReadView(T)`,
   `/` on a `T` is `rig.div`, and the operators sema's requirements allow.
 - **Calls.** Whether a call passes a receiver as its first parameter
   is read from the parameters it fills (`callParamsOf`,
@@ -1706,7 +1706,7 @@ lower is an internal error: sema must have rejected it.
   call whose arguments are evaluated first is held as its address in
   the slot its statement keeps it in (`keptInSlot`), never as a copy in
   the call's block. A `match` on a generic read view a name holds
-  switches on `rig.borrowedPtr(T, &v).*`. With `RIG_SANITIZE`, each
+  switches on `rig.viewedPtr(T, &v).*`. With `RIG_SANITIZE`, each
   `var` emit adds (a call's argument, receiver, or closure environment,
   a statement's or header's temporary slot, a held or matched subject,
   an `as` binding's copy) is filled with `0xAA` when its scope ends
@@ -1749,7 +1749,7 @@ lower is an internal error: sema must have rejected it.
   struct per literal and erases it behind `rig.Closure(params, R)`, so
   every literal of one function type shares one runtime type; a call is
   `cb.value.invoke(.{ args })`. A callable view `?fun(...)`, the
-  type `borrow_read(callable(F))`, which only `?fun(...)` written as
+  type `read_view(callable(F))`, which only `?fun(...)` written as
   such and `?f` of a closure produce (so a `?T` substituted with a
   function type stays a read view of a function value), is a
   `rig.FnRef(params, R)` passed by value, built by `.of(Env, &env)` for
@@ -1816,7 +1816,7 @@ reviewed.
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |
-| `ReadBorrow(T)`, `lend`, `borrowed`, `borrowedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readBorrowIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `borrowed` reads the value, and `borrowedPtr` gives its address from the view's own, which a `match` switches on |
+| `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place; `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a Text's bytes and a Vec's elements copied (`Vec.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `Text` | `Text`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `Text(...)` and `print` agree exactly; `bytes` is the String view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a Text's or a String's |

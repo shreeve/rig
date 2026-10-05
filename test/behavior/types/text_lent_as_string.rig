@@ -1,5 +1,5 @@
 # A Text is lent where a String is expected: `?t` means `?t[..]`, a
-# borrow of one lends it as is, and a bare Text argument is lent to read
+# view of one lends it as is, and a bare Text argument is lent to read
 # as `?t` would be.
 
 fun n(s: String) -> Int

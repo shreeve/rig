@@ -1,4 +1,4 @@
-# A view, a struct holding a borrow, has no `==`.
+# A view, a struct holding a view, has no `==`.
 
 struct Window
   items: []Int
@@ -10,4 +10,4 @@ sub main()
   b = Window(items: ?xs[0..3], at: 0)
   print(a == b)
 
-# error: 11:9: `==` is not defined for `Window`: field `items` holds a borrow
+# error: 11:9: `==` is not defined for `Window`: field `items` holds a `?T`, `!T`, or slice

@@ -1,4 +1,4 @@
-# `match !e` binds each payload field as a write borrow of the field:
+# `match !e` binds each payload field as a write view of the field:
 # assigning it writes the matched value in place (a resource replaced is
 # dropped), through a local, a `!T` parameter, a field, or a box.
 

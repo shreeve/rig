@@ -1,6 +1,6 @@
 # A payload variant literal takes its enum type from the other side of
 # `==` or `!=`, on either side, as a bare `.variant` does: through a
-# borrow and beside an optional too.
+# view and beside an optional too.
 
 enum Shape
   circle(r: Float)

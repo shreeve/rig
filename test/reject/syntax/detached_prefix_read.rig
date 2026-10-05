@@ -1,4 +1,4 @@
-# A read borrow is written against its operand: `?n`.
+# A read view is written against its operand: `?n`.
 
 sub show(n: ?Int)
   print(n)

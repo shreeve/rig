@@ -1,4 +1,4 @@
-# `for x in !xs` borrows each element of a Vec or array for writing:
+# `for x in !xs` views each element of a Vec or array for writing:
 # assigning `x` (or its fields) writes the element in place, and a
 # resource element that is replaced is dropped.
 

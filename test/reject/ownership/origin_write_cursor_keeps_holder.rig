@@ -21,4 +21,4 @@ sub main
   x.n = 5
   print(y.n)
 
-# error: 20:8: use of `c` while a write borrow is live
+# error: 20:8: use of `c` while a write loan is live

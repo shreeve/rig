@@ -1,5 +1,5 @@
 # `Cell[T]` needs a Copy `T`, plain data, or a type with drop glue; a
-# borrow is none of these: every handle to the cell would reach it.
+# view is none of these: every handle to the cell would reach it.
 
 sub main()
   n = 1

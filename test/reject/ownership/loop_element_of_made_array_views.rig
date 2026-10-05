@@ -1,0 +1,16 @@
+# The elements of an array a `for` source makes carry the views the
+# array holds: a view stored from one keeps its root viewed.
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  e: Vec[Int] = Vec()
+  o = ?e[..]
+  for x in [?v[..], ?v[..1]]
+    o = x
+  -v
+  print(o)
+
+# error: 12:4: cannot drop `v` while it is lent
+# errors: 1

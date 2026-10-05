@@ -1,6 +1,6 @@
 # The temporaries of an `if` header live through the `if`, and no
 # longer: a view of one the body leaves in a binding, a Vec, or through
-# a borrow outlives them.
+# a view outlives them.
 
 use std.text
 
@@ -34,9 +34,9 @@ sub main
     o = kv.before
   print(o, v, p)
 
-# error: 20:25: a borrow of the temporary `Text("pre-fix")` outlives its statement
-# error: 23:16: a borrow of the temporary `Text("q,r")` outlives its statement
-# error: 25:16: a borrow of the temporary `Text("s,t")` outlives its statement
-# error: 29:11: a borrow of the temporary `mk()` outlives its statement
-# error: 33:21: a borrow of the temporary `Text("u,w")` outlives its statement
+# error: 20:25: a view of the temporary `Text("pre-fix")` outlives its statement
+# error: 23:16: a view of the temporary `Text("q,r")` outlives its statement
+# error: 25:16: a view of the temporary `Text("s,t")` outlives its statement
+# error: 29:11: a view of the temporary `mk()` outlives its statement
+# error: 33:21: a view of the temporary `Text("u,w")` outlives its statement
 # errors: 5

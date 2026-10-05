@@ -1,5 +1,5 @@
 # When a later part of `if a as x and ...` or `while a as x and ...`
-# fails, `x` goes out of scope; a borrow of it that the part stored in
+# fails, `x` goes out of scope; a view of it that the part stored in
 # an outer value cannot survive, even when the body never falls through.
 
 struct Big

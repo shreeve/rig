@@ -1,4 +1,4 @@
-# Per value: a Cell whose type may hold a borrow, made from `none`.
+# Per value: a Cell whose type may hold a view, made from `none`.
 struct R
   n: Int
 

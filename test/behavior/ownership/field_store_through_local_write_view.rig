@@ -1,0 +1,32 @@
+# Assigning a field through a local write view stores the value in
+# the place it views, as assigning the whole value does: a view of
+# a value that outlives that place may go there.
+
+struct In
+  n: Int
+
+struct View
+  b: ?In
+
+enum Slot
+  full(v: View)
+  empty
+
+sub main()
+  a = In(n: 1)
+  y = In(n: 2)
+  v = View(b: ?a)
+  w = !v
+  w.b = ?y
+  print(v.b.n)
+  s: Slot = .full(v: View(b: ?a))
+  match !s
+    .full(sv) => sv.b = ?y
+    .empty => print("empty")
+  match s
+    .full(sv) => print(sv.b.n)
+    .empty => print("empty")
+
+# expect:
+# 2
+# 2

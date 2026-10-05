@@ -1,4 +1,4 @@
-# loop over ?g of arrays: row is a borrow? slice escape
+# loop over ?g of arrays: row is a view? slice escape
 sub main()
   g = [[1, 2], [3, 4]]
   s = ?g[0][0..1]

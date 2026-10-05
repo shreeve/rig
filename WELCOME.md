@@ -500,7 +500,7 @@ sub main
 ```
 
 ```error
-`!` is a write borrow; use `not` for negation
+`!` lends to write; use `not` for negation
 ```
 
 **`&&` and `||`.** They are `and` and `or`; for an optional's fallback,
@@ -532,7 +532,7 @@ sub main
 ```
 
 ```error
-method `bump` requires a write-borrowed receiver
+method `bump` needs its receiver lent to write
 ```
 
 **Moves without `<`.** A bare name moves an owning value only out of a
@@ -574,9 +574,10 @@ fun twice(s: String) -> Int!
 ```
 
 **`+` on strings.** A `String` is a view of text it does not own, so
-there is nothing for `+` to write into. Text is built in a `Text`,
-which owns its bytes: `Text(a, b)` writes each value as `print` would,
-and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
+there is nothing for `+` to write into. Rig's `String` is Go's or
+Odin's `string`; Rust's `String` is Rig's `Text`. Text is built in a
+`Text`, which owns its bytes: `Text(a, b)` writes each value as
+`print` would, and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
 
 ```rig reject
 sub main
