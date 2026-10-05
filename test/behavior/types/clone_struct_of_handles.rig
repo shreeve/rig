@@ -1,0 +1,15 @@
+# `+x` of a struct clones each part: a handle inside is counted again,
+# so both structs share the one Cell.
+
+struct Holder
+  inner: *Cell[Int]
+
+sub main()
+  c: *Cell[Int] = *Cell(1)
+  h = Holder(inner: <c)
+  k = +h
+  k.inner.set(5)
+  print(h.inner.get())
+
+# expect:
+# 5

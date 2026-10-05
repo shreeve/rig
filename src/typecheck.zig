@@ -3867,11 +3867,11 @@ const Checker = struct {
         // A clone reads the value a borrow reaches.
         const value = try self.readThrough(operand, inner, sema.unwrapBorrows(self.ctx, inner));
         switch (sema.cloneable(self.ctx, inner)) {
-            .copy, .bump, .text => {},
+            .copy, .bump, .text, .deep => {},
             .depends => try self.requireOf(value, .no_move, self.startOf(operand), "clones a value"),
             .no => {
                 if (sema.typeHasDropGlue(self.ctx, value)) {
-                    try self.errAt(operand, "`+x` cannot clone a `{s}`; only `*T` and `~T` handles (or optionals of them) and plain values can be cloned", .{try self.tyName(value)});
+                    try self.errAt(operand, "`+x` cannot clone a `{s}`: a value with a `drop` body, or holding a Cell, a Signal, or a write view, has no clone; move it with `<x`, or lend it", .{try self.tyName(value)});
                 } else try self.errAt(operand, "`+x` cannot clone a `{s}`: it is unique, and a copy would duplicate it; move it with `<x`", .{try self.tyName(value)});
                 return self.t().invalid_id;
             },

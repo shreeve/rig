@@ -882,7 +882,7 @@ emitter ask these, never a predicate built for another question:
 | `isUnique` | declared `unique`, or a `Cell`, or holds one of those inline: never copied |
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
 | `copyable` | does not move and holds no write view: copied implicitly where it is used |
-| `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), Text copy, copy per instance, or nothing (a value that moves) |
+| `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), Text copy, copy per instance, a deep copy part by part (`deep`: a Vec, a box, an array, an optional, or a struct or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
 | `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
 | `isPlainData` | copies and holds no view: plain data |
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
@@ -1523,7 +1523,8 @@ reviewed.
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |
 | `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readBorrowIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `borrowed` reads the value |
-| `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place |
+| `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place; `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
+| `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a Text's bytes and a Vec's elements copied (`Vec.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `Text` | `Text`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `Text(...)` and `print` agree exactly; `bytes` is the String view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a Text's or a String's |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a callable view: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |

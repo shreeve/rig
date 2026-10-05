@@ -3231,8 +3231,14 @@ sub main
 ### Clone
 
 `+x` makes a new owner. For a shared or weak handle it bumps the
-count; for a Copy value it copies. A struct with drop glue has no
-clone. `+p.a` clones the handle in a field. A value holding a write
+count; for a Copy value it copies; for a Text, a Vec, a box, an
+optional, an array, or a struct or enum declared in the module that
+holds them, it clones each part the same way: a Text's bytes and a
+Vec's elements are copied, a box's value is boxed again, and a handle
+inside is counted again (a deep copy). A type with a `drop` body, a
+unique type (one holding a `Cell`, or declared `unique`), a `Signal`,
+and a type imported from another module have no clone. `+p.a` clones
+the value in a field, and `+v[i]` an element. A value holding a write
 borrow cannot be cloned or weakly referenced: the borrow is unique.
 `+e` only reads `e`: a value made there (`+make()`) is a temporary its
 statement drops, and `+(a if c else b)` reads `a` or `b` where it is.

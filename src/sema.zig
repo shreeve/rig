@@ -3594,6 +3594,10 @@ pub const Clone = enum {
     /// Copies the value, where each instance of the type parameters it
     /// holds is copied.
     depends,
+    /// Makes a new owner part by part (`deepCloneable`): a Text's bytes
+    /// and a Vec's elements copied, a box's value boxed again, a handle
+    /// counted again, plain data and read views copied.
+    deep,
     /// Cannot clone it.
     no,
 };
@@ -3616,9 +3620,68 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
     }
     return switch (moves(ctx, value)) {
         .no => .copy,
-        .yes => .no,
+        .yes => if (deepCloneable(ctx, value, null, &.{})) .deep else .no,
         .depends => .depends,
     };
+}
+
+/// The type arguments a generic type's field types are read with, and
+/// the frame those arguments are read in.
+const CloneFrame = struct { params: []const SymbolId, args: []const TypeId, parent: ?*const CloneFrame };
+
+/// Whether `+x` can make a new owner of a `ty` part by part (Core
+/// sentence 2): a Text, a Vec, a box, an optional, an array, or a
+/// struct or enum declared in this module, of parts that clone; a
+/// handle, counted again; plain data and read views, copied. A type with
+/// a `drop` body has no clone, and neither has a unique type, a Cell, a
+/// Signal, a write view, or a type parameter. `seen` holds the declared
+/// types being checked: one reached again (a box of a recursive type)
+/// clones if the rest of it does.
+fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, seen: []const SymbolId) bool {
+    if (seen.len > 32) return false;
+    switch (ctx.types.get(ty)) {
+        .type_var => |sym| {
+            const f = frame orelse return false;
+            const i = std.mem.findScalar(SymbolId, f.params, sym) orelse return false;
+            return deepCloneable(ctx, f.args[i], f.parent, seen);
+        },
+        else => {},
+    }
+    const info = ctx.holds(ty);
+    if (info.unique or info.cell or info.borrows.write or info.poison) return false;
+    if (!info.glue and !info.holds_type_var) return true;
+    return switch (ctx.types.get(ty)) {
+        .text, .shared, .weak => true,
+        .optional => |inner| deepCloneable(ctx, inner, frame, seen),
+        .array => |a| deepCloneable(ctx, a.elem, frame, seen),
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.box_sym_id) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            const sym = ctx.symbols.items[pn.sym];
+            if (sym.kind != .generic_type or isProxy(sym)) break :blk false;
+            const inner: CloneFrame = .{ .params = sym.type_params orelse &.{}, .args = pn.args, .parent = frame };
+            break :blk fieldsCloneable(ctx, pn.sym, &inner, seen);
+        },
+        .nominal => |sym| fieldsCloneable(ctx, sym, null, seen),
+        else => false,
+    };
+}
+
+/// Whether every part of declared type `sym` clones (`deepCloneable`),
+/// and it has no `drop` body.
+fn fieldsCloneable(ctx: *const SemContext, sym: SymbolId, frame: ?*const CloneFrame, seen: []const SymbolId) bool {
+    if (std.mem.findScalar(SymbolId, seen, sym) != null) return true;
+    const s = ctx.symbols.items[sym];
+    if (isProxy(s)) return false;
+    var buf: [33]SymbolId = undefined;
+    @memcpy(buf[0..seen.len], seen);
+    buf[seen.len] = sym;
+    const inner = buf[0 .. seen.len + 1];
+    for (s.fields orelse &.{}) |*f| {
+        if (f.is_drop_method) return false;
+        for (dataFields(f)) |d| if (!deepCloneable(ctx, d.ty, frame, inner)) return false;
+    }
+    return true;
 }
 
 /// Whether a value of `ty` read through a view reads as the value
@@ -5646,7 +5709,7 @@ test "type facts: moves, copyable, cloneable" {
         .{ .ty = write_p, .moves = .no, .copyable = .no, .clone = .copy },
         .{ .ty = v, .moves = .no, .copyable = .yes, .clone = .copy },
         .{ .ty = w, .moves = .no, .copyable = .no, .clone = .copy },
-        .{ .ty = vec_int, .moves = .yes, .copyable = .no, .clone = .no },
+        .{ .ty = vec_int, .moves = .yes, .copyable = .no, .clone = .deep },
         .{ .ty = ty.text_id, .moves = .yes, .copyable = .no, .clone = .text },
         .{ .ty = shared_p, .moves = .yes, .copyable = .no, .clone = .bump },
         .{ .ty = weak_p, .moves = .yes, .copyable = .no, .clone = .bump },
@@ -5666,7 +5729,7 @@ test "type facts: moves, copyable, cloneable" {
     }
     // A clone reads what a view reaches.
     try std.testing.expectEqual(Clone.bump, cloneable(ctx, try ctx.intern(.{ .borrow_read = shared_p })));
-    try std.testing.expectEqual(Clone.no, cloneable(ctx, try ctx.intern(.{ .borrow_read = vec_int })));
+    try std.testing.expectEqual(Clone.deep, cloneable(ctx, try ctx.intern(.{ .borrow_read = vec_int })));
     // A view of a scalar or a plain enum reads as the value.
     try std.testing.expect(readsAsValue(ctx, ty.int_id));
     try std.testing.expect(!readsAsValue(ctx, p));

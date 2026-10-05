@@ -160,9 +160,7 @@ sub main
 
 **2. `<x` moves, `+x` makes a new owner, `-x` drops now.** `+x` is a
 copy, a count bump, or a deep copy, as the type says; a `unique` type,
-or one with a `drop` body, has none. *(built* for plain data, handles,
-closures, `Text`, and `unique` types; *planned* for `Vec`, `Box`, and
-structs holding an owner.*)*
+or one with a `drop` body, has none. *(built)*
 
 ```rig
 struct File
@@ -183,7 +181,7 @@ closing a.txt
 end
 ```
 
-```rig pending
+```rig
 sub main
   v: Vec[Int] = Vec()
   !v.push(1)

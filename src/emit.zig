@@ -3629,6 +3629,12 @@ pub const Emitter = struct {
                         try self.emitExpr(operand);
                         try self.w.writeAll(".clone()");
                     },
+                    // Each part cloned as `+` clones it.
+                    .deep => {
+                        try self.w.writeAll("rig.cloneValue(&(");
+                        try self.emitExpr(operand);
+                        try self.w.writeAll("))");
+                    },
                     // A generic `T` is cloned only where each instance
                     // copies, so it is copied.
                     .copy, .depends => try self.emitExpr(operand),
