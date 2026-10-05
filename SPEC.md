@@ -2463,6 +2463,34 @@ sub main
 cannot move `b` out of `s`: `match s` reads `s`; write `match <s` to take its fields
 ```
 
+```rig reject
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun inner(e: ?E) -> ?Res
+  match e
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun name(e: ?E) -> String
+  match e
+    .a(r) => ?r.t
+    .b(r) => ?r.t
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("hi")))
+  print(name(?e), inner(?e).n)
+```
+
+```error
+a view of `r` does not outlive the `match` that reads `e`: use it in the arm, copy what it holds (`+r`), or take the subject with `match <e`
+```
+
 ### pass
 
 `pass` is a statement that does nothing. It stands where a statement

@@ -1,0 +1,111 @@
+# A read `match` binding (a payload, or a catch-all binding) is usable
+# within its arm only: a view of one is not returned, stored in a binding
+# or field, or yielded as the match's value, whether the subject is a
+# place, a lent call, a box, or a generic (plain data binds a copy).
+
+struct Res
+  n: Int
+  t: Text
+  xs: [2]Int
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+struct Hold
+  r: ?Res
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun get(e: ?E) -> ?E
+  e
+
+fun ret(e: ?E) -> ?Res
+  match e
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun boxed(b: ?Box[E]) -> ?Res
+  match b
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun guarded(e: ?E) -> ?Res
+  match get(e)
+    .a(r) if r.n > 0 => ?r
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun whole(e: ?E) -> ?E
+  match get(e)
+    .b(r) if r.n > 0 => e
+    x => x
+
+fun peek[T](o: ?Opt[T], d: ?T) -> ?T
+  match o
+    .some(v) => ?v
+    .nothing => d
+
+fun gwhole[T](o: ?Opt[T]) -> ?Opt[T]
+  match o
+    .nothing => o
+    x => ?x
+
+fun elems(e: ?E, d: ?[2]Int) -> []Int
+  match e
+    .a(r) => ?r.xs
+    .b(_) => ?d[0..1]
+
+sub stores(k: ?Res)
+  e = E.a(r: Res(n: 1, t: Text("x"), xs: [1, 2]))
+  saved = k
+  match e
+    .a(r) => saved = ?r
+    .b(_) => pass
+  hold = Hold(r: k)
+  match e
+    .a(r) => hold.r = ?r
+    .b(_) => pass
+  v = match e
+    .a(r) => ?r
+    .b(r) => ?r
+  print(saved.n, hold.r.n, v.n)
+
+struct P
+  x: Int
+  y: Int
+
+enum F
+  p(q: P)
+  h(n: *P)
+
+fun plain(f: ?F, d: ?P) -> ?P
+  match f
+    .p(q) => ?q
+    .h(_) => d
+
+fun handle(f: ?F, d: ?*P) -> ?*P
+  match f
+    .h(n) => ?n
+    .p(_) => d
+
+# errors: 17
+# error: 27:8: a view of `r` does not outlive the `match` that reads `e`: use it in the arm, copy what it holds (`+r`), or take the subject with `match <e`
+# error: 28:8: a view of `r` does not outlive the `match` that reads `e`
+# error: 32:8: a view of `r` does not outlive the `match` that reads `b`
+# error: 33:8: a view of `r` does not outlive the `match` that reads `b`
+# error: 37:8: a view of `r` does not outlive the `match` that reads `get(e)`
+# error: 38:8: a view of `r` does not outlive the `match` that reads `get(e)`
+# error: 39:8: a view of `r` does not outlive the `match` that reads `get(e)`
+# error: 44:5: a view of `x` does not outlive the `match` that reads `get(e)`
+# error: 48:11: a view of `v` does not outlive the `match` that reads `o`
+# error: 54:5: a view of `x` does not outlive the `match` that reads `o`
+# error: 58:8: a view of `r` does not outlive the `match` that reads `e`
+# error: 65:8: a view of `r` does not outlive the `match` that reads `e`
+# error: 69:8: a view of `r` does not outlive the `match` that reads `e`
+# error: 72:8: a view of `r` does not outlive the `match` that reads `e`
+# error: 73:8: a view of `r` does not outlive the `match` that reads `e`
+# error: 86:15: `q` does not live long enough
+# error: 91:8: a view of `n` does not outlive the `match` that reads `f`
