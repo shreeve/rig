@@ -3901,7 +3901,7 @@ pub const Emitter = struct {
         const in_place = as_place or self.elemInPlace(sexp);
         if (held_ty != null and self.isVecTy(held_ty.?)) {
             try self.emitIndexBase(base, base_ty, .expr);
-            try self.w.writeAll(if (!in_place) ".at(" else if (self.read_place or !as_place) ".constSlot(" else ".slot(");
+            try self.w.writeAll(if (!in_place) ".at(" else if (self.read_place or !as_place or self.throughReadView(base)) ".constSlot(" else ".slot(");
             // The index itself is a value, even inside an assignment target.
             self.place_chain = false;
             try self.emitBare(index);
@@ -3969,6 +3969,23 @@ pub const Emitter = struct {
             try self.w.writeAll(")");
         }
         try self.w.writeAll("]");
+    }
+
+    /// Whether place `e` is reached through a read view or a shared
+    /// handle, whose value is read-only: an element on the way is
+    /// reached through `constSlot` (a Cell in it is changed through a
+    /// `@constCast` of its address).
+    fn throughReadView(self: *Emitter, e: Sexp) bool {
+        var p = e;
+        while (true) {
+            if (p.isKind(.read)) return true;
+            if (self.typeOf(p)) |t| switch (self.sema.types.get(t)) {
+                .borrow_read, .shared => return true,
+                else => {},
+            };
+            if (!p.isKind(.member) and !p.isKind(.index)) return false;
+            p = ir.get(p, .object);
+        }
     }
 
     /// Whether element `e` is read where it is rather than copied: its
