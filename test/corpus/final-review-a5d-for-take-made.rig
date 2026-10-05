@@ -1,0 +1,9 @@
+# A5d: for x in <mk() over a made Vec of owners
+fun mk -> Vec[Text]
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  v
+
+sub main
+  for x in <mk()
+    print(x)

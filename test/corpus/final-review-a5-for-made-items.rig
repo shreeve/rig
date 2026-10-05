@@ -1,0 +1,12 @@
+# A5: CORE §3: a value made in a header that `for` binds is taken: for over a made struct's Vec of owners
+struct H
+  items: Vec[Text]
+
+fun mk -> H
+  h = H(items: Vec())
+  !h.items.push(Text("a"))
+  h
+
+sub main
+  for x in mk().items
+    print(x)

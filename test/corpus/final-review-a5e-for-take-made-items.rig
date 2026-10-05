@@ -1,0 +1,12 @@
+# A5e: for x in <mk().items
+struct H
+  items: Vec[Text]
+
+fun mk -> H
+  h = H(items: Vec())
+  !h.items.push(Text("a"))
+  h
+
+sub main
+  for x in <mk().items
+    print(x)

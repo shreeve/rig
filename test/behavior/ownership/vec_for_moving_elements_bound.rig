@@ -1,0 +1,40 @@
+# A Vec whose elements move, bound to a name first as the loop
+# diagnostic says (`test/reject/ownership/vec_for_moving_elements_source.rig`),
+# is walked where the name holds it, or taken with `<`.
+
+struct H
+  items: Vec[Text]
+
+fun mk -> Vec[Text]
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  v
+
+fun mkh -> H
+  H(items: mk())
+
+fun items(v: ?Vec[Text], k: ?Vec[Text]) -> ?Vec[Text]
+  v
+
+sub main
+  v = mk()
+  k = mk()
+  m = mk()
+  for x in <m
+    print(x)
+  r = items(?v, ?k)
+  for x in r
+    print(x)
+  h = mkh()
+  for x in h.items
+    print(x)
+  c = v.len > 0
+  w = <v if c else <k
+  for x in w
+    print(x)
+
+# expect:
+# a
+# a
+# a
+# a

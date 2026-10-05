@@ -1750,7 +1750,9 @@ const Checker = struct {
                 .array => |a| sema.copyable(self.ctx, a.elem) == .no,
                 else => false,
             };
-            if (mode != .move and unbound and (if (mode == .iter) moving else vec) and !self.isPoison(source_ty)) {
+            // A Vec whose elements move is reported by `elementTypeForLoop`.
+            const vec_moves = if (vecElementType(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
+            if (mode != .move and unbound and !vec_moves and (if (mode == .iter) moving else vec) and !self.isPoison(source_ty)) {
                 const what = if (vec) "a Vec held in a place or made by a call" else "a place or takes a value made here";
                 try self.errAt(peeled_source, "a `for` walks {s}: bind this `{s}` to a name first", .{ what, try self.tyName(source_ty) });
             }
@@ -1760,13 +1762,13 @@ const Checker = struct {
             // walks a slice of it, and may view a copy (`rejectHeaderCopy`).
             // The source is a header: a temporary it reads into ends with
             // it, before the loop walks it.
-            const walks_temp = if (eff != .move) self.tempBase(source) else null;
+            const walks_temp = if (eff != .move and !self.isPoison(elem_ty)) self.tempBase(source) else null;
             if (walks_temp) |temp| {
                 try self.errAt(temp, "the loop would walk the temporary `{s}` after its header drops it; bind it to a name first", .{self.sourceText(temp)});
             } else if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, elem_ty);
             // `for x in ?e` and `for x in !e` lend `e`: one made here would
             // end with the header. A call's result is taken: `for x in e`.
-            if ((mode == .read or mode == .write) and !(unbound and vec) and !source_hands.hasStorage() and !self.isPoison(source_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
+            if ((mode == .read or mode == .write) and !(unbound and vec) and !source_hands.hasStorage() and !self.isPoison(source_ty) and !self.isPoison(elem_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
                 try self.errAt(source, "the loop would walk a view of the temporary `{s}` after its header drops it; take it with `for {s} in {s}`, or bind it to a name first", .{ self.sourceText(source), self.text(binding), self.sourceText(source) });
             }
         }
@@ -1954,12 +1956,17 @@ const Checker = struct {
                 // view; every other element is plain data.
                 const is_resource = sema.moves(self.ctx, elem) == .yes;
                 if (is_resource) {
-                    // (A Vec place walked bare is reported by `checkFor`.)
-                    if (mode != .read and mode != .write and mode != .move and !(self.hands(inner_source).hasStorage() and vecElementType(self.ctx, source_ty) != null)) {
-                        try self.err(pos, "a loop over a Vec of `{s}` made here takes it: write `for x in <{s}`, or bind it to a name first", .{ try self.tyName(elem), self.sourceText(inner_source) });
-                    }
+                    // The one diagnostic for such a loop over any other
+                    // source; `checkFor` reports nothing more of it.
                     if (!self.placeOf(inner_source).named()) {
-                        try self.err(pos, "resource Vec[T] iteration requires a Vec binding, or a field or element of one, as the source; got an expression. Bind the result to a `Vec[T]` local first.", .{});
+                        // What to bind: the value made here, of which the
+                        // source may be a part; a branching source is
+                        // bound with each name taken (`<a if c else <b`).
+                        const made = self.madeBase(inner_source);
+                        const bind = if (made != .nil) made else inner_source;
+                        const hint = if (self.hands(bind).kind == .branches) "bind the Vec to a name first" else try self.ctx.arena.allocator().print("bind `{s}` to a name first", .{self.sourceText(bind)});
+                        try self.err(pos, "a loop over a Vec of `{s}` walks a Vec that a name holds, or a field or element of one; {s}", .{ try self.tyName(elem), hint });
+                        return self.t().invalid_id;
                     }
                 }
                 if (mode == .write) return self.writeElement(source, inner_source, elem);

@@ -2385,13 +2385,15 @@ drop 2
 after
 ```
 
-A Vec source is a place, which the loop walks in place, or a value made
-there (a call, or a branching value whose every branch is made there),
-whose new Vec the loop consumes as `<v` does. A branching value that
-may be a name's (`o?`, `a if c else b`) could be a place on one path
-and a new Vec on another, so it is bound to a name first, and so is a
-Vec whose elements own a resource that is a part of a value made there
-(`mk().items` of a `Vec[Text]`):
+A Vec source is a place, which the loop walks in place. A Vec of plain
+data may also be a value made there (a call, or a branching value whose
+every branch is made there), whose new Vec the loop consumes as `<v`
+does. A branching value that may be a name's (`o?`, `a if c else b`)
+could be a place on one path and a new Vec on another, so it is bound
+to a name first. A Vec whose elements move (a `Vec[Text]`, a Vec of
+owners) is walked only where a name holds it, or a field or element of
+one, so a call's result, or a part of a value made there (`mk().items`),
+is bound to a name first:
 
 ```rig reject
 struct H
@@ -2411,7 +2413,7 @@ sub main
 
 ```error
 a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int]` to a name first
-requires a Vec binding, or a field or element of one, as the source
+a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
 ```
 
 ### Labels, break, and continue
