@@ -1,0 +1,32 @@
+# A `!self` method called on a value that branches and may be a value a
+# name holds would change a copy of that value: each branch is lent
+# instead (`(!a if c else !b).inc()`). A method that changes its receiver
+# through a Cell, called on a branching value or a part of one, changes
+# the leaf where it is
+# (`test/behavior/ownership/branch_receiver_change_through_leaves.rig`).
+
+struct P
+  n: Int
+
+  fun inc(!self) -> Int
+    self.n += 1
+    self.n
+
+  fun inc2(!self, j: Int, k: Int) -> Int
+    self.n += j
+    self.n
+
+fun g(k: Int) -> Int
+  k
+
+sub main
+  c = g(1) == 1
+  a = P(n: 1)
+  b = P(n: 2)
+  print((a if c else b).inc())
+  print((a if c else b).inc2(k: g(1), j: g(2)))
+  print(a.n, b.n)
+
+# error: 26:10: method `inc` writes its receiver, and `a if c else b` may be `a`, a value a name holds, which the call would write as a copy
+# error: 27:10: method `inc2` writes its receiver, and `a if c else b` may be `a`
+# errors: 2

@@ -1,7 +1,7 @@
 # A `match` on a view a call returns reads its subject, the tag and every
-# payload, after the header that made the call: a view into a temporary
-# the header made reads it after the header drops it. A view of a place
-# is matched where it points (`match pick(?h)`).
+# payload, where the view points, after the header that made the call: a
+# view into a temporary the header made reads it after the header drops
+# it. A view of a place is matched where it points (`match pick(?h)`).
 
 enum E
   a(n: Int)
@@ -45,6 +45,9 @@ sub main
   match pick(?h)
     .a(n) => print("a", n)
     .b => print("b")
+  match pick(?h)
+    .a(n) if n > k => print("a", n)
+    _ => print("other")
 
 # errors: 3
 # error: 35:15: this `match` reads the view its subject returns after its header drops the temporary `mkh(7)` it points into; bind `mkh(7)` to a name first

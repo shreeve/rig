@@ -1,0 +1,77 @@
+# A `?self` method whose result may keep a view of a receiver that
+# branches lends each leaf the receiver may be, where it is: the view
+# points into that leaf, and keeps a loan on every name a leaf names, so
+# it may be used after the statement, while those names live unchanged.
+# A field or element of such a receiver is reached the same way. (Changing one while the view is live
+# is rejected: `test/reject/ownership/receiver_view_of_branch_lends_it.rig`.)
+# A branching value of plain data is read as a copy, which its statement
+# keeps: a view of it is used within the statement.
+
+struct S
+  t: Text
+  xs: [4]Int
+
+  fun inner(?self) -> ?Text
+    ?self.t
+
+  fun name(?self) -> String
+    ?self.t
+
+  fun arr(?self) -> ?[4]Int
+    ?self.xs
+
+struct W
+  s: S
+
+struct P
+  xs: [4]Int
+
+  fun arr(?self) -> ?[4]Int
+    ?self.xs
+
+fun maybe(c: Bool) -> S?
+  if c
+    return S(t: Text("a text long enough to live on the heap: oo"), xs: [9, 9, 9, 9])
+  none
+
+fun first(o: S?) -> Int?
+  r = o?.inner()
+  r.len
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  a = S(t: Text("a text long enough to live on the heap: aa"), xs: [1, 2, 3, 4])
+  b = S(t: Text("a text long enough to live on the heap: bb"), xs: [5, 6, 7, 8])
+  c = clobber(1) == 2
+  r = (a if c else b).inner()
+  n = (a if not c else b).name()
+  x = (a if c else b).arr()
+  wa = W(s: S(t: Text("a text long enough to live on the heap: wa"), xs: [0, 0, 0, 0]))
+  wb = W(s: S(t: Text("a text long enough to live on the heap: wb"), xs: [0, 0, 0, 0]))
+  print((wa if c else wb).s.inner(), clobber(40))
+  o = maybe(true)
+  u = (o ?? a).inner()
+  vs: Vec[P] = Vec()
+  !vs.push(P(xs: [1, 1, 1, 1]))
+  ws: Vec[P] = Vec()
+  !ws.push(P(xs: [2, 2, 2, 2]))
+  print((vs if c else ws)[0].arr(), clobber(50))
+  ps = [P(xs: [1, 1, 1, 1]), P(xs: [2, 2, 2, 2])]
+  qs = [P(xs: [3, 3, 3, 3]), P(xs: [4, 4, 4, 4])]
+  print((ps if not c else qs)[1].arr(), clobber(30))
+  print((a if c else b).inner(), clobber(9))
+  print(r, n, clobber(20))
+  print(x, u)
+  print(first(maybe(true)) ?? 0)
+
+# expect:
+# a text long enough to live on the heap: wa 41
+# [1, 1, 1, 1] 51
+# [4, 4, 4, 4] 31
+# a text long enough to live on the heap: aa 10
+# a text long enough to live on the heap: aa a text long enough to live on the heap: bb 21
+# [1, 2, 3, 4] a text long enough to live on the heap: oo
+# 42

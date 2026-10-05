@@ -1,0 +1,64 @@
+# A read view of a value it copies (a number, a String, a plain enum, an
+# optional of one) that a name holds may be bound again to the view a
+# call returns, a generic method's included, as to a lend of another
+# place.
+
+enum Dir
+  n
+  s
+
+struct Pair[T]
+  x: T
+
+  fun left(?self, other: ?T) -> ?T
+    ?self.x
+
+fun pick(a: ?Int, b: ?Int) -> ?Int
+  a
+
+fun first(a: ?String, b: ?String) -> ?String
+  a
+
+fun dir(d: ?Dir) -> ?Dir
+  d
+
+fun some(o: ?Int?) -> ?Int?
+  o
+
+sub main
+  p = Pair(x: 5)
+  o = 6
+  q = ?p.x
+  print(q)
+  q = p.left(?o)
+  print(q)
+  q = pick(?o, ?p.x)
+  print(q)
+  q = ?o
+  print(q, q == o)
+  s1 = "one"
+  s2 = "two"
+  t = ?s1
+  t = first(?s2, ?s1)
+  print(t)
+  d1 = Dir.n
+  d2 = Dir.s
+  e = ?d1
+  e = dir(?d2)
+  print(e)
+  o1: Int? = 3
+  o2: Int? = none
+  w = ?o1
+  print(w)
+  w = some(?o2)
+  print(w)
+
+# expect:
+# 5
+# 5
+# 6
+# 6 true
+# two
+# .s
+# 3
+# none

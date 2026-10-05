@@ -116,6 +116,10 @@ CONTEXTS = {
     "for_branch": dict(inline="for e in ([E, mk(6)] if c else [mk(7), mk(8)])\n    @POKE\n    print(look(?e))"),
     # A match on a part of a made value.
     "match_part": dict(inline="match H(f: E).f\n    y\n      @POKY\n      print(look(?y))"),
+    # A header whose subject makes a temporary (`?Text(...)`): it takes
+    # the value a call makes there, so it binds that value.
+    "match_subject_temp": dict(inline='match pass_t(E, ?Text("t"))\n    y => print(look(?y))', temp=True),
+    "as_temp": dict(inline='if some_t(E, ?Text("t")) as y\n    print(look(?y))', temp=True),
     # A method that consumes its receiver (`<self`, `Box.unbox`).
     "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
     # A method that writes its receiver: a value made there, or one
@@ -149,6 +153,14 @@ CONTEXTS = {
                                  recv={t: "me()" for t in ("shared", "box", "drop")}),
     "eq_then_write": dict(inline="print((E) == pokev(!W))", write=True, types=("int", "string", "text")),
     "index_then_write": dict(inline="print((E)[poke(!W)])", write=True, types=("vec",)),
+    # A `?self` method returning a view of its receiver (`me`): the view
+    # held past the statement, used after a later operand writes what the
+    # form reads, or held while a later statement writes it.
+    "recv_view": dict(inline="x = (E).M", after="print(x.v)", recv={"drop": "me()", "shared": "me()"}),
+    "recv_view_arg_then_write": dict(inline="print((E).M.v, poke(!W))", write=True,
+                                     recv={"drop": "me()", "shared": "me()"}),
+    "recv_view_held_then_write": dict(inline="x = (E).M", after="print(poke(!W), x.v)", write=True,
+                                      recv={"drop": "me()", "shared": "me()"}),
 }
 
 # How `poke` changes a value of each type: it grows the buffer, or
@@ -398,6 +410,9 @@ def program(tname, fname, cname):
         # Calls that grow the Vec an element assignment stores into.
         out.append(f"fun through(v: !Vec[{ty}], x: {ty}) -> {ty}\n  for i in 0..100\n    !v.push(mk(i))\n  x\n")
         out.append(f"fun grow(v: !Vec[{ty}]) -> Int\n  for i in 0..100\n    !v.push(mk(i))\n  0\n")
+    if ctx.get("temp"):
+        out.append(f"fun pass_t(x: {ty}, t: ?Text) -> {ty}\n  x\n")
+        out.append(f"fun some_t(x: {ty}, t: ?Text) -> {ty}?\n  x\n")
     if ctx.get("write"):
         out.append(f"fun poke(x: !{ty}) -> Int\n  {POKES[tname]}\n  0\n")
         out.append(f"fun pokev(x: !{ty}) -> {ty}\n  n = poke(!x)\n  mk(n + 9)\n")
@@ -429,7 +444,10 @@ def program(tname, fname, cname):
         text = text.replace("@POKY", "@Y").replace("@POKE", "@P")
         body.append(text.replace("E", e).replace("@Y", poke.replace("e.", "y.")).replace("@P", poke))
     if "after" in ctx:
-        body.append(ctx["after"])
+        after = ctx["after"]
+        if ctx.get("write"):
+            after = after.replace("!W", "!" + WRITE_TARGETS.get(fname, "a"))
+        body.append(after)
     if not returns:
         body.append("0")
     out.append(f"fun run(c: Bool, o: {ty}?) -> {ret_ty}\n{indent(body, 2)}\n")

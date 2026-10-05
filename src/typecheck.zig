@@ -6811,12 +6811,13 @@ const Checker = struct {
         } else if (receiver != .value and !misplaced_sigil) try self.rejectResourceTemporary(obj, obj_ty);
 
         // A `?self` method may change a Cell the value holds, which needs
-        // a place.
+        // a place. A part of a value that branches and may be a name's is
+        // no part of a temporary: the call reaches the leaf where it is.
         if (resolved.nominal_sym != self.ctx.cell_sym_id and receiver == .read and sema.holdsCellByValue(self.ctx, obj_ty)) {
             const place = self.placeOf(obj);
             if (place.root == .temporary and place.steps == 0) {
                 try self.errAt(obj, "cannot call `{s}` on a temporary that holds a Cell the method may change; bind it to a name first", .{method});
-            } else if (place.root == .temporary) try self.ctx.recordCellTemp(obj);
+            } else if (place.root == .temporary and self.namedLeaf(place.base) == null) try self.ctx.recordCellTemp(obj);
         }
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
             const stores = std.mem.eql(u8, method, "set") or std.mem.eql(u8, method, "replace");
@@ -6858,6 +6859,22 @@ const Checker = struct {
             .returns = f.returns,
             .is_sub = f.is_sub,
         };
+        // A `?self` or `!self` method that may keep a view of a temporary
+        // receiver, in its result or through a write argument, lends it
+        // as `?e` does: the value it is part of is kept in its statement's
+        // slot until the statement ends, where the view may still be used.
+        // So is a value that branches which is read as a copy, not where
+        // its leaves are (`sema.readByAddress`): plain data.
+        if ((receiver == .read or receiver == .write) and !misplaced_sigil and !obj.isKind(.read)) {
+            const lent = stripSigil(obj);
+            const base = if (self.hands(lent).kind == .part_of_made) self.placeOf(lent).base else lent;
+            const copied = switch (self.hands(base).kind) {
+                .made => true,
+                .branches => if (self.ctx.typeOf(base)) |ty| !sema.readByAddress(self.ctx, ty) else false,
+                else => false,
+            };
+            if (copied and self.isTemporary(lent) and (sema.mayHoldView(self.ctx, f.returns) or self.callRetains(rest, f.params[0]))) try self.lendTemp(lent);
+        }
         self.lend_call = true;
         self.lend_recv = f.params[0];
         try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins });

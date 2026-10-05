@@ -1,0 +1,29 @@
+# receiver: a `?self` method that changes a Cell, called on a FIELD of a
+# branching value of places, `(h1 if c else h2).q.bump()`, plain and in
+# a hoisted call (keyword arguments out of order). The change must land
+# in h1.q. Expected: 2 / 3, then h1.q.c = 3.
+struct Q
+  c: Cell[Int]
+  n: Int
+
+  fun bump(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun bump2(?self, j: Int, k: Int) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+struct H
+  q: Q
+
+fun g(k: Int) -> Int
+  k
+
+sub main
+  h1 = H(q: Q(c: Cell(1), n: 1))
+  h2 = H(q: Q(c: Cell(10), n: 2))
+  c = g(1) == 1
+  print((h1 if c else h2).q.bump())
+  print((h1 if c else h2).q.bump2(k: g(1), j: g(2)))
+  print(h1.q.c.get(), h2.q.c.get())

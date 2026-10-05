@@ -1,0 +1,19 @@
+# A guarded write match on an element whose index makes a temporary: the
+# write would land in a copy.
+enum E
+  a(n: Int)
+  b(n: Int)
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  arr = [E.a(n: 1)]
+  match !arr[idx(?Text("a"))]
+    .a(n) if n > 0
+      n = 50
+    .a(n)
+      n = 60
+    .b(n)
+      print(n)
+  print(arr)

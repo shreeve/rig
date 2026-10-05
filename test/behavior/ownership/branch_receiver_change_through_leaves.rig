@@ -1,0 +1,81 @@
+# A `?self` method that changes its receiver through a Cell, called on a
+# value that branches, or on a field or element of one, reaches the leaf
+# the value takes where it is, through `??` and `catch` too and when the
+# call's arguments are evaluated first: the change lands in that leaf,
+# never in a copy, and nothing drops the leaf but its owner.
+
+error Bad
+  no
+
+struct Q
+  c: Cell[Int]
+  t: Text
+
+  fun bump(?self) -> Int
+    self.c.set(self.c.get() + 1)
+    self.c.get()
+
+  fun bump2(?self, j: Int, k: Int) -> Int
+    self.c.set(self.c.get() + j)
+    self.c.get()
+
+struct H
+  q: Q
+  qs: [2]Q
+
+fun g(k: Int) -> Int
+  k
+
+fun mkq(n: Int) -> Q
+  Q(c: Cell(n), t: Text("a text long enough to live on the heap"))
+
+fun mkh(n: Int) -> H
+  H(q: mkq(n), qs: [mkq(n), mkq(n)])
+
+fun maybe(c: Bool) -> H?
+  if c
+    return mkh(5)
+  none
+
+fun fails(b: Bool) -> H!
+  if b
+    return Bad.no
+  mkh(100)
+
+fun first(o: H?) -> Int?
+  o?.q.bump()
+
+sub main
+  h1 = mkh(1)
+  h2 = mkh(10)
+  c = g(1) == 1
+  print((h1 if c else h2).q.bump())
+  print((h1 if c else h2).q.bump2(k: g(1), j: g(2)))
+  qs = [mkq(1), mkq(2)]
+  rs = [mkq(3), mkq(4)]
+  print((qs if c else rs)[0].bump())
+  print((qs if c else rs)[g(0)].bump2(k: g(1), j: g(2)))
+  print((qs if c else rs)[0].bump())
+  print((h1 if not c else h2).qs[1].bump())
+  print((h1 if not c else h2).qs[g(1)].bump2(k: g(1), j: g(2)))
+  o = maybe(true)
+  print((o ?? h1).q.bump())
+  print((fails(true) catch h1).qs[0].bump())
+  print(first(maybe(true)) ?? 0)
+  print(h1.q.c.get(), h1.qs[0].c.get(), h2.qs[1].c.get(), qs[0].c.get(), rs[0].c.get(), qs[0].t)
+  if o as x
+    print(x.q.c.get())
+
+# expect:
+# 2
+# 4
+# 2
+# 4
+# 5
+# 11
+# 13
+# 6
+# 2
+# 6
+# 4 2 13 5 3 a text long enough to live on the heap
+# 6

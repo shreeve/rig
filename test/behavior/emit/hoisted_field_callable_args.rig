@@ -1,7 +1,8 @@
 # A callable held in a field, `s.cb(...)`, has no receiver: a call of it
 # whose arguments are evaluated first fills its parameters from its first
 # argument, so an owned argument is held as the value it is and dropped
-# when a later argument fails.
+# when a later argument fails, and a write borrow its first parameter
+# takes is the argument's.
 
 error Bad
   no
@@ -15,10 +16,15 @@ struct H
 
 struct S
   cb: fun(Text, ?Q, Int) -> Int
+  wr: fun(!Q, Int) -> Int
 
 fun gf(k: Int) -> Int!
   if k > 1
     return Bad.no
+  k
+
+fun g(k: Int) -> Int
+  print("g", k)
   k
 
 fun mkh(k: Int) -> H
@@ -27,14 +33,24 @@ fun mkh(k: Int) -> H
 fun usq(t: Text, q: ?Q, n: Int) -> Int
   t.len + q.c.get() + n
 
+fun wr(q: !Q, n: Int) -> Int
+  q.n = q.n + n
+  q.n
+
 fun run(s: ?S, k: Int) -> Int!
   s.cb(Text("a text long enough to live on the heap"), ?mkh(5).q, gf(k)!)
 
 sub main
-  s = S(cb: usq)
+  s = S(cb: usq, wr: wr)
   print(run(?s, 2) catch -1)
   print(run(?s, 1) catch -1)
+  q = Q(c: Cell(0), n: 1)
+  print(s.wr(!q, g(4)))
+  print(q.n)
 
 # expect:
 # -1
 # 44
+# g 4
+# 5
+# 5
