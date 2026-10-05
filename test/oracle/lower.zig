@@ -873,9 +873,11 @@ const Lowerer = struct {
         const bare: How = if (how == .take and self.planned and is_place) .read else how;
         try self.pushRegion();
         var v = try self.subject(value, bare, "the `as` value");
-        // A read view of a made value of plain data is read as its value,
-        // which carries no loan (Core §4).
-        if (value.isKind(.read) and !self.isPlaceSyntax(ir.Read.operand(value))) v = try self.readThrough(v, pos);
+        // A read view of plain data that is no place's, written `?mk()`
+        // or a call's result, is read as its value in the header, which
+        // carries no loan (Core §4).
+        const named = if (value.isKind(.read)) ir.Read.operand(value) else value;
+        if (!value.isKind(.write) and !self.isPlaceSyntax(named)) v = try self.readThrough(v, pos);
         const h = try self.hold(v, "the `as` value", pos);
         try self.popRegion(pos);
         var carry_from: ?VarId = null;
