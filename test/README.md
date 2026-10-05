@@ -131,8 +131,13 @@ gets pages of its own, a free makes them inaccessible, and no address
 is handed out twice, so reading or writing freed memory, or past the end
 of a block, crashes at once with
 `error: rig: use of freed memory at address 0x...` and a stack trace.
-A behavior test therefore fails on any leak, double free, or use of
-freed memory. Run a failing program by hand with
+With `RIG_SANITIZE=1`, emit also fills each storage location it adds
+(a call's evaluated arguments and receiver, a statement's or header's
+temporaries, a held or matched subject) with `0xAA` bytes when its scope
+ends, so a view that outlives that storage reads garbage instead of a
+stale value. A behavior test therefore fails on any leak, double free,
+or use of freed memory, and on most reads of dead hidden storage. Run a
+failing program by hand with
 `RIG_SANITIZE=1 bin/rig run file.rig`. The sanitizer costs a few
 system calls and two pages of address space per allocation: the suite
 takes about 15% longer, and an allocation-heavy program runs several

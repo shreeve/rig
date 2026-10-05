@@ -1,0 +1,40 @@
+# A field of a temporary that holds a Cell, lent to a call, is lent where
+# the statement's slot keeps the temporary: a Cell change through the view
+# is the temporary's own, and a view the call returns stays good until
+# the statement ends.
+
+struct P
+  c: Cell[Int]
+  n: Int
+
+struct H
+  p: P
+
+fun mk(n: Int) -> H
+  H(p: P(c: Cell(1), n: n))
+
+fun id(x: ?P) -> ?P
+  x
+
+fun touch(x: ?P) -> ?P
+  x.c.set(x.c.get() + 10)
+  x
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun show(x: ?P, k: Int) -> Int
+  x.n * 100 + x.c.get() + k
+
+sub main
+  print(id(?mk(42).p).n)
+  print(id(?mk(1).p), id(?mk(2).p))
+  print(touch(?mk(3).p).c.get())
+  print(show(id(?mk(4).p), clobber(0)))
+
+# expect:
+# 42
+# P(c: Cell(value: 1), n: 1) P(c: Cell(value: 1), n: 2)
+# 11
+# 402

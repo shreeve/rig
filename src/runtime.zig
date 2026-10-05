@@ -109,6 +109,20 @@ pub fn borrowed(comptime T: type, borrow: ReadBorrow(T)) T {
     return if (comptime ReadBorrow(T) == T) borrow else borrow.*;
 }
 
+/// Fill hidden storage whose scope has ended with `0xAA` under the
+/// sanitizer, so a view that outlives it reads garbage, not a stale
+/// value; nothing otherwise.
+pub fn poison(ptr: anytype) void {
+    if (comptime !sanitize) return;
+    @memset(std.mem.asBytes(ptr), 0xAA);
+}
+
+/// The `T` a read borrow `?T`, held where `borrow` points, reaches:
+/// the value itself when the borrow is a pointer, else the borrow's copy.
+pub fn borrowedPtr(comptime T: type, borrow: *const ReadBorrow(T)) *const T {
+    return if (comptime ReadBorrow(T) == T) borrow else borrow.*;
+}
+
 /// Release whatever `value` owns: a strong handle drops its count, a
 /// type with `__rig_drop` runs it, and aggregates drop their parts.
 /// Plain data is a no-op, decided at compile time.
@@ -1398,7 +1412,7 @@ const Sanitizer = struct {
     /// stack, the allocator's own).
     const map_headroom: usize = 4096;
     const fallback = std.heap.smp_allocator;
-    const poison: u8 = 0xdd;
+    const freed_byte: u8 = 0xdd;
 
     fn allocator(self: *Sanitizer) std.mem.Allocator {
         return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
@@ -1488,7 +1502,7 @@ const Sanitizer = struct {
     fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
         const self: *Sanitizer = @ptrCast(@alignCast(ctx));
         if (!self.owns(@intFromPtr(memory.ptr))) {
-            @memset(memory, poison);
+            @memset(memory, freed_byte);
             return fallback.rawFree(memory, alignment, ret_addr);
         }
         self.live -= 1;
@@ -1497,7 +1511,7 @@ const Sanitizer = struct {
         const stop = std.mem.alignForward(usize, @intFromPtr(memory.ptr) + @max(memory.len, 1), page);
         if (mapNone(first, stop - first) != null) return;
         if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(first), stop - first, none)) == .SUCCESS) return;
-        @memset(memory, poison);
+        @memset(memory, freed_byte);
     }
 
     /// Whether `addr` lies in address space the sanitizer reserved.
@@ -1981,6 +1995,15 @@ test "guardStack holds the stack to 16 MiB on Linux" {
     try std.posix.setrlimit(.STACK, .{ .cur = 2 * stack_size, .max = before.max });
     try std.testing.expect(guarded());
     try std.testing.expectEqual(stack_size, (try std.posix.getrlimit(.STACK)).cur);
+}
+
+test "borrowedPtr reaches what a read borrow views, or the borrow's own copy" {
+    const Pair = struct { a: i64, t: Text };
+    var p: Pair = .{ .a = 3, .t = .{} };
+    const b: ReadBorrow(Pair) = lend(&p);
+    try std.testing.expect(borrowedPtr(Pair, &b) == &p);
+    const n: ReadBorrow(i64) = 7;
+    try std.testing.expect(borrowedPtr(i64, &n) == &n);
 }
 
 test "strong and weak handles free the box once" {

@@ -1457,6 +1457,23 @@ lower is an internal error: sema must have rejected it.
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's
   guarded `defer` then drops.
+- **No address of a Zig temporary.** Emit takes an address only of
+  storage that lives as long as a view of it may. A value that branches
+  with a leaf a name holds, read where its leaves are (`reachesLeaf`:
+  its type is read by address, as the ownership checker reads each
+  leaf), is reached through the address of the leaf it takes:
+  `(a if c else b).inner()` is `(if (c) &a else &b).inner()`, and
+  `o ?? d`, `e catch d`, `o?`, and `e!` capture the payload by pointer
+  where it is. A receiver, or a Cell-holding part lent to read, of a
+  call whose arguments are evaluated first is held as its address in
+  the slot its statement keeps it in (`keptInSlot`), never as a copy in
+  the call's block. A `match` on a generic read view a name holds
+  switches on `rig.borrowedPtr(T, &v).*`. With `RIG_SANITIZE`, each
+  `var` emit adds (a call's argument, receiver, or closure environment,
+  a statement's or header's temporary slot, a held or matched subject,
+  an `as` binding's copy) is filled with `0xAA` when its scope ends
+  (`rig.poison`), after its drop, so a view that outlives it reads
+  garbage: a dynamic check of the class that sees the stack.
 - **Assignments.** Zig finds the address of `place.* = f()` before it
   calls `f`, so an assignment to a field or element whose value or
   indexes can act (a call, an assignment, a drop, a jump) evaluates the
@@ -1538,7 +1555,7 @@ reviewed.
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |
-| `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readBorrowIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `borrowed` reads the value |
+| `ReadBorrow(T)`, `lend`, `borrowed`, `borrowedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readBorrowIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `borrowed` reads the value, and `borrowedPtr` gives its address from the view's own, which a `match` switches on |
 | `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place; `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a Text's bytes and a Vec's elements copied (`Vec.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `Text` | `Text`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `Text(...)` and `print` agree exactly; `bytes` is the String view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a Text's or a String's |
@@ -1554,6 +1571,7 @@ reviewed.
 | `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
+| `poison` | under the sanitizer, fills hidden storage whose scope has ended with `0xAA`; nothing otherwise |
 | `discard`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
