@@ -2628,11 +2628,26 @@ pub const Checker = struct {
     /// or a field or element, which stays where it is.
     const Aliased = enum { name, field, element };
 
+    /// Whether `ty`, or the value an optional of it holds, is an array.
+    fn isArrayOf(self: *const Checker, ty: TypeId) bool {
+        var t = ty;
+        while (self.typeData(t) == .optional) t = self.typeData(t).optional;
+        return self.typeData(t) == .array;
+    }
+
     fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
         const where = sink.text();
         const is_name = aliased == .name;
         // Why a part cannot be moved out instead.
         const stays = if (aliased == .element) "an element cannot be moved out of its container" else "a field cannot be moved out of its parent";
+        // An array whose elements own is named by its type.
+        if (ty) |t| if (self.sema) |ctx| if (k == .drop_glue and self.isArrayOf(t)) {
+            const shown = try sema.formatTypeIn(ctx, self.arena(), t);
+            if (is_name) {
+                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy its owning elements, which both would drop. Use `<{s}` to move it", .{ shown, what, where, what });
+            } else try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy its owning elements; {s}", .{ shown, what, where, stays });
+            return;
+        };
         switch (k) {
             // Fine for plain data: each instantiation is checked.
             .generic => if (ty) |t| try self.requirePlain(pos, t, false),
