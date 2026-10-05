@@ -1,0 +1,24 @@
+# header_value + as_value copy: `if pick(?h, ?Text("k")) as x` makes a
+# header temporary, so the binding views a copy (plain data accepted).
+# Store a view of x in an outer var and read it after the body.
+struct P
+  xs: [4]Int
+
+struct H
+  q: P?
+
+fun pick(h: ?H, k: ?Text) -> ?P? from h
+  ?h.q
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  h = H(q: P(xs: [1, 2, 3, 4]))
+  z = P(xs: [0, 0, 0, 0])
+  r = ?z
+  if pick(?h, ?Text("k")) as x
+    r = ?x
+  print(clobber(3))
+  print(r.xs[0], r.xs[3])

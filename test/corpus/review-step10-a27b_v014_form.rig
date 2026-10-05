@@ -1,0 +1,29 @@
+# (a27 without `from`, for v0.1.4)
+# a05 sibling: the plain-data catch-all view of a header-copied subject
+# leaves the function as the match's value (unguarded: `|*x|` captures
+# the header block's Zig rvalue, a copy of the Vec element). The caller
+# reads a `?E` into the callee's dead frame. Expected: 8 8.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text, i: Int) -> Int
+  s.len - 1 + i
+
+fun at2(v: ?Vec[E], i: Int) -> ?E
+  match ?v[idx(?Text("a"), i)]
+    x => x
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  v: Vec[E] = Vec()
+  !v.push(E.a(xs: [7, 7, 7, 7]))
+  !v.push(E.a(xs: [8, 8, 8, 8]))
+  s = at2(?v, 1)
+  print(clobber(2))
+  match s
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")

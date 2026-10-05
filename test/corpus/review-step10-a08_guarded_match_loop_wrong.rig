@@ -1,0 +1,22 @@
+# a05 in a loop, observable without the sanitizer: the guarded match
+# copies `v[idx(..., i)]` into `__rig_subject_N` each iteration; the
+# plain-data catch-all view `r` taken in iteration 0 reads iteration 1's
+# copy (8 8). Expected: 7 7.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text, i: Int) -> Int
+  s.len - 1 + i
+
+sub main
+  v = [E.a(xs: [7, 7, 7, 7]), E.a(xs: [8, 8, 8, 8])]
+  z = E.b
+  r = ?z
+  for i in 0..2
+    match ?v[idx(?Text("a"), i)]
+      x if i == 0 => r = x
+      _ => print("skip")
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")

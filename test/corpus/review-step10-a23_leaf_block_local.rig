@@ -1,0 +1,21 @@
+# leaf (pointer): a branching receiver whose branch is a block ending in
+# a local of that block. `reachesLeaf` takes the address of the leaf, a
+# local whose block has ended when the `?self` method's view is read.
+struct Q
+  xs: [4]Int
+
+  fun me(?self) -> ?Q
+    self
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  b = Q(xs: [0, 0, 0, 0])
+  c = clobber(0) == 1
+  print((if c
+    t = Q(xs: [5, 6, 7, 8])
+    t
+  else
+    b).me().xs[3])

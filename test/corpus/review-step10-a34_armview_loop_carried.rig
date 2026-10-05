@@ -1,0 +1,31 @@
+# subject copy + arm_view: a guarded match on a call's made value holds
+# it in `__rig_subject_N`; the non-plain payload view `p` is arm-local.
+# Store it through `keep(p, !h)`, and read `h` only on the next
+# iteration (loop-carried), after the arm and the subject have ended.
+struct P
+  t: Text
+
+enum E
+  a(p: P)
+  b
+
+struct Holder
+  r: (?P)?
+
+fun mk(k: Int) -> E
+  E.a(p: P(t: Text("a payload text long enough for the heap")))
+
+fun keep(p: ?P, h: !Holder) -> Int
+  h.r = p
+  1
+
+sub main
+  h = Holder(r: none)
+  e = mk(1)
+  k = 1
+  for _ in 0..2
+    if h.r as q
+      print(q.t)
+    match ?e
+      .a(p) if k > 0 => print(keep(p, !h))
+      _ => print(0)

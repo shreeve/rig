@@ -1,0 +1,28 @@
+# subject copy of a PLACE: `match ?v[idx(?Text("a"))]` makes a header
+# temporary, so the guarded match copies the element into
+# `__rig_subject_N` (plain data is accepted by rejectHeaderCopy). The
+# catch-all `x: ?E` is plain data, so not arm-local, and the checker
+# roots it at `v`. Store it in `r` and read it after the match.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  v = [E.a(xs: [7, 7, 7, 7]), E.b]
+  z = E.b
+  r = ?z
+  k = 3
+  match ?v[idx(?Text("a"))]
+    x if k > 2 => r = x
+    _ => print(0)
+  print(clobber(1))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")

@@ -1,0 +1,23 @@
+# a06 made observable without poisoning: in a loop, the Zig rvalue the
+# header block yields is the same stack slot each iteration, so the view
+# `r` taken in iteration 0 reads iteration 1's element. Expected 7 7.
+# Result: prints 7 7 at HEAD (Zig gives the switch operand a fresh slot
+# here), so the unguarded form stays latent; see a27 for an observed one.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text, i: Int) -> Int
+  s.len - 1 + i
+
+sub main
+  v = [E.a(xs: [7, 7, 7, 7]), E.a(xs: [8, 8, 8, 8])]
+  z = E.b
+  r = ?z
+  for i in 0..2
+    match ?v[idx(?Text("a"), i)]
+      x => if i == 0
+        r = x
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")

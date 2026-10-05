@@ -1,0 +1,28 @@
+# implicit lend of a Cell-holding part of a temporary: `bump(mkh().q)`
+# where `bump(q: ?Q)` changes the Cell. The explicit `?mkh().q` is copied
+# into a mutable local (`lendsCellTemp`, argumentHold checks `.read`);
+# is the bare form?
+struct Q
+  c: Cell[Int]
+  n: Int
+
+struct H
+  q: Q
+  t: Int
+
+fun mkh -> H
+  H(q: Q(c: Cell(1), n: 42), t: 0)
+
+fun mkq -> Q
+  Q(c: Cell(1), n: 41)
+
+fun bump(q: ?Q) -> Int
+  q.c.set(q.c.get() + 1)
+  q.c.get() + q.n
+
+fun g(k: Int) -> Int
+  k
+
+sub main
+  print(bump(mkh().q))
+  print(bump(?mkh().q))

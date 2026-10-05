@@ -1,0 +1,25 @@
+# leaf storage: `(mko() ?? b).me()` -- the left leaf is a made optional
+# (a Zig rvalue); `|*__rig_leaf|` captures a pointer into it. Does the
+# checker let the view outlive the statement?
+struct Q
+  a: Int
+  n: Int
+
+  fun me(?self) -> ?Q
+    self
+
+fun mko(k: Int) -> Q?
+  if k > 0
+    return Q(a: k, n: k * 10)
+  none
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  b = Q(a: 0, n: 0)
+  print((mko(4) ?? b).me().n)
+  r = (mko(5) ?? b).me()
+  print(clobber(9))
+  print(r.n)
