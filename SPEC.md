@@ -721,7 +721,7 @@ where its value is taken ([§7](#reading)):
 | Kind | Types | A bare name where the value is taken |
 |---|---|---|
 | **plain** | numbers, `Bool`, plain enums, and optionals, arrays, structs, and enums of them | copies it |
-| **owning** | `Vec`, `Box`, `Text`, `Signal`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x` or a function's last value; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
+| **owning** | `Vec`, `Box`, `Text`, `Signal`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x`, or the last value of the function or block that declares it; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
 | **handle** | `*T`, `~T`, and owned closures | the same: `<h` moves it, `+h` adds a count |
 | **view** | `?T`, `!T`, `[]T`, `![]T`, `String`, `?fun(...)`, and any type that holds one | copies a read view; a write view is rejected: `<w` moves it |
 
@@ -2767,7 +2767,8 @@ Where its value is taken, a bare name copies plain data and read views
 ([§2](#kinds-of-value)). It never clones, so a bare owner or handle
 there is an error, because two owners would release it twice: write
 `<x` to move it or `+x` to make a new owner. It moves only where the
-value leaves for good: `return x`, or `x` as the last expression. As
+value leaves for good: `return x`, or `x` as the last value of the
+function or block that declares it. As
 an argument where a parameter takes a view, or as a header's subject,
 it is lent to read where it is ([Lending](#lending)).
 
