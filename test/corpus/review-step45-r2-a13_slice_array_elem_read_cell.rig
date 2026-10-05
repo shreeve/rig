@@ -1,0 +1,12 @@
+# for x in a[idx(?Text("a"))][0..1] over arrays of Cell holders (read slice), Cell change
+struct C
+  c: Cell[Int]
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  a = [[C(c: Cell(1))]]
+  for x in ?a[idx(?Text("a"))][0..1]
+    x.c.set(9)
+  print(a[0][0].c.get())

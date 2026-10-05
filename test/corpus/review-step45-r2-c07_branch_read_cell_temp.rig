@@ -1,0 +1,16 @@
+# if (?v[idx(?Text("a"))] if c else ?w) as x over Cell holders: Cell change must land
+struct C
+  c: Cell[Int]
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[C?] = Vec()
+  !v.push(C(c: Cell(1)))
+  w: C? = C(c: Cell(2))
+  c = v.len == 1
+  if (?v[idx(?Text("a"))] if c else ?w) as x
+    x.c.set(9)
+  if v[0] as x
+    print(x.c.get())

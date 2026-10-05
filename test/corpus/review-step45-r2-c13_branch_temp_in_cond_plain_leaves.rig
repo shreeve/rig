@@ -1,0 +1,12 @@
+# if (!a if f(?Text("x")) else !b) as t: temp only in the branch condition (c01c), Vec leaf
+fun f(s: String) -> Bool
+  s.len == 1
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("q"))
+  w: Text? = Text("w")
+  if (!v[0] if f(?Text("x")) else !w) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(v[0], w)

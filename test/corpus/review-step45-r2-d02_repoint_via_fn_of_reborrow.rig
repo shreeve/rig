@@ -1,0 +1,12 @@
+# w2 = id(!w); w = <w2 : re-point to a view derived from w through a call
+fun id(x: !Text) -> !Text
+  x
+
+sub main
+  a = Text("a")
+  w = !a
+  w2 = id(!w)
+  w = <w2
+  a = Text("A")
+  !w.add("!")
+  print(a)

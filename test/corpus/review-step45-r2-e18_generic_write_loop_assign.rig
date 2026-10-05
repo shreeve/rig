@@ -1,0 +1,11 @@
+# H3 sibling: generic write loop over !Vec[T] assigning a moved value (T = Text)
+sub fill[T](v: !Vec[T], x: T)
+  for e in !v
+    e = <x
+    return
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  fill(!v, Text("z"))
+  print(v)

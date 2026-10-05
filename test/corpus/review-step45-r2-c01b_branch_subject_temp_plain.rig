@@ -1,0 +1,11 @@
+# base-comparable c01: if (!arr[idx(?Text("a"))] if c else !w) as n over [1]Int?: the write must land
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  arr: [1]Int? = [1]
+  w: Int? = 2
+  c = w != none
+  if (!arr[idx(?Text("a"))] if c else !w) as n
+    n = 50
+  print(arr, w)

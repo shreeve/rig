@@ -1,0 +1,58 @@
+# H2: Cell changes through header bindings over elements of read views
+struct C
+  c: Cell[Int]
+
+enum E
+  a(x: C)
+  b(n: Int)
+
+sub viaIfAs(v: ?Vec[C?])
+  if v[0] as x
+    x.c.set(1)
+
+sub viaMatch(v: ?Vec[E])
+  match v[0]
+    .a(x) if x.c.get() == 0 => x.c.set(2)
+    .a(x) => x.c.set(3)
+    .b(_) => print("b")
+
+sub viaFor(v: ?Vec[Vec[C]])
+  for x in v[0]
+    x.c.set(4)
+
+sub viaHandles(v: ?Vec[*C])
+  v[0].c.set(5)
+
+fun next(i: !Int) -> Int
+  i += 1
+  i - 1
+
+sub viaSideIndex(v: ?Vec[C], i: !Int)
+  v[next(!i)].c.set(6)
+
+sub main
+  o: Vec[C?] = Vec()
+  !o.push(C(c: Cell(0)))
+  viaIfAs(?o)
+  e: Vec[E] = Vec()
+  !e.push(E.a(x: C(c: Cell(0))))
+  viaMatch(?e)
+  vv: Vec[Vec[C]] = Vec()
+  inner: Vec[C] = Vec()
+  !inner.push(C(c: Cell(0)))
+  !vv.push(<inner)
+  viaFor(?vv)
+  h: Vec[*C] = Vec()
+  !h.push(*C(c: Cell(0)))
+  viaHandles(?h)
+  s: Vec[C] = Vec()
+  !s.push(C(c: Cell(0)))
+  !s.push(C(c: Cell(0)))
+  i = 1
+  viaSideIndex(?s, !i)
+  if o[0] as x
+    print(x.c.get())
+  match e[0]
+    .a(x) => print(x.c.get())
+    .b(_) => print("b")
+  print(vv[0][0].c.get(), h[0].c.get(), s[0].c.get(), s[1].c.get(), i)

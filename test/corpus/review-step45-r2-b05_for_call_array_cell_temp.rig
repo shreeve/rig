@@ -1,0 +1,12 @@
+# for x in geta(?a, ?Text("a")): read loop over Cell holders in an array view a call returns
+struct C
+  c: Cell[Int]
+
+fun geta(a: ?[2]C, s: String) -> ?[2]C
+  a
+
+sub main
+  a = [C(c: Cell(1)), C(c: Cell(2))]
+  for x in geta(?a, ?Text("a"))
+    x.c.set(9)
+  print(a[0].c.get(), a[1].c.get())

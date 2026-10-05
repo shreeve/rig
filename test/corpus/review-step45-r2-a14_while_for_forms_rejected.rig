@@ -1,0 +1,20 @@
+# while-as / for read / for write over a place through a temp: each must be rejected
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("q"))
+  m: Vec[Vec[Text]] = Vec()
+  !m.push(Vec())
+  while v[idx(?Text("a"))] as t
+    print(t)
+    break
+  for x in m[idx(?Text("a"))]
+    print(x)
+  for x in !m[idx(?Text("a"))]
+    !x.add("!")
+  if v[idx(?Text("a"))] as t
+    print(t)
+  else
+    print("none")

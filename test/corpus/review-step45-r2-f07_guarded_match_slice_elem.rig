@@ -1,0 +1,22 @@
+# guarded match on an element of a []E slice parameter and a ?[1]E, plain payload
+enum E
+  a(n: Int)
+  b(n: Int)
+
+fun f(v: []E) -> Int
+  match v[0]
+    .a(n) if n > 1 => n
+    .a(_) => 1
+    .b(n) => n
+
+fun g(v: ?[1]E) -> Int
+  match v[0]
+    .a(n) if n > 1 => n
+    .a(_) => 1
+    .b(n) => n
+
+sub main
+  e: Vec[E] = Vec()
+  !e.push(E.a(n: 5))
+  a = [E.a(n: 7)]
+  print(f(?e), g(?a))

@@ -1,0 +1,57 @@
+# H2: Cell set/replace through nested Vec/array/Box/field paths under read views
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct S
+  cs: Vec[C]
+  arr: [2]C
+  b: Box[C]
+
+sub viaVecVec(v: ?Vec[Vec[C]])
+  v[0][0].c.set(11)
+  v[0][0].hit()
+
+sub viaArrVec(a: ?[1]Vec[C])
+  a[0][0].c.set(21)
+
+sub viaVecBox(v: ?Vec[Box[C]])
+  v[0].c.set(31)
+  _ = v[0].c.replace(32)
+
+sub viaStruct(s: ?S)
+  s.cs[0].c.set(41)
+  s.arr[1].c.set(42)
+  s.b.c.set(43)
+
+sub viaSlice(s: []Vec[C])
+  s[0][0].c.set(61)
+
+sub viaVecCells(v: ?Vec[Vec[Cell[Int]]])
+  v[0][0].set(71)
+
+sub main
+  vv: Vec[Vec[C]] = Vec()
+  inner: Vec[C] = Vec()
+  !inner.push(C(c: Cell(0)))
+  !vv.push(<inner)
+  viaVecVec(?vv)
+  av = [Vec[C]()]
+  !av[0].push(C(c: Cell(0)))
+  viaArrVec(?av)
+  vb: Vec[Box[C]] = Vec()
+  !vb.push(Box(C(c: Cell(0))))
+  viaVecBox(?vb)
+  cs: Vec[C] = Vec()
+  !cs.push(C(c: Cell(0)))
+  s = S(cs: <cs, arr: [C(c: Cell(0)), C(c: Cell(0))], b: Box(C(c: Cell(0))))
+  viaStruct(?s)
+  viaSlice(?vv)
+  vc: Vec[Vec[Cell[Int]]] = Vec()
+  ic: Vec[Cell[Int]] = Vec()
+  !ic.push(Cell(0))
+  !vc.push(<ic)
+  viaVecCells(?vc)
+  print(vv[0][0].c.get(), av[0][0].c.get(), vb[0].c.get(), s.cs[0].c.get(), s.arr[1].c.get(), s.b.c.get(), vc[0][0].get())

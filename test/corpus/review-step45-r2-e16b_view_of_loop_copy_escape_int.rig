@@ -1,0 +1,18 @@
+# same with T = Int, and non-generic Int (base-comparable)
+fun lastref[T](v: ?Vec[T]) -> ?T
+  r = ?v[0]
+  for x in v
+    r = ?x
+  r
+
+fun lastint(v: ?Vec[Int]) -> ?Int
+  r = ?v[0]
+  for x in v
+    r = ?x
+  r
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  print(lastref(?v), lastint(?v))

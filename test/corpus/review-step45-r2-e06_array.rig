@@ -1,0 +1,21 @@
+# H3: generic loop over ?Vec[T], body: build an array [x, x]
+struct S
+  t: Text
+
+struct Holder[T]
+  x: T?
+
+
+
+fun arr[T](v: ?Vec[T]) -> Int
+  n = 0
+  for x in v
+    a = [x, x]
+    n += a.len
+  n
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  print(arr(?v))

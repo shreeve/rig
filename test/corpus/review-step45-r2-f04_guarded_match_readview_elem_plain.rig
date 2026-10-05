@@ -1,0 +1,15 @@
+# guarded match on an element of a ?Vec[E] parameter, plain payload (base-comparable)
+enum E
+  a(n: Int)
+  b(n: Int)
+
+fun f(v: ?Vec[E]) -> Int
+  match v[0]
+    .a(n) if n > 1 => n
+    .a(_) => 1
+    .b(n) => n
+
+sub main
+  e: Vec[E] = Vec()
+  !e.push(E.a(n: 5))
+  print(f(?e))
