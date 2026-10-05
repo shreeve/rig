@@ -1244,7 +1244,7 @@ pub const Emitter = struct {
             try self.emitBind(target, sym, type_node, expr);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
-            try self.emitRebind(local.*, expr);
+            try self.emitRebind(local.*, expr, self.sema.repoints(sexp));
         }
     }
 
@@ -1274,7 +1274,7 @@ pub const Emitter = struct {
             (ty != null and sema.holdsCellByValue(self.sema, ty.?));
         // Assigning a write borrow writes through it, leaving the
         // pointer as it is.
-        const rebound = s.flags.reassigned and !(ty != null and sema.assignWritesThrough(self.sema, ty.?));
+        const rebound = s.flags.repointed or (s.flags.reassigned and !(ty != null and sema.assignWritesThrough(self.sema, ty.?)));
         // A constant initializer would make a Zig `const` compile-time
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
@@ -1335,9 +1335,9 @@ pub const Emitter = struct {
     /// Reassign an existing binding. A resource's old value is dropped
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
-    fn emitRebind(self: *Emitter, local: Local, value: Sexp) Error!void {
+    fn emitRebind(self: *Emitter, local: Local, value: Sexp, repoints: bool) Error!void {
         const s = self.sema.symbols.items[local.sym];
-        const writes_through = sema.assignWritesThrough(self.sema, s.ty);
+        const writes_through = !repoints and sema.assignWritesThrough(self.sema, s.ty);
         if (local.is_ptr and !writes_through) {
             // A borrow local is rebound to borrow something else.
             try self.w.print("{s} = ", .{local.zig_name});

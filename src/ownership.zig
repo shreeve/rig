@@ -2724,7 +2724,8 @@ pub const Checker = struct {
             .fixed => try self.bindNew(target, true, is_lambda, value),
             .default => {
                 if (self.find(name)) |id| {
-                    try self.reassign(id, pos, value);
+                    const repoints = if (self.sema) |ctx| ctx.repoints(node) else false;
+                    try self.reassign(id, pos, value, repoints);
                     return;
                 } else {
                     try self.bindNew(target, false, is_lambda, value);
@@ -2798,7 +2799,10 @@ pub const Checker = struct {
         }
     }
 
-    fn reassign(self: *Checker, id: VarId, pos: u32, value: Value) Error!void {
+    /// `x = value`. A `!T` local given a view (`repoints`) points at
+    /// another place, as any binding takes a new value: the loans it held
+    /// end, and it holds the view's.
+    fn reassign(self: *Checker, id: VarId, pos: u32, value: Value, repoints: bool) Error!void {
         const before = self.diagnostics.items.len;
         try self.checkAssignable(id, pos);
         if (self.diagnostics.items.len != before and self.quiet == 0) return;
@@ -2811,7 +2815,7 @@ pub const Checker = struct {
         if (v.closure or v.fixed or v.loop_borrow or v.capture_resource) return;
         if (self.isGlobal(id) and !self.copies(v.ty)) return;
         if (self.findLoan(id, .any, null) != null) return;
-        if (v.ref == .write) {
+        if (v.ref == .write and !repoints) {
             // Assigning a write borrow writes into the value it borrows:
             // it still borrows it. Through a `!T` parameter (or a loop or
             // pattern binding) the new value may only carry borrows the

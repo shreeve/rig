@@ -763,7 +763,21 @@ const Checker = struct {
         const sym = self.ctx.symbols.items[sym_id];
         const is_decl = sym.decl_pos == target.src.pos;
 
-        const writes_through = sema.assignWritesThrough(self.ctx, sym.ty);
+        // Assigning a view to a `!T` local points it at another place;
+        // assigning a value writes the value it views (Core §6). A
+        // parameter never changes: a `!T` one only writes through.
+        const repoints = !is_decl and sema.assignWritesThrough(self.ctx, sym.ty) and kind == .default and try self.handsOverWriteBorrow(rhs);
+        if (repoints and (sym.kind != .local or sym.flags.fixed or sym.flags.pattern_bound or sym.flags.as_bound)) {
+            const src = self.sourceText(rhs);
+            if (sym.kind == .param) {
+                if (sema.writeSliceElem(self.ctx, sym.ty) != null) {
+                    try self.errAt(rhs, "cannot point parameter `{s}` at another place: parameters are immutable, and `{s}[i] = v` writes its elements; bind another name to `{s}`", .{ name, name, src });
+                } else try self.errAt(rhs, "cannot point parameter `{s}` at another place: parameters are immutable, and `{s} = v` writes the value it views; bind another name to `{s}`", .{ name, name, src });
+            } else try self.errAt(rhs, "`{s} = {s}` would point `{s}` at another place, which only a local's own name does; write `new {s} = {s}`", .{ name, src, name, name, src });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        const writes_through = !repoints and sema.assignWritesThrough(self.ctx, sym.ty);
         // A `![]T` binding views elements it does not own; there is no
         // whole value to write through to.
         if (!is_decl and writes_through and sema.writeSliceElem(self.ctx, sym.ty) != null) {
@@ -771,17 +785,13 @@ const Checker = struct {
             _ = try self.synthExpr(rhs);
             return;
         }
-        // `w = !m` writes through `w`, so it would store a borrow where a
-        // value goes; a new binding points the name elsewhere.
-        if (!is_decl and writes_through and kind == .default and try self.handsOverWriteBorrow(rhs)) {
-            const src = self.sourceText(rhs);
-            try self.errAt(rhs, "`{s} = {s}` would write through `{s}`; to point `{s}` at another place, write `new {s} = {s}`", .{ name, src, name, name, name, src });
-            _ = try self.synthExpr(rhs);
-            return;
+        if (repoints) {
+            try self.ctx.recordRepoint(node);
+            self.ctx.symbols.items[sym_id].flags.repointed = true;
         }
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the borrowed value.
-        if (!is_decl and self.ctx.types.get(sym.ty) != .borrow_write) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
+        if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .borrow_write)) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
         // The binding must be one that may change.
         if (!is_decl and !try self.requireAccess(self.placeOf(target), .assign, target)) {
             if (kind.operator() == null) try self.checkExpr(rhs, if (writes_through) sema.unwrapBorrows(self.ctx, sym.ty) else sym.ty) else _ = try self.synthExpr(rhs);
@@ -940,7 +950,7 @@ const Checker = struct {
         // given a `!T`, it is pointed elsewhere. (A `![]T` views elements
         // it does not own, and is never written whole.)
         const through = sema.assignWritesThrough(self.ctx, place_ty) and sema.writeSliceElem(self.ctx, place_ty) == null and
-            (kind.operator() != null or (!rhs.isKind(.write) and self.ctx.types.get(try self.argType(rhs)) != .borrow_write));
+            (kind.operator() != null or !try self.handsOverWriteBorrow(rhs));
         if (!try self.requireAccess(place, if (through) .write_through else .assign, target)) {
             _ = try self.synthExpr(rhs);
             return;

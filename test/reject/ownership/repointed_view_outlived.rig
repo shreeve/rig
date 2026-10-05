@@ -1,0 +1,22 @@
+# A view pointed elsewhere may not outlive what it views, in a field or
+# a local.
+
+struct H
+  w: !Int
+
+sub main
+  m = 1
+  k = 1
+  h = H(w: !m)
+  w = !k
+  if true
+    n = 2
+    o = 3
+    h.w = !n
+    w = !o
+  h.w = 9
+  w = 4
+  print(m, k)
+
+# error: 15:12: `n` does not live long enough
+# error: 16:10: `o` does not live long enough

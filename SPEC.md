@@ -2999,11 +2999,14 @@ cannot write-borrow `ps` in an index of a place borrowed from it
 
 A write borrow is assignable, whether a `!T` parameter or a local
 holding one: `p.f = v`, `p = v`, and `p += 1` write through to the
-borrowed value (the old value is dropped first). A new binding points
-a name at another place: `new w = !m`, or `new w = <w2`. Assigning a
-write borrow to one (`w = !m`, `w = <w2`, or a call returning a `!T`)
-is rejected, since it would write through `w`. A field or element of type `!T` reads and
-writes through too: `h.w = 5`, `h.w += 1`, and `xs[i] += 1` write the
+borrowed value (the old value is dropped first). Assigning a view
+points the place at another place instead: `w = !m`, `w = <w2`, or a
+call returning a `!T` re-points a local `w`, which then lends `m`
+alone (a `![]T` local alike), and a bare `w = w2` reads the value `w2`
+reaches and writes it through `w`. A parameter is never re-pointed:
+`w = !m` of a `!T` parameter is rejected, and `new w = !m` binds a new
+name instead. A field or element of type `!T` follows the same rule:
+`h.w = 5`, `h.w += 1`, `xs[i] += 1`, and `h.w = w2` write the
 value the place borrows, while assigning another write borrow,
 `h.w = !m`, points the place at `m`. Writing through a borrow held in
 a field, or lending it with `!h.w`, needs write access to the struct,
@@ -3011,8 +3014,9 @@ as writing any field does, so a plain parameter `h: H`, a capture, or
 a temporary cannot. A write borrow can be
 lent on, written `!p` as an owned value's borrow is, or moved into a
 local with `<p`, but not copied. A bare `w` of type `!Int` where an
-`Int` goes copies the value it reaches (`x = w`); where a `!Int` goes
-(`h.w = w`), it would copy the borrow, and is written `<w`. One held
+`Int` goes copies the value it reaches (`x = w`), and so does one
+assigned to a `!Int` place (`h.w = w`); `h.w = <w` moves the borrow
+there instead. One held
 in a field is read-only through a `?T` or `*T`, like the rest of what
 that path reaches: it cannot be written through or passed on from
 there, and a `match` through one cannot bind it. A loop walks elements

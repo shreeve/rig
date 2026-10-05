@@ -844,6 +844,7 @@ instead of re-deriving it by name:
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read lend of it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
+| `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
@@ -1085,9 +1086,13 @@ its `!` arguments and other write views lead to, except a built-in
 element method (`!dst.copy(src)`) whose elements hold no view, which
 stores only plain elements. Assigning a local write view, or a field
 or element through one (`w = v`, `w.f = v`), stores `v` in what `w`
-views (`storeThroughLocal`), and so does assigning a value to a
+views (`storeThroughLocal`), unless the assignment gives `w` a view
+(`repoints`): then `w` points elsewhere and holds that view's loans
+alone, as a local given a new value does. Assigning a value to a
 field or element that holds a `!T` (`h.w = v`, which writes through
-it): `v` lands in what the struct's `!T` views (`writesThrough`).
+it) stores `v` in what the struct's `!T` views (`writesThrough`); one
+given a view (`h.w = !n`) adds the view's loans to its holder's, which
+keeps the old ones too, since loans are kept per var, not per field.
 Unlike a call, an assignment knows how many write views it goes
 through (`placeDepth`: `o.i = v` one, `o.i.x = v` two), so only the
 values within that many write loans may hold what `v` views, a write

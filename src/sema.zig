@@ -413,7 +413,10 @@ pub const SymbolFlags = packed struct(u16) {
     /// not plain data: usable within its arm only (docs/INTERNALS.md,
     /// "Header subjects").
     arm_view: bool = false,
-    _: u5 = 0,
+    /// A `!T` or `![]T` local assigned a view somewhere
+    /// (`SemContext.repoints`): it lowers to a Zig `var` pointer.
+    repointed: bool = false,
+    _: u4 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -653,6 +656,9 @@ pub const Facts = struct {
     /// Field and element assignment targets that write through the `!T`
     /// the place holds (`SemContext.recordThroughWrite`).
     through_writes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Assignments of a view to a `!T` or `![]T` local, which point it
+    /// at another place (`SemContext.recordRepoint`).
+    repoints: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Fields and elements of a temporary, holding a Cell, that a read
     /// borrow lends (`SemContext.recordCellTemp`).
     cell_temps: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -1507,6 +1513,17 @@ pub const SemContext = struct {
 
     pub fn writesThrough(self: *const SemContext, node: Sexp) bool {
         return self.facts.through_writes.contains(nodeKey(node) orelse return false);
+    }
+
+    /// `node`, an assignment of a `!T` or `![]T` local, gives it a view
+    /// (`w = !n`, `w = <w2`): the local points at another place, rather
+    /// than writing the value it views.
+    pub fn recordRepoint(self: *SemContext, node: Sexp) !void {
+        try self.facts.repoints.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn repoints(self: *const SemContext, node: Sexp) bool {
+        return self.facts.repoints.contains(nodeKey(node) orelse return false);
     }
 
     /// `node`, a field or element of a temporary (`mk().p`), holds a Cell

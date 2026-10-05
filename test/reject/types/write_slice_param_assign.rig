@@ -1,5 +1,5 @@
 # A `![]T` parameter views the caller's elements: it is written element
-# by element, never assigned whole.
+# by element, and never points elsewhere.
 
 sub f(s: ![]Int, t: ![]Int)
   s = <t
@@ -10,4 +10,4 @@ sub main()
   b = [3, 4]
   f(!a[..], !b[..])
 
-# error: 5:3: cannot assign to `s`, a `![]Int` parameter; write its elements with `s[i] = v` or `!s.copy(src)`
+# error: 5:7: cannot point parameter `s` at another place: parameters are immutable, and `s[i] = v` writes its elements

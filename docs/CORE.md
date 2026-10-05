@@ -636,9 +636,9 @@ sub main
 **Borrow places.** Assigning a view to a place that holds one re-points
 it, and assigning a value writes through. This holds for locals and
 fields alike. `new` only shadows, and accepts every binding form.
-*(planned)*
+*(built)*
 
-```rig pending
+```rig
 sub main
   m = 1
   n = 2
