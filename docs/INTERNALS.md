@@ -1376,7 +1376,10 @@ origins its type gives.
 `reachTargets`). A view's *targets* are the memory its views point
 into: a `?T`'s or `!T`'s `T`, a `[]T`'s or `![]T`'s `T` elements, a
 String's bytes (a Text's, or a literal's); a function, a lent callable,
-a type parameter, or a type not known points anywhere. A holder type
+a type parameter, or a type not known points anywhere. A slice's targets
+are elements: an array's, a slice's, or a generic instance's argument
+(`elem_view`), never a field, so a struct's `n: Int` cannot be what an
+`[]Int` views. A holder type
 reaches a target `owned` when a path of parts it holds by value (fields,
 payloads, an optional's, array's, Vec's, Box's, Cell's or Signal's
 contents, a handle's) and write views leads to memory of the target's
@@ -1728,7 +1731,8 @@ Sentence 7 it models on its own (`kinds.Reach`), from types it spells
 the same in every module: a call's result carries the arguments whose
 declared parameter types lead, past a view, to the memory the result
 views, and what it stores those whose types lead to what memory past a
-write view may hold; a var carries a loan it was lent only where the
+write view may hold (a slice's targets as elements only); a var
+carries a loan it was lent only where the
 lent place's type may own what the var's views view, transitively, or
 reach it through a write view, and otherwise the loans that place's
 var holds after the call's stores. It maps arguments to parameters

@@ -3763,7 +3763,14 @@ const ViewNode = struct {
     ctx: *const SemContext,
     ty: TypeId,
     args: ?struct { ctx: *const SemContext, tys: []const TypeId } = null,
+    /// An element of an array, a slice, or a generic instance's
+    /// argument, which a slice may view (`elem_view`).
+    elem: bool = false,
 };
+
+/// The bit `viewAtom` sets on the target of a slice: memory a slice
+/// views is an element of an array, a slice, or a Vec, never a field.
+const elem_view: u64 = 1 << 62;
 
 /// The types a value of `node` holds by value (fields, payloads, an
 /// optional's, array's, Vec's, Box's, Cell's or Signal's contents, a
@@ -3773,7 +3780,7 @@ fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
     const ctx = node.ctx;
     switch (ctx.types.get(node.ty)) {
         .optional, .fallible, .shared, .weak => |inner| try f.visit(.{ .ctx = ctx, .ty = inner, .args = node.args }),
-        .array => |a| try f.visit(.{ .ctx = ctx, .ty = a.elem, .args = node.args }),
+        .array => |a| try f.visit(.{ .ctx = ctx, .ty = a.elem, .args = node.args, .elem = true }),
         .nominal, .imported_nominal => {
             const decl = nominalDecl(ctx, node.ty) orelse return;
             for (decl.symbol().fields orelse &.{}) |*fld| {
@@ -3781,7 +3788,7 @@ fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
             }
         },
         .parameterized_nominal => |pn| {
-            for (pn.args) |arg| try f.visit(.{ .ctx = ctx, .ty = arg, .args = node.args });
+            for (pn.args) |arg| try f.visit(.{ .ctx = ctx, .ty = arg, .args = node.args, .elem = true });
             for (ctx.symbols.items[pn.sym].fields orelse &.{}) |*fld| {
                 for (dataFields(fld)) |d| try f.visit(.{ .ctx = ctx, .ty = d.ty, .args = .{ .ctx = ctx, .tys = pn.args } });
             }
@@ -3817,13 +3824,13 @@ const TargetWalk = struct {
             .type_var => if (node.args) |args| {
                 for (args.tys) |t| switch (args.ctx.types.get(t)) {
                     .type_var, .invalid, .unknown => self.out.any = true,
-                    else => try self.target(.{ .ctx = args.ctx, .ty = t }),
+                    else => try self.target(.{ .ctx = args.ctx, .ty = t, .elem = node.elem }),
                 };
             } else {
                 self.out.any = true;
             },
             .function, .callable, .invalid, .unknown => self.out.any = true,
-            else => try self.out.add(self.a, viewAtom(ctx, node.ty)),
+            else => try self.out.add(self.a, viewAtom(ctx, node.ty) | if (node.elem) elem_view else 0),
         }
     }
 
@@ -3836,12 +3843,12 @@ const TargetWalk = struct {
         };
         if (is_view and (!self.written_only or self.written)) switch (t) {
             // A `![]T` points at its elements; a `?[]T` at a slice.
-            .borrow_write => |inner| try self.target(.{ .ctx = ctx, .ty = switch (ctx.types.get(inner)) {
-                .slice => |sl| sl.elem,
-                else => inner,
-            }, .args = node.args }),
+            .borrow_write => |inner| try self.target(switch (ctx.types.get(inner)) {
+                .slice => |sl| .{ .ctx = ctx, .ty = sl.elem, .args = node.args, .elem = true },
+                else => .{ .ctx = ctx, .ty = inner, .args = node.args },
+            }),
             .borrow_read => |inner| try self.target(.{ .ctx = ctx, .ty = inner, .args = node.args }),
-            .slice => |sl| try self.target(.{ .ctx = ctx, .ty = sl.elem, .args = node.args }),
+            .slice => |sl| try self.target(.{ .ctx = ctx, .ty = sl.elem, .args = node.args, .elem = true }),
             .string => self.out.bytes = true,
             else => self.out.any = true,
         };
@@ -3926,7 +3933,7 @@ const ReachWalk = struct {
     /// How a node is reached: past a read view, and past any view.
     const Path = struct { read: bool = false, viewed: bool = false };
     const Item = struct { node: ViewNode, path: Path };
-    const SeenKey = struct { ctx: usize, ty: TypeId, path: Path, generic: bool };
+    const SeenKey = struct { ctx: usize, ty: TypeId, path: Path, generic: bool, elem: bool };
 
     /// Memory of a target type is reached by `path`; `viewed` when it
     /// may be a view's.
@@ -3937,7 +3944,7 @@ const ReachWalk = struct {
     }
 
     fn push(self: *ReachWalk, node: ViewNode, path: Path) std.mem.Allocator.Error!void {
-        const key: SeenKey = .{ .ctx = @intFromPtr(node.ctx), .ty = node.ty, .path = path, .generic = node.args != null };
+        const key: SeenKey = .{ .ctx = @intFromPtr(node.ctx), .ty = node.ty, .path = path, .generic = node.args != null, .elem = node.elem };
         if ((try self.seen.getOrPut(self.a, key)).found_existing) return;
         try self.queue.append(self.a, .{ .node = node, .path = path });
     }
@@ -3963,16 +3970,19 @@ const ReachWalk = struct {
             },
             else => {},
         }
-        if (self.targets.any or std.mem.findScalar(u64, self.targets.atoms.items, viewAtom(ctx, node.ty)) != null) self.reached(path, path.viewed);
+        const atom = viewAtom(ctx, node.ty);
+        const hit = std.mem.findScalar(u64, self.targets.atoms.items, atom) != null or
+            (node.elem and std.mem.findScalar(u64, self.targets.atoms.items, atom | elem_view) != null);
+        if (self.targets.any or hit) self.reached(path, path.viewed);
         switch (t) {
             .borrow_read => |inner| try self.push(.{ .ctx = ctx, .ty = inner, .args = node.args }, read),
-            .slice => |sl| try self.push(.{ .ctx = ctx, .ty = sl.elem, .args = node.args }, read),
+            .slice => |sl| try self.push(.{ .ctx = ctx, .ty = sl.elem, .args = node.args, .elem = true }, read),
             .borrow_write => |inner| {
-                const elem = switch (ctx.types.get(inner)) {
-                    .slice => |sl| sl.elem,
-                    else => inner,
+                const next: ViewNode = switch (ctx.types.get(inner)) {
+                    .slice => |sl| .{ .ctx = ctx, .ty = sl.elem, .args = node.args, .elem = true },
+                    else => .{ .ctx = ctx, .ty = inner, .args = node.args },
                 };
-                try self.push(.{ .ctx = ctx, .ty = elem, .args = node.args }, .{ .read = path.read, .viewed = true });
+                try self.push(next, .{ .read = path.read, .viewed = true });
             },
             // A String views bytes; a Text owns them.
             .string => if (self.targets.bytes) self.reached(read, true),

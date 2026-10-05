@@ -3221,6 +3221,15 @@ pub const Checker = struct {
         }
         result = try self.valueUnion(result, carried);
 
+        // A write receiver is lent when the call starts, before the
+        // callee stores anything.
+        if (recv_root) |id| if (recv_mode == .write) {
+            // The reservation itself is no conflict.
+            const reserved = self.temps.orderedRemove(reservation);
+            _ = try self.conflicts(id, .write, self.startOf(ir.Member.object(callee)));
+            try self.temps.insert(self.gpa, reservation, reserved);
+        };
+
         // The callee may store what its arguments borrow into anything it
         // can mutate: the receiver, and whatever the write borrows passed
         // to it lead to (`!x`, a write borrow passed on or moved in, a
@@ -3237,13 +3246,6 @@ pub const Checker = struct {
             try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
             for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
         }
-
-        if (recv_root) |id| if (recv_mode == .write) {
-            // The reservation itself is no conflict.
-            const reserved = self.temps.orderedRemove(reservation);
-            _ = try self.conflicts(id, .write, self.startOf(ir.Member.object(callee)));
-            try self.temps.insert(self.gpa, reservation, reserved);
-        };
 
         // The borrows passed to the call end when it returns, unless its
         // result can carry them.
@@ -3840,7 +3842,9 @@ pub const Checker = struct {
     /// Record that the function returns `v`: the parameters whose loans
     /// it carries are among those a call's result carries.
     fn recordResult(self: *Checker, v: Value, pos: u32) void {
-        for (v.loans) |l| if (self.paramOf(l)) |i| {
+        // A loan on what is the function's own (a parameter taken by
+        // value) cannot leave it, which `checkEscape` reports.
+        for (v.loans) |l| if (!self.isLocalLoan(l)) if (self.paramOf(l)) |i| {
             const bit = sema.paramBit(i);
             if (self.func.returned & bit == 0) self.func.returned_at[i] = pos;
             self.func.returned |= bit;

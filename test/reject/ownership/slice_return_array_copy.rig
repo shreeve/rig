@@ -33,3 +33,4 @@ sub main()
 # error: 13:4: cannot return a borrow of `p`
 # error: 17:13: returned borrow of `x` does not originate from a borrowed parameter
 # error: `b` does not live long enough
+# errors: 4
