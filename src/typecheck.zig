@@ -1953,7 +1953,12 @@ const Checker = struct {
                     try self.err(pos, "`<{s}` would move the elements out of a Vec that `{s}` only borrows; loop over `?{s}` or `!{s}`, or move the Vec itself", .{ shown, shown, shown, shown });
                     return self.ctx.intern(.{ .borrow_read = elem });
                 }
-                return if (is_resource) try self.ctx.intern(.{ .borrow_read = elem }) else elem;
+                if (is_resource) return self.ctx.intern(.{ .borrow_read = elem });
+                // Inside a generic body an element whose type depends on
+                // the instance is bound as a copy, which is only read: a
+                // Cell in it would change in the copy alone.
+                if (sema.copyable(self.ctx, elem) == .depends) try self.requireOf(elem, .no_cell, pos, "copies into a loop binding a value");
+                return elem;
             },
             .array => |a| {
                 if (try self.loopHoldsWriteView(source, inner_source, a.elem, mode)) return self.t().invalid_id;
