@@ -4045,7 +4045,9 @@ fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u3
         const i = for (d.params.items(), 0..) |p, i| {
             if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
         } else {
-            try ctx.errAt(n, "`{s}` has no parameter `{s}`; `from` names parameters, `self`, or `static`", .{ name, text });
+            if (std.mem.eql(u8, text, "static")) {
+                try ctx.errAt(n, "`static` stands alone (`from static`): a result may always view what lives for the whole program, so a list names only parameters", .{});
+            } else try ctx.errAt(n, "`{s}` has no parameter `{s}`; `from` names parameters, `self`, or `static` alone", .{ name, text });
             continue;
         };
         if (i < f.params.len and try reachTargets(ctx, a, f.params[i], results, .views) == .none) {

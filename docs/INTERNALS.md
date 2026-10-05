@@ -1431,7 +1431,11 @@ closure whose body returns or stores the loans of a parameter its
 origins leave out is rejected there, with a note writing the clause the
 body satisfies (`-> T from a, b`). With origins from the signature's
 types this fires only when the classifier misses an edge: a compiler
-bug becomes a rejection, never a hole in a caller. A `from` clause is
+bug becomes a rejection, never a hole in a caller. One such edge is
+known: where a result's targets are anything (a type parameter's or a
+callable's), a String parameter taken by value is never counted, which
+can only reject a body that returns one; no generic or callable body
+can turn a String into a `T` or a callable. A `from` clause is
 part of a declaration, not of its function type: a function lent as a
 value (`?first`) is called with its type's origins, which every body
 satisfies. Recursion needs no fixpoint: a call of the function from its

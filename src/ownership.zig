@@ -3931,7 +3931,9 @@ pub const Checker = struct {
                     } else try self.err(self.func.returned_at[i], "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, pname, only });
                     if (self.declaredFrom(name)) |d| {
                         const all = try self.paramList(items, self.func.returned, false);
-                        try self.note(self.startOf(d.returns), "say so: `-> {s} from {s}`, or return a view of what it names only", .{ self.spanText(d.returns), all });
+                        if (self.namesStatic(items, self.func.returned)) {
+                            try self.note(self.startOf(d.returns), "`from static` means what lives for the whole program, not the parameter `static`; rename the parameter to name it in `from`", .{});
+                        } else try self.note(self.startOf(d.returns), "say so: `-> {s} from {s}`, or return a view of what it names only", .{ self.spanText(d.returns), all });
                     }
                     return;
                 }
@@ -3941,6 +3943,17 @@ pub const Checker = struct {
                 try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no loan of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
             }
         }
+    }
+
+    /// Whether a parameter of `mask` among `items` is named `static`,
+    /// which `from` cannot name.
+    fn namesStatic(self: *const Checker, items: []const Sexp, mask: sema.ParamMask) bool {
+        for (items, 0..) |p, i| {
+            if (mask & sema.paramBit(i) == 0) continue;
+            const pn = sema.paramNameNode(p) orelse continue;
+            if (std.mem.eql(u8, self.text(pn), "static")) return true;
+        }
+        return false;
     }
 
     /// The `from` clause of the function named `name`, if it writes one.

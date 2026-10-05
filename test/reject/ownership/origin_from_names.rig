@@ -1,5 +1,5 @@
 # `from` names parameters whose types could hold what the result views,
-# on a result that views something.
+# on a result that views something; `static` stands alone.
 
 fun a(v: ?Vec[Int], k: ?Int) -> ?Vec[Int] from k
   v
@@ -10,10 +10,14 @@ fun b(v: ?Vec[Int]) -> ?Vec[Int] from w
 fun c(n: Int) -> Int from n
   n
 
+fun d(x: ?Vec[Int], y: ?Vec[Int]) -> ?Vec[Int] from y, static
+  y
+
 sub main
   pass
 
-# errors: 3
+# errors: 4
 # error: 4:48: `k: ?Int` cannot hold a view of what `a` returns
 # error: 7:39: `b` has no parameter `w`
 # error: 10:22: `c` returns `Int`, which views nothing
+# error: 13:56: `static` stands alone (`from static`)

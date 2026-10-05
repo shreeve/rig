@@ -1,0 +1,12 @@
+# `from static` means what lives for the whole program: a parameter
+# named `static` cannot be named in `from`, so a body that returns it
+# exceeds the clause, and the note says why.
+
+fun pick(static: ?Vec[Int], other: ?Vec[Int]) -> ?Vec[Int] from static
+  static
+
+sub main
+  pass
+
+# errors: 1
+# error: 6:3: `pick` returns a view of `static`, but its signature says it views only what lives for the whole program
