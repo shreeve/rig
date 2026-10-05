@@ -1,0 +1,11 @@
+# field re-point at an inner-scope local, then use the field after
+struct H
+  w: !Text
+
+sub main
+  a = Text("a")
+  h = H(w: !a)
+  if true
+    k = Text("k")
+    h.w = !k
+  !h.w.add("!")

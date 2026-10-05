@@ -1,0 +1,10 @@
+# consuming a struct's array field
+struct S
+  arr: [2]Text
+  n: Int
+
+sub main
+  s = S(arr: [Text("a"), Text("b")], n: 1)
+  for x in <s.arr
+    print(x)
+  print(s.n)

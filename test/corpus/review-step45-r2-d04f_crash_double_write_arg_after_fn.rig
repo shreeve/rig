@@ -1,0 +1,9 @@
+# crash min
+fun pick(f: ?fun() -> Int, x: !Text, y: !Text) -> !Text
+  y
+
+sub main
+  b = Text("b")
+  f = || 1
+  w = pick(f, !b, !b)
+  print(w)

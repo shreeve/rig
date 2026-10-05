@@ -1,0 +1,11 @@
+# w = h.w where w: !Text local and h.w: !Text held -> writes through?
+struct H
+  w: !Text
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  w = !a
+  h = H(w: !b)
+  w = h.w
+  print(a)

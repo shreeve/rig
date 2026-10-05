@@ -1,0 +1,9 @@
+# a closure captures w (write), then w re-pointed while the closure lives
+sub main
+  m = 1
+  n = 2
+  w = !m
+  f = |!w| w += 10
+  w = !n
+  f()
+  print(m, n)

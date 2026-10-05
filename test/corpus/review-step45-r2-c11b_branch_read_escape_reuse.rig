@@ -1,0 +1,30 @@
+# if (?v[idx(?Text("a"))] if c else ?w) as t over Vec[Int]?: a view of t escapes the if
+fun idx(s: String) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1] + b[2]
+
+sub main
+  v: Vec[Vec[Int]?] = Vec()
+  inner: Vec[Int] = Vec()
+  !inner.push(42)
+  !v.push(<inner)
+  w: Vec[Int]? = none
+  c = v.len == 1
+  dummy: Vec[Int] = Vec()
+  r = ?dummy
+  if (?v[idx(?Text("a"))] if c else ?w) as t
+    r = ?t
+  print(clobber(1000))
+  big: Vec[Int]? = none
+  for k in 0..3
+    q: Vec[Int] = Vec()
+    !q.push(k)
+    !q.push(k)
+    !q.push(k)
+    big = <q
+  print(big)
+  print(r.len, r)

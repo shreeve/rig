@@ -1,0 +1,21 @@
+# H3: generic loop over ?Vec[T], body: T = S (struct of Text), return element
+struct S
+  t: Text
+
+struct Holder[T]
+  x: T?
+
+
+
+fun first[T](v: ?Vec[T]) -> T?
+  for x in v
+    return x
+  none
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  s: Vec[S] = Vec()
+  !s.push(S(t: Text("q")))
+  print(first(?s))

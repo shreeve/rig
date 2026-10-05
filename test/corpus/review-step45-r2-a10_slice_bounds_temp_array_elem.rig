@@ -1,0 +1,10 @@
+# for x in !a[idx(?Text("a"))][0..2] : exempt slice source whose object is an array element through a temp
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  a = [[Text("p"), Text("q")]]
+  for x in !a[idx(?Text("a"))][0..2]
+    for _ in 0..40
+      !x.add("xxxxxxxx")
+  print(a[0][0].len)

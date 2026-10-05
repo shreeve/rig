@@ -1,0 +1,9 @@
+# early return from inside the consuming loop
+fun find(a: [3]Text) -> Text
+  for x in <a
+    if x == "b"
+      return <x
+  Text("none")
+
+sub main
+  print(find([Text("a"), Text("b"), Text("c")]))

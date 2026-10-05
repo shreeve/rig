@@ -1,0 +1,8 @@
+# Cell holding a Vec of views: must be rejected (Cell takes no loans)
+sub main
+  t = Text("x")
+  v: Vec[String] = Vec()
+  !v.push(?t)
+  c = Cell(<v)
+  -t
+  print("end")

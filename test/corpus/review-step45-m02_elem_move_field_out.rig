@@ -1,0 +1,10 @@
+# rs[0] = Rec(name: rs[0].name, ...) must be rejected (copies Text out)
+struct Rec
+  name: Text
+  n: Int
+
+sub main
+  rs: Vec[Rec] = Vec()
+  !rs.push(Rec(name: Text("a"), n: 1))
+  rs[0] = Rec(name: rs[0].name, n: 2)
+  print(rs[0].name)

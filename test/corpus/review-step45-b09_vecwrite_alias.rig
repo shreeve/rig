@@ -1,0 +1,8 @@
+# Vec[!Int]: push !a, then read a while the Vec is live
+sub main
+  a = 1
+  w: Vec[!Int] = Vec()
+  !w.push(!a)
+  print(a)
+  w[0] = 5
+  print(a)

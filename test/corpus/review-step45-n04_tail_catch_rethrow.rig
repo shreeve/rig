@@ -1,0 +1,14 @@
+# tail rethrows the caught error as a value
+error Bad
+  oops
+
+fun g(n: Int) -> Int!
+  if n == 0
+    return Bad.oops
+  n
+
+fun f(n: Int) -> Int!
+  g(n) catch |e| e
+
+sub main
+  print(f(0) catch -1, f(2) catch -1)

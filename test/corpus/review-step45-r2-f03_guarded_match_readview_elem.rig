@@ -1,0 +1,15 @@
+# guarded match on an element of a ?Vec[E] parameter, Text payload, no Cell
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun f(v: ?Vec[E]) -> Int
+  match v[0]
+    .a(t) if t.len > 1 => t.len
+    .a(_) => 1
+    .b(n) => n
+
+sub main
+  e: Vec[E] = Vec()
+  !e.push(E.a(t: Text("hello")))
+  print(f(?e))

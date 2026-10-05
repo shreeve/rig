@@ -1,0 +1,8 @@
+# struct literal field takes an array of owners bare (copy): reject
+struct S
+  arr: [2]Text
+
+sub main
+  a = [Text("a"), Text("b")]
+  s = S(arr: a)
+  print(s.arr, a)

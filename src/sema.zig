@@ -656,6 +656,10 @@ pub const Facts = struct {
     /// Field and element assignment targets that write through the `!T`
     /// the place holds (`SemContext.recordThroughWrite`).
     through_writes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Header nodes (`match`, `for`, `as`) emitted over a copy of their
+    /// subject: the subject makes a statement temporary and the
+    /// construct does not own what it binds (`SemContext.recordHeaderCopy`).
+    header_copies: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Assignments of a view to a `!T` or `![]T` local, which point it
     /// at another place (`SemContext.recordRepoint`).
     repoints: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -1515,6 +1519,18 @@ pub const SemContext = struct {
         return self.facts.through_writes.contains(nodeKey(node) orelse return false);
     }
 
+    /// Header `node` (a `match`, `for`, or `as`) is evaluated in a block
+    /// that ends the temporaries its subject makes (`firstHeaderTemp`)
+    /// and yields the subject's value, so what it binds views a copy of
+    /// that value, not the subject itself.
+    pub fn recordHeaderCopy(self: *SemContext, node: Sexp) !void {
+        try self.facts.header_copies.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn copiesHeader(self: *const SemContext, node: Sexp) bool {
+        return self.facts.header_copies.contains(nodeKey(node) orelse return false);
+    }
+
     /// `node`, an assignment of a `!T` or `![]T` local, gives it a view
     /// (`w = !n`, `w = <w2`): the local points at another place, rather
     /// than writing the value it views.
@@ -1580,10 +1596,14 @@ pub const SemContext = struct {
     }
 
     /// The context of `node` reads, takes, or lends it (`Facts.uses`).
-    /// A value has one use: a second record of it must agree.
+    /// A value has one use: a second record of it must agree. A value
+    /// lent implicitly where a view goes was first recorded as taken
+    /// (`recordImplicitLend`); checking its context again records the
+    /// take before the lend, and keeps the lend.
     pub fn recordUse(self: *SemContext, node: Sexp, use: Use) !void {
         const key = recordExprKey(node) orelse return;
         const gop = try self.facts.uses.getOrPut(self.allocator, key);
+        if (gop.found_existing and gop.value_ptr.* == .lend and use == .take) return;
         if (gop.found_existing) std.debug.assert(gop.value_ptr.* == use);
         gop.value_ptr.* = use;
     }
@@ -3497,6 +3517,39 @@ pub fn isHeaderOf(parent: Sexp, child: Sexp) bool {
         else => return false,
     };
     return header == .list and child == .list and header.list.id == child.list.id;
+}
+
+/// The first statement temporary (`dropsTemp`) that `stmt`, a statement
+/// or a header, makes itself: not one inside a block or closure it
+/// holds, a header of its own (an `if`'s condition, a `match`'s
+/// subject), or a `while` loop's step, each of which ends its own.
+pub fn firstStmtTemp(ctx: *const SemContext, stmt: Sexp) ?Sexp {
+    if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return null;
+    if (ctx.dropsTemp(stmt)) return stmt;
+    for (rig.children(stmt)) |c| {
+        if (isHeaderOf(stmt, c) or isWhileStep(stmt, c)) continue;
+        if (firstStmtTemp(ctx, c)) |t| return t;
+    }
+    return null;
+}
+
+/// Whether a view of type `ty` is held as a pointer: a write view (but
+/// a `![]T`, a slice), or a read view of a value that is not lent by
+/// value (`lendByValue`).
+pub fn viewHeldAsPointer(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .borrow_write => writeSliceElem(ctx, ty) == null,
+        .borrow_read => |inner| !lendByValue(ctx, inner),
+        else => false,
+    };
+}
+
+/// Whether `child` is the step of `while` loop `parent`: a statement
+/// of its own, run after each pass.
+pub fn isWhileStep(parent: Sexp, child: Sexp) bool {
+    if (!parent.isKind(.@"while")) return false;
+    const step = ir.While.step(parent);
+    return step == .list and child == .list and step.list.id == child.list.id;
 }
 
 /// Whether a value of `ty` holds a String but no borrow or type

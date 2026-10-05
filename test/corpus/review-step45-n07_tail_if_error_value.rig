@@ -1,0 +1,9 @@
+# tail is a value-if yielding an error value
+error Bad
+  oops
+
+fun f(c: Bool) -> Int!
+  Bad.oops if c else 1
+
+sub main
+  print(f(true) catch -1)

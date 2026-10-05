@@ -1,0 +1,14 @@
+# for x in (a[idx(?Text("a"))] if c else b): branching read source over arrays of Cell holders
+struct C
+  c: Cell[Int]
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  a = [[C(c: Cell(1))]]
+  b = [C(c: Cell(2))]
+  c = b.len == 1
+  for x in (?a[idx(?Text("a"))] if c else ?b)
+    x.c.set(9)
+  print(a[0][0].c.get())

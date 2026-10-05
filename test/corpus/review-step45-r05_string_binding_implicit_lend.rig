@@ -1,0 +1,7 @@
+# s: String = v[0] lends the element; push must be rejected while s is used
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  s: String = v[0]
+  !v.push(Text("b"))
+  print(s)

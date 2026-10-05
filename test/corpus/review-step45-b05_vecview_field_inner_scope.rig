@@ -1,0 +1,10 @@
+# a view of an inner-scope Int pushed to an outer struct's Vec field
+struct Bag
+  items: Vec[?Int]
+
+sub main
+  bag = Bag(items: Vec())
+  if true
+    e = 8
+    !bag.items.push(?e)
+  print(bag.items)

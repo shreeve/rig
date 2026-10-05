@@ -1,0 +1,13 @@
+# if (!w if c else !v[idx(?Text("a"))]) as t with c true: does the w leaf still bind a copy?
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("q"))
+  w: Text? = Text("w")
+  c = v.len == 1
+  if (!w if c else !v[idx(?Text("a"))]) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(w)

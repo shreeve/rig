@@ -1,0 +1,16 @@
+# guarded match on an element of a Vec in a shared handle
+enum E
+  a(t: Text)
+  b(n: Int)
+
+struct S
+  v: Vec[E]
+
+sub main
+  e: Vec[E] = Vec()
+  !e.push(E.a(t: Text("hi")))
+  h = *S(v: <e)
+  match h.v[0]
+    .a(t) if t.len > 1 => print(t)
+    .a(_) => print(1)
+    .b(n) => print(n)

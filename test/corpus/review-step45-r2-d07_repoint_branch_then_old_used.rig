@@ -1,0 +1,10 @@
+# re-point inside a branch; after the join the old target is written while w may still view it
+sub main
+  a = Text("a")
+  b = Text("b")
+  w = !a
+  if b.len == 1
+    w = !b
+  a = Text("A")
+  !w.add("!")
+  print(a, b)

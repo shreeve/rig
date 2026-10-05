@@ -1,0 +1,13 @@
+# generic loop that takes elements: for x in <v, T = Text
+fun eat[T](v: Vec[T]) -> Int
+  n = 0
+  for x in <v
+    keep = <x
+    n += 1
+  n
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  print(eat(<v))

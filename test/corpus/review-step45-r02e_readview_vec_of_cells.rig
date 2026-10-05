@@ -1,0 +1,9 @@
+# Cell change through an element of a ?Vec[Cell[Int]] parameter
+sub bump(v: ?Vec[Cell[Int]])
+  v[0].set(30)
+
+sub main
+  v: Vec[Cell[Int]] = Vec()
+  !v.push(Cell(3))
+  bump(?v)
+  print(v[0].get())

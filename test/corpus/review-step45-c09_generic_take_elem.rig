@@ -1,0 +1,9 @@
+# generic take of an optional element; T = Text
+fun grab[T](v: !Vec[T?], i: Int) -> T?
+  <v[i]
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  t = grab(!v, 0)
+  print(t, v)

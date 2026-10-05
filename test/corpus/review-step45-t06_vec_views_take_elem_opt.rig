@@ -1,0 +1,9 @@
+# Vec[String?]: take a view element, drop the Vec, then drop the source and use the taken view
+sub main
+  t = Text("t")
+  w: Vec[String?] = Vec()
+  !w.push(?t)
+  x = <w[0]
+  -w
+  -t
+  print(x)

@@ -1,0 +1,9 @@
+# a view of an element of a temporary escapes its statement
+fun mk -> Vec[Text]
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  <v
+
+sub main
+  s = ?mk()[0]
+  print(s)

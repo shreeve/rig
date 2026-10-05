@@ -1,0 +1,14 @@
+# element view through an upgraded weak handle escapes the if
+struct S
+  v: Vec[Text]
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  h = *S(v: <v)
+  w = ~h
+  s: String = "none"
+  if w.upgrade() as g
+    s = ?g.v[0]
+  -h
+  print(s)

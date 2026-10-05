@@ -1,0 +1,12 @@
+# guarded match on an element place, payload used in arm
+enum E
+  a(t: Text)
+  b(n: Int)
+
+sub main
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("hi")))
+  match v[0]
+    .a(t) if t.len > 1 => print("long", t)
+    .a(t) => print("short", t)
+    .b(n) => print(n)

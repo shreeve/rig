@@ -1,0 +1,9 @@
+# w = <w2 moves a write view
+sub main
+  m = Text("m")
+  n = Text("n")
+  w = !m
+  w2 = !n
+  w = <w2
+  !w.add("!")
+  print(m, n)

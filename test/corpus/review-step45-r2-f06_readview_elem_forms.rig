@@ -1,0 +1,30 @@
+# element of a read-view Vec in each form: while-as, lends of fields, implicit lend args, ?self method
+struct R
+  t: Text
+  n: Int
+
+  fun len(?self) -> Int
+    self.t.len + self.n
+
+fun tl(s: String) -> Int
+  s.len
+
+fun rl(r: ?R) -> Int
+  r.n
+
+fun f(v: ?Vec[R], o: ?Vec[Int?]) -> Int
+  k = 0
+  i = 0
+  while o[i] as x
+    k += x
+    i += 1
+    if i == o.len
+      break
+  k + tl(?v[0].t) + tl(v[0].t) + rl(v[0]) + rl(?v[0]) + v[0].len()
+
+sub main
+  v: Vec[R] = Vec()
+  !v.push(R(t: Text("abc"), n: 2))
+  o: Vec[Int?] = Vec()
+  !o.push(5)
+  print(f(?v, ?o))

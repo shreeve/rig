@@ -1,0 +1,9 @@
+# bind an owning element of a temporary Vec (copy out of a temp)
+fun mk -> Vec[Text]
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  <v
+
+sub main
+  x = mk()[0]
+  print(x)

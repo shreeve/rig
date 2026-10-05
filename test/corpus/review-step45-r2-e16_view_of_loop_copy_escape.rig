@@ -1,0 +1,19 @@
+# H3: generic loop over ?Vec[T]; ?x of the per-iteration copy returned as ?T (T = Text)
+fun lastref[T](v: ?Vec[T]) -> ?T
+  r = ?v[0]
+  for x in v
+    r = ?x
+  r
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1] + b[2]
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
+  r = lastref(?v)
+  print(clobber(1000))
+  print(r)

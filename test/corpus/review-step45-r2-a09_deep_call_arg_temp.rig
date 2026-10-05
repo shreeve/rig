@@ -1,0 +1,19 @@
+# temp deep inside an index expression: v[k(idx(?Text("a")))]
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+fun k(n: Int) -> Int
+  n
+
+sub main
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("hi")))
+  match !v[k(idx(?Text("a")))]
+    .a(t) if t.len > 0 => !t.add("!")
+    .a(t) => !t.add("?")
+    .b(n) => print(n)
+  print(v.len)

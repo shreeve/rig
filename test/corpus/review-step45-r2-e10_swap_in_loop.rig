@@ -1,0 +1,19 @@
+# H3: generic loop over ?Vec[T], body: swap the Vec while looping
+struct S
+  t: Text
+
+struct Holder[T]
+  x: T?
+
+
+
+sub sw[T](v: !Vec[T])
+  for x in v
+    !v.swap(0, 1)
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  sw(!v)
+  print(v)

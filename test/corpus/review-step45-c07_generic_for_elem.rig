@@ -1,0 +1,11 @@
+# generic loop that binds elements; T = Text
+fun count[T](v: ?Vec[T]) -> Int
+  n = 0
+  for x in v
+    n += 1
+  n
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  print(count(?v))

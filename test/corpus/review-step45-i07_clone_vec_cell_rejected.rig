@@ -1,0 +1,7 @@
+# +v where v: Vec[Cell[Int]] must be rejected
+sub main
+  v: Vec[Cell[Int]] = Vec()
+  !v.push(Cell(1))
+  w = +v
+  w[0].set(5)
+  print(v[0].get())

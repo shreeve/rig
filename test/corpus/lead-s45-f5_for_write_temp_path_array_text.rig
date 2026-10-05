@@ -1,0 +1,9 @@
+fun idx(s: ?Text) -> Int
+  0
+
+sub main()
+  v: Vec[[1]Text] = Vec()
+  !v.push([Text("a")])
+  for t in !v[idx(?Text("k"))]
+    !t.add("bcdefghijklmnopqrstuvwxyz0123456789")
+  print(v[0][0])

@@ -1,0 +1,18 @@
+# +l of a recursive Box list
+enum List
+  nil
+  cons(head: Text, tail: Box[List])
+
+fun len(l: ?List) -> Int
+  match l
+    .nil => 0
+    .cons(_, t) => 1 + len(?t)
+
+sub main
+  l = List.cons(head: Text("a"), tail: Box(List.cons(head: Text("b"), tail: Box(List.nil))))
+  c = +l
+  -l
+  print(len(?c))
+  match c
+    .cons(h, _) => print(h)
+    .nil => print("nil")

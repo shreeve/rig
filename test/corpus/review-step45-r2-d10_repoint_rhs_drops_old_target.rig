@@ -1,0 +1,12 @@
+# right side drops/replaces the old target through a function that takes ownership-ish ops
+fun swapin(x: !Text, y: !Text) -> !Text
+  x = Text("replaced")
+  y
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  w = !a
+  w = swapin(!a, !b)
+  !w.add("!")
+  print(a, b)

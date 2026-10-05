@@ -1,0 +1,23 @@
+# H3: generic loop over ?Vec[T], body: match x on T? binding
+struct S
+  t: Text
+
+struct Holder[T]
+  x: T?
+
+
+
+fun cnt[T](v: ?Vec[T?]) -> Int
+  n = 0
+  for x in v
+    if x as y
+      n += 1
+  n
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  o: Vec[Text?] = Vec()
+  !o.push(Text("q"))
+  print(cnt(?o))

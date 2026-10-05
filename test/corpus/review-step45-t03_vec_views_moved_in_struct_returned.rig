@@ -1,0 +1,14 @@
+# a function returns a struct holding a Vec of views of its param
+struct Bag
+  items: Vec[String]
+
+fun bag(t: ?Text) -> Bag
+  b = Bag(items: Vec())
+  !b.items.push(?t)
+  <b
+
+sub main
+  t = Text("x")
+  b = bag(?t)
+  -t
+  print(b.items)

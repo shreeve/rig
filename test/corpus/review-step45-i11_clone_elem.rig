@@ -1,0 +1,9 @@
+# +v[0] where v: Vec[Vec[Text]]
+sub main
+  v: Vec[Vec[Text]] = Vec()
+  r: Vec[Text] = Vec()
+  !r.push(Text("a"))
+  !v.push(<r)
+  c = +v[0]
+  !v[0].push(Text("b"))
+  print(c, v)

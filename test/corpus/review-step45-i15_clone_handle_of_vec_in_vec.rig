@@ -1,0 +1,17 @@
+# +v of Vec[Box[*D]] -- handle inside box inside vec
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  a = *D(n: 1)
+  v: Vec[Box[*D]] = Vec()
+  !v.push(Box(+a))
+  w = +v
+  -a
+  -v
+  print("v gone")
+  -w
+  print("end")

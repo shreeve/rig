@@ -1,0 +1,17 @@
+# re-point in a loop with continue and break, old target used after the loop
+sub main
+  a = Text("a")
+  b = Text("b")
+  c = Text("c")
+  w = !a
+  for i in 0..6
+    if i % 3 == 0
+      w = !b
+      continue
+    if i == 5
+      break
+    w = !c
+    !w.add("x")
+  a = Text("A")
+  !w.add("!")
+  print(a, b, c)

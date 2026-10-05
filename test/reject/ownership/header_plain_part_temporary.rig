@@ -30,4 +30,4 @@ sub main
     .b => pass
   print("end")
 
-# error: 28:14: a borrow of the temporary `mkres(1)` outlives
+# error: 28:14: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the argument to a name first

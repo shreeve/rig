@@ -1,0 +1,11 @@
+# a closure captures ?w; right side calls it (indirect read of w)
+fun pick(f: ?fun() -> Int, x: !Text, y: !Text) -> !Text
+  y
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  w = !a
+  f = |?w| w.len
+  w = pick(f, !b, !b)
+  print(a)

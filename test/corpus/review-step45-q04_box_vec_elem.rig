@@ -1,0 +1,14 @@
+# elements of a Vec inside a Box: assign, lend, take
+struct S
+  v: Vec[Text?]
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  b = Box(S(v: <v))
+  b.v[0] = Text("z")
+  if <b.v[1] as t
+    print(t)
+  r = ?b.v[0]
+  print(r, b.v)

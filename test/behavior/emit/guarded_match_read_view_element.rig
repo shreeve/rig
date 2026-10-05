@@ -1,0 +1,64 @@
+# A guarded match on an element of a Vec reached through a read view
+# matches the element where it is: plain, Text, and Cell-holder
+# payloads, through a parameter and through a field.
+
+struct C
+  c: Cell[Int]
+
+enum E
+  a(n: Int)
+  b(n: Int)
+
+enum T
+  a(t: Text)
+  b
+
+enum K
+  a(x: C)
+  b
+
+struct H
+  es: Vec[E]
+
+fun plain(v: ?Vec[E]) -> Int
+  match v[0]
+    .a(n) if n > 1 => n
+    .a(_) => 1
+    .b(n) => n
+
+fun text(v: ?Vec[T]) -> Int
+  match v[0]
+    .a(t) if t.len > 1 => t.len
+    .a(_) => 1
+    .b => 0
+
+sub cell(v: ?Vec[K])
+  match v[0]
+    .a(x) if x.c.get() == 0 => x.c.set(2)
+    .a(x) => x.c.set(3)
+    .b => pass
+
+fun field(h: ?H) -> Int
+  match h.es[0]
+    .a(n) if n > 1 => n
+    _ => 0
+
+sub main
+  e: Vec[E] = Vec()
+  !e.push(E.a(n: 5))
+  t: Vec[T] = Vec()
+  !t.push(T.a(t: Text("hello")))
+  k: Vec[K] = Vec()
+  !k.push(K.a(x: C(c: Cell(0))))
+  cell(?k)
+  es: Vec[E] = Vec()
+  !es.push(E.a(n: 9))
+  h = H(es: <es)
+  print(plain(?e), text(?t), field(?h))
+  match k[0]
+    .a(x) => print(x.c.get())
+    .b => pass
+
+# expect:
+# 5 5 9
+# 2

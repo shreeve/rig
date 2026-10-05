@@ -27,7 +27,7 @@ sub main
     .a(t) => print(t)
     .z => pass
 
-# error: 21:7: a borrow of the temporary `mk()` outlives its statement
-# error: 23:10: a borrow of the temporary `mk()` outlives its statement
-# error: 26:10: a borrow of the temporary `mke()` outlives its statement
+# error: 21:7: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first
+# error: 23:10: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first
+# error: 26:10: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mke()` to a name first
 # errors: 3

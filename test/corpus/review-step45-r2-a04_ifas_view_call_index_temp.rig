@@ -1,0 +1,15 @@
+# if !getw(!v)[idx(?Text("a"))] as t: write binding through a call-returned view, temp index
+fun idx(s: String) -> Int
+  s.len - 1
+
+fun getw(v: !Vec[Text?]) -> !Vec[Text?]
+  v
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("q"))
+  if !getw(!v)[idx(?Text("a"))] as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  if v[0] as t
+    print(t.len)

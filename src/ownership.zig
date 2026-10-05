@@ -2628,11 +2628,26 @@ pub const Checker = struct {
     /// or a field or element, which stays where it is.
     const Aliased = enum { name, field, element };
 
+    /// Whether `ty`, or the value an optional of it holds, is an array.
+    fn isArrayOf(self: *const Checker, ty: TypeId) bool {
+        var t = ty;
+        while (self.typeData(t) == .optional) t = self.typeData(t).optional;
+        return self.typeData(t) == .array;
+    }
+
     fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
         const where = sink.text();
         const is_name = aliased == .name;
         // Why a part cannot be moved out instead.
         const stays = if (aliased == .element) "an element cannot be moved out of its container" else "a field cannot be moved out of its parent";
+        // An array whose elements own is named by its type.
+        if (ty) |t| if (self.sema) |ctx| if (k == .drop_glue and self.isArrayOf(t)) {
+            const shown = try sema.formatTypeIn(ctx, self.arena(), t);
+            if (is_name) {
+                try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy its owning elements, which both would drop. Use `<{s}` to move it", .{ shown, what, where, what });
+            } else try self.err(pos, "bare use of `{s}` value `{s}` in {s} would copy its owning elements; {s}", .{ shown, what, where, stays });
+            return;
+        };
         switch (k) {
             // Fine for plain data: each instantiation is checked.
             .generic => if (ty) |t| try self.requirePlain(pos, t, false),
@@ -2685,6 +2700,13 @@ pub const Checker = struct {
         const pos = target.src.pos;
         const name = self.text(target);
         const is_lambda = isLambda(expr);
+        // A write-view local re-pointed by a view its right side does not
+        // read, and cannot leave early, never uses its old view again:
+        // that view's loans end here (Core sentence 6), before the right
+        // side lends anew.
+        if (kind == .default and (if (self.sema) |ctx| ctx.repoints(node) else false)) if (self.find(name)) |id| {
+            if (!self.readsName(expr, name) and !leavesEarly(expr)) try self.setFlow(id, .{ .status = self.flows.items[id].status, .at = self.flows.items[id].at });
+        };
         const value: Value = switch (kind) {
             .default, .fixed, .shadow => if (is_lambda) blk: {
                 self.lambda_ok = true;
@@ -2716,6 +2738,30 @@ pub const Checker = struct {
             },
         }
         if (is_lambda) self.vars.items[self.vars.items.len - 1].env_drops = self.envDrops(expr);
+    }
+
+    /// Whether `e` names `name` anywhere.
+    fn readsName(self: *const Checker, e: Sexp, name: []const u8) bool {
+        switch (e) {
+            .src => return std.mem.eql(u8, self.text(e), name),
+            .list => {
+                for (e.items()) |item| if (self.readsName(item, name)) return true;
+                return false;
+            },
+            else => return false,
+        }
+    }
+
+    /// Whether evaluating `e` may leave before it gives its value: a
+    /// propagation, a `return`, a `break`, or a `continue` inside it.
+    fn leavesEarly(e: Sexp) bool {
+        if (e != .list) return false;
+        if (e.kind()) |k| switch (k) {
+            .propagate, .propagate_none, .@"return", .@"break", .@"continue" => return true,
+            else => {},
+        };
+        for (e.items()) |item| if (leavesEarly(item)) return true;
+        return false;
     }
 
     /// Whether the environment of closure literal `lambda` has drop glue.

@@ -1,0 +1,10 @@
+# if <v[idx(?Text("a"))] as t: take an optional element, header temporary
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("q"))
+  if <v[idx(?Text("a"))] as t
+    print(t)
+  print(v)
