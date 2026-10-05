@@ -1591,7 +1591,9 @@ of it (`v[i]`, `get`, `pop`, `remove`) carries those and no loan on the
 container, and `swap` and `replace` exchange what their places hold. A
 place holding a write view, a local, an element, or a field, is written
 through by a value and re-pointed by a new view, after which a local
-holds the new view's loans only; a parameter is never re-pointed. Header subjects follow the table in
+holds the new view's loans only; a parameter is never re-pointed. A clone `+x` is a new owner carrying
+the loans of the views its value holds, and none on what it was read
+through. Header subjects follow the table in
 "Header subjects": a held part is a read lend of the held value, and a
 read match's binding that is no plain data holds a loan on a hidden var
 of its arm, which ends with the arm.

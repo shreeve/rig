@@ -674,6 +674,15 @@ const Lowerer = struct {
         return self.isWriteRef(try self.typeOf(rhs)) and !self.isPlaceSyntax(rhs);
     }
 
+    /// Whether a value of `ty` is a `?T` or `!T` itself, which `+`
+    /// clones what it sees through.
+    fn isRef(self: *Lowerer, ty: TypeId) bool {
+        return switch (self.ctx.types.get(ty)) {
+            .borrow_read, .borrow_write => true,
+            else => false,
+        };
+    }
+
     /// Whether a value of `ty` is a write view, `!T`, itself (not a
     /// value holding one): assigning a value to its place writes
     /// through it, and lending it lends on what it sees.
@@ -1515,10 +1524,19 @@ const Lowerer = struct {
             .move => return self.move(e, how),
             .clone => {
                 const operand = ir.Clone.operand(e);
-                const p = try self.place(operand) orelse return abstain("a clone of a made value");
                 const t = try self.temp(try self.typeOf(e), pos);
-                // `+x` reads `x` and makes a new owner carrying its loans (Core s2).
-                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .read } });
+                const p = try self.place(operand) orelse {
+                    // `+mk()`: a new owner of what the temporary holds.
+                    const m = try self.eval(operand, .read, null) orelse return abstain("a clone of a constant");
+                    try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(m), .def = t, .unpoint = self.isRef(self.f.vars.items[m].ty) });
+                    return t;
+                };
+                // `+x` reads `x` and makes a new owner of its value, part by
+                // part (Core s2): it carries the loans of the views the value
+                // holds; through a view, `+r` of a `?T` is a new `T`, which
+                // carries no loan on what `r` sees.
+                const through = p.via != .own or self.isRef(p.ty);
+                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .unpoint = through, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .read } });
                 return t;
             },
             .@"if", .block, .match, .@"??", .@"catch" => {

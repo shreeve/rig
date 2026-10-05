@@ -159,6 +159,16 @@ const Checker = struct {
                 if (l.pointer and !l.external) out.unset(li);
             }
         }
+        if (op.unpoint) {
+            const extra = self.full;
+            extra.clear();
+            for (self.f.loans.items, 0..) |l, li| {
+                if (!out.has(li) or !l.pointer or l.external) continue;
+                out.unset(li);
+                _ = extra.merge(st.holds[l.root]);
+            }
+            _ = out.merge(extra);
+        }
         if (op.loan) |l| out.set(l);
     }
 

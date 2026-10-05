@@ -65,3 +65,8 @@ test/reject/ownership/vec_for_drop_elem.rig main prod-rejects prod-strict `-cb` 
 # at plain type arguments by its signature, and not the instances that
 # body makes in turn: `lib.f[Int]` calls `util.g[?Int]`.
 test/corpus/R11a-g1 main prod-rejects ref-gap `lib.f(1)` makes the instance `util.g[?Int]`
+
+# A clone is a new owner (Core s2): through a view, `+r` of a `?T`
+# carries the loans of the views its value holds, not the loan on what
+# `r` sees (Core s7).
+test/corpus/r3-or-clone-strict.rig main prod-rejects prod-strict `c = +r` of `r = ?bag` keeps a loan on `bag`
