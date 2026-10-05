@@ -5168,7 +5168,7 @@ const Checker = struct {
         // A generic function's callee has the instance's signature.
         if (fty.function.ct_params.len > 0) try self.ctx.recordType(callee, try self.ctx.internCopy(.{ .function = f }));
         self.lend_call = true;
-        try self.checkArgs(args, f, info, name, callee.src.pos);
+        try self.checkArgs(args, f, info, name, callee.src.pos, .{ .origins = sym.origins });
         return f.returns;
     }
 
@@ -5181,7 +5181,7 @@ const Checker = struct {
             .function => |f| f,
             else => return self.badCall(args, pos, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(ty) }),
         };
-        try self.checkArgs(args, f, .{}, name, pos);
+        try self.checkArgs(args, f, .{}, name, pos, .{});
         return f.returns;
     }
 
@@ -5477,10 +5477,20 @@ const Checker = struct {
         };
     }
 
+    /// What fills a call's parameters besides its arguments, and which
+    /// of them it passes loans on from (`sema.CallParams`).
+    const CallSite = struct {
+        /// A method called on a value: its receiver fills parameter 0,
+        /// before those `checkArgs` checks.
+        receiver: bool = false,
+        origins: sema.Origins = .{},
+    };
+
     /// Arguments against a signature: arity, types, keyword arguments
     /// by parameter name, and defaults for omitted parameters. A call
-    /// that uses keywords or defaults records its argument slots.
-    fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info: ParamInfo, callee: []const u8, pos: u32) Error!void {
+    /// that uses keywords or defaults records its argument slots, and
+    /// every complete call what fills each parameter (`CallParams`).
+    fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info: ParamInfo, callee: []const u8, pos: u32, site: CallSite) Error!void {
         const call = self.current_call;
         const retains = self.callRetains(f, self.lend_recv);
         const lends = self.lend_call and !retains;
@@ -5551,8 +5561,16 @@ const Checker = struct {
             const pname = if (info.names) |n| n[i] else "?";
             try self.err(pos, "call to `{s}` is missing an argument for parameter `{s}`", .{ callee, pname });
         }
-        if (!complete or (keyword.len == 0 and args.len == f.params.len)) return;
+        if (!complete) return;
         const call_node = call orelse return;
+        const fills = try self.ctx.arena.allocator().alloc(sema.ParamFill, slots.len + @intFromBool(site.receiver));
+        if (site.receiver) fills[0] = .receiver;
+        for (slots, fills[@intFromBool(site.receiver)..]) |sl, *fill| fill.* = switch (sl.?) {
+            .arg => |i| .{ .arg = i },
+            .default => .default,
+        };
+        try self.ctx.recordCallParams(call_node, .{ .fills = fills, .origins = site.origins });
+        if (keyword.len == 0 and args.len == f.params.len) return;
         const out = try self.ctx.arena.allocator().alloc(sema.ArgSlot, slots.len);
         for (slots, out) |s, *o| o.* = s.?;
         try self.ctx.recordCallSlots(call_node, out);
@@ -6826,7 +6844,7 @@ const Checker = struct {
         };
         self.lend_call = true;
         self.lend_recv = f.params[0];
-        try self.checkArgs(args, rest, info, method, pos);
+        try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins });
         return f.returns;
     }
 
@@ -7026,7 +7044,7 @@ const Checker = struct {
             try self.synthArgs(args);
             return f.returns;
         }
-        try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub }, .{}, method, pos);
+        try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub }, .{}, method, pos, .{ .receiver = true });
         return f.returns;
     }
 
@@ -7051,7 +7069,7 @@ const Checker = struct {
         if (sema.holdsWriteBorrow(self.ctx, elem) or try self.cannotCopy(elem, pos, "copies an element out of a sequence")) {
             return try self.badCall(args, pos, "`get` would copy an element out of a `{s}`, whose elements a copy cannot share; index it (`xs[i]`) or iterate over it instead", .{try self.tyName(seq)});
         }
-        try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "get", pos);
+        try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "get", pos, .{ .receiver = true });
         return f.returns;
     }
 
@@ -7090,7 +7108,7 @@ const Checker = struct {
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
-                try self.checkArgs(args, f, info, name, pos);
+                try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins });
                 return f.returns;
             }
             if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ tname, name });
@@ -7217,7 +7235,7 @@ const Checker = struct {
                 // A generic function's callee has the instance's signature.
                 try self.noteCallee(f);
                 self.lend_call = true;
-                try self.checkArgs(args, f, info, qualified, pos);
+                try self.checkArgs(args, f, info, qualified, pos, .{ .origins = found.sym.origins });
                 return f.returns;
             },
             .nominal_type => if (ct == null) return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }) else return self.badCall(args, ct.?, "`{s}` is not a generic type; it takes no type arguments", .{qualified}),

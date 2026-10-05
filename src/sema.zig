@@ -442,6 +442,8 @@ pub const Field = struct {
     param_names: ?[]const []const u8 = null,
     /// Default values of a method's parameters (null where none).
     param_defaults: ?[]const ?Sexp = null,
+    /// A method: which arguments a call passes loans on from.
+    origins: Origins = .{},
     /// A plain enum's variant: its integer value, declared or implicit.
     value: ?Wide = null,
     /// A field or method declared `pub`, which other modules may use.
@@ -466,6 +468,8 @@ pub const Symbol = struct {
     param_names: ?[]const []const u8 = null,
     /// Default values of a function's parameters (null where none).
     param_defaults: ?[]const ?Sexp = null,
+    /// A function: which arguments a call passes loans on from.
+    origins: Origins = .{},
     /// A capture: the enclosing binding it captures.
     origin: SymbolId = symbol_invalid,
     /// The previous symbol of the same name in the same scope, if any.
@@ -615,6 +619,10 @@ pub const Facts = struct {
     /// Call node -> how its arguments fill the parameters, for calls
     /// with keyword arguments or omitted (defaulted) parameters.
     call_slots: std.AutoHashMapUnmanaged(NodeKey, []const ArgSlot) = .empty,
+    /// Checked call node -> what fills each of its callee's run-time
+    /// parameters, and which arguments it passes loans on from
+    /// (`CallParams`).
+    call_params: std.AutoHashMapUnmanaged(NodeKey, CallParams) = .empty,
     /// Match nodes whose non-default arms cover every value.
     exhaustive: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Bracket-list node (`index` / `inst`) -> what it instantiates,
@@ -807,6 +815,77 @@ pub const DefaultValue = struct {
     source: []const u8,
 };
 
+/// A set of a function's run-time parameters: bit `i` stands for
+/// parameter `i`, a method's receiver being parameter 0. A parameter
+/// past the last bit is in every set.
+pub const ParamMask = u64;
+
+/// Every parameter.
+pub const all_params: ParamMask = std.math.maxInt(ParamMask);
+
+/// The bit of parameter `i`; every bit past the last.
+pub fn paramBit(i: usize) ParamMask {
+    return if (i < @bitSizeOf(ParamMask)) @as(ParamMask, 1) << @intCast(i) else all_params;
+}
+
+/// Which arguments a call of a function passes loans on from (Core
+/// sentence 7; docs/INTERNALS.md, "Call origins"): its result carries
+/// the loans of the arguments that fill the parameters in `result`, and
+/// it may store in what its write arguments lead to only the loans of
+/// those in `stores`. Set on each function and method where it is
+/// declared; a call reads it from its callee, never from a body.
+pub const Origins = struct {
+    result: ParamMask = all_params,
+    stores: ParamMask = all_params,
+};
+
+/// What fills a run-time parameter of a call: the receiver of a method
+/// called on a value, the argument at an index of the call's argument
+/// list (a `(kwarg ...)` stands for its value), or the parameter's
+/// default value.
+pub const ParamFill = union(enum) {
+    receiver,
+    arg: u32,
+    default,
+};
+
+/// A checked call's parameters: what fills each, in the callee's order,
+/// and its callee's `Origins` (docs/INTERNALS.md, "Call origins").
+pub const CallParams = struct {
+    fills: []const ParamFill,
+    origins: Origins,
+
+    /// Whether the call's result carries the loans of the argument at
+    /// index `arg`.
+    pub fn resultCarries(self: CallParams, arg: usize) bool {
+        return self.filled(.{ .arg = @intCast(arg) }, self.origins.result);
+    }
+
+    /// Whether the call's result carries the loans of its receiver.
+    pub fn resultCarriesReceiver(self: CallParams) bool {
+        return self.filled(.receiver, self.origins.result);
+    }
+
+    /// Whether the call may store the loans of the argument at index
+    /// `arg`.
+    pub fn stores(self: CallParams, arg: usize) bool {
+        return self.filled(.{ .arg = @intCast(arg) }, self.origins.stores);
+    }
+
+    /// Whether `what` fills a parameter in `mask`.
+    fn filled(self: CallParams, what: ParamFill, mask: ParamMask) bool {
+        for (self.fills, 0..) |f, i| {
+            const same = switch (what) {
+                .receiver => f == .receiver,
+                .arg => |a| f == .arg and f.arg == a,
+                .default => false,
+            };
+            if (same and mask & paramBit(i) != 0) return true;
+        }
+        return false;
+    }
+};
+
 /// `rig check --facts=sema`: every entry of the module's `Facts`, one line each,
 ///
 ///   FACT KIND LINE:COL-LINE:COL "SOURCE" [VALUE]
@@ -913,8 +992,33 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
             .arg => |i| try w.print(" arg{d}", .{i}),
             .default => try w.writeAll(" default"),
         },
+        CallParams => {
+            for (v.fills) |f| switch (f) {
+                .receiver => try w.writeAll(" receiver"),
+                .arg => |i| try w.print(" arg{d}", .{i}),
+                .default => try w.writeAll(" default"),
+            };
+            try writeMask(w, "result", v.origins.result, v.fills.len);
+            try writeMask(w, "stores", v.origins.stores, v.fills.len);
+        },
         else => @compileError("check --facts=sema: no format for the fact " ++ name),
     }
+}
+
+/// ` name:` then the parameters among the first `n` that `mask`
+/// holds, or ` name:all` when it holds them all.
+fn writeMask(w: *std.Io.Writer, comptime name: []const u8, mask: ParamMask, n: usize) !void {
+    var every = true;
+    for (0..n) |i| if (mask & paramBit(i) == 0) {
+        every = false;
+    };
+    if (every) return w.writeAll(" " ++ name ++ ":all");
+    try w.writeAll(" " ++ name ++ ":");
+    var first = true;
+    for (0..n) |i| if (mask & paramBit(i) != 0) {
+        try w.print("{s}{d}", .{ if (first) "" else ",", i });
+        first = false;
+    };
 }
 
 /// An operation a generic body applies to a type parameter. Checked
@@ -1406,6 +1510,14 @@ pub const SemContext = struct {
         return self.facts.call_slots.get(key);
     }
 
+    /// What fills each parameter of a checked call, and which arguments
+    /// it passes loans on from; null for a call sema did not check
+    /// against a signature (a constructor, `print`, a call it rejected).
+    pub fn callParamsOf(self: *const SemContext, call: Sexp) ?CallParams {
+        const key = nodeKey(call) orelse return null;
+        return self.facts.call_params.get(key);
+    }
+
     /// What a bracket list instantiates; null for an index (or a node
     /// sema never reached).
     pub fn instanceOf(self: *const SemContext, node: Sexp) ?Instance {
@@ -1564,6 +1676,10 @@ pub const SemContext = struct {
 
     pub fn recordCallSlots(self: *SemContext, call: Sexp, slots: []const ArgSlot) !void {
         try self.facts.call_slots.put(self.allocator, recordKey(call), slots);
+    }
+
+    pub fn recordCallParams(self: *SemContext, call: Sexp, params: CallParams) !void {
+        try self.facts.call_params.put(self.allocator, recordKey(call), params);
     }
 
     pub fn recordElemCall(self: *SemContext, callee: Sexp, call: ElemCall) !void {
@@ -5590,6 +5706,37 @@ test "facts: keyword and omitted arguments record their slots" {
     try std.testing.expectEqual(@as(u32, 1), slots[0].arg);
     try std.testing.expectEqualStrings("10", r.source[slots[1].default.expr.src.pos..][0..2]);
     try std.testing.expectEqual(@as(u32, 0), slots[2].arg);
+}
+
+test "facts: a checked call records what fills each parameter" {
+    var r = try factsRun(
+        \\struct Acc
+        \\  n: Int
+        \\
+        \\  fun add(?self, k: Int, by: Int = 1) -> Int
+        \\    self.n + k * by
+        \\
+        \\fun scaled(n: Int, by: Int = 10) -> Int
+        \\  n * by
+        \\
+        \\sub main()
+        \\  a = Acc(n: 1)
+        \\  print(a.add(by: 2, k: 3))
+        \\  print(scaled(4))
+        \\
+    );
+    defer r.deinit();
+    const main_body = ir.Block.stmts(ir.Sub.body(ir.Module.decls(r.tree)[2]));
+    // A constructor is checked by its fields, not a signature.
+    try std.testing.expect(r.ctx.callParamsOf(ir.Set.value(main_body[0])) == null);
+    const method = r.ctx.callParamsOf(ir.Call.args(main_body[1])[0]).?;
+    try std.testing.expectEqual(@as(usize, 3), method.fills.len);
+    try std.testing.expect(method.fills[0] == .receiver);
+    try std.testing.expectEqual(@as(u32, 1), method.fills[1].arg);
+    try std.testing.expectEqual(@as(u32, 0), method.fills[2].arg);
+    const plain = r.ctx.callParamsOf(ir.Call.args(main_body[2])[0]).?;
+    try std.testing.expectEqual(@as(u32, 0), plain.fills[0].arg);
+    try std.testing.expect(plain.fills[1] == .default);
 }
 
 // ---- symbols and declarations -----------------------------------------------
