@@ -7344,6 +7344,20 @@ const Checker = struct {
         return true;
     }
 
+    /// Whether a write receiver `recv` of kind `kind` is a write view,
+    /// which a write method writes through.
+    fn writesThrough(self: *Checker, recv: Sexp, kind: ReceiverTypeKind) bool {
+        if (kind == .write_view) return true;
+        const ty = self.ctx.typeOf(recv) orelse return false;
+        return self.ctx.types.get(ty) == .write_view;
+    }
+
+    /// A write method called on a temporary: a value made here, a part
+    /// of one, or a branching value made in every branch.
+    fn writeOfTemporary(self: *Checker, recv: Sexp, method: []const u8) Error!void {
+        try self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; bind it to a name first", .{method});
+    }
+
     /// Receiver rules: `?self` is lent implicitly; `!self` needs an explicit
     /// `!x.m()`; a consuming `self` needs an explicit `<x.m()`. Write and
     /// consuming receivers are refused through `?T` and `*T`.
@@ -7358,9 +7372,12 @@ const Checker = struct {
                 if (kind == .shared) return self.err(pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{method});
                 switch (shape) {
                     .write_explicit => {},
-                    .made => if (kind != .owned_nominal and kind != .write_view and kind != .other) {
-                        try self.err(pos, "method `{s}` needs its receiver lent to write; this expression yields a view, not an owned value", .{method});
-                    },
+                    // A value made here, or a part of one, is a temporary
+                    // no name holds: its change would be lost, and no `!`
+                    // could show it. A write view made here writes
+                    // through. (One that owns a resource is reported as a
+                    // temporary nothing drops.)
+                    .made => if (!self.writesThrough(recv, kind) and !self.ownsResource(recv)) try self.writeOfTemporary(recv, method),
                     // A branch that is a write view writes through it; one
                     // that is a name's value would be written as a copy.
                     // (One that owns a resource is reported as a temporary
@@ -7373,7 +7390,9 @@ const Checker = struct {
                     .move_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write; cannot move; use `!receiver.{s}(...)`", .{ method, method }),
                     // A binding that already holds a write view (`x: !T`,
                     // `!self`) lends it visibly too.
-                    .place => if (kind != .write_view) {
+                    .place => if (kind != .write_view and self.hands(recv).kind == .part_of_made) {
+                        try self.writeOfTemporary(recv, method);
+                    } else if (kind != .write_view) {
                         try self.err(pos, "method `{s}` needs its receiver lent to write; use `!receiver.{s}(...)`", .{ method, method });
                     } else {
                         const name = self.sourceText(recv);

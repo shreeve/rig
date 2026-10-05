@@ -3365,6 +3365,24 @@ sub main
 0 0
 ```
 
+A `!self` method called on a temporary, or on a field or element of
+one, is rejected, since nothing would see the change:
+
+```rig reject
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+sub main
+  Counter(n: 1).bump()
+```
+
+```error
+`bump` changes its receiver, a temporary no name holds; bind it to a name first
+```
+
 A view of a temporary (`?S(n: 1)`, `?make()`, `?make()[1..]`), and
 any view made from one (a call's result that views it), may be used
 anywhere in its statement, and nowhere after: held by a binding, a
@@ -3460,8 +3478,10 @@ sub main
 
 A `?self` or `!self` receiver is lent as `?e` or `!e` would be when the
 method may keep a view of it, in its result or through a write
-argument. A temporary receiver, plain data included, then lives until
-its statement ends, so the view may be used there and nowhere after. A
+argument. A temporary receiver of a `?self` method, plain data
+included, then lives until its statement ends, so the view may be used
+there and nowhere after (a `!self` method on a temporary is rejected:
+[Temporaries](#temporaries)). A
 receiver that branches lends each leaf where it is:
 `(a if c else b).name()` keeps a loan on `a` and on `b`, so neither may
 change while the view lives.
