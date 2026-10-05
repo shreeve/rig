@@ -972,6 +972,27 @@ spelled anywhere else. A capture is storage only for a binding something
 reads, which `plan` decides as emit does: a name other than its
 declaration names it, or a closure captures it.
 
+The ownership checker walks the storage that lives for less time than
+the Core gives the value it holds: what a call whose arguments run
+first holds while it runs (`life` `call`). A receiver the call holds as
+a value or a copy, or an argument it copies, is a hidden var the call is
+lent (`holdForCall`), which ends when the call returns (`endCallHeld`):
+a view of it that the call's result still carries, unless its statement
+discards the result, or that a var the call stored it in keeps, is
+reported, "a view of `e` outlives the call, which holds `e` only while
+it runs; bind `e` to a name first". The Core keeps such a temporary
+until its statement ends, so this is the compiler's limit until emit
+keeps it in its statement's slot (`test/known/`). The other storage
+needs no walk of its own. Owned storage of a construct (`held`,
+`taken`, the consuming `for`'s) is the hidden var the construct already
+takes its value into; pointers are loans on what they point at; a
+statement's temporaries are `dropsTemp`'s. Of the copies, one a header
+binds is rejected where typecheck records it (`rejectHeaderCopy`), and
+so is a write, a move, or a Cell change through it; a read match's
+payload view, which may view a `subject` copy, lives for its arm
+(`arm_view`); a `payload` copy only copies fields out, and an
+`error_value` is plain data.
+
 ### Generics
 
 A generic type's or generic function's body is checked once, with its
@@ -1362,10 +1383,11 @@ A scope's end then reports, with the same per-holder reporter
 (`reportHolder`), each loan on its vars that a holder live at the
 scope's end keeps, and drops them (`releaseVarsFrom`). A point's var
 count bounds the vars a path may have declared: every var past it when
-the path rewinds is hidden (a statement's temporaries, or the `hold`
-var of a `match`), which `rewind` asserts. The other places a loan
-leaves the state report it first or cannot be live: a value escaping
-a scope (`escapeVarsFrom`), a statement's end (`dropStmtTemps`), a copy
+the path rewinds is hidden (a statement's temporaries, what a call
+holds while it runs, or the `hold` var of a `match`), which `rewind`
+asserts. The other places a loan leaves the state report it first or
+cannot be live: a value escaping a scope (`escapeVarsFrom`), a
+statement's end (`dropStmtTemps`), a call's return (`endCallHeld`), a copy
 of plain data, a Cell argument once reported, the whole-body rewinds of
 a function, a closure, or a written `defer`, and reassignment.
 

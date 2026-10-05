@@ -24,6 +24,10 @@
 //!   them) whose types could be held there (`sema.CallParams`). A body
 //!   is checked against its signature (`checkOrigins`). A loan that is
 //!   not stored anywhere is a temporary and ends with its statement.
+//! * Hidden storage emit makes is read from the storage facts
+//!   (`sema.Storage`): a receiver or copied argument a call holds while
+//!   it runs is a hidden var the call is lent, which ends when the call
+//!   returns (`holdForCall`).
 //! * Cells, Signals and owned closures hold no borrows: every handle to
 //!   one reaches what it holds, so tracking loans per handle var would
 //!   miss the other handles.
@@ -113,6 +117,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
+const storage = @import("storage.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -220,6 +225,10 @@ const Var = struct {
     /// no plain data view: the subject the match reads, as written. A
     /// loan on it ends with the arm (`arm_view` bindings).
     arm_of: []const u8 = "",
+    /// A value a call holds in storage of its own, which lives only
+    /// while the call runs (`sema.Storage` of life `call`): the receiver
+    /// or argument it is lent (`holdForCall`).
+    call_held: bool = false,
     /// The var with the same name this one hides, for name lookup.
     shadows: ?VarId = null,
     via: Via = .owned,
@@ -483,6 +492,10 @@ pub const Checker = struct {
     /// being walked (`sema.dropsTemp`), each with its position: dropped
     /// when its statement ends.
     stmt_drops: std.ArrayList(struct { id: VarId, pos: u32 }) = .empty,
+    /// The hidden vars holding what the calls being walked keep in
+    /// storage of their own (`holdForCall`): each ends when its call
+    /// returns (`endCallHeld`).
+    call_held: std.ArrayList(VarId) = .empty,
     reachable: bool = true,
     /// Non-zero while computing a loop fixpoint: diagnostics suppressed.
     quiet: u32 = 0,
@@ -551,6 +564,7 @@ pub const Checker = struct {
         self.names.deinit(self.gpa);
         self.plain_reqs.deinit(self.gpa);
         self.stmt_drops.deinit(self.gpa);
+        self.call_held.deinit(self.gpa);
         self.flows.deinit(self.gpa);
         self.loan_counts.deinit(self.gpa);
         self.trail.deinit(self.gpa);
@@ -860,6 +874,7 @@ pub const Checker = struct {
     fn reportShortLived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
         const root = self.vars.items[l.root];
         if (root.arm_of.len > 0) return self.reportArmView(l);
+        if (root.call_held) return self.reportCallHeld(l, holder);
         if (root.kind == .hidden and root.name.len > 0) return self.reportTempOutlived(l, holder);
         try self.err(l.pos, "`{s}` does not live long enough", .{root.name});
         if (holder) |h| {
@@ -885,7 +900,18 @@ pub const Checker = struct {
     fn isStmtTemp(self: *const Checker, id: VarId) bool {
         if (id >= self.vars.items.len) return false;
         const v = self.vars.items[id];
-        return v.kind == .hidden and v.name.len > 0;
+        return v.kind == .hidden and v.name.len > 0 and !v.call_held;
+    }
+
+    /// A view `l` of what a call holds only while it runs, which the
+    /// call's result or `holder` keeps after the call returns.
+    fn reportCallHeld(self: *Checker, l: Loan, holder: ?VarId) Error!void {
+        const name = self.vars.items[l.root].name;
+        try self.err(l.pos, "a view of `{s}` outlives the call, which holds `{s}` only while it runs; bind `{s}` to a name first", .{ name, name, name });
+        if (!self.last_err_kept) return;
+        const h = holder orelse return;
+        const hv = self.vars.items[h];
+        if (hv.name.len > 0) try self.note(hv.decl, "`{s}` still holds it after the call", .{hv.name});
     }
 
     /// A borrow `l` of a statement's temporary that `holder` keeps past
@@ -3080,7 +3106,86 @@ pub const Checker = struct {
     // Calls
     // -------------------------------------------------------------------------
 
+    /// A call. What it holds in storage of its own lives only while it
+    /// runs (`holdForCall`), so a view of that ends with it.
     fn walkCall(self: *Checker, node: Sexp) Error!Value {
+        const mark = self.call_held.items.len;
+        const v = try self.walkCallBody(node);
+        return self.endCallHeld(node, mark, v);
+    }
+
+    /// Hold `v`, the value of `node`, which the emitted call keeps in
+    /// storage of its own (`sema.Storage` of life `call`: a receiver, or
+    /// a copied argument), in a hidden var the call is lent (`kind`), so
+    /// a view of it is a view of that storage.
+    fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind) Error!Value {
+        const pos = self.startOf(node);
+        const id = try self.addVar(.{ .name = self.spanText(node), .decl = pos, .ty = self.exprType(node), .kind = .hidden, .call_held = true }, .{ .loans = v.loans });
+        try self.call_held.append(self.gpa, id);
+        return .{ .loans = try self.oneLoan(.{ .root = id, .kind = kind, .pos = pos }) };
+    }
+
+    /// The node a call holds in storage of its own that lives only while
+    /// it runs, and that it lends (a copy, or a value the storage owns),
+    /// when the storage facts record one of `kind` for it: a receiver
+    /// without its borrow sigils, an argument as written.
+    fn heldForCall(self: *const Checker, e: Sexp, kind: sema.StorageKind) ?Sexp {
+        const ctx = self.sema orelse return null;
+        const node = if (kind == .receiver) storage.unborrowed(e) else e;
+        const s = ctx.storageOf(node, kind) orelse return null;
+        if (s.life != .call or s.by == .pointer) return null;
+        // An owned argument is the callee's own value, not a lend of it.
+        if (kind == .argument and s.by != .copy) return null;
+        return node;
+    }
+
+    /// The storage of the call `node` held since `mark` ends as it
+    /// returns `v`: the result, unless the statement discards it, and
+    /// every var the call stored a view of it in, may not keep one.
+    fn endCallHeld(self: *Checker, node: Sexp, mark: usize, v: Value) Error!Value {
+        var out = v;
+        var i = self.call_held.items.len;
+        while (i > mark) {
+            i -= 1;
+            const id = self.call_held.items[i];
+            if (self.reachable) {
+                // A call that is its statement, as written (`!mk().at()`),
+                // leaves its value unused.
+                var stmt = storage.unborrowed(self.cur_stmt);
+                while (stmt.isKind(.propagate)) stmt = storage.unborrowed(ir.Propagate.value(stmt));
+                const discarded = stmt == .list and node == .list and stmt.list.id == node.list.id;
+                if (!discarded) for (out.loans) |l| if (l.root == id) {
+                    try self.reportCallHeld(l, null);
+                    break;
+                };
+            }
+            var kept: std.ArrayList(Loan) = .empty;
+            for (out.loans) |l| if (l.root != id) try kept.append(self.arena(), l);
+            out.loans = kept.items;
+            if (self.isBorrowed(id)) for (0..self.flows.items.len) |holder| {
+                if (holder == id) continue;
+                var f = self.flows.items[holder];
+                if (!hasLoanOn(f.loans, id)) continue;
+                if (self.reachable and self.holderLive(@intCast(holder), null)) for (f.loans) |l| if (l.root == id) {
+                    try self.reportCallHeld(l, @intCast(holder));
+                    break;
+                };
+                var left: std.ArrayList(Loan) = .empty;
+                for (f.loans) |l| if (l.root != id) try left.append(self.arena(), l);
+                f.loans = left.items;
+                try self.setFlow(@intCast(holder), f);
+            };
+            var t: usize = 0;
+            while (t < self.temps.items.len) {
+                if (self.temps.items[t].root == id) _ = self.temps.orderedRemove(t) else t += 1;
+            }
+            try self.setFlow(id, .{ .status = .dropped, .at = self.startOf(node) });
+        }
+        self.call_held.shrinkRetainingCapacity(mark);
+        return out;
+    }
+
+    fn walkCallBody(self: *Checker, node: Sexp) Error!Value {
         const temps_start = self.temps.items.len;
         // Compile-time arguments (`f[3](x)`) are constants: no effect.
         const callee = if (self.sema) |s| s.calleeOf(node) else ir.Call.callee(node);
@@ -3148,7 +3253,13 @@ pub const Checker = struct {
                 // the receiver.
                 if ((recv_mode == .read or recv_mode == .write) and !self.namesType(callee) and self.builtinName(self.exprType(obj)) == null) {
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
-                    recv_value = try self.valueUnion(recv_value, try self.receiverLeaves(obj, kind));
+                    // A receiver the call holds in storage of its own is
+                    // lent from there; any other is lent where its leaves
+                    // are.
+                    recv_value = if (self.heldForCall(obj, .receiver)) |held|
+                        try self.holdForCall(held, recv_value, kind)
+                    else
+                        try self.valueUnion(recv_value, try self.receiverLeaves(obj, kind));
                 }
             }
         } else if (callee == .src) {
@@ -3209,6 +3320,9 @@ pub const Checker = struct {
             const found = self.errors_found;
             v.* = try self.walkConsumed(a, .argument);
             if (self.errors_found == found) try self.holdRead(a, .argument);
+            // An argument the call copies into storage of its own is lent
+            // from the copy.
+            if (self.heldForCall(storage.argValue(a), .argument)) |held| v.* = try self.holdForCall(held, v.*, .read);
             // A generic body's `T` holds no loan here, but an instance's
             // may be a String viewing a Text.
             if (cell != null) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a));
@@ -3977,7 +4091,6 @@ pub const Checker = struct {
         }
         return out.items;
     }
-
 
     fn checkEscape(self: *Checker, v: Value) Error!void {
         for (v.loans, 0..) |l, i| {
@@ -5078,6 +5191,11 @@ fn loanSetEql(a: []const Loan, b: []const Loan) bool {
 
 fn hasLoanFrom(loans: []const Loan, start: u32) bool {
     for (loans) |l| if (l.root >= start) return true;
+    return false;
+}
+
+fn hasLoanOn(loans: []const Loan, root: VarId) bool {
+    for (loans) |l| if (l.root == root) return true;
     return false;
 }
 

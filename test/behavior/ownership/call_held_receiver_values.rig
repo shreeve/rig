@@ -1,0 +1,42 @@
+# A temporary receiver, or a copy of a Cell-holding part of one, that a
+# call holds while it runs: what the method returns that views nothing of
+# it, and a view of it the statement discards, are fine.
+
+struct S
+  n: Int
+  m: Int
+
+  fun at(!self) -> !Int
+    !self.n
+
+  fun bump(!self) -> Int
+    self.n += 1
+    self.n
+
+struct Q
+  c: Cell[Int]
+  n: Int
+
+  fun get(?self) -> Int
+    self.c.get() + self.n
+
+struct H
+  q: Q
+
+fun mk -> S
+  S(n: 5, m: 6)
+
+fun mkh -> H
+  H(q: Q(c: Cell(1), n: 41))
+
+sub main
+  print(mk().bump())
+  print(mkh().q.get())
+  !mk().at()
+  s = mk()
+  print(!s.at())
+
+# expect:
+# 6
+# 42
+# 5

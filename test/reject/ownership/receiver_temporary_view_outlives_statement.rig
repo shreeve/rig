@@ -1,6 +1,8 @@
 # A method called on a temporary runs on it where its statement keeps
 # it, so the view it returns may be used only within the statement
-# (Core §3): plain data, a field holding a Cell, a fallible call's value.
+# (Core §3): plain data, a fallible call's value. A field holding a Cell
+# of one is held by the call, so a view of it may be used only within
+# the call.
 
 struct P
   xs: [4]Int
@@ -39,6 +41,6 @@ sub main
   print(r, s.n, t, mk().arr()[0])
 
 # errors: 3
-# error: 35:7: a borrow of the temporary `mk()` outlives its statement
-# error: 36:7: a borrow of the temporary `mkh()` outlives its statement
-# error: 38:8: a borrow of the temporary `mkf(1)` outlives its statement
+# error: 37:7: a borrow of the temporary `mk()` outlives its statement
+# error: 38:7: a view of `mkh().q` outlives the call, which holds `mkh().q` only while it runs
+# error: 40:8: a borrow of the temporary `mkf(1)` outlives its statement

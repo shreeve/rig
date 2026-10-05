@@ -1,0 +1,54 @@
+# A call whose arguments run first holds a temporary receiver, or a copy
+# of a Cell-holding part of one, in storage of its own, which lives only
+# while the call runs: a view of it that the method returns, or stores
+# in what it was lent to write, outlives that storage as soon as the
+# statement uses it. The Core keeps the temporary
+# until the statement ends; until emit does, the compiler rejects these
+# (test/known/ownership/cell_part_receiver_view_in_statement.rig,
+# write_receiver_view_in_statement.rig).
+
+struct S
+  n: Int
+  m: Int
+
+  fun at(!self) -> !Int
+    !self.n
+
+struct Q
+  c: Cell[Int]
+  n: Int
+
+  fun me(?self) -> ?Q
+    self
+
+  fun put(?self, h: !Holder) -> Int
+    h.r = self
+    self.n
+
+struct Holder
+  r: (?Q)?
+
+struct H
+  q: Q
+
+fun mk -> S
+  S(n: 5, m: 6)
+
+fun mkh -> H
+  H(q: Q(c: Cell(1), n: 42))
+
+sub main
+  print((!mk().at()) + 1)
+  print(mkh().q.me().n)
+  r = !mk().at()
+  print(r)
+  h = Holder(r: none)
+  print(mkh().q.put(!h))
+  if h.r as q
+    print(q.n)
+
+# errors: 4
+# error: 41:11: a view of `mk()` outlives the call, which holds `mk()` only while it runs; bind `mk()` to a name first
+# error: 42:9: a view of `mkh().q` outlives the call
+# error: 43:8: a view of `mk()` outlives the call
+# error: 46:9: a view of `mkh().q` outlives the call
