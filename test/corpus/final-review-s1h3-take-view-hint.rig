@@ -1,0 +1,13 @@
+# the arm-local diagnostic suggests `match <?e`: does it work?
+enum E
+  a(t: Text)
+  b
+
+fun pick(e: ?E) -> String
+  match <?e
+    .a(t) => return ?t
+    .b => return "b"
+
+sub main
+  e = E.a(t: Text("hello"))
+  print(pick(?e))

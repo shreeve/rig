@@ -2635,7 +2635,7 @@ sub main
 ```
 
 ```error
-a view of `r` does not outlive the `match` that reads `e`: use it in the arm, copy what it holds (`+r`), or take the subject with `match <e`
+a view of `r` does not outlive the `match` that reads `e`: use it in the arm, or keep an owner of what it holds: copy it with `+r`
 ```
 
 ### pass

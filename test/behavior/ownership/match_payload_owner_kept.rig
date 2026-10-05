@@ -1,0 +1,25 @@
+# The forms the payload-view hint names run: a new owner of what a read
+# match's payload holds (`+t`), kept in a name declared before the
+# match, and a payload moved out (`<t`) of a subject the match takes
+# (`match <e`) (`test/reject/ownership/match_payload_view_hint.rig`).
+
+enum E
+  a(t: Text)
+  b
+
+sub main
+  e = E.a(t: Text("abc"))
+  r = Text("x")
+  match e
+    .a(t) => r = +t
+    .b => pass
+  print(r)
+  s = Text("y")
+  match <e
+    .a(t) => s = <t
+    .b => pass
+  print(s)
+
+# expect:
+# abc
+# abc
