@@ -278,6 +278,9 @@ const Lowerer = struct {
     finding: std.ArrayList(VarId) = .empty,
     /// The region of each binding.
     region_of: std.AutoHashMapUnmanaged(VarId, usize) = .empty,
+    /// A branching value read where it stands, each leaf read in place:
+    /// its var, and the region of the statement that reads it.
+    read_leaves: std.AutoHashMapUnmanaged(VarId, usize) = .empty,
     /// While lowering a value block's last value, through the branches
     /// of `if`s in tail position: the block's region. A bare binding of
     /// that block or a deeper one leaves with the value.
@@ -1528,7 +1531,7 @@ const Lowerer = struct {
         const x = try self.newBlock();
         try self.branch(ok, other);
         self.cur = ok;
-        try self.store(j, v, pos);
+        try self.storeLeaf(j, v, left);
         try self.goto(x);
         self.cur = other;
         try self.pushRegion();
@@ -1565,7 +1568,23 @@ const Lowerer = struct {
             }
         };
         const v = try self.eval(e, how, self.f.vars.items[j].ty);
-        try self.store(j, v, self.posOf(e));
+        try self.storeLeaf(j, v, e);
+    }
+
+    /// Store a branch's value `v`, of leaf `e`, in `j`. Where `j` is a
+    /// branching value read in place, a leaf that makes a value is read
+    /// where it is too (Core §3): it is a temporary of the statement that
+    /// reads the branching value, and `j` holds a loan on it.
+    fn storeLeaf(self: *Lowerer, j: VarId, v: ?VarId, e: Sexp) Error!void {
+        const pos = self.posOf(e);
+        const r = self.read_leaves.get(j) orelse return self.store(j, v, pos);
+        const made = v orelse return self.store(j, v, pos);
+        const mv = self.f.vars.items[made];
+        if (mv.kind != .owning) return self.store(j, v, pos);
+        const h = try self.newVar("temporary", mv.ty, true, pos);
+        try self.regions.items[r].vars.append(self.a, h);
+        try self.store(h, made, pos);
+        try self.store(j, try self.lend(.{ .root = h, .path = &.{}, .ty = mv.ty }, .read, e, mv.ty), pos);
     }
 
     /// Lower an expression in a context; the var holding its value, or
@@ -1624,10 +1643,9 @@ const Lowerer = struct {
                 // until what reads it is done (Core §3, §6: `print(a if c
                 // else b, grow(!a))` reads `a` as `?a` would).
                 const ty = try self.typeOf(e);
-                const t = if ((how == .read or how == .view) and !(try self.kinds.of(ty)).kind.copies())
-                    try self.viewTemp(ty, .read_view, pos)
-                else
-                    try self.temp(ty, pos);
+                const in_place = (how == .read or how == .view) and !(try self.kinds.of(ty)).kind.copies();
+                const t = if (in_place) try self.viewTemp(ty, .read_view, pos) else try self.temp(ty, pos);
+                if (in_place) try self.read_leaves.put(self.a, t, self.regions.items.len - 1);
                 try self.valueInto(e, how, t);
                 return t;
             },
@@ -1849,7 +1867,13 @@ const Lowerer = struct {
             if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) return abstain("a sigil on an accessed object");
             // The object of a field or element read is only read (Core §3).
             const t = try self.eval(obj, .read, null) orelse return abstain("an access to a constant");
-            break :blk Place{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
+            // A branching value read where it stands is each leaf read
+            // where it is (Core §3): its part is what that view sees, and
+            // carries the loans on the leaves, a made leaf's on the
+            // statement's temporary (`storeLeaf`).
+            const tv = self.f.vars.items[t];
+            const via: Place.Via = if (tv.kind == .read_view) .read else .own;
+            break :blk Place{ .root = t, .path = &.{}, .ty = tv.ty, .via = via };
         };
         var step: Step = undefined;
         var slice = false;
