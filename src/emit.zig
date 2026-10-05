@@ -1235,7 +1235,11 @@ pub const Emitter = struct {
             .borrow_read, .borrow_write => true,
             else => false,
         } else true;
-        const is_borrow = binds_borrow and (expr.isKind(.read) or expr.isKind(.write)) and
+        // A read borrow that copies its value (`sema.readBorrowCopies`) is
+        // held as that copy when the name is bound again, since a call
+        // returns one so (`q = pick(?a, ?b)`).
+        const copied = ty != null and s.flags.reassigned and self.sema.types.get(ty.?) == .borrow_read and !self.isPtrBorrowTy(ty.?) and self.genericReadBorrow(ty.?) == null;
+        const is_borrow = binds_borrow and !copied and (expr.isKind(.read) or expr.isKind(.write)) and
             (ty == null or (sema.writeSliceElem(self.sema, ty.?) == null and sema.callableFn(self.sema, ty.?) == null));
         // A write borrow is held as a pointer however it was obtained.
         const holds_ptr = is_borrow or (ty != null and self.isPtrBorrowTy(ty.?));
@@ -3120,11 +3124,7 @@ pub const Emitter = struct {
     /// value that owns resources or holds a `Cell` (see `readBorrowIsPtr`).
     /// A `![]T` is a Zig slice, which points at its elements itself.
     fn isPtrBorrowTy(self: *Emitter, ty: TypeId) bool {
-        return switch (self.sema.types.get(ty)) {
-            .borrow_write => sema.writeSliceElem(self.sema, ty) == null,
-            .borrow_read => |inner| self.readBorrowIsPtr(inner),
-            else => false,
-        };
+        return sema.viewHeldAsPointer(self.sema, ty);
     }
 
     /// A read borrow of a scalar or a view is a copy
