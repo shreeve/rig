@@ -236,7 +236,7 @@ const Checker = struct {
     fn transfer(self: *Checker, op: core.Op, st: State, flow: Bits) void {
         self.flowOf(op, st, flow, op.no_result, op.result_loan);
         const stored = self.stored;
-        self.flowOf(op, st, stored, op.no_store, true);
+        self.flowOf(op, st, stored, op.no_store, op.store_loan);
         // What a call hands back or stores is a read view of what it was
         // lent to write, unless it may itself be or hold a write view: a
         // String made from a `!Text` reads it (Core s7), and a write view

@@ -2429,6 +2429,7 @@ const Lowerer = struct {
         var kept: std.ArrayList(VarId) = .empty;
         var uncarried: std.ArrayList(VarId) = .empty;
         var result_loan = true;
+        var store_loan = true;
         if (sig) |sg| if (sg.receiver and sg.f.params.len > 0) {
             const to_result = if (sg.from) |m| m & 1 != 0 else try reach.leads(sg.ctx, sg.f.params[0], sg.f.returns);
             const to_store = try reach.stores(sg.ctx, sg.f.params, 0);
@@ -2437,6 +2438,7 @@ const Lowerer = struct {
                 if (to_store) try kept.append(self.a, rv);
             }
             result_loan = to_result;
+            store_loan = to_store;
         };
         // Where each argument's vars start in `reads` and `moves`.
         var spans: std.ArrayList(struct { reads: usize, moves: usize, to_result: bool, to_store: bool }) = .empty;
@@ -2553,6 +2555,7 @@ const Lowerer = struct {
             .no_result = no_result.items,
             .result_loan = result_loan or sig == null,
             .no_store = no_store.items,
+            .store_loan = store_loan or sig == null,
         });
         if (elem_from) |from| if (result) |r| {
             try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(from), .def = r });

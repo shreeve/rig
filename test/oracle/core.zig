@@ -184,8 +184,10 @@ pub const Op = struct {
     no_result: []const VarId = &.{},
     result_loan: bool = true,
     /// What a call may store in what it was lent to write (`gains`,
-    /// `through`) carries the loans of none of these.
+    /// `through`) carries the loans of none of these, nor its own `loan`
+    /// (its receiver's) when not `store_loan`.
     no_store: []const VarId = &.{},
+    store_loan: bool = true,
 
     pub const What = enum { copy, move, take, lend, make, call, assign, use, kill, ret };
 };

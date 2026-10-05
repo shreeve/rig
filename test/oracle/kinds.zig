@@ -302,18 +302,21 @@ pub const Reach = struct {
         any: bool = false,
         bytes: bool = false,
         types: std.ArrayList([]const u8) = .empty,
+        /// Types a slice views: an element of an array, a slice, or a
+        /// built-in container, never a field.
+        elems: std.ArrayList([]const u8) = .empty,
     };
 
     /// One type to walk: in its module, under a generic instance's
     /// bindings, and how it was reached.
-    const Node = struct { ctx: *const SemContext, ty: TypeId, subst: ?*const Subst = null, past_read: bool = false, past_view: bool = false };
+    const Node = struct { ctx: *const SemContext, ty: TypeId, subst: ?*const Subst = null, past_read: bool = false, past_view: bool = false, elem: bool = false };
 
     /// The parts a value of `n` holds by value.
     fn parts(self: *Reach, n: Node, out: *std.ArrayList(Node)) std.mem.Allocator.Error!void {
         const ctx = n.ctx;
         switch (ctx.types.get(n.ty)) {
             .optional, .fallible, .shared, .weak => |inner| try out.append(self.a, .{ .ctx = ctx, .ty = inner, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view }),
-            .array => |arr| try out.append(self.a, .{ .ctx = ctx, .ty = arr.elem, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view }),
+            .array => |arr| try out.append(self.a, .{ .ctx = ctx, .ty = arr.elem, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view, .elem = true }),
             .type_var => |sym| if (n.subst) |s| if (s.lookup(sym)) |b| try out.append(self.a, .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = n.past_read, .past_view = n.past_view }),
             .nominal => |sym| try self.fieldsOf(ctx, sym, n, null, out),
             .imported_nominal => |in| {
@@ -327,7 +330,7 @@ pub const Reach = struct {
                 // A built-in generic holds its arguments' values (a
                 // Vec's buffer, a Box's value, a Cell's).
                 if (sym.decl_pos == sema.builtin_decl_pos) {
-                    for (pn.args) |arg| try out.append(self.a, .{ .ctx = ctx, .ty = arg, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view });
+                    for (pn.args) |arg| try out.append(self.a, .{ .ctx = ctx, .ty = arg, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view, .elem = true });
                 }
                 try self.fieldsOf(ctx, pn.sym, n, s, out);
             },
@@ -348,7 +351,7 @@ pub const Reach = struct {
             .type_var => |sym| {
                 const s = m.subst orelse return m;
                 const b = s.lookup(sym) orelse return m;
-                m = .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = m.past_read, .past_view = m.past_view };
+                m = .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = m.past_read, .past_view = m.past_view, .elem = m.elem };
             },
             else => return m,
         };
@@ -382,11 +385,11 @@ pub const Reach = struct {
             const target: ?Node = switch (n.ctx.types.get(n.ty)) {
                 .borrow_read => |inner| .{ .ctx = n.ctx, .ty = inner, .subst = n.subst },
                 // A `![]T` points at its elements.
-                .borrow_write => |inner| .{ .ctx = n.ctx, .ty = switch (n.ctx.types.get(inner)) {
-                    .slice => |sl| sl.elem,
-                    else => inner,
-                }, .subst = n.subst },
-                .slice => |sl| .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst },
+                .borrow_write => |inner| switch (n.ctx.types.get(inner)) {
+                    .slice => |sl| .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .elem = true },
+                    else => .{ .ctx = n.ctx, .ty = inner, .subst = n.subst },
+                },
+                .slice => |sl| .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .elem = true },
                 .string => blk: {
                     t.bytes = true;
                     break :blk null;
@@ -409,7 +412,7 @@ pub const Reach = struct {
             t.any = true;
             return;
         }
-        try t.types.append(self.a, try self.key(n.ctx, n.ty, n.subst));
+        try (if (n.elem) &t.elems else &t.types).append(self.a, try self.key(n.ctx, n.ty, n.subst));
     }
 
     /// How a value of `holder` reaches memory `t` names: `owned`
@@ -419,7 +422,7 @@ pub const Reach = struct {
 
     fn walk(self: *Reach, ctx: *const SemContext, holder: TypeId, t: Targets) std.mem.Allocator.Error!Found {
         var r: Found = .{};
-        if (!t.any and !t.bytes and t.types.items.len == 0) return r;
+        if (!t.any and !t.bytes and t.types.items.len == 0 and t.elems.items.len == 0) return r;
         var work: std.ArrayList(Node) = .empty;
         var seen: std.StringHashMapUnmanaged(void) = .empty;
         try work.append(self.a, .{ .ctx = ctx, .ty = holder });
@@ -428,6 +431,7 @@ pub const Reach = struct {
             const hit = anything(n) or t.any or blk: {
                 const k = try self.key(n.ctx, n.ty, n.subst);
                 for (t.types.items) |x| if (std.mem.eql(u8, x, k)) break :blk true;
+                if (n.elem) for (t.elems.items) |x| if (std.mem.eql(u8, x, k)) break :blk true;
                 break :blk false;
             };
             if (hit) {
@@ -435,17 +439,14 @@ pub const Reach = struct {
                 if (n.past_view or anything(n)) r.viewed = true;
             }
             if (anything(n)) continue;
-            const k = try std.fmt.allocPrint(self.a, "{s}|{}{}", .{ try self.key(n.ctx, n.ty, n.subst), n.past_read, n.past_view });
+            const k = try std.fmt.allocPrint(self.a, "{s}|{}{}{}", .{ try self.key(n.ctx, n.ty, n.subst), n.past_read, n.past_view, n.elem });
             if ((try seen.getOrPut(self.a, k)).found_existing) continue;
             switch (n.ctx.types.get(n.ty)) {
                 .borrow_read => |inner| try work.append(self.a, .{ .ctx = n.ctx, .ty = inner, .subst = n.subst, .past_read = true, .past_view = true }),
-                .slice => |sl| try work.append(self.a, .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .past_read = true, .past_view = true }),
-                .borrow_write => |inner| {
-                    const elem = switch (n.ctx.types.get(inner)) {
-                        .slice => |sl| sl.elem,
-                        else => inner,
-                    };
-                    try work.append(self.a, .{ .ctx = n.ctx, .ty = elem, .subst = n.subst, .past_read = n.past_read, .past_view = true });
+                .slice => |sl| try work.append(self.a, .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .past_read = true, .past_view = true, .elem = true }),
+                .borrow_write => |inner| switch (n.ctx.types.get(inner)) {
+                    .slice => |sl| try work.append(self.a, .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .past_read = n.past_read, .past_view = true, .elem = true }),
+                    else => try work.append(self.a, .{ .ctx = n.ctx, .ty = inner, .subst = n.subst, .past_read = n.past_read, .past_view = true }),
                 },
                 .string => if (t.bytes) {
                     r.viewed = true;
@@ -507,6 +508,7 @@ pub const Reach = struct {
                     if (v.any) t.any = true;
                     if (v.bytes) t.bytes = true;
                     try t.types.appendSlice(self.a, v.types.items);
+                    try t.elems.appendSlice(self.a, v.elems.items);
                 },
                 else => {},
             };
@@ -526,6 +528,7 @@ pub const Reach = struct {
                     if (v.any) t.any = true;
                     if (v.bytes) t.bytes = true;
                     try t.types.appendSlice(self.a, v.types.items);
+                    try t.elems.appendSlice(self.a, v.elems.items);
                 },
                 else => try self.parts(n, &work),
             }
