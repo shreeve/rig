@@ -1,0 +1,172 @@
+# A Vec of views holds the loans pushed into it (Core §5, s6): each is
+# rejected where a view it holds would outlive or alias its owner.
+
+fun mk -> Int
+  3
+
+fun escapes -> Vec[?Int]
+  a = 1
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  v
+
+sub push_then_assign
+  a = 1
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  a = 2
+  print(v[0])
+
+sub insert_then_assign
+  a = 1
+  v: Vec[?Int] = Vec()
+  !v.insert(0, ?a)
+  a = 3
+  print(v)
+
+sub store_then_assign
+  a = 1
+  b = 2
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  v[0] = ?b
+  b = 3
+  print(v)
+
+sub literal_then_assign
+  a = 1
+  b = 2
+  v = [?a, ?b]
+  b = 3
+  print(v)
+
+sub moved_then_assign
+  a = 1
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  w = <v
+  a = 2
+  print(w)
+
+sub loop_local
+  v: Vec[?Int] = Vec()
+  for i in 0..3
+    x = i
+    !v.push(?x)
+  print(v)
+
+sub temporary
+  v: Vec[?Int] = Vec()
+  !v.push(?mk())
+  print(v)
+
+sub element_then_push
+  a: Vec[Int] = Vec()
+  !a.push(1)
+  v: Vec[?Int] = Vec()
+  !v.push(?a[0])
+  !a.push(2)
+  print(v)
+
+sub write_twice
+  a = 1
+  v: Vec[!Int] = Vec()
+  !v.push(!a)
+  !v.push(!a)
+  print(v.len)
+
+sub write_then_read
+  a = 1
+  v: Vec[!Int] = Vec()
+  !v.push(!a)
+  print(a)
+  v[0] = 2
+
+sub write_array_twice
+  a = 1
+  v = [!a, !a]
+  v[0] = 2
+
+sub popped_view
+  a = 1
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  r = (!v).pop()
+  a = 2
+  print(r)
+
+sub element_of_owner
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  t = <v[0]
+  print(t)
+
+struct Bag
+  items: Vec[?Int]
+
+sub field_inner_scope
+  bag = Bag(items: Vec())
+  if true
+    e = 8
+    !bag.items.push(?e)
+  print(bag.items)
+
+sub through_write_views
+  inner: Vec[String] = Vec()
+  w: Vec[!Vec[String]] = Vec()
+  !w.push(!inner)
+  t = Text("x")
+  !w[0].push(?t)
+  -w
+  -t
+  print(inner)
+
+struct Holder
+  s: String
+
+sub swapped_view
+  t = Text("a")
+  h = Holder(s: ?t)
+  k = Holder(s: "b")
+  swap(!h, !k)
+  !t.add("!")
+  print(k.s)
+
+sub replaced_view
+  t = Text("a")
+  h = Holder(s: "b")
+  old = replace(!h.s, ?t)
+  !t.add("!")
+  print(old, h.s)
+
+struct Ed
+  w: !Int
+
+sub field_write_view
+  n = 1
+  h = Ed(w: !n)
+  print(n)
+  h.w = 2
+
+sub main
+  print(mk())
+
+# oracle: escapes reject C5
+# oracle: push_then_assign reject C4
+# oracle: insert_then_assign reject C4
+# oracle: store_then_assign reject C4
+# oracle: literal_then_assign reject C4
+# oracle: moved_then_assign reject C4
+# oracle: loop_local reject C5
+# oracle: temporary reject C5
+# oracle: element_then_push reject C4
+# oracle: write_twice reject C4
+# oracle: write_then_read reject C4
+# oracle: write_array_twice reject C4
+# oracle: popped_view reject C4
+# oracle: element_of_owner reject C3
+# oracle: field_inner_scope reject C5
+# oracle: through_write_views reject C4
+# oracle: swapped_view reject C4
+# oracle: replaced_view reject C4
+# oracle: field_write_view reject C4

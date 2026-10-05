@@ -37,6 +37,9 @@ pub const Info = struct {
     holds_views: bool,
     /// Values may hold a `?T`, `!T`, or slice.
     holds_pointers: bool,
+    /// Values may hold a write view, which a call may store in them as
+    /// it was lent (Core §5: a container of write views).
+    holds_writes: bool = false,
     /// Values are or hold a Text, whose bytes a String may view.
     reaches_text: bool,
     /// Dropping it runs a user `drop` body somewhere inside.
@@ -95,6 +98,7 @@ pub const Kinds = struct {
             .kind = kind,
             .holds_views = ti.borrows.any or ti.borrows.view,
             .holds_pointers = ti.borrows.any,
+            .holds_writes = ti.borrows.write,
             .reaches_text = ti.borrows.text or ctx.types.get(ty) == .text,
             .drop_reads = scan.drop_body and kind == .owning,
             .unsupported = if (ti.poison) "a type with an error" else scan.unsupported,
@@ -132,36 +136,57 @@ fn callableInfo(ctx: *const SemContext, ty: TypeId) ?Info {
 /// in whichever module declares them.
 const Scan = struct {
     a: std.mem.Allocator,
-    seen: std.AutoHashMapUnmanaged(struct { usize, TypeId, bool }, void) = .empty,
+    seen: std.AutoHashMapUnmanaged(struct { usize, TypeId, bool, bool }, void) = .empty,
     unsupported: ?[]const u8 = null,
     drop_body: bool = false,
     /// Walking what a weak handle holds, which it never drops.
     under_weak: bool = false,
+    /// Walking what a read view or a handle reaches, which is only read.
+    read_only: bool = false,
 
     fn walk(self: *Scan, ctx: *const SemContext, ty: TypeId, depth: u32, in_generic: bool) std.mem.Allocator.Error!void {
-        const gop = try self.seen.getOrPut(self.a, .{ @intFromPtr(ctx), ty, self.under_weak });
+        const gop = try self.seen.getOrPut(self.a, .{ @intFromPtr(ctx), ty, self.under_weak, self.read_only });
         if (gop.found_existing) return;
         switch (ctx.types.get(ty)) {
             .invalid, .unknown => self.mark("a type with an error"),
             // A handle carries its contents' loans (Core s9), and
             // dropping a counted one may drop them.
             // An owned closure carries no loan (Core s9).
-            .shared => |inner| if (ctx.types.get(inner) != .function) try self.walk(ctx, inner, depth + 1, in_generic),
+            .shared => |inner| if (ctx.types.get(inner) != .function) {
+                const saved = self.read_only;
+                self.read_only = true;
+                defer self.read_only = saved;
+                try self.walk(ctx, inner, depth + 1, in_generic);
+            },
             // A weak handle never drops what it holds.
             .weak => |inner| if (ctx.types.get(inner) != .function) {
                 const saved = self.under_weak;
+                const saved_ro = self.read_only;
                 self.under_weak = true;
+                self.read_only = true;
                 defer self.under_weak = saved;
+                defer self.read_only = saved_ro;
                 try self.walk(ctx, inner, depth + 1, in_generic);
             },
             .function, .callable => self.mark("a function or closure value"),
             .type_var, .ct_param => if (!in_generic) self.mark("a generic parameter"),
             .ct_value => {},
+            // A write view held in a container, an optional, or a field
+            // is a place that moves with its holder: a store re-points it
+            // and a write goes through it (Core §5, §6). One a read view
+            // or a handle reaches could only be read, which the oracle
+            // does not model.
             .borrow_write => |inner| {
-                if (depth > 0) self.mark("a write view held in a value");
+                if (self.read_only) self.mark("a write view seen through a read view or a handle");
                 try self.walk(ctx, inner, depth + 1, in_generic);
             },
-            .borrow_read, .optional, .fallible, .range => |inner| try self.walk(ctx, inner, depth + 1, in_generic),
+            .borrow_read => |inner| {
+                const saved = self.read_only;
+                self.read_only = true;
+                defer self.read_only = saved;
+                try self.walk(ctx, inner, depth + 1, in_generic);
+            },
+            .optional, .fallible, .range => |inner| try self.walk(ctx, inner, depth + 1, in_generic),
             .slice => |s| try self.walk(ctx, s.elem, depth + 1, in_generic),
             .array => |arr| try self.walk(ctx, arr.elem, depth + 1, in_generic),
             .nominal => |sym| try self.fields(ctx, sym, depth, in_generic),

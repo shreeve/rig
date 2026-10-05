@@ -1,0 +1,18 @@
+# `+r` of a `?T` is a new `T` (SPEC "Clone"), which carries the loans
+# of the views it holds and none on what `r` sees (Core s2, s7): `bag`
+# may change while the clone lives. The compiler keeps the clone's loan
+# on `bag` (test/oracle/differences).
+
+struct Bag
+  v: Vec[?Int]
+
+sub main
+  a = 1
+  bag = Bag(v: Vec())
+  !bag.v.push(?a)
+  r = ?bag
+  c = +r
+  !bag.v.push(?a)
+  print(c.v.len, bag.v.len)
+
+# oracle: main accept

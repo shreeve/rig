@@ -1,0 +1,12 @@
+# A parameter is never re-pointed (Core §6 "Bindings"); the compiler's
+# semantic checks reject it first.
+
+sub param_repointed(w: !Int, n: !Int)
+  w = !n
+
+sub main
+  a = 1
+  b = 2
+  param_repointed(!a, !b)
+
+# oracle: param_repointed reject B1
