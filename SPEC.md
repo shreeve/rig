@@ -3321,11 +3321,13 @@ Text first, because `kv` outlives the header. A call's result that `if
 take it: an arm of `match make()` may move a payload out. A lend of a
 branching value that may be a name's (`?(a if c else b)`) would copy
 that name's value, so it is rejected: lend each branch, `?a if c else
-?b`. A `?self` receiver is lent this way when the method's result may
+?b`. A `?self` or `!self` receiver is lent this way when the call may
 keep a view of it: `(a if c else b).name()`, for a `name` that returns
 a view of its receiver, is rejected, and `(?a if c else ?b).name()`
 lends each branch; a temporary receiver, plain data included, lives
-until its statement ends, so the view may not outlive the statement.
+until its statement ends, so the view, a write view included, may not
+outlive the statement: not in a binding, and not as a function's or
+block's value, an arm's value, or a `break` or `return` value.
 
 ```rig
 use std.text

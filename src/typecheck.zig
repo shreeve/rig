@@ -6396,16 +6396,19 @@ const Checker = struct {
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
-        // A `?self` method whose result may keep a borrow of a temporary
-        // receiver lends it, as `?obj` does: the temporary is kept in a
-        // slot until its statement ends, and a branching value that may
-        // be a name's is lent branch by branch instead.
-        if (receiver == .read and !misplaced_sigil and !obj.isKind(.read) and self.isTemporary(obj) and (sema.mayHoldView(self.ctx, f.returns) or self.callRetains(f, null))) try self.lendTempTo(obj, method);
         const rest: FunctionType = .{
             .params = f.params[1..],
             .returns = f.returns,
             .is_sub = f.is_sub,
         };
+        // A `?self` or `!self` method that may keep a borrow of a
+        // temporary receiver, in its result or through a write argument,
+        // lends it, as `?obj` does: the temporary is kept in a slot until
+        // its statement ends, so a view of it, a write view included,
+        // does not leave the statement; and a branching value that may be
+        // a name's is lent branch by branch instead.
+        const lent = if (obj.isKind(.write)) ir.get(obj, .operand) else obj;
+        if ((receiver == .read or receiver == .write) and !misplaced_sigil and !obj.isKind(.read) and self.isTemporary(lent) and (sema.mayHoldView(self.ctx, f.returns) or self.callRetains(rest, null))) try self.lendTempTo(lent, method);
         self.lend_call = true;
         self.lend_recv = f.params[0];
         try self.checkArgs(args, rest, info, method, pos);
