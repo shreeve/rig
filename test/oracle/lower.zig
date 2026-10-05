@@ -625,10 +625,20 @@ const Lowerer = struct {
             const xv = self.f.vars.items[x];
             const ref = self.isWriteRef(xv.ty);
             // Assigning a view to a name that holds one re-points it
-            // (Core §6 "Borrow places"), which the oracle does not model.
-            if (ref and try self.pointsAnew(rhs)) return abstain("assigning a write view to a write view (Core §6, planned)");
-            if (!ref) try self.reassignable(sym, pos);
+            // (Core §6 "Borrow places"): a binding is reassigned, which a
+            // parameter or a fixed binding never is.
+            const repoint = ref and try self.pointsAnew(rhs);
+            if (!ref or repoint) try self.reassignable(sym, pos);
             if (self.closure_bindings.contains(x)) return self.found(.B1, pos, "a closure binding `{s}` is fixed", .{sym.name});
+            if (repoint) {
+                // The new view first; the name then holds its loans, and
+                // none of the old view's (Core §6). The old view owns
+                // nothing, and a reborrow of what it saw carries that
+                // loan itself, so nothing here conflicts with it.
+                const v = try self.eval(rhs, .take, xv.ty);
+                try self.emit(.{ .pos = pos, .what = .assign, .moves = try self.list(v), .def = x });
+                return;
+            }
             if (ref) {
                 // A write view's value is written through (SPEC §7).
                 const v = try self.eval(rhs, .take, try self.innerOf(xv.ty));

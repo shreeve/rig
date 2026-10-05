@@ -1,0 +1,26 @@
+# Re-pointing a `!T` local hands it the new place's loan (Core §6), and
+# a view taken of it before keeps the old place's.
+
+sub new_place_held
+  m = 1
+  n = 2
+  w = !m
+  w = !n
+  print(n)
+  w = 3
+
+sub old_view_kept
+  m = Text("m")
+  n = Text("n")
+  w = !m
+  r = ?w
+  w = !n
+  !m.add("!")
+  print(r)
+
+sub main
+  new_place_held()
+  old_view_kept()
+
+# oracle: new_place_held reject C4
+# oracle: old_view_kept reject C4
