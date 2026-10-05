@@ -3188,14 +3188,7 @@ pub const Emitter = struct {
                 self.bare = true;
                 return self.emitValue(sexp, false);
             }
-            const lent = !as_ptr and self.genericReadBorrow(lend.view) != null;
-            if (lent) try self.w.writeAll("rig.lend(");
-            const saved_read = self.read_place;
-            defer self.read_place = saved_read;
-            self.read_place = true;
-            try self.emitAddressOf(sexp);
-            if (lent) try self.w.writeAll(")");
-            return;
+            return self.emitReadLend(sexp, self.genericReadBorrow(lend.view) != null);
         }
         var buf: Writer.Allocating = .init(self.arena.allocator());
         var at: LendAt = .{ .text = "", .ptr = true };
@@ -3505,10 +3498,21 @@ pub const Emitter = struct {
         defer self.read_place = saved_read;
         self.read_place = borrow.isKind(.read);
         const reborrow = if (self.typeOf(operand)) |t| self.sema.types.get(t) == .borrow_read else false;
-        if (reborrow or !borrow.isKind(.read) or self.genericReadBorrowOf(borrow) == null) return self.emitAddressOf(operand);
-        try self.w.writeAll("rig.lend(");
+        if (reborrow or !borrow.isKind(.read)) return self.emitAddressOf(operand);
+        return self.emitReadLend(operand, self.genericReadBorrowOf(borrow) != null);
+    }
+
+    /// A read lend of `operand` as a view held by address: its address,
+    /// or for a generic read borrow (`generic`), `rig.lend` of it, which
+    /// gives each instance the view its type is lent as. A lend written
+    /// `?x` and one made where a view is expected are written alike.
+    fn emitReadLend(self: *Emitter, operand: Sexp, generic: bool) Error!void {
+        const saved_read = self.read_place;
+        defer self.read_place = saved_read;
+        self.read_place = true;
+        if (generic) try self.w.writeAll("rig.lend(");
         try self.emitAddressOf(operand);
-        try self.w.writeAll(")");
+        if (generic) try self.w.writeAll(")");
     }
 
     /// `rig.borrowed(T, `: the value a generic read borrow reaches; the
