@@ -81,7 +81,7 @@ fn holdsCell(comptime T: type) bool {
     };
 }
 
-/// How a read borrow `?T` is held: a copy of a scalar or a view (a
+/// How a read view `?T` is held: a copy of a scalar or a view (a
 /// number, `Bool`, a plain enum, an error, a slice or `String`, a
 /// function, or an optional of one), a pointer to anything else. The
 /// emitter decides this itself for a known `T` (`sema.lendByValue`), by
@@ -99,12 +99,12 @@ fn copiedByReadView(comptime T: type) bool {
     };
 }
 
-/// A read borrow of what `ptr` points to.
+/// A read view of what `ptr` points to.
 pub fn lend(ptr: anytype) ReadView(@TypeOf(ptr.*)) {
     return if (comptime ReadView(@TypeOf(ptr.*)) == @TypeOf(ptr.*)) ptr.* else ptr;
 }
 
-/// The `T` a read borrow `?T` reaches.
+/// The `T` a read view `?T` reaches.
 pub fn viewed(comptime T: type, view: ReadView(T)) T {
     return if (comptime ReadView(T) == T) view else view.*;
 }
@@ -117,8 +117,8 @@ pub fn poison(ptr: anytype) void {
     @memset(std.mem.asBytes(ptr), 0xAA);
 }
 
-/// The `T` a read borrow `?T`, held where `borrow` points, reaches:
-/// the value itself when the borrow is a pointer, else the borrow's copy.
+/// The `T` a read view `?T`, held where `view` points, reaches:
+/// the value itself when the view is a pointer, else the view's copy.
 pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) *const T {
     return if (comptime ReadView(T) == T) view else view.*;
 }
@@ -232,7 +232,7 @@ pub fn eql(a: anytype, b: anytype) bool {
     return eqlAs(T, a, b);
 }
 
-/// A `Text`, or a pointer to one (a borrowed Text), or a box or shared
+/// A `Text`, or a pointer to one (a viewed Text), or a box or shared
 /// handle holding one.
 fn isText(comptime T: type) bool {
     return switch (@typeInfo(T)) {
@@ -242,7 +242,7 @@ fn isText(comptime T: type) bool {
     };
 }
 
-/// The bytes of a Text, a borrowed, boxed, or shared Text, or a String.
+/// The bytes of a Text, a viewed, boxed, or shared Text, or a String.
 fn textBytes(x: anytype) []const u8 {
     const X = @TypeOf(x);
     if (comptime !isText(X)) return x;
@@ -709,11 +709,11 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
 /// `*sub()`: what a Signal notifies.
 const Callback = Closure(&.{}, void);
 
-// A borrowed callable `?fun(A, B) -> R` / `?sub(A)` is a
+// A callable view `?fun(A, B) -> R` / `?sub(A)` is a
 // `FnRef(&.{ A, B }, R)`: a context pointer and a function that calls
 // through it, 16 bytes passed by value. It lends what the caller owns (a
 // stack closure's environment, a function, an owned closure) for as long
-// as the ownership checker lets the borrow live, and owns nothing.
+// as the ownership checker lets the view live, and owns nothing.
 
 pub fn FnRef(comptime params: []const type, comptime R: type) type {
     return struct {
@@ -1181,7 +1181,7 @@ pub fn sliceMut(items: anytype, lo: anytype, hi: anytype) []std.meta.Elem(@TypeO
 }
 
 /// `!dst.copy(src)`: panics unless the lengths are equal. Safe code
-/// cannot pass overlapping slices (the write borrow excludes the read).
+/// cannot pass overlapping slices (the write view excludes the read).
 pub fn copy(dst: anytype, src: []const std.meta.Elem(@TypeOf(dst))) void {
     if (dst.len != src.len) @panic("copy between slices of different lengths");
     @memcpy(dst, src);

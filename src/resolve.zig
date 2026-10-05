@@ -943,7 +943,7 @@ pub const TypeResolver = struct {
         return self.resolveType(node);
     }
 
-    /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a borrow is
+    /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a view is
     /// no value it could keep.
     fn handleOfView(self: *TypeResolver, node: Sexp, inner: TypeId) Error!TypeId {
         try self.ctx.errAt(node, "a handle holds a value, not a view: `{s}` has no handle", .{try sema.formatType(self.ctx, inner)});
@@ -1240,14 +1240,14 @@ pub const TypeResolver = struct {
     }
 
     /// Whether `ty`, written `node` inside another type, is or holds a
-    /// borrowed callable, which no value holds. Reported.
+    /// callable view, which no value holds. Reported.
     fn heldCallable(self: *TypeResolver, node: Sexp, ty: TypeId) Error!bool {
         if (!sema.holdsCallable(self.ctx, ty)) return false;
         try self.ctx.errAt(node, sema.held_callable, .{try sema.formatType(self.ctx, ty)});
         return true;
     }
 
-    /// A field's type `ty`, written `node`: a borrowed callable is not
+    /// A field's type `ty`, written `node`: a callable view is not
     /// one. Reported.
     fn fieldCallable(self: *TypeResolver, node: Sexp, ty: TypeId) Error!bool {
         if (sema.callableFn(self.ctx, ty) == null) return false;
@@ -1606,9 +1606,9 @@ pub const TypeResolver = struct {
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
                         if (try self.heldCallable(inner_node, inner)) return t.invalid_id;
-                        // `?fun(...)` written as such is a borrowed
-                        // callable; a `?T` of a function type is a read
-                        // borrow of a function value.
+                        // `?fun(...)` written as such is a callable
+                        // view; a `?T` of a function type is a read
+                        // view of a function value.
                         if (head == .read_view and inner_node.isKind(.fun_type)) return sema.callableOfFn(self.ctx, inner);
                         if (head == .weak and sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
                         return self.ctx.intern(switch (head) {
@@ -2113,7 +2113,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     }
     if (sym_id == ctx.vec_sym_id) {
         // A Vec holds any value, views included: its elements move in
-        // and out whole, and each is a place (Core §5). A borrowed
+        // and out whole, and each is a place (Core §5). A viewed
         // callable is only a parameter's, a local's, or a result's.
         if (!sema.holdsCallable(ctx, args[0])) return null;
         return try a.print(sema.held_callable, .{arg});

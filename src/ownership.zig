@@ -1,4 +1,4 @@
-//! Ownership checker: moves, drops, borrows, and aliasing of owning values.
+//! Ownership checker: moves, drops, views, and aliasing of owning values.
 //!
 //! Runs on the normalized semantic IR after ctx, one function body at a
 //! time, as a flow-sensitive abstract interpretation.
@@ -13,14 +13,14 @@
 //!   Going back to a `Point` undoes the writes since; a branch or jump
 //!   captures its `State` as the flows changed since its construct's
 //!   point, so snapshots and joins cost what changed, not the scope.
-//! * A `Loan` is a read or write borrow of a root var. Loans travel with
+//! * A `Loan` is a read or write view of a root var. Loans travel with
 //!   values: `r = ?a` stores a read loan on `a` in `r`; `View(box: ?a)`
 //!   carries it into the struct. A call passes on only the loans its
 //!   signature shows (Core sentence 7): its result carries the loans of
 //!   its callee (what a callable holds) and of the arguments whose
 //!   parameters' types could hold what it views, and it may store, in
 //!   its write receiver and in what its `!x` arguments and other write
-//!   borrows lead to, the loans of the arguments (its receiver among
+//!   views lead to, the loans of the arguments (its receiver among
 //!   them) whose types could be held there (`sema.CallParams`). A body
 //!   is checked against its signature (`checkOrigins`). A loan that is
 //!   not stored anywhere is a temporary and ends with its statement.
@@ -28,28 +28,28 @@
 //!   (`sema.Storage`): a receiver or copied argument a call holds while
 //!   it runs is a hidden var the call is lent, which ends when the call
 //!   returns (`holdForCall`).
-//! * Cells, Signals and owned closures hold no borrows: every handle to
+//! * Cells, Signals and owned closures hold no views: every handle to
 //!   one reaches what it holds, so tracking loans per handle var would
 //!   miss the other handles.
-//! * A String is a view: one taken from a Text (`?t[a..b]`) borrows it,
-//!   and any value whose type holds a String carries loans as a borrow
+//! * A String is a view: one taken from a Text (`?t[a..b]`) views it,
+//!   and any value whose type holds a String carries loans as a view
 //!   does.
 //! * A view carries the loans of only what could hold what it views
 //!   (`carry`): a loan on a var whose type reaches that memory only
 //!   through a read view it holds stands for that var's own loans, and
 //!   a lend through a read view keeps what the view keeps
 //!   (`walkThroughView`).
-//! * Borrowed parameters hold an *external* loan on themselves: it marks
-//!   a borrow that came from the caller, which may be returned or stored
-//!   into other borrowed parameters, and it never conflicts. A loan
-//!   stored into what a borrowed parameter reaches goes in that
+//! * View parameters hold an *external* loan on themselves: it marks
+//!   a view that came from the caller, which may be returned or stored
+//!   into other view parameters, and it never conflicts. A loan
+//!   stored into what a view parameter reaches goes in that
 //!   parameter's flow, and the parameter is live at every exit (the
 //!   caller uses its value after the return), so the loan stays in
 //!   force for the rest of the body.
 //! * Types come from ctx's facts table (`typeOf`, `symbolAt`); an
-//!   unknown type is assumed to be able to hold a borrow.
+//!   unknown type is assumed to be able to hold a view.
 //! * A loan is in force only while the var holding it is live: while
-//!   it may be used again (see `holderLive`). Borrows end at their last
+//!   it may be used again (see `holderLive`). Views end at their last
 //!   use, not at the end of their block.
 //!
 //! Control flow
@@ -69,39 +69,39 @@
 //!
 //! Rules
 //! -----
-//! * A moved or dropped value cannot be used, borrowed, moved or dropped.
+//! * A moved or dropped value cannot be used, viewed, moved or dropped.
 //!   Reassigning a binding makes it live again.
-//! * Read borrows exclude writes, moves, drops and reassignment of their
-//!   root; write borrows exclude every other use. A method call borrows
+//! * Read views exclude writes, moves, drops and reassignment of their
+//!   root; write views exclude every other use. A method call views
 //!   its receiver for the whole call (`rc.show(<rc)` is rejected), and
 //!   an argument that reads a value sharing storage its place owns
 //!   holds that place read until the call ends (`print(v, grow(!v))`
-//!   is rejected). The indexes of a borrowed place (a borrow, a slice,
-//!   a receiver) cannot write-borrow or move its root, whose address is
+//!   is rejected). The indexes of a viewed place (a view, a slice,
+//!   a receiver) cannot lend to write or move its root, whose address is
 //!   found before they run (`!ps[0].a[grow(!ps)]` is rejected); an
 //!   assignment evaluates its value, then its target's indexes, then
 //!   stores, so there they may.
-//! * A borrow may not outlive its root: when a scope ends (normally or by
+//! * A view may not outlive its root: when a scope ends (normally or by
 //!   `break`, `continue` or `!`), no surviving value may hold a loan on a
 //!   var declared in it. A returned value, or one stored into something
-//!   the caller owns, may only carry borrows the caller handed in.
+//!   the caller owns, may only carry views the caller handed in.
 //! * Values that own resources (`*T`, `~T`, `Vec[T]`, anything with drop
 //!   glue) cannot be copied implicitly. In a consuming position (binding,
 //!   argument, field, return, the branches of an `if`/`match` in such a
 //!   position) a place expression of such a type must be written `<x` or
 //!   `+x`; only a bare name returned directly moves implicitly. A value
-//!   holding a write borrow cannot be copied either, except as a call
-//!   argument (which reborrows it for the call).
+//!   holding a write view cannot be copied either, except as a call
+//!   argument (which lends it on for the call).
 //! * Only whole bindings move. Moving a non-Copy value out of a field or
-//!   element (`<p.a`, `<v[0]`) is rejected: a borrowed or shared parent
+//!   element (`<p.a`, `<v[0]`) is rejected: a viewed or shared parent
 //!   still owns it, and an owned parent would drop it again.
-//! * Borrowed parameters cannot be dropped or move-captured. Functions may
+//! * View parameters cannot be dropped or move-captured. Functions may
 //!   read module-level constants but not move them.
 //! * A match payload binding of `match x` or `match ?x` views the
-//!   scrutinee, and one of `match !x` write-borrows it: none can be moved
+//!   scrutinee, and one of `match !x` lends it to write: none can be moved
 //!   out. `match <x` moves `x`, and its bindings own what they bind.
 //! * A closure literal may only be bound (`f = |...|`), called in place,
-//!   lent to a call as a borrowed callable (its value carries its
+//!   lent to a call as a callable view (its value carries its
 //!   captures' loans), or made owned with `*|...|`; closure bindings
 //!   cannot be copied, and `?f` lends one. A
 //!   closure body may only use outer locals it captures. Resources
@@ -137,7 +137,7 @@ pub const Error = std.mem.Allocator.Error;
 
 const VarId = u32;
 
-/// Which borrows a query looks for: any, or only write borrows.
+/// Which loans a query looks for: any, or only write loans.
 const LoanQuery = enum { any, write };
 
 const LoanKind = enum(u1) { read, write };
@@ -151,14 +151,14 @@ const Reader = enum(u3) { none, argument, receiver, callee, operand, base };
 const Loan = struct {
     root: VarId,
     kind: LoanKind,
-    /// Source position of the borrow, for diagnostics.
+    /// Source position of the lend, for diagnostics.
     pos: u32,
-    /// Borrow provided by the caller through a parameter: may be
+    /// A loan provided by the caller through a parameter: may be
     /// returned and never conflicts.
     ext: bool = false,
     /// A slice of an array held in the root's own storage: it points
     /// into this function's frame even when the root is a parameter
-    /// that carries the caller's borrows.
+    /// that carries the caller's views.
     frame: bool = false,
     /// What reads the root in place, by value, while the operands after
     /// it run; the value shares storage the root owns (see `holdRead`).
@@ -186,7 +186,7 @@ const Flow = struct {
 
 const VarKind = enum { local, param, capture, pattern, loop_elem, hidden };
 
-/// How a var refers to its value: owned, or through a borrow.
+/// How a var refers to its value: owned, or through a view.
 const Ref = enum { none, read, write };
 
 /// How a match payload binding reaches the scrutinee.
@@ -203,19 +203,19 @@ const Var = struct {
     /// A closure whose environment has drop glue: dropping it at scope
     /// exit uses what it captured.
     env_drops: bool = false,
-    /// Element of `for x in ?vec` over a resource Vec: a borrowed view of
+    /// Element of `for x in ?vec` over a resource Vec: a view of
     /// the slot.
     loop_view: bool = false,
     /// Element of a loop that does not consume its collection: a view of
     /// a slot the collection still owns.
     elem_view: bool = false,
     /// A loop element: the var holding the collection it walks, whose
-    /// loans are the borrows its elements may hold.
+    /// loans are the views its elements may hold.
     elem_of: ?VarId = null,
     /// The ctx symbol it binds, for its uses (see `holderLive`).
     sym: ?SymbolId = null,
     /// Resource captured into a closure environment (`|+x|`, `|~x|`,
-    /// `|<x|`): the body sees a borrowed view of the env slot.
+    /// `|<x|`): the body sees a view of the env slot.
     capture_resource: bool = false,
     /// Match payload binding: the var the scrutinee is, or is a field
     /// of, and the field's path (empty for the whole var).
@@ -271,8 +271,8 @@ const Exit = union(enum) {
     propagate: bool,
 
     /// Whether the path being checked goes on past the exit. Where it
-    /// ends, the defers run on it and what they do stays, so a borrow
-    /// one stores is reported where it outlives what it borrows. Where
+    /// ends, the defers run on it and what they do stays, so a view
+    /// one stores is reported where it outlives what it views. Where
     /// it goes on, they run only on a path that leaves there: they are
     /// checked, and their effects undone.
     fn goesOn(e: Exit) bool {
@@ -317,13 +317,13 @@ const Value = struct {
 };
 
 const FnCtx = struct {
-    /// The return type can carry borrows: returned values are checked
+    /// The return type can carry views: returned values are checked
     /// for loans on locals.
     ret_may_view: bool = false,
     /// Checking a closure body.
     in_closure: bool = false,
     /// In a closure body, the first var declared in it: a returned
-    /// borrow of an enclosing function's value is carried by the closure
+    /// view of an enclosing function's value is carried by the closure
     /// into its call's result.
     closure_base: VarId = 0,
     /// Which arguments a call of this function passes loans on from: what
@@ -363,7 +363,7 @@ const LoopCtx = struct {
     /// again in the next iteration.
     start: u32 = 0,
     /// Its value is read through (`SemContext.readsThrough`), so a
-    /// `break` value that is a borrow of a Copy value is copied.
+    /// `break` value that is a view of a Copy value is copied.
     reads: bool = false,
 };
 
@@ -390,7 +390,7 @@ const Sink = enum {
     }
 };
 
-/// Why a loop-borrow alias cannot leave its slot, for diagnostics.
+/// Why a loop view cannot leave its slot, for diagnostics.
 const loop_view_rule = "a `for x in ?vec` element is a read view of the Vec slot and cannot be cloned, moved, dropped, or stored";
 
 /// Owning kinds that cannot be copied implicitly.
@@ -469,14 +469,14 @@ pub const Checker = struct {
     anchor: u32 = 0,
     flows: std.ArrayList(Flow) = .empty,
     /// For each var, the number of loans on it that flows hold, so the
-    /// checks can skip a scan for an unborrowed var.
+    /// checks can skip a scan for an unlent var.
     loan_counts: std.ArrayList(u32) = .empty,
     /// Every change to `flows`, so a branch can be undone back to a
     /// `Point` instead of copying the whole state (see `setFlow`).
     trail: std.ArrayList(Change) = .empty,
     /// Scratch space for `capture`.
     scratch: std.ArrayList(VarId) = .empty,
-    /// Borrows end at their last use (see `holderLive`): for the function
+    /// Views end at their last use (see `holderLive`): for the function
     /// being checked, the last position each symbol is used at, and the
     /// symbols used in deferred code, which runs at scope exit.
     last_use: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
@@ -510,7 +510,7 @@ pub const Checker = struct {
     /// Walking the arguments of a call the type checker rejected.
     in_rejected_call: bool = false,
     /// `checkNoImplicitCopy` is inside an expression whose context reads
-    /// the value a borrow reaches (`SemContext.readsThrough`).
+    /// the value a view reaches (`SemContext.readsThrough`).
     copy_reads: bool = false,
     /// The next value `walkConsumed` takes is read the same way: a
     /// `break` or `else` value of a loop whose value is read.
@@ -589,9 +589,9 @@ pub const Checker = struct {
     }
 
     /// Generic bodies are checked once, for a `T` that may own a resource
-    /// and holds no borrow. Each instantiation the module makes must fit
+    /// and holds no view. Each instantiation the module makes must fit
     /// that: an argument with drop glue only where the bodies never copy
-    /// a `T`, and no borrows in the arguments of a type with methods or of
+    /// a `T`, and no views in the arguments of a type with methods or of
     /// a generic function. A method's instance checks its own parameters;
     /// its type's are checked with the receiver's instance.
     fn checkInstantiations(self: *Checker) Error!void {
@@ -771,7 +771,7 @@ pub const Checker = struct {
         };
     }
 
-    /// What is done to a var, for a borrow conflict.
+    /// What is done to a var, for a loan conflict.
     const Access = union(enum) {
         read,
         write,
@@ -780,7 +780,7 @@ pub const Checker = struct {
     };
 
     /// Report a live loan on var `id` that `access` at `pos` conflicts
-    /// with: a read borrow conflicts with a write loan, anything else
+    /// with: a read lend conflicts with a write loan, anything else
     /// with every loan. Returns whether there was one.
     fn conflicts(self: *Checker, id: VarId, access: Access, pos: u32) Error!bool {
         const l = self.findLoan(id, if (access == .read) .write else .any, null) orelse return false;
@@ -911,7 +911,7 @@ pub const Checker = struct {
         if (hv.name.len > 0) try self.note(hv.decl, "`{s}` still holds it after the call", .{hv.name});
     }
 
-    /// A borrow `l` of a statement's temporary that `holder` keeps past
+    /// A view `l` of a statement's temporary that `holder` keeps past
     /// the statement.
     fn reportTempOutlived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
         try self.err(l.pos, "a view of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{self.vars.items[l.root].name});
@@ -1086,7 +1086,7 @@ pub const Checker = struct {
     }
 
     /// A statement's temporary, made since there were `depth` vars, that
-    /// `holder` (whose flow is `f`) still borrows after the statement,
+    /// `holder` (whose flow is `f`) still views after the statement,
     /// which drops it: reported once.
     fn reportTempHolder(self: *Checker, f: Flow, holder: VarId, depth: u32) Error!void {
         for (f.loans) |l| {
@@ -1297,7 +1297,7 @@ pub const Checker = struct {
     }
 
     // -------------------------------------------------------------------------
-    // Liveness: a borrow ends at its last use
+    // Liveness: a view ends at its last use
     // -------------------------------------------------------------------------
 
     /// Record the last use of every symbol in `e` (a function's parameters
@@ -1334,9 +1334,9 @@ pub const Checker = struct {
     /// later in the code, or anywhere in a loop around this point that
     /// does not also enclose its declaration (the next iteration runs
     /// that code again), or in deferred code, or when its type has drop
-    /// glue (its drop at scope exit may reach what it borrows), or when a
-    /// live var or temporary borrows it in turn. Otherwise its last use
-    /// is behind, and its borrows have ended.
+    /// glue (its drop at scope exit may reach what it views), or when a
+    /// live var or temporary views it in turn. Otherwise its last use
+    /// is behind, and its views have ended.
     fn holderLive(self: *const Checker, id: VarId, at: ?u32) bool {
         return self.holderLiveDepth(id, at, 0);
     }
@@ -1346,13 +1346,13 @@ pub const Checker = struct {
         const ctx = self.sema orelse return true;
         const v = self.vars.items[id];
         // A parameter is live at every exit: the caller uses the value
-        // it lent a borrowed one after the return.
+        // it lent a viewed one after the return.
         if (v.kind == .hidden or v.kind == .param or v.env_drops or self.isGlobal(id)) return true;
         const sym = v.sym orelse return true;
         if (self.defer_used.contains(sym)) return true;
         const ty = v.ty orelse return true;
         // A var that owns its value drops it at scope exit. (A match
-        // payload or a borrowed loop element only views a value.)
+        // payload or a viewed loop element only views a value.)
         const owns = v.alias_of == null and !v.loop_view and v.ref == .none;
         if (owns and (sema.typeHasDropGlue(ctx, ty) or sema.maybeDropGlue(ctx, ty))) return true;
         if (self.last_use.get(sym)) |last| if (last >= self.liveFrom(v.decl, at)) return true;
@@ -1534,7 +1534,7 @@ pub const Checker = struct {
             .ref = ref,
             .param_index = if (self.func.binding_params and index < @bitSizeOf(sema.ParamMask)) @intCast(index) else null,
         }, .{});
-        // Borrows handed in by the caller: an external loan on the param
+        // Views handed in by the caller: an external loan on the param
         // itself marks them as returnable and conflict-free.
         if (ref != .none or (ty != null and self.mayCarryLoan(ty))) {
             self.replaceFlow(id, .{ .loans = try self.oneLoan(.{ .root = id, .kind = if (ref == .write) .write else .read, .pos = pos, .ext = true }) });
@@ -1549,7 +1549,7 @@ pub const Checker = struct {
         _ = try self.walkStmtValue(stmt, null);
     }
 
-    /// Walk one statement; its temporary borrows end with it. With
+    /// Walk one statement; its temporary views end with it. With
     /// `sink`, its value is consumed there (a loop's `as` condition).
     fn walkStmtValue(self: *Checker, stmt: Sexp, sink: ?Sink) Error!Value {
         const p = self.span(stmt);
@@ -1569,7 +1569,7 @@ pub const Checker = struct {
     }
 
     /// An owning temporary only read where it stands lives in a hidden
-    /// var until its statement ends; what borrows it borrows that var.
+    /// var until its statement ends; what views it views that var.
     fn holdTemp(self: *Checker, node: Sexp, v: Value) Error!Value {
         const pos = self.startOf(node);
         const id = try self.addVar(.{ .name = self.spanText(node), .decl = pos, .ty = self.exprType(node), .kind = .hidden }, .{ .loans = v.loans });
@@ -1578,7 +1578,7 @@ pub const Checker = struct {
     }
 
     /// Drop the temporaries statement-held since `start`: a value that
-    /// still borrows one after the statement would outlive it. One whose
+    /// still views one after the statement would outlive it. One whose
     /// scope already ended (a branch's) was released there.
     fn dropStmtTemps(self: *Checker, start: usize) Error!void {
         var i = self.stmt_drops.items.len;
@@ -1620,7 +1620,7 @@ pub const Checker = struct {
     }
 
     /// Walk a `(block ...)` in its own scope; its value is the value of
-    /// its last statement, which may not borrow the block's own locals.
+    /// its last statement, which may not view the block's own locals.
     fn walkBlock(self: *Checker, block: Sexp) Error!Value {
         const stmts = ir.Block.stmts(block);
         const t = self.takeTail(block);
@@ -1680,8 +1680,8 @@ pub const Checker = struct {
             self.setTail(sexp, .binding);
             return self.holdTemp(sexp, try self.walkList(sexp, kind));
         };
-        // A borrow its context reads through gives the value it reaches;
-        // when that holds no borrow, the loans taken to reach it end here.
+        // A view its context reads through gives the value it reaches;
+        // when that holds no view, the loans taken to reach it end here.
         if (self.sema) |ctx| if (ctx.readsThrough(sexp)) if (ctx.typeOf(sexp)) |ty| {
             const reached = sema.unwrapViews(ctx, ty);
             if (!self.mayCarryLoan(reached)) {
@@ -1690,9 +1690,9 @@ pub const Checker = struct {
                 self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
                 return .{};
             }
-            // A view read through a borrow is a copy of the view: it
-            // keeps what the view keeps, not the borrow that reached it.
-            // A String's borrows end here but for those it keeps.
+            // A view read through a view is a copy of the view: it
+            // keeps what the view keeps, not the view that reached it.
+            // A String's views end here but for those it keeps.
             if (sema.holdsViewOnly(ctx, reached)) {
                 const temps_start = self.temps.items.len;
                 return self.keepViewTemps(temps_start, try self.carry(reached, try self.walkList(sexp, kind)));
@@ -1714,7 +1714,7 @@ pub const Checker = struct {
             else => return switch (kind) {
                 .block => self.walkBlock(sexp),
                 .move => if (self.takes(sexp)) self.walkTake(ir.Move.operand(sexp)) else self.walkMove(ir.Move.operand(sexp)),
-                // A borrow the type checker rejected lends nothing.
+                // A view the type checker rejected lends nothing.
                 .read, .write => if (self.rejected(sexp))
                     self.walkRejectedLend(ir.get(sexp, .operand))
                 else if (self.lendsElements(sexp))
@@ -1765,7 +1765,7 @@ pub const Checker = struct {
         return .{};
     }
 
-    /// The operand of a borrow the type checker rejected: a closure
+    /// The operand of a view the type checker rejected: a closure
     /// binding there was reported with it.
     fn walkRejectedLend(self: *Checker, operand: Sexp) Error!Value {
         if (operand == .src) if (self.find(self.text(operand))) |id| if (self.vars.items[id].closure) return .{};
@@ -1778,7 +1778,7 @@ pub const Checker = struct {
         // `?expr` (`Lend.implicit`).
         if (self.lendOf(expr)) |lend| if (lend.implicit) return self.walkImplicitLend(expr, lend);
         if (isLambda(expr)) {
-            // A closure literal lent to a call as a borrowed callable
+            // A closure literal lent to a call as a callable view
             // lives for the call; anywhere else it is reported by
             // walkLambda.
             if (sink == .argument and (self.lendsBy(expr, .callable) or self.in_rejected_call or self.rejected(expr))) self.lambda_ok = true;
@@ -1788,9 +1788,9 @@ pub const Checker = struct {
         self.value_reads = false;
         try self.checkNoImplicitCopy(expr, sink, false);
         self.copy_reads = false;
-        // Passing a held write borrow (`w`, `e.t`) lends it on: like `!w`,
-        // its holder is write-borrowed for as long as the result may keep
-        // the borrow.
+        // Passing a held write view (`w`, `e.t`) lends it on: like `!w`,
+        // its holder is lent to write for as long as the result may keep
+        // the view.
         // A `![]T` passed where a `[]T` is expected is lent to read.
         if (sink == .argument and self.isWriteViewPlace(expr)) return self.walkLend(expr, if (self.lendsBy(expr, .read_only)) .read else .write);
         self.setTail(expr, sink);
@@ -1857,8 +1857,8 @@ pub const Checker = struct {
         _ = try self.movePayload(id, node.src.pos, "move");
     }
 
-    /// A place whose value holds a write borrow (`w`, `e.t`, a struct
-    /// with a `!T` field): passing it on lends that borrow.
+    /// A place whose value holds a write view (`w`, `e.t`, a struct
+    /// with a `!T` field): passing it on lends that view.
     fn isWriteViewPlace(self: *Checker, expr: Sexp) bool {
         if (!self.carriesWriteView(self.exprType(expr))) return false;
         return switch (self.hands(expr).kind) {
@@ -1898,7 +1898,7 @@ pub const Checker = struct {
         return .{ .loans = try self.unionLoans(v.loans, self.flows.items[id].loans) };
     }
 
-    /// Reading `id`: it must be live and not write-borrowed.
+    /// Reading `id`: it must be live and not lent to write.
     fn checkReadable(self: *Checker, id: VarId, pos: u32) Error!void {
         const v = self.vars.items[id];
         if (!try self.checkLive(id, pos)) return;
@@ -1928,8 +1928,8 @@ pub const Checker = struct {
         return false;
     }
 
-    /// Deferred code reading `id` reads what it borrows, directly or
-    /// through what that borrows, which must not be a var declared after
+    /// Deferred code reading `id` reads what it views, directly or
+    /// through what that views, which must not be a var declared after
     /// the `defer` (from `floor` on): that is dropped before it runs.
     fn checkDeferredReach(self: *Checker, id: VarId, floor: u32, pos: u32) Error!void {
         var reach: std.ArrayList(VarId) = .empty;
@@ -1959,8 +1959,8 @@ pub const Checker = struct {
         indexed: bool = false,
         /// Some step dereferences a shared handle.
         through_shared: bool = false,
-        /// Some step goes through a borrow (a borrowed root or a
-        /// borrow-typed field).
+        /// Some step goes through a view (a viewed root or a
+        /// view-typed field).
         through_view: bool = false,
     };
 
@@ -2007,10 +2007,10 @@ pub const Checker = struct {
         }
     }
 
-    /// The indices of place `e`, whose address is taken (a borrow, a
+    /// The indices of place `e`, whose address is taken (a view, a
     /// slice, a method's receiver): the place up to each index is found
     /// before the index runs, so while the indices run, `root` is held
-    /// read, and an index cannot write-borrow or move it
+    /// read, and an index cannot lend to write or move it
     /// (`!ps[0].a[grow(!ps)]` would write into the buffer `grow` freed).
     /// An assignment finds its target only after its indices run
     /// (`walkFieldAssign`).
@@ -2062,7 +2062,7 @@ pub const Checker = struct {
         return .{ .loans = out.items };
     }
 
-    /// The borrows taken since `temps_start` to compute view `v` end,
+    /// The views taken since `temps_start` to compute view `v` end,
     /// but for those `v` keeps: `!it.next()` twice in one statement.
     fn keepViewTemps(self: *Checker, temps_start: usize, v: Value) Error!Value {
         self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
@@ -2101,7 +2101,7 @@ pub const Checker = struct {
     const ReachKey = struct { holder: TypeId, view: TypeId };
 
     // -------------------------------------------------------------------------
-    // Borrow, move, clone, drop
+    // View, move, clone, drop
     // -------------------------------------------------------------------------
 
     /// How `e` is lent where a view of another type is expected
@@ -2170,8 +2170,8 @@ pub const Checker = struct {
         return (try self.lendVar(id, kind, pos)) orelse .{};
     }
 
-    /// A borrow of a path that starts from no var (`?f(?h).r`): it keeps
-    /// what the path's start borrows, whatever the type of each step.
+    /// A view of a path that starts from no var (`?f(?h).r`): it keeps
+    /// what the path's start views, whatever the type of each step.
     fn walkViewedPath(self: *Checker, e: Sexp) Error!Value {
         if (!e.isKind(.member) and !e.isKind(.index)) return self.walk(e);
         const obj = try self.walkViewedPath(ir.get(e, .object));
@@ -2179,8 +2179,8 @@ pub const Checker = struct {
         return obj;
     }
 
-    /// Borrow a place in var `id` at `pos`: null when `id` is moved or
-    /// the borrow conflicts, both reported.
+    /// Lend a place in var `id` at `pos`: null when `id` is moved or
+    /// the lend conflicts, both reported.
     fn lendVar(self: *Checker, id: VarId, kind: LoanKind, pos: u32) Error!?Value {
         if (!try self.checkLive(id, pos)) return null;
         if (try self.conflicts(id, if (kind == .write) .write else .read, pos)) return null;
@@ -2189,19 +2189,19 @@ pub const Checker = struct {
         return try self.lendOn(id, loan);
     }
 
-    /// A borrow of the elements of `object`: `slice` is a slice of it
-    /// (`?xs[a..b]`, `!xs[a..b]`), or a borrow of the whole array lent as
+    /// A view of the elements of `object`: `slice` is a slice of it
+    /// (`?xs[a..b]`, `!xs[a..b]`), or a view of the whole array lent as
     /// one (`?a`). A slice of a String or a `[]T` views what that value
-    /// views. A slice of a Vec borrows the Vec, whose buffer it points
-    /// into, and one of a `![]T` borrows the `![]T`, as a borrow of a
-    /// borrow does. A slice of an array held in the storage of the var it
+    /// views. A slice of a Vec views the Vec, whose buffer it points
+    /// into, and one of a `![]T` views the `![]T`, as a view of a
+    /// view does. A slice of an array held in the storage of the var it
     /// is reached from, which may be a copy (a by-value parameter, a loop
     /// or pattern binding), also holds a frame loan on that var, so it
     /// cannot outlive it.
     fn walkElems(self: *Checker, slice: Sexp, object: Sexp, kind: LoanKind) Error!Value {
         // The place's own indexes, and a slice's bounds.
         const indices = if (rig.isRangeIndex(slice)) slice else object;
-        // A slice the type checker rejected borrows nothing.
+        // A slice the type checker rejected views nothing.
         if (self.rejected(slice)) {
             _ = try self.walk(object);
             try self.walkPlaceIndices(indices);
@@ -2222,7 +2222,7 @@ pub const Checker = struct {
             return v;
         }
         // A path from no var (a temporary's part, `?mk().v[..]`) keeps
-        // what its start borrows, as a borrow of one does.
+        // what its start views, as a view of one does.
         const place = self.resolvePlace(object) orelse {
             const v = try self.walkViewedPath(object);
             if (rig.isRangeIndex(slice)) _ = try self.walk(ir.Index.index(slice));
@@ -2272,7 +2272,7 @@ pub const Checker = struct {
 
     /// Whether the value of place `e` is stored in the var the place
     /// starts from, rather than behind a pointer, a handle, or a Vec's
-    /// buffer, whose own loans cover it. A read borrow copies only
+    /// buffer, whose own loans cover it. A read view copies only
     /// scalars and views, which hold no array, so an array reached
     /// through one is behind a pointer.
     fn inVarStorage(self: *const Checker, e: Sexp) bool {
@@ -2284,9 +2284,9 @@ pub const Checker = struct {
         return true;
     }
 
-    /// The loans of a borrow of (a path inside) var `id`. Borrowing
-    /// through a read borrow copies that borrow; borrowing an owned value
-    /// or through a write borrow borrows the var itself.
+    /// The loans of a view of (a path inside) var `id`. Lending
+    /// through a read view copies that view; lending an owned value
+    /// or through a write view lends the var itself.
     fn lendOn(self: *Checker, id: VarId, loan: Loan) Error!Value {
         const v = self.vars.items[id];
         const held = self.flows.items[id].loans;
@@ -2325,8 +2325,8 @@ pub const Checker = struct {
 
     /// `<p.f` of an optional field or element: the value is taken out
     /// and `none` left behind, so the place stays whole. The place is
-    /// written: no other borrow of it may be live. What the value
-    /// borrows, the place borrowed.
+    /// written: no other view of it may be live. What the value
+    /// views, the place viewed.
     fn walkTake(self: *Checker, inner: Sexp) Error!Value {
         const place = self.resolvePlace(inner) orelse return self.walkViewedPath(inner);
         try self.walkPlaceIndices(inner);
@@ -2398,7 +2398,7 @@ pub const Checker = struct {
         if (v.alias_of != null) return self.movePayload(id, pos, vt);
 
         if (try self.conflicts(id, .{ .consume = vt }, pos)) return .{};
-        // `<x` ends `x`, whatever its type: a Copy value or a borrow is
+        // `<x` ends `x`, whatever its type: a Copy value or a view is
         // copied out, and the name is done.
         try self.markInvalid(id, .moved, pos);
         try self.holdMoved(value);
@@ -2407,7 +2407,7 @@ pub const Checker = struct {
 
     /// The loans a moved value carries stay in force until the end of the
     /// statement or call that consumes it, so a later argument of the
-    /// same call cannot borrow or move their roots.
+    /// same call cannot lend or move their roots.
     fn holdMoved(self: *Checker, value: Value) Error!void {
         for (value.loans) |l| if (!l.ext) try self.addTemp(l);
     }
@@ -2514,9 +2514,9 @@ pub const Checker = struct {
 
     /// The value of type `ty` that a clone or weak handle (`+x`, `~x`,
     /// `|+x|`, `|~x|`) makes from var `id` or another value carrying `v`.
-    /// A new handle is independent of the borrow it was reached through
+    /// A new handle is independent of the view it was reached through
     /// (a loop element, a `?*T` parameter), but reaches whatever the
-    /// shared value holds; a write borrow held there cannot be duplicated,
+    /// shared value holds; a write view held there cannot be duplicated,
     /// whoever lent it.
     fn newHandle(self: *Checker, pos: u32, what: []const u8, ty: ?TypeId, id: ?VarId, v: Value, weak: bool) Error!Value {
         if (!self.mayCarryLoan(ty)) return .{};
@@ -2533,7 +2533,7 @@ pub const Checker = struct {
     }
 
     /// What a shared value of handle type `ty` holds: nothing when its
-    /// type holds no borrow, the loans of the collection a loop element
+    /// type holds no view, the loans of the collection a loop element
     /// `id` walks, or null to use the handle's own loans.
     fn heldThroughHandle(self: *const Checker, ty: ?TypeId, id: ?VarId) ?Value {
         const t = self.pointee(ty) orelse return null;
@@ -2591,7 +2591,7 @@ pub const Checker = struct {
     fn checkNoImplicitCopy(self: *Checker, expr: Sexp, sink: Sink, top_return: bool) Error!void {
         // Reported by the type checker.
         if (self.rejected(expr)) return;
-        // The value a borrow reaches is copied where its context reads
+        // The value a view reaches is copied where its context reads
         // it, in the branches of what is read too.
         const saved_reads = self.copy_reads;
         defer self.copy_reads = saved_reads;
@@ -2606,8 +2606,8 @@ pub const Checker = struct {
                     try self.err(pos, "bare use of loop view `{s}` in {s} would carry the viewed handle past the loop; " ++ loop_view_rule, .{ name, sink.text() });
                     return;
                 }
-                // A captured read borrow or Copy value is copied out, and
-                // a captured borrow passed to a call is lent for the call.
+                // A captured read view or Copy value is copied out, and
+                // a captured view passed to a call is lent for the call.
                 const copied = v.ref == .read or self.copies(v.ty) or (sink == .argument and v.ref != .none);
                 if (v.capture_resource and !copied and v.ref == .write) {
                     try self.err(pos, "bare use of captured write view `{s}` in {s} would hand the write view, which is unique, out of the closure environment, again at each call; use it inside the closure instead", .{ name, sink.text() });
@@ -2620,8 +2620,8 @@ pub const Checker = struct {
                 if (top_return) return;
                 if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, .name, k, sink, v.ty);
                 if (sink == .argument) return;
-                // A write borrow of a Copy value is copied where the
-                // value is read; where a `!T` goes, the borrow would be.
+                // A write view of a Copy value is copied where the
+                // value is read; where a `!T` goes, the view would be.
                 if (v.ref == .write and (!self.readsAsValue(self.pointee(v.ty)) or !self.copy_reads)) {
                     try self.err(pos, "bare use of write view `{s}` in {s} would copy a write view, which is unique; use `<{s}` to move it", .{ name, sink.text(), name });
                 } else if (v.ref != .write and self.carriesWriteView(v.ty)) {
@@ -2644,7 +2644,7 @@ pub const Checker = struct {
                 // a tail it returns moves out, like a bare return; an
                 // operand it passes through does not. `m?` copies out
                 // the value inside `m`, which only matters when that
-                // value owns or holds a write borrow.
+                // value owns or holds a write view.
                 .made, .branches => {
                     const ty = self.exprType(expr);
                     var parts = sema.valueParts(expr);
@@ -2677,7 +2677,7 @@ pub const Checker = struct {
         return null;
     }
 
-    /// Whether the context of `e` reads the value the borrow it yields
+    /// Whether the context of `e` reads the value the view it yields
     /// reaches (`SemContext.readsThrough`).
     fn readsValue(self: *const Checker, e: Sexp) bool {
         const ctx = self.sema orelse return false;
@@ -2915,7 +2915,7 @@ pub const Checker = struct {
             try self.note(v.decl, "`{s}` was bound here with `const`", .{v.name});
             return;
         }
-        // Assigning a captured write borrow writes through it.
+        // Assigning a captured write view writes through it.
         // (A capture the type checker rejected is reported there.)
         const writes_capture = v.kind == .capture and (v.ref == .write or self.isPoisonType(v.ty));
         if (!writes_capture and try self.rejectConsumedView(id, pos, "reassign")) return;
@@ -2939,19 +2939,19 @@ pub const Checker = struct {
         if (self.diagnostics.items.len != before and self.quiet == 0) return;
         const v = self.vars.items[id];
         if (v.kind == .capture and v.ref == .write) {
-            // Assigning a captured write borrow writes into the value it
-            // borrows.
+            // Assigning a captured write view writes into the value it
+            // views.
             return self.storeThroughCapture(v, pos, value);
         }
         if (v.closure or v.fixed or v.loop_view or v.capture_resource) return;
         if (self.isGlobal(id) and !self.copies(v.ty)) return;
         if (self.findLoan(id, .any, null) != null) return;
         if (v.ref == .write and !repoints) {
-            // Assigning a write borrow writes into the value it borrows:
-            // it still borrows it. Through a `!T` parameter (or a loop or
-            // pattern binding) the new value may only carry borrows the
+            // Assigning a write view writes into the value it views:
+            // it still views it. Through a `!T` parameter (or a loop or
+            // pattern binding) the new value may only carry views the
             // caller handed in; through a local, it lands in what the
-            // local borrows, which then holds them.
+            // local views, which then holds them.
             if (!try self.checkLive(id, pos)) return;
             if (self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, 1);
             for (value.loans) |l| if (self.isLocalLoan(l)) {
@@ -2970,7 +2970,7 @@ pub const Checker = struct {
         try self.setFlow(id, .{ .loans = if (self.mayCarryLoan(v.ty)) (try self.carry(v.ty, value)).loans else &.{} });
     }
 
-    /// The var a borrow held by var `id` borrows, when it holds one of
+    /// The var a view held by var `id` views, when it holds one of
     /// a var of this function.
     fn viewedRoot(self: *const Checker, id: VarId) ?VarId {
         if (self.vars.items[id].ref == .none) return null;
@@ -2978,17 +2978,17 @@ pub const Checker = struct {
         return null;
     }
 
-    /// Var `id` is a local write borrow of a var of this function (a
-    /// `match !x` binding borrows `x` as one does): a store through it
-    /// lands in what it borrows.
+    /// Var `id` is a local write view of a var of this function (a
+    /// `match !x` binding views `x` as one does): a store through it
+    /// lands in what it views.
     fn writesThroughLocal(self: *const Checker, id: VarId) bool {
         const v = self.vars.items[id];
         if (v.ref != .write or !(v.kind == .local or (v.kind == .pattern and v.alias_of != null))) return false;
         return self.viewedRoot(id) != null;
     }
 
-    /// `w = e` through local write borrow `id`: `e` is stored in what
-    /// `w` borrows. A borrowed parameter or module-level binding reached
+    /// `w = e` through local write view `id`: `e` is stored in what
+    /// `w` views. A view parameter or module-level binding reached
     /// that way outlives this function's values.
     fn storeThroughLocal(self: *Checker, id: VarId, pos: u32, value: Value, depth: u32) Error!void {
         const held = self.varValue(id);
@@ -3031,18 +3031,18 @@ pub const Checker = struct {
         }
         if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
         // A value stored through a `!T` field or element lands in what
-        // the field borrows, which `v` holds a write loan on.
+        // the field views, which `v` holds a write loan on.
         const through = if (self.sema) |ctx| ctx.writesThrough(target) else false;
         if (through) return self.absorbThroughWrites(self.varValue(id), value, pos, v.name, self.placeDepth(target, true));
         if (v.kind == .capture and !place.through_shared) return self.storeThroughCapture(v, pos, value);
         if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, self.placeDepth(target, false));
         if (v.ref != .none or place.through_view or place.through_shared or self.isGlobal(id)) {
-            // Stored into something the caller owns: only borrows the
+            // Stored into something the caller owns: only views the
             // caller handed in may go there.
             for (value.loans) |l| if (self.isLocalLoan(l) or self.isGlobal(id)) {
                 const stored = self.vars.items[l.root].name;
                 const into = try self.placeText(target);
-                // A local borrow: what outlives it is what `v` borrows.
+                // A local view: what outlives it is what `v` views.
                 if (v.kind != .param) if (self.viewedRoot(id)) |root| {
                     try self.err(pos, "cannot store a view of `{s}` in `{s}`: `{s}` views `{s}`, which outlives it", .{ stored, into, v.name, self.vars.items[root].name });
                     return;
@@ -3058,7 +3058,7 @@ pub const Checker = struct {
     }
 
     /// `value`, which carries only loans the caller handed in, was stored
-    /// into what var `id` reaches through a borrow: a parameter's value,
+    /// into what var `id` reaches through a view: a parameter's value,
     /// or the value a loop or pattern binding writes through. Whatever
     /// holds the stored value now holds its loans: a parameter, as any
     /// var does (`absorbLoans`), and a binding's write loans lead to it
@@ -3125,7 +3125,7 @@ pub const Checker = struct {
     /// The node a call holds in storage of its own that lives only while
     /// it runs, and that it lends (a copy, or a value the storage owns),
     /// when the storage facts record one of `kind` for it: a receiver
-    /// without its borrow sigils, an argument as written.
+    /// without its lend sigils, an argument as written.
     fn heldForCall(self: *const Checker, e: Sexp, kind: sema.StorageKind) ?Sexp {
         const ctx = self.sema orelse return null;
         const node = if (kind == .receiver) storage.lentPlace(e) else e;
@@ -3192,9 +3192,9 @@ pub const Checker = struct {
         var result: Value = .{};
         var recv_value: Value = .{};
 
-        // Method call: the receiver is borrowed for the whole call. A
+        // Method call: the receiver is lent for the whole call. A
         // write receiver is reserved (read) while the arguments are
-        // evaluated and must be otherwise unborrowed when the call starts.
+        // evaluated and must be otherwise unlent when the call starts.
         var recv_root: ?VarId = null;
         var recv_mode: sema.MethodReceiver = .read;
         var reservation: usize = 0;
@@ -3219,20 +3219,20 @@ pub const Checker = struct {
             if (place) |p| {
                 const found = self.errors_found;
                 // The receiver is passed by address: its indices are held
-                // as a borrowed place's are.
+                // as a viewed place's are.
                 const mark = self.temps.items.len;
                 try self.addTemp(.{ .root = p.root, .kind = .read, .pos = self.startOf(obj), .place_hold = true });
                 const recv_val = try self.walk(obj);
                 if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
                 const id = p.root;
-                // A receiver already reported (used while write-borrowed)
-                // is not reported again as a conflicting write borrow.
+                // A receiver already reported (used while a write loan is live)
+                // is not reported again as a conflicting write view.
                 if (self.flowLive(id) and !self.isScalar(self.vars.items[id].ty) and self.errors_found == found) {
                     const pos = self.startOf(obj);
                     reservation = self.temps.items.len;
                     try self.addTemp(.{ .root = id, .kind = .read, .pos = pos });
                     recv_root = id;
-                    // A built-in's methods hand out values, never borrows
+                    // A built-in's methods hand out values, never views
                     // of the receiver.
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
                     recv_value = if (self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.lendOn(id, .{ .root = id, .kind = kind, .pos = pos }));
@@ -3244,7 +3244,7 @@ pub const Checker = struct {
             } else {
                 recv_value = try self.walk(ir.Member.object(callee));
                 if (self.errors_found == callee_found) try self.holdRead(ir.Member.object(callee), .receiver);
-                // A built-in's methods hand out values, never borrows of
+                // A built-in's methods hand out values, never views of
                 // the receiver.
                 if ((recv_mode == .read or recv_mode == .write) and !self.namesType(callee) and self.builtinName(self.exprType(obj)) == null) {
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
@@ -3258,8 +3258,8 @@ pub const Checker = struct {
                 }
             }
         } else if (callee == .src) {
-            // A callable's result may borrow what the callable holds: a
-            // closure its captures, a borrowed callable what it lends.
+            // A callable's result may view what the callable holds: a
+            // closure its captures, a callable view what it lends.
             result = try self.walkName(callee, true);
             if (self.errors_found == callee_found) try self.holdRead(callee, .callee);
         } else if (isLambda(callee)) {
@@ -3289,7 +3289,7 @@ pub const Checker = struct {
         }
         // Every handle to a Cell or Signal reaches what it holds, so what
         // goes in (`Cell(v)`, `set`, `replace`, `subscribe`) may
-        // not hold a borrow.
+        // not hold a view.
         const into = if (callee.isKind(.member) and !self.namesType(callee))
             self.builtinName(self.exprType(ir.Member.object(callee)))
         else if (self.namesType(callee)) self.builtinName(self.exprType(node)) else null;
@@ -3325,8 +3325,8 @@ pub const Checker = struct {
                 const held = v.*;
                 v.* = .{};
                 if (self.readsPlainValue(a)) continue;
-                // A borrow of a String stores the String it reaches: what
-                // it views, not the borrow.
+                // A view of a String stores the String it reaches: what
+                // it views, not the view.
                 const arg_ty = self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a);
                 const loans = (try self.carry(self.reachedType(arg_ty), held)).loans;
                 if (loans.len == 0) continue;
@@ -3348,31 +3348,31 @@ pub const Checker = struct {
             try self.temps.insert(self.gpa, reservation, reserved);
         };
 
-        // The callee may store what its arguments borrow into anything it
-        // can mutate: the receiver, and whatever the write borrows passed
-        // to it lead to (`!x`, a write borrow passed on or moved in, a
+        // The callee may store what its arguments view into anything it
+        // can mutate: the receiver, and whatever the write views passed
+        // to it lead to (`!x`, a write view passed on or moved in, a
         // value holding one). A built-in element method (`!dst.copy(src)`)
-        // stores only elements, which may hold no borrow to store.
+        // stores only elements, which may hold no view to store.
         if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             // A receiver lent to read is never written (Core sentence 9:
             // what changes through one is a Cell, which holds no loan).
             if (recv_root) |id| if (recv_mode == .write) {
                 const obj = ir.Member.object(callee);
-                // What the receiver is, not the borrow lending it.
+                // What the receiver is, not the view lending it.
                 if (self.mayCarryLoan(self.pointee(self.exprType(obj)))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null, true);
             };
             try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
             for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
         }
 
-        // The borrows passed to the call end when it returns, unless its
+        // The views passed to the call end when it returns, unless its
         // result can carry them.
         if (!self.mayCarryLoan(self.exprType(node))) {
             self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
             return .{};
         }
         // The result views only what could hold it (Core sentence 7). A
-        // String's borrows end here but for those it keeps.
+        // String's views end here but for those it keeps.
         const ty = self.exprType(node) orelse return result;
         if (self.sema) |ctx| if (sema.holdsViewOnly(ctx, ty)) return self.keepViewTemps(temps_start, try self.carry(ty, result));
         return self.carry(ty, result);
@@ -3383,11 +3383,11 @@ pub const Checker = struct {
     /// calls, a binary operator's left operand, an indexed value that is
     /// no place), when the value shares storage the place it reads owns
     /// (a Vec's buffer, a box, a shared handle, a struct holding one;
-    /// through a write borrow, what it reaches). Its consumer uses that
+    /// through a write view, what it reaches). Its consumer uses that
     /// value only after the later operands run, so until then the place's
-    /// root holds a read loan, and a later operand cannot write-borrow or
+    /// root holds a read loan, and a later operand cannot lend to write or
     /// move it. Plain data is copied whole when it is read, and what a
-    /// read borrow reaches is covered by its own loans.
+    /// read view reaches is covered by its own loans.
     fn holdRead(self: *Checker, operand: Sexp, reader: Reader) Error!void {
         const ctx = self.sema orelse return;
         const e = if (operand.isKind(.kwarg)) ir.Kwarg.value(operand) else operand;
@@ -3495,10 +3495,10 @@ pub const Checker = struct {
         return first;
     }
 
-    /// Whether call `call` may keep what argument `arg` borrows. No value
-    /// holds a borrowed callable, so a callable lent to a call is kept
+    /// Whether call `call` may keep what argument `arg` views. No value
+    /// holds a callable view, so a callable lent to a call is kept
     /// only by a result that is one, or through what it returns when
-    /// that can hold a borrow.
+    /// that can hold a view.
     fn keepsCallable(self: *const Checker, call: Sexp, arg: Sexp) bool {
         const ctx = self.sema orelse return true;
         const value = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
@@ -3512,15 +3512,15 @@ pub const Checker = struct {
     }
 
     /// A call of a built-in element method whose elements hold no
-    /// borrow: it stores none of its arguments' borrows.
+    /// view: it stores none of its arguments' views.
     fn storesNothing(self: *const Checker, callee: Sexp) bool {
         const ctx = self.sema orelse return false;
         const ec = ctx.elemCallOf(callee) orelse return false;
         return !self.mayCarryLoan(ec.elem);
     }
 
-    /// A borrow of plain data (`k` with `k: ?Int`) passed where a value
-    /// is expected is read by value: what it borrows is not stored.
+    /// A view of plain data (`k` with `k: ?Int`) passed where a value
+    /// is expected is read by value: what it views is not stored.
     fn readsPlainValue(self: *const Checker, e: Sexp) bool {
         const ctx = self.sema orelse return false;
         const arg = if (e.isKind(.kwarg)) ir.Kwarg.value(e) else e;
@@ -3541,10 +3541,10 @@ pub const Checker = struct {
         return if (self.find(name) == null) swap else null;
     }
 
-    /// `replace(!place, v)` / `swap(!a, !b)`: the places are write-borrowed
+    /// `replace(!place, v)` / `swap(!a, !b)`: the places are lent to write
     /// for the call, and `v` moves in. The two places of a `swap` may be
     /// different fields of one value (`swap(!t.left, !t.right)`); neither
-    /// may hold the other. The result holds no borrow.
+    /// may hold the other. The result holds no view.
     fn walkSwapCall(self: *Checker, args: []const Sexp, swap: bool) Error!Value {
         const start = self.temps.items.len;
         const first = try self.walkConsumed(args[0], .argument);
@@ -3563,7 +3563,7 @@ pub const Checker = struct {
         }
         const second = try self.walkConsumed(args[1], .argument);
         try self.temps.appendSlice(self.gpa, saved.items);
-        // The places hold no borrow, but may hold Strings: what `replace`
+        // The places hold no view, but may hold Strings: what `replace`
         // hands back views what the place viewed, and each place now
         // views what went in.
         var result: Value = .{};
@@ -3575,7 +3575,7 @@ pub const Checker = struct {
         return result;
     }
 
-    /// `!a[i]` and `!a[j]`: write borrows of two elements of the one
+    /// `!a[i]` and `!a[j]`: write views of two elements of the one
     /// collection `a`, as the source spells them.
     fn sameCollection(self: *const Checker, a: Sexp, b: Sexp) ?struct { base: []const u8, i: []const u8, j: []const u8 } {
         if (!a.isKind(.write) or !b.isKind(.write)) return null;
@@ -3592,7 +3592,7 @@ pub const Checker = struct {
         return self.source[sp.start..sp.end];
     }
 
-    /// `!a.x` and `!a.y`: write borrows of two fields of one binding,
+    /// `!a.x` and `!a.y`: write views of two fields of one binding,
     /// neither inside the other.
     fn disjointFields(self: *Checker, a: Sexp, b: Sexp) bool {
         if (!a.isKind(.write) or !b.isKind(.write)) return false;
@@ -3614,7 +3614,7 @@ pub const Checker = struct {
     }
 
     /// `Cell`, `Signal`, or `Vec` when a value of type `ty` is one,
-    /// through borrows and shared handles.
+    /// through views and shared handles.
     fn builtinName(self: *const Checker, ty: ?TypeId) ?[]const u8 {
         const ctx = self.sema orelse return null;
         var t = ty orelse return null;
@@ -3632,22 +3632,22 @@ pub const Checker = struct {
 
     /// Record that the values the write loans in `v` lead to may now hold
     /// the loans in `stored`. Those write loans are the path to them, not
-    /// something stored. `via` names the write borrow an assignment
+    /// something stored. `via` names the write view an assignment
     /// stores through; without it, a call stores them.
     ///
     /// Without a `depth` (a call, which may store anywhere its arguments
     /// reach), every value the write loans lead to, however deep, may
-    /// hold them. An assignment goes through `depth` write borrows from
+    /// hold them. An assignment goes through `depth` write views from
     /// `v` (`placeDepth`): the values within that many write loans may
     /// hold them, and the ones further on, which only what it wrote
-    /// borrows, do not. A write borrow var on the way (`w2 = !w`) is a
-    /// name for what it borrows, and takes no step of its own.
+    /// views, do not. A write view var on the way (`w2 = !w`) is a
+    /// name for what it views, and takes no step of its own.
     fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32, via: ?[]const u8, depth: ?u32) Error!void {
         var level: std.ArrayList(VarId) = .empty;
         try self.appendWriteRoots(&level, v, &.{});
         const d = depth orelse {
             for (level.items) |r| {
-                // Only a value that can hold a borrow can have one stored in it.
+                // Only a value that can hold a view can have one stored in it.
                 if (!self.mayCarryLoan(self.pointee(self.vars.items[r].ty))) continue;
                 try self.absorbLoans(r, stored, pos, level.items, via, true);
             }
@@ -3689,7 +3689,7 @@ pub const Checker = struct {
         }
     }
 
-    /// The number of write borrows a store to `target` goes through from
+    /// The number of write views a store to `target` goes through from
     /// its root var's value: each one the path reaches through, the root
     /// included, and the `!T` the place itself holds when the store
     /// writes through it.
@@ -3698,7 +3698,7 @@ pub const Checker = struct {
         var e = target;
         while (e.isKind(.member) or e.isKind(.index)) {
             e = ir.get(e, .object);
-            // A root var holding a write borrow (a `match !x` binding
+            // A root var holding a write view (a `match !x` binding
             // among them, whatever its type) is one.
             const root_is_write_view = e == .src and if (self.find(self.text(e))) |id| self.vars.items[id].ref == .write else false;
             const is_write_view = if (self.exprType(e)) |t| self.typeData(t) == .write_view else false;
@@ -3708,12 +3708,12 @@ pub const Checker = struct {
     }
 
     /// Record that var `id` may now hold the loans in `v`, and so may
-    /// every value it write-borrows: a store through a write borrow lands
-    /// there. `through` are the vars whose write borrows led to `id`;
-    /// their own loans are the path, not something stored. A borrowed
+    /// every value it lends to write: a store through a write view lands
+    /// there. `through` are the vars whose write views led to `id`;
+    /// their own loans are the path, not something stored. A viewed
     /// parameter or a module-level binding outlives this function's
-    /// values: storing a borrow of one into it is rejected, and a
-    /// borrowed parameter holds the loans the caller handed in, as any
+    /// values: storing a view of one into it is rejected, and a
+    /// view parameter holds the loans the caller handed in, as any
     /// var does. `via` is as for `absorbThroughWrites`.
     fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool) Error!void {
         // A value that holds only Strings keeps only what leads to a Text.
@@ -3729,9 +3729,9 @@ pub const Checker = struct {
         if (out.items.len == 0) return;
         const c = self.vars.items[id];
         if ((c.kind == .param and c.ref != .none) or self.isGlobal(id)) {
-            // The caller accounts for borrows it passed in; only borrows
+            // The caller accounts for views it passed in; only views
             // of this function's own values cannot be stored. Nothing
-            // borrowed may be stored in a module-level binding.
+            // viewed may be stored in a module-level binding.
             for (out.items) |l| if (self.isLocalLoan(l) or self.isGlobal(id)) {
                 const name = self.vars.items[l.root].name;
                 if (via) |w| {
@@ -3756,14 +3756,14 @@ pub const Checker = struct {
         const next = try std.mem.concat(self.arena(), VarId, &.{ through, &.{id} });
         for (held) |l| {
             if (l.kind != .write or std.mem.findScalar(VarId, next, l.root) != null) continue;
-            // Only a value that can hold a borrow can have one stored in it.
+            // Only a value that can hold a view can have one stored in it.
             if (!self.mayCarryLoan(self.pointee(self.vars.items[l.root].ty))) continue;
             try self.absorbLoans(l.root, v, pos, next, via, true);
         }
     }
 
     /// A loan on a value owned by the current function (as opposed to one
-    /// the caller handed in through a borrowed parameter, or a
+    /// the caller handed in through a view parameter, or a
     /// module-level constant, which outlives every function).
     fn isLocalLoan(self: *const Checker, l: Loan) bool {
         if (l.ext or self.isGlobal(l.root)) return false;
@@ -3804,7 +3804,7 @@ pub const Checker = struct {
             try cap_values.append(self.arena(), cv);
             if (owned) try self.requireNoView(sema.captureNameNode(cap).?.src.pos, self.symType(sema.captureNameNode(cap).?.src.pos));
             // An owned closure is a shared handle that may be stored
-            // anywhere, including in a Cell or Signal: it holds no borrow.
+            // anywhere, including in a Cell or Signal: it holds no view.
             if (owned and cv.loans.len > 0) {
                 const name = self.text(sema.captureNameNode(cap).?);
                 const l = cv.loans[0];
@@ -3824,8 +3824,8 @@ pub const Checker = struct {
             }
             value = try self.valueUnion(value, cv);
         }
-        // The body may store what one capture borrows into what a
-        // captured write borrow leads to, as a call may with its
+        // The body may store what one capture views into what a
+        // captured write view leads to, as a call may with its
         // arguments: that value now holds those loans.
         if (!owned and caps.len > 1) for (caps, cap_values.items) |cap, cv| {
             try self.absorbThroughWrites(cv, value, sema.captureNameNode(cap).?.src.pos, null, null);
@@ -3894,7 +3894,7 @@ pub const Checker = struct {
             return .{};
         }
         if (mode == .cap_move) return self.moveVar(id, pos, .capture);
-        // `|?x|` / `|!x|` borrow `x` for as long as the closure lives.
+        // `|?x|` / `|!x|` view `x` for as long as the closure lives.
         if (mode == .cap_read or mode == .cap_write) return (try self.lendVar(id, if (mode == .cap_read) .read else .write, pos)) orelse .{};
         if (!try self.checkCapturable(id, pos)) return .{};
         if (self.findLoan(id, .write, null)) |l| {
@@ -3917,8 +3917,8 @@ pub const Checker = struct {
     }
 
     /// A value leaving the function: a bare local moves out; anything
-    /// else must not copy an owning value; borrows must come from
-    /// borrowed parameters.
+    /// else must not copy an owning value; views must come from
+    /// view parameters.
     fn walkReturnValue(self: *Checker, expr: Sexp) Error!void {
         var value: Value = .{};
         if (expr == .src) {
@@ -4161,7 +4161,7 @@ pub const Checker = struct {
     /// The parts of a binding condition, in order. Each `as` moves the
     /// value inside its optional into a binding, in a new scope over
     /// `body`, which the caller pops. The binding holds what the value
-    /// borrows; the loans taken to compute it end there, so the path
+    /// views; the loans taken to compute it end there, so the path
     /// where there is no value is free to use them.
     fn walkConditionParts(self: *Checker, cond: Sexp, body: Sexp) Error!void {
         if (rig.isConditionJoin(cond)) {
@@ -4307,7 +4307,7 @@ pub const Checker = struct {
         try self.dropStmtTemps(drops);
         var outlived = false;
         // A payload binding holds its own loan on the matched place, so
-        // the borrow of the subject ends with the bindings, not the match.
+        // the view of the subject ends with the bindings, not the match.
         if (lent and info.root != null) self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
         // The match reads its subject again after a guard runs, to test
         // the next arm's pattern: what the subject views stays lent while
@@ -4334,7 +4334,7 @@ pub const Checker = struct {
             self.arm_var = null;
             self.arm_subject = self.spanText(scrut);
             // A guarded arm may not run for the values its pattern
-            // matches. The borrows the guard takes end with it.
+            // matches. The views the guard takes end with it.
             const bound = self.vars.items.len;
             if (try self.bindPattern(pattern, info, scrut_value) and guard == .nil) catch_all = true;
             // A binding that views a temporary the subject made would
@@ -4419,8 +4419,8 @@ pub const Checker = struct {
                 v.alias_path = info.path;
                 v.via = info.via;
                 // The binding views the matched value: its root stays
-                // borrowed (write-borrowed when the view holds a write
-                // borrow, which must not be reached twice), and a borrowed
+                // viewed (lent to write when the view holds a write
+                // view, which must not be reached twice), and a viewed
                 // root lends what it holds.
                 loans = try self.oneLoan(.{ .root = r, .kind = if (self.carriesWriteView(ty)) .write else .read, .pos = pos });
                 if (info.via == .viewed) loans = try self.unionLoans(loans, self.flows.items[r].loans);
@@ -4519,10 +4519,10 @@ pub const Checker = struct {
             const value = try self.walk(source);
             if (self.headerTempLoan(drops, value)) |l| try self.reportTempOutlived(l, null);
             // The elements of a collection the source makes (an array of
-            // borrows, a call's result) carry the borrows it holds.
+            // views, a call's result) carry the views it holds.
             if (self.resolvePlace(source) == null) spec.moved = value.loans;
-            // A source already reported (used while write-borrowed) is
-            // not reported again as a conflicting borrow.
+            // A source already reported (used while a write loan is live) is
+            // not reported again as a conflicting view.
             if (self.errors_found == found) if (self.resolvePlace(source)) |p| {
                 const id = p.root;
                 const kind: LoanKind = if (mode == .write) .write else .read;
@@ -4658,7 +4658,7 @@ pub const Checker = struct {
     fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {
         var elem_loans: []const Loan = &.{};
         if (spec.source_root) |root| if (self.flowLive(root)) {
-            // The source stays borrowed for the whole loop.
+            // The source stays lent for the whole loop.
             elem_loans = try self.oneLoan(.{ .root = root, .kind = spec.source_loan, .pos = spec.source_pos });
             _ = try self.addVar(.{ .name = "", .decl = spec.source_pos, .kind = .hidden }, .{ .loans = elem_loans });
         };
@@ -4714,7 +4714,7 @@ pub const Checker = struct {
             } else if (std.mem.eql(u8, t.label, label)) break;
         }
         // A `break` value leaves the loop like a returned value leaves the
-        // function: it is consumed, and it may not borrow what the loop
+        // function: it is consumed, and it may not view what the loop
         // declared.
         if (target) |t| self.value_reads = t.reads;
         const v: Value = if (value != .nil) try self.walkConsumed(value, .brk) else .{};
@@ -4831,8 +4831,8 @@ pub const Checker = struct {
     }
 
     /// Leaving scopes drops vars `>= start`, youngest first. A value whose
-    /// drop runs a user `drop` body must not borrow, directly or through
-    /// what it borrows, a younger value dropped (or out of scope) before
+    /// drop runs a user `drop` body must not view, directly or through
+    /// what it views, a younger value dropped (or out of scope) before
     /// it: the body could read it after.
     fn checkDropOrder(self: *Checker, start: u32) Error!void {
         const ctx = self.sema orelse return;
@@ -4969,7 +4969,7 @@ pub const Checker = struct {
         };
     }
 
-    /// The type a borrow type refers to.
+    /// The type a view type refers to.
     fn pointee(self: *const Checker, ty: ?TypeId) ?TypeId {
         const t = ty orelse return null;
         return switch (self.typeData(t)) {
@@ -5070,26 +5070,26 @@ pub const Checker = struct {
         };
     }
 
-    /// Whether a value of this type can hold a borrow, or a String that
+    /// Whether a value of this type can hold a marked view, or a String that
     /// may view a Text. Unknown types are assumed to.
     fn mayCarryLoan(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return true;
         return sema.mayHoldView(ctx, ty orelse return true);
     }
 
-    /// The type a value of type `ty` reaches through its borrows.
+    /// The type a value of type `ty` reaches through its views.
     fn reachedType(self: *const Checker, ty: ?TypeId) ?TypeId {
         const ctx = self.sema orelse return ty;
         return sema.unwrapViews(ctx, ty orelse return null);
     }
 
-    /// Whether a value of this type holds a borrow, a String aside.
+    /// Whether a value of this type holds a marked view (a String aside).
     fn holdsMarkedViewType(self: *const Checker, ty: TypeId) bool {
         const ctx = self.sema orelse return true;
         return sema.holdsMarkedView(ctx, ty);
     }
 
-    /// Whether a value of this type holds a write borrow, which must not
+    /// Whether a value of this type holds a write view, which must not
     /// be duplicated.
     fn carriesWriteView(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
@@ -5105,7 +5105,7 @@ pub const Checker = struct {
 
     /// `p.f(...)` where `f` is a data field holding a plain function or
     /// an owned closure (not a method): the call has no receiver
-    /// (`storage.hasReceiver`), and neither can keep a borrow of an
+    /// (`storage.hasReceiver`), and neither can keep a view of an
     /// argument in `p`.
     fn callsFunctionField(self: *const Checker, call: Sexp, callee: Sexp) bool {
         const ctx = self.sema orelse return false;
@@ -5244,7 +5244,7 @@ fn extent(s: Sexp) struct { lo: u32, hi: u32 } {
 
 // =============================================================================
 // Tests (without ctx: every type is unknown, so every value is treated
-// as owning and possibly borrowing)
+// as owning and possibly lending)
 // =============================================================================
 
 const TestRig = struct {

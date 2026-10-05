@@ -15,7 +15,7 @@
 //!   optional of one) is dropped at scope exit by a `defer`. When the
 //!   binding may be moved, dropped, or returned, the defer tests a
 //!   `__rig_alive_<name>` flag, and the consuming site clears it.
-//! - `!T` parameters, `!self` receivers, and borrow bindings are
+//! - `!T` parameters, `!self` receivers, and write-view bindings are
 //!   pointers; reads go through `.*`.
 //! - Every Rig name is written with `rig.writeZigIdent`; a local that
 //!   would shadow another visible Zig name is renamed.
@@ -62,7 +62,7 @@ const ResourceKind = enum {
 
 /// How a binding's scope-exit drop is armed.
 const Guard = enum {
-    /// Not dropped here (plain data, borrows, captures, loop elements).
+    /// Not dropped here (plain data, views, captures, loop elements).
     none,
     /// Always dropped at scope exit: `defer x.dropStrong();`.
     scope,
@@ -187,7 +187,7 @@ pub const Emitter = struct {
     /// The next expression sits in a delimited position (after `=`,
     /// between commas, inside parentheses) and needs no outer parentheses.
     bare: bool = false,
-    /// The value being emitted is a write borrow: a pointer local in tail
+    /// The value being emitted is a write view: a pointer local in tail
     /// position yields the pointer, not the value behind it.
     ptr_tail: bool = false,
     /// What the context of the value being emitted does with it
@@ -855,7 +855,7 @@ pub const Emitter = struct {
     fn declare(self: *Emitter, local: Local, rig_name: []const u8) Error!*Local {
         if (self.scopes.items.len == 0) try self.pushScope();
         var l = local;
-        // A pointer borrow is held as a pointer wherever it is bound.
+        // A pointer view is held as a pointer wherever it is bound.
         if (l.ty) |t| if (self.isPtrViewTy(t)) {
             l.is_ptr = true;
         };
@@ -1323,7 +1323,7 @@ pub const Emitter = struct {
         } else false;
         const is_lend = binds_view and !copies and (expr.isKind(.read) or expr.isKind(.write)) and
             (ty == null or (sema.writeSliceElem(self.sema, ty.?) == null and sema.callableFn(self.sema, ty.?) == null));
-        // A write borrow is held as a pointer however it was obtained.
+        // A write view is held as a pointer however it was obtained.
         const holds_ptr = is_lend or (ty != null and self.isPtrViewTy(ty.?));
         var local: Local = .{ .sym = sym, .ty = ty, .is_ptr = holds_ptr };
         if (!holds_ptr) {
@@ -1335,7 +1335,7 @@ pub const Emitter = struct {
         // one lives in mutable storage.
         const needs_ptr_self = local.kind == .value or local.kind == .optional or
             (ty != null and sema.holdsCellByValue(self.sema, ty.?));
-        // Assigning a write borrow writes through it, leaving the
+        // Assigning a write view writes through it, leaving the
         // pointer as it is.
         const rebound = s.flags.repointed or (s.flags.reassigned and !(ty != null and sema.assignWritesThrough(self.sema, ty.?)));
         // A constant initializer would make a Zig `const` compile-time
@@ -1361,7 +1361,7 @@ pub const Emitter = struct {
         const stored = try self.declare(local, self.srcText(name_node));
         try self.w.print("{s} {s}", .{ if (is_var) "var" else "const", stored.zig_name });
         if (holds_ptr) {
-            // A rebindable borrow needs its pointer type spelled out.
+            // A rebindable view needs its pointer type spelled out.
             if (is_var and ty != null) {
                 try self.w.writeAll(": ");
                 try self.emitPointerTy(ty.?);
@@ -1402,7 +1402,7 @@ pub const Emitter = struct {
         const s = self.sema.symbols.items[local.sym];
         const writes_through = !repoints and sema.assignWritesThrough(self.sema, s.ty);
         if (local.is_ptr and !writes_through) {
-            // A borrow local is rebound to borrow something else.
+            // A view local is rebound to view something else.
             try self.w.print("{s} = ", .{local.zig_name});
             if (value.isKind(.read) or value.isKind(.write)) try self.emitLendAddress(value) else try self.emitWriteViewPtr(value);
             return self.w.writeAll(";");
@@ -1455,9 +1455,9 @@ pub const Emitter = struct {
     /// The value and the target's indices are evaluated first
     /// (`openAssign`).
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
-        // A field or element holding a write borrow is written through
-        // when it is given a value, not another write borrow (sema
-        // decides); the place is then the value it borrows.
+        // A field or element holding a write view is written through
+        // when it is given a value, not another write view (sema
+        // decides); the place is then the value it views.
         const through = self.sema.writesThrough(target);
         const place_ty = if (through) self.peelViews(self.typeOf(target).?) else self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
@@ -1471,7 +1471,7 @@ pub const Emitter = struct {
             return self.closeAssign(order);
         };
         if (target != .src and self.isPtrViewExpr(target) and !through) {
-            // A field or element holding a write borrow is rebound.
+            // A field or element holding a write view is rebound.
             const order = try self.openAssign(target, value, null, .view);
             // An element is reached as the slot it is.
             if (target.isKind(.index)) try self.emitIndex(target, true) else try self.emitWriteViewPtr(target);
@@ -1501,7 +1501,7 @@ pub const Emitter = struct {
     }
 
     /// How `openAssign` evaluates an assignment's value: as a value, or
-    /// as the borrow a borrow-holding place is pointed at.
+    /// as the view a view-holding place is pointed at.
     const AssignValue = enum { value, view };
 
     /// Every assignment evaluates its value first, then its target's
@@ -1620,7 +1620,7 @@ pub const Emitter = struct {
     fn emitPlace(self: *Emitter, target: Sexp) Error!void {
         if (target == .src) if (self.localOf(target)) |local| return self.writeLocalPlace(local);
         if (target.isKind(.index)) {
-            // An element holding a write borrow denotes the borrowed
+            // An element holding a write view denotes the viewed
             // value, as a field holding one does (`emitValue`).
             try self.emitIndex(target, true);
             if (self.isPtrViewExpr(target)) try self.w.writeAll(".*");
@@ -1653,7 +1653,7 @@ pub const Emitter = struct {
             try self.w.writeAll(";");
             return;
         }
-        // Ending a borrow or dropping plain data has no runtime effect;
+        // Ending a view or dropping plain data has no runtime effect;
         // the discard is the binding's use in Zig.
         try self.w.print("_ = &{s};", .{local.zig_name});
     }
@@ -2222,7 +2222,7 @@ pub const Emitter = struct {
         // An array the loop takes is held in a `var`, and each element is
         // reached through a pointer into it, as the body's own.
         const owned = header == .taken;
-        // A resource element is a borrowed view of its slot.
+        // A resource element is a view of its slot.
         const by_ptr = mode == .write or owned or
             (elem_ty != null and self.sema.types.get(elem_ty.?) == .read_view);
 
@@ -2393,7 +2393,7 @@ pub const Emitter = struct {
             .mode = storage.matchMode(self.sema, sexp),
             .ty = scrut_ty,
             .error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false,
-            // `match ?t` / `match !t` switch on the value borrowed.
+            // `match ?t` / `match !t` switch on the value viewed.
             .subject = lentPlace(scrutinee),
             .boxed = scrut_ty != null and scrut_ty.? != self.typeOf(scrutinee).?,
         };
@@ -2433,7 +2433,7 @@ pub const Emitter = struct {
         if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
             try self.w.writeAll(info.reread);
         } else {
-            // A match on a call returning a borrow held by pointer
+            // A match on a call returning a view held by pointer
             // switches on the value it points to, where it is: a header
             // with temporaries yields the pointer, never the value.
             const by_ptr = !self.hasStorage(subject) and self.isPtrViewExpr(subject);
@@ -2882,7 +2882,7 @@ pub const Emitter = struct {
 
     /// A resource bound by `as`: captured as `tmp`, then owned by a local
     /// declared at the top of the body (or dropped at once for `as _`).
-    /// `copy`: a borrowed binding over a Cell-holding part of a
+    /// `copy`: a viewed binding over a Cell-holding part of a
     /// temporary, captured by value into a mutable local (`lendsCellTemp`).
     const OptionalBinding = struct { cond: Sexp, name: Sexp, tmp: []const u8, copy: bool = false };
 
@@ -2918,7 +2918,7 @@ pub const Emitter = struct {
     /// Bindings for a payload's fields that the arm uses (in `used_in`,
     /// when given), declared in the arm's scope, read from the payload
     /// `at` names. A `match !x` binding (`writes`) points at its field,
-    /// unless the field is itself a borrow, which is bound as it is.
+    /// unless the field is itself a view, which is bound as it is.
     fn payloadAliases(self: *Emitter, captures: []const Sexp, scrut_ty: TypeId, variant: []const u8, writes: bool, at: PayloadAt, used_in: Sexp) Error![]const Alias {
         const fields = self.variantPayload(scrut_ty, variant) orelse return self.unsupported(captures[0], "this payload pattern");
         var out: std.ArrayList(Alias) = .empty;
@@ -2990,9 +2990,9 @@ pub const Emitter = struct {
         // the checker allows only for plain data read.
         const owns = value.isKind(.move) or (sema.handsOver(self.sema, value).kind == .made and !sema.isReadOrWriteView(self.sema, self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
         if (!owns and self.hasTemps(value) != self.sema.copiesHeader(cond)) return self.unsupported(cond, "a header copy the checker did not record");
-        // Over a borrow of an optional, a borrowed binding points into it.
+        // Over a view of an optional, a viewed binding points into it.
         if (self.viewsOptionalValue(value) and self.sema.copiesHeader(cond)) {
-            // A borrow of a temporary the header drops: the optional is
+            // A view of a temporary the header drops: the optional is
             // read inside the header, and the binding views a copy of the
             // value inside, which the ownership checker lets nothing use
             // past the header.
@@ -3012,8 +3012,8 @@ pub const Emitter = struct {
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .copy = true } };
         }
         if (self.viewsOptionalValue(value)) {
-            // A name holding a borrow is emitted as the place it points to.
-            // `o` and `<o` of a name holding the borrow are the place.
+            // A name holding a view is emitted as the place it points to.
+            // `o` and `<o` of a name holding the view are the place.
             const named = value == .src or (value.isKind(.move) and ir.Move.operand(value) == .src);
             try self.w.writeAll(if (named) "(" else "((");
             try self.emitBare(value);
@@ -3049,12 +3049,12 @@ pub const Emitter = struct {
         return .{};
     }
 
-    /// `storage.borrowsOptionalValue`.
+    /// `storage.viewsOptionalValue`.
     fn viewsOptionalValue(self: *Emitter, value: Sexp) bool {
         return storage.viewsOptionalValue(self.sema, value);
     }
 
-    /// A borrow bound by `as`: `tmp` points at the value inside the
+    /// A view bound by `as`: `tmp` points at the value inside the
     /// optional, and the binding is declared from it at the top of the body.
     fn bindOptionalView(self: *Emitter, o: OptionalBinding) Error!void {
         const sym = self.sema.symbolOf(o.name).?;
@@ -3359,7 +3359,7 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// A value stored into a field, payload, or element: a write borrow is
+    /// A value stored into a field, payload, or element: a write view is
     /// stored as its pointer.
     fn emitStored(self: *Emitter, e: Sexp) Error!void {
         if (self.isPtrViewExpr(e) and !self.sema.readsThrough(e)) return self.emitWriteViewPtr(e);
@@ -3432,9 +3432,9 @@ pub const Emitter = struct {
         return false;
     }
 
-    /// An expression yielding a pointer borrow where its context reads the
+    /// An expression yielding a pointer view where its context reads the
     /// value behind it (`SemContext.readsThrough`): `!x`, or a call
-    /// returning `!Int`. A name, field, or element holding a borrow reads
+    /// returning `!Int`. A name, field, or element holding a view reads
     /// through it already.
     fn readsThrough(self: *Emitter, e: Sexp) bool {
         if (e == .src or e.isKind(.member) or e.isKind(.index)) return false;
@@ -3447,32 +3447,32 @@ pub const Emitter = struct {
         return sema.writeSliceElem(self.sema, t) != null;
     }
 
-    /// An expression whose value is a pointer borrow (see `isPtrBorrowTy`).
+    /// An expression whose value is a pointer view (see `isPtrViewTy`).
     fn isPtrViewExpr(self: *Emitter, e: Sexp) bool {
         const t = self.typeOf(e) orelse return false;
         return self.isPtrViewTy(t);
     }
 
-    /// A borrow held as a pointer: a write borrow, and a read borrow of a
-    /// value that owns resources or holds a `Cell` (see `readBorrowIsPtr`).
+    /// A view held as a pointer: a write view, and a read view of a
+    /// value that owns resources or holds a `Cell` (see `readViewIsPtr`).
     /// A `![]T` is a Zig slice, which points at its elements itself.
     fn isPtrViewTy(self: *Emitter, ty: TypeId) bool {
         return sema.viewHeldAsPointer(self.sema, ty);
     }
 
-    /// A read borrow of a scalar or a view is a copy
+    /// A read view of a scalar or a view is a copy
     /// (`sema.lendByValue`); anything else is lent by address.
     fn readViewIsPtr(self: *Emitter, inner: TypeId) bool {
         return !sema.lendByValue(self.sema, inner);
     }
 
-    /// The `T` of a read borrow `?T` whose form depends on a generic
+    /// The `T` of a read view `?T` whose form depends on a generic
     /// type's arguments: `T` holds a type parameter and neither owns
     /// resources nor holds a Cell on its own. It is emitted as
-    /// `rig.ReadBorrow(T)`, which applies `readBorrowIsPtr`'s rule to each
+    /// `rig.ReadView(T)`, which applies `readViewIsPtr`'s rule to each
     /// instance, so an instance agrees with the code that uses it
     /// (`?Wrap[Int]` is a copy). Code that depends on the form goes through
-    /// `rig.lend` and `rig.borrowed`; the rest treats it as a pointer, since
+    /// `rig.lend` and `rig.viewed`; the rest treats it as a pointer, since
     /// Zig reaches fields and methods through either.
     fn genericReadView(self: *Emitter, ty: TypeId) ?TypeId {
         const inner = switch (self.sema.types.get(ty)) {
@@ -3488,12 +3488,12 @@ pub const Emitter = struct {
     }
 
     /// `?x` or `!x` held by pointer: the address of `x`, or for a generic
-    /// read borrow, `rig.lend` of it.
+    /// read view, `rig.lend` of it.
     fn emitLendAddress(self: *Emitter, e: Sexp) Error!void {
         if (!sameNode(e, self.lending)) if (self.sema.lendOf(e)) |lend| if (!lend.has(.read_only) and lend.callable() == null) return self.emitLend(e, lend, false, true);
         const operand = ir.get(e, .operand);
-        // A read borrow reaches a Vec element through a read-only slot, a
-        // write borrow through a writable one.
+        // A read view reaches a Vec element through a read-only slot, a
+        // write view through a writable one.
         const saved_read = self.read_place;
         defer self.read_place = saved_read;
         self.read_place = e.isKind(.read);
@@ -3503,7 +3503,7 @@ pub const Emitter = struct {
     }
 
     /// A read lend of `operand` as a view held by address: its address,
-    /// or for a generic read borrow (`generic`), `rig.lend` of it, which
+    /// or for a generic read view (`generic`), `rig.lend` of it, which
     /// gives each instance the view its type is lent as. A lend written
     /// `?x` and one made where a view is expected are written alike.
     fn emitReadLend(self: *Emitter, operand: Sexp, generic: bool) Error!void {
@@ -3515,16 +3515,16 @@ pub const Emitter = struct {
         if (generic) try self.w.writeAll(")");
     }
 
-    /// `rig.borrowed(T, `: the value a generic read borrow reaches; the
-    /// caller writes the borrow and the `)`.
+    /// `rig.viewed(T, `: the value a generic read view reaches; the
+    /// caller writes the view and the `)`.
     fn writeViewedOpen(self: *Emitter, inner: TypeId) Error!void {
         try self.w.writeAll("rig.viewed(");
         try self.emitTypeTy(inner);
         try self.w.writeAll(", ");
     }
 
-    /// `e` yielded where a value of `ty` goes: a borrow yielded where a
-    /// borrow or an optional borrow goes stays a borrow.
+    /// `e` yielded where a value of `ty` goes: a view yielded where a
+    /// view or an optional view goes stays a view.
     fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
         if (ty) |t| if (self.isPtrViewExpr(e) and self.isPtrViewTy(self.unwrapOptionals(t))) return self.emitWriteViewPtr(e);
         // A branch's String is a slice, so a literal in one branch and a
@@ -3564,7 +3564,7 @@ pub const Emitter = struct {
         };
     }
 
-    /// `(e).*`: the value a pointer borrow reaches.
+    /// `(e).*`: the value a pointer view reaches.
     fn emitDeref(self: *Emitter, e: Sexp) Error!void {
         if (self.genericReadViewOf(e)) |inner| {
             try self.writeViewedOpen(inner);
@@ -3576,10 +3576,10 @@ pub const Emitter = struct {
         try self.w.writeAll(").*");
     }
 
-    /// The value a pointer borrow `e` reaches, switched on where it is. A
-    /// generic read borrow a name holds is reached through the name's
-    /// address (`rig.borrowedPtr`), so a payload captured by pointer is
-    /// the one the borrow reaches, or the name's own copy, never a copy
+    /// The value a pointer view `e` reaches, switched on where it is. A
+    /// generic read view a name holds is reached through the name's
+    /// address (`rig.viewedPtr`), so a payload captured by pointer is
+    /// the one the view reaches, or the name's own copy, never a copy
     /// in a Zig temporary.
     fn emitSwitchDeref(self: *Emitter, e: Sexp) Error!void {
         if (self.switchesThroughName(e)) {
@@ -3593,12 +3593,12 @@ pub const Emitter = struct {
         try self.emitDeref(e);
     }
 
-    /// Whether `e` is a name holding a generic read borrow (`?T`, `?Self`).
+    /// Whether `e` is a name holding a generic read view (`?T`, `?Self`).
     fn switchesThroughName(self: *Emitter, e: Sexp) bool {
         return e == .src and self.localOf(e) != null and self.genericReadViewOf(e) != null;
     }
 
-    /// A write-borrow value: the pointer a `!T` expression denotes.
+    /// A write view: the pointer a `!T` expression denotes.
     fn emitWriteViewPtr(self: *Emitter, e: Sexp) Error!void {
         const saved = self.ptr_tail;
         defer self.ptr_tail = saved;
@@ -3615,7 +3615,7 @@ pub const Emitter = struct {
         try self.w.writeAll(", ");
     }
 
-    /// `*T` / `*const T` for a borrow type.
+    /// `*T` / `*const T` for a view type.
     fn emitPointerTy(self: *Emitter, ty: TypeId) Error!void {
         if (self.genericReadView(ty) != null) return self.emitTypeTy(ty);
         switch (self.sema.types.get(ty)) {
@@ -3668,7 +3668,7 @@ pub const Emitter = struct {
                 if (self.typeOf(sexp)) |t| if (sema.callableFn(self.sema, t) != null) return self.emitFnRef(ir.Read.operand(sexp), sema.callableFnTy(self.sema, t).?);
                 // `?x` of a value held by pointer (a Cell) is its address.
                 if (self.isPtrViewExpr(sexp)) return self.emitLendAddress(sexp);
-                // A borrow never moves its operand, even in tail position.
+                // A view never moves its operand, even in tail position.
                 self.bare = bare;
                 try self.emitValue(ir.Read.operand(sexp), false);
             } else if (self.isWriteSliceExpr(sexp))
@@ -3690,7 +3690,7 @@ pub const Emitter = struct {
             },
             .share => try self.emitShare(sexp),
             .clone => {
-                // `+b` of a borrowed handle clones the handle it borrows.
+                // `+b` of a viewed handle clones the handle it views.
                 const operand = ir.Clone.operand(sexp);
                 const ty = self.typeOf(operand).?;
                 switch (sema.cloneable(self.sema, ty)) {
@@ -3741,8 +3741,8 @@ pub const Emitter = struct {
             .inst => return self.unsupported(sexp, "a bracket list of compile-time arguments as a value"),
             .member, .index => {
                 if (self.sema.instanceOf(sexp) != null) return self.unsupported(sexp, "a bracket list of compile-time arguments as a value");
-                // A field or element holding a write borrow denotes the
-                // borrowed value, unless the pointer itself is wanted.
+                // A field or element holding a write view denotes the
+                // viewed value, unless the pointer itself is wanted.
                 const deref = self.isPtrViewExpr(sexp) and !(tail and self.ptr_tail);
                 const generic = if (deref) self.genericReadViewOf(sexp) else null;
                 if (generic) |inner| try self.writeViewedOpen(inner);
@@ -4112,7 +4112,7 @@ pub const Emitter = struct {
             try self.emitMemberBase(base, t);
             return self.writeReach(t);
         };
-        // A generic view of an array (`rig.ReadBorrow([n]T)`, a pointer
+        // A generic view of an array (`rig.ReadView([n]T)`, a pointer
         // or a copy as the instance decides) is indexed as it is: indexing
         // a copy of the whole array would lend its element from the copy.
         if (how == .expr and base == .src) if (self.localOf(base)) |local| if (local.is_ptr and local.ty != null and self.genericReadView(local.ty.?) != null) {
@@ -4265,13 +4265,13 @@ pub const Emitter = struct {
         return self.fnType(ty) == null;
     }
 
-    /// The object of a member access. Borrow sigils on a receiver are
+    /// The object of a member access. Lend sigils on a receiver are
     /// implicit in Zig's method call syntax; pointers to structs
     /// auto-dereference.
     fn emitMemberBase(self: *Emitter, obj: Sexp, obj_ty: ?TypeId) Error!void {
         const o = lentPlace(obj);
         if (self.place_chain and o.isKind(.index)) return self.emitIndex(o, true);
-        // A write-borrowed field or element (`!v[i].bump()`) is changed
+        // A lent to write field or element (`!v[i].bump()`) is changed
         // in place, reached through the element's slot, unless it was
         // hoisted to run before the arguments.
         if (obj.isKind(.write) and (o.isKind(.index) or o.isKind(.member)) and self.hoistedOf(o) == null) return self.emitPlace(o);
@@ -4309,7 +4309,7 @@ pub const Emitter = struct {
         if (needs_parens) try self.w.writeAll("(");
         try self.emitExpr(o);
         if (needs_parens) try self.w.writeAll(")");
-        // A call yielding a borrow held by pointer: Zig reaches a field
+        // A call yielding a view held by pointer: Zig reaches a field
         // through a pointer to a struct, but not through one to a handle.
         if (o.isKind(.call) and obj_ty != null and self.isPtrViewTy(obj_ty.?) and !self.isStructLike(obj_ty.?)) try self.w.writeAll(".*");
     }
@@ -4568,7 +4568,7 @@ pub const Emitter = struct {
     }
 
     /// `rig.replace(&place, value)` / `rig.swapPlaces(&a, &b)`: each place by
-    /// its address, a held write borrow as the pointer it is.
+    /// its address, a held write view as the pointer it is.
     fn emitSwapCall(self: *Emitter, name: []const u8, args: []const Sexp) Error!void {
         try self.w.writeAll(if (std.mem.eql(u8, name, "swap")) "rig.swapPlaces(" else "rig.replace(");
         for (args, 0..) |a, i| {
@@ -4580,7 +4580,7 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// How a value of type `ty` (borrowed or not) reaches the Text it
+    /// How a value of type `ty` (viewed or not) reaches the Text it
     /// views: directly, or through a `Box[Text]`; null for anything else.
     fn textReach(self: *Emitter, ty: TypeId) ?[]const u8 {
         var t = self.peelViews(ty);
@@ -4670,7 +4670,7 @@ pub const Emitter = struct {
     }
 
     /// The elements of a method's receiver (a slice, an array, a Vec, or
-    /// a String, borrowed or not) as a Zig slice or array pointer: a
+    /// a String, viewed or not) as a Zig slice or array pointer: a
     /// slice or String as it is, an array through its address (writable
     /// when the receiver is written `!xs`), a Vec through its items.
     fn emitElems(self: *Emitter, recv: Sexp) Error!void {
@@ -4751,7 +4751,7 @@ pub const Emitter = struct {
                 return self.emitFieldInit(args, self.declFields(t));
             }
         };
-        // A borrowed callable calls through its `rig.FnRef`.
+        // A callable view calls through its `rig.FnRef`.
         if (self.typeOf(callee)) |t| if (sema.callableFn(self.sema, t) != null) {
             try self.emitExpr(callee);
             try self.w.writeAll(".call(.{ ");
@@ -4759,7 +4759,7 @@ pub const Emitter = struct {
             return self.w.writeAll(" })");
         };
         // An owned closure handle, held by a name or a field, or a call
-        // yielding a borrow of one, held by pointer.
+        // yielding a view of one, held by pointer.
         if (self.typeOf(callee)) |t| if (sema.ownedClosureFn(self.sema, t) != null) {
             try self.emitExpr(callee);
             if (callee.isKind(.call) and self.isPtrViewTy(t)) try self.w.writeAll(".*");
@@ -4794,7 +4794,7 @@ pub const Emitter = struct {
             return self.w.writeAll(")");
         };
         // `set` / `replace` change a Cell through any path to it: the
-        // receiver's address, which may be a `*const` read borrow, is
+        // receiver's address, which may be a `*const` read view, is
         // cast to a mutable pointer. Sema keeps every Cell in mutable
         // storage, so the cast is sound.
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.sema.cell_sym_id)) {
@@ -4813,7 +4813,7 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// An array, a slice, or a String, or a borrow of one.
+    /// An array, a slice, or a String, or a view of one.
     fn isSequence(self: *Emitter, ty: TypeId) bool {
         return switch (self.sema.types.get(self.peelViews(ty))) {
             .array, .slice, .string => true,
@@ -5104,7 +5104,7 @@ pub const Emitter = struct {
     /// address of a place, or a temporary value, dropped after the call.
     fn hoistReceiver(self: *Emitter, call: Sexp, id: u32) Error!void {
         const hold = storage.receiverHold(self.sema, call) orelse return;
-        // Borrow sigils on a receiver are implicit in Zig's method calls.
+        // Lend sigils on a receiver are implicit in Zig's method calls.
         const recv = lentPlace(self.receiverOf(call).?);
         const writes = self.receiverWrites(call);
         // A Cell-holding part of a temporary is copied into a mutable local.
@@ -5149,7 +5149,7 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
         if (cell) try self.line("_ = &{s};", .{name});
         if (kind == .value or kind == .optional or (writes and !ptr) or cell) try self.poisonAtExit(name);
-        // Sema rejects a borrowed temporary receiver that owns a resource
+        // Sema rejects a viewed temporary receiver that owns a resource
         // (a consumed one is hoisted by `consumedTemporary`), so only a
         // value holding a type parameter gets here (`self.twice()` of a
         // `Wrap[T]`): plain data in every instance sema accepts, dropped
@@ -5226,10 +5226,10 @@ pub const Emitter = struct {
             try self.w.writeAll(";\n");
             return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
         }
-        // A Cell-holding part of a temporary a read borrow lends is lent
+        // A Cell-holding part of a temporary a read view lends is lent
         // where the statement's slot keeps the temporary, which may change
         // and lives as long as the statement; otherwise it is copied into
-        // a mutable local, which the borrow points to.
+        // a mutable local, which the view points to.
         if (hold == .cell_slot or hold == .cell_copy) {
             const part = ir.Read.operand(h.node);
             if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, if (hold == .cell_slot) .pointer else .copy, sx);
@@ -5263,7 +5263,7 @@ pub const Emitter = struct {
         try self.writeIndent(self.indent);
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or mutable) "var" else "const", h.name });
         // The value alone may have no Zig type (`.empty`, `null`, a
-        // literal). A borrow read through is read here, in argument order.
+        // literal). A view read through is read here, in argument order.
         // A value lent has the parameter's type.
         const shown: ?TypeId = if (lent) (if (slot < params.len) params[slot] else null) else ty;
         if (shown) |t| if (!ptr) {
@@ -5456,7 +5456,7 @@ pub const Emitter = struct {
     }
 
     /// Whether a `print`, `Text(...)`, or `add` argument `a` reads a
-    /// place that owns storage, or is borrowed from one: a local, or a
+    /// place that owns storage, or is lent from one: a local, or a
     /// field or element of one (not a slice, which is a new value).
     fn printsByAddress(self: *Emitter, a: Sexp) bool {
         const place = switch (a) {
@@ -5586,7 +5586,7 @@ pub const Emitter = struct {
             switch (c.mode) {
                 .cap_clone => {
                     try self.writeLocalPlace(&outer);
-                    // A borrowed handle clones the handle it borrows.
+                    // A viewed handle clones the handle it views.
                     const kind = if (outer.kind) |k| k else if (outer.ty) |t| self.kindOf(self.peelViews(t)) else null;
                     if (kind) |k| switch (k) {
                         .shared => try self.w.writeAll(".cloneStrong()"),
@@ -5599,7 +5599,7 @@ pub const Emitter = struct {
                     try self.w.writeAll(".weakRef()");
                 },
                 .cap_move => if (outer.is_ptr and self.isPtrViewTy(c.ty)) {
-                    // A moved pointer borrow moves the pointer.
+                    // A moved pointer view moves the pointer.
                     try self.w.writeAll(outer.zig_name);
                 } else try self.writeTake(&outer),
                 .cap_read, .cap_write => try self.writeCapturedView(&outer, c.ty),
@@ -5609,9 +5609,9 @@ pub const Emitter = struct {
         try self.w.writeAll(" }");
     }
 
-    /// `|?x|` / `|!x|`: the borrow of local `outer` a closure holds, of
+    /// `|?x|` / `|!x|`: the view of local `outer` a closure holds, of
     /// type `ty`, as `?x` / `!x` gives it: a pointer, or for a read
-    /// borrow of plain data, the value.
+    /// view of plain data, the value.
     fn writeCapturedView(self: *Emitter, outer: *const Local, ty: TypeId) Error!void {
         // `|?f|` of a stack closure lends its environment.
         if (outer.stack_closure) if (sema.callableFn(self.sema, ty)) |f| {
@@ -5622,7 +5622,7 @@ pub const Emitter = struct {
             .read_view, .write_view => true,
             else => false,
         } else false;
-        // A `![]T` is the slice itself; a borrow of a borrow passes it on.
+        // A `![]T` is the slice itself; a view of a view passes it on.
         if (sema.writeSliceElem(self.sema, ty) != null or (outer_is_view and (self.isPtrViewTy(ty) or !outer.is_ptr))) {
             return self.w.writeAll(outer.zig_name);
         }
@@ -5677,7 +5677,7 @@ pub const Emitter = struct {
 
     /// The runtime type behind a function type: `rig.Closure(&.{ A, B }, R)`
     /// for an owned closure `*fun(A, B) -> R`, `rig.FnRef(...)` for a
-    /// borrowed callable `?fun(A, B) -> R`.
+    /// callable view `?fun(A, B) -> R`.
     fn emitCallableTy(self: *Emitter, comptime runtime_type: []const u8, f: sema.FunctionType) Error!void {
         try self.w.writeAll("rig." ++ runtime_type ++ "(&.{");
         for (f.params, 0..) |p, i| {
@@ -5689,9 +5689,9 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// `e`, lent where a borrowed callable of function type `fn_ty` is
+    /// `e`, lent where a callable view of function type `fn_ty` is
     /// expected (`SemContext.callableOf`): a function, as
-    /// `rig.FnRef(...).ofFn(f)`, or a borrowed owned closure, as
+    /// `rig.FnRef(...).ofFn(f)`, or a viewed owned closure, as
     /// `.ofClosure(handle)`. A closure literal was hoisted
     /// (`hoistClosure`).
     fn emitLentCallable(self: *Emitter, e: Sexp, fn_ty: TypeId) Error!void {
@@ -5707,7 +5707,7 @@ pub const Emitter = struct {
     }
 
     /// `?f` where `f` is a stack closure, a function value, or already a
-    /// borrowed callable: the `rig.FnRef` of function type `fn_ty`.
+    /// callable view: the `rig.FnRef` of function type `fn_ty`.
     fn emitFnRef(self: *Emitter, operand: Sexp, fn_ty: TypeId) Error!void {
         const ty = self.typeOf(operand) orelse return self.unsupported(operand, "an untyped callable");
         if (sema.callableFn(self.sema, ty) != null) return self.emitExpr(operand);
@@ -5722,7 +5722,7 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// A closure literal lent to the call being hoisted as a borrowed
+    /// A closure literal lent to the call being hoisted as a viewed
     /// callable: its environment `__rig_env_N`, dropped when the call's
     /// block ends if it owns what it captured, and the `rig.FnRef`
     /// lending it, the argument `h.name`.
@@ -5958,7 +5958,7 @@ pub const Emitter = struct {
         };
     }
 
-    /// A Cell holding a Vec, reached by value, borrow, or shared handle.
+    /// A Cell holding a Vec, reached by value, view, or shared handle.
     fn isCellVecTy(self: *Emitter, ty: TypeId) bool {
         const cell = switch (self.sema.types.get(sema.unwrapReadAccess(self.sema, ty))) {
             .parameterized_nominal => |pn| if (pn.sym == self.sema.cell_sym_id and pn.args.len == 1) pn.args[0] else return false,

@@ -673,7 +673,7 @@ const Lowerer = struct {
             const xv = self.f.vars.items[x];
             const ref = self.isWriteRef(xv.ty);
             // Assigning a view to a name that holds one re-points it
-            // (Core §6 "Borrow places"): a binding is reassigned, which a
+            // (Core §6 "View places"): a binding is reassigned, which a
             // parameter or a fixed binding never is.
             const repoint = ref and try self.pointsAnew(rhs);
             if (!ref or repoint) try self.reassignable(sym, pos);
@@ -681,7 +681,7 @@ const Lowerer = struct {
             if (repoint) {
                 // The new view first; the name then holds its loans, and
                 // none of the old view's (Core §6). The old view owns
-                // nothing, and a reborrow of what it saw carries that
+                // nothing, and a lend on of what it saw carries that
                 // loan itself, so nothing here conflicts with it.
                 const v = try self.eval(rhs, .take, xv.ty);
                 try self.emit(.{ .pos = pos, .what = .assign, .moves = try self.list(v), .def = x });
@@ -701,7 +701,7 @@ const Lowerer = struct {
         }
         // A field or element: the value first, then the indexes, then
         // the store (Core §6). A place holding a write view is re-pointed
-        // by a view and written through by a value (Core §6 "Borrow
+        // by a view and written through by a value (Core §6 "View
         // places", for fields and elements alike).
         const target_ty = try self.typeOf(target);
         const write_in = self.isWriteRef(target_ty) and !try self.pointsAnew(rhs);
@@ -1923,7 +1923,7 @@ const Lowerer = struct {
             .write_view => {
                 // A write view read as its value copies what it reaches
                 // (SPEC §7); a write slice read as a slice views the same
-                // elements, a reborrow. A write view itself never copies.
+                // elements, a lend on. A write view itself never copies.
                 const wants_view = if (want) |w| self.ctx.types.get(w) == .write_view else false;
                 const t_ty = try self.innerOf(p.ty);
                 const ti = try self.kinds.of(t_ty);
@@ -2632,7 +2632,7 @@ const Lowerer = struct {
 
     /// A `?T` or `!T` made where a value is wanted is read there: the
     /// value is copied out and the loan taken to reach it ends (SPEC §7
-    /// "Second-class borrows").
+    /// "Second-class views").
     fn readThrough(self: *Lowerer, v: VarId, pos: u32) Error!VarId {
         const vv = self.f.vars.items[v];
         if (!vv.hidden) return v;

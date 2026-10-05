@@ -249,7 +249,7 @@ const Checker = struct {
             if (!wants_write) self.readOnly(flow);
         }
         // A call may store what it was handed in what it was lent to
-        // write (Core s6, SPEC §7 "Second-class borrows"), before its
+        // write (Core s6, SPEC §7 "Second-class views"), before its
         // result is handed back: a loan its result does not keep stands
         // for what its place holds after the call (`take`).
         for (op.gains) |g| self.gain(g, st, if (self.f.vars.items[g].holds_writes) stored_full else stored);

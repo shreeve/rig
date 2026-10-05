@@ -84,7 +84,7 @@ pub const Mode = enum { read, write, reserved };
 pub const Step = union(enum) { field: []const u8, elem };
 
 /// The record of one lend. A loan on a write view's referent (`!w` or
-/// `?w` with `w: !T`, a reborrow) is `deref`: it limits `w`'s uses, but
+/// `?w` with `w: !T`, a lend on) is `deref`: it limits `w`'s uses, but
 /// `w` going out of scope does not end what it views.
 pub const Loan = struct {
     root: VarId,
