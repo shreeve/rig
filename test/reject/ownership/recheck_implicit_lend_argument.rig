@@ -1,0 +1,17 @@
+# An argument lent implicitly (a closure where a `?fun` goes) in a call
+# that is checked twice, once to classify the assignment it is the
+# right side of, keeps its one use: the check goes on to the ownership
+# rules.
+
+fun pick(f: ?fun() -> Int, x: !Text, y: !Text) -> !Text
+  y
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  w = !a
+  f = |?w| w.len
+  w = pick(f, !b, !b)
+  print(a)
+
+# error: cannot take a second write borrow on `b`

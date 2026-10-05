@@ -1596,10 +1596,14 @@ pub const SemContext = struct {
     }
 
     /// The context of `node` reads, takes, or lends it (`Facts.uses`).
-    /// A value has one use: a second record of it must agree.
+    /// A value has one use: a second record of it must agree. A value
+    /// lent implicitly where a view goes was first recorded as taken
+    /// (`recordImplicitLend`); checking its context again records the
+    /// take before the lend, and keeps the lend.
     pub fn recordUse(self: *SemContext, node: Sexp, use: Use) !void {
         const key = recordExprKey(node) orelse return;
         const gop = try self.facts.uses.getOrPut(self.allocator, key);
+        if (gop.found_existing and gop.value_ptr.* == .lend and use == .take) return;
         if (gop.found_existing) std.debug.assert(gop.value_ptr.* == use);
         gop.value_ptr.* = use;
     }
