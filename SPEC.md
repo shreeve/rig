@@ -3420,6 +3420,89 @@ a view of the temporary `S(n: 1)` outlives its statement, which drops it; bind t
 a view of the temporary `Text(" a ")` outlives its statement
 ```
 
+A header that makes a temporary is evaluated before that temporary
+ends, so what it binds would be a copy of its subject, which a write or
+a Cell change through the binding would miss: it is rejected, whatever
+it binds, unless it takes a value made there (`match parse(?Text(s))`,
+`if find(?Text(s)) as i`) or binds plain data of one. Bind the index or
+the argument to a name first: `i = idx(?t)`, then `if !arr[i] as n`.
+
+```rig reject
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main
+  arr: [1]Int? = [1]
+  if !arr[idx(?Text("a"))] as n
+    n = 50
+  print(arr)
+```
+
+```error
+this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
+```
+
+```rig
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main
+  arr: [1]Int? = [1]
+  i = idx(?Text("a"))
+  if !arr[i] as n
+    n = 50
+  print(arr)
+```
+
+```output
+[50]
+```
+
+A `?self` or `!self` receiver is lent as `?e` or `!e` would be when the
+method may keep a view of it, in its result or through a write
+argument. A temporary receiver, plain data included, then lives until
+its statement ends, so the view may be used there and nowhere after. A
+receiver that branches lends each leaf where it is:
+`(a if c else b).name()` keeps a loan on `a` and on `b`, so neither may
+change while the view lives.
+
+```rig
+struct S
+  t: Text
+
+  fun name(?self) -> String
+    ?self.t
+
+sub main
+  a = S(t: Text("aa"))
+  b = S(t: Text("bb"))
+  n = (a if a.t.len > 1 else b).name()
+  print(n, S(t: Text("cc")).name())
+```
+
+```output
+aa cc
+```
+
+```rig reject
+struct S
+  t: Text
+
+  fun name(?self) -> String
+    ?self.t
+
+sub main
+  a = S(t: Text("aa"))
+  b = S(t: Text("bb"))
+  n = (a if a.t.len > 1 else b).name()
+  a.t = Text("zz")
+  print(n)
+```
+
+```error
+cannot assign to `a.t` while `a` is lent
+```
+
 ### Places
 
 > **Core §5:** Each field and element is a place.
