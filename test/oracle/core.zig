@@ -203,6 +203,9 @@ pub const Func = struct {
     params: std.ArrayList(VarId) = .empty,
     /// The first finding the lowering made (C2, C3, C7).
     early: ?Finding = null,
+    /// What a `from` clause says the result views (Core s7), a bit per
+    /// parameter in `params`' order; null when the function writes none.
+    from: ?u64 = null,
     /// Per var and loan (var-major, `loans.len` to a var): whether the
     /// var may carry the loan itself. A view carries the loans of only
     /// what could hold what it views (Core s7): a loan on a place whose

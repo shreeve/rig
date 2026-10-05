@@ -378,6 +378,18 @@ const Checker = struct {
         // to write outlives each call, so it keeps no view of what one
         // call received (Core §7).
         if (op.what == .ret) {
+            // A function that says what its result views views nothing
+            // else its caller lent it (Core s7).
+            if (self.f.from) |from| for (op.reads) |v| {
+                if (st.empty.has(v)) continue;
+                for (self.f.loans.items, 0..) |l, li| {
+                    if (!st.holds[v].has(li) or !l.external) continue;
+                    const i = std.mem.findScalar(VarId, self.f.params.items, l.root) orelse continue;
+                    if (i < 64 and from & (@as(u64, 1) << @intCast(i)) != 0) continue;
+                    try self.report(.C6, op.pos, "a view of `{s}` leaves the function, whose `from` does not name it", .{self.name(l.root)});
+                    return;
+                }
+            };
             for (op.keep) |v| {
                 if (st.empty.has(v) or !self.f.vars.items[v].capture) continue;
                 for (self.f.loans.items, 0..) |l, li| {

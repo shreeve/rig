@@ -157,6 +157,45 @@ pub var program_modules: []const lib.modules.Module = &.{};
 pub var copies_memo: std.AutoHashMapUnmanaged(struct { u32, u32 }, Copies) = .empty;
 pub const Copies = enum { pending, none, some };
 
+/// The parameters a function's `from` clause names (`-> T from a, b`),
+/// a bit each, read from the declaration in its module's IR: the
+/// function or method whose name is at `pos`. Null when it writes none.
+fn declaredFrom(ctx: *const sema.SemContext, pos: u32) ?u64 {
+    const m = for (program_modules) |*m| {
+        if (m.sema == ctx) break m;
+    } else return null;
+    if (m.ir == .nil) return null;
+    const d = findFun(m.ir, pos) orelse return null;
+    const names = ir.get(d, .origins);
+    if (names == .nil) return null;
+    var mask: u64 = 0;
+    for (names.items()) |n| {
+        const text = n.getText(m.source);
+        for (ir.get(d, .params).items(), 0..) |p, i| {
+            const pn = sema.paramNameNode(p) orelse continue;
+            if (std.mem.eql(u8, pn.getText(m.source), text) and i < 64) mask |= @as(u64, 1) << @intCast(i);
+        }
+    }
+    return mask;
+}
+
+/// The `fun` (or `extern fun`) whose name is at `pos`, among `node`'s
+/// declarations and members.
+fn findFun(node: Sexp, pos: u32) ?Sexp {
+    const kind = node.kind() orelse return null;
+    switch (kind) {
+        .fun, .extern_fun => {
+            const n = ir.get(node, .name);
+            return if (n == .src and n.src.pos == pos) node else null;
+        },
+        .module, .zig_extern, .@"pub", .@"struct", .@"enum", .generic_struct, .generic_enum => for (node.items()) |c| {
+            if (findFun(c, pos)) |f| return f;
+        },
+        else => {},
+    }
+    return null;
+}
+
 fn moduleById(id: u32) ?*const lib.modules.Module {
     for (program_modules) |*m| if (m.id == id) return m;
     return null;
@@ -280,6 +319,9 @@ const Lowerer = struct {
         if (kind != .@"test") {
             for (ir.get(decl, .params).items()) |p| try self.param(p);
         }
+        if (kind == .fun) if (ir.get(decl, .name) == .src) {
+            self.f.from = declaredFrom(self.ctx, ir.get(decl, .name).src.pos);
+        };
         try self.lowerBody(ir.get(decl, .body), kind == .fun);
     }
 
@@ -2256,7 +2298,7 @@ const Lowerer = struct {
                     const ft = self.ctx.types.get(s.ty);
                     if (ft != .function) return abstain("an unusual callee");
                     shapes = try self.shapesOf(self.ctx, ft.function.params);
-                    sig = .{ .ctx = self.ctx, .f = ft.function };
+                    sig = .{ .ctx = self.ctx, .f = ft.function, .from = declaredFrom(self.ctx, s.decl_pos) };
                 },
                 .nominal_type, .generic_type, .type_alias => {
                     is_ctor = true;
@@ -2304,7 +2346,7 @@ const Lowerer = struct {
                     shapes = try self.shapesOf(self.ctx, ft.?.function.params);
                     // A generic function's callee has its instance's
                     // signature; only a plain one says what it was declared.
-                    if (ft.?.function.ct_params.len == 0) sig = .{ .ctx = self.ctx, .f = ft.?.function };
+                    if (ft.?.function.ct_params.len == 0) sig = .{ .ctx = self.ctx, .f = ft.?.function, .from = self.staticFrom(callee) };
                 } else is_ctor = true;
             } else {
                 // A method: the receiver first, then the arguments.
@@ -2314,7 +2356,7 @@ const Lowerer = struct {
                 cell_store = self.isCell(recv_ty);
                 if (fn_params) |fp| {
                     shapes = try self.shapesOf(fp.ctx, if (fp.ctx == self.ctx) try self.instParams(recv_ty, fp.params) else fp.params);
-                    if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true };
+                    if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.ctx, fp.decl_pos) };
                     // A built-in generic's `T` parameter stores what it is
                     // given (`push`, `insert`, a Cell's `set`).
                     const st = try self.a.alloc(bool, fp.params.len);
@@ -2388,7 +2430,7 @@ const Lowerer = struct {
         var uncarried: std.ArrayList(VarId) = .empty;
         var result_loan = true;
         if (sig) |sg| if (sg.receiver and sg.f.params.len > 0) {
-            const to_result = try reach.leads(sg.ctx, sg.f.params[0], sg.f.returns);
+            const to_result = if (sg.from) |m| m & 1 != 0 else try reach.leads(sg.ctx, sg.f.params[0], sg.f.returns);
             const to_store = try reach.stores(sg.ctx, sg.f.params, 0);
             for (recv_vars.items) |rv| {
                 try (if (to_result) &carried else &uncarried).append(self.a, rv);
@@ -2416,7 +2458,7 @@ const Lowerer = struct {
                 if (sig) |sg| {
                     const fi = pi + @intFromBool(sg.receiver);
                     if (fi < sg.f.params.len) {
-                        to_result = try reach.leads(sg.ctx, sg.f.params[fi], sg.f.returns);
+                        to_result = if (sg.from) |m| fi < 64 and m & (@as(u64, 1) << @intCast(fi)) != 0 else try reach.leads(sg.ctx, sg.f.params[fi], sg.f.returns);
                         to_store = try reach.stores(sg.ctx, sg.f.params, fi);
                     }
                 }
@@ -2770,6 +2812,18 @@ const Lowerer = struct {
         return findDecl(fm, ir.Member.name(callee).getText(self.src), null);
     }
 
+    /// The `from` clause of `module.f` named by callee `callee`.
+    fn staticFrom(self: *Lowerer, callee: Sexp) ?u64 {
+        const obj = ir.Member.object(callee);
+        if (obj != .src) return null;
+        const obj_sym = self.ctx.symbolOf(obj) orelse return null;
+        const mid = self.ctx.module_refs.get(obj_sym) orelse return null;
+        const fm = moduleById(mid) orelse return null;
+        const name = ir.Member.name(callee).getText(self.src);
+        const id = fm.sema.lookupInScopeOnly(sema.module_scope, name) orelse return null;
+        return declaredFrom(fm.sema, fm.sema.symbols.items[id].decl_pos);
+    }
+
     /// Whether a value of `ty` is a Cell or Signal, or a view or handle
     /// of one.
     fn isCell(self: *Lowerer, ty: TypeId) bool {
@@ -2787,11 +2841,20 @@ const Lowerer = struct {
         full: sema.FunctionType = undefined,
         /// A built-in generic's method, which keeps what it is handed.
         builtin: bool = true,
+        /// Where its name is declared.
+        decl_pos: u32 = 0,
     };
 
     /// A callee's declared signature (`receiver`: a method's, called on
     /// a value, whose receiver is its first parameter).
-    const Sig = struct { ctx: *const sema.SemContext, f: sema.FunctionType, receiver: bool = false };
+    const Sig = struct {
+        ctx: *const sema.SemContext,
+        f: sema.FunctionType,
+        receiver: bool = false,
+        /// What its `from` clause names (Core s7), when it writes one: a
+        /// bit per parameter, a method's receiver first.
+        from: ?u64 = null,
+    };
 
     /// How a method takes its receiver, and its other parameters' types.
     fn method(self: *Lowerer, callee: Sexp) Error!struct { sema.MethodReceiver, ?MethodParams } {
@@ -2853,7 +2916,7 @@ const Lowerer = struct {
             const params = ft.function.params;
             return switch (f.receiver) {
                 .none => abstain("a function of a type called on a value"),
-                .read, .write, .value => .{ f.receiver, .{ .ctx = decl.ctx, .params = if (params.len > 0) params[1..] else params, .full = ft.function, .builtin = decl.symbol().decl_pos == sema.builtin_decl_pos } },
+                .read, .write, .value => .{ f.receiver, .{ .ctx = decl.ctx, .params = if (params.len > 0) params[1..] else params, .full = ft.function, .builtin = decl.symbol().decl_pos == sema.builtin_decl_pos, .decl_pos = f.decl_pos } },
             };
         }
         return null;
