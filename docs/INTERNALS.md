@@ -1684,8 +1684,9 @@ lower is an internal error: sema must have rejected it.
   the program is named by `hiddenStorage`, which requires its storage
   fact ([Storage facts](#storage-facts)): emit makes no storage the
   ownership checker did not walk.
-- **No address of a Zig temporary.** Emit takes an address only of
-  storage that lives as long as a view of it may. A value that branches
+- **Addresses of Zig temporaries.** Emit takes an address of storage
+  that lives as long as a view of it may, with the exceptions listed
+  below, which no storage fact covers. A value that branches
   with a leaf a name holds, read where its leaves are (`reachesLeaf`:
   its type is read by address, as the ownership checker reads each
   leaf), is reached through the address of the leaf it takes:
@@ -1701,6 +1702,29 @@ lower is an internal error: sema must have rejected it.
   an `as` binding's copy) is filled with `0xAA` when its scope ends
   (`rig.poison`), after its drop, so a view that outlives it reads
   garbage: a dynamic check of the class that sees the stack.
+
+  Emit still takes the address of a Zig rvalue in these places, which
+  the ownership checker confines to the statement and Zig keeps today
+  (it emits no lifetime markers), but which no storage fact names:
+
+  - a `?self` method called on a value made here that no statement slot
+    keeps (`mkq().me().n` is `((mkq()).me()).n`), also as a hoisted
+    call's argument, whose block the view then outlives
+    (`const __rig_arg_1_1 = (mkq(5)).me();`);
+  - a `?self` method on a branching value with a leaf made there, which
+    `reachesLeaf` does not reach, so the receiver is a copy:
+    `(@as(Q, if (c) mkq(5) else b)).me()`;
+  - `emitLeafPtr`'s fallback, `&@as(T, value)`, for a leaf made there;
+  - the values the labeled value blocks (`__rig_blk_N`, `__rig_if_N`)
+    yield, where an address of them is taken;
+  - a temporary array lent as a slice to a call that keeps no view of
+    it (`lendsTempArray`), which Zig keeps through the call.
+
+  The next structural step (HANDOFF, weak spots) is a structural
+  chokepoint: every `&` and `|*x|` emit writes targets a place, a
+  statement's slot, or storage `hiddenStorage` named with its fact, and
+  the chokepoint checks the storage's `life` against the scope emit
+  gives it, so each of these becomes a slot or a fact the checker walks.
 - **Assignments.** Zig finds the address of `place.* = f()` before it
   calls `f`, so an assignment to a field or element whose value or
   indexes can act (a call, an assignment, a drop, a jump) evaluates the

@@ -219,6 +219,20 @@ and run the corpus after:
   bare use copies it. Emit still copies one in a few places the checker
   rejects around: `if … as` over a view a call returns whose header
   makes a temporary is rejected for a Cell holder for that reason.
+- **Addresses of Zig rvalues (step 10's next structural step).** Every
+  hidden storage location emit makes is a storage fact
+  (`src/storage.zig`), but emit still takes the address of a few Zig
+  rvalues no fact names: a `?self` method on a made value no slot keeps
+  (`mkq().me().n`, also inside a hoisted call's block), on a branching
+  value with a made leaf (`(@as(Q, if (c) mkq(5) else b)).me()`),
+  `emitLeafPtr`'s `&@as(T, value)` fallback, labeled value blocks'
+  yields, and a temporary array lent to a call (docs/INTERNALS.md, Emit,
+  "Addresses of Zig temporaries"). They are latent: the checker keeps
+  each view within its statement, and Zig keeps the rvalue's slot today.
+  Next: make the chokepoint structural (every `&` and `|*x|` targets a
+  place, a slot, or fact-named storage, and the chokepoint checks the
+  fact's `life`), then B4: emit points at a header's subject instead of
+  copying it, which lifts the rejection of headers with temporaries.
 
 ## The gates
 
