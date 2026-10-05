@@ -1,0 +1,12 @@
+sub main
+  a = 1
+  b = 2
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  !v.push(?b)
+  print(v[0] + v[1], v)
+  for x in v
+    print(x)
+  -v
+  a = 5
+  print(a)

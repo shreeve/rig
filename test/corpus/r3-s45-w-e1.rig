@@ -1,0 +1,34 @@
+struct Rec
+  name: Text
+  n: Int
+
+fun size(v: ?Vec[Int]) -> Int
+  v.len
+
+sub main
+  rows: Vec[Vec[Int]] = Vec()
+  r: Vec[Int] = Vec()
+  !r.push(5)
+  !rows.push(<r)
+  print(rows.len, rows[0].len)
+  !rows[0].push(6)
+  print(rows[0], size(?rows[0]), size(rows[0]))
+  q: Vec[Int] = Vec()
+  rows[0] = <q
+  print(rows)
+  ts: Vec[Text] = Vec()
+  !ts.push(Text("a"))
+  !ts[0].add("b")
+  print(ts[0], ts[0].len)
+  ts[0] = Text("zz")
+  print(ts)
+  rs: Vec[Rec] = Vec()
+  !rs.push(Rec(name: Text("x"), n: 1))
+  rs[0].n = 4
+  rs[0].name = Text("y")
+  print(rs[0].name, rs[0].n)
+  os: Vec[Text?] = Vec()
+  !os.push(Text("o"))
+  if <os[0] as t
+    print(t)
+  print(os)

@@ -1,0 +1,6 @@
+sub main
+  v: Vec[?Int] = Vec()
+  for i in 0..3
+    x = i
+    !v.push(?x)
+  print(v)

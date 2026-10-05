@@ -1,0 +1,8 @@
+struct S
+  sig: *Signal[Int]
+  t: Text
+
+sub main
+  s = S(sig: *Signal(1), t: Text("x"))
+  u = +s
+  print(u.t)

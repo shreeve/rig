@@ -1,0 +1,8 @@
+sub main
+  a = 1
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  r = (!v).pop()
+  -v
+  a = 2
+  print(r)

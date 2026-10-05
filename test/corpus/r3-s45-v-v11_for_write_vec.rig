@@ -1,0 +1,6 @@
+sub main
+  a = 1
+  v: Vec[!Int] = Vec()
+  !v.push(!a)
+  for w in v
+    print(w)

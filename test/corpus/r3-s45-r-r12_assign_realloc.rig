@@ -1,0 +1,13 @@
+fun grow(v: !Vec[Text]) -> Text
+  !v.push(Text("x"))
+  !v.push(Text("y"))
+  !v.push(Text("z"))
+  !v.push(Text("w"))
+  !v.push(Text("q"))
+  Text("new")
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  v[0] = grow(!v)
+  print(v)

@@ -1,0 +1,5 @@
+sub main
+  a = [Text("a"), Text("b")]
+  b = [Text("c"), Text("d")]
+  !a[..].copy(?b[..])
+  print(a)

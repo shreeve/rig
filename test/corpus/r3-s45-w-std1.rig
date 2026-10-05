@@ -1,0 +1,20 @@
+use std.sort
+use std.slices
+
+sub main
+  a = [1, 3, 5, 7]
+  print(sort.search(?a, 5), sort.lower_bound(?a, 4), slices.contains(?a, 7), slices.index_of(?a, 2))
+  x = 3
+  print(sort.search(?a, x), slices.contains(?a, ?x))
+  v: Vec[Text] = Vec()
+  !v.push(Text("b"))
+  !v.push(Text("a"))
+  sort.sort_by(!v, |p, q| p.len < q.len)
+  t = Text("a")
+  print(slices.contains(?v, ?t), slices.index_of(?v, ?t))
+  s: Vec[String] = Vec()
+  !s.push("x")
+  !s.push("y")
+  print(slices.contains(?s, "y"), sort.search(?s, "y"))
+  slices.reverse(!v)
+  print(v)

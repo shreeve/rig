@@ -1,0 +1,5 @@
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  _ = v[0]
+  print(v)

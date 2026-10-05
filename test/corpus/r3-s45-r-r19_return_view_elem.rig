@@ -1,0 +1,8 @@
+fun firstof(v: ?Vec[Text]) -> String
+  ?v[0]
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  s = firstof(?v)
+  print(s)

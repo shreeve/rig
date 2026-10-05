@@ -1,0 +1,7 @@
+sub main
+  a = [Text("a"), Text("b")]
+  for t in a
+    print(t)
+  for t in !a
+    !t.add("!")
+  print(a)

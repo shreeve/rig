@@ -1,0 +1,13 @@
+enum Tree
+  leaf(n: Int)
+  node(l: Box[Tree], r: Box[Tree])
+
+fun sum(t: ?Tree) -> Int
+  match t
+    .leaf(n) => n
+    .node(l, r) => sum(l) + sum(r)
+
+sub main
+  t = Tree.node(l: Box(Tree.leaf(n: 1)), r: Box(Tree.leaf(n: 2)))
+  u = +t
+  print(sum(?t), sum(?u))

@@ -1,0 +1,7 @@
+sub take(t: Text)
+  print(t)
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  take(v[0])

@@ -1,0 +1,11 @@
+sub keep(v: !Vec[?Int], x: ?Int)
+  !v.push(x)
+
+sub main
+  a = 1
+  v: Vec[?Int] = Vec()
+  keep(!v, ?a)
+  print(v[0])
+  -v
+  a = 2
+  print(a)

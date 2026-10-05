@@ -1,0 +1,9 @@
+sub main
+  m: Vec[Vec[Text]] = Vec()
+  row: Vec[Text] = Vec()
+  !m.push(<row)
+  !m[0].push(Text("q"))
+  !m[0][0].add("!")
+  print(m)
+  m[0][0] = Text("r")
+  print(m, m[0][0].len)

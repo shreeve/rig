@@ -1,0 +1,6 @@
+sub main
+  a = [Text("a"), Text("b")]
+  keep: Vec[Text] = Vec()
+  for t in <a
+    !keep.push(<t)
+  print(keep)

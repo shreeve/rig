@@ -1,0 +1,10 @@
+sub main
+  a = 1
+  b = 2
+  v: Vec[!Int] = Vec()
+  !v.push(!a)
+  !v.push(!b)
+  v[0] = 10
+  v[1] += 5
+  -v
+  print(a, b)

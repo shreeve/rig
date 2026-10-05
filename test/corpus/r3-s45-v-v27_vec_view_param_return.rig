@@ -1,0 +1,12 @@
+fun firsts(a: ?Int, b: ?Int) -> Vec[?Int]
+  v: Vec[?Int] = Vec()
+  !v.push(a)
+  !v.push(b)
+  v
+
+sub main
+  x = 1
+  y = 2
+  v = firsts(?x, ?y)
+  print(v)
+  x = 3

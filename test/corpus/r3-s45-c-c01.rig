@@ -1,0 +1,44 @@
+struct H
+  name: Text
+  tags: Vec[Int]
+  h: *Int
+  o: Box[Text]?
+
+enum E
+  a(t: Text)
+  b(n: Int)
+  c
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = +v
+  !w.push(2)
+  print(v.len, w.len)
+  b = Box(Text("x"))
+  c = +b
+  print(b, c)
+  h = H(name: Text("n"), tags: Vec(), h: *5, o: Box(Text("ob")))
+  !h.tags.push(3)
+  g = +h
+  !g.tags.push(4)
+  !g.name.add("!")
+  print(h.name, h.tags, g.name, g.tags, g.h, g.o)
+  vs: Vec[Vec[Text]] = Vec()
+  row: Vec[Text] = Vec()
+  !row.push(Text("q"))
+  !vs.push(<row)
+  ws = +vs
+  !ws[0][0].add("z")
+  print(vs, ws, +vs[0])
+  es: Vec[E] = Vec()
+  !es.push(E.a(t: Text("ea")))
+  !es.push(E.b(n: 2))
+  !es.push(.c)
+  fs = +es
+  print(fs.len)
+  arr = [Text("a1"), Text("a2")]
+  arr2 = +arr
+  print(arr2)
+  r = ?v
+  print(+r)
