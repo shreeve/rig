@@ -2685,6 +2685,13 @@ pub const Checker = struct {
         const pos = target.src.pos;
         const name = self.text(target);
         const is_lambda = isLambda(expr);
+        // A write-view local re-pointed by a view its right side does not
+        // read, and cannot leave early, never uses its old view again:
+        // that view's loans end here (Core sentence 6), before the right
+        // side lends anew.
+        if (kind == .default and (if (self.sema) |ctx| ctx.repoints(node) else false)) if (self.find(name)) |id| {
+            if (!self.readsName(expr, name) and !leavesEarly(expr)) try self.setFlow(id, .{ .status = self.flows.items[id].status, .at = self.flows.items[id].at });
+        };
         const value: Value = switch (kind) {
             .default, .fixed, .shadow => if (is_lambda) blk: {
                 self.lambda_ok = true;
@@ -2716,6 +2723,30 @@ pub const Checker = struct {
             },
         }
         if (is_lambda) self.vars.items[self.vars.items.len - 1].env_drops = self.envDrops(expr);
+    }
+
+    /// Whether `e` names `name` anywhere.
+    fn readsName(self: *const Checker, e: Sexp, name: []const u8) bool {
+        switch (e) {
+            .src => return std.mem.eql(u8, self.text(e), name),
+            .list => {
+                for (e.items()) |item| if (self.readsName(item, name)) return true;
+                return false;
+            },
+            else => return false,
+        }
+    }
+
+    /// Whether evaluating `e` may leave before it gives its value: a
+    /// propagation, a `return`, a `break`, or a `continue` inside it.
+    fn leavesEarly(e: Sexp) bool {
+        if (e != .list) return false;
+        if (e.kind()) |k| switch (k) {
+            .propagate, .propagate_none, .@"return", .@"break", .@"continue" => return true,
+            else => {},
+        };
+        for (e.items()) |item| if (leavesEarly(item)) return true;
+        return false;
     }
 
     /// Whether the environment of closure literal `lambda` has drop glue.

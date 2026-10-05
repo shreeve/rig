@@ -1097,7 +1097,10 @@ stores only plain elements. Assigning a local write view, or a field
 or element through one (`w = v`, `w.f = v`), stores `v` in what `w`
 views (`storeThroughLocal`), unless the assignment gives `w` a view
 (`repoints`): then `w` points elsewhere and holds that view's loans
-alone, as a local given a new value does. Assigning a value to a
+alone, as a local given a new value does. When the right side does not
+read `w` and cannot leave early, `w`'s old loans end before the right
+side runs, since its old view is never used again (`w = !b` while `w`
+views `b`, or in a loop). Assigning a value to a
 field or element that holds a `!T` (`h.w = v`, which writes through
 it) stores `v` in what the struct's `!T` views (`writesThrough`); one
 given a view (`h.w = !n`) adds the view's loans to its holder's, which
