@@ -2,8 +2,7 @@
 # through a temporary its header makes (an index or a call's argument)
 # is rejected until headers are lowered before checking: emit evaluates
 # such a header in a block that yields the place's value, a copy, while
-# the checker views the place. A `for` source, and `<` of the place, are
-# not affected.
+# the checker views the place. `<` of the place is not affected.
 
 struct C
   c: Cell[Int]
@@ -51,20 +50,18 @@ sub plain(arr: ![1]Int?)
   if !arr[idx(?Text("a"))] as n
     n = 50
 
-sub fine(v: !Vec[Text?], m: !Vec[Vec[Text]])
+sub fine(v: !Vec[Text?])
   if <v[idx(?Text("a"))] as t
     print(t)
-  for t in !m[idx(?Text("a"))]
-    !t.add("x")
 
 sub main
   print(1)
 
-# error: 22:17: this header views a place reached through a temporary that ends with the header: bind the index to a name first
-# error: 28:16: bind the index to a name first
-# error: 33:17: bind the index to a name first
-# error: 38:14: bind the index to a name first
-# error: 42:13: bind the index to a name first
-# error: 46:17: bind the index to a name first
-# error: 51:16: bind the index to a name first
+# error: 21:17: this header views a place reached through a temporary that ends with the header: bind the index to a name first
+# error: 27:16: bind the index to a name first
+# error: 32:17: bind the index to a name first
+# error: 37:14: bind the index to a name first
+# error: 41:13: bind the index to a name first
+# error: 45:17: bind the index to a name first
+# error: 50:16: bind the index to a name first
 # errors: 7

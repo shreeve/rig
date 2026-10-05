@@ -808,13 +808,12 @@ for `as`, in a joined condition (`if mk().o as r and c`), in a value
 `if`, and in a `while` condition, which is evaluated again each
 iteration. Each says to bind the value to a name first.
 
-A `match`, `if … as`, or `while … as` whose subject is a place reached
-through a statement temporary its header makes (an index, or a call's
-argument, on the place's path: `match !v[idx(?Text("a"))]`) is rejected
-too, read or write, at the temporary (`rejectsTempPath`): emit
+A `match`, `if … as`, `while … as`, or `for` whose subject is a place
+reached through a statement temporary its header makes (an index, or a
+call's argument, on the place's path: `match !v[idx(?Text("a"))]`) is
+rejected too, read or write, at the temporary (`rejectsTempPath`): emit
 evaluates such a header in a block that yields the place's value, a
-copy, while the checker views the place. A `for` source and `<p` are
-unaffected. Lowering headers before checking (HANDOFF step 10) lifts
+copy, while the checker views the place. `<p` is unaffected. Lowering headers before checking (HANDOFF step 10) lifts
 the rule.
 
 Typecheck records the class where it binds: a bare place is recorded

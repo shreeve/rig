@@ -1695,10 +1695,13 @@ const Checker = struct {
             defer self.held_base = saved_held;
             if (mode == .iter) self.held_base = self.madeBase(source);
             // `for x in ?xs[a..b]` walks a slice of `xs`.
-            const source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
+            var source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
                 try self.borrowSlice(source, if (mode == .read) .read else .write)
             else
                 try self.synthExpr(source);
+            // A source place reached through a temporary of the header is
+            // rejected, as a `match` subject is (`rejectsTempPath`).
+            if (mode != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty) and try self.rejectsTempPath(source)) source_ty = self.t().invalid_id;
             // How the loop has a bare source (docs/INTERNALS.md, "Header
             // subjects"): a place is walked where it stands, as
             // `for x in ?p`; an array made here whose elements move is
@@ -2287,7 +2290,7 @@ const Checker = struct {
         return false;
     }
 
-    /// A `match`, `if … as`, or `while … as` whose subject is a place
+    /// A `match`, `if … as`, `while … as`, or `for` whose subject is a place
     /// reached through a statement temporary its header makes (in an
     /// index, or a call's argument on the place's path) is rejected
     /// (reported, true): emit evaluates such a header in a block that
