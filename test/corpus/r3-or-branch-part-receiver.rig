@@ -1,0 +1,80 @@
+# A method whose result may keep a view of a part (a field, an element)
+# of a branching receiver lends each leaf where it is: the view keeps a
+# loan on every name a leaf names, not on a temporary, so it may be held
+# past its statement and used while those names live unchanged. A leaf
+# that makes a value is a temporary of the statement, which a view of it
+# is used within. (A write to a leaf while the view lives, or a view of a
+# made leaf held past its statement, is rejected:
+# `r3-or-branch-part-receiver-unsound.rig`.)
+#
+# oracle: field_held accept
+# oracle: elem_held accept
+# oracle: nested_held accept
+# oracle: made_in_stmt accept
+
+struct S
+  t: Text
+  xs: [4]Int
+
+  fun inner(?self) -> ?Text
+    ?self.t
+
+struct W
+  s: S
+
+struct P
+  xs: [4]Int
+
+  fun arr(?self) -> ?[4]Int
+    ?self.xs
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun mk(n: Int) -> W
+  W(s: S(t: Text("a text long enough to live on the heap:", n), xs: [n, n, n, n]))
+
+fun maybe(n: Int) -> W?
+  return mk(n) if n > 0 else none
+
+sub field_held(c: Bool)
+  wa = mk(1)
+  wb = mk(2)
+  z = (wa if c else wb).s.inner()
+  print(clobber(40))
+  print(z)
+
+sub elem_held(c: Bool)
+  vs: Vec[P] = Vec()
+  !vs.push(P(xs: [1, 1, 1, 1]))
+  ws: Vec[P] = Vec()
+  !ws.push(P(xs: [2, 2, 2, 2]))
+  y = (vs if c else ws)[0].arr()
+  print(clobber(50))
+  print(y)
+
+sub nested_held(c: Bool, d: Bool)
+  wa = mk(1)
+  wb = mk(2)
+  wc = mk(3)
+  z = (wa if c else (wb if d else wc)).s.inner()
+  print(clobber(60))
+  print(z)
+
+sub made_in_stmt(c: Bool)
+  a = mk(1)
+  print((a if c else mk(2)).s.inner(), clobber(70))
+  print((maybe(0) ?? mk(3)).s.inner(), clobber(80))
+
+sub main
+  c = clobber(1) == 2
+  field_held(c)
+  field_held(not c)
+  elem_held(c)
+  elem_held(not c)
+  nested_held(c, c)
+  nested_held(not c, c)
+  nested_held(not c, not c)
+  made_in_stmt(c)
+  made_in_stmt(not c)

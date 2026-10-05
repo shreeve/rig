@@ -343,8 +343,9 @@ const Checker = struct {
             }
         }
         // C5 (s3, s6, §3): a var is not dropped while a loan of its own
-        // storage is live.
-        if (op.kill) |k| if (!st.empty.has(k) or op.uses.len > 0) {
+        // storage is live, on any path where it holds a value (a
+        // statement temporary one branch made).
+        if (op.kill) |k| {
             for (0..self.nv) |u| {
                 if (!live_after.has(u) and !(u == k and self.f.vars.items[k].drop_reads)) continue;
                 for (self.f.loans.items, 0..) |l, li| {
@@ -361,7 +362,7 @@ const Checker = struct {
                     return;
                 }
             }
-        };
+        }
         // C8 (s9): an owned closure, a Cell, or a Signal takes no value
         // that carries a loan.
         if (op.no_loans) {
