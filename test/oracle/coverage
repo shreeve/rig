@@ -11,7 +11,7 @@
 # each floor is what it decides now. A type holding a Cell is unique,
 # so the matrix programs that copy one stop in sema, before either
 # checker decides them.
-tests 3003
-corpus 15161
+tests 3008
+corpus 15477
 docs 412
 matrix 11603

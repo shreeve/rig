@@ -35,6 +35,9 @@ test/corpus/review-take-p15.rig main prod-rejects core-gap `y = <s` of a `match 
 # every use in deferred code, so a view whose last use comes before the
 # deferred code runs still holds its loan there.
 test/corpus/r3-or-defer-strict.rig main prod-rejects prod-strict `defer !v.push(3)` before `w = !v`, whose last use precedes the exit
+test/corpus/review-step45-k04_defer_elem_write.rig main prod-rejects prod-strict `defer !v[0].add("!")` before `x = ?v[0]`, whose last use precedes the exit
+test/corpus/review-step45-k04b_defer_push_plain.rig main prod-rejects prod-strict `defer !v.push(2)` before `x = ?v`, whose last use precedes the exit
+test/corpus/review-step45-r2-d08_repoint_defer_uses_w.rig main prod-rejects prod-strict the deferred `!w.add("d")` runs at the inner block's end, before `print(b)`
 test/corpus/review-take-p53.rig main prod-rejects prod-strict deferred `<s.a` after `print(r)`, the last use of `r = ?s`
 test/corpus/review-take-p54.rig main prod-rejects prod-strict deferred `<s.a` runs after the deferred `print(w)`, the last use of `w = !s`
 
@@ -112,6 +115,7 @@ test/corpus/review-lang4-b3.rig main prod-rejects core-gap `h.w = g.w` of two `!
 # re-pointed field may view what outlives its holder.
 test/corpus/review-place-b9-x010_swap_through_fields.rig main prod-rejects prod-strict `h.w = 10` after `swap(!h.w, !k.w)`, which lends `h` for the call only
 test/corpus/review-place-b7-v020_nested_wb_rebind.rig main prod-rejects prod-strict `g.h.w = !m`, where `m` outlives `g`
+test/corpus/review-step45-g09_repoint_closure.rig main prod-rejects prod-strict `w = !n` while `f = |!w| ...` holds a write loan on `m`, what `w` saw
 
 # A lint that is not ownership, and a header subject of plain data,
 # which copies (Core s1).
@@ -122,3 +126,4 @@ test/corpus/r3-s36-reads-f06_for_array_write_in_body.rig main prod-rejects prod-
 # no `T` (Core s1), so an instance at an owner is sound; the compiler's
 # emitted body copies the payload, and it rejects the instance.
 test/corpus/audit-emit-q2.rig main prod-rejects prod-strict `peek(Box(R(n: 1)))` at `T = Box[R]`
+test/corpus/review-step45-r2-e14_match.rig main prod-rejects prod-strict `cnt(?o)` at `T = Text`, whose body reads `if x as y` of a loop element where it stands
