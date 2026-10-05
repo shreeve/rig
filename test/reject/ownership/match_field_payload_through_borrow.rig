@@ -28,5 +28,5 @@ sub main()
       -t
     .empty => print("empty")
 
-# error: cannot move out of `t`: it is borrowed from `h`
+# error: cannot move out of `t`: it is a view of `h`
 # error: cannot drop out of `t`: `sh` is a shared handle

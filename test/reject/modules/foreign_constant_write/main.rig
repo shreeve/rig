@@ -15,8 +15,8 @@ sub main
   print(geo.KP[0], geo.LIMIT)
 
 # error: 9:3: cannot assign to constant `geo.KP`
-# error: 10:9: cannot write-borrow constant `geo.KP`
+# error: 10:9: cannot lend constant `geo.KP` to write
 # error: 11:13: cannot write-iterate constant `geo.KP`
-# error: 13:4: cannot write-borrow constant `geo.KP`
+# error: 13:4: cannot lend constant `geo.KP` to write
 # error: 14:3: cannot assign to constant `geo.LIMIT`
 # errors: 5

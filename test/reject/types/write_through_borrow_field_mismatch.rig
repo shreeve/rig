@@ -11,5 +11,5 @@ sub main
   h.w = 5
 
 # error: 11:9: type mismatch: expected `Vec[Int]`, got `Int`
-# error: 11:3: `h.w = v` writes the `Vec[Int]` that `h.w` borrows; `h.w = !m` points `h.w` at another place
+# error: 11:3: `h.w = v` writes the `Vec[Int]` that `h.w` views; `h.w = !m` points `h.w` at another place
 # errors: 1

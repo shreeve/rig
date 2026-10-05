@@ -42,6 +42,6 @@ sub main
   cont()
 
 # error: 14:8: use of `a` after move
-# error: 21:3: cannot reassign `a` while borrows are live
+# error: 21:3: cannot reassign `a` while it is lent
 # error: 29:10: use of `a` after move
 # error: 36:10: use of `a` after move

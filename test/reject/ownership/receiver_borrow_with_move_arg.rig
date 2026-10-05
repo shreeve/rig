@@ -16,4 +16,4 @@ sub main()
   rc = *Wrap(inner: *Inner(x: 5))
   rc.show(<rc)
 
-# error: cannot move `rc` while it is read-borrowed
+# error: cannot move `rc` while a read loan is live

@@ -7,5 +7,5 @@ sub main
   !t.add("d")
   print(s)
 
-# error: 7:3: cannot write-borrow `t` while a read borrow is live
+# error: 7:3: cannot lend `t` to write while a read loan is live
 # errors: 1

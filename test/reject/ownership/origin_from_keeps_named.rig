@@ -19,5 +19,5 @@ sub main
   print(s.len)
 
 # errors: 2
-# error: 15:3: cannot write-borrow `x` while a read borrow is live
-# error: 18:3: cannot write-borrow `y` while a read borrow is live
+# error: 15:3: cannot lend `x` to write while a read loan is live
+# error: 18:3: cannot lend `y` to write while a read loan is live

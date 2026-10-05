@@ -500,7 +500,7 @@ sub main
 ```
 
 ```error
-`!` is a write borrow; use `not` for negation
+`!` lends to write; use `not` for negation
 ```
 
 **`&&` and `||`.** They are `and` and `or`; for an optional's fallback,
@@ -532,7 +532,7 @@ sub main
 ```
 
 ```error
-method `bump` requires a write-borrowed receiver
+method `bump` needs its receiver lent to write
 ```
 
 **Moves without `<`.** A bare name moves an owning value only out of a

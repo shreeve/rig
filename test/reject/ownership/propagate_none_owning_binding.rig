@@ -12,4 +12,4 @@ sub main()
   w: *Wrap? = none
   print(g(?w))
 
-# error: 8:7: a borrow cannot give up the resource inside it; borrow the value inside with `if m as value`
+# error: 8:7: a view cannot give up the resource inside it; lend the value inside with `if m as value`

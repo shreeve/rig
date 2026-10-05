@@ -24,5 +24,5 @@ sub main()
   s = unwrap(?r, Res(n: 2))
   drain(?r)
 
-# error: 24:7: `unwrap[Res]` cannot use `T = Res`: the generic body moves out of a borrow a value that holds a `T`
+# error: 24:7: `unwrap[Res]` cannot use `T = Res`: the generic body moves out of a view a value that holds a `T`
 # error: 25:3: `drain[Res]` cannot use `T = Res`

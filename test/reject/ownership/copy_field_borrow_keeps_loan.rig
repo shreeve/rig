@@ -10,5 +10,5 @@ sub main
   print(n)
   h.w += 1
 
-# error: 10:9: use of `n` while a write borrow is live
+# error: 10:9: use of `n` while a write loan is live
 # errors: 1

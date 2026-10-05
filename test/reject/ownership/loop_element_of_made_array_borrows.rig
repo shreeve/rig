@@ -12,5 +12,5 @@ sub main
   -v
   print(o)
 
-# error: 12:4: cannot drop `v` while borrows are live
+# error: 12:4: cannot drop `v` while it is lent
 # errors: 1

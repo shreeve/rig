@@ -29,4 +29,4 @@ sub main()
     .none_
       print("none")
 
-# error: 23:16: cannot take a second write borrow on `h`
+# error: 23:16: cannot lend `h` to write while a write loan is live

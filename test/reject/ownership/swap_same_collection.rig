@@ -12,5 +12,5 @@ sub main()
   swap(!d.cards[0], !d.cards[1])
   print(a, d.cards.len)
 
-# error: 10:16: cannot take a second write borrow on `a`: to swap two elements of `a`, write `!a.swap(i, i + 2)`
-# error: 12:22: cannot take a second write borrow on `d.cards`: to swap two elements of `d.cards`, write `!d.cards.swap(0, 1)`
+# error: 10:16: cannot lend `a` to write while a write loan is live: to swap two elements of `a`, write `!a.swap(i, i + 2)`
+# error: 12:22: cannot lend `d.cards` to write while a write loan is live: to swap two elements of `d.cards`, write `!d.cards.swap(0, 1)`

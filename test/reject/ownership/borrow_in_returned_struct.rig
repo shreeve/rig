@@ -20,4 +20,4 @@ sub main()
   x = +v.h.inner
   print(x.payload)
 
-# error: cannot drop `h` while borrows are live
+# error: cannot drop `h` while it is lent

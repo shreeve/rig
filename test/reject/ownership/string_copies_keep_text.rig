@@ -22,6 +22,6 @@ sub main
     o = sl[0]
   print(o)
 
-# error: 14:3: cannot write-borrow `t` while a read borrow is live
+# error: 14:3: cannot lend `t` to write while a read loan is live
 # error: 20:14: `u` does not live long enough
 # errors: 2

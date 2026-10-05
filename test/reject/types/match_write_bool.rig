@@ -10,5 +10,5 @@ sub main
   w = !b
   print(w)
 
-# error: 7:9: `!` is a write borrow; use `not` for negation (a `Bool` is write-borrowed only where a `!Bool` is expected: `f(!flag)`)
-# error: 10:7: `!` is a write borrow; use `not` for negation
+# error: 7:9: `!` lends to write; use `not` for negation (a `Bool` is lent to write only where a `!Bool` is expected: `f(!flag)`)
+# error: 10:7: `!` lends to write; use `not` for negation

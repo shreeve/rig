@@ -14,4 +14,4 @@ sub main()
   u = User(name: "Steve")
   get_ref(?u).consume()
 
-# error: cannot consume through a borrowed value
+# error: cannot consume through a view

@@ -14,5 +14,5 @@ sub main
   f()
   print(c.get())
 
-# error: 5:9: cannot store a borrow of `s` in a `Cell`
-# error: 8:6: an owned closure cannot capture `s`, which holds a borrow
+# error: 5:9: cannot store a view of `s` in a `Cell`
+# error: 8:6: an owned closure cannot capture `s`, which holds a view

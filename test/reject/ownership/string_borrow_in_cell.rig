@@ -22,11 +22,11 @@ sub main
   c.set(?lit)
   print(c.get(), d.get(), sig.get(), old, cv.len)
 
-# error: 6:9: cannot store a borrow of `s` in a `Cell`
-# error: 12:9: cannot store a borrow of `t` in a `Cell`
-# error: 13:12: cannot store a borrow of `t` in a `Cell`
-# error: 15:11: cannot store a borrow of `t` in a `Signal`
-# error: 16:19: cannot store a borrow of `t` in a `Cell`
-# error: 18:11: cannot store a borrow of `t` in a `Cell`
-# error: 20:9: cannot store a borrow of `t` in a `Cell`
+# error: 6:9: cannot store a view of `s` in a `Cell`
+# error: 12:9: cannot store a view of `t` in a `Cell`
+# error: 13:12: cannot store a view of `t` in a `Cell`
+# error: 15:11: cannot store a view of `t` in a `Signal`
+# error: 16:19: cannot store a view of `t` in a `Cell`
+# error: 18:11: cannot store a view of `t` in a `Cell`
+# error: 20:9: cannot store a view of `t` in a `Cell`
 # errors: 7

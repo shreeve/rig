@@ -20,4 +20,4 @@ sub main()
   -y
   print(r.n)
 
-# error: cannot drop `y` while borrows are live
+# error: cannot drop `y` while it is lent

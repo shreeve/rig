@@ -8,4 +8,4 @@ sub keep(p: !?Int)
 sub main()
   print(1)
 
-# error: cannot store a borrow of `x` through `p`
+# error: cannot store a view of `x` through `p`

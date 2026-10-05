@@ -11,4 +11,4 @@ sub main()
   u = User(name: "Steve")
   u.rename("Bob")
 
-# error: method `rename` requires a write-borrowed receiver
+# error: method `rename` needs its receiver lent to write

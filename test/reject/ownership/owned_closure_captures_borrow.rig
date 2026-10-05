@@ -21,6 +21,6 @@ sub main()
   f = *|<vw| print(vw.b.n)
   f()
 
-# error: an owned closure cannot capture `v`, which holds a borrow;
-# error: an owned closure cannot capture `w`, which holds a borrow of `b`
-# error: an owned closure cannot capture `vw`, which holds a borrow of `b`
+# error: an owned closure cannot capture `v`, which holds a view;
+# error: an owned closure cannot capture `w`, which holds a view of `b`
+# error: an owned closure cannot capture `vw`, which holds a view of `b`

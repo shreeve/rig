@@ -14,4 +14,4 @@ sub main()
   v = bad()
   print(v.user.age)
 
-# error: returned borrow of `user` does not originate from a borrowed parameter
+# error: cannot return a view of `user`, which this function was not lent

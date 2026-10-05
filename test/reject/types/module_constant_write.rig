@@ -10,4 +10,4 @@ sub main()
   bump(!LIMIT)
   print(LIMIT)
 
-# error: 10:9: cannot write-borrow constant `LIMIT`
+# error: 10:9: cannot lend constant `LIMIT` to write

@@ -12,4 +12,4 @@ sub main()
   n = 1
   print(keep(?n), local(2))
 
-# error: 9:4: returned borrow of `y` does not originate from a borrowed parameter
+# error: 9:4: cannot return a view of `y`, which this function was not lent

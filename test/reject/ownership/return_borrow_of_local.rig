@@ -10,4 +10,4 @@ fun bad() -> ?String
 fun name(user: ?User) -> ?String
   ?user.name
 
-# error: returned borrow of `user` does not originate from a borrowed parameter
+# error: cannot return a view of `user`, which this function was not lent

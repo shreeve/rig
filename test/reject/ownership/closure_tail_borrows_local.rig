@@ -11,4 +11,4 @@ sub main()
   q = s()
   print(q.v[0])
 
-# error: 10:6: returned borrow of `y` does not originate from a borrowed parameter
+# error: 10:6: cannot return a view of `y`, which this function was not lent

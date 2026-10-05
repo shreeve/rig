@@ -11,4 +11,4 @@ sub main()
   b.b.v = Vec()
   print(a.b.v.len)
 
-# error: 10:7: bare use of `a` in binding would duplicate the write borrow it holds
+# error: 10:7: bare use of `a` in binding would copy the write view it holds

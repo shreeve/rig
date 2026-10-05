@@ -7,4 +7,4 @@ sub takeVec(v: Vec[?fun() -> Int])
 sub main()
   print(1)
 
-# error: a borrowed callable `?fun() -> Int` is only a parameter's, a local's, or a result's type
+# error: a callable view `?fun() -> Int` is only a parameter's, a local's, or a result's type

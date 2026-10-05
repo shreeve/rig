@@ -12,4 +12,4 @@ sub main()
   !u.bump(1)
   print(r.age)
 
-# error: cannot write-borrow `u` while a read borrow is live
+# error: cannot lend `u` to write while a read loan is live

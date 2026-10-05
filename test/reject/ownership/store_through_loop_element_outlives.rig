@@ -15,4 +15,4 @@ sub main
     vw = View(b: ?y)
   print(arr[0].b.n)
 
-# error: 15:5: cannot store a borrow of `y` through `vw`: `vw` borrows `arr`, which outlives it
+# error: 15:5: cannot store a view of `y` through `vw`: `vw` views `arr`, which outlives it

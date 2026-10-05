@@ -23,10 +23,10 @@ sub main
   w += 1
   print(m, k, r)
 
-# error: 14:9: use of `n` while a write borrow is live
-# error: 15:7: use of `n` while a write borrow is live
-# error: 16:7: use of `n` while a write borrow is live
-# error: 17:8: use of `n` while a write borrow is live
-# error: 18:8: cannot read-borrow `n` while a write borrow is live
-# error: 21:9: use of `p` while a write borrow is live
+# error: 14:9: use of `n` while a write loan is live
+# error: 15:7: use of `n` while a write loan is live
+# error: 16:7: use of `n` while a write loan is live
+# error: 17:8: use of `n` while a write loan is live
+# error: 18:8: cannot lend `n` to read while a write loan is live
+# error: 21:9: use of `p` while a write loan is live
 # errors: 6

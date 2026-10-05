@@ -7,4 +7,4 @@ sub main
   n = !(v.pop())
   print(n ?? 0)
 
-# error: 7:9: cannot write-borrow a temporary
+# error: 7:9: cannot lend a temporary to write

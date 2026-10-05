@@ -19,7 +19,7 @@ sub main
   for h in !hs
     h.n += 5
 
-# error: 13:13: each element of `xs` is a write borrow, which a loop binding cannot hold; loop over the indices and write `xs[i]`
-# error: 15:12: each element of `xs` is a write borrow, which a loop binding cannot hold; loop over the indices and write `xs[i]`
-# error: 19:13: each element of `hs` is a write borrow, which a loop binding cannot hold; loop over the indices and write `hs[i]`
+# error: 13:13: each element of `xs` is a write view, which a loop binding cannot hold; loop over the indices and write `xs[i]`
+# error: 15:12: each element of `xs` is a write view, which a loop binding cannot hold; loop over the indices and write `xs[i]`
+# error: 19:13: each element of `hs` is a write view, which a loop binding cannot hold; loop over the indices and write `hs[i]`
 # errors: 3

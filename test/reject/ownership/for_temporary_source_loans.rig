@@ -35,6 +35,6 @@ sub main
   -v
   print(sl)
 
-# error: 27:4: cannot drop `t` while borrows are live
-# error: 35:4: cannot drop `v` while borrows are live
+# error: 27:4: cannot drop `t` while it is lent
+# error: 35:4: cannot drop `v` while it is lent
 # errors: 2

@@ -1524,7 +1524,7 @@ pub const Parser = struct {
             .of => "a fill literal `[n of x]` holds one count and one element; it cannot share brackets with a list",
             .nullish => "`??` is the fallback operator; an optional of an optional is written `(T?)?`",
             // Where no operator could come: C and Rust's address-of.
-            .ampersand => "Rig borrows with `?x` (read) or `!x` (write)",
+            .ampersand => "Rig lends with `?x` (to read) or `!x` (to write)",
             else => null,
         };
     }

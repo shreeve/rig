@@ -19,5 +19,5 @@ sub main
     eat(<r)
   e()
 
-# error: 9:9: cannot move-capture borrowed parameter `f`; the caller still owns it. Capture the borrow with `|?f|`
-# error: 19:10: cannot move captured borrow `r`; the closure holds it for every call
+# error: 9:9: cannot move-capture view parameter `f`; the caller still owns what it views. Capture the view with `|?f|`
+# error: 19:10: cannot move captured view `r`; the closure holds it for every call

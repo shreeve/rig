@@ -16,5 +16,5 @@ sub main()
   !a.swap(0, 1)
   print(v.xs)
 
-# error: cannot write-borrow `a` while a read borrow is live
+# error: cannot lend `a` to write while a read loan is live
 # errors: 1

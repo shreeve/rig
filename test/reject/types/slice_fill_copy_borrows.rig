@@ -33,6 +33,6 @@ sub reads()
 sub main()
   fill()
 
-# error: 16:7: `fill` copies its value into every element; `V` holds a borrow, and the elements must be plain data
-# error: 24:7: `copy` copies its source into the elements; `V` holds a borrow, and the elements must be plain data
-# error: 30:7: `fill` copies its value into every element; `R` holds a borrow, and the elements must be plain data
+# error: 16:7: `fill` copies its value into every element; `V` holds a view, and the elements must be plain data
+# error: 24:7: `copy` copies its source into the elements; `V` holds a view, and the elements must be plain data
+# error: 30:7: `fill` copies its value into every element; `R` holds a view, and the elements must be plain data

@@ -19,4 +19,4 @@ sub main()
   r = ?x
   pair(r, !x) if flag
 
-# error: cannot write-borrow `x` while a read borrow is live
+# error: cannot lend `x` to write while a read loan is live

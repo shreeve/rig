@@ -12,4 +12,4 @@ sub main()
     cb()
     !subs.push(+cb1)
 
-# error: cannot write-borrow `subs` while a read borrow is live
+# error: cannot lend `subs` to write while a read loan is live

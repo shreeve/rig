@@ -54,9 +54,9 @@ sub main
   print(r.y)
 
 # error: 31:21: `s` does not live long enough
-# error: `s` goes out of scope while `inn` still borrows it
+# error: `s` goes out of scope while `inn` still views it
 # error: 35:19: `k` does not live long enough
-# error: `k` goes out of scope while `r` still borrows it
+# error: `k` goes out of scope while `r` still views it
 # error: 41:18: `k` does not live long enough
 # error: 46:21: `k` does not live long enough
 # error: 52:30: `k` does not live long enough

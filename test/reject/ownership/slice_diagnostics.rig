@@ -14,5 +14,5 @@ sub shared()
 sub main()
   shared()
 
-# error: 8:4: cannot write-borrow parameter `a`
-# error: 12:3: cannot write-borrow through a shared handle
+# error: 8:4: cannot lend parameter `a` to write
+# error: 12:3: cannot lend to write through a shared handle

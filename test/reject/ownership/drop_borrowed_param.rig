@@ -11,4 +11,4 @@ sub main()
   kill(?rc)
   print(rc.payload)
 
-# error: cannot drop borrowed
+# error: cannot drop view

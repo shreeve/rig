@@ -24,4 +24,4 @@ sub main
       print(k.r.n)
     .b => pass
 
-# error: 23:13: cannot write-borrow `x` while a read borrow is live
+# error: 23:13: cannot lend `x` to write while a read loan is live

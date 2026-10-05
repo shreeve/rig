@@ -17,5 +17,5 @@ sub main
     break if k == 6
   print(k)
 
-# error: 11:19: the loop step cannot use `x`: it is a borrow (`!P`) that lives only in the body; use it at the end of the body instead
-# error: 15:25: the loop step cannot use `y`: it is a borrow (`?Box[P]`) that lives only in the body
+# error: 11:19: the loop step cannot use `x`: it is a view (`!P`) that lives only in the body; use it at the end of the body instead
+# error: 15:25: the loop step cannot use `y`: it is a view (`?Box[P]`) that lives only in the body

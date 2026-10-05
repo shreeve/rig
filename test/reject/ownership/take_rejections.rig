@@ -20,5 +20,5 @@ sub main
   print(z)
   rd(?s)
 
-# error: 13:8: cannot take through a read borrow (`?T`)
+# error: 13:8: cannot take through a read view (`?T`)
 # error: 18:7: cannot take through a shared handle (`*T`)

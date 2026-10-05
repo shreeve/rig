@@ -17,5 +17,5 @@ sub main()
   r = same(!p)
   print(show(?p))
 
-# error: 16:7: `same[?P]` cannot use `T = ?P`: a generic function is checked for a `T` that holds no borrow
-# error: 17:7: `same[!P]` cannot use `T = !P`: a generic function is checked for a `T` that holds no borrow
+# error: 16:7: `same[?P]` cannot use `T = ?P`: a generic function is checked for a `T` that holds no `?T`, `!T`, or slice
+# error: 17:7: `same[!P]` cannot use `T = !P`: a generic function is checked for a `T` that holds no `?T`, `!T`, or slice

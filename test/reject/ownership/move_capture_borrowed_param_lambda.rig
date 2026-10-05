@@ -14,4 +14,4 @@ sub main()
   f(?rc)
   print(rc.payload)
 
-# error: cannot move-capture borrowed
+# error: cannot move-capture view

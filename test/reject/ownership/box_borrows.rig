@@ -17,5 +17,5 @@ sub main
   root: Box[Node]? = Box(Node(key: 1, left: none))
   bad(?root)
 
-# error: 13:5: cannot assign through a read borrow (`?T`)
-# error: 14:11: cannot write-borrow through a read borrow (`?T`)
+# error: 13:5: cannot assign through a read view (`?T`)
+# error: 14:11: cannot lend to write through a read view (`?T`)

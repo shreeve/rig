@@ -13,4 +13,4 @@ sub main
       r += 1
     _ => print("x")
 
-# error: 12:13: use of `c` while a write borrow is live
+# error: 12:13: use of `c` while a write loan is live

@@ -16,7 +16,7 @@ sub main()
   page.write[U16, .big](0, 1)
 
 # error: 5:3: cannot `write` a `[]U8`; its elements are read-only
-# error: 6:4: cannot write-borrow a `[]U8`: its elements are read-only
+# error: 6:4: cannot lend a `[]U8` to write: its elements are read-only
 # error: 11:3: cannot `write` a `[]U8`; its elements are read-only
 # error: 13:3: cannot `write` a String; a String is read-only
 # error: 15:9: `read` works on bytes: a `[]U8`, an `![]U8`, a `[N]U8`, a `Vec[U8]`, or a String; got `[4]Int`

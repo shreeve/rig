@@ -8,4 +8,4 @@ sub main()
     x = 2
   print(r.len)
 
-# error: 7:13: cannot write-borrow `v` while a read borrow is live
+# error: 7:13: cannot lend `v` to write while a read loan is live

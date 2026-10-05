@@ -76,12 +76,12 @@ sub write_elems()
 sub main()
   vec_elems()
 
-# error: 30:3: cannot write-borrow `v` while a read borrow is live
-# error: 36:4: cannot drop `h` while borrows are live
-# error: 43:3: cannot reassign `o` while borrows are live
-# error: 49:4: cannot drop `b` while borrows are live
-# error: 55:4: cannot drop `b` while borrows are live
-# error: 61:4: cannot drop `h` while borrows are live
-# error: 67:4: cannot drop `v` while borrows are live
-# error: 73:13: cannot take a second write borrow on `v`
+# error: 30:3: cannot lend `v` to write while a read loan is live
+# error: 36:4: cannot drop `h` while it is lent
+# error: 43:3: cannot reassign `o` while it is lent
+# error: 49:4: cannot drop `b` while it is lent
+# error: 55:4: cannot drop `b` while it is lent
+# error: 61:4: cannot drop `h` while it is lent
+# error: 67:4: cannot drop `v` while it is lent
+# error: 73:13: cannot lend `v` to write while a write loan is live
 # errors: 8

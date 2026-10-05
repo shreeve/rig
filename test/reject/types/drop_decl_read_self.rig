@@ -7,4 +7,4 @@ struct File
   drop(?self)
     print(self.fd)
 
-# error: `drop` takes its receiver write-borrowed: `drop(!self)`
+# error: `drop` takes its receiver lent to write: `drop(!self)`

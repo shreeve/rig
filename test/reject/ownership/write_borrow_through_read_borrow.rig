@@ -25,5 +25,5 @@ sub main()
   h = Holder(c: Counter(n: 0), xs: [1, 2])
   f(?h)
 
-# error: cannot write-borrow through a read borrow
-# error: cannot write-iterate through a read borrow
+# error: cannot lend to write through a read view
+# error: cannot write-iterate through a read view

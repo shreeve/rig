@@ -57,8 +57,8 @@ sub variant_fields()
 sub main()
   read_then_write()
 
-# error: 34:13: cannot write-borrow `x` while a read borrow is live
-# error: 39:14: cannot take a second write borrow on `x`
-# error: 44:20: cannot move `x` while it is read-borrowed
-# error: 50:3: cannot write-borrow `x` while a read borrow is live
-# error: 55:32: cannot take a second write borrow on `x`
+# error: 34:13: cannot lend `x` to write while a read loan is live
+# error: 39:14: cannot lend `x` to write while a write loan is live
+# error: 44:20: cannot move `x` while a read loan is live
+# error: 50:3: cannot lend `x` to write while a read loan is live
+# error: 55:32: cannot lend `x` to write while a write loan is live

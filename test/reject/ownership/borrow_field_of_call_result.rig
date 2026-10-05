@@ -26,6 +26,6 @@ sub main
     h = H(h2: H2(r: R(n: 4), b: none))
     print(y.n)
 
-# error: 20:3: cannot reassign `h` while borrows are live
-# error: 23:5: cannot reassign `h` while borrows are live
-# error: 26:5: cannot reassign `h` while borrows are live
+# error: 20:3: cannot reassign `h` while it is lent
+# error: 23:5: cannot reassign `h` while it is lent
+# error: 26:5: cannot reassign `h` while it is lent

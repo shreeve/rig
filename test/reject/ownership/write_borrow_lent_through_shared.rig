@@ -19,4 +19,4 @@ sub main()
   k = Hold(h: *WV(b: !x))
   reset(!k.h.b)
 
-# error: 20:10: cannot lend the write borrow held here through a shared handle
+# error: 20:10: cannot lend the write view held here: it is reached through a shared handle

@@ -25,8 +25,8 @@ sub main
   g = H(w: !m)
   by_read(?g)
 
-# error: 12:8: cannot write-borrow parameter `h`; parameters are immutable (bind a copy with `new h = h`, or take `h: !H` to write through to the caller)
-# error: 15:8: cannot lend the write borrow held here through a read borrow (`?T`)
-# error: 17:8: cannot lend the write borrow held here through a read borrow (`?T`)
-# error: 22:8: cannot write-borrow fixed binding `h` (bound with `const`)
+# error: 12:8: cannot lend parameter `h` to write; parameters are immutable (bind a copy with `new h = h`, or take `h: !H` to write through to the caller)
+# error: 15:8: cannot lend the write view held here: it is reached through a read view (`?T`)
+# error: 17:8: cannot lend the write view held here: it is reached through a read view (`?T`)
+# error: 22:8: cannot lend fixed binding `h` to write (bound with `const`)
 # errors: 4

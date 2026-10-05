@@ -17,4 +17,4 @@ sub main()
       !e.t.push(x)
   print(v.len)
 
-# error: use of `e` while a write borrow is live
+# error: use of `e` while a write loan is live

@@ -7,4 +7,4 @@ sub main()
   t = w[1..]
   print(t)
 
-# error: 7:7: a slice of a `![]T` borrows it; write `?w[1..]` or `!w[1..]`
+# error: 7:7: a slice of a `![]T` views it; write `?w[1..]` or `!w[1..]`

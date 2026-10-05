@@ -20,4 +20,4 @@ sub main()
   print(x.n)
   !w2.bump()
 
-# error: use of `x` while a write borrow is live
+# error: use of `x` while a write loan is live

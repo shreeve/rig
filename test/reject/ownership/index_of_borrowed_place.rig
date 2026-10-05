@@ -34,10 +34,10 @@ sub main
   ps[0].a[grow(!ps)] = x
   print(ps[0], x)
 
-# error: 28:23: cannot write-borrow `ps` in an index of a place borrowed from it
-# error: 29:23: cannot write-borrow `ps` in an index of a place borrowed from it
-# error: 30:28: cannot write-borrow `ps` in an index of a place borrowed from it
-# error: 31:18: cannot write-borrow `ps` in an index of a place borrowed from it
-# error: 32:18: cannot write-borrow `ps` in an index of a place borrowed from it
-# error: 33:22: cannot move `ps` in an index of a place borrowed from it
+# error: 28:23: cannot lend `ps` to write in an index of a place it is lending
+# error: 29:23: cannot lend `ps` to write in an index of a place it is lending
+# error: 30:28: cannot lend `ps` to write in an index of a place it is lending
+# error: 31:18: cannot lend `ps` to write in an index of a place it is lending
+# error: 32:18: cannot lend `ps` to write in an index of a place it is lending
+# error: 33:22: cannot move `ps` in an index of a place it is lending
 # errors: 6

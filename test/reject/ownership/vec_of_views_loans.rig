@@ -13,5 +13,5 @@ sub main
   !w.push(!b)
   print(w.len)
 
-# error: 8:3: cannot reassign `a` while borrows are live
-# error: 13:12: cannot take a second write borrow on `b`
+# error: 8:3: cannot reassign `a` while it is lent
+# error: 13:12: cannot lend `b` to write while a write loan is live

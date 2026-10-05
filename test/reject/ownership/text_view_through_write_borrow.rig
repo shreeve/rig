@@ -30,6 +30,6 @@ sub main
   b = !it.next() ?? ""
   print(a, b)
 
-# error: 25:9: cannot write-borrow `w` while a read borrow is live
-# error: 30:7: cannot write-borrow `it` while a read borrow is live
+# error: 25:9: cannot lend `w` to write while a read loan is live
+# error: 30:7: cannot lend `it` to write while a read loan is live
 # errors: 2

@@ -40,4 +40,4 @@ sub main
   outer(3)
 
 # error: 24:27: `x` does not live long enough
-# error: 35:3: cannot reassign `y` while borrows are live
+# error: 35:3: cannot reassign `y` while it is lent

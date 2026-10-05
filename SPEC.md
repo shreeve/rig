@@ -475,7 +475,7 @@ sub main
 ```
 
 ```error
-a borrow of the temporary `[1, 2]` outlives its statement
+a view of the temporary `[1, 2]` outlives its statement
 ```
 
 `!xs[a..b]` is a **writable slice**, of type `![]T`: a write borrow of
@@ -538,7 +538,7 @@ sub main
 ```
 
 ```error
-cannot take a second write borrow on `a`
+cannot lend `a` to write while a write loan is live
 ```
 
 Three methods write the elements of a `![]T`, an array, or a Vec,
@@ -602,7 +602,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow `a` while a read borrow is live
+cannot lend `a` to write while a read loan is live
 ```
 
 ```rig reject
@@ -615,7 +615,7 @@ sub main
 ```
 
 ```error
-use of `v` while a write borrow is live
+use of `v` while a write loan is live
 ```
 
 ```rig reject
@@ -626,7 +626,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow a slice of a String; a String is read-only
+cannot lend a slice of a String to write; a String is read-only
 ```
 
 ### Bytes
@@ -1547,7 +1547,7 @@ sub main
 ```error
 `twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
 `T` copied here; move it with `<` instead
-`same[?Res]` cannot use `T = ?Res`: a generic function is checked for a `T` that holds no borrow
+`same[?Res]` cannot use `T = ?Res`: a generic function is checked for a `T` that holds no `?T`, `!T`, or slice
 ```
 
 ### Type aliases
@@ -1999,7 +1999,7 @@ sub main
 ```
 
 ```error
-`!` is a write borrow; use `not` for negation
+`!` lends to write; use `not` for negation
 ```
 
 ```rig
@@ -2798,7 +2798,7 @@ sub main
 ```
 
 ```error
-cannot take a second write borrow on `a`: to swap two elements of `a`, write `!a.swap(0, 2)`
+cannot lend `a` to write while a write loan is live: to swap two elements of `a`, write `!a.swap(0, 2)`
 ```
 
 A payload binding of `match <s` owns its field and may move it on
@@ -2856,7 +2856,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow `u` while a read borrow is live
+cannot lend `u` to write while a read loan is live
 ```
 
 **How long a borrow lives.** A borrow passed to a call ends when the
@@ -2915,7 +2915,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow `x` while a read borrow is live
+cannot lend `x` to write while a read loan is live
 ```
 
 **Evaluation order within a call.** A call evaluates its arguments
@@ -2969,7 +2969,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow `v` while an earlier argument's read of it is in use
+cannot lend `v` to write while an earlier argument's read of it is in use
 ```
 
 The same holds wherever a value is read in place before a later
@@ -3020,7 +3020,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow `ps` in an index of a place borrowed from it
+cannot lend `ps` to write in an index of a place it is lending
 ```
 
 #### Write borrows
@@ -3133,7 +3133,7 @@ sub main
 ```
 
 ```error
-cannot write through the write borrow held here through a read borrow (`?T`)
+cannot write through the write view held here: it is reached through a read view (`?T`)
 ```
 
 A `!x` borrow needs a binding that may change: a parameter (other than
@@ -3153,7 +3153,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow a temporary: the change would be lost; bind it to a name first
+cannot lend a temporary to write: the change would be lost; bind it to a name first
 ```
 
 #### Second-class borrows
@@ -3223,7 +3223,7 @@ fun make -> ?User
 ```
 
 ```error
-returned borrow of `u` does not originate from a borrowed parameter
+cannot return a view of `u`, which this function was not lent
 ```
 
 ```rig reject
@@ -3245,7 +3245,7 @@ sub main
 ```
 
 ```error
-cannot drop `y` while borrows are live
+cannot drop `y` while it is lent
 ```
 
 A borrowed parameter can be forwarded (`g(?b)` with `b: ?B`), and a
@@ -3451,9 +3451,9 @@ sub main
 ```
 
 ```error
-a borrow of the temporary `S(n: 1)` outlives its statement, which drops it; bind the value to a name first
-a borrow of the temporary `Text(" a ")` outlives its statement
-a borrow of the temporary `Text("k=v")` outlives its statement
+a view of the temporary `S(n: 1)` outlives its statement, which drops it; bind the value to a name first
+a view of the temporary `Text(" a ")` outlives its statement
+a view of the temporary `Text("k=v")` outlives its statement
 ```
 
 ---
@@ -4024,8 +4024,8 @@ sub main
 ```
 
 ```error
-cannot write-borrow `t` while a read borrow is live
-returned borrow of `t` does not originate from a borrowed parameter
+cannot lend `t` to write while a read loan is live
+cannot return a view of `t`, which this function was not lent
 ```
 
 A String whose origin a function cannot see, a parameter or a value
@@ -4073,7 +4073,7 @@ sub main
 ```
 
 ```error
-cannot store a borrow of `s` in a `Cell`
+cannot store a view of `s` in a `Cell`
 ```
 
 ### Signal
@@ -4377,7 +4377,7 @@ sub main
 ```
 
 ```error
-borrows a closure for the call; write the closure without `*` (drop the `*`)
+views a closure for the call; write the closure without `*` (drop the `*`)
 ```
 
 A closure lent to a call is checked with the call's other arguments:
@@ -4394,7 +4394,7 @@ sub main
 ```
 
 ```error
-cannot write-borrow `c` while a read borrow is live
+cannot lend `c` to write while a read loan is live
 ```
 
 ### Owned closures

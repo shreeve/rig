@@ -22,7 +22,7 @@ sub main
   poke(!h.w)
   poke(!mk(!n).w)
 
-# error: 16:9: cannot write-borrow parameter `h`; parameters are immutable
+# error: 16:9: cannot lend parameter `h` to write; parameters are immutable
 # error: 17:3: cannot assign to parameter `h`; parameters are immutable
-# error: 22:9: cannot write-borrow fixed binding `h` (bound with `const`)
-# error: 23:9: cannot write-borrow a temporary: the change would be lost
+# error: 22:9: cannot lend fixed binding `h` to write (bound with `const`)
+# error: 23:9: cannot lend a temporary to write: the change would be lost

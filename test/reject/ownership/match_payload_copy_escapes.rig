@@ -29,5 +29,5 @@ sub main()
     .b => pass
   print(saved.hits.get())
 
-# error: 25:8: a borrow of the temporary `mkh(7)` outlives its statement
-# error: 28:8: a borrow of the temporary `mk(7)` outlives its statement
+# error: 25:8: a view of the temporary `mkh(7)` outlives its statement
+# error: 28:8: a view of the temporary `mk(7)` outlives its statement

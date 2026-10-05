@@ -18,4 +18,4 @@ sub main()
   for v in ?vs
     print(v.b.payload)
 
-# error: cannot drop `a` while borrows are live
+# error: cannot drop `a` while it is lent

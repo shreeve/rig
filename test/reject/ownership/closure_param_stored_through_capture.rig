@@ -28,6 +28,6 @@ sub main
   !b.push(1)
   print(v.w.len)
 
-# error: 18:5: cannot store a borrow of `w` through captured `v`
-# error: 20:5: cannot store a borrow of `w` through captured `v`
-# error: 28:3: cannot write-borrow `b` while a read borrow is live
+# error: 18:5: cannot store a view of `w` through captured `v`
+# error: 20:5: cannot store a view of `w` through captured `v`
+# error: 28:3: cannot lend `b` to write while a read loan is live

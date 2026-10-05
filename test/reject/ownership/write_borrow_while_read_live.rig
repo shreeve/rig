@@ -13,4 +13,4 @@ sub main()
   rename(!user)
   print(r.name)
 
-# error: cannot write-borrow `user` while a read borrow is live
+# error: cannot lend `user` to write while a read loan is live

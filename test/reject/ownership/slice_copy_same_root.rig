@@ -13,5 +13,5 @@ sub reslices()
 sub main()
   halves()
 
-# error: 6:3: cannot write-borrow `a` while a read borrow is live
-# error: 11:3: cannot write-borrow `w` while a read borrow is live
+# error: 6:3: cannot lend `a` to write while a read loan is live
+# error: 11:3: cannot lend `w` to write while a read loan is live

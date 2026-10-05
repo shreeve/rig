@@ -23,4 +23,4 @@ sub main()
   w = !o
   fill([0]<w, ?x)
 
-# error: 24:13: `x` is dropped before `o`, whose `drop` body could still read it through this borrow
+# error: 24:13: `x` is dropped before `o`, whose `drop` body could still read it through this view

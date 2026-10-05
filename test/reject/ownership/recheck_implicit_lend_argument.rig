@@ -14,4 +14,4 @@ sub main
   w = pick(f, !b, !b)
   print(a)
 
-# error: cannot take a second write borrow on `b`
+# error: cannot lend `b` to write while a write loan is live

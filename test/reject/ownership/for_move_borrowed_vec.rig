@@ -22,6 +22,6 @@ sub main()
     print(x.v)
   print(v.len)
 
-# error: 9:13: `<w` would move the elements out of a Vec that `w` only borrows; loop over `?w` or `!w`
-# error: 13:13: `<w` would move the elements out of a Vec that `w` only borrows
-# error: 21:13: `<w` would move the elements out of a Vec that `w` only borrows
+# error: 9:13: `<w` would move the elements out of a Vec that `w` only views; loop over `?w` or `!w`
+# error: 13:13: `<w` would move the elements out of a Vec that `w` only views
+# error: 21:13: `<w` would move the elements out of a Vec that `w` only views

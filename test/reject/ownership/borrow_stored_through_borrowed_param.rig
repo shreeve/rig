@@ -14,4 +14,4 @@ sub put(v: !View)
 sub main()
   print(1)
 
-# error: cannot store a borrow of `b` in `v.box`: `v` outlives it
+# error: cannot store a view of `b` in `v.box`: `v` outlives it

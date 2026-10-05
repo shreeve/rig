@@ -17,6 +17,6 @@ sub main()
   u[0] = 9
   print(a)
 
-# error: 8:4: cannot write-borrow a `[]Int`: its elements are read-only
-# error: 13:8: cannot write-borrow a `[]Int`: its elements are read-only
-# error: 16:8: cannot write-borrow a `[]Int`: its elements are read-only
+# error: 8:4: cannot lend a `[]Int` to write: its elements are read-only
+# error: 13:8: cannot lend a `[]Int` to write: its elements are read-only
+# error: 16:8: cannot lend a `[]Int` to write: its elements are read-only

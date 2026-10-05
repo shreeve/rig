@@ -19,4 +19,4 @@ sub main
   -s
   print(h.r[0])
 
-# error: 19:4: cannot drop `s` while borrows are live
+# error: 19:4: cannot drop `s` while it is lent

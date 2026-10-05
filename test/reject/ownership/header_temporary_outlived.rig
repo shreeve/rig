@@ -38,6 +38,6 @@ sub main
   print(x)
 
 # error: 33:13: the loop would walk the temporary `mk()` after its header drops it
-# error: 35:13: the loop would walk a borrow of the temporary `mv()` after its header drops it
+# error: 35:13: the loop would walk a view of the temporary `mv()` after its header drops it
 # error: 37:7: cannot move a part out of the temporary `mk()`
 # errors: 3

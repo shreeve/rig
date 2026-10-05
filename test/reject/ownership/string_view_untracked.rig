@@ -22,7 +22,7 @@ sub main
   sig.set(?t[..1])
   print(cell.get(), out)
 
-# error: 15:3: `put[String]` cannot use `T = String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which holds no borrow, and a String may view a Text
+# error: 15:3: `put[String]` cannot use `T = String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a String may view a Text
 # error: 16:7: `later[String]` cannot use `T = String`
 # error: 19:17: `s` does not live long enough
-# error: 22:11: cannot store a borrow of `t` in a `Signal`
+# error: 22:11: cannot store a view of `t` in a `Signal`

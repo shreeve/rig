@@ -27,5 +27,5 @@ sub main()
   for e in arr
     reset(e.t)
 
-# error: 20:8: cannot bind `t`: it holds a write borrow
-# error: 27:12: each element holds a write borrow, which a loop binding would copy
+# error: 20:8: cannot bind `t`: it holds a write view
+# error: 27:12: each element holds a write view, which a loop binding would copy

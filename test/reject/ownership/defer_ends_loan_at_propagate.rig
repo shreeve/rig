@@ -23,5 +23,5 @@ fun f(ok: Bool) -> Int!
 sub main
   print(f(true) catch 0)
 
-# error: 19:4: cannot drop `x` while borrows are live
+# error: 19:4: cannot drop `x` while it is lent
 # errors: 1

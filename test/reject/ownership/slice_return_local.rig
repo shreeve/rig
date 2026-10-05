@@ -7,4 +7,4 @@ fun f() -> []Int
 sub main()
   print(f())
 
-# error: 5:4: returned borrow of `a` does not originate from a borrowed parameter
+# error: 5:4: cannot return a view of `a`, which this function was not lent

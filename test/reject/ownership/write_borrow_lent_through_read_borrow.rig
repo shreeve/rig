@@ -30,6 +30,6 @@ sub main()
   ed = Ed(t: !h)
   f(?ed, ?ed)
 
-# error: 22:6: cannot lend the write borrow held here through a read borrow
-# error: 23:12: cannot lend the write borrow held here through a read borrow
-# error: 24:16: cannot lend the write borrow held here through a read borrow
+# error: 22:6: cannot lend the write view held here: it is reached through a read view
+# error: 23:12: cannot lend the write view held here: it is reached through a read view
+# error: 24:16: cannot lend the write view held here: it is reached through a read view

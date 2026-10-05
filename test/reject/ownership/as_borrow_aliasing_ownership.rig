@@ -20,6 +20,6 @@ sub main
     r = none
     v.n = 3
 
-# error: 14:11: use of `r` while a write borrow is live
-# error: 17:6: cannot drop `r` while borrows are live
-# error: 20:5: cannot reassign `r` while borrows are live
+# error: 14:11: use of `r` while a write loan is live
+# error: 17:6: cannot drop `r` while it is lent
+# error: 20:5: cannot reassign `r` while it is lent

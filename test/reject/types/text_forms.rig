@@ -11,9 +11,9 @@ sub main
   !t.pop()
   print(a, b, u)
 
-# error: 6:7: a slice of a Text borrows it; write `?t[0..1]`
-# error: 7:8: cannot write-borrow a slice of a Text
+# error: 6:7: a slice of a Text views it; write `?t[0..1]`
+# error: 7:8: cannot lend a slice of a Text to write
 # error: 8:5: cannot assign to `.len`; a length is read-only
-# error: 9:5: method `add` requires a write-borrowed receiver; use `!receiver.add(...)`
+# error: 9:5: method `add` needs its receiver lent to write; use `!receiver.add(...)`
 # error: 10:12: `Text(...)` takes no keyword arguments
 # error: 11:6: has no method `pop`

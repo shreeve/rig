@@ -25,5 +25,5 @@ sub main()
 # error: 15:8: array length -1 is out of range
 # error: 16:15: `[3 of 0]` has length `3`; `[4]Int` needs `4`
 # error: 17:13: `[n of x]` copies its element into every slot; `Vec[Int]` owns a resource
-# error: 18:13: `[n of x]` copies its element into every slot; `?Int` holds a borrow
+# error: 18:13: `[n of x]` copies its element into every slot; `?Int` holds a view
 # error: 19:7: `make[Vec[Int]]` cannot use `T = Vec[Int]`

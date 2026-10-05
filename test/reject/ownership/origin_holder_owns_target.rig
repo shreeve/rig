@@ -23,4 +23,4 @@ sub main
   b = !c.next()
   print(a.n, b.n)
 
-# error: 23:8: use of `c` while a write borrow is live
+# error: 23:8: use of `c` while a write loan is live

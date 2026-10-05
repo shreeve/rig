@@ -10,4 +10,4 @@ sub main()
   for cb in ?subs
     -cb
 
-# error: cannot drop loop-borrow alias `cb`
+# error: cannot drop loop view `cb`

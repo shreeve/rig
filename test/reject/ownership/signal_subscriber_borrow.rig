@@ -17,4 +17,4 @@ sub main()
   -a
   sig.set(1)
 
-# error: an owned closure cannot capture `r`, which holds a borrow of `a`
+# error: an owned closure cannot capture `r`, which holds a view of `a`

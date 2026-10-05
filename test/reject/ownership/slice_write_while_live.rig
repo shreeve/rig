@@ -7,4 +7,4 @@ sub main()
   a[0] = 9
   print(s)
 
-# error: 7:3: cannot assign to `a[...]` while `a` is borrowed
+# error: 7:3: cannot assign to `a[...]` while `a` is lent

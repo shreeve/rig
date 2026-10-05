@@ -28,8 +28,8 @@ sub main()
   print(first(?S(n: 2)))
   print(h.s.n, r.n, q.n, c.s.n)
 
-# error: 18:9: returned borrow of `S(n: rt(n))` does not originate from a borrowed parameter
-# error: 24:13: a borrow of the temporary `S(n: rt(7))` outlives its statement
-# error: 25:8: a borrow of the temporary `S(n: 1)` outlives its statement
-# error: 26:13: a borrow of the temporary `S(n: rt(7))` outlives its statement
-# error: 27:8: a borrow of the temporary `mk(3)` outlives its statement
+# error: 18:9: cannot return a view of `S(n: rt(n))`, which this function was not lent
+# error: 24:13: a view of the temporary `S(n: rt(7))` outlives its statement
+# error: 25:8: a view of the temporary `S(n: 1)` outlives its statement
+# error: 26:13: a view of the temporary `S(n: rt(7))` outlives its statement
+# error: 27:8: a view of the temporary `mk(3)` outlives its statement

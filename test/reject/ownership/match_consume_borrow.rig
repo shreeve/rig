@@ -18,5 +18,5 @@ sub main
     .circle(r) => print(r)
     .square(q) => print(q)
 
-# error: 9:9: `match <s` consumes an owned value, and `s` is a borrow (`?Shape`); match what it borrows with `match s`
-# error: 17:9: a `match` reaches the value inside a box through a borrow: `match ?b` or `match !b`; to take the value out, bind it first: `v = <b.unbox()`
+# error: 9:9: `match <s` consumes an owned value, and `s` is a view (`?Shape`); match what it views with `match s`
+# error: 17:9: a `match` reaches the value inside a box by lending the box: `match ?b` or `match !b`; to take the value out, bind it first: `v = <b.unbox()`

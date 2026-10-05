@@ -13,5 +13,5 @@ sub go(n: Int)
 sub main
   go(1)
 
-# error: 5:9: cannot write-borrow parameter `n`
-# error: 9:9: cannot write-borrow fixed binding `k`
+# error: 5:9: cannot lend parameter `n` to write
+# error: 9:9: cannot lend fixed binding `k` to write

@@ -21,6 +21,6 @@ sub main
   -a
   print(r.key)
 
-# error: 14:5: cannot reassign `root` while borrows are live
-# error: 18:3: cannot reassign `a` while borrows are live
-# error: 21:4: cannot drop `a` while borrows are live
+# error: 14:5: cannot reassign `root` while it is lent
+# error: 18:3: cannot reassign `a` while it is lent
+# error: 21:4: cannot drop `a` while it is lent

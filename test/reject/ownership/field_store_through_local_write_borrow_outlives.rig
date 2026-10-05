@@ -23,5 +23,5 @@ sub main()
   print(v.b.n)
   fill(!v)
 
-# error: 14:3: cannot store a borrow of `y` through `w`: `p` outlives it
+# error: 14:3: cannot store a view of `y` through `w`: `p` outlives it
 # error: 22:12: `y` does not live long enough

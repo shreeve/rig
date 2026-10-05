@@ -25,4 +25,4 @@ sub main
 
 # error: 22:3: `bump` writes its receiver: write `!c.bump(...)`
 # error: 23:9: `done` consumes its receiver: write `<c.done(...)`
-# error: 24:8: `make` is called through its type or module and has no receiver; to borrow the call's result, write `?(Counter.make(...))`
+# error: 24:8: `make` is called through its type or module and has no receiver; to lend the call's result, write `?(Counter.make(...))`

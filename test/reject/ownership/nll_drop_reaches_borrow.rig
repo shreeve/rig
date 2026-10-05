@@ -21,4 +21,4 @@ sub main()
   g = Guard(box: ?x)
   -x
 
-# error: cannot drop `x` while borrows are live
+# error: cannot drop `x` while it is lent

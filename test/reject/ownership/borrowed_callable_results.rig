@@ -32,6 +32,6 @@ sub main
     r = get(|?c| c)
   print(r.n)
 
-# error: 20:6: returned borrow of `w` does not originate from a borrowed parameter
+# error: 20:6: cannot return a view of `w`, which this function was not lent
 # error: 27:16: `b` does not live long enough
 # error: 32:15: `c` does not live long enough

@@ -23,5 +23,5 @@ sub main()
   for x in !h.v
     x += 1
 
-# error: cannot write-borrow through a shared handle
+# error: cannot lend to write through a shared handle
 # error: cannot write-iterate through a shared handle

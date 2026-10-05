@@ -13,4 +13,4 @@ sub main()
   e2 = e
   print(e2.target.payload)
 
-# error: bare use of `e` in binding would duplicate the write borrow it holds
+# error: bare use of `e` in binding would copy the write view it holds

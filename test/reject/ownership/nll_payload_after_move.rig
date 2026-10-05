@@ -25,4 +25,4 @@ sub main()
       print(p.n)
     .empty => print("empty")
 
-# error: cannot move `s` while it is read-borrowed
+# error: cannot move `s` while a read loan is live

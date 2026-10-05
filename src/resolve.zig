@@ -307,7 +307,7 @@ const SymbolResolver = struct {
         const name = identAt(self.ctx.source, name_node) orelse return;
         const parent = self.ctx.scopes.items[self.scope].parent orelse return;
         if (self.visibleLocal(parent, name)) |prev| {
-            try self.ctx.errAt(name_node, "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` borrows it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name, name, name });
+            try self.ctx.errAt(name_node, "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` lends it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name, name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
             return;
         }
@@ -946,7 +946,7 @@ pub const TypeResolver = struct {
     /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a borrow is
     /// no value it could keep.
     fn handleOfView(self: *TypeResolver, node: Sexp, inner: TypeId) Error!TypeId {
-        try self.ctx.errAt(node, "a handle holds a value, not a borrow: `{s}` has no handle", .{try sema.formatType(self.ctx, inner)});
+        try self.ctx.errAt(node, "a handle holds a value, not a view: `{s}` has no handle", .{try sema.formatType(self.ctx, inner)});
         return self.ctx.types.invalid_id;
     }
 
@@ -1491,7 +1491,7 @@ pub const TypeResolver = struct {
             };
         };
         if (!ok) {
-            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver write-borrowed: `drop(!self)`", .{});
+            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver lent to write: `drop(!self)`", .{});
             return;
         }
         const fn_ty = try self.ctx.intern(.{ .function = .{
@@ -2120,7 +2120,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     }
     if (sym_id == ctx.box_sym_id) {
         if (!sema.holdsMarkedView(ctx, args[0])) return null;
-        return try a.print("`Box[T]` owns its value, so `T` holds no borrow; got `{s}`", .{arg});
+        return try a.print("`Box[T]` owns its value, so the value holds no `?T`, `!T`, or slice; got `{s}`", .{arg});
     }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isCopyElement(ctx, args[0])) return null;

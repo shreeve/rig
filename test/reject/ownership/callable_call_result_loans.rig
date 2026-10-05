@@ -31,7 +31,7 @@ sub main
     r = echo(?n)()
   print(r.len)
 
-# error: 12:9: returned borrow of `c` does not originate from a borrowed parameter
+# error: 12:9: cannot return a view of `c`, which this function was not lent
 # error: 21:11: `c` does not live long enough
 # error: 26:11: `d` does not live long enough
 # error: 30:11: `e` does not live long enough

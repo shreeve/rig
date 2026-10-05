@@ -18,5 +18,5 @@ sub main()
   w = ~s
   print(h.t.v.len)
 
-# error: cannot clone `s`: it holds a write borrow
-# error: cannot take a weak handle to `s`: it holds a write borrow
+# error: cannot clone `s`: it holds a write view
+# error: cannot take a weak handle to `s`: it holds a write view

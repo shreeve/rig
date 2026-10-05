@@ -21,4 +21,4 @@ sub main()
   d = k.dup()
   print(d.b.v.len)
 
-# error: 15:6: cannot clone `self.h`: it holds a write borrow
+# error: 15:6: cannot clone `self.h`: it holds a write view

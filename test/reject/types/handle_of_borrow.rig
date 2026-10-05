@@ -17,8 +17,8 @@ sub main()
   h = *(?y)
   c = Cell[*(?Int)](none)
 
-# error: 9:10: a handle holds a value, not a borrow; `?P` is a borrow: share an owned value instead
-# error: 12:10: a handle holds a value, not a borrow: `?Int` has no handle
-# error: 12:22: a handle holds a value, not a borrow: `!P` has no handle
-# error: 17:9: a handle holds a value, not a borrow; `?Int` is a borrow
-# error: 18:12: a handle holds a value, not a borrow: `?Int` has no handle
+# error: 9:10: a handle holds a value, not a view; `?P` is a view: share an owned value instead
+# error: 12:10: a handle holds a value, not a view: `?Int` has no handle
+# error: 12:22: a handle holds a value, not a view: `!P` has no handle
+# error: 17:9: a handle holds a value, not a view; `?Int` is a view
+# error: 18:12: a handle holds a value, not a view: `?Int` has no handle

@@ -54,10 +54,10 @@ sub main
     b(2)
   both(|!total, n| print(total + n), |!total, n| print(total - n))
 
-# error: 25:4: returned borrow of `g` does not originate from a borrowed parameter
-# error: 28:11: an owned closure cannot borrow `f`
-# error: 29:12: cannot move-capture borrowed parameter `f`
+# error: 25:4: cannot return a view of `g`, which this function was not lent
+# error: 28:11: an owned closure cannot capture a view of `f`
+# error: 29:12: cannot move-capture view parameter `f`
 # error: 41:10: `l` does not live long enough
-# error: 46:4: cannot drop `m` while borrows are live
-# error: 49:14: cannot write-borrow `c` while a read borrow is live
-# error: 55:40: cannot take a second write borrow on `total`
+# error: 46:4: cannot drop `m` while it is lent
+# error: 49:14: cannot lend `c` to write while a read loan is live
+# error: 55:40: cannot lend `total` to write while a write loan is live

@@ -17,7 +17,7 @@ sub main
   r.w += 1
   print(r.w)
 
-# error: 9:3: cannot write through the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
-# error: 10:3: cannot write through the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
-# error: 17:3: cannot write through the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow
+# error: 9:3: cannot write through the write view held here: it is reached through a read view (`?T`), and other views may reach the same write view
+# error: 10:3: cannot write through the write view held here: it is reached through a read view (`?T`), and other views may reach the same write view
+# error: 17:3: cannot write through the write view held here: it is reached through a read view (`?T`), and other views may reach the same write view
 # errors: 3

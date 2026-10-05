@@ -41,8 +41,8 @@ sub main
 
 # error: 22:9: `|+f|` copies a Copy value or clones a `*T` / `~T` handle, but `f` is `?fun(Int) -> Int`; capture it with `|?f|`
 # error: 31:9: but `f` is a closure of type `fun(Int) -> Int`; capture it with `|?f|`
-# error: 34:7: `keep` cannot take a borrowed callable for `T`
-# error: 35:7: `Cell` cannot take a borrowed callable for `T`
+# error: 34:7: `keep` cannot take a callable view for `T`
+# error: 35:7: `Cell` cannot take a callable view for `T`
 # error: 36:9: only a local can be captured; `double` is declared at module level
 # error: 37:13: a closure literal is not a function value `fun(Int) -> Int`; declare the parameter `?fun(Int) -> Int`
 # error: 37:29: a lent closure goes to a parameter declared `?fun(Int) -> Int`

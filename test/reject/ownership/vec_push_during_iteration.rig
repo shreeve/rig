@@ -7,4 +7,4 @@ sub main()
   for x in ?v
     !v.push(x)
 
-# error: cannot write-borrow `v` while a read borrow is live
+# error: cannot lend `v` to write while a read loan is live

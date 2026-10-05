@@ -5,4 +5,4 @@ sub main()
   s = a[0..2]
   print(s)
 
-# error: 5:7: a slice of an array or Vec borrows it; write `?a[0..2]`
+# error: 5:7: a slice of an array or Vec views it; write `?a[0..2]`

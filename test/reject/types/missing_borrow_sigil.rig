@@ -18,5 +18,5 @@ sub main
   bump(x)
   print(x, f(r))
 
-# error: 17:11: type mismatch: expected `?S`, got `S`; lend a read borrow: `?s`
-# error: 18:8: type mismatch: expected `!Int`, got `Int`; lend a write borrow: `!x`
+# error: 17:11: type mismatch: expected `?S`, got `S`; lend it to read: `?s`
+# error: 18:8: type mismatch: expected `!Int`, got `Int`; lend it to write: `!x`

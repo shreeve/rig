@@ -23,7 +23,7 @@ sub main
   bump(!make().n)
   print(o.n)
 
-# error: 20:9: cannot write-borrow a temporary: the change would be lost; bind it to a name first
-# error: 21:10: cannot write-borrow a temporary
-# error: 22:9: cannot write-borrow a temporary
-# error: 23:9: cannot write-borrow a temporary
+# error: 20:9: cannot lend a temporary to write: the change would be lost; bind it to a name first
+# error: 21:10: cannot lend a temporary to write
+# error: 22:9: cannot lend a temporary to write
+# error: 23:9: cannot lend a temporary to write

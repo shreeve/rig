@@ -33,5 +33,5 @@ sub main()
     f.t.v = Vec()
     print(tk.n)
 
-# error: cannot assign to `e.t.v` while `e` is borrowed
-# error: cannot assign to `f.t.v` while `f` is borrowed
+# error: cannot assign to `e.t.v` while `e` is lent
+# error: cannot assign to `f.t.v` while `f` is lent

@@ -1997,7 +1997,7 @@ test "guardStack holds the stack to 16 MiB on Linux" {
     try std.testing.expectEqual(stack_size, (try std.posix.getrlimit(.STACK)).cur);
 }
 
-test "borrowedPtr reaches what a read borrow views, or the borrow's own copy" {
+test "viewedPtr reaches what a read view views, or the view's own copy" {
     const Pair = struct { a: i64, t: Text };
     var p: Pair = .{ .a = 3, .t = .{} };
     const b: ReadView(Pair) = lend(&p);
@@ -2184,7 +2184,7 @@ fn fnRefDouble(n: i64) i64 {
     return n * 2;
 }
 
-test "a borrowed callable calls a stack closure, a function, or an owned closure" {
+test "a callable view calls a stack closure, a function, or an owned closure" {
     const before = usage();
     const Ref = FnRef(&.{i64}, i64);
     const Env = struct {

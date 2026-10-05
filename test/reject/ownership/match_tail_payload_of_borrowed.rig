@@ -26,5 +26,5 @@ fun get(o: ?Opt, d: *B) -> *B
 sub main()
   print(1)
 
-# error: cannot move out of `v`: it is borrowed from `self`
+# error: cannot move out of `v`: it is a view of `self`
 # error: 23:17: incompatible types `?*B` and `*B`

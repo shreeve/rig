@@ -15,4 +15,4 @@ sub main()
   -a
   f()
 
-# error: cannot drop `a` while borrows are live
+# error: cannot drop `a` while it is lent

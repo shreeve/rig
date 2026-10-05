@@ -38,6 +38,6 @@ sub main
   element()
 
 # errors: 3
-# error: 17:3: cannot assign to `a.t` while `a` is borrowed
-# error: 24:3: cannot assign to `b.t` while `b` is borrowed
-# error: 32:3: cannot assign to `ts[...].t` while `ts` is borrowed
+# error: 17:3: cannot assign to `a.t` while `a` is lent
+# error: 24:3: cannot assign to `b.t` while `b` is lent
+# error: 32:3: cannot assign to `ts[...].t` while `ts` is lent

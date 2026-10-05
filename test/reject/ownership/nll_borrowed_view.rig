@@ -20,4 +20,4 @@ sub main()
   -x
   print(rv.box.n)
 
-# error: cannot drop `x` while borrows are live
+# error: cannot drop `x` while it is lent

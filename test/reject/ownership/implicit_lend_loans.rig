@@ -49,9 +49,9 @@ sub five()
 sub main
   one()
 
-# error: 26:4: cannot drop `b` while borrows are live
-# error: 32:3: cannot write-borrow `v` while a read borrow is live
-# error: 38:3: cannot write-borrow `t` while a read borrow is live
-# error: 43:11: cannot read-borrow `n` while a write borrow is live
-# error: 46:12: a borrow of the temporary `mk()` outlives its statement
+# error: 26:4: cannot drop `b` while it is lent
+# error: 32:3: cannot lend `v` to write while a read loan is live
+# error: 38:3: cannot lend `t` to write while a read loan is live
+# error: 43:11: cannot lend `n` to read while a write loan is live
+# error: 46:12: a view of the temporary `mk()` outlives its statement
 # errors: 5

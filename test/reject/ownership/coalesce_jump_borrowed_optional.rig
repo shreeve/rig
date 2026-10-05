@@ -23,6 +23,6 @@ sub main()
   n = lend(?h) ?? return
   print(n.v)
 
-# error: 9:7: a borrow cannot give up the resource inside it; borrow the value inside with `if o as value`
-# error: 13:7: a borrow cannot give up the resource inside it; borrow the value inside with `if !o as value`
-# error: 23:7: a borrow cannot give up the resource inside it; borrow the value inside with `if lend(?h) as value`
+# error: 9:7: a view cannot give up the resource inside it; lend the value inside with `if o as value`
+# error: 13:7: a view cannot give up the resource inside it; lend the value inside with `if !o as value`
+# error: 23:7: a view cannot give up the resource inside it; lend the value inside with `if lend(?h) as value`

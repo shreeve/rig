@@ -7,5 +7,5 @@ sub main
     f = |!x| x += 1
     f()
 
-# error: 7:11: cannot write-borrow `x`: it is a copy of an element of `xs`; to change the elements in place, loop with `for x in !xs`
+# error: 7:11: cannot lend `x` to write: it is a copy of an element of `xs`; to change the elements in place, loop with `for x in !xs`
 # errors: 1

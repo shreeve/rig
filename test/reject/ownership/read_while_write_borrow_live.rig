@@ -10,4 +10,4 @@ sub main()
   print(user)
   w.name = "Bob"
 
-# error: use of `user` while a write borrow is live
+# error: use of `user` while a write loan is live

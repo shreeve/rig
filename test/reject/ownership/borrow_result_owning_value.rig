@@ -20,6 +20,6 @@ sub main()
   z: Vec[Int] = wv(!v)
   print(take(wv(!v)), z.len)
 
-# error: 15:10: type mismatch: expected `T`, got `!T`; only a number, `Bool`, `String`, or plain enum is copied out of a borrow: take the borrow where it goes (`?T` or `!T`)
+# error: 15:10: type mismatch: expected `T`, got `!T`; only a number, `Bool`, `String`, or plain enum is copied out of a view: lend it on where it goes (`?T` or `!T`)
 # error: 20:17: type mismatch: expected `Vec[Int]`, got `!Vec[Int]`; only a number
 # error: 21:14: type mismatch: expected `Vec[Int]`, got `!Vec[Int]`

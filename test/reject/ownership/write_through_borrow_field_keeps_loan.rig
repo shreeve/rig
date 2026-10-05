@@ -12,5 +12,5 @@ sub main
   h.w = <u
   print(v.len)
 
-# error: 10:9: use of `v` while a write borrow is live
+# error: 10:9: use of `v` while a write loan is live
 # errors: 1

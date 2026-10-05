@@ -18,6 +18,6 @@ sub main
   print(a if k else b, grow(?a))
   print(Text(b if k else a, grow(?a)))
 
-# error: 18:30: cannot read-borrow `a`, which holds a Cell, while an earlier argument's read of it is in use
-# error: 19:35: cannot read-borrow `a`, which holds a Cell, while an earlier argument's read of it is in use
+# error: 18:30: cannot lend `a` to read, which holds a Cell, while an earlier argument's read of it is in use
+# error: 19:35: cannot lend `a` to read, which holds a Cell, while an earlier argument's read of it is in use
 # errors: 2

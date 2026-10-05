@@ -18,4 +18,4 @@ sub main()
   -a
   print(keep.b.payload)
 
-# error: cannot drop `a` while borrows are live
+# error: cannot drop `a` while it is lent

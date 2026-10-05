@@ -19,5 +19,5 @@ sub main
   show(r)
   show(s)
 
-# error: 16:15: `?p.shifted(4)` reads `p` for the call; write `?(p.shifted(4))` to borrow the call's result
-# error: 18:15: write `?(h.shifted(1))` to borrow the call's result
+# error: 16:15: `?p.shifted(4)` reads `p` for the call; write `?(p.shifted(4))` to lend the call's result
+# error: 18:15: write `?(h.shifted(1))` to lend the call's result

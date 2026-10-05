@@ -14,4 +14,4 @@ sub main()
   f(!s[0].w)
   print(n)
 
-# error: 14:6: cannot lend the write borrow held here through a slice (`[]T`), which is read-only
+# error: 14:6: cannot lend the write view held here: it is reached through a slice (`[]T`), which is read-only

@@ -10,4 +10,4 @@ sub main()
   w2 = w
   print(w2.payload)
 
-# error: bare use of write borrow `w` in binding would duplicate a unique borrow
+# error: bare use of write view `w` in binding would copy a write view, which is unique

@@ -9,5 +9,5 @@ sub main
   eat(<t)
   print(s)
 
-# error: 9:8: cannot move `t` while it is read-borrowed
+# error: 9:8: cannot move `t` while a read loan is live
 # errors: 1

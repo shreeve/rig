@@ -20,4 +20,4 @@ sub main
   print(f(!h, !v))
 
 # errors: 1
-# error: 12:5: cannot write-borrow `b` while a read borrow is live
+# error: 12:5: cannot lend `b` to write while a read loan is live

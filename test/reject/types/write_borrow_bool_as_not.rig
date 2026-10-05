@@ -47,11 +47,11 @@ sub main
   flag = true
   forwarded(!flag)
 
-# error: 11:7: `!` is a write borrow; use `not` for negation
-# error: 15:6: `!` is a write borrow; use `not` for negation
-# error: 19:13: `!` is a write borrow; use `not` for negation
-# error: 23:20: `!` is a write borrow; use `not` for negation
-# error: 26:13: `!` is a write borrow; use `not` for negation
-# error: 29:15: `!` is a write borrow; use `not` for negation
+# error: 11:7: `!` lends to write; use `not` for negation
+# error: 15:6: `!` lends to write; use `not` for negation
+# error: 19:13: `!` lends to write; use `not` for negation
+# error: 23:20: `!` lends to write; use `not` for negation
+# error: 26:13: `!` lends to write; use `not` for negation
+# error: 29:15: `!` lends to write; use `not` for negation
 # error: 32:9: `ok` does not write its receiver; for negation use `not`
-# error: 36:6: `!` is a write borrow; use `not` for negation
+# error: 36:6: `!` lends to write; use `not` for negation

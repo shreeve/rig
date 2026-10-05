@@ -3353,7 +3353,7 @@ pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// The diagnostic for a borrowed callable held inside another value.
-pub const held_callable = "a borrowed callable `{s}` is only a parameter's, a local's, or a result's type; no value can hold one";
+pub const held_callable = "a callable view `{s}` is only a parameter's, a local's, or a result's type; no value can hold one";
 
 /// A value an owned closure can take or return: its runtime form is
 /// type-erased, so only plain Copy data crosses it (a Copy primitive, a

@@ -38,7 +38,7 @@ sub main
     .none => print("n")
   print(a)
 
-# error: 20:9: `match <s` consumes an owned value, and `s` is a write borrow (`!Slot`); write the payload in place with `match !s`, or read it with `match s`
-# error: 25:10: cannot write-borrow through a read borrow `?Slot`
+# error: 20:9: `match <s` consumes an owned value, and `s` is a write view (`!Slot`); write the payload in place with `match !s`, or read it with `match s`
+# error: 25:10: cannot lend to write through a read view `?Slot`
 # error: 31:10: cannot assign to `x`: `match s` reads `s`, and so do its bindings; to write through `x`, match with `match !s`
 # error: 37:14: cannot assign to `p`: `match e` reads `e`, and so do its bindings; to write through `p`, match with `match !e`

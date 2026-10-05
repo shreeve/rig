@@ -29,8 +29,8 @@ sub main()
     s = mid(?b)
   print(s)
 
-# error: 10:4: cannot return a borrow of `a`: a parameter taken by value belongs to this function and ends with it; take `a: ?[3]Int`
-# error: 13:4: cannot return a borrow of `p`
-# error: 17:13: returned borrow of `x` does not originate from a borrowed parameter
+# error: 10:4: cannot return a view of `a`: a parameter taken by value belongs to this function and ends with it; take `a: ?[3]Int`
+# error: 13:4: cannot return a view of `p`
+# error: 17:13: cannot return a view of `x`, which this function was not lent
 # error: `b` does not live long enough
 # errors: 4

@@ -23,7 +23,7 @@ sub main
   g(!(+k))
   print(f(none) ?? 0)
 
-# error: 15:6: cannot write-borrow a temporary: the change would be lost
-# error: 19:6: cannot write-borrow a temporary: the change would be lost
-# error: 21:7: cannot write-borrow a temporary: the change would be lost
-# error: 23:7: cannot write-borrow a temporary: the change would be lost
+# error: 15:6: cannot lend a temporary to write: the change would be lost
+# error: 19:6: cannot lend a temporary to write: the change would be lost
+# error: 21:7: cannot lend a temporary to write: the change would be lost
+# error: 23:7: cannot lend a temporary to write: the change would be lost
