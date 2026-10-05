@@ -112,7 +112,7 @@ The arguments and environment the program started with. Their Strings
 live as long as the program, as a literal's do, and view no `Text`.
 They hold the bytes the operating system gave, which are not checked
 to be UTF-8. `env` says so in its signature (`from static`,
-[SPEC §7](../SPEC.md#second-class-borrows)), so its result views
+[SPEC §7](../SPEC.md#second-class-views)), so its result views
 nothing its caller lent: it can be kept, returned, and stored anywhere,
 whatever `name` is.
 

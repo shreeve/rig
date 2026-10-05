@@ -14,8 +14,8 @@ where it happens, so memory safety reads more cleanly than in Rust:
 | Sigil | Meaning |
 |---|---|
 | `<x` | move |
-| `?x` / `?T` | read borrow |
-| `!x` / `!T` | write borrow |
+| `?x` / `?T` | lend to read / read view |
+| `!x` / `!T` | lend to write / write view |
 | `+x` | clone |
 | `-x` | drop now |
 | `*x` / `*T` | shared (refcounted) |
@@ -45,7 +45,7 @@ allocation, no hidden refcount traffic, no silent control flow.
    diagnostic (file:line:col). Never emit `@compileError` placeholders
    and never drop a construct silently.
 3. **Safe code cannot corrupt memory.** Use-after-move, double-free,
-   use-after-free, dangling borrows, and leaks in safe Rig are
+   use-after-free, dangling views, and leaks in safe Rig are
    compiler bugs. Only code inside `raw` may break these guarantees.
    The one leak the compiler does not prevent is a cycle of strong
    `*T` handles, as in Rust and Swift; `~T` exists to break cycles,
@@ -76,13 +76,13 @@ review rounds.
   with no exception list, or changes the Core first; a rule the Core
   does not imply is a bug.
 - **One classifier per fact.** Whether an expression is a place, a
-  fresh owned value, a borrow, or a view is decided once, by a positive
+  fresh owned value, a lend, or a view is decided once, by a positive
   list, and recorded as a fact. No category is defined as "not" another,
   and no pass re-derives one from syntax.
 - **The checker checks exactly what is emitted.** Emit adds no
   temporary, evaluation order, re-evaluation, or drop that the
   ownership checker did not walk.
-- **Leaving a scope never silently forgets a borrow.** Every path out
+- **Leaving a scope never silently forgets a loan.** Every path out
   of a scope (a jump, a failing condition or guard, an error) reports
   the loans it discards.
 - **A feature is specified as a desugaring.** A feature that touches
@@ -147,7 +147,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `src/resolve.zig` | Declaration pass: builtins, names, type resolution |
 | `src/typecheck.zig` | Expression pass: types every expression, records facts, checks fallibility and the `raw` boundary |
 | `src/storage.zig` | Storage facts: the hidden storage emit makes, decided once |
-| `src/ownership.zig` | Move / borrow / drop checking |
+| `src/ownership.zig` | Move / loan / drop checking |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |
 | `src/main.zig` | CLI |

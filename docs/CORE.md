@@ -656,7 +656,7 @@ sub main
 3
 ```
 
-**Borrow places.** Assigning a view to a place that holds one re-points
+**View places.** Assigning a view to a place that holds one re-points
 it, and assigning a value writes through. This holds for locals and
 fields alike. `new` only shadows, and accepts every binding form.
 *(built)*
@@ -677,8 +677,8 @@ sub main
 
 ## 7. Closures and defer
 
-**Closures.** A closure captures each name with a sigil: `?x` borrows
-`x` for the closure's life, `!x` borrows it to write, `<x` moves it in,
+**Closures.** A closure captures each name with a sigil: `?x` lends
+`x` to read for the closure's life, `!x` lends it to write, `<x` moves it in,
 and `+x` captures a new owner. A stack closure may be lent (`?fun`) but
 not stored. An owned closure (`*fun`) may be stored, and follows
 sentence 9. *(built)*
