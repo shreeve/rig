@@ -1618,13 +1618,13 @@ const Lowerer = struct {
             .call => return self.call(e, how),
             .read, .write => {
                 const operand = ir.get(e, .operand);
+                if (k == .write) return try self.lend(try self.writePlace(operand), .write, e, try self.typeOf(e));
                 const p = try self.place(operand) orelse blk: {
-                    if (k == .write) return abstain("a write lend of a made value");
                     if (isBranching(operand)) return abstain("a lend of a branching value (Core §3, planned)");
                     const t = try self.eval(operand, .take, null) orelse return null;
                     break :blk Place{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
                 };
-                return try self.lend(p, if (k == .read) .read else .write, e, try self.typeOf(e));
+                return try self.lend(p, .read, e, try self.typeOf(e));
             },
             .move => return self.move(e, how),
             .clone => {
@@ -2165,6 +2165,50 @@ const Lowerer = struct {
         return std.mem.findScalar(VarId, self.finding.items, root) != null;
     }
 
+    /// What `!e` lends to write (Core s4: any value, named or
+    /// temporary): the place `e` is, or else the value `e` makes, a
+    /// temporary of the statement (Core §3), which holds it until the
+    /// statement ends. A literal lives for the whole program, as a
+    /// constant does (Core s7), and a branching value may be a name's.
+    fn writePlace(self: *Lowerer, e: Sexp) Error!Place {
+        if (try self.place(e)) |p| return p;
+        // A branching value every value of which is made there is one
+        // temporary (Core §3), taken branch by branch.
+        if (isBranching(e)) {
+            if (!self.madeEverywhere(e)) return abstain("a write lend of a branching value that may be a name's");
+            const t = try self.temp(try self.typeOf(e), self.posOf(e));
+            try self.valueInto(e, .take, t);
+            return .{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
+        }
+        const t = try self.eval(e, .take, null) orelse return abstain("a write lend of a literal");
+        if (!self.f.vars.items[t].hidden) return abstain("a write lend of an unusual value");
+        return .{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
+    }
+
+    /// Whether every value branching `e` may be is made there, or jumps:
+    /// none is a name, a field or element, or a lend (Core §3).
+    fn madeEverywhere(self: *Lowerer, e: Sexp) bool {
+        const k = e.kind() orelse return self.ctx.symbolOf(e) == null;
+        return switch (k) {
+            .member, .index, .read, .write => false,
+            .@"if" => blk: {
+                const els = ir.If.@"else"(e);
+                break :blk els != .nil and self.madeEverywhere(ir.If.then(e)) and self.madeEverywhere(els);
+            },
+            .match => for (ir.Match.arms(e)) |arm| {
+                if (!self.madeEverywhere(ir.Arm.body(arm))) break false;
+            } else true,
+            .@"??" => self.madeEverywhere(ir.get(e, .left)) and self.madeEverywhere(ir.get(e, .right)),
+            .@"catch" => self.madeEverywhere(ir.Catch.value(e)) and self.madeEverywhere(ir.Catch.handler(e)),
+            .propagate, .propagate_none => self.madeEverywhere(ir.get(e, .value)),
+            .block => blk: {
+                const stmts = ir.Block.stmts(e);
+                break :blk stmts.len > 0 and isValue(stmts[stmts.len - 1]) and self.madeEverywhere(stmts[stmts.len - 1]);
+            },
+            else => true,
+        };
+    }
+
     /// `?p` or `!p` (Core s4, §4): a new loan on the place, carrying what
     /// the root views; through a read view, a copy of that view.
     fn lend(self: *Lowerer, p: Place, mode: core.Mode, e: Sexp, ty: TypeId) Error!VarId {
@@ -2423,7 +2467,7 @@ const Lowerer = struct {
                     .none => return abstain("a function of a type called on a value"),
                     .write => {
                         if (!obj.isKind(.write)) return abstain("a write receiver without `!`");
-                        const p = try self.place(ir.Write.operand(obj)) orelse return abstain("a write receiver of a made value");
+                        const p = try self.writePlace(ir.Write.operand(obj));
                         if (p.handle or self.isHandle(p.ty)) return abstain("a write receiver through a handle");
                         // A write receiver is lent when the call runs; its
                         // arguments may still read it (SPEC §7).
@@ -2535,7 +2579,7 @@ const Lowerer = struct {
                 continue;
             }
             if (val.isKind(.write)) {
-                const p = try self.place(ir.Write.operand(val)) orelse return abstain("a write lend of a made value");
+                const p = try self.writePlace(ir.Write.operand(val));
                 try reads.append(self.a, try self.lend(p, .write, val, try self.typeOf(val)));
                 // The call may store a view in what it was lent to write (s6).
                 if (try self.storesViews(p)) try gains.append(self.a, p.root);
