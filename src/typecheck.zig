@@ -119,6 +119,16 @@ const Checker = struct {
     /// The `!x` being checked where a write view is expected, the one
     /// place a write view of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
+    /// A call whose value a `!` written before it lends to write, with
+    /// the sigil outside the call (`!(v.pop())`, `!o?.pop()`), or the
+    /// source of a `for` whose `!` is the loop's mode: a write method on
+    /// a temporary receiver there has a `!` that does not reach it.
+    outer_write: Sexp = .nil,
+    /// The member a method call is checked through, while its receiver
+    /// mode is checked.
+    receiver_of: Sexp = .nil,
+    /// `outer_write` is a `for` source.
+    outer_write_is_loop: bool = false,
     /// The argument being checked, when the call keeps no view of its
     /// arguments: a temporary array there may be lent as a `[]T`.
     lent_temp: Sexp = .nil,
@@ -1716,10 +1726,18 @@ const Checker = struct {
             defer self.held_base = saved_held;
             if (mode == .iter) self.held_base = self.madeBase(source);
             // `for x in ?xs[a..b]` walks a slice of `xs`.
+            const saved_outer = self.outer_write;
+            const saved_loop = self.outer_write_is_loop;
+            if (mode == .write and source.isKind(.call)) {
+                self.outer_write = source;
+                self.outer_write_is_loop = true;
+            }
             const source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
                 try self.lendSlice(source, if (mode == .read) .read else .write)
             else
                 try self.synthExpr(source);
+            self.outer_write = saved_outer;
+            self.outer_write_is_loop = saved_loop;
             // How the loop has a bare source (docs/INTERNALS.md, "Header
             // subjects"): a place is walked where it stands, as
             // `for x in ?p`; an array made here whose elements move is
@@ -3666,6 +3684,16 @@ const Checker = struct {
         const operand = ir.get(e, .operand);
         try self.recordUse(operand, .lend);
         if (rig.isRangeIndex(operand)) return self.lendSlice(operand, kind);
+        const saved_outer = self.outer_write;
+        const saved_loop = self.outer_write_is_loop;
+        defer {
+            self.outer_write = saved_outer;
+            self.outer_write_is_loop = saved_loop;
+        }
+        if (kind == .write and operand.isKind(.call)) {
+            self.outer_write = operand;
+            self.outer_write_is_loop = false;
+        }
         // A temporary lent lives until its statement ends, which drops
         // it; the ownership checker keeps a view of it from outliving
         // the statement.
@@ -5552,6 +5580,9 @@ const Checker = struct {
                 else => .owned_nominal,
             };
             // (A Text made here with no `!` is reported as such.)
+            const saved_of = self.receiver_of;
+            defer self.receiver_of = saved_of;
+            self.receiver_of = callee;
             try self.checkReceiverMode(obj, .write, kind, method, pos, args.len > 0, self.t().void_id);
             if (self.hands(obj).kind != .made) try self.rejectResourceTemporary(obj, obj_ty);
         }
@@ -6992,7 +7023,12 @@ const Checker = struct {
             try self.synthArgs(args);
             return resolved.fn_ty.returns;
         }
-        if (!misplaced_sigil) try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos, args.len > 0, resolved.fn_ty.returns);
+        if (!misplaced_sigil) {
+            const saved_of = self.receiver_of;
+            defer self.receiver_of = saved_of;
+            self.receiver_of = callee;
+            try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos, args.len > 0, resolved.fn_ty.returns);
+        }
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
@@ -7505,7 +7541,14 @@ const Checker = struct {
         const a = self.ctx.arena.allocator();
         const lent = if (sigilReaches(recv)) try a.print("!{s}", .{shown}) else try a.print("!({s})", .{shown});
         const call = if (self.usesBoolValue(recv, returns)) try a.print("({s}).{s}", .{ lent, method }) else try a.print("{s}.{s}", .{ lent, method });
-        try self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; add `!`: `{s}({s})`", .{ method, call, if (has_args) "..." else "" });
+        const args = if (has_args) "..." else "";
+        // A `!` that is there but does not reach the receiver.
+        const outer = self.outer_write;
+        if (outer.isKind(.call) and sameNode(ir.Call.callee(outer), self.receiver_of)) {
+            if (self.outer_write_is_loop) return self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; the `!` before a `for` source is the loop's mode, not a lend of the receiver: bind `{s}` to a name first", .{ method, shown });
+            return self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; the `!` here lends what `{s}` returns, not its receiver: write `{s}({s})`", .{ method, method, call, args });
+        }
+        try self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; add `!`: `{s}({s})`", .{ method, call, args });
     }
 
     /// Whether `!` written before `recv` followed by a method call lends

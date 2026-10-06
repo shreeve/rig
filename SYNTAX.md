@@ -311,10 +311,14 @@ receiver sigil.
 `?`, `!`, or `<` directly before a *place* (a name, then any `.field`
 or `[index]` steps) that a method call follows applies to the place,
 the method's receiver. Postfixes after the call apply to its result.
-`!` lends any value to write ([CORE](docs/CORE.md) sentence 4), so it
-also reaches a receiver no name holds, and the fields and elements
-after it: a call that is no method call (`!mk().pop()`), a literal
+In a chain, it reaches the receiver of the first method call
+(`!a.b().c(x)` is `(!a).b().c(x)`). `!` lends any value to write
+([CORE](docs/CORE.md) sentence 4), so it also reaches a receiver no
+name holds, and the fields and elements after it: the value a call
+that is no method call makes (`!mk().pop()`), a literal
 (`![a, b][0].bump()`), or a parenthesized expression (`!(+s).bump()`).
+A call of a call's value is walked through to the first call:
+`!a.b(x)(y).g()` is `(!a).b(x)(y).g()`.
 
 | Long form | Short form | Meaning |
 |---|---|---|

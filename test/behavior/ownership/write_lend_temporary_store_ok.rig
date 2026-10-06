@@ -1,0 +1,28 @@
+# A temporary lent to write as a receiver holds what the call stores, as
+# a name does: a view of a value that outlives the statement may be
+# stored there, and the temporary's `drop` reads it before the statement
+# ends (`test/reject/ownership/write_lend_temporary_stores.rig`).
+# oracle: main accept
+
+struct H
+  rs: Vec[String]
+
+  sub keep(!self, r: String)
+    !self.rs.push(r)
+
+  drop(!self)
+    print("drop", self.rs)
+
+fun mkh -> H
+  H(rs: Vec())
+
+sub main
+  t = Text("kept")
+  !mkh().keep(?t)
+  !mkh().rs.push(?t)
+  print("end", t)
+
+# expect:
+# drop ["kept"]
+# drop ["kept"]
+# end kept

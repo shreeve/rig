@@ -1779,9 +1779,13 @@ pub const Parser = struct {
     /// and every postfix after it apply to the lent or moved place:
     ///   (write (propagate_none (call (member v pop))))
     ///   → (propagate_none (call (member (write v) pop)))
-    /// A `!` applies to a receiver that is a value no name holds too: one
-    /// a call makes (`!mk().bump()` is `(!mk()).bump()`), a literal, or a
-    /// parenthesized expression (`!(+s).bump()`). Anything else keeps its
+    /// The sigil reaches the receiver of the chain's first method call.
+    /// A `!` reaches one that is a value no name holds too: one a call
+    /// that is no method call makes (`!mk().bump()` is
+    /// `(!mk()).bump()`), a literal, or a parenthesized expression
+    /// (`!(+s).bump()`); a call of a call's value is walked through to
+    /// the first call (`!a.b(x)(y).g()` is `(!a).b(x)(y).g()`). Anything
+    /// else keeps its
     /// sigil outside: a chain that is all place (`!x.v`), a `?` or `<`
     /// chain whose head is called (`<f(x).g()`), and one whose spine is
     /// parenthesized (`!(v.pop())`), which starts after the token after
@@ -1807,7 +1811,9 @@ pub const Parser = struct {
             e = switch (e.kind() orelse break) {
                 .propagate, .propagate_none => ir.get(e, .value),
                 .member, .index, .inst => ir.get(e, .object),
-                .call => if (any_head and !isMethodCallee(ir.Call.callee(e))) break else ir.Call.callee(e),
+                // A call of a call's value (`a.b(x)(y)`) is walked to
+                // the first call, as before.
+                .call => if (any_head and !isMethodCallee(ir.Call.callee(e)) and !ir.Call.callee(e).isKind(.call)) break else ir.Call.callee(e),
                 else => if (any_head) break else return node,
             };
         }
@@ -2091,7 +2097,7 @@ test "parser: for-source sigil moves into the mode slot" {
 }
 
 test "parser: a receiver sigil moves onto the place before the method" {
-    const source = "!x.v[0].push(1)\n(!v).push(2)\n!(v.pop())\n!f(x).g()\n?p.m()\n?(p.m())\n?f(x).g()\n!(+s).g()\n";
+    const source = "!x.v[0].push(1)\n(!v).push(2)\n!(v.pop())\n!f(x).g()\n?p.m()\n?(p.m())\n?f(x).g()\n!(+s).g()\n!a.b(x)(y).g()\n";
     var p = Parser.init(testing.allocator, source);
     defer p.deinit();
     const tree = try p.parseProgram();
@@ -2120,6 +2126,10 @@ test "parser: a receiver sigil moves onto the place before the method" {
     const paren = ir.Member.object(ir.Call.callee(stmts[7]));
     try testing.expect(paren.isKind(.write) and p.isReceiverSigil(paren));
     try testing.expect(ir.Write.operand(paren).isKind(.clone));
+    // A call of a call's value: the first method call's receiver, `a`.
+    var head = stmts[8];
+    while (!head.isKind(.write)) head = if (head.isKind(.call)) ir.Call.callee(head) else ir.get(head, .object);
+    try testing.expect(p.isReceiverSigil(head) and ir.Write.operand(head) == .src);
 }
 
 test "parser: bar lists split into captures and parameters, all with node ids" {

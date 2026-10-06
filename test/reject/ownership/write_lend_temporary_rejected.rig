@@ -3,9 +3,9 @@
 # that may be a name's, which would be lent as a copy (each branch is
 # lent instead); writing through a shared handle, which only reads; a
 # `for` that would walk it after its header; and assigning into it,
-# which no `!` marks. A literal is no temporary: it lives for the whole
-# program, as a constant does (Core sentence 7), and no constant is lent
-# to write. (A view of a temporary held past its statement:
+# which no `!` marks. A literal is no temporary but a constant, which
+# lives for the whole program (Core sentence 7) and is never lent to
+# write (`test/reject/types/write_lend_constant.rig`). (A view of a temporary held past its statement:
 # `write_lend_temporary_outlives.rig`.)
 
 struct S
@@ -49,4 +49,4 @@ sub main
 # error: 40:10: cannot call write-receiver method `bump` through a shared handle
 # error: 41:13: the loop would walk the temporary `mk()` after its header drops it
 # error: 43:3: cannot assign to a field or element of a temporary
-# error: 44:9: cannot lend `false` to write: a literal lives for the whole program, as a constant does
+# error: 44:9: cannot lend `false` to write: it is a constant, which lives for the whole program

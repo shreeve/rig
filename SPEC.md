@@ -3047,8 +3047,7 @@ is kept in its statement's slot until the statement ends
 it may be used only within the statement. A branching value that may
 be a name's (`!(a if c else b)`) would be lent as a copy, which the
 change would miss, so it is rejected: lend each branch, `!a if c else
-!b`. A literal lives for the whole program, as a constant does, and is
-never lent to write.
+!b`. A constant is no temporary, and is never lent to write (above).
 
 ```rig
 struct Wrap

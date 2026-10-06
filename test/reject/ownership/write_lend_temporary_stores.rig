@@ -1,0 +1,77 @@
+# A temporary lent to write as a method's receiver, or a part of one,
+# holds what the call stores in it, as a name does
+# (`store_into_unnamed_receiver.rig`): a view of a temporary made after
+# it, which its statement drops first, would be read by its `drop`. And
+# a part of a temporary is not moved out through its lend
+# (`move_through_lend.rig`).
+# oracle: stores_view reject C5
+# oracle: stores_string reject C5
+# oracle: pushes_string reject C5
+# oracle: stores_through_bang reject C5
+
+struct S
+  n: Int
+  t: Text
+  items: Vec[Int]
+
+  fun at(!self) -> !Int
+    !self.n
+
+struct W
+  ws: Vec[!Int]
+
+  sub keep(!self, w: !Int)
+    !self.ws.push(<w)
+
+  drop(!self)
+    print(self.ws.len)
+
+struct H
+  rs: Vec[String]
+
+  sub keep(!self, r: String)
+    !self.rs.push(r)
+
+  drop(!self)
+    print(self.rs)
+
+fun mk(n: Int) -> S
+  S(n: n, t: Text("t"), items: Vec())
+
+fun mkw -> W
+  W(ws: Vec())
+
+fun mkh -> H
+  H(rs: Vec())
+
+fun wrap(h: !H) -> !H
+  h
+
+sub stores_view
+  !mkw().keep(!mk(1).at())
+
+sub stores_string
+  !mkh().keep(?mk(1).t)
+
+sub pushes_string
+  !mkh().rs.push(?mk(1).t)
+
+sub stores_through_bang
+  h = mkh()
+  if h.rs.len == 0
+    s = mk(1)
+    !wrap(!h).keep(?s.t)
+
+sub moves_part
+  x = <(!mk(1)).items
+  print(x)
+
+sub main
+  stores_view()
+
+# error: 51:16: a view of the temporary `mk(1)` outlives its statement
+# error: 54:16: a view of the temporary `mk(1)` outlives its statement
+# error: 57:19: a view of the temporary `mk(1)` outlives its statement
+# error: 63:20: `s` does not live long enough
+# error: 66:8: cannot move out of `mk(1).items`: it is reached through `!mk(1)`, a view
+# errors: 5

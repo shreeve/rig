@@ -260,7 +260,9 @@ rewrites that need to inspect the tree:
   lends any value to write (CORE sentence 4), so its place may also
   start from a value no name holds: a call that is no method call
   (`!mk().items.push(1)` is `(!mk().items).push(1)`), a literal, or a
-  parenthesized expression (`!(+s).bump()`). A chain that is all place
+  parenthesized expression (`!(+s).bump()`). A call whose callee is a
+  call (`!a.b(x)(y).g()`) is walked through to the first call, whose
+  receiver the sigil reaches, `(!a).b(x)(y).g()`. A chain that is all place
   (`!x.v`), a `?` or `<` chain whose head is called (`?f(x).g()`), or
   a chain that is parenthesized whole (`!(v.pop())`) keeps the sigil
   outside. The grammar drops parentheses, so the last two are told by
@@ -670,8 +672,9 @@ is `_t = mk()`, `print(S.pop(!_t))`, `-_t`. A write method called on a
 temporary with no `!` is rejected, with the hint to add it
 (`writeOfTemporary`); a branching value that may be a name's is lent
 leaf by leaf, never as one temporary, since the write would reach a
-copy; and a literal lives for the whole program, so it is never lent
-to write. A receiver that branches lends each leaf where it is instead
+copy; and a constant (`isConstant`: a literal, an enum variant or
+error value, an operator applied to constants) lives for the whole
+program, so it is never lent to write (`constantLeaf`). A receiver that branches lends each leaf where it is instead
 (`receiverLeaves`). A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
 `if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
