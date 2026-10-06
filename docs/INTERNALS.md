@@ -676,7 +676,11 @@ copy; and a constant (`isConstant`) lives for the whole program, so it
 is never lent to write. What a write method or an assignment stores in
 a temporary lent to write lands in the statement's hidden var through
 its write loan (`storeThroughLend`), and a part is never moved out of
-it (`viewOnPath`). A receiver that branches lends each leaf where it is instead
+it (`viewOnPath`). When a statement drops a temporary that another of
+its temporaries views (one made before it, so dropped after it), the
+holder uses that view as any owner's drop does: only through a `drop`
+body, or through a live value that views the holder (`holdsPastDrop`,
+Core sentence 6). A receiver that branches lends each leaf where it is instead
 (`receiverLeaves`). A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
 `if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,

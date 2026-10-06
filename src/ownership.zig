@@ -1415,6 +1415,30 @@ pub const Checker = struct {
     /// (`sema.dropRunsBody`; any other drop only releases memory, and
     /// uses no view), or when a live var or temporary views it in turn.
     /// Otherwise its last use is behind, and its views have ended.
+    /// Whether `holder` still uses what it views once a statement's
+    /// temporary it views is dropped there. A temporary of the same
+    /// statement, dropped after it, uses its views as any owner's drop
+    /// does, only through a `drop` body (Core sentence 6), or through a
+    /// live value that views it; any other holder as `holderLive` says.
+    fn holdsPastDrop(self: *const Checker, holder: VarId) bool {
+        return self.holdsPastDropDepth(holder, 0);
+    }
+
+    fn holdsPastDropDepth(self: *const Checker, holder: VarId, depth: u8) bool {
+        if (!self.isStmtTemp(holder) or depth > 16) return self.holderLive(holder, null);
+        const ctx = self.sema orelse return true;
+        const ty = self.vars.items[holder].ty orelse return true;
+        if (sema.dropRunsBody(ctx, ty) != .no) return true;
+        if (self.isLent(holder)) for (self.flows.items, 0..) |f, j| {
+            if (j == holder) continue;
+            for (f.loans) |l| if (l.root == holder and !l.ext) {
+                if (self.holdsPastDropDepth(@intCast(j), depth + 1)) return true;
+                break;
+            };
+        };
+        return false;
+    }
+
     fn holderLive(self: *const Checker, id: VarId, at: ?u32) bool {
         return self.holderLiveDepth(id, at, 0);
     }
@@ -1675,7 +1699,7 @@ pub const Checker = struct {
                 for (f.loans) |l| {
                     if (l.root != d.id) {
                         try kept.append(self.arena(), l);
-                    } else if (!reported and self.holderLive(@intCast(holder), null)) {
+                    } else if (!reported and self.holdsPastDrop(@intCast(holder))) {
                         try self.reportTempOutlived(l, @intCast(holder));
                         reported = true;
                     }
