@@ -25,4 +25,5 @@ for i in 1 2; do
 done
 expect_eq "$(sort cells)" "$out" "the shards of the matrix"
 python3 "$ROOT/test/matrix.py" --shard 3/2 >/dev/null 2>&1; expect_rc $? 2 "matrix --shard 3/2"
+python3 "$ROOT/test/matrix.py" --oracle --shard 1/2 >/dev/null 2>&1; expect_rc $? 2 "matrix --oracle --shard 1/2"
 exit 0

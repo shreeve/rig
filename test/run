@@ -632,8 +632,18 @@ selected() {
 # of the paths (as their globs would list them) within each kind; the doc
 # examples follow (below). `select_tests` applies the filters.
 LIST="$WORK/list" DISCOVERED="$WORK/discovered"
-find test/behavior test/reject test/known examples test/ir test/torture test/cli test/corpus \
-    -maxdepth 3 \( -name '*.rig' -o -name '*.sh' \) 2>/dev/null | awk -F/ -v OFS='\t' '
+# find follows symbolic links, as the globs of the oracle's sets do; a
+# directory it cannot read, or a link that loops, stops the run.
+ROOTS=()
+for d in test/behavior test/reject test/known examples test/ir test/torture test/cli test/corpus; do
+    [[ -e $d ]] && ROOTS+=("$d")
+done
+: >"$WORK/found"
+if [[ ${#ROOTS[@]} -gt 0 ]] && ! find -L "${ROOTS[@]}" -maxdepth 3 \( -name '*.rig' -o -name '*.sh' \) >"$WORK/found"; then
+    echo "test discovery failed: find reported the errors above" >&2
+    exit 2
+fi
+awk -F/ -v OFS='\t' '
     function emit(rank, p, id) { print rank, p, id, p, id }
     # A path component a glob would not list.
     { for (i = 1; i <= NF; i++) if ($i ~ /^\./) next }
@@ -654,7 +664,7 @@ find test/behavior test/reject test/known examples test/ir test/torture test/cli
         next
     }
     END { n = split("lint tests corpus docs matrix", sets, " "); for (i = 1; i <= n; i++) print 8, i, "oracle/" sets[i], "test/oracle", "oracle/" sets[i] }
-' | LC_ALL=C sort -t$'\t' -k1,1n -k2,2 | cut -f3- >"$DISCOVERED"
+' "$WORK/found" | LC_ALL=C sort -t$'\t' -k1,1n -k2,2 | cut -f3- >"$DISCOVERED"
 # The ids the filters select: a run with filters takes every corpus
 # program they select (`./test/run corpus` takes them all); a run
 # without takes one in CORPUS_SAMPLE, picked by a hash of its name (see
@@ -837,9 +847,10 @@ if [[ ${#FILTERS[@]} -eq 0 ]]; then
 fi
 [[ -n "$PRUNE" ]] && exit 0
 
-# --shard I/N keeps the tests whose id hashes to I - 1 modulo N.
+# --shard I/N keeps the tests whose id hashes to I - 1 modulo N. The hash
+# reads bytes (LC_ALL=C), so every machine's awk agrees on it.
 if [[ -n "$SHARD" ]]; then
-    awk -F'\t' -v i="${SHARD%/*}" -v n="${SHARD#*/}" '
+    LC_ALL=C awk -F'\t' -v i="${SHARD%/*}" -v n="${SHARD#*/}" '
         BEGIN { for (c = 1; c < 256; c++) ord[sprintf("%c", c)] = c }
         {
             h = 0

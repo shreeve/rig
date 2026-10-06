@@ -182,6 +182,12 @@ class OldCache:
             data = open(path, "rb").read() if file in self.listing(d) or file == os.path.basename(f) else None
             h.update(b"%d:%s" % (len(file), file.encode()))
             h.update(b"missing" if data is None else b"%d:" % len(data) + data)
+            if data is None:
+                # A file system that ignores case reads `Lib.rig` from
+                # `lib.rig`, and rig reports the other name: the names
+                # that differ only in case are inputs too.
+                for other in sorted(e for e in self.listing(d) if e.casefold() == file.casefold()):
+                    h.update(b"case:%d:%s" % (len(other.encode()), other.encode()))
             if data is not None:
                 todo.extend(m.decode() + ".rig" for m in re.findall(rb"\buse\s+([A-Za-z_][A-Za-z0-9_]*)", data))
         return h.hexdigest()
@@ -194,7 +200,9 @@ class OldCache:
         if hit is not None:
             return hit
         result = digest(run(self.rig, args, f, tmp))
-        if result[0] != -1:  # a timeout says nothing about the program
+        # A timeout, or a compiler a signal killed, says nothing about the
+        # program; nor does an accepted program's failure (see compare).
+        if result[0] >= 0 and (result[0] == 0 or name in dict(SECTIONS)):
             with self.lock:
                 self.entries[k] = result
                 with open(self.path, "a") as out:
@@ -216,7 +224,11 @@ def compare(old, new, f, tmp):
             a, b = old.get(name, args, f, tmp), digest(run(new, args, f, tmp))
             if 2 in (a[0], b[0]):  # an option one compiler lacks
                 continue
-            if a != b:
+            if a[0] != 0 or b[0] != 0:
+                # An accepted program's section cannot fail: equal
+                # failures (a full disk, a crash) prove nothing.
+                diffs.append(name + "(failed)")
+            elif a != b:
                 diffs.append(name)
     return f, diffs
 
@@ -253,7 +265,7 @@ def main():
                     print("%s: %s" % (f, " ".join(diffs)))
                     if keep:
                         for name, args in SECTIONS + ACCEPTED:
-                            if name in diffs:
+                            if name in diffs or name + "(failed)" in diffs:
                                 base = os.path.join(keep, f.replace("/", "__") + "." + name)
                                 if args is None:
                                     package(old_rig, f, tmp, base + ".old.d")

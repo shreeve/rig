@@ -573,6 +573,9 @@ def main():
     shard = re.fullmatch(r"([1-9][0-9]*)/([1-9][0-9]*)", args.shard or "1/1")
     if not shard or int(shard[1]) > int(shard[2]):
         ap.error("--shard needs I/N, with 1 <= I <= N")
+    if args.oracle and args.shard:
+        # The oracle's coverage floor is for every program.
+        ap.error("--oracle runs over every program: it takes no --shard")
     shard_i, shard_n = int(shard[1]), int(shard[2])
 
     def wanted(ident):
