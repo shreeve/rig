@@ -1,0 +1,173 @@
+# A generic body that copies a `T` out of what a `match`, an `if … as`,
+# or a `for` reads, and gives the copy away, needs every instance's `T`
+# to own nothing, whatever the subject: a place, a lend, a view a call
+# returns, a branching value, a field or element of any of these, and a
+# guarded match. Each instance below would free its Text twice.
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct P[T]
+  x: T
+
+enum E[T]
+  has(p: P[T])
+  empty
+
+struct W[T]
+  o: Opt[T]
+  p: T?
+
+fun get[T](o: ?Opt[T]) -> ?Opt[T] from o
+  o
+
+fun getw[T](w: ?W[T]) -> ?W[T] from w
+  w
+
+fun geta[T](a: ?Vec[Opt[T]]) -> ?Vec[Opt[T]] from a
+  a
+
+fun gete[T](e: ?E[T]) -> ?E[T] from e
+  e
+
+fun getxs[T](xs: ?Vec[T]) -> ?Vec[T] from xs
+  xs
+
+fun place[T](o: ?Opt[T], d: T) -> T
+  match o
+    .some(v) => v
+    .nothing => <d
+
+fun lend[T](o: ?Opt[T], d: T) -> T
+  match ?o
+    .some(v) => v
+    .nothing => <d
+
+fun call[T](o: ?Opt[T], d: T) -> T
+  match get(o)
+    .some(v) => v
+    .nothing => <d
+
+fun lend_call[T](o: ?Opt[T], d: T) -> T
+  match ?get(o)
+    .some(v) => v
+    .nothing => <d
+
+fun branch[T](o: ?Opt[T], o2: ?Opt[T], c: Bool, d: T) -> T
+  match (o if c else o2)
+    .some(v) => v
+    .nothing => <d
+
+fun branch_call[T](o: ?Opt[T], o2: ?Opt[T], c: Bool, d: T) -> T
+  match (get(o) if c else get(o2))
+    .some(v) => v
+    .nothing => <d
+
+fun field[T](w: ?W[T], d: T) -> T
+  match w.o
+    .some(v) => v
+    .nothing => <d
+
+fun field_of_call[T](w: ?W[T], d: T) -> T
+  match getw(w).o
+    .some(v) => v
+    .nothing => <d
+
+fun field_of_branch[T](w: ?W[T], w2: ?W[T], c: Bool, d: T) -> T
+  match (w if c else w2).o
+    .some(v) => v
+    .nothing => <d
+
+fun elem[T](a: ?Vec[Opt[T]], d: T) -> T
+  match a[0]
+    .some(v) => v
+    .nothing => <d
+
+fun elem_of_call[T](a: ?Vec[Opt[T]], d: T) -> T
+  match geta(a)[0]
+    .some(v) => v
+    .nothing => <d
+
+fun guarded[T](o: ?Opt[T], c: Bool, d: T) -> T
+  match get(o)
+    .some(v) if c => v
+    _ => <d
+
+fun branch_value[T](o: ?Opt[T], c: Bool, d: T) -> T
+  match get(o)
+    .some(v) => v if c else <d
+    .nothing => <d
+
+fun holder[T](e: ?E[T], d: T) -> P[T]
+  match gete(e)
+    .has(p) => p
+    _ => P(x: <d)
+
+fun catch_all[T](w: ?W[T]) -> Opt[T]
+  match getw(w).o
+    x => x
+
+fun as_field_of_call[T](w: ?W[T], d: T) -> T
+  if getw(w).p as v
+    return v
+  <d
+
+fun while_field_of_branch[T](w: ?W[T], w2: ?W[T], c: Bool, d: T) -> T
+  while (w if c else w2).p as v
+    return v
+  <d
+
+fun for_call[T](xs: ?Vec[T], d: T) -> T
+  for x in getxs(xs)
+    return x
+  <d
+
+sub main
+  o: Opt[Text] = .some(v: Text("o"))
+  w: W[Text] = W(o: .some(v: Text("w")), p: Text("p"))
+  a: Vec[Opt[Text]] = Vec()
+  !a.push(.some(v: Text("a")))
+  e2: E[Text] = .has(p: P(x: Text("p")))
+  xs: Vec[Text] = Vec()
+  !xs.push(Text("x"))
+  print(place(?o, Text("d")))
+  print(lend(?o, Text("d")))
+  print(call(?o, Text("d")))
+  print(lend_call(?o, Text("d")))
+  print(branch(?o, ?o, true, Text("d")))
+  print(branch_call(?o, ?o, true, Text("d")))
+  print(field(?w, Text("d")))
+  print(field_of_call(?w, Text("d")))
+  print(field_of_branch(?w, ?w, true, Text("d")))
+  print(elem(?a, Text("d")))
+  print(elem_of_call(?a, Text("d")))
+  print(guarded(?o, true, Text("d")))
+  print(branch_value(?o, true, Text("d")))
+  print(holder(?e2, Text("d")).x)
+  match catch_all(?w)
+    .some(v) => print(v)
+    .nothing => pass
+  print(as_field_of_call(?w, Text("d")))
+  print(while_field_of_branch(?w, ?w, true, Text("d")))
+  print(for_call(?xs, Text("d")))
+
+# error: `place[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `lend[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `call[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `lend_call[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `branch[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `branch_call[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `field[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `field_of_call[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `field_of_branch[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `elem[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `elem_of_call[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `guarded[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `branch_value[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `holder[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `catch_all[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `as_field_of_call[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `while_field_of_branch[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `for_call[Text]` cannot use `T = Text`: the generic body copies a `T`
+# errors: 18

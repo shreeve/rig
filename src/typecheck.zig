@@ -2506,6 +2506,7 @@ const Checker = struct {
                         // A binding that is no plain data is usable in its
                         // arm only.
                         if (mode == .read and !self.isPoison(scrutinee) and sema.copyable(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                        if (mode == .read) try self.readBinding(scrutinee, pattern);
                         self.ctx.symbols.items[sym].ty = scrutinee;
                         try self.ctx.recordType(pattern, scrutinee);
                     }
@@ -2646,9 +2647,7 @@ const Checker = struct {
                 try self.ctx.intern(.{ .read_view = f.ty })
             else
                 f.ty;
-            // A payload of a type parameter read is bound by copy: no
-            // instance may hold a Cell the copy would fork.
-            if (mode == .read and view and sema.maybeDropGlue(self.ctx, f.ty)) try self.requireOf(f.ty, .no_cell, self.startOf(b), "copies into a match binding a value");
+            if (mode == .read) try self.readBinding(f.ty, b);
             try self.ctx.recordType(b, ty);
             if (self.ctx.symbolOf(b)) |sym| {
                 self.ctx.symbols.items[sym].ty = ty;
@@ -2656,6 +2655,17 @@ const Checker = struct {
                 if (mode == .read and view and sema.copyable(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
             }
         }
+    }
+
+    /// A read match binds `b`, a payload or the whole matched value, of
+    /// type `ty` where the matched value is. One that is no view or
+    /// slice and holds a type parameter by value is bound by copy: no
+    /// instance may hold a Cell the copy would fork. (Where the copy is
+    /// consumed, the ownership checker requires an instance that owns
+    /// nothing: `Var.payload_view`.)
+    fn readBinding(self: *Checker, ty: TypeId, b: Sexp) Error!void {
+        if (self.isPoison(ty) or sema.isReadOrWriteView(self.ctx, ty) or self.ctx.types.get(ty) == .slice) return;
+        if (sema.maybeDropGlue(self.ctx, ty)) try self.requireOf(ty, .no_cell, self.startOf(b), "copies into a match binding a value");
     }
 
     fn reportMissingVariant(self: *Checker, enum_ty: TypeId, vname: []const u8, pos: u32) Error!void {

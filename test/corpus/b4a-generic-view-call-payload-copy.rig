@@ -1,0 +1,20 @@
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun get[T](o: ?Opt[T]) -> ?Opt[T] from o
+  o
+
+fun peek3[T](o: ?Opt[T], d: T) -> T
+  match get(o)
+    .some(v) => v
+    .nothing => d
+
+fun peek1[T](o: ?Opt[T], d: T) -> T
+  match o
+    .some(v) => v
+    .nothing => d
+
+sub main
+  o: Opt[Text] = .some(v: Text("t"))
+  print(peek3(?o, Text("d")))

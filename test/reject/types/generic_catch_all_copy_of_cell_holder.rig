@@ -1,0 +1,49 @@
+# A generic `match` that binds its whole subject by name, where the
+# subject is no view, binds a copy of it, as a payload binding does: an
+# instance whose `T` holds a Cell is rejected, since a change through
+# the copy would not reach the matched value. The subject may be a
+# place, a field of a view a call returns, or a branching value.
+
+struct C
+  c: Cell[Int]
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct W[T]
+  o: Opt[T]
+
+fun getw[T](w: ?W[T]) -> ?W[T] from w
+  w
+
+fun hit(o: ?Opt[C]) -> Int
+  match o
+    .some(v)
+      v.c.set(v.c.get() + 1)
+      v.c.get()
+    .nothing => 0
+
+sub field[T](w: ?W[T], f: ?fun(?Opt[T]) -> Int)
+  match w.o
+    x => print(f(?x))
+
+sub field_of_call[T](w: ?W[T], f: ?fun(?Opt[T]) -> Int)
+  match getw(w).o
+    x => print(f(?x))
+
+sub branch[T](w: ?W[T], w2: ?W[T], c: Bool, f: ?fun(?Opt[T]) -> Int)
+  match (w.o if c else w2.o)
+    x if c => print(f(?x))
+    _ => pass
+
+sub main
+  w: W[C] = W(o: .some(v: C(c: Cell(0))))
+  field(?w, hit)
+  field_of_call(?w, hit)
+  branch(?w, ?w, true, hit)
+
+# error: 42:3: `field[C]` cannot use `T = C`: the generic body copies into a match binding a value that holds a `T`, and `C` holds a Cell, which the copy would fork
+# error: 43:3: `field_of_call[C]` cannot use `T = C`: the generic body copies into a match binding a value that holds a `T`, and `C` holds a Cell
+# error: 44:3: `branch[C]` cannot use `T = C`: the generic body copies into a match binding a value that holds a `T`, and `C` holds a Cell
+# errors: 3

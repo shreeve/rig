@@ -2535,7 +2535,8 @@ source and `if … as` do:
 | `match <e` | own the fields: `e` is consumed, and what an arm does not move on is dropped at the end of the arm |
 
 A bare `match e` of a place only reads it, so moving a payload out of
-it is rejected; that takes `match <e`. A call's result is taken, as
+it is rejected; that takes `match <e`. So does a match of a view a call
+returns, of a branching value, or of a field or element of either. A call's result is taken, as
 `match <e` would take it ([§7](#temporaries)): `match make()` owns its
 payloads. Its bindings only read, too, even of a
 field or value that is itself a write view. A binding of `match <e`

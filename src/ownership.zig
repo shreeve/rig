@@ -224,10 +224,18 @@ const Var = struct {
     /// Resource captured into a closure environment (`|+x|`, `|~x|`,
     /// `|<x|`): the body sees a view of the env slot.
     capture_resource: bool = false,
+    /// A match payload binding that does not own what it binds
+    /// (`bindPayload`): the match reads or writes its subject rather
+    /// than taking it, and the binding is no copy. It views the var
+    /// `alias_of`, or a value no var holds (`matched`).
+    payload_view: bool = false,
     /// Match payload binding: the var the scrutinee is, or is a field
     /// of, and the field's path (empty for the whole var).
     alias_of: ?VarId = null,
     alias_path: []const u8 = "",
+    /// A `payload_view` binding with no `alias_of`: the subject as
+    /// written (`get(o)`, `a if c else b`).
+    matched: []const u8 = "",
     /// The hidden var of a read match's arm that its bindings which are
     /// no plain data view: the subject the match reads, as written. A
     /// loan on it ends with the arm (`arm_view` bindings).
@@ -1415,7 +1423,7 @@ pub const Checker = struct {
         // A var that owns its value drops it at scope exit, which uses
         // its views only through a `drop` body. (A match payload or a
         // viewed loop element only views a value.)
-        const owns = v.alias_of == null and !v.loop_view and v.ref == .none;
+        const owns = !v.payload_view and !v.loop_view and v.ref == .none;
         if (owns and sema.dropRunsBody(ctx, ty) != .no) return true;
         if (self.last_use.get(sym)) |last| if (last >= self.liveFrom(v.decl, at)) return true;
         if (self.isLent(id)) for (self.flows.items, 0..) |f, j| {
@@ -1905,7 +1913,7 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         if (v.decl != ctx.symbols.items[sym].decl_pos) return;
         if (!self.flowLive(id)) return;
-        if (v.alias_of == null) {
+        if (!v.payload_view) {
             if ((sink == .ret or id >= t.vars) and !v.closure and !v.loop_view and !v.capture_resource and self.returnMoves(v)) {
                 _ = try self.moveVar(id, node.src.pos, .move);
             }
@@ -2392,7 +2400,7 @@ pub const Checker = struct {
     fn lendOn(self: *Checker, id: VarId, loan: Loan) Error!Value {
         const v = self.vars.items[id];
         const held = self.flows.items[id].loans;
-        if (v.ref == .read or v.alias_of != null) return .{ .loans = held };
+        if (v.ref == .read or v.payload_view) return .{ .loans = held };
         const one = try self.oneLoan(loan);
         if (v.ref == .write) return .{ .loans = try self.unionLoans(one, held) };
         return .{ .loans = one };
@@ -2497,7 +2505,7 @@ pub const Checker = struct {
 
         // A payload that views its scrutinee cannot leave it; a copied
         // payload is not a view (`bindPayload`).
-        if (v.alias_of != null) return self.movePayload(id, pos, vt);
+        if (v.payload_view) return self.movePayload(id, pos, vt);
 
         if (try self.conflicts(id, .{ .consume = vt }, pos)) return .{};
         // `<x` ends `x`, whatever its type: a Copy value or a view is
@@ -2519,19 +2527,21 @@ pub const Checker = struct {
     /// rejected, with the way to take it.
     fn movePayload(self: *Checker, id: VarId, pos: u32, op: []const u8) Error!Value {
         const v = self.vars.items[id];
-        const root = v.alias_of.?;
-        const r = self.vars.items[root];
+        const viewed = if (v.alias_of) |root| self.vars.items[root].name else v.matched;
         switch (v.via) {
             .viewed => {
-                try self.err(pos, "cannot move out of `{s}`: it is a view of `{s}`", .{ v.name, r.name });
+                try self.err(pos, "cannot move out of `{s}`: it is a view of `{s}`", .{ v.name, viewed });
                 return .{};
             },
             .shared => {
-                try self.err(pos, "cannot move out of `{s}`: `{s}` is a shared handle and other handles may still use it", .{ v.name, r.name });
+                try self.err(pos, "cannot move out of `{s}`: `{s}` is a shared handle and other handles may still use it", .{ v.name, viewed });
                 return .{};
             },
             .owned => {},
         }
+        // Only a binding of a var the function owns is `owned`.
+        const root = v.alias_of orelse return .{};
+        const r = self.vars.items[root];
         if (try self.rejectConsumedView(root, pos, op)) return .{};
         if (v.alias_path.len > 0) {
             try self.err(pos, "cannot {s} `{s}` out of `{s}`: `{s}` still owns it (partial moves are not supported)", .{ op, v.name, v.alias_path, r.name });
@@ -2671,7 +2681,7 @@ pub const Checker = struct {
             try self.noteInvalidated(id, pos);
             return;
         }
-        if (v.alias_of != null) {
+        if (v.payload_view) {
             _ = try self.movePayload(id, pos, "drop");
             if (!self.flowLive(id)) try self.markInvalid(id, .dropped, pos);
             return;
@@ -3057,7 +3067,7 @@ pub const Checker = struct {
         const writes_capture = v.kind == .capture and (v.ref == .write or self.isPoisonType(v.ty));
         if (!writes_capture and try self.rejectConsumedView(id, pos, "reassign")) return;
         if (!self.copies(v.ty) and try self.rejectGlobal(id, pos, "reassign")) return;
-        if (v.alias_of != null and v.ref != .write and !self.isPoisonType(v.ty)) {
+        if (v.payload_view and v.ref != .write and !self.isPoisonType(v.ty)) {
             try self.err(pos, "cannot reassign match binding `{s}`; it views the matched value", .{v.name});
             return;
         }
@@ -4109,7 +4119,7 @@ pub const Checker = struct {
     /// out of its scrutinee, and an owning value out of its binding, so
     /// deferred code at that exit sees it moved.
     fn returnMoves(self: *const Checker, v: Var) bool {
-        if (v.alias_of != null) return true;
+        if (v.payload_view) return true;
         return self.owningKind(v.ty) != null;
     }
 
@@ -4411,7 +4421,29 @@ pub const Checker = struct {
         via: Via = .owned,
         /// The matched field (`h.s`) when it is not a whole binding.
         path: []const u8 = "",
+        /// The subject as written, when no var holds the value it reads
+        /// (`Var.matched`); empty when the match takes it.
+        shown: []const u8 = "",
     };
+
+    /// Whether `match` takes its subject, and its bindings own what they
+    /// bind: `match <x`, or a value made there (`storage.matchMode`).
+    fn takesSubject(self: *const Checker, match: Sexp) bool {
+        const ctx = self.sema orelse return ir.Match.subject(match).isKind(.move);
+        return storage.matchMode(ctx, match) == .consume;
+    }
+
+    /// Whether a `match` reads the value its subject `e` gives where
+    /// another value holds it (`Hands`): storage, a lend, a branching
+    /// value that may be a name's, or a view a call returns. A value
+    /// made there is the match's own.
+    fn readsInPlace(self: *const Checker, e: Sexp) bool {
+        return switch (self.hands(e).kind) {
+            .place, .part_of_made, .lend, .branches => true,
+            .made => if (self.exprType(e)) |t| self.typeData(t) == .read_view or self.typeData(t) == .write_view else false,
+            .jump, .none => false,
+        };
+    }
 
     fn walkMatch(self: *Checker, match: Sexp) Error!Value {
         const tail_ctx = self.takeTail(match);
@@ -4446,6 +4478,14 @@ pub const Checker = struct {
                 info.via = .shared;
             };
             if (!p.whole) info.path = try self.placeText(node);
+        } else if (!self.takesSubject(match) and self.readsInPlace(scrut)) {
+            // A value no var holds, which the match reads where it is:
+            // its bindings view it, as they view a place.
+            info.via = .viewed;
+            if (self.exprType(node)) |t| if (self.typeData(t) == .shared) {
+                info.via = .shared;
+            };
+            info.shown = self.spanText(node);
         }
         const scrut_temps = self.temps.items.len;
         // The subject is a header: its temporaries end with it.
@@ -4574,6 +4614,15 @@ pub const Checker = struct {
             const r_loans: []const Loan = if (info.root) |r| self.flows.items[r].loans else &.{};
             loans = (try self.carry(ty, .{ .loans = try self.unionLoans(scrut_value.loans, r_loans) })).loans;
         } else if (!copied) {
+            // The binding views the matched value unless the match takes
+            // it: a place's (`alias_of`), or one no var holds, which a
+            // binding of a view type views by its type, and any other
+            // (a `T` of a generic body) by this fact.
+            v.payload_view = info.root != null or (info.shown.len > 0 and v.ref == .none);
+            if (info.root == null and v.payload_view) {
+                v.via = info.via;
+                v.matched = info.shown;
+            }
             if (info.root) |r| {
                 v.alias_of = r;
                 v.alias_path = info.path;
@@ -5000,7 +5049,7 @@ pub const Checker = struct {
         var reach: std.ArrayList(VarId) = .empty;
         for (start..len) |i| {
             const h = self.vars.items[i];
-            if (!self.flowLive(@intCast(i)) or h.alias_of != null or h.loop_view or h.ref != .none) continue;
+            if (!self.flowLive(@intCast(i)) or h.payload_view or h.loop_view or h.ref != .none) continue;
             if (sema.dropRunsBody(ctx, h.ty orelse continue) != .yes) continue;
             reach.clearRetainingCapacity();
             try reach.append(self.arena(), @intCast(i));

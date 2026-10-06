@@ -1,0 +1,173 @@
+# The generic bodies of reject/types/generic_payload_copy_any_subject.rig
+# copy a `T` out of what a `match`, an `if … as`, or a `for` reads,
+# whatever the subject. An instance of plain data copies it, and runs.
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct P[T]
+  x: T
+
+enum E[T]
+  has(p: P[T])
+  empty
+
+struct W[T]
+  o: Opt[T]
+  p: T?
+
+fun get[T](o: ?Opt[T]) -> ?Opt[T] from o
+  o
+
+fun getw[T](w: ?W[T]) -> ?W[T] from w
+  w
+
+fun geta[T](a: ?Vec[Opt[T]]) -> ?Vec[Opt[T]] from a
+  a
+
+fun gete[T](e: ?E[T]) -> ?E[T] from e
+  e
+
+fun getxs[T](xs: ?Vec[T]) -> ?Vec[T] from xs
+  xs
+
+fun place[T](o: ?Opt[T], d: T) -> T
+  match o
+    .some(v) => v
+    .nothing => <d
+
+fun lend[T](o: ?Opt[T], d: T) -> T
+  match ?o
+    .some(v) => v
+    .nothing => <d
+
+fun call[T](o: ?Opt[T], d: T) -> T
+  match get(o)
+    .some(v) => v
+    .nothing => <d
+
+fun lend_call[T](o: ?Opt[T], d: T) -> T
+  match ?get(o)
+    .some(v) => v
+    .nothing => <d
+
+fun branch[T](o: ?Opt[T], o2: ?Opt[T], c: Bool, d: T) -> T
+  match (o if c else o2)
+    .some(v) => v
+    .nothing => <d
+
+fun branch_call[T](o: ?Opt[T], o2: ?Opt[T], c: Bool, d: T) -> T
+  match (get(o) if c else get(o2))
+    .some(v) => v
+    .nothing => <d
+
+fun field[T](w: ?W[T], d: T) -> T
+  match w.o
+    .some(v) => v
+    .nothing => <d
+
+fun field_of_call[T](w: ?W[T], d: T) -> T
+  match getw(w).o
+    .some(v) => v
+    .nothing => <d
+
+fun field_of_branch[T](w: ?W[T], w2: ?W[T], c: Bool, d: T) -> T
+  match (w if c else w2).o
+    .some(v) => v
+    .nothing => <d
+
+fun elem[T](a: ?Vec[Opt[T]], d: T) -> T
+  match a[0]
+    .some(v) => v
+    .nothing => <d
+
+fun elem_of_call[T](a: ?Vec[Opt[T]], d: T) -> T
+  match geta(a)[0]
+    .some(v) => v
+    .nothing => <d
+
+fun guarded[T](o: ?Opt[T], c: Bool, d: T) -> T
+  match get(o)
+    .some(v) if c => v
+    _ => <d
+
+fun branch_value[T](o: ?Opt[T], c: Bool, d: T) -> T
+  match get(o)
+    .some(v) => v if c else <d
+    .nothing => <d
+
+fun holder[T](e: ?E[T], d: T) -> P[T]
+  match gete(e)
+    .has(p) => p
+    _ => P(x: <d)
+
+fun catch_all[T](w: ?W[T]) -> Opt[T]
+  match getw(w).o
+    x => x
+
+fun as_field_of_call[T](w: ?W[T], d: T) -> T
+  if getw(w).p as v
+    return v
+  <d
+
+fun while_field_of_branch[T](w: ?W[T], w2: ?W[T], c: Bool, d: T) -> T
+  while (w if c else w2).p as v
+    return v
+  <d
+
+fun for_call[T](xs: ?Vec[T], d: T) -> T
+  for x in getxs(xs)
+    return x
+  <d
+
+sub main
+  o: Opt[Int] = .some(v: 1)
+  w: W[Int] = W(o: .some(v: 2), p: 3)
+  a: Vec[Opt[Int]] = Vec()
+  !a.push(.some(v: 4))
+  e2: E[Int] = .has(p: P(x: 6))
+  xs: Vec[Int] = Vec()
+  !xs.push(7)
+  print(place(?o, 0))
+  print(lend(?o, 0))
+  print(call(?o, 0))
+  print(lend_call(?o, 0))
+  print(branch(?o, ?o, false, 0))
+  print(branch_call(?o, ?o, true, 0))
+  print(field(?w, 0))
+  print(field_of_call(?w, 0))
+  print(field_of_branch(?w, ?w, false, 0))
+  print(elem(?a, 0))
+  print(elem_of_call(?a, 0))
+  print(guarded(?o, true, 0))
+  print(guarded(?o, false, 0))
+  print(branch_value(?o, false, 0))
+  print(holder(?e2, 0).x)
+  match catch_all(?w)
+    .some(v) => print(v)
+    .nothing => pass
+  print(as_field_of_call(?w, 0))
+  print(while_field_of_branch(?w, ?w, true, 0))
+  print(for_call(?xs, 0))
+
+# expect:
+# 1
+# 1
+# 1
+# 1
+# 1
+# 1
+# 2
+# 2
+# 2
+# 4
+# 4
+# 1
+# 0
+# 0
+# 6
+# 2
+# 3
+# 3
+# 7
