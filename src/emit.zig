@@ -1819,7 +1819,12 @@ pub const Emitter = struct {
     /// position (directly, or through `if`/`match` branches) are moved
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
-        if (self.fun.return_ty) |r| if (self.isPtrViewTy(self.unwrapOptionals(r))) return self.emitWriteViewPtr(value);
+        // A result that is a view held as a pointer, or an optional or a
+        // fallible one, returns the pointer; an error value is itself.
+        if (self.fun.return_ty) |r| if (self.isPtrViewTy(self.unwrapOptionals(self.unwrapFallible(r)))) {
+            const error_value = if (self.typeOf(value)) |t| sema.isErrorValue(self.sema, t) else false;
+            if (!error_value) return self.emitWriteViewPtr(value);
+        };
         self.bare = true;
         try self.emitValue(value, true);
     }
@@ -3712,6 +3717,14 @@ pub const Emitter = struct {
         var inner = ty;
         while (self.sema.types.get(inner) == .optional) inner = self.sema.types.get(inner).optional;
         return inner;
+    }
+
+    /// The type a fallible `ty` succeeds with; any other type itself.
+    fn unwrapFallible(self: *Emitter, ty: TypeId) TypeId {
+        return switch (self.sema.types.get(ty)) {
+            .fallible => |inner| inner,
+            else => ty,
+        };
     }
 
     /// The type an optional `ty` holds; any other type itself.

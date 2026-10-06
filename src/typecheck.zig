@@ -8051,7 +8051,9 @@ const Checker = struct {
             },
             .@"??", .@"catch" => {
                 const ty = if (head == .@"??") try self.synthCoalesce(e, expected) else try self.synthCatch(e, expected);
-                if (!compatible(self.ctx, ty, expected)) try self.mismatch(e, expected, ty);
+                // A view either branch gives is copied out where its
+                // value is expected (`copiedOut`).
+                if (compatible(self.ctx, ty, expected)) try self.recordAdapted(e, ty, expected) else try self.mismatch(e, expected, ty);
                 return ty;
             },
             else => return null,
