@@ -340,8 +340,16 @@ check_corpus() {
         [[ $REASON == exit* || $REASON == panic* ]] && REASON=$line
         return 1
     fi
+    # rig says when a signal ended the program (its status alone cannot:
+    # a program may exit 137 itself). A Rig panic aborts (signal 6) after
+    # its `panic:` report; any other signal came from outside, or is a
+    # crash nothing reported.
+    if line=$(grep -m1 -E 'rig: the program was killed by signal [0-9]+' "$outdir.stderr") &&
+        ! { [[ $line == *"signal 6" ]] && grep -q 'panic: ' "$outdir.stderr"; }; then
+        REASON="killed by signal ${line##* }: $(head -1 "$outdir.stderr")"; return 1
+    fi
     find "$outdir" -mindepth 1 -maxdepth 1 ! -name .zig-cache -exec rm -rf {} +
-    rm -f "$outdir.stdout" "$outdir.stderr" "$outdir.started"
+    rm -f "$outdir.stdout" "$outdir.stderr"
     return 0
 }
 
@@ -477,6 +485,9 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
             if [[ $ok -eq 0 ]]; then
                 printf 'fixed\t%s\tnow passes; move it to test/%s/\n' "$id" \
                     "$(grep -qE '^# error:' "$entry" && echo reject || echo behavior)/${id#known/}" >"$res"
+            elif [[ $REASON == "the program did not run"* ]]; then
+                # Not the known bug: nothing was checked.
+                printf 'fail\t%s\t%s\n' "$id" "$REASON" >"$res"
             else
                 printf 'known\t%s\t%s\n' "$id" "$REASON" >"$res"
             fi

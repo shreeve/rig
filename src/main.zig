@@ -471,11 +471,15 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
         io.random(&name);
         const started = try std.fs.path.join(allocator, &.{ started_dir, try allocator.print(".started-{x}", .{&name}) });
         try environ.put(program_started_var, started);
-        const code = try runZig(io, argv, &environ);
+        const ended = try runZigReport(io, argv, &environ);
+        const code = ended.code;
         const ran = if (std.Io.Dir.cwd().statFile(io, started, .{})) |st| st.kind == .file else |_| false;
         std.Io.Dir.cwd().deleteFile(io, started) catch {};
         if (ran) {
             if (env.get(run_started_var)) |path| try writeFile(io, path, "");
+            // A status above 128 may be the program's own; this says a
+            // signal ended it (a Rig panic aborts, after its report).
+            if (ended.signal) |sig| std.debug.print("error: rig: the program was killed by signal {d}\n", .{sig});
             if (code == 0) return;
             std.process.exit(code);
         }
@@ -551,6 +555,14 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *const modules.Modu
 /// a signal ended it), which for `zig run` is the program's once it has
 /// started it.
 fn runZig(io: std.Io, argv: []const []const u8, environ: ?*const std.process.Environ.Map) !u8 {
+    return (try runZigReport(io, argv, environ)).code;
+}
+
+const Ended = struct { code: u8, signal: ?u8 = null };
+
+/// `runZig`, and the signal that ended the process, if one did (for
+/// `zig run`, the program: Zig replaces itself with it).
+fn runZigReport(io: std.Io, argv: []const []const u8, environ: ?*const std.process.Environ.Map) !Ended {
     var child = std.process.spawn(io, .{
         .argv = argv,
         .environ_map = environ,
@@ -562,9 +574,9 @@ fn runZig(io: std.Io, argv: []const []const u8, environ: ?*const std.process.Env
         else => return err,
     };
     return switch (try child.wait(io)) {
-        .exited => |code| code,
-        .signal => |sig| 128 +| @as(u8, @truncate(@backingInt(sig))),
-        else => 1,
+        .exited => |code| .{ .code = code },
+        .signal => |sig| .{ .code = 128 +| @as(u8, @truncate(@backingInt(sig))), .signal = @truncate(@backingInt(sig)) },
+        else => .{ .code = 1 },
     };
 }
 

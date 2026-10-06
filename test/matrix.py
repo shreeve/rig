@@ -532,6 +532,12 @@ def run_one(path, keep, started_dir, expect=None):
     if m:
         line = next((l for l in err.splitlines() if BAD.search(l)), m.group(0))
         return "fail", line.strip()
+    # rig says when a signal ended the program (its status alone cannot).
+    # A Rig panic aborts (signal 6) after its `panic:` report; any other
+    # signal came from outside, or is a crash nothing reported.
+    sig = re.search(r"rig: the program was killed by signal (\d+)", err)
+    if sig and not (sig.group(1) == "6" and "panic: " in err):
+        return "fail", "killed by signal %s: %s" % (sig.group(1), first_line(err))
     if expect is not None and r.stdout != expect:
         return "fail", "printed " + repr(r.stdout) + ", expected " + repr(expect)
     return "ok", ""
