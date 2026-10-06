@@ -1,0 +1,24 @@
+# The step upgrades a weak handle whose strong handle the body
+# replaces: the upgrade fails safely.
+#
+# oracle: count accept
+# oracle: main accept
+struct Node
+  val: Int
+
+fun count(w: ?~Node) -> Int
+  if w.upgrade() as n
+    return n.val
+  0
+
+sub main
+  s = *Node(val: 5)
+  w = ~s
+  k = 0
+  i = 0
+  while i < 3: k += count(?w)
+    s = *Node(val: 1)
+    i += 1
+  print(k, s.val)
+
+# expect: 0 1

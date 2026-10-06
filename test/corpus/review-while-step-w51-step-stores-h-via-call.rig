@@ -1,0 +1,27 @@
+# The step passes `h` to a function that stores it in `last`; after the
+# loop, `v` grows and `last` is read.
+#
+# oracle: mk accept
+# oracle: keep accept
+# oracle: main reject C4
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+sub keep(o: !S, h: S)
+  o.s = h.s
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e = [0]
+  last = S(s: ?e[..])
+  i = 0
+  while mk(?v, i) as h: keep(!last, h)
+    i += 1
+  !v.push(2)
+  print(last.s[0])

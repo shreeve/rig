@@ -3963,6 +3963,25 @@ pub fn isWhileStep(parent: Sexp, child: Sexp) bool {
     return step == .list and child == .list and step.list.id == child.list.id;
 }
 
+/// Whether `step`, the step of a `while` whose condition is `cond`,
+/// reads a name an `as` part of `cond` binds. Such a step runs in the
+/// bindings' scope, after the body; any other runs after that scope
+/// ends (docs/INTERNALS.md, "Control flow").
+pub fn stepReadsBinding(ctx: *const SemContext, cond: Sexp, step: Sexp) bool {
+    if (step == .nil) return false;
+    if (rig.isConditionJoin(cond)) return stepReadsBinding(ctx, ir.get(cond, .left), step) or stepReadsBinding(ctx, ir.get(cond, .right), step);
+    if (!cond.isKind(.as)) return false;
+    const sym = ctx.symbolOf(ir.As.name(cond)) orelse return false;
+    return usesSymbol(ctx, step, sym);
+}
+
+fn usesSymbol(ctx: *const SemContext, node: Sexp, sym: SymbolId) bool {
+    if (node == .src) return if (ctx.symbolOf(node)) |s| s == sym else false;
+    if (node != .list) return false;
+    for (node.items()) |c| if (usesSymbol(ctx, c, sym)) return true;
+    return false;
+}
+
 /// Whether a value of `ty` holds a String but no marked view or type
 /// parameter: it may view a Text, and nothing else.
 pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {

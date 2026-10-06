@@ -1,0 +1,17 @@
+# A slice of a shared Vec; the body replaces the handle (the last one),
+# freeing the Vec the step's slice views.
+#
+# oracle: all accept
+# oracle: main reject C4
+fun all(v: ?Vec[Int]) -> []Int
+  ?v[..]
+
+sub main
+  x = *Vec[Int]()
+  s = all(?x)
+  k = 0
+  i = 0
+  while i < 3: k += s.len
+    x = *Vec[Int]()
+    i += 1
+  print(k)

@@ -1,0 +1,20 @@
+# A read view of a Cell[Vec[Int]]; the body clears the cell through a
+# read path; the step reads an element (a bounds-checked copy).
+fun pick(c: ?Cell[Vec[Int]], i: Int) -> (?Cell[Vec[Int]])?
+  if i < 3
+    return c
+  none
+
+sub main
+  c: Cell[Vec[Int]] = Cell(Vec())
+  c.push(1)
+  k = 0
+  i = 0
+  while pick(?c, i) as h: k += h.len
+    c.clear()
+    c.push(7)
+    c.push(8)
+    i += 1
+  print(k)
+
+# expect: 7

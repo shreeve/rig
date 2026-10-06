@@ -1,0 +1,31 @@
+# Valid: as w51, with the read before the growth.
+#
+# oracle: mk accept
+# oracle: keep accept
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+sub keep(o: !S, h: S)
+  o.s = h.s
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e = [0]
+  last = S(s: ?e[..])
+  i = 0
+  while mk(?v, i) as h and i >= 0: keep(!last, h)
+    i += 1
+    continue if i == 1
+  print(last.s[0])
+  !v.push(2)
+  print(v.len)
+
+# expect:
+# 1
+# 2

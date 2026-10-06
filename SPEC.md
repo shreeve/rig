@@ -2307,6 +2307,30 @@ ends without `break`, after the loop: a `break` or `continue` in it
 leaves the loop around this one. A loop can also yield a value
 ([Loops as values](#loops-as-values)).
 
+The step runs after the body, so a view it reads, whether the
+condition binds it or a name declared before the loop holds it, is in
+use through the body, and its loan lasts until the step
+([How long a loan lasts](#how-long-a-loan-lasts)):
+
+```rig reject
+fun all(v: ?Vec[Int]) -> ([]Int)?
+  if v.len < 40
+    return ?v[..]
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while all(?v) as s: k += s[0]
+    !v.push(2)
+  print(k, v.len)
+```
+
+```error
+cannot lend `v` to write while a read loan is live
+```
+
 ### for
 
 `for x in source` walks an array, a slice, a `String` (bytes), or a
@@ -3158,7 +3182,8 @@ its receiver for the whole call, so `rc.show(<rc)` is rejected. A view
 stored in a binding, or in a view ([below](#second-class-views)), lasts
 until its last use. Every later use counts: a use further on, a use
 anywhere in a loop around it that the binding was declared outside of
-(the next iteration runs it again), a closure that captured it (and
+(the next iteration runs it again), a use in a `while` step, which
+counts after the body, where the step runs ([while](#while)), a closure that captured it (and
 every use of that closure), a binding that views the view in turn,
 deferred code, and the drop at scope exit of a value whose drop runs a
 `drop` body (its own, or one of a value it holds and drops), which could

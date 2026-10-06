@@ -1,0 +1,24 @@
+# oracle: mk accept
+# oracle: eat accept
+# oracle: main reject C4
+
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int]) -> S?
+  if v.len < 40
+    return S(s: ?v[..])
+  none
+
+fun eat(v: Vec[Int]) -> Int
+  v.len
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h.s[0]
+    k += eat(<v)
+    v = Vec()
+    !v.push(2)
+  print(k)

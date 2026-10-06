@@ -1,0 +1,17 @@
+# The step reads a slice the condition binds... rejected: a view
+# binding may not be used by the step.
+#
+# oracle: mk accept
+# oracle: main reject C4
+fun mk(v: ?Vec[Int]) -> ([]Int)?
+  if v.len < 40
+    return ?v[..]
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h[0]
+    !v.push(2)
+  print(k, v.len)

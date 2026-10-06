@@ -1,0 +1,39 @@
+# The same with a plain (not joined) condition, which emits Zig's own
+# continue expression.
+#
+# oracle: mk accept
+# oracle: fresh accept
+# oracle: take accept
+# oracle: main accept
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 5
+    return S(s: ?v[..])
+  none
+
+fun fresh(n: Int) -> Vec[Int]
+  a: Vec[Int] = Vec()
+  !a.push(n)
+  a
+
+fun take(a: Vec[Int]) -> Int
+  a[0]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(5)
+  a = fresh(1)
+  k = 0
+  i = 0
+  :outer while mk(?v, i) as h: a = fresh(h.s[0])
+    i += 1
+    k += take(<a)
+    j = 0
+    while j < 3: j += 1
+      break :outer if i > 100
+      continue :outer if j == 2
+  print(k, i)
+
+# expect: 21 5

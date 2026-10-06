@@ -1,0 +1,16 @@
+# The step reads an outer slice the body re-points at a Vec, after the
+# body grew that Vec.
+#
+# oracle: main reject C4
+sub main
+  w = [7, 7]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  s = ?w[..]
+  while i < 40: k += s[0]
+    s = ?v[..]
+    !v.push(2)
+    i += 1
+  print(k, v.len)

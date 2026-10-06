@@ -1,0 +1,20 @@
+# The step reads a slice the condition's binding holds, after the body
+# grew the Vec it views (a reallocation frees the old buffer).
+#
+# oracle: mk accept
+# oracle: main reject C4
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int]) -> S?
+  if v.len < 40
+    return S(s: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h.s[0]
+    !v.push(2)
+  print(k, v.len)

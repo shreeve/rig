@@ -1,0 +1,16 @@
+# The condition binds a write view of an element; the step writes
+# through it; the body grows the Vec.
+fun at(v: !Vec[Int], i: Int) -> (!Int)?
+  if i < v.len
+    return !v[i]
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  i = 0
+  while at(!v, i) as p: p += 10
+    i += 1
+    !v.push(3)
+  print(v.len)

@@ -1,0 +1,22 @@
+# The condition writes `v` and binds a view of it; the step reads the
+# view; the body only reads `v` through `h`.
+#
+# oracle: nx accept
+# oracle: main accept
+struct S
+  s: []Int
+
+fun nx(v: !Vec[Int]) -> S?
+  !v.push(v.len)
+  if v.len < 6
+    return S(s: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  k = 0
+  while nx(!v) as h: k += h.s[h.s.len - 1]
+    k += 100
+  print(k, v.len)
+
+# expect: 510 6
