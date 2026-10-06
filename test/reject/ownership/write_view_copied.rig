@@ -1,13 +1,16 @@
 # Copying a write view into a second binding would give two live
-# mutable paths to the same value; move it with `<w` instead.
+# mutable paths to the same value; move it with `<w` instead. A bare
+# write view of a value that copies reads that value (Core sentence 1:
+# test/behavior/ownership/copies_write_view_reads.rig); one of an owner
+# would be the view itself.
 
 struct Wrap
-  payload: Int
+  payload: Vec[Int]
 
 sub main()
-  a = Wrap(payload: 1)
+  a = Wrap(payload: Vec())
   w = !a
   w2 = w
-  print(w2.payload)
+  print(w2.payload.len)
 
 # error: bare use of write view `w` in binding would copy a write view, which is unique

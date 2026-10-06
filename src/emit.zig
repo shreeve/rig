@@ -4252,11 +4252,11 @@ pub const Emitter = struct {
     }
 
     /// Whether element `e` is read where it is rather than copied: its
-    /// type is not copied implicitly (`sema.copyable`), or holds a Cell
+    /// type is not copied implicitly (`sema.copies`), or holds a Cell
     /// that a `?self` method or a `set` on it changes in the element.
     fn elemInPlace(self: *Emitter, e: Sexp) bool {
         const t = self.typeOf(e) orelse return false;
-        return sema.copyable(self.sema, t) != .yes or sema.holdsCellByValue(self.sema, t);
+        return sema.copies(self.sema, t) != .yes or sema.holdsCellByValue(self.sema, t);
     }
 
     /// The object `base` of an index, emitted `how` the index needs it. A
@@ -5744,16 +5744,7 @@ pub const Emitter = struct {
             try self.w.print(".cap_{s} = ", .{c.name});
             const outer = c.outer orelse return self.unsupported(c.node, "a capture of a name that is not a local");
             switch (c.mode) {
-                .cap_clone => {
-                    try self.writeLocalPlace(&outer);
-                    // A viewed handle clones the handle it views.
-                    const kind = if (outer.kind) |k| k else if (outer.ty) |t| self.kindOf(self.peelViews(t)) else null;
-                    if (kind) |k| switch (k) {
-                        .shared => try self.w.writeAll(".cloneStrong()"),
-                        .weak => try self.w.writeAll(".cloneWeak()"),
-                        else => {},
-                    };
-                },
+                .cap_clone => try self.writeCloneCapture(&outer, c.node),
                 .cap_weak => {
                     try self.writeLocalPlace(&outer);
                     try self.w.writeAll(".weakRef()");
@@ -5767,6 +5758,37 @@ pub const Emitter = struct {
             }
         }
         try self.w.writeAll(" }");
+    }
+
+    /// `|+x|`: what `+x` gives of local `outer`, read through a view it
+    /// holds (`sema.cloneable`): a handle counted again, an owner cloned
+    /// part by part, or a copy of a value that copies.
+    fn writeCloneCapture(self: *Emitter, outer: *const Local, node: Sexp) Error!void {
+        const ty = outer.ty orelse return self.unsupported(node, "a capture of a value of unknown type");
+        switch (sema.cloneable(self.sema, ty)) {
+            .bump => switch (self.sema.types.get(self.peelViews(ty))) {
+                .optional => {
+                    try self.w.writeAll("rig.cloneOptional(");
+                    try self.writeLocalPlace(outer);
+                    try self.w.writeAll(")");
+                },
+                .shared => {
+                    try self.writeLocalPlace(outer);
+                    try self.w.writeAll(".cloneStrong()");
+                },
+                else => {
+                    try self.writeLocalPlace(outer);
+                    try self.w.writeAll(".cloneWeak()");
+                },
+            },
+            .text, .deep => {
+                try self.w.writeAll("rig.cloneValue(&(");
+                try self.writeLocalPlace(outer);
+                try self.w.writeAll("))");
+            },
+            .copy, .depends => try self.writeLocalPlace(outer),
+            .no => return self.unsupported(node, "a clone of a value that moves"),
+        }
     }
 
     /// `|?x|` / `|!x|`: the view of local `outer` a closure holds, of

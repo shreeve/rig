@@ -1,4 +1,4 @@
-# `[n of x]` copies plain data into each of its `n` slots, where `n` is
+# `[n of x]` copies a value that copies into each of its `n` slots, where `n` is
 # known at compile time; with no expected type, `x` gives the element
 # type.
 
@@ -15,7 +15,7 @@ sub main()
   d = [-1 of 0]
   e: [4]Int = [3 of 0]
   f = [2 of <v]
-  g = [2 of ?y]
+  g = [2 of !y]
   h = make(Vec[Int]())
   print(a, b, c, d, e, f, g, h)
 
@@ -25,5 +25,5 @@ sub main()
 # error: 15:8: array length -1 is out of range
 # error: 16:15: `[3 of 0]` has length `3`; `[4]Int` needs `4`
 # error: 17:13: `[n of x]` copies its element into every slot; `Vec[Int]` owns a resource
-# error: 18:13: `[n of x]` copies its element into every slot; `?Int` holds a view
+# error: 18:13: `[n of x]` copies its element into every slot; `!Int` holds a write view, which has one holder
 # error: 19:7: `make[Vec[Int]]` cannot use `T = Vec[Int]`

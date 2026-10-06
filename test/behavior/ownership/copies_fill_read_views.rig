@@ -1,0 +1,48 @@
+# `[n of x]`, `fill`, and `copy` duplicate values that copy, read views
+# included (Core §5): every copy of a view carries its loan, so the
+# viewed value may not change while the array is used, and may once it
+# is not. `copy` copies the views its source's elements hold, not a view
+# of the source, which may then change. In a generic body, `[n of x]`
+# of a `?T` copies the view.
+
+fun twice[T](x: ?T) -> [2]?T
+  [2 of x]
+
+sub main
+  n = 1
+  m = 2
+  a = [3 of ?n]
+  print(a[2])
+  !a.fill(?m)
+  print(a[0], a[2])
+  b = [?n, ?n]
+  !a[..2].copy(?b[..])
+  print(a)
+  n = 5
+  m = 6
+  print(n, m)
+  t = Text("abc")
+  s = [2 of ?t[..2]]
+  print(s[1])
+  !t.add("d")
+  print(t)
+  k = 4
+  print(twice(?k)[1])
+  p = 1
+  q = 2
+  r = 3
+  c = [?p, ?p]
+  d = [?q, ?q]
+  !c.copy(?d[..])
+  d[0] = ?r
+  print(c, d)
+
+# expect:
+# 1
+# 2 2
+# [1, 1, 2]
+# 5 6
+# ab
+# abcd
+# 4
+# [2, 2] [3, 2]

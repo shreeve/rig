@@ -1,0 +1,72 @@
+# `|+x|` captures what `+x` gives (Core §7): a copy of a value that
+# copies, read through a view; a handle counted again; and a deep copy
+# of an owner, a Text, or an array of handles, which the closure drops.
+# The owner may change afterward without the closure seeing it.
+
+struct P
+  x: Int
+
+struct N
+  v: Int
+
+  drop(!self)
+    print("drop", self.v)
+
+struct S
+  r: ?Vec[Int]
+
+struct R
+  r: ?Int
+
+# Through a view, the copy keeps what the value holds, not the view's
+# loan on its holder, which may then change.
+sub through_view
+  n = 1
+  m = 2
+  s = R(r: ?n)
+  v = ?s
+  f = |+v| v.r
+  s = R(r: ?m)
+  print(f(), s.r)
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  f = |+v| v.len
+  !v.push(2)
+  print(f(), v.len)
+  t = Text("hi")
+  g = |+t| t.len
+  !t.add("!")
+  print(g(), t)
+  r = ?t
+  k = |+r| r.len
+  print(k())
+  p = P(x: 3)
+  rp = ?p
+  m = |+rp| rp.x
+  n = 4
+  rn = ?n
+  i = |+rn| rn + 1
+  print(m(), i())
+  hs = [*N(v: 1), *N(v: 2)]
+  c = |+hs| hs[0].v + hs[1].v
+  print(c())
+  -hs
+  print(c())
+  s = S(r: ?v)
+  l = |+s| s.r.len
+  print(l())
+  through_view()
+
+# expect:
+# 1 2
+# 2 hi!
+# 3
+# 3 5
+# 3
+# 3
+# 2
+# 1 2
+# drop 2
+# drop 1
