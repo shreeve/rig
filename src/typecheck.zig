@@ -1602,7 +1602,7 @@ const Checker = struct {
                     // A held write view is lent on visibly, as `!o`; one a
                     // temporary of the header holds ends with the header.
                     if (sema.firstStmtTemp(self.ctx, expr)) |temp| {
-                        try self.errAt(expr, "`as` over a write view a temporary of the header holds: bind `{s}` to a name first, then lend the value inside with `!`", .{self.sourceText(temp)});
+                        try self.errAt(expr, "`as` over a write view in a header that makes a temporary, `{s}`, which ends with the header: bind it to a name first, then lend the value inside with `!`", .{self.sourceText(temp)});
                     } else try self.errAt(expr, "`as` over a write view lends it on: write `!{s}` to lend the value inside", .{self.sourceText(expr)});
                     try self.ctx.recordType(expr, self.t().invalid_id);
                     inner = self.t().invalid_id;
@@ -3840,7 +3840,10 @@ const Checker = struct {
         if (!self.isTemporary(operand)) return true;
         const base = if (self.hands(operand).hasStorage()) self.placeOf(operand).base else operand;
         if (self.namedLeaf(base)) |leaf| {
-            try self.errAt(base, "cannot lend `{s}` to write: it may be `{s}`, a value a name holds, which lending the branching value would copy; lend what each branch reaches instead (`!a if c else !b`, `if !o as x`)", .{ self.sourceText(base), self.sourceText(leaf) });
+            // A part of a temporary is no name's, but is copied the same.
+            if (self.hands(leaf).kind == .part_of_made) {
+                try self.errAt(base, "cannot lend `{s}` to write: it may be `{s}`, a part of the temporary `{s}`, which lending the branching value would copy; lend what each branch reaches instead (`!a if c else !b`, `if !o as x`)", .{ self.sourceText(base), self.sourceText(leaf), self.sourceText(self.placeOf(leaf).base) });
+            } else try self.errAt(base, "cannot lend `{s}` to write: it may be `{s}`, a value a name holds, which lending the branching value would copy; lend what each branch reaches instead (`!a if c else !b`, `if !o as x`)", .{ self.sourceText(base), self.sourceText(leaf) });
             return false;
         }
         try self.lendTemp(operand);
@@ -6866,6 +6869,7 @@ const Checker = struct {
 
         // `<Point.origin()`: a function called through its type or module
         // has no receiver for the sigil to apply to.
+        var misreached: ?Sexp = null;
         if (self.isReceiverSigil(obj)) {
             const place = ir.get(obj, .operand);
             if ((try self.moduleNamed(place)) != null or (try self.namedType(place)) != null) {
@@ -6874,20 +6878,15 @@ const Checker = struct {
                     try self.synthArgs(args);
                     return self.t().invalid_id;
                 }
-                if (obj.isKind(.write)) {
-                    // `!lib.mk().bump()`: the `!` meant for the value the
-                    // call makes reaches the module or type instead.
-                    const what = if ((try self.moduleNamed(place)) != null) "a module" else "a type";
-                    try self.errAt(obj, "`!` here reaches `{s}`, {s}, not the value `{s}.{s}(...)` makes: write `!({s}.{s}(...))` to lend that value, or drop the `!`", .{ self.sourceText(place), what, self.sourceText(place), method, self.sourceText(place), method });
-                    try self.synthArgs(args);
-                    return self.t().invalid_id;
-                }
-                try self.misplacedSigil(obj, method, "is called through its type or module and has no receiver");
+                // `!lib.mk().bump()`: the `!` meant for the value the call
+                // makes reaches the module or type instead, reported once
+                // the call's type is known.
+                if (obj.isKind(.write)) misreached = obj else try self.misplacedSigil(obj, method, "is called through its type or module and has no receiver");
                 obj = place;
             }
         }
-        if (try self.moduleNamed(obj)) |id| return self.crossModuleCall(id, method, pos, args, ct);
-        if (try self.namedType(obj)) |nt| return self.associatedCall(obj, nt, method, pos, args, ct);
+        if (try self.moduleNamed(obj)) |id| return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
+        if (try self.namedType(obj)) |nt| return self.misreachedWrite(misreached, obj, method, try self.associatedCall(obj, nt, method, pos, args, ct));
 
         // A consuming (`<self`) method may take a temporary, and a
         // `?self` one reads it where it stands; a `!self` one needs it
@@ -7069,6 +7068,22 @@ const Checker = struct {
         self.lend_recv = f.params[0];
         try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins });
         return f.returns;
+    }
+
+    /// `sigil`, a `!` the receiver-sigil rule moved onto `place`, a module
+    /// or type through which a function is called, so it reaches no
+    /// value: reported, with the form that lends the value the call
+    /// makes (of type `ty`), or, before a `Bool`, the habit of `!` as
+    /// negation (as `fieldCallSigil` does). `ty` when there is none.
+    fn misreachedWrite(self: *Checker, sigil: ?Sexp, place: Sexp, method: []const u8, ty: TypeId) Error!TypeId {
+        const s = sigil orelse return ty;
+        const what = if ((try self.moduleNamed(place)) != null) "a module" else "a type";
+        const shown = self.sourceText(place);
+        const value = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible else ty;
+        if (value == self.t().bool_id) {
+            try self.errAt(s, "`!` here reaches `{s}`, {s}, and `{s}.{s}(...)` makes a `Bool`; for negation use `not`", .{ shown, what, shown, method });
+        } else try self.errAt(s, "`!` here reaches `{s}`, {s}, not the value `{s}.{s}(...)` makes: write `!({s}.{s}(...))` to lend that value, or drop the `!`", .{ shown, what, shown, method, shown, method });
+        return self.t().invalid_id;
     }
 
     /// `copy`, `fill`, and `swap`: built-in methods on the elements of a

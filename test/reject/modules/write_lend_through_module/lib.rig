@@ -10,3 +10,6 @@ pub struct T
 
 pub fun mk -> T
   T(n: 5)
+
+pub fun ok -> Bool
+  true

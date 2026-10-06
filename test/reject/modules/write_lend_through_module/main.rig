@@ -1,7 +1,8 @@
 # `!` before a function called through a module or a type reaches the
 # module or type, which a parse cannot tell from a value's method: one
 # diagnostic says so, and how to lend the value the call makes
-# (`test/behavior/modules/write_lend_made_by_module`).
+# (`test/behavior/modules/write_lend_made_by_module`), or, before a
+# `Bool`, that `!` is not negation.
 use lib
 
 struct U
@@ -26,9 +27,12 @@ sub main
   print(!lib.T.make().bump())
   print(!U.make().bump())
   sete(!E.a(s: "x"))
+  if !lib.ok()
+    print("no")
 
-# error: 25:9: `!` here reaches `lib`, a module, not the value `lib.mk(...)` makes: write `!(lib.mk(...))` to lend that value
-# error: 26:9: `!` here reaches `lib.T`, a type, not the value `lib.T.make(...)` makes
-# error: 27:9: `!` here reaches `U`, a type, not the value `U.make(...)` makes
-# error: 28:8: `!` here reaches `E`, a type, not the value `E.a(...)` makes
-# errors: 4
+# error: 26:9: `!` here reaches `lib`, a module, not the value `lib.mk(...)` makes: write `!(lib.mk(...))` to lend that value
+# error: 27:9: `!` here reaches `lib.T`, a type, not the value `lib.T.make(...)` makes
+# error: 28:9: `!` here reaches `U`, a type, not the value `U.make(...)` makes
+# error: 29:8: `!` here reaches `E`, a type, not the value `E.a(...)` makes
+# error: 30:6: `!` here reaches `lib`, a module, and `lib.ok(...)` makes a `Bool`; for negation use `not`
+# errors: 5
