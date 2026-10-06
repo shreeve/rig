@@ -1,0 +1,25 @@
+# A label repeating the enclosing one: the inner `:a for`'s `break :a` leaves the inner loop; the outer's label is used only by a `continue :a` in its body, which leaves the body's block.
+# Expected: accepted, prints `end 3 3`.
+#
+# oracle: mk accept
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  j = 0
+  :a while mk(?v, i) as h and i >= 0: k += h.s[0]
+    i += 1
+    continue :a if i == 99
+    :a for _ in 0..2
+      j += 1
+      break :a
+  print("end", k, j)

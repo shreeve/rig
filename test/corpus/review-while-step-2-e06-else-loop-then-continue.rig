@@ -1,0 +1,39 @@
+# An unlabeled `continue` after a loop inside a nested while's `else` leaves the loop around it: the joined outer loop, whose step reads its binding and refills `a`. Expected: accepted, prints `21 5` (the first pass takes 1, each later one 5), sanitizer-clean; or rejected.
+#
+# oracle: mk accept
+# oracle: fresh accept
+# oracle: take accept
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 5
+    return S(s: ?v[..])
+  none
+
+fun fresh(n: Int) -> Vec[Int]
+  a: Vec[Int] = Vec()
+  !a.push(n)
+  a
+
+fun take(a: Vec[Int]) -> Int
+  a[0]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(5)
+  a = fresh(1)
+  k = 0
+  i = 0
+  while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+    i += 1
+    k += take(<a)
+    j = 0
+    while j < 2: j += 1
+      k += 0
+    else
+      for _ in 0..1
+        k += 0
+      continue
+    k += 100
+  print(k, i)

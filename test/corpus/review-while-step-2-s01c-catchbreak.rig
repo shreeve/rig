@@ -1,0 +1,45 @@
+# A step that reads a binding of a joined condition runs after the
+# body's scope ends (the checker: `while true { x = a or break; { body };
+# step }`), so a body `defer` runs before it. Here the step moves `b`,
+# which the body's defer reads. Expected: accepted, prints d 1 / d 2 /
+# d 3 then `end 6 3`, sanitizer-clean.
+#
+# oracle: mk accept
+# oracle: fresh accept
+# oracle: mkf accept
+# oracle: take accept
+# oracle: main accept
+error E
+  bad
+
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+fun fresh(n: Int) -> Vec[Int]
+  a: Vec[Int] = Vec()
+  !a.push(n)
+  a
+
+fun mkf(v: ?Vec[Int], i: Int) -> S?!
+  return E.bad if i > 70
+  mk(v, i)
+
+fun take(a: Vec[Int]) -> Int
+  a[0]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  b = fresh(0)
+  k = 0
+  i = 0
+  while (mkf(?v, i) catch break) as h: k += h.s[0] + take(<b)
+    i += 1
+    b = fresh(i)
+    defer print("d", b[0])
+  print("end", k, i)

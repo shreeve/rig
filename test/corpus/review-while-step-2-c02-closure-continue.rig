@@ -1,0 +1,22 @@
+# Closures cannot leave a loop around them (unlabeled, in a block body). Expected: rejected.
+#
+# oracle: mk accept
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  while mk(?v, i) as h and i >= 0: k += h.s[0]
+    i += 1
+    f = ||
+      continue
+    f()
+  print(k)
