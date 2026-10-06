@@ -1,0 +1,64 @@
+# A value an argument hands a call that carries a write loan keeps its
+# root lent to write until the call returns, so a later argument cannot
+# lend it, read it, or move it (Core sentence 5).
+# oracle: receiver_result reject C4
+# oracle: moved_view reject C4
+# oracle: moved_holder reject C4
+# oracle: closure_arg reject C4
+
+struct Item
+  n: Int
+
+struct Bag
+  items: Vec[Item]
+
+  fun firstw(!self) -> !Item
+    !self.items[0]
+
+struct Hold
+  w: !Item
+
+fun both(a: !Item, b: ?Bag) -> Int
+  a.n += 1
+  a.n + b.items[0].n
+
+fun pair(a: !Item, b: ?Item) -> Int
+  a.n += 1
+  a.n + b.n
+
+fun held(h: Hold, b: ?Item) -> Int
+  h.w.n += 1
+  h.w.n + b.n
+
+fun calls(f: ?sub(), b: ?Item) -> Int
+  f()
+  b.n
+
+sub receiver_result
+  b = Bag(items: Vec())
+  !b.items.push(Item(n: 7))
+  print(both(!b.firstw(), ?b))
+
+sub moved_view
+  x = Item(n: 1)
+  w = !x
+  print(pair(<w, ?x))
+
+sub moved_holder
+  x = Item(n: 1)
+  h = Hold(w: !x)
+  print(held(<h, ?x))
+
+sub closure_arg
+  x = Item(n: 1)
+  f = |!x| x.n += 1
+  print(calls(?f, ?x))
+
+sub main
+  receiver_result()
+
+# error: 40:28: cannot lend `b` to read while a write loan is live
+# error: 45:19: cannot lend `x` to read while a write loan is live
+# error: 50:19: cannot lend `x` to read while a write loan is live
+# error: 55:20: cannot lend `x` to read while a write loan is live
+# errors: 4

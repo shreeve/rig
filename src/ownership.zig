@@ -3455,6 +3455,12 @@ pub const Checker = struct {
             // An argument the call copies into storage of its own is lent
             // from the copy.
             if (self.heldForCall(storage.argValue(a), .argument)) |held| v.* = try self.holdForCall(held, v.*, .read);
+            // A value handed over that carries a write loan (a write view
+            // a method's result keeps of its receiver) keeps its root lent
+            // to write until the call returns, as a write lend in the
+            // argument does (Core sentence 5): a later argument may not
+            // lend, read, or move it.
+            for (v.loans) |l| if (l.kind == .write and !l.ext and !containsLoan(self.temps.items[@min(temps_start, self.temps.items.len)..], l)) try self.addTemp(l);
             // A generic body's `T` holds no loan here, but an instance's
             // may be a String viewing a Text.
             if (cell != null) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a));

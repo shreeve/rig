@@ -1236,7 +1236,9 @@ handle to one reaches what it holds, so loans kept per handle var would
 miss the other handles. A loan not stored anywhere is a temporary and
 ends with its statement; the loans of a moved value stay in force
 until the call or statement that consumes it ends, so a later argument
-of the same call cannot lend or move their roots. Likewise, an
+of the same call cannot lend or move their roots, and so does a write
+loan any argument's value carries (a write view a method's result keeps
+of its receiver: `both(!b.firstw(), ?b)` is rejected). Likewise, an
 argument that reads a place by value whose value shares storage the
 place owns (a Vec, a box, a handle, a struct holding one, or what a
 write view reaches: `print(v, grow(!v))`) leaves a read loan of the
