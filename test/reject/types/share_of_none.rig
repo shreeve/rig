@@ -1,0 +1,39 @@
+# `*none` would make a shared handle of nothing: an optional handle
+# with no value is `none` itself, where a `(*T)?` is expected. Every
+# position is rejected: a binding, a typed binding, an argument, a
+# field, a return, an array element, a Vec element, and `~*none`. (`none`
+# itself, and a box of an optional, compile: test/behavior/types/
+# optional_handle_none.rig. Where a handle of an optional, `*(T?)`, is
+# expected, `*none` is that handle holding `none`:
+# test/behavior/types/optional_handle_binding.rig.)
+
+struct S
+  h: (*Int)?
+
+sub f(h: (*Int)?)
+  print(h == none)
+
+fun g() -> (*Int)?
+  *none
+
+sub main
+  a = *none
+  b: (*Int)? = *none
+  f(*none)
+  s = S(h: *none)
+  print([*none, *none].len)
+  w: Vec[(*Int)?] = Vec()
+  !w.push(*none)
+  k = ~*none
+  print(g() == none)
+
+# error: 17:3: `*none` makes a handle of nothing; write `none` where a `(*T)?` is expected
+# error: 20:7: `*none` makes a handle of nothing
+# error: 21:16: `*none` makes a handle of nothing
+# error: 22:5: `*none` makes a handle of nothing
+# error: 23:12: `*none` makes a handle of nothing
+# error: 24:10: `*none` makes a handle of nothing
+# error: 24:17: `*none` makes a handle of nothing
+# error: 26:11: `*none` makes a handle of nothing
+# error: 27:8: `*none` makes a handle of nothing
+# errors: 9

@@ -1,0 +1,6 @@
+struct H[T]
+  h: *T
+
+sub main
+  x = H(h: *|a: Int| a + 1)
+  print(x.h(2))

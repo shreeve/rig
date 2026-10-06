@@ -1,0 +1,26 @@
+# A write view a method's result keeps of its receiver holds the
+# receiver lent to write only while a call holds the view: read where it
+# stands, its value is copied out first, and a later argument may read
+# the receiver (test/reject/ownership/argument_write_loan_held.rig).
+
+struct Item
+  n: Int
+
+struct Bag
+  items: Vec[Item]
+
+  fun firstw(!self) -> !Item
+    !self.items[0]
+
+fun sum(a: Int, b: ?Bag) -> Int
+  a + b.items.len
+
+sub main
+  b = Bag(items: Vec())
+  !b.items.push(Item(n: 7))
+  print(!b.firstw().n, b.items.len)
+  print(sum(!b.firstw().n, ?b))
+
+# expect:
+# 7 1
+# 8

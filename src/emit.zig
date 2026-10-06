@@ -4386,18 +4386,22 @@ pub const Emitter = struct {
     }
 
     /// `.value` for each shared handle and box that member access on a
-    /// `ty` reaches through (`sema.unwrapAccess`).
+    /// `ty` reaches through (`sema.unwrapAccess`). A box's `.value` is a
+    /// pointer, so a handle it holds is dereferenced before its own.
     fn writeReach(self: *Emitter, ty: TypeId) Error!void {
         var t = ty;
+        var ptr = false;
         while (true) switch (self.sema.types.get(t)) {
             .read_view, .write_view => |inner| t = inner,
             .shared => |inner| {
-                try self.w.writeAll(".value");
+                try self.w.writeAll(if (ptr) ".*.value" else ".value");
                 t = inner;
+                ptr = false;
             },
             else => {
                 t = sema.boxedType(self.sema, t) orelse break;
                 try self.w.writeAll(".value");
+                ptr = true;
             },
         };
     }

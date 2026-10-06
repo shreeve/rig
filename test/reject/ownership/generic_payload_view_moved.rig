@@ -1,0 +1,57 @@
+# A `match` binding of a `T` in a value the match reads without taking
+# it is a view of that value, whatever the subject: a view a call
+# returns, a branching value, or a field or element of either, as of a
+# place. Moving it, returning it by name, or dropping it is rejected.
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct W[T]
+  o: Opt[T]
+
+fun get[T](o: ?Opt[T]) -> ?Opt[T] from o
+  o
+
+fun getw[T](w: ?W[T]) -> ?W[T] from w
+  w
+
+fun take[T](x: T) -> T
+  <x
+
+fun moved[T](o: ?Opt[T], d: T) -> T
+  match get(o)
+    .some(v) => take(<v)
+    .nothing => <d
+
+fun returned[T](o: ?Opt[T], o2: ?Opt[T], c: Bool, d: T) -> T
+  match (o if c else o2)
+    .some(v)
+      return v
+    .nothing => <d
+
+fun dropped[T](w: ?W[T], d: T) -> T
+  match getw(w).o
+    .some(v) if true
+      -v
+      <d
+    _ => <d
+
+fun whole[T](w: ?W[T]) -> Opt[T]
+  match getw(w).o
+    x
+      return x
+
+sub main
+  o: Opt[Int] = .some(v: 1)
+  w: W[Int] = W(o: .some(v: 2))
+  print(moved(?o, 0))
+  print(returned(?o, ?o, true, 0))
+  print(dropped(?w, 0))
+  _ = whole(?w)
+
+# error: 24:23: cannot move out of `v`: it is a view of `get(o)`
+# error: 30:14: cannot move out of `v`: it is a view of `o if c else o2`
+# error: 36:8: cannot move out of `v`: it is a view of `getw(w).o`
+# error: 43:14: cannot move out of `x`: it is a view of `getw(w).o`
+# errors: 4

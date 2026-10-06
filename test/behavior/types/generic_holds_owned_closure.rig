@@ -1,0 +1,45 @@
+# A generic declaration holds an owned closure, or a function, as a
+# `T`, in a `Box[T]`, or in a `Vec[T]`; a `*T` of plain data is a
+# handle as ever. (A `*T` or `~T` of a function type is rejected:
+# test/reject/types/generic_handle_of_function_type.rig.)
+
+fun inc(a: Int) -> Int
+  a + 1
+
+struct H[T]
+  h: T
+
+struct B[T]
+  b: Box[T]
+
+struct L[T]
+  l: Vec[T]
+
+struct S[T]
+  s: *T
+
+sub main
+  x = H(h: *|a: Int| a + 10)
+  print(x.h(2))
+  y = H(h: inc)
+  print(y.h(2))
+  b: B[*fun(Int) -> Int] = B(b: Box(*|a: Int| a * 3))
+  bx: Box[*fun(Int) -> Int] = Box(*|a: Int| a * 3)
+  f = <bx.unbox()
+  print(f(2))
+  l: L[*fun(Int) -> Int] = L(l: Vec())
+  !l.l.push(*|a: Int| a - 1)
+  print(l.l[0](2))
+  m: L[fun(Int) -> Int] = L(l: Vec())
+  !m.l.push(inc)
+  print(m.l[0](5))
+  s = S(s: *4)
+  print(s.s)
+
+# expect:
+# 12
+# 3
+# 6
+# 1
+# 6
+# 4

@@ -880,7 +880,12 @@ const Lowerer = struct {
         // or a call's result, is read as its value in the header, which
         // carries no loan (Core §4).
         const named = if (value.isKind(.read)) ir.Read.operand(value) else value;
-        if (!value.isKind(.write) and !self.isPlaceSyntax(named)) v = try self.readThrough(v, pos);
+        // A bare `match` subject reads a `T` in a view a call returns
+        // where it is, as it reads a place's: each binding sees its
+        // payload through the view (Core s1), and a generic body's copy
+        // of one is the instance's question where the binding is used.
+        const in_place = how == .read and self.kinds.generic and !value.isKind(.read);
+        if (!value.isKind(.write) and !self.isPlaceSyntax(named)) v = if (in_place) try self.readPlainThrough(v, pos) else try self.readThrough(v, pos);
         const h = try self.hold(v, "the `as` value", pos);
         try self.popRegion(pos);
         var carry_from: ?VarId = null;
@@ -2671,6 +2676,19 @@ const Lowerer = struct {
     /// A `?T` or `!T` made where a value is wanted is read there: the
     /// value is copied out and the loan taken to reach it ends (SPEC §7
     /// "Second-class views").
+    /// `readThrough` of plain data only: a view of a value whose copy
+    /// depends on the instance stays a view.
+    fn readPlainThrough(self: *Lowerer, v: VarId, pos: u32) Error!VarId {
+        const vv = self.f.vars.items[v];
+        if (!vv.hidden) return v;
+        const inner_ty = switch (self.ctx.types.get(vv.ty)) {
+            .read_view, .write_view => |t| t,
+            else => return v,
+        };
+        if (!(try self.kinds.of(inner_ty)).kind.copies()) return v;
+        return self.readThrough(v, pos);
+    }
+
     fn readThrough(self: *Lowerer, v: VarId, pos: u32) Error!VarId {
         const vv = self.f.vars.items[v];
         if (!vv.hidden) return v;

@@ -1,0 +1,35 @@
+# A box that holds a shared handle reaches its value through the
+# handle, as `*Box[S]` does: nothing is written there, since other
+# handles may exist. Writing a field, calling a write method, lending a
+# field to write, and `match !b` are rejected.
+
+enum K
+  a(n: Int)
+  b
+
+struct S
+  n: Int
+  xs: Vec[Int]
+
+  sub bump(!self)
+    self.n += 1
+
+sub main
+  b: Box[*S] = Box(*S(n: 1, xs: Vec()))
+  bb: Box[Box[*S]] = Box(Box(*S(n: 2, xs: Vec())))
+  e: Box[*K] = Box(*K.a(n: 3))
+  b.n = 5
+  !bb.bump()
+  !b.xs.push(1)
+  bb.n += 1
+  match !e
+    .a(n)
+      n = 4
+    .b => pass
+
+# error: 21:3: cannot assign through a shared handle (`*T`)
+# error: 22:7: cannot call write-receiver method `bump` through a shared handle (`*T`)
+# error: 23:4: cannot lend to write through a shared handle (`*T`)
+# error: 24:3: cannot assign through a shared handle (`*T`)
+# error: 25:9: cannot `match !e`: the box holds a shared handle (`*T`)
+# errors: 5

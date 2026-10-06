@@ -1463,7 +1463,11 @@ consume its collection (`for x in ?v`), or unwraps a `T` out of a
 viewed optional with `as`, since the collection or the owner still
 holds the value. A type argument cannot be or hold a `?T`, `!T`, or slice, for a
 generic function or a generic type with methods: the parameter is
-written `?T` or `!T` instead.
+written `?T` or `!T` instead. A declaration that makes a shared or weak
+handle of a parameter (`*T`, `~T`) cannot be instantiated with a
+function type, since `*fun(Int) -> Int` is an owned closure, not a
+handle of a function: an owned closure is held as a `T`, with
+`T = *fun(Int) -> Int`.
 
 ```rig
 struct Track
@@ -2535,7 +2539,8 @@ source and `if … as` do:
 | `match <e` | own the fields: `e` is consumed, and what an arm does not move on is dropped at the end of the arm |
 
 A bare `match e` of a place only reads it, so moving a payload out of
-it is rejected; that takes `match <e`. A call's result is taken, as
+it is rejected; that takes `match <e`. So does a match of a view a call
+returns, of a branching value, or of a field or element of either. A call's result is taken, as
 `match <e` would take it ([§7](#temporaries)): `match make()` owns its
 payloads. Its bindings only read, too, even of a
 field or value that is itself a write view. A binding of `match <e`
@@ -4081,7 +4086,9 @@ Long chains of boxes are released without deep recursion.
 | `match b`, `match !b` | match a boxed enum where it is |
 
 The box is reached as it is held: through an owned box or a `!Box[T]`
-its value can be written, through a `?Box[T]` only read. A consuming
+its value can be written, through a `?Box[T]` only read. A box of a
+shared handle (`Box[*S]`) reaches the value through the handle, as
+`*Box[S]` does: it is read, and written only through a Cell. A consuming
 (`<self`) method of the value, `<b.m()`, takes the value out of the box
 first. `T` holds no `?T`, `!T`, or slice. A box has no field of its own: `b.value`
 of a `Box[Int]` names nothing, and the number is lent (`?b`) or taken

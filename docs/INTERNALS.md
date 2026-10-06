@@ -1373,8 +1373,13 @@ are unioned. A
 one), whose root stays lent while a payload binding views it (lent
 to write for `match !x`, whose bindings write through like a local
 write view); moving a payload out of a match that reads its subject
-is rejected. `match <x` moves `x` first, and its bindings are owned
-vars holding what `x` held. A guard that fails runs on the way to
+is rejected. A subject that is no place and that the match reads
+without taking it (`storage.matchMode`), a view a call returns, a
+branching value, or a part of either, is viewed the same way: a binding
+that is not a view by its type does not own what it binds
+(`Var.payload_view`), so a generic body that gives away a `T` bound so
+copies it, and records it in `plain_reqs`. `match <x` moves `x` first,
+and its bindings are owned vars holding what `x` held. A guard that fails runs on the way to
 the later arms: they, and the path where no arm runs, start from the
 join of the entry state with what each failed guard left. That path,
 like the one where a part of `if a as x and ...` fails, leaves the

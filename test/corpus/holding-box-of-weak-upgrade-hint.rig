@@ -1,0 +1,8 @@
+struct S
+  n: Int
+
+sub main
+  h = *S(n: 1)
+  a: Box[~S] = Box(~h)
+  if a.upgrade() as x
+    print(x.n)

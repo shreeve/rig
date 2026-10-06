@@ -1,10 +1,12 @@
 # A value an argument hands a call that carries a write loan keeps its
 # root lent to write until the call returns, so a later argument cannot
-# lend it, read it, or move it (Core sentence 5).
+# lend it, read it, or move it (Core sentence 5). A constructor's
+# fields are its arguments.
 # oracle: receiver_result reject C4
 # oracle: moved_view reject C4
 # oracle: moved_holder reject C4
 # oracle: closure_arg reject C4
+# oracle: constructor_arg reject C4
 
 struct Item
   n: Int
@@ -17,6 +19,10 @@ struct Bag
 
 struct Hold
   w: !Item
+
+struct Pair
+  w: !Item
+  r: ?Bag
 
 fun both(a: !Item, b: ?Bag) -> Int
   a.n += 1
@@ -54,11 +60,18 @@ sub closure_arg
   f = |!x| x.n += 1
   print(calls(?f, ?x))
 
+sub constructor_arg
+  b = Bag(items: Vec())
+  !b.items.push(Item(n: 7))
+  p = Pair(w: !b.firstw(), r: ?b)
+  print(p.r.items.len)
+
 sub main
   receiver_result()
 
-# error: 40:28: cannot lend `b` to read while a write loan is live
-# error: 45:19: cannot lend `x` to read while a write loan is live
-# error: 50:19: cannot lend `x` to read while a write loan is live
-# error: 55:20: cannot lend `x` to read while a write loan is live
-# errors: 4
+# error: 46:28: cannot lend `b` to read while a write loan is live
+# error: 51:19: cannot lend `x` to read while a write loan is live
+# error: 56:19: cannot lend `x` to read while a write loan is live
+# error: 61:20: cannot lend `x` to read while a write loan is live
+# error: 66:32: cannot lend `b` to read while a write loan is live
+# errors: 5

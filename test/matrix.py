@@ -269,19 +269,25 @@ PAYLOAD_TYPES = {
     "shared": dict(ty="*N", mk="*N(v: 7)", mk2="*N(v: 70)", show="print(v.v)", out="7"),
 }
 # How the match reaches the enum: a `?E` parameter matched bare or lent
-# again, a `?Box[E]` parameter, a field of a `?H` parameter, or a `?G[T]`
-# parameter of a generic function. `main` makes `e` from `mk()` and
-# passes `?e`.
+# again, a `?Box[E]` parameter, a field of a `?H` parameter, or, in a
+# generic function, a `?G[T]` parameter, the view a call returns of one,
+# a lend of that view, a branching value, or a field of a view a call
+# returns. `main` makes `e` from `mk()` and passes `?e`.
 PAYLOAD_SUBJECTS = {
     "param": dict(param="e: ?E", subj="e"),
     "lend": dict(param="e: ?E", subj="?e"),
     "box": dict(param="e: ?Box[E]", subj="e", make="e = Box(E.a(r: mk()))"),
     "field": dict(param="e: ?H", subj="e.e", make="e = H(e: E.a(r: mk()))"),
     "generic": dict(param="e: ?G[T]", subj="e", make="e: G[TY] = .a(r: mk())", generic=True),
+    "generic_call": dict(param="e: ?G[T]", subj="getg(e)", make="e: G[TY] = .a(r: mk())", generic=True),
+    "generic_lend_call": dict(param="e: ?G[T]", subj="?getg(e)", make="e: G[TY] = .a(r: mk())", generic=True),
+    "generic_branch": dict(param="e: ?G[T]", subj="(e if yes() else e)", make="e: G[TY] = .a(r: mk())", generic=True),
+    "generic_field_call": dict(param="e: ?GH[T]", subj="getgh(e).e", make="e: GH[TY] = GH(e: .a(r: mk()))", generic=True),
 }
 # Where the view goes: the arms use it (`arm`, through `see`, which runs
 # `clobber` first), return it (`ret`), or store it (`store`) in a binding
-# that held a view of `k` and that the function returns.
+# that held a view of `k` and that the function returns. A `copy` escape
+# returns the payload, or the whole value, by value.
 PAYLOAD_ESCAPES = {
     "arm": dict(arm=[".a(r) => see(?r)", ".b(r) => see(?r)"]),
     "arm_guard": dict(arm=[".a(r) if ok(?r) => see(?r)", "_ => pass"]),
@@ -293,6 +299,9 @@ PAYLOAD_ESCAPES = {
     "store": dict(store=[".a(r) => saved = ?r", ".b(_) => pass"]),
     "guard_store": dict(store=[".a(r) if ok(?r) => saved = ?r", "_ => pass"]),
     "whole_store": dict(store=[".b(_) => pass", "x => saved = ?x"], whole=True),
+    "copy": dict(ret=[".a(r) => r", ".b(r) => r"], copy=True),
+    "copy_guard": dict(ret=[".a(r) if ok(?r) => r", ".a(r) => r", ".b(r) => r"], copy=True),
+    "copy_whole": dict(ret=["x => x"], whole=True, copy=True),
 }
 
 
@@ -304,6 +313,8 @@ def payload_program(tname, sname, ename):
     ty = t["ty"]
     out = ["struct N\n  v: Int\n", "struct P\n  x: Int\n  y: Int\n", "struct Res\n  n: Int\n  t: Text\n",
            f"enum E\n  a(r: {ty})\n  b(r: {ty})\n", "struct H\n  e: E\n", "enum G[T]\n  a(r: T)\n  b(r: T)\n",
+           "struct GH[T]\n  e: G[T]\n", "fun getg[T](e: ?G[T]) -> ?G[T] from e\n  e\n",
+           "fun getgh[T](h: ?GH[T]) -> ?GH[T] from h\n  h\n", "fun yes() -> Bool\n  true\n",
            f"fun mk() -> {ty}\n  {t['mk']}\n", f"fun mk2() -> {ty}\n  {t['mk2']}\n",
            f"fun ok(v: ?{ty}) -> Bool\n  true\n",
            "fun clobber(n: Int) -> Int\n  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]\n"
@@ -332,7 +343,8 @@ def payload_program(tname, sname, ename):
         out.append("fun gok[T](v: ?T) -> Bool\n  true\n")
     arms = [a.replace("ok(", "gok(") if s.get("generic") else a for a in x.get("ret", x.get("store", []))]
     if "ret" in x:
-        out.append(f"fun {fun}({s['param']}) -> ?{res}\n  match {s['subj']}\n" + indent(arms, 4) + "\n")
+        view = "" if x.get("copy") else "?"
+        out.append(f"fun {fun}({s['param']}) -> {view}{res}\n  match {s['subj']}\n" + indent(arms, 4) + "\n")
         main.append("v = inner(?e)")
     else:
         body = ["saved = k", f"match {s['subj']}"] + ["  " + a for a in arms] + ["saved"]

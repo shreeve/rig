@@ -1,0 +1,31 @@
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct W[T]
+  o: Opt[T]
+  p: T?
+
+fun get[T](o: ?Opt[T]) -> ?Opt[T] from o
+  o
+
+fun getw[T](w: ?W[T]) -> ?W[T] from w
+  w
+
+fun nest[T](o: ?Opt[Opt[T]], d: T) -> T
+  match get(o)
+    .some(inner)
+      match <inner
+        .some(v) => v
+        .nothing => <d
+    .nothing => <d
+
+sub main
+  o: Opt[Opt[Text]] = .some(v: .some(v: Text("x")))
+  print(nest(?o, Text("d")))
+  match o
+    .some(i)
+      match i
+        .some(v) => print(v)
+        .nothing => pass
+    .nothing => pass

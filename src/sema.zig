@@ -1243,6 +1243,10 @@ pub const Requirement = union(enum) {
     /// Not an error: the signature returns the parameter as a fallible
     /// `T!`, whose failure and success would both be errors.
     not_error,
+    /// Not a function type: the declaration makes a shared or weak handle
+    /// of the parameter (`*T`, `~T`), and `*fun(...)` is an owned
+    /// closure, not a handle of a function.
+    not_function,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -1261,6 +1265,7 @@ pub const Requirement = union(enum) {
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
             .not_error => "a fallible return",
+            .not_function => "a handle",
         };
     }
 };
@@ -1274,6 +1279,16 @@ pub const GenericRequirement = struct {
     /// module that declares the body of a proxy's requirement.
     module_id: u32 = 0,
 };
+
+/// A shared or weak handle of `inner` (`*T`, `~T`, by `op`) is made or
+/// spelled at `pos`: when `inner` is a type parameter, each instance must
+/// give it a type that is no function (`Requirement.not_function`).
+pub fn requireHandleOf(ctx: *SemContext, inner: TypeId, pos: u32, op: []const u8) !void {
+    switch (ctx.types.get(inner)) {
+        .type_var => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .not_function, .pos = pos, .op = op }),
+        else => {},
+    }
+}
 
 /// A generic body copies a value of a type parameter, found by the
 /// ownership checker: every instance's argument for it must own no
@@ -3693,6 +3708,18 @@ pub fn unwrapAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
     var id = unwrapReadAccess(ctx, ty_id);
     while (boxedType(ctx, id)) |inner| id = unwrapReadAccess(ctx, inner);
     return id;
+}
+
+/// Whether member access on a `ty_id` reaches its value through a shared
+/// handle (`unwrapAccess`): `*S`, `*Box[S]`, `Box[*S]`, or a view of
+/// one. Nothing is written there, since other handles may exist.
+pub fn accessThroughShared(ctx: *const SemContext, ty_id: TypeId) bool {
+    var id = ty_id;
+    while (true) switch (ctx.types.get(id)) {
+        .shared => return true,
+        .read_view, .write_view => |inner| id = inner,
+        else => id = boxedType(ctx, id) orelse return false,
+    };
 }
 
 /// Where a nominal type is declared: the module's context and the

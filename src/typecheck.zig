@@ -1174,7 +1174,7 @@ const Checker = struct {
                 .write_view, .shared, .slice => place.indirect = true,
                 else => {},
             }
-            if (obj == .shared) place.block(.shared, 0);
+            if (sema.accessThroughShared(self.ctx, ty)) place.block(.shared, 0);
         }
         place.base = p;
         place.pos = self.startOf(p);
@@ -2108,7 +2108,12 @@ const Checker = struct {
         if (sema.boxedType(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != null) if (sema.boxedNominal(self.ctx, scrutinee)) |inner| {
             switch (self.ctx.types.get(scrutinee)) {
                 .read_view => scrutinee = try self.ctx.intern(.{ .read_view = inner }),
-                .write_view => scrutinee = try self.ctx.intern(.{ .write_view = inner }),
+                .write_view => if (sema.accessThroughShared(self.ctx, scrutinee)) {
+                    try self.errAt(subject, "cannot `match !{s}`: the box holds a shared handle (`*T`), and other handles may exist; match it with `match {s}` to read it, and use an interior-mutable `Cell[T]` for mutation through shared ownership", .{ self.sourceText(ir.Write.operand(subject)), self.sourceText(ir.Write.operand(subject)) });
+                    scrutinee = self.t().invalid_id;
+                } else {
+                    scrutinee = try self.ctx.intern(.{ .write_view = inner });
+                },
                 else => {
                     const place = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
                     const shown = self.sourceText(place);
@@ -2507,6 +2512,7 @@ const Checker = struct {
                         // A binding that is no plain data is usable in its
                         // arm only.
                         if (mode == .read and !self.isPoison(scrutinee) and sema.copyable(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                        if (mode == .read) try self.readBinding(scrutinee, pattern);
                         self.ctx.symbols.items[sym].ty = scrutinee;
                         try self.ctx.recordType(pattern, scrutinee);
                     }
@@ -2647,9 +2653,7 @@ const Checker = struct {
                 try self.ctx.intern(.{ .read_view = f.ty })
             else
                 f.ty;
-            // A payload of a type parameter read is bound by copy: no
-            // instance may hold a Cell the copy would fork.
-            if (mode == .read and view and sema.maybeDropGlue(self.ctx, f.ty)) try self.requireOf(f.ty, .no_cell, self.startOf(b), "copies into a match binding a value");
+            if (mode == .read) try self.readBinding(f.ty, b);
             try self.ctx.recordType(b, ty);
             if (self.ctx.symbolOf(b)) |sym| {
                 self.ctx.symbols.items[sym].ty = ty;
@@ -2657,6 +2661,17 @@ const Checker = struct {
                 if (mode == .read and view and sema.copyable(self.ctx, f.ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
             }
         }
+    }
+
+    /// A read match binds `b`, a payload or the whole matched value, of
+    /// type `ty` where the matched value is. One that is no view or
+    /// slice and holds a type parameter by value is bound by copy: no
+    /// instance may hold a Cell the copy would fork. (Where the copy is
+    /// consumed, the ownership checker requires an instance that owns
+    /// nothing: `Var.payload_view`.)
+    fn readBinding(self: *Checker, ty: TypeId, b: Sexp) Error!void {
+        if (self.isPoison(ty) or sema.isReadOrWriteView(self.ctx, ty) or self.ctx.types.get(ty) == .slice) return;
+        if (sema.maybeDropGlue(self.ctx, ty)) try self.requireOf(ty, .no_cell, self.startOf(b), "copies into a match binding a value");
     }
 
     fn reportMissingVariant(self: *Checker, enum_ty: TypeId, vname: []const u8, pos: u32) Error!void {
@@ -3868,6 +3883,7 @@ const Checker = struct {
 
     fn synthShare(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Share.operand(e);
+        if (try self.shareOfNone(e, null)) return self.t().invalid_id;
         if (operand.isKind(.lambda)) return self.ownedClosure(operand, null);
         const ty = try self.shareOperand(operand, null);
         // A literal takes its default type.
@@ -3889,7 +3905,25 @@ const Checker = struct {
             },
             else => {},
         }
+        try sema.requireHandleOf(self.ctx, inner, self.startOf(e), "`*`");
         return self.ctx.intern(.{ .shared = inner });
+    }
+
+    /// `*none` where no handle of an optional is expected (`target`, a
+    /// `*(T?)`, holds `none`), which would make a handle of nothing, is
+    /// rejected (reported): an optional handle with no value is `none`
+    /// itself.
+    fn shareOfNone(self: *Checker, e: Sexp, target: ?TypeId) Error!bool {
+        const operand = ir.Share.operand(e);
+        if (operand != .src or !std.mem.eql(u8, self.text(operand), "none")) return false;
+        // Where the expected type was reported, nothing more is.
+        if (self.under_poison) return false;
+        if (target) |want| switch (self.ctx.types.get(want)) {
+            .shared => |inner| if (self.ctx.types.get(inner) == .optional) return false,
+            else => {},
+        };
+        try self.errAt(e, "`*none` makes a handle of nothing; write `none` where a `(*T)?` is expected", .{});
+        return true;
     }
 
     /// The operand of `*x`, checked against `expected` when given: the
@@ -4171,11 +4205,16 @@ const Checker = struct {
         return try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
     }
 
-    /// A field or method reached through weak handle `obj`, which does not
-    /// keep its value alive.
-    fn weakReach(self: *Checker, obj: Sexp, weak: TypeId, pos: u32) Error!void {
+    /// A field or method reached through weak handle `obj`, of type
+    /// `obj_ty`, which does not keep its value alive. `upgrade` takes
+    /// the weak handle itself, so one held in a box or behind a handle
+    /// is lent out first.
+    fn weakReach(self: *Checker, obj: Sexp, obj_ty: TypeId, weak: TypeId, pos: u32) Error!void {
         const shown = self.sourceText(stripSigil(obj));
-        try self.err(pos, "a weak handle `{s}` reaches its value only through `upgrade`: `if {s}.upgrade() as s`", .{ try self.tyName(weak), shown });
+        const name = try self.tyName(weak);
+        if (self.ctx.types.get(sema.unwrapViews(self.ctx, obj_ty)) == .weak) {
+            try self.err(pos, "a weak handle `{s}` reaches its value only through `upgrade`: `if {s}.upgrade() as s`", .{ name, shown });
+        } else try self.err(pos, "a weak handle `{s}` reaches its value only through `upgrade`, which takes the handle itself: lend it first, `w: ?{s} = ?{s}`, then `if w.upgrade() as s`", .{ name, name, shown });
     }
 
     /// Member `e` of `obj`, a value of type `obj_ty`.
@@ -4225,7 +4264,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             };
             if (self.ctx.types.get(peeled) == .weak) {
-                try self.weakReach(obj, peeled, pos);
+                try self.weakReach(obj, obj_ty, peeled, pos);
             } else try self.err(pos, "type `{s}` has no field `{s}`", .{ try self.tyName(obj_ty), field });
             return self.t().invalid_id;
         };
@@ -4625,6 +4664,7 @@ const Checker = struct {
                         try self.errAt(e, "a handle holds a value, not a view: `{s}` has no handle", .{try self.tyName(inner)});
                         return self.t().invalid_id;
                     }
+                    if (e.isKind(.share) or e.isKind(.weak)) try sema.requireHandleOf(self.ctx, inner, self.startOf(e), if (e.isKind(.share)) "`*`" else "`~`");
                     return self.ctx.intern(switch (e.kind().?) {
                         .share => .{ .shared = inner },
                         .weak => .{ .weak = inner },
@@ -6804,7 +6844,7 @@ const Checker = struct {
                 try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, try self.memberHint(sym.fields orelse &.{}, method, .method) });
                 try self.noteDeclared(sym, decl.module_id == null);
             } else if (self.ctx.types.get(peeled) == .weak) {
-                try self.weakReach(obj, peeled, pos);
+                try self.weakReach(obj, obj_ty, peeled, pos);
             } else {
                 try self.err(pos, "type `{s}` has no method `{s}`", .{ try self.tyName(obj_ty), method });
             }
@@ -7780,6 +7820,7 @@ const Checker = struct {
             },
             .share => {
                 const operand = ir.Share.operand(e);
+                if (try self.shareOfNone(e, target)) return target;
                 if (operand.isKind(.lambda) and sema.callableFn(self.ctx, target) != null) {
                     try self.errAt(e, "`{s}` views a closure for the call; write the closure without `*` (drop the `*`)", .{try self.tyName(target)});
                     _ = try self.checkLambda(operand, sema.callableFnTy(self.ctx, target).?, false);
@@ -8792,8 +8833,10 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
         }
     }.f;
     // A view of a shared handle (`!h.m()` with `h: *T`) still reaches
-    // the value through the handle.
+    // the value through the handle, and so does a box of one, for a
+    // method of the value (not the box's own).
     if (ctx.types.get(sema.unwrapViews(ctx, ty_id)) == .shared) return .shared;
+    if (nominal_sym != ctx.box_sym_id and sema.accessThroughShared(ctx, ty_id)) return .shared;
     return switch (ctx.types.get(ty_id)) {
         .read_view => |i| if (matches(ctx, i, nominal_sym)) .read_view else .other,
         .write_view => |i| if (matches(ctx, i, nominal_sym)) .write_view else .other,
@@ -9407,6 +9450,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
                 .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
                 .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
+                .not_function => try ctx.err(at, cannot ++ "makes a handle `{s}{s}` of a `{s}`, and `{s}` is a function type: `*{s}` is an owned closure, not a handle of a function. Hold the owned closure itself in a `{s}`: `{s} = *{s}`", .{ inst, pname, aname, req.op[1..2], pname, pname, aname, aname, pname, pname, aname }),
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
@@ -9415,6 +9459,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
+                .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -9474,6 +9519,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .equatable => sema.isEquatable(ctx, ty),
         .whole_division => sema.isInteger(ctx, ty),
         .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
+        .not_function => ctx.types.get(ty) != .function,
     };
 }
 

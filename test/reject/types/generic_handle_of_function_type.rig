@@ -1,0 +1,58 @@
+# A generic declaration that makes a shared or weak handle of a type
+# parameter (`*T`, `~T`) cannot be instantiated with a function type:
+# `*fun(Int) -> Int` is an owned closure, not a handle of a function,
+# so the handle would not be what the instance spells. Fields, enum
+# payloads, parameters, a handle in a Vec or an optional, a nested
+# instance, and a handle made in a body are all checked. The owned
+# closure is held as a `T` instead (test/behavior/types/
+# generic_holds_owned_closure.rig).
+
+fun inc(a: Int) -> Int
+  a + 1
+
+struct H[T]
+  h: *T
+
+struct Wk[T]
+  w: ~T
+
+enum E[T]
+  a(h: *T)
+  b
+
+struct V[T]
+  hs: Vec[*T]
+
+struct O[T]
+  h: (*T)?
+
+struct G[U]
+  g: H[U]
+
+fun lend[T](h: ?*T) -> Int
+  1
+
+fun make[T](x: T) -> Int
+  h = *x
+  1
+
+sub main
+  f: *fun(Int) -> Int = *|a: Int| a + 1
+  x = H(h: *|a: Int| a + 1)
+  w: Wk[fun(Int) -> Int] = Wk(w: ~f)
+  e: E[sub()] = .a(h: *|| print(1))
+  v: V[fun(Int) -> Int] = V(hs: Vec())
+  o: O[fun(Int) -> Int] = O(h: none)
+  g: G[sub(Int)] = G(g: H(h: *|a: Int| print(a)))
+  print(lend(?f))
+  print(make(inc))
+
+# error: 41:7: `H[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`, and `fun(Int) -> Int` is a function type: `*fun(Int) -> Int` is an owned closure, not a handle of a function. Hold the owned closure itself in a `T`: `T = *fun(Int) -> Int`
+# error: `Wk[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `~T` of a `T`
+# error: `E[sub()]` cannot use `T = sub()`: the generic body makes a handle `*T` of a `T`
+# error: `V[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`
+# error: `O[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`
+# error: `H[sub(Int)]` cannot use `T = sub(Int)`: the generic body makes a handle `*T` of a `T`
+# error: `lend[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`
+# error: `make[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`
+# errors: 8
