@@ -1,11 +1,13 @@
 # A view of a Copy value that an expression yields (a call returning
 # `!Int`, `!p.get()`) reads as the value wherever a value is expected:
 # `not`, `and`/`or`, `??`, String and enum equality, compound
-# assignment, bindings, arguments, returns, fields, payloads, array
-# elements, indexes, ranges, slices, conversions, conditions, `if … as`,
-# `?`, branches, loop values, and clones. The value read is a copy, so
-# the view taken to reach it ends there, and it is read in argument
-# order, also where a call evaluates its arguments first.
+# assignment, bindings of the value's type, arguments, returns, fields,
+# payloads, array elements, indexes, ranges, slices, conversions,
+# conditions, `if … as`, `?`, branches, loop values, and clones. The
+# value read is a copy, so the view taken to reach it ends there, and it
+# is read in argument order, also where a call evaluates its arguments
+# first. (A binding with no type holds a call's write view:
+# `test/behavior/ownership/write_view_result_binding_holds_view.rig`.)
 
 error Bad
   bad
@@ -93,8 +95,8 @@ sub main()
   print(x)
 
   z: Int = wr(!y)
-  u = wr(!y)
-  v = wb(!b)
+  u: Int = wr(!y)
+  v: Bool = wb(!b)
   y += 1
   print(z, u, not v, y)
 

@@ -835,11 +835,13 @@ const Checker = struct {
             rhs_ty = declared;
         } else {
             rhs_ty = try self.synthExpr(rhs);
-            // Binding a viewed Copy value copies the value; an explicit
-            // `?x` / `!x` binds the view, and so does `<w`, which moves
-            // a write view.
-            const moves_write_view = rhs.isKind(.move) and self.ctx.types.get(rhs_ty) == .write_view;
-            if (!rhs.isKind(.read) and !rhs.isKind(.write) and !moves_write_view) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
+            // A binding holds the write view its initializer hands over
+            // (`yieldsWriteView`), as `w: !T = e` does, so assigning it
+            // writes through (Core §6). A name, a path, or a loop's value
+            // of type `!T`, and a read view of a number, `Bool`,
+            // `String`, or plain enum, binds the value it reaches.
+            const holds_write_view = self.ctx.types.get(rhs_ty) == .write_view and yieldsWriteView(rhs);
+            if (!rhs.isKind(.read) and !holds_write_view) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
 
@@ -1748,7 +1750,9 @@ const Checker = struct {
                 .array => |a| sema.copyable(self.ctx, a.elem) == .no,
                 else => false,
             };
-            if (mode != .move and unbound and (if (mode == .iter) moving else vec) and !self.isPoison(source_ty)) {
+            // A Vec whose elements move is reported by `elementTypeForLoop`.
+            const vec_moves = if (vecElementType(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
+            if (mode != .move and unbound and !vec_moves and (if (mode == .iter) moving else vec) and !self.isPoison(source_ty)) {
                 const what = if (vec) "a Vec held in a place or made by a call" else "a place or takes a value made here";
                 try self.errAt(peeled_source, "a `for` walks {s}: bind this `{s}` to a name first", .{ what, try self.tyName(source_ty) });
             }
@@ -1758,13 +1762,13 @@ const Checker = struct {
             // walks a slice of it, and may view a copy (`rejectHeaderCopy`).
             // The source is a header: a temporary it reads into ends with
             // it, before the loop walks it.
-            const walks_temp = if (eff != .move) self.tempBase(source) else null;
+            const walks_temp = if (eff != .move and !self.isPoison(elem_ty)) self.tempBase(source) else null;
             if (walks_temp) |temp| {
                 try self.errAt(temp, "the loop would walk the temporary `{s}` after its header drops it; bind it to a name first", .{self.sourceText(temp)});
             } else if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, elem_ty);
             // `for x in ?e` and `for x in !e` lend `e`: one made here would
             // end with the header. A call's result is taken: `for x in e`.
-            if ((mode == .read or mode == .write) and !(unbound and vec) and !source_hands.hasStorage() and !self.isPoison(source_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
+            if ((mode == .read or mode == .write) and !(unbound and vec) and !source_hands.hasStorage() and !self.isPoison(source_ty) and !self.isPoison(elem_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
                 try self.errAt(source, "the loop would walk a view of the temporary `{s}` after its header drops it; take it with `for {s} in {s}`, or bind it to a name first", .{ self.sourceText(source), self.text(binding), self.sourceText(source) });
             }
         }
@@ -1952,12 +1956,17 @@ const Checker = struct {
                 // view; every other element is plain data.
                 const is_resource = sema.moves(self.ctx, elem) == .yes;
                 if (is_resource) {
-                    // (A Vec place walked bare is reported by `checkFor`.)
-                    if (mode != .read and mode != .write and mode != .move and !(self.hands(inner_source).hasStorage() and vecElementType(self.ctx, source_ty) != null)) {
-                        try self.err(pos, "a loop over a Vec of `{s}` made here takes it: write `for x in <{s}`, or bind it to a name first", .{ try self.tyName(elem), self.sourceText(inner_source) });
-                    }
+                    // The one diagnostic for such a loop over any other
+                    // source; `checkFor` reports nothing more of it.
                     if (!self.placeOf(inner_source).named()) {
-                        try self.err(pos, "resource Vec[T] iteration requires a Vec binding, or a field or element of one, as the source; got an expression. Bind the result to a `Vec[T]` local first.", .{});
+                        // What to bind: the value made here, of which the
+                        // source may be a part; a branching source is
+                        // bound with each name taken (`<a if c else <b`).
+                        const made = self.madeBase(inner_source);
+                        const bind = if (made != .nil) made else inner_source;
+                        const hint = if (self.hands(bind).kind == .branches) "bind the Vec to a name first" else try self.ctx.arena.allocator().print("bind `{s}` to a name first", .{self.sourceText(bind)});
+                        try self.err(pos, "a loop over a Vec of `{s}` walks a Vec that a name holds, or a field or element of one; {s}", .{ try self.tyName(elem), hint });
+                        return self.t().invalid_id;
                     }
                 }
                 if (mode == .write) return self.writeElement(source, inner_source, elem);
@@ -7344,6 +7353,20 @@ const Checker = struct {
         return true;
     }
 
+    /// Whether a write receiver `recv` of kind `kind` is a write view,
+    /// which a write method writes through.
+    fn writesThrough(self: *Checker, recv: Sexp, kind: ReceiverTypeKind) bool {
+        if (kind == .write_view) return true;
+        const ty = self.ctx.typeOf(recv) orelse return false;
+        return self.ctx.types.get(ty) == .write_view;
+    }
+
+    /// A write method called on a temporary: a value made here, a part
+    /// of one, or a branching value made in every branch.
+    fn writeOfTemporary(self: *Checker, recv: Sexp, method: []const u8) Error!void {
+        try self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; bind it to a name first", .{method});
+    }
+
     /// Receiver rules: `?self` is lent implicitly; `!self` needs an explicit
     /// `!x.m()`; a consuming `self` needs an explicit `<x.m()`. Write and
     /// consuming receivers are refused through `?T` and `*T`.
@@ -7358,9 +7381,12 @@ const Checker = struct {
                 if (kind == .shared) return self.err(pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{method});
                 switch (shape) {
                     .write_explicit => {},
-                    .made => if (kind != .owned_nominal and kind != .write_view and kind != .other) {
-                        try self.err(pos, "method `{s}` needs its receiver lent to write; this expression yields a view, not an owned value", .{method});
-                    },
+                    // A value made here, or a part of one, is a temporary
+                    // no name holds: its change would be lost, and no `!`
+                    // could show it. A write view made here writes
+                    // through. (One that owns a resource is reported as a
+                    // temporary nothing drops.)
+                    .made => if (!self.writesThrough(recv, kind) and !self.ownsResource(recv)) try self.writeOfTemporary(recv, method),
                     // A branch that is a write view writes through it; one
                     // that is a name's value would be written as a copy.
                     // (One that owns a resource is reported as a temporary
@@ -7373,7 +7399,9 @@ const Checker = struct {
                     .move_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write; cannot move; use `!receiver.{s}(...)`", .{ method, method }),
                     // A binding that already holds a write view (`x: !T`,
                     // `!self`) lends it visibly too.
-                    .place => if (kind != .write_view) {
+                    .place => if (kind != .write_view and self.hands(recv).kind == .part_of_made) {
+                        try self.writeOfTemporary(recv, method);
+                    } else if (kind != .write_view) {
                         try self.err(pos, "method `{s}` needs its receiver lent to write; use `!receiver.{s}(...)`", .{ method, method });
                     } else {
                         const name = self.sourceText(recv);
@@ -8402,7 +8430,7 @@ const Checker = struct {
                 try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) -> Int = |{s}| ...`)", .{ name, name, name });
             }
             if (owned and given == null and !sema.isClosureValue(self.ctx, pty)) {
-                try self.errAt(pn, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); parameter `{s}` is `{s}`", .{ name, try self.tyName(pty) });
+                try self.errAt(pn, "an owned closure takes values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); parameter `{s}` is `{s}`", .{ name, try self.tyName(pty) });
             }
             try params.append(self.ctx.allocator, pty);
             if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
@@ -8452,7 +8480,7 @@ const Checker = struct {
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
         ret = try self.reconcileReturns(sites.items, ret, ends_in_return, body);
         if (owned and ret != self.t().void_id and !sema.isClosureResult(self.ctx, ret)) {
-            try self.errAt(body, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; this one returns `{s}`", .{try self.tyName(ret)});
+            try self.errAt(body, "an owned closure returns values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; this one returns `{s}`", .{try self.tyName(ret)});
         }
 
         return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = sema.returnsNothing(self.ctx, ret) } });
@@ -8609,9 +8637,9 @@ const Checker = struct {
         } else if (outer_sym.flags.closure or sema.isReadOrWriteView(self.ctx, outer_ty)) {
             // A closure or a view is captured as a view.
             const sigil: []const u8 = if (self.ctx.types.get(outer_ty) == .write_view) "!" else "?";
-            try self.err(pos, "`|+{s}|` copies a Copy value or clones a `*T` / `~T` handle, but `{s}` is {s}`{s}`; capture it with `|{s}{s}|`", .{ name, name, if (outer_sym.flags.closure) "a closure of type " else "", try self.tyName(outer_ty), sigil, name });
+            try self.err(pos, "`|+{s}|` copies plain data or clones a `*T` / `~T` handle, but `{s}` is {s}`{s}`; capture it with `|{s}{s}|`", .{ name, name, if (outer_sym.flags.closure) "a closure of type " else "", try self.tyName(outer_ty), sigil, name });
         } else {
-            try self.err(pos, "`|+{s}|` copies a Copy value or clones a `*T` / `~T` handle, but `{s}` is `{s}`; move it in with `|<{s}|`, or clone a handle into a local first and capture that", .{ name, name, try self.tyName(outer_ty), name });
+            try self.err(pos, "`|+{s}|` copies plain data or clones a `*T` / `~T` handle, but `{s}` is `{s}`; move it in with `|<{s}|`, or clone a handle into a local first and capture that", .{ name, name, try self.tyName(outer_ty), name });
         };
         self.ctx.symbols.items[cap_sym].ty = bound orelse self.t().invalid_id;
         self.ctx.symbols.items[cap_sym].origin = outer_id;
@@ -8655,6 +8683,25 @@ fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
         } else true,
         else => true,
     };
+}
+
+/// Whether `e` hands over a write view to a binding: a call's result,
+/// `!x`, `<w`, or a jump, or a branching value, `match`, or block each
+/// of whose values does.
+fn yieldsWriteView(e: Sexp) bool {
+    switch (e.kind() orelse return false) {
+        .call, .write, .move, .@"return", .@"break", .@"continue" => return true,
+        .@"if", .match, .block, .@"??", .@"catch", .propagate, .propagate_none => {
+            var parts = sema.valueParts(e);
+            var any = false;
+            while (parts.next()) |p| {
+                if (!yieldsWriteView(p.node)) return false;
+                any = true;
+            }
+            return any;
+        },
+        else => return false,
+    }
 }
 
 /// `x` of `?x`, `!x`, or `<x`; any other node as it is.

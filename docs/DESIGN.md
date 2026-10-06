@@ -107,7 +107,7 @@ For a value `x` of type `T`:
 | `<x` | `T` | ownership leaves `x` | none (a large value may be copied) |
 | `?x` | `?T` | shared, read-only loan | none: checked statically |
 | `!x` | `!T` | exclusive, writable loan | none: checked statically |
-| `+x` | `T` | a new owner (`T` is Copy or a handle) | a count bump for a handle |
+| `+x` | `T` | a new owner (`T` is plain data or a handle) | a count bump for a handle |
 | `-x` | (statement) | release now | runs the drop glue |
 | `*x` | `*T` | move into a new counted box | one allocation |
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
@@ -313,7 +313,7 @@ written bare at the call, and its captures say what is lent to it for
 the call: `sort.sort_by(!v[..], |a, b| a < b)`, or `each(?v, |!total, n| total +=
 n)`, where the checker's ordinary same-call conflict check rejects
 `each(?total, |!total, n| ...)`. `fun(A) -> R` stays a plain function
-pointer, a Copy value that can be stored; `*fun` is the owned closure
+pointer, a value that copies and can be stored; `*fun` is the owned closure
 that can. A callable view lowers to a context pointer and a call
 function: one indirect call per invocation, no allocation.
 

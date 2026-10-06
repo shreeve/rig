@@ -6,4 +6,4 @@ sub main()
   c: Cell[?Int] = Cell(?n)
   print(c.get())
 
-# error: `Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data
+# error: `Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, String), plain data

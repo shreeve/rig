@@ -1351,7 +1351,7 @@ names with optional types:
 
 | Entry | Meaning |
 |---|---|
-| `+x` | capture a copy of a Copy value, or a clone of a handle |
+| `+x` | capture a copy of plain data, or a clone of a handle |
 | `<x` | move `x` in |
 | `?x`, `!x` | lend `x` to read or write |
 | `~x` | hold a shared handle weakly |

@@ -1,0 +1,15 @@
+# w06: is `a = at(!c)` a copy of the Int? print v afterwards (expect [1])
+struct Cur
+  items: !Vec[Int]
+
+fun at(c: !Cur) -> !Int
+  !c.items[0]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  c = Cur(items: !v)
+  a = at(!c)
+  a = 5
+  -c
+  print(v, a)

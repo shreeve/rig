@@ -1,0 +1,12 @@
+# !self method on a made receiver: change lost (expect reject)
+struct S
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+fun mk -> S
+  S(n: 1)
+
+sub main
+  mk().bump()

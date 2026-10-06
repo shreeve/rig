@@ -1,0 +1,10 @@
+# for over a ?Vec[Text] a call returns, no temporary (CORE s1/s7: a header reads a view in place) (expect a)
+fun items(v: ?Vec[Text], k: ?Text) -> ?Vec[Text]
+  v
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  k = Text("k")
+  for x in items(?v, ?k)
+    print(x)

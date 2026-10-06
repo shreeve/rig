@@ -1,6 +1,7 @@
-# A write view a `!self` method returns of a temporary receiver is used
-# within its statement, where the statement's slot keeps the receiver,
-# also when the call's arguments are evaluated first.
+# A write view a `!self` method returns of a temporary receiver, used
+# within its statement. A write method on a temporary is rejected
+# (`test/reject/ownership/write_receiver_temporary.rig`); this program ran
+# sanitizer-clean before that rule.
 
 struct S
   n: Int

@@ -1,0 +1,9 @@
+# for over a view a call returns, header makes a temp (expect reject)
+fun items(v: ?Vec[Text], k: ?Text) -> ?Vec[Text]
+  v
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  for x in items(?v, ?Text("k"))
+    print(x)

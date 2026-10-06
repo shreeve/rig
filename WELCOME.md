@@ -231,11 +231,11 @@ The [README](README.md#install) says how to build `bin/rig`.
 
 Rig's ownership model is Rust's, with two differences you notice at
 once: every transfer is written (`<x` moves; a bare name moves an
-owning value only out of a function, in `return x` or as its last
-value), and there is no lifetime syntax (the checker follows
-where each view came from instead). Its cost model is Zig's: the
-emitted program is plain Zig, with no runtime beyond a small support
-file.
+owning value only in `return x`, or as the last value of the function
+or block that declares it), and there is no lifetime syntax (the
+checker follows where each view came from instead). Its cost model is
+Zig's: the emitted program is plain Zig, with no runtime beyond a small
+support file.
 
 | Idea | Rust | Zig | Rig |
 |---|---|---|---|

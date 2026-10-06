@@ -1,0 +1,13 @@
+# s1/s7: return a payload view of an explicit `match ?e` over a lent param (v0.1.6 accepts) (expect hello)
+enum E
+  a(t: Text)
+  b
+
+fun pick(e: ?E) -> String
+  match ?e
+    .a(t) => return ?t
+    .b => return "b"
+
+sub main
+  e = E.a(t: Text("hello"))
+  print(pick(?e))

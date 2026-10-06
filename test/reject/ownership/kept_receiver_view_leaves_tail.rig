@@ -9,8 +9,8 @@ struct S
   n: Int
   m: Int
 
-  fun at(!self) -> !Int
-    !self.n
+  fun me(?self) -> ?S
+    self
 
 struct Q
   c: Cell[Int]
@@ -31,17 +31,17 @@ fun mkh(k: Int) -> H
 fun g(k: Int) -> Int
   k
 
-fun view(d: !Int) -> !Int from d
-  !mk(42).at()
+fun view(d: ?S) -> ?S from d
+  mk(42).me()
 
-fun early(d: !Int, c: Bool) -> !Int from d
-  return !mk(1).at() if c
+fun early(d: ?S, c: Bool) -> ?S from d
+  return mk(1).me() if c
   d
 
 sub main
-  y = 0
-  z = 0
-  print(view(!y), early(!z, true))
+  y = S(n: 0, m: 0)
+  z = S(n: 0, m: 0)
+  print(view(?y).n, early(?z, true).n)
   d = Q(c: Cell(0), n: 0)
   k = g(0)
   r = match k
@@ -61,8 +61,8 @@ sub main
   print(r.n, s.n, t.n)
 
 # errors: 5
-# error: 35:4: cannot return a view of `mk(42)`, which this function was not lent
-# error: 38:11: cannot return a view of `mk(1)`, which this function was not lent
+# error: 35:3: cannot return a view of `mk(42)`, which this function was not lent
+# error: 38:10: cannot return a view of `mk(1)`, which this function was not lent
 # error: 50:7: a view of the temporary `mkh(42)` outlives its statement
 # error: 54:5: a view of the temporary `mkh(43)` outlives its statement
 # error: 58:11: a view of the temporary `mkh(44)` outlives its statement

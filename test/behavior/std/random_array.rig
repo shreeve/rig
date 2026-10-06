@@ -19,7 +19,9 @@ sub main()
   _ = random.Random.seeded(4)
   x = random.Random.seeded(5)
   print(step(!x) != 0, step(!x) != 0)
-  print(random.Random.seeded(6).fork().int(1, 7) >= 1)
+  y = random.Random.seeded(6)
+  f = !y.fork()
+  print(!f.int(1, 7) >= 1)
   b = <a
   print(!b[1].next() != 0)
 

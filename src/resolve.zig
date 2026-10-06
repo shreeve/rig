@@ -2109,7 +2109,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
         if (sema.isCopyElement(ctx, args[0]) or sema.moves(ctx, args[0]) == .yes) return null;
-        return try a.print("`Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`), or a type declared `unique`; got `{s}`", .{arg});
+        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`), or a type declared `unique`; got `{s}`", .{arg});
     }
     if (sym_id == ctx.vec_sym_id) {
         // A Vec holds any value, views included: its elements move in
@@ -2124,7 +2124,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isCopyElement(ctx, args[0])) return null;
-        return try a.print("`Signal[T]` requires `T` to be a Copy type (Int, Bool, Float, String) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
+        return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, String) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
     }
     return null;
 }
@@ -2138,11 +2138,11 @@ fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!voi
     for (f.params, 0..) |p, i| {
         if (sema.isClosureValue(ctx, p)) continue;
         const pos = if (i < nodes.len) ctx.startOf(nodes[i]) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(ctx, p)});
+        try ctx.err(pos, "an owned closure takes values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(ctx, p)});
     }
     if (!f.is_sub and !sema.isClosureResult(ctx, f.returns)) {
         const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ctx.startOf(ir.FunType.returns(fun_type)) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
+        try ctx.err(pos, "an owned closure returns values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
     }
 }
 
@@ -2282,7 +2282,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
     }
 
-    // Signal[T]: a Copy value plus subscriber closures notified on `set`.
+    // Signal[T]: a value that copies, plus subscriber closures notified on `set`.
     {
         const g = try addGeneric(ctx, module_scope, "Signal", &.{"T"});
         ctx.signal_sym_id = g.sym;

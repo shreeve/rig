@@ -1,0 +1,9 @@
+# a typed binding w: !Int = slot(!n) then w = 5 (expect 5)
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  n = 1
+  w: !Int = slot(!n)
+  w = 5
+  print(n)

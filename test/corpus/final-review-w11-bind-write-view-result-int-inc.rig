@@ -1,0 +1,9 @@
+# a call's !Int result bound, then += (expect n changes to 2 if a view)
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  n = 1
+  w = slot(!n)
+  w += 1
+  print(n)

@@ -721,7 +721,7 @@ where its value is taken ([§7](#reading)):
 | Kind | Types | A bare name where the value is taken |
 |---|---|---|
 | **plain** | numbers, `Bool`, plain enums, and optionals, arrays, structs, and enums of them | copies it |
-| **owning** | `Vec`, `Box`, `Text`, `Signal`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x` or a function's last value; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
+| **owning** | `Vec`, `Box`, `Text`, `Signal`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x`, or the last value of the function or block that declares it; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
 | **handle** | `*T`, `~T`, and owned closures | the same: `<h` moves it, `+h` adds a count |
 | **view** | `?T`, `!T`, `[]T`, `![]T`, `String`, `?fun(...)`, and any type that holds one | copies a read view; a write view is rejected: `<w` moves it |
 
@@ -1825,7 +1825,11 @@ viewed value (the old value is dropped first). Assigning a view
 points the place at another place instead: `w = !m`, `w = <w2`, or a
 call returning a `!T` re-points a local `w`, which then lends `m`
 alone (a `![]T` local alike), and a bare `w = w2` reads the value `w2`
-reaches and writes it through `w`. A parameter is never re-pointed:
+reaches and writes it through `w`. A new local holds a write view the
+same way, with or without a type: `w = slot(!n)`, a call returning a
+`!Int`, holds the view, as `w: !Int = slot(!n)` does, so `w = 5`
+writes `n`; a bare name, a path, or a loop's value of type `!Int`
+binds the value it reaches. A parameter is never re-pointed:
 `w = !m` of a `!T` parameter is rejected, and `new w = !m` binds a new
 name instead. A field or element of type `!T` follows the same rule:
 `h.w = 5`, `h.w += 1`, `xs[i] += 1`, and `h.w = w2` write the
@@ -1874,6 +1878,21 @@ sub main
 
 ```output
 6 20
+```
+
+```rig
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  n = 1
+  w = slot(!n)
+  w = 5
+  print(n)
+```
+
+```output
+5
 ```
 
 ```rig
@@ -2366,13 +2385,15 @@ drop 2
 after
 ```
 
-A Vec source is a place, which the loop walks in place, or a value made
-there (a call, or a branching value whose every branch is made there),
-whose new Vec the loop consumes as `<v` does. A branching value that
-may be a name's (`o?`, `a if c else b`) could be a place on one path
-and a new Vec on another, so it is bound to a name first, and so is a
-Vec whose elements own a resource that is a part of a value made there
-(`mk().items` of a `Vec[Text]`):
+A Vec source is a place, which the loop walks in place. A Vec of plain
+data may also be a value made there (a call, or a branching value whose
+every branch is made there), whose new Vec the loop consumes as `<v`
+does. A branching value that may be a name's (`o?`, `a if c else b`)
+could be a place on one path and a new Vec on another, so it is bound
+to a name first. A Vec whose elements move (a `Vec[Text]`, a Vec of
+owners) is walked only where a name holds it, or a field or element of
+one, so a call's result, or a part of a value made there (`mk().items`),
+is bound to a name first:
 
 ```rig reject
 struct H
@@ -2392,7 +2413,7 @@ sub main
 
 ```error
 a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int]` to a name first
-requires a Vec binding, or a field or element of one, as the source
+a loop over a Vec of `Text` walks a Vec that a name holds, or a field or element of one; bind `mk()` to a name first
 ```
 
 ### Labels, break, and continue
@@ -2616,7 +2637,7 @@ sub main
 ```
 
 ```error
-a view of `r` does not outlive the `match` that reads `e`: use it in the arm, copy what it holds (`+r`), or take the subject with `match <e`
+a view of `r` does not outlive the `match` that reads `e`: use it in the arm, or keep an owner of what it holds: copy it with `+r`
 ```
 
 ### pass
@@ -2746,7 +2767,8 @@ Where its value is taken, a bare name copies plain data and read views
 ([§2](#kinds-of-value)). It never clones, so a bare owner or handle
 there is an error, because two owners would release it twice: write
 `<x` to move it or `+x` to make a new owner. It moves only where the
-value leaves for good: `return x`, or `x` as the last expression. As
+value leaves for good: `return x`, or `x` as the last value of the
+function or block that declares it. As
 an argument where a parameter takes a view, or as a header's subject,
 it is lent to read where it is ([Lending](#lending)).
 
@@ -2766,8 +2788,10 @@ bare use of shared (`*T`) handle `a` in binding would alias the handle
 A view of a number, `Bool`, `String`, or plain enum reads as the value
 wherever the value is expected, whether a name holds the view or an
 expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`); the
-loan taken to reach it ends there. Other values are not copied out of
-a view: lend them on, as `?T` or `!T`.
+loan taken to reach it ends there. A binding with no type expects no
+value, so it holds a write view a call yields ([View
+places](#view-places)). Other values are not copied out of a view: lend
+them on, as `?T` or `!T`.
 
 ```rig
 fun slot(a: !Int) -> !Int
@@ -3365,6 +3389,24 @@ sub main
 0 0
 ```
 
+A `!self` method called on a temporary, or on a field or element of
+one, is rejected, since nothing would see the change:
+
+```rig reject
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+sub main
+  Counter(n: 1).bump()
+```
+
+```error
+`bump` changes its receiver, a temporary no name holds; bind it to a name first
+```
+
 A view of a temporary (`?S(n: 1)`, `?make()`, `?make()[1..]`), and
 any view made from one (a call's result that views it), may be used
 anywhere in its statement, and nowhere after: held by a binding, a
@@ -3460,8 +3502,10 @@ sub main
 
 A `?self` or `!self` receiver is lent as `?e` or `!e` would be when the
 method may keep a view of it, in its result or through a write
-argument. A temporary receiver, plain data included, then lives until
-its statement ends, so the view may be used there and nowhere after. A
+argument. A temporary receiver of a `?self` method, plain data
+included, then lives until its statement ends, so the view may be used
+there and nowhere after (a `!self` method on a temporary is rejected:
+[Temporaries](#temporaries)). A
 receiver that branches lends each leaf where it is:
 `(a if c else b).name()` keeps a loan on `a` and on `b`, so neither may
 change while the view lives.
@@ -5677,7 +5721,7 @@ The rest parse, and the checker rejects them as not supported yet
 |---|---|
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
-| an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |
+| an owned closure taking or returning an owning value | `` an owned closure takes values that copy `` |
 | a payload field bound by name, `.rect(w: a, h: b)` | `` binding a payload field by name is not supported yet `` |
 
 ```rig reject

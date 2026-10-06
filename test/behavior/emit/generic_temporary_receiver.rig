@@ -8,7 +8,7 @@ fun side(k: Int) -> Int
 struct Wrap[T]
   v: T
 
-  fun bump(!self, k: Int) -> Int
+  fun plus(?self, k: Int) -> Int
     k + 1
 
   fun get(?self, a: Int, b: Int) -> Int
@@ -18,7 +18,7 @@ struct Wrap[T]
     Wrap(v: self.v)
 
   fun again(?self) -> Int
-    self.twice().bump(side(2))
+    self.twice().plus(side(2))
 
   fun order(?self) -> Int
     self.twice().get(b: side(3), a: side(4))

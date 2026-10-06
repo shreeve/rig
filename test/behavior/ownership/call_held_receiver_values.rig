@@ -6,12 +6,11 @@ struct S
   n: Int
   m: Int
 
-  fun at(!self) -> !Int
-    !self.n
+  fun me(?self) -> ?S
+    self
 
-  fun bump(!self) -> Int
-    self.n += 1
-    self.n
+  fun sum(?self) -> Int
+    self.n + self.m
 
 struct Q
   c: Cell[Int]
@@ -30,13 +29,14 @@ fun mkh -> H
   H(q: Q(c: Cell(1), n: 41))
 
 sub main
-  print(mk().bump())
+  print(mk().sum())
   print(mkh().q.get())
-  !mk().at()
+  print(mk().me().n)
   s = mk()
-  print(!s.at())
+  print(s.me().m)
 
 # expect:
-# 6
+# 11
 # 42
 # 5
+# 6

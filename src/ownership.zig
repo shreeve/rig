@@ -225,6 +225,9 @@ const Var = struct {
     /// no plain data view: the subject the match reads, as written. A
     /// loan on it ends with the arm (`arm_view` bindings).
     arm_of: []const u8 = "",
+    /// The name `match <name` would take, for a read match whose subject
+    /// is an owner's name (`arm_of`); empty when no take would compile.
+    arm_take: []const u8 = "",
     /// A value a call holds in storage of its own, which lives only
     /// while the call runs (`sema.Storage` of life `call`): the receiver
     /// or argument it is lent (`holdForCall`).
@@ -463,6 +466,8 @@ pub const Checker = struct {
     arm_var: ?VarId = null,
     /// The subject of the match whose arm is being bound, as written.
     arm_subject: []const u8 = "",
+    /// The owner's name that subject could take instead (`Var.arm_take`).
+    arm_take: []const u8 = "",
     /// The value a header holds for its construct (`Header.held`): the
     /// node that makes it, read as the hidden var `id` holding it.
     held: ?Held = null,
@@ -897,12 +902,42 @@ pub const Checker = struct {
     }
 
     /// A view of a read match's binding `l` names, kept past its arm.
+    /// The hint offers a clone only of a binding that has one, and a
+    /// take only of a subject that is an owner's name, so each form it
+    /// names compiles.
     fn reportArmView(self: *Checker, l: Loan) Error!void {
         var end = l.pos;
         while (end < self.source.len and (std.ascii.isAlphanumeric(self.source[end]) or self.source[end] == '_')) end += 1;
         const name = self.source[l.pos..end];
-        const subject = self.vars.items[l.root].arm_of;
-        try self.err(l.pos, "a view of `{s}` does not outlive the `match` that reads `{s}`: use it in the arm, copy what it holds (`+{s}`), or take the subject with `match <{s}`", .{ name, subject, name, subject });
+        const root = self.vars.items[l.root];
+        const clones = if (self.sema) |ctx| (if (ctx.symbolAt(l.pos)) |sym| sema.cloneable(ctx, ctx.symbols.items[sym].ty) != .no else false) else false;
+        const a = self.arena();
+        const take = if (root.arm_take.len > 0) try std.fmt.allocPrint(a, "take the subject with `match <{s}` and move it with `<{s}`", .{ root.arm_take, name }) else "";
+        const hint = if (clones and take.len > 0)
+            try std.fmt.allocPrint(a, "use it in the arm, or keep an owner of what it holds: copy it with `+{s}`, or {s}", .{ name, take })
+        else if (clones)
+            try std.fmt.allocPrint(a, "use it in the arm, or keep an owner of what it holds: copy it with `+{s}`", .{name})
+        else if (take.len > 0)
+            try std.fmt.allocPrint(a, "use it in the arm, or {s}", .{take})
+        else
+            "use it in the arm";
+        try self.err(l.pos, "a view of `{s}` does not outlive the `match` that reads `{s}`: {s}", .{ name, root.arm_of, hint });
+    }
+
+    /// The owner's name a read match on `scrut` (`x` or `?x`) could take
+    /// instead with `match <x`: a name whose value moves and is no view
+    /// or handle. Empty for any other subject.
+    fn takeableSubject(self: *Checker, scrut: Sexp) []const u8 {
+        const ctx = self.sema orelse return "";
+        const name = if (scrut.isKind(.read)) ir.Read.operand(scrut) else scrut;
+        if (name != .src) return "";
+        const ty = self.exprType(name) orelse return "";
+        if (sema.isReadOrWriteView(ctx, ty) or sema.moves(ctx, ty) != .yes) return "";
+        switch (self.typeData(ty)) {
+            .shared, .weak => return "",
+            else => {},
+        }
+        return self.spanText(name);
     }
 
     /// Whether var `id` holds a statement's temporary (`holdTemp`).
@@ -4284,10 +4319,11 @@ pub const Checker = struct {
     fn walkMatch(self: *Checker, match: Sexp) Error!Value {
         const tail_ctx = self.takeTail(match);
         const scrut = ir.Match.subject(match);
-        const saved_arm = .{ self.arm_var, self.arm_subject };
+        const saved_arm = .{ self.arm_var, self.arm_subject, self.arm_take };
         defer {
             self.arm_var = saved_arm[0];
             self.arm_subject = saved_arm[1];
+            self.arm_take = saved_arm[2];
         }
         // A bare place is matched as `match ?p`; a part of a made value
         // in a hidden var the match holds (docs/INTERNALS.md, "Header
@@ -4359,6 +4395,7 @@ pub const Checker = struct {
             try self.pushScopeFor(.block, arm);
             self.arm_var = null;
             self.arm_subject = self.spanText(scrut);
+            self.arm_take = self.takeableSubject(scrut);
             // A guarded arm may not run for the values its pattern
             // matches. The views the guard takes end with it.
             const bound = self.vars.items.len;
@@ -4461,7 +4498,7 @@ pub const Checker = struct {
         // "Header subjects").
         if (self.sema) |ctx| if (ctx.symbolAt(pos)) |sym| if (ctx.symbols.items[sym].flags.arm_view) {
             const arm = self.arm_var orelse blk: {
-                const id = try self.addVar(.{ .name = "", .decl = pos, .kind = .hidden, .arm_of = self.arm_subject }, .{});
+                const id = try self.addVar(.{ .name = "", .decl = pos, .kind = .hidden, .arm_of = self.arm_subject, .arm_take = self.arm_take }, .{});
                 self.arm_var = id;
                 break :blk id;
             };

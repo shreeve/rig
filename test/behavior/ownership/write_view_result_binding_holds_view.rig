@@ -1,0 +1,44 @@
+# A binding holds the write view its initializer hands over, with or
+# without a type (Core §6, view places): a call's or a branching value's
+# `!Int` is held, so assigning the binding writes through to what the
+# call was lent, as `w: !Int = slot(!n)` does. A bare name of type `!Int`
+# copies the value it reaches.
+
+fun slot(a: !Int) -> !Int
+  a
+
+fun pick(a: !Int, b: !Int, c: Bool) -> !Int
+  a if c else b
+
+sub main
+  n = 1
+  m = 10
+  w = slot(!n)
+  w = 5
+  w += 1
+  print(w)
+  print(n)
+  v = pick(!n, !m, false)
+  v += 3
+  t: !Int = slot(!n)
+  t *= 2
+  print(n, m)
+  x = slot(!n)
+  y = x
+  y = 40
+  print(x, y)
+  print(n)
+  b = slot(!n) if n > 100 else slot(!m)
+  b = 0
+  l = while true
+    break slot(!n)
+  l = 1
+  print(n, m, l)
+
+# expect:
+# 6
+# 6
+# 12 13
+# 12 40
+# 12
+# 12 0 1
