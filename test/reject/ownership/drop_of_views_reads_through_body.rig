@@ -1,0 +1,81 @@
+# A container whose drop runs a `drop` body keeps the loans of the views
+# it holds until it is dropped, since the body could read them: a struct
+# with a `drop` body, a Vec, counted handle, or closure environment of
+# one. A container used later, or in deferred code, keeps them too.
+# oracle: own_body reject C4
+# oracle: vec_of_bodies reject C4
+# oracle: counted reject C4
+# oracle: used_later reject C4
+# oracle: deferred reject C4
+# oracle: outlived reject C5
+
+struct Item
+  n: Int
+
+struct Guard
+  item: ?Item
+
+  drop(!self)
+    print("guard", self.item.n)
+
+struct Plain
+  item: ?Item
+
+sub own_body
+  x = Item(n: 1)
+  g = Guard(item: ?x)
+  print(g.item.n)
+  x.n = 2
+
+sub vec_of_bodies
+  x = Item(n: 1)
+  gs: Vec[Guard] = Vec()
+  !gs.push(Guard(item: ?x))
+  print(gs.len)
+  x.n = 2
+
+sub counted
+  x = Item(n: 1)
+  g = *Guard(item: ?x)
+  print(g.item.n)
+  x.n = 2
+
+sub closure_env
+  x = Item(n: 1)
+  g = Guard(item: ?x)
+  f = |<g| print(g.item.n)
+  f()
+  x.n = 2
+
+sub used_later
+  x = Item(n: 1)
+  v: Vec[?Item] = Vec()
+  !v.push(?x)
+  x.n = 2
+  print(v.len)
+
+sub deferred
+  x = Item(n: 1)
+  v: Vec[?Item] = Vec()
+  defer print(v.len)
+  !v.push(?x)
+  x.n = 2
+
+sub outlived
+  v: Vec[Plain] = Vec()
+  if true
+    t = Item(n: 3)
+    !v.push(Plain(item: ?t))
+  print(v.len)
+
+sub main
+  own_body()
+
+# error: 28:3: cannot assign to `x.n` while `x` is lent
+# error: 35:3: cannot assign to `x.n` while `x` is lent
+# error: 41:3: cannot assign to `x.n` while `x` is lent
+# error: 48:3: cannot assign to `x.n` while `x` is lent
+# error: 54:3: cannot assign to `x.n` while `x` is lent
+# error: 62:3: cannot assign to `x.n` while `x` is lent
+# error: 68:26: `t` does not live long enough
+# errors: 7

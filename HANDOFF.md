@@ -24,11 +24,11 @@ from).
 
   | Check | Result |
   |---|---|
-  | `./test/run` | 2,608 passed, 7 pending (planned Core rules) |
+  | `./test/run` | 2,626 passed, 7 pending (planned Core rules) |
   | Corpus | 6,021 of 6,021 (`./test/run corpus`) |
   | `test/matrix.py` | 3,070 programs, 0 failed |
   | `zig build test` | 124 pass, 1 skip |
-  | Oracle (`./test/run oracle`) | 5 sets pass, at or above the floors in `test/oracle/coverage` (functions decided: tests 3,297, corpus 15,781, matrix 15,911) |
+  | Oracle (`./test/run oracle`) | 5 sets pass, at or above the floors in `test/oracle/coverage` (functions decided: tests 3,414, corpus 15,781, docs 437, matrix 15,911) |
 
   `test/known/` holds no open bugs. The pending examples are the
   planned rules of `docs/CORE.md`.
@@ -132,11 +132,15 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
 - **Core wording.** The commit "Correct CORE status words and
   precision" proposes the status words and precision the final review
   found wrong; it needs the owner's approval, and can be dropped alone.
-- **Rules the Core does not decide:** whether a call's view result keeps
-  a write argument lent to write; whether dropping a Vec of views uses
-  them; whether a bare write-view element or field used as a value
-  copies what it sees; field-disjoint loans (today field loans are
-  unioned).
+- **Field-disjoint loans:** today field loans are unioned. The design
+  owner decided they come, with field-precise re-pointing, as their own
+  round after B4, with `docs/CORE.md` updated first. The other three
+  rules the Core left open are decided and built (CORE sentences 1, 6,
+  and 7): a call's result that holds no write view keeps a write
+  argument lent to read, and that argument's write lend ends as the call
+  returns; dropping a container of views uses them only through a `drop`
+  body; a bare name or place only reads, so `x = h.w`, like `x = w`, of
+  a `!Int` copies the Int.
 - **The kind of a struct of Strings:** CORE calls it a view, SPEC plain
   data; the compiler treats it as CORE's read-view kind.
 - **Arm-local payload views:** lift them for an unguarded, non-generic
@@ -175,6 +179,19 @@ and run the corpus after.
   and `Text(...)` arguments, and assignment targets.
 - **`defer`/`errdefer` at exits,** owners behind `Cell`, `Box`, and
   `*T`, and generic instances.
+- **Statement-long loans the Core does not need** (compiler-stricter,
+  listed in `test/oracle/differences`): a call's result's read loans,
+  and a write lend the call stores or whose result is a write view, last
+  until the statement ends, not until their last use in it. So
+  `match find(!v)` cannot write `v` in an arm after the payload's last
+  use, `print(firstw(!v).n, v.len)` is rejected, and so is reading `v`
+  after `keep(!v, !h, ?x)` in its statement though `h` is used no more.
+  The Core allows all three, and the oracle accepts them. A later round
+  ends these loans at their last use within the statement. Likewise a
+  generic callee's argument write lend lasts to the statement's end,
+  since its origins come from its signature, where a `T` could hold
+  anything (`print(gfirst(!v).n, v.len)` is rejected); per-instance
+  origins are a later refinement.
 - **Review findings not fixed:**
   - `|+x|` captures a copy of plain data or a handle only; a deep copy
     of an owner is *planned* (CORE §7).

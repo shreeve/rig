@@ -115,7 +115,8 @@ const Checker = struct {
         if (op.def) |d| live.unset(d);
         if (op.kill) |k| {
             live.unset(k);
-            // A user `drop` body reads what the value views.
+            // A user `drop` body reads what the value views; any other
+            // drop only releases memory, and uses no view (Core s6).
             if (self.f.vars.items[k].drop_reads) live.set(k);
         }
         for (op.reads) |v| live.set(v);
@@ -238,9 +239,10 @@ const Checker = struct {
         const stored = self.stored;
         self.flowOf(op, st, stored, op.no_store, op.store_loan);
         // What a call hands back or stores is a read view of what it was
-        // lent to write, unless it may itself be or hold a write view: a
-        // String made from a `!Text` reads it (Core s7), and a write view
-        // pushed into a Vec of them stays one (Core §5).
+        // lent to write, unless it may itself be or hold a write view
+        // (Core s7: a result that holds no write view carries its loans
+        // as read loans, even of an argument lent to write), and a write
+        // view pushed into a Vec of them stays one (Core §5).
         const stored_full = self.stored_full;
         stored_full.copyFrom(stored);
         if (op.what == .call) {

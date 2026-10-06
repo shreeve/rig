@@ -1236,7 +1236,9 @@ handle to one reaches what it holds, so loans kept per handle var would
 miss the other handles. A loan not stored anywhere is a temporary and
 ends with its statement; the loans of a moved value stay in force
 until the call or statement that consumes it ends, so a later argument
-of the same call cannot lend or move their roots. Likewise, an
+of the same call cannot lend or move their roots, and so does a write
+loan any argument's value carries (a write view a method's result keeps
+of its receiver: `both(!b.firstw(), ?b)` is rejected). Likewise, an
 argument that reads a place by value whose value shares storage the
 place owns (a Vec, a box, a handle, a struct holding one, or what a
 write view reaches: `print(v, grow(!v))`) leaves a read loan of the
@@ -1295,7 +1297,8 @@ it holds, or not at all (`sema.ViewReach`), stands for that var's own
 loans, judged the same way. A String's memory is a Text's or a
 literal's bytes, which a var reaches by owning a Text, or a `!Text`. A
 value that holds only Strings (`sema.holdsViewOnly`) reads what it
-views, so the loans it keeps are read loans. So `!it.next()` of an
+views, so the loans it keeps are read loans, and so does a call's result
+that holds no write view (`carryResult`, Core sentence 7). So `!it.next()` of an
 iterator holding Strings views what `it` views, not `it`, and a String
 read through a `!String`, copied into a binding, or read out of a
 `Vec[String]` keeps what the String views. A value holding a write
@@ -1333,10 +1336,16 @@ leaf counts as a use of what it captures) and the symbols deferred code
 uses. A var is live after the current statement when it is used at or
 after the statement's start, or anywhere in an enclosing loop it was
 declared outside of (the next iteration), or in deferred code, or when
-it owns a value with drop glue (dropped at scope exit), or when a live
-var or temporary holds a loan of it. A closure binding whose
-environment has drop glue, a parameter, and the hidden var that keeps a
-`for` source lent are always live. The
+it owns a value whose drop at scope exit may run a `drop` body
+(`sema.dropRunsBody`: one of its own, or of a value it holds and drops,
+or `depends` for a value holding a type parameter), which could read
+what the value views, or when a live var or temporary holds a loan of
+it. Any other drop only releases memory and uses no view (Core sentence
+6), so a `Vec[?Int]`'s loans end at its last use. A closure binding
+whose environment's drop may run a `drop` body (`env_drop_reads`), a
+parameter, and the hidden var that keeps a `for` source lent are always
+live. Desugared, a drop that runs no `drop` body is a release of memory
+the value owns, which reads none of the views it holds. The
 conflict checks and the "does not live long enough" checks at scope ends
 and jumps skip loans whose holder is not live. This is textual, so it is
 the same on every path, and conservative where paths differ.
@@ -1429,9 +1438,12 @@ through `break` and error propagation; a returned or stored value
 carries only the loans of what the caller lent; values that move
 (`sema.moves`: owning and unique values) and write views are never
 copied implicitly (a bare write view of a Copy
-value is copied only where the type checker recorded that its context
-reads the value, `SemContext.readsThrough`), and only whole bindings
-move; closures use outer
+value, a name, field, or element alike, is copied only where the type
+checker recorded that its context reads the value,
+`SemContext.readsThrough`, `readsThroughWriteView`: a bare name or
+place only reads, Core sentence 1, so `x = h.w` with `w: !Int` copies
+the Int, as `x = w` does; a binding holds the write view only a call or
+a lend hands over, `yieldsWriteView`), and only whole bindings move; closures use outer
 locals only through captures, and never consume their captured
 resources; and a value whose drop runs a user `drop` body may not
 view, directly or through what it views, a value dropped before it
@@ -1531,7 +1543,24 @@ the statement (Core §3). The stores apply first,
 then the result is narrowed by `carry`, so a holder the result does not
 view stands for its loans after the call: `next(!self, extra)`, which
 re-points `self.items` at `extra`, gives a result that carries
-`extra`'s loans. Every lend made in an argument still ends with its
+`extra`'s loans. A result whose type holds no write view (no `!T`
+anywhere in it, no type parameter, no type not known) only reads what
+it views, so every loan it keeps is a read loan (`carryResult`), also
+one of an argument or receiver lent to write: after `r = first(!v)`,
+`v` may be read while `r` lives, and not written. The write lends its
+arguments made then end as the call returns (`endWriteLends`), and what
+the result keeps stays lent, to read, for the rest of the statement, so
+`print(first(!v).n, v.len)`, a `for` over such a call, and a `match`
+on one read `v` as the split forms do. What the call stores
+keeps its own loans where it stores them, and the write lend it stored
+lasts to the statement's end as before. Whether a call may store an
+argument is its origins' `stores`, from the signature, so a generic
+callee's argument write lend lasts to the statement's end (a `T` could
+hold anything): `print(gfirst(!v).n, v.len)` is rejected, while
+`r = gfirst(!v)` then `print(v.len)` is accepted; per-instance origins
+are a later refinement: a write view of `v` stored in
+`h` keeps `v` lent to write while `h` lives. A loan kept this way is
+marked `read_of_write`, so a conflict's note says the lend was a write. Every lend made in an argument still ends with its
 statement (the statement's temporaries are as before).
 
 **The body check** (`checkOrigins`). At every return and tail value the
@@ -1559,7 +1588,12 @@ of the view, as above. A call `r = f(e1, ..., en)` is
 `t1 = e1; ...; tn = en; r = f(t1, ..., tn)` with each `ti` a statement
 temporary (Core §3): `r` holds the loans of the `ti` whose parameters
 are in `result`, the owners of the write arguments those in `stores`,
-and every other `ti`'s loans end with the statement. The narrowing is
+and every other `ti`'s loans end with the statement. When `r`'s type
+holds no write view, it is `r = ?f(t1, ..., tn)`: a read lend of the
+views the call returns, which a held `!T` lends as `?T` (Core §4), so
+`r` keeps the `ti`'s loans as read loans, and each `ti` that was a
+write lend ends with the call, but one the call may store, which ends
+with the statement. The narrowing is
 sentence 7's own: no other form says that a result does not view `b`,
 so a `from` clause is sentence 7's refinement rather than a form that
 desugars, and its checker rule is the call rule with the named set plus

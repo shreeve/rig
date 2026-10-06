@@ -71,7 +71,7 @@ side; Rig names everything from the side the sigil is on.
 | **plain** | `Int`, `Bool`, enums, structs whose parts are all plain | copies | built |
 | **owning** | `Vec[T]`, `Box[T]`, `Text`, structs holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
-| **view** | `?T`, `!T`, `[]T`, `![]T`, `String` | a read view copies; a write view moves | built |
+| **view** | `?T`, `!T`, `[]T`, `![]T`, `String` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
 **A struct's or enum's kind follows from its parts:** it is owning if
 any part is owning or a handle; otherwise a view if any part is a view
@@ -115,11 +115,13 @@ use `<c`
 
 ## 2. The core, in ten sentences
 
-**1. A bare name only reads.** It copies plain data and read views, and
-reads owners and handles in place. It never clones, writes, or drops,
-and it moves only where the value leaves for good: `return x`, `break
-x`, or `x` as the last value of the function or block that declares
-`x`. *(built* for copies, `return x`, a function's last value, a
+**1. A bare name or place only reads.** It copies plain data and read
+views, and reads owners and handles in place; a write view of a number,
+`Bool`, `String`, or plain enum, whether a name, a field, or an element
+holds it, reads the value it sees, so `x = h.w` with `w: !Int` copies
+the Int. It never clones, writes, or drops, and it moves only where the
+value leaves for good: `return x`, `break x`, or `x` as the last value
+of the function or block that declares `x`. *(built* for copies, `return x`, a function's last value, a
 block's last value when the block declares the name, and reading in
 place: an argument where a view is expected (`size(v)` for a
 `?Vec[Int]` parameter), and a header's subject (a `for` over a `Vec`,
@@ -157,6 +159,40 @@ sub main
 1
 2
 2
+```
+
+```rig
+struct H
+  w: !Int
+
+sub main
+  n = 1
+  m = 2
+  h = H(w: !n)
+  g = H(w: !m)
+  x = h.w
+  h.w = g.w
+  x += 10
+  print(x, n, m)
+```
+
+```output
+11 2 2
+```
+
+```rig reject
+struct H
+  v: !Vec[Int]
+
+sub main
+  xs: Vec[Int] = Vec()
+  h = H(v: !xs)
+  y = h.v
+  print(y.len)
+```
+
+```error
+write `y = !h.v` to lend the view on
 ```
 
 ```rig pending
@@ -282,7 +318,9 @@ cannot lend `n` to read while a write loan is live
 
 **6. A loan lasts until the last use of every view that carries it,**
 wherever that view went: a field, an array, an optional, a closure, a
-result. *(built)*
+result. Dropping a value uses the views it holds only when its
+drop runs a `drop` body, which could read them, so a `Vec[[]Int]`'s
+loans end at its last use, not where it is dropped. *(built)*
 
 ```rig reject
 sub main
@@ -296,15 +334,53 @@ sub main
 cannot lend `v` to write while a read loan is live
 ```
 
+```rig
+sub main
+  a = [1, 2, 3]
+  v: Vec[[]Int] = Vec()
+  !v.push(?a[..2])
+  print(v)
+  a[0] = 9
+  print(a)
+```
+
+```output
+[[1, 2]]
+[9, 2, 3]
+```
+
+```rig reject
+struct Guard
+  items: []Int
+
+  drop(!self)
+    print(self.items.len)
+
+sub main
+  a = [1, 2, 3]
+  g = Guard(items: ?a[..])
+  print(g.items[0])
+  a[0] = 9
+```
+
+```error
+cannot assign to `a[...]` while `a` is lent
+```
+
 **7. A call passes on only the loans its signature shows.** A function
 returns a view only of what it was lent, or of something that lives for
 the whole program (literals, module constants, `os.args()`). Its result
 carries the loans of the arguments whose types could hold what it views,
-or, when the result says `from a`, of `a` alone. A view reached through
+or, when the result says `from a`, of `a` alone. A result that holds no
+write view carries them as read loans, even one of an argument lent to
+write, whose write lend then ends as the call returns unless the call
+may store it: after `head(!v)`, in its own statement or through
+`r = head(!v)`, `v` may be read, but not written, while the result
+lives. A view reached through
 a read view that a value holds carries that view's loans, not a loan on
 the holder; one reached through a write view the value holds keeps the
-holder lent too. The
-compiler checks each body against its signature. *(built)*
+holder lent too. The compiler checks each
+body against its signature. *(built)*
 
 ```rig reject
 fun pick(a: ?Vec[Int]) -> ?Vec[Int]
@@ -343,6 +419,41 @@ sub main
 
 ```output
 1 2
+```
+
+```rig
+fun head(v: !Vec[Int]) -> []Int
+  !v.push(v.len)
+  ?v[..1]
+
+sub main
+  v: Vec[Int] = Vec()
+  r = head(!v)
+  print(v.len, v[0])
+  print(r)
+  print(head(!v), v.len)
+```
+
+```output
+1 0
+[0]
+[0] 2
+```
+
+```rig reject
+fun head(v: !Vec[Int]) -> []Int
+  !v.push(v.len)
+  ?v[..1]
+
+sub main
+  v: Vec[Int] = Vec()
+  r = head(!v)
+  !v.push(5)
+  print(r)
+```
+
+```error
+cannot lend `v` to write while a read loan is live
 ```
 
 ```rig
