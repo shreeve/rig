@@ -1,0 +1,15 @@
+pub struct T
+  pub n: Int
+
+  pub fun bump(!self) -> Int
+    self.n += 1
+    self.n
+
+  pub fun make -> T
+    T(n: 1)
+
+pub fun mk -> T
+  T(n: 5)
+
+pub fun ok -> Bool
+  true

@@ -1,9 +1,7 @@
 # `!xs[a..b]` needs elements the code may write: not a String's, not a
 # `[]T`'s, and not those of a fixed binding, a loop binding (a copy), a
-# by-value or lent to read parameter, or a temporary.
-
-fun make -> [2]Int
-  [1, 2]
+# by-value or lent to read parameter. (A temporary's are written in its
+# statement's slot: `test/behavior/ownership/write_lend_temporary_view.rig`.)
 
 sub f(a: [2]Int, b: ?[2]Int, xs: []Int)
   p = !a[..]
@@ -20,13 +18,11 @@ sub main()
   for row in rows
     y = !row[..]
     print(y)
-  z = !make()[..]
-  print(w, x, z)
+  print(w, x)
 
-# error: 9:8: cannot lend parameter `a` to write
-# error: 10:8: cannot lend to write through a read view (`?T`)
-# error: 11:8: cannot lend a slice of a `[]Int` to write; a `[]T` is read-only
-# error: 16:8: cannot lend a slice of a String to write; a String is read-only
-# error: 18:8: cannot lend fixed binding `c` to write
-# error: 21:10: cannot lend `row` to write: it is a copy of an element of `rows`; to change the elements in place, loop with `for row in !rows`
-# error: 23:8: cannot lend a temporary to write
+# error: 7:8: cannot lend parameter `a` to write
+# error: 8:8: cannot lend to write through a read view (`?T`)
+# error: 9:8: cannot lend a slice of a `[]Int` to write; a `[]T` is read-only
+# error: 14:8: cannot lend a slice of a String to write; a String is read-only
+# error: 16:8: cannot lend fixed binding `c` to write
+# error: 19:10: cannot lend `row` to write: it is a copy of an element of `rows`; to change the elements in place, loop with `for row in !rows`

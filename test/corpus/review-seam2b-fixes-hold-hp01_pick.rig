@@ -1,0 +1,130 @@
+# Review probe hold/hp01_pick.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+# oracle: S.drop accept
+# oracle: H.keep accept
+# oracle: H.me accept
+# oracle: H.drop accept
+# oracle: PR.set accept
+# oracle: PR.set2 accept
+# oracle: PR.with accept
+# oracle: P.put accept
+# oracle: P.hh accept
+# oracle: Hold.set accept
+# oracle: VH.add accept
+# oracle: OH.add accept
+# oracle: AH.add accept
+# oracle: BH.add accept
+# oracle: mk accept
+# oracle: mkh accept
+# oracle: mkpr accept
+# oracle: pick accept
+# oracle: idw accept
+# oracle: clobber accept
+# oracle: f accept
+# oracle: main reject C5
+struct S
+  n: Int
+  t: Text
+
+  drop(!self)
+    print("dropS", self.n)
+
+struct H
+  r: String
+  rs: Vec[String]
+
+  sub keep(!self, r: String)
+    !self.rs.push(r)
+
+  fun me(!self) -> !H
+    self
+
+  drop(!self)
+    print("dropH sees", self.r, self.rs)
+
+struct PR
+  r: String
+
+  sub set(!self, r: String)
+    self.r = r
+
+  fun set2(!self, r: String) -> String
+    self.r = r
+    self.r
+
+  fun with(!self, r: String) -> PR
+    self.r = r
+    PR(r: self.r)
+
+struct P
+  h: !H
+
+  sub put(!self, r: String)
+    !self.h.rs.push(r)
+
+  fun hh(!self) -> !H
+    !self.h
+
+struct Hold[T]
+  v: T
+
+  sub set(!self, v: T)
+    self.v = v
+
+struct VH
+  hs: Vec[H]
+
+  sub add(!self, r: String)
+    !self.hs.push(H(r: r, rs: Vec()))
+
+struct OH
+  o: H?
+
+  sub add(!self, r: String)
+    self.o = H(r: r, rs: Vec())
+
+struct AH
+  a: [1]H
+
+  sub add(!self, r: String)
+    self.a[0] = H(r: r, rs: Vec())
+
+struct BH
+  b: Box[H]
+
+  sub add(!self, r: String)
+    !self.b.keep(r)
+
+enum EH
+  some(h: H)
+  nothing
+
+fun mk(n: Int) -> S
+  print("make S", n)
+  S(n: n, t: Text("text long enough for the heap ", n))
+
+fun mkh -> H
+  print("make H")
+  H(r: "init", rs: Vec())
+
+fun mkpr -> PR
+  PR(r: "init")
+
+fun pick(h: !H) -> !H
+  h
+
+fun idw[T](x: !T) -> !T
+  x
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun f(n: Int) -> Int
+  n
+
+sub main
+  c = f(1) == 1
+  h = mkh()
+  pick(!h).keep(?mk(1).t)
+  print("after", clobber(1))
+  print(c)

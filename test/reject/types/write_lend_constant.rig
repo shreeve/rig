@@ -4,7 +4,8 @@
 # a function or a type's function, a module's constant, an operator
 # applied to constants, or a value that branches, every value of which
 # is a constant. One that may be a value made at run time is a
-# temporary instead; a binding that holds a function is a name like any
+# temporary instead, lent to write in its statement's slot
+# (`test/behavior/ownership/write_lend_temporary_branches.rig`); a binding that holds a function is a name like any
 # other (`test/behavior/types/write_lend_function_binding.rig`).
 # (Another module's: `modules/foreign_variant_write`.)
 
@@ -66,24 +67,22 @@ sub main
   inc(!Int.max)
   setu(!U8.max)
   inc(!(Int.max - 1))
-  inc(!(5 if f(1) == 1 else f(2)))
   setf(!f)
   setp(!P.origin)
 
-# error: 56:9: cannot lend constant `Color.red` to write: it lives for the whole program and never changes
-# error: 57:9: cannot lend constant `E.bad` to write
-# error: 58:9: cannot lend constant `false` to write
-# error: 59:9: cannot lend constant `"abc"` to write
-# error: 60:9: cannot lend constant `none` to write
-# error: 61:8: cannot lend constant `5` to write
-# error: 62:8: cannot lend constant `-5` to write
-# error: 63:9: cannot lend constant `2 + 3` to write
-# error: 64:10: cannot lend constant `not true` to write
-# error: 65:10: cannot lend constant `Color.red if f(1) == 1 else Color.green` to write
-# error: 66:8: cannot lend constant `Int.max` to write
-# error: 67:9: cannot lend constant `U8.max` to write
-# error: 68:9: cannot lend constant `Int.max - 1` to write
-# error: 69:9: cannot lend a temporary to write
+# error: 57:9: cannot lend constant `Color.red` to write: it lives for the whole program and never changes
+# error: 58:9: cannot lend constant `E.bad` to write
+# error: 59:9: cannot lend constant `false` to write
+# error: 60:9: cannot lend constant `"abc"` to write
+# error: 61:9: cannot lend constant `none` to write
+# error: 62:8: cannot lend constant `5` to write
+# error: 63:8: cannot lend constant `-5` to write
+# error: 64:9: cannot lend constant `2 + 3` to write
+# error: 65:10: cannot lend constant `not true` to write
+# error: 66:10: cannot lend constant `Color.red if f(1) == 1 else Color.green` to write
+# error: 67:8: cannot lend constant `Int.max` to write
+# error: 68:9: cannot lend constant `U8.max` to write
+# error: 69:9: cannot lend constant `Int.max - 1` to write
 # error: 70:9: cannot lend constant `f` to write
 # error: 71:9: cannot lend constant `P.origin` to write
-# errors: 16
+# errors: 15

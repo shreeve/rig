@@ -1,0 +1,40 @@
+# Review probe q04_bare_stmt.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+struct S
+  n: Int
+  items: Vec[Int]
+
+  sub bump(!self)
+    self.n += 1
+
+  fun pop(!self) -> Int
+    self.n += 1
+    self.n
+
+  fun at(!self) -> !Int
+    !self.n
+
+  fun all(!self) -> !S
+    self
+
+  fun vs(!self) -> ![]Int
+    !self.items[..]
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> S
+  s = S(n: n, items: Vec())
+  !s.items.push(n)
+  s
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  mk(1)
+  ?mk(2)
+  !mk(3)
+  !mk(4).items
+  !mk(5)[..]
+  !mk(6).vs()

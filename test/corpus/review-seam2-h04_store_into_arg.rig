@@ -1,0 +1,41 @@
+# Review probe h04_store_into_arg.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.at accept
+# oracle: S.drop accept
+# oracle: H.drop accept
+# oracle: mk accept
+# oracle: mkh accept
+# oracle: put accept
+# oracle: main reject C5
+struct S
+  n: Int
+  big: [4]Int
+
+  fun at(!self) -> !Int
+    !self.n
+
+  drop(!self)
+    print("dropS", self.n)
+    self.n = 777
+
+struct H
+  ws: Vec[!Int]
+
+  drop(!self)
+    i = 0
+    while i < self.ws.len
+      self.ws[i] += 1
+      print("dropH wrote through", self.ws[i])
+      i += 1
+
+fun mk(n: Int) -> S
+  S(n: n, big: [n, n, n, n])
+
+fun mkh -> H
+  H(ws: Vec())
+
+sub put(h: !H, w: !Int)
+  !h.ws.push(<w)
+
+sub main
+  put(!mkh(), !mk(1).at())
+  print("end")

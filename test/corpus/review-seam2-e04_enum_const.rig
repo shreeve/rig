@@ -1,0 +1,11 @@
+# Review probe e04_enum_const.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+enum Color
+  red
+  green
+
+sub setc(c: !Color)
+  c = .green
+
+sub main
+  setc(!Color.red)
+  print(Color.red)

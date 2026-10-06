@@ -1,0 +1,8 @@
+# Review probe e02_lit_int.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+sub inc(v: !Int)
+  v += 100
+
+sub main
+  inc(!5)
+  inc(!(5))
+  inc(!-5)

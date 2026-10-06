@@ -1,0 +1,39 @@
+# A header's temporary lent to write (Core sentence 4, §3) ends with the
+# header: an `if` or `while` condition, an `if … as` subject that binds
+# plain data of it, and a `match` subject.
+
+struct B
+  n: Int
+  items: Vec[Int]
+  o: Int?
+
+  fun pop(!self) -> Int
+    self.n += 1
+    self.n
+
+  fun at(!self) -> !Int
+    !self.n
+
+  fun opt(!self) -> Int?
+    self.o
+
+fun mk -> B
+  b = B(n: 1, items: Vec(), o: 5)
+  !b.items.push(7)
+  b
+
+sub main
+  if !mk().pop() > 1
+    print("if")
+  while !mk().pop() < 1
+    print("never")
+  if !mk().opt() as x
+    print("as", x)
+  match !mk().pop()
+    2 => print("two")
+    _ => print("other")
+
+# expect:
+# if
+# as 5
+# two

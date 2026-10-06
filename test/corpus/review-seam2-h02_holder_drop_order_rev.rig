@@ -1,0 +1,31 @@
+# Review probe h02_holder_drop_order_rev.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+struct S
+  n: Int
+  items: Vec[Int]
+
+  fun at(!self) -> !Int
+    !self.n
+
+  drop(!self)
+    print("dropS", self.n)
+    self.n = 777
+
+struct H
+  ws: Vec[!Int]
+
+  drop(!self)
+    for w in self.ws
+      print("dropH sees", w)
+
+fun mk(n: Int) -> S
+  S(n: n, items: Vec())
+
+fun mkh -> H
+  H(ws: Vec())
+
+sub put(h: !H, w: !Int)
+  !h.ws.push(w)
+
+sub main
+  put(!mkh(), !mk(1).at())
+  put(w: !mk(2).at(), h: !mkh())

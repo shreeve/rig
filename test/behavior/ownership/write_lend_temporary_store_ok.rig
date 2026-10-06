@@ -1,0 +1,47 @@
+# A temporary lent to write as a receiver holds what the call stores, as
+# a name does: a view of a value that outlives the statement may be
+# stored there, and the temporary's `drop` reads it before the statement
+# ends (`test/reject/ownership/write_lend_temporary_stores.rig`). A
+# holder with no `drop` body may even hold a view of a temporary made
+# after it, which the statement drops first: dropping the holder reads
+# nothing (Core sentence 6), as for a name.
+# oracle: main accept
+
+struct PR
+  r: String
+
+  sub set(!self, r: String)
+    self.r = r
+
+struct S
+  t: Text
+
+fun mk(n: Int) -> S
+  S(t: Text("t", n))
+
+fun mkpr -> PR
+  PR(r: "")
+
+struct H
+  rs: Vec[String]
+
+  sub keep(!self, r: String)
+    !self.rs.push(r)
+
+  drop(!self)
+    print("drop", self.rs)
+
+fun mkh -> H
+  H(rs: Vec())
+
+sub main
+  t = Text("kept")
+  !mkh().keep(?t)
+  !mkh().rs.push(?t)
+  !mkpr().set(?mk(1).t)
+  print("end", t)
+
+# expect:
+# drop ["kept"]
+# drop ["kept"]
+# end kept

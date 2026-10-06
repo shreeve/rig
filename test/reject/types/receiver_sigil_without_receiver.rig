@@ -1,7 +1,8 @@
 # `!` and `<` before a call apply to the method's receiver, so a call
 # with none rejects them: an associated function called through its
-# type, a Cell's Vec members, a weak handle's `upgrade`, and a field
-# holding a function.
+# type (where `!` reaches the type, not the value the call makes), a
+# Cell's Vec members, a weak handle's `upgrade`, and a field holding a
+# function.
 
 struct Point
   x: Int
@@ -26,8 +27,8 @@ sub main
   hooks = Hooks(on: *|n| n + 1)
   print(!hooks.on(1), a.x, b.x)
 
-# error: 18:7: `origin` is called through its type or module and has no receiver; drop the `!`
-# error: 19:7: `origin` is called through its type or module and has no receiver; drop the `<`
-# error: 21:3: `push` changes a Cell through any path to it; drop the `!`
-# error: 24:6: `upgrade` only reads the weak handle; drop the `!`
-# error: 27:9: `on` is a field holding a function, not a method with a receiver; drop the `!`
+# error: 19:7: `!` here reaches `Point`, a type, not the value `Point.origin(...)` makes: write `!(Point.origin(...))` to lend that value, or drop the `!`
+# error: 20:7: `origin` is called through its type or module and has no receiver; drop the `<`
+# error: 22:3: `push` changes a Cell through any path to it; drop the `!`
+# error: 25:6: `upgrade` only reads the weak handle; drop the `!`
+# error: 28:9: `on` is a field holding a function, not a method with a receiver; drop the `!`

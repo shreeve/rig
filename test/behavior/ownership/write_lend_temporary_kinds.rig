@@ -1,0 +1,79 @@
+# `!` lends a temporary of any kind to write (Core sentence 4): a handle,
+# lent as the handle itself (`!*P`); a Vec and an array, whose element
+# methods write them; a write method whose `Bool` value is used, written
+# `(!e).insert(k)`; a Box, which lends what it holds; a `Bool`, where a
+# `!Bool` is expected.
+
+struct P
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+struct Seen
+  items: Vec[Int]
+
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.items
+      return false if x == k
+    !self.items.push(k)
+    true
+
+fun mkh -> *P
+  *P(n: 1)
+
+sub repoint(h: !*P)
+  print("was", h.n)
+  h = *P(n: 9)
+  print("now", h.n)
+
+fun mkv -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  v
+
+fun mka -> [3]Int
+  [3, 1, 2]
+
+fun mks -> Seen
+  Seen(items: Vec())
+
+fun mkbox -> Box[P]
+  Box(P(n: 5))
+
+sub flip(b: !Bool)
+  b = not b
+
+fun mkbool -> Bool
+  true
+
+sub main
+  repoint(!mkh())
+  h = *P(n: 2)
+  repoint(!(<h))
+  k = *P(n: 3)
+  repoint(!(+k))
+  print(k.n)
+  !mkv().push(1)
+  print(!mkv().pop() ?? 0)
+  !mka().fill(0)
+  print((!mks()).insert(1))
+  !mks().insert(2)
+  if (!mks()).insert(3)
+    print("inserted")
+  !mkbox().bump()
+  flip(!mkbool())
+  print("end")
+
+# expect:
+# was 1
+# now 9
+# was 2
+# now 9
+# was 3
+# now 9
+# 3
+# 3
+# true
+# inserted
+# end

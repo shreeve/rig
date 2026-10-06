@@ -1,5 +1,5 @@
 # Parentheses around the call make `!` apply to its value, a temporary,
-# not to the receiver.
+# not to the receiver, which the call then needs lent to write.
 
 sub main
   v: Vec[Int] = Vec()
@@ -7,4 +7,5 @@ sub main
   n = !(v.pop())
   print(n ?? 0)
 
-# error: 7:9: cannot lend a temporary to write
+# error: 7:11: method `pop` needs its receiver lent to write; use `!receiver.pop(...)`
+# errors: 1

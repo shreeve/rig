@@ -1,11 +1,12 @@
-# A `!self` method changes its receiver. Called on a value made in place,
-# which no name holds, the change would be lost, and the call shows no
-# `!` (Core sentences 4 and 9): it is rejected, as `!mk().bump()` is.
-# The same holds for a part of such a value, a field or an element, for
-# a branching value whose every branch is made there, for a method that
-# returns a view of the receiver, and in a generic body. A write view a
-# call returns is no temporary: the method writes through it
-# (`test/behavior/ownership/write_receiver_through_returned_view.rig`).
+# A `!self` method changes its receiver, and every change is marked by
+# `!` (Core sentences 4 and 9): called on a value made in place, which no
+# name holds, with no `!`, it is rejected, with the hint to add one. The
+# same holds for a part of such a value, a field or an element, for a
+# branching value whose every branch is made there, for a method that
+# returns a view of the receiver, and in a generic body. Each hint, as
+# written, runs: `test/behavior/ownership/write_receiver_temporary_lent.rig`.
+# A write view a call returns is no temporary: the method writes through
+# it (`test/behavior/ownership/write_receiver_through_returned_view.rig`).
 
 struct S
   n: Int
@@ -56,13 +57,13 @@ sub main
   Wrap(v: 1).again()
   print(s.n)
 
-# error: 40:5: `bump` changes its receiver, a temporary no name holds; bind it to a name first
-# error: 48:3: `bump` changes its receiver, a temporary no name holds
-# error: 49:3: `bump` changes its receiver, a temporary no name holds
-# error: 50:9: `next` changes its receiver, a temporary no name holds
-# error: 51:4: `bump` changes its receiver, a temporary no name holds
-# error: 52:4: `bump` changes its receiver, a temporary no name holds
-# error: 53:3: `bump` changes its receiver, a temporary no name holds
-# error: 54:3: `bump` changes its receiver, a temporary no name holds
-# error: 55:9: `at` changes its receiver, a temporary no name holds
+# error: 41:5: `bump` changes its receiver, a temporary no name holds; add `!`: `!(self.twice()).bump()`
+# error: 49:3: `bump` changes its receiver, a temporary no name holds; add `!`: `!mk().bump()`
+# error: 50:3: `bump` changes its receiver, a temporary no name holds; add `!`: `!S(n: 1, inner: T(k: 0)).bump()`
+# error: 51:9: `next` changes its receiver, a temporary no name holds; add `!`: `!mk().next()`
+# error: 52:4: `bump` changes its receiver, a temporary no name holds; add `!`: `!(mk() if c else S(n: 2, inner: T(k: 0))).bump()`
+# error: 53:4: `bump` changes its receiver, a temporary no name holds; add `!`: `!(+s).bump()`
+# error: 54:3: `bump` changes its receiver, a temporary no name holds; add `!`: `!mk().inner.bump()`
+# error: 55:3: `bump` changes its receiver, a temporary no name holds; add `!`: `![T(k: 1), T(k: 2)][0].bump()`
+# error: 56:9: `at` changes its receiver, a temporary no name holds; add `!`: `!mk().at()`
 # errors: 9

@@ -1,0 +1,26 @@
+# Review probe r2/z03_assign_me_temp.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+struct S
+  n: Int
+  t: Text
+
+  drop(!self)
+    print("dropS", self.n)
+
+struct H
+  r: String
+
+  fun me(!self) -> !H
+    self
+
+  drop(!self)
+    print("dropH sees", self.r)
+
+fun mk(n: Int) -> S
+  S(n: n, t: Text("hello world, long enough to be on the heap ", n))
+
+fun mkh -> H
+  H(r: "init")
+
+sub main
+  !mkh().me().r = ?mk(1).t
+  print("end")

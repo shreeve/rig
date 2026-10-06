@@ -1,0 +1,11 @@
+# Review probe e06_error_const.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+error E
+  bad
+  worse
+
+sub sete(e: !E)
+  e = .worse
+
+sub main
+  sete(!E.bad)
+  print(E.bad)

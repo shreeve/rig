@@ -1,0 +1,17 @@
+# Review probe g02_returned_closure.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+struct S
+  n: Int
+
+  fun maker(?self, k: Int) -> *fun(Int) -> T
+    *|+k, y| T(m: k + y)
+
+struct T
+  m: Int
+
+  fun bump(!self) -> Int
+    self.m += 1
+    self.m
+
+sub main
+  a = S(n: 1)
+  print(!a.maker(1)(2).bump())

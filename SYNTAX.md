@@ -311,6 +311,17 @@ receiver sigil.
 `?`, `!`, or `<` directly before a *place* (a name, then any `.field`
 or `[index]` steps) that a method call follows applies to the place,
 the method's receiver. Postfixes after the call apply to its result.
+In a chain, it reaches the receiver of the first method call
+(`!a.b().c(x)` is `(!a).b().c(x)`). `!` lends any value to write
+([CORE](docs/CORE.md) sentence 4), so it also reaches a receiver no
+name holds, and the fields and elements after it: the value a call
+that is no method call makes (`!mk().pop()`), a literal
+(`![a, b][0].bump()`), or a parenthesized expression (`!(+s).bump()`).
+A call of a call's value is walked through to the first call:
+`!a.b(x)(y).g()` is `(!a).b(x)(y).g()`. A function called through a
+module or a type reads as a method of a value, so `!lib.mk().bump()`
+reaches `lib`: the checker says so, and the call in parentheses,
+`!(lib.mk()).bump()`, lends the value it makes.
 
 | Long form | Short form | Meaning |
 |---|---|---|
@@ -318,6 +329,9 @@ the method's receiver. Postfixes after the call apply to its result.
 | `(!self.items).push(k)` | `!self.items.push(k)` | a field of `self` in a `!self` method |
 | `(!grid[r]).bump()` | `!grid[r].bump()` | an element, changed in place |
 | `(!v).put[2](x)` | `!v.put[2](x)` | a method with compile-time arguments |
+| `(!mk()).pop()` | `!mk().pop()` | lend the value `mk()` makes to write, a temporary |
+| `(!mk().items).push(k)` | `!mk().items.push(k)` | a field of that temporary |
+| `(!(+s)).bump()` | `!(+s).bump()` | a parenthesized receiver |
 | `((!v).pop())?` | `!v.pop()?` | the suffix applies to the result |
 | `while (!q).pop() as j` | `while !q.pop() as j` | the loop binds what `pop` returns |
 | `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
@@ -328,8 +342,11 @@ method declares (`?self`, `!self`, `<self`). Every other prefix, and
 `?`, `!`, or `<` with no method call after the place, applies to the
 whole expression: `*Point.origin()` shares the new `Point`, `-a.len`
 negates the length, `!x.v` lends the field, `<p.f` moves the field,
-and `?xs[0]` lends the element. With parentheses around the call,
-`?(p.m())` lends its result. The long form is valid everywhere; it is
+and `?xs[0]` lends the element. A `?` or `<` before a value a call
+makes applies to the whole expression too: `?f(x).g()` lends what `g`
+returns, since a made receiver is read or taken without a sigil. With
+parentheses around the call, `?(p.m())` and `!(p.m())` lend its
+result. The long form is valid everywhere; it is
 required for a write call whose `Bool` value is used, `if
 (!set).insert(k)` or `added = (!set).insert(k)`, so that its `!` never
 reads as negation ([SPEC §3](SPEC.md#structs) has the checks).

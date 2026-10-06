@@ -1,0 +1,44 @@
+# Review probe o01_write_place_leak.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.pop accept
+# oracle: S.drop accept
+# oracle: mk accept
+# oracle: mkp accept
+# oracle: f accept
+# oracle: g accept
+# oracle: main accept
+struct P
+  k: Int
+  s: String
+
+struct S
+  n: Int
+
+  fun pop(!self) -> Int
+    self.n += 1
+    self.n
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> S
+  S(n: n)
+
+fun mkp(k: Int) -> P
+  P(k: k, s: "p")
+
+fun f(n: Int) -> Int
+  n
+
+fun g(s: String) -> Int
+  s.len
+
+sub main
+  c = f(1) == 1
+  print(!mk((mkp(1) if c else mkp(2)).k).pop())
+  print(!mk((P(k: 3, s: "x") if c else mkp(4)).k).pop())
+  print(!mk(g((P(k: 3, s: "xyz") if c else mkp(4)).s)).pop())
+  print(!mk(g(("ab" if c else "cde"))).pop())
+  a = mkp(7)
+  print(!mk((a if c else mkp(8)).k).pop())
+  print(!mk([1, 2][0] + ([3, 4] if c else [5, 6])[1]).pop())
+  print(!mk(f(1) if c else 9).pop())

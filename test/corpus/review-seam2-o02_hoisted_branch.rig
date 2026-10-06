@@ -1,0 +1,30 @@
+# Review probe o02_hoisted_branch.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.pick accept
+# oracle: S.drop accept
+# oracle: mk accept
+# oracle: f accept
+# oracle: main accept
+struct S
+  n: Int
+  t: Text
+
+  fun pick(!self, x: Int, y: Int) -> Int
+    self.n += x * 10 + y
+    !self.t.add("!")
+    print(self.t)
+    self.n
+
+  drop(!self)
+    print("drop", self.n, self.t)
+
+fun mk(n: Int) -> S
+  S(n: n, t: Text("t", n))
+
+fun f(n: Int) -> Int
+  print("arg", n)
+  n
+
+sub main
+  c = f(1) == 1
+  print(!(mk(1) if c else mk(2)).pick(y: f(3), x: f(4)))
+  print(!(mk(5) if not c else mk(6)).pick(y: f(7), x: f(8)))
