@@ -233,10 +233,11 @@ pub const Emitter = struct {
     /// The place being emitted is only read: a Vec element on its path
     /// is reached through `constSlot`.
     read_place: bool = false,
-    /// The name a `match` subject being emitted starts from, which it
-    /// reaches where it is: a generic read view there is the value it
-    /// reaches in place, `rig.viewedPtr(T, &v).*`, never a copy.
-    subject_root: ?SymbolId = null,
+    /// The `match` subject being emitted, which it reaches where it is
+    /// (`storage.matchesInPlace`): a generic read view held on its path,
+    /// by its name, a field, or an element, is the value it reaches in
+    /// place, `rig.viewedPtr(T, &view).*`, never a copy (`onSubjectPath`).
+    subject_path: Sexp = .nil,
     /// The `else` of the loop used as a value being emitted, which is
     /// written after the loop as the block's value.
     value_else: Sexp = .nil,
@@ -1223,9 +1224,9 @@ pub const Emitter = struct {
                 const saved = self.read_place;
                 defer self.read_place = saved;
                 self.read_place = !writes;
-                const saved_subject = self.subject_root;
-                defer self.subject_root = saved_subject;
-                self.subject_root = self.rootSymbol(e);
+                const saved_subject = self.subject_path;
+                defer self.subject_path = saved_subject;
+                self.subject_path = e;
                 try self.emitAddressOf(e);
             },
             // A lend held as a pointer is the address it lends.
@@ -1672,10 +1673,18 @@ pub const Emitter = struct {
 
     /// An assignable place: a binding, field, or element.
     fn emitPlace(self: *Emitter, target: Sexp) Error!void {
-        if (target == .src) if (self.localOf(target)) |local| return self.writeLocalPlace(local);
+        if (target == .src) if (self.localOf(target)) |local| {
+            if (self.subjectView(target, local)) |inner| return self.writeSubjectView(inner, local.zig_name);
+            return self.writeLocalPlace(local);
+        };
         if (target.isKind(.index)) {
             // An element holding a write view denotes the viewed
             // value, as a field holding one does (`emitValue`).
+            if (self.onSubjectPath(target)) if (self.genericReadViewOf(target)) |inner| {
+                try self.writeViewedPtrOpen(inner);
+                try self.emitIndex(target, true);
+                return self.w.writeAll(").*");
+            };
             try self.emitIndex(target, true);
             if (self.isPtrViewExpr(target)) try self.w.writeAll(".*");
             return;
@@ -1688,13 +1697,20 @@ pub const Emitter = struct {
         try self.emitExpr(target);
     }
 
+    /// The `T` of the generic read view `local` holds when `name` names it
+    /// on the path of the `match` subject being emitted (`onSubjectPath`).
+    fn subjectView(self: *Emitter, name: Sexp, local: *const Local) ?TypeId {
+        if (!local.is_ptr or !self.onSubjectPath(name)) return null;
+        return self.genericReadView(local.ty orelse return null);
+    }
+
+    fn writeSubjectView(self: *Emitter, inner: TypeId, zig_name: []const u8) Error!void {
+        try self.writeViewedPtrOpen(inner);
+        try self.w.print("{s}).*", .{zig_name});
+    }
+
     fn writeLocalPlace(self: *Emitter, local: *const Local) Error!void {
         if (local.is_ptr) if (self.genericReadView(local.ty orelse return self.w.writeAll(local.zig_name))) |inner| {
-            if (self.subject_root == local.sym) {
-                try self.w.writeAll("rig.viewedPtr(");
-                try self.emitTypeTy(inner);
-                return self.w.print(", &{s}).*", .{local.zig_name});
-            }
             try self.writeViewedOpen(inner);
             try self.w.writeAll(local.zig_name);
             return self.w.writeAll(")");
@@ -2514,9 +2530,9 @@ pub const Emitter = struct {
                 try self.w.writeAll(".*");
             } else {
                 if (by_ptr or self.switchesThroughName(subject)) try self.emitSwitchDeref(subject) else {
-                    const saved_root = self.subject_root;
-                    defer self.subject_root = saved_root;
-                    self.subject_root = self.rootSymbol(subject);
+                    const saved_path = self.subject_path;
+                    defer self.subject_path = saved_path;
+                    self.subject_path = subject;
                     try self.emitBare(subject);
                 }
                 if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
@@ -2660,11 +2676,31 @@ pub const Emitter = struct {
         info.temp = info.mode == .consume;
     }
 
-    /// The symbol of the name a field or element path `e` starts from.
-    fn rootSymbol(self: *Emitter, e: Sexp) ?SymbolId {
-        var p = lentPlace(if (e.isKind(.move)) ir.Move.operand(e) else e);
-        while (p.isKind(.member) or p.isKind(.index)) p = lentPlace(ir.get(p, .object));
-        return if (p == .src) self.sema.symbolOf(p) else null;
+    /// Whether `e` is the `match` subject being emitted, or a field or
+    /// element path on the way to it from the name it starts at
+    /// (`subject_path`).
+    fn onSubjectPath(self: *const Emitter, e: Sexp) bool {
+        var p = self.subject_path;
+        while (p != .nil) {
+            if (p.isKind(.move) or p.isKind(.read) or p.isKind(.write)) {
+                p = ir.get(p, .operand);
+                continue;
+            }
+            if (sameNode(p, e)) return true;
+            if (!p.isKind(.member) and !p.isKind(.index)) return false;
+            p = ir.get(p, .object);
+        }
+        return false;
+    }
+
+    /// `rig.viewedPtr(T, &view).*`: the `T` a generic read view held at
+    /// `view`, a name, a field, or an element, reaches in place: the
+    /// value the view points to, or the copy it holds. The caller writes
+    /// `view` between `open` and `close`.
+    fn writeViewedPtrOpen(self: *Emitter, inner: TypeId) Error!void {
+        try self.w.writeAll("rig.viewedPtr(");
+        try self.emitTypeTy(inner);
+        try self.w.writeAll(", &");
     }
 
     /// The Zig place of a match's subject, for `match !x` and `match <x`
@@ -2674,9 +2710,9 @@ pub const Emitter = struct {
         const saved_w = self.w;
         self.w = &buf.writer;
         defer self.w = saved_w;
-        const saved_root = self.subject_root;
-        defer self.subject_root = saved_root;
-        self.subject_root = self.rootSymbol(info.subject);
+        const saved_path = self.subject_path;
+        defer self.subject_path = saved_path;
+        self.subject_path = info.subject;
         try self.emitPlace(if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject);
         if (info.boxed) try self.writeMatchReach(self.typeOf(info.subject).?);
         return buf.written();
@@ -3405,6 +3441,7 @@ pub const Emitter = struct {
                 return self.w.print("rig.rt({s})", .{local.zig_name});
             }
             if (tail and self.ptr_tail and local.is_ptr) return self.w.writeAll(local.zig_name);
+            if (self.subjectView(sexp, local)) |inner| return self.writeSubjectView(inner, local.zig_name);
             return if (tail and try self.takesTail(sexp, local)) self.writeTake(local) else self.writeLocalPlace(local);
         }
         if (std.mem.eql(u8, name, "none")) return self.w.writeAll("null");
@@ -3861,9 +3898,12 @@ pub const Emitter = struct {
                 // viewed value, unless the pointer itself is wanted.
                 const deref = self.isPtrViewExpr(sexp) and !(tail and self.ptr_tail);
                 const generic = if (deref) self.genericReadViewOf(sexp) else null;
-                if (generic) |inner| try self.writeViewedOpen(inner);
+                // On a `match` subject's path, a generic read view is
+                // reached where it is held, never copied.
+                const in_place = generic != null and self.onSubjectPath(sexp);
+                if (generic) |inner| if (in_place) try self.writeViewedPtrOpen(inner) else try self.writeViewedOpen(inner);
                 if (head == .member) try self.emitMember(sexp) else try self.emitIndex(sexp, self.place_chain);
-                if (generic != null) try self.w.writeAll(")") else if (deref) try self.w.writeAll(".*");
+                if (in_place) try self.w.writeAll(").*") else if (generic != null) try self.w.writeAll(")") else if (deref) try self.w.writeAll(".*");
             },
             .builtin => try self.emitBuiltin(sexp),
             .propagate => {

@@ -369,11 +369,13 @@ pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
 /// what `e` reaches, not its value: the block that ends the temporaries
 /// breaks with `&place`, and the construct binds through that pointer,
 /// so what it binds is the place's own, never a copy. `e` reaches a
-/// place when it is one (`sema.Hands.place`, its indexes and arguments
-/// evaluated in the block), a lend of one held as a pointer (`!v[i]`),
+/// place when it is one (`sema.Hands.place`, its indexes evaluated in
+/// the block) whose path starts outside the header's temporaries
+/// (`startsOutsideHeader`), a lend of one held as a pointer (`!v[i]`),
 /// or a value that branches (`a if c else b`) each leaf of which reaches
-/// one or jumps. A value made in the header, or a part of one, has no
-/// place, and the header yields its value.
+/// one or jumps. A value made in the header, a part of one, or a place
+/// inside a view of one (`id(?mk()).e`) has no place that outlives the
+/// header, and the header yields its value.
 pub fn headerPoints(ctx: *const SemContext, e: Sexp) bool {
     if (e == .nil or sema.firstStmtTemp(ctx, e) == null) return false;
     return reachesPlace(ctx, e);
@@ -394,7 +396,7 @@ fn reachesPlace(ctx: *const SemContext, e: Sexp) bool {
     // A slice is a view already, yielded as it is.
     if (rig.isRangeIndex(e)) return false;
     switch (sema.handsOver(ctx, e).kind) {
-        .place => return true,
+        .place => return startsOutsideHeader(ctx, e),
         // A read lend of a scalar or a view is a copy.
         .lend => return (e.isKind(.read) or e.isKind(.write)) and isPtrViewExpr(ctx, e) and reachesPlace(ctx, ir.get(e, .operand)),
         .branches => {
@@ -412,6 +414,24 @@ fn reachesPlace(ctx: *const SemContext, e: Sexp) bool {
         },
         .part_of_made, .made, .jump, .none => return false,
     }
+}
+
+/// Whether the field or element path `e` starts outside the statement
+/// temporaries its header makes: at a name, or at a view whose
+/// evaluation makes none (`get(!v)[idx(?Text("a"))]`), which therefore
+/// cannot point into one. A path from a view of a value the header makes
+/// (`id(?mk()).e`, `(?mk()).e`, `id(?mkh()).xs`) lives inside a
+/// temporary the header's block drops.
+fn startsOutsideHeader(ctx: *const SemContext, e: Sexp) bool {
+    var base = e;
+    while (true) {
+        if (base.isKind(.member) or base.isKind(.index)) {
+            base = ir.get(base, .object);
+        } else if (base.isKind(.read) or base.isKind(.write)) {
+            base = ir.get(base, .operand);
+        } else break;
+    }
+    return base == .src or sema.firstStmtTemp(ctx, base) == null;
 }
 
 /// Whether `if o as x` over `value` views the value inside the

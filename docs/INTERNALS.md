@@ -828,16 +828,18 @@ iteration. Each says to bind the value to a name first.
 A header whose subject makes a statement temporary
 (`sema.firstStmtTemp`, which emit's header blocks use too) is evaluated
 in a block that ends the temporary. When the subject reaches a place
-(`storage.headerPoints`: a place, its indexes and call arguments
-evaluated in the block, a lend of one held as a pointer, or an `if`
-value each leaf of which is one of those), the block yields the place's
-address, `(hdr: { slots break :hdr &v.slot(i).*; }).*`, and the
+(`storage.headerPoints`: a place whose path starts at a name, or at a
+view whose evaluation makes no temporary, its indexes evaluated in the
+block; a lend of one held as a pointer; or an `if` value each leaf of
+which is one of those), the block yields the place's address, `(hdr: { slots break :hdr &v.slot(i).*; }).*`, and the
 construct binds through it, so what it binds is the place's own: a
 `match` switches on it (a guarded one holds the address in
 `__rig_subject`), an `if … as` or `while … as` (evaluated again each
 pass) captures by pointer into it, and a `for` walks it. Any other
-subject, a value made in the header, is yielded by value, and what the
-construct binds is in that copy. Typecheck records the copy once per
+subject is yielded by value, and what the construct binds is in that
+copy: a value made in the header, and a place inside a view of one
+(`id(?mk()).e`, `(?mk()).e`), which lives in a temporary the block
+drops. Typecheck records the copy once per
 header (`copiesHeader`, the storage fact `header_copy`), unless the
 construct takes its subject (`<p`, a `match` that takes it), walks a
 slice, or matches a view a call returns, which is held as the pointer it
@@ -1729,9 +1731,10 @@ lower is an internal error: sema must have rejected it.
   place is reached through the address its block yields
   (`storage.headerPoints`), never a copy of the block's value. A `match`
   on a generic read view a name holds switches on
-  `rig.viewedPtr(T, &v).*`, and one on a generic read view a call
-  returns holds it in `__rig_subject` and switches on
-  `rig.viewedPtr(T, &__rig_subject).*`. With `RIG_SANITIZE`, each
+  `rig.viewedPtr(T, &v).*`, as does one on a generic read view a field
+  or an element on the subject's path holds (`rig.viewedPtr(T, &w.r).*`),
+  and one on a generic read view a call returns holds it in
+  `__rig_subject` and switches on `rig.viewedPtr(T, &__rig_subject).*`. With `RIG_SANITIZE`, each
   `var` emit adds (a call's argument, receiver, or closure environment,
   a statement's or header's temporary slot, a held or matched subject,
   an `as` binding's copy) is filled with `0xAA` when its scope ends
