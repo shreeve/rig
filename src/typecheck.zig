@@ -1494,7 +1494,7 @@ const Checker = struct {
         const use = findUse(self.ctx, step, b) orelse return;
         if (sema.isReadOrWriteView(self.ctx, sym.ty)) {
             try self.errAt(use, "the loop step cannot use `{s}`: it is a view (`{s}`) that lives only in the body; use it at the end of the body instead", .{ sym.name, try self.tyName(sym.ty) });
-        } else if (try self.cannotCopy(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
+        } else if (try self.mustTake(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
             try self.errAt(use, "the loop step cannot use `{s}`: the body owns this `{s}`, which ends with the body before the step runs", .{ sym.name, try self.tyName(sym.ty) });
         }
     }
