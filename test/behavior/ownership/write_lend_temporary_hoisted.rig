@@ -1,0 +1,53 @@
+# A call whose keyword arguments run before it (reordered) holds a
+# receiver lent to write by its address in the statement's slot, a
+# branching one made in every branch and an element of a made array
+# too, and a field of a temporary is sliced to write there (Core
+# sentence 4, §3). `clobber` reuses the stack before the view is read.
+# oracle: main accept
+
+struct S
+  n: Int
+  o: Int?
+  arr: [3]Int
+
+  fun pick(!self, x: Int, y: Int) -> !Int
+    self.n += x * 10 + y
+    !self.n
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> S
+  S(n: n, o: n, arr: [3, 1, 2])
+
+fun f(n: Int) -> Int
+  n
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun show(v: ?Int, k: Int) -> Int
+  v * 1000 + k
+
+fun digits(xs: ![]Int) -> Int
+  t = 0
+  for x in xs
+    t = t * 10 + x
+  t
+
+sub main
+  c = true
+  print(show(!(mk(1) if c else mk(2)).pick(y: f(1), x: f(2)), clobber(3)))
+  print(show(![mk(3), mk(4)][1].pick(y: f(1), x: f(2)), clobber(3)))
+  print(digits(!mk(5).arr[..]), digits(!mk(6).arr))
+
+# expect:
+# 22004
+# drop 22
+# 25004
+# drop 25
+# drop 3
+# 312 312
+# drop 6
+# drop 5

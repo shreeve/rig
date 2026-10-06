@@ -73,6 +73,13 @@ pub fn isBracketList(e: Sexp) bool {
     return e.isKind(.index) or e.isKind(.inst);
 }
 
+/// Whether a call of `callee` is a method call: a member, or a member
+/// followed by a bracket list (`v.put[2](x)`).
+pub fn isMethodCallee(callee: Sexp) bool {
+    if (callee.isKind(.member)) return true;
+    return isBracketList(callee) and ir.get(callee, .object).isKind(.member);
+}
+
 /// A slice, `xs[a..b]`: an index node whose index is a range.
 pub fn isRangeIndex(e: Sexp) bool {
     return e.isKind(.index) and ir.Index.index(e).isKind(.@"..");
@@ -1772,24 +1779,36 @@ pub const Parser = struct {
     /// and every postfix after it apply to the lent or moved place:
     ///   (write (propagate_none (call (member v pop))))
     ///   → (propagate_none (call (member (write v) pop)))
-    /// Anything else keeps its sigil outside: a chain that is all place
-    /// (`!x.v`), one whose head is called (`<f(x).g()`), and one whose
-    /// spine is parenthesized (`!(v.pop())`), which starts after the
-    /// token after the sigil, a `(`.
+    /// A `!` applies to a receiver that is a value no name holds too: one
+    /// a call makes (`!mk().bump()` is `(!mk()).bump()`), a literal, or a
+    /// parenthesized expression (`!(+s).bump()`). Anything else keeps its
+    /// sigil outside: a chain that is all place (`!x.v`), a `?` or `<`
+    /// chain whose head is called (`<f(x).g()`), and one whose spine is
+    /// parenthesized (`!(v.pop())`), which starts after the token after
+    /// the sigil, a `(`.
     fn receiverSigil(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const tag: parser.Tag = node.kind().?;
         const at = self.afterSigil(node);
+        // `!` lends any value to write, so its chain may start from a
+        // value no name holds: a call that is no method call
+        // (`!mk().bump()`), a literal (`![a, b][0].bump()`), or a
+        // parenthesized expression (`!(+s).bump()`).
+        const any_head = tag == .write;
         // The chain from the operand down to its head, outermost first.
         var chain: std.ArrayList(Sexp) = .empty;
         var e = ir.get(node, .operand);
         while (true) {
-            if (self.span(e).start != at) return node;
+            if (self.span(e).start != at) {
+                if (!any_head or chain.items.len == 0) return node;
+                try chain.append(self.allocator(), e);
+                break;
+            }
             try chain.append(self.allocator(), e);
             e = switch (e.kind() orelse break) {
                 .propagate, .propagate_none => ir.get(e, .value),
                 .member, .index, .inst => ir.get(e, .object),
-                .call => ir.Call.callee(e),
-                else => return node,
+                .call => if (any_head and !isMethodCallee(ir.Call.callee(e))) break else ir.Call.callee(e),
+                else => if (any_head) break else return node,
             };
         }
         const spine = chain.items;

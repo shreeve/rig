@@ -2267,7 +2267,11 @@ pub const Checker = struct {
     fn walkLend(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
         if (rig.isRangeIndex(inner)) return self.walkElems(inner, ir.Index.object(inner), kind);
         if (kind == .read and self.throughReadView(inner)) return self.walkThroughView(inner);
-        const place = self.resolvePlace(inner) orelse return self.walkViewedPath(inner);
+        const place = self.resolvePlace(inner) orelse {
+            const start = self.vars.items.len;
+            const v = try self.walkViewedPath(inner);
+            return if (kind == .write) self.lendTempToWrite(v, start) else v;
+        };
         try self.walkIndicesHeld(inner, place.root);
         const id = place.root;
         const v = self.vars.items[id];
@@ -2278,6 +2282,23 @@ pub const Checker = struct {
             return .{};
         }
         return (try self.lendVar(id, kind, pos)) orelse .{};
+    }
+
+    /// `v`, the view of a path that starts from no var, lent to write:
+    /// the statement temporary it starts from (held since there were
+    /// `start` vars, `holdTemp`) is lent to write (`!mk().bump()`, Core
+    /// sentence 4).
+    fn lendTempToWrite(self: *Checker, v: Value, start: usize) Error!Value {
+        var loans: ?[]Loan = null;
+        for (v.loans, 0..) |l, i| {
+            if (l.root < start or !self.isStmtTemp(l.root) or l.kind == .write) continue;
+            const out = loans orelse try self.arena().dupe(Loan, v.loans);
+            out[i].kind = .write;
+            loans = out;
+        }
+        var w = v;
+        if (loans) |ls| w.loans = ls;
+        return w;
     }
 
     /// A view of a path that starts from no var (`?f(?h).r`): it keeps
@@ -2332,9 +2353,12 @@ pub const Checker = struct {
             return v;
         }
         // A path from no var (a temporary's part, `?mk().v[..]`) keeps
-        // what its start views, as a view of one does.
+        // what its start views, as a view of one does; `!mk()[..]` lends
+        // that temporary to write.
         const place = self.resolvePlace(object) orelse {
-            const v = try self.walkViewedPath(object);
+            const start = self.vars.items.len;
+            var v = try self.walkViewedPath(object);
+            if (kind == .write) v = try self.lendTempToWrite(v, start);
             if (rig.isRangeIndex(slice)) _ = try self.walk(ir.Index.index(slice));
             return v;
         };

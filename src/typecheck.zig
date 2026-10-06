@@ -1247,9 +1247,12 @@ const Checker = struct {
         if (access == .pass_write) return true;
         if (place.root == .temporary) {
             switch (access) {
+                // `!` lends any value to write: the temporary is held in
+                // its statement's slot (`lendsToWrite`).
+                .lend_write, .lend_on => return true,
                 .assign, .write_through => try self.errAt(at, "cannot assign to a field or element of a temporary; bind the value first (`t = ...`), then assign to `t`", .{}),
                 .take => try self.errAt(at, "cannot take out of a temporary: nothing would see it emptied; bind it to a name first", .{}),
-                else => try self.errAt(at, "cannot lend a temporary to write: the change would be lost; bind it to a name first", .{}),
+                else => try self.errAt(at, "cannot {s}{s} a temporary; bind it to a name first", .{ access.verb().head, access.verb().tail }),
             }
             return false;
         }
@@ -3663,10 +3666,10 @@ const Checker = struct {
         const operand = ir.get(e, .operand);
         try self.recordUse(operand, .lend);
         if (rig.isRangeIndex(operand)) return self.lendSlice(operand, kind);
-        // A temporary lent to read lives until its statement ends, which
-        // drops it; the ownership checker keeps a view of it from
-        // outliving the statement.
-        const inner = if (kind == .read and !self.hands(operand).hasStorage())
+        // A temporary lent lives until its statement ends, which drops
+        // it; the ownership checker keeps a view of it from outliving
+        // the statement.
+        const inner = if (!self.hands(operand).hasStorage())
             try self.synthExpr(operand)
         else
             try self.synthOperand(operand);
@@ -3709,6 +3712,7 @@ const Checker = struct {
         const lends = self.ctx.types.get(inner) == .write_view and place.steps > 0;
         if (kind == .write and !try self.requireAccess(place, if (lends) .lend_on else .lend_write, operand) and (place.blocked != null or place.root == .temporary)) return self.t().invalid_id;
         if (kind == .read and !try self.lendsToRead(operand, inner, place)) return self.t().invalid_id;
+        if (kind == .write and !try self.lendsToWrite(operand)) return self.t().invalid_id;
         switch (self.ctx.types.get(inner)) {
             // (A write view of a `?T` was rejected above.)
             .read_view => return inner,
@@ -3793,6 +3797,25 @@ const Checker = struct {
         return sym.kind == .function or (sym.kind == .local and sym.flags.fixed);
     }
 
+    /// `operand` lent to write (Core sentence 4: `!` lends any value to
+    /// write, named or temporary): a temporary, or the value a part of
+    /// one starts from, is held in its statement's slot until the
+    /// statement ends (`lendTemp`), where the change is seen and dropped
+    /// with it. A branching value that may be a name's would be lent as
+    /// a copy, which the change would miss: each branch is lent instead.
+    /// (A constant is never lent to write: `isConstant`.) False when
+    /// the lend is rejected (reported).
+    fn lendsToWrite(self: *Checker, operand: Sexp) Error!bool {
+        if (!self.isTemporary(operand)) return true;
+        const base = if (self.hands(operand).hasStorage()) self.placeOf(operand).base else operand;
+        if (self.namedLeaf(base)) |leaf| {
+            try self.errAt(base, "cannot lend `{s}` to write: it may be `{s}`, a value a name holds, which lending the branching value would copy; lend what each branch reaches instead (`!a if c else !b`, `if !o as x`)", .{ self.sourceText(base), self.sourceText(leaf) });
+            return false;
+        }
+        try self.lendTemp(operand);
+        return true;
+    }
+
     /// `U8`, a String's byte.
     fn byteType(self: *Checker) Error!TypeId {
         return self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
@@ -3869,7 +3892,8 @@ const Checker = struct {
     fn writeSlice(self: *Checker, slice: Sexp) Error!TypeId {
         const object = ir.Index.object(slice);
         const range = ir.Index.index(slice);
-        const obj_ty = try self.synthOperand(object);
+        // A temporary sliced is held in its statement's slot (below).
+        const obj_ty = if (!self.hands(object).hasStorage()) try self.synthExpr(object) else try self.synthOperand(object);
         try self.checkSliceRange(range);
         if (self.isPoison(obj_ty)) return obj_ty;
         if (sema.sliceLend(self.ctx, obj_ty)) |lend| try self.ctx.recordSliceLend(slice, lend);
@@ -3903,8 +3927,11 @@ const Checker = struct {
         const place = self.placeOf(slice);
         if (!try self.requireAccess(place, .lend_write, object)) return self.t().invalid_id;
         // A `![]T` may be resliced wherever it comes from; an array or a
-        // Vec is sliced where it is stored.
-        if (sema.writeSliceElem(self.ctx, obj_ty) == null and place.base != .src) {
+        // Vec is sliced where it is stored, a temporary's in its
+        // statement's slot.
+        if (place.root == .temporary) {
+            if (!try self.lendsToWrite(object)) return self.t().invalid_id;
+        } else if (sema.writeSliceElem(self.ctx, obj_ty) == null and place.base != .src) {
             try self.errAt(object, slice_of_temporary, .{});
             return self.t().invalid_id;
         }
@@ -5524,9 +5551,9 @@ const Checker = struct {
                 .write_view => .write_view,
                 else => .owned_nominal,
             };
+            // (A Text made here with no `!` is reported as such.)
             try self.checkReceiverMode(obj, .write, kind, method, pos, args.len > 0, self.t().void_id);
-            // A Text made here would be changed and never dropped.
-            try self.rejectResourceTemporary(obj, obj_ty);
+            if (self.hands(obj).kind != .made) try self.rejectResourceTemporary(obj, obj_ty);
         }
         switch (op) {
             .add => try self.checkFormatArgs(args, "`add`", "write"),
@@ -6820,8 +6847,9 @@ const Checker = struct {
         if (try self.namedType(obj)) |nt| return self.associatedCall(obj, nt, method, pos, args, ct);
 
         // A consuming (`<self`) method may take a temporary, and a
-        // `?self` one reads it where it stands; a `!self` one needs an
-        // owner, or the change would be lost.
+        // `?self` one reads it where it stands; a `!self` one needs it
+        // lent to write, `!mk().m()`, which keeps it in its statement's
+        // slot.
         const obj_ty = try self.synthExpr(obj);
         if (self.isPoison(obj_ty)) {
             try self.synthArgs(args);
@@ -6918,9 +6946,11 @@ const Checker = struct {
             .write => try self.recordUse(stripSigil(obj), .lend),
             .read, .none => {},
         }
+        // (A write method on a value made here with no `!` is reported
+        // as such: `checkReceiverMode`.)
         if (receiver == .read and !misplaced_sigil and !self.hands(obj).hasStorage()) {
             try self.readLeaf(obj);
-        } else if (receiver != .value and !misplaced_sigil) try self.rejectResourceTemporary(obj, obj_ty);
+        } else if (receiver != .value and !misplaced_sigil and !(receiver == .write and self.hands(obj).kind == .made)) try self.rejectResourceTemporary(obj, obj_ty);
 
         // A `?self` method may change a Cell the value holds, which needs
         // a place. A part of a value that branches and may be a name's is
@@ -7152,7 +7182,9 @@ const Checker = struct {
         // A receiver `!` could not write (through a `*T` or `?T`, or of
         // a parameter) is reported as such, not with a `!` to add.
         if (!try self.requireAccess(self.placeOf(place), .lend_write, obj)) return false;
-        try self.errAt(obj, "`{s}` writes the elements; write the receiver with `!`: `!{s}.{s}(...)`", .{ method, self.sourceText(place), method });
+        const shown = self.sourceText(place);
+        const lent = if (sigilReaches(place)) try self.ctx.arena.allocator().print("!{s}", .{shown}) else try self.ctx.arena.allocator().print("!({s})", .{shown});
+        try self.errAt(obj, "`{s}` writes the elements; write the receiver with `!`: `{s}.{s}(...)`", .{ method, lent, method });
         return false;
     }
 
@@ -7464,10 +7496,33 @@ const Checker = struct {
         return self.ctx.types.get(ty) == .write_view;
     }
 
-    /// A write method called on a temporary: a value made here, a part
-    /// of one, or a branching value made in every branch.
-    fn writeOfTemporary(self: *Checker, recv: Sexp, method: []const u8) Error!void {
-        try self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; bind it to a name first", .{method});
+    /// A write method called on a temporary (a value made here, a part
+    /// of one, or a branching value made in every branch) with no `!`:
+    /// every change is marked by `!` (Core sentences 4 and 9), which
+    /// lends the temporary to write.
+    fn writeOfTemporary(self: *Checker, recv: Sexp, method: []const u8, has_args: bool, returns: TypeId) Error!void {
+        const shown = self.sourceText(recv);
+        const a = self.ctx.arena.allocator();
+        const lent = if (sigilReaches(recv)) try a.print("!{s}", .{shown}) else try a.print("!({s})", .{shown});
+        const call = if (self.usesBoolValue(recv, returns)) try a.print("({s}).{s}", .{ lent, method }) else try a.print("{s}.{s}", .{ lent, method });
+        try self.errAt(recv, "`{s}` changes its receiver, a temporary no name holds; add `!`: `{s}({s})`", .{ method, call, if (has_args) "..." else "" });
+    }
+
+    /// Whether `!` written before `recv` followed by a method call lends
+    /// `recv` as the receiver (the receiver-sigil rule, `rig.Parser`): a
+    /// postfix chain with no method call in it, or else `recv` must be
+    /// parenthesized (`!(+s).bump()`, `!(a.make()).bump()`).
+    fn sigilReaches(recv: Sexp) bool {
+        switch (recv.kind() orelse return true) {
+            .call, .member, .index, .inst, .array => {},
+            else => return false,
+        }
+        var p = recv;
+        while (true) switch (p.kind() orelse return true) {
+            .member, .index, .inst => p = ir.get(p, .object),
+            .call => return !rig.isMethodCallee(ir.Call.callee(p)),
+            else => return true,
+        };
     }
 
     /// Receiver rules: `?self` is lent implicitly; `!self` needs an explicit
@@ -7485,11 +7540,10 @@ const Checker = struct {
                 switch (shape) {
                     .write_explicit => {},
                     // A value made here, or a part of one, is a temporary
-                    // no name holds: its change would be lost, and no `!`
-                    // could show it. A write view made here writes
-                    // through. (One that owns a resource is reported as a
-                    // temporary nothing drops.)
-                    .made => if (!self.writesThrough(recv, kind) and !self.ownsResource(recv)) try self.writeOfTemporary(recv, method),
+                    // no name holds, which a write method changes only
+                    // where `!` lends it (`!mk().bump()`). A write view
+                    // made here writes through.
+                    .made => if (!self.writesThrough(recv, kind)) try self.writeOfTemporary(recv, method, has_args, returns),
                     // A branch that is a write view writes through it; one
                     // that is a name's value would be written as a copy.
                     // (One that owns a resource is reported as a temporary
@@ -7503,7 +7557,7 @@ const Checker = struct {
                     // A binding that already holds a write view (`x: !T`,
                     // `!self`) lends it visibly too.
                     .place => if (kind != .write_view and self.hands(recv).kind == .part_of_made) {
-                        try self.writeOfTemporary(recv, method);
+                        try self.writeOfTemporary(recv, method, has_args, returns);
                     } else if (kind != .write_view) {
                         try self.err(pos, "method `{s}` needs its receiver lent to write; use `!receiver.{s}(...)`", .{ method, method });
                     } else {

@@ -1,0 +1,102 @@
+# `!` lends any value to write (Core sentence 4): a call's result, a
+# struct literal, a clone, a moved or new handle, a branching value made
+# in every branch, or a field or element of one, passed where a `!T` or
+# `![]T` is expected. The temporary lives in its statement's slot, where
+# the callee's change is seen and dropped with it; a write view a field
+# of it holds writes what it views.
+# oracle: main accept
+
+use std.sort
+
+struct S
+  n: Int
+
+  fun twin(?self) -> S
+    S(n: self.n)
+
+struct H
+  w: !Int
+
+struct P
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun make -> S
+  S(n: 1)
+
+fun mkh(w: !Int) -> H
+  H(w: <w)
+
+fun mkp(n: Int) -> *P
+  *P(n: n)
+
+fun mka -> [3]Int
+  [3, 1, 2]
+
+fun mkv -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(2)
+  !v.push(1)
+  v
+
+sub grow(s: !S)
+  s.n += 1
+  print("grown", s.n)
+
+sub bump(n: !Int)
+  n += 1
+
+sub poke(w: !Int)
+  w += 10
+
+sub repoint(p: !*P)
+  print("was", p.n)
+  p = *P(n: p.n * 10)
+
+fun digits(xs: ![]Int) -> Int
+  sort.sort(!xs)
+  t = 0
+  for x in xs
+    t = t * 10 + x
+  t
+
+sub main
+  o = S(n: 1)
+  c = o.n == 1
+  grow(!make())
+  grow(!(o.twin()))
+  grow(!S(n: 3))
+  grow(!(make() if c else S(n: 5)))
+  bump(!make().n)
+  n = 1
+  poke(!mkh(!n).w)
+  print(n, o.n)
+  repoint(!mkp(2))
+  h = *P(n: 3)
+  repoint(!(<h))
+  k = *P(n: 4)
+  repoint(!(+k))
+  print(k.n)
+  print(digits(!mka()), digits(!mkv()), digits(!mka()[1..]), digits(!mkv()[..1]))
+  sort.sort(!mka())
+  !mka().fill(0)
+
+# expect:
+# grown 2
+# grown 2
+# grown 4
+# grown 2
+# 11 1
+# was 2
+# drop 2
+# drop 20
+# was 3
+# drop 3
+# drop 30
+# was 4
+# drop 40
+# 4
+# 123 12 12 2
+# drop 4
