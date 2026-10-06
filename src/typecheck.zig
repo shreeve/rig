@@ -2041,7 +2041,10 @@ const Checker = struct {
         var scrutinee = if (mode == .write) try self.synthOperand(subject) else try self.synthExpr(subject);
         const subject_hands = self.hands(subject);
         if (mode == .read and !self.isPoison(scrutinee)) switch (subject_hands.kind) {
-            .made => if (try self.cannotCopy(scrutinee, self.startOf(subject), "matches")) {
+            // A value made here that owns or is unique is the match's
+            // own (`sema.moves`); a view it yields, a write view
+            // included, stays a view.
+            .made => if (try self.mustTake(scrutinee, self.startOf(subject), "matches")) {
                 mode = .consume;
                 try self.ctx.recordHeader(node, .taken, .nil);
             },
@@ -4099,6 +4102,22 @@ const Checker = struct {
         return switch (sema.copies(self.ctx, ty)) {
             .no => true,
             .yes => false,
+            .depends => {
+                try self.requireOf(ty, .copies, pos, op);
+                return false;
+            },
+        };
+    }
+
+    /// Whether a value of `ty` moves (`sema.moves`), for a construct
+    /// that takes such a value rather than reading a copy of it. Inside
+    /// a generic body a type holding type parameters may or may not: the
+    /// construct reads it, and every instantiation must supply values
+    /// that copy (`Requirement.copies`).
+    fn mustTake(self: *Checker, ty: TypeId, pos: u32, op: []const u8) Error!bool {
+        return switch (sema.moves(self.ctx, ty)) {
+            .yes => true,
+            .no => false,
             .depends => {
                 try self.requireOf(ty, .copies, pos, op);
                 return false;
