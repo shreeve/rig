@@ -1,0 +1,25 @@
+# The condition binds an optional slice; the step reads through it with
+# `??`; the body grows the Vec.
+#
+# oracle: mk accept
+# oracle: first accept
+# oracle: main reject C4
+fun mk(v: ?Vec[Int], i: Int) -> (([]Int)?)?
+  if i < 40
+    return ?v[..]
+  none
+
+fun first(s: ([]Int)?) -> Int?
+  if s as t
+    return t[0]
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  while mk(?v, i) as h: k += first(h) ?? 0
+    i += 1
+    !v.push(2)
+  print(k)

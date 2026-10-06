@@ -1,0 +1,21 @@
+# oracle: mk accept
+# oracle: main reject C4
+
+use std.text
+
+# The step reads a String the condition's binding holds, after the
+# body grew the Text it views.
+struct S
+  s: String
+
+fun mk(t: ?Text) -> S?
+  if t.len < 200
+    return S(s: ?t)
+  none
+
+sub main
+  t = Text("abc")
+  k = 0
+  while mk(?t) as h: k += (1 if text.ends_with(h.s, "9") else 0)
+    !t.add("0123456789")
+  print(k, t.len)

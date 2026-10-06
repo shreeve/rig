@@ -1,0 +1,25 @@
+# oracle: all accept
+# oracle: mkn accept
+# oracle: main reject C4
+
+struct Node
+  vals: Vec[Int]
+
+fun all(n: ?Node, i: Int) -> ([]Int)?
+  if i < 4
+    return ?n.vals[..]
+  none
+
+fun mkn(x: Int) -> *Node
+  v: Vec[Int] = Vec()
+  !v.push(x)
+  *Node(vals: <v)
+
+sub main
+  r = mkn(1)
+  k = 0
+  i = 0
+  while all(?r, i) as s: k += s[0]
+    r = mkn(i)
+    i += 1
+  print(k)

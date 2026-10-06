@@ -1,0 +1,22 @@
+# The condition binds a view of a temporary Vec made in the condition;
+# the step reads it.
+#
+# oracle: mkv accept
+# oracle: first accept
+# oracle: main reject C5
+fun mkv(i: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(i)
+  v
+
+fun first(v: ?Vec[Int], i: Int) -> ([]Int)?
+  if i < 3
+    return ?v[..]
+  none
+
+sub main
+  k = 0
+  i = 0
+  while first(?mkv(i), i) as h: k += h[0]
+    i += 1
+  print(k)

@@ -1,0 +1,43 @@
+# An owned binding drops with the body, before a step that does not read
+# it, on every path to the step; plain and joined lowerings agree.
+#
+# oracle: D.drop accept
+# oracle: mk accept
+# oracle: step accept
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(i: Int) -> D?
+  if i < 2
+    return D(n: i)
+  none
+
+fun step(i: Int) -> Int
+  print("step", i)
+  i + 1
+
+sub main
+  i = 0
+  while mk(i) as x: i = step(i)
+    print("body", x.n)
+    continue if i == 0
+  j = 0
+  while j >= 0 and mk(j) as y: j = step(j)
+    print("body", y.n)
+    continue if j == 0
+
+# expect:
+# body 0
+# drop 0
+# step 0
+# body 1
+# drop 1
+# step 1
+# body 0
+# drop 0
+# step 0
+# body 1
+# drop 1
+# step 1

@@ -1,0 +1,20 @@
+# Same shape, but the body does not write `v`: accepted, runs clean.
+#
+# oracle: mk accept
+# oracle: main accept
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(4)
+  k = 0
+  i = 0
+  while mk(?v, i) as h: k += h.s[0]
+    i += 1
+  print(k)

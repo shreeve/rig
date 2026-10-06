@@ -1,0 +1,13 @@
+# oracle: main reject C4
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  s = ?v[..]
+  f = |?s| s[0]
+  k = 0
+  i = 0
+  while i < 40: k += f()
+    i += 1
+    !v.push(2)
+  print(k)

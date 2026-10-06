@@ -1,0 +1,25 @@
+# oracle: mk accept
+
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  while mk(?v, i) as h and i >= 0: k += h.s[0]
+    local: Vec[Int] = Vec()
+    !local.push(100)
+    new h = S(s: ?local[..])
+    k += h.s[0]
+    i += 1
+    continue if i == 1
+  print(k)
+
+# expect: 303

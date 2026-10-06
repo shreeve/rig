@@ -1,0 +1,25 @@
+# Valid: a body `defer` reads `h`; `continue` leaves the body (running
+# the defer) and goes on to the step.
+#
+# oracle: mk accept
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(4)
+  k = 0
+  i = 0
+  while mk(?v, i) as h and i >= 0: k += h.s[0] * 100
+    defer k += h.s[0]
+    i += 1
+    continue if i == 2
+    k += 1000
+  print(k)
+
+# expect: 3212

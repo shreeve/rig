@@ -1,0 +1,26 @@
+# oracle: mk accept
+# oracle: run reject C4
+# oracle: main accept
+
+error E
+  bad
+
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int]) -> S?!
+  return E.bad if v.len > 100
+  if v.len < 40
+    return S(s: ?v[..])
+  none
+
+fun run() -> Int!
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v)! as h: k += h.s[0]
+    !v.push(2)
+  k
+
+sub main
+  print(run() catch 0)

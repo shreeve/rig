@@ -1,0 +1,33 @@
+# Whether a `continue` in the condition runs the step depends on whether
+# the step reads a binding of the condition.
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 6
+    return S(s: ?v[..])
+  none
+
+fun odd(i: Int) -> Int?
+  none if i % 2 == 1 else i
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  steps = 0
+  i = 0
+  while mk(?v, i) as h and (odd(i) ?? continue) >= 0: steps += 1
+    i += 1
+    k = h.s[0]
+    i += 1 if k > 5
+  print("no binding read:", steps, i)
+  steps = 0
+  i = 0
+  n = 0
+  while mk(?v, i) as h and (odd(i) ?? continue) >= 0: steps += h.s[0]
+    i += 1
+    n += 1
+    i += 1 if n > 100
+  print("binding read:", steps, i)
+
+# A uniform rule would print the same step count for both loops.
