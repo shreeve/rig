@@ -213,7 +213,10 @@ and checks that a program that runs prints what the payload holds,
 since the sanitizer cannot see a stale stack slot. A `while` step
 reads what its condition binds, a view or a struct holding one, while
 the body grows what it views on each way to the step (the body's end,
-`continue`, `continue :outer`, an inner loop, a `defer`, a `break`).
+`continue`, `continue :outer` from a nested `for`, `while`, or
+`while … as`, also under a joined or `catch break` condition, an inner
+loop, a `defer`, a `break`), and a program that runs must print how
+many steps ran.
 It writes to a temporary directory
 and commits nothing; `-k` picks cells by id and `-v` lists every result.
 

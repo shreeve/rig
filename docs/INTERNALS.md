@@ -1745,6 +1745,17 @@ lower is an internal error: sema must have rejected it.
   holding the loop without its `else`, then `break :block else_value`;
   each `break v` leaves the block, so the `else` value is reached only
   when no `break` gave one, for every form of loop.
+- **Loops.** `while c: step` is Zig's `while (c) : (step)`, and
+  `while a as x: step` its `while (a) |x| : (step)`. A joined condition,
+  or one that jumps (`catch break`), becomes nested `if`s in a
+  `while (true)`; a step that reads a binding of the condition then runs
+  inside them after the body, and a `continue` that targets the loop
+  leaves a labeled block around the body instead
+  (`while true { x = a or break; { body }; step }`, as the checker walks
+  it). Every loop pushes an entry on `Emitter.redirects` (with its
+  Rig label, and where its jumps go when Zig's own cannot reach it); a
+  jump takes the entry of the loop it targets, the innermost one or the
+  innermost of its label, at any depth of nested loops.
 - **Compile-time parameters** are Zig `comptime` parameters, first in
   the signature, after a method's receiver (Zig's method call syntax
   needs the receiver first): `fun times[n: Int](?self)` is

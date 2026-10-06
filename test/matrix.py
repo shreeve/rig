@@ -257,9 +257,12 @@ STORE_FORMS = {
 # Vec's `[]Int`, a Text's `String`), a struct holding one read through a
 # field or a method, while the body grows `v` (or only reads it) on its
 # way to the step: falling off its end, `continue`, `continue :outer`
-# from a nested loop, an inner loop, a `defer`, or a `break` (where the
-# step does not run). The step runs after the body, so it must not read
-# what the body grew. Cells are `step.<owner>.<holder>.<shape>.<then>`.
+# from a nested `for`, `while`, or `while … as` (also where the loop is
+# written as nested `if`s, for a joined condition or a `catch break`
+# in it), an inner loop, a `defer`, or a `break` (where the step does
+# not run). The step runs after the body, so it must not read what the
+# body grew, and a `read` cell must print the count of the steps it ran.
+# Cells are `step.<owner>.<holder>.<shape>.<then>`.
 # -----------------------------------------------------------------------------
 
 STEP_OWNERS = {
@@ -275,11 +278,19 @@ STEP_HOLDERS = {
     "field": dict(ty="H", make="H(r: L)", x="h.r"),
     "method": dict(ty="H", make="H(r: L)", x="h.get()"),
 }
-# The loop: `C` its condition, `S` its step, `G` what grows `v`.
+# The loop: `C` its condition (`J` joined, `F` failing, `B` with a
+# `catch break`), `S` its step, `G` what grows `v`.
 STEP_SHAPES = {
     "plain": ["while C: S", "  n += 1", "  G"],
     "continue": ["while C: S", "  n += 1", "  if n > 0", "    G", "    continue", "  k += 1"],
     "labeled": [":outer while C: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
+    "labeled_joined": [":outer while J: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
+    "labeled_catchbreak": [":outer while B: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
+    "labeled_while": [":outer while C: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
+    "labeled_while_joined": [":outer while J: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
+    "labeled_while_catchbreak": [":outer while B: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
+    "labeled_whileas_joined": [":outer while J: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue :outer"],
+    "labeled_whileas_catchbreak": [":outer while B: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue :outer"],
     "inner": ["while C: S", "  n += 1", "  j = 0", "  while j < 1: j += 1", "    G"],
     "defer": ["while C: S", "  n += 1", "  defer G"],
     "joined": ["while J: S", "  n += 1", "  G"],
@@ -302,11 +313,18 @@ def step_program(oname, hname, shape, then):
     step = "k += " + o["read"].replace("X", h["x"])
     grow = "grow(!v)" if then == "grow" else "k += 1"
     loop = [l.replace("C", "mk(?v, n) as h").replace("J", "mk(?v, n) as h and n >= 0")
-             .replace("F", "(mkf(?v, n) catch none) as h").replace("S", step).replace("G", grow)
+             .replace("F", "(mkf(?v, n) catch none) as h").replace("B", "(mkf(?v, n) catch break) as h")
+             .replace("S", step).replace("G", grow)
             for l in STEP_SHAPES[shape]]
     main = [o["make"], "k = 0", "n = 0"] + loop + ["print(k, n)"]
     out.append("sub main\n" + indent(main, 2) + "\n")
     return "\n".join(out)
+
+
+def step_output(shape):
+    """What a `read` step cell prints: three passes, each adding 1 in the
+    body and 1 in the step, but `break`, which leaves in the second."""
+    return "2 2\n" if shape == "break" else "6 3\n"
 
 
 # -----------------------------------------------------------------------------
@@ -633,6 +651,7 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(store_program(o, f, then))
                 cells.append((ident, path))
+    expects = {}
     for o in STEP_OWNERS:
         for hname in STEP_HOLDERS:
             for shape in STEP_SHAPES:
@@ -644,7 +663,8 @@ def main():
                     with open(path, "w") as fh:
                         fh.write(step_program(o, hname, shape, then))
                     cells.append((ident, path))
-    expects = {}
+                    if then == "read":
+                        expects[ident] = step_output(shape)
     for t in PAYLOAD_TYPES:
         for sname in PAYLOAD_SUBJECTS:
             for e in PAYLOAD_ESCAPES:

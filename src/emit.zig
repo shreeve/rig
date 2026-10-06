@@ -225,9 +225,10 @@ pub const Emitter = struct {
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayList(struct { rig: []const u8, zig: []const u8 }) = .empty,
-    /// Where the `break` and `continue` of the `while` being emitted go
-    /// when Zig cannot reach its loop with them (`JumpRedirect`).
-    redirect: ?JumpRedirect = null,
+    /// The loops around the current point, innermost last, each with
+    /// where a `break` or `continue` that targets it goes when Zig cannot
+    /// reach the loop with its own (`JumpRedirect`).
+    redirects: std.ArrayList(JumpRedirect) = .empty,
     /// The loops used as values around the current point, innermost last.
     value_loops: std.ArrayList(ValueLoop) = .empty,
     /// The place being emitted is only read: a Vec element on its path
@@ -277,6 +278,7 @@ pub const Emitter = struct {
         self.hoisted.deinit(self.allocator);
         self.temp_slots.deinit(self.allocator);
         self.labels.deinit(self.allocator);
+        self.redirects.deinit(self.allocator);
         self.value_loops.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -1742,33 +1744,40 @@ pub const Emitter = struct {
     // Control flow
     // -------------------------------------------------------------------------
 
-    /// A `while` whose condition or step jumps to it, or whose step runs
-    /// inside its body, is written in a form where Zig's own `break` and
-    /// `continue` would go elsewhere: the jumps that target it are written
-    /// as `brk` / `cont` instead. Inside a loop nested in it, only a
-    /// jump naming its label (`rig_label`) targets it (`shielded`).
+    /// A loop, or a part of a `while` being emitted (its step, or a body
+    /// its step runs after), with Rig label `rig_label` ("" when
+    /// unlabeled). A `while` whose condition or step jumps to it, or whose
+    /// step runs inside its body, is written in a form where Zig's own
+    /// `break` and `continue` would go elsewhere there: the jumps that
+    /// target it are written as `brk` / `cont` instead.
     const JumpRedirect = struct {
         rig_label: []const u8,
         brk: ?[]const u8 = null,
         cont: ?[]const u8 = null,
-        shielded: bool = false,
     };
 
-    /// The redirected text of a jump `node` with Rig label `label`, if it
-    /// targets the `while` a redirect is set for.
+    /// The redirected text of a jump with Rig label `label`, if the loop
+    /// it targets has one there: an unlabeled jump targets the innermost
+    /// loop, and a labeled one the innermost loop of that label, from any
+    /// depth of loops nested in it.
     fn redirected(self: *Emitter, label: Sexp, jump: enum { brk, cont }) ?[]const u8 {
-        const r = self.redirect orelse return null;
-        const targets = if (label == .nil) !r.shielded else r.rig_label.len > 0 and std.mem.eql(u8, self.srcText(label), r.rig_label);
-        if (!targets) return null;
-        return if (jump == .brk) r.brk else r.cont;
+        var i = self.redirects.items.len;
+        while (i > 0) {
+            i -= 1;
+            const r = self.redirects.items[i];
+            if (label == .nil or std.mem.eql(u8, self.srcText(label), r.rig_label)) return if (jump == .brk) r.brk else r.cont;
+        }
+        return null;
     }
 
-    /// Entering a loop nested in the one a redirect is set for; returns
-    /// the redirect to restore.
-    fn shieldRedirect(self: *Emitter) ?JumpRedirect {
-        const saved = self.redirect;
-        if (self.redirect) |*r| r.shielded = true;
-        return saved;
+    /// Enter a loop, or a part of one that redirects its jumps; the
+    /// caller pops it where that ends.
+    fn pushRedirect(self: *Emitter, r: JumpRedirect) Error!void {
+        try self.redirects.append(self.allocator, r);
+    }
+
+    fn popRedirect(self: *Emitter) void {
+        _ = self.redirects.pop();
     }
 
     /// Whether `node` holds a `break` (`brk`) or `continue` that targets
@@ -2053,12 +2062,11 @@ pub const Emitter = struct {
 
     /// `(while cond continuation body else?)`.
     fn emitWhile(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
-        const saved = self.shieldRedirect();
-        defer self.redirect = saved;
-        self.redirect = null;
+        const rig_label = self.rigLabelOf(label);
+        try self.pushRedirect(.{ .rig_label = rig_label });
+        defer self.popRedirect();
         const cond = ir.While.cond(sexp);
         const step = ir.While.step(sexp);
-        const rig_label = self.rigLabelOf(label);
         // A jump in the condition leaves or repeats this loop, which Zig
         // cannot reach from its condition: the condition moves inside.
         if (rig.isConditionJoin(cond) or self.jumpsToLoop(cond, rig_label, .brk, false) or self.jumpsToLoop(cond, rig_label, .cont, false))
@@ -2087,8 +2095,6 @@ pub const Emitter = struct {
     /// it.
     fn emitStep(self: *Emitter, step: Sexp, rig_label: []const u8, zig_label: ?[]const u8) Error!void {
         if (step == .nil) return;
-        const saved = self.redirect;
-        defer self.redirect = saved;
         var r: JumpRedirect = .{ .rig_label = rig_label };
         if (self.jumpsToLoop(step, rig_label, .brk, false)) r.brk = try self.fmt("break :{s}", .{zig_label.?});
         var block: ?[]const u8 = null;
@@ -2096,7 +2102,8 @@ pub const Emitter = struct {
             block = try self.fmt("__rig_step_{d}", .{self.nextId()});
             r.cont = try self.fmt("break :{s}", .{block.?});
         }
-        self.redirect = r;
+        try self.pushRedirect(r);
+        defer self.popRedirect();
         // A statement, so an assignment drops the value it replaces.
         try self.w.writeAll(": ({ ");
         if (block) |b| try self.w.print("{s}: {{ ", .{b});
@@ -2146,17 +2153,15 @@ pub const Emitter = struct {
         try self.pushScope();
         try self.openParts(parts);
         if (step_inside) {
-            const saved = self.redirect;
-            defer self.redirect = saved;
             if (self.jumpsToLoop(body, rig_label, .cont, false)) {
                 const block = try self.fmt("__rig_body_{d}", .{self.nextId()});
-                self.redirect = .{ .rig_label = rig_label, .cont = try self.fmt("break :{s}", .{block}) };
+                try self.pushRedirect(.{ .rig_label = rig_label, .cont = try self.fmt("break :{s}", .{block}) });
+                defer self.popRedirect();
                 try self.writeIndent(self.indent);
                 try self.w.print("{s}: ", .{block});
                 try self.emitBlock(body);
                 try self.w.writeAll("\n");
             } else try self.emitStmts(try self.stmtsOf(body));
-            self.redirect = saved;
             try self.writeIndent(self.indent);
             try self.w.writeAll("{ ");
             try self.emitStmt(step);
@@ -2264,8 +2269,8 @@ pub const Emitter = struct {
 
     /// `(for mode binding index-binding source body else?)`.
     fn emitFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
-        const saved = self.shieldRedirect();
-        defer self.redirect = saved;
+        try self.pushRedirect(.{ .rig_label = self.rigLabelOf(label) });
+        defer self.popRedirect();
         const mode = ir.For.mode(sexp).tag;
         const binding = ir.For.@"var"(sexp);
         const source = ir.For.source(sexp);
