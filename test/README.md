@@ -281,17 +281,28 @@ bin/rig-oracle --sema -v file.rig     # also functions the compiler's
 ## Proving a refactor changed nothing
 
 ```bash
-test/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR]
+test/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR] [--no-cache]
 ```
 
 runs two compilers over every tracked program and every ```` ```rig ````
 block in the docs, and compares what they print for `parse`,
 `normalize`, `check`, `check --facts`, and, for an accepted program,
-`check --facts=sema`, `check --facts=storage`, and `emit`. It lists each program whose output
-differs, with the sections that differ (`--keep` saves both outputs),
-and exits 1 if any does. Build the old compiler from the base commit
-and copy `bin/rig` aside first. A refactor's every difference is a
-planned rule or a fixed bug, and its pull request lists them.
+`check --facts=sema`, `check --facts=storage`, `emit` (the root
+module), and `pkg`: a hash of the whole package that
+`RIG_SANITIZE=1 rig emit` writes, every module, the standard library's
+shims, and the runtime with its sanitizer, so a change that shows only
+in another module or in sanitized code is still seen. It lists each
+program whose output differs, with the sections that differ (`--keep`
+saves both outputs, and both packages for `pkg`), and exits 1 if any
+does. Build the old compiler from the base commit and copy `bin/rig`
+aside first. A refactor's every difference is a planned rule or a fixed
+bug, and its pull request lists them.
+
+The old compiler's results are cached in `rig-equiv-cache` in the
+repository's git directory, by a hash of its binary, the section, the
+program's path, and the contents of the program and of every module
+beside it that a `use` could name; so a rerun against the same old
+compiler runs only the new one. `--no-cache` runs both.
 
 ## Known bugs
 

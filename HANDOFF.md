@@ -255,7 +255,9 @@ zig build test --cache-dir "$(mktemp -d)"     # unit tests; a plain rerun replay
 - **Equivalence** proves that a refactor changed nothing:
   `python3 test/equiv.py OLD_RIG bin/rig` compares the parse, the
   checks, the facts, and the emitted Zig of every program and doc
-  example. Explain every difference it prints.
+  example, the root module's and the whole sanitized package's. It
+  caches the old compiler's results, so a rerun against the same base
+  runs only the new compiler. Explain every difference it prints.
 
 ## Conventions
 
