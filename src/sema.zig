@@ -3693,6 +3693,18 @@ pub fn unwrapAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
     return id;
 }
 
+/// Whether member access on a `ty_id` reaches its value through a shared
+/// handle (`unwrapAccess`): `*S`, `*Box[S]`, `Box[*S]`, or a view of
+/// one. Nothing is written there, since other handles may exist.
+pub fn accessThroughShared(ctx: *const SemContext, ty_id: TypeId) bool {
+    var id = ty_id;
+    while (true) switch (ctx.types.get(id)) {
+        .shared => return true,
+        .read_view, .write_view => |inner| id = inner,
+        else => id = boxedType(ctx, id) orelse return false,
+    };
+}
+
 /// Where a nominal type is declared: the module's context and the
 /// symbol there. A type imported from another module resolves to that
 /// module's declaration.

@@ -4082,7 +4082,9 @@ Long chains of boxes are released without deep recursion.
 | `match b`, `match !b` | match a boxed enum where it is |
 
 The box is reached as it is held: through an owned box or a `!Box[T]`
-its value can be written, through a `?Box[T]` only read. A consuming
+its value can be written, through a `?Box[T]` only read. A box of a
+shared handle (`Box[*S]`) reaches the value through the handle, as
+`*Box[S]` does: it is read, and written only through a Cell. A consuming
 (`<self`) method of the value, `<b.m()`, takes the value out of the box
 first. `T` holds no `?T`, `!T`, or slice. A box has no field of its own: `b.value`
 of a `Box[Int]` names nothing, and the number is lent (`?b`) or taken

@@ -1173,7 +1173,7 @@ const Checker = struct {
                 .write_view, .shared, .slice => place.indirect = true,
                 else => {},
             }
-            if (obj == .shared) place.block(.shared, 0);
+            if (sema.accessThroughShared(self.ctx, ty)) place.block(.shared, 0);
         }
         place.base = p;
         place.pos = self.startOf(p);
@@ -2107,7 +2107,12 @@ const Checker = struct {
         if (sema.boxedType(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != null) if (sema.boxedNominal(self.ctx, scrutinee)) |inner| {
             switch (self.ctx.types.get(scrutinee)) {
                 .read_view => scrutinee = try self.ctx.intern(.{ .read_view = inner }),
-                .write_view => scrutinee = try self.ctx.intern(.{ .write_view = inner }),
+                .write_view => if (sema.accessThroughShared(self.ctx, scrutinee)) {
+                    try self.errAt(subject, "cannot `match !{s}`: the box holds a shared handle (`*T`), and other handles may exist; match it with `match {s}` to read it, and use an interior-mutable `Cell[T]` for mutation through shared ownership", .{ self.sourceText(ir.Write.operand(subject)), self.sourceText(ir.Write.operand(subject)) });
+                    scrutinee = self.t().invalid_id;
+                } else {
+                    scrutinee = try self.ctx.intern(.{ .write_view = inner });
+                },
                 else => {
                     const place = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
                     const shown = self.sourceText(place);
@@ -8800,9 +8805,9 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
             };
         }
     }.f;
-    // A view of a shared handle (`!h.m()` with `h: *T`) still reaches
-    // the value through the handle.
-    if (ctx.types.get(sema.unwrapViews(ctx, ty_id)) == .shared) return .shared;
+    // A view of a shared handle (`!h.m()` with `h: *T`), or a box of
+    // one, still reaches the value through the handle.
+    if (sema.accessThroughShared(ctx, ty_id)) return .shared;
     return switch (ctx.types.get(ty_id)) {
         .read_view => |i| if (matches(ctx, i, nominal_sym)) .read_view else .other,
         .write_view => |i| if (matches(ctx, i, nominal_sym)) .write_view else .other,
