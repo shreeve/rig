@@ -1,0 +1,13 @@
+# The same with a write view of an Int, which reads as its value.
+fun ix(o: Int?) -> Int
+  if o as p
+    return p
+  -1
+
+sub main
+  n = 1
+  m = 2
+  i: (!Int)? = !n
+  f: Int? = i ?? none
+  g: Int? = i ?? !m
+  print(ix(f), ix(g))

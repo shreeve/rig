@@ -1,0 +1,25 @@
+# A closure inside a function that returns a fallible view returns its
+# own type; the closure's `return` is not the function's.
+error Bad
+  oops
+
+struct P
+  x: Int
+
+fun get(r: ?P, k: Int) -> (?P)!
+  f: fun(Int) -> Int = |n|
+    return n + 1 if n > 0
+    0
+  g: fun(Int) -> Int! = |n|
+    return Bad.oops if n < 0
+    n
+  return Bad.oops if f(k) == 0
+  _ = g(k)!
+  r
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  v = get(?a, 1) catch ?b
+  u = get(?a, 0) catch ?b
+  print(v.x, u.x)

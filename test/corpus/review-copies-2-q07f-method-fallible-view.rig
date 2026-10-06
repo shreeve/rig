@@ -1,0 +1,34 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+struct Q
+  p: P
+  n: Int
+
+  fun pick(?self, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    ?self.p
+
+  fun wpick(!self, ok: Bool) -> (!P)!
+    return Bad.oops if not ok
+    !self.p
+
+fun get(r: ?P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  r
+
+
+
+sub main
+  q = Q(p: P(x: 4), n: 0)
+  b = P(x: 2)
+  v = q.pick(true) catch ?b
+  print(v.x)
+  w = !q.wpick(true) catch !b
+  w.x = 40
+  u = !q.wpick(false) catch !b
+  u.x = 20
+  print(q.p.x, b.x)

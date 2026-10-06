@@ -1,0 +1,20 @@
+error Bad
+  oops
+
+struct N
+  s: String
+  k: Int
+
+fun get(r: ?N, ok: Bool) -> (?N)!
+  return Bad.oops if not ok
+  r
+
+
+sub main
+  a = N(s: "aa", k: 1)
+  v: N = get(?a, false) catch |e|
+    loc = N(s: "loc", k: 3 if e == Bad.oops else 4)
+    ?loc
+  w = 0
+  x = N(s: "junk", k: 99)
+  print(v.s, v.k, x.k, w)

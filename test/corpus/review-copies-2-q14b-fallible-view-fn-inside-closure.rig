@@ -1,0 +1,18 @@
+# A closure returning a fallible view, inside a function returning an Int.
+error Bad
+  oops
+
+struct P
+  x: Int
+
+fun outer(a: ?P, b: ?P, k: Int) -> Int
+  f: fun(?P, Int) -> (?P)! = |r, n|
+    return Bad.oops if n == 0
+    r
+  v = f(a, k) catch b
+  v.x
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  print(outer(?a, ?b, 1), outer(?a, ?b, 0))

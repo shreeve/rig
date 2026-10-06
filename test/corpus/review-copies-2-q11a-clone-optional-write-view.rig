@@ -1,0 +1,8 @@
+# `+o` of an optional write view: the Core gives a write view one holder.
+sub main
+  n = 1
+  o: (!Int)? = !n
+  p = +o
+  if p as q
+    print(q)
+  print(n)

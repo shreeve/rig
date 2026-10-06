@@ -1,0 +1,25 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+fun get(r: ?P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  r
+
+fun opt(r: ?P, k: Int) -> (?P)?!
+  return Bad.oops if k == 0
+  return none if k == 1
+  r
+
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  c: P? = opt(?a, 2) catch ?b
+  d: P? = opt(?a, 0) catch ?b
+  e: P? = opt(?a, 1) catch ?b
+  a.x = 7
+  b.x = 8
+  print(c?.x ?? -1, d?.x ?? -1, e?.x ?? -1)

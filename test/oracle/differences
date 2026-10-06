@@ -158,3 +158,17 @@ string.return.write_view run prod-rejects prod-strict `return w` of a String a w
 # sees. The same in v0.2.2.
 test/corpus/review-copies-p25-write-view-struct-literal-field.rig main prod-rejects prod-strict `Q(p: w, o: w)` with `w: !P` reads `w` twice as write lends
 test/corpus/review-copies-p25b-write-view-int-struct-literal-field.rig main prod-rejects prod-strict `Q(p: w, o: w)` with `w: !Int` reads `w` twice as write lends
+
+# A `catch` whose value is a view is copied out after its handler, at the
+# `catch` itself, where the context expects the value; a `??` fallback
+# and a branch arm are copied out where they stand. So a view of a
+# temporary or a local the handler makes does not outlive the handler,
+# while the oracle copies it out inside.
+test/corpus/review-copies-2-q05g-catch-copyout-handler-temp.rig main prod-rejects prod-strict `v: N = get(?a, false) catch ?N(...)`: the handler's temporary ends before the copy
+test/corpus/review-copies-2-q06a-catch-handler-block-local-copyout.rig main prod-rejects prod-strict a handler block ending in `?loc`, copied out after the block
+test/corpus/review-copies-2-q06f-catch-handler-block-int-copyout.rig main prod-rejects prod-strict a handler block ending in `?loc` of an Int, copied out after the block
+
+# A write lend in a call, then the same owner lent to write in its
+# `catch` handler, which runs only once the call failed and its lend
+# ended. The same on v0.2.2.
+test/corpus/review-copies-2-q07l-write-catch-same-owner.rig main prod-rejects prod-strict `f(!vs) catch !vs`: the handler's write lend after the call's
