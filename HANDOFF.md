@@ -7,11 +7,11 @@ from).
 
 ## Current state
 
-- **Release:** `v0.1.6` is the latest release (Zig 0.17.0, Nexus
-  2.0.0). `main` now also carries the consolidation below, which
-  changes what some programs mean or whether they are accepted; the
-  release notes list each change. The version string in `build.zig`
-  changes only when a release is cut.
+- **Release:** `v0.2.0` is the latest release (Zig 0.17.0, Nexus
+  2.0.0), with CI green on Linux and macOS. It is the consolidation
+  release described below; its release notes list each change in what
+  programs mean or whether they are accepted. The version string in
+  `build.zig` changes only when a release is cut.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests. The ruleset on `main` requires
   `test (ubuntu-latest)` and `test (macos-latest)`, and blocks force
