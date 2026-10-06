@@ -826,9 +826,13 @@ if [[ ${#FILTERS[@]} -eq 0 ]]; then
         }
     ' "$WORK/keep" - | tr '\n' '\0' | xargs -0 rm -rf
     # And the store's builds that no run has used for STORE_DAYS days.
+    # Each goes in one step, renamed into the trash, so no build ever sees
+    # half an entry (manifests whose binaries are gone); then the trash,
+    # with what an interrupted prune left there, is deleted.
     if [[ -n "$RIG_BUILD_STORE" && -d "$RIG_BUILD_STORE" ]]; then
-        find "$RIG_BUILD_STORE" -mindepth 2 -maxdepth 2 -name used -mtime +"$STORE_DAYS" |
-            sed 's#/used$##' | tr '\n' '\0' | xargs -0 rm -rf
+        find "$RIG_BUILD_STORE" -mindepth 2 -maxdepth 2 -name used -mtime +"$STORE_DAYS" | sed 's#/used$##' |
+            while IFS= read -r entry; do mv "$entry" "$RIG_BUILD_STORE/.trash.$$.${entry##*/}" 2>/dev/null; done
+        find "$RIG_BUILD_STORE" -mindepth 1 -maxdepth 1 -name '.trash.*' -exec rm -rf {} +
     fi
 fi
 [[ -n "$PRUNE" ]] && exit 0

@@ -350,7 +350,8 @@ or another, by this compiler or another that emits the same package, is
 not built again; a new branch's first run rebuilds only the programs
 whose package it changed. Zig still checks every input of a cached
 build. A run with no filter removes the entries no run has used for
-`RIG_BUILD_STORE_DAYS` days (default 7). `test/matrix.py` builds in the
+`RIG_BUILD_STORE_DAYS` days (default 7), each renamed into the store's
+trash in one step and then deleted. `test/matrix.py` builds in the
 same store. One run at a time uses an output directory; a second run waits
 for the first, unless `RIG_TEST_OUT` gives it a directory of its own.
 The runner marks an output directory as its own with a `.rig-test`
