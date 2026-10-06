@@ -3882,6 +3882,7 @@ const Checker = struct {
 
     fn synthShare(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Share.operand(e);
+        if (try self.shareOfNone(e, null)) return self.t().invalid_id;
         if (operand.isKind(.lambda)) return self.ownedClosure(operand, null);
         const ty = try self.shareOperand(operand, null);
         // A literal takes its default type.
@@ -3905,6 +3906,23 @@ const Checker = struct {
         }
         try sema.requireHandleOf(self.ctx, inner, self.startOf(e), "`*`");
         return self.ctx.intern(.{ .shared = inner });
+    }
+
+    /// `*none` where no handle of an optional is expected (`target`, a
+    /// `*(T?)`, holds `none`), which would make a handle of nothing, is
+    /// rejected (reported): an optional handle with no value is `none`
+    /// itself.
+    fn shareOfNone(self: *Checker, e: Sexp, target: ?TypeId) Error!bool {
+        const operand = ir.Share.operand(e);
+        if (operand != .src or !std.mem.eql(u8, self.text(operand), "none")) return false;
+        // Where the expected type was reported, nothing more is.
+        if (self.under_poison) return false;
+        if (target) |want| switch (self.ctx.types.get(want)) {
+            .shared => |inner| if (self.ctx.types.get(inner) == .optional) return false,
+            else => {},
+        };
+        try self.errAt(e, "`*none` makes a handle of nothing; write `none` where a `(*T)?` is expected", .{});
+        return true;
     }
 
     /// The operand of `*x`, checked against `expected` when given: the
@@ -7801,6 +7819,7 @@ const Checker = struct {
             },
             .share => {
                 const operand = ir.Share.operand(e);
+                if (try self.shareOfNone(e, target)) return target;
                 if (operand.isKind(.lambda) and sema.callableFn(self.ctx, target) != null) {
                     try self.errAt(e, "`{s}` views a closure for the call; write the closure without `*` (drop the `*`)", .{try self.tyName(target)});
                     _ = try self.checkLambda(operand, sema.callableFnTy(self.ctx, target).?, false);

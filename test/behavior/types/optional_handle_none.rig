@@ -1,0 +1,37 @@
+# An optional handle with no value is `none`, in every position where
+# a `(*T)?` is expected, and a box of an optional holds `none` as any
+# other value. (`*none` is rejected: test/reject/types/share_of_none.rig.)
+
+struct S
+  h: (*Int)?
+
+sub f(h: (*Int)?)
+  print(h == none)
+
+fun g() -> (*Int)?
+  none
+
+fun empty(o: ?(Int?)) -> Bool
+  o == none
+
+sub main
+  b: (*Int)? = none
+  print(b == none)
+  f(none)
+  s = S(h: none)
+  print(s.h == none)
+  w: Vec[(*Int)?] = Vec()
+  !w.push(none)
+  !w.push(*5)
+  print(w.len, w[0] == none)
+  print(g() == none)
+  x: Box[Int?] = Box(none)
+  print(empty(?x))
+
+# expect:
+# true
+# true
+# true
+# 2 true
+# true
+# true

@@ -1,0 +1,3 @@
+sub main
+  x = *none
+  print(1)
