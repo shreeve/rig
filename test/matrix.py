@@ -136,6 +136,12 @@ CONTEXTS = {
     # A method that writes its receiver: a value made there, or one
     # lent with `!` (a place without one is rejected).
     "recv_write": dict(inline="(E).M", recv={"vec": "push(1)", "text": 'add("x")', "drop": "bump()"}),
+    # `!` lends any value to write (Core sentence 4): the receiver of a
+    # write method, an argument where a `!T` goes, and a write view held
+    # past the statement, which a temporary's must not be.
+    "recv_write_lent": dict(inline="!(E).M", recv={"vec": "push(1)", "text": 'add("x")', "drop": "bump()"}),
+    "write_arg": dict(inline="print(poke(!(E)))", write=True),
+    "write_held": dict(inline="x = !(E)", after="print(look(?x))"),
     # `none` and a bare `.variant` test a value and drop it if no name holds it.
     "eq_none": dict(inline="print(E == none)", optional=True),
     "eq_variant": dict(inline="print(E != .dot)", types=("enum",)),

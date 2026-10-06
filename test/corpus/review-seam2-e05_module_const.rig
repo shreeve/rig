@@ -1,0 +1,14 @@
+# Review probe e05_module_const.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+K = 5
+NAME = "abc"
+
+sub inc(v: !Int)
+  v += 1
+
+sub sets(s: !String)
+  s = "x"
+
+sub main
+  inc(!K)
+  sets(!NAME)
+  print(K, NAME)

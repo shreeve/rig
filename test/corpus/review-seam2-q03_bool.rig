@@ -1,0 +1,17 @@
+# Review probe q03_bool.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+struct Set
+  xs: Vec[Int]
+
+  fun insert(!self, x: Int) -> Bool
+    !self.xs.push(x)
+    true
+
+fun mks -> Set
+  Set(xs: Vec())
+
+sub main
+  if !mks().insert(1)
+    print("a")
+  if (!mks()).insert(2)
+    print("b")
+  print(!mks().insert(3))

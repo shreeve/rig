@@ -1,7 +1,6 @@
-# A write view a `!self` method returns of a temporary receiver, used
-# within its statement. A write method on a temporary is rejected
-# (`test/reject/ownership/write_receiver_temporary.rig`); this program ran
-# sanitizer-clean before that rule.
+# A write view a `!self` method returns of a temporary receiver lent
+# with `!`, used within its statement (Core sentence 4); without the `!`
+# the call is rejected (`test/reject/ownership/write_receiver_temporary.rig`).
 
 struct S
   n: Int

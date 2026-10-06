@@ -1,0 +1,36 @@
+# Review probe d02_text_branch.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: mkt accept
+# oracle: f accept
+# oracle: mkv accept
+# oracle: arr accept
+# oracle: fill accept
+# oracle: main accept
+fun mkt(s: String) -> Text
+  Text(s)
+
+fun f(n: Int) -> Int
+  n
+
+fun mkv -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  v
+
+fun arr -> [3]Int
+  [7, 8, 9]
+
+sub fill(t: !Text)
+  !t.add("!")
+  print(t)
+
+sub main
+  c = f(1) == 1
+  !mkt("a").add("b")
+  !(Text("x") if c else mkt("y")).add("z")
+  fill(!(mkt("p") if c else Text("q")))
+  fill(!Text("lit"))
+  !(mkv() if c else Vec[Int]()).push(2)
+  !([1, 2, 3] if c else arr()).fill(0)
+  print(!(arr() if c else [4, 5, 6])[..])
+  !(arr() if c else [4, 5, 6])[0..2].fill(3)
+  print((!(mkv() if not c else Vec[Int]())).len)

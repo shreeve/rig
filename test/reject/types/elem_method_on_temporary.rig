@@ -1,5 +1,5 @@
-# `fill` writes the elements of its receiver in place; the elements of
-# a temporary would be gone after the statement.
+# `fill` writes the elements of its receiver in place, so the receiver
+# is lent to write, which `!` marks, a temporary's too: `!mk().fill(0)`.
 
 fun mk() -> [3]Int
   [1, 2, 3]
@@ -7,5 +7,5 @@ fun mk() -> [3]Int
 sub main
   mk().fill(0)
 
-# error: 8:3: cannot lend a temporary to write: the change would be lost; bind it to a name first
+# error: 8:3: `fill` writes the elements; write the receiver with `!`: `!mk().fill(...)`
 # errors: 1

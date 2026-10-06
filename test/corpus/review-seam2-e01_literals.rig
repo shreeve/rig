@@ -1,0 +1,41 @@
+# Review probe e01_literals.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+enum Color
+  red
+  green
+
+sub inc(v: !Int)
+  v += 100
+  print(v)
+
+sub setb(b: !Bool)
+  b = not b
+  print(b)
+
+sub setc(c: !Color)
+  c = .green
+  print(c)
+
+sub sets(s: !String)
+  s = "changed"
+  print(s)
+
+sub seto(o: !Int?)
+  o = 3
+  print(o ?? 0)
+
+sub fills(xs: ![]Int)
+  xs[0] = 9
+  print(xs)
+
+fun f(n: Int) -> Int
+  n
+
+sub main
+  inc(!(2 + 3))
+  inc(!f(1))
+  inc(!-f(1))
+  setb(!(not true))
+  inc(![1, 2][0])
+  fills(![1, 2, 3][..])
+  sets(!("a" if f(1) == 1 else "b"))
+  setc(!(Color.red if f(1) == 1 else Color.red))

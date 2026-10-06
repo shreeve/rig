@@ -1,0 +1,33 @@
+# A `!` that does not reach a write method's temporary receiver: one
+# outside a chain the receiver-sigil rule stops at (`!o?.pop()` lends
+# what `pop` returns), and the `!` before a `for` source, which is the
+# loop's mode. The diagnostic says so, and names what works.
+
+struct S
+  n: Int
+  items: Vec[Int]
+
+  fun pop(!self) -> Int
+    self.n += 1
+    self.n
+
+  fun vs(!self) -> ![]Int
+    !self.items[..]
+
+fun mk(n: Int) -> S
+  S(n: n, items: Vec())
+
+fun mkopt(n: Int) -> S?
+  return none if n == 0
+  mk(n)
+
+fun go(n: Int) -> Int?
+  !mkopt(n)?.pop()
+
+sub main
+  print(go(1) ?? 0)
+  for x in !mk(1).vs()
+    x += 1
+
+# error: 25:4: `pop` changes its receiver, a temporary no name holds; the `!` here lends what `pop` returns, not its receiver: write `!(mkopt(n)?).pop()`
+# error: 29:13: `vs` changes its receiver, a temporary no name holds; the `!` before a `for` source is the loop's mode, not a lend of the receiver: bind `mk(1)` to a name first

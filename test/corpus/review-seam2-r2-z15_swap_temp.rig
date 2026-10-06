@@ -1,0 +1,39 @@
+# Review probe r2/z15_swap_temp.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.drop accept
+# oracle: H.me accept
+# oracle: H.drop accept
+# oracle: mk accept
+# oracle: mkh accept
+# oracle: wrap accept
+# oracle: main accept
+struct S
+  n: Int
+  t: Text
+
+  drop(!self)
+    print("dropS", self.n)
+
+struct H
+  r: String
+  rs: Vec[String]
+
+  fun me(!self) -> !H
+    self
+
+  drop(!self)
+    print("dropH sees", self.r, self.rs)
+
+fun mk(n: Int) -> S
+  S(n: n, t: Text("hello world, long enough to be on the heap ", n))
+
+fun mkh -> H
+  H(r: "init", rs: Vec())
+
+fun wrap(h: !H) -> !H
+  h
+
+sub main
+  s = mk(1)
+  r: String = ?s.t
+  swap(!mkh().r, !r)
+  print("end")

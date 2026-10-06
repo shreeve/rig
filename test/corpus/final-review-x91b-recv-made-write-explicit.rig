@@ -1,4 +1,4 @@
-# !mk().bump(): explicit write lend of a temporary receiver (SPEC: rejected, change lost)
+# !mk().bump(): explicit write lend of a temporary receiver (Core sentence 4: accepted, kept in the statement's slot)
 struct S
   n: Int
 

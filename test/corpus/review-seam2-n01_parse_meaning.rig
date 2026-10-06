@@ -1,0 +1,18 @@
+# Review probe n01_parse_meaning.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.all accept
+# oracle: wrap accept
+# oracle: main accept
+struct S
+  n: Int
+
+  fun all(!self) -> !S
+    self
+
+fun wrap(s: !S) -> !S
+  s
+
+sub main
+  s = S(n: 1)
+  x = !wrap(!s).all().n
+  x += 10
+  print(s.n)

@@ -1,0 +1,29 @@
+# A branching value that may be a part of a temporary is lent per
+# branch, as one that may be a name's is: lending it whole would copy
+# the part out of its temporary, which the write would miss.
+
+struct S
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+struct Pair
+  a: S
+  b: S
+
+fun mk(n: Int) -> S
+  S(n: n)
+
+fun mkpair(n: Int) -> Pair
+  Pair(a: S(n: n), b: S(n: n + 1))
+
+fun f(n: Int) -> Int
+  n
+
+sub main
+  c = f(1) == 1
+  !(mkpair(3).a if c else mk(5)).bump()
+
+# error: 26:5: cannot lend `mkpair(3).a if c else mk(5)` to write: it may be `mkpair(3).a`, a part of the temporary `mkpair(3)`, which lending the branching value would copy
+# errors: 1

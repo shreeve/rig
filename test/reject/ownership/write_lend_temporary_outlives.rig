@@ -1,0 +1,57 @@
+# `!` lends any value to write, a temporary too, but a temporary lives
+# only until its statement ends (Core §3): a write view of it, or of a
+# field or element of it, or one a write method returns, that is held
+# past the statement, or returned, is rejected, as a read view of it is.
+# oracle: view reject C5
+# oracle: main reject C5
+
+struct S
+  n: Int
+  arr: [2]Int
+
+  fun at(!self) -> !Int
+    !self.n
+
+  fun all(!self) -> !S
+    self
+
+  sub lend_to(!self, out: !Vec[!Int])
+    !out.push(!self.n)
+
+  drop(!self)
+    print("drop", self.n)
+
+struct H
+  w: !Int
+
+fun mk -> S
+  S(n: 1, arr: [1, 2])
+
+fun view -> !Int
+  !mk().at()
+
+sub main
+  w = !mk()
+  print(w.n)
+  r = !mk().at()
+  print(r)
+  h = H(w: !mk().n)
+  print(h.w)
+  a = !mk().all()
+  print(a.n)
+  v: Vec[!Int] = Vec()
+  !v.push(!mk().at())
+  !mk().lend_to(!v)
+  print(v.len)
+  z = !mk().arr[..]
+  print(z)
+
+# error: 31:4: cannot return a view of `mk()`, which this function was not lent
+# error: 34:8: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first
+# error: 36:8: a view of the temporary `mk()` outlives its statement
+# error: 38:13: a view of the temporary `mk()` outlives its statement
+# error: 40:8: a view of the temporary `mk()` outlives its statement
+# error: 43:12: a view of the temporary `mk()` outlives its statement
+# error: 44:4: a view of the temporary `mk()` outlives its statement
+# error: 46:8: a view of the temporary `mk()` outlives its statement
+# errors: 8

@@ -1,0 +1,29 @@
+# The value a function called through a module or a type makes, lent
+# to write with its call in parentheses (Core sentence 4).
+use lib
+
+struct U
+  n: Int
+
+  fun bump(!self) -> Int
+    self.n += 1
+    self.n
+
+  fun make -> U
+    U(n: 1)
+
+enum E
+  a(s: String)
+  b
+
+sub sete(e: !E)
+  print(e)
+  e = .b
+
+sub main
+  print(!(lib.mk()).bump(), !(lib.T.make()).bump(), !(U.make()).bump())
+  sete(!(E.a(s: "x")))
+
+# expect:
+# 6 2 2
+# .a(s: "x")

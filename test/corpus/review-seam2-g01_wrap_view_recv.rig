@@ -1,0 +1,28 @@
+# Review probe g01_wrap_view_recv.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.at accept
+# oracle: S.pop accept
+# oracle: wrap accept
+# oracle: inc accept
+# oracle: main accept
+struct S
+  n: Int
+
+  fun at(!self) -> !Int
+    !self.n
+
+  fun pop(!self) -> Int
+    self.n += 1
+    self.n
+
+fun wrap(s: !S) -> !S
+  s
+
+sub inc(v: !Int)
+  v += 100
+
+sub main
+  s = S(n: 1)
+  inc(!wrap(!s).at())
+  print(s.n)
+  wrap(!s).pop()
+  print(s.n)

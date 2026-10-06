@@ -1,0 +1,42 @@
+# Review probe d01_branch_types.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.bump accept
+# oracle: S.pop accept
+# oracle: inc accept
+# oracle: f accept
+# oracle: mks accept
+# oracle: opt accept
+# oracle: main accept
+struct S
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  fun pop(!self) -> Int
+    self.n += 1
+    self.n
+
+sub inc(v: !Int)
+  v += 100
+  print(v)
+
+fun f(n: Int) -> Int
+  n
+
+fun mks(n: Int) -> S
+  S(n: n)
+
+fun opt(n: Int) -> S?
+  return none if n == 0
+  S(n: n)
+
+sub main
+  c = f(1) == 1
+  inc(!(5 if c else f(1)))
+  inc(!(f(2) if c else 7))
+  print(!(S(n: 1) if c else mks(2)).pop())
+  print(!(mks(3) if not c else S(n: 4)).pop())
+  print(!(opt(0) ?? mks(5)).pop())
+  print(!(opt(6) ?? S(n: 9)).pop())
+  m = f(2)
+  print(!(S(n: 10) if m == 1 else mks(11)).pop())

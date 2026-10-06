@@ -1,0 +1,151 @@
+# `!` lends any temporary to write (Core sentence 4) wherever a write
+# lend goes: the receiver of a generic type's `!self` method, also in a
+# generic body; a value holding a Cell; a Text; an array or Vec lent
+# whole or sliced as a `![]T`; a generic function's `!Vec[T]`; a call
+# followed by `?` or `!`, or under `catch`; a receiver whose method
+# takes a closure, which may capture a name to write; a branching value
+# made in every branch; a clone; and `defer`. Each lives in its
+# statement's slot until the statement ends.
+
+use std.sort
+
+struct Wrap[V]
+  v: V
+
+  sub set(!self, v: V)
+    self.v = v
+
+  fun swap_in(!self, v: V) -> V
+    old = self.v
+    self.v = v
+    old
+
+  fun twice(?self) -> Wrap[V]
+    Wrap(v: self.v)
+
+  sub again(?self)
+    !(self.twice()).set(self.v)
+
+struct C
+  c: Cell[Int]
+
+  sub bump(!self)
+    self.c.set(self.c.get() + 1)
+
+  fun pop(!self) -> Int
+    self.c.set(self.c.get() + 10)
+    self.c.get()
+
+struct B
+  n: Int
+  items: Vec[Int]
+
+  sub each(!self, f: ?sub(Int))
+    self.n += 1
+    for x in self.items
+      f(x)
+
+  fun tryit(!self) -> Int!
+    self.n += 1
+    if self.n > 100
+      return Bad.big
+    self.n
+
+  drop(!self)
+    print("drop", self.n)
+
+error Bad
+  big
+
+fun mkb(n: Int) -> B
+  b = B(n: n, items: Vec())
+  !b.items.push(n)
+  !b.items.push(n + 1)
+  b
+
+fun mkc -> C
+  C(c: Cell(1))
+
+fun mkv -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  !v.push(1)
+  !v.push(2)
+  v
+
+fun mka -> [3]Int
+  [3, 1, 2]
+
+fun sum(xs: []Int) -> Int
+  t = 0
+  for x in xs
+    t = t * 10 + x
+  t
+
+fun sorted(xs: ![]Int) -> Int
+  sort.sort(!xs)
+  sum(?xs)
+
+sub push_one[T](v: !Vec[T], x: T)
+  !v.push(x)
+
+fun first_of(v: !Vec[Int]) -> Int?
+  !v.pop()?
+
+fun top -> Int?
+  x = !mkv().pop()?
+  x + 100
+
+fun fails -> Int!
+  !mkb(200).tryit()!
+
+sub main
+  !Wrap(v: 1).set(2)
+  print(!Wrap(v: 1).swap_in(5))
+  Wrap(v: 7).again()
+  !mkc().bump()
+  print(!mkc().pop())
+  !Text("a").add("b")
+  print(sorted(!mka()[..]), sorted(!mkv()[..]), sorted(!mka()))
+  sort.sort(!mka())
+  sort.sort(!mkv())
+  push_one(!mkv(), 4)
+  print(first_of(!mkv()) ?? 0, top() ?? 0)
+  !mkb(1).each(|k| print("k", k))
+  total = 0
+  !mkb(5).each(|!total, k: Int| total += k)
+  print(total)
+  print(!mkb(10).tryit() catch 0)
+  print(fails() catch -1)
+  c = total > 0
+  !(mkb(20) if c else mkb(30)).each(|k| print("k", k))
+  s = Wrap(v: 40)
+  print(!(+s).swap_in(41), s.v)
+  defer !mkb(50).each(|k| print("deferred", k))
+  defer print(!mkb(60).tryit() catch 0)
+  print("end")
+
+# expect:
+# 1
+# 11
+# 123 123 123
+# 2 102
+# k 1
+# k 2
+# drop 2
+# drop 6
+# 11
+# 11
+# drop 11
+# drop 201
+# -1
+# k 20
+# k 21
+# drop 21
+# 40 40
+# end
+# 61
+# drop 61
+# deferred 50
+# deferred 51
+# drop 51

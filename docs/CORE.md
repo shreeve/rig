@@ -280,8 +280,11 @@ statement ends ([§3](#3-temporaries)). *(built)*
 view the context expects** ([§4](#4-one-lend-table)). A read lend may go
 unwritten where its view lasts only for the use: an argument, a
 method's receiver, or a header's subject (sentence 1). A lend kept in a
-binding or a field is written, and so is every write lend. *(built* for
-the rows of §4 marked built.*)*
+binding or a field is written, and so is every write lend. `!` lends any
+value to write, named or temporary: `!mk().pop()` lends the value
+`mk()` makes, which lives until its statement ends ([§3](#3-temporaries)),
+so every change is still marked by `!`. *(built* for the rows of §4
+marked built.*)*
 
 ```rig
 sub grow(v: !Vec[Int])
@@ -298,6 +301,25 @@ sub main
 
 ```output
 7
+```
+
+```rig
+struct Counter
+  n: Int
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+fun start -> Counter
+  Counter(n: 41)
+
+sub main
+  print(!start().next())
+```
+
+```output
+42
 ```
 
 **5. A value has any number of read loans, or one write loan, never
@@ -576,8 +598,8 @@ b)` moves nothing.
 no name: a call's result, a constructor, `+x`, or a block or `match`
 value. Its statement is its scope, so it is a *temporary*, dropped when
 the statement ends, the last made first, also when the statement fails
-or leaves early. A view of a temporary may be used only within its
-statement.
+or leaves early. A temporary may be lent to read or to write (sentence
+4), and a view of it may be used only within its statement.
 
 **Headers are their own statements:** an `if` or `while` condition, a
 guard, and the subject of a `match` or `for`. A header's temporaries
@@ -954,7 +976,8 @@ rule in SYNTAX is syntax too.
 
 - **`-x`:** as a statement, `-name` drops; as a value, `-x` negates. A
   statement `-f()`, or `-n` of plain data, is rejected. *(built)*
-- **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`. *(built)*
+- **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`, and
+  `!mk().pop()` applies it to `mk()`. *(built)*
 - **`const x = e`:** a binding that never changes. *(built)*
 - **A write call whose `Bool` value is used** is written
   `(!s).insert(k)`, everywhere. *(built)*

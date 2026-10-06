@@ -1,0 +1,17 @@
+# Review probe diag/d15_as_hint_followed.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+# oracle: pick accept
+struct O
+  o: !Box[Int]?
+
+struct S
+  n: Int
+
+fun pick(h: !O, s: ?S) -> !O
+  h
+
+sub main
+  b: Box[Int]? = Box(5)
+  h = O(o: !b)
+  s = S(n: 1)
+  if !pick(!h, ?s).o as x
+    print(x)

@@ -1,0 +1,7 @@
+# Review probe s02_strlit_slice.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+sub fills(xs: ![]U8)
+  xs[0] = 65
+  print(xs)
+
+sub main
+  fills(!"abc"[..])
