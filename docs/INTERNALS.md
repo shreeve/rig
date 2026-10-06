@@ -926,6 +926,7 @@ instead of re-deriving it by name:
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read or to write. The ownership checker holds it in a hidden var named by its source, lent to what reads it (to write, under `!`: `lendTempToWrite`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made, an assignment's value before its target (so the `defer`s drop the last made first, as the ownership checker's `dropStmtTemps` does), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
+| `writesTemp(node)` | whether the node is a temporary lent to write, or the value a part lent to write starts from (`!mk()`, `!(a if c else b).f`, recorded by `lendsToWrite`): its statement's slot is written, so emit reaches it there at every site that lends it (`emitMemberBase`), never through a copy |
 | `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or lend sigil that is one. Kept beside the table, not in `check --facts=sema` |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
@@ -1794,7 +1795,9 @@ lower is an internal error: sema must have rejected it.
   the slot its statement keeps it in (`keptInSlot`), never as a copy in
   the call's block. A temporary lent to write is reached in its
   statement's slot, `(rig.keep(&slot, &flag, mk()).*).bump()`, and one
-  that branches is never wrapped in a copy there (`write_place`). A header subject with temporaries that reaches a
+  that branches is never wrapped in a copy there, whichever site lends it
+  (`swap`, `replace`, a write slice, a hoisted receiver): every one reads
+  the fact `writesTemp`. A header subject with temporaries that reaches a
   place is reached through the address its block yields
   (`storage.headerPoints`), never a copy of the block's value. A `match`
   on a generic read view a name holds switches on

@@ -233,9 +233,6 @@ pub const Emitter = struct {
     /// The place being emitted is only read: a Vec element on its path
     /// is reached through `constSlot`.
     read_place: bool = false,
-    /// The place being emitted is lent to write (`!e`): a temporary on
-    /// its path is written in its statement's slot, never in a copy.
-    write_place: bool = false,
     /// The `match` subject being emitted, which it reaches where it is
     /// (`storage.matchesInPlace`): a generic read view held on its path,
     /// by its name, a field, or an element, is the value it reaches in
@@ -3381,13 +3378,8 @@ pub const Emitter = struct {
                     at.ptr = false;
                 } else {
                     const saved_read = self.read_place;
-                    const saved_write = self.write_place;
-                    defer {
-                        self.read_place = saved_read;
-                        self.write_place = saved_write;
-                    }
+                    defer self.read_place = saved_read;
                     self.read_place = !sexp.isKind(.write);
-                    self.write_place = sexp.isKind(.write);
                     const unbox = first == .unbox;
                     if (unbox) try self.w.writeAll("(");
                     try self.emitAddressOf(operand);
@@ -3841,12 +3833,8 @@ pub const Emitter = struct {
                 // `!x` as a value (an argument, a receiver) is the place's
                 // address; a `![]T` is the slice.
                 try self.emitExpr(ir.Write.operand(sexp))
-            else {
-                const saved_write = self.write_place;
-                defer self.write_place = saved_write;
-                self.write_place = true;
-                try self.emitAddressOf(ir.Write.operand(sexp));
-            },
+            else
+                try self.emitAddressOf(ir.Write.operand(sexp)),
             .move => {
                 self.bare = bare;
                 const operand = ir.Move.operand(sexp);
@@ -4450,9 +4438,6 @@ pub const Emitter = struct {
         // The type of the value reached, which a lend of it (`!mk()`, a
         // view of the value it lends) is not.
         const o_ty = if (sameNode(o, obj)) obj_ty else self.typeOf(o);
-        const saved_write = self.write_place;
-        defer self.write_place = saved_write;
-        if (obj.isKind(.write)) self.write_place = true;
         if (self.place_chain and o.isKind(.index)) return self.emitIndex(o, true);
         // A lent to write field or element (`!v[i].bump()`) is changed
         // in place, reached through the element's slot, unless it was
@@ -4479,9 +4464,9 @@ pub const Emitter = struct {
         // A value that branches is read as its Rig type: Zig would take
         // a field of each branch's own type (a literal's, a String's).
         // A receiver evaluated first is read where it was kept. One lent
-        // to write is written in its statement's slot (below), which has
-        // that type, never in a copy.
-        if (!(self.write_place and self.sema.dropsTemp(o))) if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (o_ty) |t| {
+        // to write (`sema.writesTemp`) is written in its statement's
+        // slot (below), which has that type, never in a copy.
+        if (!self.sema.writesTemp(o)) if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (o_ty) |t| {
             if (self.hoistedOf(o)) |h| if (h.flag.len == 0) return self.w.writeAll(h.name);
             try self.writeAsOpen(t);
             try self.emitExpr(o);

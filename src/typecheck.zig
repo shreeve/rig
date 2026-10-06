@@ -3841,6 +3841,7 @@ const Checker = struct {
             return false;
         }
         try self.lendTemp(operand);
+        if (base == .list) try self.ctx.recordWrittenTemp(base);
         return true;
     }
 
