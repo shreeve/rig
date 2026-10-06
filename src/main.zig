@@ -671,8 +671,12 @@ fn storeEntry(allocator: std.mem.Allocator, io: std.Io, store: []const u8, zig_a
     }
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     h.final(&digest);
-    std.Io.Dir.cwd().createDirPath(io, store) catch |err| fatal("error: cannot create RIG_BUILD_STORE `{s}`: {s}", .{ store, @errorName(err) });
-    const real = std.Io.Dir.cwd().realPathFileAlloc(io, store, allocator) catch |err| fatal("error: cannot find RIG_BUILD_STORE `{s}`: {s}", .{ store, @errorName(err) });
+    // The store may be a link to a directory elsewhere: resolve it first,
+    // and create it only when it is not there.
+    const real = std.Io.Dir.cwd().realPathFileAlloc(io, store, allocator) catch real: {
+        std.Io.Dir.cwd().createDirPath(io, store) catch |err| fatal("error: cannot create RIG_BUILD_STORE `{s}`: {s}", .{ store, @errorName(err) });
+        break :real std.Io.Dir.cwd().realPathFileAlloc(io, store, allocator) catch |err| fatal("error: cannot find RIG_BUILD_STORE `{s}`: {s}", .{ store, @errorName(err) });
+    };
     return std.fs.path.join(allocator, &.{ real, &std.fmt.bytesToHex(digest[0..16], .lower) });
 }
 

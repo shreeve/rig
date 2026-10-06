@@ -61,4 +61,8 @@ done
 wait
 for i in 1 2 3 4; do expect_eq "$(cat "par$i.txt")" $'hi 4\nrc 0' "concurrent run $i"; done
 expect_eq "$(entries)" 7 "entries after concurrent runs of one program"
+# A store that is a link to a directory elsewhere works as one.
+mkdir realstore && ln -s realstore linkstore
+out=$(cd one && RIG_BUILD_STORE=../linkstore "$RIG" run main.rig 2>&1); expect_eq "$out" "1" "a store behind a link"
+[[ -n $(find realstore -mindepth 1 -maxdepth 1 -type d ! -name '.*') ]] || fail "a linked store holds no entry"
 exit 0

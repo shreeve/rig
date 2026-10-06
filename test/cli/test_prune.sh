@@ -33,5 +33,10 @@ o=$(RIG_BUILD_STORE=$PWD/store RIG_BUILD_STORE_DAYS=3 RIG_TEST_OUT="$out" "$ROOT
 [[ -e store/.started/.started-old ]] && fail "kept the evidence file of a run long gone"
 [[ -e store/.started/.started-new ]] || fail "removed the evidence file of a run that may be going on"
 
+# So does a store that is a link to a directory elsewhere.
+mkdir -p realstore/old/package && touch -t 200001010000 realstore/old/used && ln -s realstore linkstore
+o=$(RIG_BUILD_STORE=$PWD/linkstore RIG_BUILD_STORE_DAYS=3 RIG_TEST_OUT="$out" "$ROOT/test/run" --prune 2>&1) || fail "prune: $o"
+[[ -e realstore/old ]] && fail "kept a build unused for years in a linked store"
+
 o=$(RIG_TEST_OUT="$out" "$ROOT/test/run" --prune corpus 2>&1); expect_rc $? 2 "--prune with a filter"
 exit 0
