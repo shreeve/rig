@@ -15,6 +15,7 @@ program that runs must also print what the payload holds.
     test/matrix.py                 # generate, check, and run everything
     test/matrix.py -j 8 -k vec     # 8 at a time; only ids containing "vec"
     test/matrix.py --keep DIR      # write the programs to DIR and keep them
+                                   # (one run at a time in DIR)
     test/matrix.py --oracle        # only run the reference ownership checker
                                    # (bin/rig-oracle, test/oracle/) over them
     test/matrix.py --shard 2/4     # only the cells whose id hashes to shard 2 of 4
@@ -27,6 +28,7 @@ before, by any worktree, is not built again.
 
 import argparse
 import concurrent.futures
+import fcntl
 import os
 import re
 import shutil
@@ -598,6 +600,15 @@ def main():
         sys.exit(f"{RIG} is not built; run `zig build`")
     work = args.keep or tempfile.mkdtemp(prefix="rig-matrix.")
     os.makedirs(work, exist_ok=True)
+    if args.keep:
+        # One run at a time in a kept directory: runs sharing one would
+        # overwrite each other's programs.
+        lock = open(os.path.join(work, ".matrix.lock"), "w")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(f"waiting for the matrix run in {work}", file=sys.stderr)
+            fcntl.flock(lock, fcntl.LOCK_EX)
     cells = []
     skipped = 0
     for t in TYPES:

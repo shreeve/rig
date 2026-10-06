@@ -335,10 +335,16 @@ sample; `./test/run --prune` does only that.
 A test that runs a program (behavior, example, known bug, doc example
 with output, corpus, matrix) passes only on positive evidence that the
 program ran: `rig run` creates the file the harness names in
-`RIG_RUN_STARTED` (`<id>.started` beside the output directory) as the
-program starts. Without it the test fails with `the program did not
-run`, whatever the exit status or output, so a failure in rig, Zig, or
-the build store never passes for a program that never started.
+`RIG_RUN_STARTED`, a fresh path in the run's private results directory
+(test/matrix.py: a private directory of its own), only once the program
+has started. Without a regular file there, or with rig's `the program
+did not run`, the test fails with `the program did not run`, whatever
+the exit status or output; so does a known bug or a pending example, so
+a failure in rig, Zig, or the build store never passes, holds, or counts
+as the known failure. In the corpus and the matrix, a program a signal
+ended (`rig: the program was killed by signal N`) fails too, unless it
+is a Rig panic: an abort (signal 6) after its `panic:` report. A status
+above 128 alone is the program's own.
 
 Programs build in a store shared by every worktree of the repository,
 `rig-build-store` in its git directory (`git rev-parse
