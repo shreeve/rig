@@ -49,4 +49,4 @@ sub main
 # error: 40:10: cannot call write-receiver method `bump` through a shared handle
 # error: 41:13: the loop would walk the temporary `mk()` after its header drops it
 # error: 43:3: cannot assign to a field or element of a temporary
-# error: 44:9: cannot lend `false` to write: it is a constant, which lives for the whole program
+# error: 44:9: cannot lend constant `false` to write: it lives for the whole program
