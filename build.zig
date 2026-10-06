@@ -14,7 +14,7 @@
 
 const std = @import("std");
 
-const version = "0.2.0";
+const version = "0.2.1";
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
