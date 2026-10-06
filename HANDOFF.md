@@ -28,7 +28,7 @@ from).
   | Corpus | 6,021 of 6,021 (`./test/run corpus`) |
   | `test/matrix.py` | 3,070 programs, 0 failed |
   | `zig build test` | 124 pass, 1 skip |
-  | Oracle (`./test/run oracle`) | 5 sets pass, at or above the floors in `test/oracle/coverage` (functions decided: tests 3,418, corpus 15,781, docs 437, matrix 15,911) |
+  | Oracle (`./test/run oracle`) | 5 sets pass, at or above the floors in `test/oracle/coverage` (functions decided: tests 3,414, corpus 15,781, docs 437, matrix 15,911) |
 
   `test/known/` holds no open bugs. The pending examples are the
   planned rules of `docs/CORE.md`.
