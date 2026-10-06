@@ -70,7 +70,7 @@ side; Rig names everything from the side the sigil is on.
 |---|---|---|---|
 | **plain** | `Int`, `Bool`, enums, structs whose parts are all plain | copies | built |
 | **owning** | `Vec[T]`, `Box[T]`, `Text`, structs holding an owner | moves; one owner; dropped once | built |
-| **handle** | `*T` (counted), `~T` (weak) | moves; `+h` adds a count | built |
+| **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
 | **view** | `?T`, `!T`, `[]T`, `![]T`, `String` | a read view copies; a write view moves | built |
 
 **A struct's or enum's kind follows from its parts:** it is owning if
@@ -118,12 +118,15 @@ use `<c`
 **1. A bare name only reads.** It copies plain data and read views, and
 reads owners and handles in place. It never clones, writes, or drops,
 and it moves only where the value leaves for good: `return x`, `break
-x`, or `x` as the last value of a function or block. *(built* for copies,
-`return x`, a function's last value, and reading in place: an argument
-where a view is expected (`size(v)` for a `?Vec[Int]` parameter), and a
-header's subject (a `for` over a `Vec`, `if o as x`, a `match` on a
-`Box`, whose payload views are usable within their arm only, for now);
-*planned:* a block's last value and `break x`, which take `<x` today.*)*
+x`, or `x` as the last value of the function or block that declares
+`x`. *(built* for copies, `return x`, a function's last value, a
+block's last value when the block declares the name, and reading in
+place: an argument where a view is expected (`size(v)` for a
+`?Vec[Int]` parameter), and a header's subject (a `for` over a `Vec`,
+`if o as x`, a `match` on a `Box`, whose payload views are usable within
+their arm only, for now); *planned:* `break x` of a name the loop
+declares, which takes `<x` today. A name declared outside the block
+always takes `<x`.*)*
 
 ```rig
 fun make -> Vec[Int]
@@ -156,9 +159,30 @@ sub main
 2
 ```
 
+```rig pending
+fun first -> Vec[Int]
+  e: Vec[Int] = Vec()
+  r = while true
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    break v
+  else
+    <e
+  r
+
+sub main
+  print(first().len)
+```
+
+```output
+1
+```
+
 **2. `<x` moves, `+x` makes a new owner, `-x` drops now.** `+x` is a
 copy, a count bump, or a deep copy, as the type says; a `unique` type,
-or one with a `drop` body, has none. *(built)*
+one with a `drop` body, or one holding a write view has none. *(built;*
+a deep copy of a type declared in another module, or of one holding a
+`Signal`, is *planned*.*)*
 
 ```rig
 struct File
@@ -192,13 +216,35 @@ sub main
 1 2
 ```
 
+```rig file=bag.rig
+pub struct Bag
+  pub items: Vec[Int]
+```
+
+```rig pending
+use bag
+
+sub main
+  a = bag.Bag(items: Vec())
+  !a.items.push(1)
+  b = +a
+  !b.items.push(2)
+  print(a.items.len, b.items.len)
+```
+
+```output
+1 2
+```
+
 **3. Drop points.** An owner that is not moved is dropped where its
 scope ends. *(built)* A value no name holds is dropped where its
 statement ends ([§3](#3-temporaries)). *(built)*
 
 **4. `?x` lends `x` to read, and `!x` lends it to write, as whichever
 view the context expects** ([§4](#4-one-lend-table)). A read lend may go
-unwritten (sentence 1); a write lend is always written. *(built* for
+unwritten where its view lasts only for the use: an argument, a
+method's receiver, or a header's subject (sentence 1). A lend kept in a
+binding or a field is written, and so is every write lend. *(built* for
 the rows of §4 marked built.*)*
 
 ```rig
@@ -255,7 +301,9 @@ returns a view only of what it was lent, or of something that lives for
 the whole program (literals, module constants, `os.args()`). Its result
 carries the loans of the arguments whose types could hold what it views,
 or, when the result says `from a`, of `a` alone. A view reached through
-another view carries that view's loans, not a loan on its holder. The
+a read view that a value holds carries that view's loans, not a loan on
+the holder; one reached through a write view the value holds keeps the
+holder lent too. The
 compiler checks each body against its signature. *(built)*
 
 ```rig reject
@@ -389,6 +437,19 @@ Only code inside `raw` may break these rules. *(built)*
 `?(a if c else b)`, is *planned*; today each branch is lent, `?a if c
 else ?b`.*)*
 
+```rig pending
+sub main
+  a = Text("a")
+  b = Text("b")
+  c = a.len > 0
+  s = ?(a if c else b)
+  print(s)
+```
+
+```output
+a
+```
+
 **Taking and reading.** An expression either *takes* its value or only
 *reads* it.
 
@@ -415,7 +476,9 @@ is taken, as `<e` would take it: a call's result, or a branching value
 whose every branch is made there (`mk() if c else <a`). So
 `if starts_with(?Text(a, b), "x")` works, but
 `if cut(?Text(a, b), "=") as kv` must bind the `Text` first, because
-`kv` outlives the header.
+`kv` outlives the header. *(built* for `if … as`, `while … as`, `match`,
+and a `for` over plain elements; *planned* for a `for` over a made Vec
+of owners, which is bound to a name first today.*)*
 
 ```rig
 struct User
@@ -459,6 +522,21 @@ sub main
 a view of the temporary `Text("k", "=v")` outlives its statement
 ```
 
+```rig pending
+fun names -> Vec[Text]
+  v: Vec[Text] = Vec()
+  !v.push(Text("ada"))
+  v
+
+sub main
+  for x in names()
+    print(x)
+```
+
+```output
+ada
+```
+
 ## 4. One lend table
 
 `?x` and `!x` lend the view the context expects:
@@ -476,8 +554,10 @@ a view of the temporary `Text("k", "=v")` outlives its statement
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
 | a function or closure | `?fun` | | built |
 
-A read view of plain data copies, and carries no loan once copied out,
-as with a call's `?Int` result. A slice `x[a..b]` is the same lend, of
+A read view of a number, `Bool`, `String`, or plain enum copies, and
+carries no loan once copied out, as with a call's `?Int` result.
+*(Copying a plain struct, array, or optional out of a read view is
+planned; today it is lent on.)* A slice `x[a..b]` is the same lend, of
 part of `x`. So `sort.sort(!v)` works on a `Vec` as it does on an array,
 and one `fun area(s: ?Shape)` serves a `Shape`, a `Box[Shape]`, and a
 `*Shape`.
@@ -493,6 +573,24 @@ sub main
 
 ```output
 [1, 2, 3]
+```
+
+```rig pending
+struct P
+  x: Int
+  y: Int
+
+fun copy(p: ?P) -> P
+  p
+
+sub main
+  a = P(x: 1, y: 2)
+  b = copy(?a)
+  print(b.x)
+```
+
+```output
+1
 ```
 
 A `Text` lends a `String`, which views its bytes, so the `Text` may not
@@ -556,8 +654,10 @@ field and element is a place:
 `<`'s operand is a place or a made value: `<(a if c else b)` is written
 `<a if c else <b`. `swap` and `sort_by` work for any element; `sort`
 needs `<`. `copy`, `fill`, and `[n of x]` duplicate values, so they
-need copyable elements. So `Vec[Text]`, `Vec[Vec[Int]]`, and a list of
-records that each own a string just work. *(built)*
+need copyable elements *(built* for elements that hold no `?T`, `!T`, or
+slice; *planned* for read-view elements*)*. So `Vec[Text]`,
+`Vec[Vec[Int]]`, and a list of records that each own a string just
+work. *(built)*
 
 ```rig
 struct Slot
@@ -586,6 +686,17 @@ sub main
 
 ```output
 1 1
+```
+
+```rig pending
+sub main
+  n = 1
+  a = [3 of ?n]
+  print(a[2])
+```
+
+```output
+1
 ```
 
 ## 6. Bindings and assignment
@@ -679,9 +790,10 @@ sub main
 
 **Closures.** A closure captures each name with a sigil: `?x` lends
 `x` to read for the closure's life, `!x` lends it to write, `<x` moves it in,
-and `+x` captures a new owner. A stack closure may be lent (`?fun`) but
-not stored. An owned closure (`*fun`) may be stored, and follows
-sentence 9. *(built)*
+and `+x` captures a copy of plain data or a new count of a handle
+*(built)*, or a deep copy of an owner *(planned)*. A stack closure may
+be lent (`?fun`) but not stored. An owned closure (`*fun`) may be
+stored, and follows sentence 9. *(built)*
 
 ```rig
 sub main
@@ -694,6 +806,18 @@ sub main
 
 ```output
 5
+```
+
+```rig pending
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  f = |+v| v.len
+  print(f(), v.len)
+```
+
+```output
+1 1
 ```
 
 **Defer.** `defer` and `errdefer` run where their scope ends. They may
