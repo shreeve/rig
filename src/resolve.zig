@@ -1611,6 +1611,7 @@ pub const TypeResolver = struct {
                         // view of a function value.
                         if (head == .read_view and inner_node.isKind(.fun_type)) return sema.callableOfFn(self.ctx, inner);
                         if (head == .weak and sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
+                        if (head == .weak) try sema.requireHandleOf(self.ctx, inner, self.ctx.startOf(sexp), "`~`");
                         return self.ctx.intern(switch (head) {
                             .optional => .{ .optional = inner },
                             .read_view => .{ .read_view = inner },
@@ -1630,6 +1631,7 @@ pub const TypeResolver = struct {
                         }
                         if (sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
                         if (self.ctx.types.get(inner) == .function) try self.checkWhenResolved(.{ .owned_closure = .{ .node = inner_node, .ty = inner } });
+                        try sema.requireHandleOf(self.ctx, inner, self.ctx.startOf(sexp), "`*`");
                         return self.ctx.intern(.{ .shared = inner });
                     },
                     .array_type => {

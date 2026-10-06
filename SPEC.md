@@ -1463,7 +1463,11 @@ consume its collection (`for x in ?v`), or unwraps a `T` out of a
 viewed optional with `as`, since the collection or the owner still
 holds the value. A type argument cannot be or hold a `?T`, `!T`, or slice, for a
 generic function or a generic type with methods: the parameter is
-written `?T` or `!T` instead.
+written `?T` or `!T` instead. A declaration that makes a shared or weak
+handle of a parameter (`*T`, `~T`) cannot be instantiated with a
+function type, since `*fun(Int) -> Int` is an owned closure, not a
+handle of a function: an owned closure is held as a `T`, with
+`T = *fun(Int) -> Int`.
 
 ```rig
 struct Track
