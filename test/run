@@ -13,6 +13,8 @@
 #   -v          also list passing and known-failing tests
 #   -j N        parallel jobs (default: CPU count)
 #   --update    rewrite test/ir snapshots from the current compiler
+#   --prune     only remove the output of tests that are gone, as a run
+#               with no filter does first, and exit
 #
 # Environment: ZIG (the Zig executable), NEXUS (the Nexus executable),
 # RIG_TEST_TIMEOUT (seconds per test, default 120; a test's own
@@ -457,11 +459,12 @@ fi
 # Driver
 # -----------------------------------------------------------------------------
 
-UPDATE="" VERBOSE="" JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+UPDATE="" VERBOSE="" PRUNE="" JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 FILTERS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --update) UPDATE=1 ;;
+        --prune) PRUNE=1 ;;
         -v) VERBOSE=1 ;;
         -j) [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || { echo "-j needs a number of jobs" >&2; exit 2; }
             JOBS=$2; shift ;;
@@ -471,6 +474,7 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
+[[ -n "$PRUNE" && ${#FILTERS[@]} -gt 0 ]] && { echo "--prune takes no filter" >&2; exit 2; }
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
     G=$'\033[32m' R=$'\033[31m' Y=$'\033[33m' D=$'\033[2m' B=$'\033[1m' X=$'\033[0m'
@@ -598,14 +602,15 @@ CORPUS_SAMPLE=16
 if [[ -d test/corpus ]]; then
     for p in test/corpus/*; do
         [[ "$p" == *.rig || -f "$p/main.rig" ]] && basename "$p" .rig
-    done | awk -v all=${#FILTERS[@]} -v n=$CORPUS_SAMPLE '
+    done >"$WORK/corpus.all"
+    awk -v all=${#FILTERS[@]} -v n=$CORPUS_SAMPLE '
         BEGIN { for (i = 1; i < 256; i++) ord[sprintf("%c", i)] = i }
         {
             h = 0
             for (i = 1; i <= length($0); i++) h = (h * 31 + ord[substr($0, i, 1)]) % 1000003
             if (all > 0 || h % n == 0) print
         }
-    ' >"$WORK/corpus"
+    ' "$WORK/corpus.all" >"$WORK/corpus"
     while IFS= read -r name; do
         if [[ -d "test/corpus/$name" ]]; then add "corpus/$name" "test/corpus/$name"
         else add "corpus/$name" "test/corpus/$name.rig"; fi
@@ -715,6 +720,35 @@ if [[ -s "$WORK/docs" ]]; then
     ' >"$WORK/docs.keyed"
     while IFS=$'\t' read -r id dir key; do add "$id" "$dir" "$key"; done <"$WORK/docs.keyed"
 fi
+
+# A full run removes the output directories of tests that are gone (and
+# of doc examples whose text changed), keeping the rest and their build
+# caches: every listed test, and every corpus program, sampled or not.
+# Only the directories of test kinds are touched. `--prune` does only
+# this.
+if [[ ${#FILTERS[@]} -eq 0 ]]; then
+    { cut -f3 "$LIST"; [[ -f "$WORK/corpus.all" ]] && sed 's#^#corpus/#' "$WORK/corpus.all"; } >"$WORK/keep"
+    find "$OUTROOT" -mindepth 1 -maxdepth 3 | awk -F'\t' -v root="$OUTROOT/" '
+        FILENAME == ARGV[1] {
+            keep[$1] = 1
+            n = split($1, p, "/"); pre = p[1]
+            for (i = 1; i < n; i++) { dir[pre] = 1; pre = pre "/" p[i + 1] }
+            next
+        }
+        {
+            rel = substr($0, length(root) + 1)
+            if (rel !~ /^(behavior|reject|known|examples|ir|torture|cli|doc|corpus|oracle)(\/|$)/) next
+            n = split(rel, p, "/"); pre = p[1]; inside = 0
+            for (i = 1; i < n; i++) { if (pre in keep || pre in gone) inside = 1; pre = pre "/" p[i + 1] }
+            if (inside || rel in keep || rel in dir) next
+            base = rel; sub(/\.(stdout|stderr|diff)$/, "", base)
+            if (base in keep) next
+            gone[rel] = 1
+            print
+        }
+    ' "$WORK/keep" - | tr '\n' '\0' | xargs -0 rm -rf
+fi
+[[ -n "$PRUNE" ]] && exit 0
 
 # Whole-program checks run alongside the per-file tests.
 UNIT_LOG="$WORK/unit.log" UNIT_PID=""
@@ -831,31 +865,6 @@ DUPLICATES=$(cut -f1 "$LIST" | sort | uniq -d)
 if [[ -n "$DUPLICATES" ]]; then
     printf 'two tests have the id %s (a name.rig beside a name/ directory?)\n' $DUPLICATES >&2
     exit 1
-fi
-
-# A full run removes the output directories of tests that are gone (and
-# of doc examples whose text changed), keeping the rest and their build
-# caches. Only the directories of test kinds are touched.
-if [[ ${#FILTERS[@]} -eq 0 ]]; then
-    find "$OUTROOT" -mindepth 1 -maxdepth 3 | awk -F'\t' -v root="$OUTROOT/" '
-        FILENAME == ARGV[1] {
-            keep[$3] = 1
-            n = split($3, p, "/"); pre = p[1]
-            for (i = 1; i < n; i++) { dir[pre] = 1; pre = pre "/" p[i + 1] }
-            next
-        }
-        {
-            rel = substr($0, length(root) + 1)
-            if (rel !~ /^(behavior|reject|known|examples|ir|torture|cli|doc|corpus|oracle)(\/|$)/) next
-            n = split(rel, p, "/"); pre = p[1]; inside = 0
-            for (i = 1; i < n; i++) { if (pre in keep || pre in gone) inside = 1; pre = pre "/" p[i + 1] }
-            if (inside || rel in keep || rel in dir) next
-            base = rel; sub(/\.(stdout|stderr|diff)$/, "", base)
-            if (base in keep) next
-            gone[rel] = 1
-            print
-        }
-    ' "$LIST" - | tr '\n' '\0' | xargs -0 rm -rf
 fi
 
 # Longest first, by each test's time in the last run that ran it, so the

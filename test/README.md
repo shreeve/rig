@@ -308,7 +308,8 @@ failing test can be inspected there, and repeated runs hit Zig's build
 cache. A doc example's directory is `doc/<file>/<checksum>/`, named by
 its text rather than its line, so an edit that moves it keeps its cache.
 A run with no filter removes the directories of tests that no longer
-exist. One run at a time uses an output directory; a second run waits
+exist, and keeps those of every corpus program though it runs only a
+sample; `./test/run --prune` does only that. One run at a time uses an output directory; a second run waits
 for the first, unless `RIG_TEST_OUT` gives it a directory of its own.
 The runner marks an output directory as its own with a `.rig-test`
 file, and refuses a `RIG_TEST_OUT` that is not empty and lacks it, so
