@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+sub main
+  o: P? = P(x: 1)
+  r = ?o
+  b = r ?? P(x: 9)
+  o = none
+  print(b.x)

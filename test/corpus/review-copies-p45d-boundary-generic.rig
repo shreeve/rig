@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+fun id[T](v: T) -> T
+  v
+
+sub main
+  a = P(x: 1)
+  n = 3
+  print(id(?n), id(?a).x)

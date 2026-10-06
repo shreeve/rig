@@ -1,0 +1,11 @@
+struct S
+  v: ?Vec[Int]
+
+sub main
+  xs: Vec[Int] = Vec()
+  !xs.push(1)
+  s = S(v: ?xs)
+  w = !s
+  c = w
+  !xs.push(2)
+  print(c.v.len)

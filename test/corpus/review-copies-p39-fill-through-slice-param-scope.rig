@@ -1,0 +1,12 @@
+# A callee fills a caller's array of views through a write slice with a
+# view of a local that dies before the array is read.
+sub fillit(s: ![]?Int, x: ?Int)
+  !s.fill(x)
+
+sub main
+  m = 1
+  a = [?m, ?m, ?m]
+  if true
+    n = 5
+    fillit(!a[..], ?n)
+  print(a[0])

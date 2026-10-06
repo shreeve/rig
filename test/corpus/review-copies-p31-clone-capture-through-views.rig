@@ -1,0 +1,52 @@
+# `|+r|` through read and write views of owners and handles: each
+# closure holds its own clone, dropped once with the closure.
+struct N
+  v: Int
+
+  drop(!self)
+    print("drop", self.v)
+
+struct B
+  t: Text
+  hs: Vec[*N]
+
+fun vof(o: ?(*N)?) -> Int
+  if o as n
+    return n.v
+  0
+
+fun tlen(o: ?Text?) -> Int
+  if o as t
+    return t.len
+  0
+
+sub main
+  hs: Vec[*N] = Vec()
+  !hs.push(*N(v: 1))
+  r = ?hs
+  f = |+r| r.len + r[0].v
+  print(f())
+  o: (*N)? = *N(v: 2)
+  ro = ?o
+  g = |+ro| vof(?ro)
+  -o
+  print(g())
+  bx = Box(Text("boxed"))
+  rb = ?bx
+  h = |+rb| rb.len
+  print(h())
+  ts = [Text("a"), Text("bb")]
+  rt = ?ts
+  k = |+rt| rt[1].len
+  print(k())
+  ot: Text? = Text("opt")
+  rot = ?ot
+  m = |+rot| tlen(?rot)
+  print(m())
+  b = B(t: Text("bee"), hs: Vec())
+  !b.hs.push(*N(v: 3))
+  wb = !b
+  q = |+wb| wb.t.len + wb.hs[0].v
+  !wb.hs.push(*N(v: 4))
+  print(q())
+  print("end")

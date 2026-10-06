@@ -1,0 +1,13 @@
+struct S
+  s: String
+
+fun mk -> Int
+  t = Text("a heap string of some length")
+  s = S(s: ?t)
+  r = ?s
+  f = |+r| r.s.len
+  -t
+  f()
+
+sub main
+  print(mk())

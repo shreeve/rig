@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+sub main
+  a = P(x: 1)
+  w = !a
+  b = w
+  w.x = 2
+  print(b.x, a.x)

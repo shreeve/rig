@@ -1,0 +1,11 @@
+# The same shape with an Int: `o ?? ?m` gives a `?Int`, read where an
+# Int is expected.
+fun pick(o: (?Int)?, r: ?Int) -> Int
+  o ?? r
+
+sub main
+  n = 1
+  m = 3
+  o: (?Int)? = ?n
+  c: Int = o ?? ?m
+  print(c, pick(o, ?m), pick(none, ?m))

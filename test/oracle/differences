@@ -151,3 +151,18 @@ plain.discard.write_view run prod-rejects prod-strict `_ = w` does not read the 
 array.discard.write_view run prod-rejects prod-strict `_ = w` does not read the value a write view sees
 string.return.read_view run prod-rejects prod-strict `return r` of a String a read view of a local reaches, which views only a literal
 string.return.write_view run prod-rejects prod-strict `return w` of a String a write view of a local reaches, which views only a literal
+
+# A value holding a write view has no clone (Core sentence 2): `+h` and
+# `|+h|` of one are rejected however the two holders are used, while the
+# oracle reports a duplicated write view only where the holders' uses
+# interleave.
+test/corpus/review-copies-p11c-clone-capture-write-view-holder-read.rig main prod-rejects ref-gap `|+h|` of a struct holding a write view, read only
+test/corpus/review-copies-p12-clone-write-view-holder.rig main prod-rejects ref-gap `+h` of a struct holding a write view
+test/corpus/review-copies-p17-clone-capture-wvh-array.rig main prod-rejects ref-gap `|+hs|` of an array of structs holding a write view
+
+# A bare write view as a constructor's field value is a write lend there,
+# so a second field reading the same view is a second write lend; Core
+# sentence 1 reads the value a bare write view of a value that copies
+# sees. The same in v0.2.2.
+test/corpus/review-copies-p25-write-view-struct-literal-field.rig main prod-rejects prod-strict `Q(p: w, o: w)` with `w: !P` reads `w` twice as write lends
+test/corpus/review-copies-p25b-write-view-int-struct-literal-field.rig main prod-rejects prod-strict `Q(p: w, o: w)` with `w: !Int` reads `w` twice as write lends

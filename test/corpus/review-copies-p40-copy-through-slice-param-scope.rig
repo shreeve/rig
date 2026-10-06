@@ -1,0 +1,11 @@
+sub copyit(d: ![]?Int, s: []?Int)
+  !d.copy(s)
+
+sub main
+  m = 1
+  a = [?m, ?m]
+  if true
+    n = 5
+    b = [?n, ?n]
+    copyit(!a[..], ?b[..])
+  print(a[0])

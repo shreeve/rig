@@ -1,0 +1,31 @@
+# Generic bodies that copy a T (Requirement.copies), instantiated with
+# plain structs, arrays, optionals, and String holders.
+struct P
+  s: String
+  n: Int
+
+fun first[T](xs: ?[2]T) -> T
+  xs[0]
+
+fun three[T](x: T) -> [3]T
+  [3 of x]
+
+fun dup[T](x: T) -> [2]T
+  a = [x, x]
+  !a.fill(x)
+  a
+
+fun cap[T](x: T) -> Int
+  f = |+x| 7
+  f()
+
+fun pick[T](o: ?T?, d: T) -> T
+  o ?? d
+
+sub main
+  ps = [P(s: "a", n: 1), P(s: "b", n: 2)]
+  print(first(?ps).s, three(ps[1])[2].n, dup([1, 2])[1], cap(P(s: "c", n: 3)))
+  o: P? = P(s: "d", n: 4)
+  print(pick(?o, ps[0]).s)
+  oo: (Int?)? = 5
+  print(cap(oo), three(oo))

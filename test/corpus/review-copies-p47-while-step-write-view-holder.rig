@@ -1,0 +1,17 @@
+# A `while ... as h: step` whose binding holds a write view, read by
+# the step: v0.2.2 accepts it and prints 0 1 2 / 3 3.
+struct W
+  w: !Int
+
+fun mk(n: !Int) -> W?
+  if n < 3
+    return W(w: !n)
+  none
+
+sub main
+  n = 0
+  k = 0
+  while mk(!n) as h: k = h.w + 1
+    print(h.w)
+    n = k
+  print(n, k)

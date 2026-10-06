@@ -1,0 +1,9 @@
+struct P
+  x: Int
+
+sub main
+  a = P(x: 1)
+  r = ?a
+  f = |+r| r.x
+  a.x = 2
+  print(a.x, f())

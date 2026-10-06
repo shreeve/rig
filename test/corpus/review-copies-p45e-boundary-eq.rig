@@ -1,0 +1,7 @@
+struct P
+  x: Int
+
+sub main
+  a = P(x: 1)
+  r = ?a
+  print(r == P(x: 1))

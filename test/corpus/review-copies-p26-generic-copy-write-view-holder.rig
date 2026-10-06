@@ -1,0 +1,15 @@
+# A generic body copies a T out of a read view; T = W holds a write view.
+struct W
+  w: !Vec[Int]
+
+fun first[T](xs: ?[2]T) -> T
+  xs[0]
+
+sub main
+  a: Vec[Int] = Vec()
+  b: Vec[Int] = Vec()
+  ws = [W(w: !a), W(w: !b)]
+  c = first(?ws)
+  !c.w.push(1)
+  !ws[0].w.push(2)
+  print(a.len)

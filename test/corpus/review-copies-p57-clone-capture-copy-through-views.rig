@@ -1,0 +1,25 @@
+# `|+x|` copies a value that copies through a read or write view: the
+# closure keeps the value it saw, and the owner may then change.
+struct P
+  x: Int
+
+fun ox(o: P?) -> Int
+  if o as p
+    return p.x
+  0
+
+sub main
+  a = P(x: 1)
+  w = !a
+  f = |+w| w.x
+  w.x = 5
+  arr = [1, 2]
+  ra = ?arr
+  g = |+ra| ra[1]
+  o: P? = P(x: 7)
+  ro = ?o
+  h = |+ro| ox(ro)
+  print(f(), a.x, g(), h())
+  arr[1] = 9
+  o = none
+  print(g(), h(), arr[1])

@@ -1,0 +1,14 @@
+struct S
+  v: ?Vec[Int]
+
+fun pick(r: ?S?, d: S) -> S
+  r ?? d
+
+sub main
+  xs: Vec[Int] = Vec()
+  !xs.push(1)
+  ys: Vec[Int] = Vec()
+  o: S? = S(v: ?xs)
+  c = pick(?o, S(v: ?ys))
+  o = none
+  print(c.v.len)
