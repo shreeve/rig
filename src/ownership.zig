@@ -982,7 +982,16 @@ pub const Checker = struct {
     /// A view `l` of a statement's temporary that `holder` keeps past
     /// the statement.
     fn reportTempOutlived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
-        try self.err(l.pos, "a view of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{self.vars.items[l.root].name});
+        const name = self.vars.items[l.root].name;
+        // A temporary made before it in the statement is dropped after
+        // it, so holds the view past the temporary's drop.
+        if (holder) |h| if (self.isStmtTemp(h) and self.vars.items[h].name.len > 0) {
+            const hv = self.vars.items[h];
+            try self.err(l.pos, "a view of the temporary `{s}` is held by `{s}`, a temporary its statement drops after it; bind the value to a name first", .{ name, hv.name });
+            if (self.last_err_kept) try self.note(hv.decl, "`{s}` is made before `{s}`, so dropped after it", .{ hv.name, name });
+            return;
+        };
+        try self.err(l.pos, "a view of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{name});
         if (!self.last_err_kept) return;
         const h = holder orelse return;
         const hv = self.vars.items[h];

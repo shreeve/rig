@@ -69,9 +69,9 @@ sub moves_part
 sub main
   stores_view()
 
-# error: 51:16: a view of the temporary `mk(1)` outlives its statement
-# error: 54:16: a view of the temporary `mk(1)` outlives its statement
-# error: 57:19: a view of the temporary `mk(1)` outlives its statement
+# error: 51:16: a view of the temporary `mk(1)` is held by `mk
+# error: 54:16: a view of the temporary `mk(1)` is held by `mk
+# error: 57:19: a view of the temporary `mk(1)` is held by `mk
 # error: 63:20: `s` does not live long enough
-# error: 66:8: cannot move out of `mk(1).items`: it is reached through `!mk(1)`, a view
+# error: 66:8: cannot move out of `(!mk(1)).items`: it is reached through `!mk(1)`, a view
 # errors: 5
