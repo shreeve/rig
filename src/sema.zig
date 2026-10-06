@@ -4537,7 +4537,9 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
         else => {},
     }
     return switch (moves(ctx, value)) {
-        .no => .copy,
+        // A value that does not move copies, but for one holding a write
+        // view, which has one holder (Core sentence 2): it has no clone.
+        .no => if (copies(ctx, value) == .yes) .copy else .no,
         .yes => if (deepCloneable(ctx, value, null, &.{})) .deep else .no,
         .depends => .depends,
     };
@@ -6909,7 +6911,7 @@ test "type facts: moves, copies, cloneable" {
         .{ .ty = read_p, .moves = .no, .copies = .yes, .clone = .copy },
         .{ .ty = write_p, .moves = .no, .copies = .no, .clone = .copy },
         .{ .ty = v, .moves = .no, .copies = .yes, .clone = .copy },
-        .{ .ty = w, .moves = .no, .copies = .no, .clone = .copy },
+        .{ .ty = w, .moves = .no, .copies = .no, .clone = .no },
         .{ .ty = vec_int, .moves = .yes, .copies = .no, .clone = .deep },
         .{ .ty = ty.text_id, .moves = .yes, .copies = .no, .clone = .text },
         .{ .ty = shared_p, .moves = .yes, .copies = .no, .clone = .bump },

@@ -4098,7 +4098,9 @@ const Checker = struct {
             .depends => try self.requireOf(value, .copies, self.startOf(operand), "clones a value"),
             .no => {
                 const shown = try self.tyName(value);
-                if (!sema.typeHasDropGlue(self.ctx, value)) {
+                if (!sema.typeHasDropGlue(self.ctx, value) and sema.holdsWriteView(self.ctx, value)) {
+                    try self.errAt(operand, "`+x` cannot clone a `{s}`: it holds a write view, which has one holder; move it with `<x`", .{shown});
+                } else if (!sema.typeHasDropGlue(self.ctx, value)) {
                     try self.errAt(operand, "`+x` cannot clone a `{s}`: it is unique, and a copy would duplicate it; move it with `<x`", .{shown});
                 } else if (sema.isUnique(self.ctx, value)) {
                     try self.errAt(operand, "`+x` cannot clone a `{s}`: it holds a unique value, which a copy would duplicate; move it with `<x`, or lend it", .{shown});
