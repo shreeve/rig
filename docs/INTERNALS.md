@@ -797,7 +797,9 @@ plain data (`sema.copyable`), a view (`?F`) of anything else, captured
 by pointer, including the binding of a catch-all arm and a binding a
 guard reads; a write view under `match !e` and `for x in !e`; the
 construct's own under `match <e` and a taken subject. (A payload of a
-type parameter is a copy, which each instance must allow.)
+type parameter is a copy, which each instance must allow; emit binds it
+by pointer where the match reads its subject in place,
+`storage.payloadByAddress`, and copies it out otherwise.)
 
 A read match's binding that is no plain data, a payload or the binding
 of a catch-all arm, is usable within its arm only (`SymbolFlags.arm_view`):
@@ -805,13 +807,15 @@ it may be read, lent to a call, and have its `Cell` changed there, but a
 view of it may not be returned, stored in anything that outlives the
 arm, or yielded as the match's value. The ownership checker gives each
 such binding a loan on a hidden var of the arm (`Var.arm_of`), which
-ends with the arm. The reason is emit: it may match a copy of the
-subject (a guarded match evaluates the subject first, and a generic
-body reads a `?T` subject as a value), which lives exactly as long as
-the arm, while the checker walks the subject itself. Lowering matches
-before checking (HANDOFF step 10), so that the checker and emit see one
-program, lifts the rule. A subject that is a view a call returns is held
-as the pointer it is (`evalSubject`), never copied.
+ends with the arm. The rule is conservative: emit matches a subject that
+reaches a place where it is (`storage.matchesInPlace`), a guarded match
+through `__rig_subject` holding its address, a header with temporaries
+through the address its block yields, and a generic body through
+`rig.viewedPtr`, and binds a payload of a type parameter by pointer
+there; it copies only a value made in the header, which no name holds.
+The rule is lifted next, for the subjects matched in place (HANDOFF,
+weak spots). A subject that is a view a call returns is held as the
+pointer it is (`evalSubject`), never copied.
 
 A held header is rejected, conservatively, where its value could not
 be held for the construct: when the made value makes a statement
@@ -823,20 +827,29 @@ iteration. Each says to bind the value to a name first.
 
 A header whose subject makes a statement temporary
 (`sema.firstStmtTemp`, which emit's header blocks use too) is evaluated
-in a block that ends the temporary and yields the subject's value, so
-what the construct binds is in a copy, whatever the subject's shape: a
-place, a lend, or a branching value. Typecheck records that once per
+in a block that ends the temporary. When the subject reaches a place
+(`storage.headerPoints`: a place, its indexes and call arguments
+evaluated in the block, a lend of one held as a pointer, or an `if`
+value each leaf of which is one of those), the block yields the place's
+address, `(hdr: { slots break :hdr &v.slot(i).*; }).*`, and the
+construct binds through it, so what it binds is the place's own: a
+`match` switches on it (a guarded one holds the address in
+`__rig_subject`), an `if … as` or `while … as` (evaluated again each
+pass) captures by pointer into it, and a `for` walks it. Any other
+subject, a value made in the header, is yielded by value, and what the
+construct binds is in that copy. Typecheck records the copy once per
 header (`copiesHeader`, the storage fact `header_copy`), unless the
 construct takes its subject (`<p`, a `match` that takes it), walks a
 slice, or matches a view a call returns, which is held as the pointer it
-is. Emit reads the fact and fails if its own shape disagrees. Such a
-header is rejected at the temporary, whatever it binds and of whatever
-type (`rejectHeaderCopy`), with "bind the index (the argument, `e`) to a
-name first": a write, a Cell change, or a view, a plain-data catch-all's
-included, would reach the copy. The one exception is a value made there,
-which no name holds, of which the construct binds plain data: what it
-binds is a copy either way. Headers with temporaries stay rejected until
-emit points at the subject instead of copying it (HANDOFF, weak spots).
+is. Emit reads the fact and fails if its own shape disagrees. Every
+header with a temporary is still rejected at the temporary, whatever it
+binds and of whatever type (`rejectHeaderCopy`), with "bind the index
+(the argument, `e`) to a name first", except a value made there, which
+no name holds, of which the construct binds plain data: what it binds is
+a copy either way. The rejection of a header that points is lifted next
+(HANDOFF, weak spots); it stays for one that copies, where a write, a
+Cell change, or a view, a plain-data catch-all's included, would reach
+the copy.
 A `match` on a view a call returns is matched where the view points,
 after its header: its tag and payloads are read there. So the ownership
 checker reports such a subject whose value carries a loan on a
@@ -889,7 +902,7 @@ instead of re-deriving it by name:
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `lendsCellTemp(node)` | whether a field or element of a temporary (`mk().p`, `Q(...).p`) holds a Cell that the read lend of it (`?mk().p` as an argument or `as` value, or a `?self` receiver) may change: emit copies the part into a mutable local first, since Zig may keep a temporary in constant memory |
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
-| `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary (`rejectHeaderCopy`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
+| `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
 | `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or lend sigil that is one. Kept beside the table, not in `check --facts=sema` |
@@ -958,13 +971,13 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | Kind | Zig name | Made for | By | Life |
 |---|---|---|---|---|
 | `temp` | `__rig_tmp` | an owning temporary its statement or header drops (`dropsTemp`) | owned | statement |
-| `header_value` | `__rig_hdr` | a header that makes temporaries: the block that ends them yields its value | copy | header |
-| `header_copy` | (the header's value) | a `match`, `for`, or `as` that binds the parts of that value (`copiesHeader`) | copy | construct |
+| `header_value` | `__rig_hdr` | a header that makes temporaries: the block that ends them yields the address of the place a construct's subject reaches (`storage.headerPoints`), or else its value | pointer or copy | header |
+| `header_copy` | (the header's value) | a `match`, `for`, or `as` that binds the parts of that value, a copy (`copiesHeader`) | copy | construct |
 | `held` | `__rig_held` | the made value a header's subject is a part of (`Header.held`) | owned | construct |
 | `taken` | `__rig_src` | the array a `for` takes (`Header.taken`) | owned | construct |
 | `iterator`, `element` | `__rig_it`, `__rig_elem` | a consuming `for` | owned | construct, iteration |
 | `range_start`, `range_end` | `__rig_i`, `__rig_end` | a range `for`'s counter and end | owned | construct |
-| `subject` | `__rig_subject` | a `match` that evaluates its subject before its arms (`storage.subjectHold`) | pointer, copy, or owned | construct |
+| `subject` | `__rig_subject` | a `match` that evaluates its subject before its arms, or holds a generic view a call returns (`storage.subjectHold`) | pointer, copy, or owned | construct |
 | `whole`, `payload` | `__rig_whole`, `__rig_payload` | what an arm captures: the value `match <x` takes, or a variant's payload | owned, pointer, or copy | arm |
 | `as_value`, `as_copy` | `__rig_opt`, `__rig_opt_N_v` | what `if … as` or `while … as` captures, and a mutable copy its binding views | pointer, copy, or owned | body |
 | `lent` | `__rig_lent` | the value inside an optional a lend reaches | pointer | expression |
@@ -1020,9 +1033,9 @@ statement's temporaries are `dropsTemp`'s. Of the copies, a header
 that binds one is rejected where typecheck records it
 (`rejectHeaderCopy`), unless it binds plain data of a value made there;
 a read match's
-payload view, which may view a `subject` copy, lives for its arm
-(`arm_view`); a `payload` copy only copies fields out, and an
-`error_value` is plain data.
+payload view, which may view a `subject` copy of a value made in the
+header, lives for its arm (`arm_view`); a `payload` copy only copies
+fields out, and an `error_value` is plain data.
 
 ### Generics
 
@@ -1712,8 +1725,13 @@ lower is an internal error: sema must have rejected it.
   where it is. A receiver, or a Cell-holding part lent to read, of a
   call whose arguments are evaluated first is held as its address in
   the slot its statement keeps it in (`keptInSlot`), never as a copy in
-  the call's block. A `match` on a generic read view a name holds
-  switches on `rig.viewedPtr(T, &v).*`. With `RIG_SANITIZE`, each
+  the call's block. A header subject with temporaries that reaches a
+  place is reached through the address its block yields
+  (`storage.headerPoints`), never a copy of the block's value. A `match`
+  on a generic read view a name holds switches on
+  `rig.viewedPtr(T, &v).*`, and one on a generic read view a call
+  returns holds it in `__rig_subject` and switches on
+  `rig.viewedPtr(T, &__rig_subject).*`. With `RIG_SANITIZE`, each
   `var` emit adds (a call's argument, receiver, or closure environment,
   a statement's or header's temporary slot, a held or matched subject,
   an `as` binding's copy) is filled with `0xAA` when its scope ends

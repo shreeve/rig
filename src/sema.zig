@@ -670,8 +670,9 @@ pub const Facts = struct {
     /// the place holds (`SemContext.recordThroughWrite`).
     through_writes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Header nodes (`match`, `for`, `as`) emitted over a copy of their
-    /// subject: the subject makes a statement temporary and the
-    /// construct does not own what it binds (`SemContext.recordHeaderCopy`).
+    /// subject: the subject makes a statement temporary, reaches no
+    /// place, and the construct does not own what it binds
+    /// (`SemContext.recordHeaderCopy`).
     header_copies: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Assignments of a view to a `!T` or `![]T` local, which point it
     /// at another place (`SemContext.recordRepoint`).
@@ -1837,9 +1838,10 @@ pub const SemContext = struct {
     }
 
     /// Header `node` (a `match`, `for`, or `as`) is evaluated in a block
-    /// that ends the temporaries its subject makes (`firstHeaderTemp`)
-    /// and yields the subject's value, so what it binds views a copy of
-    /// that value, not the subject itself.
+    /// that ends the temporaries its subject makes (`firstStmtTemp`)
+    /// and yields the subject's value, which reaches no place
+    /// (`storage.headerPoints`), so what it binds views a copy of that
+    /// value, not the subject itself.
     pub fn recordHeaderCopy(self: *SemContext, node: Sexp) !void {
         try self.facts.header_copies.put(self.allocator, recordKey(node), {});
     }
