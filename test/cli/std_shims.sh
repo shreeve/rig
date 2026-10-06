@@ -13,9 +13,11 @@ printf 'pub fn half(x: i64) i64 {\n    return @divTrunc(x, 2);\n}\n' >lib/half.z
 out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 0 "matching shim: $out"
 expect_eq "$out" "4" "matching shim"
 
-# One whose type differs fails the build, naming the declaration.
+# One whose type differs fails the build, naming the declaration, so
+# the program does not run.
 printf 'pub fn half(x: i32) i64 {\n    return @divTrunc(x, 2);\n}\n' >lib/half.zig
-out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 1 "mismatched shim"
+out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 125 "mismatched shim"
+expect_has "$out" "rig: the program did not run" "mismatched shim"
 expect_has "$out" "rig: the Zig function of \`std.half.half\` has type fn (i32) i64, but its Rig signature lowers to fn (i64) i64" "mismatched shim"
 
 # The checker rejects a generic Zig-backed function, a fallible one in
@@ -89,15 +91,16 @@ out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 1 "fallible shim: 
 expect_eq "$out" $'4 3\nOdd.odd true\nodd -1\nerror: Odd.odd' "fallible shim"
 
 # Its Zig function must name the errors it returns, each an error of
-# the module's error sets; the build fails otherwise.
+# the module's error sets; the build fails otherwise, and the program
+# does not run (exit status 125).
 printf 'use std.half\n\nsub main!\n  print(half.half(8)!)\n' >main.rig
 printf 'pub fn half(x: i64) error{Oops}!i64 {\n    return if (x == 0) error.Oops else x;\n}\npub fn even(x: i64) error{}!void {\n    _ = x;\n}\n' >lib/half.zig
-out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 1 "undeclared error"
+out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 125 "undeclared error"
 expect_has "$out" "rig: the Zig function of \`std.half.half\` returns \`error.Oops\`, which is not an error of module \`std.half\`" "undeclared error"
 printf 'pub fn half(x: i64) anyerror!i64 {\n    return x;\n}\npub fn even(x: i64) error{}!void {\n    _ = x;\n}\n' >lib/half.zig
-out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 1 "anyerror"
+out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 125 "anyerror"
 expect_has "$out" "rig: the Zig function of \`std.half.half\` returns \`anyerror\`; it must name the errors it returns" "anyerror"
 printf 'pub fn half(x: i64) i64 {\n    return x;\n}\npub fn even(x: i64) error{}!void {\n    _ = x;\n}\n' >lib/half.zig
-out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 1 "cannot fail"
+out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 125 "cannot fail"
 expect_has "$out" "rig: the Zig function of \`std.half.half\` has type fn (i64) i64, but its Rig signature lowers to fn (i64) E!i64, for an error set E of module \`std.half\`" "cannot fail"
 exit 0

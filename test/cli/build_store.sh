@@ -5,7 +5,7 @@
 source "$ROOT/test/cli/_lib.sh"
 
 store=$PWD/store
-entries() { find "$store" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' '; }
+entries() { find "$store" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l | tr -d ' '; }
 for p in one two three; do
   mkdir $p
   printf 'use util\n\nsub main()\n  print(util.who())\n' >$p/main.rig
@@ -16,7 +16,7 @@ printf 'pub fun who() -> Int\n  3\n' >three/util.rig
 
 out=$(cd one && RIG_BUILD_STORE=$store "$RIG" run main.rig 2>&1); expect_eq "$out" "1" "first program"
 expect_eq "$(entries)" 1 "entries after one build"
-entry=$(find "$store" -mindepth 1 -maxdepth 1 -type d)
+entry=$(find "$store" -mindepth 1 -maxdepth 1 -type d ! -name '.*')
 [[ -f "$entry/used" ]] || fail "the entry records no use"
 [[ -f "$entry/package/__rig_main.zig" && -f "$entry/package/util.zig" && -f "$entry/package/rig/runtime.zig" ]] ||
   fail "the entry lacks the package: $(cd "$entry" && find package)"

@@ -60,6 +60,11 @@ const usage =
     \\                   directory in it named by a hash of everything
     \\                   the build reads, and build there, in place of
     \\                   RIG_OUT_DIR
+    \\  RIG_RUN_STARTED  A file for run and test to create as the program
+    \\                   starts, which proves it ran; without it, rig
+    \\                   makes its own. Either way, a failure before the
+    \\                   program starts prints `rig: the program did not
+    \\                   run` and exits 125
     \\  RIG_LEAK_TRACE   Set to 1 when building to report each leaked
     \\                   allocation with its stack trace (slower)
     \\  RIG_SANITIZE     Set to 1 when building a Debug program to make
@@ -174,7 +179,10 @@ pub fn main(init: std.process.Init) !void {
             }
         },
         .emit => try emitCommand(allocator, io, env, opts.path),
-        .run, .build, .@"test" => try buildCommand(allocator, io, env, opts),
+        .run, .build, .@"test" => buildCommand(allocator, io, env, opts) catch |err| {
+            if (program_pending) notRun("{s}", .{@errorName(err)});
+            return err;
+        },
     }
 }
 
@@ -256,7 +264,24 @@ fn usageError(comptime fmt: []const u8, args: anytype) noreturn {
 
 fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
     std.debug.print(fmt ++ "\n", args);
+    if (program_pending) notRun("rig failed", .{});
     std.process.exit(1);
+}
+
+/// `rig run` and `rig test` exit with the program's own status only once
+/// the program has started; any failure before that, rig's own, Zig's, or
+/// in starting the program, prints `rig: the program did not run` and
+/// exits with this status. So a test harness can tell a program that ran
+/// from one that never did.
+const not_run_status: u8 = 125;
+
+/// Set while `rig run` or `rig test` builds and starts a checked program:
+/// a failure now means the program did not run.
+var program_pending = false;
+
+fn notRun(comptime fmt: []const u8, args: anytype) noreturn {
+    std.debug.print("error: rig: the program did not run: " ++ fmt ++ "\n", args);
+    std.process.exit(not_run_status);
 }
 
 /// Print to stdout, unbuffered past this call.
@@ -371,6 +396,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     var graph = try loadProject(allocator, io, env, opts.path);
     defer graph.deinit();
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
+    program_pending = opts.command != .build;
     var pkg = try emitPackage(allocator, env, &graph);
     const root = if (opts.command == .@"test") test_driver else graph.root().out_basename;
     if (opts.command == .@"test") try pkg.files.append(allocator, .{ .path = test_driver, .contents = try testDriver(allocator, env, &graph) });
@@ -397,10 +423,53 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const emit_bin: []const []const u8 = if (opts.command == .build) &.{try allocator.print("-femit-bin={s}", .{opts.out_path orelse graph.root().name})} else &.{};
     const program_args: []const []const u8 = if (opts.command == .run) opts.program_args else &.{};
     const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
-    const code = try runZig(io, try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, dashes, program_args }));
-    if (code == 0) return;
-    if (opts.command == .build) std.debug.print("note: emitted Zig is in {s}\n", .{dir});
-    std.process.exit(code);
+    const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, dashes, program_args });
+    if (opts.command == .build) {
+        const code = try runZig(io, argv, null);
+        if (code == 0) return;
+        std.debug.print("note: emitted Zig is in {s}\n", .{dir});
+        std.process.exit(code);
+    }
+
+    // The program creates `started` as it starts (`rig.start` in the
+    // runtime), the evidence that the status `zig run` returns is the
+    // program's and not Zig's. A caller that sets RIG_RUN_STARTED names
+    // the file, and keeps it as its own evidence.
+    var name: [8]u8 = undefined;
+    io.random(&name);
+    const callers = env.get("RIG_RUN_STARTED");
+    const started = if (callers) |path| path else if (env.get("RIG_BUILD_STORE") != null)
+        try std.fs.path.join(allocator, &.{ std.fs.path.dirname(zig_cache).?, ".started", &std.fmt.bytesToHex(name, .lower) })
+    else
+        try std.fs.path.join(allocator, &.{ dir, try allocator.print(".started-{x}", .{&name}) });
+    if (std.fs.path.dirname(started)) |d| std.Io.Dir.cwd().createDirPath(io, d) catch |err| notRun("cannot create `{s}`: {s}", .{ d, @errorName(err) });
+    var environ = try env.map.clone(allocator);
+    try environ.put("RIG_RUN_STARTED", started);
+    var attempt: u32 = 0;
+    while (true) : (attempt += 1) {
+        std.Io.Dir.cwd().deleteFile(io, started) catch {};
+        const code = try runZig(io, argv, &environ);
+        if (std.Io.Dir.cwd().access(io, started, .{})) |_| {
+            if (callers == null) std.Io.Dir.cwd().deleteFile(io, started) catch {};
+            if (code == 0) return;
+            std.process.exit(code);
+        } else |_| {}
+        // A store entry whose manifests outlived its builds (`h/` without
+        // `o/`) sends Zig to run a binary that is gone: drop the manifests
+        // so Zig builds again, once.
+        if (attempt == 0 and env.get("RIG_BUILD_STORE") != null and exists(io, zig_cache, "h") and !exists(io, zig_cache, "o")) {
+            std.Io.Dir.cwd().deleteTree(io, try std.fs.path.join(allocator, &.{ zig_cache, "h" })) catch {};
+            continue;
+        }
+        notRun("`zig run` exited with status {d} before it started the program", .{code});
+    }
+}
+
+fn exists(io: std.Io, dir: []const u8, name: []const u8) bool {
+    var buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const path = std.fmt.bufPrint(&buffer, "{s}/{s}", .{ dir, name }) catch return false;
+    std.Io.Dir.cwd().access(io, path, .{}) catch return false;
+    return true;
 }
 
 /// The module `rig test` builds: a driver next to the emitted ones that
@@ -436,12 +505,14 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *const modules.Modu
     return driver.written();
 }
 
-/// Run the Zig toolchain with inherited stdio; return its exit code (128
-/// + the signal number if a signal ended it), which for `zig run` is the
-/// program's.
-fn runZig(io: std.Io, argv: []const []const u8) !u8 {
+/// Run the Zig toolchain with inherited stdio (and `environ`, when given,
+/// as its environment); return its exit code (128 + the signal number if
+/// a signal ended it), which for `zig run` is the program's once it has
+/// started it.
+fn runZig(io: std.Io, argv: []const []const u8, environ: ?*const std.process.Environ.Map) !u8 {
     var child = std.process.spawn(io, .{
         .argv = argv,
+        .environ_map = environ,
         .stdin = .inherit,
         .stdout = .inherit,
         .stderr = .inherit,

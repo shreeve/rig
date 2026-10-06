@@ -86,20 +86,43 @@ directive() { # directive <name> <file>  → all values of `# name: value`
 
 has_expect_block() { grep -qE '^# expect:[[:space:]]*$' "$1"; }
 
+# run_program <entry> <outdir>: `rig run` the program under the time
+# limit, its stdout and stderr in <outdir>.stdout and .stderr; sets RC.
+# The program creates <outdir>.started as it starts (RIG_RUN_STARTED), the
+# positive evidence a test needs that it ran: without it, whatever the
+# status, the program never started (rig, Zig, or the store failed).
+run_program() {
+    local entry=$1 outdir=$2
+    mkdir -p "$outdir"
+    rm -f "$outdir.started"
+    # The braces keep bash's own "Abort trap" job notice out of the output.
+    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" RIG_RUN_STARTED="$outdir.started" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$outdir.stdout" 2>"$outdir.stderr" </dev/null; } 2>/dev/null
+    RC=$?
+}
+
+# not_run <outdir> <rc>: the program did not start; sets REASON. A
+# program `rig run` rejects (a diagnostic at a .rig position) did not run
+# because its check failed, and says so.
+not_run() {
+    [[ -e "$1.started" ]] && return 1
+    REASON=$(classify_failure "$1.stderr" "$2")
+    [[ $REASON == rejected* ]] || REASON="the program did not run: $REASON"
+    return 0
+}
+
 # check_behavior <entry> <outdir> <logfile> → sets REASON, returns 0 on pass
 check_behavior() {
     local entry=$1 outdir=$2 log=$3
     local out="$outdir.stdout" err="$outdir.stderr"
-    mkdir -p "$outdir"
-    # The braces keep bash's own "Abort trap" job notice out of the output.
-    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$out" 2>"$err" </dev/null; } 2>/dev/null
-    local rc=$?
+    run_program "$entry" "$outdir"
+    local rc=$RC
     local panic_want
     panic_want=$(directive expect-panic "$entry" | head -1)
 
     { echo "--- stdout"; cat "$out"; echo "--- stderr"; cat "$err"; } >"$log"
 
     if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
+    not_run "$outdir" "$rc" && return 1
 
     if [[ -n "$panic_want" ]]; then
         if [[ $rc -eq 0 ]]; then REASON="expected panic \"$panic_want\", exited 0"; return 1; fi
@@ -284,8 +307,8 @@ pending_holds() {
 CORPUS_BAD_RE='rig: memory leak detected|rig: use of freed memory|rig: access past the end|rig: double free|\.zig:[0-9]+:[0-9]+: error|\.rig:[0-9]+:[0-9]+: error|Segmentation fault|Bus error|General protection|GENERAL PROTECTION|Illegal instruction|reached unreachable|access of union field|invalid enum value|incorrect alignment|attempt to use null value|switch on corrupt value|invalid error code|sentinel mismatch'
 
 # check_corpus <entry> <outdir> <logfile>: `rig check` rejects the
-# program with a file:line:col diagnostic, or it runs clean under the
-# sanitizer. A passing run's output is removed and its Zig cache kept,
+# program with a file:line:col diagnostic, or it runs, and runs clean under
+# the sanitizer. A passing run's output is removed and its Zig cache kept,
 # so a later run rebuilds only the programs whose emitted Zig changed.
 check_corpus() {
     local entry=$1 outdir=$2 log=$3
@@ -300,18 +323,18 @@ check_corpus() {
         REASON="rejected without a file:line:col diagnostic: $(head -1 <<<"$out")"
         return 1
     fi
-    mkdir -p "$outdir"
-    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$outdir.stdout" 2>"$outdir.stderr" </dev/null; } 2>/dev/null
-    rc=$?
+    run_program "$entry" "$outdir"
+    rc=$RC
     { echo "--- stdout"; head -40 "$outdir.stdout"; echo "--- stderr"; cat "$outdir.stderr"; } >"$log"
     if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
+    not_run "$outdir" "$rc" && return 1
     if line=$(grep -m1 -E "$CORPUS_BAD_RE" "$outdir.stderr"); then
         REASON=$(classify_failure "$outdir.stderr" "$rc")
         [[ $REASON == exit* || $REASON == panic* ]] && REASON=$line
         return 1
     fi
     find "$outdir" -mindepth 1 -maxdepth 1 ! -name .zig-cache -exec rm -rf {} +
-    rm -f "$outdir.stdout" "$outdir.stderr"
+    rm -f "$outdir.stdout" "$outdir.stderr" "$outdir.started"
     return 0
 }
 
@@ -796,7 +819,7 @@ if [[ ${#FILTERS[@]} -eq 0 ]]; then
             n = split(rel, p, "/"); pre = p[1]; inside = 0
             for (i = 1; i < n; i++) { if (pre in keep || pre in gone) inside = 1; pre = pre "/" p[i + 1] }
             if (inside || rel in keep || rel in dir) next
-            base = rel; sub(/\.(stdout|stderr|diff)$/, "", base)
+            base = rel; sub(/\.(stdout|stderr|diff|started)$/, "", base)
             if (base in keep) next
             gone[rel] = 1
             print

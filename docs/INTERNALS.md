@@ -64,9 +64,19 @@ input of a cached build. Zig keys a cached build by its root's path,
 taken relative to the current directory unless it lies inside the
 cache, so the package lives inside the cache, and a build from any
 directory finds it. Each use rewrites the entry's `used` file, by which
-`./test/run` removes entries unused for a week. `run` and `test` go
+`./test/run` removes entries unused for a week, each renamed out of the
+store in one step before it is deleted, so no build sees half an entry.
+An entry whose manifests (`h/`) outlived its binaries (`o/`) sends Zig
+to run a binary that is gone; `run` and `test` then drop the manifests
+and build once more. `run` and `test` go
 through `zig run` (`rig run file.rig -- args` passes the program its
-arguments after Zig's `--`), which reuses a cached build of unchanged sources;
+arguments after Zig's `--`), which reuses a cached build of unchanged
+sources. They exit with the program's status only once the program has
+started: they name a file in `RIG_RUN_STARTED` (or keep the caller's
+name), which `rig.start` creates, and when it is missing after Zig
+returns, nothing ran, so whatever failed (rig's own I/O, Zig, starting
+the program) ends in `rig: the program did not run` and exit status
+125. The file is a test harness's evidence that a program ran.
 `build` runs `zig build-exe -femit-bin=...`, which caches nothing, so
 it compiles the package in full every time. The toolchain is `$ZIG`,
 else `zig` on `PATH`, run with `-Odebug`, `-Osafe` (`--release`),
@@ -1920,7 +1930,7 @@ reviewed.
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
-| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; `exitStatus` checks the status of `fun main -> Int` |
+| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; `start` also creates the file `RIG_RUN_STARTED` names, `rig run`'s evidence that the program ran; `exitStatus` checks the status of `fun main -> Int` |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |
 

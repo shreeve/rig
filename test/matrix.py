@@ -7,9 +7,9 @@ for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
 `drop`, a struct holding a Cell, a struct declared `unique`), plus the
 stores into a view parameter (`store.`, below) and the views of a
 read `match` payload, used in the arm or escaping (`payload.`). The rule
-is the corpus's: `rig check` rejects the program with
-a file:line:col diagnostic, or it runs clean under the sanitizer (no leak,
-no use of freed memory, no Zig compile error, no crash). A `payload.`
+is the corpus's: `rig check` rejects the program with a file:line:col
+diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
+use of freed memory, no Zig compile error, no crash). A `payload.`
 program that runs must also print what the payload holds.
 
     test/matrix.py                 # generate, check, and run everything
@@ -504,15 +504,25 @@ def run_one(path, keep, expect=None):
             return "rejected", first_error(out)
         return "fail", "rejected without file:line:col: " + first_line(out)
     outdir = path[:-4] + ".out"
-    env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE)
+    # The program creates `started` as it starts: the evidence that it ran
+    # (test/run's run_program).
+    started = path[:-4] + ".started"
+    if os.path.exists(started):
+        os.remove(started)
+    env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE, RIG_RUN_STARTED=started)
     try:
         r = subprocess.run([RIG, "run", path], capture_output=True, text=True, errors="replace", timeout=120, env=env, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         return "fail", "timed out"
     err = r.stderr
     m = BAD.search(err)
+    ran = os.path.exists(started)
     if not keep:
         shutil.rmtree(outdir, ignore_errors=True)
+        if ran:
+            os.remove(started)
+    if not ran:
+        return "fail", "the program did not run: " + first_line(err)
     if m:
         line = next((l for l in err.splitlines() if BAD.search(l)), m.group(0))
         return "fail", line.strip()

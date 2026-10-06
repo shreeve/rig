@@ -34,7 +34,7 @@ each test's output, `RIG_BUILD_STORE` where programs build (see
 
 | Path | Contract |
 |---|---|
-| `test/behavior/<area>/<name>.rig` | `rig run` exits 0, no leaks or use of freed memory, stdout equals the `# expect:` block |
+| `test/behavior/<area>/<name>.rig` | the program runs, exits 0, has no leaks or use of freed memory, and its stdout equals the `# expect:` block |
 | `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text (and, with `# errors: n`, exactly `n` errors) |
 | `test/known/<area>/<name>.rig` | a known bug, written as a behavior or reject test of the *correct* behavior |
 | `examples/<name>.rig` | curated showcase programs; same contract as `behavior/` |
@@ -185,7 +185,7 @@ suite's `RIG_BUILD_STORE`, so `rig run|build|test` builds in the store
 
 `test/corpus/` keeps the probe programs written by past reviews and
 audits, deduplicated by content. Each program either is rejected by
-`rig check` with a `file:line:col` diagnostic, or runs under the
+`rig check` with a `file:line:col` diagnostic, or runs (see [Output](#output)) under the
 sanitizer with no leak, no use of freed memory, no Zig compile error,
 no crash, and no Zig safety check that means emitted code went wrong
 (`reached unreachable`, a wrong union field, ...). A probe need not
@@ -331,6 +331,14 @@ its text rather than its line, so an edit that moves it keeps its cache.
 A run with no filter removes the directories of tests that no longer
 exist, and keeps those of every corpus program though it runs only a
 sample; `./test/run --prune` does only that.
+
+A test that runs a program (behavior, example, known bug, doc example
+with output, corpus, matrix) passes only on positive evidence that the
+program ran: `rig run` creates the file the harness names in
+`RIG_RUN_STARTED` (`<id>.started` beside the output directory) as the
+program starts. Without it the test fails with `the program did not
+run`, whatever the exit status or output, so a failure in rig, Zig, or
+the build store never passes for a program that never started.
 
 Programs build in a store shared by every worktree of the repository,
 `rig-build-store` in its git directory (`git rev-parse

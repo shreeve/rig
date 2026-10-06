@@ -1660,6 +1660,11 @@ var process_args: []const []const u8 = &.{};
 /// gathered into Strings once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process = init;
+    // `rig run` and `rig test` name a file to create as the program
+    // starts: their evidence that the exit status is the program's.
+    if (init.environ.getPosix("RIG_RUN_STARTED")) |path| {
+        if (std.Io.Dir.cwd().createFile(io(), path, .{})) |file| file.close(io()) else |_| {}
+    }
     if (sanitize) {
         sanitizer.configure(init.environ);
         Sanitizer.installHandler();
