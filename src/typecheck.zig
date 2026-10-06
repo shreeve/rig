@@ -6878,7 +6878,7 @@ const Checker = struct {
                     // `!lib.mk().bump()`: the `!` meant for the value the
                     // call makes reaches the module or type instead.
                     const what = if ((try self.moduleNamed(place)) != null) "a module" else "a type";
-                    try self.errAt(obj, "`!` here reaches `{s}`, {s}, not the value `{s}.{s}(...)` makes: write `!({s}.{s}(...))` to lend that value", .{ self.sourceText(place), what, self.sourceText(place), method, self.sourceText(place), method });
+                    try self.errAt(obj, "`!` here reaches `{s}`, {s}, not the value `{s}.{s}(...)` makes: write `!({s}.{s}(...))` to lend that value, or drop the `!`", .{ self.sourceText(place), what, self.sourceText(place), method, self.sourceText(place), method });
                     try self.synthArgs(args);
                     return self.t().invalid_id;
                 }
