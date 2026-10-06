@@ -1479,6 +1479,16 @@ const Lowerer = struct {
         return s;
     }
 
+    /// `ty`, or `want` where `ty` is a view of a `want`: the value a
+    /// context that wants it reads through the view.
+    fn wantedValue(self: *Lowerer, ty: TypeId, want: ?TypeId) Error!TypeId {
+        const w = want orelse return ty;
+        return switch (self.ctx.types.get(ty)) {
+            .write_view, .read_view => |inner| if (inner == w) w else ty,
+            else => ty,
+        };
+    }
+
     fn innerOf(self: *Lowerer, ty: TypeId) Error!TypeId {
         return switch (self.ctx.types.get(ty)) {
             .write_view, .read_view => |t| t,
@@ -1642,7 +1652,10 @@ const Lowerer = struct {
                 // does not copy is each leaf read in place: a view, held
                 // until what reads it is done (Core §3, §6: `print(a if c
                 // else b, grow(!a))` reads `a` as `?a` would).
-                const ty = try self.typeOf(e);
+                // Where the context wants the value a view of its type
+                // reaches (a binding of an `Int` from `w if c else v`, with
+                // `w, v: !Int`), each branch is read as that value (Core §4).
+                const ty = try self.wantedValue(try self.typeOf(e), want);
                 const in_place = (how == .read or how == .view) and !(try self.kinds.of(ty)).kind.copies();
                 const t = if (in_place) try self.viewTemp(ty, .read_view, pos) else try self.temp(ty, pos);
                 if (in_place) try self.read_leaves.put(self.a, t, self.regions.items.len - 1);
