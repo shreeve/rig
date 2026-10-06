@@ -24,11 +24,11 @@ from).
 
   | Check | Result |
   |---|---|
-  | `./test/run` | 2,608 passed, 7 pending (planned Core rules) |
+  | `./test/run` | 2,621 passed, 7 pending (planned Core rules) |
   | Corpus | 6,021 of 6,021 (`./test/run corpus`) |
   | `test/matrix.py` | 3,070 programs, 0 failed |
   | `zig build test` | 124 pass, 1 skip |
-  | Oracle (`./test/run oracle`) | 5 sets pass, at or above the floors in `test/oracle/coverage` (functions decided: tests 3,297, corpus 15,781, matrix 15,911) |
+  | Oracle (`./test/run oracle`) | 5 sets pass, at or above the floors in `test/oracle/coverage` (functions decided: tests 3,366, corpus 15,781, docs 437, matrix 15,911) |
 
   `test/known/` holds no open bugs. The pending examples are the
   planned rules of `docs/CORE.md`.
@@ -132,11 +132,14 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
 - **Core wording.** The commit "Correct CORE status words and
   precision" proposes the status words and precision the final review
   found wrong; it needs the owner's approval, and can be dropped alone.
-- **Rules the Core does not decide:** whether a call's view result keeps
-  a write argument lent to write; whether dropping a Vec of views uses
-  them; whether a bare write-view element or field used as a value
-  copies what it sees; field-disjoint loans (today field loans are
-  unioned).
+- **Field-disjoint loans:** today field loans are unioned. The design
+  owner decided they come, with field-precise re-pointing, as their own
+  round after B4, with `docs/CORE.md` updated first. The other three
+  rules the Core left open are decided and built (CORE sentences 6 and
+  7, §5): a call's result that holds no write view keeps a write
+  argument lent to read; dropping a container of views uses them only
+  through a `drop` body; a bare write-view field or element used as a
+  value copies what it sees.
 - **The kind of a struct of Strings:** CORE calls it a view, SPEC plain
   data; the compiler treats it as CORE's read-view kind.
 - **Arm-local payload views:** lift them for an unguarded, non-generic
