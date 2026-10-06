@@ -862,6 +862,8 @@ if [[ ${#FILTERS[@]} -eq 0 ]]; then
         find "$RIG_BUILD_STORE" -mindepth 2 -maxdepth 2 -name used -mtime +"$STORE_DAYS" | sed 's#/used$##' |
             while IFS= read -r entry; do mv "$entry" "$RIG_BUILD_STORE/.trash.$$.${entry##*/}" 2>/dev/null; done
         find "$RIG_BUILD_STORE" -mindepth 1 -maxdepth 1 -name '.trash.*' -exec rm -rf {} +
+        # The evidence files of runs killed before rig could remove them.
+        [[ -d "$RIG_BUILD_STORE/.started" ]] && find "$RIG_BUILD_STORE/.started" -type f -mtime +1 -delete
     fi
 fi
 [[ -n "$PRUNE" ]] && exit 0

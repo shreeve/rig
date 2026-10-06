@@ -24,12 +24,14 @@ done
 # The build store loses the builds unused for RIG_BUILD_STORE_DAYS.
 # Each goes into the trash in one step, and the trash, with whatever an
 # interrupted prune left there, is deleted.
-mkdir -p store/old/package store/new/package store/.trash.1.interrupted/o
-touch store/new/used && touch -t 200001010000 store/old/used
+mkdir -p store/old/package store/new/package store/.trash.1.interrupted/o store/.started
+touch store/new/used store/.started/.started-new && touch -t 200001010000 store/old/used store/.started/.started-old
 o=$(RIG_BUILD_STORE=$PWD/store RIG_BUILD_STORE_DAYS=3 RIG_TEST_OUT="$out" "$ROOT/test/run" --prune 2>&1) || fail "prune: $o"
 [[ -e store/old ]] && fail "kept a build unused for years"
 [[ -f store/new/used ]] || fail "removed a build used today"
 [[ -n $(find store -name '.trash.*') ]] && fail "left the trash: $(find store -name '.trash.*')"
+[[ -e store/.started/.started-old ]] && fail "kept the evidence file of a run long gone"
+[[ -e store/.started/.started-new ]] || fail "removed the evidence file of a run that may be going on"
 
 o=$(RIG_TEST_OUT="$out" "$ROOT/test/run" --prune corpus 2>&1); expect_rc $? 2 "--prune with a filter"
 exit 0
