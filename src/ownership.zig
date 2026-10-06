@@ -1405,16 +1405,6 @@ pub const Checker = struct {
         if (in_defer) try self.defer_used.put(self.gpa, sym, {});
     }
 
-    /// Whether the value var `id` holds may still be used after the
-    /// current point (or after position `at`, a scope's end), so the
-    /// loans it holds are still in force. It is live when the var is used
-    /// later in the code, or anywhere in a loop around this point that
-    /// does not also enclose its declaration (the next iteration runs
-    /// that code again), or in deferred code, or when its drop at scope
-    /// exit may run a `drop` body, which could read what it views
-    /// (`sema.dropRunsBody`; any other drop only releases memory, and
-    /// uses no view), or when a live var or temporary views it in turn.
-    /// Otherwise its last use is behind, and its views have ended.
     /// Whether `holder` still uses what it views once a statement's
     /// temporary it views is dropped there. A temporary of the same
     /// statement, dropped after it, uses its views as any owner's drop
@@ -1439,6 +1429,16 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Whether the value var `id` holds may still be used after the
+    /// current point (or after position `at`, a scope's end), so the
+    /// loans it holds are still in force. It is live when the var is used
+    /// later in the code, or anywhere in a loop around this point that
+    /// does not also enclose its declaration (the next iteration runs
+    /// that code again), or in deferred code, or when its drop at scope
+    /// exit may run a `drop` body, which could read what it views
+    /// (`sema.dropRunsBody`; any other drop only releases memory, and
+    /// uses no view), or when a live var or temporary views it in turn.
+    /// Otherwise its last use is behind, and its views have ended.
     fn holderLive(self: *const Checker, id: VarId, at: ?u32) bool {
         return self.holderLiveDepth(id, at, 0);
     }
