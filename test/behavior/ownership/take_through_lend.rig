@@ -1,0 +1,21 @@
+# `<` through a lend takes an optional field or element, leaving `none`,
+# since the take writes the place it reaches; and a plain field copies
+# (`test/reject/ownership/move_through_lend.rig` has the moves rejected).
+
+struct S
+  n: Int
+  o: Vec[Int]?
+
+fun take(p: !S) -> Vec[Int]?
+  <(!p).o
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  s = S(n: 2, o: <v)
+  n = <(!s).n
+  t = take(!s)
+  print(n, t, s.o)
+
+# expect:
+# 2 [1] none

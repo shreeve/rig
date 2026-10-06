@@ -1,0 +1,36 @@
+# A path through a lend reaches its value through a view, so `<` moves
+# nothing out of it, as `<v.items` through a view `v` does not: a field
+# or element stays owned by the value lent, whether that is a name, a
+# parameter's caller's value, or a temporary. Exchange it instead.
+
+struct S
+  n: Int
+  items: Vec[Int]
+
+fun mk(n: Int) -> S
+  s = S(n: n, items: Vec())
+  !s.items.push(n)
+  s
+
+sub steal(p: !S)
+  x = <(!p).items
+  print(x)
+
+sub main
+  s = mk(1)
+  x = <(!s).items
+  y = <(?s).items
+  z = <(?mk(2)).items
+  v: Vec[Vec[Int]] = Vec()
+  !v.push(Vec())
+  w = <(?v)[0]
+  u = <(!v)[0]
+  print(x, y, z, w, u)
+
+# error: 16:8: cannot move out of `p.items`: it is reached through `!p`, a view; exchange it instead: `replace(!p.items, v)`
+# error: 21:8: cannot move out of `s.items`: it is reached through `!s`, a view
+# error: 22:8: cannot move out of `s.items`: it is reached through `?s`, a view
+# error: 23:8: cannot move out of `mk(2).items`: it is reached through `?mk(2)`, a view
+# error: 26:8: cannot move out of `v[...]`: it is reached through `?v`, a view
+# error: 27:8: cannot move out of `v[...]`: it is reached through `!v`, a view
+# errors: 6

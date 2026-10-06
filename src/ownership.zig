@@ -2421,11 +2421,26 @@ pub const Checker = struct {
     /// `<e`: move a whole binding, or reject moving out of a path.
     fn walkMove(self: *Checker, inner: Sexp) Error!Value {
         const place = self.resolvePlace(inner) orelse {
+            // A path through a lend (`<(!s).items`, `<(?mk()).items`)
+            // reaches its value through that view.
+            if (lendOnPath(inner)) |lend| return self.movePath(inner, .{ .root = 0, .whole = false, .through_view = true }, lend);
             if (try self.movedTail(inner, inner, false)) |_| return .{};
             return self.walk(inner);
         };
         if (place.whole) return self.moveVar(place.root, self.startOf(inner), .move);
-        return self.movePath(inner, place);
+        return self.movePath(inner, place, null);
+    }
+
+    /// The lend (`?e` or `!e`) a field or element path passes through,
+    /// if any: `(!s)` in `(!s).items[0]`.
+    fn lendOnPath(e: Sexp) ?Sexp {
+        var p = e;
+        while (p.isKind(.member) or p.isKind(.index)) {
+            const obj = ir.get(p, .object);
+            if (obj.isKind(.read) or obj.isKind(.write)) return obj;
+            p = obj;
+        }
+        return null;
     }
 
     fn takes(self: *const Checker, e: Sexp) bool {
@@ -2554,14 +2569,20 @@ pub const Checker = struct {
     }
 
     /// `<p.a` / `<v[i]`: only Copy values can leave a field or element.
-    fn movePath(self: *Checker, inner: Sexp, place: Place) Error!Value {
+    /// A path through a lend (`lend`, `<(!p).a`) is a path through a
+    /// view, whether the lend's operand is a place or a value.
+    fn movePath(self: *Checker, inner: Sexp, place: Place, lend: ?Sexp) Error!Value {
         const value = try self.walk(inner);
         const ty = self.exprType(inner);
         if (ty != null and self.copies(ty)) return value;
         if (ty != null and self.refOfType(ty) == .read) return value;
         const path = try self.placeText(inner);
-        const root = self.vars.items[place.root].name;
         const pos = self.startOf(inner);
+        if (lend) |l| {
+            try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view; exchange it instead: `replace(!{s}, v)`", .{ path, self.spanText(l), path });
+            return .{};
+        }
+        const root = self.vars.items[place.root].name;
         if (place.through_view) {
             try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; exchange it instead: `replace(!{s}, v)`", .{ path, root, path });
         } else if (place.through_shared) {
