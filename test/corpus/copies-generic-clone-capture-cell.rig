@@ -1,0 +1,11 @@
+fun cap[T](x: T) -> Int
+  f = |+x| 1
+  f()
+
+struct P
+  n: Int
+
+sub main
+  print(cap(P(n: 1)))
+  c = Cell(1)
+  print(cap(<c))

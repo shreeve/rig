@@ -1,0 +1,7 @@
+sub main
+  n = 1
+  m = 2
+  a = [3 of ?n]
+  !a.fill(?m)
+  m = 7
+  print(a[0])

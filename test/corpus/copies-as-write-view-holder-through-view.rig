@@ -1,0 +1,15 @@
+struct W
+  p: !Int
+
+fun f(r: ?W?) -> Int
+  if r as x
+    new y = x
+    y.p += 1
+    return y.p
+  0
+
+sub main
+  n = 1
+  o: W? = W(p: !n)
+  print(f(?o))
+  print(n)

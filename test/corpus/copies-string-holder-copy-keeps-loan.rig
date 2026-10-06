@@ -1,0 +1,12 @@
+struct S
+  s: String
+
+fun get(p: ?S) -> S
+  p
+
+sub main
+  t = Text("abc")
+  s = S(s: ?t)
+  u = get(?s)
+  !t.add("d")
+  print(u.s)

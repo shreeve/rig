@@ -1,0 +1,12 @@
+struct Box2[T]
+  a: T
+
+fun out(p: ?Box2[!Int]) -> Box2[!Int]
+  p
+
+sub main
+  n = 1
+  b: Box2[!Int] = Box2(a: !n)
+  c = out(?b)
+  c.a += 1
+  print(n)

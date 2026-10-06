@@ -1,0 +1,8 @@
+struct N
+  v: Int
+
+sub main
+  a = [*N(v: 1), *N(v: 2)]
+  r = ?a
+  b: [2]*N = r
+  print(b[0].v)

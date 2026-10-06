@@ -1,0 +1,14 @@
+fun add(x: Int) -> Int
+  x + 1
+
+struct F
+  f: fun(Int) -> Int
+
+sub main
+  g = add
+  h = g
+  s = F(f: add)
+  t = s
+  print(h(1), t.f(2))
+  a = [2 of add]
+  print(a[1](3))

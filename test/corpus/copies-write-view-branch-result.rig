@@ -1,0 +1,10 @@
+struct P
+  x: Int
+
+fun pick(a: !P, b: !P, c: Bool) -> P
+  a if c else b
+
+sub main
+  p = P(x: 1)
+  q = P(x: 2)
+  print(pick(!p, !q, false).x)

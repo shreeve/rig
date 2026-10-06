@@ -1,0 +1,9 @@
+sub main
+  a = [1, 2]
+  r = ?a
+  b: [2]Int = r
+  print(b)
+  o: Int? = 3
+  q = ?o
+  p: Int? = q
+  print(p)

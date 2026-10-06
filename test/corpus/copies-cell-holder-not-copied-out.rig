@@ -1,0 +1,11 @@
+struct S
+  c: Cell[Int]
+
+fun get(p: ?S) -> S
+  p
+
+sub main
+  s = S(c: Cell(1))
+  t = get(?s)
+  t.c.set(5)
+  print(s.c.get())

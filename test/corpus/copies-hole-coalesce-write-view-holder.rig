@@ -1,0 +1,14 @@
+struct W
+  p: !Int
+
+fun f(r: ?W?) -> Int
+  m = 7
+  x = r ?? W(p: !m)
+  x.p += 1
+  x.p
+
+sub main
+  n = 1
+  o: W? = W(p: !n)
+  print(f(?o))
+  print(n)
