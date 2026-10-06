@@ -1,0 +1,32 @@
+# The step grows `w` after the body's `defer` has read its view of `w`.
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+fun grow(w: !Vec[Int]) -> Int
+  for j in 0..64
+    !w.push(j)
+  0
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  w: Vec[Int] = Vec()
+  !w.push(7)
+  k = 0
+  i = 0
+  while mk(?v, i) as h and i >= 0: k += h.s[0] + grow(!w)
+    i += 1
+    s = ?w[..]
+    defer print("d", s[0])
+  print("end", k, i, w.len)
+
+# expect:
+# d 7
+# d 7
+# d 7
+# end 0 3 193

@@ -1498,12 +1498,12 @@ const Checker = struct {
         }
     }
 
-    /// A step that reads a binding of a joined condition runs inside the
-    /// `if`s that bind it, after the body, so every binding there stays
-    /// until the step is done: each must be plain data (neither a view
-    /// nor owning), and no `continue` in the condition may skip binding
-    /// one.
-    fn checkJoinedStep(self: *Checker, cond: Sexp, step: Sexp) Error!void {
+    /// A step that reads a binding of the condition runs inside the `if`s
+    /// that bind it, after the body (docs/INTERNALS.md, "Loops"), so every
+    /// binding there stays until the step is done: each must be plain
+    /// data (neither a view nor owning), and no `continue` in the
+    /// condition, which goes on to the step, may skip binding one.
+    fn checkStepBindings(self: *Checker, cond: Sexp, step: Sexp) Error!void {
         var parts: std.ArrayList(Sexp) = .empty;
         defer parts.deinit(self.ctx.allocator);
         try collectConditionParts(self.ctx.allocator, cond, &parts);
@@ -1693,7 +1693,7 @@ const Checker = struct {
             };
             const mark = self.ctx.diagnostics.items.len;
             try self.checkStepUses(cond, step);
-            if (rig.isConditionJoin(cond) and self.ctx.diagnostics.items.len == mark) try self.checkJoinedStep(cond, step);
+            if ((rig.isConditionJoin(cond) or cond.isKind(.as)) and self.ctx.diagnostics.items.len == mark) try self.checkStepBindings(cond, step);
         }
         try self.checkStmt(ir.While.body(node));
         self.scope = prev;

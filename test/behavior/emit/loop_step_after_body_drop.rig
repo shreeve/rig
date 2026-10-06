@@ -1,0 +1,48 @@
+# A body local's drop and the body's `defer` run before the step, in a
+# plain and a joined loop alike.
+struct S
+  s: []Int
+
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 2
+    return S(s: ?v[..])
+  none
+
+fun st(i: Int) -> Int
+  print("step", i)
+  i
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(0)
+  i = 0
+  while mk(?v, i) as h: i += st(h.s[0])
+    i += 1
+    y = D(n: i)
+    defer print("defer", i)
+  print("--")
+  i = 0
+  while mk(?v, i) as h and i >= 0: i += st(h.s[0])
+    i += 1
+    y = D(n: i)
+    defer print("defer", i)
+
+# expect:
+# defer 1
+# drop 1
+# step 0
+# defer 2
+# drop 2
+# step 0
+# --
+# defer 1
+# drop 1
+# step 0
+# defer 2
+# drop 2
+# step 0

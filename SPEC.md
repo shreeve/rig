@@ -2299,7 +2299,9 @@ iteration (including after `continue`). `while e as x` repeats
 while the optional `e` has a value. A jump in the condition or the step
 (`?? break`, `catch continue`, [§12](#the-fallback-of-)) targets this
 loop: `break` leaves it, `continue` in the condition runs the step and
-tests again, and `continue` in the step ends the step. An `else` block runs when the loop
+tests again (so a step that reads a binding of the condition cannot be
+paired with one, which would leave the binding unbound), and `continue`
+in the step ends the step. An `else` block runs when the loop
 ends without `break`, after the loop: a `break` or `continue` in it
 leaves the loop around this one. A loop can also yield a value
 ([Loops as values](#loops-as-values)).

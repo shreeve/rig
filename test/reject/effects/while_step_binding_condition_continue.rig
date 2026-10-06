@@ -1,0 +1,19 @@
+# A `continue` in a `while` condition goes on to the step, so a step that
+# reads a binding of the condition cannot have one, joined or not: the
+# `continue` leaves the binding unbound.
+
+fun odd(i: Int) -> Int?
+  none if i % 2 == 1 else i
+
+fun some(i: Int) -> Int?
+  i if i < 10 else none
+
+sub main
+  steps = 0
+  i = 0
+  while some(odd(i) ?? continue) as h: steps += h
+    i += 1
+  print(steps, i)
+
+# error: 14:49: the loop step reads `h`, a binding of the condition, which a `continue` in the condition leaves unbound
+# errors: 1
