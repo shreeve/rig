@@ -1,0 +1,20 @@
+# The step writes through a write slice the condition's binding holds,
+# after the body grew the Vec it views (a reallocation frees the old
+# buffer). Main rejects the step's use (the holder does not copy); the
+# branch asks `mustTake`, which lets it through to C1.
+struct S
+  s: ![]Int
+
+fun mk(v: !Vec[Int], i: Int) -> S?
+  if i < 40
+    return S(s: !v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  i = 0
+  while mk(!v, i) as h: h.s[0] += 1
+    !v.push(2)
+    i += 1
+  print(v[0], v.len)
