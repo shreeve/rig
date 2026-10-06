@@ -169,6 +169,9 @@ const Loan = struct {
     /// A write lend that a view which only reads it keeps as a read loan
     /// (`carryLoan`), for diagnostics.
     read_of_write: bool = false,
+    /// A write receiver's lend, a read loan until its call starts (Core
+    /// §6), for diagnostics.
+    reserved: bool = false,
 
     fn sameAs(a: Loan, b: Loan) bool {
         return a.root == b.root and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
@@ -769,6 +772,8 @@ pub const Checker = struct {
                 .base => "it is indexed after its index runs",
             };
             try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ self.vars.items[loan.root].name, uses });
+        } else if (loan.reserved) {
+            try self.note(loan.pos, "lent to write here, as the receiver, which is read until the call starts", .{});
         } else if (loan.read_of_write) {
             try self.note(loan.pos, "lent to write here, and kept lent to read by a view that only reads it", .{});
         } else try self.note(loan.pos, "lent to {s} here", .{@tagName(loan.kind)});
@@ -3362,7 +3367,7 @@ pub const Checker = struct {
                 if (self.flowLive(id) and !self.isScalar(self.vars.items[id].ty) and self.errors_found == found) {
                     const pos = self.startOf(obj);
                     reservation = self.temps.items.len;
-                    try self.addTemp(.{ .root = id, .kind = .read, .pos = pos });
+                    try self.addTemp(.{ .root = id, .kind = .read, .pos = pos, .reserved = recv_mode == .write });
                     recv_root = id;
                     // A built-in's methods hand out values, never views
                     // of the receiver.

@@ -1,0 +1,24 @@
+# A write receiver is lent to write, and read until its call starts
+# (Core §6), so an argument cannot lend it to write; the note says the
+# lend was a write.
+
+struct Item
+  n: Int
+
+struct Bag
+  items: Vec[Item]
+
+  fun first(!self) -> ?Item
+    ?self.items[0]
+
+  fun consume(!self, it: ?Item) -> Int
+    !self.items.push(Item(n: 0))
+    it.n
+
+sub main
+  b = Bag(items: Vec())
+  !b.items.push(Item(n: 7))
+  print(!b.consume(!b.first()))
+
+# error: 21:20: cannot lend `b` to write while a read loan is live
+# error: 21:10: lent to write here, as the receiver, which is read until the call starts
