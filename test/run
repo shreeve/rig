@@ -88,25 +88,32 @@ has_expect_block() { grep -qE '^# expect:[[:space:]]*$' "$1"; }
 
 # run_program <entry> <outdir>: `rig run` the program under the time
 # limit, its stdout and stderr in <outdir>.stdout and .stderr; sets RC.
-# The program creates <outdir>.started as it starts (RIG_RUN_STARTED), the
-# positive evidence a test needs that it ran: without it, whatever the
-# status, the program never started (rig, Zig, or the store failed).
+# rig creates $STARTED (RIG_RUN_STARTED) once the program has started:
+# the positive evidence a test needs that it ran. $STARTED is the test's
+# own path in this run's private results directory, where no test's
+# output can sit, cleared before the run.
 run_program() {
     local entry=$1 outdir=$2
     mkdir -p "$outdir"
-    rm -f "$outdir.started"
+    rm -f "$STARTED"
+    if [[ -e "$STARTED" ]]; then
+        printf 'cannot clear %s\n' "$STARTED" >"$outdir.stderr"; : >"$outdir.stdout"; RC=125
+        return
+    fi
     # The braces keep bash's own "Abort trap" job notice out of the output.
-    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" RIG_RUN_STARTED="$outdir.started" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$outdir.stdout" 2>"$outdir.stderr" </dev/null; } 2>/dev/null
+    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" RIG_RUN_STARTED="$STARTED" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$outdir.stdout" 2>"$outdir.stderr" </dev/null; } 2>/dev/null
     RC=$?
 }
 
-# not_run <outdir> <rc>: the program did not start; sets REASON. A
-# program `rig run` rejects (a diagnostic at a .rig position) did not run
-# because its check failed, and says so.
+# not_run <outdir> <rc>: the program did not start (no regular file at
+# $STARTED, or rig says so); sets REASON. A program `rig run` rejects (an
+# error at a .rig position) did not run because its check failed, and
+# says so.
 not_run() {
-    [[ -e "$1.started" ]] && return 1
+    [[ -f "$STARTED" ]] && ! grep -q 'rig: the program did not run' "$1.stderr" && return 1
     REASON=$(classify_failure "$1.stderr" "$2")
-    [[ $REASON == rejected* ]] || REASON="the program did not run: $REASON"
+    grep -qE '\.rig:[0-9]+:[0-9]+: error' "$1.stderr" && [[ $REASON == rejected* ]] ||
+        REASON="the program did not run: $REASON"
     return 0
 }
 
@@ -425,6 +432,7 @@ check_oracle() { # <set> <outdir> <logfile>
 
 worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
     local id=$1 path=$2
+    STARTED="$RESULTS/started/${id//\//__}"
     local res="$RESULTS/st/${id//\//__}"
     local log="$RESULTS/log/${id//\//__}" outdir="$OUTROOT/$3"
     local entry=$path
@@ -568,7 +576,7 @@ fi
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/rig-test.XXXXXX")
 RESULTS="$WORK/results"
-mkdir -p "$RESULTS/st" "$RESULTS/log" "$OUTROOT"
+mkdir -p "$RESULTS/st" "$RESULTS/log" "$RESULTS/started" "$OUTROOT"
 
 # Each test runs under `$TIMEOUT_CMD <seconds> <command...>`, which exits
 # 124 when the time runs out: GNU timeout, or where there is none (stock

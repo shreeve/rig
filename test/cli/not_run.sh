@@ -1,8 +1,9 @@
 # `rig run` exits with the program's status only once the program has
 # started: any failure before that prints `rig: the program did not run`
-# and exits 125. A RIG_RUN_STARTED file, which a program `rig run` builds
-# creates as it starts, is the positive evidence of a run that test/run and
-# test/matrix.py require, so a program that never ran never passes.
+# and exits 125. The file RIG_RUN_STARTED names, which rig creates only
+# once the program has started, is the positive evidence of a run that
+# test/run and test/matrix.py require, so a program that never ran never
+# passes (see also not_run_evidence.sh).
 source "$ROOT/test/cli/_lib.sh"
 
 printf 'sub main()\n  print("ran")\n' >ok.rig

@@ -33,6 +33,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -494,7 +495,7 @@ def program(tname, fname, cname):
     return "\n".join(out)
 
 
-def run_one(path, keep, expect=None):
+def run_one(path, keep, started_dir, expect=None):
     """Classify one program: rejected, ok, or a failure with its reason.
     With `expect`, a program that runs must print exactly that."""
     d = os.path.dirname(path)
@@ -510,11 +511,10 @@ def run_one(path, keep, expect=None):
             return "rejected", first_error(out)
         return "fail", "rejected without file:line:col: " + first_line(out)
     outdir = path[:-4] + ".out"
-    # The program creates `started` as it starts: the evidence that it ran
-    # (test/run's run_program).
-    started = path[:-4] + ".started"
-    if os.path.exists(started):
-        os.remove(started)
+    # rig creates `started` once the program has started: the evidence
+    # that it ran (test/run's run_program). Each attempt has a fresh path
+    # in this run's private directory, which no other run shares.
+    started = os.path.join(started_dir, os.path.basename(path)[:-4] + "." + uuid.uuid4().hex)
     env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE, RIG_RUN_STARTED=started)
     try:
         r = subprocess.run([RIG, "run", path], capture_output=True, text=True, errors="replace", timeout=120, env=env, stdin=subprocess.DEVNULL)
@@ -522,11 +522,11 @@ def run_one(path, keep, expect=None):
         return "fail", "timed out"
     err = r.stderr
     m = BAD.search(err)
-    ran = os.path.exists(started)
+    ran = os.path.isfile(started) and "rig: the program did not run" not in err
+    if os.path.lexists(started):
+        os.remove(started)
     if not keep:
         shutil.rmtree(outdir, ignore_errors=True)
-        if ran:
-            os.remove(started)
     if not ran:
         return "fail", "the program did not run: " + first_line(err)
     if m:
@@ -636,10 +636,14 @@ def main():
     if args.oracle:
         sys.exit(run_oracle(work, cells, args))
     results = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
-        futs = {pool.submit(run_one, p, bool(args.keep), expects.get(i)): i for i, p in cells}
-        for fut in concurrent.futures.as_completed(futs):
-            results[futs[fut]] = fut.result()
+    started_dir = tempfile.mkdtemp(prefix="rig-matrix-started.")
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
+            futs = {pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i)): i for i, p in cells}
+            for fut in concurrent.futures.as_completed(futs):
+                results[futs[fut]] = fut.result()
+    finally:
+        shutil.rmtree(started_dir, ignore_errors=True)
     counts = {}
     for ident, (st, why) in sorted(results.items()):
         counts[st] = counts.get(st, 0) + 1

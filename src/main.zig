@@ -60,11 +60,11 @@ const usage =
     \\                   directory in it named by a hash of everything
     \\                   the build reads, and build there, in place of
     \\                   RIG_OUT_DIR
-    \\  RIG_RUN_STARTED  A file for run and test to create as the program
-    \\                   starts, which proves it ran; without it, rig
-    \\                   makes its own. Either way, a failure before the
-    \\                   program starts prints `rig: the program did not
-    \\                   run` and exits 125
+    \\  RIG_RUN_STARTED  A file run and test delete at once, and create
+    \\                   only once the program has started, which proves
+    \\                   it ran. Any failure before the program starts
+    \\                   prints `rig: the program did not run` and exits
+    \\                   125
     \\  RIG_LEAK_TRACE   Set to 1 when building to report each leaked
     \\                   allocation with its stack trace (slower)
     \\  RIG_SANITIZE     Set to 1 when building a Debug program to make
@@ -141,7 +141,7 @@ const Env = struct {
     fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool) !void {
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
-        if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ run_started_var ++ "\";\n");
+        if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
     }
 };
 
@@ -278,9 +278,14 @@ fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
 /// from one that never did.
 const not_run_status: u8 = 125;
 
-/// The environment variable naming the file a program that `rig run` or
-/// `rig test` builds creates as it starts.
+/// The environment variable naming the file `rig run` and `rig test`
+/// create once the program has started: a caller's evidence it ran.
 const run_started_var = "RIG_RUN_STARTED";
+
+/// The environment variable naming the file a program that `rig run` or
+/// `rig test` builds creates as it starts: rig's own evidence, a fresh
+/// path for each attempt.
+const program_started_var = "RIG_PROGRAM_STARTED";
 
 /// Set while `rig run` or `rig test` builds and starts a checked program:
 /// a failure now means the program did not run.
@@ -400,12 +405,20 @@ fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 /// Zig's own errors name the emitted files; any other failure of `run`
 /// or `test` is the program's.
 fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
+    // A caller's RIG_RUN_STARTED is cleared first, and created only once
+    // the program has started, so it never outlives a failure.
+    if (opts.command != .build) if (env.get(run_started_var)) |path| {
+        std.Io.Dir.cwd().deleteFile(io, path) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => notRun("cannot clear RIG_RUN_STARTED `{s}`: {s}", .{ path, @errorName(err) }),
+        };
+    };
     var graph = try loadProject(allocator, io, env, opts.path);
     defer graph.deinit();
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     program_pending = opts.command != .build;
     // A program `rig run` builds starts by creating the file
-    // RIG_RUN_STARTED names; `rig test`'s driver is its root instead.
+    // RIG_PROGRAM_STARTED names; `rig test`'s driver is its root instead.
     var pkg = try emitPackage(allocator, env, &graph, opts.command == .run);
     const root = if (opts.command == .@"test") test_driver else graph.root().out_basename;
     if (opts.command == .@"test") try pkg.files.append(allocator, .{ .path = test_driver, .contents = try testDriver(allocator, env, &graph) });
@@ -440,38 +453,57 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
         std.process.exit(code);
     }
 
-    // The program creates `started` as it starts (`rig.start` in the
-    // runtime), the evidence that the status `zig run` returns is the
-    // program's and not Zig's. A caller that sets RIG_RUN_STARTED names
-    // the file, and keeps it as its own evidence.
-    var name: [8]u8 = undefined;
-    io.random(&name);
-    const callers = env.get(run_started_var);
-    const started = if (callers) |path| path else if (env.get("RIG_BUILD_STORE") != null)
-        try std.fs.path.join(allocator, &.{ std.fs.path.dirname(zig_cache).?, ".started", &std.fmt.bytesToHex(name, .lower) })
-    else
-        try std.fs.path.join(allocator, &.{ dir, try allocator.print(".started-{x}", .{&name}) });
-    if (std.fs.path.dirname(started)) |d| std.Io.Dir.cwd().createDirPath(io, d) catch |err| notRun("cannot create `{s}`: {s}", .{ d, @errorName(err) });
+    // The program creates `started`, a fresh path for each attempt, as it
+    // starts (`rig.start` in the runtime): the evidence that the status
+    // `zig run` returns is the program's and not Zig's. The program sees
+    // RIG_PROGRAM_STARTED, never the caller's RIG_RUN_STARTED, so a `rig
+    // run` it starts in turn cannot touch the caller's file.
     var environ = try env.map.clone(allocator);
-    try environ.put(run_started_var, started);
+    _ = environ.swapRemove(run_started_var);
+    const started_dir = if (env.get("RIG_BUILD_STORE") != null)
+        try std.fs.path.join(allocator, &.{ std.fs.path.dirname(zig_cache).?, ".started" })
+    else
+        dir;
+    std.Io.Dir.cwd().createDirPath(io, started_dir) catch |err| notRun("cannot create `{s}`: {s}", .{ started_dir, @errorName(err) });
     var attempt: u32 = 0;
     while (true) : (attempt += 1) {
-        std.Io.Dir.cwd().deleteFile(io, started) catch {};
+        var name: [8]u8 = undefined;
+        io.random(&name);
+        const started = try std.fs.path.join(allocator, &.{ started_dir, try allocator.print(".started-{x}", .{&name}) });
+        try environ.put(program_started_var, started);
         const code = try runZig(io, argv, &environ);
-        if (std.Io.Dir.cwd().access(io, started, .{})) |_| {
-            if (callers == null) std.Io.Dir.cwd().deleteFile(io, started) catch {};
+        const ran = if (std.Io.Dir.cwd().statFile(io, started, .{})) |st| st.kind == .file else |_| false;
+        std.Io.Dir.cwd().deleteFile(io, started) catch {};
+        if (ran) {
+            if (env.get(run_started_var)) |path| try writeFile(io, path, "");
             if (code == 0) return;
             std.process.exit(code);
-        } else |_| {}
-        // A store entry whose manifests outlived its builds (`h/` without
-        // `o/`) sends Zig to run a binary that is gone: drop the manifests
-        // so Zig builds again, once.
-        if (attempt == 0 and env.get("RIG_BUILD_STORE") != null and exists(io, zig_cache, "h") and !exists(io, zig_cache, "o")) {
+        }
+        // A store entry whose manifests outlived the binary they name
+        // (`h/` with no `o/*/<root>` executable, as an interrupted delete
+        // leaves) sends Zig to run a binary that is gone: drop the
+        // manifests so Zig builds again, once.
+        if (attempt == 0 and env.get("RIG_BUILD_STORE") != null and exists(io, zig_cache, "h") and !hasBinary(allocator, io, zig_cache, root[0 .. root.len - ".zig".len])) {
             std.Io.Dir.cwd().deleteTree(io, try std.fs.path.join(allocator, &.{ zig_cache, "h" })) catch {};
             continue;
         }
-        notRun("`zig run` exited with status {d} before it started the program", .{code});
+        notRun("`zig run` exited with status {d}, and the program left no sign that it started", .{code});
     }
+}
+
+/// An executable `name` in any of the Zig cache's output directories.
+fn hasBinary(allocator: std.mem.Allocator, io: std.Io, zig_cache: []const u8, name: []const u8) bool {
+    const o = std.fs.path.join(allocator, &.{ zig_cache, "o" }) catch return false;
+    var d = std.Io.Dir.cwd().openDir(io, o, .{ .iterate = true }) catch return false;
+    defer d.close(io);
+    var it = d.iterate();
+    while (it.next(io) catch return false) |entry| {
+        if (entry.kind != .directory) continue;
+        const path = std.fs.path.join(allocator, &.{ entry.name, name }) catch return false;
+        const st = d.statFile(io, path, .{}) catch continue;
+        if (st.kind == .file) return true;
+    }
+    return false;
 }
 
 fn exists(io: std.Io, dir: []const u8, name: []const u8) bool {
