@@ -3523,11 +3523,15 @@ const Checker = struct {
 
     /// The type of `a ?? b` or `a catch b`, where `a` gives an `inner`:
     /// `inner`, or the optional its context expects, which lets the
-    /// fallback `b` be `none` or another optional.
+    /// fallback `b` be `none` or another optional. `inner` widens to it
+    /// only as itself (`meets`), or as a view held by value, which is
+    /// its value: a view held by address stays the view, and the whole
+    /// `??` or `catch` is copied out where its context expects the value
+    /// (`copiedOut`).
     fn fallbackType(self: *Checker, inner: TypeId, expected: ?TypeId) TypeId {
         const e = expected orelse return inner;
         return switch (self.ctx.types.get(e)) {
-            .optional => |i| if (compatible(self.ctx, inner, i)) e else inner,
+            .optional => |i| if (meets(self.ctx, inner, i) or (!sema.viewHeldAsPointer(self.ctx, inner) and compatible(self.ctx, inner, i))) e else inner,
             else => inner,
         };
     }

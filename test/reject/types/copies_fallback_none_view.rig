@@ -1,0 +1,19 @@
+# A `??` or `catch` whose left side gives a view held by address gives
+# that view; its fallback is a view too, so `none` does not fit even
+# where an optional of the value is expected. (A view held by value, of
+# a number, is its value, and widens to the optional.)
+
+struct P
+  x: Int
+
+sub main
+  a = P(x: 1)
+  i: (?P)? = ?a
+  f: P? = i ?? none
+  n = 3
+  w: (!Int)? = !n
+  g: Int? = <w ?? none
+  print(f, g)
+
+# error: 12:16: `none` needs an optional type; `?P` is not optional
+# error: 15:19: `none` needs an optional type; `!Int` is not optional
