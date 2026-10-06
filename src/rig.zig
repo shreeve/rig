@@ -2091,7 +2091,7 @@ test "parser: for-source sigil moves into the mode slot" {
 }
 
 test "parser: a receiver sigil moves onto the place before the method" {
-    const source = "!x.v[0].push(1)\n(!v).push(2)\n!(v.pop())\n!f(x).g()\n?p.m()\n?(p.m())\n";
+    const source = "!x.v[0].push(1)\n(!v).push(2)\n!(v.pop())\n!f(x).g()\n?p.m()\n?(p.m())\n?f(x).g()\n!(+s).g()\n";
     var p = Parser.init(testing.allocator, source);
     defer p.deinit();
     const tree = try p.parseProgram();
@@ -2106,12 +2106,20 @@ test "parser: a receiver sigil moves onto the place before the method" {
     const long = ir.Member.object(ir.Call.callee(stmts[1]));
     try testing.expect(long.isKind(.write) and !p.isReceiverSigil(long));
     try testing.expect(stmts[2].isKind(.write));
-    // A called head is not a place.
-    try testing.expect(stmts[3].isKind(.write));
+    // `!` lends any value to write: a called head is the receiver.
+    const made = ir.Member.object(ir.Call.callee(stmts[3]));
+    try testing.expect(made.isKind(.write) and p.isReceiverSigil(made));
+    try testing.expect(ir.Write.operand(made).isKind(.call));
     // `?` reaches the receiver too, and lends a parenthesized call.
     const read = ir.Member.object(ir.Call.callee(stmts[4]));
     try testing.expect(read.isKind(.read) and p.isReceiverSigil(read));
     try testing.expect(stmts[5].isKind(.read));
+    // A `?` before a called head lends the result.
+    try testing.expect(stmts[6].isKind(.read));
+    // A parenthesized receiver is lent to write by `!`.
+    const paren = ir.Member.object(ir.Call.callee(stmts[7]));
+    try testing.expect(paren.isKind(.write) and p.isReceiverSigil(paren));
+    try testing.expect(ir.Write.operand(paren).isKind(.clone));
 }
 
 test "parser: bar lists split into captures and parameters, all with node ids" {
