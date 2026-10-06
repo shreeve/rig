@@ -1,0 +1,30 @@
+# A weak handle reaches its value only through `upgrade`, which takes
+# the handle itself. Held in a box or behind a handle, it is lent out
+# first; the hint says how, in a form that compiles (see
+# test/behavior/types/weak_in_box_upgrade.rig).
+
+struct S
+  n: Int
+
+fun f(a: ?Box[~S]) -> Int
+  a.n
+
+sub main
+  h = *S(n: 1)
+  a: Box[~S] = Box(~h)
+  if a.upgrade() as x
+    print(x.n)
+  b: Box[Box[~S]] = Box(Box(~h))
+  print(b.n)
+  c: *~S = *(~h)
+  print(c.n)
+  w = ~h
+  print(w.n)
+  print(f(?a))
+
+# error: 15:8: a weak handle `~S` reaches its value only through `upgrade`, which takes the handle itself: lend it first, `w: ?~S = ?a`, then `if w.upgrade() as s`
+# error: 18:11: lend it first, `w: ?~S = ?b`, then `if w.upgrade() as s`
+# error: 20:11: lend it first, `w: ?~S = ?c`, then `if w.upgrade() as s`
+# error: 22:11: a weak handle `~S` reaches its value only through `upgrade`: `if w.upgrade() as s`
+# error: 10:5: lend it first, `w: ?~S = ?a`, then `if w.upgrade() as s`
+# errors: 5

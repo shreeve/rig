@@ -4185,11 +4185,16 @@ const Checker = struct {
         return try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
     }
 
-    /// A field or method reached through weak handle `obj`, which does not
-    /// keep its value alive.
-    fn weakReach(self: *Checker, obj: Sexp, weak: TypeId, pos: u32) Error!void {
+    /// A field or method reached through weak handle `obj`, of type
+    /// `obj_ty`, which does not keep its value alive. `upgrade` takes
+    /// the weak handle itself, so one held in a box or behind a handle
+    /// is lent out first.
+    fn weakReach(self: *Checker, obj: Sexp, obj_ty: TypeId, weak: TypeId, pos: u32) Error!void {
         const shown = self.sourceText(stripSigil(obj));
-        try self.err(pos, "a weak handle `{s}` reaches its value only through `upgrade`: `if {s}.upgrade() as s`", .{ try self.tyName(weak), shown });
+        const name = try self.tyName(weak);
+        if (self.ctx.types.get(sema.unwrapViews(self.ctx, obj_ty)) == .weak) {
+            try self.err(pos, "a weak handle `{s}` reaches its value only through `upgrade`: `if {s}.upgrade() as s`", .{ name, shown });
+        } else try self.err(pos, "a weak handle `{s}` reaches its value only through `upgrade`, which takes the handle itself: lend it first, `w: ?{s} = ?{s}`, then `if w.upgrade() as s`", .{ name, name, shown });
     }
 
     /// Member `e` of `obj`, a value of type `obj_ty`.
@@ -4239,7 +4244,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             };
             if (self.ctx.types.get(peeled) == .weak) {
-                try self.weakReach(obj, peeled, pos);
+                try self.weakReach(obj, obj_ty, peeled, pos);
             } else try self.err(pos, "type `{s}` has no field `{s}`", .{ try self.tyName(obj_ty), field });
             return self.t().invalid_id;
         };
@@ -6818,7 +6823,7 @@ const Checker = struct {
                 try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, try self.memberHint(sym.fields orelse &.{}, method, .method) });
                 try self.noteDeclared(sym, decl.module_id == null);
             } else if (self.ctx.types.get(peeled) == .weak) {
-                try self.weakReach(obj, peeled, pos);
+                try self.weakReach(obj, obj_ty, peeled, pos);
             } else {
                 try self.err(pos, "type `{s}` has no method `{s}`", .{ try self.tyName(obj_ty), method });
             }
