@@ -168,6 +168,52 @@ EOF2
 out=$("$RIG" emit generic.rig 2>/dev/null) || fail "rig emit generic.rig"
 expect_has "$out" 'switch (rig.viewedPtr(__rig_Self, &self).*)' "generic subject switched in place"
 
+# So does one on a generic read view a field or an element holds (`w.r`,
+# `arr[1]`), guarded or not: emit never takes the address of a field of
+# a `rig.viewed(...)` copy, and never switches on one, whose payloads
+# would be captured by pointer into a Zig temporary.
+cat >viewfield.rig <<'EOF2'
+enum Opt[T]
+  some(v: T)
+  none
+
+struct V[T]
+  r: ?Opt[T]
+
+fun look[T](x: ?T) -> Int
+  1
+
+fun f[T](w: ?V[T]) -> Int
+  match w.r
+    .some(v) => look(?v)
+    .none => 0
+
+fun g[T](w: ?V[T]) -> Int
+  match w.r
+    .some(v) if look(?v) == 1 => look(?v) + 1
+    _ => 0
+
+fun h[T](a: ?Opt[T], b: ?Opt[T]) -> Int
+  arr = [a, b]
+  n = match arr[1]
+    .some(v) if look(?v) == 1 => look(?v)
+    _ => 0
+  m = match arr[0]
+    .some(v) => look(?v)
+    .none => 0
+  n + m
+
+sub main
+  o = Opt.some(v: Text("t"))
+  w = V(r: ?o)
+  print(f(?w), g(?w), h(?o, ?o))
+EOF2
+out=$("$RIG" emit viewfield.rig 2>/dev/null) || fail "rig emit viewfield.rig"
+expect_has "$out" 'switch (rig.viewedPtr(Opt(T), &w.r).*)' "generic view in a field switched in place"
+expect_has "$out" '&rig.viewedPtr(Opt(T), &w.r).*.some.v' "guarded payload of a generic view in a field"
+grep -qF '&rig.viewed(' <<<"$out" && fail "the address of a field of a rig.viewed copy: $out"
+grep -qE 'switch \(rig\.viewed\(' <<<"$out" && fail "a switch on a rig.viewed copy: $out"
+
 # Under the sanitizer, each storage location emit adds is filled with
 # `0xAA` when its scope ends (`rig.poison`), after its drop; without it,
 # nothing is written.

@@ -1,0 +1,61 @@
+# A header subject that is a place inside a view of a value the header
+# makes (`id(?mk()).e`, `(?mk()).e`) lives in a temporary the header
+# ends, so emit evaluates the header as a copy, never as a pointer into
+# the temporary (`storage.headerPoints`), and the header is rejected at
+# the temporary, in every header form, plain data bound or not. Lifting
+# the header rejection (B4b) must keep these rejected: pointing into the
+# header's own temporary reads it after the header drops it (review of
+# B4a, risk 1; the probes x05, x05b, x05c).
+
+enum E
+  a(n: Int)
+  b
+
+struct S
+  e: E
+  xs: [3]Int
+  o: Int?
+  t: Text
+
+fun mk() -> S
+  S(e: E.a(n: 42), xs: [1, 2, 3], o: 7, t: Text("pad"))
+
+fun id(s: ?S) -> ?S from s
+  s
+
+fun mkh(n: Int) -> *S
+  *S(e: E.a(n: n), xs: [n, n, n], o: n, t: Text("pad"))
+
+fun idh(s: ?*S) -> ?S from s
+  s
+
+sub main()
+  match (?mk()).e
+    .a(n) => print("lend", n)
+    .b => print("b")
+  match id(?mk()).e
+    .a(n) if n > 0 => print("guarded", n)
+    _ => print("other")
+  for x in id(?mk()).xs
+    print("for", x)
+  if id(?mk()).o as n
+    print("if", n)
+  k = 0
+  while id(?mk()).o as n
+    print("while", n)
+    k += 1
+    break if k > 0
+  match idh(?mkh(42)).e
+    .a(n) => print("handle", n)
+    .b => print("b")
+  for x in idh(?mkh(7)).xs
+    print("for", x)
+
+# error: 33:11: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first
+# error: 36:13: bind the argument to a name first
+# error: 39:16: bind the argument to a name first
+# error: 41:10: bind the argument to a name first
+# error: 44:13: bind the argument to a name first
+# error: 48:14: bind the argument to a name first
+# error: 51:17: bind the argument to a name first
+# errors: 7

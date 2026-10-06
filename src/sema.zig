@@ -6126,6 +6126,96 @@ fn findNode(node: Sexp, tag: Tag) ?Sexp {
     return null;
 }
 
+/// Every node with head `tag`, depth first, in source order.
+fn findNodes(node: Sexp, tag: Tag, out: *std.ArrayList(Sexp)) !void {
+    if (node.kind() == tag) try out.append(std.testing.allocator, node);
+    if (node != .list) return;
+    for (node.items()) |c| try findNodes(c, tag, out);
+}
+
+test "storage: a header points at a place its temporaries reach, never into one" {
+    const source =
+        \\enum E
+        \\  a(n: Int)
+        \\  b
+        \\
+        \\struct S
+        \\  e: E
+        \\  xs: [3]Int
+        \\  o: Int?
+        \\  t: Text
+        \\
+        \\fun mk() -> S
+        \\  S(e: E.a(n: 1), xs: [1, 2, 3], o: 7, t: Text("p"))
+        \\
+        \\fun id(s: ?S) -> ?S from s
+        \\  s
+        \\
+        \\fun idx(s: String) -> Int
+        \\  s.len - 1
+        \\
+        \\fun get(v: !Vec[S]) -> !Vec[S] from v
+        \\  v
+        \\
+        \\fun mkh(n: Int) -> *S
+        \\  *S(e: E.a(n: n), xs: [n, n, n], o: n, t: Text("p"))
+        \\
+        \\fun idh(s: ?*S) -> ?S from s
+        \\  s
+        \\
+        \\sub main()
+        \\  v: Vec[S] = Vec()
+        \\  !v.push(mk())
+        \\  match v[idx(?Text("a"))].e
+        \\    .a(n) => print(n)
+        \\    .b => print(0)
+        \\  match !get(!v)[idx(?Text("a"))].e
+        \\    .a(n) => n = 2
+        \\    .b => print(0)
+        \\  match id(?mk()).e
+        \\    .a(n) => print(n)
+        \\    .b => print(0)
+        \\  match (?mk()).e
+        \\    .a(n) => print(n)
+        \\    .b => print(0)
+        \\  for x in id(?mk()).xs
+        \\    print(x)
+        \\  for x in !v[idx(?Text("a"))].xs
+        \\    x = 0
+        \\  if id(?mk()).o as n
+        \\    print(n)
+        \\  if !v[idx(?Text("a"))].o as n
+        \\    n = 1
+        \\  while id(?mk()).o as n
+        \\    print(n)
+        \\  match idh(?mkh(4)).e
+        \\    .a(n) => print(n)
+        \\    .b => print(0)
+        \\  for x in idh(?mkh(4)).xs
+        \\    print(x)
+        \\
+    ;
+    var r: FactsRun = .{ .p = parser.Parser.init(std.testing.allocator, source), .tree = undefined, .ctx = undefined, .source = source };
+    defer r.p.deinit();
+    r.tree = try r.p.parseProgram();
+    r.ctx = try check(std.testing.allocator, source, r.tree, .{});
+    defer r.ctx.deinit();
+    var headers: std.ArrayList(Sexp) = .empty;
+    defer headers.deinit(std.testing.allocator);
+    for ([_]Tag{ .match, .@"for", .as }) |tag| try findNodes(r.tree, tag, &headers);
+    // A place reached through an index's temporary: the header points.
+    // A place inside a view of a value the header makes, a call's or a
+    // handle's: it copies (a header pointing into its own temporary
+    // would read it after the header drops it).
+    const points = [_]bool{ true, true, false, false, false, false, true, false, false, true, false };
+    try std.testing.expectEqual(points.len, headers.items.len);
+    for (headers.items, points) |h, want| {
+        try std.testing.expectEqual(want, storage.headerPoints(&r.ctx, storage.headerSubject(h)));
+        try std.testing.expectEqual(!want, r.ctx.copiesHeader(h));
+        if (h.isKind(.match) and storage.matchMode(&r.ctx, h) == .read) try std.testing.expectEqual(want, storage.matchesInPlace(&r.ctx, h));
+    }
+}
+
 test "facts: same local name in two functions resolves per function" {
     var r = try factsRun(
         \\sub b()

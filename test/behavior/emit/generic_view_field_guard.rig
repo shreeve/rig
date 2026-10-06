@@ -1,0 +1,46 @@
+# A guarded `match` on a generic read view a field holds binds its
+# payload through `rig.viewedPtr(T, &w.r).*`, the place the view
+# reaches, for the guard and again for the arm: it stays valid across
+# the arm's statements, a nested match, and a call that reuses the stack
+# (`spill`), where an address into a copy of the view's value would not.
+
+enum Opt[T]
+  some(v: T)
+  none
+
+struct V[T]
+  r: ?Opt[T]
+
+fun look[T](x: ?T) -> Int
+  print("look", x)
+  1
+
+fun spill(n: Int) -> [8]Int
+  [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+
+fun g[T](w: ?V[T], u: ?V[T]) -> Int
+  match w.r
+    .some(v) if look(?v) == 1
+      a = spill(7)
+      k = match u.r
+        .some(q) => look(?q)
+        .none => 0
+      print(k)
+      print(a[3])
+      look(?v)
+    _ => 0
+
+sub main
+  o = Opt.some(v: [1, 2, 3, 4, 5, 6, 7, 8])
+  p = Opt.some(v: [9, 9, 9, 9, 9, 9, 9, 9])
+  w = V(r: ?o)
+  u = V(r: ?p)
+  print(g(?w, ?u))
+
+# expect:
+# look [1, 2, 3, 4, 5, 6, 7, 8]
+# look [9, 9, 9, 9, 9, 9, 9, 9]
+# 1
+# 10
+# look [1, 2, 3, 4, 5, 6, 7, 8]
+# 1

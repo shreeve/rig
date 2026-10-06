@@ -1,0 +1,41 @@
+# A payload view of a generic read view held in a field escapes the
+# match. Rejected today (arm-local payload views); once B4b lifts that
+# rule where the match reads its subject in place, it must run and print
+# `t t` and `[1, 2, 3, 4] [1, 2, 3, 4]`, which emit's in-place reach of
+# `w.r` (`rig.viewedPtr`) makes sound.
+enum Opt[T]
+  some(v: T)
+  none
+
+struct V[T]
+  r: ?Opt[T]
+
+fun get[T](w: ?V[T], d: ?T) -> ?T from w, d
+  match w.r
+    .some(v) => ?v
+    .none => d
+
+fun getg[T](w: ?V[T], d: ?T) -> ?T from w, d
+  match w.r
+    .some(v) if true => ?v
+    _ => d
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  o = Opt.some(v: Text("t"))
+  w = V(r: ?o)
+  d = Text("d")
+  x = get(?w, ?d)
+  y = getg(?w, ?d)
+  print(clobber(9))
+  print(x, y)
+  p = Opt.some(v: [1, 2, 3, 4])
+  wp = V(r: ?p)
+  dd = [0, 0, 0, 0]
+  xp = get(?wp, ?dd)
+  yp = getg(?wp, ?dd)
+  print(clobber(9))
+  print(xp, yp)
