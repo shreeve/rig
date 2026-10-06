@@ -1149,8 +1149,13 @@ pub const Emitter = struct {
     fn emitTempSlots(self: *Emitter, stmt: Sexp) Error!void {
         if (stmt != .list or stmt.isKind(.block) or stmt.isKind(.lambda)) return;
         // The parts first: they are made first, so their `defer`s run
-        // after those of what holds them.
-        for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !sema.isWhileStep(stmt, c)) try self.emitTempSlots(c);
+        // after those of what holds them. An assignment makes its value
+        // before it finds its target (Core §6), so the value's
+        // temporaries are older, and dropped after the target's.
+        if (stmt.isKind(.set)) {
+            try self.emitTempSlots(ir.Set.value(stmt));
+            try self.emitTempSlots(ir.Set.target(stmt));
+        } else for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !sema.isWhileStep(stmt, c)) try self.emitTempSlots(c);
         if (self.sema.dropsTemp(stmt) and self.tempSlot(stmt) == null) {
             const name = try self.hiddenStorage(stmt, .temp, .owned, .next);
             try self.w.print("var {s}: ", .{name});
