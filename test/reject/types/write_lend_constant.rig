@@ -1,11 +1,12 @@
 # A constant lives for the whole program and never changes (Core
 # sentence 7), so it is never lent to write: a literal, `none`, an enum
 # variant that holds no payload, an error value, a number type's limit,
-# an operator applied to constants, or a value that branches, every
-# value of which is a constant. One that may be a value made at run time
-# is a temporary instead. (A module's constant is a name:
-# `module_constant_write.rig`; another module's variant:
-# `modules/foreign_variant_write`.)
+# a function or a type's function, a module's constant, an operator
+# applied to constants, or a value that branches, every value of which
+# is a constant. One that may be a value made at run time is a
+# temporary instead; a binding that holds a function is a name like any
+# other (`test/behavior/types/write_lend_function_binding.rig`).
+# (Another module's: `modules/foreign_variant_write`.)
 
 enum Color
   red
@@ -36,6 +37,18 @@ sub inc(n: !Int)
 sub setu(u: !U8)
   u = 1
 
+struct P
+  x: Int
+
+  fun origin -> P
+    P(x: 0)
+
+sub setf(g: !fun(Int) -> Int)
+  print(g(1))
+
+sub setp(g: !fun() -> P)
+  print(g().x)
+
 fun f(n: Int) -> Int
   n
 
@@ -54,19 +67,23 @@ sub main
   setu(!U8.max)
   inc(!(Int.max - 1))
   inc(!(5 if f(1) == 1 else f(2)))
+  setf(!f)
+  setp(!P.origin)
 
-# error: 43:9: cannot lend `Color.red` to write: it is a constant, which lives for the whole program and never changes
-# error: 44:9: cannot lend `E.bad` to write: it is a constant
-# error: 45:9: cannot lend `false` to write: it is a constant
-# error: 46:9: cannot lend `"abc"` to write: it is a constant
-# error: 47:9: cannot lend `none` to write: it is a constant
-# error: 48:8: cannot lend `5` to write: it is a constant
-# error: 49:8: cannot lend `-5` to write: it is a constant
-# error: 50:9: cannot lend `2 + 3` to write: it is a constant
-# error: 51:10: cannot lend `not true` to write: it is a constant
-# error: 52:10: cannot lend `Color.red if f(1) == 1 else Color.green` to write: it is a constant
-# error: 53:8: cannot lend `Int.max` to write: it is a constant
-# error: 54:9: cannot lend `U8.max` to write: it is a constant
-# error: 55:9: cannot lend `Int.max - 1` to write: it is a constant
-# error: 56:9: cannot lend a temporary to write
-# errors: 14
+# error: 56:9: cannot lend constant `Color.red` to write: it lives for the whole program and never changes
+# error: 57:9: cannot lend constant `E.bad` to write
+# error: 58:9: cannot lend constant `false` to write
+# error: 59:9: cannot lend constant `"abc"` to write
+# error: 60:9: cannot lend constant `none` to write
+# error: 61:8: cannot lend constant `5` to write
+# error: 62:8: cannot lend constant `-5` to write
+# error: 63:9: cannot lend constant `2 + 3` to write
+# error: 64:10: cannot lend constant `not true` to write
+# error: 65:10: cannot lend constant `Color.red if f(1) == 1 else Color.green` to write
+# error: 66:8: cannot lend constant `Int.max` to write
+# error: 67:9: cannot lend constant `U8.max` to write
+# error: 68:9: cannot lend constant `Int.max - 1` to write
+# error: 69:9: cannot lend a temporary to write
+# error: 70:9: cannot lend constant `f` to write
+# error: 71:9: cannot lend constant `P.origin` to write
+# errors: 16

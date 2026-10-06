@@ -1,5 +1,6 @@
-# Another module's enum variant and an imported number type's limit are
-# constants, as this module's are: never lent to write.
+# Another module's enum variant, an imported number type's limit, and
+# another module's function are constants, as this module's are: never
+# lent to write.
 use lib
 
 sub setc(c: !lib.Color)
@@ -8,10 +9,15 @@ sub setc(c: !lib.Color)
 sub setu(u: !U8)
   u = 1
 
+sub setf(g: !fun(Int) -> Int)
+  print(g(1))
+
 sub main
   setc(!lib.Color.red)
   setu(!lib.Byte.max)
+  setf(!lib.twice)
 
-# error: 12:9: cannot lend `lib.Color.red` to write: it is a constant
-# error: 13:9: cannot lend `lib.Byte.max` to write: it is a constant
-# errors: 2
+# error: 16:9: cannot lend constant `lib.Color.red` to write: it lives for the whole program and never changes
+# error: 17:9: cannot lend constant `lib.Byte.max` to write
+# error: 18:9: cannot lend constant `lib.twice` to write
+# errors: 3

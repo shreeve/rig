@@ -3,3 +3,6 @@ pub enum Color
   green
 
 pub type Byte = U8
+
+pub fun twice(n: Int) -> Int
+  n * 2

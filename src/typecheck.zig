@@ -3690,7 +3690,7 @@ const Checker = struct {
         }
         // A constant lives for the whole program and never changes.
         if (kind == .write and try self.isConstant(operand)) {
-            try self.errAt(operand, "cannot lend `{s}` to write: it is a constant, which lives for the whole program and never changes; bind it to a name first", .{self.sourceText(operand)});
+            try self.errAt(operand, "cannot lend constant `{s}` to write: it lives for the whole program and never changes; bind its value to a name first", .{self.sourceText(operand)});
             return self.t().invalid_id;
         }
         // `![]T` is a writable slice, which a read-only `[]T` cannot give.
@@ -3740,18 +3740,22 @@ const Checker = struct {
 
     /// Whether `e` is a constant, a value that lives for the whole
     /// program and never changes (Core sentence 7), by what it means: a
-    /// literal or `none`; a member of a type, named here or in another
-    /// module, whose value is no function (an enum variant that holds no
-    /// payload, `Color.red`, `lib.Color.red`; an error value, `E.bad`; a
-    /// number type's limit, `Int.max`); an enum or error literal with no
-    /// payload (`.red`); an operator applied to constants (`2 + 3`,
-    /// `-5`, `Int.max - 1`); or a value that branches, every value of
-    /// which is a constant. A binding is no constant here: a module's
-    /// constant and a `const` binding are names, which `requireBinding`
-    /// judges.
+    /// literal or `none`; a function, or a module's constant, named here
+    /// (`f`, `K`) or in another module (`lib.twice`, `lib.K`); a member
+    /// of a type, here or in another module (an enum variant that holds
+    /// no payload, `Color.red`; an error value, `E.bad`; a number type's
+    /// limit, `Int.max`; a type's function, `P.origin`); an enum or error
+    /// literal with no payload (`.red`); an operator applied to constants
+    /// (`2 + 3`, `-5`, `Int.max - 1`); or a value that branches, every
+    /// value of which is a constant. A local binding is no constant,
+    /// whatever it holds: `g = f` may be lent to write.
     fn isConstant(self: *Checker, e: Sexp) Error!bool {
         switch (e) {
-            .src => return self.ctx.symbolOf(e) == null and self.hands(e).kind == .made,
+            .src => {
+                const id = self.ctx.symbolOf(e) orelse return self.hands(e).kind == .made;
+                const sym = self.ctx.symbols.items[id];
+                return sym.kind == .function or self.rootOf(sym) == .constant;
+            },
             .list => {},
             else => return false,
         }
@@ -3767,7 +3771,7 @@ const Checker = struct {
         }
         return switch (e.kind() orelse return false) {
             .enum_lit => true,
-            .member => self.ctx.isErrorMember(e) or try self.namesTypeConstant(e),
+            .member => self.ctx.isErrorMember(e) or try self.namesTypeConstant(e) or self.namesModuleConstant(e),
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>" => for (rig.children(e)) |c| {
                 if (!try self.isConstant(c)) break false;
             } else true,
@@ -3776,17 +3780,17 @@ const Checker = struct {
     }
 
     /// `T.name` of a type `T` (a number type, a struct, enum, or error
-    /// set, an alias, here or in another module) whose value is no
-    /// function: a constant the type holds.
+    /// set, an alias, here or in another module): a constant the type
+    /// holds, a variant, an error value, a limit, or a function.
     fn namesTypeConstant(self: *Checker, e: Sexp) Error!bool {
         const obj = ir.Member.object(e);
-        const named = (try self.numberType(obj)) != null or (try self.namedType(obj)) != null;
-        if (!named) return false;
-        const ty = self.ctx.typeOf(e) orelse return false;
-        return switch (self.ctx.types.get(ty)) {
-            .function => false,
-            else => true,
-        };
+        return (try self.numberType(obj)) != null or (try self.namedType(obj)) != null;
+    }
+
+    /// `m.name` of another module's function or constant.
+    fn namesModuleConstant(self: *Checker, e: Sexp) bool {
+        const sym = self.foreignMember(e) orelse return false;
+        return sym.kind == .function or (sym.kind == .local and sym.flags.fixed);
     }
 
     /// `U8`, a String's byte.
