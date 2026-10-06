@@ -1554,12 +1554,14 @@ the receiver's value when the receiver's parameter is in `result`, and
 each argument whose parameter is; what the call may store (into its
 write receiver, and through the write loans its arguments lead to) is
 the receiver's value and each argument whose parameter is in `stores`.
-A receiver lent to read is never stored into. A receiver lent to write
-holds what is stored the same way whatever its form: through its write
-lend, which for a place is a write loan on the place's var, and for any
-other receiver (a write view a call returns, each branch of a branching
-receiver, a value the call holds) the write loans its value carries
-(`absorbThroughWrites`). A method runs on its
+A receiver lent to read is never stored into. A store reached through
+a write loan lands in what that loan reaches, whatever the syntax
+(`storeThroughLend`): a receiver lent to write, through a write loan on
+a place's var or, for any other receiver (a write view a call returns,
+each branch of a branching receiver, a value the call holds), the write
+loans its value carries; and an assignment whose target starts from a
+value no var holds (`(!h).r = v`, `wrap(!h).r = v`), through the write
+loans of that value (`walkFieldAssign`). A method runs on its
 receiver where it is, so a receiver that is no place is lent at each
 leaf the value may be (`receiverLeaves`, through `if`, `??`, `catch`, and
 the fields and elements of such a value): a loan on the place a name

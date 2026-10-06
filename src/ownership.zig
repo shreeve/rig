@@ -3176,8 +3176,15 @@ pub const Checker = struct {
     fn walkFieldAssign(self: *Checker, target: Sexp, expr: Sexp) Error!void {
         const value = try self.walkConsumed(expr, .field);
         const place = self.resolvePlace(target) orelse {
-            _ = try self.walk(target);
-            return;
+            // A target whose path starts from a value no var holds (a
+            // lend, `(!h).r`, or a write view a call returns,
+            // `wrap(!h).r`) is reached through that value's write loans:
+            // what is stored there lands in what they reach.
+            const base = pathBase(target);
+            const lent = try self.walk(base);
+            try self.walkPlaceIndices(target);
+            if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
+            return self.storeThroughLend(lent, value, self.startOf(target));
         };
         try self.walkPlaceIndices(target);
         const id = place.root;
@@ -3223,6 +3230,23 @@ pub const Checker = struct {
         var f = self.flows.items[id];
         f.loans = try self.unionLoans(f.loans, value.loans);
         try self.setFlow(id, f);
+    }
+
+    /// `stored` is stored through the write lend `lent`, whatever the
+    /// syntax that reaches it: a write receiver (`wrap(!h).keep(v)`,
+    /// `(!a if c else !b).keep(v)`), or an assignment's target that no
+    /// var holds (`(!h).r = v`, `wrap(!h).r = v`). Whatever its write
+    /// loans reach holds `stored`'s loans from here on.
+    fn storeThroughLend(self: *Checker, lent: Value, stored: Value, pos: u32) Error!void {
+        try self.absorbThroughWrites(lent, stored, pos, null, null);
+    }
+
+    /// The value a field or element path starts from: `(!h)` in
+    /// `(!h).rs[0]`, `wrap(!h)` in `wrap(!h).r`.
+    fn pathBase(e: Sexp) Sexp {
+        var p = e;
+        while (p.isKind(.member) or p.isKind(.index)) p = ir.get(p, .object);
+        return p;
     }
 
     /// `value`, which carries only loans the caller handed in, was stored
@@ -3540,7 +3564,7 @@ pub const Checker = struct {
                 if (self.mayCarryLoan(self.pointee(self.exprType(obj)))) {
                     const pos = self.startOf(obj);
                     const lent: Value = if (recv_root) |id| .{ .loans = try self.oneLoan(.{ .root = id, .kind = .write, .pos = pos }) } else recv_value;
-                    try self.absorbThroughWrites(lent, stored, pos, null, null);
+                    try self.storeThroughLend(lent, stored, pos);
                 }
             }
             try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);

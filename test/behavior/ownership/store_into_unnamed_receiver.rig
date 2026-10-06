@@ -1,8 +1,11 @@
-# A write method's receiver that is no named place holds what the call
-# stores in it, as a name would (`test/reject/ownership/store_into_unnamed_receiver.rig`):
-# viewed values that outlive the holder may be stored there.
+# A store reached through a write loan that no named place gives (a
+# write view a call returns, a branching receiver, a lend as an
+# assignment's target) holds the viewed value, as a name would
+# (`test/reject/ownership/store_into_unnamed_receiver.rig`): values that
+# outlive the holder may be stored there.
 
 struct H
+  r: String
   rs: Vec[String]
 
   sub keep(!self, r: String)
@@ -11,20 +14,28 @@ struct H
 fun wrap(h: !H) -> !H
   h
 
+fun wv(v: !Vec[H]) -> !Vec[H]
+  v
+
 fun f(n: Int) -> Int
   n
 
 sub main
   t = Text("one")
   u = Text("two")
-  h = H(rs: Vec())
-  a = H(rs: Vec())
-  b = H(rs: Vec())
+  h = H(r: "", rs: Vec())
+  a = H(r: "", rs: Vec())
+  b = H(r: "", rs: Vec())
+  v: Vec[H] = Vec()
+  !v.push(H(r: "", rs: Vec()))
   c = f(1) == 1
   wrap(!h).keep(?t)
   (!a if c else !b).keep(?u)
   (!wrap(!h).rs).push(?u)
-  print(h.rs, a.rs, b.rs)
+  (!a).r = ?t
+  wrap(!b).r = ?u
+  wv(!v)[0].r = ?t
+  print(h.rs, a.rs, b.rs, a.r, b.r, v[0].r)
 
 # expect:
-# ["one", "two"] ["two"] []
+# ["one", "two"] ["two"] [] one two one
