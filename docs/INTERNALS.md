@@ -672,9 +672,11 @@ is `_t = mk()`, `print(S.pop(!_t))`, `-_t`. A write method called on a
 temporary with no `!` is rejected, with the hint to add it
 (`writeOfTemporary`); a branching value that may be a name's is lent
 leaf by leaf, never as one temporary, since the write would reach a
-copy; and a constant (`isConstant`: a literal, an enum variant or
-error value, an operator applied to constants) lives for the whole
-program, so it is never lent to write (`constantLeaf`). A receiver that branches lends each leaf where it is instead
+copy; and a constant (`isConstant`) lives for the whole program, so it
+is never lent to write. What a write method or an assignment stores in
+a temporary lent to write lands in the statement's hidden var through
+its write loan (`storeThroughLend`), and a part is never moved out of
+it (`viewOnPath`). A receiver that branches lends each leaf where it is instead
 (`receiverLeaves`). A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
 `if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
@@ -923,7 +925,7 @@ instead of re-deriving it by name:
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
-| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read or to write. The ownership checker holds it in a hidden var named by its source, lent to what reads it (to write, under `!`: `lendTempToWrite`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
+| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read or to write. The ownership checker holds it in a hidden var named by its source, lent to what reads it (to write, under `!`: `lendTempToWrite`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made, an assignment's value before its target (so the `defer`s drop the last made first, as the ownership checker's `dropStmtTemps` does), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
 | `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or lend sigil that is one. Kept beside the table, not in `check --facts=sema` |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
@@ -2000,7 +2002,11 @@ value made there (a call, a clone, a shared allocation) lends that
 temporary, so a view it returns ends with the statement. A write lend
 of a value made there (`!mk()`, a `!self` receiver `!mk().pop()`, a
 branching value made in every branch) lends the statement's temporary
-that holds it to write (Core s4), as `!x` lends `x`.
+that holds it to write (Core s4), as `!x` lends `x`. A path through a
+lend (`(!h).r`, `(?mk()).items`) is a path through that view, so a
+store there lands in what the view reaches and nothing is moved out of
+it; and a write receiver with no `!` whose value is a write view
+(`wrap(!h).keep(v)`) is lent on through that view.
 
 ## Nexus notes
 

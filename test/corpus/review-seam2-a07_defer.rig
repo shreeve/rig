@@ -1,0 +1,46 @@
+# Review probe a07_defer.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.bump accept
+# oracle: S.pop accept
+# oracle: S.at accept
+# oracle: S.all accept
+# oracle: S.vs accept
+# oracle: S.drop accept
+# oracle: mk accept
+# oracle: clobber accept
+# oracle: main accept
+struct S
+  n: Int
+  items: Vec[Int]
+
+  sub bump(!self)
+    self.n += 1
+
+  fun pop(!self) -> Int
+    self.n += 1
+    self.n
+
+  fun at(!self) -> !Int
+    !self.n
+
+  fun all(!self) -> !S
+    self
+
+  fun vs(!self) -> ![]Int
+    !self.items[..]
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> S
+  s = S(n: n, items: Vec())
+  !s.items.push(n)
+  s
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  defer print(!mk(1).pop())
+  defer !mk(2).bump()
+  print("body", clobber(3))

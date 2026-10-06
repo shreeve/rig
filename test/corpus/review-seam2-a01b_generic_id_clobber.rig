@@ -1,0 +1,32 @@
+# Review probe a01b_generic_id_clobber.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.at accept
+# oracle: S.rd accept
+# oracle: mk accept
+# oracle: id accept
+# oracle: clobber accept
+# oracle: main accept
+struct S
+  n: Int
+  big: [8]Int
+
+  fun at(!self) -> !Int
+    !self.n
+
+  fun rd(?self) -> ?Int
+    ?self.n
+
+fun mk(n: Int) -> S
+  S(n: n, big: [n, n, n, n, n, n, n, n])
+
+fun id[T](x: T) -> T
+  x
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7, n, n, n, n, n, n, n, n]
+  a[1]
+
+sub main
+  r = id(!mk(1).at())
+  print(clobber(77))
+  r += 5
+  print(r)

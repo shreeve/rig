@@ -1,0 +1,34 @@
+# Review probe m02_text_view_fn.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: wt accept
+# oracle: wv accept
+# oracle: wh accept
+# oracle: main accept
+struct H
+  t: Text
+  v: Vec[Int]
+
+fun wt(t: !Text) -> !Text
+  t
+
+fun wv(v: !Vec[Int]) -> !Vec[Int]
+  v
+
+fun wh(h: !H) -> !H
+  h
+
+sub main
+  t = Text("a")
+  !wt(!t).add("b")
+  wt(!t).add("c")
+  print((!wt(!t)).len)
+  print(wt(!t).len)
+  print(t)
+  v: Vec[Int] = Vec()
+  !wv(!v).push(1)
+  wv(!v).push(2)
+  print((!wv(!v)).len)
+  print(v)
+  h = H(t: Text("h"), v: Vec())
+  !wh(!h).t.add("i")
+  !wh(!h).v.push(3)
+  print(h.t, h.v)

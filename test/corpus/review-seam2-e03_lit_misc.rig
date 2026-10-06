@@ -1,0 +1,19 @@
+# Review probe e03_lit_misc.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+enum Color
+  red
+  green
+
+sub setc(c: !Color)
+  c = .green
+
+sub sets(s: !String)
+  s = "x"
+
+sub seto(o: !Int?)
+  o = 3
+
+sub main
+  setc(!.red)
+  setc(!Color.red)
+  sets(!"abc")
+  seto(!none)

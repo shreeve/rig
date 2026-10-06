@@ -1882,7 +1882,14 @@ const Lowerer = struct {
         // Part of a module's constant lives for the whole program.
         if (self.constRooted(obj)) return null;
         const base = try self.place(obj) orelse blk: {
-            if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) return abstain("a sigil on an accessed object");
+            if (obj.isKind(.move)) return abstain("a sigil on an accessed object");
+            // A lend (`(!h).f`, `(?mk()).f`) is a view: its part is
+            // reached through it (Core §4), as through a `!T` or `?T`.
+            if (obj.isKind(.read) or obj.isKind(.write)) {
+                const t = try self.eval(obj, .read, null) orelse return abstain("a lend of a constant");
+                const tv = self.f.vars.items[t];
+                break :blk Place{ .root = t, .path = &.{}, .ty = tv.ty, .via = if (obj.isKind(.write)) .write else .read };
+            }
             // The object of a field or element read is only read (Core §3).
             const t = try self.eval(obj, .read, null) orelse return abstain("an access to a constant");
             // A branching value read where it stands is each leaf read
@@ -2466,8 +2473,14 @@ const Lowerer = struct {
                 switch (recv_mode) {
                     .none => return abstain("a function of a type called on a value"),
                     .write => {
-                        if (!obj.isKind(.write)) return abstain("a write receiver without `!`");
-                        const p = try self.writePlace(ir.Write.operand(obj));
+                        // A write receiver with no `!` is a write view
+                        // the receiver's value is (`wrap(!h).keep(x)`, a
+                        // branch of write lends): lent on through it.
+                        const p = if (obj.isKind(.write)) try self.writePlace(ir.Write.operand(obj)) else blk: {
+                            const t = try self.eval(obj, .read, null) orelse return abstain("a write receiver without `!`");
+                            if (self.f.vars.items[t].kind != .write_view) return abstain("a write receiver without `!`");
+                            break :blk Place{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
+                        };
                         if (p.handle or self.isHandle(p.ty)) return abstain("a write receiver through a handle");
                         // A write receiver is lent when the call runs; its
                         // arguments may still read it (SPEC §7).

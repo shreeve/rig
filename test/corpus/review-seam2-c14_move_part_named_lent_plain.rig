@@ -1,0 +1,12 @@
+# Review probe c14_move_part_named_lent_plain.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: main reject C3
+struct S
+  n: Int
+  items: Vec[Int]
+
+sub main
+  s = S(n: 1, items: Vec())
+  !s.items.push(1)
+  x = <(!s).items
+  print(x)
+  print(s.n)

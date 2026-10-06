@@ -1,0 +1,30 @@
+# Review probe t01_generic_body.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: Box2.bump accept
+# oracle: mkb accept
+# oracle: go accept
+# oracle: go2 accept
+# oracle: go3 accept
+# oracle: main accept
+struct Box2[T]
+  v: T
+  n: Int
+
+  fun bump(!self) -> Int
+    self.n += 1
+    self.n
+
+fun mkb[T](v: T) -> Box2[T]
+  Box2(v: <v, n: 0)
+
+fun go[T](x: T) -> Int
+  !mkb(<x).bump()
+
+fun go2[T](x: T, y: T) -> Int
+  c = true
+  !(mkb(<x) if c else mkb(<y)).bump()
+
+fun go3[T](x: T) -> Int
+  (!Vec[T]()).len
+
+sub main
+  print(go(1), go(Text("t")), go2(Text("a"), Text("b")), go2(3, 4), go3(1))

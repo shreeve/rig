@@ -1,0 +1,16 @@
+# Review probe c15_move_through_param.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: steal reject C3
+# oracle: main accept
+struct S
+  n: Int
+  items: Vec[Int]
+
+sub steal(p: !S)
+  x = <(!p).items
+  print(x)
+
+sub main
+  s = S(n: 1, items: Vec())
+  !s.items.push(1)
+  steal(!s)
+  print(s.items)

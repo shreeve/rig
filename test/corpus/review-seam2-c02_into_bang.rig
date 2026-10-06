@@ -1,0 +1,28 @@
+# Review probe c02_into_bang.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+struct S
+  n: Int
+  items: Vec[Int]
+
+  fun steal(!self) -> Vec[Int]
+    replace(!self.items, Vec())
+
+  fun into(<self) -> Int
+    self.n
+
+  fun at(!self) -> !Int
+    !self.n
+
+  fun rd(?self) -> Int
+    self.n
+
+  drop(!self)
+    print("drop", self.n, self.items)
+
+fun mk(n: Int) -> S
+  s = S(n: n, items: Vec())
+  !s.items.push(n)
+  s
+
+sub main
+  v = !mk(1).into()
+  print(v)

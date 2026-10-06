@@ -1,0 +1,28 @@
+# Review probe r2/w02_opt_take_read.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+struct S
+  n: Int
+  items: Vec[Int]
+  o: Vec[Int]?
+  b: Box[Vec[Int]]
+
+  drop(!self)
+    print("drop", self.n, self.items, self.o)
+
+fun mk(n: Int) -> S
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  w: Vec[Int] = Vec()
+  !w.push(n * 10)
+  S(n: n, items: <v, o: <w, b: Box(Vec[Int]()))
+
+fun mkopt(n: Int) -> S?
+  return none if n == 0
+  mk(n)
+
+fun f(n: Int) -> Int
+  n
+
+sub main
+  s = mk(1)
+  x = <(?s).o
+  print(x, s.o)

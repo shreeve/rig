@@ -1,0 +1,72 @@
+# Review probe r2/x09_nested_view.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.drop accept
+# oracle: H.keep accept
+# oracle: H.keep2 accept
+# oracle: H.keepg accept
+# oracle: H.me accept
+# oracle: H.drop accept
+# oracle: HH.in accept
+# oracle: mk accept
+# oracle: mkh accept
+# oracle: mkhh accept
+# oracle: mkhopt accept
+# oracle: wrap accept
+# oracle: f accept
+# oracle: main reject C5
+struct S
+  n: Int
+  t: Text
+
+  drop(!self)
+    print("dropS", self.n)
+
+struct H
+  rs: Vec[String]
+
+  sub keep(!self, r: String)
+    !self.rs.push(r)
+
+  sub keep2(!self, a: String, b: String)
+    !self.rs.push(a)
+    !self.rs.push(b)
+
+  sub keepg[T](!self, r: String, k: T)
+    !self.rs.push(r)
+
+  fun me(!self) -> !H
+    self
+
+  drop(!self)
+    print("dropH sees", self.rs)
+
+struct HH
+  inner: H
+  hs: Vec[H]
+
+  fun in(!self) -> !H
+    !self.inner
+
+fun mk(n: Int) -> S
+  S(n: n, t: Text("hello world, long enough to be on the heap ", n))
+
+fun mkh -> H
+  H(rs: Vec())
+
+fun mkhh -> HH
+  hh = HH(inner: H(rs: Vec()), hs: Vec())
+  !hh.hs.push(H(rs: Vec()))
+  hh
+
+fun mkhopt(n: Int) -> H?
+  return none if n == 0
+  H(rs: Vec())
+
+fun wrap(h: !H) -> !H
+  h
+
+fun f(n: Int) -> Int
+  n
+
+sub main
+  !mkhh().in().keep(?mk(1).t)
+  print("end")
