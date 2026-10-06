@@ -66,6 +66,10 @@ TYPES = {
     "cell": dict(ty="Counter", decls="struct Counter\n  hits: Cell[Int]\n\n  sub hit(?self)\n    self.hits.set(self.hits.get() + 1)\n",
                  mk="Counter(hits: Cell(n))", ctor="Counter(hits: Cell(5))", poke="e.hit()"),
     "unique": dict(ty="U", decls="struct U unique\n  v: Int\n", mk="U(v: n)", ctor="U(v: 5)"),
+    # Values that copy (`sema.copies`): a plain struct and an array,
+    # which a view's value is copied out as a number's is.
+    "plain": dict(ty="P", decls="struct P\n  v: Int\n", mk="P(v: n)", ctor="P(v: 5)"),
+    "array": dict(ty="A2", decls="type A2 = [2]Int\n", mk="[n, n + 1]", ctor="[5, 6]"),
     # A payload enum: `== .variant` tests the variant.
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: Vec[Int])\n",
                  mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
@@ -90,7 +94,14 @@ FORMS = {
     "ctor": None,  # the type's constructor
     "move": "<a",
     "clone": "+a",
+    # A bare name holding a read view (`r = ?a`) or a write view
+    # (`w = !a`) of `a`: a read view copies, and where a value is taken,
+    # a view of a value that copies is copied out (Core sentence 1, §4).
+    "read_view": "r",
+    "write_view": "w",
 }
+# The binding each view form reads, declared before the context.
+VIEW_FORMS = {"read_view": "r = ?a", "write_view": "w = !a"}
 
 # -----------------------------------------------------------------------------
 # Contexts: statements that use the form `E`. `inline` contexts need an
@@ -170,6 +181,7 @@ POKES = {
     "text": 'for _ in 0..100\n    !x.add("abcdefgh")', "vec": "for i in 0..100\n    !x.push(i)",
     "shared": "x = *N(v: 9)", "box": "x = Box(N(v: 9))", "drop": "x = D(v: 9)",
     "cell": "x = Counter(hits: Cell(9))", "unique": "x = U(v: 9)", "enum": "x = S.dot",
+    "plain": "x = P(v: 9)", "array": "x[0] += 1",
 }
 WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
 
@@ -391,7 +403,7 @@ def program(tname, fname, cname):
     if "recv" in ctx and tname not in ctx["recv"] or tname not in ctx.get("types", (tname,)):
         return None
     if "tail" in ctx:
-        if fname != "call" or tname in ("int", "string"):
+        if fname != "call" or tname in ("int", "string", "plain", "array"):
             return None
         write = TAIL_WRITES.get(tname, "print(look(?t))")
         lines = []
@@ -411,6 +423,8 @@ def program(tname, fname, cname):
     out.append(f"fun mk(n: Int) -> {ty}\n  {t["mk"]}\n")
     out.append(f"fun fail(c: Bool) -> {ty}!\n  return E.bad if c\n  mk(7)\n")
     out.append(f"fun look(x: ?{ty}) -> Int\n  1\n")
+    if fname in VIEW_FORMS and ("decl" in ctx or "tail" in ctx):
+        return None
     if "decl" in ctx:
         if isinstance(form, list):
             return None
@@ -437,6 +451,8 @@ def program(tname, fname, cname):
         body += [f"h = H(f: mk(3))", "print(look(?h.f))"]
     if needs == "vs":
         body += [f"vs: Vec[{ty}] = Vec()", "!vs.push(mk(4))"]
+    if fname in VIEW_FORMS:
+        body.append(VIEW_FORMS[fname])
     if isinstance(form, list):
         head = ctx["block"].replace("E", form[0])
         body.append(head)
