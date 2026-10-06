@@ -24,11 +24,11 @@ from).
 
   | Check | Result |
   |---|---|
-  | `./test/run` | 2,621 passed, 7 pending (planned Core rules) |
+  | `./test/run` | 2,626 passed, 7 pending (planned Core rules) |
   | Corpus | 6,021 of 6,021 (`./test/run corpus`) |
   | `test/matrix.py` | 3,070 programs, 0 failed |
   | `zig build test` | 124 pass, 1 skip |
-  | Oracle (`./test/run oracle`) | 5 sets pass, at or above the floors in `test/oracle/coverage` (functions decided: tests 3,366, corpus 15,781, docs 437, matrix 15,911) |
+  | Oracle (`./test/run oracle`) | 5 sets pass, at or above the floors in `test/oracle/coverage` (functions decided: tests 3,418, corpus 15,781, docs 437, matrix 15,911) |
 
   `test/known/` holds no open bugs. The pending examples are the
   planned rules of `docs/CORE.md`.
@@ -137,9 +137,13 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
   round after B4, with `docs/CORE.md` updated first. The other three
   rules the Core left open are decided and built (CORE sentences 6 and
   7, §5): a call's result that holds no write view keeps a write
-  argument lent to read; dropping a container of views uses them only
-  through a `drop` body; a bare write-view field or element used as a
-  value copies what it sees.
+  argument lent to read, and that argument's write lend ends as the call
+  returns; dropping a container of views uses them only through a `drop`
+  body; a binding takes the type of a field or element on its right and
+  an annotation converts, so `x = h.w` of a `!Int` is rejected and
+  `x: Int = h.w` reads it. Open: a bare write-view name still binds the
+  value it reaches (`x = w`), as v0.2.0 does; whether the binding rule
+  covers names too is the owner's to decide.
 - **The kind of a struct of Strings:** CORE calls it a view, SPEC plain
   data; the compiler treats it as CORE's read-view kind.
 - **Arm-local payload views:** lift them for an unguarded, non-generic
