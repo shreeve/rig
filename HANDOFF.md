@@ -156,14 +156,34 @@ and run the corpus after.
 
 - **Statement temporaries** (Core §3). A header whose subject makes a
   temporary is rejected, unless it takes its subject or binds plain data
-  of a value made there (`copiesHeader`, the storage fact
-  `header_copy`), because emit binds a copy of the subject. Next: B4,
-  emit points at a header's subject instead of copying it, which lifts
-  the rejection.
+  of a value made there. Emit now points at a subject that reaches a
+  place (`storage.headerPoints`, the storage fact `header_value` held
+  by pointer) and copies only a value made in the header (`copiesHeader`,
+  the storage fact `header_copy`). Next: B4b, the checker accepts a
+  header that points, which lifts the rejection there.
+  - *Resolved in B4a:* a place inside a view of a value the header
+    makes (`id(?mk()).e`, `(?mk()).e`, `idh(?mkh()).xs`) lives in the
+    header's own temporary, so the header copies it and stays rejected;
+    pointing there would read the temporary after the header drops it.
+    Tests: the `sema` unit test "storage: a header points at a place its
+    temporaries reach, never into one" and
+    `test/reject/ownership/header_place_inside_temporary.rig`. B4b keeps
+    both.
 - **Arm-local payload views.** A read match's binding that is no plain
-  data is usable within its arm only, because emit may match a copy of
-  the subject (a guarded match, a generic body). This rejects programs
-  `v0.1.6` ran correctly. B4 and B5 lift it.
+  data is usable within its arm only, because emit matched a copy of
+  the subject (a guarded match, a generic body). Emit now matches a
+  subject that reaches a place, or a view a call returns, where it is
+  (`storage.matchesInPlace`). This rejects programs `v0.1.6` ran
+  correctly. B4b and B5 lift it.
+  - *Resolved in B4a:* a generic read view a field or an element holds
+    on the subject's path (`match w.r`, `match arr[1]`) is reached in
+    place, `rig.viewedPtr(T, &w.r).*`, never through a `rig.viewed`
+    copy whose payload a pointer would outlive. Tests:
+    `test/cli/emit_shapes.sh` (no `&rig.viewed(` and no switch on a
+    `rig.viewed(` copy), `test/behavior/emit/generic_view_field_subject.rig`,
+    `test/behavior/emit/generic_view_field_guard.rig`, and the escape
+    `test/corpus/review-b4a-g21_view_field_escape.rig`, rejected until
+    B4b lifts the rule and then expected to run.
 - **Addresses of Zig rvalues.** Emit still takes the address of a few
   Zig rvalues no fact names: a `?self` method on a made value no slot
   keeps, on a branching value with a made leaf, `emitLeafPtr`'s
@@ -211,8 +231,9 @@ and run the corpus after.
 ## What comes next
 
 1. The design owner settles the open questions and the CORE wording.
-2. B4 (emit points at header subjects), then B5, which lift the header
-   temporaries rule and arm-local payload views.
+2. B4b (the checker accepts the header subjects emit now points at,
+   B4a), then B5, which lift the header temporaries rule and arm-local
+   payload views.
 3. The structural address chokepoint.
 4. The per-expression "is a view" fact, and `copyable` for `fill` and
    `[n of x]`.

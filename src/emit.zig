@@ -233,6 +233,11 @@ pub const Emitter = struct {
     /// The place being emitted is only read: a Vec element on its path
     /// is reached through `constSlot`.
     read_place: bool = false,
+    /// The `match` subject being emitted, which it reaches where it is
+    /// (`storage.matchesInPlace`): a generic read view held on its path,
+    /// by its name, a field, or an element, is the value it reaches in
+    /// place, `rig.viewedPtr(T, &view).*`, never a copy (`onSubjectPath`).
+    subject_path: Sexp = .nil,
     /// The `else` of the loop used as a value being emitted, which is
     /// written after the loop as the block's value.
     value_else: Sexp = .nil,
@@ -1172,9 +1177,16 @@ pub const Emitter = struct {
     /// break :label e; })`. The caller writes the value, then calls
     /// `closeHeader`.
     fn openHeader(self: *Emitter, e: Sexp) Error!Header {
+        return self.openHeaderBy(e, .copy);
+    }
+
+    /// `openHeader` for a block that yields `by`: the header's value
+    /// (`copy`), or the address of the place a construct's subject
+    /// reaches (`pointer`, `emitSubjectPtr`).
+    fn openHeaderBy(self: *Emitter, e: Sexp, by: sema.StorageBy) Error!Header {
         const first = self.temp_slots.items.len;
         if (!self.hasTemps(e)) return .{ .first = first };
-        const label = try self.hiddenStorage(e, .header_value, .copy, .next);
+        const label = try self.hiddenStorage(e, .header_value, by, .next);
         try self.w.print("({s}: {{ ", .{label});
         try self.emitTempSlots(e);
         try self.w.print("break :{s} ", .{label});
@@ -1191,6 +1203,49 @@ pub const Emitter = struct {
         const h = try self.openHeader(e);
         try self.emitBare(e);
         try self.closeHeader(h);
+    }
+
+    /// `storage.headerPoints`: the header over construct subject `e`
+    /// makes temporaries, and its block yields the address of the place
+    /// `e` reaches.
+    fn headerPoints(self: *Emitter, e: Sexp) bool {
+        return storage.headerPoints(self.sema, e);
+    }
+
+    /// The address of the place a construct's subject `e` reaches, which
+    /// its header's block yields (`headerPoints`), in a block that ends
+    /// the header's temporaries: `(label: { slots break :label &place; })`.
+    /// What the construct binds is the place's own, through the pointer:
+    /// writable when the construct `writes` it.
+    fn emitSubjectPtr(self: *Emitter, e: Sexp, writes: bool) Error!void {
+        const h = try self.openHeaderBy(e, .pointer);
+        switch (sema.handsOver(self.sema, e).kind) {
+            .place => {
+                const saved = self.read_place;
+                defer self.read_place = saved;
+                self.read_place = !writes;
+                const saved_subject = self.subject_path;
+                defer self.subject_path = saved_subject;
+                self.subject_path = e;
+                try self.emitAddressOf(e);
+            },
+            // A lend held as a pointer is the address it lends.
+            .lend => try self.emitWriteViewPtr(e),
+            // A value that branches over views is the view its branch
+            // yields; over places, the address of the leaf it takes.
+            .branches => if (self.isPtrViewExpr(e)) try self.emitWriteViewPtr(e) else try self.emitLeafPtr(e, self.typeOf(e) orelse return self.unsupported(e, "an untyped header")),
+            else => return self.unsupported(e, "a header that points at no place"),
+        }
+        try self.closeHeader(h);
+    }
+
+    /// Whether the header over construct subject `e`, of header `node`,
+    /// is evaluated as a copy: it makes temporaries and reaches no place
+    /// (`headerPoints`). The checker records the same (`copiesHeader`).
+    fn copiesSubject(self: *Emitter, node: Sexp, e: Sexp) Error!bool {
+        const copies = self.hasTemps(e) and !self.headerPoints(e);
+        if (copies != self.sema.copiesHeader(node)) return self.unsupported(node, "a header copy the checker did not record");
+        return copies;
     }
 
     fn emitStmtOnly(self: *Emitter, sexp: Sexp) Error!void {
@@ -1618,10 +1673,18 @@ pub const Emitter = struct {
 
     /// An assignable place: a binding, field, or element.
     fn emitPlace(self: *Emitter, target: Sexp) Error!void {
-        if (target == .src) if (self.localOf(target)) |local| return self.writeLocalPlace(local);
+        if (target == .src) if (self.localOf(target)) |local| {
+            if (self.subjectView(target, local)) |inner| return self.writeSubjectView(inner, local.zig_name);
+            return self.writeLocalPlace(local);
+        };
         if (target.isKind(.index)) {
             // An element holding a write view denotes the viewed
             // value, as a field holding one does (`emitValue`).
+            if (self.onSubjectPath(target)) if (self.genericReadViewOf(target)) |inner| {
+                try self.writeViewedPtrOpen(inner);
+                try self.emitIndex(target, true);
+                return self.w.writeAll(").*");
+            };
             try self.emitIndex(target, true);
             if (self.isPtrViewExpr(target)) try self.w.writeAll(".*");
             return;
@@ -1632,6 +1695,18 @@ pub const Emitter = struct {
         defer self.place_chain = saved;
         self.place_chain = true;
         try self.emitExpr(target);
+    }
+
+    /// The `T` of the generic read view `local` holds when `name` names it
+    /// on the path of the `match` subject being emitted (`onSubjectPath`).
+    fn subjectView(self: *Emitter, name: Sexp, local: *const Local) ?TypeId {
+        if (!local.is_ptr or !self.onSubjectPath(name)) return null;
+        return self.genericReadView(local.ty orelse return null);
+    }
+
+    fn writeSubjectView(self: *Emitter, inner: TypeId, zig_name: []const u8) Error!void {
+        try self.writeViewedPtrOpen(inner);
+        try self.w.print("{s}).*", .{zig_name});
     }
 
     fn writeLocalPlace(self: *Emitter, local: *const Local) Error!void {
@@ -2215,10 +2290,9 @@ pub const Emitter = struct {
         const elem_sym = self.sema.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         const header = self.sema.headerOf(sexp);
-        // A source with temporaries is walked as a copy, which the checker
-        // records (`copiesHeader`) and allows only for plain data read.
-        if (mode != .move and header != .taken and !rig.isRangeIndex(source) and self.hasTemps(source) != self.sema.copiesHeader(sexp))
-            return self.unsupported(sexp, "a header copy the checker did not record");
+        // A source with temporaries that reaches no place is walked as a
+        // copy, which the checker records (`copiesHeader`).
+        if (mode != .move and header != .taken and !rig.isRangeIndex(source)) _ = try self.copiesSubject(sexp, source);
         // An array the loop takes is held in a `var`, and each element is
         // reached through a pointer into it, as the body's own.
         const owned = header == .taken;
@@ -2247,7 +2321,11 @@ pub const Emitter = struct {
         try self.w.writeAll("for (");
         // Writing an array's elements in place iterates through a pointer.
         const array_ptr = by_ptr and !is_vec and src_ty != null and self.sema.types.get(self.peelViews(src_ty.?)) == .array;
-        if (owned) try self.w.print("&{s}", .{taken}) else if (array_ptr) try self.emitAddressOf(source) else {
+        if (owned) try self.w.print("&{s}", .{taken}) else if (self.headerPoints(source)) {
+            // A place reached through temporaries is walked where it is.
+            try self.emitSubjectPtr(source, mode == .write);
+            if (!array_ptr) try self.w.writeAll(".*");
+        } else if (array_ptr) try self.emitAddressOf(source) else {
             const h = try self.openHeader(source);
             try self.emitExpr(source);
             try self.closeHeader(h);
@@ -2379,6 +2457,9 @@ pub const Emitter = struct {
         /// A `match <x` of a value no binding holds: it was evaluated
         /// into `reread`, which the arm then takes.
         temp: bool = false,
+        /// A read match switches on its subject where it is
+        /// (`storage.matchesInPlace`).
+        in_place: bool = false,
     };
 
     /// `(match scrutinee arm...)` → `switch`. In value position each arm
@@ -2396,13 +2477,12 @@ pub const Emitter = struct {
             // `match ?t` / `match !t` switch on the value viewed.
             .subject = lentPlace(scrutinee),
             .boxed = scrut_ty != null and scrut_ty.? != self.typeOf(scrutinee).?,
+            .in_place = storage.matchesInPlace(self.sema, sexp),
         };
-        // A subject with temporaries is matched as a copy, which the
-        // checker records (`copiesHeader`) and allows only for plain data
-        // read.
+        // A subject with temporaries that reaches no place is matched as
+        // a copy, which the checker records (`copiesHeader`).
         const held_view = !self.hasStorage(scrutinee) and self.isPtrViewExpr(scrutinee);
-        if (info.mode != .consume and !held_view and self.hasTemps(scrutinee) != self.sema.copiesHeader(sexp))
-            return self.unsupported(sexp, "a header copy the checker did not record");
+        if (info.mode != .consume and !held_view) _ = try self.copiesSubject(sexp, info.subject);
         const guarded = storage.matchGuarded(sexp);
         // A `match !x` binding of the whole value points at the place, and
         // a `match <x` arm with alternatives drops the value from it: the
@@ -2432,6 +2512,12 @@ pub const Emitter = struct {
         try self.w.writeAll("switch (");
         if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
             try self.w.writeAll(info.reread);
+        } else if (self.headerPoints(subject)) {
+            // A place reached through temporaries is switched on where it
+            // is, so each payload captured by pointer is the place's own.
+            try self.emitSubjectPtr(subject, info.mode == .write);
+            try self.w.writeAll(".*");
+            if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
         } else {
             // A match on a call returning a view held by pointer
             // switches on the value it points to, where it is: a header
@@ -2443,7 +2529,12 @@ pub const Emitter = struct {
                 try self.closeHeader(h);
                 try self.w.writeAll(".*");
             } else {
-                if (by_ptr or self.switchesThroughName(subject)) try self.emitSwitchDeref(subject) else try self.emitBare(subject);
+                if (by_ptr or self.switchesThroughName(subject)) try self.emitSwitchDeref(subject) else {
+                    const saved_path = self.subject_path;
+                    defer self.subject_path = saved_path;
+                    self.subject_path = subject;
+                    try self.emitBare(subject);
+                }
                 if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
                 try self.closeHeader(h);
             }
@@ -2497,7 +2588,7 @@ pub const Emitter = struct {
                         prelude = try self.consumedPayload(captures, fields, payload, .nil);
                     }
                 } else if (captures.len > 0) {
-                    prelude.aliases = try self.payloadAliases(captures, info.ty.?, vname, info.mode == .write, .{ .arm = arm }, .nil);
+                    prelude.aliases = try self.payloadAliases(captures, info, vname, .{ .arm = arm }, .nil);
                     // A payload a read binds as a view is reached in place.
                     const by_ptr = info.mode == .write or for (prelude.aliases) |a| {
                         if (a.addr) break true;
@@ -2537,21 +2628,32 @@ pub const Emitter = struct {
             info.reread = try self.fmt("{s}.*", .{name});
             return;
         }
-        // A view a call returns (`match get(e)`) is held as the pointer it
-        // is, never copied: its bindings view the value it points to.
-        if (!info.subject.isKind(.move) and self.isPtrViewExpr(value)) {
+        // A place reached through temporaries is held as its address,
+        // which the header's block yields, and a view a call returns
+        // (`match get(e)`) as the pointer it is, never copied: the
+        // bindings view the value it points to.
+        const points = self.headerPoints(value);
+        if (!info.subject.isKind(.move) and (points or self.isPtrViewExpr(value))) {
             try self.writeIndent(self.indent);
             try self.w.print("const {s} = ", .{name});
-            const h = try self.openHeader(value);
-            try self.emitWriteViewPtr(value);
-            try self.closeHeader(h);
+            if (points) try self.emitSubjectPtr(value, info.mode == .write) else {
+                const h = try self.openHeader(value);
+                try self.emitWriteViewPtr(value);
+                try self.closeHeader(h);
+            }
             try self.w.writeAll(";\n");
             var buf: Writer.Allocating = .init(self.arena.allocator());
             {
                 const saved_w = self.w;
                 self.w = &buf.writer;
                 defer self.w = saved_w;
-                try self.w.print("{s}.*", .{name});
+                // A generic read view is reached where it points, or
+                // where its instance's copy is held (`rig.viewedPtr`).
+                if (self.genericReadViewOf(value)) |inner| {
+                    try self.w.writeAll("rig.viewedPtr(");
+                    try self.emitTypeTy(inner);
+                    try self.w.print(", &{s}).*", .{name});
+                } else try self.w.print("{s}.*", .{name});
                 if (info.boxed) try self.writeMatchReach(self.typeOf(value).?);
             }
             info.reread = buf.written();
@@ -2574,6 +2676,33 @@ pub const Emitter = struct {
         info.temp = info.mode == .consume;
     }
 
+    /// Whether `e` is the `match` subject being emitted, or a field or
+    /// element path on the way to it from the name it starts at
+    /// (`subject_path`).
+    fn onSubjectPath(self: *const Emitter, e: Sexp) bool {
+        var p = self.subject_path;
+        while (p != .nil) {
+            if (p.isKind(.move) or p.isKind(.read) or p.isKind(.write)) {
+                p = ir.get(p, .operand);
+                continue;
+            }
+            if (sameNode(p, e)) return true;
+            if (!p.isKind(.member) and !p.isKind(.index)) return false;
+            p = ir.get(p, .object);
+        }
+        return false;
+    }
+
+    /// `rig.viewedPtr(T, &view).*`: the `T` a generic read view held at
+    /// `view`, a name, a field, or an element, reaches in place: the
+    /// value the view points to, or the copy it holds. The caller writes
+    /// `view` between `open` and `close`.
+    fn writeViewedPtrOpen(self: *Emitter, inner: TypeId) Error!void {
+        try self.w.writeAll("rig.viewedPtr(");
+        try self.emitTypeTy(inner);
+        try self.w.writeAll(", &");
+    }
+
     /// The Zig place of a match's subject, for `match !x` and `match <x`
     /// (whose subject is a binding).
     fn placeText(self: *Emitter, info: MatchInfo) Error![]const u8 {
@@ -2581,6 +2710,9 @@ pub const Emitter = struct {
         const saved_w = self.w;
         self.w = &buf.writer;
         defer self.w = saved_w;
+        const saved_path = self.subject_path;
+        defer self.subject_path = saved_path;
+        self.subject_path = info.subject;
         try self.emitPlace(if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject);
         if (info.boxed) try self.writeMatchReach(self.typeOf(info.subject).?);
         return buf.written();
@@ -2780,11 +2912,11 @@ pub const Emitter = struct {
             const sym = self.sema.symbolOf(b) orelse continue;
             if (!self.usesSymbol(guard, sym)) continue;
             const local = self.payloadLocal(b) orelse continue;
-            const stored = try self.declare(local, self.srcText(b));
             // A write binds a pointer to each field, and a read one to a
-            // field it views (`?F`).
-            const viewed = !writes and if (local.ty) |t| self.sema.types.get(t) == .read_view and self.sema.types.get(f.ty) != .read_view else false;
-            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if ((writes or viewed) and fieldIsPointee(self.sema, f.ty)) "&" else "", subj, ident(vname), ident(f.name) });
+            // field it views (`?F`) or reads in place.
+            const addr = storage.payloadByAddress(self.sema, local.ty, f, writes, info.in_place);
+            const stored = try self.declare(payloadPointee(local, addr), self.srcText(b));
+            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (addr) "&" else "", subj, ident(vname), ident(f.name) });
         }
     }
 
@@ -2823,7 +2955,7 @@ pub const Emitter = struct {
         }
         if (!pattern.isKind(.variant_pattern)) return .{};
         const vname = self.srcText(ir.VariantPattern.name(pattern));
-        return .{ .aliases = try self.payloadAliases(ir.VariantPattern.bindings(pattern), info.ty.?, vname, writes, .{ .expr = try self.fmt("{s}.{f}", .{ subj, ident(vname) }) }, body) };
+        return .{ .aliases = try self.payloadAliases(ir.VariantPattern.bindings(pattern), info, vname, .{ .expr = try self.fmt("{s}.{f}", .{ subj, ident(vname) }) }, body) };
     }
 
     /// A payload binding: `const zig_name = payload.field`, or of
@@ -2919,8 +3051,9 @@ pub const Emitter = struct {
     /// when given), declared in the arm's scope, read from the payload
     /// `at` names. A `match !x` binding (`writes`) points at its field,
     /// unless the field is itself a view, which is bound as it is.
-    fn payloadAliases(self: *Emitter, captures: []const Sexp, scrut_ty: TypeId, variant: []const u8, writes: bool, at: PayloadAt, used_in: Sexp) Error![]const Alias {
-        const fields = self.variantPayload(scrut_ty, variant) orelse return self.unsupported(captures[0], "this payload pattern");
+    fn payloadAliases(self: *Emitter, captures: []const Sexp, info: MatchInfo, variant: []const u8, at: PayloadAt, used_in: Sexp) Error![]const Alias {
+        const writes = info.mode == .write;
+        const fields = self.variantPayload(info.ty.?, variant) orelse return self.unsupported(captures[0], "this payload pattern");
         var out: std.ArrayList(Alias) = .empty;
         var payload: ?[]const u8 = switch (at) {
             .expr => |e| e,
@@ -2931,15 +3064,25 @@ pub const Emitter = struct {
         var by_addr = writes;
         for (captures, fields) |c, f| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
-            if (storage.payloadByAddress(self.sema, local.ty, f, writes)) by_addr = true;
+            if (storage.payloadByAddress(self.sema, local.ty, f, writes, info.in_place)) by_addr = true;
         }
         for (captures, fields) |c, f| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
-            const stored = try self.declare(local, self.srcText(c));
+            const addr = storage.payloadByAddress(self.sema, local.ty, f, writes, info.in_place);
+            const stored = try self.declare(payloadPointee(local, addr), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = storage.payloadByAddress(self.sema, local.ty, f, writes) });
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = addr });
         }
         return out.items;
+    }
+
+    /// A payload binding `local` bound by address (`addr`) holds a pointer
+    /// to the field, also when its type is the field's own (a type
+    /// parameter's value read in place): reading it reads the field.
+    fn payloadPointee(local: Local, addr: bool) Local {
+        var l = local;
+        if (addr) l.is_ptr = true;
+        return l;
     }
 
     fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
@@ -2972,11 +3115,19 @@ pub const Emitter = struct {
         const name = ir.As.name(cond);
         const value = ir.As.value(cond);
         const sym = self.sema.symbolOf(name);
+        // The header binds a copy of a value with temporaries that reaches
+        // no place (`copiesHeader`); a place it reaches, the place's own.
+        const owns = value.isKind(.move) or (sema.handsOver(self.sema, value).kind == .made and !sema.isReadOrWriteView(self.sema, self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
+        const copies = !owns and try self.copiesSubject(cond, value);
+        const points = self.headerPoints(value);
         // A place, or a part of a value the `if` holds, is bound where it
         // stands, as `if ?o as x` binds it (`Header`).
         if (self.sema.headerOf(cond) != null) {
             try self.w.writeAll("(");
-            try self.emitBare(value);
+            if (points) {
+                try self.emitSubjectPtr(value, false);
+                try self.w.writeAll(".*");
+            } else try self.emitBare(value);
             try self.w.writeAll(") ");
             if (sym == null or !self.usage.used.contains(sym.?)) {
                 try self.w.writeAll("|_| ");
@@ -2986,12 +3137,8 @@ pub const Emitter = struct {
             try self.w.print("|*{s}| ", .{tmp});
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .copy = false } };
         }
-        // The header binds a copy of its subject (`copiesHeader`), which
-        // the checker allows only for plain data read.
-        const owns = value.isKind(.move) or (sema.handsOver(self.sema, value).kind == .made and !sema.isReadOrWriteView(self.sema, self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
-        if (!owns and self.hasTemps(value) != self.sema.copiesHeader(cond)) return self.unsupported(cond, "a header copy the checker did not record");
         // Over a view of an optional, a viewed binding points into it.
-        if (self.viewsOptionalValue(value) and self.sema.copiesHeader(cond)) {
+        if (self.viewsOptionalValue(value) and copies) {
             // A view of a temporary the header drops: the optional is
             // read inside the header, and the binding views a copy of the
             // value inside, which the ownership checker lets nothing use
@@ -3015,9 +3162,16 @@ pub const Emitter = struct {
             // A name holding a view is emitted as the place it points to.
             // `o` and `<o` of a name holding the view are the place.
             const named = value == .src or (value.isKind(.move) and ir.Move.operand(value) == .src);
-            try self.w.writeAll(if (named) "(" else "((");
-            try self.emitBare(value);
-            try self.w.writeAll(if (named) ") " else ").*) ");
+            if (points) {
+                // A place reached through temporaries is viewed where it is.
+                try self.w.writeAll("(");
+                try self.emitSubjectPtr(value, false);
+                try self.w.writeAll(".*) ");
+            } else {
+                try self.w.writeAll(if (named) "(" else "((");
+                try self.emitBare(value);
+                try self.w.writeAll(if (named) ") " else ").*) ");
+            }
             if (sym == null or !self.usage.used.contains(sym.?)) {
                 try self.w.writeAll("|_| ");
                 return .{};
@@ -3028,7 +3182,10 @@ pub const Emitter = struct {
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .copy = copy } };
         }
         try self.w.writeAll("(");
-        try self.emitHeader(value);
+        if (points) {
+            try self.emitSubjectPtr(value, false);
+            try self.w.writeAll(".*");
+        } else try self.emitHeader(value);
         try self.w.writeAll(") ");
         // `as _` binds no symbol; a resource inside is dropped at once.
         const ty: ?TypeId = if (sym) |s| self.symType(s) else if (self.typeOf(value)) |t| switch (self.sema.types.get(self.peelViews(t))) {
@@ -3284,6 +3441,7 @@ pub const Emitter = struct {
                 return self.w.print("rig.rt({s})", .{local.zig_name});
             }
             if (tail and self.ptr_tail and local.is_ptr) return self.w.writeAll(local.zig_name);
+            if (self.subjectView(sexp, local)) |inner| return self.writeSubjectView(inner, local.zig_name);
             return if (tail and try self.takesTail(sexp, local)) self.writeTake(local) else self.writeLocalPlace(local);
         }
         if (std.mem.eql(u8, name, "none")) return self.w.writeAll("null");
@@ -3475,12 +3633,7 @@ pub const Emitter = struct {
     /// `rig.lend` and `rig.viewed`; the rest treats it as a pointer, since
     /// Zig reaches fields and methods through either.
     fn genericReadView(self: *Emitter, ty: TypeId) ?TypeId {
-        const inner = switch (self.sema.types.get(ty)) {
-            .read_view => |inner| inner,
-            else => return null,
-        };
-        if (!sema.maybeDropGlue(self.sema, inner) or sema.holdsCellByValue(self.sema, inner)) return null;
-        return inner;
+        return storage.genericReadView(self.sema, ty);
     }
 
     fn genericReadViewOf(self: *Emitter, e: Sexp) ?TypeId {
@@ -3745,9 +3898,12 @@ pub const Emitter = struct {
                 // viewed value, unless the pointer itself is wanted.
                 const deref = self.isPtrViewExpr(sexp) and !(tail and self.ptr_tail);
                 const generic = if (deref) self.genericReadViewOf(sexp) else null;
-                if (generic) |inner| try self.writeViewedOpen(inner);
+                // On a `match` subject's path, a generic read view is
+                // reached where it is held, never copied.
+                const in_place = generic != null and self.onSubjectPath(sexp);
+                if (generic) |inner| if (in_place) try self.writeViewedPtrOpen(inner) else try self.writeViewedOpen(inner);
                 if (head == .member) try self.emitMember(sexp) else try self.emitIndex(sexp, self.place_chain);
-                if (generic != null) try self.w.writeAll(")") else if (deref) try self.w.writeAll(".*");
+                if (in_place) try self.w.writeAll(").*") else if (generic != null) try self.w.writeAll(")") else if (deref) try self.w.writeAll(".*");
             },
             .builtin => try self.emitBuiltin(sexp),
             .propagate => {

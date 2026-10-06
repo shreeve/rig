@@ -1,0 +1,72 @@
+# A `match` on a generic read view a field or an element holds (`w.r`,
+# `arr[1]`) switches on the value the view reaches where it is,
+# `rig.viewedPtr(T, &w.r).*`: a payload of a type parameter, bound by
+# pointer, points there, never into a copy of the view's value in a Zig
+# temporary, so it reads the right value after the stack is reused
+# (`clobber`) in every instance.
+
+enum Opt[T]
+  some(v: T)
+  none
+
+struct V[T]
+  r: ?Opt[T]
+
+fun look[T](x: ?T) -> Int
+  print("look", x)
+  1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun f[T](w: ?V[T]) -> Int
+  match w.r
+    .some(v)
+      k = clobber(100)
+      look(?v) + k - 101
+    .none => 0
+
+fun g[T](w: ?V[T]) -> Int
+  match w.r
+    .some(v) if clobber(1) == 2 and look(?v) == 1
+      k = clobber(200)
+      look(?v) + k - 200
+    _ => 0
+
+fun h[T](a: ?Opt[T], b: ?Opt[T]) -> Int
+  arr = [a, b]
+  n = match arr[1]
+    .some(v) if look(?v) == 1
+      k = clobber(300)
+      look(?v) + k - 300
+    _ => 0
+  m = match arr[0]
+    .some(v) => look(?v)
+    .none => 0
+  n + m
+
+sub main
+  o = Opt.some(v: Text("t"))
+  w = V(r: ?o)
+  print(f(?w), g(?w))
+  i = Opt.some(v: [5, 6, 7, 8])
+  wi = V(r: ?i)
+  print(f(?wi), g(?wi))
+  x = Opt.some(v: Text("x"))
+  y = Opt.some(v: Text("y"))
+  print(h(?x, ?y))
+
+# expect:
+# look t
+# look t
+# look t
+# 1 2
+# look [5, 6, 7, 8]
+# look [5, 6, 7, 8]
+# look [5, 6, 7, 8]
+# 1 2
+# look y
+# look y
+# look x
+# 3

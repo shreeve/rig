@@ -364,6 +364,76 @@ pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
     };
 }
 
+/// Whether a header over `e` (a `match` subject, a `for` source, an
+/// `as` value) that makes statement temporaries yields the address of
+/// what `e` reaches, not its value: the block that ends the temporaries
+/// breaks with `&place`, and the construct binds through that pointer,
+/// so what it binds is the place's own, never a copy. `e` reaches a
+/// place when it is one (`sema.Hands.place`, its indexes evaluated in
+/// the block) whose path starts outside the header's temporaries
+/// (`startsOutsideHeader`), a lend of one held as a pointer (`!v[i]`),
+/// or a value that branches (`a if c else b`) each leaf of which reaches
+/// one or jumps. A value made in the header, a part of one, or a place
+/// inside a view of one (`id(?mk()).e`) has no place that outlives the
+/// header, and the header yields its value.
+pub fn headerPoints(ctx: *const SemContext, e: Sexp) bool {
+    if (e == .nil or sema.firstStmtTemp(ctx, e) == null) return false;
+    return reachesPlace(ctx, e);
+}
+
+/// The value a header (`match`, `for`, `as`) evaluates: a `match`'s
+/// subject without its lend sigils, a `for`'s source, an `as` value.
+pub fn headerSubject(header: Sexp) Sexp {
+    return switch (header.kind() orelse return .nil) {
+        .match => lentPlace(ir.Match.subject(header)),
+        .@"for" => ir.For.source(header),
+        .as => ir.As.value(header),
+        else => .nil,
+    };
+}
+
+fn reachesPlace(ctx: *const SemContext, e: Sexp) bool {
+    // A slice is a view already, yielded as it is.
+    if (rig.isRangeIndex(e)) return false;
+    switch (sema.handsOver(ctx, e).kind) {
+        .place => return startsOutsideHeader(ctx, e),
+        // A read lend of a scalar or a view is a copy.
+        .lend => return (e.isKind(.read) or e.isKind(.write)) and isPtrViewExpr(ctx, e) and reachesPlace(ctx, ir.get(e, .operand)),
+        .branches => {
+            if (!e.isKind(.@"if")) return false;
+            var parts = sema.valueParts(e);
+            var any = false;
+            while (parts.next()) |part| switch (sema.handsOver(ctx, part.node).kind) {
+                .jump => {},
+                else => {
+                    if (!reachesPlace(ctx, part.node)) return false;
+                    any = true;
+                },
+            };
+            return any;
+        },
+        .part_of_made, .made, .jump, .none => return false,
+    }
+}
+
+/// Whether the field or element path `e` starts outside the statement
+/// temporaries its header makes: at a name, or at a view whose
+/// evaluation makes none (`get(!v)[idx(?Text("a"))]`), which therefore
+/// cannot point into one. A path from a view of a value the header makes
+/// (`id(?mk()).e`, `(?mk()).e`, `id(?mkh()).xs`) lives inside a
+/// temporary the header's block drops.
+fn startsOutsideHeader(ctx: *const SemContext, e: Sexp) bool {
+    var base = e;
+    while (true) {
+        if (base.isKind(.member) or base.isKind(.index)) {
+            base = ir.get(base, .object);
+        } else if (base.isKind(.read) or base.isKind(.write)) {
+            base = ir.get(base, .operand);
+        } else break;
+    }
+    return base == .src or sema.firstStmtTemp(ctx, base) == null;
+}
+
 /// Whether `if o as x` over `value` views the value inside the
 /// optional rather than copying it (`checkOptionalBinding`).
 pub fn viewsOptionalValue(ctx: *const SemContext, value: Sexp) bool {
@@ -429,20 +499,44 @@ pub fn matchRereads(ctx: *const SemContext, match: Sexp) bool {
 /// Whether `match` evaluates its subject first, or holds the value it is
 /// a part of (`Header.held`), in a block around the match.
 pub fn matchBlock(ctx: *const SemContext, match: Sexp) bool {
-    return ctx.headerOf(match) == .held or matchGuarded(match) or
+    return ctx.headerOf(match) == .held or matchGuarded(match) or matchesGenericView(ctx, match) or
         (matchRereads(ctx, match) and !subjectRereadable(lentPlace(ir.Match.subject(match))));
 }
 
+/// The `T` of a read view `?T` whose form depends on a generic type's
+/// arguments: `T` holds a type parameter and neither owns resources nor
+/// holds a Cell on its own. Emit writes it `rig.ReadView(T)`, a copy or
+/// a pointer per instance; null for any other type.
+pub fn genericReadView(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    const inner = switch (ctx.types.get(ty)) {
+        .read_view => |inner| inner,
+        else => return null,
+    };
+    if (!sema.maybeDropGlue(ctx, inner) or sema.holdsCellByValue(ctx, inner)) return null;
+    return inner;
+}
+
+/// Whether `match`'s subject is a view a call returns whose form depends
+/// on a generic type's arguments (`genericReadView`): the match holds it
+/// in `__rig_subject` and switches where it points (`rig.viewedPtr`),
+/// never on a copy of what it views.
+fn matchesGenericView(ctx: *const SemContext, match: Sexp) bool {
+    const subject = lentPlace(ir.Match.subject(match));
+    if (subject.isKind(.move) or hasStorage(ctx, subject) or !isPtrViewExpr(ctx, subject)) return false;
+    return genericReadView(ctx, typeOf(ctx, subject) orelse return false) != null;
+}
+
 /// How a `match` that evaluates its subject first (`matchBlock`) holds
-/// it in `__rig_subject`: the address of a place, a view a call returns
-/// as the pointer it is, or the value; null when it reads the subject
-/// again as it is written.
+/// it in `__rig_subject`: the address of a place, which a header that
+/// makes temporaries yields (`headerPoints`), a view a call returns as
+/// the pointer it is, or the value; null when it reads the subject again
+/// as it is written.
 pub fn subjectHold(ctx: *const SemContext, match: Sexp) ?StorageBy {
     const subject = lentPlace(ir.Match.subject(match));
     if (subjectRereadable(subject)) return null;
     const value = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
     if (hasStorage(ctx, value) and !subject.isKind(.move) and sema.firstStmtTemp(ctx, value) == null) return .pointer;
-    if (!subject.isKind(.move) and isPtrViewExpr(ctx, value)) return .pointer;
+    if (!subject.isKind(.move) and (headerPoints(ctx, value) or isPtrViewExpr(ctx, value))) return .pointer;
     return if (matchMode(ctx, match) == .consume) .owned else .copy;
 }
 
@@ -467,10 +561,25 @@ pub fn fieldIsPointee(ctx: *const SemContext, ty: TypeId) bool {
 /// Whether a payload binding of type `binding` (null when unknown) for
 /// field `f` points at the field: a write binds a pointer to each field,
 /// and a read binds one to a field it views (`?F` of a field that is no
-/// view).
-pub fn payloadByAddress(ctx: *const SemContext, binding: ?TypeId, f: sema.Field, writes: bool) bool {
+/// view), and to a field of a type parameter's value (`sema.copyable` is
+/// `depends`) that the match reads where its subject is (`in_place`,
+/// `matchesInPlace`): what each instance reads is the subject's own,
+/// never a copy in the arm.
+pub fn payloadByAddress(ctx: *const SemContext, binding: ?TypeId, f: sema.Field, writes: bool, in_place: bool) bool {
     const viewed = !writes and if (binding) |t| ctx.types.get(t) == .read_view and ctx.types.get(f.ty) != .read_view else false;
-    return (writes or viewed) and fieldIsPointee(ctx, f.ty);
+    const generic = !writes and in_place and if (binding) |t| !sema.isReadOrWriteView(ctx, t) and sema.copyable(ctx, t) == .depends else false;
+    return (writes or viewed or generic) and fieldIsPointee(ctx, f.ty);
+}
+
+/// Whether a read `match` switches on its subject where it is, never on
+/// a copy: the subject reaches a place (`reachesPlace`), through its
+/// header's temporaries or not, is a part of the made value the match
+/// holds (`Header.held`), or is a view a call returns, switched on where
+/// it points. A payload captured by pointer is then the subject's own.
+pub fn matchesInPlace(ctx: *const SemContext, match: Sexp) bool {
+    if (matchMode(ctx, match) != .read) return false;
+    const subject = lentPlace(ir.Match.subject(match));
+    return ctx.headerOf(match) == .held or reachesPlace(ctx, subject) or (!hasStorage(ctx, subject) and isPtrViewExpr(ctx, subject));
 }
 
 /// Whether the value of an assignment, or an index of its target, can
@@ -601,6 +710,14 @@ const Planner = struct {
         try p.record(e, .header_value, .copy, .header);
     }
 
+    /// A construct's subject `e` (`headerSubject`) that makes statement
+    /// temporaries: the block that ends them yields the address of the
+    /// place `e` reaches (`headerPoints`), or else its value.
+    fn subjectHeader(p: *Planner, e: Sexp) !void {
+        if (e == .nil or sema.firstStmtTemp(p.ctx, e) == null) return;
+        try p.record(e, .header_value, if (headerPoints(p.ctx, e)) .pointer else .copy, .header);
+    }
+
     /// An `if` or `while` condition: each part of a joined one.
     fn condition(p: *Planner, cond: Sexp) !void {
         if (rig.isConditionJoin(cond)) {
@@ -621,6 +738,7 @@ const Planner = struct {
         // stands.
         if (ctx.headerOf(cond)) |how| {
             if (how == .held) try p.record(cond, .held, .owned, .construct);
+            try p.subjectHeader(value);
             if (used) try p.record(cond, .as_value, .pointer, .body);
             return;
         }
@@ -628,14 +746,14 @@ const Planner = struct {
             // A view of a temporary the header drops: the binding views
             // a copy of the value inside.
             const copy = ctx.copiesHeader(cond) or (value.isKind(.read) and ctx.lendsCellTemp(ir.Read.operand(value)));
-            if (ctx.copiesHeader(cond)) try p.header(value);
+            try p.subjectHeader(value);
             if (used) {
                 try p.record(cond, .as_value, if (copy) .copy else .pointer, .body);
                 if (copy) try p.record(cond, .as_copy, .copy, .body);
             }
             return;
         }
-        try p.header(value);
+        if (value.isKind(.move)) try p.header(value) else try p.subjectHeader(value);
         const sym = ctx.symbolOf(name);
         const ty: ?TypeId = if (sym) |s| known(ctx, ctx.symbols.items[s].ty) else if (typeOf(ctx, value)) |t| switch (ctx.types.get(sema.unwrapViews(ctx, t))) {
             .optional => |inner| inner,
@@ -673,11 +791,7 @@ const Planner = struct {
             try p.record(loop, .taken, .owned, .construct);
             return p.header(source);
         }
-        // Writing an array's elements in place iterates through a pointer.
-        const elem_ty: ?TypeId = if (ctx.symbolOf(ir.For.@"var"(loop))) |s| known(ctx, ctx.symbols.items[s].ty) else null;
-        const by_ptr = mode == .write or (elem_ty != null and ctx.types.get(elem_ty.?) == .read_view);
-        const array_ptr = by_ptr and !is_vec and src_ty != null and ctx.types.get(sema.unwrapViews(ctx, src_ty.?)) == .array;
-        if (!array_ptr) try p.header(source);
+        try p.subjectHeader(source);
     }
 
     fn match(p: *Planner, m: Sexp) !void {
@@ -691,7 +805,7 @@ const Planner = struct {
             if (subjectHold(ctx, m)) |by| {
                 try p.record(m, .subject, by, .construct);
                 const value = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
-                if (!(hasStorage(ctx, value) and !subject.isKind(.move) and sema.firstStmtTemp(ctx, value) == null)) try p.header(value);
+                if (subject.isKind(.move)) try p.header(value) else try p.subjectHeader(value);
                 temp = mode == .consume and by == .owned;
             }
             reread = true;
@@ -704,7 +818,7 @@ const Planner = struct {
                 return;
             }
         } else if (matchRereads(ctx, m)) reread = true;
-        if (!(temp or (reread and mode != .consume))) try p.header(subject);
+        if (!(temp or (reread and mode != .consume))) try p.subjectHeader(subject);
         const ty = matchedType(ctx, m);
         for (ir.Match.arms(m)) |arm| {
             const pattern = ir.Arm.pattern(arm);
@@ -723,13 +837,14 @@ const Planner = struct {
             }
             if (!pattern.isKind(.variant_pattern)) continue;
             const fields = variantPayload(ctx, ty orelse continue, srcText(ctx, ir.VariantPattern.name(pattern))) orelse continue;
+            const in_place = matchesInPlace(ctx, m);
             var any = false;
             var by_addr = mode == .write;
             for (ir.VariantPattern.bindings(pattern), fields) |b, f| {
                 if (!p.isUsed(b)) continue;
                 any = true;
                 const binding: ?TypeId = if (ctx.symbolOf(b)) |s| known(ctx, ctx.symbols.items[s].ty) else null;
-                if (payloadByAddress(ctx, binding, f, mode == .write)) by_addr = true;
+                if (payloadByAddress(ctx, binding, f, mode == .write, in_place)) by_addr = true;
             }
             if (any) try p.record(arm, .payload, if (by_addr) .pointer else .copy, .arm);
         }
