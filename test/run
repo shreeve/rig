@@ -15,6 +15,9 @@
 #   --update    rewrite test/ir snapshots from the current compiler
 #   --prune     only remove the output of tests that are gone, as a run
 #               with no filter does first, and exit
+#   --shard I/N run only the selected tests whose id hashes to shard I
+#               of N (1 <= I <= N); shard 1 also runs the whole-program
+#               checks (unit, parser, classify, vocab)
 #
 # Environment: ZIG (the Zig executable), NEXUS (the Nexus executable),
 # RIG_TEST_TIMEOUT (seconds per test, default 120; a test's own
@@ -464,12 +467,16 @@ fi
 # Driver
 # -----------------------------------------------------------------------------
 
-UPDATE="" VERBOSE="" PRUNE="" JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+UPDATE="" VERBOSE="" PRUNE="" SHARD="" JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 FILTERS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --update) UPDATE=1 ;;
         --prune) PRUNE=1 ;;
+        --shard)
+            [[ $# -ge 2 && $2 =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] &&
+                (( BASH_REMATCH[1] <= BASH_REMATCH[2] )) || { echo "--shard needs I/N, with 1 <= I <= N" >&2; exit 2; }
+            SHARD=$2; shift ;;
         -v) VERBOSE=1 ;;
         -j) [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || { echo "-j needs a number of jobs" >&2; exit 2; }
             JOBS=$2; shift ;;
@@ -579,7 +586,10 @@ is_kind() {
     return 1
 }
 
+# selected <whole-program check>: the filters select it, and this run is
+# not a shard other than the first.
 selected() {
+    [[ -z "$SHARD" || ${SHARD%/*} -eq 1 ]] || return 1
     [[ ${#FILTERS[@]} -eq 0 ]] && return 0
     local f
     for f in "${FILTERS[@]}"; do
@@ -799,6 +809,18 @@ if [[ ${#FILTERS[@]} -eq 0 ]]; then
     fi
 fi
 [[ -n "$PRUNE" ]] && exit 0
+
+# --shard I/N keeps the tests whose id hashes to I - 1 modulo N.
+if [[ -n "$SHARD" ]]; then
+    awk -F'\t' -v i="${SHARD%/*}" -v n="${SHARD#*/}" '
+        BEGIN { for (c = 1; c < 256; c++) ord[sprintf("%c", c)] = c }
+        {
+            h = 0
+            for (c = 1; c <= length($1); c++) h = (h * 31 + ord[substr($1, c, 1)]) % 1000003
+            if (h % n == i - 1) print
+        }
+    ' "$LIST" >"$LIST.shard" && mv "$LIST.shard" "$LIST"
+fi
 
 # Whole-program checks run alongside the per-file tests.
 UNIT_LOG="$WORK/unit.log" UNIT_PID=""

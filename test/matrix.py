@@ -17,6 +17,7 @@ program that runs must also print what the payload holds.
     test/matrix.py --keep DIR      # write the programs to DIR and keep them
     test/matrix.py --oracle        # only run the reference ownership checker
                                    # (bin/rig-oracle, test/oracle/) over them
+    test/matrix.py --shard 2/4     # only the cells whose id hashes to shard 2 of 4
 
 Nothing it writes is committed: programs go to a temporary directory,
 and each run's output is removed after it passes. Programs build in
@@ -32,6 +33,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RIG = os.path.join(ROOT, "bin", "rig")
@@ -556,7 +558,17 @@ def main():
     ap.add_argument("--keep", help="write the programs here and keep them and their builds")
     ap.add_argument("-v", action="store_true", help="list every result")
     ap.add_argument("--oracle", action="store_true", help="run bin/rig-oracle over the programs instead")
+    ap.add_argument("--shard", help="I/N: only the cells whose id hashes to I - 1 modulo N (1 <= I <= N)")
     args = ap.parse_args()
+    shard = re.fullmatch(r"([1-9][0-9]*)/([1-9][0-9]*)", args.shard or "1/1")
+    if not shard or int(shard[1]) > int(shard[2]):
+        ap.error("--shard needs I/N, with 1 <= I <= N")
+    shard_i, shard_n = int(shard[1]), int(shard[2])
+
+    def wanted(ident):
+        if args.k and not any(k in ident for k in args.k):
+            return False
+        return zlib.crc32(ident.encode()) % shard_n == shard_i - 1
     if not os.access(RIG, os.X_OK):
         sys.exit(f"{RIG} is not built; run `zig build`")
     work = args.keep or tempfile.mkdtemp(prefix="rig-matrix.")
@@ -567,7 +579,7 @@ def main():
         for c in CONTEXTS:
             for f in FORMS:
                 ident = f"{t}.{c}.{f}"
-                if args.k and not any(k in ident for k in args.k):
+                if not wanted(ident):
                     continue
                 src = program(t, f, c)
                 if src is None:
@@ -581,7 +593,7 @@ def main():
         for f in STORE_FORMS:
             for then in ("grow", "read"):
                 ident = f"store.{o}.{f}.{then}"
-                if args.k and not any(k in ident for k in args.k):
+                if not wanted(ident):
                     continue
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
@@ -592,7 +604,7 @@ def main():
         for sname in PAYLOAD_SUBJECTS:
             for e in PAYLOAD_ESCAPES:
                 ident = f"payload.{t}.{sname}.{e}"
-                if args.k and not any(k in ident for k in args.k):
+                if not wanted(ident):
                     continue
                 src, expects[ident] = payload_program(t, sname, e)
                 if src is None:

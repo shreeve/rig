@@ -6,8 +6,15 @@
 ./test/run -v known        # list each result of the known bugs
 ./test/run --update ir     # rewrite IR snapshots after an intended grammar change
 ./test/run corpus          # every corpus program (a plain run takes a sample)
+./test/run --shard 2/4     # the second of four disjoint shards of a run
+./test/run --prune         # only remove the output of tests that are gone
 test/matrix.py             # generate and run the form x context x type matrix
+test/matrix.py --shard 2/4 # the second of four disjoint shards of the matrix
 ```
+
+A shard takes the selected tests whose id hashes to it, so the N shards
+of a run, on one machine or several, run each test once; the first also
+runs the whole-program checks (`unit`, `parser`, `classify`, `vocab`).
 
 The summary line reads `N passed, M failed, K known, P pending`. The
 suite is green when nothing fails and no known-failing test or pending
