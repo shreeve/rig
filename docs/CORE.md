@@ -339,9 +339,10 @@ or, when the result says `from a`, of `a` alone. A result that holds no
 write view carries them as read loans, even one of an argument lent to
 write, whose write lend then ends as the call returns: after
 `head(!v)`, in its own statement or through `r = head(!v)`, `v` may be
-read, but not written, while the result lives. A view reached through a read view that a value holds carries
-that view's loans, not a loan on the holder; one reached through a write
-view the value holds keeps the holder lent too. The compiler checks each
+read, but not written, while the result lives. A view reached through
+a read view that a value holds carries that view's loans, not a loan on
+the holder; one reached through a write view the value holds keeps the
+holder lent too. The compiler checks each
 body against its signature. *(built)*
 
 ```rig reject
