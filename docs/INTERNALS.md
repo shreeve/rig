@@ -1295,7 +1295,8 @@ it holds, or not at all (`sema.ViewReach`), stands for that var's own
 loans, judged the same way. A String's memory is a Text's or a
 literal's bytes, which a var reaches by owning a Text, or a `!Text`. A
 value that holds only Strings (`sema.holdsViewOnly`) reads what it
-views, so the loans it keeps are read loans. So `!it.next()` of an
+views, so the loans it keeps are read loans, and so does a call's result
+that holds no write view (`carryResult`, Core sentence 7). So `!it.next()` of an
 iterator holding Strings views what `it` views, not `it`, and a String
 read through a `!String`, copied into a binding, or read out of a
 `Vec[String]` keeps what the String views. A value holding a write
@@ -1531,7 +1532,14 @@ the statement (Core §3). The stores apply first,
 then the result is narrowed by `carry`, so a holder the result does not
 view stands for its loans after the call: `next(!self, extra)`, which
 re-points `self.items` at `extra`, gives a result that carries
-`extra`'s loans. Every lend made in an argument still ends with its
+`extra`'s loans. A result whose type holds no write view (no `!T`
+anywhere in it, no type parameter, no type not known) only reads what
+it views, so every loan it keeps is a read loan (`carryResult`), also
+one of an argument or receiver lent to write: after `r = first(!v)`,
+`v` may be read while `r` lives, and not written. What the call stores
+keeps its own loans where it stores them: a write view of `v` stored in
+`h` keeps `v` lent to write while `h` lives. A loan kept this way is
+marked `read_of_write`, so a conflict's note says the lend was a write. Every lend made in an argument still ends with its
 statement (the statement's temporaries are as before).
 
 **The body check** (`checkOrigins`). At every return and tail value the
@@ -1559,7 +1567,11 @@ of the view, as above. A call `r = f(e1, ..., en)` is
 `t1 = e1; ...; tn = en; r = f(t1, ..., tn)` with each `ti` a statement
 temporary (Core §3): `r` holds the loans of the `ti` whose parameters
 are in `result`, the owners of the write arguments those in `stores`,
-and every other `ti`'s loans end with the statement. The narrowing is
+and every other `ti`'s loans end with the statement. When `r`'s type
+holds no write view, it is `r = ?f(t1, ..., tn)`: a read lend of the
+views the call returns, which a held `!T` lends as `?T` (Core §4), so
+`r` keeps the `ti`'s loans as read loans while each `ti` that was a
+write lend still ends with the statement. The narrowing is
 sentence 7's own: no other form says that a result does not view `b`,
 so a `from` clause is sentence 7's refinement rather than a form that
 desugars, and its checker rule is the call rule with the named set plus

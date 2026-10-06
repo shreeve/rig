@@ -3260,6 +3260,12 @@ the checker tracks where every one came from.
   String argument included: it may view a Text ([§10](#text)). An
   argument that could not (an `Int` key for a `?Item` result, a String
   for a `?Item`) is free again after the call.
+- A result that holds no write view only reads what it views, so the
+  loans it carries are read loans, even of an argument lent to write:
+  after `r = head(!v)`, `v` may be read while `r` lives, but not written,
+  moved, or dropped. A result that is or holds a write view (`-> !Int`)
+  keeps the argument lent to write, and so does a write view the call
+  stores in what it was lent to write, while what holds it lives.
 - A result may say which parameters it views: `-> ?Item from a` (also
   `from a, b`, `from self`, and `from static`, for only what lives for
   the whole program). The result then views from those arguments
@@ -3325,6 +3331,28 @@ sub main
 
 ```error
 cannot drop `y` while it is lent
+```
+
+```rig
+struct Bag
+  items: Vec[Int]
+  taken: Int
+
+  fun take(!self) -> []Int
+    self.taken += 1
+    ?self.items[..1]
+
+sub main
+  b = Bag(items: Vec(), taken: 0)
+  !b.items.push(4)
+  r = !b.take()
+  print(b.taken, b.items.len)
+  print(r)
+```
+
+```output
+1 1
+[4]
 ```
 
 A view parameter can be forwarded (`g(?b)` with `b: ?B`). The caller

@@ -166,6 +166,9 @@ const Loan = struct {
     /// The root of a place whose address is being found while its
     /// indices run (see `walkIndicesHeld`).
     place_hold: bool = false,
+    /// A write lend that a view which only reads it keeps as a read loan
+    /// (`carryLoan`), for diagnostics.
+    read_of_write: bool = false,
 
     fn sameAs(a: Loan, b: Loan) bool {
         return a.root == b.root and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
@@ -763,6 +766,8 @@ pub const Checker = struct {
                 .base => "it is indexed after its index runs",
             };
             try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ self.vars.items[loan.root].name, uses });
+        } else if (loan.read_of_write) {
+            try self.note(loan.pos, "lent to write here, and kept lent to read by a view that only reads it", .{});
         } else try self.note(loan.pos, "lent to {s} here", .{@tagName(loan.kind)});
     }
 
@@ -2095,17 +2100,28 @@ pub const Checker = struct {
     /// what it keeps are read loans; one holding a write view, a type
     /// parameter, or a type not known keeps every loan.
     fn carry(self: *Checker, ty: ?TypeId, v: Value) Error!Value {
+        return self.carryAs(ty, v, false);
+    }
+
+    /// The loans a call's result keeps of `v` (Core sentence 7), as
+    /// `carry` keeps them. A result that holds no write view reads what
+    /// it views, so every loan it keeps is a read loan, also one of an
+    /// argument or receiver lent to write: while the result lives, that
+    /// owner may be read but not written. What the call stores keeps its
+    /// loans where it stores them (`absorbThroughWrites`).
+    fn carryResult(self: *Checker, ty: ?TypeId, v: Value) Error!Value {
+        return self.carryAs(ty, v, true);
+    }
+
+    fn carryAs(self: *Checker, ty: ?TypeId, v: Value, result: bool) Error!Value {
         const ctx = self.sema orelse return v;
         const t = ty orelse return v;
         if (v.loans.len == 0) return v;
         const info = ctx.typeInfo(t);
         if (info.poison or info.holds_type_var or info.views.write or !(info.views.marked or info.views.string)) return v;
-        return self.carryAs(t, sema.holdsViewOnly(ctx, t), v);
-    }
-
-    fn carryAs(self: *Checker, ty: TypeId, strings: bool, v: Value) Error!Value {
+        const reads = result or sema.holdsViewOnly(ctx, t);
         var out: std.ArrayList(Loan) = .empty;
-        for (v.loans) |l| try self.carryLoan(&out, ty, strings, l, 0);
+        for (v.loans) |l| try self.carryLoan(&out, t, reads, l, 0);
         return .{ .loans = out.items };
     }
 
@@ -2117,14 +2133,17 @@ pub const Checker = struct {
         return v;
     }
 
-    fn carryLoan(self: *Checker, out: *std.ArrayList(Loan), ty: TypeId, strings: bool, l: Loan, depth: u8) Error!void {
+    fn carryLoan(self: *Checker, out: *std.ArrayList(Loan), ty: TypeId, reads: bool, l: Loan, depth: u8) Error!void {
         if (l.ext or depth >= 16 or try self.mayOwnView(l.root, ty)) {
             var kept = l;
-            if (strings and !l.ext) kept.kind = .read;
+            if (reads and !l.ext and l.kind == .write) {
+                kept.kind = .read;
+                kept.read_of_write = true;
+            }
             if (!containsLoan(out.items, kept)) try out.append(self.arena(), kept);
             return;
         }
-        for (self.flows.items[l.root].loans) |h| try self.carryLoan(out, ty, strings, h, depth + 1);
+        for (self.flows.items[l.root].loans) |h| try self.carryLoan(out, ty, reads, h, depth + 1);
     }
 
     /// Whether var `id`'s value may own memory a value of type `view`
@@ -3421,8 +3440,8 @@ pub const Checker = struct {
         // The result views only what could hold it (Core sentence 7). A
         // String's views end here but for those it keeps.
         const ty = self.exprType(node) orelse return result;
-        if (self.sema) |ctx| if (sema.holdsViewOnly(ctx, ty)) return self.keepViewTemps(temps_start, try self.carry(ty, result));
-        return self.carry(ty, result);
+        if (self.sema) |ctx| if (sema.holdsViewOnly(ctx, ty)) return self.keepViewTemps(temps_start, try self.carryResult(ty, result));
+        return self.carryResult(ty, result);
     }
 
     /// A value read in place, by value, before the operands after it run

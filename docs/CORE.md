@@ -300,11 +300,13 @@ cannot lend `v` to write while a read loan is live
 returns a view only of what it was lent, or of something that lives for
 the whole program (literals, module constants, `os.args()`). Its result
 carries the loans of the arguments whose types could hold what it views,
-or, when the result says `from a`, of `a` alone. A view reached through
-a read view that a value holds carries that view's loans, not a loan on
-the holder; one reached through a write view the value holds keeps the
-holder lent too. The
-compiler checks each body against its signature. *(built)*
+or, when the result says `from a`, of `a` alone. A result that holds no
+write view carries them as read loans, even one of an argument lent to
+write: after `r = head(!v)`, `v` may be read, but not written, while `r`
+lives. A view reached through a read view that a value holds carries
+that view's loans, not a loan on the holder; one reached through a write
+view the value holds keeps the holder lent too. The compiler checks each
+body against its signature. *(built)*
 
 ```rig reject
 fun pick(a: ?Vec[Int]) -> ?Vec[Int]
@@ -343,6 +345,39 @@ sub main
 
 ```output
 1 2
+```
+
+```rig
+fun head(v: !Vec[Int]) -> []Int
+  !v.push(v.len)
+  ?v[..1]
+
+sub main
+  v: Vec[Int] = Vec()
+  r = head(!v)
+  print(v.len, v[0])
+  print(r)
+```
+
+```output
+1 0
+[0]
+```
+
+```rig reject
+fun head(v: !Vec[Int]) -> []Int
+  !v.push(v.len)
+  ?v[..1]
+
+sub main
+  v: Vec[Int] = Vec()
+  r = head(!v)
+  !v.push(5)
+  print(r)
+```
+
+```error
+cannot lend `v` to write while a read loan is live
 ```
 
 ```rig

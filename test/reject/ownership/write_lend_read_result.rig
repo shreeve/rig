@@ -1,0 +1,142 @@
+# A call lent `!v` whose result holds no write view leaves `v` lent to
+# read while the result lives: `v` may not be written, reassigned, or
+# moved. A result that is or holds a write view keeps `v` lent to write,
+# and so does a write view the call stores in another argument.
+# oracle: writes reject C4
+# oracle: reassigns reject C4
+# oracle: moves reject C4
+# oracle: write_result reject C4
+# oracle: stored reject C4
+# oracle: receiver reject C4
+# oracle: field reject C4
+# oracle: element reject C4
+# oracle: generic reject C4
+# oracle: loop reject C4
+# oracle: deferred reject C4
+# oracle: closure reject C4
+
+struct Item
+  n: Int
+
+struct Bag
+  items: Vec[Item]
+  count: Int
+
+  fun first(!self) -> ?Item
+    ?self.items[0]
+
+struct Hold
+  w: !Vec[Item]
+
+fun first(v: !Vec[Item]) -> ?Item
+  ?v[0]
+
+fun gfirst[T](v: !Vec[T]) -> ?T
+  ?v[0]
+
+fun firstw(v: !Vec[Item]) -> !Item
+  !v[0]
+
+fun keep(v: !Vec[Item], h: !Hold, d: ?Item) -> ?Item
+  h.w = !v
+  d
+
+fun items -> Vec[Item]
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  v
+
+sub writes
+  v = items()
+  r = first(!v)
+  !v.push(Item(n: 2))
+  print(r.n)
+
+sub reassigns
+  v = items()
+  r = first(!v)
+  v = items()
+  print(r.n)
+
+sub moves
+  v = items()
+  r = first(!v)
+  w = <v
+  print(r.n, w.len)
+
+sub write_result
+  v = items()
+  r = firstw(!v)
+  print(v.len)
+  r.n += 1
+
+sub stored
+  v = items()
+  o = items()
+  h = Hold(w: !o)
+  x = Item(n: 5)
+  r = keep(!v, !h, ?x)
+  print(v.len)
+  print(r.n, h.w.len)
+
+sub receiver
+  b = Bag(items: items(), count: 0)
+  r = !b.first()
+  b.count += 1
+  print(r.n)
+
+sub field
+  b = Bag(items: items(), count: 0)
+  r = first(!b.items)
+  !b.items.push(Item(n: 2))
+  print(r.n)
+
+sub element
+  rows: Vec[Vec[Item]] = Vec()
+  !rows.push(items())
+  r = first(!rows[0])
+  !rows.push(items())
+  print(r.n)
+
+sub generic
+  v = items()
+  r = gfirst(!v)
+  !v.push(Item(n: 2))
+  print(r.n)
+
+sub loop
+  v = items()
+  r = first(!v)
+  for i in 0..2
+    print(r.n)
+    !v.push(Item(n: i))
+
+sub deferred
+  v = items()
+  r = first(!v)
+  defer print(r.n)
+  !v.push(Item(n: 2))
+
+sub closure
+  v = items()
+  r = first(!v)
+  f = |?r| print(r.n)
+  !v.push(Item(n: 2))
+  f()
+
+sub main
+  writes()
+
+# error: 52:3: cannot lend `v` to write while a read loan is live
+# error: 58:3: cannot reassign `v` while it is lent
+# error: 64:8: cannot move `v` while a read loan is live
+# error: 70:9: use of `v` while a write loan is live
+# error: 79:9: use of `v` while a write loan is live
+# error: 85:3: cannot assign to `b.count` while `b` is lent
+# error: 91:3: cannot lend `b` to write while a read loan is live
+# error: 98:3: cannot lend `rows` to write while a read loan is live
+# error: 104:3: cannot lend `v` to write while a read loan is live
+# error: 112:5: cannot lend `v` to write while a read loan is live
+# error: 118:3: cannot lend `v` to write while a read loan is live
+# error: 124:3: cannot lend `v` to write while a read loan is live
+# errors: 12

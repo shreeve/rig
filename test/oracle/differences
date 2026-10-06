@@ -83,11 +83,6 @@ test/corpus/R15-p-m2.rig main prod-rejects prod-strict `w = !s.arr[..]` views an
 test/corpus/review-step3-l14_handle_in_vec_loop.rig main prod-rejects prod-strict `keep(h)` of a `for h in v` element of a Vec of handles, used within the iteration
 test/corpus/syntax-review-complete-g3.rig Map.find_mut prod-rejects prod-strict `return !e` of a `for e in !self.es` element views what `self` was lent
 
-# Whether a call's view result keeps a write argument write-lent: the
-# Core says a result carries the loans it was lent (s7, built), not in
-# which mode; the oracle reads them as read loans.
-test/corpus/r3-or-pa-downgrade.rig main prod-rejects core-gap `r = bump(!c)` then `print(c.n)` while `r` lives
-
 # Whether dropping a Vec of views where its scope ends uses the views:
 # no `drop` body reads them (Core s3, s6), and an explicit `-v` ends
 # them in both checkers.
