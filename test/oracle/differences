@@ -109,3 +109,10 @@ test/corpus/review-step45-r2-e14_match.rig main prod-rejects prod-strict `cnt(?o
 test/reject/ownership/call_write_lend_kept.rig match_arm_writes prod-rejects prod-strict `!v.push(Item(n: it.n))` in an arm of `match find(!v)`, after the last use of `it`
 test/reject/ownership/call_write_lend_kept.rig write_result_whole prod-rejects prod-strict `v.len` after `firstw(!v).n`, the last use of the write view, in one statement
 test/reject/ownership/call_write_lend_kept.rig stored_whole prod-rejects prod-strict `v.len` after `keep(!v, !h, ?x)`, which stores `!v` in `h`, used no more, in one statement
+
+# A generic callee's origins come from its signature, where a `T` could
+# hold anything, so the call may store its `!v` argument and that write
+# lend lasts to the statement's end; the oracle reads the instance, whose
+# `?Item` result only reads `v` (Core s7). Per-instance origins are a
+# later refinement.
+test/corpus/review-c-rules-r2-cf_generic_ok.rig main prod-rejects prod-strict `print(gfirst(!v).n, v.len)` of a generic `gfirst[T](v: !Vec[T]) -> ?T`

@@ -187,7 +187,11 @@ and run the corpus after.
   use, `print(firstw(!v).n, v.len)` is rejected, and so is reading `v`
   after `keep(!v, !h, ?x)` in its statement though `h` is used no more.
   The Core allows all three, and the oracle accepts them. A later round
-  ends these loans at their last use within the statement.
+  ends these loans at their last use within the statement. Likewise a
+  generic callee's argument write lend lasts to the statement's end,
+  since its origins come from its signature, where a `T` could hold
+  anything (`print(gfirst(!v).n, v.len)` is rejected); per-instance
+  origins are a later refinement.
 - **Review findings not fixed:**
   - `|+x|` captures a copy of plain data or a handle only; a deep copy
     of an owner is *planned* (CORE §7).

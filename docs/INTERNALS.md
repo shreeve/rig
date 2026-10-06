@@ -1553,7 +1553,12 @@ the result keeps stays lent, to read, for the rest of the statement, so
 `print(first(!v).n, v.len)`, a `for` over such a call, and a `match`
 on one read `v` as the split forms do. What the call stores
 keeps its own loans where it stores them, and the write lend it stored
-lasts to the statement's end as before: a write view of `v` stored in
+lasts to the statement's end as before. Whether a call may store an
+argument is its origins' `stores`, from the signature, so a generic
+callee's argument write lend lasts to the statement's end (a `T` could
+hold anything): `print(gfirst(!v).n, v.len)` is rejected, while
+`r = gfirst(!v)` then `print(v.len)` is accepted; per-instance origins
+are a later refinement: a write view of `v` stored in
 `h` keeps `v` lent to write while `h` lives. A loan kept this way is
 marked `read_of_write`, so a conflict's note says the lend was a write. Every lend made in an argument still ends with its
 statement (the statement's temporaries are as before).
