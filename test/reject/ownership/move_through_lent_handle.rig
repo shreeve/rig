@@ -1,0 +1,13 @@
+# A path through a lend of a shared handle reaches the handle's value,
+# which other handles may still use: nothing is moved out of it, and the
+# diagnostic names the handle.
+
+struct S
+  items: Vec[Int]
+
+sub main
+  h = *S(items: Vec())
+  x = <(?h).items
+  print(x)
+
+# error: 10:8: cannot move out of `(?h).items`: it is reached through the shared handle `h`, and other handles may still use it

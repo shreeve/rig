@@ -2421,11 +2421,43 @@ pub const Checker = struct {
     /// `<e`: move a whole binding, or reject moving out of a path.
     fn walkMove(self: *Checker, inner: Sexp) Error!Value {
         const place = self.resolvePlace(inner) orelse {
+            // A path that starts from no var reaches its value through a
+            // view or a handle when one of the values on it is one, by its
+            // type: `(!s).items`, `(?s if c else ?t).items`,
+            // `wrap(!s).items`.
+            if (self.viewOnPath(inner)) |via| return self.movePath(inner, .{ .root = 0, .whole = false, .through_view = !via.shared, .through_shared = via.shared }, via.value);
             if (try self.movedTail(inner, inner, false)) |_| return .{};
             return self.walk(inner);
         };
         if (place.whole) return self.moveVar(place.root, self.startOf(inner), .move);
-        return self.movePath(inner, place);
+        return self.movePath(inner, place, null);
+    }
+
+    /// Whether `ty` is a shared or weak handle.
+    fn isHandleType(self: *const Checker, ty: ?TypeId) bool {
+        const t = ty orelse return false;
+        return switch (self.typeData(t)) {
+            .shared, .weak => true,
+            else => false,
+        };
+    }
+
+    /// The value a field or element path reaches its place through that
+    /// is a view (`?T`, `!T`, a slice) or a shared handle, by the type
+    /// of each value on the path, as `resolvePlace` judges a place's:
+    /// `(!s)` in `(!s).items[0]`, `wrap(!s)` in `wrap(!s).items`.
+    fn viewOnPath(self: *const Checker, e: Sexp) ?struct { value: Sexp, shared: bool } {
+        var p = e;
+        while (p.isKind(.member) or p.isKind(.index)) {
+            const obj = ir.get(p, .object);
+            if (self.exprType(obj)) |t| switch (self.typeData(t)) {
+                .read_view, .write_view, .slice, .string => return .{ .value = obj, .shared = false },
+                .shared => return .{ .value = obj, .shared = true },
+                else => {},
+            };
+            p = obj;
+        }
+        return null;
     }
 
     fn takes(self: *const Checker, e: Sexp) bool {
@@ -2554,14 +2586,28 @@ pub const Checker = struct {
     }
 
     /// `<p.a` / `<v[i]`: only Copy values can leave a field or element.
-    fn movePath(self: *Checker, inner: Sexp, place: Place) Error!Value {
+    /// A path from no var reaches it through `via`, a view or a handle
+    /// (`viewOnPath`), whatever its syntax.
+    fn movePath(self: *Checker, inner: Sexp, place: Place, via: ?Sexp) Error!Value {
         const value = try self.walk(inner);
         const ty = self.exprType(inner);
         if (ty != null and self.copies(ty)) return value;
         if (ty != null and self.refOfType(ty) == .read) return value;
         const path = try self.placeText(inner);
-        const root = self.vars.items[place.root].name;
         const pos = self.startOf(inner);
+        if (via) |l| {
+            const shown = self.spanText(inner);
+            const lent_handle = (l.isKind(.read) or l.isKind(.write)) and self.isHandleType(self.exprType(ir.get(l, .operand)));
+            if (place.through_shared or lent_handle) {
+                const handle = if (lent_handle) ir.get(l, .operand) else l;
+                try self.err(pos, "cannot move out of `{s}`: it is reached through the shared handle `{s}`, and other handles may still use it; clone it with `+({s})`", .{ shown, self.spanText(handle), shown });
+            } else if ((l.isKind(.read) or l.isKind(.write)) and self.resolvePlace(ir.get(l, .operand)) != null) {
+                // A lend of a place: the place's own path names the part.
+                try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view; exchange it instead: `replace(!{s}, v)`", .{ shown, self.spanText(l), path });
+            } else try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `replace`", .{ shown, self.spanText(l) });
+            return .{};
+        }
+        const root = self.vars.items[place.root].name;
         if (place.through_view) {
             try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; exchange it instead: `replace(!{s}, v)`", .{ path, root, path });
         } else if (place.through_shared) {
@@ -3155,8 +3201,15 @@ pub const Checker = struct {
     fn walkFieldAssign(self: *Checker, target: Sexp, expr: Sexp) Error!void {
         const value = try self.walkConsumed(expr, .field);
         const place = self.resolvePlace(target) orelse {
-            _ = try self.walk(target);
-            return;
+            // A target whose path starts from a value no var holds (a
+            // lend, `(!h).r`, or a write view a call returns,
+            // `wrap(!h).r`) is reached through that value's write loans:
+            // what is stored there lands in what they reach.
+            const base = pathBase(target);
+            const lent = try self.walk(base);
+            try self.walkPlaceIndices(target);
+            if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
+            return self.storeThroughLend(lent, value, self.startOf(target));
         };
         try self.walkPlaceIndices(target);
         const id = place.root;
@@ -3202,6 +3255,23 @@ pub const Checker = struct {
         var f = self.flows.items[id];
         f.loans = try self.unionLoans(f.loans, value.loans);
         try self.setFlow(id, f);
+    }
+
+    /// `stored` is stored through the write lend `lent`, whatever the
+    /// syntax that reaches it: a write receiver (`wrap(!h).keep(v)`,
+    /// `(!a if c else !b).keep(v)`), or an assignment's target that no
+    /// var holds (`(!h).r = v`, `wrap(!h).r = v`). Whatever its write
+    /// loans reach holds `stored`'s loans from here on.
+    fn storeThroughLend(self: *Checker, lent: Value, stored: Value, pos: u32) Error!void {
+        try self.absorbThroughWrites(lent, stored, pos, null, null);
+    }
+
+    /// The value a field or element path starts from: `(!h)` in
+    /// `(!h).rs[0]`, `wrap(!h)` in `wrap(!h).r`.
+    fn pathBase(e: Sexp) Sexp {
+        var p = e;
+        while (p.isKind(.member) or p.isKind(.index)) p = ir.get(p, .object);
+        return p;
     }
 
     /// `value`, which carries only loans the caller handed in, was stored
@@ -3508,12 +3578,20 @@ pub const Checker = struct {
         // stores only elements, which may hold no view to store.
         if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             // A receiver lent to read is never written (Core sentence 9:
-            // what changes through one is a Cell, which holds no loan).
-            if (recv_root) |id| if (recv_mode == .write) {
+            // what changes through one is a Cell, which holds no loan). A
+            // receiver lent to write holds what the call stores, whatever
+            // its form: what its write lend reaches, a place's var, or the
+            // write loans its value carries (a write view a call returns,
+            // each branch of a branching receiver, a value the call holds).
+            if (recv_mode == .write and callee.isKind(.member)) {
                 const obj = ir.Member.object(callee);
                 // What the receiver is, not the view lending it.
-                if (self.mayCarryLoan(self.pointee(self.exprType(obj)))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null, true);
-            };
+                if (self.mayCarryLoan(self.pointee(self.exprType(obj)))) {
+                    const pos = self.startOf(obj);
+                    const lent: Value = if (recv_root) |id| .{ .loans = try self.oneLoan(.{ .root = id, .kind = .write, .pos = pos }) } else recv_value;
+                    try self.storeThroughLend(lent, stored, pos);
+                }
+            }
             try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
             for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
         }

@@ -1,0 +1,22 @@
+# A binding that holds a function is a name like any other: it may be
+# lent to write, and the callee may re-point it. A function itself is a
+# constant (`test/reject/types/write_lend_constant.rig`).
+
+fun f(n: Int) -> Int
+  n
+
+fun g(n: Int) -> Int
+  n * 10
+
+sub setf(h: !fun(Int) -> Int)
+  print(h(1))
+  h = g
+
+sub main
+  h = f
+  setf(!h)
+  print(h(2))
+
+# expect:
+# 1
+# 20

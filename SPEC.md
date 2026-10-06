@@ -3007,6 +3007,16 @@ sub main
 150 150
 ```
 
+A constant (a literal, `none`, a function, a module's constant, an
+enum variant that holds no payload or an error value, a number type's
+limit such as `Int.max`, or a type's function such as `P.origin`, of
+any module, an operator applied to constants, or a value that
+branches, every value of which is a constant) lives for the whole
+program and never changes, so it is never lent to write:
+`setb(!false)`, `setc(!Color.red)`, `inc(!Int.max)`, and `setf(!f)`
+are rejected. A local binding is no constant, whatever it holds:
+`g = f` may be lent to write.
+
 `?x` and `!x` lend the view the context expects:
 
 | Owner `x` | `?x` lends | `!x` lends |
@@ -3611,7 +3621,13 @@ that owns a resource moved into it (`if <o as n`) has fields that can be
 written and taken, like a local's. A local binding is still moved whole:
 `<x` leaves `x` unusable, never `none`. `<`'s operand is a place or a
 value made there: `<(a if c else b)` and `<o?` are rejected, and written
-`<a if c else <b` and `(<o)?`.
+`<a if c else <b` and `(<o)?`. A path that passes through a value of
+a view type (`!T`, `?T`, a slice) or a handle reaches its place through
+it, whatever its syntax: `(!p).f`, `(?a if c else ?b).f`, and
+`wrap(!p).f` of a call returning a `!T`. Through a write view an
+optional is taken there; through a `?T` or a handle nothing is, since
+the take writes the place. Nothing else is moved out through any of
+them (`replace(!p.f, v)` exchanges it).
 
 ```rig
 struct Node

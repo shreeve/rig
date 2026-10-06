@@ -1,0 +1,69 @@
+# A field or element path that reaches its place through a view, by the
+# type of a value on the path (`!S`, `?S`, a write view a call returns,
+# a branching value of lends), lets `<` move nothing out of it, as
+# `<v.items` through a view `v` does not: the part stays owned by the
+# value viewed, a name, a parameter's caller's value, or a temporary.
+# Exchange it instead.
+# oracle: from_branch reject C3
+# oracle: from_read_branch reject C3
+# oracle: from_call reject C3
+
+struct S
+  n: Int
+  items: Vec[Int]
+
+fun mk(n: Int) -> S
+  s = S(n: n, items: Vec())
+  !s.items.push(n)
+  s
+
+fun wrap(s: !S) -> !S
+  s
+
+fun f(n: Int) -> Int
+  n
+
+sub steal(p: !S)
+  x = <(!p).items
+  print(x)
+
+sub from_branch
+  s = mk(1)
+  t = mk(2)
+  c = f(1) == 1
+  x = <(!s if c else !t).items
+  print(x)
+
+sub from_read_branch
+  s = mk(1)
+  t = mk(2)
+  c = f(1) == 1
+  x = <(?s if c else ?t).items
+  print(x)
+
+sub from_call
+  s = mk(1)
+  x = <wrap(!s).items
+  print(x)
+
+sub main
+  s = mk(1)
+  x = <(!s).items
+  y = <(?s).items
+  z = <(?mk(2)).items
+  v: Vec[Vec[Int]] = Vec()
+  !v.push(Vec())
+  w = <(?v)[0]
+  u = <(!v)[0]
+  print(x, y, z, w, u)
+
+# error: 27:8: cannot move out of `(!p).items`: it is reached through `!p`, a view; exchange it instead: `replace(!p.items, v)`
+# error: 34:8: cannot move out of `(!s if c else !t).items`: it is reached through `!s if c else !t`, a view
+# error: 41:8: cannot move out of `(?s if c else ?t).items`: it is reached through `?s if c else ?t`, a view
+# error: 46:8: cannot move out of `wrap(!s).items`: it is reached through `wrap(!s)`, a view
+# error: 51:8: cannot move out of `(!s).items`: it is reached through `!s`, a view
+# error: 52:8: cannot move out of `(?s).items`: it is reached through `?s`, a view
+# error: 53:8: cannot move out of `(?mk(2)).items`: it is reached through `?mk(2)`, a view
+# error: 56:8: cannot move out of `(?v)[0]`: it is reached through `?v`, a view
+# error: 57:8: cannot move out of `(!v)[0]`: it is reached through `!v`, a view
+# errors: 9

@@ -3688,6 +3688,11 @@ const Checker = struct {
             try self.errAt(e, "`!` lends to write; use `not` for negation (a `Bool` is lent to write only where a `!Bool` is expected: `f(!flag)`)", .{});
             return self.t().invalid_id;
         }
+        // A constant lives for the whole program and never changes.
+        if (kind == .write and try self.isConstant(operand)) {
+            try self.errAt(operand, "cannot lend constant `{s}` to write: it lives for the whole program and never changes; bind its value to a name first", .{self.sourceText(operand)});
+            return self.t().invalid_id;
+        }
         // `![]T` is a writable slice, which a read-only `[]T` cannot give.
         if (kind == .write and self.ctx.types.get(inner) == .slice) {
             try self.errAt(operand, "cannot lend a `{s}` to write: its elements are read-only; take a writable slice of the array or Vec it views with `!xs[a..b]`", .{try self.tyName(inner)});
@@ -3731,6 +3736,61 @@ const Checker = struct {
         }
         if (self.isTemporary(operand)) try self.lendTemp(operand);
         return true;
+    }
+
+    /// Whether `e` is a constant, a value that lives for the whole
+    /// program and never changes (Core sentence 7), by what it means: a
+    /// literal or `none`; a function, or a module's constant, named here
+    /// (`f`, `K`) or in another module (`lib.twice`, `lib.K`); a member
+    /// of a type, here or in another module (an enum variant that holds
+    /// no payload, `Color.red`; an error value, `E.bad`; a number type's
+    /// limit, `Int.max`; a type's function, `P.origin`); an enum or error
+    /// literal with no payload (`.red`); an operator applied to constants
+    /// (`2 + 3`, `-5`, `Int.max - 1`); or a value that branches, every
+    /// value of which is a constant. A local binding is no constant,
+    /// whatever it holds: `g = f` may be lent to write.
+    fn isConstant(self: *Checker, e: Sexp) Error!bool {
+        switch (e) {
+            .src => {
+                const id = self.ctx.symbolOf(e) orelse return self.hands(e).kind == .made;
+                const sym = self.ctx.symbols.items[id];
+                return sym.kind == .function or self.rootOf(sym) == .constant;
+            },
+            .list => {},
+            else => return false,
+        }
+        {
+            var leaves: std.ArrayList(Sexp) = .empty;
+            defer leaves.deinit(self.ctx.allocator);
+            try sema.valueLeaves(self.ctx.allocator, e, &leaves);
+            // A value that branches.
+            if (leaves.items.len != 1 or !sameNode(leaves.items[0], e)) {
+                for (leaves.items) |leaf| if (!try self.isConstant(leaf)) return false;
+                return leaves.items.len > 0;
+            }
+        }
+        return switch (e.kind() orelse return false) {
+            .enum_lit => true,
+            .member => self.ctx.isErrorMember(e) or try self.namesTypeConstant(e) or self.namesModuleConstant(e),
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>" => for (rig.children(e)) |c| {
+                if (!try self.isConstant(c)) break false;
+            } else true,
+            else => false,
+        };
+    }
+
+    /// `T.name` of a type `T` (a number type, a struct, enum, or error
+    /// set, an alias, here or in another module): a constant the type
+    /// holds, a variant, an error value, a limit, or a function.
+    fn namesTypeConstant(self: *Checker, e: Sexp) Error!bool {
+        const obj = ir.Member.object(e);
+        return (try self.numberType(obj)) != null or (try self.namedType(obj)) != null;
+    }
+
+    /// `m.name` of another module's function or constant.
+    fn namesModuleConstant(self: *Checker, e: Sexp) bool {
+        const sym = self.foreignMember(e) orelse return false;
+        return sym.kind == .function or (sym.kind == .local and sym.flags.fixed);
     }
 
     /// `U8`, a String's byte.
