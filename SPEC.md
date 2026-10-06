@@ -1828,8 +1828,8 @@ alone (a `![]T` local alike), and a bare `w = w2` reads the value `w2`
 reaches and writes it through `w`. A new local holds a write view the
 same way, with or without a type: `w = slot(!n)`, a call returning a
 `!Int`, holds the view, as `w: !Int = slot(!n)` does, so `w = 5`
-writes `n`; a bare name, a path, or a loop's value of type `!Int`
-binds the value it reaches. A parameter is never re-pointed:
+writes `n`; a bare name, a field or element, or a loop's value of type
+`!Int` binds the value it reaches. A parameter is never re-pointed:
 `w = !m` of a `!T` parameter is rejected, and `new w = !m` binds a new
 name instead. A field or element of type `!T` follows the same rule:
 `h.w = 5`, `h.w += 1`, `xs[i] += 1`, and `h.w = w2` write the
@@ -1837,9 +1837,15 @@ value the place views, while assigning another write view,
 `h.w = !m`, points the place at `m`. Writing through a view held in
 a field, or lending it with `!h.w`, needs write access to the struct,
 as writing any field does, so a plain parameter `h: H`, a capture, or
-a temporary cannot. A bare `w` of type `!Int` where an `Int` goes
-copies the value it reaches (`x = w`), and so does one assigned to a
-`!Int` place (`h.w = w`); `h.w = <w` moves the view there instead.
+a temporary cannot. A bare name or place only reads (Core sentence 1):
+a bare `w`, field `h.w`, or element `ws[i]` of type `!Int` where a value
+is taken copies the value it reaches (`x = w`, `x = h.w`,
+`x = ws[i]`, `x: Int = h.w`, an argument, an operand, a branching value
+of them), and so does one assigned to a `!Int` place (`h.w = w`,
+`h.w = g.w`); `h.w = <w` moves the view there instead, and `x = !h.w`
+lends it on. A write view of anything but a number, `Bool`, `String`,
+or plain enum is never read out this way, and one bound with a `!T`
+type (`x: !Int = h.w`) would copy the view, so both are rejected.
 
 ```rig
 struct Counter
@@ -2788,9 +2794,10 @@ bare use of shared (`*T`) handle `a` in binding would alias the handle
 A view of a number, `Bool`, `String`, or plain enum reads as the value
 wherever the value is expected, whether a name holds the view or an
 expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`); the
-loan taken to reach it ends there. A binding with no type expects no
-value, so it holds a write view a call yields ([View
-places](#view-places)). Other values are not copied out of a view: lend
+loan taken to reach it ends there. A bare name or place only reads, so
+a binding with no type reads the value a name's, field's, or element's
+write view sees (`x = h.w`), and holds a write view a call yields, which
+is a value, not a place ([View places](#view-places)). Other values are not copied out of a view: lend
 them on, as `?T` or `!T`.
 
 ```rig
@@ -3100,9 +3107,12 @@ until its last use. Every later use counts: a use further on, a use
 anywhere in a loop around it that the binding was declared outside of
 (the next iteration runs it again), a closure that captured it (and
 every use of that closure), a binding that views the view in turn,
-deferred code, and the drop at scope exit of a value whose type has
-drop glue. The binding's block ending, `-r`, or reassigning it also end
-the view.
+deferred code, and the drop at scope exit of a value whose drop runs a
+`drop` body (its own, or one of a value it holds and drops), which could
+read the view. Any other drop only releases memory, so a `Vec[?T]`, or
+a struct holding views without a `drop` body, keeps their loans only
+until its last use. The binding's block ending, `-r`, or reassigning it
+also end the view.
 
 ```rig
 struct Wrap
@@ -3260,6 +3270,15 @@ the checker tracks where every one came from.
   String argument included: it may view a Text ([§10](#text)). An
   argument that could not (an `Int` key for a `?Item` result, a String
   for a `?Item`) is free again after the call.
+- A result that holds no write view only reads what it views, so the
+  loans it carries are read loans, even of an argument lent to write,
+  whose write lend ends as the call returns unless the call may store
+  it (a generic callee, whose `T` could hold anything, may): after
+  `r = head(!v)`, `v` may be read while `r` lives, but not written,
+  moved, or dropped, and so it may in the call's own statement (`print(head(!v), v.len)`), the
+  body of `for x in head(!v)`, and the arms of a `match` on such a call. A result that is or holds a write view (`-> !Int`)
+  keeps the argument lent to write, and so does a write view the call
+  stores in what it was lent to write, while what holds it lives.
 - A result may say which parameters it views: `-> ?Item from a` (also
   `from a, b`, `from self`, and `from static`, for only what lives for
   the whole program). The result then views from those arguments
@@ -3325,6 +3344,28 @@ sub main
 
 ```error
 cannot drop `y` while it is lent
+```
+
+```rig
+struct Bag
+  items: Vec[Int]
+  taken: Int
+
+  fun take(!self) -> []Int
+    self.taken += 1
+    ?self.items[..1]
+
+sub main
+  b = Bag(items: Vec(), taken: 0)
+  !b.items.push(4)
+  r = !b.take()
+  print(b.taken, b.items.len)
+  print(r)
+```
+
+```output
+1 1
+[4]
 ```
 
 A view parameter can be forwarded (`g(?b)` with `b: ?B`). The caller
@@ -4171,7 +4212,8 @@ closure's captures, and a call's result, since a function returning a
 String may return a view of a String it was passed
 ([§7](#second-class-views)). Once the last use of the String, and of
 every value holding it, is past, the Text is free again; a Vec holding
-one is in use until it is dropped.
+one is in use until its last use, since dropping it reads no String
+([§7](#how-long-a-loan-lasts)).
 
 `Text(...)` and `!t.add(...)` only read their arguments, as `print`
 does: a place is read where it is when the call runs, after its later
@@ -4241,8 +4283,8 @@ Text it came from, copy it into a Text of its own: `Text(s)`.
 
 A Text owns its bytes, and a `Vec[Text]` owns its Texts, as
 `Vec[Box[Text]]` does through its boxes. A Vec that
-holds views keeps their Texts lent until it is dropped, since it is
-in use until then; drop it early with `-v` to change them sooner.
+holds views keeps their Texts lent until its last use, not until it is
+dropped, since dropping it reads none of them.
 
 ```rig
 sub main
@@ -4253,7 +4295,6 @@ sub main
   views: Vec[String] = Vec()
   !views.push(?t[..1])
   print(owned, views)
-  -views
   !t.add("!")
   print(t)
 ```

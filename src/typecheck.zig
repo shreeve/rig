@@ -836,11 +836,13 @@ const Checker = struct {
             rhs_ty = declared;
         } else {
             rhs_ty = try self.synthExpr(rhs);
-            // A binding holds the write view its initializer hands over
+            // A binding holds the write view a call or a lend hands over
             // (`yieldsWriteView`), as `w: !T = e` does, so assigning it
-            // writes through (Core §6). A name, a path, or a loop's value
-            // of type `!T`, and a read view of a number, `Bool`,
-            // `String`, or plain enum, binds the value it reaches.
+            // writes through (Core §6). A bare name or place only reads
+            // (Core sentence 1): a name, field, element, or loop value of
+            // type `!T`, a branching value of them, and a read view of a
+            // number, `Bool`, `String`, or plain enum bind the value it
+            // reaches.
             const holds_write_view = self.ctx.types.get(rhs_ty) == .write_view and yieldsWriteView(rhs);
             if (!rhs.isKind(.read) and !holds_write_view) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);

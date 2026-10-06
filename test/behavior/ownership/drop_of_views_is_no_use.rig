@@ -1,0 +1,171 @@
+# Dropping a container of views is not a use of those views: a Vec, a
+# generic instance, a struct, or a closure's environment that holds views and runs no
+# `drop` body keeps their loans only until its last use, not until it is
+# dropped where its scope ends (Core sentence 6). So the viewed owners may
+# change after that, and a view of a value from an inner block may stay
+# in it.
+# oracle: slices accept
+# oracle: write_views accept
+# oracle: returned accept
+# oracle: fields accept
+# oracle: elements accept
+# oracle: in_closure accept
+# oracle: loops accept
+# oracle: inner_block accept
+# oracle: deferred accept
+
+struct Item
+  n: Int
+  name: String
+
+struct Holder[T]
+  items: Vec[T]
+
+struct Views
+  first: ?Item
+  rest: Vec[?Item]
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1] + b[2]
+
+fun firsts(a: ?Item, b: ?Item) -> Vec[?Item]
+  v: Vec[?Item] = Vec()
+  !v.push(a)
+  !v.push(b)
+  v
+
+sub slices
+  a = [1, 2, 3]
+  v: Vec[[]Int] = Vec()
+  !v.push(?a[..2])
+  !v.push(?a[1..])
+  print(clobber(1))
+  print(v)
+  a[0] = 9
+  print(a)
+
+sub write_views
+  a = 1
+  b = 2
+  ws: Vec[!Int] = Vec()
+  !ws.push(!a)
+  !ws.push(!b)
+  ws[1] = 9
+  print(a, b)
+
+sub returned
+  x = Item(n: 1, name: "x")
+  y = Item(n: 2, name: "y")
+  v = firsts(?x, ?y)
+  print(clobber(2))
+  print(v[0].name, v[1].n)
+  x = Item(n: 3, name: "z")
+  print(x.name)
+
+sub fields
+  x = Item(n: 1, name: "x")
+  y = Item(n: 2, name: "y")
+  s = Views(first: ?x, rest: Vec())
+  !s.rest.push(?y)
+  print(clobber(3))
+  print(s.first.name, s.rest[0].name)
+  y.n = 5
+  x = Item(n: 4, name: "w")
+  print(x.n, y.n)
+
+sub elements
+  x = Item(n: 1, name: "x")
+  rows: Vec[Vec[?Item]] = Vec()
+  row: Vec[?Item] = Vec()
+  !row.push(?x)
+  !rows.push(<row)
+  print(clobber(4))
+  print(rows[0][0].name)
+  x.n = 7
+  print(x.n)
+
+sub generic
+  a = [4, 5]
+  h: Holder[[]Int] = Holder(items: Vec())
+  !h.items.push(?a[..])
+  print(clobber(5))
+  print(h.items[0])
+  a[1] = 6
+  print(a)
+
+sub loops
+  xs = [Item(n: 1, name: "a"), Item(n: 2, name: "b")]
+  seen: Vec[?Item] = Vec()
+  for i in 0..2
+    !seen.push(?xs[i])
+    print(seen.len, seen[i].name)
+  xs[0] = Item(n: 3, name: "c")
+  print(xs[0].name)
+
+sub inner_block
+  v: Vec[?Item] = Vec()
+  if true
+    t = Item(n: 8, name: "inner")
+    !v.push(?t)
+    print(clobber(6))
+    print(v[0].name)
+  print("after")
+
+sub deferred
+  x = Item(n: 1, name: "x")
+  defer print("deferred", x.n)
+  v: Vec[?Item] = Vec()
+  !v.push(?x)
+  print(v.len)
+  x.n = 2
+
+sub in_closure
+  x = Item(n: 1, name: "x")
+  v: Vec[?Item] = Vec()
+  !v.push(?x)
+  f = |<v| print(v.len, v[0].name)
+  f()
+  x.n = 2
+  print(x.n)
+
+sub main
+  slices()
+  write_views()
+  returned()
+  fields()
+  elements()
+  generic()
+  loops()
+  inner_block()
+  deferred()
+  in_closure()
+
+# expect:
+# 5
+# [[1, 2], [2, 3]]
+# [9, 2, 3]
+# 1 9
+# 7
+# x 2
+# z
+# 9
+# x y
+# 4 5
+# 11
+# x
+# 7
+# 13
+# [4, 5]
+# [4, 6]
+# 1 a
+# 2 b
+# c
+# 15
+# inner
+# after
+# 1
+# deferred 2
+# 1 x
+# 2

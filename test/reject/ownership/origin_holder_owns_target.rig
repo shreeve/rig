@@ -1,5 +1,5 @@
 # A cursor that also owns items of the type it hands out keeps itself
-# lent: its result may view its own `scratch`.
+# lent, to read: its result may view its own `scratch`.
 
 struct Item
   n: Int
@@ -23,4 +23,4 @@ sub main
   b = !c.next()
   print(a.n, b.n)
 
-# error: 23:8: use of `c` while a write loan is live
+# error: 23:7: cannot lend `c` to write while a read loan is live

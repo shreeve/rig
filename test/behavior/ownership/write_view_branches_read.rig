@@ -1,0 +1,45 @@
+# A branching value of write views where the value they see is wanted
+# reads that value in each branch (Core §4): a bare name binds it, and a
+# field or element is read under an annotation (Core §5). Changing the
+# copy changes neither viewed value.
+# oracle: names accept
+# oracle: fields accept
+
+struct H
+  w: !Int
+
+fun pick -> Bool
+  true
+
+sub names
+  n = 1
+  m = 2
+  w = !n
+  v = !m
+  y = w if pick() else v
+  y += 10
+  print(y)
+  print(n, m)
+
+sub fields
+  n = 1
+  m = 2
+  h = H(w: !n)
+  g = H(w: !m)
+  y: Int = h.w if pick() else g.w
+  z: Int = match y
+    1 => g.w
+    _ => h.w
+  y += 10
+  print(y, z)
+  print(n, m)
+
+sub main
+  names()
+  fields()
+
+# expect:
+# 11
+# 1 2
+# 11 2
+# 1 2

@@ -1,0 +1,161 @@
+# A call lent `!v` whose result holds no write view reads what it views:
+# while the result lives, `v` is lent to read, so `v` may be read, and
+# other read lends of it are fine (Core sentence 7). This holds for an
+# argument, a write receiver, a field or element lent to write, a
+# generic call, inside a closure, in a loop, and in deferred code.
+# oracle: main accept
+# oracle: fields accept
+# oracle: elements accept
+# oracle: receivers accept
+# oracle: loops accept
+# oracle: deferred accept
+# oracle: in_closure accept
+
+struct Item
+  n: Int
+  name: String
+
+struct Bag
+  items: Vec[Item]
+  count: Int
+
+  fun first(!self) -> ?Item
+    self.count += 1
+    ?self.items[0]
+
+struct Counter
+  n: Int
+  items: Vec[Int]
+
+fun bump(c: !Counter) -> ?Vec[Int]
+  c.n += 1
+  ?c.items
+
+fun first(v: !Vec[Item]) -> ?Item
+  ?v[0]
+
+fun firsts(v: !Vec[Item]) -> []Item
+  ?v[..1]
+
+fun gfirst[T](v: !Vec[T]) -> ?T
+  ?v[0]
+
+fun size(v: ?Vec[Item]) -> Int
+  v.len
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1] + b[2]
+
+fun items -> Vec[Item]
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1, name: "one"))
+  !v.push(Item(n: 2, name: "two"))
+  v
+
+sub fields
+  c = Counter(n: 0, items: Vec())
+  !c.items.push(7)
+  r = bump(!c)
+  print(c.n, c.items.len)
+  print(clobber(1))
+  print(r.len, r[0])
+  b = Bag(items: items(), count: 0)
+  s = first(!b.items)
+  print(b.count, size(?b.items))
+  print(clobber(2))
+  print(s.n, s.name)
+
+sub elements
+  rows: Vec[Vec[Item]] = Vec()
+  !rows.push(items())
+  r = first(!rows[0])
+  print(rows.len, rows[0].len)
+  print(clobber(3))
+  print(r.n, r.name)
+  t = firsts(!rows[0])
+  print(rows[0][1].name, t.len)
+
+sub receivers
+  b = Bag(items: items(), count: 0)
+  r = !b.first()
+  print(b.count, b.items.len)
+  q = ?b
+  print(clobber(4))
+  print(r.n, r.name, q.count)
+
+sub generic
+  v = items()
+  r = gfirst(!v)
+  print(v.len, size(?v))
+  print(clobber(5))
+  print(r.n, r.name)
+
+sub loops
+  v = items()
+  for i in 0..2
+    r = first(!v)
+    print(i, v.len, r.name)
+  total = 0
+  while total < 2
+    r = first(!v)
+    total += r.n
+    print(v[1].name, r.n)
+
+sub deferred
+  v = items()
+  r = first(!v)
+  defer print("deferred", v.len, r.name)
+  print(v.len)
+
+sub in_closure
+  v = items()
+  g = |!v|
+    r = first(!v)
+    print(v.len)
+    print(r.n)
+  g()
+
+sub main
+  v = items()
+  r = first(!v)
+  print(v.len, size(?v), v[1].name)
+  print(clobber(6))
+  print(r.n, r.name)
+  fields()
+  elements()
+  receivers()
+  generic()
+  loops()
+  deferred()
+  in_closure()
+
+# expect:
+# 2 2 two
+# 15
+# 1 one
+# 1 1
+# 5
+# 1 7
+# 0 2
+# 7
+# 1 one
+# 1 2
+# 9
+# 1 one
+# two 1
+# 1 2
+# 11
+# 1 one 1
+# 2 2
+# 13
+# 1 one
+# 0 2 one
+# 1 2 one
+# two 1
+# two 1
+# 2
+# deferred 2 one
+# 2
+# 1

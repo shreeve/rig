@@ -1,0 +1,21 @@
+# cf4e2c4b: a generic read result read in the same statement as the Vec.
+struct Item
+  n: Int
+
+fun gfirst[T](v: !Vec[T]) -> ?T
+  ?v[0]
+
+fun count[T](v: ?Vec[T]) -> Int
+  v.len
+
+sub inner[T](v: !Vec[T])
+  r = gfirst(!v)
+  print(count(?v))
+  print(count(?v), count(?v))
+  _ = r
+
+sub main
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 7))
+  print(gfirst(!v).n, v.len, count(?v))
+  inner(!v)

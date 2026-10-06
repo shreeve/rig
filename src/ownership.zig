@@ -166,6 +166,12 @@ const Loan = struct {
     /// The root of a place whose address is being found while its
     /// indices run (see `walkIndicesHeld`).
     place_hold: bool = false,
+    /// A write lend that a view which only reads it keeps as a read loan
+    /// (`carryLoan`), for diagnostics.
+    read_of_write: bool = false,
+    /// A write receiver's lend, a read loan until its call starts (Core
+    /// §6), for diagnostics.
+    reserved: bool = false,
 
     fn sameAs(a: Loan, b: Loan) bool {
         return a.root == b.root and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
@@ -200,9 +206,10 @@ const Var = struct {
     ref: Ref = .none,
     fixed: bool = false,
     closure: bool = false,
-    /// A closure whose environment has drop glue: dropping it at scope
-    /// exit uses what it captured.
-    env_drops: bool = false,
+    /// A closure whose environment's drop may run a `drop` body
+    /// (`sema.dropRunsBody`): dropping it at scope exit may read what it
+    /// captured.
+    env_drop_reads: bool = false,
     /// Element of `for x in ?vec` over a resource Vec: a view of
     /// the slot.
     loop_view: bool = false,
@@ -514,6 +521,8 @@ pub const Checker = struct {
     /// Set immediately before walking a lambda literal that sits in an
     /// allowed position (binding RHS, call callee, lent argument, `*|...|`).
     lambda_ok: bool = false,
+    /// The binding whose value is being walked, for its diagnostics.
+    binding: ?struct { name: []const u8, value: Sexp, rejected: bool = false } = null,
     /// Walking the arguments of a call the type checker rejected.
     in_rejected_call: bool = false,
     /// `checkNoImplicitCopy` is inside an expression whose context reads
@@ -763,6 +772,10 @@ pub const Checker = struct {
                 .base => "it is indexed after its index runs",
             };
             try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ self.vars.items[loan.root].name, uses });
+        } else if (loan.reserved) {
+            try self.note(loan.pos, "lent to write here, as the receiver, which is read until the call starts", .{});
+        } else if (loan.read_of_write) {
+            try self.note(loan.pos, "lent to write here, and kept lent to read by a view that only reads it", .{});
         } else try self.note(loan.pos, "lent to {s} here", .{@tagName(loan.kind)});
     }
 
@@ -1380,10 +1393,11 @@ pub const Checker = struct {
     /// loans it holds are still in force. It is live when the var is used
     /// later in the code, or anywhere in a loop around this point that
     /// does not also enclose its declaration (the next iteration runs
-    /// that code again), or in deferred code, or when its type has drop
-    /// glue (its drop at scope exit may reach what it views), or when a
-    /// live var or temporary views it in turn. Otherwise its last use
-    /// is behind, and its views have ended.
+    /// that code again), or in deferred code, or when its drop at scope
+    /// exit may run a `drop` body, which could read what it views
+    /// (`sema.dropRunsBody`; any other drop only releases memory, and
+    /// uses no view), or when a live var or temporary views it in turn.
+    /// Otherwise its last use is behind, and its views have ended.
     fn holderLive(self: *const Checker, id: VarId, at: ?u32) bool {
         return self.holderLiveDepth(id, at, 0);
     }
@@ -1394,14 +1408,15 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         // A parameter is live at every exit: the caller uses the value
         // it lent a viewed one after the return.
-        if (v.kind == .hidden or v.kind == .param or v.env_drops or self.isGlobal(id)) return true;
+        if (v.kind == .hidden or v.kind == .param or v.env_drop_reads or self.isGlobal(id)) return true;
         const sym = v.sym orelse return true;
         if (self.defer_used.contains(sym)) return true;
         const ty = v.ty orelse return true;
-        // A var that owns its value drops it at scope exit. (A match
-        // payload or a viewed loop element only views a value.)
+        // A var that owns its value drops it at scope exit, which uses
+        // its views only through a `drop` body. (A match payload or a
+        // viewed loop element only views a value.)
         const owns = v.alias_of == null and !v.loop_view and v.ref == .none;
-        if (owns and (sema.typeHasDropGlue(ctx, ty) or sema.maybeDropGlue(ctx, ty))) return true;
+        if (owns and sema.dropRunsBody(ctx, ty) != .no) return true;
         if (self.last_use.get(sym)) |last| if (last >= self.liveFrom(v.decl, at)) return true;
         if (self.isLent(id)) for (self.flows.items, 0..) |f, j| {
             if (j == id) continue;
@@ -2095,18 +2110,55 @@ pub const Checker = struct {
     /// what it keeps are read loans; one holding a write view, a type
     /// parameter, or a type not known keeps every loan.
     fn carry(self: *Checker, ty: ?TypeId, v: Value) Error!Value {
+        return self.carryAs(ty, v, false);
+    }
+
+    /// The loans a call's result keeps of `v` (Core sentence 7), as
+    /// `carry` keeps them. A result that holds no write view reads what
+    /// it views, so every loan it keeps is a read loan, also one of an
+    /// argument or receiver lent to write: while the result lives, that
+    /// owner may be read but not written. What the call stores keeps its
+    /// loans where it stores them (`absorbThroughWrites`).
+    fn carryResult(self: *Checker, ty: ?TypeId, v: Value) Error!Value {
+        return self.carryAs(ty, v, true);
+    }
+
+    fn carryAs(self: *Checker, ty: ?TypeId, v: Value, result: bool) Error!Value {
         const ctx = self.sema orelse return v;
         const t = ty orelse return v;
         if (v.loans.len == 0) return v;
-        const info = ctx.typeInfo(t);
-        if (info.poison or info.holds_type_var or info.views.write or !(info.views.marked or info.views.string)) return v;
-        return self.carryAs(t, sema.holdsViewOnly(ctx, t), v);
+        if (!self.viewsOnlyRead(t)) return v;
+        const reads = result or sema.holdsViewOnly(ctx, t);
+        var out: std.ArrayList(Loan) = .empty;
+        for (v.loans) |l| try self.carryLoan(&out, t, reads, l, 0);
+        return .{ .loans = out.items };
     }
 
-    fn carryAs(self: *Checker, ty: TypeId, strings: bool, v: Value) Error!Value {
-        var out: std.ArrayList(Loan) = .empty;
-        for (v.loans) |l| try self.carryLoan(&out, ty, strings, l, 0);
-        return .{ .loans = out.items };
+    /// Whether values of `ty` hold views, and none that can write: no
+    /// write view, type parameter, or type not known. The loans such a
+    /// value keeps are narrowed by `carry`, and a call's result of the
+    /// type keeps them as read loans (`carryResult`).
+    fn viewsOnlyRead(self: *const Checker, ty: TypeId) bool {
+        const ctx = self.sema orelse return false;
+        const info = ctx.typeInfo(ty);
+        if (info.poison or info.holds_type_var or info.views.write) return false;
+        return info.views.marked or info.views.string;
+    }
+
+    /// A call whose result `v` only reads what it views has returned: the
+    /// write lends its arguments made since `temps_start` end, as a lend
+    /// ends at the last use of its view (Core sentence 6), but for those
+    /// the call may have stored (`stored`), which last as long as before.
+    /// What the result keeps stays lent, to read, for the rest of the
+    /// statement, as any temporary view is (Core §3).
+    fn endWriteLends(self: *Checker, temps_start: usize, stored: Value, v: Value) Error!Value {
+        var i = @min(temps_start, self.temps.items.len);
+        while (i < self.temps.items.len) {
+            const l = self.temps.items[i];
+            if (l.kind == .write and !hasLoanOn(stored.loans, l.root)) _ = self.temps.orderedRemove(i) else i += 1;
+        }
+        for (v.loans) |l| if (!l.ext) try self.addTemp(l);
+        return v;
     }
 
     /// The views taken since `temps_start` to compute view `v` end,
@@ -2117,14 +2169,17 @@ pub const Checker = struct {
         return v;
     }
 
-    fn carryLoan(self: *Checker, out: *std.ArrayList(Loan), ty: TypeId, strings: bool, l: Loan, depth: u8) Error!void {
+    fn carryLoan(self: *Checker, out: *std.ArrayList(Loan), ty: TypeId, reads: bool, l: Loan, depth: u8) Error!void {
         if (l.ext or depth >= 16 or try self.mayOwnView(l.root, ty)) {
             var kept = l;
-            if (strings and !l.ext) kept.kind = .read;
+            if (reads and !l.ext and l.kind == .write) {
+                kept.kind = .read;
+                kept.read_of_write = true;
+            }
             if (!containsLoan(out.items, kept)) try out.append(self.arena(), kept);
             return;
         }
-        for (self.flows.items[l.root].loans) |h| try self.carryLoan(out, ty, strings, h, depth + 1);
+        for (self.flows.items[l.root].loans) |h| try self.carryLoan(out, ty, reads, h, depth + 1);
     }
 
     /// Whether var `id`'s value may own memory a value of type `view`
@@ -2669,7 +2724,7 @@ pub const Checker = struct {
                 if (sink == .argument) return;
                 // A write view of a Copy value is copied where the
                 // value is read; where a `!T` goes, the view would be.
-                if (v.ref == .write and (!self.readsAsValue(self.pointee(v.ty)) or !self.copy_reads)) {
+                if (v.ref == .write and !self.readsThroughWriteView(v.ty)) {
                     try self.err(pos, "bare use of write view `{s}` in {s} would copy a write view, which is unique; use `<{s}` to move it", .{ name, sink.text(), name });
                 } else if (v.ref != .write and self.carriesWriteView(v.ty)) {
                     try self.err(pos, "bare use of `{s}` in {s} would copy the write view it holds; use `<{s}` to move it", .{ name, sink.text(), name });
@@ -2683,8 +2738,24 @@ pub const Checker = struct {
                     if (self.owningKind(ty)) |k| {
                         return self.reportAlias(self.startOf(expr), try self.placeText(expr), if (expr.isKind(.index)) .element else .field, k, sink, ty);
                     }
-                    if (sink != .argument and self.carriesWriteView(ty)) {
-                        try self.errAt(expr, "bare use of `{s}` in {s} would copy a write view; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
+                    // A field or element that is a write view of a Copy
+                    // value reads the value where its context reads it,
+                    // as a bare write-view name does.
+                    if (sink != .argument and self.carriesWriteView(ty) and !self.readsThroughWriteView(ty)) {
+                        const shown = try self.placeText(expr);
+                        // A binding typed `!T`, or of a view of a value
+                        // that does not copy: say how to read the value,
+                        // or lend the view on.
+                        if (self.binding) |*b| if (b.value == .list and expr == .list and b.value.list.ptr == expr.list.ptr and self.refOfType(ty) == .write) {
+                            b.rejected = true;
+                            const src = self.spanText(expr);
+                            if (self.readsAsValue(self.pointee(ty))) {
+                                try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = {s}` to read its value, or `{s} = !{s}` to lend the view on", .{ src, b.name, src, b.name, src });
+                            } else try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = !{s}` to lend the view on", .{ src, b.name, src });
+                            return;
+                        };
+                        const stays = if (expr.isKind(.index)) "an element cannot be moved out of its container" else "a field cannot be moved out of its parent";
+                        try self.errAt(expr, "bare use of `{s}` in {s} would copy a write view; {s}", .{ shown, sink.text(), stays });
                     }
                 },
                 // A value that is one of its parts (`sema.valueParts`):
@@ -2705,6 +2776,16 @@ pub const Checker = struct {
             },
             else => {},
         }
+    }
+
+    /// Whether a bare name, field, or element of type `ty` hands over the
+    /// value a write view reaches rather than the view: `ty` is a write
+    /// view of a value that reads as a value (`sema.readsAsValue`), and
+    /// the context reads it (`copy_reads`, `SemContext.readsThrough`).
+    /// A bare name or place only reads (Core sentence 1): `x = h.w`,
+    /// with `w: !Int`, copies the Int.
+    fn readsThroughWriteView(self: *const Checker, ty: ?TypeId) bool {
+        return self.copy_reads and self.refOfType(ty) == .write and self.readsAsValue(self.pointee(ty));
     }
 
     /// The var the name `expr` refers to, once the walk has bound it:
@@ -2867,7 +2948,15 @@ pub const Checker = struct {
             .default, .fixed, .shadow => if (is_lambda) blk: {
                 self.lambda_ok = true;
                 break :blk try self.walk(expr);
-            } else try self.walkConsumed(expr, .binding),
+            } else blk: {
+                const saved = self.binding;
+                defer self.binding = saved;
+                self.binding = .{ .name = name, .value = expr };
+                const v = try self.walkConsumed(expr, .binding);
+                // A binding reported for taking a held write view holds
+                // nothing, so its later uses report nothing more.
+                break :blk if (self.binding.?.rejected) Value{} else v;
+            },
             else => try self.walk(expr),
         };
 
@@ -2893,7 +2982,7 @@ pub const Checker = struct {
                 return;
             },
         }
-        if (is_lambda) self.vars.items[self.vars.items.len - 1].env_drops = self.envDrops(expr);
+        if (is_lambda) self.vars.items[self.vars.items.len - 1].env_drop_reads = self.envDropReads(expr);
     }
 
     /// Whether `e` names `name` anywhere.
@@ -2920,12 +3009,13 @@ pub const Checker = struct {
         return false;
     }
 
-    /// Whether the environment of closure literal `lambda` has drop glue.
-    fn envDrops(self: *const Checker, lambda: Sexp) bool {
+    /// Whether dropping the environment of closure literal `lambda` may
+    /// run a `drop` body (`sema.dropRunsBody`).
+    fn envDropReads(self: *const Checker, lambda: Sexp) bool {
         const ctx = self.sema orelse return true;
         for (sema.captureList(ir.Lambda.captures(lambda))) |cap| {
             const ty = self.symType(sema.captureNameNode(cap).?.src.pos) orelse return true;
-            if (sema.typeHasDropGlue(ctx, ty) or sema.maybeDropGlue(ctx, ty)) return true;
+            if (sema.dropRunsBody(ctx, ty) != .no) return true;
         }
         return false;
     }
@@ -3277,7 +3367,7 @@ pub const Checker = struct {
                 if (self.flowLive(id) and !self.isScalar(self.vars.items[id].ty) and self.errors_found == found) {
                     const pos = self.startOf(obj);
                     reservation = self.temps.items.len;
-                    try self.addTemp(.{ .root = id, .kind = .read, .pos = pos });
+                    try self.addTemp(.{ .root = id, .kind = .read, .pos = pos, .reserved = recv_mode == .write });
                     recv_root = id;
                     // A built-in's methods hand out values, never views
                     // of the receiver.
@@ -3365,6 +3455,12 @@ pub const Checker = struct {
             // An argument the call copies into storage of its own is lent
             // from the copy.
             if (self.heldForCall(storage.argValue(a), .argument)) |held| v.* = try self.holdForCall(held, v.*, .read);
+            // A value handed over that carries a write loan (a write view
+            // a method's result keeps of its receiver) keeps its root lent
+            // to write until the call returns, as a write lend in the
+            // argument does (Core sentence 5): a later argument may not
+            // lend, read, or move it.
+            for (v.loans) |l| if (l.kind == .write and !l.ext and !containsLoan(self.temps.items[@min(temps_start, self.temps.items.len)..], l)) try self.addTemp(l);
             // A generic body's `T` holds no loan here, but an instance's
             // may be a String viewing a Text.
             if (cell != null) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a));
@@ -3421,8 +3517,9 @@ pub const Checker = struct {
         // The result views only what could hold it (Core sentence 7). A
         // String's views end here but for those it keeps.
         const ty = self.exprType(node) orelse return result;
-        if (self.sema) |ctx| if (sema.holdsViewOnly(ctx, ty)) return self.keepViewTemps(temps_start, try self.carry(ty, result));
-        return self.carry(ty, result);
+        if (self.sema) |ctx| if (sema.holdsViewOnly(ctx, ty)) return self.keepViewTemps(temps_start, try self.carryResult(ty, result));
+        if (self.viewsOnlyRead(ty)) return self.endWriteLends(temps_start, stored, try self.carryResult(ty, result));
+        return self.carryResult(ty, result);
     }
 
     /// A value read in place, by value, before the operands after it run
@@ -4904,7 +5001,7 @@ pub const Checker = struct {
         for (start..len) |i| {
             const h = self.vars.items[i];
             if (!self.flowLive(@intCast(i)) or h.alias_of != null or h.loop_view or h.ref != .none) continue;
-            if (!self.runsDropBody(h.ty orelse continue, &.{})) continue;
+            if (sema.dropRunsBody(ctx, h.ty orelse continue) != .yes) continue;
             reach.clearRetainingCapacity();
             try reach.append(self.arena(), @intCast(i));
             var k: usize = 0;
@@ -4931,42 +5028,6 @@ pub const Checker = struct {
             if (self.scopes.items[si].start <= id) return si;
         }
         return 0;
-    }
-
-    /// Whether dropping a value of type `ty` may run a user `drop` body.
-    /// `path` holds the types being looked into: a cycle adds nothing.
-    fn runsDropBody(self: *const Checker, ty: TypeId, path: []const SymbolId) bool {
-        const ctx = self.sema orelse return false;
-        return switch (ctx.types.get(ty)) {
-            .shared, .optional, .fallible => |i| self.runsDropBody(i, path),
-            .array => |a| self.runsDropBody(a.elem, path),
-            .imported_nominal => sema.typeHasDropGlue(ctx, ty),
-            .nominal => |sid| self.fieldsRunDropBody(sid, path),
-            .parameterized_nominal => |pn| blk: {
-                for (pn.args) |a| if (self.runsDropBody(a, path)) break :blk true;
-                break :blk self.fieldsRunDropBody(pn.sym, path);
-            },
-            else => false,
-        };
-    }
-
-    fn fieldsRunDropBody(self: *const Checker, sid: SymbolId, path: []const SymbolId) bool {
-        if (std.mem.findScalar(SymbolId, path, sid) != null) return false;
-        // Past any real nesting depth, assume the worst.
-        if (path.len >= 32) return true;
-        var buf: [32]SymbolId = undefined;
-        @memcpy(buf[0..path.len], path);
-        buf[path.len] = sid;
-        const inner = buf[0 .. path.len + 1];
-        const fields = self.sema.?.symbols.items[sid].fields orelse return false;
-        for (fields) |f| if (f.is_drop_method) return true;
-        for (fields) |f| {
-            if (f.is_method) continue;
-            if (f.is_variant) {
-                for (f.payload orelse &.{}) |pf| if (self.runsDropBody(pf.ty, inner)) return true;
-            } else if (self.runsDropBody(f.ty, inner)) return true;
-        }
-        return false;
     }
 
     // -------------------------------------------------------------------------
