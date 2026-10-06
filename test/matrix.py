@@ -19,7 +19,9 @@ program that runs must also print what the payload holds.
                                    # (bin/rig-oracle, test/oracle/) over them
 
 Nothing it writes is committed: programs go to a temporary directory,
-and each run's build is removed after it passes.
+and each run's output is removed after it passes. Programs build in
+test/run's store (RIG_BUILD_STORE, test/README.md), so a program built
+before, by any worktree, is not built again.
 """
 
 import argparse
@@ -34,6 +36,22 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RIG = os.path.join(ROOT, "bin", "rig")
 ORACLE = os.path.join(ROOT, "bin", "rig-oracle")
+
+
+def build_store():
+    """Where programs build: RIG_BUILD_STORE, else test/run's default, the
+    store in the repository's git directory that its worktrees share;
+    empty builds each program in its own output directory."""
+    if "RIG_BUILD_STORE" in os.environ:
+        return os.environ["RIG_BUILD_STORE"]
+    if not os.path.exists(os.path.join(ROOT, ".git")):
+        return ""
+    r = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                       cwd=ROOT, capture_output=True, text=True)
+    return os.path.join(r.stdout.strip(), "rig-build-store") if r.returncode == 0 else ""
+
+
+STORE = build_store()
 
 # What a sound program never does when it runs (test/run's CORPUS_BAD_RE).
 BAD = re.compile(
@@ -484,7 +502,7 @@ def run_one(path, keep, expect=None):
             return "rejected", first_error(out)
         return "fail", "rejected without file:line:col: " + first_line(out)
     outdir = path[:-4] + ".out"
-    env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir)
+    env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE)
     try:
         r = subprocess.run([RIG, "run", path], capture_output=True, text=True, errors="replace", timeout=120, env=env, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:

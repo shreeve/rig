@@ -55,6 +55,11 @@ const usage =
     \\  RIG_OUT_DIR      Directory for the emitted package and its Zig
     \\                   build cache (default: a per-project directory
     \\                   under $XDG_CACHE_HOME/rig, or ~/.cache/rig)
+    \\  RIG_BUILD_STORE  A store shared by every program and checkout:
+    \\                   run, build, and test write the package to a
+    \\                   directory in it named by a hash of everything
+    \\                   the build reads, and build there, in place of
+    \\                   RIG_OUT_DIR
     \\  RIG_LEAK_TRACE   Set to 1 when building to report each leaked
     \\                   allocation with its stack trace (slower)
     \\  RIG_SANITIZE     Set to 1 when building a Debug program to make
@@ -348,13 +353,15 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !void {
     var graph = try loadProject(allocator, io, env, path);
     defer graph.deinit();
-    const pkg = try emitPackage(allocator, io, env, &graph);
+    const pkg = try emitPackage(allocator, env, &graph);
+    const dir = try outputDir(allocator, env, graph.root());
+    try writePackage(allocator, io, dir, pkg.files.items);
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
     try writer.interface.writeAll(pkg.root_source);
     try writer.interface.flush();
-    std.debug.print("note: the package (every module and the runtime, {s}) is in {s}\n", .{ emit.runtime_filename, pkg.dir });
+    std.debug.print("note: the package (every module and the runtime, {s}) is in {s}\n", .{ emit.runtime_filename, dir });
 }
 
 /// `rig run`, `build`, and `test`: emit the package and hand it to Zig.
@@ -364,23 +371,43 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     var graph = try loadProject(allocator, io, env, opts.path);
     defer graph.deinit();
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
-    const pkg = try emitPackage(allocator, io, env, &graph);
+    var pkg = try emitPackage(allocator, env, &graph);
+    const root = if (opts.command == .@"test") test_driver else graph.root().out_basename;
+    if (opts.command == .@"test") try pkg.files.append(allocator, .{ .path = test_driver, .contents = try testDriver(allocator, env, &graph) });
+
     const zig = env.zig();
+    const verb = if (opts.command == .build) "build-exe" else "run";
     const flag = opts.mode.zigFlag();
-    const code = switch (opts.command) {
-        .run => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig }, opts.program_args),
-        .build => try runZig(allocator, io, pkg, &.{ zig, "build-exe", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig, try allocator.print("-femit-bin={s}", .{opts.out_path orelse graph.root().name}) }, &.{}),
-        else => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, try writeTestDriver(allocator, io, env, &graph, pkg.dir) }, &.{}),
-    };
+    const libc: []const []const u8 = if (pkg.links_libc) &.{"-lc"} else &.{};
+    // The package's directory, and Zig's cache for building it, which
+    // keeps each package's builds apart from every other package's.
+    var dir: []const u8 = undefined;
+    var zig_cache: []const u8 = undefined;
+    if (env.get("RIG_BUILD_STORE")) |store| {
+        zig_cache = try storeEntry(allocator, io, store, &.{ zig, verb, flag, if (pkg.links_libc) "-lc" else "", root }, pkg.files.items);
+        dir = try std.fs.path.join(allocator, &.{ zig_cache, "package" });
+        try writeFile(io, try std.fs.path.join(allocator, &.{ zig_cache, "used" }), "");
+    } else {
+        dir = try outputDir(allocator, env, graph.root());
+        zig_cache = try std.fs.path.join(allocator, &.{ dir, ".zig-cache" });
+    }
+    try writePackage(allocator, io, dir, pkg.files.items);
+
+    const root_zig = try std.fs.path.join(allocator, &.{ dir, root });
+    const emit_bin: []const []const u8 = if (opts.command == .build) &.{try allocator.print("-femit-bin={s}", .{opts.out_path orelse graph.root().name})} else &.{};
+    const program_args: []const []const u8 = if (opts.command == .run) opts.program_args else &.{};
+    const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
+    const code = try runZig(io, try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, dashes, program_args }));
     if (code == 0) return;
-    if (opts.command == .build) std.debug.print("note: emitted Zig is in {s}\n", .{pkg.dir});
+    if (opts.command == .build) std.debug.print("note: emitted Zig is in {s}\n", .{dir});
     std.process.exit(code);
 }
 
-/// `rig test`: a driver module next to the emitted ones runs the
-/// `__rig_tests` table of every module (see `rig.runTests`). Returns its
-/// path.
-fn writeTestDriver(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *const modules.ModuleGraph, dir: []const u8) ![]const u8 {
+/// The module `rig test` builds: a driver next to the emitted ones that
+/// runs the `__rig_tests` table of every module (see `rig.runTests`).
+const test_driver = "__rig_test.zig";
+
+fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *const modules.ModuleGraph) ![]const u8 {
     var driver: std.Io.Writer.Allocating = .init(allocator);
     const w = &driver.writer;
     try w.print(
@@ -406,20 +433,15 @@ fn writeTestDriver(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *c
         try w.print("        .{{ .module = \"{s}\", .tests = testsOf(@import(\"{s}\")) }},\n", .{ if (i == 0) "" else m.name, m.out_basename });
     }
     try w.writeAll("    });\n}\n");
-    const path = try std.fs.path.join(allocator, &.{ dir, "__rig_test.zig" });
-    try writeFile(io, path, driver.written());
-    return path;
+    return driver.written();
 }
 
-/// Run the Zig toolchain on `pkg` with inherited stdio, linking libc
-/// when the package needs it, and passing `program_args` to the program
-/// `zig run` runs; return its exit code (128 + the signal
-/// number if a signal ended it).
-fn runZig(allocator: std.mem.Allocator, io: std.Io, pkg: Package, argv: []const []const u8, program_args: []const []const u8) !u8 {
-    const libc: []const []const u8 = if (pkg.links_libc) &.{"-lc"} else &.{};
-    const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
+/// Run the Zig toolchain with inherited stdio; return its exit code (128
+/// + the signal number if a signal ended it), which for `zig run` is the
+/// program's.
+fn runZig(io: std.Io, argv: []const []const u8) !u8 {
     var child = std.process.spawn(io, .{
-        .argv = try std.mem.concat(allocator, []const u8, &.{ argv, libc, dashes, program_args }),
+        .argv = argv,
         .stdin = .inherit,
         .stdout = .inherit,
         .stderr = .inherit,
@@ -445,27 +467,24 @@ fn declaresMain(m: *const modules.Module) bool {
 }
 
 const Package = struct {
-    /// The output directory.
-    dir: []const u8,
-    /// The root module's `.zig` file, and its contents.
-    root_zig: []const u8,
+    /// Every file of the package, by its path in the package directory:
+    /// the runtime, each module, and the shims of the standard library.
+    files: std.ArrayList(PackageFile),
+    /// The root module's contents.
     root_source: []const u8,
-    /// Zig's cache for building the package, inside the output
-    /// directory, so each package's builds stay apart from every other
-    /// package's.
-    zig_cache: []const u8,
     /// A module declares an `extern "c"`, which Zig links only with `-lc`.
     links_libc: bool,
 };
 
-/// Write the runtime and every module to the output directory. With
-/// `RIG_LEAK_TRACE` or `RIG_SANITIZE` set, the root module asks the
-/// runtime for stack-trace leak reports or the sanitizer; with
-/// `RIG_SANITIZE`, emit also poisons hidden storage when its scope ends.
-fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modules.ModuleGraph) !Package {
-    const dir = try outputDir(allocator, env, graph.root());
+const PackageFile = struct { path: []const u8, contents: []const u8 };
 
-    try writeFile(io, try std.fs.path.join(allocator, &.{ dir, emit.runtime_filename }), emit.runtime_source);
+/// Emit the runtime and every module. With `RIG_LEAK_TRACE` or
+/// `RIG_SANITIZE` set, the root module asks the runtime for stack-trace
+/// leak reports or the sanitizer; with `RIG_SANITIZE`, emit also poisons
+/// hidden storage when its scope ends.
+fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGraph) !Package {
+    var files: std.ArrayList(PackageFile) = .empty;
+    try files.append(allocator, .{ .path = emit.runtime_filename, .contents = emit.runtime_source });
 
     var root_source: []const u8 = "";
     var links_libc = false;
@@ -480,17 +499,56 @@ fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modul
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer);
         }
-        try writeFile(io, try std.fs.path.join(allocator, &.{ dir, m.out_basename }), file_buffer.written());
-        for (m.shims.items) |shim| try writeFile(io, try std.fs.path.join(allocator, &.{ dir, "rig", "std", shim.name }), shim.source);
+        try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
+        for (m.shims.items) |shim| try files.append(allocator, .{ .path = try std.fs.path.join(allocator, &.{ "rig", "std", shim.name }), .contents = shim.source });
         if (i == 0) root_source = file_buffer.written();
     }
-    return .{
-        .dir = dir,
-        .root_zig = try std.fs.path.join(allocator, &.{ dir, graph.root().out_basename }),
-        .root_source = root_source,
-        .zig_cache = try std.fs.path.join(allocator, &.{ dir, ".zig-cache" }),
-        .links_libc = links_libc,
+    return .{ .files = files, .root_source = root_source, .links_libc = links_libc };
+}
+
+/// Write each file of a package into `dir`, leaving a file that already
+/// holds the same contents untouched, so Zig's cache sees it unchanged.
+fn writePackage(allocator: std.mem.Allocator, io: std.Io, dir: []const u8, files: []const PackageFile) !void {
+    for (files) |f| {
+        const path = try std.fs.path.join(allocator, &.{ dir, f.path });
+        if (std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(f.contents.len + 1))) |old| {
+            if (std.mem.eql(u8, old, f.contents)) continue;
+        } else |_| {}
+        try writeFile(io, path, f.contents);
+    }
+}
+
+/// The entry of `RIG_BUILD_STORE` for a package: a directory named by a
+/// hash of the Zig command (`zig_args`) and every file's path and
+/// contents, so the same package built the same way from any program or
+/// checkout shares one entry. The entry is the package's Zig cache, and
+/// holds the package in `package/` and the time of its last use in
+/// `used`. The hash only chooses where to look: Zig still checks every
+/// input of a cached build. Zig keys a cached build by the path of its
+/// root module, relative to the current directory unless it lies in the
+/// cache, which is why the package lives in the cache: a build from any
+/// directory finds it.
+fn storeEntry(allocator: std.mem.Allocator, io: std.Io, store: []const u8, zig_args: []const []const u8, files: []const PackageFile) ![]const u8 {
+    var h = std.crypto.hash.sha2.Sha256.init(.{});
+    const Part = struct {
+        fn add(hash: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
+            var len: [8]u8 = undefined;
+            std.mem.writeInt(u64, &len, bytes.len, .little);
+            hash.update(&len);
+            hash.update(bytes);
+        }
     };
+    Part.add(&h, "rig build store 1");
+    for (zig_args) |arg| Part.add(&h, arg);
+    for (files) |f| {
+        Part.add(&h, f.path);
+        Part.add(&h, f.contents);
+    }
+    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+    h.final(&digest);
+    std.Io.Dir.cwd().createDirPath(io, store) catch |err| fatal("error: cannot create RIG_BUILD_STORE `{s}`: {s}", .{ store, @errorName(err) });
+    const real = std.Io.Dir.cwd().realPathFileAlloc(io, store, allocator) catch |err| fatal("error: cannot find RIG_BUILD_STORE `{s}`: {s}", .{ store, @errorName(err) });
+    return std.fs.path.join(allocator, &.{ real, &std.fmt.bytesToHex(digest[0..16], .lower) });
 }
 
 /// Replace `path` with `contents` atomically, so a concurrent build of the

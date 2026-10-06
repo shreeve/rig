@@ -19,8 +19,9 @@ no bug is open) exits 0. The runner works from any directory.
 The runner needs bash and either GNU `timeout` or perl (stock macOS has
 perl). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the seconds
 each test may take (default 120), `RIG_TEST_OUT` the directory for
-emitted packages (see [Output](#output)), and `RIG_SANITIZE=0` turns
-off the sanitizer (see [below](#leak-checking-and-the-sanitizer)).
+each test's output, `RIG_BUILD_STORE` where programs build (see
+[Output](#output)), and `RIG_SANITIZE=0` turns off the sanitizer (see
+[below](#leak-checking-and-the-sanitizer)).
 
 ## Layout
 
@@ -168,7 +169,10 @@ built in one directory would rebuild cold on every run. (`zig build-exe`
 caches nothing, so `rig build` is always cold; prefer `rig run` when the
 executable itself is not under test.) Call `"$RIG"` directly for
 commands that build nothing (`check`, `emit`, usage errors) and when
-the output directory is what the test is about.
+the output directory is what the test is about. Scripts inherit the
+suite's `RIG_BUILD_STORE`, so `rig run|build|test` builds in the store
+(see [Output](#output)); a script about the output directory sets
+`RIG_BUILD_STORE=` for those commands.
 
 ## The corpus
 
@@ -190,10 +194,9 @@ minutes of work, so a plain `./test/run` takes a fixed sample, one
 program in 16 by a hash of its name; `./test/run corpus` (or any filter
 that names corpus programs) takes all of them, as CI should nightly or
 before a merge that touches the checkers or the emitter. A corpus run
-removes each passing program's output but keeps its Zig cache (a few
-gigabytes for the whole corpus), so a later run rebuilds only the
-programs whose emitted Zig changed; delete `.zig-cache/rig-test/corpus`
-to reclaim the space. Add new review probes here, named `<review>-<probe>.rig`.
+removes each passing program's output; its build stays in the store
+(a few gigabytes for the whole corpus, see [Output](#output)), so a
+later run rebuilds only the programs whose emitted Zig changed. Add new review probes here, named `<review>-<probe>.rig`.
 
 `test/matrix.py` generates the programs where one expression form (a
 place, a ternary, `o?`, `??`, `catch`, `if … as`, `match`, a call, a
@@ -309,7 +312,20 @@ cache. A doc example's directory is `doc/<file>/<checksum>/`, named by
 its text rather than its line, so an edit that moves it keeps its cache.
 A run with no filter removes the directories of tests that no longer
 exist, and keeps those of every corpus program though it runs only a
-sample; `./test/run --prune` does only that. One run at a time uses an output directory; a second run waits
+sample; `./test/run --prune` does only that.
+
+Programs build in a store shared by every worktree of the repository,
+`rig-build-store` in its git directory (`git rev-parse
+--git-common-dir`), or `$RIG_BUILD_STORE`; `RIG_BUILD_STORE=` (empty)
+builds each in its test's output directory instead. `rig run` builds a
+package in the store's entry named by a hash of everything the build
+reads (docs/INTERNALS.md), so a program built before, in this worktree
+or another, by this compiler or another that emits the same package, is
+not built again; a new branch's first run rebuilds only the programs
+whose package it changed. Zig still checks every input of a cached
+build. A run with no filter removes the entries no run has used for
+`RIG_BUILD_STORE_DAYS` days (default 7). `test/matrix.py` builds in the
+same store. One run at a time uses an output directory; a second run waits
 for the first, unless `RIG_TEST_OUT` gives it a directory of its own.
 The runner marks an output directory as its own with a `.rig-test`
 file, and refuses a `RIG_TEST_OUT` that is not empty and lacks it, so

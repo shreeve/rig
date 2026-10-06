@@ -18,10 +18,15 @@
 #
 # Environment: ZIG (the Zig executable), NEXUS (the Nexus executable),
 # RIG_TEST_TIMEOUT (seconds per test, default 120; a test's own
-# `# timeout: N` line can raise its limit), RIG_TEST_OUT (where emitted
-# packages go, default .zig-cache/rig-test; one run at a time uses a
-# directory), RIG_SANITIZE (0 builds the programs tests run on the plain
-# leak checker instead of the sanitizing allocator).
+# `# timeout: N` line can raise its limit), RIG_TEST_OUT (where test
+# output goes, default .zig-cache/rig-test; one run at a time uses a
+# directory), RIG_BUILD_STORE (where programs are built, default
+# rig-build-store in the repository's git directory, shared by its
+# worktrees; empty builds each in its test's output directory),
+# RIG_BUILD_STORE_DAYS (a run with no filter removes the store's builds
+# unused for longer, default 7), RIG_SANITIZE (0 builds the programs
+# tests run on the plain leak checker instead of the sanitizing
+# allocator).
 #
 # Exit status is 1 if any test fails, or a known-failing test or a
 # pending doc example starts passing (move the test out of test/known/,
@@ -512,6 +517,19 @@ if [[ ! -e "$OUTROOT/.rig-test" ]]; then
     mkdir -p "$OUTROOT" && : >"$OUTROOT/.rig-test"
 fi
 
+# Programs build in the content-addressed store (see RIG_BUILD_STORE in
+# `rig --help`), shared by every worktree of this repository, so a
+# program built before, here or in another worktree, is not built again.
+if [[ -z "${RIG_BUILD_STORE+set}" ]]; then
+    RIG_BUILD_STORE=""
+    if [[ -e .git ]] && common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+        RIG_BUILD_STORE=$common/rig-build-store
+    fi
+fi
+STORE_DAYS=${RIG_BUILD_STORE_DAYS:-7}
+[[ $STORE_DAYS =~ ^[0-9]+$ ]] || { echo "RIG_BUILD_STORE_DAYS takes a number of days" >&2; exit 2; }
+export RIG_BUILD_STORE
+
 printf '%sbuilding rig%s\n' "$D" "$X"
 if ! "$ZIG" build 2>&1; then
     printf '%sbuild failed%s\n' "$R" "$X"
@@ -752,7 +770,7 @@ fi
 # of doc examples whose text changed), keeping the rest and their build
 # caches: every listed test, and every corpus program, sampled or not.
 # Only the directories of test kinds are touched. `--prune` does only
-# this.
+# this, and what follows.
 if [[ ${#FILTERS[@]} -eq 0 ]]; then
     { cut -f3 "$LIST"; [[ -f "$WORK/corpus.all" ]] && sed 's#^#corpus/#' "$WORK/corpus.all"; } >"$WORK/keep"
     find "$OUTROOT" -mindepth 1 -maxdepth 3 | awk -F'\t' -v root="$OUTROOT/" '
@@ -774,6 +792,11 @@ if [[ ${#FILTERS[@]} -eq 0 ]]; then
             print
         }
     ' "$WORK/keep" - | tr '\n' '\0' | xargs -0 rm -rf
+    # And the store's builds that no run has used for STORE_DAYS days.
+    if [[ -n "$RIG_BUILD_STORE" && -d "$RIG_BUILD_STORE" ]]; then
+        find "$RIG_BUILD_STORE" -mindepth 2 -maxdepth 2 -name used -mtime +"$STORE_DAYS" |
+            sed 's#/used$##' | tr '\n' '\0' | xargs -0 rm -rf
+    fi
 fi
 [[ -n "$PRUNE" ]] && exit 0
 

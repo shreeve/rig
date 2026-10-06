@@ -50,9 +50,21 @@ and the runtime as `rig/runtime.zig`. The package goes
 to `$RIG_OUT_DIR` when it is set, otherwise to
 `~/.cache/rig/<name>-<hash>/` (or under `$XDG_CACHE_HOME`). Each file
 is replaced atomically, so concurrent builds of one program never read
-a partly written file, and the directory is not emptied. It holds the
+a partly written file, a file that already holds the same contents is
+left alone, and the directory is not emptied. It holds the
 package's own Zig cache, `.zig-cache/`, so each package's builds stay
-apart from every other package's. `run` and `test` go
+apart from every other package's. With `$RIG_BUILD_STORE` set, `run`,
+`build`, and `test` instead write the package to
+`$RIG_BUILD_STORE/<hash>/package/`, where the hash covers the Zig
+command (mode, `-lc`, root) and every file's path and contents, and
+build with `$RIG_BUILD_STORE/<hash>/` as the Zig cache. The same
+package built the same way, from any program or checkout, so shares one
+build. The hash only chooses the directory: Zig still checks every
+input of a cached build. Zig keys a cached build by its root's path,
+taken relative to the current directory unless it lies inside the
+cache, so the package lives inside the cache, and a build from any
+directory finds it. Each use rewrites the entry's `used` file, by which
+`./test/run` removes entries unused for a week. `run` and `test` go
 through `zig run` (`rig run file.rig -- args` passes the program its
 arguments after Zig's `--`), which reuses a cached build of unchanged sources;
 `build` runs `zig build-exe -femit-bin=...`, which caches nothing, so
