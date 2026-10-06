@@ -1,0 +1,26 @@
+# A signed integer's remainder by -1 is 0, the minimum included, on every
+# target: x86_64's division traps on `Int.min % -1`, so `%` must not
+# reach it. The divisor is only known at run time here.
+
+use std.math
+
+fun neg(n: Int) -> Int
+  0 - n
+
+fun rem[T](a: T, b: T) -> T
+  a % b
+
+sub main
+  m = neg(1)
+  print(Int.min % m, I32.min % I32(m), I8.min % I8(m))
+  x = Int.min
+  x %= m
+  print(x, math.mod(Int.min, m), rem(Int.min, m))
+  print(7 % m, -7 % neg(-2), 7 % neg(-2), U8(7) % U8(neg(-2)))
+  print(7.5 % 2.0)
+
+# expect:
+# 0 0 0
+# 0 0 0
+# 0 -1 1 1
+# 1.5

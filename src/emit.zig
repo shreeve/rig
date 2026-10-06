@@ -1639,7 +1639,7 @@ pub const Emitter = struct {
 
     /// `x op= e` on a name or place, with the place evaluated once, after
     /// `e` (`openAssign`). The operators that lower to a builtin
-    /// (`@divTrunc` for integer `/`, `@rem`, `@shlExact`) assign the
+    /// (`@divTrunc` for integer `/`, `rig.rem`, `@shlExact`) assign the
     /// builtin's result; the others use Zig's own compound assignment.
     fn emitCompound(self: *Emitter, target: Sexp, op: Tag, value: Sexp) Error!void {
         const builtin: ?[]const u8 = switch (op) {
@@ -6272,9 +6272,9 @@ pub const Emitter = struct {
     /// float `/`, which is ordinary division. Integer `/` truncates toward
     /// zero (`@divTrunc`), and a type parameter's values divide as their
     /// instance does (`rig.div`). `%` is the remainder with the dividend's
-    /// sign (`@rem`), for integers and floats alike.
+    /// sign (`rig.rem`), for integers and floats alike.
     fn divBuiltin(self: *Emitter, op: Tag, left: Sexp, right: Sexp) ?[]const u8 {
-        if (op == .@"%") return "@rem";
+        if (op == .@"%") return "rig.rem";
         if (self.literal_ty) |t| return if (self.sema.types.get(t) == .type_var) "rig.div" else null;
         var builtin: []const u8 = "@divTrunc";
         for ([2]Sexp{ left, right }) |e| {

@@ -975,7 +975,7 @@ const Planner = struct {
 };
 
 /// Whether `x op= v` lowers to a builtin that assigns its result
-/// (`@rem`, `@shlExact`, an integer `/`): its place is found once.
+/// (`rig.rem`, `@shlExact`, an integer `/`): its place is found once.
 fn divides(ctx: *const SemContext, op: Tag, target: Sexp, value: Sexp) bool {
     switch (op) {
         .@"%", .@"<<" => return true,
