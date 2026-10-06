@@ -4212,7 +4212,8 @@ closure's captures, and a call's result, since a function returning a
 String may return a view of a String it was passed
 ([§7](#second-class-views)). Once the last use of the String, and of
 every value holding it, is past, the Text is free again; a Vec holding
-one is in use until it is dropped.
+one is in use until its last use, since dropping it reads no String
+([§7](#how-long-a-loan-lasts)).
 
 `Text(...)` and `!t.add(...)` only read their arguments, as `print`
 does: a place is read where it is when the call runs, after its later
@@ -4282,8 +4283,8 @@ Text it came from, copy it into a Text of its own: `Text(s)`.
 
 A Text owns its bytes, and a `Vec[Text]` owns its Texts, as
 `Vec[Box[Text]]` does through its boxes. A Vec that
-holds views keeps their Texts lent until it is dropped, since it is
-in use until then; drop it early with `-v` to change them sooner.
+holds views keeps their Texts lent until its last use, not until it is
+dropped, since dropping it reads none of them.
 
 ```rig
 sub main
@@ -4294,7 +4295,6 @@ sub main
   views: Vec[String] = Vec()
   !views.push(?t[..1])
   print(owned, views)
-  -views
   !t.add("!")
   print(t)
 ```
