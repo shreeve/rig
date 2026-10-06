@@ -1,0 +1,14 @@
+# A plain `while c: step` whose step reads a slice declared before the
+# loop, after the body grew the Vec.
+#
+# oracle: main reject C4
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  s = ?v[..]
+  while i < 40: k += s[0]
+    i += 1
+    !v.push(2)
+  print(k, v.len)
