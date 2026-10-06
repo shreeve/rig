@@ -256,12 +256,20 @@ rewrites that need to inspect the tree:
   (`!a.b().c(x)` is `(!a).b().c(x)`). A bracket list between the member
   and its call (`!v.put[2](x)`) may be compile-time arguments, so the
   member before it is taken as the method; when it is a field holding
-  functions instead (`!p.fs[0]()`), the checker rejects the sigil. A chain that is all place
-  (`!x.v`), whose head is called (`!f(x).g()`), or that is
-  parenthesized (`!(v.pop())`) keeps the sigil outside. The grammar
-  drops parentheses, so the last is told by span: every node of the
-  chain must start at the token after the sigil, where a `(` stands
-  instead when the chain is parenthesized. The wrapper records the new
+  functions instead (`!p.fs[0]()`), the checker rejects the sigil. `!`
+  lends any value to write (CORE sentence 4), so its place may also
+  start from a value no name holds: a call that is no method call
+  (`!mk().items.push(1)` is `(!mk().items).push(1)`), a literal, or a
+  parenthesized expression (`!(+s).bump()`). A call whose callee is a
+  call (`!a.b(x)(y).g()`) is walked through to the first call, whose
+  receiver the sigil reaches, `(!a).b(x)(y).g()`. A chain that is all place
+  (`!x.v`), a `?` or `<` chain whose head is called (`?f(x).g()`), or
+  a chain that is parenthesized whole (`!(v.pop())`) keeps the sigil
+  outside. The grammar drops parentheses, so the last two are told by
+  span: every node of the chain must start at the token after the
+  sigil, where a `(` stands instead when the chain is parenthesized; a
+  `!` chain whose nodes start there down to a node that starts later
+  has a parenthesized head, that node. The wrapper records the new
   node's id (`Parser.isReceiverSigil`), since the checker rejects some
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!self` (the habit of `!` as negation),
@@ -652,12 +660,27 @@ and `e?` (`sema.valueLeaves`): a branch that is a name is read where it is
 (`readsInPlace`), never moved, and a branching value all of whose
 branches are made is one temporary. A read lend of a temporary
 (`?S(n: 1)`, `?make()`, a slice of one) records it the same way,
-owning or not (`lendTemp`), and so does a `?self` or `!self` receiver
-made here, or a field or element of one, whose method may keep a view
-of it (a result that may hold a view, or a call that may store one,
+owning or not (`lendTemp`), and so does a `?self` receiver made here,
+or a field or element of one, whose method may keep a view of it (a
+result that may hold a view, or a call that may store one,
 `callRetains`): `r = mk().arr()` is `_t = mk()`, `r = P.arr(?_t)`,
 `-_t`, plain data too, so the view may be used until the statement
-ends. A receiver that branches lends each leaf where it is instead
+ends. A write lend of a temporary or a part of one (`!mk()`,
+`!mk().items`, a `!self` receiver `!mk().pop()`, a slice `!mk()[..]`)
+is recorded the same way, always (`lendsToWrite`): `print(!mk().pop())`
+is `_t = mk()`, `print(S.pop(!_t))`, `-_t`. A write method called on a
+temporary with no `!` is rejected, with the hint to add it
+(`writeOfTemporary`); a branching value that may be a name's is lent
+leaf by leaf, never as one temporary, since the write would reach a
+copy; and a constant (`isConstant`) lives for the whole program, so it
+is never lent to write. What a write method or an assignment stores in
+a temporary lent to write lands in the statement's hidden var through
+its write loan (`storeThroughLend`), and a part is never moved out of
+it (`viewOnPath`). When a statement drops a temporary that another of
+its temporaries views (one made before it, so dropped after it), the
+holder uses that view as any owner's drop does: only through a `drop`
+body, or through a live value that views the holder (`holdsPastDrop`,
+Core sentence 6). A receiver that branches lends each leaf where it is instead
 (`receiverLeaves`). A header (`sema.isHeaderOf`: an `if` or `while`
 condition, a guard, a `match` or `for` subject) is its own statement:
 `if f(?mk()) as x` is `_t = mk()`, `_o = f(?_t)`, `-_t`, `if _o as x`,
@@ -906,7 +929,8 @@ instead of re-deriving it by name:
 | `writesThrough(target)` | whether a field or element assignment (`h.w = v`, `h.w += v`) writes the value the `!T` the place holds views, rather than pointing the place elsewhere |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
-| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read. The ownership checker holds it in a hidden var named by its source, lent to what reads it, and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made (so the `defer`s drop the last made first), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
+| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary lent to read or to write. The ownership checker holds it in a hidden var named by its source, lent to what reads it (to write, under `!`: `lendTempToWrite`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made, an assignment's value before its target (so the `defer`s drop the last made first, as the ownership checker's `dropStmtTemps` does), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
+| `writesTemp(node)` | whether the node is a temporary lent to write, or the value a part lent to write starts from (`!mk()`, `!(a if c else b).f`, recorded by `lendsToWrite`): its statement's slot is written, so emit reaches it there at every site that lends it (`emitMemberBase`), never through a copy |
 | `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or lend sigil that is one. Kept beside the table, not in `check --facts=sema` |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
@@ -1773,7 +1797,11 @@ lower is an internal error: sema must have rejected it.
   where it is. A receiver, or a Cell-holding part lent to read, of a
   call whose arguments are evaluated first is held as its address in
   the slot its statement keeps it in (`keptInSlot`), never as a copy in
-  the call's block. A header subject with temporaries that reaches a
+  the call's block. A temporary lent to write is reached in its
+  statement's slot, `(rig.keep(&slot, &flag, mk()).*).bump()`, and one
+  that branches is never wrapped in a copy there, whichever site lends it
+  (`swap`, `replace`, a write slice, a hoisted receiver): every one reads
+  the fact `writesTemp`. A header subject with temporaries that reaches a
   place is reached through the address its block yields
   (`storage.headerPoints`), never a copy of the block's value. A `match`
   on a generic read view a name holds switches on
@@ -1978,7 +2006,14 @@ reach it through a write view, and otherwise the loans that place's
 var holds after the call's stores. It maps arguments to parameters
 itself, positionally or through the call's slots. A method called on a
 value made there (a call, a clone, a shared allocation) lends that
-temporary, so a view it returns ends with the statement.
+temporary, so a view it returns ends with the statement. A write lend
+of a value made there (`!mk()`, a `!self` receiver `!mk().pop()`, a
+branching value made in every branch) lends the statement's temporary
+that holds it to write (Core s4), as `!x` lends `x`. A path through a
+lend (`(!h).r`, `(?mk()).items`) is a path through that view, so a
+store there lands in what the view reaches and nothing is moved out of
+it; and a write receiver with no `!` whose value is a write view
+(`wrap(!h).keep(v)`) is lent on through that view.
 
 ## Nexus notes
 

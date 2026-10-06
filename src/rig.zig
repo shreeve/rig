@@ -73,6 +73,13 @@ pub fn isBracketList(e: Sexp) bool {
     return e.isKind(.index) or e.isKind(.inst);
 }
 
+/// Whether a call of `callee` is a method call: a member, or a member
+/// followed by a bracket list (`v.put[2](x)`).
+pub fn isMethodCallee(callee: Sexp) bool {
+    if (callee.isKind(.member)) return true;
+    return isBracketList(callee) and ir.get(callee, .object).isKind(.member);
+}
+
 /// A slice, `xs[a..b]`: an index node whose index is a range.
 pub fn isRangeIndex(e: Sexp) bool {
     return e.isKind(.index) and ir.Index.index(e).isKind(.@"..");
@@ -1772,24 +1779,42 @@ pub const Parser = struct {
     /// and every postfix after it apply to the lent or moved place:
     ///   (write (propagate_none (call (member v pop))))
     ///   → (propagate_none (call (member (write v) pop)))
-    /// Anything else keeps its sigil outside: a chain that is all place
-    /// (`!x.v`), one whose head is called (`<f(x).g()`), and one whose
-    /// spine is parenthesized (`!(v.pop())`), which starts after the
-    /// token after the sigil, a `(`.
+    /// The sigil reaches the receiver of the chain's first method call.
+    /// A `!` reaches one that is a value no name holds too: one a call
+    /// that is no method call makes (`!mk().bump()` is
+    /// `(!mk()).bump()`), a literal, or a parenthesized expression
+    /// (`!(+s).bump()`); a call of a call's value is walked through to
+    /// the first call (`!a.b(x)(y).g()` is `(!a).b(x)(y).g()`). Anything
+    /// else keeps its
+    /// sigil outside: a chain that is all place (`!x.v`), a `?` or `<`
+    /// chain whose head is called (`<f(x).g()`), and one whose spine is
+    /// parenthesized (`!(v.pop())`), which starts after the token after
+    /// the sigil, a `(`.
     fn receiverSigil(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const tag: parser.Tag = node.kind().?;
         const at = self.afterSigil(node);
+        // `!` lends any value to write, so its chain may start from a
+        // value no name holds: a call that is no method call
+        // (`!mk().bump()`), a literal (`![a, b][0].bump()`), or a
+        // parenthesized expression (`!(+s).bump()`).
+        const any_head = tag == .write;
         // The chain from the operand down to its head, outermost first.
         var chain: std.ArrayList(Sexp) = .empty;
         var e = ir.get(node, .operand);
         while (true) {
-            if (self.span(e).start != at) return node;
+            if (self.span(e).start != at) {
+                if (!any_head or chain.items.len == 0) return node;
+                try chain.append(self.allocator(), e);
+                break;
+            }
             try chain.append(self.allocator(), e);
             e = switch (e.kind() orelse break) {
                 .propagate, .propagate_none => ir.get(e, .value),
                 .member, .index, .inst => ir.get(e, .object),
-                .call => ir.Call.callee(e),
-                else => return node,
+                // A call of a call's value (`a.b(x)(y)`) is walked to
+                // the first call, as before.
+                .call => if (any_head and !isMethodCallee(ir.Call.callee(e)) and !ir.Call.callee(e).isKind(.call)) break else ir.Call.callee(e),
+                else => if (any_head) break else return node,
             };
         }
         const spine = chain.items;
@@ -2072,7 +2097,7 @@ test "parser: for-source sigil moves into the mode slot" {
 }
 
 test "parser: a receiver sigil moves onto the place before the method" {
-    const source = "!x.v[0].push(1)\n(!v).push(2)\n!(v.pop())\n!f(x).g()\n?p.m()\n?(p.m())\n";
+    const source = "!x.v[0].push(1)\n(!v).push(2)\n!(v.pop())\n!f(x).g()\n?p.m()\n?(p.m())\n?f(x).g()\n!(+s).g()\n!a.b(x)(y).g()\n";
     var p = Parser.init(testing.allocator, source);
     defer p.deinit();
     const tree = try p.parseProgram();
@@ -2087,12 +2112,24 @@ test "parser: a receiver sigil moves onto the place before the method" {
     const long = ir.Member.object(ir.Call.callee(stmts[1]));
     try testing.expect(long.isKind(.write) and !p.isReceiverSigil(long));
     try testing.expect(stmts[2].isKind(.write));
-    // A called head is not a place.
-    try testing.expect(stmts[3].isKind(.write));
+    // `!` lends any value to write: a called head is the receiver.
+    const made = ir.Member.object(ir.Call.callee(stmts[3]));
+    try testing.expect(made.isKind(.write) and p.isReceiverSigil(made));
+    try testing.expect(ir.Write.operand(made).isKind(.call));
     // `?` reaches the receiver too, and lends a parenthesized call.
     const read = ir.Member.object(ir.Call.callee(stmts[4]));
     try testing.expect(read.isKind(.read) and p.isReceiverSigil(read));
     try testing.expect(stmts[5].isKind(.read));
+    // A `?` before a called head lends the result.
+    try testing.expect(stmts[6].isKind(.read));
+    // A parenthesized receiver is lent to write by `!`.
+    const paren = ir.Member.object(ir.Call.callee(stmts[7]));
+    try testing.expect(paren.isKind(.write) and p.isReceiverSigil(paren));
+    try testing.expect(ir.Write.operand(paren).isKind(.clone));
+    // A call of a call's value: the first method call's receiver, `a`.
+    var head = stmts[8];
+    while (!head.isKind(.write)) head = if (head.isKind(.call)) ir.Call.callee(head) else ir.get(head, .object);
+    try testing.expect(p.isReceiverSigil(head) and ir.Write.operand(head) == .src);
 }
 
 test "parser: bar lists split into captures and parameters, all with node ids" {

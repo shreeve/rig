@@ -1,0 +1,26 @@
+# Review probe p01_handles.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.bump accept
+# oracle: S.drop accept
+# oracle: mkh accept
+# oracle: mkb accept
+# oracle: main accept
+struct S
+  n: Int
+  items: Vec[Int]
+
+  sub bump(!self)
+    self.n += 1
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mkh -> *S
+  *S(n: 1, items: Vec())
+
+fun mkb -> Box[S]
+  Box(S(n: 10, items: Vec()))
+
+sub main
+  !mkb().bump()
+  !mkb().items.push(3)
+  print(!mkb().n)

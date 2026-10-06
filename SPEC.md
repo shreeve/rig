@@ -3039,22 +3039,52 @@ same lend, of part of `x` ([§2](#slices)).
 
 A `!x` view needs a binding that may change: a parameter (other than
 `!T`), a fixed binding, a capture, or a loop binding cannot be
-lent to write. Nor can a temporary, such as a call's result or a
-struct literal, since the change would be lost with it.
+lent to write. `!` lends any value to write, named or temporary
+([Core 4](docs/CORE.md#2-the-core-in-ten-sentences)): a temporary, such
+as a call's result or a struct literal, or a field or element of one,
+is kept in its statement's slot until the statement ends
+([Temporaries](#temporaries)), where the change is seen, and a view of
+it may be used only within the statement. A branching value that may
+be a name's (`!(a if c else b)`) would be lent as a copy, which the
+change would miss, so it is rejected: lend each branch, `!a if c else
+!b`. A constant is no temporary, and is never lent to write (above).
+
+```rig
+struct Wrap
+  n: Int
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+sub grow(b: !Wrap)
+  b.n += 1
+  print(b.n)
+
+sub main
+  grow(!Wrap(n: 1))
+  print(!Wrap(n: 5).next())
+```
+
+```output
+2
+6
+```
 
 ```rig reject
 struct Wrap
   n: Int
 
-sub grow(b: !Wrap)
-  b.n += 1
+fun first(b: !Wrap) -> !Int
+  !b.n
 
 sub main
-  grow(!Wrap(n: 1))
+  w = first(!Wrap(n: 1))
+  print(w)
 ```
 
 ```error
-cannot lend a temporary to write: the change would be lost; bind it to a name first
+a view of the temporary `Wrap(n: 1)` outlives its statement, which drops it; bind the value to a name first
 ```
 
 #### Write views
@@ -3396,9 +3426,11 @@ included, `+x`, `<x`, or a block or `match` value) has no name: its
 statement is its scope, so it is a **temporary**. One that owns a
 resource is dropped when its statement ends, last made first, also
 when the statement fails (`!`) or leaves early (`?? return`). A
-temporary that nothing reads or takes (an expression statement, the
-receiver of a `!self` method, whose change would be lost) is rejected:
-bind it to a name first.
+temporary that nothing reads or takes (an expression statement) is
+rejected: bind it to a name first. A temporary lent to write
+(`!make().bump()`, `grow(!make())`) is kept in its statement's slot,
+where the change is seen, and dropped when the statement ends
+([Lending](#lending)).
 
 ```rig
 struct B
@@ -3446,7 +3478,11 @@ sub main
 ```
 
 A `!self` method called on a temporary, or on a field or element of
-one, is rejected, since nothing would see the change:
+one, lends it to write, and every change is marked by `!`: without one
+the call is rejected, with the hint to add it. `!Counter(n: 1).bump()`
+is `(!Counter(n: 1)).bump()` ([SYNTAX §5](SYNTAX.md#receiver-sigils)).
+The method sees the temporary in its statement's slot, and its result
+may be used, or not:
 
 ```rig reject
 struct Counter
@@ -3460,7 +3496,38 @@ sub main
 ```
 
 ```error
-`bump` changes its receiver, a temporary no name holds; bind it to a name first
+`bump` changes its receiver, a temporary no name holds; add `!`: `!Counter(n: 1).bump()`
+```
+
+```rig
+struct Counter
+  n: Int
+  log: Vec[Int]
+
+  fun bump(!self) -> Int
+    self.n += 1
+    !self.log.push(self.n)
+    self.n
+
+  fun at(!self) -> !Int
+    !self.n
+
+fun counter -> Counter
+  Counter(n: 1, log: Vec())
+
+sub add(n: !Int, k: Int)
+  n += k
+
+sub main
+  !counter().bump()
+  print(!counter().bump(), counter().log.len)
+  add(!counter().at(), 10)
+  print(!counter().at() + 1)
+```
+
+```output
+2 0
+2
 ```
 
 A view of a temporary (`?S(n: 1)`, `?make()`, `?make()[1..]`), and
@@ -3558,9 +3625,9 @@ sub main
 
 A `?self` or `!self` receiver is lent as `?e` or `!e` would be when the
 method may keep a view of it, in its result or through a write
-argument. A temporary receiver of a `?self` method, plain data
-included, then lives until its statement ends, so the view may be used
-there and nowhere after (a `!self` method on a temporary is rejected:
+argument. A temporary receiver, plain data included, then lives until
+its statement ends, so the view may be used there and nowhere after (a
+`!self` method's temporary receiver is written `!e`:
 [Temporaries](#temporaries)). A
 receiver that branches lends each leaf where it is:
 `(a if c else b).name()` keeps a loan on `a` and on `b`, so neither may

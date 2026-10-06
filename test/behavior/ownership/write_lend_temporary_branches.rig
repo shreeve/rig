@@ -1,0 +1,78 @@
+# A branching value whose every branch is made there is one temporary
+# (Core §3), lent to write as a whole or through a field or element
+# (Core sentence 4): written in its statement's slot, never in a copy.
+# oracle: main accept
+
+struct P
+  k: Int
+
+  sub bump(!self)
+    self.k += 1
+
+  fun next(!self) -> Int
+    self.k += 1
+    self.k
+
+struct S
+  n: Int
+  p: P
+
+  sub bump(!self)
+    self.n += 1
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+error Bad
+  no
+
+fun mk(n: Int) -> S
+  S(n: n, p: P(k: n))
+
+fun mkopt(n: Int) -> S?
+  return none if n == 0
+  mk(n)
+
+fun trymk(n: Int) -> S!
+  return Bad.no if n == 0
+  mk(n)
+
+sub grow(s: !S)
+  s.n += 100
+  print("grow", s.n)
+
+sub inc(n: !Int)
+  n += 1000
+  print("inc", n)
+
+sub main
+  c = mk(1).n == 1
+  grow(!(mk(1) if c else mk(2)))
+  inc(!(mk(3) if c else mk(4)).n)
+  inc(![P(k: 5), P(k: 6)][1].k)
+  !(mk(7) if c else mk(8)).p.bump()
+  print(!(mk(9) if c else mk(10)).p.next())
+  print(!(mkopt(0) ?? mk(11)).next())
+  print(!(trymk(0) catch mk(12)).next())
+  grow(!(mkopt(13) ?? mk(14)))
+  x = 2
+  y = match x
+    1 => !mk(20).next()
+    _ => !mk(21).next()
+  print(y)
+  s = mk(30)
+  grow(!(+s))
+  print(s.n)
+
+# expect:
+# grow 101
+# inc 1003
+# inc 1006
+# 10
+# 12
+# 13
+# grow 113
+# 22
+# grow 130
+# 30

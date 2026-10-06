@@ -1,0 +1,51 @@
+# Review probe m01_text.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: H.tv accept
+# oracle: H.show accept
+# oracle: H.drop accept
+# oracle: mkh accept
+# oracle: mkt accept
+# oracle: f accept
+# oracle: app accept
+struct H
+  t: Text
+  ts: Vec[Text]
+
+  fun tv(!self) -> !Text
+    !self.t
+
+  fun show(!self) -> Int
+    print(self.t, self.ts)
+    self.t.len
+
+  drop(!self)
+    print("dropH", self.t)
+
+fun mkh(s: String) -> H
+  h = H(t: Text(s), ts: Vec())
+  !h.ts.push(Text(s, "0"))
+  h
+
+fun mkt(s: String) -> Text
+  Text(s)
+
+fun f(n: Int) -> Int
+  n
+
+sub app(t: !Text)
+  !t.add("+")
+  print("app", t)
+
+sub main
+  c = f(1) == 1
+  !mkh("a").t.add("b")
+  !mkh("c").tv().add("d")
+  !mkh("e").ts[0].add("f")
+  app(!mkh("g").t)
+  app(!mkh("h").tv())
+  app(!(mkh("i") if c else mkh("j")).t)
+  !(mkh("k") if c else mkh("l")).t.add("m")
+  !(mkt("n") if c else mkt("o")).add("p")
+  print(!(mkh("q") if c else mkh("r")).show())
+  app(!mkh("s").ts[0])
+  app(![mkt("u"), mkt("v")][1])
+  print(!mkh("w").tv().len)

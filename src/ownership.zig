@@ -982,7 +982,16 @@ pub const Checker = struct {
     /// A view `l` of a statement's temporary that `holder` keeps past
     /// the statement.
     fn reportTempOutlived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
-        try self.err(l.pos, "a view of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{self.vars.items[l.root].name});
+        const name = self.vars.items[l.root].name;
+        // A temporary made before it in the statement is dropped after
+        // it, so holds the view past the temporary's drop.
+        if (holder) |h| if (self.isStmtTemp(h) and self.vars.items[h].name.len > 0) {
+            const hv = self.vars.items[h];
+            try self.err(l.pos, "a view of the temporary `{s}` is held by `{s}`, a temporary its statement drops after it; bind the value to a name first", .{ name, hv.name });
+            if (self.last_err_kept) try self.note(hv.decl, "`{s}` is made before `{s}`, so dropped after it", .{ hv.name, name });
+            return;
+        };
+        try self.err(l.pos, "a view of the temporary `{s}` outlives its statement, which drops it; bind the value to a name first", .{name});
         if (!self.last_err_kept) return;
         const h = holder orelse return;
         const hv = self.vars.items[h];
@@ -1396,6 +1405,30 @@ pub const Checker = struct {
         if (in_defer) try self.defer_used.put(self.gpa, sym, {});
     }
 
+    /// Whether `holder` still uses what it views once a statement's
+    /// temporary it views is dropped there. A temporary of the same
+    /// statement, dropped after it, uses its views as any owner's drop
+    /// does, only through a `drop` body (Core sentence 6), or through a
+    /// live value that views it; any other holder as `holderLive` says.
+    fn holdsPastDrop(self: *const Checker, holder: VarId) bool {
+        return self.holdsPastDropDepth(holder, 0);
+    }
+
+    fn holdsPastDropDepth(self: *const Checker, holder: VarId, depth: u8) bool {
+        if (!self.isStmtTemp(holder) or depth > 16) return self.holderLive(holder, null);
+        const ctx = self.sema orelse return true;
+        const ty = self.vars.items[holder].ty orelse return true;
+        if (sema.dropRunsBody(ctx, ty) != .no) return true;
+        if (self.isLent(holder)) for (self.flows.items, 0..) |f, j| {
+            if (j == holder) continue;
+            for (f.loans) |l| if (l.root == holder and !l.ext) {
+                if (self.holdsPastDropDepth(@intCast(j), depth + 1)) return true;
+                break;
+            };
+        };
+        return false;
+    }
+
     /// Whether the value var `id` holds may still be used after the
     /// current point (or after position `at`, a scope's end), so the
     /// loans it holds are still in force. It is live when the var is used
@@ -1666,7 +1699,7 @@ pub const Checker = struct {
                 for (f.loans) |l| {
                     if (l.root != d.id) {
                         try kept.append(self.arena(), l);
-                    } else if (!reported and self.holderLive(@intCast(holder), null)) {
+                    } else if (!reported and self.holdsPastDrop(@intCast(holder))) {
                         try self.reportTempOutlived(l, @intCast(holder));
                         reported = true;
                     }
@@ -2267,7 +2300,11 @@ pub const Checker = struct {
     fn walkLend(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
         if (rig.isRangeIndex(inner)) return self.walkElems(inner, ir.Index.object(inner), kind);
         if (kind == .read and self.throughReadView(inner)) return self.walkThroughView(inner);
-        const place = self.resolvePlace(inner) orelse return self.walkViewedPath(inner);
+        const place = self.resolvePlace(inner) orelse {
+            const start = self.vars.items.len;
+            const v = try self.walkViewedPath(inner);
+            return if (kind == .write) self.lendTempToWrite(v, start) else v;
+        };
         try self.walkIndicesHeld(inner, place.root);
         const id = place.root;
         const v = self.vars.items[id];
@@ -2278,6 +2315,23 @@ pub const Checker = struct {
             return .{};
         }
         return (try self.lendVar(id, kind, pos)) orelse .{};
+    }
+
+    /// `v`, the view of a path that starts from no var, lent to write:
+    /// the statement temporary it starts from (held since there were
+    /// `start` vars, `holdTemp`) is lent to write (`!mk().bump()`, Core
+    /// sentence 4).
+    fn lendTempToWrite(self: *Checker, v: Value, start: usize) Error!Value {
+        var loans: ?[]Loan = null;
+        for (v.loans, 0..) |l, i| {
+            if (l.root < start or !self.isStmtTemp(l.root) or l.kind == .write) continue;
+            const out = loans orelse try self.arena().dupe(Loan, v.loans);
+            out[i].kind = .write;
+            loans = out;
+        }
+        var w = v;
+        if (loans) |ls| w.loans = ls;
+        return w;
     }
 
     /// A view of a path that starts from no var (`?f(?h).r`): it keeps
@@ -2332,9 +2386,12 @@ pub const Checker = struct {
             return v;
         }
         // A path from no var (a temporary's part, `?mk().v[..]`) keeps
-        // what its start views, as a view of one does.
+        // what its start views, as a view of one does; `!mk()[..]` lends
+        // that temporary to write.
         const place = self.resolvePlace(object) orelse {
-            const v = try self.walkViewedPath(object);
+            const start = self.vars.items.len;
+            var v = try self.walkViewedPath(object);
+            if (kind == .write) v = try self.lendTempToWrite(v, start);
             if (rig.isRangeIndex(slice)) _ = try self.walk(ir.Index.index(slice));
             return v;
         };

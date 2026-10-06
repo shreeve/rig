@@ -1,0 +1,22 @@
+# Review probe a01d_generic_id_readlend.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: mk accept
+# oracle: id accept
+# oracle: clobber accept
+struct S
+  n: Int
+  big: [8]Int
+
+fun mk(n: Int) -> S
+  S(n: n, big: [n, n, n, n, n, n, n, n])
+
+fun id[T](x: T) -> T
+  x
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7, n, n, n, n, n, n, n, n]
+  a[1]
+
+sub main
+  r = id(?mk(1))
+  print(clobber(77))
+  print(r.n)

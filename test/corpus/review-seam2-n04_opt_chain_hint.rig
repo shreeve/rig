@@ -1,0 +1,34 @@
+# Review probe n04_opt_chain_hint.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.pop accept
+# oracle: mkopt accept
+# oracle: mkerr accept
+# oracle: go accept
+# oracle: go2 accept
+# oracle: main accept
+error E
+  bad
+
+struct S
+  n: Int
+
+  fun pop(!self) -> Int
+    self.n += 1
+    self.n
+
+fun mkopt(n: Int) -> S?
+  return none if n == 0
+  S(n: n)
+
+fun mkerr(n: Int) -> S!
+  return E.bad if n == 0
+  S(n: n)
+
+fun go(n: Int) -> Int?
+  !(mkopt(n)?).pop()
+
+fun go2(n: Int) -> Int!
+  !(mkerr(n)!).pop()
+
+sub main
+  print(go(1) ?? -1, go(0) ?? -1)
+  print(go2(1) catch -1, go2(0) catch -1)

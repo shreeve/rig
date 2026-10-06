@@ -1,0 +1,15 @@
+# Review probe e07_enum_branch.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+enum Color
+  red
+  green
+
+sub setc(c: !Color)
+  c = .green
+  print(c)
+
+fun f(n: Int) -> Int
+  n
+
+sub main
+  x: Color = .red
+  setc(!(Color.red if f(1) == 1 else Color.green))

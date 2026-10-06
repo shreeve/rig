@@ -1,0 +1,17 @@
+# Review probe n02_parse_meaning2.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+struct S
+  n: Int
+
+  fun all(!self) -> !S
+    self
+
+fun wrap(s: !S) -> !S
+  s
+
+sub inc(v: !Int)
+  v += 10
+
+sub main
+  s = S(n: 1)
+  inc(!wrap(!s).all().n)
+  print(s.n)

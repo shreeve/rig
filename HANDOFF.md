@@ -106,8 +106,10 @@ and when the oracle decides fewer functions than the floors in
 
 The final review (`.git/revamp/r3/final-review/core-review.md`, local)
 found no unsound program. Its fixes are in: a write method on a
-temporary is rejected, a binding with no type holds a call's write view,
-and the payload-view and loop diagnostics name only forms that compile.
+temporary needs `!`, which lends the temporary to write in its
+statement's slot (`!mk().pop()`, CORE sentence 4), a binding with no
+type holds a call's write view, and the payload-view and loop
+diagnostics name only forms that compile.
 
 **Held, each waiting on the change named:**
 

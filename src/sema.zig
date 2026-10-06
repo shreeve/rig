@@ -649,6 +649,10 @@ pub const Facts = struct {
     /// receiver): each is dropped at the end of its statement, or of
     /// its header.
     temp_drops: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Temporaries lent to write (`!mk()`, `!(a if c else b).f`), or the
+    /// value a written part of one starts from: written in their
+    /// statement's slot.
+    written_temps: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Branches of a read branching value that a name holds (`a` in
     /// `print(a if c else b)`): read where they are, never moved out.
     in_place_reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -1960,6 +1964,17 @@ pub const SemContext = struct {
 
     pub fn recordTempDrop(self: *SemContext, node: Sexp) !void {
         try self.facts.temp_drops.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn recordWrittenTemp(self: *SemContext, node: Sexp) !void {
+        try self.facts.written_temps.put(self.allocator, recordKey(node), {});
+    }
+
+    /// Whether `node` is a temporary lent to write, or the value a part
+    /// lent to write starts from (`recordWrittenTemp`): its statement's
+    /// slot is written, so it is reached there, never through a copy.
+    pub fn writesTemp(self: *const SemContext, node: Sexp) bool {
+        return self.facts.written_temps.contains(nodeKey(node) orelse return false);
     }
 
     /// Whether `node` is an owning temporary its statement drops at its

@@ -1,0 +1,12 @@
+# Review probe n05_field_fn.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+struct P
+  f: *fun(Int) -> Int
+  fs: Vec[*fun(Int) -> Int]
+
+fun mkp -> P
+  P(f: *|x| x + 1, fs: Vec())
+
+sub main
+  print(!mkp().f(1))
+  p = mkp()
+  print(!p.f(2))

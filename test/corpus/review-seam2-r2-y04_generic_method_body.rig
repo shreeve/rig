@@ -1,0 +1,36 @@
+# Review probe r2/y04_generic_method_body.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+# oracle: S.drop accept
+# oracle: H.keep accept
+# oracle: H.drop accept
+# oracle: mk accept
+# oracle: mkh accept
+# oracle: go reject C5
+# oracle: main accept
+struct S
+  n: Int
+  t: Text
+
+  drop(!self)
+    print("dropS", self.n)
+
+struct H
+  rs: Vec[String]
+
+  sub keep(!self, r: String)
+    !self.rs.push(r)
+
+  drop(!self)
+    print("dropH sees", self.rs)
+
+fun mk(n: Int) -> S
+  S(n: n, t: Text("hello world, long enough to be on the heap"))
+
+fun mkh -> H
+  H(rs: Vec())
+
+sub go[T](x: T)
+  !mkh().keep(?mk(1).t)
+
+sub main
+  go(1)
+  print("end")
