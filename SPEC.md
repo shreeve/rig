@@ -3100,9 +3100,12 @@ until its last use. Every later use counts: a use further on, a use
 anywhere in a loop around it that the binding was declared outside of
 (the next iteration runs it again), a closure that captured it (and
 every use of that closure), a binding that views the view in turn,
-deferred code, and the drop at scope exit of a value whose type has
-drop glue. The binding's block ending, `-r`, or reassigning it also end
-the view.
+deferred code, and the drop at scope exit of a value whose drop runs a
+`drop` body (its own, or one of a value it holds and drops), which could
+read the view. Any other drop only releases memory, so a `Vec[?T]`, or
+a struct holding views without a `drop` body, keeps their loans only
+until its last use. The binding's block ending, `-r`, or reassigning it
+also end the view.
 
 ```rig
 struct Wrap

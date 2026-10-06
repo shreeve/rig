@@ -282,7 +282,9 @@ cannot lend `n` to read while a write loan is live
 
 **6. A loan lasts until the last use of every view that carries it,**
 wherever that view went: a field, an array, an optional, a closure, a
-result. *(built)*
+result. Dropping a value uses the views it holds only when its
+drop runs a `drop` body, which could read them, so a `Vec[[]Int]`'s
+loans end at its last use, not where it is dropped. *(built)*
 
 ```rig reject
 sub main
@@ -294,6 +296,39 @@ sub main
 
 ```error
 cannot lend `v` to write while a read loan is live
+```
+
+```rig
+sub main
+  a = [1, 2, 3]
+  v: Vec[[]Int] = Vec()
+  !v.push(?a[..2])
+  print(v)
+  a[0] = 9
+  print(a)
+```
+
+```output
+[[1, 2]]
+[9, 2, 3]
+```
+
+```rig reject
+struct Guard
+  items: []Int
+
+  drop(!self)
+    print(self.items.len)
+
+sub main
+  a = [1, 2, 3]
+  g = Guard(items: ?a[..])
+  print(g.items[0])
+  a[0] = 9
+```
+
+```error
+cannot assign to `a[...]` while `a` is lent
 ```
 
 **7. A call passes on only the loans its signature shows.** A function

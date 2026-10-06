@@ -203,9 +203,10 @@ const Var = struct {
     ref: Ref = .none,
     fixed: bool = false,
     closure: bool = false,
-    /// A closure whose environment has drop glue: dropping it at scope
-    /// exit uses what it captured.
-    env_drops: bool = false,
+    /// A closure whose environment's drop may run a `drop` body
+    /// (`sema.dropRunsBody`): dropping it at scope exit may read what it
+    /// captured.
+    env_drop_reads: bool = false,
     /// Element of `for x in ?vec` over a resource Vec: a view of
     /// the slot.
     loop_view: bool = false,
@@ -1385,10 +1386,11 @@ pub const Checker = struct {
     /// loans it holds are still in force. It is live when the var is used
     /// later in the code, or anywhere in a loop around this point that
     /// does not also enclose its declaration (the next iteration runs
-    /// that code again), or in deferred code, or when its type has drop
-    /// glue (its drop at scope exit may reach what it views), or when a
-    /// live var or temporary views it in turn. Otherwise its last use
-    /// is behind, and its views have ended.
+    /// that code again), or in deferred code, or when its drop at scope
+    /// exit may run a `drop` body, which could read what it views
+    /// (`sema.dropRunsBody`; any other drop only releases memory, and
+    /// uses no view), or when a live var or temporary views it in turn.
+    /// Otherwise its last use is behind, and its views have ended.
     fn holderLive(self: *const Checker, id: VarId, at: ?u32) bool {
         return self.holderLiveDepth(id, at, 0);
     }
@@ -1399,14 +1401,15 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         // A parameter is live at every exit: the caller uses the value
         // it lent a viewed one after the return.
-        if (v.kind == .hidden or v.kind == .param or v.env_drops or self.isGlobal(id)) return true;
+        if (v.kind == .hidden or v.kind == .param or v.env_drop_reads or self.isGlobal(id)) return true;
         const sym = v.sym orelse return true;
         if (self.defer_used.contains(sym)) return true;
         const ty = v.ty orelse return true;
-        // A var that owns its value drops it at scope exit. (A match
-        // payload or a viewed loop element only views a value.)
+        // A var that owns its value drops it at scope exit, which uses
+        // its views only through a `drop` body. (A match payload or a
+        // viewed loop element only views a value.)
         const owns = v.alias_of == null and !v.loop_view and v.ref == .none;
-        if (owns and (sema.typeHasDropGlue(ctx, ty) or sema.maybeDropGlue(ctx, ty))) return true;
+        if (owns and sema.dropRunsBody(ctx, ty) != .no) return true;
         if (self.last_use.get(sym)) |last| if (last >= self.liveFrom(v.decl, at)) return true;
         if (self.isLent(id)) for (self.flows.items, 0..) |f, j| {
             if (j == id) continue;
@@ -2912,7 +2915,7 @@ pub const Checker = struct {
                 return;
             },
         }
-        if (is_lambda) self.vars.items[self.vars.items.len - 1].env_drops = self.envDrops(expr);
+        if (is_lambda) self.vars.items[self.vars.items.len - 1].env_drop_reads = self.envDropReads(expr);
     }
 
     /// Whether `e` names `name` anywhere.
@@ -2939,12 +2942,13 @@ pub const Checker = struct {
         return false;
     }
 
-    /// Whether the environment of closure literal `lambda` has drop glue.
-    fn envDrops(self: *const Checker, lambda: Sexp) bool {
+    /// Whether dropping the environment of closure literal `lambda` may
+    /// run a `drop` body (`sema.dropRunsBody`).
+    fn envDropReads(self: *const Checker, lambda: Sexp) bool {
         const ctx = self.sema orelse return true;
         for (sema.captureList(ir.Lambda.captures(lambda))) |cap| {
             const ty = self.symType(sema.captureNameNode(cap).?.src.pos) orelse return true;
-            if (sema.typeHasDropGlue(ctx, ty) or sema.maybeDropGlue(ctx, ty)) return true;
+            if (sema.dropRunsBody(ctx, ty) != .no) return true;
         }
         return false;
     }
@@ -4923,7 +4927,7 @@ pub const Checker = struct {
         for (start..len) |i| {
             const h = self.vars.items[i];
             if (!self.flowLive(@intCast(i)) or h.alias_of != null or h.loop_view or h.ref != .none) continue;
-            if (!self.runsDropBody(h.ty orelse continue, &.{})) continue;
+            if (sema.dropRunsBody(ctx, h.ty orelse continue) != .yes) continue;
             reach.clearRetainingCapacity();
             try reach.append(self.arena(), @intCast(i));
             var k: usize = 0;
@@ -4950,42 +4954,6 @@ pub const Checker = struct {
             if (self.scopes.items[si].start <= id) return si;
         }
         return 0;
-    }
-
-    /// Whether dropping a value of type `ty` may run a user `drop` body.
-    /// `path` holds the types being looked into: a cycle adds nothing.
-    fn runsDropBody(self: *const Checker, ty: TypeId, path: []const SymbolId) bool {
-        const ctx = self.sema orelse return false;
-        return switch (ctx.types.get(ty)) {
-            .shared, .optional, .fallible => |i| self.runsDropBody(i, path),
-            .array => |a| self.runsDropBody(a.elem, path),
-            .imported_nominal => sema.typeHasDropGlue(ctx, ty),
-            .nominal => |sid| self.fieldsRunDropBody(sid, path),
-            .parameterized_nominal => |pn| blk: {
-                for (pn.args) |a| if (self.runsDropBody(a, path)) break :blk true;
-                break :blk self.fieldsRunDropBody(pn.sym, path);
-            },
-            else => false,
-        };
-    }
-
-    fn fieldsRunDropBody(self: *const Checker, sid: SymbolId, path: []const SymbolId) bool {
-        if (std.mem.findScalar(SymbolId, path, sid) != null) return false;
-        // Past any real nesting depth, assume the worst.
-        if (path.len >= 32) return true;
-        var buf: [32]SymbolId = undefined;
-        @memcpy(buf[0..path.len], path);
-        buf[path.len] = sid;
-        const inner = buf[0 .. path.len + 1];
-        const fields = self.sema.?.symbols.items[sid].fields orelse return false;
-        for (fields) |f| if (f.is_drop_method) return true;
-        for (fields) |f| {
-            if (f.is_method) continue;
-            if (f.is_variant) {
-                for (f.payload orelse &.{}) |pf| if (self.runsDropBody(pf.ty, inner)) return true;
-            } else if (self.runsDropBody(f.ty, inner)) return true;
-        }
-        return false;
     }
 
     // -------------------------------------------------------------------------

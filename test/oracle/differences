@@ -83,14 +83,6 @@ test/corpus/R15-p-m2.rig main prod-rejects prod-strict `w = !s.arr[..]` views an
 test/corpus/review-step3-l14_handle_in_vec_loop.rig main prod-rejects prod-strict `keep(h)` of a `for h in v` element of a Vec of handles, used within the iteration
 test/corpus/syntax-review-complete-g3.rig Map.find_mut prod-rejects prod-strict `return !e` of a `for e in !self.es` element views what `self` was lent
 
-# Whether dropping a Vec of views where its scope ends uses the views:
-# no `drop` body reads them (Core s3, s6), and an explicit `-v` ends
-# them in both checkers.
-test/corpus/r3-s45-v-v14_slices_in_vec.rig main prod-rejects core-gap `a[0] = 9` after the last use of a `Vec[[]Int]` of `a`'s slices
-test/corpus/r3-s45-v-v27_vec_view_param_return.rig main prod-rejects core-gap `x = 3` after the last use of a `Vec[?Int]` holding `?x`
-test/corpus/review-place-b3-r032_wt_elem_vec.rig main prod-rejects core-gap `print(a)` after the last use of a `Vec[!Int]` holding `!a`
-test/corpus/review-place-b7-v025_wt_elem_vec_through.rig main prod-rejects core-gap `print(a, b)` after the last use of a `Vec[!Int]` holding `!a`
-
 # Whether a bare write-view element or field where a value is taken
 # copies what it sees (SPEC §7, as a bare write-view name and an
 # argument do) or would move it out of its holder.

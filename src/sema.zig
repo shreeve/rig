@@ -4355,6 +4355,54 @@ pub fn maybeDropGlue(ctx: *const SemContext, ty: TypeId) bool {
 /// `depends` when each instance answers for itself.
 pub const Answer = enum { no, yes, depends };
 
+/// Whether dropping a value of `ty` may run a user `drop` body: one of
+/// its own, or of a value it holds and drops (a field, payload, element,
+/// optional, array, Box's or counted handle's contents), never one a weak
+/// handle or a view reaches. A `drop` body may read what the value views;
+/// any other drop only releases memory, which uses no view (Core sentence
+/// 6). `depends` for a value holding a type parameter, whose instances
+/// answer for themselves; a type declared in another module answers by
+/// whether it has drop glue.
+pub fn dropRunsBody(ctx: *const SemContext, ty: TypeId) Answer {
+    if (runsDropBody(ctx, ty, &.{})) return .yes;
+    const info = ctx.holds(ty);
+    return if (info.holds_type_var or info.poison) .depends else .no;
+}
+
+/// `path` holds the declared types being looked into: a cycle adds nothing.
+fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: []const SymbolId) bool {
+    return switch (ctx.types.get(ty)) {
+        .shared, .optional, .fallible => |i| runsDropBody(ctx, i, path),
+        .array => |a| runsDropBody(ctx, a.elem, path),
+        .imported_nominal => typeHasDropGlue(ctx, ty),
+        .nominal => |sid| fieldsRunDropBody(ctx, sid, path),
+        .parameterized_nominal => |pn| blk: {
+            for (pn.args) |a| if (runsDropBody(ctx, a, path)) break :blk true;
+            break :blk fieldsRunDropBody(ctx, pn.sym, path);
+        },
+        else => false,
+    };
+}
+
+fn fieldsRunDropBody(ctx: *const SemContext, sid: SymbolId, path: []const SymbolId) bool {
+    if (std.mem.findScalar(SymbolId, path, sid) != null) return false;
+    // Past any real nesting depth, assume the worst.
+    if (path.len >= 32) return true;
+    var buf: [32]SymbolId = undefined;
+    @memcpy(buf[0..path.len], path);
+    buf[path.len] = sid;
+    const inner = buf[0 .. path.len + 1];
+    const fields = ctx.symbols.items[sid].fields orelse return false;
+    for (fields) |f| if (f.is_drop_method) return true;
+    for (fields) |f| {
+        if (f.is_method) continue;
+        if (f.is_variant) {
+            for (f.payload orelse &.{}) |pf| if (runsDropBody(ctx, pf.ty, inner)) return true;
+        } else if (runsDropBody(ctx, f.ty, inner)) return true;
+    }
+    return false;
+}
+
 /// Whether `ty` is unique: declared `unique`, or a `Cell`, or holds one
 /// of those inline (not behind a handle, a view, or a Vec's or Box's
 /// heap memory). A copy of a Cell would fork the state it shares.

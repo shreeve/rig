@@ -1334,10 +1334,16 @@ leaf counts as a use of what it captures) and the symbols deferred code
 uses. A var is live after the current statement when it is used at or
 after the statement's start, or anywhere in an enclosing loop it was
 declared outside of (the next iteration), or in deferred code, or when
-it owns a value with drop glue (dropped at scope exit), or when a live
-var or temporary holds a loan of it. A closure binding whose
-environment has drop glue, a parameter, and the hidden var that keeps a
-`for` source lent are always live. The
+it owns a value whose drop at scope exit may run a `drop` body
+(`sema.dropRunsBody`: one of its own, or of a value it holds and drops,
+or `depends` for a value holding a type parameter), which could read
+what the value views, or when a live var or temporary holds a loan of
+it. Any other drop only releases memory and uses no view (Core sentence
+6), so a `Vec[?Int]`'s loans end at its last use. A closure binding
+whose environment's drop may run a `drop` body (`env_drop_reads`), a
+parameter, and the hidden var that keeps a `for` source lent are always
+live. Desugared, a drop that runs no `drop` body is a release of memory
+the value owns, which reads none of the views it holds. The
 conflict checks and the "does not live long enough" checks at scope ends
 and jumps skip loans whose holder is not live. This is textual, so it is
 the same on every path, and conservative where paths differ.
