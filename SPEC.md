@@ -3624,8 +3624,10 @@ value made there: `<(a if c else b)` and `<o?` are rejected, and written
 `<a if c else <b` and `(<o)?`. A path that passes through a value of
 a view type (`!T`, `?T`, a slice) or a handle reaches its place through
 it, whatever its syntax: `(!p).f`, `(?a if c else ?b).f`, and
-`wrap(!p).f` of a call returning a `!T`. An optional is taken there,
-but nothing else is moved out (`replace(!p.f, v)` exchanges it).
+`wrap(!p).f` of a call returning a `!T`. Through a write view an
+optional is taken there; through a `?T` or a handle nothing is, since
+the take writes the place. Nothing else is moved out through any of
+them (`replace(!p.f, v)` exchanges it).
 
 ```rig
 struct Node

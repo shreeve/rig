@@ -2597,9 +2597,11 @@ pub const Checker = struct {
         const pos = self.startOf(inner);
         if (via) |l| {
             const shown = self.spanText(inner);
-            if (place.through_shared) {
-                try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a shared handle, and other handles may still use it; clone it with `+({s})`", .{ shown, self.spanText(l), shown });
-            } else if ((l.isKind(.read) or l.isKind(.write)) and self.resolvePlace(ir.get(l, .operand)) != null and !self.isHandleType(self.exprType(ir.get(l, .operand)))) {
+            const lent_handle = (l.isKind(.read) or l.isKind(.write)) and self.isHandleType(self.exprType(ir.get(l, .operand)));
+            if (place.through_shared or lent_handle) {
+                const handle = if (lent_handle) ir.get(l, .operand) else l;
+                try self.err(pos, "cannot move out of `{s}`: it is reached through the shared handle `{s}`, and other handles may still use it; clone it with `+({s})`", .{ shown, self.spanText(handle), shown });
+            } else if ((l.isKind(.read) or l.isKind(.write)) and self.resolvePlace(ir.get(l, .operand)) != null) {
                 // A lend of a place: the place's own path names the part.
                 try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view; exchange it instead: `replace(!{s}, v)`", .{ shown, self.spanText(l), path });
             } else try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `replace`", .{ shown, self.spanText(l) });
