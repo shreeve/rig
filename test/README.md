@@ -223,9 +223,10 @@ or `continue` in the inner construct's `else`) past a `defer` or an
 owned local, and a program that runs must print the trace of passes,
 steps, defers, and drops the jumps' meaning gives. Every loop a cell
 writes counts its passes and stops at a cap, and each program is
-stopped past its time (`--timeout`), its memory (`--mem`, also an
-address-space limit on Linux), or 1 MB of output. Run the matrix on
-a machine with memory to spare: `--rig` tests another compiler.
+stopped past its time (`--timeout`), when its processes hold more than
+its memory (`--mem`; an address-space limit would stop the sanitizer,
+which reserves far more than it uses), or past 1 MB of output. `--rig`
+tests another compiler.
 It writes to a temporary directory
 and commits nothing; `-k` picks cells by id and `-v` lists every result.
 

@@ -23,10 +23,10 @@ program the trace of its steps, defers, and drops.
     test/matrix.py --rig OLD/rig   # test another compiler
     test/matrix.py --timeout 20 --mem 2048   # each program's limits
 
-Each program is stopped past its time, past 1 MB of output, or past its
-memory (on Linux an address-space limit, everywhere a watchdog on the
-memory its processes hold), and every loop a cell writes counts its
-passes and stops past a cap, so a loop that never ends fails the cell.
+Each program is stopped past its time, past 1 MB of output, or when its
+processes hold more than its memory, and every loop a cell writes
+counts its passes and stops past a cap, so a loop that never ends fails
+the cell.
 
 Nothing it writes is committed: programs go to a temporary directory,
 and each run's build is removed after it passes.
@@ -685,17 +685,12 @@ def program(tname, fname, cname):
 # A program that runs away is stopped: after RUN_SECONDS (`--timeout`),
 # when it has printed more than RUN_OUTPUT bytes, or when its processes
 # (the compiler, Zig, the program) hold more than RUN_MB megabytes
-# (`--mem`), which on Linux is also each process's address-space limit.
+# (`--mem`). Memory is watched, not limited: the sanitizer reserves
+# address space far beyond what it uses, so an address-space limit
+# (`ulimit -v`, `prlimit --as`) stops every sanitized program.
 RUN_SECONDS = 120
 RUN_OUTPUT = 1 << 20
 RUN_MB = 2048
-
-
-def limit_memory():
-    """In the child: cap its address space, where the kernel enforces it."""
-    if sys.platform.startswith("linux"):
-        import resource
-        resource.setrlimit(resource.RLIMIT_AS, (RUN_MB << 20, RUN_MB << 20))
 
 
 def tree_rss(pgid):
@@ -712,7 +707,7 @@ def tree_rss(pgid):
 def run_capped(cmd, env):
     """Run `cmd` with its output in files, stopping it as RUN_* say."""
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        p = subprocess.Popen(cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=env, start_new_session=True, preexec_fn=limit_memory)
+        p = subprocess.Popen(cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=env, start_new_session=True)
         start = time.monotonic()
         why = None
         while p.poll() is None:
@@ -724,7 +719,10 @@ def run_capped(cmd, env):
             elif tree_rss(p.pid) > RUN_MB << 10:
                 why = f"used more than {RUN_MB} MB"
             if why:
-                os.killpg(p.pid, signal.SIGKILL)
+                try:
+                    os.killpg(p.pid, signal.SIGKILL)
+                except OSError:
+                    pass
                 p.wait()
                 break
         if why == "timeout":
@@ -767,7 +765,7 @@ def run_one(path, keep, expect=None):
         line = next((l for l in err.splitlines() if BAD.search(l)), m.group(0))
         return "fail", line.strip()
     if expect is not None and r.stdout != expect:
-        return "fail", "printed " + repr(r.stdout) + ", expected " + repr(expect)
+        return "fail", "printed " + repr(r.stdout) + ", expected " + repr(expect) + (", stderr " + repr(first_line(err)) if err.strip() else "")
     return "ok", ""
 
 
