@@ -104,6 +104,14 @@ fun holder[T](e: ?E[T], d: T) -> P[T]
     .has(p) => p
     _ => P(x: <d)
 
+fun nested[T](o: ?Opt[Opt[T]], d: T) -> T
+  match get(o)
+    .some(inner)
+      match inner
+        .some(v) => v
+        .nothing => <d
+    .nothing => <d
+
 fun catch_all[T](w: ?W[T]) -> Opt[T]
   match getw(w).o
     x => x
@@ -145,6 +153,8 @@ sub main
   print(guarded(?o, true, Text("d")))
   print(branch_value(?o, true, Text("d")))
   print(holder(?e2, Text("d")).x)
+  n: Opt[Opt[Text]] = .some(v: .some(v: Text("n")))
+  print(nested(?n, Text("d")))
   match catch_all(?w)
     .some(v) => print(v)
     .nothing => pass
@@ -166,8 +176,9 @@ sub main
 # error: `guarded[Text]` cannot use `T = Text`: the generic body copies a `T`
 # error: `branch_value[Text]` cannot use `T = Text`: the generic body copies a `T`
 # error: `holder[Text]` cannot use `T = Text`: the generic body copies a `T`
+# error: `nested[Text]` cannot use `T = Text`: the generic body copies a `T`
 # error: `catch_all[Text]` cannot use `T = Text`: the generic body copies a `T`
 # error: `as_field_of_call[Text]` cannot use `T = Text`: the generic body copies a `T`
 # error: `while_field_of_branch[Text]` cannot use `T = Text`: the generic body copies a `T`
 # error: `for_call[Text]` cannot use `T = Text`: the generic body copies a `T`
-# errors: 18
+# errors: 19

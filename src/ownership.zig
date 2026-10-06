@@ -4472,7 +4472,7 @@ pub const Checker = struct {
         if (self.resolvePlace(node)) |p| {
             info.root = p.root;
             const v = self.vars.items[p.root];
-            if (p.through_view or v.alias_of != null) info.via = .viewed;
+            if (p.through_view or v.payload_view) info.via = .viewed;
             if (p.through_shared) info.via = .shared;
             if (self.exprType(node)) |t| if (self.typeData(t) == .shared) {
                 info.via = .shared;

@@ -102,6 +102,14 @@ fun holder[T](e: ?E[T], d: T) -> P[T]
     .has(p) => p
     _ => P(x: <d)
 
+fun nested[T](o: ?Opt[Opt[T]], d: T) -> T
+  match get(o)
+    .some(inner)
+      match inner
+        .some(v) => v
+        .nothing => <d
+    .nothing => <d
+
 fun catch_all[T](w: ?W[T]) -> Opt[T]
   match getw(w).o
     x => x
@@ -144,6 +152,8 @@ sub main
   print(guarded(?o, false, 0))
   print(branch_value(?o, false, 0))
   print(holder(?e2, 0).x)
+  n: Opt[Opt[Int]] = .some(v: .some(v: 5))
+  print(nested(?n, 0))
   match catch_all(?w)
     .some(v) => print(v)
     .nothing => pass
@@ -167,6 +177,7 @@ sub main
 # 0
 # 0
 # 6
+# 5
 # 2
 # 3
 # 3
