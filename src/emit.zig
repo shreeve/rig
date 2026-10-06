@@ -2126,7 +2126,7 @@ pub const Emitter = struct {
         // A step that reads a binding of the condition runs inside the
         // `if`s that bind it, after the body; a `continue` in the body
         // then leaves a block around the body.
-        const step_inside = step != .nil and self.stepReadsBinding(ir.While.cond(sexp), step);
+        const step_inside = sema.stepReadsBinding(self.sema, ir.While.cond(sexp), step);
         const label = if (step_inside) self.keptLabel(sexp, label_in, rig_label) else try self.stepLabel(step, rig_label, label_in);
         const has_else = else_ != .nil and !sameNode(else_, self.value_else);
         var fail: []const u8 = "break;";
@@ -2188,14 +2188,6 @@ pub const Emitter = struct {
             self.jumpsToLoop(step, rig_label, .brk, true) or self.jumpsToLoop(cond, rig_label, .cont, true) or
             self.jumpsToLoop(step, rig_label, .cont, true);
         return if (used) label else null;
-    }
-
-    /// Whether `step` reads a name an `as` part of `cond` binds.
-    fn stepReadsBinding(self: *Emitter, cond: Sexp, step: Sexp) bool {
-        if (rig.isConditionJoin(cond)) return self.stepReadsBinding(ir.get(cond, .left), step) or self.stepReadsBinding(ir.get(cond, .right), step);
-        if (!cond.isKind(.as)) return false;
-        const sym = self.sema.symbolOf(ir.As.name(cond)) orelse return false;
-        return self.usesSymbol(step, sym);
     }
 
     fn usesSymbol(self: *Emitter, node: Sexp, sym: SymbolId) bool {

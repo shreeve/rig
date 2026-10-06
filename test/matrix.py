@@ -5,8 +5,9 @@ Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
 `drop`, a struct holding a Cell, a struct declared `unique`), plus the
-stores into a view parameter (`store.`, below) and the views of a
-read `match` payload, used in the arm or escaping (`payload.`). The rule
+stores into a view parameter (`store.`, below), the views of a
+read `match` payload, used in the arm or escaping (`payload.`), and a
+`while` step reading what its condition binds (`step.`). The rule
 is the corpus's: `rig check` rejects the program with
 a file:line:col diagnostic, or it runs clean under the sanitizer (no leak,
 no use of freed memory, no Zig compile error, no crash). A `payload.`
@@ -249,6 +250,63 @@ STORE_FORMS = {
     "match_payload": ("e", ["match !a", "  .one(h) => h.r = S", "  .zero => print(0)"]),
     "as_binding": ("opt", ["if !a as h", "  h.r = S"]),
 }
+
+
+# -----------------------------------------------------------------------------
+# A `while` step that reads what its condition binds: a view of `v` (a
+# Vec's `[]Int`, a Text's `String`), a struct holding one read through a
+# field or a method, while the body grows `v` (or only reads it) on its
+# way to the step: falling off its end, `continue`, `continue :outer`
+# from a nested loop, an inner loop, a `defer`, or a `break` (where the
+# step does not run). The step runs after the body, so it must not read
+# what the body grew. Cells are `step.<owner>.<holder>.<shape>.<then>`.
+# -----------------------------------------------------------------------------
+
+STEP_OWNERS = {
+    "vec": dict(ty="Vec[Int]", view="[]Int", lend="?v[..]", make="v: Vec[Int] = Vec()\n  !v.push(1)",
+                grow="!v.push(i)", read="X[0]"),
+    "text": dict(ty="Text", view="String", lend="?v[0..1]", make='v = Text("abc")',
+                 grow='!v.add("abcdefgh")', read='(1 if text.ends_with(X, "a") else 0)'),
+}
+# What the condition binds: its type, how `mk` makes it from the view
+# `L`, and how the step reads the view `X` from it.
+STEP_HOLDERS = {
+    "view": dict(ty="(V)", make="L", x="h"),
+    "field": dict(ty="H", make="H(r: L)", x="h.r"),
+    "method": dict(ty="H", make="H(r: L)", x="h.get()"),
+}
+# The loop: `C` its condition, `S` its step, `G` what grows `v`.
+STEP_SHAPES = {
+    "plain": ["while C: S", "  n += 1", "  G"],
+    "continue": ["while C: S", "  n += 1", "  if n > 0", "    G", "    continue", "  k += 1"],
+    "labeled": [":outer while C: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
+    "inner": ["while C: S", "  n += 1", "  j = 0", "  while j < 1: j += 1", "    G"],
+    "defer": ["while C: S", "  n += 1", "  defer G"],
+    "joined": ["while J: S", "  n += 1", "  G"],
+    "failure": ["while F: S", "  n += 1", "  G"],
+    "break": ["while C: S", "  n += 1", "  if n > 1", "    G", "    break"],
+}
+
+
+def step_program(oname, hname, shape, then):
+    """The program for one step cell."""
+    o = STEP_OWNERS[oname]
+    h = STEP_HOLDERS[hname]
+    v = o["view"]
+    hty = h["ty"].replace("V", v)
+    out = ["use std.text\n" if oname == "text" else "", "error E\n  bad\n",
+           f"struct H\n  r: {v}\n\n  fun get(?self) -> {v}\n    self.r\n",
+           f"sub grow(v: !{o['ty']})\n  for {'i' if 'i' in o['grow'] else '_'} in 0..100\n    {o['grow']}\n",
+           f"fun mk(v: ?{o['ty']}, n: Int) -> {hty}?\n  if n < 3\n    return {h['make'].replace('L', o['lend'])}\n  none\n",
+           f"fun mkf(v: ?{o['ty']}, n: Int) -> {hty}?!\n  return E.bad if n == 7\n  mk(v, n)\n"]
+    step = "k += " + o["read"].replace("X", h["x"])
+    grow = "grow(!v)" if then == "grow" else "k += 1"
+    loop = [l.replace("C", "mk(?v, n) as h").replace("J", "mk(?v, n) as h and n >= 0")
+             .replace("F", "(mkf(?v, n) catch none) as h").replace("S", step).replace("G", grow)
+            for l in STEP_SHAPES[shape]]
+    main = [o["make"], "k = 0", "n = 0"] + loop + ["print(k, n)"]
+    out.append("sub main\n" + indent(main, 2) + "\n")
+    return "\n".join(out)
 
 
 # -----------------------------------------------------------------------------
@@ -575,6 +633,17 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(store_program(o, f, then))
                 cells.append((ident, path))
+    for o in STEP_OWNERS:
+        for hname in STEP_HOLDERS:
+            for shape in STEP_SHAPES:
+                for then in ("grow", "read"):
+                    ident = f"step.{o}.{hname}.{shape}.{then}"
+                    if args.k and not any(k in ident for k in args.k):
+                        continue
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(step_program(o, hname, shape, then))
+                    cells.append((ident, path))
     expects = {}
     for t in PAYLOAD_TYPES:
         for sname in PAYLOAD_SUBJECTS:

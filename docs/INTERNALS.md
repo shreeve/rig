@@ -1371,8 +1371,10 @@ is still held while the place's indexes run.
 **Liveness.** A loan held by a var is in force only while the var is
 live: while it may still be used. Before checking a function, one walk
 records the last source position each symbol is used at (a capture's
-leaf counts as a use of what it captures) and the symbols deferred code
-uses. A var is live after the current statement when it is used at or
+leaf counts as a use of what it captures; a use in a `while` loop's
+step counts where the step runs, just past the body, `stepAt`, which
+also stands for the step's statements while it is walked) and the
+symbols deferred code uses. A var is live after the current statement when it is used at or
 after the statement's start, or anywhere in an enclosing loop it was
 declared outside of (the next iteration), or in deferred code, or when
 it owns a value whose drop at scope exit may run a `drop` body
@@ -1411,7 +1413,18 @@ scope of the bindings, so a view of one stored in a surviving value
 is reported as a jump out of the scope would be. Loops
 iterate to a fixpoint over the back edge: the loop-head state joins the
 entry, the end of the body, and every `continue`; the state after the
-loop joins the exit condition with every `break`. A loop's `else` is
+loop joins the exit condition with every `break`. A `while` loop's step
+runs after the body, and the checker walks it there, as emit runs it.
+A step that reads a binding of the condition (`sema.stepReadsBinding`,
+which emit uses too) runs in the bindings' scope:
+`while c as x: step` is
+`while true { x = c or break; { body }; step }`, where a `continue` in
+the body leaves the body's scope (running its defers) and goes on to
+the step, and a `continue` in the condition or the step goes back to
+the head. Any other step runs after the bindings' scope ends, where
+every `continue` goes on to it. So a view the step reads, a binding
+of the condition or a name declared before the loop, is live through
+the body, and its loans exclude what the body would change. A loop's `else` is
 walked after the loop, where a jump leaves the enclosing loop. The value
 of a loop used as a value is the union of its `break` values, each
 consumed like a returned value and checked not to view the loop's own
@@ -1456,7 +1469,7 @@ exit, resume_at })`, which desugars an exit into three steps:
 |---|---|---|---|
 | an `if`, `match` arm, `catch` handler, or `??` fallback that ends (`leave`) | the construct's entry | | past the construct |
 | a failing part of `if a as x and ...`, `while a as x`, or a guard | the construct's entry | | the `else`, the next arm, or past it |
-| `break`, `continue` | the loop's entry | `jump` | after the statement |
+| `break`, `continue` | the loop's entry; for a `continue` in the body of a `while` whose step reads a binding of the condition, the point after the bindings | `jump` | after the statement |
 | a loop's condition failing; the end of its body | the loop's entry | | past the loop; its head |
 | the joins after a loop and a labeled block (`joinAt`) | the entry | | past it |
 | a `defer` body where it is written | before the body | | after the statement |

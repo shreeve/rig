@@ -210,8 +210,11 @@ store, and a result. And it uses a view of a read `match` payload in
 its arm, or returns or stores it, for each kind of type reached through
 each kind of subject, runs other code on the stack before reading it,
 and checks that a program that runs prints what the payload holds,
-since the sanitizer cannot see a stale stack slot. It
-writes to a temporary directory
+since the sanitizer cannot see a stale stack slot. A `while` step
+reads what its condition binds, a view or a struct holding one, while
+the body grows what it views on each way to the step (the body's end,
+`continue`, `continue :outer`, an inner loop, a `defer`, a `break`).
+It writes to a temporary directory
 and commits nothing; `-k` picks cells by id and `-v` lists every result.
 
 ## The reference ownership checker
