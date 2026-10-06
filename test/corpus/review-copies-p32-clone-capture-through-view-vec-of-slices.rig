@@ -1,0 +1,11 @@
+# `|+r|` deep-clones a Vec of slices through a view: the clone keeps
+# the slices' loan on `a`, not the view's loan on `x`.
+sub main
+  a = [1, 2, 3]
+  x: Vec[[]Int] = Vec()
+  !x.push(?a[..2])
+  r = ?x
+  f = |+r| r[0][1]
+  -x
+  a[1] = 9
+  print(f())

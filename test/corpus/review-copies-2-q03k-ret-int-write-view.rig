@@ -1,0 +1,24 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+struct Q
+  p: P
+  n: Int
+
+
+fun wi(w: !Int, ok: Bool) -> (!Int)!
+  return Bad.oops if not ok
+  w
+
+sub main
+  n = 1
+  m = 2
+  w = wi(!n, true) catch !m
+  w += 10
+  print(n, m)
+  u = wi(!n, false) catch !m
+  u += 100
+  print(n, m)

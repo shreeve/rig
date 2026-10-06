@@ -1,0 +1,16 @@
+# `n` is assigned while `h`, bound by the condition, holds a live write
+# view of it, and `h` reads it afterward.
+struct W
+  w: !Int
+
+fun mk(n: !Int) -> W?
+  if n < 3
+    return W(w: !n)
+  none
+
+sub main
+  n = 0
+  while mk(!n) as h
+    n = n + 1
+    print(h.w)
+  print(n)

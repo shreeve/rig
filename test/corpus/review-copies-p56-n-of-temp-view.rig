@@ -1,0 +1,3 @@
+sub main
+  a = [3 of ?Text("hello world, long enough to allocate")]
+  print(a[0])

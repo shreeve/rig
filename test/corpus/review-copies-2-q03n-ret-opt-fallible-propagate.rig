@@ -1,0 +1,36 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+struct Q
+  p: P
+  n: Int
+
+
+fun opt(r: ?P, k: Int) -> (?P)?!
+  return Bad.oops if k == 0
+  return none if k == 1
+  r
+
+fun via(r: ?P, k: Int) -> (?P)?!
+  opt(r, k)!
+
+fun via2(r: ?P, k: Int) -> (?P)?!
+  q = opt(r, k)!
+  q
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  for k in 0..3
+    q = via(?a, k) catch ?b
+    s = via2(?a, k) catch none
+    x = -1
+    y = -1
+    if q as p
+      x = p.x
+    if s as p
+      y = p.x
+    print(x, y)

@@ -1,0 +1,10 @@
+struct P
+  x: Int
+  y: Int
+
+sub main
+  a = P(x: 1, y: 2)
+  r = ?a
+  b: P = r
+  b.x = 9
+  print(a.x, b.x)

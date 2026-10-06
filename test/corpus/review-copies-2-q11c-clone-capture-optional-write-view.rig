@@ -1,0 +1,5 @@
+sub main
+  n = 1
+  o: (!Int)? = !n
+  f = |+o| 0
+  print(f())

@@ -1,0 +1,8 @@
+sub main
+  xs: Vec[Int] = Vec()
+  !xs.push(1)
+  a = [?xs, ?xs]
+  r = ?a
+  c: [2]?Vec[Int] = r
+  a = [?xs, ?xs]
+  print(c[0].len)

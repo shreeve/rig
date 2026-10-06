@@ -1,0 +1,16 @@
+# A view of a local must not leave through a fallible view result.
+error Bad
+  oops
+
+struct P
+  x: Int
+
+fun leak(ok: Bool) -> (?P)!
+  p = P(x: 7)
+  r = ?p
+  return Bad.oops if not ok
+  r
+
+sub main
+  v = leak(true)!
+  print(v.x)

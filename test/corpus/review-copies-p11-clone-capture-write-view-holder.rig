@@ -1,0 +1,12 @@
+# `|+h|` of a struct holding a write view: two holders of one write view.
+struct H
+  w: !Int
+
+sub main
+  n = 1
+  h = H(w: !n)
+  f = |+h| h.w += 10
+  h.w += 1
+  f()
+  h.w += 100
+  print(n)

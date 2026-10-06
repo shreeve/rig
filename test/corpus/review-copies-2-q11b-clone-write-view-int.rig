@@ -1,0 +1,14 @@
+# `+w` of a write view of an Int reads the Int (Core sentence 1).
+struct P
+  x: Int
+
+sub main
+  n = 1
+  w = !n
+  c = +w
+  a = P(x: 2)
+  v = !a
+  d = +v
+  w += 1
+  v.x = 5
+  print(c, d.x, n, a.x)

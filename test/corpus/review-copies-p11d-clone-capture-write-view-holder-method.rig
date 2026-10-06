@@ -1,0 +1,14 @@
+struct H
+  w: !Vec[Int]
+
+  sub add(?self, k: Int)
+    !self.w.push(k)
+
+sub main
+  xs: Vec[Int] = Vec()
+  h = H(w: !xs)
+  f = |+h| h.add(7)
+  f()
+  h.add(8)
+  f()
+  print(xs.len)

@@ -1,0 +1,16 @@
+struct P
+  x: Int
+
+type Q = P
+type V = ?P
+type W = Vec[Int]
+
+fun get(v: V) -> Q
+  v
+
+fun getw(v: ?W) -> W
+  v
+
+sub main
+  a = P(x: 3)
+  print(get(?a).x)

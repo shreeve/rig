@@ -1,0 +1,25 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+
+fun g(r: ?P, k: Int) -> ((?P)?)?!
+  return Bad.oops if k == 0
+  return none if k == 1
+  i: (?P)? = none
+  return i if k == 2
+  r
+
+sub main
+  a = P(x: 1)
+  for k in 0..4
+    o = g(?a, k) catch none
+    if o as i
+      if i as p
+        print(k, p.x)
+      else
+        print(k, "inner none")
+    else
+      print(k, "none")

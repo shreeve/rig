@@ -1,0 +1,18 @@
+# A branch of a `?P` and a `P?`: the view is copied out into the
+# optional.
+struct P
+  x: Int
+
+fun ox(o: P?) -> Int
+  if o as p
+    return p.x
+  0
+
+sub main
+  a = P(x: 1)
+  o: P? = none
+  r = ?a
+  c = r if a.x > 0 else o
+  d = o if a.x > 5 else r
+  a.x = 3
+  print(ox(c), ox(d), a.x)

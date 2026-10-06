@@ -1,0 +1,25 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+struct Q
+  p: P
+  n: Int
+
+
+fun opt(r: ?P, k: Int) -> (?P)?!
+  return Bad.oops if k == 0
+  return none if k == 1
+  r
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  for k in 0..3
+    q = opt(?a, k) catch ?b
+    if q as p
+      print(p.x)
+    else
+      print("none")

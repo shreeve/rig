@@ -816,7 +816,7 @@ question the Core leaves open; the checker takes the conservative
 reading above.
 
 A payload or element is bound by one rule, from its type: a copy of
-plain data (`sema.copyable`), a view (`?F`) of anything else, captured
+a value that copies (`sema.copies`), a view (`?F`) of anything else, captured
 by pointer, including the binding of a catch-all arm and a binding a
 guard reads; a write view under `match !e` and `for x in !e`; the
 construct's own under `match <e` and a taken subject. (A payload of a
@@ -912,7 +912,7 @@ instead of re-deriving it by name:
 | `symbolOf(leaf)` | the symbol an identifier names, at its declaration or any use |
 | `typeOf(node)` | the type of an expression (literals get their contextual type) |
 | `bindingTypeOf(leaf)` | the declared or inferred type of the symbol a leaf names |
-| `readsThrough(node)` | whether the node yields a view (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a number, `Bool`, `String`, or plain enum where one is expected, an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced String or slice, or a clone. Typecheck records it wherever it admits the view as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that carries no loan |
+| `readsThrough(node)` | whether the node yields a view (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a value that copies where it is expected (`copiedThrough`), an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced String or slice, or a clone. Typecheck records it wherever it admits the view as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that carries no loan |
 | `lendOf(node)` | for a node lent where a view of another type is expected: the rows of the lend table that make the view (`sema.Lend`, from `sema.lendsAs`, below). The ownership checker walks a lend of an array's elements or a Text's bytes as `?a[..]`, lends a `![]T` lent on to read only to read, and lets a closure literal lent as a callable be an argument; emit writes each in one place (`emitLend`): an array's address, a Text's `.bytes()`, a box's value, or a `rig.FnRef` (hoisting a literal's environment before the call) |
 | `lendsTempArray(node)` | whether the node is a temporary array passed as a `[]T` argument to a call that keeps no view of it: emit writes `&` before it, which Zig keeps alive through the call |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
@@ -967,14 +967,15 @@ emitter ask these, never a predicate built for another question:
 | `maybeDropGlue` | holds a type parameter by value, so whether it needs cleanup depends on the instance |
 | `isUnique` | declared `unique`, or a `Cell`, or holds one of those inline: never copied |
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
-| `copyable` | does not move and holds no write view: copied implicitly where it is used |
+| `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
+| `copiedThrough` | the value a `?T` or `!T` (not a `![]T`) hands over where its context reads a value: `T`, when `T` copies |
 | `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), Text copy, copy per instance, a deep copy part by part (`deep`: a Vec, a box, an array, an optional, or a struct or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
 | `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
-| `isPlainData` | copies and holds no view: plain data |
+| `isPlainData` | copies and holds no view or function value (a String aside): plain data, what a Cell, a Signal, and an owned closure's parameters and result hold |
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
-| `readsAsValue` | a view of it reads as the value (a primitive or a plain enum) |
+| `readsAsValue` | a scalar (a primitive or a plain enum): an operator, generic inference, and a binding with no type read a read view of one as the value |
 
-A generic body that copies a `T` records `Requirement.no_move`; one
+A generic body that copies a `T` records `Requirement.copies`; one
 that discards, overwrites, or stores a `T` in an array or slice records
 `Requirement.no_cleanup`. Each instance is checked against them.
 
@@ -1071,7 +1072,7 @@ only some types support records a `Requirement` on the parameter in
 `generic_requirements`, with the position of the operation: arithmetic,
 ordering, `==`, integer operators, negation, a float or integer literal
 beside a `T`, a constant shift, `not_error` for a `T!` return (an
-error set cannot fill it), `no_move` where the body copies a value
+error set cannot fill it), `copies` where the body copies a value
 holding a `T` in a way the ownership checker does not see (cloning it,
 reading it out of a `Vec` or `Cell`, or moving it out of a view), and
 `no_cleanup` where it discards one, leaves it as a temporary, or puts it
@@ -1523,6 +1524,27 @@ holds a `?T`, `!T`, or slice, for a generic function and for a generic type with
 methods. A call site sees the instance's signature, so moves, lends,
 and the loans a result carries are checked there with the real types.
 
+### Copies
+
+One type fact, `sema.copies`, says whether a value is duplicated by a
+bit copy with no owner involved (Core §1: plain data and read views,
+and what holds only those). Every form that duplicates a value asks it,
+and each desugars into forms the checker already walks:
+
+| Form | Desugars to |
+|---|---|
+| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`) |
+| `x = w`, `x = h.w`, `x = ws[i]` with a `!T` of a `T` that copies | `x: T = w` |
+| `[n of e]` | `t = e`, then `[t, t, ..., t]`: `n` copies of one value, each carrying `t`'s loans |
+| `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |
+| `\|+x\|` | `c = +x` where the closure is made, then `\|<c\|`, the capture named `x`: `+x` reads through a view, copies a value that copies, counts a handle again, and clones an owner (`sema.cloneable`) |
+| `Cell.get`, `Vec.get`, and `??` and `?` through a view | a copy of the element or value inside, rejected when it does not copy; `if r as x` binds a copy of a value that copies, and a view of any other |
+
+A generic body that does any of these to a `T` records
+`Requirement.copies`, which each instance must meet. A struct holding a
+write view does not copy, so it is never copied out of a read view (it
+would write through one), and a struct holding a Cell is unique.
+
 ### Call origins
 
 Core sentence 7: *a call passes on only the loans its signature shows.*
@@ -1771,7 +1793,7 @@ lower is an internal error: sema must have rejected it.
   compile-time parameter is reached through a slice (`rig.elems`),
   since Zig rejects any index into an array of length 0, and `[n of x]`
   is `@as([n]T, @splat(x))`. An element that is not copied
-  (`sema.copyable`), or holds a Cell, is reached where it is, as a
+  (`sema.copies`), or holds a Cell, is reached where it is, as a
   field is: a Vec's through `constSlot(i).*` or `slot(i).*`, a slice's
   through `rig.elemPtr`, never a copy of its bits through `at(i)`. A
   loop that takes an array of values that move hands them over one at

@@ -1,0 +1,6 @@
+sub main
+  m = 4
+  a = [2 of ?m]
+  f = |?a| a[0]
+  m = 1
+  print(f())

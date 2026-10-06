@@ -1,0 +1,11 @@
+struct P
+  n: Int
+
+fun get[T](c: ?Cell[T]) -> T
+  c.get()
+
+sub main
+  c = Cell(P(n: 3))
+  print(get(?c).n)
+  d = Cell(Vec[Int]())
+  print(get(?d).len)

@@ -39,7 +39,7 @@ sub main
   x = 1
   s.subscribe(|?x| print(x))
 
-# error: 22:9: `|+f|` copies plain data or clones a `*T` / `~T` handle, but `f` is `?fun(Int) -> Int`; capture it with `|?f|`
+# error: 22:9: `|+f|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `f` is `?fun(Int) -> Int`; capture it with `|?f|`
 # error: 31:9: but `f` is a closure of type `fun(Int) -> Int`; capture it with `|?f|`
 # error: 34:7: `keep` cannot take a callable view for `T`
 # error: 35:7: `Cell` cannot take a callable view for `T`

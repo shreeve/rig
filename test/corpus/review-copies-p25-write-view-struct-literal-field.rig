@@ -1,0 +1,16 @@
+# A bare write view of a plain struct read as a field value: Core
+# sentence 1 says it reads the value it sees.
+struct P
+  x: Int
+  y: Int
+
+struct Q
+  p: P
+  o: P?
+
+sub main
+  a = P(x: 1, y: 2)
+  w = !a
+  q = Q(p: w, o: w)
+  w.x = 5
+  print(q.p.x, a.x)

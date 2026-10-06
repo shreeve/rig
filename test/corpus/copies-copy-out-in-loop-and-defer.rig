@@ -1,0 +1,16 @@
+struct P
+  x: Int
+
+fun take(p: P) -> Int
+  p.x
+
+sub main
+  ps: Vec[P] = Vec()
+  !ps.push(P(x: 1))
+  !ps.push(P(x: 2))
+  total = 0
+  for p in ?ps
+    total += take(p)
+  r = ?ps[0]
+  defer print(take(r))
+  print(total)

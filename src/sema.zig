@@ -1223,9 +1223,9 @@ pub const Requirement = union(enum) {
     /// An integer wider than this many bits: the body shifts the value
     /// by a constant amount.
     shift: Wide,
-    /// Does not move (`moves` is not `yes`): the body copies the
-    /// parameter's value.
-    no_move,
+    /// Copies (`copies` is not `no`): the body copies the parameter's
+    /// value.
+    copies,
     /// Holds no Cell inline: the body binds a copy of a value holding the
     /// parameter (a loop element, a match payload) and may lend it, so a
     /// Cell in it would change in the copy only.
@@ -1262,7 +1262,7 @@ pub const Requirement = union(enum) {
             .float => "a float literal",
             .fits => "an integer literal",
             .shift => "a constant shift",
-            .no_move => "a value that does not move",
+            .copies => "a value that copies",
             .no_cleanup => "a value that owns no resource",
             .no_cell => "a value that holds no Cell",
             .array_len => "an array length",
@@ -3387,15 +3387,13 @@ pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
 /// The diagnostic for a callable view held inside another value.
 pub const held_callable = "a callable view `{s}` is only a parameter's, a local's, or a result's type; no value can hold one";
 
-/// A value an owned closure can take or return: its runtime form is
-/// type-erased, so only plain Copy data crosses it (a Copy primitive, a
-/// plain enum, or an optional of one).
+/// A value an owned closure can take or return: plain data
+/// (`isPlainData`), which carries no loan but a String's (Core sentence
+/// 9).
 pub fn isClosureValue(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .invalid, .unknown => true,
-        .optional => |inner| isCopyPrimitive(ctx, inner) or isPlainEnum(ctx, inner),
-        .nominal, .imported_nominal => isPlainEnum(ctx, ty),
-        else => isCopyPrimitive(ctx, ty),
+        else => isPlainData(ctx, ty),
     };
 }
 
@@ -4387,19 +4385,11 @@ pub fn holdsWriteView(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).views.write;
 }
 
-/// A value `Vec`, `Cell`, and `Signal` copy in and out like a number: a
-/// Copy primitive, or plain data (a struct, enum, optional, or array
-/// that owns nothing and holds no view).
-pub fn isCopyElement(ctx: *const SemContext, ty: TypeId) bool {
-    if (isCopyPrimitive(ctx, ty)) return true;
-    return switch (ctx.types.get(ty)) {
-        .nominal, .imported_nominal, .parameterized_nominal, .optional, .array => isPlainData(ctx, ty),
-        else => false,
-    };
-}
-
-/// A value that owns nothing and holds no view or type parameter: it
-/// can be copied freely, like a number.
+/// Plain data, Core §1's plain kind: a value that owns nothing and
+/// holds no `?T`, `!T`, slice, function value, or type parameter, but
+/// may hold a String. It copies (`copies`), and carries no loan but a
+/// String's: what a `Cell` or `Signal` holds, and what an owned closure
+/// takes and returns (Core sentence 9).
 pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
     const info = ctx.holds(ty);
     return info.plain and !info.glue;
@@ -4495,16 +4485,39 @@ pub fn readByAddress(ctx: *const SemContext, ty: TypeId) bool {
     return typeHasDropGlue(ctx, ty) or maybeDropGlue(ctx, ty) or isUnique(ctx, ty);
 }
 
-/// Whether a value of `ty` may be copied implicitly: it does not move
-/// (`moves`) and holds no write view (`!T`), of which there is only
-/// one. `depends` when each instance decides.
-pub fn copyable(ctx: *const SemContext, ty: TypeId) Answer {
+/// Whether a value of `ty` copies: it is duplicated by a bit copy, with
+/// no owner involved. It does not move (`moves`: it owns nothing and is
+/// not unique) and holds no write view (`!T`), of which there is only
+/// one. So numbers, `Bool`, `String`, function values, plain enums,
+/// structs, enums, arrays, and optionals of values that copy, and read
+/// views, copy (Core §1: the plain kind and read views). `depends` when
+/// each instance decides. Every place that duplicates a value asks this
+/// fact: a bare use, a copy out of a view (`copiedOut`), `fill`, `copy`,
+/// and `[n of x]`, a `|+x|` capture, `Cell.get`, and a generic body's
+/// requirement (`Requirement.copies`). `+x` of a value that does not
+/// copy clones it instead (`cloneable`).
+pub fn copies(ctx: *const SemContext, ty: TypeId) Answer {
     if (ctx.holds(ty).views.write) return .no;
     return switch (moves(ctx, ty)) {
         .no => .yes,
         .yes => .no,
         .depends => .depends,
     };
+}
+
+/// The value a view of type `ty` hands over where its context reads it
+/// as a value: the `T` of a `?T` or `!T` when a `T` copies (`copies`),
+/// and is no view itself. Null for any other type, and for a `![]T`,
+/// which is a slice of elements, not a view of one value. A copy out of
+/// a view (Core §4), and a bare write view read as its value (Core
+/// sentence 1), both take this value.
+pub fn copiedThrough(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    const inner = switch (ctx.types.get(ty)) {
+        .read_view, .write_view => |inner| inner,
+        else => return null,
+    };
+    if (writeSliceElem(ctx, ty) != null or isReadOrWriteView(ctx, inner)) return null;
+    return if (copies(ctx, inner) == .yes) inner else null;
 }
 
 /// What `+x` does for an `x` of type `ty`.
@@ -4543,7 +4556,9 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
         else => {},
     }
     return switch (moves(ctx, value)) {
-        .no => .copy,
+        // A value that does not move copies, but for one holding a write
+        // view, which has one holder (Core sentence 2): it has no clone.
+        .no => if (copies(ctx, value) == .yes) .copy else .no,
         .yes => if (deepCloneable(ctx, value, null, &.{})) .deep else .no,
         .depends => .depends,
     };
@@ -6873,7 +6888,7 @@ test "check: a long chain of types each holding the next by value" {
     try std.testing.expectEqual(@as(?u128, 8), try minBytes(&r.ctx, s0));
 }
 
-test "type facts: moves, copyable, cloneable" {
+test "type facts: moves, copies, cloneable" {
     var r = try factsRun(
         \\struct P
         \\  x: Int
@@ -6907,37 +6922,47 @@ test "type facts: moves, copyable, cloneable" {
     const int_slice = try ctx.intern(.{ .slice = .{ .elem = ty.int_id } });
     const write_slice = try ctx.intern(.{ .write_view = int_slice });
 
-    const Case = struct { ty: TypeId, moves: Answer, copyable: Answer, clone: Clone };
+    const Case = struct { ty: TypeId, moves: Answer, copies: Answer, clone: Clone };
     const cases = [_]Case{
-        .{ .ty = ty.int_id, .moves = .no, .copyable = .yes, .clone = .copy },
-        .{ .ty = ty.string_id, .moves = .no, .copyable = .yes, .clone = .copy },
-        .{ .ty = p, .moves = .no, .copyable = .yes, .clone = .copy },
-        .{ .ty = read_p, .moves = .no, .copyable = .yes, .clone = .copy },
-        .{ .ty = write_p, .moves = .no, .copyable = .no, .clone = .copy },
-        .{ .ty = v, .moves = .no, .copyable = .yes, .clone = .copy },
-        .{ .ty = w, .moves = .no, .copyable = .no, .clone = .copy },
-        .{ .ty = vec_int, .moves = .yes, .copyable = .no, .clone = .deep },
-        .{ .ty = ty.text_id, .moves = .yes, .copyable = .no, .clone = .text },
-        .{ .ty = shared_p, .moves = .yes, .copyable = .no, .clone = .bump },
-        .{ .ty = weak_p, .moves = .yes, .copyable = .no, .clone = .bump },
-        .{ .ty = opt_shared, .moves = .yes, .copyable = .no, .clone = .bump },
-        .{ .ty = t, .moves = .depends, .copyable = .depends, .clone = .depends },
-        .{ .ty = opt_t, .moves = .depends, .copyable = .depends, .clone = .depends },
-        .{ .ty = wrap_t, .moves = .depends, .copyable = .depends, .clone = .depends },
-        .{ .ty = wrap_int, .moves = .no, .copyable = .yes, .clone = .copy },
-        .{ .ty = write_slice, .moves = .no, .copyable = .no, .clone = .no },
+        .{ .ty = ty.int_id, .moves = .no, .copies = .yes, .clone = .copy },
+        .{ .ty = ty.string_id, .moves = .no, .copies = .yes, .clone = .copy },
+        .{ .ty = p, .moves = .no, .copies = .yes, .clone = .copy },
+        .{ .ty = read_p, .moves = .no, .copies = .yes, .clone = .copy },
+        .{ .ty = write_p, .moves = .no, .copies = .no, .clone = .copy },
+        .{ .ty = v, .moves = .no, .copies = .yes, .clone = .copy },
+        .{ .ty = w, .moves = .no, .copies = .no, .clone = .no },
+        .{ .ty = vec_int, .moves = .yes, .copies = .no, .clone = .deep },
+        .{ .ty = ty.text_id, .moves = .yes, .copies = .no, .clone = .text },
+        .{ .ty = shared_p, .moves = .yes, .copies = .no, .clone = .bump },
+        .{ .ty = weak_p, .moves = .yes, .copies = .no, .clone = .bump },
+        .{ .ty = opt_shared, .moves = .yes, .copies = .no, .clone = .bump },
+        .{ .ty = t, .moves = .depends, .copies = .depends, .clone = .depends },
+        .{ .ty = opt_t, .moves = .depends, .copies = .depends, .clone = .depends },
+        .{ .ty = wrap_t, .moves = .depends, .copies = .depends, .clone = .depends },
+        .{ .ty = wrap_int, .moves = .no, .copies = .yes, .clone = .copy },
+        .{ .ty = write_slice, .moves = .no, .copies = .no, .clone = .no },
     };
     for (cases, 0..) |c, i| {
         errdefer std.debug.print("case {d}\n", .{i});
         try std.testing.expectEqual(c.moves, moves(ctx, c.ty));
-        try std.testing.expectEqual(c.copyable, copyable(ctx, c.ty));
+        try std.testing.expectEqual(c.copies, copies(ctx, c.ty));
         try std.testing.expectEqual(c.clone, cloneable(ctx, c.ty));
         try std.testing.expect(!isUnique(ctx, c.ty));
     }
     // A clone reads what a view reaches.
     try std.testing.expectEqual(Clone.bump, cloneable(ctx, try ctx.intern(.{ .read_view = shared_p })));
     try std.testing.expectEqual(Clone.deep, cloneable(ctx, try ctx.intern(.{ .read_view = vec_int })));
-    // A view of a scalar or a plain enum reads as the value.
+    // A view of a value that copies hands over the value; a view of an
+    // owner, of one holding a write view, or a `![]T` does not.
+    try std.testing.expectEqual(@as(?TypeId, p), copiedThrough(ctx, read_p));
+    try std.testing.expectEqual(@as(?TypeId, p), copiedThrough(ctx, write_p));
+    try std.testing.expectEqual(@as(?TypeId, v), copiedThrough(ctx, try ctx.intern(.{ .read_view = v })));
+    try std.testing.expectEqual(@as(?TypeId, null), copiedThrough(ctx, try ctx.intern(.{ .read_view = w })));
+    try std.testing.expectEqual(@as(?TypeId, null), copiedThrough(ctx, try ctx.intern(.{ .read_view = vec_int })));
+    try std.testing.expectEqual(@as(?TypeId, null), copiedThrough(ctx, write_slice));
+    try std.testing.expectEqual(@as(?TypeId, null), copiedThrough(ctx, p));
+    // A view of a scalar or a plain enum reads as the value to an
+    // operator.
     try std.testing.expect(readsAsValue(ctx, ty.int_id));
     try std.testing.expect(!readsAsValue(ctx, p));
     try std.testing.expect(lendByValue(ctx, ty.int_id));
@@ -7114,7 +7139,7 @@ test "type facts: unique reaches what holds it inline" {
     // A unique value moves, has no clone, and is not plain data.
     for (unique) |t| {
         try std.testing.expectEqual(Answer.yes, moves(ctx, t));
-        try std.testing.expectEqual(Answer.no, copyable(ctx, t));
+        try std.testing.expectEqual(Answer.no, copies(ctx, t));
         try std.testing.expectEqual(Clone.no, cloneable(ctx, t));
         try std.testing.expect(!isPlainData(ctx, t));
     }

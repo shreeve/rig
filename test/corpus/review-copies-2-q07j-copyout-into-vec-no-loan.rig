@@ -1,0 +1,23 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+struct Q
+  p: P
+  n: Int
+
+fun get(r: ?P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  r
+
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  cs: Vec[P] = Vec()
+  !cs.push(get(?a, true) catch ?b)
+  a.x = 5
+  b.x = 6
+  print(cs[0].x)

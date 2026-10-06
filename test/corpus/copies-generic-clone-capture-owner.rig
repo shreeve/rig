@@ -1,0 +1,7 @@
+fun cap[T](x: T) -> Int
+  f = |+x| 1
+  f()
+
+sub main
+  v: Vec[Int] = Vec()
+  print(cap(<v))

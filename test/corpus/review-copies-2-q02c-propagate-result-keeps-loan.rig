@@ -1,0 +1,18 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+fun get(r: ?P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  r
+
+fun two(r: ?P) -> (?P)!
+  get(r, true)
+
+sub main!
+  a = P(x: 1)
+  v = two(?a)!
+  a.x = 5
+  print(v.x)

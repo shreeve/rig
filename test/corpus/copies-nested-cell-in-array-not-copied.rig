@@ -1,0 +1,10 @@
+struct C
+  c: [2]Cell[Int]?
+
+fun out(p: ?C) -> C
+  p
+
+sub main
+  a = C(c: [Cell(1), Cell(2)])
+  b = out(?a)
+  _ = b

@@ -1,0 +1,17 @@
+# Siblings: a branch and a bare view into `P?`.
+struct P
+  x: Int
+
+fun px(o: P?) -> Int
+  if o as p
+    return p.x
+  -1
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  c = true
+  r = ?a
+  f: P? = r
+  g: P? = ?a if c else ?b
+  print(px(f), px(g))

@@ -1,0 +1,40 @@
+# `|+x|` deep-clones an enum with an owning payload, a Box, and a struct
+# of a Text and a Vec of handles; each clone is dropped with its closure.
+struct N
+  v: Int
+
+  drop(!self)
+    print("drop", self.v)
+
+enum E
+  t(s: Text)
+  n(h: *N)
+  none
+
+struct R
+  name: Text
+  hs: Vec[*N]
+
+fun elen(e: ?E) -> Int
+  match e
+    .t(s) => s.len
+    .n(h) => h.v
+    .none => 0
+
+sub main
+  e = E.t(s: Text("enum text"))
+  f = |+e| elen(?e)
+  e = E.n(h: *N(v: 1))
+  g = |+e| elen(?e)
+  -e
+  b = Box(Text("boxed"))
+  h = |+b| b.len
+  -b
+  r = R(name: Text("rec"), hs: Vec())
+  !r.hs.push(*N(v: 2))
+  k = *|+r| r.name.len + r.hs[0].v
+  -r
+  k2 = +k
+  print(f(), g(), h(), k(), k2())
+  -k
+  print(k2())

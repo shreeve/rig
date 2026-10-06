@@ -1,0 +1,39 @@
+# Deep-cloned closure environments on every exit path: returned from a
+# function that was only lent the source, stored in a Vec, cloned,
+# captured into another closure, and dropped on a failing path.
+error Bad
+  oops
+
+struct N
+  v: Int
+
+  drop(!self)
+    print("drop", self.v)
+
+fun mk(v: ?Vec[Text]) -> *fun() -> Int
+  *|+v| v.len + v[0].len
+
+fun risky(n: Int) -> Int!
+  if n > 1
+    return Bad.oops
+  n
+
+fun run(n: Int) -> Int!
+  hs: Vec[*N] = Vec()
+  !hs.push(*N(v: n))
+  f = |+hs| hs[0].v
+  k = risky(n)!
+  f() + k
+
+sub main
+  ts: Vec[Text] = Vec()
+  !ts.push(Text("hello"))
+  g = mk(?ts)
+  -ts
+  print(g())
+  fs: Vec[*fun() -> Int] = Vec()
+  !fs.push(+g)
+  !fs.push(<g)
+  print(fs[0]() + fs[1]())
+  print(run(1) catch -1)
+  print(run(5) catch -1)

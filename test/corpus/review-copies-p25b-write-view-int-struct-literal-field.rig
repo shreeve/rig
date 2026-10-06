@@ -1,0 +1,10 @@
+struct Q
+  p: Int
+  o: Int?
+
+sub main
+  a = 1
+  w = !a
+  q = Q(p: w, o: w)
+  w = 5
+  print(q.p, a)

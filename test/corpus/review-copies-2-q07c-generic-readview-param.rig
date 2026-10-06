@@ -1,0 +1,33 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+struct Q
+  p: P
+  n: Int
+
+fun get(r: ?P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  r
+
+
+fun first[T](r: ?T, ok: Bool) -> (?T)!
+  return Bad.oops if not ok
+  r
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  v = first(?a, true) catch ?b
+  u = first(?a, false) catch ?b
+  n = 5
+  m = 6
+  i = first(?n, true) catch ?m
+  j = first(?n, false) catch ?m
+  vs: Vec[Int] = Vec()
+  !vs.push(3)
+  ws: Vec[Int] = Vec()
+  k = first(?vs, true) catch ?ws
+  print(v.x, u.x, i, j, k.len)

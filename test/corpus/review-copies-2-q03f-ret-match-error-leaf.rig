@@ -1,0 +1,22 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+struct Q
+  p: P
+  n: Int
+
+
+fun pick(a: ?P, k: Int) -> (?P)!
+  return match k
+    0 => a
+    _ => Bad.oops
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  v = pick(?a, 0) catch ?b
+  u = pick(?a, 1) catch ?b
+  print(v.x, u.x)

@@ -1,0 +1,42 @@
+# A `??` or `catch` whose value is a view is copied out where an optional
+# of its value is expected (Core §4), as where the value is: a typed
+# binding, an argument, a field, a result. The whole `??` or `catch`
+# gives the view, then its value is copied out.
+
+error Bad
+  oops
+
+struct P
+  x: Int
+
+struct S
+  o: P?
+
+fun px(o: P?) -> Int
+  if o as p
+    return p.x
+  -1
+
+fun pick(i: (?P)?, r: ?P) -> P?
+  i ?? r
+
+fun get(r: ?P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  r
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  i: (?P)? = ?a
+  n: (?P)? = none
+  f: P? = i ?? ?b
+  g: P? = n ?? ?b
+  print(px(f), px(g), px(i ?? ?b), px(pick(n, ?b)))
+  s = S(o: i ?? ?b)
+  o: P? = get(?a, true) catch ?b
+  q: P? = get(?a, false) catch ?b
+  print(px(s.o), px(o), px(q))
+
+# expect:
+# 1 2 1 2
+# 1 1 2

@@ -1,11 +1,10 @@
 # A bare name or place only reads (Core sentence 1), but only a value
-# that copies is read out of a write view: a number, `Bool`, `String`,
-# or plain enum. A bare field or element that is a write view of
-# anything else would copy the view out of its holder, and so would one
-# bound with a `!T` type. A String read out of a `!String` field keeps
+# that copies is read out of a write view (a plain struct is:
+# test/behavior/ownership/copies_write_view_reads.rig). A bare field or
+# element that is a write view of anything else would copy the view out
+# of its holder, and so would one bound with a `!T` type. A String read out of a `!String` field keeps
 # viewing the Text it views.
 # oracle: owner_field reject C2
-# oracle: plain_field reject C2
 # oracle: typed_view reject C2
 # oracle: element_view reject C2
 # oracle: string_view reject C4
@@ -28,14 +27,6 @@ sub owner_field
   h = H(w: !n, v: !xs, p: !p)
   y = h.v
   print(y.len)
-
-sub plain_field
-  n = 1
-  xs: Vec[Int] = Vec()
-  p = P(x: 1)
-  h = H(w: !n, v: !xs, p: !p)
-  q = h.p
-  print(q.x)
 
 sub typed_view
   n = 1
@@ -63,9 +54,8 @@ sub string_view
 sub main
   owner_field()
 
-# error: 29:7: bare use of `h.v` in binding would copy a write view, which is unique; write `y = !h.v` to lend the view on
-# error: 37:7: bare use of `h.p` in binding would copy a write view, which is unique; write `q = !h.p` to lend the view on
-# error: 45:13: bare use of `h.w` in binding would copy a write view, which is unique; write `w = h.w` to read its value, or `w = !h.w` to lend the view on
-# error: 52:13: bare use of `ws[0]` in binding would copy a write view, which is unique; write `w = ws[0]` to read its value, or `w = !ws[0]` to lend the view on
-# error: 60:3: cannot lend `t` to write while a read loan is live
-# errors: 5
+# error: 28:7: bare use of `h.v` in binding would copy a write view, which is unique; write `y = !h.v` to lend the view on
+# error: 36:13: bare use of `h.w` in binding would copy a write view, which is unique; write `w = h.w` to read its value, or `w = !h.w` to lend the view on
+# error: 43:13: bare use of `ws[0]` in binding would copy a write view, which is unique; write `w = ws[0]` to read its value, or `w = !ws[0]` to lend the view on
+# error: 51:3: cannot lend `t` to write while a read loan is live
+# errors: 4

@@ -1,0 +1,12 @@
+struct P
+  x: Int
+
+sub main
+  ps: Vec[P] = Vec()
+  !ps.push(P(x: 1))
+  ws: Vec[!P] = Vec()
+  q = P(x: 9)
+  !ws.push(!q)
+  e = ws[0]
+  e.x = 3
+  print(e.x, q.x)
