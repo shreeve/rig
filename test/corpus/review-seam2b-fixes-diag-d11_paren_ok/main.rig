@@ -1,0 +1,53 @@
+# Review probe diag/d11_paren_ok.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+# oracle: U.bump accept
+# oracle: U.me accept
+# oracle: U.make accept
+# oracle: Wrap.bump accept
+# oracle: Wrap.make accept
+# oracle: sete accept
+# oracle: grow accept
+# oracle: growu accept
+# oracle: main accept
+use lib
+
+struct U
+  n: Int
+
+  fun bump(!self) -> Int
+    self.n += 1
+    self.n
+
+  fun me(!self) -> !U
+    self
+
+  fun make -> U
+    U(n: 1)
+
+struct Wrap[T]
+  v: T
+
+  fun bump(!self) -> Int
+    1
+
+  fun make(v: T) -> Wrap[T]
+    Wrap(v: v)
+
+enum E
+  a(s: String)
+  b
+
+sub sete(e: !E)
+  print(e)
+  e = .b
+
+sub grow(u: !lib.T)
+  u.n += 100
+  print(u.n)
+
+sub growu(u: !U)
+  u.n += 100
+  print(u.n)
+
+sub main
+  print(!(lib.mk()).bump(), !(lib.mk()).me().bump(), !(U.make()).me().bump())
+  grow(!(lib.mk()))

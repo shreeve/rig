@@ -1,0 +1,110 @@
+# Review probe fuzz/p/brpart__replarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+# oracle: K2.put2 accept
+# oracle: S.bump accept
+# oracle: S.put2 accept
+# oracle: S.at accept
+# oracle: S.me accept
+# oracle: S.drop accept
+# oracle: mk accept
+# oracle: mkopt accept
+# oracle: mkf accept
+# oracle: mkpair accept
+# oracle: setg accept
+# oracle: grow accept
+# oracle: inc accept
+# oracle: f accept
+# oracle: viatemp accept
+# oracle: vianame accept
+# oracle: main accept
+use std.sort
+
+error Bad
+  no
+
+enum Sh
+  circle(r: Int)
+  point
+
+struct K2
+  n: Int
+
+  sub put2(!self, a: Int, b: Int)
+    self.n = a * 10 + b
+
+struct S
+  n: Int
+  t: Text
+  items: Vec[Int]
+  arr: [3]Int
+  kk: K2
+  oi: Int?
+  e: Sh
+
+  fun bump(!self) -> Int
+    self.n += 1
+    self.n
+
+  sub put2(!self, a: Int, b: Int)
+    self.n = a * 10 + b
+
+  fun at(!self) -> !Int
+    !self.n
+
+  fun me(!self) -> !S
+    self
+
+  drop(!self)
+    print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+struct Pair
+  a: S
+  b: S
+
+fun mk(n: Int) -> S
+  print("make", n)
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  !v.push(1)
+  S(n: n, t: Text("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+fun mkopt(n: Int) -> S?
+  return none if n == 0
+  mk(n)
+
+fun mkf(n: Int) -> S!
+  return Bad.no if n == 0
+  mk(n)
+
+fun mkpair(n: Int) -> Pair
+  Pair(a: mk(n), b: mk(n + 1))
+
+sub setg[T](x: !T, v: T)
+  x = v
+
+sub grow(s: !S)
+  s.n += 100
+
+sub inc(x: !Int)
+  x += 1
+
+fun f(n: Int) -> Int
+  n
+
+sub viatemp
+  c = f(1) == 1
+  k = 3
+  print(replace(!(mkpair(3) if c else mkpair(5)).b.arr[0], 9))
+  print(c, k)
+
+sub vianame
+  c = f(1) == 1
+  k = 3
+  tt = (mkpair(3) if c else mkpair(5))
+  print(replace(!tt.b.arr[0], 9))
+  print(c, k)
+
+sub main
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")

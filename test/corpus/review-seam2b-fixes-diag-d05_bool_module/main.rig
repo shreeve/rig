@@ -1,0 +1,45 @@
+# Review probe diag/d05_bool_module.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+use lib
+
+struct U
+  n: Int
+
+  fun bump(!self) -> Int
+    self.n += 1
+    self.n
+
+  fun me(!self) -> !U
+    self
+
+  fun make -> U
+    U(n: 1)
+
+struct Wrap[T]
+  v: T
+
+  fun bump(!self) -> Int
+    1
+
+  fun make(v: T) -> Wrap[T]
+    Wrap(v: v)
+
+enum E
+  a(s: String)
+  b
+
+sub sete(e: !E)
+  print(e)
+  e = .b
+
+sub grow(u: !lib.T)
+  u.n += 100
+  print(u.n)
+
+sub growu(u: !U)
+  u.n += 100
+  print(u.n)
+
+sub main
+  if !lib.ok()
+    print("no")
+  print("end")

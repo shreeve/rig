@@ -1,0 +1,17 @@
+# Review probe diag/d14_as_hint_unrelated_temp.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+struct O
+  o: !Box[Int]?
+
+struct S
+  n: Int
+
+fun pick(h: !O, s: ?S) -> !O
+  h
+
+sub main
+  b: Box[Int]? = Box(5)
+  h = O(o: !b)
+  if pick(!h, ?S(n: 1)).o as x
+    print(x)
+  if !pick(!h, ?S(n: 1)).o as y
+    print(y)
