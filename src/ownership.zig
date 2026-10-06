@@ -2122,12 +2122,38 @@ pub const Checker = struct {
         const ctx = self.sema orelse return v;
         const t = ty orelse return v;
         if (v.loans.len == 0) return v;
-        const info = ctx.typeInfo(t);
-        if (info.poison or info.holds_type_var or info.views.write or !(info.views.marked or info.views.string)) return v;
+        if (!self.viewsOnlyRead(t)) return v;
         const reads = result or sema.holdsViewOnly(ctx, t);
         var out: std.ArrayList(Loan) = .empty;
         for (v.loans) |l| try self.carryLoan(&out, t, reads, l, 0);
         return .{ .loans = out.items };
+    }
+
+    /// Whether values of `ty` hold views, and none that can write: no
+    /// write view, type parameter, or type not known. The loans such a
+    /// value keeps are narrowed by `carry`, and a call's result of the
+    /// type keeps them as read loans (`carryResult`).
+    fn viewsOnlyRead(self: *const Checker, ty: TypeId) bool {
+        const ctx = self.sema orelse return false;
+        const info = ctx.typeInfo(ty);
+        if (info.poison or info.holds_type_var or info.views.write) return false;
+        return info.views.marked or info.views.string;
+    }
+
+    /// A call whose result `v` only reads what it views has returned: the
+    /// write lends its arguments made since `temps_start` end, as a lend
+    /// ends at the last use of its view (Core sentence 6), but for those
+    /// the call may have stored (`stored`), which last as long as before.
+    /// What the result keeps stays lent, to read, for the rest of the
+    /// statement, as any temporary view is (Core §3).
+    fn endWriteLends(self: *Checker, temps_start: usize, stored: Value, v: Value) Error!Value {
+        var i = @min(temps_start, self.temps.items.len);
+        while (i < self.temps.items.len) {
+            const l = self.temps.items[i];
+            if (l.kind == .write and !hasLoanOn(stored.loans, l.root)) _ = self.temps.orderedRemove(i) else i += 1;
+        }
+        for (v.loans) |l| if (!l.ext) try self.addTemp(l);
+        return v;
     }
 
     /// The views taken since `temps_start` to compute view `v` end,
@@ -3481,6 +3507,7 @@ pub const Checker = struct {
         // String's views end here but for those it keeps.
         const ty = self.exprType(node) orelse return result;
         if (self.sema) |ctx| if (sema.holdsViewOnly(ctx, ty)) return self.keepViewTemps(temps_start, try self.carryResult(ty, result));
+        if (self.viewsOnlyRead(ty)) return self.endWriteLends(temps_start, stored, try self.carryResult(ty, result));
         return self.carryResult(ty, result);
     }
 

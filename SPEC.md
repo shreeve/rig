@@ -3272,9 +3272,11 @@ the checker tracks where every one came from.
   argument that could not (an `Int` key for a `?Item` result, a String
   for a `?Item`) is free again after the call.
 - A result that holds no write view only reads what it views, so the
-  loans it carries are read loans, even of an argument lent to write:
-  after `r = head(!v)`, `v` may be read while `r` lives, but not written,
-  moved, or dropped. A result that is or holds a write view (`-> !Int`)
+  loans it carries are read loans, even of an argument lent to write,
+  whose write lend ends as the call returns: after `r = head(!v)`, `v`
+  may be read while `r` lives, but not written, moved, or dropped, and
+  so it may in the call's own statement (`print(head(!v), v.len)`), the
+  body of `for x in head(!v)`, and the arms of a `match` on such a call. A result that is or holds a write view (`-> !Int`)
   keeps the argument lent to write, and so does a write view the call
   stores in what it was lent to write, while what holds it lives.
 - A result may say which parameters it views: `-> ?Item from a` (also

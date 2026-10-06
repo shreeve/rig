@@ -1545,8 +1545,13 @@ re-points `self.items` at `extra`, gives a result that carries
 anywhere in it, no type parameter, no type not known) only reads what
 it views, so every loan it keeps is a read loan (`carryResult`), also
 one of an argument or receiver lent to write: after `r = first(!v)`,
-`v` may be read while `r` lives, and not written. What the call stores
-keeps its own loans where it stores them: a write view of `v` stored in
+`v` may be read while `r` lives, and not written. The write lends its
+arguments made then end as the call returns (`endWriteLends`), and what
+the result keeps stays lent, to read, for the rest of the statement, so
+`print(first(!v).n, v.len)`, a `for` over such a call, and a `match`
+on one read `v` as the split forms do. What the call stores
+keeps its own loans where it stores them, and the write lend it stored
+lasts to the statement's end as before: a write view of `v` stored in
 `h` keeps `v` lent to write while `h` lives. A loan kept this way is
 marked `read_of_write`, so a conflict's note says the lend was a write. Every lend made in an argument still ends with its
 statement (the statement's temporaries are as before).
@@ -1579,8 +1584,9 @@ are in `result`, the owners of the write arguments those in `stores`,
 and every other `ti`'s loans end with the statement. When `r`'s type
 holds no write view, it is `r = ?f(t1, ..., tn)`: a read lend of the
 views the call returns, which a held `!T` lends as `?T` (Core §4), so
-`r` keeps the `ti`'s loans as read loans while each `ti` that was a
-write lend still ends with the statement. The narrowing is
+`r` keeps the `ti`'s loans as read loans, and each `ti` that was a
+write lend ends with the call, but one the call may store, which ends
+with the statement. The narrowing is
 sentence 7's own: no other form says that a result does not view `b`,
 so a `from` clause is sentence 7's refinement rather than a form that
 desugars, and its checker rule is the call rule with the named set plus

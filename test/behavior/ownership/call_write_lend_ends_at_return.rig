@@ -1,0 +1,131 @@
+# An argument's write lend ends when the call returns, when the call's
+# result only reads what it views (Core sentence 7): for the rest of the
+# statement the result keeps its owner lent to read, so the owner may be
+# read in the same statement, a `for` body, or a `match` arm, just as
+# when the result is bound first. Each form is checked whole and split.
+# oracle: same_statement accept
+# oracle: split accept
+# oracle: receivers accept
+# oracle: for_source accept
+# oracle: match_subject accept
+# oracle: if_as accept
+
+struct Item
+  n: Int
+
+struct Bag
+  items: Vec[Item]
+  count: Int
+
+  fun first(!self) -> ?Item
+    self.count += 1
+    ?self.items[0]
+
+enum Res
+  found(it: ?Item)
+  missing
+
+fun first(v: !Vec[Item]) -> ?Item
+  ?v[0]
+
+fun all(v: !Vec[Item]) -> []Item
+  !v.push(Item(n: v.len + 1))
+  ?v[..]
+
+fun find(v: !Vec[Item]) -> Res
+  if v.len == 0
+    return Res.missing
+  Res.found(it: ?v[0])
+
+fun maybe(v: !Vec[Item]) -> (?Item)?
+  if v.len == 0
+    return none
+  ?v[0]
+
+fun size(s: []Item) -> Int
+  s.len
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1] + b[2]
+
+fun items -> Vec[Item]
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  v
+
+sub same_statement
+  v = items()
+  print(first(!v).n, v.len)
+  x = first(!v).n + v.len
+  print(x, size(all(!v)), v.len)
+
+sub split
+  v = items()
+  r = first(!v)
+  print(r.n, v.len)
+  r2 = first(!v)
+  x = r2.n + v.len
+  s = all(!v)
+  print(x, size(s), v.len)
+
+sub receivers
+  b = Bag(items: items(), count: 0)
+  print(!b.first().n, b.count)
+  r = !b.first()
+  print(r.n, b.count)
+
+sub for_source
+  v = items()
+  for x in all(!v)
+    print(clobber(x.n))
+    print(x.n, v.len)
+  s = all(!v)
+  for x in s
+    print(x.n, v.len)
+
+sub match_subject
+  v = items()
+  match find(!v)
+    .found(it)
+      print(clobber(1))
+      print(it.n, v.len)
+    .missing
+      print("none")
+  r = find(!v)
+  match r
+    .found(it) => print(it.n, v.len)
+    .missing => print("none")
+
+sub if_as
+  v = items()
+  if maybe(!v) as it
+    print(it.n, v.len)
+
+sub main
+  same_statement()
+  split()
+  receivers()
+  for_source()
+  match_subject()
+  if_as()
+
+# expect:
+# 1 1
+# 2 2 2
+# 1 1
+# 2 2 2
+# 1 1
+# 1 2
+# 5
+# 1 2
+# 7
+# 2 2
+# 1 3
+# 2 3
+# 3 3
+# 5
+# 1 1
+# 1 1
+# 1 1
