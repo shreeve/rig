@@ -1,0 +1,25 @@
+# Valid: the step reads `h` (a view of `v`); the body grows `w`.
+#
+# oracle: mk accept
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 5
+    return S(s: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w: Vec[Int] = Vec()
+  k = 0
+  i = 0
+  :outer while mk(?v, i) as h and i >= 0: k += h.s[0]
+    i += 1
+    for j in 0..3
+      !w.push(j)
+      continue :outer if j == 1
+  print(k, w.len)
+
+# expect: 5 10

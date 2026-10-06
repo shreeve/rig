@@ -1,0 +1,13 @@
+# The body re-points an outer write view at a body-local value; the
+# step writes through it after the local's scope ended.
+#
+# oracle: main reject C5
+sub main
+  x = 1
+  p = !x
+  i = 0
+  while i < 3: p += 1
+    y = 5
+    p = !y
+    i += 1
+  print(x)

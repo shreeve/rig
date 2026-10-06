@@ -1,0 +1,33 @@
+# A joined condition binds `h` (read by the step) and `x`, a struct with
+# a `drop` body that reads its slice of `w`; the step grows `w` while `x`
+# is still alive (its drop runs after the step, in the bindings' scope).
+struct S
+  s: []Int
+
+struct D
+  s: []Int
+  drop(!self)
+    print("drop", self.s[0])
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?v[..])
+  none
+
+fun mkd(w: ?Vec[Int]) -> D?
+  D(s: ?w[..])
+
+fun grow(w: !Vec[Int]) -> Int
+  !w.push(9)
+  0
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w: Vec[Int] = Vec()
+  !w.push(2)
+  k = 0
+  i = 0
+  while mk(?v, i) as h and mkd(?w) as x: k += h.s[0] + grow(!w)
+    i += 1
+  print(k, w.len)

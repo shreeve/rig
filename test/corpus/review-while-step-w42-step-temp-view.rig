@@ -1,0 +1,23 @@
+# The step stores a view of a temporary in an outer slice, which the
+# body reads on the next iteration.
+#
+# oracle: mkv accept
+# oracle: all accept
+# oracle: main reject C5
+fun mkv(i: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(i)
+  v
+
+fun all(v: ?Vec[Int]) -> []Int
+  ?v[..]
+
+sub main
+  e = [0]
+  s: []Int = ?e[..]
+  k = 0
+  i = 0
+  while i < 3: s = all(?mkv(i))
+    k += s[0]
+    i += 1
+  print(k)

@@ -1,0 +1,15 @@
+# oracle: grow accept
+# oracle: main reject C4
+
+fun grow(v: !Vec[Int]) -> Bool
+  !v.push(1)
+  v.len < 40
+
+sub main
+  w: Vec[Int] = Vec()
+  !w.push(1)
+  s = ?w[..]
+  k = 0
+  while grow(!w): k += s[0]
+    k += 1
+  print(k)

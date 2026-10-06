@@ -1,0 +1,26 @@
+# Valid: the body clones the handle and drops the clone; the step reads
+# the slice the condition bound.
+#
+# oracle: all accept
+# oracle: main accept
+struct Node
+  vals: Vec[Int]
+
+fun all(n: ?Node, i: Int) -> ([]Int)?
+  if i < 4
+    return ?n.vals[..]
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  r = *Node(vals: <v)
+  k = 0
+  i = 0
+  while all(?r, i) as s: k += s[0]
+    c = +r
+    -c
+    i += 1
+  print(k)
+
+# expect: 12

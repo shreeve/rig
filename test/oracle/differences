@@ -119,8 +119,12 @@ test/corpus/review-c-rules-r2-cf_generic_ok.rig main prod-rejects prod-strict `p
 
 # Liveness is textual (INTERNALS "Liveness"): a `while` step's use of
 # what the condition binds counts after the whole body, where the step
-# runs, so a view the step reads keeps its loan also on a path that
-# leaves the loop with `break` and never reaches the step.
+# runs, and a name declared before a loop is live anywhere in it, so a
+# view the step reads keeps its loan also on a path that leaves the loop
+# with `break` or `return` and never reaches the step, or that re-points
+# the view before the step reads it.
+test/corpus/review-while-step-w48-grow-then-return-ok.rig run prod-rejects prod-strict `!v.push(2)` before a `return`, while the step reads `h`, a view of `v`
+test/corpus/review-while-step-w32-outer-repoint-after-grow-ok.rig main prod-rejects prod-strict `!v.push(2)` before `s` is re-pointed, where the step reads `s`
 step.vec.view.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h`, a view of `v`
 step.vec.field.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.r`, a view of `v`
 step.vec.method.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.get()`, a view of `v`

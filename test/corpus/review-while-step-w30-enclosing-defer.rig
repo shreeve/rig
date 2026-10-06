@@ -1,0 +1,13 @@
+# A defer of the enclosing scope reads an outer view; the step grows
+# the Vec it views.
+#
+# oracle: main reject C4
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  s = ?v[..]
+  defer print(s[0])
+  i = 0
+  while i < 40: !v.push(i)
+    i += 1
+  print(v.len)

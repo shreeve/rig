@@ -1,0 +1,23 @@
+# The step reads `h` inside an `if ... as` expression.
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 40
+    return S(s: ?v[..])
+  none
+
+fun at(s: []Int, i: Int) -> Int?
+  if i < s.len
+    return s[i]
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  while mk(?v, i) as h: k += (x if at(h.s, 0) as x else 0)
+    i += 1
+    !v.push(2)
+  print(k)
