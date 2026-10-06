@@ -3616,10 +3616,11 @@ that owns a resource moved into it (`if <o as n`) has fields that can be
 written and taken, like a local's. A local binding is still moved whole:
 `<x` leaves `x` unusable, never `none`. `<`'s operand is a place or a
 value made there: `<(a if c else b)` and `<o?` are rejected, and written
-`<a if c else <b` and `(<o)?`. A path through a lend, `(!p).f` or
-`(?p).f`, reaches its value through a view, as one through a `!T` or
-`?T` does: an optional is taken there, but nothing else is moved out
-(`replace(!p.f, v)` exchanges it).
+`<a if c else <b` and `(<o)?`. A path that passes through a value of
+a view type (`!T`, `?T`, a slice) or a handle reaches its place through
+it, whatever its syntax: `(!p).f`, `(?a if c else ?b).f`, and
+`wrap(!p).f` of a call returning a `!T`. An optional is taken there,
+but nothing else is moved out (`replace(!p.f, v)` exchanges it).
 
 ```rig
 struct Node

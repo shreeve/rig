@@ -1,7 +1,12 @@
-# A path through a lend reaches its value through a view, so `<` moves
-# nothing out of it, as `<v.items` through a view `v` does not: a field
-# or element stays owned by the value lent, whether that is a name, a
-# parameter's caller's value, or a temporary. Exchange it instead.
+# A field or element path that reaches its place through a view, by the
+# type of a value on the path (`!S`, `?S`, a write view a call returns,
+# a branching value of lends), lets `<` move nothing out of it, as
+# `<v.items` through a view `v` does not: the part stays owned by the
+# value viewed, a name, a parameter's caller's value, or a temporary.
+# Exchange it instead.
+# oracle: from_branch reject C3
+# oracle: from_read_branch reject C3
+# oracle: from_call reject C3
 
 struct S
   n: Int
@@ -12,8 +17,33 @@ fun mk(n: Int) -> S
   !s.items.push(n)
   s
 
+fun wrap(s: !S) -> !S
+  s
+
+fun f(n: Int) -> Int
+  n
+
 sub steal(p: !S)
   x = <(!p).items
+  print(x)
+
+sub from_branch
+  s = mk(1)
+  t = mk(2)
+  c = f(1) == 1
+  x = <(!s if c else !t).items
+  print(x)
+
+sub from_read_branch
+  s = mk(1)
+  t = mk(2)
+  c = f(1) == 1
+  x = <(?s if c else ?t).items
+  print(x)
+
+sub from_call
+  s = mk(1)
+  x = <wrap(!s).items
   print(x)
 
 sub main
@@ -27,10 +57,13 @@ sub main
   u = <(!v)[0]
   print(x, y, z, w, u)
 
-# error: 16:8: cannot move out of `p.items`: it is reached through `!p`, a view; exchange it instead: `replace(!p.items, v)`
-# error: 21:8: cannot move out of `s.items`: it is reached through `!s`, a view
-# error: 22:8: cannot move out of `s.items`: it is reached through `?s`, a view
-# error: 23:8: cannot move out of `mk(2).items`: it is reached through `?mk(2)`, a view
-# error: 26:8: cannot move out of `v[...]`: it is reached through `?v`, a view
-# error: 27:8: cannot move out of `v[...]`: it is reached through `!v`, a view
-# errors: 6
+# error: 27:8: cannot move out of `(!p).items`: it is reached through `!p`, a view; exchange it instead: `replace(!p.items, v)`
+# error: 34:8: cannot move out of `(!s if c else !t).items`: it is reached through `!s if c else !t`, a view
+# error: 41:8: cannot move out of `(?s if c else ?t).items`: it is reached through `?s if c else ?t`, a view
+# error: 46:8: cannot move out of `wrap(!s).items`: it is reached through `wrap(!s)`, a view
+# error: 51:8: cannot move out of `(!s).items`: it is reached through `!s`, a view
+# error: 52:8: cannot move out of `(?s).items`: it is reached through `?s`, a view
+# error: 53:8: cannot move out of `(?mk(2)).items`: it is reached through `?mk(2)`, a view
+# error: 56:8: cannot move out of `(?v)[0]`: it is reached through `?v`, a view
+# error: 57:8: cannot move out of `(!v)[0]`: it is reached through `!v`, a view
+# errors: 9
