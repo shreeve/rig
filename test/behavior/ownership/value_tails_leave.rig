@@ -1,0 +1,114 @@
+# Every value that leaves where a name at its tail is moved out: a
+# function's last value (a name, a branch, a block, a `match`, a `raw`
+# block), `return`, a closure's result, a `break` value, a loop's
+# `else`, and a binding's `if`, `match`, or `if … as` value.
+
+struct D
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun mk(id: Int) -> D
+  D(id: id)
+
+fun last_name(c: Bool) -> D
+  d = mk(1)
+  d
+
+fun last_branch(c: Bool) -> D
+  d = mk(2)
+  e = mk(3)
+  <d if c else <e
+
+fun last_block(c: Bool) -> D
+  if c
+    d = mk(4)
+    d
+  else
+    mk(5)
+
+fun last_match(k: Int) -> D
+  match k
+    1
+      d = mk(6)
+      d
+    _ => mk(7)
+
+fun early(c: Bool) -> D
+  d = mk(8)
+  if c
+    return d
+  d
+
+fun via_raw() -> D
+  raw
+    d = mk(9)
+    d
+
+fun apply(f: ?fun(D) -> D, x: D) -> D
+  f(<x)
+
+sub main
+  c = true
+  print(last_name(c).id, last_branch(c).id, last_block(c).id, last_match(1).id, early(c).id, early(false).id, via_raw().id)
+  g = |x: D| x
+  h = |x: D, b: Bool|
+    if b
+      return x
+    x
+  k = |x: D, n: Int| match n
+    1 => x
+    _ => mk(10)
+  t: fun(D) -> D = |x| x
+  print(g(mk(11)).id, h(mk(12), true).id, h(mk(13), false).id, k(mk(14), 1).id, t(mk(15)).id, apply(?g, mk(16)).id)
+  v = while true
+    d = mk(17)
+    break <d
+  w = for _ in 0..1
+    break mk(18)
+  else
+    e = mk(19)
+    e
+  print(v.id, w.id)
+  y = if c
+    d = mk(20)
+    d
+  else
+    mk(21)
+  z = match 1
+    1
+      d = mk(22)
+      d
+    _ => mk(23)
+  o: D? = mk(24)
+  q = if <o as p
+    p
+  else
+    mk(25)
+  print(y.id, z.id, q.id)
+
+# expect:
+# drop 3
+# 1 2 4 6 8 8 9
+# drop 9
+# drop 8
+# drop 8
+# drop 6
+# drop 4
+# drop 2
+# drop 1
+# 11 12 13 14 15 16
+# drop 16
+# drop 15
+# drop 14
+# drop 13
+# drop 12
+# drop 11
+# 17 18
+# 20 22 24
+# drop 24
+# drop 22
+# drop 20
+# drop 18
+# drop 17

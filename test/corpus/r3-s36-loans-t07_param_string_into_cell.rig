@@ -1,0 +1,8 @@
+# A String parameter stored in a Cell.
+sub remember(c: ?Cell[String], s: String)
+  c.set(s)
+
+sub main
+  c: Cell[String] = Cell("a")
+  remember(?c, "b")
+  print(c.get())

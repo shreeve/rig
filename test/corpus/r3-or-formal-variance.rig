@@ -1,0 +1,16 @@
+struct Item
+  n: Int
+
+struct Holder
+  r: ?Item
+
+sub evil(h: !Holder, x: ?Item)
+  h.r = x
+
+sub main
+  g = Item(n: 1)
+  h = Holder(r: ?g)
+  if true
+    y = Item(n: 2)
+    evil(!h, ?y)
+  print(h.r.n)

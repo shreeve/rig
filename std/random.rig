@@ -2,23 +2,20 @@
 # same seed gives the same sequence on every platform; it is not for
 # cryptography.
 
-pub struct Rng
+# A Random is unique: it moves rather than copies, since a copy would draw
+# the same numbers as the original. `fork` makes a second generator on
+# purpose.
+pub struct Random unique
   state: U64
 
-  # An Rng moves rather than copies: a copy would draw the same numbers
-  # as the original. The empty `drop` makes it an owning value; `fork`
-  # makes a second generator on purpose.
-  drop(!self)
-    pass
-
   # A generator whose sequence is fixed by `seed`.
-  pub fun seeded(seed: U64) -> Rng
-    Rng(state: seed)
+  pub fun seeded(seed: U64) -> Random
+    Random(state: seed)
 
   # A generator seeded from the operating system's entropy, so each run
   # differs.
-  pub fun new -> Rng
-    Rng(state: entropy())
+  pub fun new -> Random
+    Random(state: entropy())
 
   # The next 64 random bits.
   pub fun next(!self) -> U64
@@ -29,8 +26,8 @@ pub struct Rng
     z ^ (z >> 31)
 
   # A new generator, seeded from this one's next number.
-  pub fun fork(!self) -> Rng
-    Rng(state: !self.next())
+  pub fun fork(!self) -> Random
+    Random(state: !self.next())
 
   # An `Int` from `lo` up to but not including `hi`, each equally
   # likely. Panics unless `lo < hi`.

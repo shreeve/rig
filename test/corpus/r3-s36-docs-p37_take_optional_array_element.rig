@@ -1,0 +1,5 @@
+# SPEC §7 Moves: `<xs[i]` of an optional element, for plain data
+sub main
+  xs: [2]Int? = [1, none]
+  if <xs[0] as n
+    print(n, xs[0] == none)

@@ -1,0 +1,9 @@
+# `v.get(i)` hands out a copy of the element, so it needs one that
+# copies; an owning element is read in place or lent.
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  print(v.get(0))
+
+# error: `Vec.get` would copy an element out of a `Vec` of `Text`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`

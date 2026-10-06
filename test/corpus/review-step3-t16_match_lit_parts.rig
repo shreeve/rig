@@ -1,0 +1,26 @@
+struct H
+  n: Int
+  s: String
+  t: Text
+
+fun mkh(n: Int) -> H
+  H(n: n, s: "hi", t: Text("x"))
+
+struct P
+  n: Int
+
+sub main
+  match [1, 2][0]
+    1 => print("one")
+    _ => print("other")
+  match mkh(4).n
+    4 => print("four")
+    _ => print("other")
+  match mkh(4).n > 3
+    true => print("gt")
+    false => print("le")
+  match mkh(4).n
+    k => print("k", k)
+  match P(n: 3).n
+    3 => print("three")
+    _ => print("other")

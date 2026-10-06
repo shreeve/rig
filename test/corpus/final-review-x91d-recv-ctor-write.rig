@@ -1,0 +1,10 @@
+# constructor receiver of a write method, no sigil (expect reject)
+struct S
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+    print("bumped", self.n)
+
+sub main
+  S(n: 1).bump()

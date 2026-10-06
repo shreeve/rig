@@ -12,4 +12,4 @@ pub enum Opt[T]
       .some(value) => false
       .none => true
 
-pub DEF: Opt[Int] =! .none
+pub const DEF: Opt[Int] = .none

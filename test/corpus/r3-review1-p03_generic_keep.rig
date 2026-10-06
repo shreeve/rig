@@ -1,0 +1,14 @@
+struct Counter
+  hits: Cell[Int]
+
+fun keep[T](x: ?T) -> Int
+  y = x
+  1
+
+fun two[T](x: T) -> T
+  x
+
+sub main()
+  a = Counter(hits: Cell(0))
+  b = two(<a)
+  print(b.hits.get(), keep(?b))

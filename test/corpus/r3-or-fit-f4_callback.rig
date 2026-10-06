@@ -1,0 +1,16 @@
+struct Item
+  id: Int
+
+fun find_by(xs: []Item, pred: ?fun(?Item) -> Bool) -> (?Item)?
+  for i in 0..xs.len
+    if pred(?xs[i])
+      return ?xs[i]
+  none
+
+sub main
+  items = [Item(id: 1), Item(id: 2)]
+  want = 2
+  hit = find_by(?items, |?want, it: ?Item| it.id == want)
+  want = 5
+  if hit as h
+    print(h.id, want)

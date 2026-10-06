@@ -1,0 +1,17 @@
+# A failure that leaves main prints `error: E.name` and exits 1, after drops.
+error E
+  bad
+
+struct N
+  id: Int
+  drop(!self)
+    print("drop", self.id)
+
+fun g() -> Int!
+  return E.bad
+
+sub main
+  a = N(id: 1)
+  print(a.id)
+  x = g()!
+  print("never", x)

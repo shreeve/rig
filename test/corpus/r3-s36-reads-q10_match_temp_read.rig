@@ -1,0 +1,18 @@
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum E
+  one(b: B)
+  zero
+
+fun mk() -> E
+  E.one(b: B(n: 1))
+
+sub main
+  match mk()
+    .one(b) => print("arm", b.n)
+    .zero => pass
+  print("after")

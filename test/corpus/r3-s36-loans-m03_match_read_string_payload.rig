@@ -1,0 +1,11 @@
+enum H
+  has(s: String)
+  no
+
+sub main
+  h: H = .has(s: "a")
+  match ?h
+    .has(s)
+      h = .no
+      print(s)
+    .no => print("no")

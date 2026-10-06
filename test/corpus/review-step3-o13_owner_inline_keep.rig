@@ -1,0 +1,19 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("hello")))
+  keep = Res(n: 0, t: Text("k"))
+  saved = ?keep
+  for i in 0..2
+    match e
+      .a(r) => saved = ?r
+      .b(r) => saved = ?r
+  arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  print(arr[3])
+  print(saved.n, saved.t)

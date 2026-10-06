@@ -1,0 +1,12 @@
+# re-point a ![]Text local at another Vec, then push the old one
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  u: Vec[Text] = Vec()
+  !u.push(Text("b"))
+  s = !v[..]
+  s[0] = Text("A")
+  s = !u[..]
+  !v.push(Text("c"))
+  s[0] = Text("B")
+  print(v, u)

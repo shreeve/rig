@@ -1,0 +1,6 @@
+use std.random
+
+sub main
+  c = Cell(random.Random.seeded(1))
+  r = c.get()
+  print(!r.next() != 0)

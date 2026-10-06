@@ -1,0 +1,19 @@
+# A Text is lent where a String is expected: `?t` means `?t[..]`, a
+# view of one lends it as is, and a bare Text argument is lent to read
+# as `?t` would be.
+
+fun n(s: String) -> Int
+  s.len
+
+fun a(p: ?Text) -> Int
+  n(?p) + n(?p[1..])
+
+fun b(p: ?Text) -> Int
+  n(p)
+
+sub main
+  t = Text("abc")
+  print(a(?t), n(t), n(?Text("x")), n(Text("yz")), b(t))
+
+# expect:
+# 5 3 1 2 3

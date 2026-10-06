@@ -1,0 +1,25 @@
+# match !v[idx(?Text("a"))].e (field of an element), guarded, grows a Text payload
+enum E
+  a(t: Text)
+  b(n: Int)
+
+struct S
+  e: E
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[S] = Vec()
+  !v.push(S(e: E.a(t: Text("hi"))))
+  match !v[idx(?Text("a"))].e
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match v[0].e
+    .a(t) => print(t.len)
+    .b(n) => print(n)

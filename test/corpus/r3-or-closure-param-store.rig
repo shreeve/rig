@@ -1,0 +1,46 @@
+# What one call of a closure receives is the caller's, which may outlive
+# the closure: storing what the closure captured there would let the
+# view outlive its loan, since a call passes on none of what a closure
+# that returns no view captured (Core §7). Storing one parameter's view
+# in another is the caller's business, as for any function.
+#
+# oracle: param_to_param accept
+# oracle: capture_to_param reject C6
+# oracle: lent_capture_to_param reject C6
+
+struct H
+  r: (?Vec[Int])?
+
+sub run(h: !H, f: ?sub(!H))
+  f(!h)
+
+sub param_to_param()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = H(r: none)
+  put = |out: !H, x: ?Vec[Int]| out.r = x
+  put(!h, ?v)
+  if h.r as r
+    print(r.len)
+
+sub capture_to_param()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = H(r: none)
+  f = |?v, out: !H| out.r = v
+  f(!h)
+  !v.push(2)
+  if h.r as r
+    print(r.len)
+
+sub lent_capture_to_param()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = H(r: none)
+  run(!h, |?v, out: !H| out.r = v)
+  !v.push(2)
+  if h.r as r
+    print(r.len)
+
+sub main
+  param_to_param()

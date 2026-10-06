@@ -1,0 +1,13 @@
+# Core §5: `<v[i]` takes an optional element
+struct B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  v: Vec[*B?] = Vec()
+  !v.push(*B(n: 1))
+  if <v[0] as b
+    print("took", b.n)
+  print(v[0] == none)

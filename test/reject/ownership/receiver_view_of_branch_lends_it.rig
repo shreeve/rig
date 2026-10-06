@@ -1,9 +1,11 @@
 # A `?self` method whose result may keep a view of its receiver lends the
-# receiver, as `?e` does. A receiver that branches and may be a value a
-# name holds would be lent as a copy of that value, which the view would
-# outlive or see go stale: whether the branch is the receiver itself, the
-# value a field or element of it is read from, or `??`, `catch`, or `o?`.
-# Each branch is lent instead, or the method is called on each.
+# receiver, as `?e` does. A receiver that branches lends each leaf it may
+# be, where it is: whether the branch is the receiver itself, the value a
+# field or element of it is read from, or `??`, `catch`, or `o?`. So a
+# view of it keeps a loan on each name a leaf names, and a change to one
+# of them while the view is live is rejected; a view of a leaf made there
+# may not outlive its statement. (The forms that keep working:
+# `test/behavior/ownership/receiver_view_of_branch_lends_leaves.rig`.)
 
 struct S
   t: Text
@@ -67,13 +69,7 @@ sub main
   !vs.clear()
   print(r, n, x, w, u, e, y, first(maybe(true)) ?? 0)
 
-# error: 44:7: cannot lend `o?` to `inner`, which may keep the borrow: it may be `o`
-# error: 51:8: cannot lend `a if c else b` to `inner`, which may keep the borrow: it may be `a`
-# error: 52:8: cannot lend `a if c else b` to `name`
-# error: 53:8: cannot lend `a if c else b` to `arr`
-# error: 56:8: cannot lend `wa if c else wb` to `inner`
-# error: 58:8: cannot lend `o ?? a` to `inner`
-# error: 59:8: cannot lend `fails(false) catch b` to `inner`
-# error: 64:8: cannot lend `vs if c else ws` to `arr`
-# error: 65:10: cannot lend `a if c else b` to `inner`
-# errors: 9
+# error: 61:8: a view of the temporary `fails(false)` outlives its statement
+# error: 68:3: cannot assign to `a.t` while `a` is lent
+# error: 69:3: cannot lend `vs` to write while a read loan is live
+# errors: 3

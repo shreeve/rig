@@ -1,0 +1,17 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  r: ?R
+
+sub main
+  a = R(n: 1)
+  v = V(r: ?a)
+  if true
+    b = R(n: 2)
+    w = V(r: ?b)
+    swap(!v, !w)
+    print(w.r.n)
+  print(v.r.n)

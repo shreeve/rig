@@ -1,4 +1,4 @@
 sub main
-  c: Cell[Int] =! Cell(1)
+  const c: Cell[Int] = Cell(1)
   c.set(4)
   print(c.get())

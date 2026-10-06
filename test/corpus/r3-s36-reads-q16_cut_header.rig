@@ -1,0 +1,6 @@
+use std.text
+
+sub main
+  n = 5
+  if text.cut(?Text("k=", n), "=") as kv
+    print(kv.before, kv.after)

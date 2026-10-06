@@ -3,7 +3,7 @@
 use std.random
 
 sub main()
-  r = random.Rng.seeded(9)
+  r = random.Random.seeded(9)
   bad = 0
   n = 0
   while n < 2000 : n += 1

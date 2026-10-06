@@ -1,0 +1,28 @@
+struct Res
+  n: Int
+  t: Text
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+struct W[T]
+  e: Opt[T]
+  tag: Text
+
+fun mk[T](x: T) -> W[T]
+  W(e: .some(v: x), tag: Text("tag"))
+
+fun show[T](x: T) -> Int
+  match mk(<x).e
+    .some(v)
+      print(v)
+      1
+    .nothing => 0
+
+sub main
+  print(show(Res(n: 3, t: Text("three"))))
+  print(show(5))

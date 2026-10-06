@@ -1,0 +1,21 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum E
+  a(r: Res)
+  b
+
+struct H
+  e: E
+
+fun mkh(n: Int) -> H
+  H(e: E.a(r: Res(n: n)))
+
+sub main
+  x = match mkh(5).e
+    .a(r) => r.n
+    .b => 0
+  print(x)

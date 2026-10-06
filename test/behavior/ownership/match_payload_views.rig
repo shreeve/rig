@@ -1,0 +1,81 @@
+# A read match binds a payload that is not plain data as a view (`?F`)
+# of the field where it is, and so the binding of a catch-all arm, usable
+# within its arm: through a place, a lent box or handle, a view a call
+# returns (held as the pointer it is, also under a guard), and a generic
+# body. A `Cell` it changes is the matched value's own.
+
+struct Res
+  n: Int
+  t: Text
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+enum C
+  a(c: Counter)
+  b
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun get(e: ?C) -> ?C
+  e
+
+fun show(r: ?Res) -> Int
+  r.n
+
+fun inner(e: ?E) -> Int
+  match e
+    .a(r) => show(r) + r.t.len
+    .b(r) => show(?r)
+
+fun boxed(b: ?Box[E]) -> Int
+  match b
+    .a(r) if r.n > 0 => r.n
+    .a(r) => -r.n
+    .b(r) => r.n
+
+fun shared(h: ?*E) -> Int
+  match h
+    .a(r) => r.n
+    .b(r) => r.n
+
+fun peek[T](o: ?Opt[T]) -> Int
+  match o
+    .some(v) => 1
+    .nothing => 0
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("place")))
+  print(inner(?e), inner(e))
+  b = Box(E.b(r: Res(n: 2, t: Text("box"))))
+  print(boxed(b))
+  h = *E.a(r: Res(n: 3, t: Text("handle")))
+  print(shared(h))
+  c = C.a(c: Counter(hits: Cell(1)))
+  match get(c)
+    .a(k) if k.hits.get() > 0 => k.hit()
+    .a(k) => k.hit()
+    .b => pass
+  match get(c)
+    .a(k) => k.hit()
+    .b => pass
+  match c
+    x => print(x)
+  o: Opt[Res] = .some(v: Res(n: 7, t: Text("seven")))
+  print(peek(o))
+
+# expect:
+# 6 6
+# 2
+# 3
+# .a(c: Counter(hits: Cell(value: 3)))
+# 1

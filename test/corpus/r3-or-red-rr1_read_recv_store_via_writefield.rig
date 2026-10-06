@@ -1,0 +1,19 @@
+# The read-receiver absorb fix is sound only if a `?self` body cannot
+# store through a write view the receiver holds.
+struct Holder
+  name: String
+
+struct Ctx
+  w: !Holder
+
+  fun put(?self, s: String) -> Int
+    self.w.name = s
+    0
+
+sub main
+  h = Holder(name: "a")
+  c = Ctx(w: !h)
+  if true
+    q = Text("zz")
+    k = c.put(?q)
+  print(c.w.name)

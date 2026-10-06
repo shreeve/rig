@@ -1,0 +1,15 @@
+struct S
+  n: Int
+  t: Text
+
+fun keep(s: ?S) -> ?S
+  s
+
+sub main
+  v: Vec[*S] = Vec()
+  !v.push(*S(n: 1, t: Text("a")))
+  for h in v
+    k = keep(h)
+    print(k.n)
+  e: ?S = keep(v[0])
+  print(e.n)

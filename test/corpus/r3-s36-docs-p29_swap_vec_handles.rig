@@ -1,0 +1,10 @@
+# SPEC §2: `swap` moves the handles of a Vec of them; Core §5: swap and sort work for any element type
+struct B
+  n: Int
+
+sub main
+  v: Vec[*B] = Vec()
+  !v.push(*B(n: 1))
+  !v.push(*B(n: 2))
+  !v.swap(0, 1)
+  print(v[0].n)

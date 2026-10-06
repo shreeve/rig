@@ -1,0 +1,14 @@
+struct S
+  n: Int
+
+sub bump(s: !S)
+  s.n += 1
+
+sub twice(s: !S)
+  bump(s)
+  bump(!s)
+
+sub main
+  x = S(n: 1)
+  twice(!x)
+  print(x.n)

@@ -1,0 +1,11 @@
+# `from` is an ordinary name today: the clause must be contextual.
+struct Move
+  from: Int
+  to: Int
+
+fun span(from: Int, to: Int) -> Int
+  to - from
+
+sub main
+  m = Move(from: 2, to: 7)
+  print(span(m.from, m.to))

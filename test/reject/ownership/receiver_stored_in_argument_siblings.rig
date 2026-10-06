@@ -101,11 +101,11 @@ sub main
   consumed(!h)
   temporary(!h)
 
-# error: 48:11: cannot let this call store a borrow of `s` in `h`
-# error: 56:4: cannot drop `s` while borrows are live
-# error: 62:11: cannot let this call store a borrow of `o` in `h`
-# error: 68:13: cannot let this call store a borrow of `ps` in `h`
-# error: 76:9: cannot let this call store a borrow of `s` in `h`
-# error: 84:12: cannot let this call store a borrow of `y` in `h`
-# error: 89:12: cannot let this call store a borrow of `mk()` in `h`
+# error: 48:11: cannot let this call store a view of `s` in `h`
+# error: 56:4: cannot drop `s` while it is lent
+# error: 62:11: cannot let this call store a view of `o` in `h`
+# error: 68:13: cannot let this call store a view of `ps` in `h`
+# error: 76:9: cannot let this call store a view of `s` in `h`
+# error: 84:12: cannot let this call store a view of `y` in `h`
+# error: 89:12: cannot let this call store a view of `mk()` in `h`
 # errors: 7

@@ -1,0 +1,22 @@
+struct B
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> B
+  B(n: n)
+
+fun mko(n: Int) -> B?
+  B(n: n)
+
+fun idp(b: ?B) -> (?B)?
+  b
+
+sub main
+  if idp(?mk(3)) as r
+    print("body", r.n)
+  print("after")

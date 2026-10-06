@@ -1,4 +1,4 @@
-# A `match !c` binding write-borrows `c` while it is live, so `c` cannot
+# A `match !c` binding lends `c` to write while it is live, so `c` cannot
 # be used then.
 
 enum Shape
@@ -13,4 +13,4 @@ sub main
       r += 1
     _ => print("x")
 
-# error: 12:13: use of `c` while a write borrow is live
+# error: 12:13: use of `c` while a write loan is live

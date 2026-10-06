@@ -1,0 +1,23 @@
+struct P
+  x: Int
+  y: Int
+  z: Int
+  w: Int
+
+enum E
+  a(p: P)
+  b(n: Int)
+
+sub main()
+  e = E.a(p: P(x: 1, y: 2, z: 3, w: 4))
+  match e
+    .a(p)
+      e = E.a(p: P(x: 9, y: 9, z: 9, w: 9))
+      print(p.x, p.w)
+    .b(n) => print(n)
+  match e
+    .a(p)
+      e = E.b(n: 5)
+      print(p.x, p.w)
+    .b(n) => print(n)
+  print(e)

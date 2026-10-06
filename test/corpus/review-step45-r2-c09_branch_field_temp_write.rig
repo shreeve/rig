@@ -1,0 +1,19 @@
+# if (!s.f[idx(?Text("a"))].o if c else !w) as t : field after index, inside a branch
+struct S
+  o: Text?
+
+struct H
+  f: Vec[S]
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  h = H(f: Vec())
+  !h.f.push(S(o: Text("q")))
+  w: Text? = Text("w")
+  c = h.f.len == 1
+  if (!h.f[idx(?Text("a"))].o if c else !w) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(h.f[0].o)

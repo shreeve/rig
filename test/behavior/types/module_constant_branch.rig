@@ -1,5 +1,5 @@
 # A module constant may pick a branch on a constant condition, as a local
-# `=!` constant may; it folds, so a type can use it as an array length.
+# `const` binding may; it folds, so a type can use it as an array length.
 # A constant picked this way is itself constant, so a later branch may
 # test it.
 

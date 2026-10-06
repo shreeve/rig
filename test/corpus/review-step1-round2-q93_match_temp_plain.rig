@@ -1,0 +1,18 @@
+struct P
+  x: Int
+  y: Int
+
+enum E
+  a(p: P, q: ?P)
+  b
+
+struct H
+  e: E
+
+sub main()
+  base = P(x: 3, y: 4)
+  saved = ?base
+  match H(e: E.a(p: P(x: 1, y: 2), q: ?base)).e
+    .a(p, q) => saved = q
+    .b => pass
+  print(saved.x)

@@ -1,0 +1,13 @@
+sub call(f: ?fun(Int) -> Int)
+  print(f(1), f(2))
+
+sub main
+  v: Vec[Int] = Vec()
+  add = |!v, k: Int|
+    !v.push(k)
+    v.len
+  call(?add)
+  a = ?add
+  b = ?add
+  print(a(3), b(4))
+  print(v.len)

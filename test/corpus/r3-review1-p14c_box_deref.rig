@@ -1,0 +1,11 @@
+struct Counter
+  hits: Cell[Int]
+
+fun pick(b: ?Box[Counter]) -> Counter
+  b.unbox()
+
+sub main()
+  b = Box(Counter(hits: Cell(0)))
+  k = pick(?b)
+  k.hits.set(9)
+  print(b.hits.get(), k.hits.get())

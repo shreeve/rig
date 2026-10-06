@@ -1,9 +1,8 @@
 # What `if … as`, `while … as`, or `match` binds lives through the
-# body, past its header, so it may not borrow a temporary the header
-# made: a header that lends one binds a copy of its subject, and is
-# rejected (`header_temporary_rejected.rig`). One that takes a value made
-# there may not keep a view of a temporary either
-# (`header_taken_value_views_temporary.rig`).
+# body, past its header, so it may not lend a temporary the header
+# made.
+#
+# oracle: main reject C5
 
 struct B
   o: Text?
@@ -28,7 +27,7 @@ sub main
     .a(t) => print(t)
     .z => pass
 
-# error: 22:7: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first
-# error: 24:10: bind `mk()` to a name first
-# error: 27:10: bind `mke()` to a name first
+# error: 21:7: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first
+# error: 23:10: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first
+# error: 26:10: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mke()` to a name first
 # errors: 3

@@ -22,7 +22,7 @@ sub main
   !accounts.push(Account(owner: "ada", balance: 100))
   !accounts.push(Account(owner: "bob"))
   !accounts[0].deposit(5)
-  # two write borrows into one Vec are rejected, so copy out and back
+  # two write views into one Vec are rejected, so copy out and back
   a = accounts[0]
   b = accounts[1]
   transfer(!a, !b, 40)!

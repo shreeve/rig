@@ -1,0 +1,25 @@
+# A method that reads its receiver keeps none of its arguments' views
+# in it (Core sentence 9: what changes through a read view is a Cell,
+# which holds no loan), so a key that dies each iteration is fine.
+
+struct Box2
+  label: String
+
+  fun show(?self, s: String) -> Int
+    print(self.label, s)
+    s.len
+
+sub main
+  b = Box2(label: "x")
+  for n in ["a", "cd"]
+    q = Text(n)
+    k = b.show(?q)
+    print(k)
+  print(b.label)
+
+# expect:
+# x a
+# 1
+# x cd
+# 2
+# x

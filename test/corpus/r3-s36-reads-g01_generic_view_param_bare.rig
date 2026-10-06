@@ -1,0 +1,6 @@
+fun show[T](x: ?T) -> Int
+  1
+
+sub main
+  k = 4
+  print(show(k))

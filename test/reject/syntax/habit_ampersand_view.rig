@@ -1,0 +1,11 @@
+# Rust and C take an address or a reference with `&`; Rig views with
+# `?x` to read and `!x` to write.
+
+sub show(n: ?Int)
+  print(n)
+
+sub main()
+  n = 1
+  show(&n)
+
+# error: 9:8: unexpected `&`; expected an expression, `)` or a keyword argument; Rig lends with `?x` (to read) or `!x` (to write)

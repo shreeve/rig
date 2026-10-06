@@ -17,4 +17,4 @@ sub main()
   b: Wrap[fun(Int) -> Int] = Wrap(v: inc)
   print(b.peek())
 
-# error: instantiates `Cell[fun(Int) -> Int]`: `Cell[T]` requires `T` to be a Copy type
+# error: instantiates `Cell[fun(Int) -> Int]`: `Cell[T]` requires `T` to be a value that copies

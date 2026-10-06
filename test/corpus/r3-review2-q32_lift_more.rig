@@ -1,0 +1,31 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct P
+  x: Int
+  y: Int
+
+fun show(o: (?P)?) -> Int
+  if o as s
+    return s.x
+  -1
+
+fun many(a: (?P)?, b: (?P)?) -> Int
+  show(a) + show(b)
+
+sub main()
+  p = P(x: 1, y: 2)
+  r = ?p
+  x = 5
+  t: (?P)? = r if x > 3 else none
+  print(show(t))
+  print(many(r, ?p))
+  arr = [r, r]
+  print(arr[1].x)
+  oarr: [2](?P)? = [r, none]
+  print(show(oarr[0]))
+  k = |?p| show(?p)
+  print(k())

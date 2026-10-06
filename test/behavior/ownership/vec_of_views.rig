@@ -1,0 +1,51 @@
+# A Vec holds views: it holds the loans of every view pushed into it,
+# until it is dropped.
+
+struct Bag
+  items: Vec[?Int]
+
+sub keep(v: !Vec[?Int], x: ?Int)
+  !v.push(x)
+
+sub main
+  a = 1
+  b = 2
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  keep(!v, ?b)
+  print(v[0] + v[1], v)
+  for x in v
+    print(x)
+  -v
+  a = 5
+  c = 3
+  d = 4
+  w: Vec[!Int] = Vec()
+  !w.push(!c)
+  !w.push(!d)
+  w[0] = 10
+  w[1] += 5
+  w[1] = !a
+  w[1] = 7
+  -w
+  print(a, c, d)
+  bag = Bag(items: Vec())
+  !bag.items.push(?b)
+  print(bag.items)
+  e = 8
+  if true
+    !bag.items.push(?e)
+  print(bag.items.len)
+  s: Vec[[]Int] = Vec()
+  arr = [1, 2, 3]
+  !s.push(?arr[..2])
+  print(s)
+
+# expect:
+# 3 [1, 2]
+# 1
+# 2
+# 7 10 9
+# [2]
+# 2
+# [[1, 2]]

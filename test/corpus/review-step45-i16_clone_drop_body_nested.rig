@@ -1,0 +1,12 @@
+# +x where a drop-body type sits deep inside (Vec[Box[D?]]): reject
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  v: Vec[Box[D?]] = Vec()
+  !v.push(Box(D(n: 1)))
+  w = +v
+  print(w.len)

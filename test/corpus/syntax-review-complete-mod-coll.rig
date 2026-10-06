@@ -12,4 +12,4 @@ pub struct Stack
   sub fixup(!self)
     self.count = 0
 
-pub const_x =! 3
+pub const const_x = 3

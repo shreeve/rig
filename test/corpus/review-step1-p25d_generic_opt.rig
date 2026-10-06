@@ -1,0 +1,16 @@
+struct Counter
+  hits: Cell[Int]
+
+fun or_else[T](o: T?, d: T) -> T
+  o ?? d
+
+fun get[T](o: ?T?) -> T
+  if o as v
+    return v
+  panic("x")
+
+sub main()
+  o: Counter? = Counter(hits: Cell(0))
+  k = get(?o)
+  k.hits.set(9)
+  print(o)

@@ -1,5 +1,5 @@
 # Taking an optional out of a field writes the field: not while another
-# borrow of the value is live, and not twice in one call. A field that
+# view of the value is live, and not twice in one call. A field that
 # is not optional still cannot be moved out; it is exchanged with
 # `replace`. A local is moved as a whole, and cannot be used after.
 
@@ -29,7 +29,7 @@ sub main
   both(!s)
   twice(!s)
 
-# error: 16:10: cannot write-borrow `s` while a read borrow is live
-# error: 20:24: cannot take a second write borrow on `s`
+# error: 16:10: cannot lend `s` to write while a read loan is live
+# error: 20:24: cannot lend `s` to write while a write loan is live
 # error: 25:9: cannot move out of `s.n`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.n, v)`
 # error: 28:9: use of `msg` after move

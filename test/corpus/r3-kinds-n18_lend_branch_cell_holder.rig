@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+sub hit(c: ?Counter)
+  c.hits.set(c.hits.get() + 1)
+
+sub main
+  a = Counter(hits: Cell(0))
+  b = Counter(hits: Cell(0))
+  flag = true
+  hit(?(a if flag else b))
+  print(a.hits.get(), b.hits.get())

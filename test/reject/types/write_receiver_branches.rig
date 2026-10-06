@@ -1,0 +1,23 @@
+# A `!self` method writes its receiver: a branching value that may be a
+# name's would be written as a copy (plain data too), and a place is
+# lent with `!`.
+struct P
+  x: Int
+
+  sub bump(!self)
+    self.x += 1
+
+sub main
+  p = P(x: 1)
+  q = P(x: 2)
+  o: P? = P(x: 3)
+  c = true
+  (p if c else q).bump()
+  (o ?? q).bump()
+  p.bump()
+  print(p.x, q.x)
+
+# error: 15:4: method `bump` writes its receiver, and `p if c else q` may be `p`, a value a name holds
+# error: 16:4: method `bump` writes its receiver, and `o ?? q` may be `o`, a value a name holds
+# error: 17:5: method `bump` needs its receiver lent to write; use `!receiver.bump(...)`
+# errors: 3

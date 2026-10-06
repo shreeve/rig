@@ -1,0 +1,14 @@
+struct Counter
+  hits: Cell[Int]
+
+fun ident(c: ?Counter) -> Counter
+  c
+
+fun deref(c: !Counter) -> Counter
+  c
+
+sub main()
+  a = Counter(hits: Cell(0))
+  b = ident(?a)
+  b.hits.set(3)
+  print(a.hits.get())

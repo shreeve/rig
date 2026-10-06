@@ -1,0 +1,13 @@
+struct Counter
+  hits: Cell[Int]
+
+struct Wrap[T]
+  item: T
+
+fun f[T](w: Wrap[T]) -> Int
+  v = w
+  u = w
+  1
+
+sub main()
+  print(f(Wrap(item: Counter(hits: Cell(0)))))

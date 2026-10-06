@@ -1,0 +1,13 @@
+# Copying a write view into a second binding would give two live
+# mutable paths to the same value; move it with `<w` instead.
+
+struct Wrap
+  payload: Int
+
+sub main()
+  a = Wrap(payload: 1)
+  w = !a
+  w2 = w
+  print(w2.payload)
+
+# error: bare use of write view `w` in binding would copy a write view, which is unique

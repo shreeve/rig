@@ -1,0 +1,82 @@
+# A read match's binding that is no plain data is usable within its arm
+# only: a view of it is not returned, stored past the arm, or given as
+# the match's value, whatever the subject (a place, a lent box or
+# handle, a view a call returns, a guarded match) and also in a generic
+# body (docs/INTERNALS.md, "Header subjects").
+
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun get(e: ?E) -> ?E
+  e
+
+fun inner(e: ?E) -> ?Res
+  match e
+    .a(r) => ?r
+    .b(r) => r
+
+fun boxed(b: ?Box[E]) -> ?Res
+  match b
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun shared(h: ?*E) -> ?Res
+  match h
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun whole(e: ?E) -> ?E
+  match e
+    x => ?x
+
+fun guarded(e: ?E) -> ?Res
+  match get(e)
+    .a(r) if r.n > 0 => ?r
+    .a(r) => ?r
+    .b(r) => ?r
+
+fun peek[T](o: ?Opt[T], d: ?T) -> ?T
+  match o
+    .some(v) => ?v
+    .nothing => d
+
+fun whole_gen[T](o: ?Opt[T]) -> ?Opt[T]
+  match o
+    .nothing => o
+    x => ?x
+
+sub stored()
+  e = E.a(r: Res(n: 1, t: Text("a")))
+  keep = Res(n: 0, t: Text("k"))
+  saved = ?keep
+  match e
+    .a(r) => saved = ?r
+    .b(_) => pass
+  print(saved.n)
+
+sub main()
+  stored()
+
+# error: 24:8: a view of `r` does not outlive the `match` that reads `e`
+# error: 25:8: a view of `r` does not outlive the `match` that reads `e`
+# error: 29:8: a view of `r` does not outlive the `match` that reads `b`
+# error: 30:8: a view of `r` does not outlive the `match` that reads `b`
+# error: 34:8: a view of `r` does not outlive the `match` that reads `h`
+# error: 35:8: a view of `r` does not outlive the `match` that reads `h`
+# error: 39:5: a view of `x` does not outlive the `match` that reads `e`
+# error: 43:8: a view of `r` does not outlive the `match` that reads `get(e)`
+# error: 44:8: a view of `r` does not outlive the `match` that reads `get(e)`
+# error: 45:8: a view of `r` does not outlive the `match` that reads `get(e)`
+# error: 49:11: a view of `v` does not outlive the `match` that reads `o`
+# error: 55:5: a view of `x` does not outlive the `match` that reads `o`
+# error: 62:8: a view of `r` does not outlive the `match` that reads `e`
+# errors: 13

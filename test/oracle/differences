@@ -1,0 +1,122 @@
+# Every function the reference ownership checker (bin/rig-oracle) and the
+# compiler's own decide differently, one a line:
+#
+#   <program> <function> prod-rejects <class> <note>
+#
+# Only prod-rejects differences are listed: the compiler rejects what
+# the oracle accepts. A prod-accepts difference (the compiler accepts
+# what the oracle rejects) always fails the run and cannot be listed.
+# Classes: prod-strict (the compiler rejects what the Core allows),
+# ref-gap (the oracle is wrong or less precise), core-gap (docs/CORE.md
+# does not decide it). A program is its test path, a doc
+# example's id (doc/CORE/L120), or a matrix cell (vec.print.place).
+
+# A `for x in ?v` element is a read view; a bare read view copies (Core
+# s1), so binding it inside the loop, or returning one that views only
+# what the function was lent (s7), keeps every loan in order.
+test/corpus/review-box-p117.rig main prod-rejects prod-strict `y = x` of a `for x in ?v` element view
+test/corpus/review-box-p142.rig main prod-rejects prod-strict `new x = x` of a `for x in ?v` element view
+test/corpus/syntax-review-complete-g7.rig Map.find prod-rejects prod-strict returns a `for e in ?self.es` element view of the receiver
+
+# Whether writing through a fixed `w =! !n` (`w = 5`, `w += 1`) reassigns
+# `w`: Core §6 forbids reassigning a const binding, and SPEC §7 says a
+# write view's assignment writes through.
+test/corpus/review-lang4-fx.rig main prod-rejects core-gap `w += 1` through a fixed write view
+test/corpus/review-place-b9-x022_fixed_wb_local.rig main prod-rejects core-gap `w = 5` through a fixed write view
+
+# Whether a `match !e` payload binding, a write view of the payload, may
+# be moved into a local (`y = <s`): SPEC §7 moves a write view with `<w`,
+# and the compiler reads `<s` as moving out of `e`.
+test/corpus/review-take-p15.rig main prod-rejects core-gap `y = <s` of a `match !e` payload binding
+
+# A `defer` runs at its scope's exits, after the values declared after
+# it are dropped (Core §7, SPEC "defer and errdefer"). The compiler also
+# checks deferred code where it is written, and its liveness counts
+# every use in deferred code, so a view whose last use comes before the
+# deferred code runs still holds its loan there.
+test/corpus/r3-or-defer-strict.rig main prod-rejects prod-strict `defer !v.push(3)` before `w = !v`, whose last use precedes the exit
+test/corpus/review-step45-k04_defer_elem_write.rig main prod-rejects prod-strict `defer !v[0].add("!")` before `x = ?v[0]`, whose last use precedes the exit
+test/corpus/review-step45-k04b_defer_push_plain.rig main prod-rejects prod-strict `defer !v.push(2)` before `x = ?v`, whose last use precedes the exit
+test/corpus/review-step45-r2-d08_repoint_defer_uses_w.rig main prod-rejects prod-strict the deferred `!w.add("d")` runs at the inner block's end, before `print(b)`
+test/corpus/review-take-p53.rig main prod-rejects prod-strict deferred `<s.a` after `print(r)`, the last use of `r = ?s`
+test/corpus/review-take-p54.rig main prod-rejects prod-strict deferred `<s.a` runs after the deferred `print(w)`, the last use of `w = !s`
+
+# A `for k in ?v` element over a Vec of handles is a read view of the
+# slot (Core §4); storing it in a binding declared before the loop keeps
+# the loan on `v`, which `v` outlives (Core s6).
+test/corpus/r3-review1-p33b_vec_store_opt.rig main prod-rejects prod-strict `saved = k` of a `for k in ?v` element view
+test/corpus/review-step1-p33b_vec_store_opt.rig main prod-rejects prod-strict `saved = k` of a `for k in ?v` element view
+
+# `<x` of a view copies it out (SPEC §7), so moving a view parameter
+# into a stack closure, which never leaves the function, holds the
+# caller's loan for the closure's life as `|?x|` would (Core §7).
+test/corpus/R16-c6.rig outer prod-rejects prod-strict `|<f|` of a `?fun` parameter
+test/reject/ownership/move_capture_view_param_lambda.rig f prod-rejects prod-strict `|<rc|` of a `?*Wrap` parameter
+test/reject/types/closure_lending_hints_ownership.rig outer prod-rejects prod-strict `|<f|` of a `?fun` parameter
+
+# A closure's loans end with its last use, deferred code included; the
+# compiler holds them wherever deferred code mentions the closure, or
+# where its environment needs a drop.
+test/corpus/R16-d4.rig main prod-rejects prod-strict `errdefer f()` never runs in `main`, so `-v` meets no live loan
+test/corpus/R16-d5.rig main prod-rejects prod-strict the deferred `f()` is the last use of `f`'s write loan before `print(x)`
+
+# `-cb` of a `for cb in ?subs` element ends a read view (SPEC "Drop").
+test/reject/ownership/vec_for_drop_elem.rig main prod-rejects prod-strict `-cb` of a `for cb in ?subs` element view
+
+# A generic body is checked once, and each instance against what the
+# body does with a `T` (SPEC "Generic bodies"). The oracle checks a call
+# at plain type arguments by its signature, and not the instances that
+# body makes in turn: `lib.f[Int]` calls `util.g[?Int]`.
+test/corpus/R11a-g1 main prod-rejects ref-gap `lib.f(1)` makes the instance `util.g[?Int]`
+
+# A clone is a new owner (Core s2): through a view, `+r` of a `?T`
+# carries the loans of the views its value holds, not the loan on what
+# `r` sees (Core s7).
+
+# A result carries no loan when it is plain data (Core s7), and the
+# loans it carries only while it is used (Core s6); a call whose write
+# arguments can hold no view stores none in them (Core s6).
+
+# A view reached through a slice or a write view carries that view's
+# loans, not a loan on what holds it (Core s7).
+test/corpus/R15-p-m2.rig main prod-rejects prod-strict `w = !s.arr[..]` views an element of `vs`, which outlives the loop's `s`
+test/corpus/review-step3-l14_handle_in_vec_loop.rig main prod-rejects prod-strict `keep(h)` of a `for h in v` element of a Vec of handles, used within the iteration
+test/corpus/syntax-review-complete-g3.rig Map.find_mut prod-rejects prod-strict `return !e` of a `for e in !self.es` element views what `self` was lent
+
+# Whether a call's view result keeps a write argument write-lent: the
+# Core says a result carries the loans it was lent (s7, built), not in
+# which mode; the oracle reads them as read loans.
+test/corpus/r3-or-pa-downgrade.rig main prod-rejects core-gap `r = bump(!c)` then `print(c.n)` while `r` lives
+
+# Whether dropping a Vec of views where its scope ends uses the views:
+# no `drop` body reads them (Core s3, s6), and an explicit `-v` ends
+# them in both checkers.
+test/corpus/r3-s45-v-v14_slices_in_vec.rig main prod-rejects core-gap `a[0] = 9` after the last use of a `Vec[[]Int]` of `a`'s slices
+test/corpus/r3-s45-v-v27_vec_view_param_return.rig main prod-rejects core-gap `x = 3` after the last use of a `Vec[?Int]` holding `?x`
+test/corpus/review-place-b3-r032_wt_elem_vec.rig main prod-rejects core-gap `print(a)` after the last use of a `Vec[!Int]` holding `!a`
+test/corpus/review-place-b7-v025_wt_elem_vec_through.rig main prod-rejects core-gap `print(a, b)` after the last use of a `Vec[!Int]` holding `!a`
+
+# Whether a bare write-view element or field where a value is taken
+# copies what it sees (SPEC §7, as a bare write-view name and an
+# argument do) or would move it out of its holder.
+test/corpus/r3-s45-v-v09_copy_write_elem.rig main prod-rejects core-gap `w = v[0]` of a `Vec[!Int]`
+test/corpus/review-lang4-a3.rig main prod-rejects core-gap `h.w = g.w` of two `!Int` fields
+test/corpus/review-lang4-b3.rig main prod-rejects core-gap `h.w = g.w` of two `!Int` fields
+
+# A place holding a write view, re-pointed or exchanged, holds the new
+# view's loans (Core §6): `swap` exchanges two fields' views, and a
+# re-pointed field may view what outlives its holder.
+test/corpus/review-place-b9-x010_swap_through_fields.rig main prod-rejects prod-strict `h.w = 10` after `swap(!h.w, !k.w)`, which lends `h` for the call only
+test/corpus/review-place-b7-v020_nested_wb_rebind.rig main prod-rejects prod-strict `g.h.w = !m`, where `m` outlives `g`
+test/corpus/review-step45-g09_repoint_closure.rig main prod-rejects prod-strict `w = !n` while `f = |!w| ...` holds a write loan on `m`, what `w` saw
+
+# A lint that is not ownership, and a header subject of plain data,
+# which copies (Core s1).
+test/corpus/r3-s36-n13_new_shadow_wb_old_alive.rig main prod-rejects prod-strict the lint "assigned but never read" on a shadowed write view
+test/corpus/r3-s36-reads-f06_for_array_write_in_body.rig main prod-rejects prod-strict `for x in a` of a `[3]Int` copies it (Core s1), so `a[0] = 9` in the body is free
+
+# A generic body that reads `if o as v` of a `T?` where it stands copies
+# no `T` (Core s1), so an instance at an owner is sound; the compiler's
+# emitted body copies the payload, and it rejects the instance.
+test/corpus/audit-emit-q2.rig main prod-rejects prod-strict `peek(Box(R(n: 1)))` at `T = Box[R]`
+test/corpus/review-step45-r2-e14_match.rig main prod-rejects prod-strict `cnt(?o)` at `T = Text`, whose body reads `if x as y` of a loop element where it stands

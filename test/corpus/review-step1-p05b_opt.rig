@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+sub bump(c: ?Counter?)
+  if c as k
+    k.hits.set(k.hits.get() + 1)
+
+sub main()
+  o: Counter? = Counter(hits: Cell(0))
+  p = o
+  bump(?p)
+  print(p, o)

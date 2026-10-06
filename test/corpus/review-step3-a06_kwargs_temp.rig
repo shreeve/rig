@@ -1,0 +1,23 @@
+struct Bag
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun two(a: ?Bag, b: ?Bag) -> Int
+  a.n * 10 + b.n
+
+fun mk(n: Int) -> Bag
+  print("mk", n)
+  Bag(n: n)
+
+fun dflt(a: ?Bag, k: Int = 3) -> Int
+  a.n + k
+
+sub main
+  print(two(b: mk(2), a: mk(1)))
+  x = Bag(n: 5)
+  print(two(b: x, a: mk(1)))
+  print(two(b: mk(7), a: x))
+  print(dflt(mk(4)))
+  print(dflt(k: 1, a: mk(4)))

@@ -2,7 +2,7 @@ struct G
   arr: [3]Int
 struct H
   arr: [3]Int
-E =! Endian.little
+const E = Endian.little
 fun total(xs: []Int) -> Int
   t = 0
   for x in xs

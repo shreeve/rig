@@ -1,0 +1,13 @@
+# move w into a struct, then re-point w; the struct still views a
+struct H
+  v: !Text
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  w = !a
+  h = H(v: <w)
+  w = !b
+  a = Text("A")
+  !h.v.add("!")
+  print(a, b)

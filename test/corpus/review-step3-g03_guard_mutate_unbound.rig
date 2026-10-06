@@ -1,0 +1,17 @@
+struct Res
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+fun clear(e: !E) -> Bool
+  e = E.b
+  false
+
+sub main
+  e = E.a(r: Res(t: Text("abc")))
+  match e
+    .a(_) if clear(!e) => print("one")
+    .a(r) => print("second", r.t)
+    .b => print("b")

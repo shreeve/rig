@@ -1,6 +1,6 @@
 # A String viewing a Text carries the Text's loan wherever it goes: into
 # a binding, a struct, a Vec[String], a call's result, and a closure.
-# Each holds the Text borrowed until its last use; then the Text can be
+# Each holds the Text viewed until its last use; then the Text can be
 # changed, moved, or dropped again. Strings from literals hold no loan.
 
 struct Span

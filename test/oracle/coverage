@@ -1,0 +1,19 @@
+# The fewest functions bin/rig-oracle must decide in each set of
+# test/run's oracle tests; raise a floor when the oracle grows.
+# The oracle decides header subjects that are made values, parts of
+# made values, and branching values, `unique` types, Cells and Signals,
+# `defer` and `errdefer` bodies, inlined at each exit of their scope,
+# handles (`*T`, `~T`), closures, stack and owned, whose bodies it
+# checks as functions of their own, generic bodies, and calls of generic
+# code at owners where those bodies never copy a type parameter, held
+# header parts, arm-local payload views, containers of views and write
+# views, every element a place, re-pointed write views, and clones, so
+# each floor is what it decides now. A type holding a Cell is unique,
+# so the matrix programs that copy one stop in sema, before either
+# checker decides them. A header whose subject makes a temporary is
+# rejected in sema (`rejectHeaderCopy`), so the corpus programs that have
+# one stop there too.
+tests 3275
+corpus 15775
+docs 422
+matrix 15911

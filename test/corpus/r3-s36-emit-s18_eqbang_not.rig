@@ -1,0 +1,5 @@
+# C habit: `ok =! done` means `ok = !done` (not). Rig: an error, as `=!` is no operator.
+sub main
+  done = false
+  ok =! done
+  print(ok)

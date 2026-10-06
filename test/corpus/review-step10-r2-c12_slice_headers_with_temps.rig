@@ -1,0 +1,21 @@
+# Header exception "slices": `for` over a slice whose bounds make a
+# header temporary: of a place, of an element, and of a field of a
+# branching value of places, written through `!`. Every write must land.
+struct P
+  xs: [4]Int
+
+fun idx(s: ?Text) -> Int
+  s.len
+
+sub main
+  v = [1, 2, 3, 4]
+  for x in !v[0..idx(?Text("ab"))]
+    x = x * 10
+  print(v)
+  arrs = [[1, 2, 3, 4], [5, 6, 7, 8]]
+  for x in !arrs[idx(?Text("a"))][1..3]
+    x = 0
+  print(arrs)
+  a = P(xs: [1, 1, 1, 1])
+  b = P(xs: [2, 2, 2, 2])
+  print(a.xs, b.xs)

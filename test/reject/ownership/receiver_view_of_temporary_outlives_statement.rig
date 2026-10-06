@@ -38,8 +38,8 @@ sub main
   u = (ps if c else qs)[1].arr()
   print(r, s.n, t, u)
 
-# error: 32:7: a borrow of the temporary `mk()` outlives its statement
-# error: 33:7: a borrow of the temporary `mkh()` outlives its statement
-# error: 34:7: a borrow of the temporary `mkh()` outlives its statement
-# error: 38:8: a borrow of the temporary `ps if c else qs` outlives its statement
+# error: 32:7: a view of the temporary `mk()` outlives its statement
+# error: 33:7: a view of the temporary `mkh()` outlives its statement
+# error: 34:7: a view of the temporary `mkh()` outlives its statement
+# error: 38:8: a view of the temporary `ps if c else qs` outlives its statement
 # errors: 4

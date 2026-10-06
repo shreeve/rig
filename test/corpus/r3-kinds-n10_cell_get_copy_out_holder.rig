@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main
+  c: Cell[Int] = Cell(1)
+  d = Cell(c.get())
+  v: Vec[Int] = Vec()
+  !v.push(c.get())
+  s = *Cell(5)
+  t = +s
+  t.set(6)
+  print(c.get(), d.get(), v[0], s.get())

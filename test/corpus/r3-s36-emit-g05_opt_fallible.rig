@@ -1,0 +1,11 @@
+error E
+  bad
+fun a(n: Int) -> Int?!
+  return E.bad if n < 0
+  return none if n == 0
+  n
+sub main
+  print(a(1)! ?? 0)
+  print(a(0)! ?? 0)
+  x = a(-1) catch 99
+  print(x ?? 0)

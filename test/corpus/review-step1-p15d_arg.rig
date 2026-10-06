@@ -1,0 +1,11 @@
+struct Counter
+  hits: Cell[Int]
+
+sub take(c: Counter)
+  print(c.hits.get())
+
+sub main()
+  a = Counter(hits: Cell(0))
+  take(a)
+  arr = [Counter(hits: Cell(0))]
+  take(arr[0])

@@ -1,0 +1,23 @@
+struct Res
+  n: Int
+  t: Text
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+fun peek[T](o: ?Opt[T], d: ?T) -> ?T
+  match o
+    .some(v) => ?v
+    .nothing => d
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  o: Opt[Res] = .some(v: Res(n: 7, t: Text("seven")))
+  d = Res(n: 0, t: Text("d"))
+  x = peek(?o, ?d)
+  print(clobber(1000))
+  print(x.n, x.t)

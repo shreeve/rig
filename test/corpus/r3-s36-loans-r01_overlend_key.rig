@@ -1,0 +1,22 @@
+# Sentence 7 over-lends: the result views `key` too, though no
+# `?Entry` can come from a `?Key`. Editing the key while the entry is
+# in use is rejected.
+struct Entry
+  name: String
+  hits: Int
+
+struct Key
+  id: Int
+
+struct Table
+  rows: [3]Entry
+
+fun lookup(t: ?Table, k: ?Key) -> ?Entry
+  ?t.rows[k.id]
+
+sub main
+  t = Table(rows: [Entry(name: "a", hits: 1), Entry(name: "b", hits: 2), Entry(name: "c", hits: 3)])
+  k = Key(id: 1)
+  e = lookup(?t, ?k)
+  k.id = 2
+  print(e.name, k.id)

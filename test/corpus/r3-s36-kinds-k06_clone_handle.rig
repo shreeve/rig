@@ -1,0 +1,14 @@
+struct N
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  h = *N(n: 1)
+  g = +h
+  w = ~h
+  w2 = +w
+  o: *N? = +h
+  o2 = +o
+  print(g.n, o2 != none)

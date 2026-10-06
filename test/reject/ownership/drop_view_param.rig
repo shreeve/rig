@@ -1,0 +1,14 @@
+# A view parameter cannot be dropped; the caller owns it.
+
+struct Wrap
+  payload: Int
+
+sub kill(rc: ?*Wrap)
+  -rc
+
+sub main()
+  rc = *Wrap(payload: 5)
+  kill(?rc)
+  print(rc.payload)
+
+# error: cannot drop view

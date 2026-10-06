@@ -1,0 +1,4 @@
+from std.random use Random
+
+sub main()
+  print(1)

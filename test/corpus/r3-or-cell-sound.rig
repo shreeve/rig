@@ -1,0 +1,27 @@
+# A Cell or Signal holds only values that carry no loan (Core s9): an
+# owner moves in with `set` or `replace` and out with `replace`, and a
+# read view of plain data is read by value on its way in.
+#
+# oracle: owners accept
+# oracle: by_value accept
+
+sub owners()
+  c: Cell[Vec[Int]] = Cell(Vec())
+  c.push(1)
+  v: Vec[Int] = Vec()
+  !v.push(2)
+  old = c.replace(<v)
+  print(old.len, c.len)
+  c.set(<old)
+  print(c.len)
+
+sub by_value()
+  n = 7
+  q = ?n
+  d: Cell[Int] = Cell(q)
+  n = 9
+  print(d.get(), n)
+
+sub main
+  owners()
+  by_value()

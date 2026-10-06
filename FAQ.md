@@ -7,7 +7,7 @@ are coming from another language, start with [WELCOME.md](WELCOME.md).
 ## Is everything reference-counted?
 
 No. Numbers, strings, and structs, enums, and arrays made of them are
-plain values (a struct holding a `Vec` owns it), and borrows (`?T`,
+plain values (a struct holding a `Vec` owns it), and views (`?T`,
 `!T`) are checked at compile time and cost nothing at run time. Counting happens only behind a shared handle `*T`, where
 every count change is written (`*x`, `+x`, `-x`); a heap value with one
 owner is a `Box[T]`, which counts nothing
@@ -16,7 +16,7 @@ owner is a `Box[T]`, which counts nothing
 ## Is Rig safe like Rust?
 
 That is the goal: use after move, double free, use after free,
-dangling borrows, and leaks in safe Rig are compiler bugs, and `raw`
+dangling views, and leaks in safe Rig are compiler bugs, and `raw`
 blocks, `extern` calls, and the small runtime are the trust boundaries;
 the one leak it does not prevent is a cycle of strong handles, as in
 Rust and Swift. The guarantee is only as strong as the checker, which
@@ -32,7 +32,7 @@ and most lines have none ([why](docs/DESIGN.md#sigils-rather-than-keywords),
 
 ## Why is `!` not logical negation?
 
-Because prefix `!` is a write borrow (`!v.push(x)` marks that `push`
+Because prefix `!` lends to write (`!v.push(x)` marks that `push`
 writes `v`), and a sigil has one meaning; negation is the word `not`.
 Where the C, Rust, or Zig habit would change a program's meaning, it is
 a compile error instead: `if !done`, `!q.is_empty()`, and a `!` call
@@ -95,8 +95,8 @@ because the value may be gone. So it is a method returning an optional:
 
 ## Why no `var` or `let`?
 
-`x = e` binds or assigns, as in Python and Ruby, and `x =! e` binds for
-good. What Rig forbids is silently reusing a visible name; write
+`x = e` binds or assigns, as in Python and Ruby, and `const x = e` binds
+for good. What Rig forbids is silently reusing a visible name; write
 `new x = e` to shadow on purpose ([more](docs/DESIGN.md#bindings)).
 
 ## Why isn't reactivity built into the language?

@@ -1,0 +1,15 @@
+struct Item
+  n: Int
+
+struct Ops
+  pick: ?fun(?Item, ?Item) -> ?Item
+
+fun left(a: ?Item, b: ?Item) -> ?Item
+  a
+
+sub main
+  x = Item(n: 1)
+  y = Item(n: 2)
+  o = Ops(pick: ?left)
+  r = o.pick(?x, ?y)
+  print(r.n)

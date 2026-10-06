@@ -1,0 +1,14 @@
+# A binding of a call's `!Int` result holds the write view, so the value
+# the call was lent stays lent to write while the binding is used.
+
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  n = 1
+  w = slot(!n)
+  w = 5
+  print(n, w)
+
+# error: 11:9: use of `n` while a write loan is live
+# errors: 1

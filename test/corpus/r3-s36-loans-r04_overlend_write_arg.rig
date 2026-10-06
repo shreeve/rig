@@ -1,0 +1,18 @@
+# A lent to write counter argument stays lent to write while the
+# result lives, so it cannot even be read.
+struct Entry
+  name: String
+
+struct Table
+  rows: [2]Entry
+
+fun get_counted(t: ?Table, i: Int, count: !Int) -> ?Entry
+  count += 1
+  ?t.rows[i]
+
+sub main
+  t = Table(rows: [Entry(name: "a"), Entry(name: "b")])
+  n = 0
+  e = get_counted(?t, 1, !n)
+  print(n)
+  print(e.name)

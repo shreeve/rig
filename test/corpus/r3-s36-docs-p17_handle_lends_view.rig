@@ -1,0 +1,13 @@
+# Core §4: one `fun area(s: ?Shape)` serves a Shape, a Box[Shape], and a *Shape
+struct Shape
+  w: Int
+
+fun area(s: ?Shape) -> Int
+  s.w * s.w
+
+sub main
+  a = Shape(w: 2)
+  b = Box(Shape(w: 3))
+  h = *Shape(w: 4)
+  print(area(?a), area(?b))
+  print(area(?h))

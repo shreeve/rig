@@ -1,0 +1,54 @@
+# Failing is always written: an error value meets a `T!` only as the
+# operand of `return`, or a branch of it, and nowhere deeper.
+
+error E
+  bad
+
+fun which -> E
+  E.bad
+
+fun tail -> Int!
+  E.bad
+
+fun branch(k: Int) -> Int!
+  if k > 0
+    E.bad
+  else
+    k
+
+fun arm(k: Int) -> Int!
+  match k
+    0 => 0
+    _ => E.bad
+
+fun ternary(k: Int) -> Int!
+  E.bad if k > 0 else k
+
+fun named(k: Int) -> Int!
+  e = E.bad
+  return k if k > 0
+  e
+
+fun called(k: Int) -> Int!
+  return k if k > 0
+  which()
+
+fun deeper(k: Int) -> Int!
+  return match k
+    0
+      print("zero")
+      E.bad
+    _ => k
+
+sub main
+  print(tail() catch 0, branch(1) catch 0, arm(1) catch 0, ternary(1) catch 0)
+  print(named(0) catch 0, called(0) catch 0, deeper(1) catch 0)
+
+# error: 11:3: an error value meets `Int!` only as the operand of `return`: write `return E.bad`
+# error: 15:5: write `return E.bad`
+# error: 22:10: write `return E.bad`
+# error: 25:3: write `return E.bad`
+# error: 30:3: write `return e`
+# error: 34:3: write `return which()`
+# error: 40:7: write `return E.bad`
+# errors: 7

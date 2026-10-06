@@ -1,0 +1,30 @@
+# A clone of a value that holds views carries their loans (Core s2, s6).
+
+struct Bag
+  v: Vec[?Int]
+
+sub views_kept
+  a = 1
+  v: Vec[?Int] = Vec()
+  !v.push(?a)
+  w = +v
+  -v
+  a = 2
+  print(w)
+
+sub through_view_kept
+  a = 1
+  bag = Bag(v: Vec())
+  !bag.v.push(?a)
+  r = ?bag
+  c = +r
+  -bag
+  a = 2
+  print(c.v.len)
+
+sub main
+  views_kept()
+  through_view_kept()
+
+# oracle: views_kept reject C4
+# oracle: through_view_kept reject C4

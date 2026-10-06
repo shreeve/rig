@@ -1,0 +1,12 @@
+# temp in a `defer` body, and a hoisted call (keyword arguments out of
+# order) in a `defer` body with a Text temporary lent as `?Text`.
+fun g(k: Int) -> Int
+  k
+
+fun pick(s: ?Text, n: Int) -> ?Text
+  s
+
+sub main
+  defer print(pick(n: g(1), s: ?Text("deferred text that is long enough for the heap")))
+  defer print(pick(?Text("deferred 2 text that is long enough for the heap"), 1))
+  print("body")

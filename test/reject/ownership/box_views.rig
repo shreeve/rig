@@ -1,0 +1,21 @@
+# A read view of a boxed value cannot write the value or lend it to
+# write.
+
+struct Node
+  key: Int
+  left: Box[Node]?
+
+sub grow(s: !Box[Node]?)
+  s = none
+
+sub bad(slot: ?Box[Node]?)
+  if slot as n
+    n.key = 3
+    grow(!n.left)
+
+sub main
+  root: Box[Node]? = Box(Node(key: 1, left: none))
+  bad(?root)
+
+# error: 13:5: cannot assign through a read view (`?T`)
+# error: 14:11: cannot lend to write through a read view (`?T`)

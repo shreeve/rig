@@ -1,5 +1,5 @@
 fun f(x: Int) -> Int
-  k =! x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+  const k = x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
   k
 
 sub main()

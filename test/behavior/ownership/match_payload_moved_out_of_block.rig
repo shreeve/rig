@@ -1,5 +1,5 @@
 # A payload moved out of `match <s` carries what the scrutinee held, not
-# a borrow of the scrutinee, so it may outlive the scrutinee's block.
+# a view of the scrutinee, so it may outlive the scrutinee's block.
 
 enum Slot
   empty

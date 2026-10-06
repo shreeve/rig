@@ -1,0 +1,30 @@
+# Header exception "a value made in the header, plain bindings", with a
+# Box and a handle: a guarded and an unguarded `match` on `mkb(idx(..))`
+# / `mkh(idx(..))` whose argument makes a header temporary.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len
+
+fun mkb(k: Int) -> Box[E]
+  Box(E.a(xs: [k, k, k, k]))
+
+fun mkh(k: Int) -> *E
+  *E.a(xs: [k, k, k, k])
+
+sub main
+  k = 1
+  match ?mkb(idx(?Text("a")))
+    .a(xs) if k > 0 => print(xs[0])
+    _ => print(0)
+  match ?mkb(idx(?Text("ab")))
+    .a(xs) => print(xs[0])
+    _ => print(0)
+  match ?mkh(idx(?Text("abc")))
+    .a(xs) if k > 0 => print(xs[0])
+    _ => print(0)
+  match ?mkh(idx(?Text("abcd")))
+    .a(xs) => print(xs[0])
+    x => print(x)

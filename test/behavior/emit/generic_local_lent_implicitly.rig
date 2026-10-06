@@ -1,0 +1,33 @@
+# A `T` local lent where a `?T` is expected is lent as `?x` lends it, in
+# a generic body as anywhere: implicitly or written, in a call that
+# evaluates its arguments first or not, for an instance read by value and
+# one read by address.
+
+fun g(k: Int) -> Int
+  k
+
+fun pick[T](q: ?T, n: Int) -> ?T from q
+  q
+
+fun direct[T](x: T) -> Int
+  print(pick(x, 1), pick(?x, 2))
+  1
+
+fun hoisted[T](x: T) -> Int
+  print(pick(n: g(1), q: x), pick(n: g(2), q: ?x))
+  2
+
+struct P
+  t: Text
+
+sub main
+  print(direct(5), hoisted(6))
+  print(direct(P(t: Text("p"))), hoisted(P(t: Text("q"))))
+
+# expect:
+# 5 5
+# 6 6
+# 1 2
+# P(t: "p") P(t: "p")
+# P(t: "q") P(t: "q")
+# 1 2

@@ -1,5 +1,5 @@
 # Members of an imported type are named through the module:
-# associated functions (`lib.P.at(3, 4)`, with a write-borrowed
+# associated functions (`lib.P.at(3, 4)`, with a lent to write
 # parameter too) and enum variants, bare or with a payload.
 
 use lib

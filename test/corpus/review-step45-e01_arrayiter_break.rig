@@ -1,0 +1,8 @@
+# for x in <a over [3]Text with break: rest dropped once
+sub main
+  a = [Text("a"), Text("b"), Text("c")]
+  for x in <a
+    print(x)
+    if x == "b"
+      break
+  print("end")

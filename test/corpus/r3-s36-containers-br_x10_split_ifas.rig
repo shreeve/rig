@@ -1,0 +1,21 @@
+use std.text
+
+struct Split
+  rest: String
+  sep: String
+  done: Bool
+
+  fun next(!self) -> String?
+    return none if self.done
+    if text.find(self.rest, self.sep) as at
+      part = self.rest[..at]
+      self.rest = self.rest[at + self.sep.len..]
+      return part
+    self.done = true
+    self.rest
+
+sub main
+  t = Text("a,b,c")
+  s = Split(rest: ?t, sep: ",", done: false)
+  while !s.next() as p
+    print(p)

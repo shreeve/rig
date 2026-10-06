@@ -21,13 +21,13 @@ struct G
 fun mkh(k: Int) -> H
   H(e: E.a(n: k), t: Text("a text long enough to live on the heap"))
 
-fun mkg(s: String) -> G
+fun mkg(s: String) -> G from s
   G(f: F.a(s: s))
 
 fun pick(h: ?H) -> ?E
   ?h.e
 
-fun pickf(g: ?G) -> ?F
+fun pickf(g: ?G) -> ?F from g
   ?g.f
 
 sub main

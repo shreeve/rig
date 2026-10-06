@@ -1,0 +1,17 @@
+struct Item
+  n: Int
+
+struct Holder
+  r: ?Item
+
+fun f(a: !Holder, b: ?Item) -> ?Item
+  a.r = b
+  a.r
+
+sub main
+  x = Item(n: 1)
+  h = Holder(r: ?x)
+  y = Item(n: 2)
+  r = f(!h, ?y)
+  y.n = 7
+  print(r.n)

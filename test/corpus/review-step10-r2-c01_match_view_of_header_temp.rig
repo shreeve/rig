@@ -1,0 +1,30 @@
+# Header rule exception "a match on a call's returned view held as a
+# pointer": the view points INTO the header's own temporary
+# (`pick(?mkh(7))` returns `?E from h`), which ends with the header; the
+# arms read it through the catch-all and a payload.
+enum E
+  a(xs: [4]Int)
+  b
+
+struct H
+  e: E
+  n: Int
+
+fun mkh(k: Int) -> H
+  H(e: E.a(xs: [k, k, k, k]), n: k)
+
+fun pick(h: ?H) -> ?E from h
+  ?h.e
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  k = 1
+  match pick(?mkh(7))
+    .a(xs) if k > 0 => print(clobber(1), xs[0], xs[3])
+    _ => print(clobber(2))
+  match pick(?mkh(8))
+    .a(xs) => print(clobber(1), xs[0], xs[3])
+    _ => print(0)

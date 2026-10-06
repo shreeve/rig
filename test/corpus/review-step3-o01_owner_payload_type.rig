@@ -1,0 +1,28 @@
+struct Res
+  n: Int
+  t: Text
+
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(r: Res)
+  c(k: Counter)
+  b
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("x")))
+  keep = Res(n: 0, t: Text("k"))
+  saved = ?keep
+  match e
+    .a(r) => saved = r
+    .c(k) => pass
+    .b => pass
+  print(saved.n)
+  ck = Counter(hits: Cell(9))
+  sk = ?ck
+  f = E.c(k: Counter(hits: Cell(3)))
+  match f
+    .c(k) => sk = k
+    _ => pass
+  print(sk.hits.get())

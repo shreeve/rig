@@ -1,0 +1,11 @@
+struct P
+  x: Int
+
+sub main
+  v: Vec[Box[P]] = Vec()
+  !v.push(Box(P(x: 1)))
+  !v.push(Box(P(x: 2)))
+  for b in !v
+    b.x += 10
+  for b in <v
+    print(b.x)

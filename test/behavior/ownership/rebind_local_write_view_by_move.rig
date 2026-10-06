@@ -1,0 +1,19 @@
+# `new w = <w2` points a local write view's name at the place `w2`
+# viewed, as `new w = !n` would; a bare `w = w3` writes the value `w3`
+# reaches through `w`.
+
+sub main
+  m = 1
+  n = 2
+  k = 3
+  w = !m
+  w = 5
+  w2 = !n
+  new w = <w2
+  w = 6
+  w3 = !k
+  w = w3
+  print(m, n, k)
+
+# expect:
+# 5 3 3

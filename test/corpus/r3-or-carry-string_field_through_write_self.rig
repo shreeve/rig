@@ -1,0 +1,18 @@
+# A String sliced from a String field through `!self` carries the field's
+# loans, not a loan on `self`.
+
+struct P
+  src: String
+  pos: Int
+
+  fun word(!self) -> String
+    w = self.src[0..1]
+    self.pos += 1
+    w
+
+sub main
+  t = Text("abc")
+  p = P(src: ?t, pos: 0)
+  a = !p.word()
+  p.pos = 5
+  print(a, p.pos)

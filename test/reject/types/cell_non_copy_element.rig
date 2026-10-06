@@ -1,9 +1,9 @@
 # `Cell[T]` needs a Copy `T`, plain data, or a type with drop glue; a
-# borrow is none of these: every handle to the cell would reach it.
+# view is none of these: every handle to the cell would reach it.
 
 sub main()
   n = 1
   c: Cell[?Int] = Cell(?n)
   print(c.get())
 
-# error: `Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data
+# error: `Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, String), plain data

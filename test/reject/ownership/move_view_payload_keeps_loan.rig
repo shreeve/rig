@@ -1,0 +1,27 @@
+# A payload copied out of the matched value still views what it views:
+# `x` cannot be written while `k` is used.
+
+struct N
+  n: Int
+
+struct V
+  r: ?N
+
+enum E
+  a(v: V)
+  b
+
+sub bump(n: !N)
+  n.n += 1
+
+sub main
+  x = N(n: 1)
+  e = E.a(v: V(r: ?x))
+  match e
+    .a(v)
+      k = <v
+      bump(!x)
+      print(k.r.n)
+    .b => pass
+
+# error: 23:13: cannot lend `x` to write while a read loan is live

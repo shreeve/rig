@@ -1,0 +1,18 @@
+# `and` runs its right side only sometimes: a move there is a move on
+# one path only. The checker treats it as always moved; does the
+# emitted code drop `x` when the move did not happen?
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun take(r: R) -> Bool
+  print("take", r.n)
+  true
+
+sub main
+  x = R(n: 1)
+  c = false
+  if c and take(<x)
+    print("both")
+  print("end")

@@ -1,0 +1,9 @@
+# +v of a Vec of views must carry the views' loans
+sub main
+  t = Text("viewed")
+  v: Vec[String] = Vec()
+  !v.push(?t)
+  w = +v
+  -v
+  -t
+  print(w)

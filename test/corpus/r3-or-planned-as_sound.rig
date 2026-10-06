@@ -1,0 +1,67 @@
+# Under the planned rule (Core s1) a bare owning place an `if … as` or
+# `while … as` binds is read where it stands, as `?p`, and the binding
+# is a view: the place may change once the view is done. A `match` on
+# a place reads it in place today, and an optional of plain data
+# copies. Before the rule is on by default the bare `as` subjects are
+# rejected (C2), so only the planned lines state their verdicts.
+#
+# oracle: match_place accept
+# oracle: plain_copies accept
+# oracle planned: if_as accept
+# oracle planned: while_as accept
+# oracle planned: field_as accept
+# oracle planned: match_place accept
+# oracle planned: plain_copies accept
+
+struct N
+  v: Int
+
+  drop(!self)
+    print("drop", self.v)
+
+enum E
+  one(b: Box[N])
+  none
+
+sub if_as()
+  o: Box[N]? = Box(N(v: 1))
+  if o as x
+    print(x.v)
+  o = none
+  print(o == none)
+
+sub while_as()
+  o: Box[N]? = Box(N(v: 2))
+  k = 0
+  while o as x
+    print(x.v)
+    k += 1
+    break if k > 1
+
+sub field_as(h: ?Holder)
+  if h.o as x
+    print(x.v)
+
+struct Holder
+  o: Box[N]?
+
+sub match_place()
+  e = E.one(b: Box(N(v: 3)))
+  match e
+    .one(n) => print(n.v)
+    .none => pass
+  e = E.none
+
+sub plain_copies()
+  n: Int? = 4
+  if n as x
+    n = none
+    print(x, n == none)
+
+sub main()
+  if_as()
+  while_as()
+  h = Holder(o: Box(N(v: 5)))
+  field_as(?h)
+  match_place()
+  plain_copies()

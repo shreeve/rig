@@ -1,5 +1,5 @@
 # A `match <s` binding owns the resource moved into it, so a closure may
-# write-borrow it with `|!r|`, as `!r` and an `if <o as r` binding may.
+# lend it to write with `|!r|`, as `!r` and an `if <o as r` binding may.
 
 struct R
   v: Vec[Int]

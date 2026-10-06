@@ -1,0 +1,39 @@
+# The unsound neighbours of r3-or-held-sound: a view of a held part's
+# payload kept past its arm, and a view of a held optional's value kept
+# past the `if`, whose held value it views.
+#
+# oracle: payload_kept reject C5
+# oracle: value_kept reject C5
+
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+struct H
+  e: E
+  o: Res?
+
+fun mkh() -> H
+  H(e: E.a(r: Res(n: 1, t: Text("a"))), o: Res(n: 2, t: Text("b")))
+
+sub payload_kept()
+  keep = Res(n: 0, t: Text("k"))
+  saved = ?keep
+  match mkh().e
+    .a(r) => saved = ?r
+    .b => pass
+  print(saved.n)
+
+sub value_kept()
+  keep = Res(n: 0, t: Text("k"))
+  saved = ?keep
+  if mkh().o as r
+    saved = ?r
+  print(saved.n)
+
+sub main
+  payload_kept()

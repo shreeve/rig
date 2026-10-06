@@ -1,5 +1,4 @@
-# `Text` is a built-in type: its name is reserved, and a Text owns its
-# bytes, so it is not plain data for a Vec or an array.
+# `Text` is a built-in type: its name is reserved.
 
 struct Text
   n: Int
@@ -9,5 +8,4 @@ sub main
   ys: [2]Text = [Text("a"), Text("b")]
   print(xs.len, ys.len)
 
-# error: 4:8: `Text` is a reserved built-in nominal name and cannot be redefined
-# error: `Vec[T]` requires `T` to be a Copy type
+# error: 3:8: `Text` is a reserved built-in nominal name and cannot be redefined

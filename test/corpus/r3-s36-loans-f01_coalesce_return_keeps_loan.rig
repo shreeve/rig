@@ -1,0 +1,17 @@
+# `?? return` leaves; the rest stays reachable and a loan taken
+# before it must stay in force after.
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun f(o: Int?) -> Int
+  r = R(n: 1)
+  b = ?r
+  k = o ?? return 0
+  -r
+  print(b.n, k)
+  k
+
+sub main
+  print(f(3))

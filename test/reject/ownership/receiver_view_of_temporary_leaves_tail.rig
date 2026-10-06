@@ -1,15 +1,15 @@
-# A view a method returns of a temporary receiver, a write view of a
-# `!self` method's included, lives only until its statement ends, also
-# where the call is a function's or closure's tail, `return`'s value, an
-# `if` or `match` arm's value, or a `break` value: each leaves the
-# statement the temporary ends with.
+# A view a method returns of a temporary receiver lives only until its
+# statement ends, also where the call is a function's or closure's tail,
+# `return`'s value, an `if` or `match` arm's value, or a `break` value:
+# each leaves the statement the temporary ends with. (A write method on
+# a temporary is rejected outright: `write_receiver_temporary.rig`.)
 
 struct S
   n: Int
   m: Int
 
-  fun at(!self) -> !Int
-    !self.n
+  fun me(?self) -> ?S
+    self
 
   fun rd(?self) -> ?Int
     ?self.n
@@ -17,11 +17,11 @@ struct S
 fun mk(k: Int) -> S
   S(n: k, m: 6)
 
-fun tail(d: !Int) -> !Int
-  !mk(42).at()
+fun tail(d: ?S) -> ?S
+  mk(42).me()
 
-fun ret(d: !Int) -> !Int
-  return !mk(43).at()
+fun ret(d: ?S) -> ?S
+  return mk(43).me()
 
 fun read_tail(d: ?Int) -> ?Int
   mk(44).rd()
@@ -29,33 +29,33 @@ fun read_tail(d: ?Int) -> ?Int
 sub main
   z = 0
   c = z == 0
-  r = !mk(45).at()
+  r = mk(45).me()
   a = if c
-    !mk(46).at()
+    mk(46).me()
   else
-    !mk(47).at()
+    mk(47).me()
   m = match z
-    0 => !mk(48).at()
-    _ => !mk(49).at()
+    0 => mk(48).me()
+    _ => mk(49).me()
   b = for k in [1, 2]
-    break !mk(50).at() if k > 0
+    break mk(50).me() if k > 0
   else
-    !mk(51).at()
+    mk(51).me()
   y = 1
-  w = 2
-  v = 3
+  w = S(n: 2, m: 0)
+  v = S(n: 3, m: 0)
   f = |?y| mk(y).rd()
-  print(tail(!w), ret(!v), read_tail(?z), r, a, m, b, f())
+  print(tail(?w).n, ret(?v).n, read_tail(?z), r.n, a.n, m.n, b.n, f())
 
-# error: 21:4: returned borrow of `mk(42)` does not originate from a borrowed parameter
-# error: 24:11: returned borrow of `mk(43)` does not originate from a borrowed parameter
-# error: 27:3: returned borrow of `mk(44)` does not originate from a borrowed parameter
-# error: 32:8: a borrow of the temporary `mk(45)` outlives its statement
-# error: 34:6: a borrow of the temporary `mk(46)` outlives its statement
-# error: 36:6: a borrow of the temporary `mk(47)` outlives its statement
-# error: 38:11: a borrow of the temporary `mk(48)` outlives its statement
-# error: 39:11: a borrow of the temporary `mk(49)` outlives its statement
-# error: 41:12: a borrow of the temporary `mk(50)` outlives its statement
-# error: 43:6: a borrow of the temporary `mk(51)` outlives its statement
-# error: 47:12: returned borrow of `mk(y)` does not originate from a borrowed parameter
+# error: 21:3: cannot return a view of `mk(42)`, which this function was not lent
+# error: 24:10: cannot return a view of `mk(43)`, which this function was not lent
+# error: 27:3: cannot return a view of `mk(44)`, which this function was not lent
+# error: 32:7: a view of the temporary `mk(45)` outlives its statement
+# error: 34:5: a view of the temporary `mk(46)` outlives its statement
+# error: 36:5: a view of the temporary `mk(47)` outlives its statement
+# error: 38:10: a view of the temporary `mk(48)` outlives its statement
+# error: 39:10: a view of the temporary `mk(49)` outlives its statement
+# error: 41:11: a view of the temporary `mk(50)` outlives its statement
+# error: 43:5: a view of the temporary `mk(51)` outlives its statement
+# error: 47:12: cannot return a view of `mk(y)`, which this function was not lent
 # errors: 11

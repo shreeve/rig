@@ -1,0 +1,35 @@
+# A write view held in a field is read-only through a `?T`: two read
+# views of one `Ed` reach the same `!Holder`, so neither may lend it
+# to a `!self` receiver, a `!T` parameter, or a new value holding it.
+
+struct Node
+  n: Int
+
+struct Holder
+  v: Vec[*Node]
+
+  sub reset(!self)
+    !self.v.clear()
+
+struct Ed
+  t: !Holder
+
+sub reset(h: !Holder)
+  !h.v.clear()
+
+sub f(a: ?Ed, b: ?Ed)
+  for x in ?a.t.v
+    !b.t.reset()
+    reset(!b.t)
+    e = Ed(t: !b.t)
+    print("saw", x.n, e.t.v.len)
+
+sub main()
+  h = Holder(v: Vec())
+  !h.v.push(*Node(n: 1))
+  ed = Ed(t: !h)
+  f(?ed, ?ed)
+
+# error: 22:6: cannot lend the write view held here: it is reached through a read view
+# error: 23:12: cannot lend the write view held here: it is reached through a read view
+# error: 24:16: cannot lend the write view held here: it is reached through a read view

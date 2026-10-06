@@ -1,0 +1,67 @@
+# A value holding a Cell is unique (Core §1), so every binding of one is
+# its place (Core s9): a by-value parameter owns the value moved into it,
+# a loop or match binding over a place views the element or payload
+# where it is, and one over a value the header makes owns it.
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct Wrap
+  c: Counter
+
+enum E
+  a(c: Counter)
+  b
+
+sub bump(c: Cell[Int])
+  c.set(c.get() + 1)
+  print("bumped", c.get())
+
+fun swap(c: Cell[Int]) -> Int
+  c.replace(2)
+
+sub set_hits(c: Counter)
+  c.hits.set(9)
+  c.hit()
+  print("param", c.hits.get())
+
+sub touch(c: ?Cell[Int])
+  print(c.get())
+
+sub main()
+  bump(Cell(0))
+  print(swap(Cell(7)))
+  set_hits(Counter(hits: Cell(0)))
+  cells: [2]Cell[Int] = [Cell(1), Cell(2)]
+  for x in cells
+    x.set(x.get() * 10)
+    touch(?x)
+  print(cells[0].get(), cells[1].get())
+  counters = [Counter(hits: Cell(0))]
+  for k in counters
+    k.hit()
+  print(counters[0].hits.get())
+  wrapped: [1]Wrap = [Wrap(c: Counter(hits: Cell(4)))]
+  for w in wrapped
+    touch(?w.c.hits)
+  e = E.a(c: Counter(hits: Cell(5)))
+  match e
+    .a(c) => c.hit()
+    .b => pass
+  match e
+    .a(c) => print(c.hits.get())
+    .b => pass
+
+# expect:
+# bumped 1
+# 7
+# param 10
+# 10
+# 20
+# 10 20
+# 1
+# 4
+# 6

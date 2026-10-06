@@ -8,7 +8,7 @@ fun g(ok: Bool) -> Int!
   if ok
     3
   else
-    Bad.nope
+    return Bad.nope
 
 fun pick(a: Int?, b: Int?) -> Int?
   a ?? b

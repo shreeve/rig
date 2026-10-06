@@ -1,0 +1,25 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+use std.random
+
+fun step(r: !random.Random) -> U64
+  !r.next()
+
+fun bump(c: ?Counter) -> Int
+  c.hit()
+  c.hits.get()
+
+sub main()
+  a = random.Random.seeded(1)
+  b = random.Random.seeded(2)
+  f = true
+  print(step(!(a if f else b)))
+  print(!a.next() % 100)
+  c = Counter(hits: Cell(0))
+  d = Counter(hits: Cell(0))
+  print(bump(?(c if f else d)))
+  print(c.hits.get())

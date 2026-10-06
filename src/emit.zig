@@ -15,7 +15,7 @@
 //!   optional of one) is dropped at scope exit by a `defer`. When the
 //!   binding may be moved, dropped, or returned, the defer tests a
 //!   `__rig_alive_<name>` flag, and the consuming site clears it.
-//! - `!T` parameters, `!self` receivers, and borrow bindings are
+//! - `!T` parameters, `!self` receivers, and write-view bindings are
 //!   pointers; reads go through `.*`.
 //! - Every Rig name is written with `rig.writeZigIdent`; a local that
 //!   would shadow another visible Zig name is renamed.
@@ -27,6 +27,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
+const storage = @import("storage.zig");
 const Wide = sema.Wide;
 const resolve = @import("resolve.zig");
 const diag = @import("diag.zig");
@@ -61,7 +62,7 @@ const ResourceKind = enum {
 
 /// How a binding's scope-exit drop is armed.
 const Guard = enum {
-    /// Not dropped here (plain data, borrows, captures, loop elements).
+    /// Not dropped here (plain data, views, captures, loop elements).
     none,
     /// Always dropped at scope exit: `defer x.dropStrong();`.
     scope,
@@ -85,9 +86,6 @@ const Local = struct {
     flag: []const u8 = "",
     /// The local of the same symbol this one hides until its scope ends.
     shadowed: ?LocalRef = null,
-    /// A by-value parameter copied into a `var` at the top of the body,
-    /// because it holds a Cell that a borrow of it may change.
-    mutable_copy: bool = false,
     /// A parameter copied into `zig_name` at the top of the body: the
     /// name the signature gives it.
     param_name: []const u8 = "",
@@ -99,6 +97,10 @@ const LocalRef = struct { scope: u32, index: u32 };
 /// dropped at scope exit while `flag` is set; the call clears it. With
 /// `ptr`, `name` holds the address of `node`, which stays where it is.
 const Hoisted = struct { node: Sexp, name: []const u8, flag: []const u8 = "", ptr: bool = false };
+
+/// How a branch yields its value: the value itself, or the address of
+/// the leaf it takes (`Emitter.emitLeafPtr`).
+const Yield = enum { value, leaf_ptr };
 
 /// The slot an owning temporary is kept in until its statement ends,
 /// and the flag saying it holds one.
@@ -185,14 +187,19 @@ pub const Emitter = struct {
     /// The next expression sits in a delimited position (after `=`,
     /// between commas, inside parentheses) and needs no outer parentheses.
     bare: bool = false,
-    /// The value being emitted is a write borrow: a pointer local in tail
+    /// The value being emitted is a write view: a pointer local in tail
     /// position yields the pointer, not the value behind it.
     ptr_tail: bool = false,
+    /// What the context of the value being emitted does with it
+    /// (`sema.Use`), and the value it was recorded for or a part of that
+    /// value (`sema.valueParts`) the use reaches.
+    use: ?sema.Use = null,
+    use_node: Sexp = .nil,
     /// The next expression is emitted as the pointer it yields, even where
     /// its context reads through it (`emitDeref`).
     want_ptr: bool = false,
     /// Emitting an operand of arithmetic or an index: compile-time names
-    /// (compile-time parameters, `=!` constants) are read through `rig.rt` so Zig
+    /// (compile-time parameters, `const` bindings) are read through `rig.rt` so Zig
     /// evaluates the operation at run time, as Rig checked it.
     rt_names: bool = false,
     /// Emitting a compile-time argument, which must stay compile-time known.
@@ -204,11 +211,8 @@ pub const Emitter = struct {
     /// Emitting the object chain of an assignment target: an indexed
     /// element in it is a slot, not a copy.
     place_chain: bool = false,
-    /// The callable `emitLentCallable` is emitting the value of.
-    lent: Sexp = .nil,
-    /// The box borrow `emitUnboxed` is emitting, which it emits as a
-    /// plain borrow of the box.
-    unboxing: Sexp = .nil,
+    /// The value `emitLend` is lending, which it emits as itself.
+    lending: Sexp = .nil,
     /// Arguments and receivers of the calls being emitted that were
     /// evaluated into temporaries first (`emitHoistedCall`), innermost
     /// call last.
@@ -218,15 +222,9 @@ pub const Emitter = struct {
     temp_slots: std.ArrayList(TempSlot) = .empty,
     /// The temporary whose value is being written into its slot.
     keeping: Sexp = .nil,
-    /// The Text borrow being emitted before its `.bytes()`.
-    lending_text: Sexp = .nil,
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayList(struct { rig: []const u8, zig: []const u8 }) = .empty,
-    /// Branch blocks whose value the function returns and which hold an
-    /// `errdefer`: they return it themselves, so that an error runs the
-    /// `errdefer` (`markReturningBlocks`).
-    returning: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// Where the `break` and `continue` of the `while` being emitted go
     /// when Zig cannot reach its loop with them (`JumpRedirect`).
     redirect: ?JumpRedirect = null,
@@ -242,6 +240,10 @@ pub const Emitter = struct {
     uses_module: bool = false,
     /// The module declares an `extern "c"`, so the program links libc.
     links_libc: bool = false,
+    /// Fill each hidden storage location with `0xAA` when its scope ends
+    /// (`rig.poison`), so a view that outlives it reads garbage: set for
+    /// the sanitizer (`RIG_SANITIZE`).
+    poison: bool = false,
     /// The Zig error set of every error of the module's error sets,
     /// which its fallible Zig-backed functions may return.
     module_errors: []const u8 = "error{}",
@@ -270,7 +272,6 @@ pub const Emitter = struct {
         self.hoisted.deinit(self.allocator);
         self.temp_slots.deinit(self.allocator);
         self.labels.deinit(self.allocator);
-        self.returning.deinit(self.allocator);
         self.value_loops.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -762,15 +763,12 @@ pub const Emitter = struct {
             const ty = self.symType(sym) orelse return self.unsupported(p, "an untyped parameter");
             const unused = std.mem.eql(u8, rig_name, "_");
             var local: Local = .{ .sym = sym, .ty = ty };
-            if (!self.isPtrBorrowTy(ty)) {
-                local.kind = self.kindOf(ty);
-                local.mutable_copy = local.kind == null and !unused and sema.holdsCellByValue(self.sema, ty);
-            }
+            if (!self.isPtrViewTy(ty)) local.kind = self.kindOf(ty);
             if (local.kind != null) {
                 local.guard = self.resourceGuard(sym);
                 if (unused) local.zig_name = try self.fresh("__rig_unused");
             }
-            if (local.kind == .value or local.kind == .optional or local.mutable_copy) {
+            if (local.kind == .value or local.kind == .optional) {
                 local.param_name = try self.fmt("__rig_arg_{d}", .{self.nextId()});
             }
             _ = try self.declare(local, rig_name);
@@ -815,10 +813,6 @@ pub const Emitter = struct {
             const local = self.localOf(sema.paramNameNode(p) orelse continue) orelse continue;
             if (local.param_name.len > 0) {
                 try self.line("var {s} = {s};", .{ local.zig_name, local.param_name });
-                if (local.mutable_copy) {
-                    try self.line("_ = &{s};", .{local.zig_name});
-                    continue;
-                }
             }
             if (local.guard != .none) {
                 try self.writeIndent(self.indent);
@@ -861,8 +855,8 @@ pub const Emitter = struct {
     fn declare(self: *Emitter, local: Local, rig_name: []const u8) Error!*Local {
         if (self.scopes.items.len == 0) try self.pushScope();
         var l = local;
-        // A pointer borrow is held as a pointer wherever it is bound.
-        if (l.ty) |t| if (self.isPtrBorrowTy(t)) {
+        // A pointer view is held as a pointer wherever it is bound.
+        if (l.ty) |t| if (self.isPtrViewTy(t)) {
             l.is_ptr = true;
         };
         if (l.zig_name.len == 0) l.zig_name = try self.zigNameFor(rig_name);
@@ -921,6 +915,63 @@ pub const Emitter = struct {
         }
     }
 
+    /// How a hidden storage location's name ends (`hiddenStorage`).
+    const StorageSuffix = union(enum) {
+        /// A fresh number: `__rig_tmp_7`.
+        next,
+        /// The number of the construct it belongs to: `__rig_recv_3`.
+        id: u32,
+        /// That number and its place there: `__rig_arg_3_1`.
+        pair: [2]u32,
+        /// A name no local has: `__rig_whole`, `__rig_whole_4`.
+        fresh,
+        /// A copy of the storage named here: `__rig_opt_5_v`.
+        copy_of: []const u8,
+    };
+
+    /// The Zig name of the hidden storage of `kind` emit makes for
+    /// `node`, held `by` (`sema.Storage`). Every hidden storage location
+    /// is named here: the storage facts must record it, held the same
+    /// way, or emit would make storage the ownership checker did not walk.
+    fn hiddenStorage(self: *Emitter, node: Sexp, kind: sema.StorageKind, by: sema.StorageBy, suffix: StorageSuffix) Error![]const u8 {
+        const fact = self.sema.storageOf(node, kind) orelse return self.unsupported(node, "hidden storage the storage facts do not record");
+        if (fact.by != by) return self.unsupported(node, "hidden storage held other than its storage fact says");
+        const base: []const u8 = switch (kind) {
+            .temp => "__rig_tmp",
+            .header_value => "__rig_hdr",
+            .held => "__rig_held",
+            .taken => "__rig_src",
+            .iterator => "__rig_it",
+            .element => "__rig_elem",
+            .range_start => "__rig_i",
+            .range_end => "__rig_end",
+            .subject => "__rig_subject",
+            .whole => "__rig_whole",
+            .payload => "__rig_payload",
+            .as_value => "__rig_opt",
+            .lent => "__rig_lent",
+            .leaf => "__rig_leaf",
+            .error_value => "__rig_err",
+            .argument => "__rig_arg",
+            .receiver => "__rig_recv",
+            .environment, .closure_env => "__rig_env",
+            .invoked => "__rig_fn",
+            .new_value => "__rig_new",
+            .index => "__rig_ix",
+            .slot => "__rig_slot",
+            // The storage of these is another's: the header's value, or
+            // the capture it copies.
+            .header_copy, .as_copy => "",
+        };
+        return switch (suffix) {
+            .next => self.fmt("{s}_{d}", .{ base, self.nextId() }),
+            .id => |id| self.fmt("{s}_{d}", .{ base, id }),
+            .pair => |p| self.fmt("{s}_{d}_{d}", .{ base, p[0], p[1] }),
+            .fresh => self.fresh(base),
+            .copy_of => |of| self.fmt("{s}_v", .{of}),
+        };
+    }
+
     fn nextId(self: *Emitter) u32 {
         self.counter += 1;
         return self.counter;
@@ -960,6 +1011,31 @@ pub const Emitter = struct {
     /// it may be consumed first.
     fn resourceGuard(self: *Emitter, sym: SymbolId) Guard {
         return if (self.usage.consumed.contains(sym)) .flag else .scope;
+    }
+
+    /// `var _h = base`, for a `header` that holds the value it makes of
+    /// which its subject is a part (`SemContext.heldBaseOf`), dropped
+    /// where the block the caller opened around the construct ends.
+    /// Until the caller restores the returned hoisted count, emitting
+    /// the base reads `_h`.
+    fn emitHeld(self: *Emitter, header: Sexp) Error!usize {
+        const base = self.sema.heldBaseOf(header) orelse return self.unsupported(header, "a held header without its base");
+        const mark = self.hoisted.items.len;
+        const name = try self.hiddenStorage(header, .held, .owned, .next);
+        try self.writeIndent(self.indent);
+        try self.w.print("var {s} = ", .{name});
+        try self.emitBare(base);
+        try self.w.writeAll(";\n");
+        try self.poisonAtExit(name);
+        const k = if (self.typeOf(base)) |t| self.kindOf(t) else null;
+        if (k) |kind| {
+            try self.writeIndent(self.indent);
+            try self.w.writeAll("defer ");
+            try self.writeDrop(name, kind);
+            try self.w.writeAll(";\n");
+        } else try self.line("_ = &{s};", .{name});
+        try self.hoisted.append(self.allocator, .{ .node = base, .name = name });
+        return mark;
     }
 
     fn writeDrop(self: *Emitter, place: []const u8, kind: ResourceKind) Error!void {
@@ -1055,6 +1131,7 @@ pub const Emitter = struct {
 
     fn writeTempDrop(self: *Emitter, name: []const u8) Error!void {
         try self.w.print(" if ({s}_live) {{ {s}_live = false; rig.drop(&{s}); }}", .{ name, name, name });
+        if (self.poison) try self.w.print(" rig.poison(&{s});", .{name});
     }
 
     /// Declare a slot for each owning temporary in statement `stmt` (not
@@ -1067,10 +1144,12 @@ pub const Emitter = struct {
         // after those of what holds them.
         for (rig.children(stmt)) |c| if (!sema.isHeaderOf(stmt, c) and !sema.isWhileStep(stmt, c)) try self.emitTempSlots(c);
         if (self.sema.dropsTemp(stmt) and self.tempSlot(stmt) == null) {
-            const name = try self.fmt("__rig_tmp_{d}", .{self.nextId()});
+            const name = try self.hiddenStorage(stmt, .temp, .owned, .next);
             try self.w.print("var {s}: ", .{name});
             try self.emitTypeTy(self.typeOf(stmt) orelse return self.unsupported(stmt, "an untyped temporary"));
-            try self.w.print(" = undefined; var {s}_live = false; defer if ({s}_live) rig.drop(&{s}); ", .{ name, name, name });
+            try self.w.print(" = undefined; var {s}_live = false; ", .{name});
+            if (self.poison) try self.w.print("defer rig.poison(&{s}); ", .{name});
+            try self.w.print("defer if ({s}_live) rig.drop(&{s}); ", .{ name, name });
             try self.temp_slots.append(self.allocator, .{ .node = stmt.list.id, .name = name });
         }
     }
@@ -1082,7 +1161,7 @@ pub const Emitter = struct {
     }
 
     /// Whether statement `stmt` holds an owning temporary its end drops
-    /// (`sema.firstStmtTemp`, which typecheck's header rule reads too).
+    /// (`sema.firstStmtTemp`).
     fn hasTemps(self: *Emitter, stmt: Sexp) bool {
         return sema.firstStmtTemp(self.sema, stmt) != null;
     }
@@ -1095,7 +1174,7 @@ pub const Emitter = struct {
     fn openHeader(self: *Emitter, e: Sexp) Error!Header {
         const first = self.temp_slots.items.len;
         if (!self.hasTemps(e)) return .{ .first = first };
-        const label = try self.fmt("__rig_hdr_{d}", .{self.nextId()});
+        const label = try self.hiddenStorage(e, .header_value, .copy, .next);
         try self.w.print("({s}: {{ ", .{label});
         try self.emitTempSlots(e);
         try self.w.print("break :{s} ", .{label});
@@ -1204,7 +1283,7 @@ pub const Emitter = struct {
             // clone or move of a value that owns nothing is a copy.)
             var place = expr;
             if (place.isKind(.read) or place.isKind(.write) or place.isKind(.clone) or place.isKind(.move)) place = ir.get(place, .operand);
-            if (isPlace(place) and !place.isKind(.index)) {
+            if (self.hasStorage(place) and !place.isKind(.index)) {
                 try self.w.writeAll("_ = &");
                 try self.emitPlace(place);
                 return self.w.writeAll(";");
@@ -1221,7 +1300,7 @@ pub const Emitter = struct {
             try self.emitBind(target, sym, type_node, expr);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
-            try self.emitRebind(local.*, expr);
+            try self.emitRebind(local.*, expr, self.sema.repoints(sexp));
         }
     }
 
@@ -1231,18 +1310,21 @@ pub const Emitter = struct {
 
         const s = self.sema.symbols.items[sym];
         const ty = self.symType(sym);
-        const binds_borrow = if (ty) |t| switch (self.sema.types.get(t)) {
-            .borrow_read, .borrow_write => true,
+        const binds_view = if (ty) |t| switch (self.sema.types.get(t)) {
+            .read_view, .write_view => true,
             else => false,
         } else true;
-        // A read borrow that copies its value (`sema.readBorrowCopies`) is
-        // held as that copy when the name is bound again, since a call
-        // returns one so (`q = pick(?a, ?b)`).
-        const copied = ty != null and s.flags.reassigned and self.sema.types.get(ty.?) == .borrow_read and !self.isPtrBorrowTy(ty.?) and self.genericReadBorrow(ty.?) == null;
-        const is_borrow = binds_borrow and !copied and (expr.isKind(.read) or expr.isKind(.write)) and
+        // A read view that copies (`sema.lendByValue`) is held as the
+        // value it views, as every other `?T` of the type is, so a call's
+        // result can rebind it.
+        const copies = if (ty) |t| switch (self.sema.types.get(t)) {
+            .read_view => !self.isPtrViewTy(t) and self.genericReadView(t) == null,
+            else => false,
+        } else false;
+        const is_lend = binds_view and !copies and (expr.isKind(.read) or expr.isKind(.write)) and
             (ty == null or (sema.writeSliceElem(self.sema, ty.?) == null and sema.callableFn(self.sema, ty.?) == null));
-        // A write borrow is held as a pointer however it was obtained.
-        const holds_ptr = is_borrow or (ty != null and self.isPtrBorrowTy(ty.?));
+        // A write view is held as a pointer however it was obtained.
+        const holds_ptr = is_lend or (ty != null and self.isPtrViewTy(ty.?));
         var local: Local = .{ .sym = sym, .ty = ty, .is_ptr = holds_ptr };
         if (!holds_ptr) {
             if (ty) |t| local.kind = self.kindOf(t);
@@ -1253,9 +1335,9 @@ pub const Emitter = struct {
         // one lives in mutable storage.
         const needs_ptr_self = local.kind == .value or local.kind == .optional or
             (ty != null and sema.holdsCellByValue(self.sema, ty.?));
-        // Assigning a write borrow writes through it, leaving the
+        // Assigning a write view writes through it, leaving the
         // pointer as it is.
-        const rebound = s.flags.reassigned and !(ty != null and sema.assignWritesThrough(self.sema, ty.?));
+        const rebound = s.flags.repointed or (s.flags.reassigned and !(ty != null and sema.assignWritesThrough(self.sema, ty.?)));
         // A constant initializer would make a Zig `const` compile-time
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
@@ -1269,17 +1351,17 @@ pub const Emitter = struct {
             const saved_w = self.w;
             self.w = &value_buf.writer;
             defer self.w = saved_w;
-            if (is_borrow) {
-                try self.emitBorrowOf(expr);
+            if (is_lend) {
+                try self.emitLendAddress(expr);
             } else if (holds_ptr) {
-                try self.emitBorrowValue(expr);
-            } else try self.emitBare(expr);
+                try self.emitWriteViewPtr(expr);
+            } else try self.emitBareAs(expr, ty);
         }
 
         const stored = try self.declare(local, self.srcText(name_node));
         try self.w.print("{s} {s}", .{ if (is_var) "var" else "const", stored.zig_name });
         if (holds_ptr) {
-            // A rebindable borrow needs its pointer type spelled out.
+            // A rebindable view needs its pointer type spelled out.
             if (is_var and ty != null) {
                 try self.w.writeAll(": ");
                 try self.emitPointerTy(ty.?);
@@ -1316,52 +1398,56 @@ pub const Emitter = struct {
     /// Reassign an existing binding. A resource's old value is dropped
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
-    fn emitRebind(self: *Emitter, local: Local, value: Sexp) Error!void {
+    fn emitRebind(self: *Emitter, local: Local, value: Sexp, repoints: bool) Error!void {
         const s = self.sema.symbols.items[local.sym];
-        const writes_through = sema.assignWritesThrough(self.sema, s.ty);
+        const writes_through = !repoints and sema.assignWritesThrough(self.sema, s.ty);
         if (local.is_ptr and !writes_through) {
-            // A borrow local is rebound to borrow something else.
+            // A view local is rebound to view something else.
             try self.w.print("{s} = ", .{local.zig_name});
-            if (value.isKind(.read) or value.isKind(.write)) try self.emitBorrowOf(value) else try self.emitBorrowValue(value);
+            if (value.isKind(.read) or value.isKind(.write)) try self.emitLendAddress(value) else try self.emitWriteViewPtr(value);
             return self.w.writeAll(";");
         }
         if (local.is_ptr) {
             // Through a `!T` parameter: the caller's value is replaced.
-            const pointee = if (local.ty) |t| self.peelBorrows(t) else null;
+            const pointee = if (local.ty) |t| self.peelViews(t) else null;
             if (pointee != null and self.kindOf(pointee.?) != null) {
-                const id = try self.openNewValue(pointee, value);
-                return self.w.print("; rig.drop({s}); {s}.* = __rig_new_{d}; }}", .{ local.zig_name, local.zig_name, id });
+                const new = try self.openNewValue(pointee, value);
+                return self.w.print("; rig.drop({s}); {s}.* = {s}; }}", .{ local.zig_name, local.zig_name, new.name });
             }
         }
         const kind = local.kind orelse {
             try self.writeLocalPlace(&local);
             try self.w.writeAll(" = ");
-            try self.emitBare(value);
+            try self.emitBareAs(value, local.ty);
             try self.w.writeAll(";");
             return;
         };
-        const id = try self.openNewValue(local.ty, value);
+        const new = try self.openNewValue(local.ty, value);
         try self.w.writeAll("; ");
         if (local.guard == .flag) try self.w.print("if ({s}) ", .{local.flag});
         try self.writeDrop(local.zig_name, kind);
-        try self.w.print("; {s} = __rig_new_{d};", .{ local.zig_name, id });
+        try self.w.print("; {s} = {s};", .{ local.zig_name, new.name });
         if (local.guard == .flag) try self.w.print(" {s} = true;", .{local.flag});
         try self.w.writeAll(" }");
     }
 
+    /// A new value an assignment stores, `__rig_new_N`, and its `N`.
+    const NewValue = struct { id: u32, name: []const u8 };
+
     /// `{ const __rig_new_N: T = value`: a new value, computed before the
     /// one it replaces is dropped. The type lets a context-typed value
-    /// (`Vec()`, `.variant(...)`) resolve. Returns `N`.
-    fn openNewValue(self: *Emitter, ty: ?TypeId, value: Sexp) Error!u32 {
+    /// (`Vec()`, `.variant(...)`) resolve.
+    fn openNewValue(self: *Emitter, ty: ?TypeId, value: Sexp) Error!NewValue {
         const id = self.nextId();
-        try self.w.print("{{ const __rig_new_{d}", .{id});
+        const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
+        try self.w.print("{{ const {s}", .{name});
         if (ty) |t| {
             try self.w.writeAll(": ");
             try self.emitTypeTy(t);
         }
         try self.w.writeAll(" = ");
         try self.emitBare(value);
-        return id;
+        return .{ .id = id, .name = name };
     }
 
     /// Assignment to a field or element. When the place may hold a
@@ -1369,11 +1455,11 @@ pub const Emitter = struct {
     /// The value and the target's indices are evaluated first
     /// (`openAssign`).
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
-        // A field or element holding a write borrow is written through
-        // when it is given a value, not another write borrow (sema
-        // decides); the place is then the value it borrows.
+        // A field or element holding a write view is written through
+        // when it is given a value, not another write view (sema
+        // decides); the place is then the value it views.
         const through = self.sema.writesThrough(target);
-        const place_ty = if (through) self.peelBorrows(self.typeOf(target).?) else self.typeOf(target);
+        const place_ty = if (through) self.peelViews(self.typeOf(target).?) else self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
             const order = try self.openAssign(target, value, self.typeOf(target), .value);
             try self.emitCellPtr(ir.Index.object(target));
@@ -1384,12 +1470,13 @@ pub const Emitter = struct {
             try self.w.writeAll(");");
             return self.closeAssign(order);
         };
-        if (target != .src and self.isPtrBorrowExpr(target) and !through) {
-            // A field or element holding a write borrow is rebound.
-            const order = try self.openAssign(target, value, null, .borrow);
-            try self.emitBorrowValue(target);
+        if (target != .src and self.isPtrViewExpr(target) and !through) {
+            // A field or element holding a write view is rebound.
+            const order = try self.openAssign(target, value, null, .view);
+            // An element is reached as the slot it is.
+            if (target.isKind(.index)) try self.emitIndex(target, true) else try self.emitWriteViewPtr(target);
             try self.w.writeAll(" = ");
-            try self.emitBorrowValue(value);
+            try self.emitWriteViewPtr(value);
             try self.w.writeAll(";");
             return self.closeAssign(order);
         }
@@ -1398,23 +1485,24 @@ pub const Emitter = struct {
             const order = try self.openAssign(target, value, place_ty, .value);
             try self.emitPlace(target);
             try self.w.writeAll(" = ");
-            try self.emitBare(value);
+            try self.emitBareAs(value, place_ty);
             try self.w.writeAll(";");
             return self.closeAssign(order);
         }
-        const id = try self.openNewValue(place_ty, value);
+        const new = try self.openNewValue(place_ty, value);
         try self.w.writeAll("; ");
         const first = self.hoisted.items.len;
-        if (actsBeforeStore(target, value)) try self.hoistIndices(target, id);
-        try self.w.print("const __rig_slot_{d} = &", .{id});
+        if (actsBeforeStore(target, value)) try self.hoistIndices(target, new.id);
+        const slot = try self.hiddenStorage(target, .slot, .pointer, .{ .id = new.id });
+        try self.w.print("const {s} = &", .{slot});
         try self.emitPlace(target);
         self.hoisted.shrinkRetainingCapacity(first);
-        try self.w.print("; rig.drop(__rig_slot_{d}); __rig_slot_{d}.* = __rig_new_{d}; }}", .{ id, id, id });
+        try self.w.print("; rig.drop({s}); {s}.* = {s}; }}", .{ slot, slot, new.name });
     }
 
     /// How `openAssign` evaluates an assignment's value: as a value, or
-    /// as the borrow a borrow-holding place is pointed at.
-    const AssignValue = enum { value, borrow };
+    /// as the view a view-holding place is pointed at.
+    const AssignValue = enum { value, view };
 
     /// Every assignment evaluates its value first, then its target's
     /// index expressions from the outside in, and only then finds the
@@ -1433,14 +1521,14 @@ pub const Emitter = struct {
         const id = self.nextId();
         try self.w.writeAll("{ ");
         if (!self.isPureArg(value)) {
-            const name = try self.fmt("__rig_new_{d}", .{id});
+            const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
             try self.w.print("const {s}", .{name});
             if (ty) |t| {
                 try self.w.writeAll(": ");
                 try self.emitTypeTy(t);
             }
             try self.w.writeAll(" = ");
-            if (how == .borrow) try self.emitBorrowValue(value) else try self.emitBare(value);
+            if (how == .view) try self.emitWriteViewPtr(value) else try self.emitBare(value);
             try self.w.writeAll("; ");
             try self.hoisted.append(self.allocator, .{ .node = value, .name = name });
         }
@@ -1472,7 +1560,7 @@ pub const Emitter = struct {
 
     fn hoistIndex(self: *Emitter, index: Sexp, id: u32) Error!void {
         if (self.isPureArg(index)) return;
-        const name = try self.fmt("__rig_ix_{d}_{d}", .{ id, self.hoisted.items.len });
+        const name = try self.hiddenStorage(index, .index, .owned, .{ .pair = .{ id, @intCast(self.hoisted.items.len) } });
         try self.w.print("const {s}", .{name});
         if (self.typeOf(index)) |t| {
             try self.w.writeAll(": ");
@@ -1500,7 +1588,7 @@ pub const Emitter = struct {
         const shift = op == .@"<<" or op == .@">>";
         // The value of a shift is its amount, of any integer type.
         const value_ty = self.typeOf(if (shift) value else target);
-        const order = try self.openAssign(target, value, if (value_ty) |t| self.peelBorrows(t) else null, .value);
+        const order = try self.openAssign(target, value, if (value_ty) |t| self.peelViews(t) else null, .value);
         if (builtin) |b| {
             var slot: []const u8 = "";
             if (target == .src) {
@@ -1508,8 +1596,7 @@ pub const Emitter = struct {
                 try self.w.print(" = {s}(", .{b});
                 try self.emitPlace(target);
             } else {
-                const id = self.nextId();
-                slot = try self.fmt("__rig_slot_{d}", .{id});
+                slot = try self.hiddenStorage(target, .slot, .pointer, .next);
                 try self.w.print("{{ const {s} = &", .{slot});
                 try self.emitPlace(target);
                 try self.w.print("; {s}.* = {s}({s}.*", .{ slot, b, slot });
@@ -1533,10 +1620,10 @@ pub const Emitter = struct {
     fn emitPlace(self: *Emitter, target: Sexp) Error!void {
         if (target == .src) if (self.localOf(target)) |local| return self.writeLocalPlace(local);
         if (target.isKind(.index)) {
-            // An element holding a write borrow denotes the borrowed
+            // An element holding a write view denotes the viewed
             // value, as a field holding one does (`emitValue`).
             try self.emitIndex(target, true);
-            if (self.isPtrBorrowExpr(target)) try self.w.writeAll(".*");
+            if (self.isPtrViewExpr(target)) try self.w.writeAll(".*");
             return;
         }
         // A field of an element (`v[i].x = ...`) is reached through the
@@ -1548,8 +1635,8 @@ pub const Emitter = struct {
     }
 
     fn writeLocalPlace(self: *Emitter, local: *const Local) Error!void {
-        if (local.is_ptr) if (self.genericReadBorrow(local.ty orelse return self.w.writeAll(local.zig_name))) |inner| {
-            try self.writeBorrowedOpen(inner);
+        if (local.is_ptr) if (self.genericReadView(local.ty orelse return self.w.writeAll(local.zig_name))) |inner| {
+            try self.writeViewedOpen(inner);
             try self.w.writeAll(local.zig_name);
             return self.w.writeAll(")");
         };
@@ -1566,7 +1653,7 @@ pub const Emitter = struct {
             try self.w.writeAll(";");
             return;
         }
-        // Ending a borrow or dropping plain data has no runtime effect;
+        // Ending a view or dropping plain data has no runtime effect;
         // the discard is the binding's use in Zig.
         try self.w.print("_ = &{s};", .{local.zig_name});
     }
@@ -1652,35 +1739,9 @@ pub const Emitter = struct {
     /// position (directly, or through `if`/`match` branches) are moved
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
-        if (self.fun.return_ty) |r| if (self.isPtrBorrowTy(self.unwrapOptional(r))) return self.emitBorrowValue(value);
-        try self.markReturningBlocks(value);
+        if (self.fun.return_ty) |r| if (self.isPtrViewTy(self.unwrapOptionals(r))) return self.emitWriteViewPtr(value);
         self.bare = true;
         try self.emitValue(value, true);
-    }
-
-    /// Mark the branch blocks of returned `value` that hold an
-    /// `errdefer`. Zig runs an `errdefer` only when the function returns
-    /// an error from within its scope, not when a block breaks out with
-    /// one, so such a block returns its value itself.
-    fn markReturningBlocks(self: *Emitter, value: Sexp) Error!void {
-        const kind = value.kind() orelse return;
-        switch (kind) {
-            .@"if" => {
-                try self.markReturningBlocks(ir.If.then(value));
-                try self.markReturningBlocks(ir.If.@"else"(value));
-            },
-            .match => for (ir.Match.arms(value)) |arm| try self.markReturningBlocks(ir.Arm.body(arm)),
-            .block => {
-                const stmts = ir.Block.stmts(value);
-                if (stmts.len == 0) return;
-                for (stmts) |st| if (st.isKind(.@"errdefer")) {
-                    try self.returning.put(self.allocator, value.list.id, {});
-                    break;
-                };
-                try self.markReturningBlocks(stmts[stmts.len - 1]);
-            },
-            else => {},
-        }
     }
 
     /// `(break value-or-_ label?)`. A value leaves the block of the loop
@@ -1729,8 +1790,25 @@ pub const Emitter = struct {
     /// Statement `if`: `(if cond then else?)`.
     fn emitIf(self: *Emitter, sexp: Sexp) Error!void {
         const cond = ir.If.cond(sexp);
-        const else_ = ir.If.@"else"(sexp);
         if (rig.isConditionJoin(cond)) return self.emitIfJoined(sexp);
+        // A value the condition holds (`Header.held`) lives in a block
+        // around the `if`.
+        if (cond.isKind(.as) and self.sema.headerOf(cond) == .held) {
+            try self.openBrace();
+            const mark = try self.emitHeld(cond);
+            defer self.hoisted.shrinkRetainingCapacity(mark);
+            try self.writeIndent(self.indent);
+            try self.emitIfAs(sexp);
+            try self.w.writeAll("\n");
+            return self.closeBrace();
+        }
+        return self.emitIfAs(sexp);
+    }
+
+    /// `emitIf` once a held value is in place.
+    fn emitIfAs(self: *Emitter, sexp: Sexp) Error!void {
+        const cond = ir.If.cond(sexp);
+        const else_ = ir.If.@"else"(sexp);
         try self.w.writeAll("if ");
         if (cond.isKind(.as)) {
             try self.pushScope();
@@ -2125,21 +2203,51 @@ pub const Emitter = struct {
         const is_vec = src_ty != null and self.isVecTy(src_ty.?);
         // A Vec the loop consumes, or one its source expression creates,
         // hands its elements over one at a time.
-        if (is_vec and (mode == .move or (!isPlace(source) and self.kindOf(src_ty.?) != null))) {
-            return self.emitConsumingFor(sexp, label);
+        if (is_vec and (mode == .move or (!self.hasStorage(source) and self.kindOf(src_ty.?) != null))) {
+            return self.emitConsumingFor(sexp, label, false);
+        }
+        // So does an array of values that move, which the loop takes.
+        if (src_ty != null and self.sema.types.get(src_ty.?) == .array and self.kindOf(self.sema.types.get(src_ty.?).array.elem) != null and
+            (mode == .move or !self.hasStorage(source)))
+        {
+            return self.emitConsumingFor(sexp, label, true);
         }
         const elem_sym = self.sema.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
-        // A resource element is a borrowed view of its slot.
-        const by_ptr = mode == .write or
-            (elem_ty != null and self.sema.types.get(elem_ty.?) == .borrow_read);
+        const header = self.sema.headerOf(sexp);
+        // A source with temporaries is walked as a copy, which the checker
+        // records (`copiesHeader`) and allows only for plain data read.
+        if (mode != .move and header != .taken and !rig.isRangeIndex(source) and self.hasTemps(source) != self.sema.copiesHeader(sexp))
+            return self.unsupported(sexp, "a header copy the checker did not record");
+        // An array the loop takes is held in a `var`, and each element is
+        // reached through a pointer into it, as the body's own.
+        const owned = header == .taken;
+        // A resource element is a view of its slot.
+        const by_ptr = mode == .write or owned or
+            (elem_ty != null and self.sema.types.get(elem_ty.?) == .read_view);
 
+        // A value the loop holds, or the array it takes, lives in a block
+        // around it.
+        var taken: []const u8 = "";
+        var mark: ?usize = null;
+        if (owned or header == .held) {
+            try self.openBrace();
+            if (header == .held) mark = try self.emitHeld(sexp);
+            if (owned) {
+                taken = try self.hiddenStorage(sexp, .taken, .owned, .next);
+                try self.writeIndent(self.indent);
+                try self.w.print("var {s} = ", .{taken});
+                try self.emitHeader(source);
+                try self.w.writeAll(";\n");
+            }
+            try self.writeIndent(self.indent);
+        }
         try self.pushScope();
         try self.writeLabel(label);
         try self.w.writeAll("for (");
         // Writing an array's elements in place iterates through a pointer.
-        const array_ptr = by_ptr and !is_vec and src_ty != null and self.sema.types.get(self.peelBorrows(src_ty.?)) == .array;
-        if (array_ptr) try self.emitAddressOf(source) else {
+        const array_ptr = by_ptr and !is_vec and src_ty != null and self.sema.types.get(self.peelViews(src_ty.?)) == .array;
+        if (owned) try self.w.print("&{s}", .{taken}) else if (array_ptr) try self.emitAddressOf(source) else {
             const h = try self.openHeader(source);
             try self.emitExpr(source);
             try self.closeHeader(h);
@@ -2163,29 +2271,34 @@ pub const Emitter = struct {
         try self.closeBrace();
         try self.popScope();
         try self.emitElse(ir.For.@"else"(sexp));
+        if (owned or header == .held) {
+            if (mark) |m| self.hoisted.shrinkRetainingCapacity(m);
+            try self.w.writeAll("\n");
+            try self.closeBrace();
+        }
     }
 
-    /// `for x in <v`: the Vec is consumed; each element is handed to `x`,
-    /// which owns it for one iteration. Elements a `break` or `return`
-    /// leaves behind are dropped with the buffer.
+    /// `for x in <v`: the Vec (or the array, `array`) is consumed; each
+    /// element is handed to `x`, which owns it for one iteration.
+    /// Elements a `break` or `return` leaves behind are dropped with it.
     ///
     ///     { var it = v.intoIter(); defer it.deinit();
     ///       while (it.next()) |e| { var x = e; defer rig.drop(&x); ... } }
-    fn emitConsumingFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+    fn emitConsumingFor(self: *Emitter, sexp: Sexp, label: ?[]const u8, array: bool) Error!void {
         const binding = ir.For.@"var"(sexp);
         const id = self.nextId();
-        const it = try self.fmt("__rig_it_{d}", .{id});
-        const tmp = try self.fmt("__rig_elem_{d}", .{id});
+        const it = try self.hiddenStorage(sexp, .iterator, .owned, .{ .id = id });
+        const tmp = try self.hiddenStorage(sexp, .element, .owned, .{ .id = id });
         const counter = try self.fmt("__rig_i_{d}", .{id});
         const indexed = self.loopIndex(sexp) != null;
 
         try self.openBrace();
         try self.writeIndent(self.indent);
-        try self.w.print("var {s} = (", .{it});
+        try self.w.print("var {s} = {s}(", .{ it, if (array) "rig.arrayIntoIter" else "" });
         const h = try self.openHeader(ir.For.source(sexp));
         try self.emitMoved(ir.For.source(sexp));
         try self.closeHeader(h);
-        try self.w.writeAll(").intoIter();\n");
+        try self.w.writeAll(if (array) ");\n" else ").intoIter();\n");
         try self.line("defer {s}.deinit();", .{it});
         if (indexed) try self.line("var {s}: usize = 0;", .{counter});
         try self.writeIndent(self.indent);
@@ -2196,7 +2309,7 @@ pub const Emitter = struct {
         const sym = self.sema.symbolOf(binding);
         const ty: ?TypeId = if (sym) |s| self.symType(s) else null;
         if (ty != null and self.kindOf(ty.?) != null) {
-            try self.bindOptionalResource(.{ .name = binding, .tmp = tmp });
+            try self.bindOptionalResource(.{ .cond = sexp, .name = binding, .tmp = tmp });
         } else if (sym != null and self.usage.used.contains(sym.?)) {
             const local = try self.declare(.{ .sym = sym.?, .ty = ty }, self.srcText(binding));
             try self.line("const {s} = {s};", .{ local.zig_name, tmp });
@@ -2214,8 +2327,8 @@ pub const Emitter = struct {
         const binding = ir.For.@"var"(sexp);
         const range = ir.For.source(sexp);
         const id = self.nextId();
-        const counter = try self.fmt("__rig_i_{d}", .{id});
-        const end = try self.fmt("__rig_end_{d}", .{id});
+        const counter = try self.hiddenStorage(sexp, .range_start, .owned, .{ .id = id });
+        const end = try self.hiddenStorage(sexp, .range_end, .owned, .{ .id = id });
         const sym = self.sema.symbolOf(binding);
         const int_ty: TypeId = if (sym) |s| (self.symType(s) orelse self.sema.types.int_id) else self.sema.types.int_id;
 
@@ -2247,13 +2360,12 @@ pub const Emitter = struct {
     // Match
     // -------------------------------------------------------------------------
 
-    /// How a match reaches its subject (`checkMatch`): a bare or `?`
-    /// subject is read, `!` binds write borrows of the fields, and `<` of
-    /// a value that owns a resource hands the arm its fields.
-    const MatchMode = enum { read, write, consume };
+    /// How a match reaches its subject (`storage.MatchMode`).
+    const MatchMode = storage.MatchMode;
 
     /// What `emitMatch` knows about a match's subject.
     const MatchInfo = struct {
+        match: Sexp,
         mode: MatchMode,
         /// The type matched: the enum a boxed subject holds.
         ty: ?TypeId,
@@ -2274,35 +2386,38 @@ pub const Emitter = struct {
     /// (`emitGuardedMatch`).
     fn emitMatch(self: *Emitter, sexp: Sexp, value_pos: bool) Error!void {
         const scrutinee = ir.Match.subject(sexp);
-        // A boxed enum is switched on where the box points.
-        const boxed = if (self.typeOf(scrutinee)) |t| sema.boxedNominal(self.sema, t) else null;
-        const scrut_ty = boxed orelse self.typeOf(scrutinee);
+        // An enum in a box or behind a handle is switched on where it is.
+        const scrut_ty = storage.matchedType(self.sema, sexp);
         var info: MatchInfo = .{
-            .mode = if (scrutinee.isKind(.write))
-                .write
-            else if ((scrutinee.isKind(.move) or self.sema.takesSubject(sexp)) and scrut_ty != null and self.kindOf(scrut_ty.?) != null) .consume else .read,
+            .match = sexp,
+            .mode = storage.matchMode(self.sema, sexp),
             .ty = scrut_ty,
             .error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false,
-            // `match ?t` / `match !t` switch on the value borrowed.
-            .subject = unborrowed(scrutinee),
-            .boxed = boxed != null,
+            // `match ?t` / `match !t` switch on the value viewed.
+            .subject = lentPlace(scrutinee),
+            .boxed = scrut_ty != null and scrut_ty.? != self.typeOf(scrutinee).?,
         };
-        var guarded = false;
+        // A subject with temporaries is matched as a copy, which the
+        // checker records (`copiesHeader`) and allows only for plain data
+        // read.
+        const held_view = !self.hasStorage(scrutinee) and self.isPtrViewExpr(scrutinee);
+        if (info.mode != .consume and !held_view and self.hasTemps(scrutinee) != self.sema.copiesHeader(sexp))
+            return self.unsupported(sexp, "a header copy the checker did not record");
+        const guarded = storage.matchGuarded(sexp);
         // A `match !x` binding of the whole value points at the place, and
         // a `match <x` arm with alternatives drops the value from it: the
         // subject is read again.
-        var rereads = false;
-        for (ir.Match.arms(sexp)) |arm| {
-            const pattern = ir.Arm.pattern(arm);
-            if (ir.Arm.guard(arm) != .nil) guarded = true;
-            if (info.mode == .write and isCatchAll(self.source, pattern)) rereads = true;
-            if (info.mode == .consume and pattern.isKind(.alt_pattern)) rereads = true;
-        }
-        // Evaluating the subject first takes a block around the match.
-        const block = if (guarded or (rereads and !self.subjectRereadable(info))) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
+        const rereads = storage.matchRereads(self.sema, sexp);
+        // Evaluating the subject first, or holding the value it is a part
+        // of (`Header.held`), takes a block around the match.
+        const held = self.sema.headerOf(sexp) == .held;
+        const block = if (storage.matchBlock(self.sema, sexp)) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
+        var held_mark: ?usize = null;
+        defer if (held_mark) |m| self.hoisted.shrinkRetainingCapacity(m);
         if (block.len > 0) {
             if (value_pos) try self.w.print("{s}: ", .{block});
             try self.openBrace();
+            if (held) held_mark = try self.emitHeld(sexp);
             try self.evalSubject(&info);
             if (guarded) {
                 try self.emitGuardedMatch(sexp, value_pos, info, block);
@@ -2318,12 +2433,21 @@ pub const Emitter = struct {
         if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
             try self.w.writeAll(info.reread);
         } else {
-            // A match on a call returning a borrow held by pointer
-            // switches on the value it points to.
+            // A match on a call returning a view held by pointer
+            // switches on the value it points to, where it is: a header
+            // with temporaries yields the pointer, never the value.
+            const by_ptr = !self.hasStorage(subject) and self.isPtrViewExpr(subject);
             const h = try self.openHeader(subject);
-            if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
-            if (info.boxed) try self.w.writeAll(".value.*");
-            try self.closeHeader(h);
+            if (by_ptr and h.label.len > 0) {
+                try self.emitWriteViewPtr(subject);
+                try self.closeHeader(h);
+                try self.w.writeAll(".*");
+            } else {
+                if (by_ptr or self.switchesThroughName(subject)) try self.emitSwitchDeref(subject) else try self.emitBare(subject);
+                if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
+                try self.closeHeader(h);
+            }
+            if (by_ptr and h.label.len > 0 and info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
         }
         try self.w.writeAll(") ");
         try self.openBrace();
@@ -2344,10 +2468,10 @@ pub const Emitter = struct {
                 switch (info.mode) {
                     .read => if (named) try self.emitCapture(pattern),
                     .write => if (named) {
-                        prelude.aliases = try self.wholeAlias(pattern, place, true, .nil);
+                        prelude.aliases = try self.wholeAlias(pattern, try self.fmt("&{s}", .{place}), .nil);
                     },
                     .consume => {
-                        const whole = try self.fresh("__rig_whole");
+                        const whole = try self.hiddenStorage(arm, .whole, .owned, .fresh);
                         try self.w.print("|{s}| ", .{whole});
                         prelude = try self.ownedParts(&.{if (named) pattern else .nil}, &.{.{ .expr = whole }}, .nil);
                     },
@@ -2364,17 +2488,21 @@ pub const Emitter = struct {
                     if (vname.len == 0) {
                         // Alternatives: the value is dropped from where it
                         // was, copied before the arm can reassign it.
-                        const whole = try self.fresh("__rig_whole");
+                        const whole = try self.hiddenStorage(arm, .whole, .owned, .fresh);
                         prelude = try self.ownedParts(&.{.nil}, &.{.{ .expr = whole }}, .nil);
                         prelude.head = try self.fmt("const {s} = {s};", .{ whole, place });
                     } else if (fields.len > 0) {
-                        const payload = try self.fresh("__rig_payload");
+                        const payload = try self.hiddenStorage(arm, .payload, .owned, .fresh);
                         try self.w.print("|{s}| ", .{payload});
                         prelude = try self.consumedPayload(captures, fields, payload, .nil);
                     }
                 } else if (captures.len > 0) {
-                    prelude.aliases = try self.payloadAliases(captures, info.ty.?, vname, info.mode == .write, null, .nil);
-                    if (prelude.aliases.len > 0) try self.w.print("|{s}{s}| ", .{ if (info.mode == .write) "*" else "", prelude.aliases[0].payload });
+                    prelude.aliases = try self.payloadAliases(captures, info.ty.?, vname, info.mode == .write, .{ .arm = arm }, .nil);
+                    // A payload a read binds as a view is reached in place.
+                    const by_ptr = info.mode == .write or for (prelude.aliases) |a| {
+                        if (a.addr) break true;
+                    } else false;
+                    if (prelude.aliases.len > 0) try self.w.print("|{s}{s}| ", .{ if (by_ptr) "*" else "", prelude.aliases[0].payload });
                 }
             }
             if (value_pos) try self.emitValueBlock(body, prelude, self.typeOf(sexp)) else try self.emitBodyWith(body, prelude);
@@ -2388,48 +2516,60 @@ pub const Emitter = struct {
         }
     }
 
-    /// Whether the subject can be read again as it is written: a name,
-    /// or a field of one. An element's index may have effects, and a
-    /// call makes a new value.
+    /// `storage.subjectRereadable`.
     fn subjectRereadable(self: *Emitter, info: MatchInfo) bool {
         _ = self;
-        var e = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
-        while (e.isKind(.member)) e = ir.Member.object(e);
-        return e == .src;
+        return storage.subjectRereadable(info.subject);
     }
 
     /// Evaluate the subject once, into `info.reread`: a field path as
     /// it is, an element by its address, a value no binding holds (a
     /// call's result, or what `match <` takes from one) into a local.
     fn evalSubject(self: *Emitter, info: *MatchInfo) Error!void {
-        if (self.subjectRereadable(info.*)) {
+        const by = storage.subjectHold(self.sema, info.match) orelse {
             info.reread = try self.placeText(info.*);
             return;
-        }
-        const name = try self.fmt("__rig_subject_{d}", .{self.nextId()});
+        };
+        const name = try self.hiddenStorage(info.match, .subject, by, .next);
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
-        if (isPlace(value) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
-            // A read match reaches an element as a read does: a Vec it
-            // reaches through a read borrow is constant.
-            const saved = self.read_place;
-            defer self.read_place = saved;
-            self.read_place = info.mode == .read;
+        if (self.hasStorage(value) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
             try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
             info.reread = try self.fmt("{s}.*", .{name});
+            return;
+        }
+        // A view a call returns (`match get(e)`) is held as the pointer it
+        // is, never copied: its bindings view the value it points to.
+        if (!info.subject.isKind(.move) and self.isPtrViewExpr(value)) {
+            try self.writeIndent(self.indent);
+            try self.w.print("const {s} = ", .{name});
+            const h = try self.openHeader(value);
+            try self.emitWriteViewPtr(value);
+            try self.closeHeader(h);
+            try self.w.writeAll(";\n");
+            var buf: Writer.Allocating = .init(self.arena.allocator());
+            {
+                const saved_w = self.w;
+                self.w = &buf.writer;
+                defer self.w = saved_w;
+                try self.w.print("{s}.*", .{name});
+                if (info.boxed) try self.writeMatchReach(self.typeOf(value).?);
+            }
+            info.reread = buf.written();
             return;
         }
         try self.writeIndent(self.indent);
         try self.w.print("var {s}", .{name});
         if (self.typeOf(value)) |t| {
             try self.w.writeAll(": ");
-            try self.emitTypeTy(self.peelBorrows(t));
+            try self.emitTypeTy(self.peelViews(t));
         }
         try self.w.writeAll(" = ");
         const h = try self.openHeader(value);
-        if (self.isPtrBorrowExpr(value)) try self.emitDeref(value) else try self.emitBare(value);
+        if (self.isPtrViewExpr(value)) try self.emitDeref(value) else try self.emitBare(value);
         if (info.boxed and self.hasTemps(value)) try self.w.writeAll(".value.*");
         try self.closeHeader(h);
         try self.w.print("; _ = &{s};\n", .{name});
+        try self.poisonAtExit(name);
         info.reread = name;
         info.temp = info.mode == .consume;
     }
@@ -2442,8 +2582,32 @@ pub const Emitter = struct {
         self.w = &buf.writer;
         defer self.w = saved_w;
         try self.emitPlace(if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject);
-        if (info.boxed) try self.w.writeAll(".value.*");
+        if (info.boxed) try self.writeMatchReach(self.typeOf(info.subject).?);
         return buf.written();
+    }
+
+    /// The enum a match on a `ty` in a box or behind a handle switches
+    /// on: `.value` for each box (a pointer) and handle on the way, the
+    /// value itself at the end.
+    fn writeMatchReach(self: *Emitter, ty: TypeId) Error!void {
+        var t = sema.unwrapViews(self.sema, ty);
+        var ptr = false;
+        while (true) {
+            switch (self.sema.types.get(t)) {
+                .shared => |inner| {
+                    try self.w.writeAll(if (ptr) ".*.value" else ".value");
+                    t = sema.unwrapViews(self.sema, inner);
+                    ptr = false;
+                    continue;
+                },
+                else => {},
+            }
+            const inner = sema.boxedType(self.sema, t) orelse break;
+            try self.w.writeAll(".value");
+            t = sema.unwrapViews(self.sema, inner);
+            ptr = true;
+        }
+        if (ptr) try self.w.writeAll(".*");
     }
 
     /// The prong head of a pattern that is not a catch-all: a literal, a
@@ -2479,20 +2643,25 @@ pub const Emitter = struct {
         return .{ lo, hi - 1 };
     }
 
-    /// A catch-all pattern: `_` or a name.
+    /// `storage.isCatchAll`.
     fn isCatchAll(source: []const u8, pattern: Sexp) bool {
-        return pattern == .src and !isLiteralText(source[pattern.src.pos..][0..pattern.src.len]);
+        return storage.isCatchAll(source, pattern);
     }
 
-    /// `x => ...` binding the whole value `subj`, when the arm uses it
-    /// (in `used_in`, when given): by its address for `match !x`, and
-    /// for a binding that is a borrow held by pointer (of a `?E` subject).
-    fn wholeAlias(self: *Emitter, pattern: Sexp, subj: []const u8, writes: bool, used_in: Sexp) Error![]const Alias {
-        var local = self.usedPayloadLocal(pattern, used_in) orelse return &.{};
-        local.is_ptr = writes;
+    /// `x => ...` binding the whole value as `expr`, when the arm uses it
+    /// (in `used_in`, when given).
+    fn wholeAlias(self: *Emitter, pattern: Sexp, expr: []const u8, used_in: Sexp) Error![]const Alias {
+        const local = self.usedPayloadLocal(pattern, used_in) orelse return &.{};
         const stored = try self.declare(local, self.srcText(pattern));
-        const expr = if (stored.is_ptr) try self.fmt("&{s}", .{subj}) else subj;
         return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
+    }
+
+    /// The matched value `subj` as a catch-all binding `pattern` holds
+    /// it: its address for a write view or a view in place (`?S`), the
+    /// value for a copy.
+    fn wholeExpr(self: *Emitter, pattern: Sexp, subj: []const u8, writes: bool) Error![]const u8 {
+        const viewed = if (self.payloadLocal(pattern)) |local| (if (local.ty) |t| self.isPtrViewTy(t) else false) else false;
+        return if (writes or viewed) self.fmt("&{s}", .{subj}) else subj;
     }
 
     /// The prelude of a `match <x` arm on payload variant `fields`, held
@@ -2560,12 +2729,11 @@ pub const Emitter = struct {
         try self.w.print("switch ({s}) ", .{arm_var});
         try self.openBrace();
         for (arms, 0..) |arm, i| {
-            const pattern = ir.Arm.pattern(arm);
             try self.writeIndent(self.indent);
             try self.w.print("{d} => ", .{i});
             try self.pushScope();
             defer self.popScope() catch {};
-            const prelude = try self.armBindings(pattern, ir.Arm.body(arm), info, subj);
+            const prelude = try self.armBindings(arm, info, subj);
             if (value_pos) try self.emitValueBlock(ir.Arm.body(arm), prelude, self.typeOf(sexp)) else try self.emitBodyWith(ir.Arm.body(arm), prelude);
             try self.w.writeAll(",\n");
         }
@@ -2602,7 +2770,7 @@ pub const Emitter = struct {
         if (isCatchAll(self.source, pattern)) {
             const sym = self.sema.symbolOf(pattern) orelse return;
             if (!self.usesSymbol(guard, sym)) return;
-            const aliases = try self.wholeAlias(pattern, subj, writes, .nil);
+            const aliases = try self.wholeAlias(pattern, try self.wholeExpr(pattern, subj, writes), .nil);
             return self.emitPrelude(.{ .aliases = aliases });
         }
         if (!pattern.isKind(.variant_pattern)) return;
@@ -2613,16 +2781,21 @@ pub const Emitter = struct {
             if (!self.usesSymbol(guard, sym)) continue;
             const local = self.payloadLocal(b) orelse continue;
             const stored = try self.declare(local, self.srcText(b));
-            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if (writes and fieldIsPointee(self.sema, f.ty)) "&" else "", subj, ident(vname), ident(f.name) });
+            // A write binds a pointer to each field, and a read one to a
+            // field it views (`?F`).
+            const viewed = !writes and if (local.ty) |t| self.sema.types.get(t) == .read_view and self.sema.types.get(f.ty) != .read_view else false;
+            try self.line("const {s} = {s}{s}.{f}.{f};", .{ stored.zig_name, if ((writes or viewed) and fieldIsPointee(self.sema, f.ty)) "&" else "", subj, ident(vname), ident(f.name) });
         }
     }
 
     /// The prelude that binds the names of `pattern` that `body` uses,
     /// for the arm picked by a guarded match, from `subj`.
-    fn armBindings(self: *Emitter, pattern: Sexp, body: Sexp, info: MatchInfo, subj: []const u8) Error!Prelude {
+    fn armBindings(self: *Emitter, arm: Sexp, info: MatchInfo, subj: []const u8) Error!Prelude {
+        const pattern = ir.Arm.pattern(arm);
+        const body = ir.Arm.body(arm);
         if (info.mode == .consume) {
             // The arm takes the value: `x` is consumed now.
-            const whole = try self.fresh("__rig_whole");
+            const whole = try self.hiddenStorage(arm, .whole, .owned, .fresh);
             var buf: Writer.Allocating = .init(self.arena.allocator());
             if (info.temp) try buf.writer.writeAll(info.reread) else {
                 const saved_w = self.w;
@@ -2646,11 +2819,11 @@ pub const Emitter = struct {
         const writes = info.mode == .write;
         if (isCatchAll(self.source, pattern)) {
             if (std.mem.eql(u8, self.srcText(pattern), "_")) return .{};
-            return .{ .aliases = try self.wholeAlias(pattern, subj, writes, body) };
+            return .{ .aliases = try self.wholeAlias(pattern, try self.wholeExpr(pattern, subj, writes), body) };
         }
         if (!pattern.isKind(.variant_pattern)) return .{};
         const vname = self.srcText(ir.VariantPattern.name(pattern));
-        return .{ .aliases = try self.payloadAliases(ir.VariantPattern.bindings(pattern), info.ty.?, vname, writes, try self.fmt("{s}.{f}", .{ subj, ident(vname) }), body) };
+        return .{ .aliases = try self.payloadAliases(ir.VariantPattern.bindings(pattern), info.ty.?, vname, writes, .{ .expr = try self.fmt("{s}.{f}", .{ subj, ident(vname) }) }, body) };
     }
 
     /// A payload binding: `const zig_name = payload.field`, or of
@@ -2709,9 +2882,9 @@ pub const Emitter = struct {
 
     /// A resource bound by `as`: captured as `tmp`, then owned by a local
     /// declared at the top of the body (or dropped at once for `as _`).
-    /// `copy`: a borrowed binding over a Cell-holding part of a
+    /// `copy`: a viewed binding over a Cell-holding part of a
     /// temporary, captured by value into a mutable local (`lendsCellTemp`).
-    const OptionalBinding = struct { name: Sexp, tmp: []const u8, copy: bool = false };
+    const OptionalBinding = struct { cond: Sexp, name: Sexp, tmp: []const u8, copy: bool = false };
 
     /// `payloadLocal` for a binding used in `used_in`, or anywhere when
     /// it is `.nil`.
@@ -2729,29 +2902,42 @@ pub const Emitter = struct {
         return .{ .sym = sym, .ty = ty, .kind = if (ty) |t| self.kindOf(t) else null };
     }
 
-    /// `|name| ` for a read `match`'s catch-all binding that the body
-    /// uses, or `|*name| ` when the binding is a borrow held by pointer
-    /// (of a `?E` subject), which points at the value switched on.
+    /// `|name| ` for a payload or catch-all binding that the body uses:
+    /// `|*name| ` for one that views the matched value where it is.
     fn emitCapture(self: *Emitter, name_node: Sexp) Error!void {
         const local = self.payloadLocal(name_node) orelse return;
         const stored = try self.declare(local, self.srcText(name_node));
-        try self.w.print("|{s}{s}| ", .{ if (stored.is_ptr) "*" else "", stored.zig_name });
+        const viewed = if (local.ty) |t| self.isPtrViewTy(t) else false;
+        try self.w.print("|{s}{s}| ", .{ if (viewed) "*" else "", stored.zig_name });
     }
 
+    /// Where payload bindings read their fields: an expression, or a
+    /// capture of `arm`'s named here.
+    const PayloadAt = union(enum) { expr: []const u8, arm: Sexp };
+
     /// Bindings for a payload's fields that the arm uses (in `used_in`,
-    /// when given), declared in the arm's scope, read from
-    /// `payload_expr` or else from a capture named here. A
-    /// `match !x` binding (`writes`) points at its field, unless the
-    /// field is itself a borrow, which is bound as it is.
-    fn payloadAliases(self: *Emitter, captures: []const Sexp, scrut_ty: TypeId, variant: []const u8, writes: bool, payload_expr: ?[]const u8, used_in: Sexp) Error![]const Alias {
+    /// when given), declared in the arm's scope, read from the payload
+    /// `at` names. A `match !x` binding (`writes`) points at its field,
+    /// unless the field is itself a view, which is bound as it is.
+    fn payloadAliases(self: *Emitter, captures: []const Sexp, scrut_ty: TypeId, variant: []const u8, writes: bool, at: PayloadAt, used_in: Sexp) Error![]const Alias {
         const fields = self.variantPayload(scrut_ty, variant) orelse return self.unsupported(captures[0], "this payload pattern");
         var out: std.ArrayList(Alias) = .empty;
-        var payload: ?[]const u8 = payload_expr;
+        var payload: ?[]const u8 = switch (at) {
+            .expr => |e| e,
+            .arm => null,
+        };
+        // A capture is by address when a binding views or writes its
+        // field, and a copy otherwise.
+        var by_addr = writes;
+        for (captures, fields) |c, f| {
+            const local = self.usedPayloadLocal(c, used_in) orelse continue;
+            if (storage.payloadByAddress(self.sema, local.ty, f, writes)) by_addr = true;
+        }
         for (captures, fields) |c, f| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
             const stored = try self.declare(local, self.srcText(c));
-            if (payload == null) payload = try self.fresh("__rig_payload");
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = writes and fieldIsPointee(self.sema, f.ty) });
+            if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name, .addr = storage.payloadByAddress(self.sema, local.ty, f, writes) });
         }
         return out.items;
     }
@@ -2774,7 +2960,7 @@ pub const Emitter = struct {
             } else if (is_var) try self.line("_ = &{s};", .{o.local.zig_name});
         }
         if (prelude.optional) |o| try self.bindOptionalResource(o);
-        if (prelude.lent) |o| try self.bindOptionalBorrow(o);
+        if (prelude.lent) |o| try self.bindOptionalView(o);
         if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });
     }
 
@@ -2786,12 +2972,30 @@ pub const Emitter = struct {
         const name = ir.As.name(cond);
         const value = ir.As.value(cond);
         const sym = self.sema.symbolOf(name);
-        // Over a borrow of an optional, a borrowed binding points into it.
-        if (self.borrowsOptionalValue(value) and self.hasTemps(value)) {
-            // A view a call returns, in a header that makes a temporary:
-            // the optional is read inside the header, and the binding is
-            // a copy of the plain data inside, the only binding typecheck
-            // lets such a header make (`rejectHeaderTemp`).
+        // A place, or a part of a value the `if` holds, is bound where it
+        // stands, as `if ?o as x` binds it (`Header`).
+        if (self.sema.headerOf(cond) != null) {
+            try self.w.writeAll("(");
+            try self.emitBare(value);
+            try self.w.writeAll(") ");
+            if (sym == null or !self.usage.used.contains(sym.?)) {
+                try self.w.writeAll("|_| ");
+                return .{};
+            }
+            const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
+            try self.w.print("|*{s}| ", .{tmp});
+            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .copy = false } };
+        }
+        // The header binds a copy of its subject (`copiesHeader`), which
+        // the checker allows only for plain data read.
+        const owns = value.isKind(.move) or (sema.handsOver(self.sema, value).kind == .made and !sema.isReadOrWriteView(self.sema, self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
+        if (!owns and self.hasTemps(value) != self.sema.copiesHeader(cond)) return self.unsupported(cond, "a header copy the checker did not record");
+        // Over a view of an optional, a viewed binding points into it.
+        if (self.viewsOptionalValue(value) and self.sema.copiesHeader(cond)) {
+            // A view of a temporary the header drops: the optional is
+            // read inside the header, and the binding views a copy of the
+            // value inside, which the ownership checker lets nothing use
+            // past the header.
             try self.w.writeAll("(");
             const h = try self.openHeader(value);
             try self.w.writeAll("(");
@@ -2803,13 +3007,13 @@ pub const Emitter = struct {
                 try self.w.writeAll("|_| ");
                 return .{};
             }
-            const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
+            const tmp = try self.hiddenStorage(cond, .as_value, .copy, .next);
             try self.w.print("|{s}| ", .{tmp});
-            return .{ .lent = .{ .name = name, .tmp = tmp, .copy = true } };
+            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .copy = true } };
         }
-        if (self.borrowsOptionalValue(value)) {
-            // A name holding a borrow is emitted as the place it points to.
-            // `o` and `<o` of a name holding the borrow are the place.
+        if (self.viewsOptionalValue(value)) {
+            // A name holding a view is emitted as the place it points to.
+            // `o` and `<o` of a name holding the view are the place.
             const named = value == .src or (value.isKind(.move) and ir.Move.operand(value) == .src);
             try self.w.writeAll(if (named) "(" else "((");
             try self.emitBare(value);
@@ -2818,23 +3022,23 @@ pub const Emitter = struct {
                 try self.w.writeAll("|_| ");
                 return .{};
             }
-            const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
             const copy = value.isKind(.read) and self.sema.lendsCellTemp(ir.Read.operand(value));
+            const tmp = try self.hiddenStorage(cond, .as_value, if (copy) .copy else .pointer, .next);
             try self.w.print("|{s}{s}| ", .{ if (copy) "" else "*", tmp });
-            return .{ .lent = .{ .name = name, .tmp = tmp, .copy = copy } };
+            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .copy = copy } };
         }
         try self.w.writeAll("(");
         try self.emitHeader(value);
         try self.w.writeAll(") ");
         // `as _` binds no symbol; a resource inside is dropped at once.
-        const ty: ?TypeId = if (sym) |s| self.symType(s) else if (self.typeOf(value)) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
+        const ty: ?TypeId = if (sym) |s| self.symType(s) else if (self.typeOf(value)) |t| switch (self.sema.types.get(self.peelViews(t))) {
             .optional => |inner| inner,
             else => null,
         } else null;
         if (ty != null and self.kindOf(ty.?) != null) {
-            const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
+            const tmp = try self.hiddenStorage(cond, .as_value, .owned, .next);
             try self.w.print("|{s}| ", .{tmp});
-            return .{ .optional = .{ .name = if (sym != null) name else .nil, .tmp = tmp } };
+            return .{ .optional = .{ .cond = cond, .name = if (sym != null) name else .nil, .tmp = tmp } };
         }
         if (sym == null or !self.usage.used.contains(sym.?)) {
             try self.w.writeAll("|_| ");
@@ -2845,22 +3049,22 @@ pub const Emitter = struct {
         return .{};
     }
 
-    /// `if o as x` over a borrow of an optional, where `x` borrows the
-    /// value inside rather than copying it (`checkOptionalBinding`).
-    fn borrowsOptionalValue(self: *Emitter, value: Sexp) bool {
-        const ty = self.typeOf(value) orelse return false;
-        return self.isPtrBorrowTy(ty) and !self.sema.readsThrough(value);
+    /// `storage.viewsOptionalValue`.
+    fn viewsOptionalValue(self: *Emitter, value: Sexp) bool {
+        return storage.viewsOptionalValue(self.sema, value);
     }
 
-    /// A borrow bound by `as`: `tmp` points at the value inside the
+    /// A view bound by `as`: `tmp` points at the value inside the
     /// optional, and the binding is declared from it at the top of the body.
-    fn bindOptionalBorrow(self: *Emitter, o: OptionalBinding) Error!void {
+    fn bindOptionalView(self: *Emitter, o: OptionalBinding) Error!void {
         const sym = self.sema.symbolOf(o.name).?;
         const ty = self.symType(sym).?;
         const local = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(o.name));
         if (o.copy) {
-            try self.line("var {s}_v = {s};", .{ o.tmp, o.tmp });
-            return self.line("const {s} = &{s}_v;", .{ local.zig_name, o.tmp });
+            const copy = try self.hiddenStorage(o.cond, .as_copy, .copy, .{ .copy_of = o.tmp });
+            try self.line("var {s} = {s};", .{ copy, o.tmp });
+            try self.poisonAtExit(copy);
+            return self.line("const {s} = &{s};", .{ local.zig_name, copy });
         }
         try self.line("const {s} = {s}{s};", .{ local.zig_name, o.tmp, if (local.is_ptr) "" else ".*" });
     }
@@ -2903,26 +3107,28 @@ pub const Emitter = struct {
     /// its scope (return, break value): resource bindings in tail
     /// position are moved out.
     fn emitValue(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
+        // A part of the value whose use is known has that use; any other
+        // value has the use its own context recorded.
+        const saved_use = self.use;
+        const saved_use_node = self.use_node;
+        defer {
+            self.use = saved_use;
+            self.use_node = saved_use_node;
+        }
+        if (!self.partOfUse(sexp)) self.use = self.sema.useOf(sexp);
+        self.use_node = sexp;
         const want_ptr = self.want_ptr;
         self.want_ptr = false;
         const bare = self.bare;
         self.bare = false;
-        // A borrow of a Text lent as a String: its bytes.
-        if (self.sema.lendsText(sexp) and !sameNode(sexp, self.lending_text)) {
-            const saved = self.lending_text;
-            defer self.lending_text = saved;
-            self.lending_text = sexp;
-            const reach = self.textReach(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped Text")) orelse return self.unsupported(sexp, "a Text lent as a String");
-            try self.w.writeAll("(");
-            self.bare = true;
-            try self.emitValue(sexp, tail);
-            return self.w.print("){s}.bytes()", .{reach});
-        }
-        // A receiver evaluated first is read where its address points.
-        if (self.hoistedOf(sexp)) |h| if (h.ptr) return self.w.print("{s}.*", .{h.name});
         // An owning temporary is kept in its statement's slot, which
         // drops it at the statement's end.
-        if (self.sema.dropsTemp(sexp) and !sameNode(sexp, self.keeping)) {
+        // A value lent bare is lent around its temporary's slot, as `?e`
+        // lends it (unless an argument hoisted before the call holds it).
+        if (!sameNode(sexp, self.lending) and self.hoistedOf(sexp) == null) if (self.sema.lendOf(sexp)) |lend| if (lend.implicit) return self.emitLend(sexp, lend, tail, want_ptr);
+        // (An argument hoisted before its call was kept there: its name
+        // holds the kept value.)
+        if (self.sema.dropsTemp(sexp) and !sameNode(sexp, self.keeping) and self.hoistedOf(sexp) == null) {
             const slot = self.tempSlot(sexp) orelse return self.unsupported(sexp, "a temporary outside a statement");
             const saved = self.keeping;
             defer self.keeping = saved;
@@ -2935,10 +3141,9 @@ pub const Emitter = struct {
         // A temporary holds the value its context reads (`hoist`).
         if (self.hoistedOf(sexp)) |h| {
             if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
-            return self.w.writeAll(h.name);
+            return self.w.print("{s}{s}", .{ h.name, if (h.ptr) ".*" else "" });
         }
-        if (!sameNode(sexp, self.lent)) if (self.sema.callableOf(sexp)) |fn_ty| return self.emitLentCallable(sexp, fn_ty);
-        if (!sameNode(sexp, self.unboxing) and self.sema.unboxes(sexp)) return self.emitUnboxed(sexp, false);
+        if (!sameNode(sexp, self.lending)) if (self.sema.lendOf(sexp)) |lend| if (!lend.has(.read_only)) return self.emitLend(sexp, lend, tail, lend.implicit and want_ptr);
         if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
@@ -2954,18 +3159,122 @@ pub const Emitter = struct {
         }
     }
 
-    /// A borrow of a `Box[T]` lent as a borrow of its value: the box's
-    /// pointer, `*T`, reached through the box or a pointer to it. Where a
-    /// read borrow is passed as a value (`as_ptr` false), it is the
-    /// `rig.ReadBorrow(T)` of that pointer: a scalar or view is copied.
-    fn emitUnboxed(self: *Emitter, sexp: Sexp, as_ptr: bool) Error!void {
-        const saved = self.unboxing;
-        defer self.unboxing = saved;
-        self.unboxing = sexp;
-        const lend = !as_ptr and !sexp.isKind(.write) and if (self.typeOf(sexp)) |t| self.sema.types.get(t) == .borrow_read else false;
-        try self.w.writeAll(if (lend) "rig.lend((" else "(");
-        try self.emitBare(sexp);
-        try self.w.writeAll(if (lend) ").value)" else ").value");
+    /// `sexp`, lent where a view of another type is expected, as the rows
+    /// of the lend table make it (`SemContext.lendOf`).
+    fn emitLend(self: *Emitter, sexp: Sexp, lend: sema.Lend, tail: bool, as_ptr: bool) Error!void {
+        const saved = self.lending;
+        defer self.lending = saved;
+        self.lending = sexp;
+        if (lend.callable()) |fn_ty| {
+            // A stack closure lent bare is lent as `?f` lends it.
+            if (lend.implicit and sexp == .src) if (self.localOf(sexp)) |local| if (local.stack_closure) return self.emitFnRef(sexp, fn_ty);
+            return self.emitLentCallable(sexp, fn_ty);
+        }
+        const rows = lend.steps();
+        var first: sema.LendStep = .lift;
+        for (rows) |r| if (r != .lift) {
+            first = r;
+            break;
+        };
+        // What the lend starts from: the value written `?x` or `!x` here,
+        // the bare value lent as `?x` would be, or the view `sexp` already
+        // is, which is a pointer to its value or (a scalar's or a view's)
+        // a copy of it.
+        const written = sexp.isKind(.read) or sexp.isKind(.write);
+        if (lend.implicit and rows.len == 0) {
+            // `?x` where a `?T` is expected: the address of `x`, or a copy
+            // of a scalar or a view.
+            if (!self.isPtrViewTy(lend.view)) {
+                self.bare = true;
+                return self.emitValue(sexp, false);
+            }
+            return self.emitReadLend(sexp, self.genericReadView(lend.view) != null);
+        }
+        var buf: Writer.Allocating = .init(self.arena.allocator());
+        var at: LendAt = .{ .text = "", .ptr = true };
+        var from: TypeId = sema.type_invalid;
+        {
+            const saved_w = self.w;
+            self.w = &buf.writer;
+            defer self.w = saved_w;
+            if (!(written or lend.implicit) or (written and first == .unbox and !lend.has(.text))) {
+                try self.w.writeAll("(");
+                self.bare = true;
+                try self.emitValue(sexp, tail and !written);
+                try self.w.writeAll(")");
+                at.ptr = written or self.isPtrViewExpr(sexp);
+                from = sema.unwrapViews(self.sema, self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped lend"));
+            } else {
+                const operand = if (written) ir.get(sexp, .operand) else sexp;
+                from = sema.unwrapViews(self.sema, self.typeOf(operand) orelse return self.unsupported(sexp, "an untyped lend"));
+                const vec = self.sema.types.get(from) == .parameterized_nominal;
+                if (lend.has(.text)) {
+                    try self.emitExpr(operand);
+                    at.ptr = false;
+                } else if (first == .handle or first == .optional or (first == .elems and vec)) {
+                    try self.emitMemberBase(operand, self.typeOf(operand));
+                    at.ptr = false;
+                } else {
+                    const saved_read = self.read_place;
+                    defer self.read_place = saved_read;
+                    self.read_place = !sexp.isKind(.write);
+                    const unbox = first == .unbox;
+                    if (unbox) try self.w.writeAll("(");
+                    try self.emitAddressOf(operand);
+                    if (unbox) try self.w.writeAll(")");
+                }
+            }
+        }
+        at.text = buf.written();
+        return self.w.writeAll(try self.lendChain(sexp, at, from, rows, lend.view, as_ptr));
+    }
+
+    /// A value a lend reaches, as Zig text: a pointer to it (`ptr`), or
+    /// the value itself, whose fields and methods Zig reaches the same.
+    const LendAt = struct { text: []const u8, ptr: bool };
+
+    /// The view the lend table's `rows` make of the value `at`, of type
+    /// `from`, where a `view` is expected (`emitLend`), for the lend
+    /// `node`.
+    fn lendChain(self: *Emitter, node: Sexp, start: LendAt, start_from: TypeId, rows: []const sema.LendStep, start_view: TypeId, as_ptr: bool) Error![]const u8 {
+        const types = &self.sema.types;
+        var at = start;
+        var from = start_from;
+        var view = start_view;
+        for (rows, 0..) |row, i| switch (row) {
+            .lift => view = types.get(view).optional,
+            .unbox => {
+                at = .{ .text = try self.fmt("{s}.value", .{at.text}), .ptr = true };
+                from = sema.boxedType(self.sema, from).?;
+            },
+            // A handle is a pointer: reached through a pointer to it, it is
+            // dereferenced first.
+            .handle => {
+                const handle = if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text;
+                at = .{ .text = try self.fmt("{s}.value", .{handle}), .ptr = false };
+                from = types.get(from).shared;
+            },
+            // An array's address is a slice; a Vec's elements are its items.
+            .elems => return if (types.get(from) == .array)
+                (if (at.ptr) at.text else try self.fmt("&{s}", .{at.text}))
+            else
+                self.fmt("{s}.items()", .{at.text}),
+            .text => return self.fmt("{s}.bytes()", .{at.text}),
+            .read_only => return at.text,
+            // The view of the value inside, or `none`.
+            .optional => {
+                const name = try self.hiddenStorage(node, .lent, .pointer, .next);
+                const inner = try self.lendChain(node, .{ .text = name, .ptr = true }, types.get(from).optional, rows[i + 1 ..], types.get(view).optional, false);
+                const value = if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text;
+                return self.fmt("(if ({s}) |*{s}| {s} else null)", .{ value, name, inner });
+            },
+            .callable => unreachable,
+        };
+        const ptr = if (at.ptr) at.text else try self.fmt("&{s}", .{at.text});
+        return switch (types.get(view)) {
+            .read_view => if (as_ptr) ptr else self.fmt("rig.lend({s})", .{ptr}),
+            else => ptr,
+        };
     }
 
     fn emitName(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
@@ -2975,7 +3284,7 @@ pub const Emitter = struct {
                 return self.w.print("rig.rt({s})", .{local.zig_name});
             }
             if (tail and self.ptr_tail and local.is_ptr) return self.w.writeAll(local.zig_name);
-            return if (tail and !self.sema.readsInPlace(sexp)) self.writeTake(local) else self.writeLocalPlace(local);
+            return if (tail and try self.takesTail(sexp, local)) self.writeTake(local) else self.writeLocalPlace(local);
         }
         if (std.mem.eql(u8, name, "none")) return self.w.writeAll("null");
         if (name[0] == '\'') return writeSingleQuoted(self.w, name);
@@ -3016,6 +3325,30 @@ pub const Emitter = struct {
         try self.w.print("{f}", .{ident(name)});
     }
 
+    /// Whether `sexp`, the value being emitted, is the value whose use is
+    /// known or a part of it (`sema.valueParts`), directly or as the
+    /// block whose tail the part is.
+    fn partOfUse(self: *const Emitter, sexp: Sexp) bool {
+        if (self.use_node == .nil) return false;
+        if (sameNode(sexp, self.use_node)) return true;
+        var parts = sema.valueParts(self.use_node);
+        while (parts.next()) |p| if (sameNode(p.node, sexp) or sameNode(p.node, sema.tailOf(sexp))) return true;
+        return false;
+    }
+
+    /// Whether name `sexp`, at a tail of the value being emitted, moves
+    /// out of `local`: only where the value's context takes it
+    /// (`sema.Use`), never where it is read in place. A binding no drop
+    /// flag guards has nothing to disarm. A value whose context recorded
+    /// no use is an internal error in every build: neither a move nor a
+    /// read is right without one.
+    fn takesTail(self: *Emitter, sexp: Sexp, local: *const Local) Error!bool {
+        if (consumeFlag(local) == null) return false;
+        if (self.sema.readsInPlace(sexp)) return false;
+        const use = self.use orelse return self.unsupported(sexp, "a value whose use no context recorded");
+        return use == .take;
+    }
+
     /// `local`'s value moving out: `rig.take(&flag, x)`, which yields `x`
     /// and disarms a scope-exit drop (`consumeFlag`), or `x` when no drop
     /// is armed.
@@ -3026,10 +3359,10 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// A value stored into a field, payload, or element: a write borrow is
+    /// A value stored into a field, payload, or element: a write view is
     /// stored as its pointer.
     fn emitStored(self: *Emitter, e: Sexp) Error!void {
-        if (self.isPtrBorrowExpr(e) and !self.sema.readsThrough(e)) return self.emitBorrowValue(e);
+        if (self.isPtrViewExpr(e) and !self.sema.readsThrough(e)) return self.emitWriteViewPtr(e);
         try self.emitBare(e);
     }
 
@@ -3099,13 +3432,13 @@ pub const Emitter = struct {
         return false;
     }
 
-    /// An expression yielding a pointer borrow where its context reads the
+    /// An expression yielding a pointer view where its context reads the
     /// value behind it (`SemContext.readsThrough`): `!x`, or a call
-    /// returning `!Int`. A name, field, or element holding a borrow reads
+    /// returning `!Int`. A name, field, or element holding a view reads
     /// through it already.
     fn readsThrough(self: *Emitter, e: Sexp) bool {
         if (e == .src or e.isKind(.member) or e.isKind(.index)) return false;
-        return self.sema.readsThrough(e) and self.isPtrBorrowExpr(e);
+        return self.sema.readsThrough(e) and self.isPtrViewExpr(e);
     }
 
     /// An expression whose value is a writable slice `![]T`.
@@ -3114,75 +3447,86 @@ pub const Emitter = struct {
         return sema.writeSliceElem(self.sema, t) != null;
     }
 
-    /// An expression whose value is a pointer borrow (see `isPtrBorrowTy`).
-    fn isPtrBorrowExpr(self: *Emitter, e: Sexp) bool {
+    /// An expression whose value is a pointer view (see `isPtrViewTy`).
+    fn isPtrViewExpr(self: *Emitter, e: Sexp) bool {
         const t = self.typeOf(e) orelse return false;
-        return self.isPtrBorrowTy(t);
+        return self.isPtrViewTy(t);
     }
 
-    /// A borrow held as a pointer: a write borrow, and a read borrow of a
-    /// value that owns resources or holds a `Cell` (see `readBorrowIsPtr`).
+    /// A view held as a pointer: a write view, and a read view of a
+    /// value that owns resources or holds a `Cell` (see `readViewIsPtr`).
     /// A `![]T` is a Zig slice, which points at its elements itself.
-    fn isPtrBorrowTy(self: *Emitter, ty: TypeId) bool {
+    fn isPtrViewTy(self: *Emitter, ty: TypeId) bool {
         return sema.viewHeldAsPointer(self.sema, ty);
     }
 
-    /// A read borrow of a scalar or a view is a copy
-    /// (`sema.readBorrowCopies`); anything else is lent by address.
-    fn readBorrowIsPtr(self: *Emitter, inner: TypeId) bool {
-        return !sema.readBorrowCopies(self.sema, inner);
+    /// A read view of a scalar or a view is a copy
+    /// (`sema.lendByValue`); anything else is lent by address.
+    fn readViewIsPtr(self: *Emitter, inner: TypeId) bool {
+        return !sema.lendByValue(self.sema, inner);
     }
 
-    /// The `T` of a read borrow `?T` whose form depends on a generic
+    /// The `T` of a read view `?T` whose form depends on a generic
     /// type's arguments: `T` holds a type parameter and neither owns
     /// resources nor holds a Cell on its own. It is emitted as
-    /// `rig.ReadBorrow(T)`, which applies `readBorrowIsPtr`'s rule to each
+    /// `rig.ReadView(T)`, which applies `readViewIsPtr`'s rule to each
     /// instance, so an instance agrees with the code that uses it
     /// (`?Wrap[Int]` is a copy). Code that depends on the form goes through
-    /// `rig.lend` and `rig.borrowed`; the rest treats it as a pointer, since
+    /// `rig.lend` and `rig.viewed`; the rest treats it as a pointer, since
     /// Zig reaches fields and methods through either.
-    fn genericReadBorrow(self: *Emitter, ty: TypeId) ?TypeId {
+    fn genericReadView(self: *Emitter, ty: TypeId) ?TypeId {
         const inner = switch (self.sema.types.get(ty)) {
-            .borrow_read => |inner| inner,
+            .read_view => |inner| inner,
             else => return null,
         };
         if (!sema.maybeDropGlue(self.sema, inner) or sema.holdsCellByValue(self.sema, inner)) return null;
         return inner;
     }
 
-    fn genericReadBorrowOf(self: *Emitter, e: Sexp) ?TypeId {
-        return self.genericReadBorrow(self.typeOf(e) orelse return null);
+    fn genericReadViewOf(self: *Emitter, e: Sexp) ?TypeId {
+        return self.genericReadView(self.typeOf(e) orelse return null);
     }
 
     /// `?x` or `!x` held by pointer: the address of `x`, or for a generic
-    /// read borrow, `rig.lend` of it.
-    fn emitBorrowOf(self: *Emitter, borrow: Sexp) Error!void {
-        if (!sameNode(borrow, self.unboxing) and self.sema.unboxes(borrow)) return self.emitUnboxed(borrow, true);
-        const operand = ir.get(borrow, .operand);
-        // A read borrow reaches a Vec element through a read-only slot, a
-        // write borrow through a writable one.
+    /// read view, `rig.lend` of it.
+    fn emitLendAddress(self: *Emitter, e: Sexp) Error!void {
+        if (!sameNode(e, self.lending)) if (self.sema.lendOf(e)) |lend| if (!lend.has(.read_only) and lend.callable() == null) return self.emitLend(e, lend, false, true);
+        const operand = ir.get(e, .operand);
+        // A read view reaches a Vec element through a read-only slot, a
+        // write view through a writable one.
         const saved_read = self.read_place;
         defer self.read_place = saved_read;
-        self.read_place = borrow.isKind(.read);
-        const reborrow = if (self.typeOf(operand)) |t| self.sema.types.get(t) == .borrow_read else false;
-        if (reborrow or !borrow.isKind(.read) or self.genericReadBorrowOf(borrow) == null) return self.emitAddressOf(operand);
-        try self.w.writeAll("rig.lend(");
-        try self.emitAddressOf(operand);
-        try self.w.writeAll(")");
+        self.read_place = e.isKind(.read);
+        const lends_on = if (self.typeOf(operand)) |t| self.sema.types.get(t) == .read_view else false;
+        if (lends_on or !e.isKind(.read)) return self.emitAddressOf(operand);
+        return self.emitReadLend(operand, self.genericReadViewOf(e) != null);
     }
 
-    /// `rig.borrowed(T, `: the value a generic read borrow reaches; the
-    /// caller writes the borrow and the `)`.
-    fn writeBorrowedOpen(self: *Emitter, inner: TypeId) Error!void {
-        try self.w.writeAll("rig.borrowed(");
+    /// A read lend of `operand` as a view held by address: its address,
+    /// or for a generic read view (`generic`), `rig.lend` of it, which
+    /// gives each instance the view its type is lent as. A lend written
+    /// `?x` and one made where a view is expected are written alike.
+    fn emitReadLend(self: *Emitter, operand: Sexp, generic: bool) Error!void {
+        const saved_read = self.read_place;
+        defer self.read_place = saved_read;
+        self.read_place = true;
+        if (generic) try self.w.writeAll("rig.lend(");
+        try self.emitAddressOf(operand);
+        if (generic) try self.w.writeAll(")");
+    }
+
+    /// `rig.viewed(T, `: the value a generic read view reaches; the
+    /// caller writes the view and the `)`.
+    fn writeViewedOpen(self: *Emitter, inner: TypeId) Error!void {
+        try self.w.writeAll("rig.viewed(");
         try self.emitTypeTy(inner);
         try self.w.writeAll(", ");
     }
 
-    /// `e` yielded where a value of `ty` goes: a borrow yielded where a
-    /// borrow or an optional borrow goes stays a borrow.
+    /// `e` yielded where a value of `ty` goes: a view yielded where a
+    /// view or an optional view goes stays a view.
     fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
-        if (ty) |t| if (self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptional(t))) return self.emitBorrowValue(e);
+        if (ty) |t| if (self.isPtrViewExpr(e) and self.isPtrViewTy(self.unwrapOptionals(t))) return self.emitWriteViewPtr(e);
         // A branch's String is a slice, so a literal in one branch and a
         // slice in another have one Zig type.
         if (ty) |t| if (self.unwrapOptional(t) == self.sema.types.string_id) {
@@ -3196,6 +3540,22 @@ pub const Emitter = struct {
         try self.emitValue(e, true);
     }
 
+    /// `e` where a value of type `target` goes: a view held by pointer
+    /// lifted into an optional of that view is the pointer itself, never
+    /// the value it reaches.
+    fn emitBareAs(self: *Emitter, e: Sexp, target: ?TypeId) Error!void {
+        if (target) |t| if (self.sema.types.get(t) == .optional and self.isPtrViewExpr(e) and self.isPtrViewTy(self.unwrapOptionals(t))) return self.emitWriteViewPtr(e);
+        try self.emitBare(e);
+    }
+
+    /// The type `ty` holds under every level of optional; any other type
+    /// itself.
+    fn unwrapOptionals(self: *Emitter, ty: TypeId) TypeId {
+        var inner = ty;
+        while (self.sema.types.get(inner) == .optional) inner = self.sema.types.get(inner).optional;
+        return inner;
+    }
+
     /// The type an optional `ty` holds; any other type itself.
     fn unwrapOptional(self: *Emitter, ty: TypeId) TypeId {
         return switch (self.sema.types.get(ty)) {
@@ -3204,20 +3564,42 @@ pub const Emitter = struct {
         };
     }
 
-    /// `(e).*`: the value a pointer borrow reaches.
+    /// `(e).*`: the value a pointer view reaches.
     fn emitDeref(self: *Emitter, e: Sexp) Error!void {
-        if (self.genericReadBorrowOf(e)) |inner| {
-            try self.writeBorrowedOpen(inner);
-            try self.emitBorrowValue(e);
+        if (self.genericReadViewOf(e)) |inner| {
+            try self.writeViewedOpen(inner);
+            try self.emitWriteViewPtr(e);
             return self.w.writeAll(")");
         }
         try self.w.writeAll("(");
-        try self.emitBorrowValue(e);
+        try self.emitWriteViewPtr(e);
         try self.w.writeAll(").*");
     }
 
-    /// A write-borrow value: the pointer a `!T` expression denotes.
-    fn emitBorrowValue(self: *Emitter, e: Sexp) Error!void {
+    /// The value a pointer view `e` reaches, switched on where it is. A
+    /// generic read view a name holds is reached through the name's
+    /// address (`rig.viewedPtr`), so a payload captured by pointer is
+    /// the one the view reaches, or the name's own copy, never a copy
+    /// in a Zig temporary.
+    fn emitSwitchDeref(self: *Emitter, e: Sexp) Error!void {
+        if (self.switchesThroughName(e)) {
+            const inner = self.genericReadViewOf(e).?;
+            try self.w.writeAll("rig.viewedPtr(");
+            try self.emitTypeTy(inner);
+            try self.w.writeAll(", &");
+            try self.emitWriteViewPtr(e);
+            return self.w.writeAll(").*");
+        }
+        try self.emitDeref(e);
+    }
+
+    /// Whether `e` is a name holding a generic read view (`?T`, `?Self`).
+    fn switchesThroughName(self: *Emitter, e: Sexp) bool {
+        return e == .src and self.localOf(e) != null and self.genericReadViewOf(e) != null;
+    }
+
+    /// A write view: the pointer a `!T` expression denotes.
+    fn emitWriteViewPtr(self: *Emitter, e: Sexp) Error!void {
         const saved = self.ptr_tail;
         defer self.ptr_tail = saved;
         self.ptr_tail = true;
@@ -3233,12 +3615,12 @@ pub const Emitter = struct {
         try self.w.writeAll(", ");
     }
 
-    /// `*T` / `*const T` for a borrow type.
+    /// `*T` / `*const T` for a view type.
     fn emitPointerTy(self: *Emitter, ty: TypeId) Error!void {
-        if (self.genericReadBorrow(ty) != null) return self.emitTypeTy(ty);
+        if (self.genericReadView(ty) != null) return self.emitTypeTy(ty);
         switch (self.sema.types.get(ty)) {
-            .borrow_read, .borrow_write => |inner| {
-                try self.w.writeAll(if (self.sema.types.get(ty) == .borrow_read) "*const " else "*");
+            .read_view, .write_view => |inner| {
+                try self.w.writeAll(if (self.sema.types.get(ty) == .read_view) "*const " else "*");
                 try self.emitTypeTy(inner);
             },
             else => try self.emitTypeTy(ty),
@@ -3281,22 +3663,12 @@ pub const Emitter = struct {
         switch (head) {
             // `?a` / `!a` of an array lent as a slice: the array's address,
             // which Zig takes as a slice.
-            .read, .write => if (self.sema.arrayViewOf(sexp) == .borrowed) {
-                // `?t` of a Text lent as a String: its bytes.
-                if (self.typeOf(ir.get(sexp, .operand))) |t| if (self.textReach(t)) |reach| {
-                    try self.emitExpr(ir.get(sexp, .operand));
-                    return self.w.print("{s}.bytes()", .{reach});
-                };
-                const saved_read = self.read_place;
-                defer self.read_place = saved_read;
-                self.read_place = head == .read;
-                try self.emitAddressOf(ir.get(sexp, .operand));
-            } else if (head == .read) {
+            .read, .write => if (head == .read) {
                 // `?f` of a closure or function lends it.
-                if (self.typeOf(sexp)) |t| if (sema.callableFn(self.sema, t) != null) return self.emitLend(ir.Read.operand(sexp), sema.callableFnTy(self.sema, t).?);
+                if (self.typeOf(sexp)) |t| if (sema.callableFn(self.sema, t) != null) return self.emitFnRef(ir.Read.operand(sexp), sema.callableFnTy(self.sema, t).?);
                 // `?x` of a value held by pointer (a Cell) is its address.
-                if (self.isPtrBorrowExpr(sexp)) return self.emitBorrowOf(sexp);
-                // A borrow never moves its operand, even in tail position.
+                if (self.isPtrViewExpr(sexp)) return self.emitLendAddress(sexp);
+                // A view never moves its operand, even in tail position.
                 self.bare = bare;
                 try self.emitValue(ir.Read.operand(sexp), false);
             } else if (self.isWriteSliceExpr(sexp))
@@ -3318,25 +3690,41 @@ pub const Emitter = struct {
             },
             .share => try self.emitShare(sexp),
             .clone => {
-                // `+b` of a borrowed handle clones the handle it borrows.
+                // `+b` of a viewed handle clones the handle it views.
                 const operand = ir.Clone.operand(sexp);
-                const kind: ?ResourceKind = if (self.typeOf(operand)) |t| self.kindOf(self.peelBorrows(t)) else null;
-                if (kind == .optional) {
-                    try self.w.writeAll("rig.cloneOptional(");
-                    try self.emitBare(operand);
-                    return self.w.writeAll(")");
+                const ty = self.typeOf(operand).?;
+                switch (sema.cloneable(self.sema, ty)) {
+                    .bump => switch (self.sema.types.get(self.peelViews(ty))) {
+                        .optional => {
+                            try self.w.writeAll("rig.cloneOptional(");
+                            try self.emitBare(operand);
+                            try self.w.writeAll(")");
+                        },
+                        .shared => {
+                            try self.emitExpr(operand);
+                            try self.w.writeAll(".cloneStrong()");
+                        },
+                        else => {
+                            try self.emitExpr(operand);
+                            try self.w.writeAll(".cloneWeak()");
+                        },
+                    },
+                    // `+t` of a Text copies its bytes.
+                    .text => {
+                        try self.emitExpr(operand);
+                        try self.w.writeAll(".clone()");
+                    },
+                    // Each part cloned as `+` clones it.
+                    .deep => {
+                        try self.w.writeAll("rig.cloneValue(&(");
+                        try self.emitExpr(operand);
+                        try self.w.writeAll("))");
+                    },
+                    // A generic `T` is cloned only where each instance
+                    // copies, so it is copied.
+                    .copy, .depends => try self.emitExpr(operand),
+                    .no => return self.unsupported(sexp, "a clone of a value that moves"),
                 }
-                // `+t` of a Text copies its bytes.
-                if (self.peelBorrows(self.typeOf(operand).?) == self.sema.types.text_id) {
-                    try self.emitExpr(operand);
-                    return self.w.writeAll(".clone()");
-                }
-                // A generic `T` is cloned only where each instance is plain
-                // data, so it is copied.
-                if (kind == .value and !sema.maybeDropGlue(self.sema, self.peelBorrows(self.typeOf(operand).?))) return self.unsupported(sexp, "a clone of a value with drop glue");
-                try self.emitExpr(operand);
-                if (kind == .shared) try self.w.writeAll(".cloneStrong()");
-                if (kind == .weak) try self.w.writeAll(".cloneWeak()");
             },
             .weak => {
                 try self.emitExpr(ir.Weak.operand(sexp));
@@ -3353,11 +3741,11 @@ pub const Emitter = struct {
             .inst => return self.unsupported(sexp, "a bracket list of compile-time arguments as a value"),
             .member, .index => {
                 if (self.sema.instanceOf(sexp) != null) return self.unsupported(sexp, "a bracket list of compile-time arguments as a value");
-                // A field or element holding a write borrow denotes the
-                // borrowed value, unless the pointer itself is wanted.
-                const deref = self.isPtrBorrowExpr(sexp) and !(tail and self.ptr_tail);
-                const generic = if (deref) self.genericReadBorrowOf(sexp) else null;
-                if (generic) |inner| try self.writeBorrowedOpen(inner);
+                // A field or element holding a write view denotes the
+                // viewed value, unless the pointer itself is wanted.
+                const deref = self.isPtrViewExpr(sexp) and !(tail and self.ptr_tail);
+                const generic = if (deref) self.genericReadViewOf(sexp) else null;
+                if (generic) |inner| try self.writeViewedOpen(inner);
                 if (head == .member) try self.emitMember(sexp) else try self.emitIndex(sexp, self.place_chain);
                 if (generic != null) try self.w.writeAll(")") else if (deref) try self.w.writeAll(".*");
             },
@@ -3385,7 +3773,7 @@ pub const Emitter = struct {
             },
             .enum_lit => {
                 const name = self.srcText(ir.EnumLit.name(sexp));
-                if (self.typeOf(sexp)) |t| if (self.isErrorSetTy(t)) return self.writeError(self.peelBorrows(t), name, sexp);
+                if (self.typeOf(sexp)) |t| if (self.isErrorSetTy(t)) return self.writeError(self.peelViews(t), name, sexp);
                 try self.w.print(".{f}", .{ident(name)});
             },
             .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^" => try self.emitInfix(sexp, bare),
@@ -3441,7 +3829,7 @@ pub const Emitter = struct {
                 const handler = ir.Catch.handler(sexp);
                 const sym: ?SymbolId = if (name != .nil) self.sema.symbolOf(name) else null;
                 if (sym != null and self.usage.used.contains(sym.?)) {
-                    const tmp = try self.fmt("__rig_err_{d}", .{self.nextId()});
+                    const tmp = try self.hiddenStorage(sexp, .error_value, .copy, .next);
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
                     const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) }, self.srcText(name));
@@ -3476,13 +3864,14 @@ pub const Emitter = struct {
         }
     }
 
-    /// A statement that produces a value, including a loop used as one.
+    /// A statement that gives a value (`sema.yieldsValue`).
     fn yieldsValue(self: *Emitter, s: Sexp) bool {
-        return isValueStmt(s) or sema.hasValueBreaks(self.source, s);
+        return sema.yieldsValue(self.source, s);
     }
 
+    /// `storage.isNoneLeaf`.
     fn isNoneLeaf(self: *Emitter, e: Sexp) bool {
-        return e == .src and self.sema.symbolOf(e) == null and std.mem.eql(u8, self.srcText(e), "none");
+        return storage.isNoneLeaf(self.sema, e);
     }
 
     /// `&place`, or the pointer itself when the place is already one.
@@ -3491,7 +3880,7 @@ pub const Emitter = struct {
         if (place == .src) if (self.localOf(place)) |local| {
             if (local.is_ptr) return self.w.writeAll(local.zig_name);
         };
-        if (self.isPtrBorrowExpr(place)) return self.emitBorrowValue(place);
+        if (self.isPtrViewExpr(place)) return self.emitWriteViewPtr(place);
         try self.w.writeAll("&");
         try self.emitPlace(place);
     }
@@ -3502,10 +3891,11 @@ pub const Emitter = struct {
         const op = @tagName(kind);
         const is_eq = kind == .@"==" or kind == .@"!=";
         const operands = [2]Sexp{ ir.get(sexp, .left), ir.get(sexp, .right) };
-        // A temporary optional resource compared with `none` is dropped.
+        // An optional resource made here and compared with `none` is
+        // dropped by the test.
         if (is_eq) for ([2]usize{ 0, 1 }) |i| {
             const other = operands[1 - i];
-            if (!self.isNoneLeaf(other) or isPlace(operands[i])) continue;
+            if (!self.isNoneLeaf(other) or !self.dropsWhenTested(operands[i])) continue;
             const t = self.typeOf(operands[i]) orelse continue;
             if (self.kindOf(t) == null) continue;
             if (kind == .@"!=") try self.w.writeAll("!");
@@ -3517,8 +3907,9 @@ pub const Emitter = struct {
         if (is_eq) for ([2]usize{ 0, 1 }) |i| {
             const value = operands[1 - i];
             if (!operands[i].isKind(.enum_lit) or !self.isPayloadEnumOperand(value)) continue;
-            // A temporary that owns a resource is dropped once tested.
-            const temp = !isPlace(value) and self.kindOf(self.typeOf(value).?) != null;
+            // A value made here that owns a resource is dropped once
+            // tested.
+            const temp = self.dropsWhenTested(value) and self.kindOf(self.typeOf(value).?) != null;
             if (kind == .@"!=") try self.w.writeAll("!");
             try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
             try self.emitExpr(value);
@@ -3568,7 +3959,7 @@ pub const Emitter = struct {
     fn emitArray(self: *Emitter, sexp: Sexp) Error!void {
         const elems = ir.Array.elems(sexp);
         const ty = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped array literal");
-        const arr = self.sema.types.get(self.peelBorrows(ty));
+        const arr = self.sema.types.get(self.peelViews(ty));
         if (arr != .array) return self.unsupported(sexp, "this array literal");
         try self.w.writeAll("[_]");
         try self.emitTypeTy(arr.array.elem);
@@ -3584,7 +3975,7 @@ pub const Emitter = struct {
     fn emitArrayFill(self: *Emitter, sexp: Sexp) Error!void {
         const ty = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped array literal");
         try self.w.writeAll("@as(");
-        try self.emitTypeTy(self.peelBorrows(ty));
+        try self.emitTypeTy(self.peelViews(ty));
         try self.w.writeAll(", @splat(");
         try self.emitBare(ir.ArrayFill.value(sexp));
         try self.w.writeAll("))");
@@ -3612,13 +4003,16 @@ pub const Emitter = struct {
         }
         // A shared handle's element is its value's.
         const held_ty: ?TypeId = if (base_ty) |t| sema.unwrapReadAccess(self.sema, t) else null;
+        // An element that is not copied (`readsInPlace`) is reached
+        // where it is, as a field is: never a copy of its bits.
+        const in_place = as_place or self.elemInPlace(sexp);
         if (held_ty != null and self.isVecTy(held_ty.?)) {
             try self.emitIndexBase(base, base_ty, .expr);
-            try self.w.writeAll(if (!as_place) ".at(" else if (self.read_place) ".constSlot(" else ".slot(");
+            try self.w.writeAll(if (!in_place) ".at(" else if (self.read_place or !as_place or self.throughReadView(base)) ".constSlot(" else ".slot(");
             // The index itself is a value, even inside an assignment target.
             self.place_chain = false;
             try self.emitBare(index);
-            try self.w.writeAll(if (as_place) ").*" else ")");
+            try self.w.writeAll(if (in_place) ").*" else ")");
             return;
         }
         const array_len: ?TypeId = if (held_ty) |t| switch (self.sema.types.get(t)) {
@@ -3629,7 +4023,7 @@ pub const Emitter = struct {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
             // is assigned through.
-            if (as_place) {
+            if (in_place) {
                 try self.w.writeAll("rig.elemPtr(");
                 try self.emitIndexBase(base, base_ty, .bare);
                 try self.w.writeAll(", ");
@@ -3684,15 +4078,48 @@ pub const Emitter = struct {
         try self.w.writeAll("]");
     }
 
+    /// Whether place `e` is reached through a read view or a shared
+    /// handle, whose value is read-only: an element on the way is
+    /// reached through `constSlot` (a Cell in it is changed through a
+    /// `@constCast` of its address).
+    fn throughReadView(self: *Emitter, e: Sexp) bool {
+        var p = e;
+        while (true) {
+            if (p.isKind(.read)) return true;
+            if (self.typeOf(p)) |t| switch (self.sema.types.get(t)) {
+                .read_view, .shared => return true,
+                else => {},
+            };
+            if (!p.isKind(.member) and !p.isKind(.index)) return false;
+            p = ir.get(p, .object);
+        }
+    }
+
+    /// Whether element `e` is read where it is rather than copied: its
+    /// type is not copied implicitly (`sema.copyable`), or holds a Cell
+    /// that a `?self` method or a `set` on it changes in the element.
+    fn elemInPlace(self: *Emitter, e: Sexp) bool {
+        const t = self.typeOf(e) orelse return false;
+        return sema.copyable(self.sema, t) != .yes or sema.holdsCellByValue(self.sema, t);
+    }
+
     /// The object `base` of an index, emitted `how` the index needs it. A
     /// shared handle is read through its value, as a member read reaches
     /// through it (`writeReach`).
     fn emitIndexBase(self: *Emitter, base: Sexp, base_ty: ?TypeId, how: enum { expr, bare, address }) Error!void {
-        if (base_ty) |t| if (self.sema.types.get(self.peelBorrows(t)) == .shared) {
+        if (base_ty) |t| if (self.sema.types.get(self.peelViews(t)) == .shared) {
             if (how == .address) try self.w.writeAll("&");
             try self.emitMemberBase(base, t);
             return self.writeReach(t);
         };
+        // A generic view of an array (`rig.ReadView([n]T)`, a pointer
+        // or a copy as the instance decides) is indexed as it is: indexing
+        // a copy of the whole array would lend its element from the copy.
+        if (how == .expr and base == .src) if (self.localOf(base)) |local| if (local.is_ptr and local.ty != null and self.genericReadView(local.ty.?) != null) {
+            return self.w.writeAll(local.zig_name);
+        };
+        // A value that branches is indexed where the leaf it takes is.
+        if (self.reachesLeaf(base)) return self.emitMemberBase(base, base_ty);
         switch (how) {
             .expr => try self.emitExpr(base),
             .bare => try self.emitBare(base),
@@ -3707,7 +4134,7 @@ pub const Emitter = struct {
         self.place_chain = false;
         const writes = self.isWriteSliceExpr(slice);
         try self.w.writeAll(if (writes) "rig.sliceMut(" else "rig.slice(");
-        const ty = self.peelBorrows(base_ty orelse return self.unsupported(base, "a slice of an untyped value"));
+        const ty = self.peelViews(base_ty orelse return self.unsupported(base, "a slice of an untyped value"));
         // A constant is sliced where it is stored, not through a copy.
         const saved_rt = self.rt_names;
         self.rt_names = false;
@@ -3776,6 +4203,14 @@ pub const Emitter = struct {
             try self.w.writeAll(".len)");
             return;
         }
+        // The length of an array or Vec in a box.
+        if (std.mem.eql(u8, field, "len") and obj_ty != null and sema.boxedType(self.sema, sema.unwrapReadAccess(self.sema, obj_ty.?)) != null and self.hasLen(sema.unwrapAccess(self.sema, obj_ty.?))) {
+            try self.w.writeAll("rig.len(");
+            try self.emitMemberBase(obj, obj_ty);
+            try self.writeReach(obj_ty.?);
+            try self.w.writeAll(".len)");
+            return;
+        }
         // An imported constant is read at run time, like a local one.
         if (self.rt_names and !self.keep_comptime and self.isModuleValue(obj, sexp)) {
             try self.w.writeAll("rig.rt(");
@@ -3785,27 +4220,30 @@ pub const Emitter = struct {
         try self.emitMemberBase(obj, obj_ty);
         if (obj_ty) |t| if (!self.isBoxMethod(sexp, t, field)) {
             // A consuming method of an owned box's value takes the value
-            // out of the box, which is freed.
+            // out of each box, which is freed.
             if (sema.boxedType(self.sema, t) != null and sema.boxedNominal(self.sema, t) != null and sema.methodReceiver(self.sema, t, field) == .value) {
-                try self.w.writeAll(".unbox()");
+                var b = t;
+                while (sema.boxedType(self.sema, b)) |inner| : (b = inner) try self.w.writeAll(".unbox()");
             } else try self.writeReach(t);
         };
         try self.w.print(".{f}", .{ident(field)});
     }
 
-    /// `.value` for each shared handle, and then a box, that member
-    /// access on a `ty` reaches through (`sema.unwrapAccess`).
+    /// `.value` for each shared handle and box that member access on a
+    /// `ty` reaches through (`sema.unwrapAccess`).
     fn writeReach(self: *Emitter, ty: TypeId) Error!void {
         var t = ty;
         while (true) switch (self.sema.types.get(t)) {
-            .borrow_read, .borrow_write => |inner| t = inner,
+            .read_view, .write_view => |inner| t = inner,
             .shared => |inner| {
                 try self.w.writeAll(".value");
                 t = inner;
             },
-            else => break,
+            else => {
+                t = sema.boxedType(self.sema, t) orelse break;
+                try self.w.writeAll(".value");
+            },
         };
-        if (sema.boxedNominal(self.sema, t) != null) try self.w.writeAll(".value");
     }
 
     /// `b.unbox` called: the box's own method, which comes before its
@@ -3827,20 +4265,16 @@ pub const Emitter = struct {
         return self.fnType(ty) == null;
     }
 
-    /// The object of a member access. Borrow sigils on a receiver are
+    /// The object of a member access. Lend sigils on a receiver are
     /// implicit in Zig's method call syntax; pointers to structs
     /// auto-dereference.
     fn emitMemberBase(self: *Emitter, obj: Sexp, obj_ty: ?TypeId) Error!void {
-        const o = unborrowed(obj);
+        const o = lentPlace(obj);
         if (self.place_chain and o.isKind(.index)) return self.emitIndex(o, true);
-        // A write-borrowed field or element (`!v[i].bump()`) is changed
+        // A lent to write field or element (`!v[i].bump()`) is changed
         // in place, reached through the element's slot, unless it was
         // hoisted to run before the arguments.
         if (obj.isKind(.write) and (o.isKind(.index) or o.isKind(.member)) and self.hoistedOf(o) == null) return self.emitPlace(o);
-        // A receiver evaluated first and held by address, where its
-        // statement's slot keeps it: Zig reaches a field or method through
-        // the pointer.
-        if (self.hoistedOf(o)) |h| if (h.ptr) return self.w.writeAll(h.name);
         // `Pair[Int, String].make(...)`: the instance named.
         if (self.sema.instanceOf(o)) |inst| if (inst == .type) return self.emitTypeTy(inst.type);
         // `Wrap.make(...)` of a generic type: the instance sema inferred.
@@ -3853,9 +4287,17 @@ pub const Emitter = struct {
             if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
             return self.writeLocalPlace(local);
         };
+        // A value that branches, read where its leaves are, is reached
+        // through the address of the leaf it takes, never a copy.
+        if (self.reachesLeaf(o)) {
+            if (self.hoistedOf(o)) |h| return self.w.writeAll(h.name);
+            return self.emitLeafPtr(o, self.typeOf(o).?);
+        }
         // A value that branches is read as its Rig type: Zig would take
         // a field of each branch's own type (a literal's, a String's).
+        // A receiver evaluated first is read where it was kept.
         if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (obj_ty) |t| {
+            if (self.hoistedOf(o)) |h| if (h.flag.len == 0) return self.w.writeAll(h.name);
             try self.writeAsOpen(t);
             try self.emitExpr(o);
             return self.w.writeAll(")");
@@ -3867,9 +4309,107 @@ pub const Emitter = struct {
         if (needs_parens) try self.w.writeAll("(");
         try self.emitExpr(o);
         if (needs_parens) try self.w.writeAll(")");
-        // A call yielding a borrow held by pointer: Zig reaches a field
+        // A call yielding a view held by pointer: Zig reaches a field
         // through a pointer to a struct, but not through one to a handle.
-        if (o.isKind(.call) and obj_ty != null and self.isPtrBorrowTy(obj_ty.?) and !self.isStructLike(obj_ty.?)) try self.w.writeAll(".*");
+        if (o.isKind(.call) and obj_ty != null and self.isPtrViewTy(obj_ty.?) and !self.isStructLike(obj_ty.?)) try self.w.writeAll(".*");
+    }
+
+    /// `storage.reachesLeaf`.
+    fn reachesLeaf(self: *Emitter, e: Sexp) bool {
+        return storage.reachesLeaf(self.sema, e);
+    }
+
+    /// The address of the value `e`, of type `ty`, takes: for a value
+    /// that branches, the address of the leaf it takes,
+    /// `(if (c) &a else &b)` for `a if c else b`, and for `o ?? d`,
+    /// `e catch d`, `o?`, and `e!`, the address of the payload where it
+    /// is, `(if (o) |*v| v else &d)`. A place is reached where it is, a
+    /// value kept in its statement's slot there, and a jump leaves. Any
+    /// other value made here is a Zig temporary of the expression.
+    fn emitLeafPtr(self: *Emitter, e: Sexp, ty: TypeId) Error!void {
+        const branches = sema.handsOver(self.sema, e).kind == .branches;
+        if (branches) switch (e.kind().?) {
+            .@"if" => {
+                try self.w.writeAll("(");
+                try self.emitIfYield(e, .leaf_ptr);
+                return self.w.writeAll(")");
+            },
+            .@"??" => {
+                const left = ir.@"??".left(e);
+                const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
+                try self.w.writeAll("(if (");
+                try self.emitPayloadHolder(left);
+                try self.w.print(") |*{s}| {s} else ", .{ v, v });
+                try self.emitLeafPtr(ir.@"??".right(e), ty);
+                return self.w.writeAll(")");
+            },
+            .propagate_none, .propagate => {
+                const operand = if (e.isKind(.propagate)) ir.Propagate.value(e) else ir.PropagateNone.value(e);
+                const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
+                try self.w.writeAll("(if (");
+                try self.emitPayloadHolder(operand);
+                try self.w.print(") |*{s}| {s} else {s})", .{ v, v, if (e.isKind(.propagate)) "|err| return err" else "return null" });
+                return;
+            },
+            .@"catch" => {
+                const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
+                try self.w.writeAll("(if (");
+                try self.emitPayloadHolder(ir.Catch.value(e));
+                try self.w.print(") |*{s}| {s} else ", .{ v, v });
+                const name = ir.Catch.name(e);
+                const handler = ir.Catch.handler(e);
+                const sym: ?SymbolId = if (name != .nil) self.sema.symbolOf(name) else null;
+                if (sym != null and self.usage.used.contains(sym.?)) {
+                    const tmp = try self.hiddenStorage(e, .error_value, .copy, .next);
+                    try self.w.print("|{s}| ", .{tmp});
+                    try self.pushScope();
+                    const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) }, self.srcText(name));
+                    try self.emitYieldBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp } }, ty, .leaf_ptr);
+                    try self.popScope();
+                } else {
+                    try self.w.writeAll("|_| ");
+                    try self.emitLeafPtr(handler, ty);
+                }
+                return self.w.writeAll(")");
+            },
+            else => {},
+        };
+        switch (sema.handsOver(self.sema, e).kind) {
+            .jump => return self.emitExpr(e),
+            .place, .part_of_made, .lend => {
+                const saved = self.read_place;
+                defer self.read_place = saved;
+                self.read_place = true;
+                return self.emitAddressOf(e);
+            },
+            else => {
+                // A value kept in its statement's slot is reached there.
+                if (self.sema.dropsTemp(e)) {
+                    try self.w.writeAll("&(");
+                    try self.emitBare(e);
+                    return self.w.writeAll(")");
+                }
+                try self.w.writeAll("&");
+                try self.writeAsOpen(ty);
+                try self.emitBare(e);
+                return self.w.writeAll(")");
+            },
+        }
+    }
+
+    /// The optional or fallible value `e`, whose payload a branch takes
+    /// by address (`emitLeafPtr`): a place where it is, so the payload
+    /// captured by pointer is the place's own.
+    fn emitPayloadHolder(self: *Emitter, e: Sexp) Error!void {
+        if (sema.handsOver(self.sema, e).hasStorage() and !e.isKind(.read) and !e.isKind(.write)) {
+            const saved = self.read_place;
+            defer self.read_place = saved;
+            self.read_place = true;
+            try self.w.writeAll("(");
+            try self.emitAddressOf(e);
+            return self.w.writeAll(").*");
+        }
+        try self.emitBare(e);
     }
 
     /// `@name(args)`. Arguments that name Rig types are spelled as Zig types.
@@ -3921,6 +4461,11 @@ pub const Emitter = struct {
 
     /// `(if cond then else)` as a value.
     fn emitIfExpr(self: *Emitter, sexp: Sexp) Error!void {
+        return self.emitIfYield(sexp, .value);
+    }
+
+    /// `(if cond then else)` yielding `how` each branch's value.
+    fn emitIfYield(self: *Emitter, sexp: Sexp, how: Yield) Error!void {
         const cond = ir.If.cond(sexp);
         const else_ = ir.If.@"else"(sexp);
         if (else_ == .nil) return self.unsupported(sexp, "an `if` without `else` in value position");
@@ -3936,24 +4481,24 @@ pub const Emitter = struct {
             try self.openParts(parts);
             try self.writeIndent(self.indent);
             try self.w.print("break :{s} ", .{label});
-            try self.emitValueBlock(ir.If.then(sexp), .{}, self.typeOf(sexp));
+            try self.emitYieldBlock(ir.If.then(sexp), .{}, self.typeOf(sexp), how);
             try self.w.writeAll(";\n");
             try self.closeParts(parts.len, null);
             try self.popScope();
             try self.w.writeAll("\n");
             try self.writeIndent(self.indent);
             try self.w.print("break :{s} ", .{label});
-            try self.emitValueBlock(else_, .{}, self.typeOf(sexp));
+            try self.emitYieldBlock(else_, .{}, self.typeOf(sexp), how);
             try self.w.writeAll(";\n");
             return self.closeBrace();
         }
         try self.w.writeAll("if ");
         try self.pushScope();
         const prelude = try self.emitCond(cond);
-        try self.emitValueBlock(ir.If.then(sexp), prelude, self.typeOf(sexp));
+        try self.emitYieldBlock(ir.If.then(sexp), prelude, self.typeOf(sexp), how);
         try self.popScope();
         try self.w.writeAll(" else ");
-        try self.emitValueBlock(else_, .{}, self.typeOf(sexp));
+        try self.emitYieldBlock(else_, .{}, self.typeOf(sexp), how);
     }
 
     /// A block that yields its last expression: inline when it is a
@@ -3962,17 +4507,21 @@ pub const Emitter = struct {
     /// ending in `return`/`break`/`continue` yields nothing and needs no
     /// label. `result` is the type the block yields.
     fn emitValueBlock(self: *Emitter, body: Sexp, prelude: Prelude, result: ?TypeId) Error!void {
+        return self.emitYieldBlock(body, prelude, result, .value);
+    }
+
+    /// A block that yields its last expression `how`: the value, or the
+    /// address of the leaf it is (`emitLeafPtr`).
+    fn emitYieldBlock(self: *Emitter, body: Sexp, prelude: Prelude, result: ?TypeId, how: Yield) Error!void {
         const stmts = try self.stmtsOf(body);
         if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
         const last = stmts[stmts.len - 1];
-        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and !self.hasTemps(last)) return self.emitValueAs(last, result);
+        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and !self.hasTemps(last)) return self.emitYield(last, result, how);
 
         const terminates = isTerminatingStmt(last);
         if (!terminates and !self.yieldsValue(last)) return self.unsupported(last, "a block without a value in value position");
-        // A block marked by `markReturningBlocks` returns its value.
-        const returns = body.isKind(.block) and self.returning.contains(body.list.id);
         var label: []const u8 = "";
-        if (!terminates and !returns) {
+        if (!terminates) {
             label = try self.fmt("__rig_blk_{d}", .{self.nextId()});
             try self.w.print("{s}: ", .{label});
         }
@@ -3986,13 +4535,24 @@ pub const Emitter = struct {
             const first = self.temp_slots.items.len;
             defer self.temp_slots.shrinkRetainingCapacity(first);
             try self.emitTempSlots(last);
-            if (returns) try self.w.writeAll("return ") else try self.w.print("break :{s} ", .{label});
+            try self.w.print("break :{s} ", .{label});
             self.bare = true;
-            try self.emitValueAs(last, result);
+            try self.emitYield(last, result, how);
             try self.w.writeAll(";");
         }
         try self.w.writeAll("\n");
         try self.closeBrace();
+    }
+
+    /// `e`, a branch's value, yielded `how`.
+    fn emitYield(self: *Emitter, e: Sexp, result: ?TypeId, how: Yield) Error!void {
+        switch (how) {
+            .value => return self.emitValueAs(e, result),
+            .leaf_ptr => {
+                self.bare = false;
+                return self.emitLeafPtr(e, result orelse return self.unsupported(e, "an untyped branch"));
+            },
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -4008,32 +4568,40 @@ pub const Emitter = struct {
     }
 
     /// `rig.replace(&place, value)` / `rig.swapPlaces(&a, &b)`: each place by
-    /// its address, a held write borrow as the pointer it is.
+    /// its address, a held write view as the pointer it is.
     fn emitSwapCall(self: *Emitter, name: []const u8, args: []const Sexp) Error!void {
         try self.w.writeAll(if (std.mem.eql(u8, name, "swap")) "rig.swapPlaces(" else "rig.replace(");
         for (args, 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
             if (i == 0 or std.mem.eql(u8, name, "swap")) {
-                try self.emitAddressOf(unborrowed(a));
+                try self.emitAddressOf(lentPlace(a));
             } else try self.emitStored(a);
         }
         try self.w.writeAll(")");
     }
 
-    /// How a value of type `ty` (borrowed or not) reaches the Text it
+    /// How a value of type `ty` (viewed or not) reaches the Text it
     /// views: directly, or through a `Box[Text]`; null for anything else.
     fn textReach(self: *Emitter, ty: TypeId) ?[]const u8 {
-        const t = self.peelBorrows(ty);
-        if (t == self.sema.types.text_id) return "";
-        if (sema.boxedType(self.sema, t) == self.sema.types.text_id) return ".value";
-        return null;
+        var t = self.peelViews(ty);
+        var reach: []const u8 = "";
+        while (t != self.sema.types.text_id) {
+            const boxed = self.sema.types.get(t) != .shared;
+            t = switch (self.sema.types.get(t)) {
+                .shared => |inner| self.peelViews(inner),
+                else => self.peelViews(sema.boxedType(self.sema, t) orelse return null),
+            };
+            // A box's value is behind a pointer; a handle it holds is one
+            // more, which Zig does not follow by itself.
+            const deref = boxed and self.sema.types.get(t) == .shared;
+            reach = self.fmt("{s}.value{s}", .{ reach, if (deref) ".*" else "" }) catch return null;
+        }
+        return reach;
     }
 
-    /// The built-in Text operation `call` is: `Text(...)`, `!t.add(...)`,
-    /// or `!t.clear()`.
+    /// `storage.textCall`.
     fn textCall(self: *Emitter, call: Sexp) ?sema.TextCall {
-        if (!call.isKind(.call)) return null;
-        return self.sema.textCallOf(call) orelse self.sema.textCallOf(self.sema.calleeOf(call));
+        return storage.textCall(self.sema, call);
     }
 
     /// `Text(a, b)` → `rig.Text.of(.{ a, &b })`; `!t.add(a, b)` →
@@ -4047,6 +4615,7 @@ pub const Emitter = struct {
             .add, .push, .clear => {
                 const recv = ir.Member.object(self.sema.calleeOf(call));
                 try self.emitMemberBase(recv, self.typeOf(recv));
+                if (self.typeOf(recv)) |t| try self.writeReach(t);
                 if (op == .clear) return self.w.writeAll(".clear()");
                 if (op == .push) {
                     try self.w.writeAll(".push(");
@@ -4060,9 +4629,9 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
+    /// `storage.isPrintCall`.
     fn isPrintCall(self: *Emitter, call: Sexp) bool {
-        const callee = self.sema.calleeOf(call);
-        return callee == .src and self.sema.symbolOf(callee) == null and std.mem.eql(u8, self.srcText(callee), "print");
+        return storage.isPrintCall(self.sema, call);
     }
 
     /// A built-in element method: `!dst.copy(src)` is `rig.copy(dst,
@@ -4092,7 +4661,7 @@ pub const Emitter = struct {
                 try self.emitElems(ir.Member.object(callee));
                 for (args) |a| {
                     try self.w.writeAll(", ");
-                    if (self.sema.arrayViewOf(a) == .temporary) try self.w.writeAll("&");
+                    if (self.sema.lendsTempArray(a)) try self.w.writeAll("&");
                     try self.emitBare(a);
                 }
             },
@@ -4101,13 +4670,13 @@ pub const Emitter = struct {
     }
 
     /// The elements of a method's receiver (a slice, an array, a Vec, or
-    /// a String, borrowed or not) as a Zig slice or array pointer: a
+    /// a String, viewed or not) as a Zig slice or array pointer: a
     /// slice or String as it is, an array through its address (writable
     /// when the receiver is written `!xs`), a Vec through its items.
     fn emitElems(self: *Emitter, recv: Sexp) Error!void {
         const writes = recv.isKind(.write);
         const place = if (recv.isKind(.write) or recv.isKind(.read)) ir.get(recv, .operand) else recv;
-        const ty = self.peelBorrows(self.typeOf(place) orelse return self.unsupported(recv, "an untyped receiver"));
+        const ty = self.peelViews(self.typeOf(place) orelse return self.unsupported(recv, "an untyped receiver"));
         if (self.isVecTy(ty)) {
             try self.emitExpr(place);
             return self.w.writeAll(".items()");
@@ -4182,7 +4751,7 @@ pub const Emitter = struct {
                 return self.emitFieldInit(args, self.declFields(t));
             }
         };
-        // A borrowed callable calls through its `rig.FnRef`.
+        // A callable view calls through its `rig.FnRef`.
         if (self.typeOf(callee)) |t| if (sema.callableFn(self.sema, t) != null) {
             try self.emitExpr(callee);
             try self.w.writeAll(".call(.{ ");
@@ -4190,10 +4759,10 @@ pub const Emitter = struct {
             return self.w.writeAll(" })");
         };
         // An owned closure handle, held by a name or a field, or a call
-        // yielding a borrow of one, held by pointer.
+        // yielding a view of one, held by pointer.
         if (self.typeOf(callee)) |t| if (sema.ownedClosureFn(self.sema, t) != null) {
             try self.emitExpr(callee);
-            if (callee.isKind(.call) and self.isPtrBorrowTy(t)) try self.w.writeAll(".*");
+            if (callee.isKind(.call) and self.isPtrViewTy(t)) try self.w.writeAll(".*");
             try self.w.writeAll(".value.invoke(.{ ");
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
@@ -4225,14 +4794,14 @@ pub const Emitter = struct {
             return self.w.writeAll(")");
         };
         // `set` / `replace` change a Cell through any path to it: the
-        // receiver's address, which may be a `*const` read borrow, is
+        // receiver's address, which may be a `*const` read view, is
         // cast to a mutable pointer. Sema keeps every Cell in mutable
         // storage, so the cast is sound.
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.sema.cell_sym_id)) {
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
                 try self.w.writeAll("@constCast(");
-                try self.emitAddressOf(unborrowed(ir.Member.object(callee)));
+                try self.emitCellAddress(ir.Member.object(callee));
                 try self.w.print(").{s}(", .{m});
                 try self.emitArgs(sexp);
                 return self.w.writeAll(")");
@@ -4244,9 +4813,9 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// An array, a slice, or a String, or a borrow of one.
+    /// An array, a slice, or a String, or a view of one.
     fn isSequence(self: *Emitter, ty: TypeId) bool {
-        return switch (self.sema.types.get(self.peelBorrows(ty))) {
+        return switch (self.sema.types.get(self.peelViews(ty))) {
             .array, .slice, .string => true,
             else => false,
         };
@@ -4256,14 +4825,24 @@ pub const Emitter = struct {
     /// value, or the Cell's address, cast as for `set`.
     fn emitCellPtr(self: *Emitter, obj: Sexp) Error!void {
         const ty = self.typeOf(obj) orelse return self.unsupported(obj, "this Cell");
-        if (self.sema.types.get(self.peelBorrows(ty)) == .shared) {
+        if (self.sema.types.get(self.peelViews(ty)) == .shared) {
             try self.w.writeAll("(&");
             try self.emitMemberBase(obj, ty);
             return self.w.writeAll(".value)");
         }
         try self.w.writeAll("@constCast(");
-        try self.emitAddressOf(unborrowed(obj));
+        try self.emitCellAddress(obj);
         try self.w.writeAll(")");
+    }
+
+    /// The address of the Cell `obj` denotes, which `@constCast` makes
+    /// mutable: an element on its path is reached through `constSlot`,
+    /// since the Vec holding it may be reached through a read view.
+    fn emitCellAddress(self: *Emitter, obj: Sexp) Error!void {
+        const saved = self.read_place;
+        defer self.read_place = saved;
+        self.read_place = true;
+        try self.emitAddressOf(lentPlace(obj));
     }
 
     /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin
@@ -4276,14 +4855,14 @@ pub const Emitter = struct {
         const arg_ty = self.typeOf(arg) orelse return self.unsupported(call, "this conversion");
         // A plain enum's value, converted when the program runs, where
         // Zig checks that it fits (the checker did for a constant one).
-        if (self.isEnumTy(self.peelBorrows(arg_ty))) {
+        if (self.isEnumTy(self.peelViews(arg_ty))) {
             try self.writeAsOpen(target);
             try self.w.writeAll("@intCast(@backingInt(rig.rt(");
             try self.emitBare(arg);
             return self.w.writeAll("))))");
         }
-        const from = switch (self.sema.types.get(self.peelBorrows(arg_ty))) {
-            .int, .float => self.peelBorrows(arg_ty),
+        const from = switch (self.sema.types.get(self.peelViews(arg_ty))) {
+            .int, .float => self.peelViews(arg_ty),
             .int_literal => self.sema.types.int_id,
             .float_literal => self.sema.types.float_id,
             else => return self.unsupported(call, "this conversion"),
@@ -4314,7 +4893,7 @@ pub const Emitter = struct {
     /// `(|n| print n)()`: the closure is built and called in a block.
     fn emitInlineInvoke(self: *Emitter, call: Sexp) Error!void {
         const id = self.nextId();
-        const name = try self.fmt("__rig_fn_{d}", .{id});
+        const name = try self.hiddenStorage(ir.Call.callee(call), .invoked, .owned, .{ .id = id });
         try self.w.print("__rig_inline_{d}: ", .{id});
         try self.openBrace();
         try self.writeIndent(self.indent);
@@ -4414,12 +4993,12 @@ pub const Emitter = struct {
         const value = argValue(arg);
         // A temporary array lent as a slice: its address, which lives
         // through the call.
-        if (self.sema.arrayViewOf(value) == .temporary) {
+        if (self.sema.lendsTempArray(value)) {
             try self.w.writeAll("&");
             return self.emitBare(value);
         }
-        if (i < params.len and self.isPtrBorrowTy(params[i])) return self.emitBorrowValue(value);
-        try self.emitBare(value);
+        if (i < params.len and self.isPtrViewTy(params[i])) return self.emitWriteViewPtr(value);
+        try self.emitBareAs(value, if (i < params.len) params[i] else null);
     }
 
     /// The number of compile-time arguments a call passes: those `given`
@@ -4450,39 +5029,19 @@ pub const Emitter = struct {
         try self.emitBare(arg);
     }
 
-    /// The types of the run-time parameters a call's arguments fill, in
-    /// slot order: all of them for `f(...)`, `Type.method(...)`,
-    /// `module.f(...)`, and a callable a field holds (`s.cb(...)`); all
-    /// but the receiver for `value.method(...)` (`receiverOf`).
+    /// `storage.argParams`.
     fn callParams(self: *Emitter, call: Sexp) []const TypeId {
-        const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return &.{};
-        if (self.receiverOf(call) == null) return f.params;
-        return if (f.params.len > 0) f.params[1..] else f.params;
+        return storage.argParams(self.sema, call);
     }
 
-    /// The object of `Type.f(...)`, `module.f(...)`, or
-    /// `module.Type.f(...)`: a call passing every parameter.
+    /// `storage.isTypeCallee`.
     fn isTypeCallee(self: *Emitter, obj: Sexp) bool {
-        if (self.sema.instanceOf(obj)) |inst| return inst == .type;
-        if (obj.isKind(.member)) {
-            const sym = self.moduleMemberSym(obj) orelse return false;
-            return switch (sym.kind) {
-                .nominal_type, .generic_type, .type_alias => true,
-                else => false,
-            };
-        }
-        const id = self.sema.symbolOf(obj) orelse return false;
-        return self.isTypeSym(id) or self.sema.symbols.items[id].kind == .module;
+        return storage.isTypeCallee(self.sema, obj);
     }
 
-    /// The symbol `module.name` names in that module; null when `obj` is
-    /// not a module's member.
+    /// `storage.moduleMemberSym`.
     fn moduleMemberSym(self: *Emitter, obj: Sexp) ?sema.Symbol {
-        const id = self.sema.symbolOf(ir.Member.object(obj)) orelse return null;
-        if (self.sema.symbols.items[id].kind != .module) return null;
-        const foreign = self.sema.foreign_semas.get(self.sema.module_refs.get(id) orelse return null) orelse return null;
-        const fid = foreign.lookupInScopeOnly(sema.module_scope, self.srcText(ir.Member.name(obj))) orelse return null;
-        return foreign.symbols.items[fid];
+        return storage.moduleMemberSym(self.sema, obj);
     }
 
     /// A struct, enum, or generic type: calling it constructs a value.
@@ -4494,140 +5053,81 @@ pub const Emitter = struct {
         return self.sema.symbols.items[id].kind == .type_alias;
     }
 
+    /// `storage.isTypeSym`.
     fn isTypeSym(self: *Emitter, id: SymbolId) bool {
-        return switch (self.sema.symbols.items[id].kind) {
-            .nominal_type, .generic_type => true,
-            else => false,
-        };
+        return storage.isTypeSym(self.sema, id);
     }
-    /// Whether a call's arguments must be evaluated into temporaries
-    /// first: when binding keyword arguments reorders two that have side
-    /// effects, or when an argument may leave (`!`, a `catch` that
-    /// returns) after an owned value was produced, which would be lost.
+    /// `storage.hoistsArgs`.
     fn hoistsArgs(self: *Emitter, call: Sexp) bool {
-        if (!call.isKind(.call) or self.isPrintCall(call) or self.textCall(call) != null) return false;
-        const args = ir.Call.args(call);
-        // A closure literal lent to the call gets an environment first.
-        for (args) |a| if (self.lentLiteral(argValue(a))) return true;
-        if (self.sema.callSlotsOf(call)) |slots| {
-            var last: ?usize = null;
-            for (slots) |slot| {
-                const ai = switch (slot) {
-                    .arg => |a| a,
-                    .default => continue,
-                };
-                if (self.isPureArg(argValue(args[ai]))) continue;
-                if (last) |l| if (ai < l) return true;
-                last = ai;
-            }
-        }
-        const callee = self.sema.calleeOf(call);
-        // Zig passes a temporary receiver to a `!self` method as a constant,
-        // and a Cell a read borrow may change must not be in one.
-        if (self.receiverOf(call)) |recv| if ((!isPlace(recv) and recv.kind() != .move and self.receiverWrites(call)) or self.sema.lendsCellTemp(unborrowed(recv))) return true;
-        for (args) |a| if (argValue(a).isKind(.read) and self.sema.lendsCellTemp(ir.Read.operand(argValue(a)))) return true;
-        var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or self.consumedTemporary(call) != null;
-        for (args) |a| {
-            const v = argValue(a);
-            // A `!` or `?`, or a `return`, `break`, or `continue` in a
-            // `catch` handler or a branch, leaves the enclosing block.
-            if (owned and contains(v, &.{ .propagate, .propagate_none, .@"return", .@"break", .@"continue" })) return true;
-            if (self.isOwnedValue(v)) owned = true;
-        }
-        return false;
+        return storage.hoistsArgs(self.sema, call);
     }
 
-    /// A closure literal lent as a borrowed callable.
+    /// `storage.lentLiteral`.
     fn lentLiteral(self: *Emitter, e: Sexp) bool {
-        return e.isKind(.lambda) and self.sema.callableOf(e) != null;
+        return storage.lentLiteral(self.sema, e);
     }
 
-    /// The receiver of `value.method(...)` when it is an owned temporary
-    /// the method consumes (`mk().consume(...)`).
+    /// `storage.consumedTemporary`.
     fn consumedTemporary(self: *Emitter, call: Sexp) ?Sexp {
-        const obj = self.receiverOf(call) orelse return null;
-        if (isPlace(obj) or obj.isKind(.move) or !self.isOwnedValue(obj)) return null;
-        const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return null;
-        if (f.params.len == 0) return null;
-        return switch (self.sema.types.get(f.params[0])) {
-            .borrow_read, .borrow_write => null,
-            else => obj,
-        };
+        return storage.consumedTemporary(self.sema, call);
     }
 
-    /// A value whose evaluation has no side effect and reads nothing a
-    /// later argument could change: a literal, a constant, a function,
-    /// or a borrow or move of a name.
+    /// `storage.isPureArg`.
     fn isPureArg(self: *Emitter, e: Sexp) bool {
-        switch (e) {
-            .src => {
-                if (isLiteralText(self.srcText(e)) or self.isNoneLeaf(e)) return true;
-                const sym = self.sema.symbolOf(e) orelse return false;
-                const s = self.sema.symbols.items[sym];
-                return switch (s.kind) {
-                    .local, .param, .capture => s.flags.fixed or s.flags.comptime_known,
-                    else => true,
-                };
-            },
-            .list => return switch (e.kind().?) {
-                .enum_lit => true,
-                .read, .write, .move => ir.get(e, .operand) == .src,
-                .neg => ir.Neg.operand(e) == .src and isLiteralText(self.srcText(ir.Neg.operand(e))),
-                else => false,
-            },
-            else => return false,
-        }
+        return storage.isPureArg(self.sema, e);
     }
 
-    /// An argument that hands the callee a value it must release.
-    fn isOwnedValue(self: *Emitter, e: Sexp) bool {
-        const t = self.typeOf(e) orelse return false;
-        return self.kindOf(t) != null;
-    }
-
-    /// The receiver of `value.method(...)`, which the call passes as its
-    /// first parameter: the one place emit decides a call has one. Not
-    /// `Type.f(...)` or `module.f(...)`, or a callable a data field holds
-    /// (`s.cb(...)`, `sema.callsField`), whose arguments fill every
-    /// parameter.
+    /// `storage.receiverOf`.
     fn receiverOf(self: *Emitter, call: Sexp) ?Sexp {
-        const callee = self.sema.calleeOf(call);
-        if (!callee.isKind(.member) or self.sema.callsField(callee)) return null;
-        const obj = ir.Member.object(callee);
-        if (self.isTypeCallee(obj)) return null;
-        return obj;
+        return storage.receiverOf(self.sema, call);
     }
 
-    /// Whether the method of `value.method(...)` takes `!self`.
+    /// Whether an operand tested against `none` or a bare `.variant` is
+    /// a value made there that no slot holds, which the test drops. Any
+    /// other operand is read where it is.
+    fn dropsWhenTested(self: *Emitter, e: Sexp) bool {
+        return sema.handsOver(self.sema, e).kind == .made and !self.sema.dropsTemp(e);
+    }
+
+    /// `storage.hasStorage`.
+    fn hasStorage(self: *Emitter, e: Sexp) bool {
+        return storage.hasStorage(self.sema, e);
+    }
+
+    /// `storage.receiverWrites`.
     fn receiverWrites(self: *Emitter, call: Sexp) bool {
-        if (self.receiverOf(call) == null) return false;
-        const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return false;
-        return f.params.len > 0 and self.sema.types.get(f.params[0]) == .borrow_write;
+        return storage.receiverWrites(self.sema, call);
     }
 
     /// Evaluate the receiver of a method call whose arguments are hoisted
     /// into `__rig_recv_N` first, so it runs before them, as written: the
     /// address of a place, or a temporary value, dropped after the call.
     fn hoistReceiver(self: *Emitter, call: Sexp, id: u32) Error!void {
-        // Borrow sigils on a receiver are implicit in Zig's method calls.
-        const recv = unborrowed(self.receiverOf(call) orelse return);
+        const hold = storage.receiverHold(self.sema, call) orelse return;
+        // Lend sigils on a receiver are implicit in Zig's method calls.
+        const recv = lentPlace(self.receiverOf(call).?);
         const writes = self.receiverWrites(call);
         // A Cell-holding part of a temporary is copied into a mutable local.
         const cell = self.sema.lendsCellTemp(recv);
-        const temporary = (!isPlace(recv) and !recv.isKind(.move)) or cell;
-        if (!contains(recv, &.{ .call, .index }) and !(writes and temporary)) return;
-        const name = try self.fmt("__rig_recv_{d}", .{id});
+        // Held as written below: an address, a copy of a part of a
+        // temporary, or a value made here.
+        const by: sema.StorageBy = switch (hold) {
+            .leaf, .slot, .place => .pointer,
+            .consumed, .value => if (cell) .copy else .owned,
+        };
+        const name = try self.hiddenStorage(recv, .receiver, by, .{ .id = id });
         try self.writeIndent(self.indent);
-        // A value its statement's slot keeps, or a part of one, is held
-        // as its address there: the slot alone drops it, when the
-        // statement ends, and a view the method returns views the slot.
-        if (temporary and self.keptInSlot(recv)) {
+        // A value that branches is held as the address of the leaf it
+        // takes, and a value kept in its statement's slot, or a part of
+        // one, as its address there: never a copy, which the call's block
+        // would end while the result may still view it.
+        if (hold == .leaf or hold == .slot) {
             try self.w.print("const {s} = ", .{name});
-            try self.emitSlotAddress(recv);
+            if (hold == .leaf) try self.emitLeafPtr(recv, self.typeOf(recv).?) else try self.emitSlotAddress(recv);
             try self.w.writeAll(";\n");
-            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name, .ptr = true });
+            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name });
         }
-        if (!temporary) {
+        if (hold == .place) {
             const saved = self.read_place;
             defer self.read_place = saved;
             self.read_place = !writes;
@@ -4637,11 +5137,8 @@ pub const Emitter = struct {
             return self.hoisted.append(self.allocator, .{ .node = recv, .name = name });
         }
         const ty = self.typeOf(recv);
-        const ptr = if (ty) |t| self.isPtrBorrowTy(t) else false;
-        // A value that branches is a copy of a leaf a name holds or a
-        // slot keeps, which that owner drops.
-        const branches = recv.isKind(.@"if") or recv.isKind(.@"??") or recv.isKind(.@"catch") or recv.isKind(.propagate) or recv.isKind(.propagate_none);
-        const kind: ?ResourceKind = if (ptr or branches) null else if (ty) |t| self.kindOf(t) else null;
+        const ptr = if (ty) |t| self.isPtrViewTy(t) else false;
+        const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or (writes and !ptr) or cell) "var" else "const", name });
         if (ty) |t| {
             try self.w.writeAll(": ");
@@ -4651,12 +5148,12 @@ pub const Emitter = struct {
         try self.emitBare(recv);
         try self.w.writeAll(";\n");
         if (cell) try self.line("_ = &{s};", .{name});
-        // An owning temporary receiver is kept in its statement's slot
-        // (above), or rejected (a consumed one is hoisted by
-        // `consumedTemporary`), so only a value holding a type parameter
-        // is dropped here (`self.twice()` of a `Wrap[T]`): plain data in
-        // every instance sema accepts, dropped like a resource in the
-        // generic body.
+        if (kind == .value or kind == .optional or (writes and !ptr) or cell) try self.poisonAtExit(name);
+        // Sema rejects a viewed temporary receiver that owns a resource
+        // (a consumed one is hoisted by `consumedTemporary`), so only a
+        // value holding a type parameter gets here (`self.twice()` of a
+        // `Wrap[T]`): plain data in every instance sema accepts, dropped
+        // like a resource in the generic body.
         if (kind) |k| {
             try self.writeIndent(self.indent);
             try self.w.writeAll("defer ");
@@ -4691,7 +5188,7 @@ pub const Emitter = struct {
         try self.openBrace();
         const first = self.hoisted.items.len;
         if (self.consumedTemporary(call)) |recv| {
-            try self.hoist(.{ .node = recv, .name = try self.fmt("__rig_recv_{d}", .{id}), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, &.{}, 0, false);
+            try self.hoist(.{ .node = recv, .name = try self.hiddenStorage(recv, .receiver, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, &.{}, 0, false);
         } else try self.hoistReceiver(call, id);
         for (args, 0..) |a, ai| {
             const value = argValue(a);
@@ -4699,7 +5196,7 @@ pub const Emitter = struct {
             const slot: usize = if (slots) |ss| for (ss, 0..) |s, i| {
                 if (s == .arg and s.arg == ai) break i;
             } else ai else ai;
-            try self.hoist(.{ .node = value, .name = try self.fmt("__rig_arg_{d}_{d}", .{ id, ai }), .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, params, slot, fields);
+            try self.hoist(.{ .node = value, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, .{ .pair = .{ id, @intCast(ai) } }, params, slot, fields);
         }
         try self.writeIndent(self.indent);
         try self.w.print("break :__rig_call_{d} ", .{id});
@@ -4713,9 +5210,15 @@ pub const Emitter = struct {
     /// field value when the call `fields` builds a value), into the
     /// temporary `h.name`. One that owns a resource is dropped at the end
     /// of the call's block unless the call takes it, clearing `h.flag`.
-    fn hoist(self: *Emitter, h: Hoisted, params: []const TypeId, slot: usize, fields: bool) Error!void {
-        if (self.sema.callableOf(h.node)) |fn_ty| {
-            if (h.node.isKind(.lambda)) return self.hoistClosure(h, fn_ty);
+    /// An argument's storage is named here (`suffix`), held as it is
+    /// written: a receiver the method consumes comes named.
+    fn hoist(self: *Emitter, h_in: Hoisted, suffix: ?StorageSuffix, params: []const TypeId, slot: usize, fields: bool) Error!void {
+        var h = h_in;
+        const hold = storage.argumentHold(self.sema, h.node);
+        if (hold == .closure or hold == .callable) {
+            const fn_ty = self.sema.callableOf(h.node).?;
+            if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, .owned, sx);
+            if (hold == .closure) return self.hoistClosure(h, fn_ty);
             // The `rig.FnRef` has the type Zig gives it.
             try self.writeIndent(self.indent);
             try self.w.print("const {s} = ", .{h.name});
@@ -4723,33 +5226,55 @@ pub const Emitter = struct {
             try self.w.writeAll(";\n");
             return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
         }
-        // A Cell-holding part of a temporary a read borrow lends is copied
-        // into a mutable local, which the borrow points to.
-        if (h.node.isKind(.read) and self.sema.lendsCellTemp(ir.Read.operand(h.node))) {
+        // A Cell-holding part of a temporary a read view lends is lent
+        // where the statement's slot keeps the temporary, which may change
+        // and lives as long as the statement; otherwise it is copied into
+        // a mutable local, which the view points to.
+        if (hold == .cell_slot or hold == .cell_copy) {
             const part = ir.Read.operand(h.node);
+            if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, if (hold == .cell_slot) .pointer else .copy, sx);
             try self.writeIndent(self.indent);
+            if (hold == .cell_slot) {
+                try self.w.print("const {s} = ", .{h.name});
+                try self.emitSlotAddress(part);
+                try self.w.writeAll(";\n");
+                return self.hoisted.append(self.allocator, .{ .node = part, .name = h.name, .ptr = true });
+            }
             try self.w.print("var {s} = ", .{h.name});
             try self.emitBare(part);
             try self.w.writeAll(";\n");
             try self.line("_ = &{s};", .{h.name});
+            try self.poisonAtExit(h.name);
             return self.hoisted.append(self.allocator, .{ .node = part, .name = h.name });
         }
         const ty = self.typeOf(h.node);
-        const ptr = slot < params.len and self.isPtrBorrowTy(params[slot]);
-        const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
+        const ptr = slot < params.len and self.isPtrViewTy(params[slot]);
+        // A value lent as the view its parameter expects is held as that
+        // view, of the parameter's type, which owns nothing.
+        const lent = hold == .lent;
+        // A temporary array lent as a slice stays in its slot, which owns
+        // nothing to release: an array holds no value that needs cleanup.
+        const lent_array = self.sema.lendsTempArray(h.node);
+        const kind: ?ResourceKind = if (ptr or lent or lent_array) null else if (ty) |t| self.kindOf(t) else null;
+        if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, if (ptr or lent) .pointer else .owned, sx);
+        // A temporary array whose elements hold a Cell is lent from a
+        // mutable slot, never from constant memory.
+        const mutable = lent_array and self.sema.lendsCellTemp(h.node);
         try self.writeIndent(self.indent);
-        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
+        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or mutable) "var" else "const", h.name });
         // The value alone may have no Zig type (`.empty`, `null`, a
-        // literal). A borrow read through is read here, in argument order.
-        // A box lent as its value has the parameter's type.
-        const shown: ?TypeId = if (self.sema.unboxes(h.node)) (if (slot < params.len) params[slot] else null) else ty;
+        // literal). A view read through is read here, in argument order.
+        // A value lent has the parameter's type.
+        const shown: ?TypeId = if (lent) (if (slot < params.len) params[slot] else null) else ty;
         if (shown) |t| if (!ptr) {
             try self.w.writeAll(": ");
-            try self.emitTypeTy(if (self.readsThrough(h.node)) self.peelBorrows(t) else t);
+            try self.emitTypeTy(if (self.readsThrough(h.node)) self.peelViews(t) else t);
         };
         try self.w.writeAll(" = ");
-        if (fields) try self.emitStored(h.node) else if (self.sema.arrayViewOf(h.node) == .temporary) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
+        if (fields) try self.emitStored(h.node) else if (self.sema.lendsTempArray(h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
         try self.w.writeAll(";\n");
+        if (mutable) try self.line("_ = &{s};", .{h.name});
+        if (kind == .value or kind == .optional or mutable) try self.poisonAtExit(h.name);
         const k = kind orelse return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
         try self.line("var {s} = true;", .{h.flag});
         try self.writeIndent(self.indent);
@@ -4759,16 +5284,9 @@ pub const Emitter = struct {
         try self.hoisted.append(self.allocator, h);
     }
 
-    /// Whether `e` is a value its statement's slot keeps (`dropsTemp`), or
-    /// a field or element of one: storage that lives until the statement
-    /// ends.
+    /// `storage.keptInSlot`.
     fn keptInSlot(self: *Emitter, e: Sexp) bool {
-        var p = unborrowed(e);
-        while (true) {
-            if (self.sema.dropsTemp(p)) return true;
-            if (!p.isKind(.member) and !p.isKind(.index)) return false;
-            p = unborrowed(ir.get(p, .object));
-        }
+        return storage.keptInSlot(self.sema, e);
     }
 
     /// The address of `e` in its statement's slot (`keptInSlot`).
@@ -4938,7 +5456,7 @@ pub const Emitter = struct {
     }
 
     /// Whether a `print`, `Text(...)`, or `add` argument `a` reads a
-    /// place that owns storage, or is borrowed from one: a local, or a
+    /// place that owns storage, or is lent from one: a local, or a
     /// field or element of one (not a slice, which is a new value).
     fn printsByAddress(self: *Emitter, a: Sexp) bool {
         const place = switch (a) {
@@ -4951,7 +5469,7 @@ pub const Emitter = struct {
             else => false,
         };
         const ty = self.typeOf(a) orelse return false;
-        return place and self.kindOf(self.peelBorrows(ty)) != null;
+        return place and sema.readByAddress(self.sema, self.peelViews(ty));
     }
 
     // =========================================================================
@@ -5068,8 +5586,8 @@ pub const Emitter = struct {
             switch (c.mode) {
                 .cap_clone => {
                     try self.writeLocalPlace(&outer);
-                    // A borrowed handle clones the handle it borrows.
-                    const kind = if (outer.kind) |k| k else if (outer.ty) |t| self.kindOf(self.peelBorrows(t)) else null;
+                    // A viewed handle clones the handle it views.
+                    const kind = if (outer.kind) |k| k else if (outer.ty) |t| self.kindOf(self.peelViews(t)) else null;
                     if (kind) |k| switch (k) {
                         .shared => try self.w.writeAll(".cloneStrong()"),
                         .weak => try self.w.writeAll(".cloneWeak()"),
@@ -5080,41 +5598,41 @@ pub const Emitter = struct {
                     try self.writeLocalPlace(&outer);
                     try self.w.writeAll(".weakRef()");
                 },
-                .cap_move => if (outer.is_ptr and self.isPtrBorrowTy(c.ty)) {
-                    // A moved pointer borrow moves the pointer.
+                .cap_move => if (outer.is_ptr and self.isPtrViewTy(c.ty)) {
+                    // A moved pointer view moves the pointer.
                     try self.w.writeAll(outer.zig_name);
                 } else try self.writeTake(&outer),
-                .cap_read, .cap_write => try self.writeCapturedBorrow(&outer, c.ty),
+                .cap_read, .cap_write => try self.writeCapturedView(&outer, c.ty),
                 else => try self.writeLocalPlace(&outer),
             }
         }
         try self.w.writeAll(" }");
     }
 
-    /// `|?x|` / `|!x|`: the borrow of local `outer` a closure holds, of
+    /// `|?x|` / `|!x|`: the view of local `outer` a closure holds, of
     /// type `ty`, as `?x` / `!x` gives it: a pointer, or for a read
-    /// borrow of plain data, the value.
-    fn writeCapturedBorrow(self: *Emitter, outer: *const Local, ty: TypeId) Error!void {
+    /// view of plain data, the value.
+    fn writeCapturedView(self: *Emitter, outer: *const Local, ty: TypeId) Error!void {
         // `|?f|` of a stack closure lends its environment.
         if (outer.stack_closure) if (sema.callableFn(self.sema, ty)) |f| {
             try self.emitCallableTy("FnRef", f);
             return self.w.print(".of(@TypeOf({s}), &{s})", .{ outer.zig_name, outer.zig_name });
         };
-        const outer_borrows = if (outer.ty) |t| switch (self.sema.types.get(t)) {
-            .borrow_read, .borrow_write => true,
+        const outer_is_view = if (outer.ty) |t| switch (self.sema.types.get(t)) {
+            .read_view, .write_view => true,
             else => false,
         } else false;
-        // A `![]T` is the slice itself; a borrow of a borrow passes it on.
-        if (sema.writeSliceElem(self.sema, ty) != null or (outer_borrows and (self.isPtrBorrowTy(ty) or !outer.is_ptr))) {
+        // A `![]T` is the slice itself; a view of a view passes it on.
+        if (sema.writeSliceElem(self.sema, ty) != null or (outer_is_view and (self.isPtrViewTy(ty) or !outer.is_ptr))) {
             return self.w.writeAll(outer.zig_name);
         }
-        if (self.genericReadBorrow(ty) != null) {
+        if (self.genericReadView(ty) != null) {
             try self.w.writeAll("rig.lend(");
             if (!outer.is_ptr) try self.w.writeAll("&");
             try self.w.writeAll(outer.zig_name);
             return self.w.writeAll(")");
         }
-        if (self.isPtrBorrowTy(ty)) {
+        if (self.isPtrViewTy(ty)) {
             if (!outer.is_ptr) try self.w.writeAll("&");
             return self.w.writeAll(outer.zig_name);
         }
@@ -5137,7 +5655,7 @@ pub const Emitter = struct {
         const caps = try self.captureInfo(ir.Lambda.captures(lambda));
         const id = self.nextId();
         const env = try self.fmt("__rig_Env_{d}", .{id});
-        const env_ptr = try self.fmt("__rig_env_{d}", .{id});
+        const env_ptr = try self.hiddenStorage(lambda, .closure_env, .owned, .{ .id = id });
 
         try self.w.print("__rig_closure_{d}: ", .{id});
         try self.openBrace();
@@ -5159,7 +5677,7 @@ pub const Emitter = struct {
 
     /// The runtime type behind a function type: `rig.Closure(&.{ A, B }, R)`
     /// for an owned closure `*fun(A, B) -> R`, `rig.FnRef(...)` for a
-    /// borrowed callable `?fun(A, B) -> R`.
+    /// callable view `?fun(A, B) -> R`.
     fn emitCallableTy(self: *Emitter, comptime runtime_type: []const u8, f: sema.FunctionType) Error!void {
         try self.w.writeAll("rig." ++ runtime_type ++ "(&.{");
         for (f.params, 0..) |p, i| {
@@ -5171,9 +5689,9 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// `e`, lent where a borrowed callable of function type `fn_ty` is
+    /// `e`, lent where a callable view of function type `fn_ty` is
     /// expected (`SemContext.callableOf`): a function, as
-    /// `rig.FnRef(...).ofFn(f)`, or a borrowed owned closure, as
+    /// `rig.FnRef(...).ofFn(f)`, or a viewed owned closure, as
     /// `.ofClosure(handle)`. A closure literal was hoisted
     /// (`hoistClosure`).
     fn emitLentCallable(self: *Emitter, e: Sexp, fn_ty: TypeId) Error!void {
@@ -5181,16 +5699,16 @@ pub const Emitter = struct {
         try self.emitCallableTy("FnRef", f);
         const ty = self.typeOf(e) orelse return self.unsupported(e, "an untyped callable");
         try self.w.writeAll(if (sema.ownedClosureFn(self.sema, ty) != null) ".ofClosure(" else ".ofFn(");
-        const saved = self.lent;
-        defer self.lent = saved;
-        self.lent = e;
+        const saved = self.lending;
+        defer self.lending = saved;
+        self.lending = e;
         try self.emitExpr(e);
         try self.w.writeAll(")");
     }
 
     /// `?f` where `f` is a stack closure, a function value, or already a
-    /// borrowed callable: the `rig.FnRef` of function type `fn_ty`.
-    fn emitLend(self: *Emitter, operand: Sexp, fn_ty: TypeId) Error!void {
+    /// callable view: the `rig.FnRef` of function type `fn_ty`.
+    fn emitFnRef(self: *Emitter, operand: Sexp, fn_ty: TypeId) Error!void {
         const ty = self.typeOf(operand) orelse return self.unsupported(operand, "an untyped callable");
         if (sema.callableFn(self.sema, ty) != null) return self.emitExpr(operand);
         const f = self.sema.types.get(fn_ty).function;
@@ -5204,15 +5722,16 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// A closure literal lent to the call being hoisted as a borrowed
+    /// A closure literal lent to the call being hoisted as a viewed
     /// callable: its environment `__rig_env_N`, dropped when the call's
     /// block ends if it owns what it captured, and the `rig.FnRef`
     /// lending it, the argument `h.name`.
     fn hoistClosure(self: *Emitter, h: Hoisted, fn_ty: TypeId) Error!void {
-        const env = try self.fmt("__rig_env_{d}", .{self.nextId()});
+        const env = try self.hiddenStorage(h.node, .environment, .owned, .next);
         try self.writeIndent(self.indent);
         const owns = try self.emitStackClosure(env, h.node);
         try self.w.writeAll("\n");
+        try self.poisonAtExit(env);
         if (owns) try self.line("defer rig.dropFields(&{s});", .{env});
         try self.writeIndent(self.indent);
         try self.w.print("const {s} = ", .{h.name});
@@ -5263,17 +5782,17 @@ pub const Emitter = struct {
                 try self.w.writeAll("anyerror!");
                 try self.emitTypeTy(inner);
             },
-            .borrow_read => |inner| {
+            .read_view => |inner| {
                 if (sema.callableFn(ctx, ty)) |f| return self.emitCallableTy("FnRef", f);
-                if (self.genericReadBorrow(ty) != null) {
-                    try self.w.writeAll("rig.ReadBorrow(");
+                if (self.genericReadView(ty) != null) {
+                    try self.w.writeAll("rig.ReadView(");
                     try self.emitTypeTy(inner);
                     return self.w.writeAll(")");
                 }
-                if (self.readBorrowIsPtr(inner)) try self.w.writeAll("*const ");
+                if (self.readViewIsPtr(inner)) try self.w.writeAll("*const ");
                 try self.emitTypeTy(inner);
             },
-            .borrow_write => |inner| {
+            .write_view => |inner| {
                 // A `![]T` is the Zig slice itself, writable.
                 if (sema.writeSliceElem(ctx, ty)) |elem| {
                     try self.w.writeAll("[]");
@@ -5402,34 +5921,28 @@ pub const Emitter = struct {
         return ty;
     }
 
-    /// The function type of a function, closure, or borrowed callable.
+    /// `storage.fnType`.
     fn fnType(self: *Emitter, ty: ?TypeId) ?sema.FunctionType {
-        const t = ty orelse return null;
-        return switch (self.sema.types.get(t)) {
-            .function => |f| f,
-            else => sema.callableFn(self.sema, t),
-        };
+        return storage.fnType(self.sema, ty);
     }
 
-    fn peelBorrows(self: *Emitter, ty: TypeId) TypeId {
-        return sema.unwrapBorrows(self.sema, ty);
+    fn peelViews(self: *Emitter, ty: TypeId) TypeId {
+        return sema.unwrapViews(self.sema, ty);
     }
 
-    /// The payload fields of variant `vname` of an enum type.
+    /// `storage.variantPayload`.
     fn variantPayload(self: *Emitter, enum_ty: TypeId, vname: []const u8) ?[]const sema.Field {
-        const decl = sema.nominalDecl(self.sema, enum_ty) orelse return null;
-        for (decl.symbol().fields orelse return null) |f| {
-            if (f.is_variant and std.mem.eql(u8, f.name, vname)) return f.payload orelse &.{};
-        }
-        return null;
+        return storage.variantPayload(self.sema, enum_ty, vname);
     }
 
-    /// How a value of this type is released, or null for plain data.
-    /// Sema decides whether it owns anything (`typeHasDropGlue`, or
-    /// `maybeDropGlue` for values of a type parameter, which `rig.drop`
-    /// releases only if the instance needs it); this only picks the call.
+    /// How a value of this type that moves (`sema.moves`) is held and
+    /// released, or null for a value that copies. A value that moves gets
+    /// `var` storage, owned `as` and payload bindings, and an owned
+    /// closure environment; the kind picks its drop call. `rig.drop`
+    /// releases only what needs cleanup: a unique value, or a value of a
+    /// type parameter whose instance needs none, drops nothing.
     fn kindOf(self: *Emitter, ty: TypeId) ?ResourceKind {
-        if (!sema.typeHasDropGlue(self.sema, ty) and !sema.maybeDropGlue(self.sema, ty)) return null;
+        if (sema.moves(self.sema, ty) == .no) return null;
         return switch (self.sema.types.get(ty)) {
             .shared => .shared,
             .weak => .weak,
@@ -5439,13 +5952,13 @@ pub const Emitter = struct {
     }
 
     fn isBuiltinInstance(self: *Emitter, ty: TypeId, sym_id: SymbolId) bool {
-        return switch (self.sema.types.get(self.peelBorrows(ty))) {
+        return switch (self.sema.types.get(self.peelViews(ty))) {
             .parameterized_nominal => |pn| pn.sym == sym_id,
             else => false,
         };
     }
 
-    /// A Cell holding a Vec, reached by value, borrow, or shared handle.
+    /// A Cell holding a Vec, reached by value, view, or shared handle.
     fn isCellVecTy(self: *Emitter, ty: TypeId) bool {
         const cell = switch (self.sema.types.get(sema.unwrapReadAccess(self.sema, ty))) {
             .parameterized_nominal => |pn| if (pn.sym == self.sema.cell_sym_id and pn.args.len == 1) pn.args[0] else return false,
@@ -5459,14 +5972,14 @@ pub const Emitter = struct {
     }
 
     fn isStructLike(self: *Emitter, ty: TypeId) bool {
-        return switch (self.sema.types.get(self.peelBorrows(ty))) {
+        return switch (self.sema.types.get(self.peelViews(ty))) {
             .nominal, .parameterized_nominal, .imported_nominal => true,
             else => false,
         };
     }
 
     fn hasLen(self: *Emitter, ty: TypeId) bool {
-        const peeled = self.peelBorrows(ty);
+        const peeled = self.peelViews(ty);
         return switch (self.sema.types.get(peeled)) {
             .array, .slice, .string => true,
             else => self.isVecTy(peeled),
@@ -5488,7 +6001,7 @@ pub const Emitter = struct {
     /// An error set (local or imported) or any error: its members are
     /// spelled `error.name`.
     fn isErrorSetTy(self: *Emitter, ty: TypeId) bool {
-        const t = self.peelBorrows(ty);
+        const t = self.peelViews(ty);
         return self.sema.types.get(t) == .any_error or sema.isErrorSet(self.sema, t);
     }
 
@@ -5526,7 +6039,7 @@ pub const Emitter = struct {
         for (operands) |o| if (self.isNoneLeaf(o)) return false;
         for (operands) |o| {
             const ty = self.typeOf(o) orelse continue;
-            const t = self.peelBorrows(ty);
+            const t = self.peelViews(ty);
             const scalar = switch (self.sema.types.get(t)) {
                 .optional => |inner| self.isScalarTy(inner) and !self.isErrorSetTy(inner),
                 else => self.isScalarTy(t),
@@ -5540,9 +6053,9 @@ pub const Emitter = struct {
     /// of one.
     fn isPayloadEnumOperand(self: *Emitter, e: Sexp) bool {
         const ty = self.typeOf(e) orelse return false;
-        const t = switch (self.sema.types.get(self.peelBorrows(ty))) {
+        const t = switch (self.sema.types.get(self.peelViews(ty))) {
             .optional => |inner| inner,
-            else => self.peelBorrows(ty),
+            else => self.peelViews(ty),
         };
         return self.hasPayloadVariants(t);
     }
@@ -5572,7 +6085,7 @@ pub const Emitter = struct {
         var generic = false;
         for (operands) |o| {
             const ty = self.typeOf(o) orelse continue;
-            const t = self.peelBorrows(ty);
+            const t = self.peelViews(ty);
             switch (self.sema.types.get(t)) {
                 .string, .slice => bytes = true,
                 else => generic = generic or sema.containsTypeVar(self.sema, t),
@@ -5599,7 +6112,7 @@ pub const Emitter = struct {
         var builtin: []const u8 = "@divTrunc";
         for ([2]Sexp{ left, right }) |e| {
             const ty = self.typeOf(e) orelse continue;
-            switch (self.sema.types.get(self.peelBorrows(ty))) {
+            switch (self.sema.types.get(self.peelViews(ty))) {
                 .float, .float_literal => return null,
                 .type_var => builtin = "rig.div",
                 else => {},
@@ -5624,6 +6137,12 @@ pub const Emitter = struct {
     fn line(self: *Emitter, comptime f: []const u8, args: anytype) Error!void {
         try self.writeIndent(self.indent);
         try self.w.print(f ++ "\n", args);
+    }
+
+    /// `defer rig.poison(&name);` for the hidden `var` `name` (`poison`),
+    /// written before its drop's `defer`, so it runs after the drop.
+    fn poisonAtExit(self: *Emitter, name: []const u8) Error!void {
+        if (self.poison) try self.line("defer rig.poison(&{s});", .{name});
     }
 
     /// Report a construct the emitter cannot lower. Sema is responsible
@@ -5801,7 +6320,7 @@ fn isPlainIdent(name: []const u8) bool {
 }
 
 /// Whether Zig could evaluate `e` at compile time: it is built only from
-/// literals, compile-time names (compile-time parameters, `=!` constants),
+/// literals, compile-time names (compile-time parameters, `const` bindings),
 /// constructors, and operators. Conservative: true when unsure.
 fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
     if (depth > 32) return true;
@@ -5848,12 +6367,7 @@ fn isIntZeroText(t: []const u8) bool {
     return v == 0;
 }
 
-/// Literal source text: numbers, quoted strings, and the value keywords.
-fn isLiteralText(t: []const u8) bool {
-    if (t.len == 0) return false;
-    if (std.ascii.isDigit(t[0]) or t[0] == '"' or t[0] == '\'' or t[0] == '.') return true;
-    return std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false");
-}
+const isLiteralText = storage.isLiteralText;
 
 /// An integer or float literal.
 fn isNumberText(t: []const u8) bool {
@@ -5867,60 +6381,15 @@ fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
     return t.len > 0;
 }
 
-/// Whether a `match !x` binding of a field of type `ty` points at the
-/// field: every field but a borrow or slice, which is bound as it is.
-fn fieldIsPointee(ctx: *const sema.SemContext, ty: TypeId) bool {
-    return switch (ctx.types.get(ty)) {
-        .borrow_read, .borrow_write, .slice => false,
-        else => true,
-    };
-}
+const fieldIsPointee = storage.fieldIsPointee;
 
-/// `e` without the borrow sigils around it.
-fn unborrowed(e: Sexp) Sexp {
-    var x = e;
-    while (x.isKind(.read) or x.isKind(.write)) x = ir.get(x, .operand);
-    return x;
-}
+const lentPlace = storage.lentPlace;
 
-/// Storage with an owner: a name, a field or element, or a borrow of one.
-fn isPlace(e: Sexp) bool {
-    const h = e.kind() orelse return e == .src;
-    return h == .member or h == .index or h == .read or h == .write;
-}
+const argValue = storage.argValue;
 
-/// The value of a call argument: a `(kwarg name value)` stands for its value.
-fn argValue(a: Sexp) Sexp {
-    return if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
-}
+const actsBeforeStore = storage.actsBeforeStore;
 
-/// Whether the value of an assignment, or an index of its target, can
-/// act when it runs: call, assign, drop, or leave. Then the order of the
-/// value, the indexes, and the store is observable (`openAssign`).
-fn actsBeforeStore(target: Sexp, value: Sexp) bool {
-    const acts = &[_]Tag{ .call, .builtin, .set, .drop, .@"return", .@"break", .@"continue", .propagate, .propagate_none };
-    if (contains(value, acts)) return true;
-    var e = target;
-    while (true) switch (e.kind() orelse return false) {
-        .member => e = ir.Member.object(e),
-        .index => {
-            if (contains(ir.Index.index(e), acts)) return true;
-            e = ir.Index.object(e);
-        },
-        else => return false,
-    };
-}
-
-/// Whether `e` holds a node of one of `kinds`, outside the closures in it.
-fn contains(e: Sexp, kinds: []const Tag) bool {
-    if (e != .list) return false;
-    if (e.kind()) |h| {
-        if (h == .lambda) return false;
-        if (std.mem.findScalar(Tag, kinds, h) != null) return true;
-    }
-    for (e.items()) |c| if (contains(c, kinds)) return true;
-    return false;
-}
+const contains = storage.contains;
 
 /// The same IR node: the same leaf, or the same list.
 fn sameNode(a: Sexp, b: Sexp) bool {
@@ -5928,16 +6397,6 @@ fn sameNode(a: Sexp, b: Sexp) bool {
         .src => |s| b == .src and b.src.pos == s.pos,
         .list => b == .list and a.items().ptr == b.items().ptr,
         else => false,
-    };
-}
-
-/// Statements that produce a value (and can end a value block).
-fn isValueStmt(s: Sexp) bool {
-    const h = s.kind() orelse return true;
-    return switch (h) {
-        .set, .drop, .pass, .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .block, .@"while", .@"for", .labeled => false,
-        .@"if" => ir.If.@"else"(s) != .nil,
-        else => true,
     };
 }
 

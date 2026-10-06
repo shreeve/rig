@@ -1,0 +1,21 @@
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum E
+  a(r: Res)
+  b
+
+sub main
+  e = E.a(r: Res(n: 1))
+  match e
+    .a(r) => print("in", r.n)
+    .b => pass
+  print("after")
+  b = Box(E.a(r: Res(n: 2)))
+  match ?b
+    .a(r) => print("in", r.n)
+    .b => pass
+  print("end")

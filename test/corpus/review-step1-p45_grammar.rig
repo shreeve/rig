@@ -1,0 +1,25 @@
+struct unique
+  n: Int
+
+pub struct S unique # comment
+  unique: Int
+
+  fun get(?self) -> Int
+    self.unique
+
+struct W[T] unique
+  item: T
+
+struct Z
+  unique: Bool
+
+sub main()
+  u = unique(n: 1)
+  s = S(unique: 2)
+  w = W(item: 3)
+  v = <w
+  z = Z(unique: true)
+  print(u.n, s.get(), v.item, z.unique)
+  t = <s
+  print(t.unique)
+  x = w

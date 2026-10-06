@@ -1,0 +1,12 @@
+# nested consuming loops over [2][2]Text with breaks at both levels
+sub main
+  a = [[Text("a"), Text("b")], [Text("c"), Text("d")]]
+  for row in <a
+    for x in <row
+      print(x)
+      break
+    if row_done(1)
+      break
+
+fun row_done(n: Int) -> Bool
+  n == 1

@@ -1,0 +1,7 @@
+fun first[T](xs: ?Vec[T]) -> T
+  xs[0]
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  print(first(?v))

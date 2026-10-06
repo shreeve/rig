@@ -1,5 +1,5 @@
-# A struct may hold a write borrow (a view): writes through the view
-# reach the borrowed value, whether the view is built locally, returned
+# A struct may hold a write view (a view): writes through the view
+# reach the viewed value, whether the view is built locally, returned
 # from a function, nested in another struct, passed on, or rebound.
 
 struct Wrap

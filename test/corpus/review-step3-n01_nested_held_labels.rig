@@ -1,0 +1,44 @@
+struct Noisy
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct H
+  arr: [2]Counter
+  z: Noisy
+
+fun mk(n: Int) -> H
+  H(arr: [Counter(hits: Cell(n)), Counter(hits: Cell(n + 1))], z: Noisy(n: n))
+
+fun find() -> Int
+  :outer for k in mk(10).arr
+    for j in mk(20).arr
+      j.hit()
+      if j.hits.get() == 22
+        return k.hits.get()
+      if j.hits.get() == 21
+        continue :outer
+  -1
+
+sub main
+  :outer for k in mk(0).arr
+    for j in mk(100).arr
+      if j.hits.get() == 101
+        break :outer
+      k.hit()
+      print("in", k.hits.get(), j.hits.get())
+  print("then")
+  print(find())
+  x = for k in mk(50).arr
+    if k.hits.get() == 51
+      break k.hits.get()
+  else
+    0
+  print(x)

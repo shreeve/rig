@@ -1,0 +1,6 @@
+sub main
+  n = 1
+  o: (?Int)? = ?n
+  n = 2
+  if o as r
+    print(r)

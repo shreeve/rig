@@ -1,0 +1,69 @@
+# A view held by pointer lifted into an optional of that view stays the
+# pointer: bound, assigned, passed, stored in a field, and returned.
+
+struct Counter
+  hits: Cell[Int]
+
+struct P
+  x: Int
+
+struct H
+  o: (?Counter)?
+
+enum E
+  a(c: Counter, n: Int)
+  b
+
+fun show(o: (?Counter)?) -> Int
+  if o as s
+    return s.hits.get()
+  0
+
+fun deep(r: ?Counter) -> ((?Counter)?)?
+  r
+
+fun pick(r: ?Counter) -> (?Counter)?
+  r
+
+sub main()
+  a = Counter(hits: Cell(5))
+  r = ?a
+  saved: (?Counter)? = none
+  saved = r
+  if saved as s
+    print(s.hits.get())
+  decl: (?Counter)? = r
+  print(show(decl), show(r), show(pick(r)))
+  h = H(o: r)
+  h.o = r
+  print(show(h.o))
+  arr = [Counter(hits: Cell(0)), Counter(hits: Cell(7))]
+  print(show(?arr[1]))
+  e = E.a(c: Counter(hits: Cell(4)), n: 1)
+  match !e
+    .a(c, _) => print(show(c))
+    .b => pass
+  p = P(x: 1)
+  pr = ?p
+  ps: (?P)? = none
+  ps = pr
+  if ps as q
+    print(q.x)
+  nested: ((?Counter)?)? = r
+  nested = r
+  if nested as n1
+    if n1 as n2
+      print(n2.hits.get())
+  if deep(r) as d1
+    if d1 as d2
+      print(d2.hits.get())
+
+# expect:
+# 5
+# 5 5 5
+# 5
+# 7
+# 4
+# 1
+# 5
+# 5

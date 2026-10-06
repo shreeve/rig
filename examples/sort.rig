@@ -1,7 +1,7 @@
 # Sorting with a comparator: a closure passed to a function. The
-# parameter `less: ?fun(?T, ?T) -> Bool` borrows something to call, so
+# parameter `less: ?fun(?T, ?T) -> Bool` views something to call, so
 # the literal is written bare in the call and nothing is allocated. Its
-# captures say what it borrows for the call: `|!compares|` counts into a
+# captures say what it views for the call: `|!compares|` counts into a
 # local while `sort` runs. `map` infers `U` from what the literal
 # returns.
 

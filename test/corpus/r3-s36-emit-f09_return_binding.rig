@@ -1,0 +1,10 @@
+# `return e` where e is an error binding: fails, but reads as returning a value.
+error E
+  bad
+
+fun f() -> Int!
+  e = E.bad
+  return e
+
+sub main
+  print(f() catch -1)

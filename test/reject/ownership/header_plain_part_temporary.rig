@@ -1,0 +1,33 @@
+# A part of a value made in a header that is plain data is read in the
+# header, whose temporaries end with it: a payload that views a
+# temporary made there cannot outlive the header (Core §3).
+#
+# oracle: main reject C5
+
+struct Res
+  n: Int
+  t: Text
+
+  drop(!self)
+    print("drop", self.n)
+
+enum E
+  a(r: ?Res)
+  b
+
+struct H
+  e: E
+
+fun mkh(r: ?Res) -> H
+  H(e: E.a(r: r))
+
+fun mkres(n: Int) -> Res
+  Res(n: n, t: Text("abc"))
+
+sub main
+  match mkh(?mkres(1)).e
+    .a(r) => print("a", r.n, r.t)
+    .b => pass
+  print("end")
+
+# error: 28:14: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the argument to a name first

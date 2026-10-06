@@ -1,0 +1,10 @@
+use std.random
+
+struct W
+  r: random.Random
+  n: Int
+
+sub main()
+  a = W(r: random.Random.seeded(3), n: 1)
+  b = W(r: random.Random.seeded(3), n: 1)
+  print(a == b)

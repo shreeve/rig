@@ -6,7 +6,7 @@ sub other()
   print(s)
 
 sub main()
-  s =! "hello"
+  const s = "hello"
   f = |+s|
     print(s)
   f()

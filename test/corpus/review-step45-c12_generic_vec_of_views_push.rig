@@ -1,0 +1,11 @@
+# generic push of a view into a Vec[T] with T = String; source dropped later
+sub add[T](v: !Vec[T], x: T)
+  !v.push(<x)
+
+sub main
+  t = Text("x")
+  v: Vec[String] = Vec()
+  s: String = ?t
+  add(!v, s)
+  -t
+  print(v)

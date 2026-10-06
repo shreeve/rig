@@ -1,0 +1,22 @@
+# c01, minimal and v0.1.4-compatible: `match pick(?mkh(k))`, where `pick`
+# returns a view into the header's own temporary. The match reads the
+# tag and the plain payload in the arms, after the header block ended
+# (and, here, after `mkh(k)`, which owns a Text, was dropped).
+enum E
+  a(n: Int)
+  b
+
+struct H
+  e: E
+  t: Text
+
+fun mkh(k: Int) -> H
+  H(e: E.a(n: k), t: Text("a text long enough to live on the heap"))
+
+fun pick(h: ?H) -> ?E
+  ?h.e
+
+sub main
+  match pick(?mkh(7))
+    .a(n) => print("a", n)
+    .b => print("b")

@@ -1,0 +1,31 @@
+# An argument lent to a call whose arguments are evaluated first, as the
+# view its parameter expects (a Text temporary as a `String`, a Box as
+# the value it holds), is held as that view, never as the owner: the
+# statement's slot keeps and drops the owner.
+
+fun g(k: Int) -> Int
+  print("g")
+  k
+
+fun pick(s: String, n: Int) -> String
+  if n > 0
+    return s
+  "none"
+
+struct P
+  x: Int
+  t: Text
+
+fun px(p: ?P, n: Int) -> Int
+  p.x + n
+
+sub main
+  print(pick(n: g(1), s: Text("hello world, long enough to be on the heap")))
+  b = Box(P(x: 40, t: Text("t")))
+  print(px(n: g(2), p: b))
+
+# expect:
+# g
+# hello world, long enough to be on the heap
+# g
+# 42

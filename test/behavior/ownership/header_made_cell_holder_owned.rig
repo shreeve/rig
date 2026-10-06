@@ -1,0 +1,61 @@
+# A value a `for`, `if … as`, or `match` header makes is taken, and so is
+# the made value the subject is a part of (Core §3): each element or
+# payload is the body's own, a place a `?self` method changes (Core s9),
+# and `<k` moves it out.
+#
+# oracle: loops accept
+# oracle: ifs accept
+
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct H
+  o: Counter?
+  arr: [2]Counter
+
+fun two() -> [2]Counter
+  [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+
+fun mkh() -> H
+  H(o: Counter(hits: Cell(10)), arr: two())
+
+sub loops()
+  x = for k in two()
+    k.hit()
+    if k.hits.get() > 3
+      break k.hits.get()
+  else
+    0
+  print(x)
+  keep: Counter? = none
+  for k in [Counter(hits: Cell(7)), Counter(hits: Cell(8))]
+    k.hit()
+    keep = <k
+  if <keep as c
+    print(c.hits.get())
+  for k in mkh().arr
+    k.hit()
+    print(k.hits.get())
+
+sub ifs()
+  if H(o: Counter(hits: Cell(0)), arr: two()).o as c
+    c.hit()
+    print(c.hits.get())
+  if mkh().o as c
+    c.hits.set(20)
+    print(c.hits.get())
+
+sub main()
+  loops()
+  ifs()
+
+# expect:
+# 6
+# 9
+# 1
+# 6
+# 1
+# 20

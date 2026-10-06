@@ -1,0 +1,9 @@
+struct Item
+  n: Int
+
+fun apply(f: ?fun(it: ?Item) -> Int, x: ?Item) -> Int
+  f(x)
+
+sub main
+  i = Item(n: 3)
+  print(apply(|it: ?Item| it.n, ?i))

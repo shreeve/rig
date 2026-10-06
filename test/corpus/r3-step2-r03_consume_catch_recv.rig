@@ -1,0 +1,19 @@
+error E
+  bad
+
+struct Bag
+  items: Vec[Int]
+
+  fun total(<self) -> Int
+    self.items.len
+
+fun mk(ok: Bool) -> Bag!
+  if not ok
+    return E.bad
+  Bag(items: Vec())
+
+sub main
+  d = Bag(items: Vec())
+  !d.items.push(4)
+  print((mk(false) catch d).total())
+  print(d.items[0])

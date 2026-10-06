@@ -1,0 +1,15 @@
+# A write-receiver method call needs the receiver not lent.
+
+struct User
+  age: Int
+
+  sub bump(!self, by: Int)
+    self.age = self.age + by
+
+sub main()
+  u = User(age: 1)
+  r = ?u
+  !u.bump(1)
+  print(r.age)
+
+# error: cannot lend `u` to write while a read loan is live

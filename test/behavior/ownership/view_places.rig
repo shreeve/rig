@@ -1,0 +1,42 @@
+# Assigning a view to a place that holds one points it elsewhere;
+# assigning a value writes through it: locals and fields alike (Core §6).
+
+struct H
+  w: !Int
+
+  sub point(!self, to: !Int)
+    self.w = to
+
+sub main
+  m = 1
+  n = 2
+  w = !m
+  w = 5
+  w = !n
+  w = 6
+  w2 = !m
+  w = <w2
+  w = 7
+  print(m, n)
+  a = [1, 2]
+  b = [3, 4]
+  s = !a
+  s[0] = 9
+  s = !b
+  s[0] = 8
+  print(a, b)
+  h = H(w: !m)
+  h.w = !n
+  h.w = 3
+  print(n)
+  k = 1
+  g = H(w: !k)
+  !g.point(!n)
+  g.w = 4
+  print(m, n, k)
+
+# expect:
+# 7 6
+# [9, 2] [8, 4]
+# 3
+# 7 3 4

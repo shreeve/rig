@@ -45,9 +45,9 @@ happens, as a one-character **sigil**:
 | `e!` | propagate failure | `e?` | `try e` |
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 
-The same characters prefix types: `?T` and `!T` are borrows, `*T` a
+The same characters prefix types: `?T` and `!T` are views, `*T` a
 shared handle, `~T` a weak one. As suffixes, `T?` is an optional and
-`T!` a `T` that may fail. So a prefix `?` or `!` always borrows and a
+`T!` a `T` that may fail. So a prefix `?` or `!` always lends and a
 suffix always means absence or failure, and `!` never means "not"
 (that is `not`).
 
@@ -55,8 +55,9 @@ suffix always means absence or failure, and `!` never means "not"
 
 - The `?` or `!` is written on the owner (`print(?v)`, `grow(!v)`), so
   the owner **lends**.
-- What the receiver gets is a **view**, which it may copy, return, or
-  store.
+- What the receiver gets is a **view**: it reads the value, or with
+  `!` changes it. The receiver may return or store it; a read view also
+  copies, while a write view moves, so only one can change the value.
 - What stays behind is a **loan**: until the last use of every view,
   the owner can't change, move, or drop what it lent.
 
@@ -65,7 +66,7 @@ the side the sigil is on ([CORE](docs/CORE.md)).
 
 A reader sees every move, lend, clone, drop, and failure path on the
 line where it happens, and the compiler checks each one: no use after
-move, no double free, no dangling borrow, no leak. The one leak it does
+move, no double free, no dangling view, no leak. The one leak it does
 not prevent is a cycle of strong handles, as in Rust and Swift; a weak
 handle breaks it.
 
@@ -100,7 +101,7 @@ returns nothing. The last expression of a `fun` is its value. `1..7`
 counts from 1 up to, not including, 7. `print` takes any number of
 values and separates them with spaces.
 
-### Structs, methods, and borrows
+### Structs, methods, and lending
 
 ```rig
 struct Account
@@ -210,7 +211,7 @@ sub main
 
 A closure has no keyword: it starts with its bar list. Each captured
 name carries a sigil that says how it is held: `+step` copies, `<x`
-would move, `?x` and `!x` would borrow, and `~x` would hold a handle
+would move, `?x` and `!x` would lend, and `~x` would hold a handle
 weakly. `*Cell[Int]` is a shared cell, the way to share state that
 changes (a `*Signal` also tells its subscribers).
 
@@ -230,21 +231,22 @@ The [README](README.md#install) says how to build `bin/rig`.
 
 Rig's ownership model is Rust's, with two differences you notice at
 once: every transfer is written (`<x` moves; a bare name moves an
-owning value only out of a function, in `return x` or as its last
-value), and there is no lifetime syntax (the checker follows
-where each borrow came from instead). Its cost model is Zig's: the
-emitted program is plain Zig, with no runtime beyond a small support
-file.
+owning value only in `return x`, or as the last value of the function
+or block that declares it), and there is no lifetime syntax (the
+checker follows where each view came from instead). Its cost model is
+Zig's: the emitted program is plain Zig, with no runtime beyond a small
+support file.
 
 | Idea | Rust | Zig | Rig |
 |---|---|---|---|
-| binding | `let x = 1;` | `const x = 1;` | `x = 1` (fixed: `x =! 1`) |
+| binding | `let x = 1;` | `const x = 1;` | `x = 1` (fixed: `const x = 1`) |
 | reassignment | `let mut x = 1;` then `x = 2;` | `var x: i64 = 1;` then `x = 2;` | `x = 1`, then `x = 2` |
 | typed binding | `let x: u8 = 1;` | `const x: u8 = 1;` | `x: U8 = 1` |
 | shadowing | `let x = x + 1;` | not allowed | `new x = x + 1` |
 | function | `fn f(a: i64) -> i64 { a }` | `fn f(a: i64) i64 { return a; }` | `fun f(a: Int) -> Int` / `  a` |
 | no result | `fn f() {}` | `fn f() void {}` | `sub f` |
 | fallible, no result | `fn f() -> Result<(), E>` | `fn f() !void` | `sub f()!` |
+| result views one argument | `fn f<'a>(a: &'a T, b: &T) -> &'a T` | (no check) | `fun f(a: ?T, b: ?T) -> ?T from a` |
 | call | `f(a)` | `f(a)` | `f(a)` |
 | struct literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
 | method receiver | `&self`, `&mut self`, `self` | `self: *const P`, `self: *P`, `self: P` | `?self`, `!self`, `<self` |
@@ -258,7 +260,7 @@ file.
 | fallible | `Result<T, E>` | `E!T` | `T!` |
 | propagate | `f()?` | `try f()` | `f()!` |
 | handle | `f().unwrap_or(0)` | `f() catch 0` | `f() catch 0` |
-| borrow | `&x`, `&mut x` | `&x` | `?x`, `!x` |
+| lend | `&x`, `&mut x` | `&x` | `?x`, `!x` |
 | slice | `&v[a..b]`, `&mut v[a..]` | `v[a..b]`, `v[a..]` | `?v[a..b]`, `!v[a..]` |
 | reference count | `Rc::new(x)`, `Rc::clone(&r)` | by hand | `*x`, `+r` |
 | weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `w.upgrade()` |
@@ -405,7 +407,7 @@ sub main
 ```
 
 ```error
-Rig has no `let`; bind a name with `x = 5`, or `x =! 5` for a fixed binding
+Rig has no `let`; bind a name with `x = 5`, or `const x = 5` for one that never changes
 ```
 
 A block's header takes no `:`, a comment starts with `#`, and `i++`
@@ -486,7 +488,7 @@ sub main
 unexpected name `x`; `print` is called with parentheses: `print(...)`
 ```
 
-**`!` is not "not".** Prefix `!` is a write borrow; negation is `not`.
+**`!` is not "not".** Prefix `!` lends to write; negation is `not`.
 Where it would start a condition, or an operand of `and`, `or`, or
 `not`, the habit is an error:
 
@@ -498,7 +500,7 @@ sub main
 ```
 
 ```error
-`!` is a write borrow; use `not` for negation
+`!` lends to write; use `not` for negation
 ```
 
 **`&&` and `||`.** They are `and` and `or`; for an optional's fallback,
@@ -530,7 +532,7 @@ sub main
 ```
 
 ```error
-method `bump` requires a write-borrowed receiver
+method `bump` needs its receiver lent to write
 ```
 
 **Moves without `<`.** A bare name moves an owning value only out of a
@@ -572,9 +574,10 @@ fun twice(s: String) -> Int!
 ```
 
 **`+` on strings.** A `String` is a view of text it does not own, so
-there is nothing for `+` to write into. Text is built in a `Text`,
-which owns its bytes: `Text(a, b)` writes each value as `print` would,
-and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
+there is nothing for `+` to write into. Rig's `String` is Go's or
+Odin's `string`; Rust's `String` is Rig's `Text`. Text is built in a
+`Text`, which owns its bytes: `Text(a, b)` writes each value as
+`print` would, and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
 
 ```rig reject
 sub main

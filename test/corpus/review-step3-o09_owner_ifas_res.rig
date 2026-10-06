@@ -1,0 +1,22 @@
+struct Res
+  n: Int
+  t: Text
+
+struct H
+  o: Res?
+  d: Res
+
+fun get(h: ?H) -> ?Res
+  if h.o as r
+    return ?r
+  ?h.d
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  h = H(o: Res(n: 1, t: Text("x")), d: Res(n: 0, t: Text("d")))
+  x = get(?h)
+  print(clobber(1000))
+  print(x.n, x.t)

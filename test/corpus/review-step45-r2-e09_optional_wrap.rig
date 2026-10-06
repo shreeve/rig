@@ -1,0 +1,20 @@
+# H3: generic loop over ?Vec[T], body: push into Vec[T] by bare x
+struct S
+  t: Text
+
+struct Holder[T]
+  x: T?
+
+
+
+fun cp[T](v: ?Vec[T]) -> Vec[T]
+  out: Vec[T] = Vec()
+  for x in v
+    !out.push(x)
+  <out
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  print(cp(?v))

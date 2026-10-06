@@ -1,0 +1,7 @@
+sub main
+  a = 1
+  b = 2
+  xs = [?a, ?b]
+  for r in xs
+    a = 5
+    print(r)

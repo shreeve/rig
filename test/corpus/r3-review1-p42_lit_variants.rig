@@ -1,0 +1,13 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct H
+  arr: [2]Counter
+
+sub main()
+  for k in H(arr: [Counter(hits: Cell(0)), Counter(hits: Cell(5))]).arr
+    k.hit()
+  print("a")

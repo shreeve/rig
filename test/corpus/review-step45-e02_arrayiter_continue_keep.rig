@@ -1,0 +1,9 @@
+# continue, and moving x into a Vec
+sub main
+  a = [Text("a"), Text("b"), Text("c")]
+  keep: Vec[Text] = Vec()
+  for x in <a
+    if x == "b"
+      continue
+    !keep.push(<x)
+  print(keep)

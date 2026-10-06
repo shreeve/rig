@@ -1,0 +1,13 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  o: Counter? = Counter(hits: Cell(0))
+  n = 0
+  while o as c
+    if ?o as d
+      d.hits.set(9)
+    print(c.hits.get())
+    n += 1
+    if n > 0
+      break

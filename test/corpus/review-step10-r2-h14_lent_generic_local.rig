@@ -1,0 +1,20 @@
+# H1: in a generic body, a `T` local lent implicitly to a `?T`
+# parameter. In a hoisted call (keyword arguments out of order) it is
+# held as `&x`, a `*T`; for `T = Int` a `?T` is the value (`rig.lend`).
+fun g(k: Int) -> Int
+  k
+
+fun pick[T](q: ?T, n: Int) -> ?T from q
+  q
+
+fun direct[T](x: T) -> Int
+  print(pick(x, 1))
+  1
+
+fun hoisted[T](x: T) -> Int
+  print(pick(n: g(1), q: x))
+  1
+
+sub main
+  print(direct(5))
+  print(hoisted(5))

@@ -1,0 +1,9 @@
+# re-point at an inner-scope local, then write after it is gone
+sub main
+  m = Text("m")
+  w = !m
+  if true
+    k = Text("k")
+    w = !k
+  !w.add("!")
+  print(m)

@@ -1,0 +1,21 @@
+# H3: generic loop over ?Vec[T], body: Box(x)
+struct S
+  t: Text
+
+struct Holder[T]
+  x: T?
+
+
+
+fun bx[T](v: ?Vec[T]) -> Int
+  n = 0
+  for x in v
+    b = Box(x)
+    n += 1
+  n
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  print(bx(?v))

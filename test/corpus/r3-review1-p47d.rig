@@ -1,0 +1,26 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub bumpa(s: ?[1]Counter)
+  s[0].hit()
+
+sub bumps(s: []Counter)
+  i = 0
+  s[i].hit()
+  s[0].hits.get()
+
+fun look(s: []Counter) -> Int
+  bumpc(?s[0])
+  s[0].hits.get()
+
+sub bumpc(c: ?Counter)
+  c.hit()
+
+sub main()
+  a = [Counter(hits: Cell(0))]
+  a[0].hit()
+  bumpa(?a)
+  print(a[0].hits.get(), look(?a))

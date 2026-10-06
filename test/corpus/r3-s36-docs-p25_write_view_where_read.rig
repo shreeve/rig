@@ -1,0 +1,15 @@
+# DESIGN "Absorption": a !T is accepted where a ?T is expected
+struct P
+  x: Int
+
+fun read_x(p: ?P) -> Int
+  p.x
+
+sub bump(p: !P)
+  print(read_x(p))
+  p.x += 1
+
+sub main
+  a = P(x: 1)
+  bump(!a)
+  print(a.x)

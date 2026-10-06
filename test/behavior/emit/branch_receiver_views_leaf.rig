@@ -1,0 +1,87 @@
+# A `?self` method called on a value that branches, whose leaves are
+# names holding values read by address, runs on the leaf the branch
+# takes, where it is: a view it returns views that leaf, not a copy, and
+# stays good after other calls reuse the stack. So does a field, an
+# element, or a method reached through such a value, for `a if c else
+# b`, `o ?? a`, `e catch a`, and `o?`, and for a receiver evaluated
+# before keyword arguments.
+
+struct S
+  t: Text
+  xs: [4]Int
+
+  fun inner(?self) -> ?Text
+    ?self.t
+
+  fun arr(?self) -> ?[4]Int
+    ?self.xs
+
+  fun pick(?self, x: Int, y: Int) -> ?Text
+    ?self.t
+
+error E
+  bad
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun say(n: Int) -> Int
+  print("arg", n)
+  n
+
+fun maybe(c: Bool) -> S?
+  if c
+    return S(t: Text("oo"), xs: [9, 9, 9, 9])
+  none
+
+fun fails(c: Bool) -> S!
+  if c
+    return E.bad
+  S(t: Text("ff"), xs: [8, 8, 8, 8])
+
+fun first(c: Bool) -> Int?
+  o = maybe(c)
+  r = o?.inner()
+  print(clobber(3))
+  print(r)
+  r.len
+
+sub main
+  a = S(t: Text("aa"), xs: [1, 2, 3, 4])
+  b = S(t: Text("bb"), xs: [5, 6, 7, 8])
+  c = a.t.len == 2
+  r = (a if c else b).inner()
+  s = (b if c else a).arr()
+  print(clobber(1000))
+  print(r, s)
+  ts = [S(t: Text("t0"), xs: [0, 0, 0, 0]), S(t: Text("t1"), xs: [1, 1, 1, 1])]
+  us = [S(t: Text("u0"), xs: [0, 0, 0, 0]), S(t: Text("u1"), xs: [1, 1, 1, 1])]
+  print((ts if c else us)[1].inner(), clobber(2000))
+  o = maybe(true)
+  n = maybe(false)
+  u = (o ?? a).inner()
+  v = (n ?? b).inner()
+  print(clobber(3000))
+  print(u, v)
+  print((fails(false) catch a).inner(), (fails(true) catch b).inner())
+  print(first(true) ?? 0, first(false) ?? 0)
+  w = (a if say(0) == 0 and c else b).pick(y: say(1), x: say(2))
+  print(clobber(4000))
+  print(w, (a if c else b).t.len, (a if c else b).xs[2])
+
+# expect:
+# 1001
+# aa [5, 6, 7, 8]
+# t1 2001
+# 3001
+# oo bb
+# ff bb
+# 4
+# oo
+# 2 0
+# arg 0
+# arg 1
+# arg 2
+# 4001
+# aa 2 3

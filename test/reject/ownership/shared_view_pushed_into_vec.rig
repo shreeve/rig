@@ -1,5 +1,5 @@
 # Pushing a shared view into a Vec makes the Vec hold that view's
-# borrow.
+# view.
 
 struct Wrap
   payload: Int
@@ -18,4 +18,4 @@ sub main()
   for v in ?vs
     print(v.b.payload)
 
-# error: cannot drop `a` while borrows are live
+# error: cannot drop `a` while it is lent

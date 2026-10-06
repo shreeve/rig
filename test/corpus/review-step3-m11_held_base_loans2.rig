@@ -1,0 +1,21 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: ?Res)
+  b
+
+struct H
+  e: E
+
+fun mkh(r: ?Res) -> H
+  H(e: E.a(r: r))
+
+sub main
+  x = Res(n: 1, t: Text("a"))
+  match mkh(?x).e
+    .a(r)
+      x = Res(n: 2, t: Text("b"))
+      print(r.n)
+    .b => pass

@@ -1,0 +1,6 @@
+fun first(s: String) -> String
+  s[..1]
+
+sub main
+  h = *Text("hello")
+  print(first(?h))

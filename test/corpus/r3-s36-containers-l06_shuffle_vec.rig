@@ -1,0 +1,9 @@
+use std.random
+
+sub main
+  r = random.Random.seeded(1)
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  !r.shuffle(!v)
+  print(v.len)

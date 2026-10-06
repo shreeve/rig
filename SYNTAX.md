@@ -154,11 +154,12 @@ not used.
 | Role | Keywords |
 |---|---|
 | declarations | `fun` `sub` `struct` `enum` `error` `type` `use` `pub` `extern` `test` `drop` |
+| bindings | `const` |
 | control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` `pass` |
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
 | boundaries | `raw` `zig` (in `extern zig`) |
 | reserved forms | `try`, and `zig` elsewhere |
-| held for later | `async` `await` `const` `impl` `trait` `when` `where` `yield` |
+| held for later | `async` `await` `impl` `trait` `when` `where` `yield` |
 
 A keyword may still name a member, where it cannot be mistaken for the
 keyword: a struct field, a method, or a payload field. It reads as a
@@ -196,11 +197,15 @@ fun f(in: Int) -> Int
 `in` is a keyword and cannot name a parameter
 ```
 
-Three words are keywords only in one position. `new` is a keyword at
-the start of a statement (`new x = ...`), so a method may be named
-`new`. `of` is a keyword only after a value directly inside `[ ]`,
+Six words are keywords only in one position. `new` is a keyword at
+the start of a statement (`new x = ...`, `new const x = ...`), so a
+method may be named `new`. `of` is a keyword only after a value directly inside `[ ]`,
 where it separates a fill literal's count from its element
-(`[n of x]`). `none` is a reserved name, the absent optional. The words
+(`[n of x]`). `unique` is a keyword only after a struct's name or type
+parameters (`struct Random unique`). `from` is a keyword only after a
+function's result type (`-> ?Item from a`), and `static` only right
+after that `from`; a parameter or a local may be named either. `none`
+is a reserved name, the absent optional. The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
@@ -292,10 +297,10 @@ a prefix `-` touches its operand: write `-b`
 ```
 
 Tokens split by the longest match, as in C and Zig, so `a == b` is not
-`a = = b`. `=!` is one token, so `x =!y` could be a fixed binding of `y`
-or `x = !y`, a write borrow; a `=!` touching the operand after it is
-rejected. A sigil after the `]` of an array or slice type starts its
-element type: in `[2]?Int`, the `?` borrows each element.
+`a = = b`. `=!` is one token and no operator: `x =! y` and `x =!y` are
+rejected, so `x =!y` never passes for `x = !y`, a write lend. A sigil
+after the `]` of an array or slice type starts its element type: in
+`[2]?Int`, each element is a read view.
 
 Postfixes bind tighter than prefixes: `-a.len` is `-(a.len)`, and
 `+n.first()` clones what `first` returns. The one exception is a
@@ -309,25 +314,25 @@ the method's receiver. Postfixes after the call apply to its result.
 
 | Long form | Short form | Meaning |
 |---|---|---|
-| `(!v).push(x)` | `!v.push(x)` | write-borrow `v`, then push |
+| `(!v).push(x)` | `!v.push(x)` | lend `v` to write, then push |
 | `(!self.items).push(k)` | `!self.items.push(k)` | a field of `self` in a `!self` method |
 | `(!grid[r]).bump()` | `!grid[r].bump()` | an element, changed in place |
 | `(!v).put[2](x)` | `!v.put[2](x)` | a method with compile-time arguments |
 | `((!v).pop())?` | `!v.pop()?` | the suffix applies to the result |
 | `while (!q).pop() as j` | `while !q.pop() as j` | the loop binds what `pop` returns |
 | `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
-| `(?p).dist(q)` | `?p.dist(q)` | read-borrow `p`; the same as `p.dist(q)` |
+| `(?p).dist(q)` | `?p.dist(q)` | lend `p` to read; the same as `p.dist(q)` |
 
 Only `?`, `!`, and `<` reach the receiver, since they are the modes a
 method declares (`?self`, `!self`, `<self`). Every other prefix, and
 `?`, `!`, or `<` with no method call after the place, applies to the
 whole expression: `*Point.origin()` shares the new `Point`, `-a.len`
-negates the length, `!x.v` borrows the field, `<p.f` moves the field,
-and `?xs[0]` borrows the element. With parentheses around the call,
-`?(p.m())` borrows its result. The long form is valid everywhere; it is
-required where a write-borrowing call returning `Bool` would start a
-condition, `if (!set).insert(k)`, so that it never reads as negation
-([SPEC §3](SPEC.md#structs) has the checks).
+negates the length, `!x.v` lends the field, `<p.f` moves the field,
+and `?xs[0]` lends the element. With parentheses around the call,
+`?(p.m())` lends its result. The long form is valid everywhere; it is
+required for a write call whose `Bool` value is used, `if
+(!set).insert(k)` or `added = (!set).insert(k)`, so that its `!` never
+reads as negation ([SPEC §3](SPEC.md#structs) has the checks).
 
 ```rig
 struct Stack
@@ -384,7 +389,7 @@ From lowest to highest precedence:
 `not` binds looser than a comparison, so `not a == b` is
 `not (a == b)`. `as` binds tighter than `and`, in a condition that
 binds ([§10](#conditions-that-bind)). There is no `&&`, `||`, `**`,
-`++`, or `--`, and prefix `!` is a write borrow, never "not". What each
+`++`, or `--`, and prefix `!` lends to write, never "not". What each
 operator does, and which types it takes, is in
 [SPEC §5](SPEC.md#operators).
 
@@ -396,8 +401,8 @@ operator does, and which types it takes, is in
 | a generic instance | `Vec[Int]`, `Pair[Int, String]`, `Ring[Int, 4]`, `lib.Wrap[Int]` | [SPEC §3](SPEC.md#generic-types) |
 | optional | `T?` | a `T` or `none` |
 | fallible | `T!` | a `T` or an error; a return type only |
-| read borrow | `?T` | [SPEC §7](SPEC.md#borrows) |
-| write borrow | `!T` | |
+| read view | `?T` | [SPEC §7](SPEC.md#lending) |
+| write view | `!T` | |
 | shared handle | `*T` | [SPEC §9](SPEC.md#9-shared-and-weak-handles) |
 | weak handle | `~T` | |
 | array | `[4]Int`, `[LIMIT * 2]U8`, `[n]T` | a length known at compile time |
@@ -406,7 +411,7 @@ operator does, and which types it takes, is in
 | function | `fun(Int, Int) -> Int`, `sub(String)`, `sub(Int)!` | [SPEC §11](SPEC.md#function-types) |
 | owned closure | `*fun(Int) -> Int`, `*sub()` | |
 | weak closure | `~fun(Int) -> Int` | |
-| borrowed callable | `?fun(Int) -> Int`, `?sub(Int)` | a parameter's, a local's, or a result's type |
+| callable view | `?fun(Int) -> Int`, `?sub(Int)` | a parameter's, a local's, or a result's type |
 
 The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),
@@ -417,10 +422,10 @@ what each holds. `Text`, owned text, is a built-in type
 **How the sigils combine.** The handle sigils `*` and `~` bind to the
 type after them, tighter than the suffixes: `*User?` is an optional
 shared handle and `~User?` an optional weak handle, while a handle to
-an optional is written `*(User?)`. A borrow applies to the whole type
-after it, suffixes included: `?User?` and `!User?` borrow an optional,
-and `?*User?` borrows an optional handle. Prefixes compose right to
-left: `?*Node` is a read borrow of a shared handle, and
+an optional is written `*(User?)`. A view sigil applies to the whole
+type after it, suffixes included: `?User?` and `!User?` view an
+optional, and `?*User?` views an optional handle. Prefixes compose right
+to left: `?*Node` is a read view of a shared handle, and
 `*Cell[Vec[*sub()]]` a shared cell holding a list of owned closures.
 The element of a slice or array takes the suffixes (`[]Int?` is a slice
 of optionals), and a function type takes none, so an optional slice,
@@ -505,6 +510,10 @@ sign -1
 - A function with no parameters may leave out the empty `()`:
   `sub main` is `sub main()`, and the docs write the shorter one.
 - The body's last expression is its value; `return e` leaves early.
+- A result that holds a view may say which parameters it views, after
+  its type: `-> ?Item from a`, `-> String from a, b`, `-> ?T from
+  self`, or `-> String from static` for only what lives for the whole
+  program ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - Compile-time parameters go in brackets after the name:
   `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]`
   ([Generics](#generics-and-compile-time-parameters)).
@@ -559,6 +568,24 @@ The sigil shorthand is only for `self`; other parameters put the sigil
 on the type (`other: ?Point`). A drop body is written like a method
 with the receiver `!self` and no name: `drop(!self)`. `pub` before a
 field or method exports it: `pub x: Int`, `pub fun sum(?self) -> Int`.
+
+`unique` after the name (or the type parameters) declares a unique
+struct, whose values move instead of copying
+([SPEC](SPEC.md#kinds-of-value)):
+
+```rig
+struct Ticket unique
+  id: Int
+
+sub main
+  t = Ticket(id: 7)
+  u = <t
+  print(u.id)
+```
+
+```output
+7
+```
 
 ### Enums
 
@@ -698,7 +725,7 @@ big 7 2.0
 
 A binding at module level is a constant: `LIMIT = 10`,
 `names = ["low", "high"]`, `pub unit: U8 = 10`. It is written with `=`,
-never `=!` ([SPEC §3](SPEC.md#constants)).
+never `const` ([SPEC §3](SPEC.md#constants)).
 
 ### Tests
 
@@ -721,24 +748,25 @@ declarations without bodies, which that Zig file implements
 
 | Form | Meaning |
 |---|---|
-| `x = e` | declare `x`, or assign the visible `x` (through it, when `x` holds a write borrow) |
+| `x = e` | declare `x`, or assign the visible `x` (through it, when `x` holds a write view) |
 | `x: T = e` | declare with a type |
-| `x =! e`, `x: T =! e` | declare a fixed `x`, which cannot be reassigned |
-| `new x = e` | declare a new `x` shadowing the visible one; `e` may read the old |
+| `const x = e`, `const x: T = e` | declare a fixed `x`, which cannot be reassigned |
+| `new x = e`, `new x: T = e`, `new const x = e` | declare a new `x` shadowing the visible one; `e` may read the old |
 | `x = <y` | move `y` into `x` |
 | `x += e`, and `-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `&=` `\|=` `^=` `<<=` `>>=` | compound assignment |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it |
 
-There is no `let`, `var`, or `const`. The first `x = e` in a scope
-declares `x`, and later ones assign it. `x =! e` reads as "set,
-dammit!": this value, final.
+There is no `let` or `var`. The first `x = e` in a scope declares `x`,
+and later ones assign it. `const x = e` declares a binding that never
+changes, in a function body; at module level every binding is already
+constant.
 
 ```rig
 sub main
   x = 1
   x = x + 1
-  limit =! 10
+  const limit = 10
   new x = "now a string"
   total = 0
   total += limit
@@ -902,13 +930,12 @@ sub main
 
 | Loop | Element |
 |---|---|
-| `for x in xs` | a copy of each element of an array, slice, or String |
-| `for x in ?v` | each element of a Vec, read in place |
-| `for x in !xs` | a write borrow of each element |
+| `for x in xs`, `for x in ?xs` | each element read in place: a copy of plain data, a view of anything else |
+| `for x in !xs` | a write view of each element |
 | `for x in <v` | each element of a Vec, owned; `v` is consumed |
 
-A Vec is always walked with a sigil; [SPEC §6](SPEC.md#for) has the
-rules. An `else` block runs when the loop ends without `break`.
+A source made there (`for x in mk()`) is taken; [SPEC §6](SPEC.md#for)
+has the rules. An `else` block runs when the loop ends without `break`.
 
 ### Labels, break, and continue
 
@@ -1023,7 +1050,7 @@ stop
 ```
 
 The subject takes a sigil the way a `for` source does: `match e` and
-`match ?e` read the payloads, `match !e` binds write borrows of them,
+`match ?e` read the payloads, `match !e` binds write views of them,
 and `match <e` consumes `e` ([SPEC §6](SPEC.md#match)).
 
 ### defer and errdefer
@@ -1055,10 +1082,10 @@ An `if` or `while` condition binds the value inside an optional with
 | Form | Binds |
 |---|---|
 | `if a as x` | the value inside `a`; `else` runs for `none` |
-| `if ?a as x`, `if !a as x` | a read or write borrow of the value inside `a` |
+| `if ?a as x`, `if !a as x` | a read or write view of the value inside `a` |
 | `if <p.f as x` | the value taken out of a field, which is left `none` |
 | `while a as x` | each value `a` produces |
-| `while !q.pop() as x` | what a write-borrowing call returns |
+| `while !q.pop() as x` | what a call that lends its receiver to write returns |
 | `if a as x and x > 0 and b as y` | in order, each part only when the ones before it held |
 | `if a as _` | nothing: a test for a value |
 
@@ -1182,7 +1209,7 @@ as `print` writes it: `Text("n=", n)`, or `Text()` for an empty one.
 | `xs[i]` | an element, bounds-checked |
 | `s[a..b]` | a slice of a String, itself a String |
 | `?xs[a..b]`, `!xs[a..b]` | a read or write slice of an array or Vec |
-| `?t[a..b]` | a String viewing a Text, which it borrows |
+| `?t[a..b]` | a lend of part of a Text: a String viewing it |
 | `xs[a..]`, `xs[..b]`, `xs[..]` | a slice with an open side |
 | `?a` where a `[]T` is expected | `?a[..]`; `!a` where a `![]T` is |
 | `?t` where a String is expected | `?t[..]` of a Text |
@@ -1304,8 +1331,8 @@ the same sigil means the same thing in every position:
 | type | `?T` | `!T` | | | `~T` |
 | receiver | `?self` | `!self` | `<self` | | |
 | method call | `p.m()` | `!p.m()` | `<p.m()` | | |
-| `for` source | `for x in ?v` | `for x in !v` | `for x in <v` | | |
-| `match` subject | `match ?e` | `match !e` | `match <e` | | |
+| `for` source | `for x in v` | `for x in !v` | `for x in <v` | | |
+| `match` subject | `match e` | `match !e` | `match <e` | | |
 | closure capture | `\|?x\|` | `\|!x\|` | `\|<x\|` | `\|+x\|` | `\|~x\|` |
 | assignment | | | `a = <b` | | |
 
@@ -1313,7 +1340,7 @@ the same sigil means the same thing in every position:
 value, `*Point(x: 1)` for a new one). `-x` as a whole statement drops
 `x`; where a value is expected, it negates. A sigil may reach into a
 place: `+p.a` clones the handle in a field, `<p.f` takes an optional
-field, and `?xs[0]` borrows an element. [SPEC §7](SPEC.md#7-ownership)
+field, and `?xs[0]` lends an element. [SPEC §7](SPEC.md#7-ownership)
 says what each does.
 
 ### Closures
@@ -1324,9 +1351,9 @@ names with optional types:
 
 | Entry | Meaning |
 |---|---|
-| `+x` | capture a copy of a Copy value, or a clone of a handle |
+| `+x` | capture a copy of plain data, or a clone of a handle |
 | `<x` | move `x` in |
-| `?x`, `!x` | borrow `x` to read or write |
+| `?x`, `!x` | lend `x` to read or write |
 | `~x` | hold a shared handle weakly |
 | `a`, `a: Int` | a parameter |
 | `\|\|` | an empty list |
@@ -1376,7 +1403,7 @@ A parameter's type, and the result's, may come from context;
 
 The suffix names the kind of early exit: `?` for `none`, `!` for a
 failure, so a line shows which one it can take. Note the direction:
-`?x` (prefix) borrows, and `x?` (suffix) unwraps.
+`?x` (prefix) lends, and `x?` (suffix) unwraps.
 
 ### Blocks as values
 
@@ -1414,33 +1441,34 @@ comma-separated list (which may end with a comma), `tail-closure` is a
 closure whose body assigns, and `INDENT` / `DEDENT` are the block
 structure. The checker narrows a few forms the grammar accepts: a `fun`
 needs `->`, a `drop` body takes `!self`, a module-level binding
-takes no `=!`, and a label goes only on a loop, `match`, or `raw`
+takes no `const`, and a label goes only on a loop, `match`, or `raw`
 block.
 
 ```text
 program   = decl*
-decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | test | const)
+decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | test | constant)
           | use | extern
 use       = "use" ["std" "."] name ["as" name]
-fun       = "fun" name [tparams] [params] "->" type block
+fun       = "fun" name [tparams] [params] "->" type [from] block
+from      = "from" (name, ... | "static")
 sub       = "sub" name [tparams] [params] ["!"] block
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
 params    = "(" [param, ...] ")"
 param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "self"
-struct    = "struct" name [tparams] INDENT member* DEDENT
+struct    = "struct" name [tparams] ["unique"] INDENT member* DEDENT
 enum      = "enum" name [tparams] INDENT member* DEDENT
 member    = ["pub"] (field | fun | sub) | variant | "drop" params block
 field     = name ":" type ["=" expr]
 variant   = name | name "=" expr | name params
 errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type
-const     = name [":" type] "=" tail
+constant  = name [":" type] "=" tail
 test      = "test" string block
-extern    = "extern" "fun" name [params] ["->" type]
+extern    = "extern" "fun" name [params] ["->" type [from]]
           | "extern" "sub" name [params]
           | "extern" name ":" type
           | "extern" "zig" string INDENT (["pub"] zdecl)* DEDENT
-zdecl     = "fun" name [tparams] [params] ["->" type]
+zdecl     = "fun" name [tparams] [params] ["->" type [from]]
           | "sub" name [tparams] [params] ["!"]
 
 type      = ("?" | "!") type | ptype | tsuffix
@@ -1457,8 +1485,8 @@ cunit     = integer | name | name "." name | "(" cexp ")"
 block     = INDENT stmt* DEDENT
 stmt      = decl | ":" name stmt | simple ["if" value]
 simple    = tail | assign
-          | postfix "=!" tail | name ":" type ("=" | "=!") tail
-          | "new" name "=" tail | "-" name | "pass"
+          | name ":" type "=" tail | "const" name [":" type] "=" tail
+          | "new" ["const"] name [":" type] "=" tail | "-" name | "pass"
           | "return" [tail] | "break" [":" name] [tail] | "continue" [":" name]
           | ("defer" | "errdefer") (simple | block) | "raw" block
 assign    = postfix ("=" | "+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%="

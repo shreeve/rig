@@ -1,0 +1,46 @@
+# An element of type `!T` is written through the way a `!T` field is:
+# assigning a `T` value, or a compound assignment, writes the viewed
+# place (dropping the value it held), while assigning a `!T` points the
+# element elsewhere.
+
+struct A
+  a: [2]!Int
+
+sub main
+  i = 1
+  n = 1
+  m = 2
+  k = 0
+  xs = [!n, !m]
+  xs[0] = 9
+  xs[1] += 1
+  xs[i] += 5
+  xs[i] *= 2
+  xs[0] /= 2
+  xs[i] = !k
+  xs[i] += 3
+  print(n, m, k)
+  p = 10
+  q = 20
+  s = A(a: [!p, !q])
+  s.a[0] += 1
+  s.a[i] = s.a[0] * 2
+  print(p, q)
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  u: Vec[Int] = Vec()
+  ws = [!v, !u]
+  w: Vec[Int] = Vec()
+  !w.push(7)
+  !w.push(8)
+  ws[0] = <w
+  ws[i] = Vec[Int]()
+  !ws[i].push(4)
+  print(ws[0].len, ws[1].len)
+  print(v, u)
+
+# expect:
+# 4 16 3
+# 11 22
+# 2 1
+# [7, 8] [4]

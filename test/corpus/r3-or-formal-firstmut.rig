@@ -1,0 +1,14 @@
+struct Item
+  n: Int
+
+fun pick(a: !Item, b: !Item) -> !Item
+  b.n += 1
+  a
+
+sub main
+  x = Item(n: 1)
+  y = Item(n: 2)
+  r = pick(!x, !y)
+  y.n = 7
+  r.n = 9
+  print(x.n, y.n)

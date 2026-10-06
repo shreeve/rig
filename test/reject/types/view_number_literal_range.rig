@@ -1,0 +1,9 @@
+# A lent literal must fit the viewed type.
+
+fun h(b: ?U8) -> Int
+  Int(b)
+
+sub main
+  print(h(?300))
+
+# error: 7:12: integer value `300` does not fit in `U8` (0..255)

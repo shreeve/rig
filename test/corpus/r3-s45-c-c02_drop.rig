@@ -1,0 +1,14 @@
+struct File
+  name: Text
+
+  drop(!self)
+    print("closing", self.name)
+
+struct Holder
+  f: File
+
+sub main
+  a = File(name: Text("a"))
+  b = +a
+  hs: Vec[Holder] = Vec()
+  c = +hs

@@ -1,0 +1,10 @@
+# H3: -x of the generic loop binding (T = Text) must be rejected per instance
+sub dropall[T](v: ?Vec[T])
+  for x in v
+    -x
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  dropall(?v)
+  print(v)

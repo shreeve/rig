@@ -1,0 +1,21 @@
+struct Set
+  items: Vec[Int]
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.items
+      return false if x == k
+    !self.items.push(k)
+    true
+
+sub show(b: Bool)
+  print("show", b)
+
+sub main
+  s = Set(items: Vec())
+  match !s.insert(1)
+    true => print("C reader: not inserted?")
+    false => print("dup")
+  show(!s.insert(1))
+  arr = [!s.insert(2), !s.insert(2)]
+  print(arr)
+  x = !s.insert(3) == true
+  print(x)

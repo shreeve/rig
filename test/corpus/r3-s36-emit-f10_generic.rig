@@ -1,0 +1,9 @@
+# A generic function returning Int! whose body ends with a T value; T filled by an error set.
+error E
+  bad
+
+fun f[T](x: T) -> Int!
+  x
+
+sub main
+  print(f(E.bad) catch -1)

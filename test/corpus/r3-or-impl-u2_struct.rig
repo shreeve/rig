@@ -1,0 +1,15 @@
+struct Pair
+  a: ?Vec[Int]
+  b: ?Vec[Int]
+
+fun second(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+  h = Pair(a: a, b: b)
+  h.b
+
+sub main
+  x: Vec[Int] = Vec()
+  y: Vec[Int] = Vec()
+  r = second(?x, ?y)
+  !x.push(1)
+  !y.push(1)
+  print(r.len)

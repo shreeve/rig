@@ -1,0 +1,11 @@
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+sub main
+  a = [C(c: Cell(0)), C(c: Cell(0))]
+  a[0].hit()
+  a[0].c.set(a[0].c.get() + 10)
+  print(a[0].c.get(), a[1].c.get())

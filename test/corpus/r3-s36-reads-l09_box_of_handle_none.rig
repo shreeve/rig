@@ -1,0 +1,9 @@
+struct S
+  n: Int
+
+sub bump(s: !S)
+  s.n += 1
+
+sub main
+  h = *S(n: 3)
+  bump(!h)

@@ -1,0 +1,12 @@
+struct S
+  n: Int
+  v: Vec[Int]
+
+fun get(s: (?S)?) -> Int
+  if s as x
+    return x.n
+  0
+
+sub main
+  o: S? = S(n: 3, v: Vec())
+  print(get(?o))

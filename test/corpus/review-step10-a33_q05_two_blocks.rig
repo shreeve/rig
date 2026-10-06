@@ -1,0 +1,23 @@
+# a32 with two such call blocks in one statement, the first's result read
+# after the second block runs: if Zig reused the first block's rvalue
+# slot, `r` would read 6. Expected 5 6.
+struct Q
+  xs: [4]Int
+
+  fun me(?self) -> ?Q
+    self
+
+fun mkq(k: Int) -> Q
+  Q(xs: [k, k, k, k])
+
+fun g(k: Int) -> Int
+  k
+
+fun pick(q: ?Q, n: Int) -> ?Q
+  q
+
+fun both(a: ?Q, b: ?Q) -> Int
+  a.xs[3] * 10 + b.xs[3]
+
+sub main
+  print(both(pick(n: g(1), q: mkq(5).me()), pick(n: g(1), q: mkq(6).me())))

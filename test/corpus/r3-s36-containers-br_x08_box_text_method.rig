@@ -1,0 +1,4 @@
+sub main
+  b = Box(Text("x"))
+  !b.add("y")
+  print(b)

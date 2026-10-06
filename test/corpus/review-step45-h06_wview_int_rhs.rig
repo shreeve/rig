@@ -1,0 +1,9 @@
+# w = w2 for !Int: plain value writes through (sound), check meaning
+sub main
+  a = 1
+  b = 2
+  w = !a
+  w2 = !b
+  w = w2
+  w2 = 9
+  print(a, b)

@@ -1,0 +1,19 @@
+# a function taking !Cur returns a write view of an Item reached through its held write view; called twice (expect reject at b)
+struct Item
+  n: Int
+
+struct Cur
+  items: !Vec[Item]
+
+fun at(c: !Cur) -> !Item
+  !c.items[0]
+
+sub main
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  c = Cur(items: !v)
+  a = at(!c)
+  b = at(!c)
+  a.n = 5
+  b.n = 7
+  print(a.n, b.n)

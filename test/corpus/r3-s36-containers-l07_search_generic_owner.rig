@@ -1,0 +1,11 @@
+use std.slices
+
+struct P
+  x: Int
+
+sub main
+  v: Vec[*P] = Vec()
+  !v.push(*P(x: 1))
+  print(v.len)
+  for p in ?v
+    print(p.x)

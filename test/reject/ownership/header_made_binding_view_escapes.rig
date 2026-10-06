@@ -1,0 +1,79 @@
+# A value a `match` or `for` header makes is taken and held through the
+# statement (Core §3): what the header binds of it is the body's own, so
+# a view of a payload or element does not outlive its arm or iteration,
+# whether the subject is the made value or a part of one.
+#
+# oracle: arm_of_part reject C5
+# oracle: arm_of_made reject C5
+# oracle: arm_of_literal reject C5
+# oracle: loop_of_made reject C5
+# oracle: loop_of_part reject C5
+
+struct P
+  x: Int
+
+enum E
+  a(p: P)
+  b
+
+struct H
+  e: E
+  arr: [2]P
+
+fun mke(n: Int) -> E
+  E.a(p: P(x: n))
+
+fun mkh(n: Int) -> H
+  H(e: mke(n), arr: [P(x: n), P(x: n)])
+
+sub arm_of_part()
+  base = P(x: 1)
+  saved = ?base
+  match mkh(7).e
+    .a(p) => saved = ?p
+    .b => pass
+  print(saved.x)
+
+sub arm_of_made()
+  base = P(x: 1)
+  saved = ?base
+  match mke(7)
+    .a(p) => saved = ?p
+    .b => pass
+  print(saved.x)
+
+sub arm_of_literal()
+  base = P(x: 1)
+  saved = ?base
+  match [E.a(p: P(x: 2)), E.b][0]
+    .a(p) => saved = ?p
+    .b => pass
+  print(saved.x)
+
+sub loop_of_part()
+  base = P(x: 1)
+  saved = ?base
+  for k in mkh(3).arr
+    saved = ?k
+  print(saved.x)
+
+sub loop_of_made()
+  base = P(x: 1)
+  saved = ?base
+  for k in [P(x: 4), P(x: 5)]
+    saved = ?k
+  print(saved.x)
+
+sub main()
+  arm_of_part()
+  arm_of_made()
+  arm_of_literal()
+  loop_of_part()
+  loop_of_made()
+
+# error: 33:23: `p` does not live long enough
+# error: 41:23: `p` does not live long enough
+# error: 49:23: `p` does not live long enough
+# error: 57:14: `k` does not live long enough
+# error: 64:14: `k` does not live long enough
+# errors: 5

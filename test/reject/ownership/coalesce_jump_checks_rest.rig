@@ -14,7 +14,7 @@ fun ret(k: Int) -> Int
   eat(<a)
   n
 
-fun borrowed(k: Int) -> Int
+fun lent(k: Int) -> Int
   a: Vec[Int] = Vec()
   r = ?a
   n = make(k) ?? return -1
@@ -37,11 +37,11 @@ sub cont
     print(n)
 
 sub main
-  print(ret(1), borrowed(1))
+  print(ret(1), lent(1))
   brk()
   cont()
 
 # error: 14:8: use of `a` after move
-# error: 21:3: cannot reassign `a` while borrows are live
+# error: 21:3: cannot reassign `a` while it is lent
 # error: 29:10: use of `a` after move
 # error: 36:10: use of `a` after move

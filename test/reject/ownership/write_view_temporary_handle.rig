@@ -1,0 +1,29 @@
+# A handle no binding holds is a temporary: lending it to write would
+# lose the change with it, whether it is a call's result, a moved or
+# cloned handle, or the value inside an optional.
+
+struct P
+  n: Int
+
+fun mk() -> *P
+  *P(n: 1)
+
+sub g(p: !*P)
+  print(p.n)
+
+fun f(o: (*P)?) -> Int?
+  g(!o?)
+  1
+
+sub main
+  g(!mk())
+  h = *P(n: 2)
+  g(!(<h))
+  k = *P(n: 3)
+  g(!(+k))
+  print(f(none) ?? 0)
+
+# error: 15:6: cannot lend a temporary to write: the change would be lost
+# error: 19:6: cannot lend a temporary to write: the change would be lost
+# error: 21:7: cannot lend a temporary to write: the change would be lost
+# error: 23:7: cannot lend a temporary to write: the change would be lost

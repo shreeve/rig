@@ -1,6 +1,6 @@
-# A method taking `!self` may store what its arguments borrow in its
-# receiver only when the receiver's type can hold a borrow: a receiver
-# of plain data keeps none, so the argument's borrow ends with the call.
+# A method taking `!self` may store what its arguments view in its
+# receiver only when the receiver's type can hold a view: a receiver
+# of plain data keeps none, so the argument's view ends with the call.
 
 struct Counter
   n: Int

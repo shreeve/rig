@@ -37,6 +37,8 @@ fn isStrongHandle(comptime T: type) bool {
 /// True when dropping a `T` releases anything. A type owns resources
 /// when it declares `__rig_drop`, is a strong handle, or (for structs,
 /// tagged unions, arrays, and optionals) contains something that does.
+/// The mirror of sema's `typeHasDropGlue` for a Zig type: a unique type
+/// that needs no cleanup drops nothing.
 fn needsDrop(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => isStrongHandle(T),
@@ -60,7 +62,7 @@ fn needsDrop(comptime T: type) bool {
 }
 
 /// True when a `T` holds a `Cell` by value (not behind a pointer or in
-/// a `Vec` or `Signal`).
+/// a `Vec` or `Signal`): the mirror of sema's `holdsCellByValue`.
 fn holdsCell(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .optional => |o| holdsCell(o.child),
@@ -79,32 +81,46 @@ fn holdsCell(comptime T: type) bool {
     };
 }
 
-/// How a read borrow `?T` is held: a copy of a scalar or a view (a
+/// How a read view `?T` is held: a copy of a scalar or a view (a
 /// number, `Bool`, a plain enum, an error, a slice or `String`, a
 /// function, or an optional of one), a pointer to anything else. The
-/// emitter decides this itself for a known `T` (`readBorrowIsPtr`), by
+/// emitter decides this itself for a known `T` (`sema.lendByValue`), by
 /// the same rule, and uses this in a generic type, where `T` depends on
 /// the type arguments.
-pub fn ReadBorrow(comptime T: type) type {
-    return if (needsDrop(T) or holdsCell(T) or !copiedBorrow(T)) *const T else T;
+pub fn ReadView(comptime T: type) type {
+    return if (needsDrop(T) or holdsCell(T) or !copiedByReadView(T)) *const T else T;
 }
 
-fn copiedBorrow(comptime T: type) bool {
+fn copiedByReadView(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer => true,
-        .optional => |o| copiedBorrow(o.child),
+        .optional => |o| copiedByReadView(o.child),
         else => false,
     };
 }
 
-/// A read borrow of what `ptr` points to.
-pub fn lend(ptr: anytype) ReadBorrow(@TypeOf(ptr.*)) {
-    return if (comptime ReadBorrow(@TypeOf(ptr.*)) == @TypeOf(ptr.*)) ptr.* else ptr;
+/// A read view of what `ptr` points to.
+pub fn lend(ptr: anytype) ReadView(@TypeOf(ptr.*)) {
+    return if (comptime ReadView(@TypeOf(ptr.*)) == @TypeOf(ptr.*)) ptr.* else ptr;
 }
 
-/// The `T` a read borrow `?T` reaches.
-pub fn borrowed(comptime T: type, borrow: ReadBorrow(T)) T {
-    return if (comptime ReadBorrow(T) == T) borrow else borrow.*;
+/// The `T` a read view `?T` reaches.
+pub fn viewed(comptime T: type, view: ReadView(T)) T {
+    return if (comptime ReadView(T) == T) view else view.*;
+}
+
+/// Fill hidden storage whose scope has ended with `0xAA` under the
+/// sanitizer, so a view that outlives it reads garbage, not a stale
+/// value; nothing otherwise.
+pub fn poison(ptr: anytype) void {
+    if (comptime !sanitize) return;
+    @memset(std.mem.asBytes(ptr), 0xAA);
+}
+
+/// The `T` a read view `?T`, held where `view` points, reaches:
+/// the value itself when the view is a pointer, else the view's copy.
+pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) *const T {
+    return if (comptime ReadView(T) == T) view else view.*;
 }
 
 /// Release whatever `value` owns: a strong handle drops its count, a
@@ -216,21 +232,23 @@ pub fn eql(a: anytype, b: anytype) bool {
     return eqlAs(T, a, b);
 }
 
-/// A `Text`, or a pointer to one (a borrowed Text).
+/// A `Text`, or a pointer to one (a viewed Text), or a box or shared
+/// handle holding one.
 fn isText(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .@"struct" => @hasDecl(T, "__rig_text") or (@hasDecl(T, "__rig_box") and isText(@TypeOf(@as(T, undefined).value))),
+        .@"struct" => @hasDecl(T, "__rig_text") or ((@hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_rcbox")) and isText(@TypeOf(@as(T, undefined).value))),
         .pointer => |p| p.size == .one and isText(p.child),
         else => false,
     };
 }
 
-/// The bytes of a Text, a borrowed or boxed Text, or a String.
+/// The bytes of a Text, a viewed, boxed, or shared Text, or a String.
 fn textBytes(x: anytype) []const u8 {
     const X = @TypeOf(x);
     if (comptime !isText(X)) return x;
     if (comptime @typeInfo(X) == .pointer) return textBytes(x.*);
     if (comptime @hasDecl(X, "__rig_box")) return textBytes(x.value.*);
+    if (comptime @hasDecl(X, "__rig_rcbox")) return textBytes(x.value);
     return x.list.items;
 }
 
@@ -431,6 +449,37 @@ pub fn WeakHandle(comptime T: type) type {
             self.dropWeak();
         }
     };
+}
+
+/// `+x` of a value that owns: a new value holding a clone of each part,
+/// as `+` gives it: a handle counted again, a Text's bytes and a Vec's
+/// elements copied, a box's value boxed again, plain data copied. Sema
+/// clones only types with no `drop` body and nothing unique
+/// (`sema.cloneable`).
+pub fn cloneValue(value: anytype) @TypeOf(value.*) {
+    const T = @TypeOf(value.*);
+    if (comptime !needsDrop(T)) return value.*;
+    switch (@typeInfo(T)) {
+        .pointer => return value.*.cloneStrong(),
+        .optional => return if (value.*) |*inner| cloneValue(inner) else null,
+        .array => {
+            var out: T = undefined;
+            for (&out, value) |*o, *v| o.* = cloneValue(v);
+            return out;
+        },
+        .@"struct" => |s| {
+            if (comptime @hasDecl(T, "__rig_text") or @hasDecl(T, "__rig_vec")) return value.clone();
+            if (comptime @hasDecl(T, "__rig_box")) return T.init(cloneValue(value.value));
+            if (comptime @hasDecl(T, "cloneWeak")) return value.cloneWeak();
+            var out: T = undefined;
+            inline for (s.field_names) |f| @field(out, f) = cloneValue(&@field(value, f));
+            return out;
+        },
+        .@"union" => switch (value.*) {
+            inline else => |*payload, tag| return @unionInit(T, @tagName(tag), cloneValue(payload)),
+        },
+        else => @compileError("rig: cannot clone " ++ @typeName(T)),
+    }
 }
 
 /// `+x` for an optional handle: another handle to the same box, or null.
@@ -660,11 +709,11 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
 /// `*sub()`: what a Signal notifies.
 const Callback = Closure(&.{}, void);
 
-// A borrowed callable `?fun(A, B) -> R` / `?sub(A)` is a
+// A callable view `?fun(A, B) -> R` / `?sub(A)` is a
 // `FnRef(&.{ A, B }, R)`: a context pointer and a function that calls
 // through it, 16 bytes passed by value. It lends what the caller owns (a
 // stack closure's environment, a function, an owned closure) for as long
-// as the ownership checker lets the borrow live, and owns nothing.
+// as the ownership checker lets the view live, and owns nothing.
 
 pub fn FnRef(comptime params: []const type, comptime R: type) type {
     return struct {
@@ -807,6 +856,16 @@ pub fn Vec(comptime T: type) type {
 
         pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
             try writeList(w, self.items());
+        }
+
+        pub const __rig_vec = {};
+
+        /// `+v`: a new Vec holding a clone of each element (`cloneValue`).
+        pub fn clone(self: *const Self) Self {
+            var out: Self = .empty;
+            out.reserve(self.len);
+            for (self.items()) |*e| out.push(cloneValue(e));
+            return out;
         }
 
         /// The live elements. Invalidated by `push`.
@@ -1053,6 +1112,36 @@ pub fn notNan(x: anytype) @TypeOf(x) {
     return x;
 }
 
+/// `for x in <a` of an array whose elements move: each element handed
+/// over in order; those not handed over (the loop left early) are
+/// dropped, last first, as the array would drop them.
+pub fn ArrayIntoIter(comptime A: type) type {
+    const T = @typeInfo(A).array.child;
+    return struct {
+        items: A,
+        next_index: usize = 0,
+
+        pub fn next(it: *@This()) ?T {
+            if (it.next_index >= it.items.len) return null;
+            const value = it.items[it.next_index];
+            it.next_index += 1;
+            return value;
+        }
+
+        pub fn deinit(it: *@This()) void {
+            var i: usize = it.items.len;
+            while (i > it.next_index) {
+                i -= 1;
+                dropElement(T, &it.items[i]);
+            }
+        }
+    };
+}
+
+pub fn arrayIntoIter(items: anytype) ArrayIntoIter(@TypeOf(items)) {
+    return .{ .items = items };
+}
+
 /// The elements of the array `p` points to, as a slice. Zig rejects
 /// indexing an array of length 0, which an array sized by a compile-time
 /// parameter may be; a slice's index is checked when the program runs.
@@ -1092,7 +1181,7 @@ pub fn sliceMut(items: anytype, lo: anytype, hi: anytype) []std.meta.Elem(@TypeO
 }
 
 /// `!dst.copy(src)`: panics unless the lengths are equal. Safe code
-/// cannot pass overlapping slices (the write borrow excludes the read).
+/// cannot pass overlapping slices (the write view excludes the read).
 pub fn copy(dst: anytype, src: []const std.meta.Elem(@TypeOf(dst))) void {
     if (dst.len != src.len) @panic("copy between slices of different lengths");
     @memcpy(dst, src);
@@ -1323,7 +1412,7 @@ const Sanitizer = struct {
     /// stack, the allocator's own).
     const map_headroom: usize = 4096;
     const fallback = std.heap.smp_allocator;
-    const poison: u8 = 0xdd;
+    const freed_byte: u8 = 0xdd;
 
     fn allocator(self: *Sanitizer) std.mem.Allocator {
         return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
@@ -1413,7 +1502,7 @@ const Sanitizer = struct {
     fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
         const self: *Sanitizer = @ptrCast(@alignCast(ctx));
         if (!self.owns(@intFromPtr(memory.ptr))) {
-            @memset(memory, poison);
+            @memset(memory, freed_byte);
             return fallback.rawFree(memory, alignment, ret_addr);
         }
         self.live -= 1;
@@ -1422,7 +1511,7 @@ const Sanitizer = struct {
         const stop = std.mem.alignForward(usize, @intFromPtr(memory.ptr) + @max(memory.len, 1), page);
         if (mapNone(first, stop - first) != null) return;
         if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(first), stop - first, none)) == .SUCCESS) return;
-        @memset(memory, poison);
+        @memset(memory, freed_byte);
     }
 
     /// Whether `addr` lies in address space the sanitizer reserved.
@@ -1908,6 +1997,15 @@ test "guardStack holds the stack to 16 MiB on Linux" {
     try std.testing.expectEqual(stack_size, (try std.posix.getrlimit(.STACK)).cur);
 }
 
+test "viewedPtr reaches what a read view views, or the view's own copy" {
+    const Pair = struct { a: i64, t: Text };
+    var p: Pair = .{ .a = 3, .t = .{} };
+    const b: ReadView(Pair) = lend(&p);
+    try std.testing.expect(viewedPtr(Pair, &b) == &p);
+    const n: ReadView(i64) = 7;
+    try std.testing.expect(viewedPtr(i64, &n) == &n);
+}
+
 test "strong and weak handles free the box once" {
     const before = usage();
     var drops: usize = 0;
@@ -2086,7 +2184,7 @@ fn fnRefDouble(n: i64) i64 {
     return n * 2;
 }
 
-test "a borrowed callable calls a stack closure, a function, or an owned closure" {
+test "a callable view calls a stack closure, a function, or an owned closure" {
     const before = usage();
     const Ref = FnRef(&.{i64}, i64);
     const Env = struct {

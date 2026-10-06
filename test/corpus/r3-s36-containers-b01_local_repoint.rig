@@ -1,0 +1,8 @@
+sub main
+  m = 1
+  n = 2
+  w = !m
+  w = 5
+  w = !n
+  w = 6
+  print(m, n)

@@ -1,4 +1,4 @@
-# Another module's generic functions and methods take borrowed callables
+# Another module's generic functions and methods take callable views
 # as local ones do: a closure literal written in the call, whose
 # parameter and result types are inferred there.
 

@@ -1,0 +1,12 @@
+# field re-point: h.w = !n replaces the field's loans (n39)
+struct H
+  w: !Text
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  h = H(w: !a)
+  h.w = !b
+  a = Text("A")
+  !h.w.add("!")
+  print(a, b)

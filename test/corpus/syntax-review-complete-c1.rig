@@ -1,6 +1,6 @@
-TABLE: [3]U8 =! [1, 2, 3]
-PAGE =! 4096
-MASK: U64 =! 0xffff_ffff
-NAME =! "db"
+const TABLE: [3]U8 = [1, 2, 3]
+const PAGE = 4096
+const MASK: U64 = 0xffff_ffff
+const NAME = "db"
 sub main
   print(TABLE, PAGE, MASK, NAME)

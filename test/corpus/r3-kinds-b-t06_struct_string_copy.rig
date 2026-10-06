@@ -1,0 +1,9 @@
+struct Tag
+  s: String
+
+sub main
+  t = Text("hello")
+  a = Tag(s: ?t[..])
+  b = a
+  !t.add("!")
+  print(a, b)

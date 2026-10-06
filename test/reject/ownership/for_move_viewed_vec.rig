@@ -1,0 +1,27 @@
+# `for x in <w` hands each element over and frees the Vec, which it may
+# do only to a Vec it owns. Through a view the elements stay with the
+# lender, so the loop reads or writes them in place instead.
+
+struct N
+  v: Int
+
+sub drain_read(w: ?Vec[Int])
+  for x in <w
+    print(x)
+
+sub drain_write(w: !Vec[*N])
+  for x in <w
+    print(x.v)
+
+sub main()
+  v = Vec[*N]()
+  (!v).push(*N(v: 1))
+  drain_write(!v)
+  w = !v
+  for x in <w
+    print(x.v)
+  print(v.len)
+
+# error: 9:13: `<w` would move the elements out of a Vec that `w` only views; loop over `?w` or `!w`
+# error: 13:13: `<w` would move the elements out of a Vec that `w` only views
+# error: 21:13: `<w` would move the elements out of a Vec that `w` only views

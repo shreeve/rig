@@ -1,0 +1,16 @@
+# reassign an array of owners whole, and an element of a Vec of arrays
+struct D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  a = [D(n: 1), D(n: 2)]
+  a = [D(n: 3), D(n: 4)]
+  print("mid")
+  v: Vec[[2]Text] = Vec()
+  !v.push([Text("a"), Text("b")])
+  v[0][1] = Text("z")
+  v[0] = [Text("p"), Text("q")]
+  print(v)

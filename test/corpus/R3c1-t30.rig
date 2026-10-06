@@ -1,14 +1,14 @@
-ARR =! [1, 2]
-ARR2 =! [1, 2]
-EQ1 =! ARR == ARR2
-EQ2 =! [1, 2] != [2, 1]
+const ARR = [1, 2]
+const ARR2 = [1, 2]
+const EQ1 = ARR == ARR2
+const EQ2 = [1, 2] != [2, 1]
 
 enum C
   red
   blue
 
-CC =! C.red
-EQ3 =! CC == .red
+const CC = C.red
+const EQ3 = CC == .red
 
 sub main()
   print(EQ1, EQ2, EQ3)

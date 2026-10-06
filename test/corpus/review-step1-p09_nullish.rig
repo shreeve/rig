@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  o: Counter? = none
+  d = Counter(hits: Cell(7))
+  k = o ?? <d
+  k.hits.set(5)
+  print(k.hits.get())
+  p: Counter? = Counter(hits: Cell(1))
+  q = ?p ?? ?k
+  print(q.hits.get())

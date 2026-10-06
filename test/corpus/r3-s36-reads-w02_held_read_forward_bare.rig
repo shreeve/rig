@@ -1,0 +1,13 @@
+struct S
+  n: Int
+  v: Vec[Int]
+
+fun get(s: ?S) -> Int
+  s.n
+
+fun via(s: ?S) -> Int
+  get(s)
+
+sub main
+  x = S(n: 1, v: Vec())
+  print(via(?x))

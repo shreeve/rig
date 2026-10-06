@@ -1,0 +1,20 @@
+# a read view of an element obtained via ?self through a held write view, then push through the holder (expect reject)
+struct Cur
+  items: !Vec[Text]
+
+  fun peek(?self) -> ?Text
+    ?self.items[0]
+
+  sub add(!self, t: Text)
+    !self.items.push(<t)
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("hello world, long enough for the heap"))
+  c = Cur(items: !v)
+  a = c.peek()
+  !c.add(Text("b"))
+  !c.add(Text("c"))
+  !c.add(Text("d"))
+  !c.add(Text("e"))
+  print(a)

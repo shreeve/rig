@@ -1,0 +1,30 @@
+# A payload of plain data that holds a view copies: `<v` copies it out
+# of the matched value, and the copy views what `v` views.
+
+struct N
+  n: Int
+
+struct V
+  r: ?N
+
+enum E
+  a(v: V)
+  b
+
+sub show(v: V)
+  print(v.r.n)
+
+sub main
+  x = N(n: 1)
+  e = E.a(v: V(r: ?x))
+  match e
+    .a(v)
+      k = <v
+      show(k)
+    .b => pass
+  x.n = 5
+  print(x.n)
+
+# expect:
+# 1
+# 5

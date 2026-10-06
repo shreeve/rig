@@ -1,0 +1,8 @@
+use std.text
+
+sub main
+  t = Text("k=v")
+  sep = Text("=")
+  if text.cut(?t, ?sep) as kv
+    !sep.add("x")
+    print(kv.after, sep)

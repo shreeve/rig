@@ -1,0 +1,11 @@
+fun pick(a: ?Vec[Int], b: ?Vec[Int], c: Bool) -> ?Vec[Int]
+  if c
+    return b
+  a
+
+sub main
+  x: Vec[Int] = Vec()
+  y: Vec[Int] = Vec()
+  r = pick(?x, ?y, true)
+  !y.push(1)
+  print(r.len)

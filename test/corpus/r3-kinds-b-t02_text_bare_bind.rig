@@ -1,0 +1,4 @@
+sub main
+  t = Text("ab")
+  u = t
+  print(u)

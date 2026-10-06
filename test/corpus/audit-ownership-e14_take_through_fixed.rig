@@ -20,6 +20,6 @@ struct H
   o: *Tok?
 
 sub main
-  h =! H(o: *Tok(n: 1))
+  const h = H(o: *Tok(n: 1))
   x = <h.o
   print(x == none)

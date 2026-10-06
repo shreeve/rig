@@ -1,0 +1,16 @@
+# A String sliced from a Text the holder owns, through `!self`, lends
+# `self`: the holder cannot change while the String is used.
+
+struct P
+  src: Text
+  pos: Int
+
+  fun word(!self) -> String
+    w = ?self.src[..2]
+    self.pos += 1
+    w
+
+sub main
+  p = P(src: Text("abc"), pos: 0)
+  a = !p.word()
+  print(a)

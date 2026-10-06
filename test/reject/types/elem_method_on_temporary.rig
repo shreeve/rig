@@ -7,5 +7,5 @@ fun mk() -> [3]Int
 sub main
   mk().fill(0)
 
-# error: 8:3: cannot write-borrow a temporary: the change would be lost; bind it to a name first
+# error: 8:3: cannot lend a temporary to write: the change would be lost; bind it to a name first
 # errors: 1

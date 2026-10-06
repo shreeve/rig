@@ -17,7 +17,7 @@ sub main()
   print(s)
 
 # error: 12:3: cannot assign to a byte of a String; a String is read-only
-# error: 13:9: cannot write-borrow a byte of a String; a String is read-only
+# error: 13:9: cannot lend a byte of a String to write; a String is read-only
 # error: 14:5: cannot assign to `.len`; a length is read-only
-# error: 15:10: cannot write-borrow `.len`; a length is read-only
+# error: 15:10: cannot lend `.len` to write; a length is read-only
 # error: 16:5: cannot assign to `.len`; a length is read-only

@@ -1,0 +1,12 @@
+struct C
+  hits: Cell[Int]
+
+fun idx(s: ?Text) -> Int
+  0
+
+sub main()
+  v: Vec[[1]C] = Vec()
+  !v.push([C(hits: Cell(0))])
+  for c in v[idx(?Text("k"))]
+    c.hits.set(5)
+  print(v[0][0].hits.get())

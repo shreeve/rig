@@ -9,4 +9,5 @@ sub main()
   for cb in ?makeSubs()
     cb()
 
-# error: requires a Vec binding or a field of one as the source
+# error: 9:14: a loop over a Vec of `*sub()` walks a Vec that a name holds, or a field or element of one; bind `makeSubs()` to a name first
+# errors: 1

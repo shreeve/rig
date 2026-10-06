@@ -7,4 +7,4 @@ struct Owner
   drop(!self)
     stash = <self.cell
 
-# error: cannot move out of `self.cell`: `self` is borrowed
+# error: cannot move out of `self.cell`: `self` is a view

@@ -1,5 +1,5 @@
 # Another module's private fields and methods are rejected wherever
-# they are reached: a value, a borrow, a Box, a generic instance, an
+# they are reached: a value, a view, a Box, a generic instance, an
 # associated function or its value, and a constructor of a type with a
 # private field.
 use lib

@@ -1,0 +1,76 @@
+# A branching value in a `for` or `match` header (`if`, `catch`, `??`,
+# `o?`) is taken leaf by leaf, as a binding takes it (Core §3, §5). A
+# bare leaf whose type is unique would be copied, so it is rejected:
+# bind the value to a name, or take each leaf with `<`.
+#
+# oracle: loops reject C2
+# oracle: run reject C2
+# oracle: matches reject C2
+# oracle: run2 reject C2
+use std.random
+
+struct Die
+  r: random.Random
+
+enum E
+  a(d: Die)
+  b
+
+error Bad
+  oops
+
+fun pair() -> [2]random.Random
+  [random.Random.seeded(1), random.Random.seeded(2)]
+
+fun two(n: Int) -> ([2]random.Random)!
+  return Bad.oops if n > 5
+  pair()
+
+sub loops(f: Bool)
+  a = pair()
+  b = pair()
+  for r in (a if f else b)
+    print(r)
+  d = pair()
+  for r in two(9) catch d
+    print(r)
+  o: ([2]random.Random)? = none
+  for r in o ?? d
+    print(r)
+
+fun run(o: ([2]random.Random)?) -> Int?
+  for r in o?
+    print(r)
+  0
+
+sub matches(f: Bool)
+  x = E.a(d: Die(r: random.Random.seeded(1)))
+  y = E.b
+  match (x if f else y)
+    .a(d) => print(d)
+    .b => pass
+  o: E? = none
+  match o ?? x
+    .a(d) => print(d)
+    .b => pass
+
+fun run2(o: E?) -> Int?
+  match o?
+    .a(d) => print(d)
+    .b => pass
+  0
+
+sub main()
+  loops(true)
+  print(run(none) ?? 0)
+  matches(true)
+  print(run2(none) ?? 0)
+
+# error: 32:13: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
+# error: 35:12: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
+# error: 38:12: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
+# error: 42:12: a `for` walks a place or takes a value made here: bind this `[2]random.Random` to a name first
+# error: 49:10: a `match` reads a place or takes a call's result; bind this `E` to a name first
+# error: 53:9: a `match` reads a place or takes a call's result; bind this `E` to a name first
+# error: 58:9: a `match` reads a place or takes a call's result; bind this `E` to a name first
+# errors: 7

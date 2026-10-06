@@ -1,0 +1,6 @@
+# swap on an array of owners, then elements lent
+sub main
+  a = [Text("a"), Text("b"), Text("c")]
+  !a.swap(0, 2)
+  r = ?a[0]
+  print(r, a)

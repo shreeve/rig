@@ -1,0 +1,9 @@
+struct Rec
+  name: Text
+  n: Int
+
+sub main
+  v: Vec[Box[Rec]] = Vec()
+  !v.push(Box(Rec(name: Text("x"), n: 1)))
+  for r in ?v
+    print(r.name, r.n)

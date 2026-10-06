@@ -1,0 +1,12 @@
+struct P
+  x: Int
+
+sub main
+  n = 3
+  m = +n
+  p = P(x: 1)
+  q = +p
+  q.x = 7
+  s = "hi"
+  t = +s
+  print(m, p, q, t)

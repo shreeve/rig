@@ -1,6 +1,6 @@
-# A call whose place argument (a write borrow, or a receiver) is taken
-# before its later arguments run: a later argument cannot write-borrow
-# the place's root, as Rust's two-phase borrows also forbid.
+# A call whose place argument (a write view, or a receiver) is taken
+# before its later arguments run: a later argument cannot lend to write
+# the place's root, as Rust's two-phase views also forbid.
 
 struct B
   xs: Vec[Int]
@@ -30,9 +30,9 @@ sub main
   xs = replace(!b.xs, renew(!b))
   print(old, v, xs)
 
-# error: 25:30: cannot take a second write borrow on `v`
-# error: 26:17: cannot write-borrow `v` while a read borrow is live
-# error: 27:21: cannot write-borrow `v` while a read borrow is live
-# error: 28:22: cannot write-borrow `v` while a read borrow is live
-# error: 30:30: cannot take a second write borrow on `b`
+# error: 25:30: cannot lend `v` to write while a write loan is live
+# error: 26:17: cannot lend `v` to write while a read loan is live
+# error: 27:21: cannot lend `v` to write while a read loan is live
+# error: 28:22: cannot lend `v` to write while a read loan is live
+# error: 30:30: cannot lend `b` to write while a write loan is live
 # errors: 5

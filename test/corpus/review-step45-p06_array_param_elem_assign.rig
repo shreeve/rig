@@ -1,0 +1,12 @@
+# array of owners by write view param: assign element; by value param dropped
+sub set(a: ![3]Text)
+  a[1] = Text("z")
+
+fun total(a: [3]Text) -> Int
+  a[0].len + a[1].len + a[2].len
+
+sub main
+  a = [Text("a"), Text("b"), Text("c")]
+  set(!a)
+  print(a)
+  print(total(<a))

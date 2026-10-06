@@ -1,0 +1,11 @@
+# Core §3: `print(o ?? d)` moves nothing
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  o: R? = R(n: 1)
+  print(o ?? R(n: 9))
+  print(o == none)

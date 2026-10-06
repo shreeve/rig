@@ -1,0 +1,56 @@
+# The unsound neighbours of r3-or-handle-sound: a view of a box's
+# contents outliving the handle it was reached through, and a loan the
+# contents carry outliving a change to what they view, on a clone or a
+# weak handle (Core s8, s9).
+#
+# oracle: drop_while_viewed reject C4
+# oracle: lend_then_drop reject C4
+# oracle: clone_carries reject C4
+# oracle: weak_carries reject C4
+# oracle: moved_handle reject C1
+
+struct User
+  name: String
+
+struct Holder
+  r: ?Vec[Int]
+
+sub drop_while_viewed()
+  a = *User(name: "bob")
+  r = ?a.name
+  -a
+  print(r)
+
+sub lend_then_drop()
+  a = *User(name: "eve")
+  u = ?a
+  -a
+  print(u.name)
+
+sub clone_carries()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = *Holder(r: ?v)
+  g = +h
+  -h
+  !v.push(2)
+  print(g.r.len)
+
+sub weak_carries()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = *Holder(r: ?v)
+  g = +h
+  w = ~h
+  -h
+  !v.push(2)
+  if w.upgrade() as k
+    print(k.r.len)
+
+sub moved_handle()
+  a = *User(name: "fay")
+  b = <a
+  print(a.name, b.name)
+
+sub main
+  drop_while_viewed()

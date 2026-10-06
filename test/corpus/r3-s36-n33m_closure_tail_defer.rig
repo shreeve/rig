@@ -1,0 +1,11 @@
+sub main
+  mk: fun() -> Vec[Int] = ||
+    v: Vec[Int] = Vec()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    v
+  x = mk()
+  !x.push(3)
+  print(x.len, x[0])

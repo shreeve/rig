@@ -1,6 +1,6 @@
 # A String-holding struct is a view of what its Strings view. An
 # iterator's `next(!self)` copies a String out of `self` and returns
-# it: the result borrows what the iterator views, not the iterator, so
+# it: the result views what the iterator views, not the iterator, so
 # two parts can be held at once. Literals stay free: `self.rest = ""`.
 
 fun find(s: String, pat: String) -> Int?

@@ -1,0 +1,9 @@
+struct Counter
+  hits: Cell[Int]
+
+const a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+
+sub main()
+  for k in a
+    k.hits.set(k.hits.get() + 1)
+  print(a[0].hits.get())

@@ -1,5 +1,5 @@
 sub main
   c = Cell(1)
-  d = c
+  d = <c
   d.set(2)
-  print(c.get(), d.get())
+  print(d.get())

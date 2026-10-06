@@ -1,0 +1,12 @@
+struct B
+  v: Vec[Int]
+
+fun len(b: ?B) -> Int
+  b.v.len
+
+sub main
+  a = B(v: Vec())
+  b = B(v: Vec())
+  c = true
+  print(len(?a if c else ?b))
+  print(len(?(a if c else b)))

@@ -1,0 +1,24 @@
+# Must stay rejected under L0: `next` re-points `self.items` at `extra`,
+# so the result views `w`. If the call rule replaces the result's loan
+# on `c` by `c`'s flow *before* the call's stores are absorbed into `c`,
+# `r` carries only `v`'s loan and outlives `w`.
+struct Item
+  n: Int
+
+struct Cursor
+  items: ?Vec[Item]
+
+  fun next(!self, extra: ?Vec[Item]) -> ?Item
+    self.items = extra
+    ?self.items[0]
+
+sub main
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  c = Cursor(items: ?v)
+  r = ?v[0]
+  if true
+    w: Vec[Item] = Vec()
+    !w.push(Item(n: 2))
+    r = !c.next(?w)
+  print(r.n)

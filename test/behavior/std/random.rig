@@ -1,14 +1,14 @@
-# std.random: a seeded Rng gives the same sequence everywhere (splitmix64:
+# std.random: a seeded Random gives the same sequence everywhere (splitmix64:
 # seed 0 starts with 16294208416658607535); `int` stays in its range and
 # reaches every value; `float` is in [0, 1); `shuffle` permutes; and
-# `Rng.new` is seeded from the operating system.
+# `Random.new` is seeded from the operating system.
 use std.random
 
 sub main()
-  r = random.Rng.seeded(0)
+  r = random.Random.seeded(0)
   print(!r.next())
-  a = random.Rng.seeded(7)
-  b = random.Rng.seeded(7)
+  a = random.Random.seeded(7)
+  b = random.Random.seeded(7)
   print(!a.next() == !b.next(), !a.int(0, 1000) == !b.int(0, 1000))
 
   seen = [6 of 0]
@@ -44,7 +44,7 @@ sub main()
   !r.shuffle(!v[..])
   print(v)
 
-  o = random.Rng.new()
+  o = random.Random.new()
   d = !o.int(1, 7)
   print(d >= 1 and d <= 6)
 

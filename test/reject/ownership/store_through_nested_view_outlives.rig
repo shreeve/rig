@@ -1,0 +1,63 @@
+# A value stored through nested write views lands in the value the
+# last one reaches, which must not outlive what the value views:
+# `o.i = Inner(x: !k)` stores into `inn`, and `o.i.x = R(y: !k)` into
+# `r`, however the path gets there: through a local write view, an
+# element, or a `match !e` binding.
+
+struct R
+  y: !Int
+
+struct Inner
+  x: !R
+
+struct Outer
+  i: !Inner
+
+struct Pair
+  xs: [1]!R
+
+enum E
+  one(i: Inner)
+  two
+
+sub main
+  n = 0
+  r = R(y: !n)
+  inn = Inner(x: !r)
+  o = Outer(i: !inn)
+  if true
+    k = 5
+    s = R(y: !k)
+    o.i = Inner(x: !s)
+  print(o.i.x.y)
+  if true
+    k = 5
+    o.i.x = R(y: !k)
+  print(inn.x.y)
+  w = !inn
+  w2 = !w
+  if true
+    k = 5
+    w2.x = R(y: !k)
+  print(r.y)
+  p = Pair(xs: [!r])
+  if true
+    k = 5
+    p.xs[0] = R(y: !k)
+  print(r.y)
+  e: E = .one(i: Inner(x: !r))
+  if true
+    k = 5
+    match !e
+      .one(i) => i.x = R(y: !k)
+      _ => pass
+  print(r.y)
+
+# error: 31:21: `s` does not live long enough
+# error: `s` goes out of scope while `inn` still views it
+# error: 35:19: `k` does not live long enough
+# error: `k` goes out of scope while `r` still views it
+# error: 41:18: `k` does not live long enough
+# error: 46:21: `k` does not live long enough
+# error: 52:30: `k` does not live long enough
+# errors: 5

@@ -1,0 +1,25 @@
+# nested: match on a match value whose arms view an element through a temp
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("hi")))
+  k = 1
+  match (match k
+    1 => !v[idx(?Text("a"))]
+    _ => !v[0])
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match v[0]
+    .a(t) => print(t.len)
+    .b(n) => print(n)

@@ -1,0 +1,13 @@
+struct Counter
+  hits: Cell[Int]
+
+struct H
+  c: Counter
+  n: Int
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  k = <a[0]
+  h = H(c: Counter(hits: Cell(1)), n: 1)
+  j = <h.c
+  print(k, j)

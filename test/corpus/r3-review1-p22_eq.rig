@@ -1,0 +1,9 @@
+use std.random
+
+struct Counter
+  hits: Cell[Int]
+
+sub main()
+  r = random.Random.seeded(3)
+  s = random.Random.seeded(3)
+  print(r == s)

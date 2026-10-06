@@ -1,0 +1,22 @@
+# guarded write match on a local enum (not an element) whose header has a temporary
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  e = E.a(t: Text("hi"))
+  k = 0
+  match !e if idx(?Text("a")) == k else !e
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match e
+    .a(t) => print(t.len)
+    .b(n) => print(n)

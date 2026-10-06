@@ -1,0 +1,12 @@
+# Per value: a Cell whose type may hold a view, made from `none`.
+struct R
+  n: Int
+
+struct V
+  r: ?R
+
+sub main
+  c: Cell[V?] = Cell(none)
+  a = R(n: 1)
+  c.set(V(r: ?a))
+  print("ok")

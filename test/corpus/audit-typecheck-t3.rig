@@ -5,5 +5,5 @@ struct P
     P(x: 1)
 
 sub main()
-  k =! P.mk
+  const k = P.mk
   print(k().x)

@@ -1,0 +1,20 @@
+struct Item
+  n: Int
+
+struct Cursor
+  items: ?Vec[Item]
+  scratch: Vec[Item]
+  i: Int
+
+  fun next(!self) -> ?Item
+    k = self.i
+    self.i += 1
+    ?self.items[k]
+
+sub main
+  v: Vec[Item] = Vec()
+  !v.push(Item(n: 1))
+  !v.push(Item(n: 2))
+  c = Cursor(items: ?v, scratch: Vec(), i: 0)
+  a = !c.next()
+  print(a.n)

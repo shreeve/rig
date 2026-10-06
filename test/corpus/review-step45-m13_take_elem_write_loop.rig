@@ -1,0 +1,10 @@
+# take an element of a write loop binding (for row in !v)
+sub main
+  v: Vec[Vec[Text?]] = Vec()
+  r: Vec[Text?] = Vec()
+  !r.push(Text("a"))
+  !v.push(<r)
+  for row in !v
+    t = <row[0]
+    print(t)
+  print(v)

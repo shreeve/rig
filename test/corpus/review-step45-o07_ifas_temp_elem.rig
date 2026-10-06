@@ -1,0 +1,9 @@
+# if mk()[0] as t: binding outlives the header (temp)
+fun mk -> Vec[Text?]
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  <v
+
+sub main
+  if mk()[0] as t
+    print(t)

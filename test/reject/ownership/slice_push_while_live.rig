@@ -12,5 +12,5 @@ sub main()
   eat(<v)
   print(s)
 
-# error: 11:3: cannot write-borrow `v` while a read borrow is live
-# error: 12:8: cannot move `v` while it is read-borrowed
+# error: 11:3: cannot lend `v` to write while a read loan is live
+# error: 12:8: cannot move `v` while a read loan is live

@@ -1,0 +1,19 @@
+struct Entry
+  id: Int
+  score: Int
+
+struct Table
+  rows: [3]Entry
+
+  fun find(?self, key: ?Entry) -> (?Entry)?
+    for i in 0..3
+      if self.rows[i].id == key.id
+        return ?self.rows[i]
+    none
+
+sub main
+  t = Table(rows: [Entry(id: 1, score: 10), Entry(id: 2, score: 20), Entry(id: 3, score: 30)])
+  probe = Entry(id: 2, score: 0)
+  if t.find(?probe) as hit
+    probe.id = 3
+    print(hit.score, probe.id)

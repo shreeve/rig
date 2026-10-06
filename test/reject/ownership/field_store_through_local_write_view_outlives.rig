@@ -1,0 +1,27 @@
+# A field assigned through a local write view is part of the place it
+# views, which outlives a later local and the function's own values
+# when it is a view parameter.
+
+struct In
+  n: Int
+
+struct View
+  b: ?In
+
+sub fill(p: !View)
+  w = !p
+  y = In(n: 3)
+  w.b = ?y
+
+sub main()
+  a = In(n: 1)
+  v = View(b: ?a)
+  w = !v
+  if true
+    y = In(n: 2)
+    w.b = ?y
+  print(v.b.n)
+  fill(!v)
+
+# error: 14:3: cannot store a view of `y` through `w`: `p` outlives it
+# error: 22:12: `y` does not live long enough

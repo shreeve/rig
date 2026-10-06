@@ -1,0 +1,7 @@
+use std.os
+
+sub main
+  c = Cell("")
+  v = os.env("HOME") ?? "unset"
+  c.set(v)
+  print(c.get().len > 0)

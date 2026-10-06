@@ -1,0 +1,7 @@
+error E
+  bad
+sub s()!
+  return E.bad
+sub main
+  defer s() catch |e| print("deferred failed", e)
+  print("body")

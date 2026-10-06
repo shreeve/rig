@@ -1,0 +1,22 @@
+struct Point
+  x: Int
+  y: Int
+
+sub bump(v: !Vec[Int])
+  !v.push(1)
+
+sub twice(v: !Vec[Int])
+  bump(!v)
+  bump(!v)
+
+fun fx(p: !Point) -> !Int
+  !p.x
+
+sub main
+  v: Vec[Int] = Vec()
+  twice(!v)
+  p = Point(x: 1, y: 2)
+  r = fx(!p)
+  r += 6
+  print(r)
+  print(v.len, p.x)

@@ -1,0 +1,10 @@
+struct S
+  n: Int
+  v: Vec[Int]
+
+  fun get(?self) -> Int
+    self.n
+
+sub main
+  b = Box(S(n: 3, v: Vec()))
+  print(b.get(), b.n)

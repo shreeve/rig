@@ -1,0 +1,20 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter)
+  b
+
+fun mk(n: Int) -> [1]E
+  [E.a(c: Counter(hits: Cell(n)))]
+
+sub main()
+  one = [Counter(hits: Cell(1))]
+  saved = ?one[0]
+  match mk(7)[0]
+    .a(c) => saved = c
+    .b => pass
+  print(saved.hits.get())

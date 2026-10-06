@@ -1,0 +1,7 @@
+sub main
+  n = 1
+  w1 = !n
+  w2 = !n
+  w1 += 1
+  w2 += 1
+  print(n)

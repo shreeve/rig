@@ -1,0 +1,8 @@
+# passing an owning element bare to a parameter that owns it: reject
+fun eat(v: Vec[Int]) -> Int
+  v.len
+
+sub main
+  vv: Vec[Vec[Int]] = Vec()
+  !vv.push(Vec())
+  print(eat(vv[0]))

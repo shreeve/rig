@@ -1,0 +1,13 @@
+struct P
+  x: Int
+  y: Int
+
+fun dup(r: ?P) -> P
+  +r
+
+sub main()
+  a = P(x: 1, y: 2)
+  b = dup(?a)
+  w = !a
+  c = +w
+  print(b, c)

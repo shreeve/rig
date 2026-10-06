@@ -1,0 +1,25 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b(r: Res)
+
+fun getb(b: ?Box[E], n: Int) -> ?Box[E]
+  b
+
+fun inner(b: ?Box[E]) -> ?Res
+  match getb(b, Text("xyz").len)
+    .a(r) => r
+    .b(r) => r
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  b = Box(E.a(r: Res(n: 1, t: Text("hello"))))
+  x = inner(b)
+  print(clobber(1000))
+  print(x.n, x.t)

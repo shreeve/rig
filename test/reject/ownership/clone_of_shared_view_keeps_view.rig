@@ -1,0 +1,21 @@
+# A clone of a shared handle whose value holds a view reaches that
+# view too: the viewed value stays lent while the clone lives.
+
+struct Wrap
+  payload: Int
+
+  drop(!self)
+    print("drop")
+
+struct View
+  b: ?Wrap
+
+sub main()
+  a = Wrap(payload: 1)
+  v = *View(b: ?a)
+  keep = +v
+  -v
+  -a
+  print(keep.b.payload)
+
+# error: cannot drop `a` while it is lent

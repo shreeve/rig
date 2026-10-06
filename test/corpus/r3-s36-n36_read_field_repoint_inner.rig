@@ -1,0 +1,11 @@
+struct H
+  r: ?Vec[Int]
+
+sub main
+  a: Vec[Int] = Vec()
+  h = H(r: ?a)
+  if true
+    b: Vec[Int] = Vec()
+    !b.push(1)
+    h.r = ?b
+  print(h.r.len)

@@ -1,0 +1,17 @@
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter)
+  b
+
+fun pull(e: ?E) -> Counter?
+  match e
+    .a(c) => return c
+    .b => return none
+
+sub main()
+  e = E.a(c: Counter(hits: Cell(0)))
+  if pull(?e) as k
+    k.hits.set(3)
+  print(e)

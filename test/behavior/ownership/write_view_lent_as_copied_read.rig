@@ -1,0 +1,21 @@
+# A write view may be lent where a read view is expected. A read
+# view of a scalar, or of an optional one, is a copy of the value, so
+# the write view is read through there.
+
+fun peek(m: ?(Int?)) -> Int
+  m ?? 0
+
+fun twice(n: ?Int) -> Int
+  n * 2
+
+sub main()
+  x: Int? = 3
+  n: Int = 4
+  k: Int = 5
+  print(peek(!x), twice(!n))
+  g: [2]?Int = [!n, !k]
+  print(g[0], g[1])
+
+# expect:
+# 3 8
+# 4 5

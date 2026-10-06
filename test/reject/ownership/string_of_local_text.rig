@@ -1,0 +1,36 @@
+# A String views text it doesn't own. Where one outlives the Text it
+# views, as a function's String result or a String field, the
+# diagnostic says so and points at Text, which owns its bytes.
+
+struct User
+  name: String
+
+fun name() -> String
+  t = Text("ada")
+  ?t
+
+fun make() -> User
+  t = Text("bob")
+  User(name: ?t)
+
+sub fill(u: !User)
+  t = Text("cy")
+  u.name = ?t
+
+sub main
+  u = User(name: "x")
+  if u.name == "x"
+    t = Text("dee")
+    u.name = ?t
+  fill(!u)
+  print(name(), make().name, u.name)
+
+# error: 10:3: cannot return a view of `t`, which this function was not lent
+# error: 10:3: a `String` views text it doesn't own; store a `Text` to own it
+# error: 14:14: cannot return a view of `t`, which this function was not lent
+# error: 14:14: a `String` views text it doesn't own; store a `Text` to own it
+# error: 18:3: cannot store a view of `t` in `u.name`: `u` outlives it
+# error: 18:12: a `String` views text it doesn't own; store a `Text` to own it
+# error: 24:14: `t` does not live long enough
+# error: 24:14: a `String` views text it doesn't own; store a `Text` to own it
+# errors: 4

@@ -1,4 +1,4 @@
-# A `![]T` is a write borrow of elements it does not own: it is not cloned.
+# A `![]T` is a write view of elements it does not own: it is not cloned.
 
 sub clone()
   a = [1, 2]
@@ -10,4 +10,4 @@ sub clone()
 sub main()
   clone()
 
-# error: 6:8: `+x` cannot clone a `![]Int`: it is a write borrow of elements it does not own
+# error: 6:8: `+x` cannot clone a `![]Int`: it is a write view of elements it does not own

@@ -1,0 +1,7 @@
+# indexed consuming loop over array of owners with break
+sub main
+  a = [Text("a"), Text("b"), Text("c")]
+  for x, i in <a
+    print(i, x)
+    if i == 1
+      break

@@ -1,0 +1,11 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  a = R(n: 5)
+  x = while true
+    break <a
+  print(x.n)

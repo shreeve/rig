@@ -1,0 +1,32 @@
+# A write view is exclusive for every type: while `w` is used later,
+# `n` cannot be read, copied, viewed, or called on, even when it is
+# a Copy value, and even in the statement that writes through `w`.
+
+struct P
+  x: Int
+
+  fun get(?self) -> Int
+    self.x
+
+sub main
+  n = 1
+  w = !n
+  print(n)
+  m = n + 1
+  k = n
+  w += n
+  r = ?n
+  p = P(x: 1)
+  q = !p
+  print(p.get())
+  q.x += 1
+  w += 1
+  print(m, k, r)
+
+# error: 14:9: use of `n` while a write loan is live
+# error: 15:7: use of `n` while a write loan is live
+# error: 16:7: use of `n` while a write loan is live
+# error: 17:8: use of `n` while a write loan is live
+# error: 18:8: cannot lend `n` to read while a write loan is live
+# error: 21:9: use of `p` while a write loan is live
+# errors: 6

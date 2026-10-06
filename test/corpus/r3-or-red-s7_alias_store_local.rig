@@ -1,0 +1,19 @@
+struct Item
+  n: Int
+
+struct Holder
+  r: ?Item
+
+struct Box2
+  h: !Holder
+
+sub put(h: !Holder)
+  w = Item(n: 2)
+  b = Box2(h: !h)
+  b.h.r = ?w
+
+sub main
+  x = Item(n: 1)
+  h = Holder(r: ?x)
+  put(!h)
+  print(h.r.n)

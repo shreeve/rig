@@ -1,0 +1,15 @@
+struct Item
+  n: Int
+
+struct Table
+  items: [4]Item
+
+  fun get(?self, k: ?Int) -> ?Item
+    ?self.items[k]
+
+sub main
+  t = Table(items: [4 of Item(n: 3)])
+  k = 1
+  r = t.get(?k)
+  k = 2
+  print(r.n, k)

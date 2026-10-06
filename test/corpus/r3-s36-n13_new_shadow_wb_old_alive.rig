@@ -1,0 +1,7 @@
+sub main
+  m = 1
+  n = 2
+  w = !m
+  new w = !n
+  w = 5
+  print(w, n)

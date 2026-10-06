@@ -1,0 +1,16 @@
+error Bad
+  oops
+
+struct Counter
+  hits: Cell[Int]
+
+fun mk(n: Int) -> Counter!
+  if n > 0
+    return Bad.oops
+  Counter(hits: Cell(n))
+
+sub main()
+  d = Counter(hits: Cell(7))
+  k = mk(1) catch d
+  k.hits.set(5)
+  print(d.hits.get(), k.hits.get())

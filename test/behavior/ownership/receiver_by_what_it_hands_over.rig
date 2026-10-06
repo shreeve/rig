@@ -1,0 +1,57 @@
+# A method's receiver, by what it hands over: a place, a value made
+# there, a branching value that may be a name's, and one whose every
+# branch is made there (`<a if c else <b`). A `?self` method reads any of
+# them in place; a `!self` method writes a place it is lent (`!p.m()`);
+# a `<self` method takes a value made there.
+
+struct D
+  id: Int
+  t: Text
+
+  drop(!self)
+    print("drop", self.id)
+
+  fun look(?self) -> Int
+    self.id
+
+  sub bump(!self)
+    self.id += 10
+
+  fun take(<self) -> Int
+    self.id
+
+fun mk(id: Int) -> D
+  D(id: id, t: Text("d"))
+
+sub main
+  c = true
+  p = mk(1)
+  q = mk(2)
+  print(p.look(), mk(3).look(), (p if c else q).look())
+  r = mk(4)
+  s = mk(5)
+  print((<r if c else <s).look(), "read")
+  !p.bump()
+  print(p.id, "write")
+  print(mk(9).take(), (mk(10) if c else mk(11)).take())
+  w = mk(12)
+  x = mk(13)
+  print((<w if not c else <x).take(), "take")
+  print(q.id)
+
+# expect:
+# 1 3 1
+# drop 3
+# 4 read
+# drop 4
+# 11 write
+# drop 9
+# drop 10
+# 9 10
+# drop 13
+# 13 take
+# 2
+# drop 12
+# drop 5
+# drop 2
+# drop 11

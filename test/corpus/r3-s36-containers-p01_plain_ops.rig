@@ -1,0 +1,32 @@
+use std.sort
+
+struct P
+  x: Int
+  y: Int
+
+sub bump(p: !P)
+  p.x += 100
+
+fun get(p: ?P) -> Int
+  p.x
+
+sub main
+  v: Vec[P] = Vec()
+  !v.push(P(x: 3, y: 0))
+  !v.push(P(x: 1, y: 0))
+  !v.insert(1, P(x: 2, y: 0))
+  print(v[0].x, v.get(1))
+  print(get(?v[0]))
+  bump(!v[1])
+  print(v[1].x)
+  !v.swap(0, 2)
+  sort.sort_by(!v[..], |a, b| a.x < b.x)
+  for p in ?v
+    print(p.x)
+  for p in !v
+    p.y = 9
+  r = !v.remove(0)
+  print(r, v.len)
+  if !v.pop() as q
+    print(q)
+  print(v)

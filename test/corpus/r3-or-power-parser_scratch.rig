@@ -1,0 +1,24 @@
+# Parser that views a token slice and also owns a scratch Vec[Tok].
+# L0 alone keeps `p` lent after `next` (Parser can own a Tok itself,
+# in `scratch`); `from self.toks` frees it. Rust: `-> &'a Tok` in
+# `impl<'a> Parser<'a>` accepts the twin.
+struct Tok
+  kind: Int
+  start: Int
+
+struct Parser
+  toks: []Tok
+  scratch: Vec[Tok]
+  pos: Int
+
+  fun next(!self) -> ?Tok
+    t = ?self.toks[self.pos]
+    self.pos += 1
+    t
+
+sub main
+  ts = [Tok(kind: 1, start: 0), Tok(kind: 2, start: 3)]
+  p = Parser(toks: ?ts[..], scratch: Vec(), pos: 0)
+  a = !p.next()
+  b = !p.next()
+  print(a.kind, b.kind)

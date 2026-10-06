@@ -1,0 +1,19 @@
+# A method takes a plain struct receiver by address and reads it when
+# it runs, after its arguments: a later argument cannot write it first.
+
+struct P
+  x: Int
+
+  fun show(?self, n: Int) -> Int
+    print(self.x, n)
+    n
+
+fun bump(p: !P) -> Int
+  p.x = p.x + 10
+  p.x
+
+sub main
+  a = P(x: 1)
+  _ = a.show(bump(!a))
+
+# error: 17:20: cannot lend `a` to write while a read loan is live

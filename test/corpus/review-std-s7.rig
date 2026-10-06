@@ -6,7 +6,7 @@ struct P
   id: Int
 
 sub main
-  r = random.Rng.seeded(7)
+  r = random.Random.seeded(7)
   bad = 0
   n = 0
   while n < 400 : n += 1

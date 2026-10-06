@@ -1,0 +1,15 @@
+# for x in (!m[idx(?Text("a"))] if c else !n): branching for source with a temp leaf
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  m: Vec[Vec[Text]] = Vec()
+  r: Vec[Text] = Vec()
+  !r.push(Text("p"))
+  !m.push(<r)
+  n: Vec[Text] = Vec()
+  c = m.len == 1
+  for x in (!m[idx(?Text("a"))] if c else !n)
+    for _ in 0..40
+      !x.add("xxxxxxxx")
+  print(m[0][0].len)

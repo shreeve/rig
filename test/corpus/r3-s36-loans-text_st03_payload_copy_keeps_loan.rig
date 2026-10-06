@@ -1,0 +1,14 @@
+enum H
+  has(s: String)
+  no
+
+sub main
+  t = Text("abc")
+  h: H = .has(s: ?t[..])
+  match h
+    .has(s)
+      w = s
+      -h
+      !t.add("d")
+      print(w)
+    .no => print("no")

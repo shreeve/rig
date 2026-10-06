@@ -25,6 +25,6 @@ sub main
     print(s)
 
 # errors: 3
-# error: 19:14: a borrow of the temporary `Text("a text long enough to live on the heap")` outlives its statement
-# error: 22:11: a borrow of the temporary `Text("a text long enough to live on the heap")` outlives its statement
-# error: 24:17: a borrow of the temporary `Text("a text long enough to live on the heap")` outlives its statement
+# error: 19:14: a view of the temporary `Text("a text long enough to live on the heap")` outlives its statement
+# error: 22:11: a view of the temporary `Text("a text long enough to live on the heap")` outlives its statement
+# error: 24:17: a view of the temporary `Text("a text long enough to live on the heap")` outlives its statement

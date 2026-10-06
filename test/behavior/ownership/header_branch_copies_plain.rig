@@ -1,0 +1,73 @@
+# A branching value in a `for` or `match` header (`if`, `catch`, `??`,
+# `o?`) is taken leaf by leaf, as a binding takes it (Core §3, §5): a
+# leaf of plain data copies, so the names stay usable.
+#
+# oracle: loops accept
+# oracle: run accept
+# oracle: matches accept
+
+struct P
+  x: Int
+
+enum E
+  a(p: P)
+  b
+
+error Bad
+  oops
+
+fun two(n: Int) -> ([2]Int)!
+  return Bad.oops if n > 5
+  [n, n]
+
+sub loops(f: Bool)
+  a = [1, 2]
+  b = [3, 4]
+  for k in (a if f else b)
+    print(k)
+  for k in two(9) catch a
+    print(k)
+  o: ([2]Int)? = none
+  for k in o ?? b
+    print(k)
+  print(a[0], b[0])
+
+fun run(o: ([2]Int)?) -> Int?
+  new n = 0
+  for k in o?
+    n += k
+  n
+
+sub matches(f: Bool)
+  x = E.a(p: P(x: 5))
+  y = E.b
+  match (x if f else y)
+    .a(p) => print(p.x)
+    .b => print("b")
+  o: E? = none
+  match o ?? x
+    .a(p) => print(p.x)
+    .b => print("b")
+  print(x)
+
+sub main()
+  loops(true)
+  print(run([6, 7]) ?? 0)
+  matches(false)
+  matches(true)
+
+# expect:
+# 1
+# 2
+# 1
+# 2
+# 3
+# 4
+# 1 3
+# 13
+# b
+# 5
+# .a(p: P(x: 5))
+# 5
+# 5
+# .a(p: P(x: 5))

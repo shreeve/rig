@@ -1,0 +1,14 @@
+struct P
+  x: Int
+
+  fun show(?self, n: Int) -> Int
+    print(self.x, n)
+    n
+
+fun bump(p: !P) -> Int
+  p.x = p.x + 10
+  p.x
+
+sub main
+  a = P(x: 1)
+  _ = a.show(bump(!a))

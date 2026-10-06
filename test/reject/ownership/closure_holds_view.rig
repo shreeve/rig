@@ -1,0 +1,18 @@
+# A closure that captured a view keeps the owner viewed while the
+# closure binding is live.
+
+struct Wrap
+  payload: Int
+
+  drop(!self)
+    print("drop")
+
+sub main()
+  a = Wrap(payload: 1)
+  r = ?a
+  f = |<r|
+    print(r.payload)
+  -a
+  f()
+
+# error: cannot drop `a` while it is lent

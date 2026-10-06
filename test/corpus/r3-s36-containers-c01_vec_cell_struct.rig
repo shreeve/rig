@@ -1,0 +1,16 @@
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+sub main
+  v: Vec[C] = Vec()
+  !v.push(C(c: Cell(0)))
+  v[0].c.set(5)
+  v[0].hit()
+  print(v[0].c.get())
+  a = [C(c: Cell(0))]
+  a[0].hit()
+  a[0].c.set(a[0].c.get() + 10)
+  print(a[0].c.get())

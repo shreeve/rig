@@ -1,0 +1,14 @@
+# guarded match on an element of a ?[1]E array parameter with Text payload
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun f(v: ?[1]E) -> Int
+  match v[0]
+    .a(t) if t.len > 1 => t.len
+    .a(_) => 1
+    .b(n) => n
+
+sub main
+  e = [E.a(t: Text("hello"))]
+  print(f(?e))

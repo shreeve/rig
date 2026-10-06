@@ -1,0 +1,44 @@
+# A part of a value made in a header that is plain data is read in the
+# header, as any value is: literal patterns match it, and a copy of it
+# outlives the header. (One whose made value is a temporary that ends
+# with the header is rejected:
+# `test/reject/ownership/header_temporary_rejected.rig`.)
+
+struct P
+  x: Int
+  y: Int
+
+enum Q
+  a(p: P, q: ?P)
+  b
+
+struct W
+  q: Q
+
+struct G
+  n: Int
+
+sub main()
+  match [1, 2][0]
+    1 => print("one")
+    _ => print("other")
+  match G(n: 3).n
+    3 => print("three")
+    _ => print("other")
+  for k in [[5, 6], [7, 8]][1]
+    print("k", k)
+  base = P(x: 3, y: 4)
+  saved = ?base
+  match W(q: Q.a(p: P(x: 1, y: 2), q: ?base)).q
+    .a(_, q) => saved = q
+    .b => pass
+  print(saved.x)
+  print("end")
+
+# expect:
+# one
+# three
+# k 7
+# k 8
+# 3
+# end

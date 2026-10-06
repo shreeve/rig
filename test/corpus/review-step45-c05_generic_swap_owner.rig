@@ -1,0 +1,10 @@
+# generic swap of elements via a temp: x = <v[i] is not allowed; use swap
+sub flip[T](v: !Vec[T])
+  !v.swap(0, 1)
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  flip(!v)
+  print(v)

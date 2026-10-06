@@ -1,0 +1,15 @@
+struct P
+  x: Int
+
+sub setp(a: !P, b: ?P)
+  a.x = b.x + 1
+
+sub seti(a: !Int, b: Int)
+  a += b
+
+sub main
+  p = P(x: 1)
+  setp(!p, p)
+  n = 2
+  seti(!n, n)
+  print(p.x, n)

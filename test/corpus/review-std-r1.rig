@@ -1,7 +1,7 @@
 use std.random
 
 sub main
-  r = random.Rng.seeded(1)
+  r = random.Random.seeded(1)
   print(!r.int(-1, 0), !r.int(Int.max - 1, Int.max), !r.int(Int.min, Int.min + 1))
   e: [0]Int = []
   !r.shuffle(!e)

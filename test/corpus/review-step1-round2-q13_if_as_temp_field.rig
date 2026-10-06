@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct H
+  o: Counter?
+
+sub main()
+  if H(o: Counter(hits: Cell(0))).o as c
+    c.hit()
+    print(c.hits.get())
+  if ?H(o: Counter(hits: Cell(0))).o as d
+    d.hit()

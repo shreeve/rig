@@ -1,0 +1,5 @@
+sub main
+  a = [Text("x"), Text("y")]
+  r = ?a[0]
+  a[1] = Text("z")
+  print(r, a)

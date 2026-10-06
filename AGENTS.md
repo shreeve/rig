@@ -14,8 +14,8 @@ where it happens, so memory safety reads more cleanly than in Rust:
 | Sigil | Meaning |
 |---|---|
 | `<x` | move |
-| `?x` / `?T` | read borrow |
-| `!x` / `!T` | write borrow |
+| `?x` / `?T` | lend to read / read view |
+| `!x` / `!T` | lend to write / write view |
 | `+x` | clone |
 | `-x` | drop now |
 | `*x` / `*T` | shared (refcounted) |
@@ -45,7 +45,7 @@ allocation, no hidden refcount traffic, no silent control flow.
    diagnostic (file:line:col). Never emit `@compileError` placeholders
    and never drop a construct silently.
 3. **Safe code cannot corrupt memory.** Use-after-move, double-free,
-   use-after-free, dangling borrows, and leaks in safe Rig are
+   use-after-free, dangling views, and leaks in safe Rig are
    compiler bugs. Only code inside `raw` may break these guarantees.
    The one leak the compiler does not prevent is a cycle of strong
    `*T` handles, as in Rust and Swift; `~T` exists to break cycles,
@@ -76,13 +76,13 @@ review rounds.
   with no exception list, or changes the Core first; a rule the Core
   does not imply is a bug.
 - **One classifier per fact.** Whether an expression is a place, a
-  fresh owned value, a borrow, or a view is decided once, by a positive
+  fresh owned value, a lend, or a view is decided once, by a positive
   list, and recorded as a fact. No category is defined as "not" another,
   and no pass re-derives one from syntax.
 - **The checker checks exactly what is emitted.** Emit adds no
   temporary, evaluation order, re-evaluation, or drop that the
   ownership checker did not walk.
-- **Leaving a scope never silently forgets a borrow.** Every path out
+- **Leaving a scope never silently forgets a loan.** Every path out
   of a scope (a jump, a failing condition or guard, an error) reports
   the loans it discards.
 - **A feature is specified as a desugaring.** A feature that touches
@@ -108,6 +108,7 @@ zig build                  # builds bin/rig
 ./test/run -j 2            # full suite; must be green before every commit
 ./test/run -j 2 corpus     # every reviewer probe, not only the default sample
 test/matrix.py -j 2        # form x context x type programs, checked and run
+zig build oracle           # builds bin/rig-oracle (./test/run does it too)
 zig build test --cache-dir "$(mktemp -d)"  # unit tests, not replayed from cache
 bin/rig run file.rig       # compile + run (debug, leak-checked)
 bin/rig emit file.rig      # the emitted Zig
@@ -145,12 +146,15 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `src/sema.zig` | Semantic analysis front door: types, symbols, drop glue, the facts table |
 | `src/resolve.zig` | Declaration pass: builtins, names, type resolution |
 | `src/typecheck.zig` | Expression pass: types every expression, records facts, checks fallibility and the `raw` boundary |
-| `src/ownership.zig` | Move / borrow / drop checking |
+| `src/storage.zig` | Storage facts: the hidden storage emit makes, decided once |
+| `src/ownership.zig` | Move / loan / drop checking |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |
 | `src/main.zig` | CLI |
+| `src/lib.zig` | The compiler as a library, for `bin/rig-oracle` only |
 | `test/` | The test suite (see `test/README.md`) |
 | `test/corpus/` | Reviewer probes: each is rejected, or runs sanitizer-clean |
+| `test/oracle/` | The reference ownership checker, `bin/rig-oracle`, and its classified differences |
 | `examples/` | Curated example programs, all run by the suite |
 | `std/` | The standard library: Rig modules and the Zig behind their Zig-backed declarations |
 | `docs/CORE.md` | The ownership model on one page, which every other doc must agree with |
@@ -161,6 +165,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `FAQ.md` | Common questions |
 | `docs/STD.md` | The standard library's modules |
 | `docs/DESIGN.md` | Principles and rationale |
+| `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
 | `docs/zig-0.17.md` | Zig 0.17 for Rig contributors: the language, std, and build APIs Rig uses |

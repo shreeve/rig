@@ -1,0 +1,25 @@
+# A write method called on a write view a call returns writes through
+# it, to the value the call was lent: the receiver is a view, not a
+# temporary (`test/reject/ownership/write_receiver_temporary.rig`).
+
+struct S
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+fun slot(s: !S) -> !S
+  s
+
+fun pick(a: !S, b: !S, c: Bool) -> !S
+  a if c else b
+
+sub main
+  s = S(n: 1)
+  t = S(n: 10)
+  slot(!s).bump()
+  pick(!s, !t, false).bump()
+  print(s.n, t.n)
+
+# expect:
+# 2 11

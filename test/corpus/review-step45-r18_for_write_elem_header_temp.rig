@@ -1,0 +1,13 @@
+# for t in !m[idx(?Text("a"))]: write loop over an element Vec, header temporary
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  m: Vec[Vec[Text]] = Vec()
+  r: Vec[Text] = Vec()
+  !r.push(Text("q"))
+  !m.push(<r)
+  for t in !m[idx(?Text("a"))]
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(m[0][0].len)

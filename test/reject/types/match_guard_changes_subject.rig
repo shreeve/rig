@@ -1,5 +1,5 @@
 # A guard changes nothing it matches: when it fails, a later arm matches
-# the same value, so it may not write-borrow the subject, a binding of
+# the same value, so it may not lend the subject to write, a binding of
 # the arm, or anything reached from them.
 
 enum Shape

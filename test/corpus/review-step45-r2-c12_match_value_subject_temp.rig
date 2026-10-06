@@ -1,0 +1,16 @@
+# if-as over a match value whose arm lends an element through a temp; grow t
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("q"))
+  w: Text? = Text("w")
+  k = 1
+  o = match k
+    1 => !v[idx(?Text("a"))]
+    _ => !w
+  if !o as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(v[0])

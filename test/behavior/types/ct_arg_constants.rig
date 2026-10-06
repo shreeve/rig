@@ -14,13 +14,13 @@ sub fl[x: Float]
   print(x)
 
 sub f[n: Int]
-  k =! n > 1
+  const k = n > 1
   h[k]()
   h[n > 1 and not k]()
   g[LIM * 2]()
   fl[FL * 2.0]()
-  a =! 7
-  j =! a * 2
+  const a = 7
+  const j = a * 2
   g[j]()
   g[a * 3 - LIM]()
 

@@ -1,4 +1,4 @@
-# A loop condition runs again after the body: a borrow it uses is live
+# A loop condition runs again after the body: a view it uses is live
 # throughout the loop.
 
 struct Wrap
@@ -16,4 +16,4 @@ sub main()
   while r.len < 3
     !v.push(1)
 
-# error: cannot write-borrow `v` while a read borrow is live
+# error: cannot lend `v` to write while a read loan is live

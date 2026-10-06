@@ -1,0 +1,19 @@
+# Inferred or declared result origins must see that `a.r` now views `b`.
+# Today the union default rejects the caller; a recorder that reads the
+# returned value's loans sees only `a` if the store is not in `a`'s flow.
+struct Holder
+  r: []Int
+
+fun f(a: !Holder, b: !Vec[Int]) -> []Int
+  a.r = ?b[..]
+  a.r
+
+sub main
+  x = [9, 9]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  s = f(!h, !v)
+  for i in 0..100
+    !v.push(i)
+  print(s[0])

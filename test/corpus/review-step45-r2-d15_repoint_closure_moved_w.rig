@@ -1,0 +1,10 @@
+# move w into an owned-ish closure capture <w, re-point w, write a, call closure
+sub main
+  a = Text("a")
+  b = Text("b")
+  w = !a
+  f = |<w| !w.add("!")
+  w = !b
+  a = Text("A")
+  f()
+  print(a, b)

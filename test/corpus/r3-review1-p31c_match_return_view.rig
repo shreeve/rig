@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter, n: Int)
+  b
+
+fun pick(e: ?E) -> ?Counter
+  match e
+    .a(c, _) => return c
+    .b => return none
+
+sub main()
+  e = E.a(c: Counter(hits: Cell(0)), n: 1)
+  print(e)

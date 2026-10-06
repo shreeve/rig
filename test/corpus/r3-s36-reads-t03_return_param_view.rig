@@ -1,0 +1,9 @@
+struct Bag
+  v: Vec[Int]
+
+fun pick(a: ?Bag) -> ?Bag
+  a
+
+sub main
+  b = Bag(v: Vec())
+  print(pick(?b).v.len)

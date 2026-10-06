@@ -1,0 +1,23 @@
+# A view is live while a view of it is: its last use as a value does
+# not end the view it holds.
+
+struct Wrap
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop(!self)
+    print("drop", self.n)
+
+struct View
+  box: ?Wrap
+
+sub main()
+  x = Wrap(n: 1)
+  v = View(box: ?x)
+  rv = ?v
+  -x
+  print(rv.box.n)
+
+# error: cannot drop `x` while it is lent

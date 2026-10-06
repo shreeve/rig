@@ -1,0 +1,19 @@
+struct Counter
+  hits: Cell[Int]
+
+struct V
+  c: ?Counter
+  s: []Counter
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  s = ?a[..]
+  t = s
+  r = ?a[0]
+  q = r
+  v = V(c: ?a[1], s: ?a[..])
+  w = v
+  print(t.len, q.hits.get(), w.s.len)
+  hc = *Counter(hits: Cell(1))
+  h2 = hc
+  print(h2.hits.get())

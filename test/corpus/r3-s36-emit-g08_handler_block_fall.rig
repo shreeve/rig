@@ -1,0 +1,11 @@
+error E
+  bad
+fun a() -> Int!
+  return E.bad
+sub main
+  x = a() catch |e|
+    print("handler", e)
+    5
+  print(x)
+  a() catch pass
+  print("after")

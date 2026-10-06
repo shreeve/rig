@@ -1,4 +1,4 @@
-# A read borrow of a field of a temporary that holds a Cell, or a `?self`
+# A read view of a field of a temporary that holds a Cell, or a `?self`
 # method called on one, may change the Cell; the temporary lives until
 # the end of the statement, so the change is seen there.
 

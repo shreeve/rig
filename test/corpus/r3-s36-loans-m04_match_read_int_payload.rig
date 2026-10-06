@@ -1,0 +1,13 @@
+# Sentence 5 says a read loan excludes a write "for numbers too", but a
+# `match ?h` payload of plain data is a copy and holds no loan.
+enum H
+  has(n: Int)
+  no
+
+sub main
+  h: H = .has(n: 1)
+  match ?h
+    .has(n)
+      h = .no
+      print(n)
+    .no => print("no")

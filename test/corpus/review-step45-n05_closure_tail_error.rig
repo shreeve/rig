@@ -1,0 +1,7 @@
+# a closure whose tail is an error value
+error Bad
+  oops
+
+sub main
+  f = |n: Int| -> Int! (Bad.oops if n == 0 else n)
+  print(f(0) catch -1)

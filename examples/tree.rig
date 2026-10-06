@@ -1,8 +1,8 @@
 # A binary search tree that owns its nodes through boxes. `Box[T]` holds
 # one value on the heap: a node holds its children as `Box[Node[T]]?`.
-# `if !slot as n` borrows the node inside an optional box in place, so
-# insertion walks down with write borrows and stores a new leaf where
-# the walk ends; the reads walk down with read borrows. Dropping the
+# `if !slot as n` views the node inside an optional box in place, so
+# insertion walks down with write views and stores a new leaf where
+# the walk ends; the reads walk down with read views. Dropping the
 # tree drops every node.
 
 struct Node[T]

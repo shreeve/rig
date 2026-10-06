@@ -1,0 +1,23 @@
+# A weak handle to a box holding a view, upgraded after the viewed
+# value's scope ended.
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  r: ?R
+
+sub main
+  keep = R(n: 0)
+  w: ~V? = none
+  hold = *V(r: ?keep)
+  if true
+    a = R(n: 1)
+    h = *V(r: ?a)
+    w = ~h
+    hold = +h
+  if w as ww
+    if ww.upgrade() as s
+      print(s.r.n)
+  print(hold.r.n)

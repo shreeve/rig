@@ -1,7 +1,7 @@
 # A module-level binding is already a constant: it is written with `=`,
-# and `=!` there is rejected with the spelling to use.
+# and `const` there is rejected with the spelling to use.
 
-pub W: U8 =! 2
+pub const W: U8 = 2
 
 sub main()
   print(W)

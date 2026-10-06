@@ -1,0 +1,9 @@
+struct S
+  n: Int
+  v: Vec[Int]
+
+sub main
+  o: S? = S(n: 3, v: Vec())
+  r = ?o
+  if r as x
+    print(x.n)

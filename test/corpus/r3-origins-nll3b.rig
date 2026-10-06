@@ -1,0 +1,17 @@
+struct Item
+  n: Int
+
+struct Bag
+  items: [4]Item
+
+fun get_or_add(b: !Bag) -> ?Item
+  r = ?b.items[0]
+  if r.n > 0
+    return r
+  b.items[0] = Item(n: 7)
+  ?b.items[0]
+
+sub main
+  b = Bag(items: [4 of Item(n: 0)])
+  r = get_or_add(!b)
+  print(r.n)

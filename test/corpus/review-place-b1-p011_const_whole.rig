@@ -1,4 +1,4 @@
-K =! 3
+const K = 3
 
 sub main
   K = 4

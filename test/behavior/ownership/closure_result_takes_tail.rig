@@ -1,0 +1,45 @@
+# A closure's value is its result: the tail of an inferred closure, an
+# expression body or a block body, a branch of it, a `match` arm, and a
+# value an early `return` gives, leave the closure, as they leave a
+# function. Lent as `?g`, it returns them the same way.
+
+struct D
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun mk(id: Int) -> D
+  D(id: id)
+
+fun apply(f: ?fun(D) -> D, x: D) -> D
+  f(<x)
+
+sub main
+  g = |x: D| x
+  pick = |x: D, c: Bool| x if c else mk(9)
+  h = |x: D, c: Bool|
+    if c
+      return x
+    print("tail")
+    x
+  k = |x: D, n: Int| match n
+    1 => x
+    _ => mk(8)
+  t: fun(D) -> D = |x| x
+  print(g(mk(1)).id, pick(mk(2), true).id)
+  print(h(mk(3), true).id, h(mk(4), false).id)
+  print(k(mk(5), 1).id, t(mk(6)).id, apply(?g, mk(7)).id)
+
+# expect:
+# 1 2
+# drop 2
+# drop 1
+# tail
+# 3 4
+# drop 4
+# drop 3
+# 5 6 7
+# drop 7
+# drop 6
+# drop 5

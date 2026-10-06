@@ -1,0 +1,13 @@
+# A value loop as the last expression, breaking with an error.
+error E
+  bad
+
+fun f(xs: []Int) -> Int!
+  for x in xs
+    break E.bad if x < 0
+    break x if x > 10
+  else
+    0
+
+sub main
+  print(f([1, -2]) catch -1, f([20]) catch -1, f([1]) catch -1)

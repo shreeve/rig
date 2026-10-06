@@ -1,0 +1,84 @@
+# A read view of plain data copies (Core §4), in a local, a field, a
+# parameter, and a result alike, generic or not: a local bound to a lend
+# takes a call's result, and a generic `?T` agrees with its instance.
+
+struct Pt
+  x: Int
+  y: Int
+
+struct Pair[T]
+  x: T
+  r: ?T
+
+  fun left(?self, other: ?T) -> ?T
+    ?self.x
+
+  fun pick(?self, other: ?T, first: Bool) -> ?T
+    if first
+      ?self.x
+    else
+      other
+
+fun choose[T](a: ?T, b: ?T, first: Bool) -> ?T
+  if first
+    a
+  else
+    b
+
+fun keep[T](a: ?T) -> ?T
+  v = a
+  w = ?a
+  v = w
+  v
+
+sub show[T](p: ?Pair[T], o: ?T)
+  q = p.left(o)
+  q = choose(?p.x, o, false)
+  q = ?p.x
+  print(q)
+
+sub main
+  o = 6
+  p = Pair(x: 5, r: ?o)
+  q = ?p.x
+  q = p.left(?o)
+  q = p.pick(?o, false)
+  q = choose(?p.x, ?o, true)
+  q = keep(?o)
+  q = p.r
+  print(q)
+  show(?p, ?o)
+  b = true
+  pb = Pair(x: false, r: ?b)
+  c = ?pb.x
+  c = pb.left(?b)
+  c = choose(?b, ?pb.x, false)
+  print(c)
+  show(?pb, ?b)
+  t = Pt(x: 1, y: 2)
+  pt = Pair(x: Pt(x: 3, y: 4), r: ?t)
+  d = ?pt.x
+  d = pt.left(?t)
+  d = choose(?t, ?pt.x, true)
+  d = keep(?t)
+  print(d.x, d.y)
+  show(?pt, ?t)
+  plain()
+
+sub plain
+  p = Pt(x: 7, y: 8)
+  q = ?p.x
+  q = first(?p, ?p.y)
+  print(q)
+
+fun first(p: ?Pt, k: ?Int) -> ?Int
+  ?p.x
+
+# expect:
+# 6
+# 5
+# false
+# false
+# 1 2
+# Pt(x: 3, y: 4)
+# 7

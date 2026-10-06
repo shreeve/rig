@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+sub main
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  b = a
+  b[0].hits.set(3)
+  x = a[1]
+  x.hits.set(4)
+  if a.get(0) as y
+    y.hits.set(5)
+  print(a[0].hits.get(), a[1].hits.get(), b[0].hits.get(), x.hits.get())

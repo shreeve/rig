@@ -1,0 +1,7 @@
+# push a view of a loop-body local each iteration
+sub main
+  v: Vec[String] = Vec()
+  for i in 0..3
+    t = Text("i")
+    !v.push(?t)
+  print(v)

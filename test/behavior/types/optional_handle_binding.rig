@@ -1,6 +1,6 @@
 # `*` and `~` bind to the type they touch, tighter than a suffix: `*Node?`
-# is an optional handle. A borrow covers the whole type after it:
-# `?*Node?` borrows an optional handle, `!Int?` an optional Int. A slice's
+# is an optional handle. A view covers the whole type after it:
+# `?*Node?` views an optional handle, `!Int?` an optional Int. A slice's
 # element takes the suffix (`[]Int?`); an optional slice is `([]Int)?`.
 # A type argument in an expression reads the same way: `Cell[*Node?]` and
 # `Cell[*(Node)?]` hold optional handles. A handle to an optional,

@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+gc = Counter(hits: Cell(0))
+
+sub main()
+  gc.hit()
+  gc.hits.set(3)
+  print(gc.hits.get())

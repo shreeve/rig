@@ -1,0 +1,9 @@
+# v[0] = ?t2 where t2 is inner-scoped
+sub main
+  t = Text("a")
+  v: Vec[String] = Vec()
+  !v.push(?t)
+  if true
+    t2 = Text("b")
+    v[0] = ?t2
+  print(v)

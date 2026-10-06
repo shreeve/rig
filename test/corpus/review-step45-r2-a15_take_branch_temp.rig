@@ -1,0 +1,13 @@
+# if (<v[idx(?Text("a"))] if c else <w) as t: takes through a temp in a branch (exempt form)
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("q"))
+  w: Text? = Text("w")
+  c = v.len == 1
+  if (<v[idx(?Text("a"))] if c else <w) as t
+    !t.add("!")
+    print(t)
+  print(v, w)

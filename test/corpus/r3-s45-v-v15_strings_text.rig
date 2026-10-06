@@ -1,0 +1,6 @@
+sub main
+  t = Text("hello")
+  v: Vec[String] = Vec()
+  !v.push(?t[..2])
+  !t.add("!")
+  print(v)

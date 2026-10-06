@@ -1,0 +1,21 @@
+# match getw(!e, ?Text("a")) guarded: a write view of an enum returned by a call with a temp argument
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun getw(e: !E, s: String) -> !E
+  e
+
+sub main
+  e = E.a(t: Text("hi"))
+  match getw(!e, ?Text("a"))
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match e
+    .a(t) => print(t.len)
+    .b(n) => print(n)

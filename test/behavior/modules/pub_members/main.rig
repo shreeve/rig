@@ -1,5 +1,5 @@
 # A struct's or enum's `pub` fields and methods are visible to other
-# modules, through a value, a borrow, a `*T` handle, a `Box`, and an
+# modules, through a value, a view, a `*T` handle, a `Box`, and an
 # instance of a generic type; its private members are used by its own
 # module's methods. Variants and payloads are always public.
 use lib

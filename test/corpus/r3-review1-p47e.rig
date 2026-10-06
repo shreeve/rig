@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+fun look(s: []Counter) -> Int
+  bumpc(?s[0])
+  s[0].hits.get()
+
+sub bumpc(c: ?Counter)
+  c.hit()
+
+sub main()
+  print(look([Counter(hits: Cell(0))]))

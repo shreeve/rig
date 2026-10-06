@@ -1,0 +1,12 @@
+# An if statement in tail position whose else branch is a bare error.
+error E
+  bad
+
+fun f(n: Int) -> Int!
+  if n > 0
+    n
+  else
+    E.bad
+
+sub main
+  print(f(0) catch -1, f(1) catch -1)

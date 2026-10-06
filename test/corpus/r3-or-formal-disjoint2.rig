@@ -1,0 +1,11 @@
+struct Point
+  x: Int
+  y: Int
+
+sub add(a: !Int, b: !Int)
+  a += b
+
+sub main
+  p = Point(x: 1, y: 2)
+  add(!p.x, !p.y)
+  print(p.x, p.y)

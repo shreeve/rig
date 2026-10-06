@@ -1,0 +1,5 @@
+fun span(from: Int, to: Int) -> Int
+  to - from
+
+sub main
+  print(span(2, 5))

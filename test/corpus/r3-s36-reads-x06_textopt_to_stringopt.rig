@@ -1,0 +1,6 @@
+fun show(s: String?) -> String
+  s ?? "none"
+
+sub main
+  o: Text? = Text("hi")
+  print(show(?o))

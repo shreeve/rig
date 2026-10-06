@@ -1,0 +1,9 @@
+# A closure whose type can fail, ending with a bare error.
+error E
+  bad
+
+sub run(f: ?fun(Int) -> Int!)
+  print(f(0) catch -1, f(2) catch -1)
+
+sub main
+  run(|n| n * 10 if n > 0 else E.bad)

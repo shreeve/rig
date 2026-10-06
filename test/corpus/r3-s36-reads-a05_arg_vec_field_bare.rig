@@ -1,0 +1,11 @@
+struct Bag
+  v: Vec[Int]
+
+fun count(v: ?Vec[Int]) -> Int
+  v.len
+
+sub main
+  b = Bag(v: Vec())
+  !b.v.push(3)
+  print(count(b.v))
+  print(count(?b.v))

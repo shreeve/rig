@@ -1,0 +1,13 @@
+# if (!v[idx(?Text("a"))] if c else !w) as t: branching subject, one leaf through a temp; grow t
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("q"))
+  w: Text? = Text("w")
+  c = v.len == 1
+  if (!v[idx(?Text("a"))] if c else !w) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(v[0], w)

@@ -1,0 +1,7 @@
+# A closure of inferred type cannot propagate; does `?? E.bad` inside one fail?
+error E
+  bad
+
+sub main
+  f = |n: Int| n if n > 0 else E.bad
+  print(f(1))

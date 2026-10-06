@@ -26,5 +26,7 @@ fun withdefer(n: Int) -> Int!
 
 sub main
   print(parse(true, 3) catch 0, parse(false, 3) catch 0)
-  print(cb(|x| .missing), cb(|x| Bad.bad if x == 1 else .missing))
+  print(cb(|x| .missing), cb(|x|
+    return Bad.bad if x == 1
+    .missing))
   print(withdefer(0) catch -1, withdefer(1) catch -1)

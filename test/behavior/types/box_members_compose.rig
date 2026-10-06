@@ -1,0 +1,42 @@
+# A box lends the views of its value (Core §4), so member access reaches
+# through it, and through every box it holds: a struct's fields and
+# methods, a Vec's and a Text's, and a Text through a shared handle.
+
+struct S
+  n: Int
+  t: Text
+
+  sub bump(!self)
+    self.n += 1
+
+  fun get(?self) -> Int
+    self.n
+
+  sub eat(<self)
+    print("eat", self.n)
+
+fun read(b: ?Box[Box[S]]) -> Int
+  b.n + b.get()
+
+sub main
+  b = Box(Box(S(n: 1, t: Text("x"))))
+  b.n = 5
+  !b.bump()
+  !b.t.add("y")
+  print(b.n, b.get(), read(?b), b.t)
+  v: Box[Vec[Int]] = Box(Vec())
+  !v.push(3)
+  !v.push(4)
+  print(v.len)
+  bt = Box(Text("q"))
+  print(bt.len, bt == "q")
+  <b.eat()
+  h = *Text("abc")
+  print(h.len, h == "abc")
+
+# expect:
+# 6 6 12 xy
+# 2
+# 1 true
+# eat 6
+# 3 true

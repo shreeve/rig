@@ -1,0 +1,43 @@
+# A view, a slice, or a method's receiver takes the address of its
+# place, found up to each index before the index runs: an index cannot
+# lend the place's root to write, or move it, which could grow or free the
+# memory the place is in. (An assignment's target is found after its
+# indices run, so there an index may.)
+
+struct P
+  a: [4]Int
+
+fun grow(v: !Vec[P]) -> Int
+  for _ in 0..100
+    !v.push(P(a: [0, 0, 0, 0]))
+  1
+
+fun eat(v: Vec[P]) -> Int
+  v.len
+
+fun get(n: ?Int) -> Int
+  n
+
+sub set9(n: !Int)
+  n = 9
+
+sub main
+  ps: Vec[P] = Vec()
+  !ps.push(P(a: [1, 2, 3, 4]))
+  x = 9
+  swap(!ps[0].a[grow(!ps)], !x)
+  set9(!ps[0].a[grow(!ps)])
+  print(get(?ps[0].a[grow(!ps)]))
+  !ps[0].a[grow(!ps)..].fill(7)
+  set9(!ps[grow(!ps)].a[0])
+  set9(!ps[0].a[eat(<ps)])
+  ps[0].a[grow(!ps)] = x
+  print(ps[0], x)
+
+# error: 28:23: cannot lend `ps` to write in an index of a place it is lending
+# error: 29:23: cannot lend `ps` to write in an index of a place it is lending
+# error: 30:28: cannot lend `ps` to write in an index of a place it is lending
+# error: 31:18: cannot lend `ps` to write in an index of a place it is lending
+# error: 32:18: cannot lend `ps` to write in an index of a place it is lending
+# error: 33:22: cannot move `ps` in an index of a place it is lending
+# errors: 6

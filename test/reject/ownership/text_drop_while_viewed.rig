@@ -18,7 +18,7 @@ sub main
   w = Text("v")
   print(c, w)
 
-# error: 10:4: cannot drop `t` while borrows are live
-# error: 14:3: cannot write-borrow `u` while a read borrow is live
-# error: 18:3: cannot reassign `w` while borrows are live
+# error: 10:4: cannot drop `t` while it is lent
+# error: 14:3: cannot lend `u` to write while a read loan is live
+# error: 18:3: cannot reassign `w` while it is lent
 # errors: 3

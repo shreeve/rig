@@ -1,4 +1,4 @@
-# A write receiver (`!self`) needs an explicit write borrow at the call
+# A write receiver (`!self`) needs an explicit write view at the call
 # site: `!u.rename(...)`.
 
 struct User
@@ -11,4 +11,4 @@ sub main()
   u = User(name: "Steve")
   u.rename("Bob")
 
-# error: method `rename` requires a write-borrowed receiver
+# error: method `rename` needs its receiver lent to write

@@ -1,0 +1,46 @@
+struct P
+  x: Int
+  a: [3]Int
+
+struct Q
+  p: P
+  b: Box[P]
+
+fun val(n: Int, what: String) -> Int
+  print("value", what)
+  n
+
+fun ix(i: Int, what: String) -> Int
+  print("index", what)
+  i
+
+sub through(w: !Int)
+  w = val(7, "through-borrow")
+
+sub through_slice(xs: ![]Int)
+  xs[ix(0, "slice")] = val(8, "slice")
+  xs[ix(1, "slice-compound")] += val(1, "slice-compound")
+
+sub main
+  x = 0
+  x = val(1, "local")
+  x += val(1, "local-compound")
+  p = P(x: 0, a: [0, 0, 0])
+  p.x = val(2, "field")
+  p.a[ix(1, "field-array")] = val(3, "field-array")
+  arr = [0, 0, 0]
+  arr[ix(2, "array")] = val(4, "array")
+  m = [[0, 0], [0, 0]]
+  m[ix(0, "outer")][ix(1, "inner")] = val(5, "nested")
+  q = Q(p: P(x: 0, a: [0, 0, 0]), b: Box(P(x: 0, a: [0, 0, 0])))
+  q.b.x = val(6, "box-field")
+  q.b.a[ix(0, "box-array")] += val(6, "box-array-compound")
+  through(!x)
+  through_slice(!arr)
+  v: Vec[P] = Vec()
+  !v.push(P(x: 0, a: [0, 0, 0]))
+  v[ix(0, "vec-field")].a[ix(2, "vec-field-array")] = val(9, "vec-field-array")
+  c: Cell[Vec[Int]] = Cell(Vec())
+  c.push(0)
+  c[ix(0, "cell-vec")] = val(10, "cell-vec")
+  print(x, p, arr, m, q.b.x, q.b.a, v, c[0])

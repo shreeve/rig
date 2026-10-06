@@ -1,0 +1,10 @@
+struct Counter
+  hits: Cell[Int]
+
+fun nxt(c: ?Counter) -> Counter?
+  none
+
+sub main()
+  o: Counter? = Counter(hits: Cell(0))
+  while <o as c : o = nxt(?c)
+    print(c.hits.get())

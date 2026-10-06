@@ -1,0 +1,22 @@
+# A field cannot be moved out of a view parameter: the caller still
+# owns and drops it.
+
+struct Wrap
+  payload: Int
+
+struct Pair
+  a: *Wrap
+
+sub eat(rc: *Wrap)
+  print(rc.payload)
+
+sub steal(p: ?Pair)
+  eat(<p.a)
+
+sub main()
+  p = Pair(a: *Wrap(payload: 1))
+  steal(?p)
+  print("back")
+
+# error: 14:8: cannot move out of `p.a`: `p` is a view; exchange it instead: `replace(!p.a, v)`
+# errors: 1

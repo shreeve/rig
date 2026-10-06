@@ -1,5 +1,5 @@
 # A type from another module is named `module.Type` in annotations:
-# parameters (also borrowed), bindings, optionals, and aliases.
+# parameters (also viewed), bindings, optionals, and aliases.
 
 use geo
 

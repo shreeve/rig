@@ -1,0 +1,25 @@
+# statement temporaries inside an element index in every statement form
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub grow(t: !Text)
+  for _ in 0..40
+    !t.add("xxxxxxxx")
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("q"))
+  v[idx(?Text("a"))] = Text("z")
+  !v[idx(?Text("a"))].add("!")
+  grow(!v[idx(?Text("a"))])
+  print(v[0].len)
+  o: Vec[Text?] = Vec()
+  !o.push(Text("p"))
+  t = <o[idx(?Text("a"))]
+  print(t, o)
+  n: Vec[Int] = Vec()
+  !n.push(1)
+  n[idx(?Text("a"))] += 5
+  print(n)
+  s = ?v[idx(?Text("a"))]
+  print(s.len)

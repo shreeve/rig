@@ -1,4 +1,4 @@
-# `for x in !xs` write-borrows `xs` for the whole loop.
+# `for x in !xs` lends `xs` to write for the whole loop.
 
 sub main()
   v: Vec[Int] = Vec()
@@ -8,4 +8,4 @@ sub main()
     x = 2
   print(r.len)
 
-# error: 7:13: cannot write-borrow `v` while a read borrow is live
+# error: 7:13: cannot lend `v` to write while a read loan is live

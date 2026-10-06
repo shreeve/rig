@@ -1,0 +1,13 @@
+struct Item
+  n: Int
+
+struct Cursor
+  items: ?[2]Item
+  i: Int
+
+sub main
+  v = [2 of Item(n: 1)]
+  c = Cursor(items: ?v, i: 0)
+  r = ?c.items[0]
+  c.i = 5
+  print(r.n, c.i)

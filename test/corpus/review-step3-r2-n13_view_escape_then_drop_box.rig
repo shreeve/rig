@@ -1,0 +1,17 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+sub main
+  b = Box(E.a(r: Res(n: 1, t: Text("x"))))
+  keep = Res(n: 0, t: Text("k"))
+  saved = ?keep
+  match b
+    .a(r) if r.n > 0 => saved = r
+    _ => pass
+  -b
+  print(saved.n)

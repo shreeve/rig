@@ -1,0 +1,27 @@
+struct Res
+  n: Int
+  t: Text
+
+enum E
+  a(r: Res)
+  b
+
+fun pad(n: Int) -> Int
+  arr = [n, n, n, n, n, n, n, n, n, n, n, n, n, n, n, n]
+  arr[3] + arr[7]
+
+sub main
+  e = E.a(r: Res(n: 1, t: Text("hello")))
+  keep = Res(n: 0, t: Text("k"))
+  saved = ?keep
+  match e
+    .a(r) => saved = ?r
+    .b => pass
+  print(pad(77))
+  print(saved.n, saved.t)
+  b = Box(E.a(r: Res(n: 2, t: Text("boxed"))))
+  match b
+    .a(r) => saved = ?r
+    .b => pass
+  print(pad(88))
+  print(saved.n, saved.t)

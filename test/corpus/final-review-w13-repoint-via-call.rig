@@ -1,0 +1,11 @@
+# INTERNALS repoints: a call returning !Int re-points a !Int local; compare w08's initial binding (expect 1 5)
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  m = 1
+  n = 2
+  w = !m
+  w = slot(!n)
+  w = 5
+  print(m, n)

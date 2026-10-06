@@ -1,0 +1,11 @@
+# a fallible function whose tail is a match with an error-value arm
+error Bad
+  oops
+
+fun f(c: Bool) -> Int!
+  match c
+    true => Bad.oops
+    false => 1
+
+sub main
+  print(f(true) catch -1, f(false) catch -1)

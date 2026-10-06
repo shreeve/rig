@@ -1,0 +1,27 @@
+# A header whose subject makes a temporary binds a copy of the subject,
+# even of plain data that is only read: it is rejected, as every such
+# header is (`header_temporary_rejected.rig`).
+
+enum E
+  a(n: Int)
+  b
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+sub main
+  arr: [2]Int? = [7, none]
+  e = [E.a(n: 3), E.b]
+  if arr[idx(?Text("a"))] as n
+    print(n)
+  match e[idx(?Text("a"))]
+    .a(n) if n > 1 => print("a", n)
+    .a(_) => print("small")
+    .b => print("b")
+  for x in [[1, 2], [3, 4]][idx(?Text("ab"))]
+    print(x)
+
+# errors: 3
+# error: 15:15: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
+# error: 17:16: bind the index to a name first
+# error: 21:34: bind the index to a name first

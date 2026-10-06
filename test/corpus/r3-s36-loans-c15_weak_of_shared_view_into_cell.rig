@@ -1,0 +1,15 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  r: ?R
+
+sub main
+  c: Cell[~V?] = Cell(none)
+  if true
+    a = R(n: 1)
+    h = *V(r: ?a)
+    c.set(~h)
+  print("ok")

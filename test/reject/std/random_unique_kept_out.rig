@@ -1,0 +1,13 @@
+# A `Random` is unique: `==` is not defined for it, and `Cell.get` would
+# copy it out of its cell.
+use std.random
+
+sub main()
+  r = random.Random.seeded(1)
+  s = random.Random.seeded(1)
+  print(r == s)
+  c = Cell(random.Random.seeded(4))
+  t = c.get()
+
+# error: 8:9: `==` is not defined for `random.Random`: `random.Random` is unique
+# error: 10:9: `Cell.get` returns `T` by value but `T = random.Random` is unique

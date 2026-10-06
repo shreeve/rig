@@ -1,0 +1,18 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub each[T](xs: ?[2]T, f: ?fun(?T) -> Int)
+  for k in xs
+    _ = f(?k)
+
+fun bump(c: ?Counter) -> Int
+  c.hit()
+  1
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  each(?a, bump)
+  print(a[0].hits.get(), a[1].hits.get())

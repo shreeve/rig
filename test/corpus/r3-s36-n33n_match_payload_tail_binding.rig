@@ -1,0 +1,16 @@
+enum Sh
+  a(v: Vec[Int])
+  b
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  o = Sh.a(<v)
+  e: Vec[Int] = Vec()
+  x = match o
+    .a(p) => p
+    .b => <e
+  print(x.len)
+  match o
+    .a(p) => print(p.len)
+    .b => print("b")

@@ -38,6 +38,10 @@ fun mkh(n: Int) -> H
 fun mke(s: ?Text) -> E
   .a(xs: [s.len, 0, 0, 0])
 
+fun at2(v: ?Vec[E]) -> ?E from v
+  match ?v[idx(?Text("a"))]
+    x => x
+
 sub main
   v = [E.a(xs: [7, 7, 7, 7]), E.b]
   k = 3
@@ -66,6 +70,16 @@ sub main
     c.c.set(5)
   if ?opt(?Text("abc")) as p
     print(p.x)
+  while ?opt(?Text("")) as q
+    print(q.x)
+  bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
+  match ?bs[idx(?Text("a"))]
+    .a(xs) if k > 2 => print(xs[0])
+    _ => print(0)
+  hs = [*E.a(xs: [7, 7, 7, 7]), *E.b]
+  match ?hs[idx(?Text("a"))]
+    .a(xs) => print(xs[3])
+    _ => print(0)
   match mkh(4).e
     .a(xs) => print(xs[0])
     .b => pass
@@ -78,14 +92,18 @@ sub main
     print(p.x)
   print(arr, ints, w)
 
-# errors: 10
-# error: 44:17: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
-# error: 48:19: bind the index to a name first
+# errors: 14
+# error: 42:17: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first
+# error: 48:17: bind the index to a name first
 # error: 52:19: bind the index to a name first
-# error: 56:17: bind the index to a name first
-# error: 59:18: bind the index to a name first
-# error: 61:20: bind the index to a name first
-# error: 65:15: bind the index to a name first
-# error: 67:7: bind `opt(?Text("abc"))` to a name first
-# error: 69:9: bind `mkh(4)` to a name first
-# error: 72:34: bind the index to a name first
+# error: 56:19: bind the index to a name first
+# error: 60:17: bind the index to a name first
+# error: 63:18: bind the index to a name first
+# error: 65:20: bind the index to a name first
+# error: 69:15: bind the index to a name first
+# error: 71:7: bind `opt(?Text("abc"))` to a name first
+# error: 73:10: bind `opt(?Text(""))` to a name first
+# error: 76:18: bind the index to a name first
+# error: 80:18: bind the index to a name first
+# error: 83:9: bind `mkh(4)` to a name first
+# error: 86:34: bind the index to a name first

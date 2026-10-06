@@ -15,4 +15,4 @@ sub main()
 
 # error: cannot write-iterate parameter `xs`
 # error: cannot write-iterate a `String`
-# error: `xs` must be a binding or a field of one
+# error: `xs` must be a binding, or a field or element of one

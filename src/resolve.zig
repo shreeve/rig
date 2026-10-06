@@ -80,7 +80,8 @@ const SymbolResolver = struct {
             .use => try self.walkUse(sexp),
             .type => try self.walkTypeAlias(sexp),
             .generic_struct, .generic_enum => try self.walkGenericType(sexp),
-            .@"struct", .@"enum" => try self.walkNominalType(sexp, .{}),
+            .@"struct" => try self.walkNominalType(sexp, .{ .unique = ir.Struct.unique(sexp) != .nil }),
+            .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
             .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
             .zig_extern => {
@@ -306,7 +307,7 @@ const SymbolResolver = struct {
         const name = identAt(self.ctx.source, name_node) orelse return;
         const parent = self.ctx.scopes.items[self.scope].parent orelse return;
         if (self.visibleLocal(parent, name)) |prev| {
-            try self.ctx.errAt(name_node, "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` borrows it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name, name, name });
+            try self.ctx.errAt(name_node, "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` lends it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name, name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
             return;
         }
@@ -337,7 +338,8 @@ const SymbolResolver = struct {
     /// A `generic_struct` or `generic_enum`.
     fn walkGenericType(self: *SymbolResolver, node: Sexp) Error!void {
         const name_node = ir.get(node, .name);
-        const id = (try self.declare(name_node, .generic_type, .{})) orelse return;
+        const unique = node.isKind(.generic_struct) and ir.GenericStruct.unique(node) != .nil;
+        const id = (try self.declare(name_node, .generic_type, .{ .unique = unique })) orelse return;
         const name = self.ctx.symbols.items[id].name;
         const params = ir.get(node, .tparams);
         var ids: std.ArrayList(SymbolId) = .empty;
@@ -407,10 +409,10 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) });
             },
             .fixed => {
-                if (self.scope != self.module_scope) {
+                if (self.scope != self.module_scope and !rig.shadows(ir.Set.op(node))) {
                     if (self.visibleLocal(self.scope, identAt(self.ctx.source, target).?)) |prev| {
                         const name = self.ctx.symbols.items[prev].name;
-                        try self.ctx.errAt(target, "`{s}` is already bound; `=!` declares a new binding. Assign with `{s} = ...` or shadow with `new {s} = ...`", .{ name, name, name });
+                        try self.ctx.errAt(target, "`{s}` is already bound; `const` declares a new binding. Assign with `{s} = ...` or shadow with `new const {s} = ...`", .{ name, name, name });
                         try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
                         try self.ctx.recordName(target, prev);
                         return;
@@ -632,8 +634,6 @@ pub const DeferredCheck = union(enum) {
     /// `[N]T` spelled at `at`, with `T` spelled at `node`; `ty` is the
     /// array type, when its size is still to be checked.
     array: struct { node: Sexp, elem: TypeId, at: Sexp, ty: ?TypeId },
-    /// `[]T`, with `T` spelled at `node`.
-    slice: struct { node: Sexp, elem: TypeId },
     /// `Vec[T]`, `Box[T]`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
@@ -643,10 +643,6 @@ pub const DeferredCheck = union(enum) {
 fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
     switch (check) {
         .array => |c| {
-            if (sema.typeHasDropGlue(ctx, c.elem)) {
-                try ctx.errAt(c.node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try sema.formatType(ctx, c.elem)});
-                return;
-            }
             if (c.ty) |ty| if (!try sema.checkArrayBytes(ctx, ctx.startOf(c.at), ty)) return;
             // `[N]T` in a generic type: every instance must supply plain
             // data for the parameters the element holds.
@@ -654,21 +650,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             defer held.deinit(ctx.allocator);
             try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
             for (held.items) |param| {
-                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .plain, .pos = ctx.startOf(c.node), .op = "keeps in an array a value" });
-            }
-        },
-        // A slice views plain data only: arrays hold nothing else, and a
-        // Vec of resources cannot be sliced.
-        .slice => |c| {
-            if (sema.typeHasDropGlue(ctx, c.elem)) {
-                try ctx.errAt(c.node, "slices cannot view values that own resources (`{s}`); borrow the Vec instead", .{try sema.formatType(ctx, c.elem)});
-                return;
-            }
-            var held: std.ArrayList(SymbolId) = .empty;
-            defer held.deinit(ctx.allocator);
-            try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
-            for (held.items) |param| {
-                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .plain, .pos = ctx.startOf(c.node), .op = "views in a slice a value" });
+                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .no_cleanup, .pos = ctx.startOf(c.node), .op = "keeps in an array a value" });
             }
         },
         .builtin => |c| if (try builtinElementError(ctx, c.sym, c.args)) |msg| try ctx.err(c.pos, "{s}", .{msg}),
@@ -880,6 +862,7 @@ pub const TypeResolver = struct {
             .ct_syms = try self.ctx.arena.allocator().dupe(SymbolId, ct_syms.items),
         } });
         try self.ctx.recordType(name, fn_ty);
+        try self.recordFrom(node, params, returns);
         if (nominal_sym == sema.symbol_invalid) {
             if (self.ctx.symbolOf(name)) |fid| {
                 self.ctx.symbols.items[fid].ty = fn_ty;
@@ -960,10 +943,10 @@ pub const TypeResolver = struct {
         return self.resolveType(node);
     }
 
-    /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a borrow is
+    /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a view is
     /// no value it could keep.
-    fn handleOfBorrow(self: *TypeResolver, node: Sexp, inner: TypeId) Error!TypeId {
-        try self.ctx.errAt(node, "a handle holds a value, not a borrow: `{s}` has no handle", .{try sema.formatType(self.ctx, inner)});
+    fn handleOfView(self: *TypeResolver, node: Sexp, inner: TypeId) Error!TypeId {
+        try self.ctx.errAt(node, "a handle holds a value, not a view: `{s}` has no handle", .{try sema.formatType(self.ctx, inner)});
         return self.ctx.types.invalid_id;
     }
 
@@ -1001,8 +984,8 @@ pub const TypeResolver = struct {
                             return self.ctx.types.invalid_id;
                         }
                         return switch (h) {
-                            .read => self.ctx.intern(.{ .borrow_read = self.nominal.self_type }),
-                            .write => self.ctx.intern(.{ .borrow_write = self.nominal.self_type }),
+                            .read => self.ctx.intern(.{ .read_view = self.nominal.self_type }),
+                            .write => self.ctx.intern(.{ .write_view = self.nominal.self_type }),
                             else => self.nominal.self_type,
                         };
                     },
@@ -1058,7 +1041,19 @@ pub const TypeResolver = struct {
         const id = self.ctx.symbolOf(name) orelse return;
         self.ctx.symbols.items[id].ty = fn_ty;
         self.ctx.symbols.items[id].param_names = try self.paramNames(params);
+        try self.recordFrom(node, params, returns);
         try self.checkExternSignature(name, fn_ty);
+    }
+
+    /// A `fun`'s `from` clause, which `sema.computeOrigins` reads once
+    /// every type's contents are known.
+    fn recordFrom(self: *TypeResolver, node: Sexp, params: Sexp, returns: Sexp) Error!void {
+        if (!node.isKind(.fun) and !node.isKind(.extern_fun)) return;
+        const names = ir.get(node, .origins);
+        if (names == .nil) return;
+        const name = ir.get(node, .name);
+        if (name != .src) return;
+        try self.ctx.declared_origins.put(self.ctx.allocator, name.src.pos, .{ .names = names, .params = params, .returns = returns });
     }
 
     /// C functions take and return only integers, floats, and Bool.
@@ -1245,14 +1240,14 @@ pub const TypeResolver = struct {
     }
 
     /// Whether `ty`, written `node` inside another type, is or holds a
-    /// borrowed callable, which no value holds. Reported.
+    /// callable view, which no value holds. Reported.
     fn heldCallable(self: *TypeResolver, node: Sexp, ty: TypeId) Error!bool {
         if (!sema.holdsCallable(self.ctx, ty)) return false;
         try self.ctx.errAt(node, sema.held_callable, .{try sema.formatType(self.ctx, ty)});
         return true;
     }
 
-    /// A field's type `ty`, written `node`: a borrowed callable is not
+    /// A field's type `ty`, written `node`: a callable view is not
     /// one. Reported.
     fn fieldCallable(self: *TypeResolver, node: Sexp, ty: TypeId) Error!bool {
         if (sema.callableFn(self.ctx, ty) == null) return false;
@@ -1443,11 +1438,11 @@ pub const TypeResolver = struct {
         const nom = self.ctx.symbols.items[nominal_sym].name;
         const self_ty = self.nominal.self_type;
         switch (self.ctx.types.get(pty_id)) {
-            .borrow_read => |inner| {
+            .read_view => |inner| {
                 if (inner == self_ty) return .read;
                 try self.ctx.err(mpos, "`self` receiver type must be `?Self` or `?{s}`", .{nom});
             },
-            .borrow_write => |inner| {
+            .write_view => |inner| {
                 if (inner == self_ty) return .write;
                 try self.ctx.err(mpos, "`self` receiver type must be `!Self` or `!{s}`", .{nom});
             },
@@ -1489,14 +1484,14 @@ pub const TypeResolver = struct {
             return;
         }
         const pty = self.ctx.types.get(ptys[0]);
-        const ok = pty == .borrow_write and blk: {
-            break :blk switch (self.ctx.types.get(pty.borrow_write)) {
+        const ok = pty == .write_view and blk: {
+            break :blk switch (self.ctx.types.get(pty.write_view)) {
                 .nominal => |s| s == nominal_sym,
                 else => false,
             };
         };
         if (!ok) {
-            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver write-borrowed: `drop(!self)`", .{});
+            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver lent to write: `drop(!self)`", .{});
             return;
         }
         const fn_ty = try self.ctx.intern(.{ .function = .{
@@ -1606,21 +1601,20 @@ pub const TypeResolver = struct {
                         try self.ctx.errAt(sexp, "a fallible type `{s}` is only allowed as a function's return type", .{try sema.formatType(self.ctx, ty)});
                         return t.invalid_id;
                     },
-                    .optional, .borrow_read, .borrow_write, .weak, .slice => {
+                    .optional, .read_view, .write_view, .weak, .slice => {
                         const inner_node = if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type);
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
                         if (try self.heldCallable(inner_node, inner)) return t.invalid_id;
-                        // `?fun(...)` written as such is a borrowed
-                        // callable; a `?T` of a function type is a read
-                        // borrow of a function value.
-                        if (head == .borrow_read and inner_node.isKind(.fun_type)) return sema.callableOfFn(self.ctx, inner);
-                        if (head == .slice) try self.checkWhenResolved(.{ .slice = .{ .node = inner_node, .elem = inner } });
-                        if (head == .weak and sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
+                        // `?fun(...)` written as such is a callable
+                        // view; a `?T` of a function type is a read
+                        // view of a function value.
+                        if (head == .read_view and inner_node.isKind(.fun_type)) return sema.callableOfFn(self.ctx, inner);
+                        if (head == .weak and sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
                         return self.ctx.intern(switch (head) {
                             .optional => .{ .optional = inner },
-                            .borrow_read => .{ .borrow_read = inner },
-                            .borrow_write => .{ .borrow_write = inner },
+                            .read_view => .{ .read_view = inner },
+                            .write_view => .{ .write_view = inner },
                             .weak => .{ .weak = inner },
                             else => .{ .slice = .{ .elem = inner } },
                         });
@@ -1634,7 +1628,7 @@ pub const TypeResolver = struct {
                             try self.ctx.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
                             return t.invalid_id;
                         }
-                        if (sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
+                        if (sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
                         if (self.ctx.types.get(inner) == .function) try self.checkWhenResolved(.{ .owned_closure = .{ .node = inner_node, .ty = inner } });
                         return self.ctx.intern(.{ .shared = inner });
                     },
@@ -1860,7 +1854,7 @@ pub const TypeResolver = struct {
         const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(mod_id) orelse return false) orelse return false;
         const name = identAt(self.ctx.source, ir.Member.name(node)) orelse return false;
         const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
-            try self.ctx.errAt(node, "no member `{s}` in module `{s}`", .{ name, module_name });
+            try self.ctx.errAt(node, "no member `{s}` in module `{s}`{s}", .{ name, module_name, sema.stdNameHint(foreign, name) });
             return true;
         };
         const fsym = foreign.symbols.items[fid];
@@ -1888,7 +1882,7 @@ pub const TypeResolver = struct {
         return null;
     }
 
-    /// The `ct_param` of the compile-time integer parameter (or `k =! n`
+    /// The `ct_param` of the compile-time integer parameter (or `const k = n`
     /// alias of one) a name leaf denotes; null for any other name.
     fn ctParamNamed(self: *TypeResolver, leaf: Sexp) Error!?TypeId {
         const name = identAt(self.ctx.source, leaf) orelse return null;
@@ -1983,7 +1977,7 @@ pub const TypeResolver = struct {
         const origin = self.ctx.module_refs.get(mod_id) orelse return null;
         const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
         const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
-            try self.ctx.err(pos, "no type `{s}` in module `{s}`", .{ name, module_name });
+            try self.ctx.err(pos, "no type `{s}` in module `{s}`{s}", .{ name, module_name, sema.stdNameHint(foreign, name) });
             return null;
         };
         return .{ .foreign = foreign, .origin = origin, .id = fid, .sym = foreign.symbols.items[fid], .module_name = module_name, .name = name, .pos = pos };
@@ -2100,9 +2094,7 @@ pub const TypeResolver = struct {
         } else {
             // Spelled inside a generic declaration: each instantiation of
             // that generic instantiates this too.
-            for (self.ctx.generic_uses.items) |u| {
-                if (u == ty) break;
-            } else try self.ctx.generic_uses.append(self.ctx.allocator, ty);
+            try self.ctx.addGeneric(.uses, ty);
         }
         return ty;
     }
@@ -2116,26 +2108,23 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const a = ctx.arena.allocator();
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
-        if (sema.isCopyElement(ctx, args[0]) or sema.typeHasDropGlue(ctx, args[0])) return null;
-        return try a.print("`Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), or a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`); got `{s}`", .{arg});
+        if (sema.isCopyElement(ctx, args[0]) or sema.moves(ctx, args[0]) == .yes) return null;
+        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`), or a type declared `unique`; got `{s}`", .{arg});
     }
     if (sym_id == ctx.vec_sym_id) {
-        const ok = sema.isCopyElement(ctx, args[0]) or switch (ctx.types.get(args[0])) {
-            .shared, .weak => true,
-            // A box moves in and out whole, like a handle.
-            .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id,
-            else => false,
-        };
-        if (ok) return null;
-        return try a.print("`Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `{s}`", .{arg});
+        // A Vec holds any value, views included: its elements move in
+        // and out whole, and each is a place (Core §5). A viewed
+        // callable is only a parameter's, a local's, or a result's.
+        if (!sema.holdsCallable(ctx, args[0])) return null;
+        return try a.print(sema.held_callable, .{arg});
     }
     if (sym_id == ctx.box_sym_id) {
-        if (!sema.holdsBorrow(ctx, args[0])) return null;
-        return try a.print("`Box[T]` owns its value, so `T` holds no borrow; got `{s}`", .{arg});
+        if (!sema.holdsMarkedView(ctx, args[0])) return null;
+        return try a.print("`Box[T]` owns its value, so the value holds no `?T`, `!T`, or slice; got `{s}`", .{arg});
     }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isCopyElement(ctx, args[0])) return null;
-        return try a.print("`Signal[T]` requires `T` to be a Copy type (Int, Bool, Float, String) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
+        return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, String) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
     }
     return null;
 }
@@ -2149,11 +2138,11 @@ fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!voi
     for (f.params, 0..) |p, i| {
         if (sema.isClosureValue(ctx, p)) continue;
         const pos = if (i < nodes.len) ctx.startOf(nodes[i]) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(ctx, p)});
+        try ctx.err(pos, "an owned closure takes values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(ctx, p)});
     }
     if (!f.is_sub and !sema.isClosureResult(ctx, f.returns)) {
         const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ctx.startOf(ir.FunType.returns(fun_type)) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
+        try ctx.err(pos, "an owned closure returns values that copy (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
     }
 }
 
@@ -2236,7 +2225,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const g = try addGeneric(ctx, module_scope, "Cell", &.{"T"});
         ctx.cell_sym_id = g.sym;
         const t = g.params[0];
-        const self_ty = try ctx.intern(.{ .borrow_read = g.self_ty });
+        const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
             try method(ctx, "get", .read, &.{self_ty}, t),
@@ -2251,8 +2240,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const g = try addGeneric(ctx, module_scope, "Vec", &.{"T"});
         ctx.vec_sym_id = g.sym;
         const t = g.params[0];
-        const read_self = try ctx.intern(.{ .borrow_read = g.self_ty });
-        const write_self = try ctx.intern(.{ .borrow_write = g.self_ty });
+        const read_self = try ctx.intern(.{ .read_view = g.self_ty });
+        const write_self = try ctx.intern(.{ .write_view = g.self_ty });
         const opt_t = try ctx.intern(.{ .optional = t });
         try setFields(ctx, g.sym, &.{
             try method(ctx, "push", .write, &.{ write_self, t }, ctx.types.void_id),
@@ -2293,12 +2282,12 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
     }
 
-    // Signal[T]: a Copy value plus subscriber closures notified on `set`.
+    // Signal[T]: a value that copies, plus subscriber closures notified on `set`.
     {
         const g = try addGeneric(ctx, module_scope, "Signal", &.{"T"});
         ctx.signal_sym_id = g.sym;
         const t = g.params[0];
-        const self_ty = try ctx.intern(.{ .borrow_read = g.self_ty });
+        const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
         // Subscribers are owned closures `*sub()`.
         const callback = try ctx.intern(.{ .function = .{ .params = &.{}, .returns = ctx.types.void_id, .is_sub = true } });
         const closure_handle = try ctx.intern(.{ .shared = callback });

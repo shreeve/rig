@@ -1,0 +1,13 @@
+# h.w = w2: a bare held write view on the right writes the value it reaches.
+# For Text this would copy the buffer pointer (double free) unless rejected.
+struct H
+  w: !Text
+
+sub main
+  a = Text("a")
+  b = Text("b")
+  h = H(w: !a)
+  w2 = !b
+  h.w = w2
+  print(h.w)
+  print(b)

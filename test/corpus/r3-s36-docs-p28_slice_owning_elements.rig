@@ -1,0 +1,11 @@
+# SPEC §2 Slices: a slice's elements are plain data
+struct B
+  n: Int
+
+fun count(xs: []*B) -> Int
+  xs.len
+
+sub main
+  v: Vec[*B] = Vec()
+  !v.push(*B(n: 1))
+  print(count(?v[..]))

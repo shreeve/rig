@@ -1,6 +1,6 @@
 # A function returning a String, a `String?`, or a struct holding
 # Strings may return a view of a String it was passed: its result keeps
-# borrowed every Text its arguments view, and so does an iterator built
+# viewed every Text its arguments view, and so does an iterator built
 # from one, and each part it gives.
 
 fun trim(s: String) -> String
@@ -41,8 +41,8 @@ sub main
   !t.clear()
   print(a, b, c, d)
 
-# error: 33:3: cannot write-borrow `t` while a read borrow is live
-# error: 35:3: cannot write-borrow `t` while a read borrow is live
-# error: 37:3: cannot write-borrow `t` while a read borrow is live
-# error: 41:3: cannot write-borrow `t` while a read borrow is live
+# error: 33:3: cannot lend `t` to write while a read loan is live
+# error: 35:3: cannot lend `t` to write while a read loan is live
+# error: 37:3: cannot lend `t` to write while a read loan is live
+# error: 41:3: cannot lend `t` to write while a read loan is live
 # errors: 4

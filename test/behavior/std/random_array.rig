@@ -1,0 +1,35 @@
+# An array holds `Random`s, which are unique: a loop writes each in
+# place, an element is lent or written where it is, and a discarded
+# `Random` is simply dropped.
+use std.random
+
+fun step(r: !random.Random) -> U64
+  !r.next()
+
+sub show(r: ?random.Random)
+  print("view")
+
+sub main()
+  a: [2]random.Random = [random.Random.seeded(1), random.Random.seeded(2)]
+  for r in !a
+    print(!r.next() != 0)
+  show(?a[0])
+  print(step(!a[1]) != 0)
+  random.Random.seeded(3)
+  _ = random.Random.seeded(4)
+  x = random.Random.seeded(5)
+  print(step(!x) != 0, step(!x) != 0)
+  y = random.Random.seeded(6)
+  f = !y.fork()
+  print(!f.int(1, 7) >= 1)
+  b = <a
+  print(!b[1].next() != 0)
+
+# expect:
+# true
+# true
+# view
+# true
+# true true
+# true
+# true

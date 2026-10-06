@@ -1,0 +1,13 @@
+struct R
+  v: Vec[Int]
+
+sub main
+  c = true
+  x = if c
+    r = R(v: Vec())
+    !r.v.push(1)
+    defer -r
+    r
+  else
+    R(v: Vec())
+  print(x.v.len, x.v[0])

@@ -1,0 +1,20 @@
+struct Bag
+  items: Vec[Int]
+
+  fun total(<self) -> Int
+    self.items.len
+
+struct Holder
+  o: Bag?
+
+fun go(h: !Holder) -> Int?
+  n = (h.o?).total()
+  n
+
+sub main
+  b = Bag(items: Vec())
+  !b.items.push(3)
+  h = Holder(o: <b)
+  print(go(!h) ?? 0)
+  if ?h.o as x
+    print(x.items[0])

@@ -1,0 +1,13 @@
+# a write method on a made receiver whose result is used: mk().next() with fun next(!self) -> Int (expect reject: write lend unwritten)
+struct S
+  n: Int
+
+  fun next(!self) -> Int
+    self.n += 1
+    self.n
+
+fun mk -> S
+  S(n: 1)
+
+sub main
+  print(mk().next())

@@ -1,0 +1,13 @@
+# A returned view must come from a view parameter, not a local.
+
+struct User
+  name: String
+
+fun bad() -> ?String
+  user = User(name: "Steve")
+  ?user.name
+
+fun name(user: ?User) -> ?String
+  ?user.name
+
+# error: cannot return a view of `user`, which this function was not lent

@@ -1,5 +1,5 @@
 # Writing to a Vec while iterating over it is rejected (the loop holds a
-# read borrow).
+# read view).
 
 sub main()
   count: *Cell[Int] = *Cell(0)
@@ -12,4 +12,4 @@ sub main()
     cb()
     !subs.push(+cb1)
 
-# error: cannot write-borrow `subs` while a read borrow is live
+# error: cannot lend `subs` to write while a read loan is live

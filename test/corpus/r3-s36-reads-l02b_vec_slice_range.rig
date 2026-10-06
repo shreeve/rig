@@ -1,0 +1,10 @@
+fun sum(xs: []Int) -> Int
+  s = 0
+  for x in xs
+    s += x
+  s
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(4)
+  print(sum(?v[..]))

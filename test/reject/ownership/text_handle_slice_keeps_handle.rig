@@ -1,0 +1,48 @@
+# A slice of a Text reached through a handle (`*Text`) or a box lends the
+# handle (Core §4: a `*T` lends the read views of its `T`): the handle may
+# not be dropped, moved, or replaced while the String is used.
+
+struct W
+  t: *Text
+
+fun peek(h: *Text) -> String
+  ?h[..]
+
+sub local
+  h = *Text("hello")
+  s = ?h[..]
+  -h
+  print(s)
+
+sub field
+  w = W(t: *Text("hello"))
+  s = ?w.t[1..]
+  w = W(t: *Text("other"))
+  print(s)
+
+sub boxed
+  b = Box(*Text("hello"))
+  s = ?b[1..]
+  b = Box(*Text("other"))
+  print(s)
+
+sub upgraded
+  h = *Text("hello")
+  w = ~h
+  if w.upgrade() as g
+    s = ?g[1..]
+    -g
+    print(s)
+
+sub main
+  local()
+  field()
+  boxed()
+  upgraded()
+
+# errors: 5
+# error: 9:4: cannot return a view of `h`
+# error: 14:4: cannot drop `h` while it is lent
+# error: 20:3: cannot reassign `w` while it is lent
+# error: 26:3: cannot reassign `b` while it is lent
+# error: 34:6: cannot drop `g` while it is lent

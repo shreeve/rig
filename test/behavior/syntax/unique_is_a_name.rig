@@ -1,0 +1,33 @@
+# `unique` is a keyword only after a struct header's name or type
+# parameters, where it declares the struct unique (`struct Random unique`).
+# Everywhere else it is an ordinary name.
+
+struct Seed unique
+  value: Int
+
+pub struct Ring[T] unique
+  item: T
+
+struct Flags
+  unique: Bool
+
+  fun only(?self, unique: Bool) -> Bool
+    self.unique and unique
+
+enum Mode
+  unique
+  shared
+
+fun twice(unique: Int) -> Int
+  unique * 2
+
+sub main()
+  unique = 3
+  f = Flags(unique: true)
+  m = Mode.unique
+  s = Seed(value: unique)
+  r = Ring(item: twice(unique: 4))
+  print(unique, twice(unique), f.unique, f.only(unique: true), m == .unique, s.value, r.item)
+
+# expect:
+# 3 6 true true true 3 8

@@ -1,0 +1,13 @@
+struct Counter
+  n: Int
+  items: Vec[Int]
+
+fun bump(c: !Counter) -> ?Vec[Int]
+  c.n += 1
+  ?c.items
+
+sub main
+  c = Counter(n: 0, items: Vec())
+  r = bump(!c)
+  print(c.n)
+  print(r.len)

@@ -1,0 +1,5 @@
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("a"))
+  print(v[0] == v[1])

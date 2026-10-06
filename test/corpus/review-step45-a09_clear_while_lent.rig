@@ -1,0 +1,9 @@
+# clear while an element view is live
+sub main
+  v: Vec[Vec[Int]] = Vec()
+  r: Vec[Int] = Vec()
+  !r.push(1)
+  !v.push(<r)
+  e = ?v[0]
+  !v.clear()
+  print(e.len)

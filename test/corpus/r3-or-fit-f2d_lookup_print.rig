@@ -1,0 +1,19 @@
+struct Var
+  name: String
+  value: String
+
+struct Env
+  vars: [3]Var
+
+  fun get(?self, name: String) -> String?
+    for v in ?self.vars
+      if v.name == name
+        return v.value
+    none
+
+sub main
+  env = Env(vars: [Var(name: "a", value: "1"), Var(name: "b", value: "2"), Var(name: "c", value: "3")])
+  q = Text("a")
+  v = env.get(?q) ?? "?"
+  -q
+  print(v)

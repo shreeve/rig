@@ -1,0 +1,15 @@
+struct Holder
+  r: []Int
+  own: Vec[Int]
+
+fun f(a: !Holder) -> Int
+  !a.own.push(1)
+  a.r = ?a.own[..]
+  for i in 0..100
+    !a.own.push(i)
+  a.r[0]
+
+sub main
+  x = [9, 9]
+  h = Holder(r: ?x[..], own: Vec())
+  print(f(!h))

@@ -1,0 +1,6 @@
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  h = *<v
+  print(h[0])
+  h[0] = Text("b")

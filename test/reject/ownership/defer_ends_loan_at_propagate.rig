@@ -1,5 +1,5 @@
 # The defers run at `e!` only on the path that fails. On the path that
-# goes on, `r` still borrows `x`: the defer that re-points it has not
+# goes on, `r` still views `x`: the defer that re-points it has not
 # run, so `x` cannot be dropped while `r` is in use.
 error E
   bad
@@ -23,5 +23,5 @@ fun f(ok: Bool) -> Int!
 sub main
   print(f(true) catch 0)
 
-# error: 19:4: cannot drop `x` while borrows are live
+# error: 19:4: cannot drop `x` while it is lent
 # errors: 1

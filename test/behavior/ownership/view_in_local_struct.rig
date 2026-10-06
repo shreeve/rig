@@ -1,0 +1,20 @@
+# A struct may hold a view while the viewed value is alive, whether
+# built locally or returned from a function taking the view.
+
+struct Wrap
+  payload: Int
+
+struct View
+  box: ?Wrap
+
+fun view_of(b: ?Wrap) -> View
+  View(box: b)
+
+sub main()
+  b = Wrap(payload: 5)
+  v = View(box: ?b)
+  w = view_of(?b)
+  print(v.box.payload + w.box.payload)
+
+# expect:
+# 10

@@ -1,0 +1,17 @@
+# WELCOME "From Rust and Zig": "a bare name never moves an owning value"
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun make(n: Int) -> Res
+  r = Res(n: n)
+  r
+
+fun pass_on(r: Res) -> Res
+  return r
+
+sub main
+  a = pass_on(make(1))
+  print(a.n)

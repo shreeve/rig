@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter)
+  b
+
+sub main
+  e = E.a(c: Counter(hits: Cell(0)))
+  match e
+    .a(c) => c.hits.set(4)
+    .b => pass
+  match e
+    .a(c) => print(c.hits.get())
+    .b => pass

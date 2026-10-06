@@ -1,0 +1,37 @@
+# A generic body is checked once, a type parameter owning and holding no
+# view (SPEC "Generic bodies"); a copy of a `T` is each instance's
+# question. A call of a generic function at plain data is checked by
+# its signature.
+#
+# oracle: first accept
+# oracle: Pair.left accept
+# oracle: Pair.put accept
+# oracle: take_both accept
+# oracle: main accept
+
+struct Pair[T]
+  a: T
+  b: T
+
+  fun left(?self) -> T
+    self.a
+
+  sub put(!self, x: T)
+    self.a = <x
+
+fun first[T](v: ?Vec[T]) -> T
+  v[0]
+
+fun take_both[T](x: T, y: T) -> Vec[T]
+  out: Vec[T] = Vec()
+  !out.push(<x)
+  !out.push(<y)
+  out
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  p = Pair[Int](a: 1, b: 2)
+  !p.put(first(?v))
+  w = take_both(4, 5)
+  print(p.left(), w.len, v.len)

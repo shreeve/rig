@@ -1,0 +1,9 @@
+use std.text
+
+sub main
+  line = Text("name=ada")
+  name = "name"
+  key = Text(name, "=")
+  v = text.strip_prefix(?line, ?key) ?? ""
+  -key
+  print(v)

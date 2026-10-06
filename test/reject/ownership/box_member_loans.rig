@@ -1,0 +1,37 @@
+# Member access through boxes lends what it reaches, with a loan on the
+# box's binding: the box may not be dropped or written while a view
+# through it is used.
+
+struct S
+  n: Int
+  t: Text
+
+fun first(s: String) -> String
+  s
+
+sub a()
+  b = Box(Box(S(n: 1, t: Text("x"))))
+  r = first(?b.t)
+  -b
+  print(r)
+
+sub c()
+  bt = Box(Box(Text("hi")))
+  s = first(?bt)
+  !bt.add("!")
+  print(s)
+
+sub d()
+  v: Box[Vec[Int]] = Box(Vec())
+  !v.push(1)
+  w = ?v
+  !v.push(2)
+  print(w.len)
+
+sub main
+  a()
+
+# error: 15:4: cannot drop `b` while it is lent
+# error: 21:3: cannot lend `bt` to write while a read loan is live
+# error: 28:3: cannot lend `v` to write while a read loan is live
+# errors: 3

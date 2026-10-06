@@ -1,0 +1,36 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct V
+  c: (?Counter)?
+
+fun ret(a: ?[2]Counter) -> (?Counter)?
+  for k in a
+    return k
+  none
+
+fun ret2(c: ?Counter) -> (?Counter)?
+  c
+
+fun pick(c: ?Counter, f: Bool) -> (?Counter)?
+  c if f else none
+
+fun show(o: (?Counter)?) -> Int
+  if o as s
+    return s.hits.get()
+  -1
+
+sub main()
+  a = [Counter(hits: Cell(1)), Counter(hits: Cell(2))]
+  print(show(ret(?a)), show(ret2(?a[1])), show(pick(?a[0], true)))
+  for k in a
+    v = V(c: k)
+    print(show(v.c))
+    arr: [1](?Counter)? = [k]
+    print(show(arr[0]))
+    o: (?Counter)? = none
+    w = o ?? k
+    print(w.hits.get())

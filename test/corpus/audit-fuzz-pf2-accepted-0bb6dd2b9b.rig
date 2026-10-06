@@ -1,4 +1,4 @@
-# A write-borrowing call whose value is a `Bool` takes the short form
+# A call that lends its receiver to write whose value is a `Bool` takes the short form
 # `!s.add(x)` wherever its `!` cannot read as negation: a binding, an
 # argument, a return value, a body's value.
 
@@ -10,23 +10,23 @@ struct Set
     !self.items.push(k)
     true
   fun checked(!self, k: Int) -> Bool!
-    !self.insert(k)
+    (!self).insert(k)
 
 fun add(s: !Set, k: Int) -> Bool
-  return !s.insert(k)
+  return (!s).insert(k)
 
 fun again(s: !Set, k: Int) -> Bool
-  !s.insert(k)
+  (!s).insert(k)
 
 fun fill(s: !Set) -> Int!
-  added = !s.checked(3)!
+  added = (!s).checked(3)!
   1 if added else 0
 # 1
 sub main
   set = Set(items: Vec())
-  fresh = !set.insert(1)
+  fresh = (!set).insert(1)
   print(fresh)
-  print(!set.insert(1))
+  print((!set).insert(1))
   print(add(!set, 2), again(!set, 2))
   print(fill(!set) catch 0)
   if (!set).insert(4) and not (!set).insert(4)

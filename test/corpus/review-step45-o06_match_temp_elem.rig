@@ -1,0 +1,14 @@
+# match on an element of a temporary Vec of enums with owner payloads
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun mk -> Vec[E]
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("hi")))
+  <v
+
+sub main
+  match mk()[0]
+    .a(t) => print(t)
+    .b(n) => print(n)

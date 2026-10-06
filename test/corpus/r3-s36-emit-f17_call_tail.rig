@@ -1,0 +1,13 @@
+# The last line is a call that returns an error-set value (not a fallible call).
+error E
+  bad
+
+fun which(n: Int) -> E
+  E.bad
+
+fun f(n: Int) -> Int!
+  return n if n > 0
+  which(n)
+
+sub main
+  print(f(0) catch -1, f(1) catch -1)

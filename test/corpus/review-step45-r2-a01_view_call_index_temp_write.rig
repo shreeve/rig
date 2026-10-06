@@ -1,0 +1,25 @@
+# match !getw(!v)[idx(?Text("a"))]: element of a view a call returns, temp in the index, guarded write growth
+enum E
+  a(t: Text)
+  b(n: Int)
+
+fun idx(s: String) -> Int
+  s.len - 1
+
+fun getw(v: !Vec[E]) -> !Vec[E]
+  v
+
+sub main
+  v: Vec[E] = Vec()
+  !v.push(E.a(t: Text("hi")))
+  match !getw(!v)[idx(?Text("a"))]
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match v[0]
+    .a(t) => print(t.len)
+    .b(n) => print(n)

@@ -1,6 +1,6 @@
 # std.sort: sorting slices and searching sorted ones, written in Rig.
 # Every function takes a slice, `![]T` to sort or `[]T` to search: pass
-# an array as `!a` or `?a`, and a Vec as `!v[..]` or `?v[..]`. Order is
+# an array or a Vec as `!a` or `?a`. Order is
 # `<`'s, or a comparator's: a NaN is not ordered by `<`, so sort Floats
 # that may be NaN with `sort_by` and a comparator that orders it.
 

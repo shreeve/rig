@@ -1,6 +1,6 @@
 
 # each closure; all handles and the shared cell are released at scope exit.
-# `for cb in ?subs` walks a `Vec[*sub()]` by borrowed slot and calls
+# `for cb in ?subs` walks a `Vec[*sub()]` by viewed slot and calls
 sub main()
   count: *Cell[Int] = *Cell(0)
   cb1: *sub() = *|+count| count.set(count.get() + 1)

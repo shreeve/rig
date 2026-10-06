@@ -1,0 +1,7 @@
+XS = [1, 2]
+N = 0
+
+sub main
+  N = 3
+  XS = [3, 4]
+  print(N, XS)

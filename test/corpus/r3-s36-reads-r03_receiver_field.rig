@@ -1,0 +1,16 @@
+struct Bag
+  n: Int
+  v: Vec[Int]
+
+  fun total(?self) -> Int
+    self.n + self.v.len
+
+fun mk(n: Int) -> Bag
+  v: Vec[Int] = Vec()
+  !v.push(n)
+  Bag(n: n, v: <v)
+
+fun size(b: ?Bag) -> Int
+  b.n + b.v.len
+sub main
+  print(mk(3).n)

@@ -1,0 +1,22 @@
+struct P
+  x: Int
+  y: Int
+
+struct H
+  o: P?
+  d: P
+
+fun get(h: ?H) -> ?P
+  if h.o as p
+    return ?p
+  ?h.d
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  h = H(o: P(x: 1, y: 2), d: P(x: 0, y: 0))
+  x = get(?h)
+  print(clobber(1000))
+  print(x.x, x.y)

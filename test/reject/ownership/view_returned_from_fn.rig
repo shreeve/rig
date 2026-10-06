@@ -1,0 +1,20 @@
+# A view returned from a function views from the viewed argument,
+# so `h` cannot be dropped while `r` is live.
+
+struct Wrap
+  payload: Int
+
+struct Holder
+  inner: *Wrap
+
+fun view(h: ?Holder) -> ?Holder
+  h
+
+sub main()
+  h = Holder(inner: *Wrap(payload: 5))
+  r = view(?h)
+  -h
+  x = +r.inner
+  print(x.payload)
+
+# error: cannot drop `h` while it is lent

@@ -1,0 +1,16 @@
+# `g() catch E.other` on the last line: the handler value fails.
+error E
+  bad
+  other
+
+fun g() -> Int!
+  return E.bad
+
+fun f() -> Int!
+  g() catch E.other
+
+sub main
+  x = f() catch |e|
+    print(e)
+    0
+  print(x)

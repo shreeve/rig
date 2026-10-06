@@ -1,0 +1,28 @@
+# The `!` exit runs the defers on its way out; their effects must not
+# leak into the path that goes on. Here the defer reassigns `x`, so if
+# its effect leaks, `x` looks live after `<x` moved it.
+error E
+  bad
+
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(r: R)
+  print("eat", r.n)
+
+fun maybe(ok: Bool) -> Int!
+  return E.bad if not ok
+  1
+
+fun f(ok: Bool) -> Int!
+  x = R(n: 1)
+  defer x = R(n: 9)
+  eat(<x)
+  k = maybe(ok)!
+  print(x.n)
+  k
+
+sub main
+  print(f(true) catch 0)

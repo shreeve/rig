@@ -1,0 +1,29 @@
+# Testing a `catch` against a bare variant reads it, as any `==`
+# operand: the name its handler gives is read where it is, and a value
+# made there is dropped with the statement.
+error E
+  bad
+
+enum Shape
+  dot
+  line(v: Vec[Int])
+
+fun mk(ok: Bool) -> Shape!
+  if not ok
+    return E.bad
+  .dot
+
+sub main
+  p: Vec[Int] = Vec()
+  !p.push(1)
+  d = Shape.line(<p)
+  if (mk(false) catch d) != .dot
+    print("line")
+  match ?d
+    .line(v) => print(v[0])
+    .dot => print("dot")
+
+
+# expect:
+# line
+# 1

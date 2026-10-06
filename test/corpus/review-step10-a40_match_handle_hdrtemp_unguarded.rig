@@ -1,0 +1,18 @@
+# a39, unguarded only: `match ?hs[idx(?Text("a"))]` over `*E` handles,
+# and over Box[E], with a header temporary.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+sub main
+  hs = [*E.a(xs: [7, 7, 7, 7]), *E.b]
+  match ?hs[idx(?Text("a"))]
+    .a(xs) => print(xs[3])
+    _ => print(0)
+  bs = [Box(E.a(xs: [8, 8, 8, 8])), Box(E.b)]
+  match ?bs[idx(?Text("a"))]
+    .a(xs) => print(xs[3])
+    _ => print(0)

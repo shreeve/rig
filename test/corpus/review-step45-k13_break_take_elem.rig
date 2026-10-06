@@ -1,0 +1,11 @@
+# a loop breaks with a taken optional element; loop over a Vec[Text?]
+sub main
+  v: Vec[Text?] = Vec()
+  !v.push(Text("a"))
+  !v.push(Text("b"))
+  i = 0
+  r = while i < v.len : i += 1
+    break <v[i] if i == 1
+  else
+    none
+  print(r, v)

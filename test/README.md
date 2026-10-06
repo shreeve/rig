@@ -36,7 +36,10 @@ off the sanitizer (see [below](#leak-checking-and-the-sanitizer)).
 | `test/corpus/<name>.rig` | a reviewer's probe: `rig check` rejects it with a `file:line:col` diagnostic, or it runs sanitizer-clean (see below) |
 | `unit` | `zig build test` |
 | `parser` | `src/parser.zig` matches what Nexus generates from `rig.grammar` |
+| `classify` | no pass in `src/` keeps a classifier of what an expression hands over beside `sema.handsOver` (`isPlaceExpr`, `isPlace`, `makesValue`, `isBranching`, `readLeaves`, `classifyReceiverShape`), and emit names hidden storage only through its storage facts (`Emitter.hiddenStorage`) |
+| `vocab` | the docs, std/, the string literals in `src/`, and `# error:` lines say lend, view, and loan (docs/CORE.md, "Three words"): Rust's word for all three appears only in the lines `test/vocabulary-allow.txt` lists, each as `path: line text`, and in no path; an entry that matches no such line, or appears twice, fails |
 | `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
+| `oracle/<set>` | the reference ownership checker agrees with the compiler over a set of programs (see below) |
 
 Areas: `syntax`, `types`, `effects`, `ownership`, `emit`, `runtime`, `modules`,
 `std` (the standard library).
@@ -129,8 +132,13 @@ gets pages of its own, a free makes them inaccessible, and no address
 is handed out twice, so reading or writing freed memory, or past the end
 of a block, crashes at once with
 `error: rig: use of freed memory at address 0x...` and a stack trace.
-A behavior test therefore fails on any leak, double free, or use of
-freed memory. Run a failing program by hand with
+With `RIG_SANITIZE=1`, emit also fills each storage location it adds
+(a call's evaluated arguments and receiver, a statement's or header's
+temporaries, a held or matched subject) with `0xAA` bytes when its scope
+ends, so a view that outlives that storage reads garbage instead of a
+stale value. A behavior test therefore fails on any leak, double free,
+or use of freed memory, and on most reads of dead hidden storage. Run a
+failing program by hand with
 `RIG_SANITIZE=1 bin/rig run file.rig`. The sanitizer costs a few
 system calls and two pages of address space per allocation: the suite
 takes about 15% longer, and an allocation-heavy program runs several
@@ -182,8 +190,10 @@ minutes of work, so a plain `./test/run` takes a fixed sample, one
 program in 16 by a hash of its name; `./test/run corpus` (or any filter
 that names corpus programs) takes all of them, as CI should nightly or
 before a merge that touches the checkers or the emitter. A corpus run
-removes each passing program's build, so the corpus leaves no cache
-behind. Add new review probes here, named `<review>-<probe>.rig`.
+removes each passing program's output but keeps its Zig cache (a few
+gigabytes for the whole corpus), so a later run rebuilds only the
+programs whose emitted Zig changed; delete `.zig-cache/rig-test/corpus`
+to reclaim the space. Add new review probes here, named `<review>-<probe>.rig`.
 
 `test/matrix.py` generates the programs where one expression form (a
 place, a ternary, `o?`, `??`, `catch`, `if … as`, `match`, a call, a
@@ -203,6 +213,82 @@ and checks that a program that runs prints what the payload holds,
 since the sanitizer cannot see a stale stack slot. It
 writes to a temporary directory
 and commits nothing; `-k` picks cells by id and `-v` lists every result.
+
+## The reference ownership checker
+
+`test/oracle/` is a second ownership checker, written from
+[docs/CORE.md](../docs/CORE.md) and SPEC's ownership sections without
+reading `src/ownership.zig`, and built as `bin/rig-oracle` (`zig build
+oracle`; `src/lib.zig` is its view of the compiler, which `bin/rig`
+never imports). It lowers each function to a small core with its
+statement temporaries and evaluation order written out, then checks
+moves, loans, and drops with a dataflow over the function's control
+flow. Each function gets its verdict, accept or reject, or none when
+the function uses a form the oracle does not model yet. The test kind
+`oracle` runs it over five sets:
+
+| Id | Programs |
+|---|---|
+| `oracle/lint` | none: `test/oracle/` uses none of the compiler's ownership classifications, and `src/` imports neither `lib.zig` nor `test/` |
+| `oracle/tests` | `test/behavior`, `test/reject`, `test/known`, and `examples` |
+| `oracle/corpus` | every corpus program (no sample) |
+| `oracle/docs` | every doc example but fragments |
+| `oracle/matrix` | the matrix programs (`test/matrix.py --oracle`) |
+
+A set fails when the compiler accepts a function the oracle rejects:
+that may be a soundness hole, and it can never be allowlisted. When the
+compiler rejects a function the oracle accepts, the run reports it
+(`stricter`), and `test/oracle/differences` records it once classified
+(a compiler rejection the Core allows, an oracle gap, or a question the
+Core leaves open). A set also fails when a listed difference is gone
+(`FIXED`), or when the oracle decides fewer functions than the set's
+floor in `test/oracle/coverage`.
+
+A test may state the oracle's own verdict on one of its functions, in
+a comment line the oracle checks on every run, whatever the compiler
+decides (also where the compiler's semantic checks stop first):
+
+```
+# oracle: main reject C2
+# oracle planned: loops accept
+```
+
+The word after the function is `accept`, or `reject` with the rule
+the oracle names (C1–C8, B1–B4). `oracle planned:` checks the verdict
+under the Core's planned rule the oracle models (`--planned`): a bare
+`break x` of an owner declared in the loop moves it. (A type holding a
+`Cell` is unique, and a `for`, `if … as`, `while … as`, or `match`
+reads a bare place where it stands, in every run.) A different
+verdict, or none, fails the set. These lines are
+the oracle's own tests: each of the oracle's header rules (a subject
+that is a place, a made value, a part of one, a lend of one, or a
+branching value) has tests that state its verdict, so the change that
+builds a planned rule can rely on the oracle to catch what it gets
+wrong. By hand:
+
+```bash
+bin/rig-oracle -v file.rig            # every function's two verdicts
+bin/rig-oracle --explain main file.rig  # the lowered core of `main`
+bin/rig-oracle --stats test/corpus/*  # why it abstains, by count
+bin/rig-oracle --planned -v file.rig  # with the planned rules it models
+bin/rig-oracle --sema -v file.rig     # also functions the compiler's
+                                      # semantic checks rejected
+```
+
+## Proving a refactor changed nothing
+
+```bash
+test/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR]
+```
+
+runs two compilers over every tracked program and every ```` ```rig ````
+block in the docs, and compares what they print for `parse`,
+`normalize`, `check`, `check --facts`, and, for an accepted program,
+`check --facts=sema`, `check --facts=storage`, and `emit`. It lists each program whose output
+differs, with the sections that differ (`--keep` saves both outputs),
+and exits 1 if any does. Build the old compiler from the base commit
+and copy `bin/rig` aside first. A refactor's every difference is a
+planned rule or a fixed bug, and its pull request lists them.
 
 ## Known bugs
 

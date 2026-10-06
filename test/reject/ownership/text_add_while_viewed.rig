@@ -1,4 +1,4 @@
-# A String taken from a Text borrows it: the Text cannot change while
+# A String taken from a Text views it: the Text cannot change while
 # the view is in use, since the change may move its bytes.
 
 sub main
@@ -7,5 +7,5 @@ sub main
   !t.add("d")
   print(s)
 
-# error: 7:3: cannot write-borrow `t` while a read borrow is live
+# error: 7:3: cannot lend `t` to write while a read loan is live
 # errors: 1

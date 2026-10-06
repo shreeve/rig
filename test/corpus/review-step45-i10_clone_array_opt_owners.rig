@@ -1,0 +1,9 @@
+# +a of [2]Text? and of [2]Box[Int]
+sub main
+  a: [2]Text? = [Text("a"), none]
+  b = +a
+  c = [Box(1), Box(2)]
+  d = +c
+  -a
+  -c
+  print(b, d)

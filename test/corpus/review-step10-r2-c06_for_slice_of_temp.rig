@@ -1,0 +1,11 @@
+# Header exception "slices": `for x in ?mkv(6)[1..3]` and
+# `for x in mkv(7)[1..3]`, slices of the Vec temporary the header makes.
+fun mkv(k: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..40
+    !v.push(k + i)
+  v
+
+sub main
+  for x in ?mkv(7)[1..3]
+    print(x)

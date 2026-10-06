@@ -7,7 +7,7 @@ struct Res
     print("drop", self.n)
 
 sub main
-  r = random.Rng.new()
+  r = random.Random.new()
   v = Vec[*Res]()
   !v.push(*Res(n: 1))
   !v.push(*Res(n: 2))

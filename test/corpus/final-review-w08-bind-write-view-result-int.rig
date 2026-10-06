@@ -1,0 +1,9 @@
+# CORE §1: a write view moves; binding a call's !Int result then assigning: writes through, or a copy? (CORE: w holds the view, so 5 5)
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  n = 1
+  w = slot(!n)
+  w = 5
+  print(n, w)

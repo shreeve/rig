@@ -1,0 +1,8 @@
+fun keep(s: String) -> String
+  s
+
+sub main
+  b = Box(Text("abc"))
+  s = keep(b)
+  !b.add("defghijklmnopqrstuvwxyz0123456789")
+  print(s)

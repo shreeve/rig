@@ -1,0 +1,10 @@
+# w = !a if c else !b re-points to a branching view
+sub main
+  m = Text("m")
+  a = Text("a")
+  b = Text("b")
+  w = !m
+  c = a.len == 1
+  w = !a if c else !b
+  !w.add("!")
+  print(m, a, b)

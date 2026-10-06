@@ -1,7 +1,7 @@
 # A box lent as its value (`?b` where a `?T` is expected, `!b` where a
-# `!T` or `?T` is) works wherever a borrow goes: a typed or rebound
-# borrow local, an argument evaluated out of order, a generic result, a
-# write borrow of the box read as the value.
+# `!T` or `?T` is) works wherever a view goes: a typed or rebound
+# view local, an argument evaluated out of order, a generic result, a
+# write view of the box read as the value.
 
 struct R
   n: Int

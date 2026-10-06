@@ -1,0 +1,19 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+fun run(o: ([2]Counter)?) -> Int?
+  for k in o?
+    k.hit()
+  o?[0].hits.get()
+
+fun run2() -> Int?
+  o: ([2]Counter)? = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  for k in o?
+    k.hit()
+  o?[0].hits.get()
+
+sub main()
+  print(run2())

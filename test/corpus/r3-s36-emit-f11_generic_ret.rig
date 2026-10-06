@@ -1,0 +1,9 @@
+# Generic T! whose T an error set fills is rejected per SPEC; probe via inference.
+error E
+  bad
+
+fun f[T](x: T) -> T!
+  x
+
+sub main
+  print(f(E.bad) catch E.bad)

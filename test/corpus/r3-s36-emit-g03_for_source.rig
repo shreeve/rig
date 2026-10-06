@@ -1,0 +1,9 @@
+error E
+  bad
+fun a() -> Vec[Int]!
+  v = Vec[Int]()
+  !v.push(1)
+  <v
+sub main
+  for x in a() catch Vec[Int]()
+    print(x)

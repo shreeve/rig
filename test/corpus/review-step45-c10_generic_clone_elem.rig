@@ -1,0 +1,9 @@
+# generic clone of an element; T = Text (instance should be rejected or deep-cloned)
+fun dup[T](v: ?Vec[T], i: Int) -> T
+  +v[i]
+
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  t = dup(?v, 0)
+  print(t, v)

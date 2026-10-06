@@ -1,0 +1,27 @@
+# a05 sibling through a Box: `match ?bs[idx(?Text("a"))]` on a
+# `[2]Box[E]` lends the boxed E (lend table). Guarded, the header
+# temporary makes the match copy its subject; the plain catch-all view
+# escapes into `r`.
+enum E
+  a(xs: [4]Int)
+  b
+
+fun idx(s: ?Text) -> Int
+  s.len - 1
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  bs = [Box(E.a(xs: [7, 7, 7, 7])), Box(E.b)]
+  z = E.b
+  r = ?z
+  k = 3
+  match ?bs[idx(?Text("a"))]
+    x if k > 2 => r = x
+    _ => print(0)
+  print(clobber(1))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")

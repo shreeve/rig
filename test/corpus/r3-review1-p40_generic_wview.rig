@@ -1,0 +1,12 @@
+fun twice[T](x: T) -> Int
+  y = x
+  z = x
+  1
+
+fun dupe[T](x: ?T) -> T
+  +x
+
+sub main()
+  n = 1
+  print(twice(!n))
+  print(n)

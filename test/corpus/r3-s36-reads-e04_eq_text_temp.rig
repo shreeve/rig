@@ -1,0 +1,6 @@
+fun mk() -> Text
+  Text("a")
+
+sub main
+  t = Text("a")
+  print(t == mk(), mk() == t, t == t)

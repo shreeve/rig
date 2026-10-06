@@ -1,0 +1,12 @@
+use std.random
+
+fun two() -> [2]random.Random
+  [random.Random.seeded(1), random.Random.seeded(2)]
+
+sub main()
+  for r in !two()
+    print(!r.next() % 100)
+  for r in ![random.Random.seeded(1), random.Random.seeded(2)]
+    print(!r.next() % 100)
+  for n in ![1, 2]
+    n += 1

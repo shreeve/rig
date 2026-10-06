@@ -1,0 +1,14 @@
+# An array whose elements own is moved, never copied: a bare use names
+# the array's type.
+
+struct S
+  arr: [2]Text
+
+sub main
+  a = [Text("a"), Text("b")]
+  b = a
+  s = S(arr: a)
+  print(a, b, s.arr)
+
+# error: 9:7: bare use of `[2]Text` value `a` in binding would copy its owning elements, which both would drop. Use `<a` to move it
+# error: 10:14: bare use of `[2]Text` value `a` in call argument would copy its owning elements

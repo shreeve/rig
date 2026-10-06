@@ -1,0 +1,9 @@
+# DESIGN "Explicit capture modes": `sort(!v[..], |a, b| a < b)`
+use std.sort
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(2)
+  !v.push(1)
+  sort.sort(!v[..], |a, b| a < b)
+  print(v)

@@ -1,0 +1,25 @@
+# h16 with an owned Text first argument: the plan (and emit) align the
+# arguments with the field callable's parameters shifted by one, so the
+# Text is held as if lent to `?Q`.
+struct Q
+  c: Cell[Int]
+  n: Int
+
+struct H
+  q: Q
+
+struct S
+  cb: fun(Text, ?Q, Int) -> Int
+
+fun g(k: Int) -> Int
+  k
+
+fun mkh(k: Int) -> H
+  H(q: Q(c: Cell(k), n: k))
+
+fun usq(t: Text, q: ?Q, n: Int) -> Int
+  t.len + q.c.get() + n
+
+sub main
+  s = S(cb: usq)
+  print(s.cb(Text("a text long enough to live on the heap"), ?mkh(5).q, g(2)))

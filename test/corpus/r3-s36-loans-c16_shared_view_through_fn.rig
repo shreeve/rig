@@ -1,0 +1,21 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  r: ?R
+
+struct Keep
+  h: *V
+
+fun wrap(h: *V) -> Keep
+  Keep(h: <h)
+
+sub main
+  k: Keep? = none
+  if true
+    a = R(n: 1)
+    k = wrap(*V(r: ?a))
+  if k as kk
+    print(kk.h.r.n)

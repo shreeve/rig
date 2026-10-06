@@ -1,0 +1,25 @@
+# A view of a temporary may be printed, since `print` keeps nothing,
+# and a `for` walks a view of an array it makes, whose plain elements
+# it copies. (A header that binds a view of a temporary it makes is
+# rejected: `test/reject/ownership/header_temporary_rejected.rig`.)
+
+struct P
+  x: Int
+
+fun mk(n: Int) -> P
+  P(x: n)
+
+fun opt(n: Int) -> P?
+  if n > 0
+    return mk(n)
+  none
+
+sub main()
+  print(?mk(1), ?opt(2))
+  for x in ?[mk(6), mk(7)]
+    print(x.x)
+
+# expect:
+# P(x: 1) P(x: 2)
+# 6
+# 7

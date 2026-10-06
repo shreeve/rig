@@ -1,0 +1,12 @@
+struct N
+  v: Vec[Int]
+
+sub main
+  p: Vec[Int] = Vec()
+  !p.push(5)
+  a = Box(N(v: <p))
+  b = Box(N(v: Vec()))
+  c = true
+  n = (a if c else b).unbox()
+  print(n.v.len)
+  print(a.v[0])

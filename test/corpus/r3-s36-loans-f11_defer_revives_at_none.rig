@@ -1,0 +1,18 @@
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+sub eat(r: R)
+  print("eat", r.n)
+
+fun f(o: Int?) -> Int?
+  x = R(n: 1)
+  defer x = R(n: 9)
+  eat(<x)
+  k = o?
+  print(x.n)
+  k
+
+sub main
+  print(f(3) ?? 0)

@@ -1,0 +1,28 @@
+# `!x` writes through `x`, so `x` must be mutable: a plain parameter, a
+# fixed binding, a capture, and a loop or `as` binding are not.
+
+sub bump(c: !Int)
+  c = c + 1
+
+sub f(n: Int)
+  bump(!n)
+
+sub main()
+  const y = 1
+  bump(!y)
+  k = 1
+  g = |+k|
+    bump(!k)
+  g()
+  for x in [1, 2]
+    bump(!x)
+  m: Int? = 3
+  if m as v
+    bump(!v)
+  f(1)
+
+# error: cannot lend parameter `n` to write
+# error: cannot lend fixed binding `y` to write
+# error: cannot lend captured `k` to write
+# error: cannot lend `x` to write; loop and pattern bindings are immutable
+# error: cannot lend `v` to write: it is a copy of the value inside `m`; to change that value in place, bind it with `!m as v`

@@ -1,0 +1,15 @@
+struct Counter
+  hits: Cell[Int]
+
+enum E
+  a(c: Counter)
+  b
+
+sub main()
+  e = E.a(c: Counter(hits: Cell(0)))
+  match e
+    .a(c)
+      k = <c
+      k.hits.set(4)
+    .b => print("b")
+  print(e)

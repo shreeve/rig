@@ -1,0 +1,6 @@
+# loop over a made array of owners (no storage)
+sub main
+  for x in [Text("a"), Text("b")]
+    print(x)
+  for b in [Box(1), Box(2)]
+    print(b)

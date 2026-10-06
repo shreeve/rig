@@ -1,0 +1,7 @@
+use std.random
+
+sub main
+  a = random.Random.seeded(1)
+  b = random.Random.seeded(1)
+  print(a == b)
+  random.Random.seeded(3)

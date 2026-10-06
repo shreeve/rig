@@ -1,0 +1,10 @@
+use std.sort
+use std.slices
+
+sub main
+  t = Text("b a c")
+  v: Vec[String] = Vec()
+  !v.push(?t[0..1])
+  !v.push(?t[2..3])
+  sort.sort(!v[..])
+  print(sort.search(?v[..], "b"), slices.contains(?v[..], ?t[4..5]))

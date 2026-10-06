@@ -1,0 +1,67 @@
+# The unsound neighbours of r3-or-defer-sound: deferred code that reads
+# a value moved before the exit it runs at, reads a value declared
+# after it through a view, writes what a later defer still views, or
+# moves what it did not declare (Core §7).
+#
+# oracle: moved_before_exit reject C1
+# oracle: moved_before_failing reject C1
+# oracle: moved_before_propagate reject C1
+# oracle: views_a_later_value reject C5
+# oracle: writes_while_viewed reject C4
+# oracle: moves_outer reject B2
+# oracle: drops_outer reject B2
+
+error E
+  bad
+
+struct H
+  s: String
+
+sub take(v: Vec[Int])
+  print(v.len)
+
+fun half(n: Int) -> Int!
+  return n / 2 if n % 2 == 0 else E.bad
+
+sub moved_before_exit()
+  v: Vec[Int] = Vec()
+  defer print(v.len)
+  take(<v)
+
+fun moved_before_failing() -> Int!
+  v: Vec[Int] = Vec()
+  errdefer print(v.len)
+  take(<v)
+  return E.bad
+
+fun moved_before_propagate(n: Int) -> Int!
+  v: Vec[Int] = Vec()
+  errdefer print(v.len)
+  take(<v)
+  half(n)!
+
+sub views_a_later_value()
+  h = H(s: "x")
+  defer print(h.s)
+  t = Text("abc")
+  h.s = ?t
+
+sub writes_while_viewed()
+  v: Vec[Int] = Vec()
+  r = ?v
+  defer print(r.len)
+  defer !v.push(3)
+  print("body")
+
+sub moves_outer()
+  v: Vec[Int] = Vec()
+  defer take(<v)
+  print("body")
+
+sub drops_outer()
+  v: Vec[Int] = Vec()
+  defer -v
+  print("body")
+
+sub main
+  moved_before_exit()

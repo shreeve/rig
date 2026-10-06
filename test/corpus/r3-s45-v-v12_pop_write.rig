@@ -1,0 +1,8 @@
+sub main
+  a = 1
+  v: Vec[!Int] = Vec()
+  !v.push(!a)
+  if (!v).pop() as w
+    w = 4
+  -v
+  print(a)

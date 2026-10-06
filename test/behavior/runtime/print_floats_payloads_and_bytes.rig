@@ -1,5 +1,5 @@
 # A whole Float prints with its decimal point; a variant whose one
-# payload is a struct shows the struct's name; a borrowed byte array
+# payload is a struct shows the struct's name; a viewed byte array
 # prints as numbers; and a structure that reaches itself stops at `...`.
 
 struct P

@@ -1,0 +1,15 @@
+enum Shape
+  dot
+  line(v: Vec[Int])
+
+sub main
+  p: Vec[Int] = Vec()
+  !p.push(1)
+  a = Shape.line(<p)
+  b = Shape.dot
+  c = true
+  if (a if c else b) != .dot
+    print("line")
+  match ?a
+    .line(v) => print(v[0])
+    .dot => print("dot")

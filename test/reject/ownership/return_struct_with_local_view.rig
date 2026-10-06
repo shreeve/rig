@@ -1,0 +1,17 @@
+# A view of a local stored in a returned struct escapes the function.
+
+struct User
+  age: Int
+
+struct View
+  user: ?User
+
+fun bad() -> View
+  user = User(age: 42)
+  View(user: ?user)
+
+sub main()
+  v = bad()
+  print(v.user.age)
+
+# error: cannot return a view of `user`, which this function was not lent

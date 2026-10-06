@@ -1,0 +1,23 @@
+# `while … as` binding's view stored outward then the iteration ends.
+struct R
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+struct V
+  r: ?R
+
+fun next(i: !Int) -> R?
+  i += 1
+  if i < 3
+    R(n: i)
+  else
+    none
+
+sub main
+  keep = R(n: 0)
+  v = V(r: ?keep)
+  i = 0
+  while next(!i) as r
+    v = V(r: ?r)
+  print(v.r.n)

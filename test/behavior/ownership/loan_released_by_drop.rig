@@ -1,0 +1,20 @@
+# Dropping a view binding ends the view.
+
+struct Wrap
+  payload: Int
+
+  drop(!self)
+    print("drop")
+
+sub main()
+  b = Wrap(payload: 1)
+  r = ?b
+  print(r.payload)
+  -r
+  -b
+  print("end")
+
+# expect:
+# 1
+# drop
+# end

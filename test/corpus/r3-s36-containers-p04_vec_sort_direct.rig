@@ -1,0 +1,7 @@
+use std.sort
+
+sub main
+  a = [3, 1, 2]
+  sort.sort(!a)
+  sort.sort(!a[..2])
+  print(a)

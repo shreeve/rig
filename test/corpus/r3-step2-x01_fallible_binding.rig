@@ -1,0 +1,11 @@
+error E
+  bad
+
+fun mk(ok: Bool) -> Int!
+  if not ok
+    return E.bad
+  1
+
+sub main
+  r = mk(true)
+  print(r catch 0)

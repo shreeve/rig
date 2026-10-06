@@ -1,0 +1,14 @@
+enum Shape
+  circle(r: Int)
+  poly(pts: Vec[Int])
+
+sub main
+  pts: Vec[Int] = Vec()
+  !pts.push(1)
+  b = Box(Shape.poly(pts: <pts))
+  match b
+    .circle(r) => print("c", r)
+    .poly(ps) => print("p", ps.len)
+  match ?b
+    .circle(r) => print("c", r)
+    .poly(ps) => print("p", ps.len)

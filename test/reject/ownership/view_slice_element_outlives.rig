@@ -1,0 +1,18 @@
+# A returned view of a slice element keeps the slice's source
+# viewed, so the source cannot go first.
+
+struct Val
+  n: Int
+
+fun first(xs: []Val) -> ?Val
+  ?xs[0]
+
+sub main
+  v = Val(n: 0)
+  r = ?v
+  if true
+    a = [Val(n: 1)]
+    r = first(?a)
+  print(r.n)
+
+# error: 15:15: `a` does not live long enough

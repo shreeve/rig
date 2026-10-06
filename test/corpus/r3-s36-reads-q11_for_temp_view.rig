@@ -1,0 +1,10 @@
+fun mv() -> Vec[Int]
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  v
+
+sub main
+  for n in ?mv()
+    print(n)
+  for n in mv()
+    print(n)

@@ -1,7 +1,7 @@
 # A `match` reads its subject again after a guard runs, to test the next
 # arm's pattern: what the subject views stays lent through every guard,
 # in a nested match too. A write lend of it there is rejected, as is one
-# in an arm whose subject views it through a write borrow still in use,
+# in an arm whose subject views it through a write view still in use,
 # in the body of an `if … as` whose binding views it and is used after,
 # and in a loop walking a view of it.
 
@@ -52,9 +52,9 @@ sub main
   for s in first(?v)
     print(grow(!v), s)
 
-# error: 33:25: cannot take a second write borrow on `v`
-# error: 39:31: cannot take a second write borrow on `v`
-# error: 44:27: cannot take a second write borrow on `v`
-# error: 50:18: cannot take a second write borrow on `h`
-# error: 53:17: cannot write-borrow `v` while a read borrow is live
+# error: 33:25: cannot lend `v` to write while a write loan is live
+# error: 39:31: cannot lend `v` to write while a write loan is live
+# error: 44:27: cannot lend `v` to write while a write loan is live
+# error: 50:18: cannot lend `h` to write while a write loan is live
+# error: 53:17: cannot lend `v` to write while a read loan is live
 # errors: 5

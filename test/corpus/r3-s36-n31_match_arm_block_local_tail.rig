@@ -1,0 +1,14 @@
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  k = 0
+  x = match k
+    0
+      r = R(n: 1)
+      r
+    _ => R(n: 2)
+  print(x.n)

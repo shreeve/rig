@@ -1,0 +1,16 @@
+# A struct holding a write view cannot be copied: the copy would be a
+# second live mutable path to the viewed value. Move it with `<e`.
+
+struct Wrap
+  payload: Int
+
+struct Editor
+  target: !Wrap
+
+sub main()
+  b = Wrap(payload: 1)
+  e = Editor(target: !b)
+  e2 = e
+  print(e2.target.payload)
+
+# error: bare use of `e` in binding would copy the write view it holds

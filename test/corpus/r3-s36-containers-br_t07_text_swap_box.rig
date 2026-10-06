@@ -1,0 +1,10 @@
+sub main
+  v: Vec[Box[Text]] = Vec()
+  !v.push(Box(Text("b")))
+  !v.push(Box(Text("a")))
+  !v.swap(0, 1)
+  for t in !v
+    !t.add("!")
+  print(v)
+  x = !v.remove(0)
+  print(x)

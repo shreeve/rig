@@ -1,0 +1,13 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  b = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+  f = true
+  for k in (a if f else b)
+    k.hit()
+  print(a[0].hits.get(), b[0].hits.get())

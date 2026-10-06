@@ -1,0 +1,3 @@
+sub main
+  c: Cell[Vec[?Int]] = Cell(Vec())
+  print(c.len)

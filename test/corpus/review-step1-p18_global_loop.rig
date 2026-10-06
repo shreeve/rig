@@ -1,0 +1,21 @@
+struct Counter
+  hits: Cell[Int]
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+enum E
+  a(c: Counter, n: Int)
+  b
+
+ga = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+ge = E.a(c: Counter(hits: Cell(1)), n: 2)
+gc = Counter(hits: Cell(0))
+
+sub main()
+  for k in ga
+    k.hit()
+  match ge
+    .a(c, _) => c.hit()
+    .b => pass
+  print("ok")

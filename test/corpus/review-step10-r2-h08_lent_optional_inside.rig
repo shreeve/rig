@@ -1,0 +1,35 @@
+# H1: a made `Q?` lent as `(?Q)?`, as an argument of a hoisted call (keyword
+# arguments out of order), held as the view its parameter expects.
+struct Q
+  xs: [4]Int
+  t: Text
+
+fun g(k: Int) -> Int
+  k
+
+fun mkq(k: Int) -> Q
+  Q(xs: [k, k, k, k], t: Text("a long text that lives on the heap"))
+
+fun mkv(k: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..4
+    !v.push(k + i)
+  v
+
+fun mko(k: Int) -> Q?
+  if k > 0
+    return mkq(k)
+  none
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+fun pick(q: (?Q)?, n: Int) -> Int
+  if q as x
+    return x.xs[3]
+  0
+
+sub main
+  o: Q? = mkq(5)
+  print(pick(n: g(1), q: ?o), pick(n: g(1), q: ?mko(6)), pick(n: g(1), q: mko(7)))

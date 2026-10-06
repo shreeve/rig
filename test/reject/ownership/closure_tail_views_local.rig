@@ -1,0 +1,14 @@
+# A closure's value cannot lend the closure's own locals.
+
+struct Wrap
+  v: Vec[Int]
+
+sub main()
+  s = ||
+    y = Wrap(v: Vec())
+    !y.v.push(1)
+    ?y
+  q = s()
+  print(q.v[0])
+
+# error: 10:6: cannot return a view of `y`, which this function was not lent

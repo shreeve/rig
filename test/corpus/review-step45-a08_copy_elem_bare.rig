@@ -1,0 +1,6 @@
+# t = v[0] of an owner must be rejected
+sub main
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  t = v[0]
+  print(t)

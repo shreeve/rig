@@ -1,4 +1,4 @@
-# A borrow of a temporary, or a view made from one, may be used anywhere
+# A view of a temporary, or a view made from one, may be used anywhere
 # in its statement: the temporary lives until the statement ends. A
 # header is its own statement: the temporaries of an `if` or `while`
 # condition end with it, so a view the body uses is made from a Text

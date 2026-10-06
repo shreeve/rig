@@ -1,0 +1,13 @@
+fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+  a
+
+fun swapped(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+  first(b, a)
+
+sub main
+  x: Vec[Int] = Vec()
+  y: Vec[Int] = Vec()
+  r = swapped(?x, ?y)
+  !x.push(1)
+  !y.push(1)
+  print(r.len)

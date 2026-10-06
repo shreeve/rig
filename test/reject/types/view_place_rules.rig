@@ -1,0 +1,13 @@
+# A parameter never points elsewhere.
+
+sub f(w: !Int, other: !Int)
+  w = !other
+
+sub g(xs: ![]Int, ys: ![]Int)
+  xs = <ys
+
+sub main
+  print(1)
+
+# error: 4:7: cannot point parameter `w` at another place: parameters are immutable, and `w = v` writes the value it views
+# error: 7:8: cannot point parameter `xs` at another place: parameters are immutable, and `xs[i] = v` writes its elements

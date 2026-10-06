@@ -1,0 +1,31 @@
+# B3 / discardsValue: closure body block's tail is the call `mkh(42).q.me(k: g(1), j: g(2))`
+# (it holds a mutable copy of the Cell-holding part `mkh(42).q` while it
+# runs); its view is the block's value and is read afterwards.
+struct Q
+  c: Cell[Int]
+  n: Int
+
+  fun me(?self, j: Int, k: Int) -> ?Q
+    self
+
+struct H
+  q: Q
+
+fun mkh(k: Int) -> H
+  H(q: Q(c: Cell(1), n: k))
+
+fun g(k: Int) -> Int
+  k
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1]
+
+sub main
+  d = Q(c: Cell(0), n: 0)
+  f = |x: ?Q, b: Bool|
+    print("in")
+    mkh(42).q.me(k: g(1), j: g(2))
+  r = f(?d, true)
+  print(clobber(1))
+  print(r.n)

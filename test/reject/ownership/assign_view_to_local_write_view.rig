@@ -1,0 +1,19 @@
+# Assigning a view to a `!T` local points it at another place; a
+# parameter, or a loop or pattern binding, never points elsewhere, so
+# a view assigned to one is rejected.
+
+sub param(w: !Int, other: !Int)
+  w = <other
+
+sub element(xs: ![]Int, other: !Int)
+  for x in !xs
+    x = <other
+
+sub main
+  m = 1
+  n = 2
+  param(!m, !n)
+
+# errors: 2
+# error: 6:7: cannot point parameter `w` at another place: parameters are immutable, and `w = v` writes the value it views; bind another name to `<other`
+# error: 10:9: `x = <other` would point `x` at another place, which only a local's own name does; write `new x = <other`

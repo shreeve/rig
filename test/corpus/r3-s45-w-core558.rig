@@ -1,0 +1,7 @@
+sub main
+  rows: Vec[Vec[Int]] = Vec()
+  r: Vec[Int] = Vec()
+  !r.push(5)
+  !rows.push(<r)
+  print(rows.len, rows[0].len)
+  x = rows[0]

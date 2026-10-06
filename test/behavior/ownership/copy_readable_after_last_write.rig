@@ -1,4 +1,4 @@
-# A write borrow ends at its last use, so the Copy value it borrowed
+# A write view ends at its last use, so the Copy value it viewed
 # is readable again after that, including through a struct that holds it.
 
 struct H

@@ -1,8 +1,8 @@
 lim: U8 = 250
 
 sub main
-  a: U8 =! 200
-  b: I8 =! -128
+  const a: U8 = 200
+  const b: I8 = -128
   c = lim
   print(a, b, c)
   print(b *% b)

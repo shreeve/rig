@@ -1,0 +1,7 @@
+fun id[T](x: T) -> T
+  x
+
+sub main
+  k = 4
+  r = ?k
+  print(id(r), id(k))

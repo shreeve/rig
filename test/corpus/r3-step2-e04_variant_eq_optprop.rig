@@ -1,0 +1,20 @@
+enum Shape
+  dot
+  line(v: Vec[Int])
+
+struct H
+  o: Shape?
+
+fun f(h: ?H) -> Bool?
+  r = h.o? != .dot
+  r
+
+sub main
+  p: Vec[Int] = Vec()
+  !p.push(1)
+  h = H(o: Shape.line(<p))
+  print(f(?h) ?? false)
+  if ?h.o as s
+    match s
+      .line(v) => print(v[0])
+      .dot => print("dot")

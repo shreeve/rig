@@ -1,0 +1,17 @@
+# A view stored in a struct field keeps its owner viewed while the
+# struct is live.
+
+struct Wrap
+  payload: Int
+  log: Vec[Int]
+
+struct View
+  box: ?Wrap
+
+sub main()
+  b = Wrap(payload: 5, log: Vec())
+  v = View(box: ?b)
+  -b
+  print(v.box.payload)
+
+# error: cannot drop `b` while it is lent

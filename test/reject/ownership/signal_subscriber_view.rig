@@ -1,0 +1,20 @@
+# A Signal keeps its subscribers, owned closures that any handle to the
+# Signal can run, so a subscriber cannot capture a view.
+
+struct Wrap
+  payload: Int
+
+  drop(!self)
+    print("drop")
+
+sub main()
+  sig: *Signal[Int] = *Signal(0)
+  a = Wrap(payload: 1)
+  r = ?a
+  cb: *sub() = *|<r| print(r.payload)
+  sig.subscribe(+cb)
+  -cb
+  -a
+  sig.set(1)
+
+# error: an owned closure cannot capture `r`, which holds a view of `a`

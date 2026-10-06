@@ -1,0 +1,6 @@
+sub main
+  v: Vec[Int] = Vec()
+  w: Vec[Int] = Vec()
+  a = [<v, <w]
+  x = <a[0]
+  print(x.len)

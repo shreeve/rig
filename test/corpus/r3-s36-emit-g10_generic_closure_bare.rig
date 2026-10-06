@@ -1,0 +1,13 @@
+error E
+  bad
+fun g[T](x: T) -> T!
+  x
+sub run(f: ?fun() -> Int!)
+  n = f()
+  print(n)
+sub main
+  a = g(1)
+  h: *fun() -> Int! = *|| 3
+  b = h()
+  run(|| 4)
+  print(a, b)

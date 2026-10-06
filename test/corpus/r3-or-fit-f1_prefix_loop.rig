@@ -1,0 +1,11 @@
+use std.text
+
+sub main
+  line = Text("name=ada")
+  names = ["id", "name", "age"]
+  found: Vec[String] = Vec()
+  for name in names
+    key = Text(name, "=")
+    if text.strip_prefix(?line, ?key) as v
+      !found.push(v)
+  print(found)

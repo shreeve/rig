@@ -1,0 +1,15 @@
+struct H
+  r: ?Vec[Int]
+
+fun store(h: !H, r: ?Vec[Int]) -> Bool
+  h.r = r
+  false
+
+sub main
+  z: Vec[Int] = Vec()
+  h = H(r: ?z)
+  k = 3
+  :m match k
+    3 if store(!h, ?z) => break :m
+    _ => pass
+  print(h.r.len)

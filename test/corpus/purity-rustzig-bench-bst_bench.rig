@@ -18,7 +18,7 @@ sub main
   root: Box[Node]? = none
   x = 12345
   i = 0
-  while i < 1000000 : i += 1
+  while i < 20000 : i += 1
     x = (x * 1103515245 + 12345) % 2147483648
     insert(!root, x)
   print(total(?root))

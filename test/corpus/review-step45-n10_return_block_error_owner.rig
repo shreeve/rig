@@ -1,0 +1,13 @@
+# return of a value-if whose branches build owners before an error
+error Bad
+  oops
+
+fun f(c: Bool) -> Vec[Text]!
+  v: Vec[Text] = Vec()
+  !v.push(Text("a"))
+  errdefer print("errdefer")
+  return (Bad.oops if c else <v)
+
+sub main
+  print(f(true) catch Vec[Text]())
+  print(f(false) catch Vec[Text]())

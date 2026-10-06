@@ -1,0 +1,12 @@
+# h.w = w2 (bare held write view on the right) writes through for Int
+struct H
+  w: !Int
+
+sub main
+  a = 1
+  b = 2
+  h = H(w: !a)
+  w2 = !b
+  h.w = w2
+  w2 = 7
+  print(a, b)

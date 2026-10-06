@@ -1,0 +1,9 @@
+# An error as one branch of a ternary on the last line.
+error E
+  bad
+
+fun f(n: Int) -> Int!
+  n if n > 0 else E.bad
+
+sub main
+  print(f(0) catch -1, f(2) catch -1)

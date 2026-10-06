@@ -1,0 +1,11 @@
+fun f[T](xs: []T, x: ?T) -> Bool
+  for e in xs
+    if e == x
+      return true
+  false
+
+sub main
+  a = [1, 2, 3]
+  n = 2
+  print(f(?a, ?n))
+  print(f(?a, 2))

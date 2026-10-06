@@ -1,0 +1,14 @@
+# SPEC §2 Arrays: "Arrays hold plain data only"
+struct P
+  x: Int
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  rs = [?a, ?b]
+  n = 1
+  m = 2
+  ws = [!n, !m]
+  ws[0] += 10
+  print(rs[0].x + rs[1].x)
+  print(n)

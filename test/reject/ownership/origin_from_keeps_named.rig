@@ -1,0 +1,23 @@
+# The arguments `from` names stay lent while the result lives; a
+# function lent as a value calls with its type's origins, which keep
+# every argument that could hold the result.
+
+fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
+  a
+
+fun apply(f: ?fun(?Vec[Int], ?Vec[Int]) -> ?Vec[Int], a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
+  f(a, b)
+
+sub main
+  x: Vec[Int] = Vec()
+  y: Vec[Int] = Vec()
+  r = first(?x, ?y)
+  !x.push(1)
+  print(r.len)
+  s = apply(?first, ?x, ?y)
+  !y.push(2)
+  print(s.len)
+
+# errors: 2
+# error: 15:3: cannot lend `x` to write while a read loan is live
+# error: 18:3: cannot lend `y` to write while a read loan is live

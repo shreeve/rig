@@ -4,10 +4,10 @@
 Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
-`drop`), plus the stores into a borrowed parameter (`store.`, below)
-and the views of a read `match` payload, used in the arm or escaping
-(`payload.`).
-The rule is the corpus's: `rig check` rejects the program with
+`drop`, a struct holding a Cell, a struct declared `unique`), plus the
+stores into a view parameter (`store.`, below) and the views of a
+read `match` payload, used in the arm or escaping (`payload.`). The rule
+is the corpus's: `rig check` rejects the program with
 a file:line:col diagnostic, or it runs clean under the sanitizer (no leak,
 no use of freed memory, no Zig compile error, no crash). A `payload.`
 program that runs must also print what the payload holds.
@@ -15,6 +15,8 @@ program that runs must also print what the payload holds.
     test/matrix.py                 # generate, check, and run everything
     test/matrix.py -j 8 -k vec     # 8 at a time; only ids containing "vec"
     test/matrix.py --keep DIR      # write the programs to DIR and keep them
+    test/matrix.py --oracle        # only run the reference ownership checker
+                                   # (bin/rig-oracle, test/oracle/) over them
 
 Nothing it writes is committed: programs go to a temporary directory,
 and each run's build is removed after it passes.
@@ -31,6 +33,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RIG = os.path.join(ROOT, "bin", "rig")
+ORACLE = os.path.join(ROOT, "bin", "rig-oracle")
 
 # What a sound program never does when it runs (test/run's CORPUS_BAD_RE).
 BAD = re.compile(
@@ -56,8 +59,13 @@ TYPES = {
                 mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  xs", ctor="Vec[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
     "box": dict(ty="Box[N]", decls=N_DECL, mk="Box(N(v: n))", ctor="Box(N(v: 5))"),
-    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?D\n    self\n',
+    "drop": dict(ty="D", decls='struct D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  sub bump(!self)\n    self.v += 1\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?D\n    self\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
+    # A struct that holds a Cell (`poke` changes it through the binding),
+    # and one declared `unique`.
+    "cell": dict(ty="Counter", decls="struct Counter\n  hits: Cell[Int]\n\n  sub hit(?self)\n    self.hits.set(self.hits.get() + 1)\n",
+                 mk="Counter(hits: Cell(n))", ctor="Counter(hits: Cell(5))", poke="e.hit()"),
+    "unique": dict(ty="U", decls="struct U unique\n  v: Int\n", mk="U(v: n)", ctor="U(v: 5)"),
     # A payload enum: `== .variant` tests the variant.
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: Vec[Int])\n",
                  mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
@@ -91,7 +99,7 @@ FORMS = {
 
 CONTEXTS = {
     "print": dict(inline="print(E)"),
-    "borrow_arg": dict(inline="print(look(?E))"),
+    "lend_arg": dict(inline="print(look(?E))"),
     "eq": dict(inline="print(E == a)"),
     "binding": dict(block="x = E", after="print(look(?x))"),
     "field_store": dict(block="h.f = E", needs="h", after="print(look(?h.f))"),
@@ -102,15 +110,34 @@ CONTEXTS = {
     "elem_index_call": dict(block="vs[grow(!vs)] = E", needs="vs", after="print(vs.len)"),
     "match_subject": dict(inline="match E\n    y => print(look(?y))"),
     "for_source": dict(inline="for e in ?E\n    print(e)"),
+    # A loop over an array made in its header, which it takes.
+    "for_literal": dict(inline="for e in [E, mk(6)]\n    @POKE\n    print(look(?e))"),
+    # A loop over a branch whose arms are arrays: each element is a copy.
+    "for_branch": dict(inline="for e in ([E, mk(6)] if c else [mk(7), mk(8)])\n    @POKE\n    print(look(?e))"),
+    # A match on a part of a made value.
+    "match_part": dict(inline="match H(f: E).f\n    y\n      @POKY\n      print(look(?y))"),
     # A header whose subject makes a temporary (`?Text(...)`): it takes
     # the value a call makes there, so it binds that value.
     "match_subject_temp": dict(inline='match pass_t(E, ?Text("t"))\n    y => print(look(?y))', temp=True),
     "as_temp": dict(inline='if some_t(E, ?Text("t")) as y\n    print(look(?y))', temp=True),
     # A method that consumes its receiver (`<self`, `Box.unbox`).
     "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
+    # A method that writes its receiver: a value made there, or one
+    # lent with `!` (a place without one is rejected).
+    "recv_write": dict(inline="(E).M", recv={"vec": "push(1)", "text": 'add("x")', "drop": "bump()"}),
     # `none` and a bare `.variant` test a value and drop it if no name holds it.
     "eq_none": dict(inline="print(E == none)", optional=True),
     "eq_variant": dict(inline="print(E != .dot)", types=("enum",)),
+    # A closure whose result is inferred returns its value: the tail of
+    # an expression body, and of a block body. (Its own `a`, `b`, `c`,
+    # `o` are parameters, in a function of their own.)
+    "closure_tail": dict(decl="fun ctail(k: Bool, p: @T?) -> @T\n  g = |a: @T, b: @T, c: Bool, o: @T?| E\n  g(mk(1), mk(2), k, <p)\n",
+                         inline="x = ctail(c, mk(3))\n  print(look(?x))"),
+    "closure_block": dict(decl="fun ctail(k: Bool, p: @T?) -> @T\n  g = |a: @T, b: @T, c: Bool, o: @T?|\n    print(0)\n    E\n  g(mk(1), mk(2), k, <p)\n",
+                          inline="x = ctail(c, mk(3))\n  print(look(?x))"),
+    # `+e` reads `e`, and `_ = e` drops what it takes.
+    "clone": dict(inline="x = +(E)\n  print(look(?x))"),
+    "discard": dict(inline="_ = E"),
     # A value read in place, then its place lent to write (`poke(!W)`) by
     # a later operand of the same call or operator, before the read is
     # used. `W` is what the form reads: `h.f` for a field, `b` for a
@@ -119,14 +146,19 @@ CONTEXTS = {
     "recv_read_then_write": dict(inline="print((E).M)", write=True,
                                  recv={t: "get(poke(!W))" if t == "vec" else "peek(poke(!W))"
                                        for t in ("vec", "shared", "box", "drop")}),
+    # A view a method returns of its receiver, kept while the receiver's
+    # place is lent to write: the view keeps every place the receiver may
+    # be lent, and one of a value made there ends with its statement.
+    "recv_view_then_write": dict(inline="r = (E).M\n  _ = poke(!W)\n  print(r.v)", write=True,
+                                 recv={t: "me()" for t in ("shared", "box", "drop")}),
     "eq_then_write": dict(inline="print((E) == pokev(!W))", write=True, types=("int", "string", "text")),
     "index_then_write": dict(inline="print((E)[poke(!W)])", write=True, types=("vec",)),
     # A `?self` method returning a view of its receiver (`me`): the view
     # held past the statement, used after a later operand writes what the
     # form reads, or held while a later statement writes it.
     "recv_view": dict(inline="x = (E).M", after="print(x.v)", recv={"drop": "me()", "shared": "me()"}),
-    "recv_view_then_write": dict(inline="print((E).M.v, poke(!W))", write=True,
-                                 recv={"drop": "me()", "shared": "me()"}),
+    "recv_view_arg_then_write": dict(inline="print((E).M.v, poke(!W))", write=True,
+                                     recv={"drop": "me()", "shared": "me()"}),
     "recv_view_held_then_write": dict(inline="x = (E).M", after="print(poke(!W), x.v)", write=True,
                                       recv={"drop": "me()", "shared": "me()"}),
 }
@@ -137,6 +169,7 @@ POKES = {
     "int": "x += 1", "string": 'x = "u"',
     "text": 'for _ in 0..100\n    !x.add("abcdefgh")', "vec": "for i in 0..100\n    !x.push(i)",
     "shared": "x = *N(v: 9)", "box": "x = Box(N(v: 9))", "drop": "x = D(v: 9)",
+    "cell": "x = Counter(hits: Cell(9))", "unique": "x = U(v: 9)", "enum": "x = S.dot",
 }
 WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
 
@@ -165,7 +198,7 @@ for shape in TAIL_SHAPES:
 
 
 # -----------------------------------------------------------------------------
-# Stores into a borrowed parameter: `f` stores a view of its write
+# Stores into a view parameter: `f` stores a view of its write
 # parameter `b` in what its parameter `a` reaches, by each store form,
 # then grows `b` (or only reads it) and reads the view through `a`. The
 # caller reads `a` after the return, so `b` stays lent: growing it must
@@ -366,6 +399,10 @@ def program(tname, fname, cname):
     out.append(f"fun mk(n: Int) -> {ty}\n  {t["mk"]}\n")
     out.append(f"fun fail(c: Bool) -> {ty}!\n  return E.bad if c\n  mk(7)\n")
     out.append(f"fun look(x: ?{ty}) -> Int\n  1\n")
+    if "decl" in ctx:
+        if isinstance(form, list):
+            return None
+        out.append(ctx["decl"].replace("@T", ty).replace("E", form))
     out.append(f"struct H\n  f: {ty}\n")
     returns = ctx.get("returns", False)
     needs = ctx.get("needs")
@@ -399,9 +436,13 @@ def program(tname, fname, cname):
         if ctx.get("write"):
             text = text.replace("!W", "!" + WRITE_TARGETS.get(fname, "a"))
         e = form
-        if cname in ("borrow_arg", "for_source") and " " in e:
+        if cname in ("lend_arg", "for_source") and " " in e:
             e = f"({e})"
-        body.append(text.replace("E", e))
+        # `@POKE` and `@POKY` stand for the type's change through the loop
+        # or match binding, or `pass`; they are replaced before `E` is.
+        poke = t.get("poke", "pass")
+        text = text.replace("@POKY", "@Y").replace("@POKE", "@P")
+        body.append(text.replace("E", e).replace("@Y", poke.replace("e.", "y.")).replace("@P", poke))
     if "after" in ctx:
         after = ctx["after"]
         if ctx.get("write"):
@@ -448,6 +489,25 @@ def run_one(path, keep, expect=None):
     return "ok", ""
 
 
+def run_oracle(work, cells, args):
+    """Check every program with the reference ownership checker; its exit status."""
+    if not os.access(ORACLE, os.X_OK):
+        print(f"{ORACLE} is not built; run `zig build oracle`")
+        return 1
+    listing = os.path.join(work, "oracle.list")
+    with open(listing, "w") as fh:
+        for ident, path in cells:
+            fh.write(f"{ident}\t{path}\n")
+    cmd = [ORACLE, "--set", "matrix", "--allow", os.path.join(ROOT, "test", "oracle", "differences"),
+           "--coverage", os.path.join(ROOT, "test", "oracle", "coverage"), "--list", listing]
+    if args.v:
+        cmd.append("-v")
+    r = subprocess.run(cmd, stdin=subprocess.DEVNULL)
+    if not args.keep:
+        shutil.rmtree(work, ignore_errors=True)
+    return r.returncode
+
+
 def first_line(s):
     return next((l for l in s.splitlines() if l.strip()), "")
 
@@ -465,6 +525,7 @@ def main():
     ap.add_argument("-k", action="append", default=[], help="only ids containing this (repeatable)")
     ap.add_argument("--keep", help="write the programs here and keep them and their builds")
     ap.add_argument("-v", action="store_true", help="list every result")
+    ap.add_argument("--oracle", action="store_true", help="run bin/rig-oracle over the programs instead")
     args = ap.parse_args()
     if not os.access(RIG, os.X_OK):
         sys.exit(f"{RIG} is not built; run `zig build`")
@@ -511,6 +572,8 @@ def main():
                 with open(path, "w") as fh:
                     fh.write(src)
                 cells.append((ident, path))
+    if args.oracle:
+        sys.exit(run_oracle(work, cells, args))
     results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
         futs = {pool.submit(run_one, p, bool(args.keep), expects.get(i)): i for i, p in cells}

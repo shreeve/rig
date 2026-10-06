@@ -1,0 +1,15 @@
+struct Item
+  n: Int
+
+struct S
+  own: [2]Item
+  items: ?[2]Item
+
+  sub fix(!self)
+    self.items = ?self.own
+
+sub main
+  g = [2 of Item(n: 1)]
+  s = S(own: [2 of Item(n: 5)], items: ?g)
+  !s.fix()
+  print(s.items[0].n)

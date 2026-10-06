@@ -111,15 +111,15 @@ true -3.0 -2.0
 The arguments and environment the program started with. Their Strings
 live as long as the program, as a literal's do, and view no `Text`.
 They hold the bytes the operating system gave, which are not checked
-to be UTF-8. Like any function returning a String, `env(name)` counts
-as a view of its argument ([SPEC §7](../SPEC.md#second-class-borrows)),
-so its result is as free as `name` is: with a literal name, it can be
-kept, returned, and stored anywhere.
+to be UTF-8. `env` says so in its signature (`from static`,
+[SPEC §7](../SPEC.md#second-class-views)), so its result views
+nothing its caller lent: it can be kept, returned, and stored anywhere,
+whatever `name` is.
 
 | Function | Result |
 |---|---|
 | `args() -> []String` | every argument, the program's name first |
-| `env(name: String) -> String?` | the value of the environment variable `name`, or `none` when it is not set |
+| `env(name: String) -> String? from static` | the value of the environment variable `name`, or `none` when it is not set |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
@@ -192,19 +192,19 @@ true
 
 ## std.random
 
-`Rng` is a small, fast pseudorandom generator (splitmix64), written in
+`Random` is a small, fast pseudorandom generator (splitmix64), written in
 Rig. Its state is one `U64`, which its methods change, so they take
-`!self`. An `Rng` moves (`a = <r`) and is never copied, since a copy
-would draw the same numbers as the original; `fork` makes a second
-generator on purpose. A seeded `Rng` gives the same sequence on every
+`!self`. A `Random` is unique (`struct Random unique`): it moves (`a = <r`)
+and is never copied, since a copy would draw the same numbers as the
+original; `fork` makes a second generator on purpose. A seeded `Random` gives the same sequence on every
 platform. It is not for cryptography.
 
 | Member | Result |
 |---|---|
-| `Rng.seeded(seed: U64) -> Rng` | a generator whose sequence `seed` fixes |
-| `Rng.new() -> Rng` | a generator seeded from the operating system's entropy, different on each run |
+| `Random.seeded(seed: U64) -> Random` | a generator whose sequence `seed` fixes |
+| `Random.new() -> Random` | a generator seeded from the operating system's entropy, different on each run |
 | `!r.next() -> U64` | the next 64 random bits |
-| `!r.fork() -> Rng` | a new generator, seeded from `r`'s next number |
+| `!r.fork() -> Random` | a new generator, seeded from `r`'s next number |
 | `!r.int(lo: Int, hi: Int) -> Int` | an `Int` from `lo` up to but not including `hi`, each equally likely, for any range up to `Int.min` to `Int.max`; panics unless `lo < hi` |
 | `!r.float() -> Float` | a `Float` from 0 up to but not including 1 |
 | `!r.shuffle(!xs)` | put the elements of the slice `xs` in a random order, each order equally likely |
@@ -213,8 +213,8 @@ platform. It is not for cryptography.
 use std.random
 
 sub main
-  r = random.Rng.seeded(2024)
-  again = random.Rng.seeded(2024)
+  r = random.Random.seeded(2024)
+  again = random.Random.seeded(2024)
   print(!r.next() == !again.next())
   roll = !r.int(1, 7)
   print(roll >= 1 and roll <= 6, !r.float() < 1.0)
@@ -235,8 +235,7 @@ true true
 ## std.sort
 
 Sorting, and searching sorted slices, written in Rig over slices, so
-they work on arrays (`!a`, `?a`) and on Vecs (`!v[..]`, `?v[..]`)
-alike. The elements are plain data, as a slice's are. `sort`,
+they work on arrays and on Vecs alike (`!a`, `?a`, `!v`, `?v`). The elements are plain data, as a slice's are. `sort`,
 `lower_bound`, and `search` order elements with `<` (numbers and
 Strings), and `search` compares them with `==`; each call is checked
 for its element type, as any generic call is.
@@ -269,7 +268,7 @@ sub main
   !v.push(Player(name: "ann", score: 7))
   !v.push(Player(name: "bob", score: 9))
   !v.push(Player(name: "cy", score: 7))
-  sort.sort_by(!v[..], |a, b| a.score > b.score)
+  sort.sort_by(!v, |a, b| a.score > b.score)
   for p in ?v
     print(p.name, p.score)
 ```
@@ -350,7 +349,7 @@ bytes by convention, and nothing here checks that it is: every index
 and length is in bytes, and whitespace and case are ASCII's. A function
 that returns a String returns a part of the String it was given, a
 view of the same bytes, so nothing here allocates. A String taken from
-a `Text` ([SPEC §10](../SPEC.md#text)) keeps it borrowed through every
+a `Text` ([SPEC §10](../SPEC.md#text)) keeps it lent through every
 part these functions return.
 
 | Function | Result |
@@ -362,9 +361,9 @@ part these functions return.
 | `count(s: String, pat: String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
 | `trim(s: String) -> String` | `s` without its leading and trailing ASCII whitespace |
 | `trim_start(s: String) -> String`, `trim_end(s: String) -> String` | `s` without its leading, or its trailing, ASCII whitespace |
-| `strip_prefix(s: String, prefix: String) -> String?` | `s` after `prefix`, or `none` when `s` does not begin with it |
-| `strip_suffix(s: String, suffix: String) -> String?` | `s` before `suffix`, or `none` when `s` does not end with it |
-| `cut(s: String, sep: String) -> Cut?` | `s` around the first `sep`: a `Cut` of the part `before` it and the part `after` it, or `none` when `sep` does not occur |
+| `strip_prefix(s: String, prefix: String) -> String? from s` | `s` after `prefix`, or `none` when `s` does not begin with it |
+| `strip_suffix(s: String, suffix: String) -> String? from s` | `s` before `suffix`, or `none` when `s` does not end with it |
+| `cut(s: String, sep: String) -> Cut? from s` | `s` around the first `sep`: a `Cut` of the part `before` it and the part `after` it, or `none` when `sep` does not occur |
 | `split(s: String, sep: String) -> Split` | the parts of `s` between the occurrences of `sep`, one more than `count(s, sep)`, some perhaps empty; panics when `sep` is `""` |
 | `lines(s: String) -> Lines` | the lines of `s`, without their endings, `\n` or `\r\n`; a line ending at the end of `s` adds no empty line, so `""` has none |
 | `words(s: String) -> Words` | the words of `s`: the nonempty runs of bytes between ASCII whitespace |
@@ -398,7 +397,7 @@ false no prefix
 
 `split`, `lines`, and `words` give an iterator, a struct holding the
 rest of the String, whose `next` gives each part in turn, and `none`
-after the last. It is advanced through a write borrow:
+after the last. It is advanced by lending it to write:
 
 ```rig
 use std.text

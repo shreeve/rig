@@ -1,0 +1,8 @@
+sub main
+  v: Vec[Vec[Int]] = Vec()
+  w: Vec[Int] = Vec()
+  !v.push(<w)
+  r = !v[0]
+  !r.push(1)
+  !v.push(Vec())
+  !r.push(2)

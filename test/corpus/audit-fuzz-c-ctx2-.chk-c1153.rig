@@ -50,7 +50,7 @@ fun id_f32(x: F32) -> F32
   x
 
 fun ret1153 -> U8
-  cst1153: U8 =! 19
+  const cst1153: U8 = 19
   cst1153
 
 sub t1153

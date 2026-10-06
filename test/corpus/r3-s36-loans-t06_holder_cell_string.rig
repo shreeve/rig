@@ -1,0 +1,11 @@
+# A generic holder that keeps its T in a Cell, used with String.
+struct Holder[T]
+  c: Cell[T]
+
+  sub put(?self, x: T)
+    self.c.set(x)
+
+sub main
+  h = Holder(c: Cell("a"))
+  h.put("b")
+  print(h.c.get())

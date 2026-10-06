@@ -1,7 +1,7 @@
 # An assignment evaluates its right-hand side first, then its target's
 # index expressions, and only then finds the place it stores into. A
 # call on the right, or in an index, may grow, replace, or free what the
-# target lies in (through a Vec, a field, a Box, or a write borrow held
+# target lies in (through a Vec, a field, a Box, or a write view held
 # in a field), and the store lands in the value as the call left it.
 
 struct Acc

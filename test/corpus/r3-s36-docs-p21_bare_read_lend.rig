@@ -1,0 +1,10 @@
+# Core sentence 1/4: a read lend may go unwritten
+struct Packet
+  size: Int
+
+fun size_of(p: ?Packet) -> Int
+  p.size
+
+sub main
+  p = Packet(size: 3)
+  print(size_of(p))

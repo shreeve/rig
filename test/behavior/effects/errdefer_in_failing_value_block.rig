@@ -1,7 +1,7 @@
-# A function also fails by ending in an error value, and that value may
-# be the tail of an `if` branch or `match` arm block: the `errdefer`s of
-# that block run, and so do those of the blocks and function around it.
-# A block that ends in a plain value leaves its `errdefer`s unrun.
+# A function fails with `return` of an error value, also from inside an
+# `if` branch or `match` arm block: the `errdefer`s of that block run,
+# and so do those of the blocks and function around it. A block that
+# ends in a plain value leaves its `errdefer`s unrun.
 
 error E
   bad
@@ -10,7 +10,7 @@ fun branch(k: Int) -> Int!
   errdefer print("branch outer", k)
   if k > 0
     errdefer print("branch inner", k)
-    E.bad
+    return E.bad
   else
     k
 
@@ -19,7 +19,7 @@ fun arm(k: Int) -> Int!
     0 => 0
     1
       errdefer print("arm", k)
-      E.bad
+      return E.bad
     _
       errdefer print("arm ok", k)
       k
@@ -29,7 +29,7 @@ fun nested(k: Int) -> Int!
     errdefer print("nested outer", k)
     if k > 5
       errdefer print("nested inner", k)
-      E.bad
+      return E.bad
     else
       k
   else

@@ -1,0 +1,8 @@
+fun name(k: Int) -> String
+  if k == 0
+    return "zero"
+  "many"
+
+sub main
+  s = name(1)
+  print(s)

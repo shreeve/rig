@@ -8,18 +8,14 @@ from).
 ## Current state
 
 - **Release:** `v0.1.6` is the latest release (Zig 0.17.0, Nexus
-  2.0.0), with CI green on Linux and macOS. It rejects every header that
-  binds a copy of its subject (a use-after-free and lost writes), passes
-  a field callable's arguments to their own parameters (a leak), and fixes
-  two Zig compile errors. `v0.1.5` through `v0.1.1` fixed earlier
-  use-after-free classes. The version string in `build.zig` changes only
-  when a release is cut.
+  2.0.0). `main` now also carries the consolidation below, which
+  changes what some programs mean or whether they are accepted; the
+  release notes list each change. The version string in `build.zig`
+  changes only when a release is cut.
 - **Branches:** `main` is the one long-lived branch. Work lands through
-  short-lived branches and pull requests; the `revamp` branch carries the
-  consolidation below.
-  Every change reaches `main` through a pull request: the ruleset on
-  `main` requires `test (ubuntu-latest)` and `test (macos-latest)`, and
-  blocks force pushes and deletion.
+  short-lived branches and pull requests. The ruleset on `main` requires
+  `test (ubuntu-latest)` and `test (macos-latest)`, and blocks force
+  pushes and deletion.
 - **Toolchain:** Zig 0.17.0, pinned in `mise.toml`. Nexus 2.0.0, only
   to regenerate the parser.
   - [docs/zig-0.17.md](docs/zig-0.17.md) covers every Zig API Rig uses.
@@ -28,28 +24,27 @@ from).
 
   | Check | Result |
   |---|---|
-  | `./test/run` | 2,251 passed, 8 pending (planned Core rules) |
-  | Corpus | 4,273 of 4,273 |
-  | `test/matrix.py` | 910 programs, 0 failed |
-  | `zig build test` | 113 pass, 1 skip |
+  | `./test/run` | 2,608 passed, 7 pending (planned Core rules) |
+  | Corpus | 6,021 of 6,021 (`./test/run corpus`) |
+  | `test/matrix.py` | 3,070 programs, 0 failed |
+  | `zig build test` | 124 pass, 1 skip |
+  | Oracle (`./test/run oracle`) | 5 sets pass, at or above the floors in `test/oracle/coverage` (functions decided: tests 3,297, corpus 15,781, matrix 15,911) |
 
-  `test/known/` holds no open bugs. Every bug the past audits found on
-  `main` is fixed.
+  `test/known/` holds no open bugs. The pending examples are the
+  planned rules of `docs/CORE.md`.
 
 ## The feature freeze
 
-Rig is in a feature freeze while its compiler is consolidated. The
-North Star (AGENTS.md) and `docs/CORE.md` are fixed points.
+Rig is in a feature freeze. The North Star (AGENTS.md) and
+`docs/CORE.md` are fixed points.
 
 **In scope:**
 
-- **Consolidation:** restructuring the compiler so the Core's rules come
-  from its structure. The plan is below.
-- **Building the Core's planned rules.** These are already decided: each
-  is marked *(planned)* in `docs/CORE.md` and shown by a `rig pending`
-  example. Building one turns its pending example into an ordinary one,
-  in the same change.
-- **Bug fixes, docs, tests, and speed.**
+- **Building the Core's planned rules.** Each is marked *(planned)* in
+  `docs/CORE.md` and shown by a `rig pending` example. Building one
+  turns its pending example into an ordinary one, in the same change.
+- **The weak spots and open questions below,** and bug fixes, docs,
+  tests, and speed.
 
 **Out of scope:**
 
@@ -59,123 +54,152 @@ North Star (AGENTS.md) and `docs/CORE.md` are fixed points.
   own reviewed change, and needs the user's agreement. Ask the "Rig"
   session (below).
 
-**The test for whether something is consolidation:** it either changes
-no accepted program's meaning and only turns wrong rejections into
-acceptances, or it is a planned Core rule.
+A change is in scope when it changes no accepted program's meaning and
+only turns wrong rejections into acceptances, or builds a planned Core
+rule. A change that rejects programs a release accepted lists them in
+the release notes.
 
-## The consolidation plan
+## The consolidation
 
-The evidence is in `.git/revamp/reports/` (local, not in git):
+The compiler was restructured so the Core's rules come from its
+structure: about 90% of earlier soundness bugs traced to three
+structural weak spots, which these steps removed (the evidence is in
+`.git/revamp/reports/`, local). All ten steps are done:
 
-- `seams/root-cause.md`: why soundness bugs kept appearing;
-- `core-audit/*.md`: six audits of the code against the Core, and
-  `WORK-ORDER.md`.
+1. **Type facts.** One fact per question (copyable, unique, needs
+   cleanup, may hold a loan, cloneable, how a read view is represented)
+   replaced the disagreeing proxies; `struct T unique` exists,
+   `std.random.Rng` became the unique `Random`, and a type holding a
+   `Cell` is unique.
+2. **One classifier and one exit.** `sema.handsOver` decides what every
+   expression hands over by a positive list, and one exit primitive ends
+   every path, running defers and reporting the loans it drops; the
+   `classify` test keeps `handsOver` the only classifier.
+3. **Reads and lends.** A bare name reads in place where a view is
+   expected, one lend table serves every owner (Vec, Text, Box, `*T`,
+   optionals), and a header's subject is viewed or taken by its
+   classification.
+4. **Containers hold anything.** `Vec[Text]`, nested Vecs, and records
+   that own text work; `?v[i]`, `!v[i]`, and `<v[i]` lend or take an
+   element; assigning a view place re-points it or writes through.
+5. **The remaining planned rules.** An error value meets `T!` only as
+   `return`'s operand, `(!s).insert(k)`, `const x = e`, an owner moves
+   as a function's or block's last value, and `+x` deep-copies Vec, Box,
+   and owning structs.
+6. **Result origins.** A call's result carries the loans of the
+   arguments whose types could hold what it views, `from a` narrows
+   that, and each body is checked against its signature.
+7. **Vocabulary.** Diagnostics, docs, and internal names say lend, view,
+   and loan; the `vocab` test fails on Rust's word.
+8. **SPEC follows the Core,** derived from it in the new vocabulary.
+9. **Speed.** Generic uses are indexed by parameter, which removed the
+   quadratic generic checks.
+10. **Lowering, decided as storage facts.** Every hidden storage
+    location emit makes is a fact (`src/storage.zig`), emit takes no
+    address of a Zig temporary such a fact names, the sanitizer poisons
+    hidden storage, and the ownership checker walks what a call holds.
 
-The root cause, in one line: about 90% of past soundness bugs traced to
-three structural weak spots. The steps below remove them, in order. One
-branch at a time touches `src/ownership.zig` or typecheck's
-classification. Each step lands as its own reviewed change with every
-gate green.
+Alongside them, a reference ownership checker built from the Core alone
+(`bin/rig-oracle`, `test/oracle/`) checks the compiler: `./test/run
+oracle` fails when the compiler accepts a function the Core rejects,
+and when the oracle decides fewer functions than the floors in
+`test/oracle/coverage`.
 
-1. **Type facts.** One fact per question, replacing the proxies
-   (`owningKind`, `maybeDropGlue`, the five disagreeing "copyable"
-   rules):
-   - copyable;
-   - unique;
-   - needs cleanup;
-   - may hold a loan;
-   - cloneable;
-   - how a read view is represented.
+The final review (`.git/revamp/r3/final-review/core-review.md`, local)
+found no unsound program. Its fixes are in: a write method on a
+temporary is rejected, a binding with no type holds a call's write view,
+and the payload-view and loop diagnostics name only forms that compile.
 
-   Build `unique`:
-   - `struct T unique` replaces `std/random.rig`'s empty `drop` on
-     `Rng`;
-   - a type holding a `Cell`, or a bare `Cell[T]`, is unique.
+**Held, each waiting on the change named:**
 
-   This also fixes false rejections such as `<p` on a plain match
-   payload. See `core-audit/kinds.md`.
-2. **One classifier and one exit.**
-   - **`handsOver`:** one fact per expression — a place, a made value,
-     a lend, a view, branches, or a jump — decided by a positive list.
-     It replaces `isPlaceExpr`, `makesValue`, emit's `isPlace`, and the
-     rest, which disagree in 12 places (`core-audit/reads.md`).
-   - **`exitTo`:** the only way a path ends. It runs defers, reports
-     every loan it would drop, and rewinds when the path goes on. It
-     replaces about 20 hand-written join and exit sites
-     (`core-audit/loans.md`).
-3. **Reads and lends** (Core sentence 1 and §4).
-   - A bare name only reads, so the `?` that is required today in some
-     positions becomes optional.
-   - One `lendsAs` table replaces six conversions:
-     - `sort.sort(!v)` works on a Vec;
-     - Box and `*T` members are readable;
-     - `?Shape` serves a `Box[Shape]` and a `*Shape`.
-4. **Containers hold anything** (Core §5). Remove about six early
-   rejections so `Vec[Text]`, `Vec[Vec[Int]]`, and records that own text
-   work, and `?v[i]`, `!v[i]`, and `<v[i]` lend or take elements.
-   Assigning to a borrow place gets one rule: a view re-points, a value
-   writes through. See `core-audit/containers.md`.
-5. **The remaining planned rules:**
-   - an error value meets `T!` only as `return`'s operand;
-   - `(!s).insert(k)` wherever a write call's `Bool` is used;
-   - `const x = e` replaces `x =! e`;
-   - returning an owner, ending a block with one, or `break x` moves it;
-   - `+x` for Vec, Box, and owning structs.
-6. **Whole-program views and loan origins.**
-   - Per-function "must live for the whole program" parameter summaries,
-     so a generic `Holder[String]` with literals works.
-   - The signature-based refinement of which arguments a result's loans
-     come from.
-7. **The vocabulary pass.** One focused change rewrites every remaining
-   "borrow" — in diagnostics, test expectations, comments, internal
-   names (`borrow_read` and friends), and every document — into lend,
-   view, and loan, by meaning:
-   - the act is a lend: "cannot lend `v` to write";
-   - the value is a view;
-   - the record is a loan: "while a read loan is live".
+- **Bare `break x` of a loop-local owner** (CORE sentence 1, *planned*;
+  commit `3acb07a9` on `r3-step45-held`): until emit's usage scan is a
+  recorded fact.
+- **Whole-program parameter summaries** (CORE §9, *planned*): a generic
+  `Holder[String]` built from literals is still rejected.
+- **Field-precise re-pointing:** with field-precise loans.
+- **Std search taking `x: ?T`:** it would reject
+  `slices.contains(?v[..], ?t[4..5])`; decide whether implicit lends
+  extend to branching values.
+- **`into` for stores, function-type `from`, and path tokens:** Core
+  changes, after the freeze.
 
-   Plan it with reviewers from several viewpoints: a programmer, a
-   newcomer, a documenter, the compiler, and a language designer. Merge
-   their findings into one terminology guide, then edit by it. A lint
-   fails on any stray "borrow". It changes no behavior.
-8. **The SPEC rewrite,** around the Core, in the new vocabulary. About
-   65 exception lists become derivations, for about 20% less text.
-   `core-audit/docs.md` maps it section by section.
-9. **Speed.** Two quadratic generic checks take most of `rig check`'s
-   time on large programs: `expandInstantiations` and
-   `checkInstanceSizes` via `sema.usesParams`. Index the generic frames
-   by their declaration.
-10. **Decide on lowering.** A pre-check lowering pass would let the
-    checker and the emitter see one program (`core-audit/emit.md`).
-    Decide only after steps 1–4, from the bug rate that remains.
+## Open questions
 
-**Invariants every step keeps:**
+These belong to the design owner; `.git/revamp/r3/rig-questions.md`
+(local) has the evidence for each.
 
-- the rules in AGENTS.md "How we build";
-- accept means correct;
-- sanitizer-clean;
-- no accepted program changes meaning except by a planned Core rule;
-- every pending example that starts working is promoted in the same
-  change.
+- **Core wording.** The commit "Correct CORE status words and
+  precision" proposes the status words and precision the final review
+  found wrong; it needs the owner's approval, and can be dropped alone.
+- **Rules the Core does not decide:** whether a call's view result keeps
+  a write argument lent to write; whether dropping a Vec of views uses
+  them; whether a bare write-view element or field used as a value
+  copies what it sees; field-disjoint loans (today field loans are
+  unioned).
+- **The kind of a struct of Strings:** CORE calls it a view, SPEC plain
+  data; the compiler treats it as CORE's read-view kind.
+- **Arm-local payload views:** lift them for an unguarded, non-generic
+  match on a place once emit matches in place?
+- **A branching receiver:** a pointer per leaf (built) or a rejection?
+- **Clone limits:** are the missing clones of a type from another
+  module, or one holding a `Signal`, rules or gaps?
 
 ## Weak spots
 
 Reviewers keep finding problems in these areas. Change them carefully,
-and run the corpus after:
+and run the corpus after.
 
-- **Statement temporaries** (Core §3). Two soundness slips since the
-  redesign, both caught by the corpus before merging: a view of a
-  temporary's part, and a match subject's loan across guards. AGENTS.md
-  says a third slip stops the feature for redesign.
-- **String views of a `Text`:** `viewLoans`, `mayOwnText`, and String
+- **Statement temporaries** (Core §3). A header whose subject makes a
+  temporary is rejected, unless it takes its subject or binds plain data
+  of a value made there (`copiesHeader`, the storage fact
+  `header_copy`), because emit binds a copy of the subject. Next: B4,
+  emit points at a header's subject instead of copying it, which lifts
+  the rejection.
+- **Arm-local payload views.** A read match's binding that is no plain
+  data is usable within its arm only, because emit may match a copy of
+  the subject (a guarded match, a generic body). This rejects programs
+  `v0.1.6` ran correctly. B4 and B5 lift it.
+- **Addresses of Zig rvalues.** Emit still takes the address of a few
+  Zig rvalues no fact names: a `?self` method on a made value no slot
+  keeps, on a branching value with a made leaf, `emitLeafPtr`'s
+  `&@as(T, value)` fallback, labeled value blocks' yields, and a
+  temporary array lent to a call (docs/INTERNALS.md, Emit, "Addresses of
+  Zig temporaries"). They are latent: the checker keeps each view within
+  its statement, and Zig keeps the rvalue's slot today. Next: make the
+  chokepoint structural, so every `&` and `|*x|` targets a place, a
+  slot, or fact-named storage whose `life` the chokepoint checks.
+- **What a view could hold:** `carry` and `sema.viewReach`, and String
   values in Cells, generics, and closures.
 - **Evaluation order versus what is emitted:** call arguments, `print`
-  and `Text(...)` arguments, and assignment targets. All are fixed today,
-  and all are the "checker models a different program than emit"
-  class.
-- **`defer`/`errdefer` at exits:** `Exit.goesOn()`.
-- **Owning values behind `Cell`, `Box`, and `*T`, and generic
-  instances.**
+  and `Text(...)` arguments, and assignment targets.
+- **`defer`/`errdefer` at exits,** owners behind `Cell`, `Box`, and
+  `*T`, and generic instances.
+- **Review findings not fixed:**
+  - `|+x|` captures a copy of plain data or a handle only; a deep copy
+    of an owner is *planned* (CORE §7).
+  - `fill`, `copy`, and `[n of x]` ask whether an element is plain data,
+    while a binding asks the `copyable` fact, so a read-view element is
+    copyable to one and not the other: two classifiers for one fact.
+  - The oracle accepts two shapes the Core rejects (the compiler
+    rejects both): a `?self` result reaching an owned field beside a
+    held view (`x77`), and re-pointing a write view a closure has lent
+    (`x68`). Add them as `# oracle:` tests when the oracle learns them.
+  - Whether an expression is a view is not one fact yet (CORE §9,
+    *planned*): a loop over a call's returned view of a Vec of owners is
+    rejected as if the Vec were made there.
+  - `bin/rig-oracle` in a worktree goes stale; `./test/run` rebuilds it,
+    so rebuild before using it by hand.
+
+## What comes next
+
+1. The design owner settles the open questions and the CORE wording.
+2. B4 (emit points at header subjects), then B5, which lift the header
+   temporaries rule and arm-local payload views.
+3. The structural address chokepoint.
+4. The per-expression "is a view" fact, and `copyable` for `fill` and
+   `[n of x]`.
+5. The held items, as their prerequisites land.
 
 ## The gates
 
@@ -184,17 +208,17 @@ and wait while the 1-minute load is above about 12.
 
 ```bash
 ./test/run -j 2                               # full suite; the sanitizer is on by default
-./test/run -j 2 corpus                        # all 4,273 probes, about 20 min; has caught real use-after-frees
+./test/run -j 2 corpus                        # every reviewer probe; has caught real use-after-frees
 python3 test/matrix.py -j 2                   # form x context x type programs
 zig build test --cache-dir "$(mktemp -d)"     # unit tests; a plain rerun replays cached results
 ```
 
 - Rerun a timeout failure alone before trusting it: under load,
   timeouts are often spurious.
-- **IR equivalence** proves that a refactor changed nothing. Dump
-  `bin/rig check --facts` for every `.rig` file and doc example with the
-  old and the new compiler, and diff the dumps. Also diff the
-  diagnostics of every reject test.
+- **Equivalence** proves that a refactor changed nothing:
+  `python3 test/equiv.py OLD_RIG bin/rig` compares the parse, the
+  checks, the facts, and the emitted Zig of every program and doc
+  example. Explain every difference it prints.
 
 ## Conventions
 
@@ -203,7 +227,8 @@ zig build test --cache-dir "$(mktemp -d)"     # unit tests; a plain rerun replay
   - view: the value handed over;
   - loan: the owner-side record.
 
-  Add no new "borrow" for the act. Step 7 removes the rest.
+  The `vocab` test fails on Rust's word; `test/vocabulary-allow.txt`
+  lists the few lines that must name it.
 - **Commits:** short, imperative, with no AI attribution.
 - **Comments:** timeless, describing the code as it is. History belongs
   in git.

@@ -1,0 +1,12 @@
+struct Counter
+  hits: Cell[Int]
+
+fun show(o: (?Counter)?) -> Int
+  if o as s
+    return s.hits.get()
+  0
+
+sub main()
+  a = [Counter(hits: Cell(0)), Counter(hits: Cell(5))]
+  for k in a
+    print(show(k))

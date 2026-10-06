@@ -1,23 +1,9 @@
-# A method that may change its receiver, a `!self` one or a `?self` one
-# on a value holding a Cell, called on a value that branches and may be a
-# value a name holds, or on a field or element of one, would change a
-# copy of that value, also when its arguments are evaluated first: each
-# branch is lent instead.
-
-struct Q
-  c: Cell[Int]
-  n: Int
-
-  fun bump(?self) -> Int
-    self.c.set(self.c.get() + 1)
-    self.c.get()
-
-  fun bump2(?self, j: Int, k: Int) -> Int
-    self.c.set(self.c.get() + j)
-    self.c.get()
-
-struct H
-  q: Q
+# A `!self` method called on a value that branches and may be a value a
+# name holds would change a copy of that value: each branch is lent
+# instead (`(!a if c else !b).inc()`). A method that changes its receiver
+# through a Cell, called on a branching value or a part of one, changes
+# the leaf where it is
+# (`test/behavior/ownership/branch_receiver_change_through_leaves.rig`).
 
 struct P
   n: Int
@@ -26,37 +12,21 @@ struct P
     self.n += 1
     self.n
 
+  fun inc2(!self, j: Int, k: Int) -> Int
+    self.n += j
+    self.n
+
 fun g(k: Int) -> Int
   k
 
-fun maybe(c: Bool) -> H?
-  if c
-    return H(q: Q(c: Cell(5), n: 5))
-  none
-
-fun first(o: H?) -> Int?
-  o?.q.bump()
-
 sub main
-  h1 = H(q: Q(c: Cell(1), n: 1))
-  h2 = H(q: Q(c: Cell(10), n: 2))
   c = g(1) == 1
-  print((h1 if c else h2).q.bump())
-  print((h1 if c else h2).q.bump2(k: g(1), j: g(2)))
-  qs = [Q(c: Cell(1), n: 1), Q(c: Cell(2), n: 2)]
-  rs = [Q(c: Cell(3), n: 3), Q(c: Cell(4), n: 4)]
-  print((qs if c else rs)[0].bump())
-  o = maybe(true)
-  print((o ?? h1).q.bump())
   a = P(n: 1)
   b = P(n: 2)
   print((a if c else b).inc())
-  print(first(maybe(true)) ?? 0, h1.q.c.get(), h2.q.c.get(), qs[0].c.get(), rs[0].c.get(), a.n, b.n)
+  print((a if c else b).inc2(k: g(1), j: g(2)))
+  print(a.n, b.n)
 
-# error: 38:3: cannot call `bump` here: `o?` may be `o`
-# error: 44:10: cannot call `bump` here: `h1 if c else h2` may be `h1`
-# error: 45:10: cannot call `bump2` here: `h1 if c else h2` may be `h1`
-# error: 48:10: cannot call `bump` here: `qs if c else rs` may be `qs`
-# error: 50:10: cannot call `bump` here: `o ?? h1` may be `o`
-# error: 53:10: cannot call `inc` here: `a if c else b` may be `a`
-# errors: 6
+# error: 26:10: method `inc` writes its receiver, and `a if c else b` may be `a`, a value a name holds, which the call would write as a copy
+# error: 27:10: method `inc2` writes its receiver, and `a if c else b` may be `a`
+# errors: 2
