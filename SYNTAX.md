@@ -318,7 +318,10 @@ name holds, and the fields and elements after it: the value a call
 that is no method call makes (`!mk().pop()`), a literal
 (`![a, b][0].bump()`), or a parenthesized expression (`!(+s).bump()`).
 A call of a call's value is walked through to the first call:
-`!a.b(x)(y).g()` is `(!a).b(x)(y).g()`.
+`!a.b(x)(y).g()` is `(!a).b(x)(y).g()`. A function called through a
+module or a type reads as a method of a value, so `!lib.mk().bump()`
+reaches `lib`: the checker says so, and the call in parentheses,
+`!(lib.mk()).bump()`, lends the value it makes.
 
 | Long form | Short form | Meaning |
 |---|---|---|

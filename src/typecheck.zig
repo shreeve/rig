@@ -1599,8 +1599,11 @@ const Checker = struct {
                     try self.errAt(expr, "`as` would bind a copy of the `{s}` inside this optional, since the header makes a temporary, and a change to its Cell would be lost: bind the optional to a name first", .{try self.tyName(inner)});
                     inner = self.t().invalid_id;
                 } else if (writes) {
-                    // A held write view is lent on visibly, as `!o`.
-                    try self.errAt(expr, "`as` over a write view lends it on: write `!{s}` to lend the value inside", .{self.sourceText(expr)});
+                    // A held write view is lent on visibly, as `!o`; one a
+                    // temporary of the header holds ends with the header.
+                    if (sema.firstStmtTemp(self.ctx, expr)) |temp| {
+                        try self.errAt(expr, "`as` over a write view a temporary of the header holds: bind `{s}` to a name first, then lend the value inside with `!`", .{self.sourceText(temp)});
+                    } else try self.errAt(expr, "`as` over a write view lends it on: write `!{s}` to lend the value inside", .{self.sourceText(expr)});
                     try self.ctx.recordType(expr, self.t().invalid_id);
                     inner = self.t().invalid_id;
                 } else inner = try self.ctx.intern(.{ .read_view = inner });
@@ -6868,6 +6871,14 @@ const Checker = struct {
             if ((try self.moduleNamed(place)) != null or (try self.namedType(place)) != null) {
                 if (obj.isKind(.read)) {
                     try self.errAt(obj, "`{s}` is called through its type or module and has no receiver; to lend the call's result, write `?({s}.{s}(...))`", .{ method, self.sourceText(place), method });
+                    try self.synthArgs(args);
+                    return self.t().invalid_id;
+                }
+                if (obj.isKind(.write)) {
+                    // `!lib.mk().bump()`: the `!` meant for the value the
+                    // call makes reaches the module or type instead.
+                    const what = if ((try self.moduleNamed(place)) != null) "a module" else "a type";
+                    try self.errAt(obj, "`!` here reaches `{s}`, {s}, not the value `{s}.{s}(...)` makes: write `!({s}.{s}(...))` to lend that value", .{ self.sourceText(place), what, self.sourceText(place), method, self.sourceText(place), method });
                     try self.synthArgs(args);
                     return self.t().invalid_id;
                 }
