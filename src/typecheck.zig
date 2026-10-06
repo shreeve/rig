@@ -3688,6 +3688,11 @@ const Checker = struct {
             try self.errAt(e, "`!` lends to write; use `not` for negation (a `Bool` is lent to write only where a `!Bool` is expected: `f(!flag)`)", .{});
             return self.t().invalid_id;
         }
+        // A constant lives for the whole program and never changes.
+        if (kind == .write) if (try self.constantLeaf(operand)) |c| {
+            try self.errAt(c, "cannot lend `{s}` to write: it is a constant, which lives for the whole program and never changes; bind it to a name first", .{self.sourceText(c)});
+            return self.t().invalid_id;
+        };
         // `![]T` is a writable slice, which a read-only `[]T` cannot give.
         if (kind == .write and self.ctx.types.get(inner) == .slice) {
             try self.errAt(operand, "cannot lend a `{s}` to write: its elements are read-only; take a writable slice of the array or Vec it views with `!xs[a..b]`", .{try self.tyName(inner)});
@@ -3731,6 +3736,54 @@ const Checker = struct {
         }
         if (self.isTemporary(operand)) try self.lendTemp(operand);
         return true;
+    }
+
+    /// Whether `e` is a constant, a value that lives for the whole
+    /// program and never changes (Core sentence 7): a literal or `none`,
+    /// an enum variant that holds no payload (`.red`, `Color.red`), an
+    /// error value (`E.bad`), or an operator applied to constants
+    /// (`2 + 3`, `-5`, `not true`). A binding is no constant here: a
+    /// module's constant and a `const` binding are names, which
+    /// `requireBinding` judges.
+    fn isConstant(self: *Checker, e: Sexp) bool {
+        switch (e) {
+            .src => return self.ctx.symbolOf(e) == null and self.hands(e).kind == .made,
+            .list => {},
+            else => return false,
+        }
+        return switch (e.kind() orelse return false) {
+            .enum_lit => true,
+            .member => self.ctx.isErrorMember(e) or self.namesUnitVariant(e),
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>" => for (rig.children(e)) |c| {
+                if (!self.isConstant(c)) break false;
+            } else true,
+            else => false,
+        };
+    }
+
+    /// `Type.variant` of a variant that holds no payload: a member of a
+    /// type that is no function of it.
+    fn namesUnitVariant(self: *Checker, e: Sexp) bool {
+        const obj = ir.Member.object(e);
+        const named = if (self.ctx.instanceOf(obj)) |inst| inst == .type else if (self.ctx.symbolOf(obj)) |sym| switch (self.ctx.symbols.items[sym].kind) {
+            .nominal_type, .generic_type, .type_alias => true,
+            else => false,
+        } else false;
+        if (!named) return false;
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return self.ctx.types.get(ty) != .function;
+    }
+
+    /// The constant (`isConstant`) `e` is, or one a value branching `e`
+    /// may be (`sema.valueLeaves`): lending it to write would lend a
+    /// constant.
+    fn constantLeaf(self: *Checker, e: Sexp) Error!?Sexp {
+        if (self.isConstant(e)) return e;
+        var leaves: std.ArrayList(Sexp) = .empty;
+        defer leaves.deinit(self.ctx.allocator);
+        try sema.valueLeaves(self.ctx.allocator, e, &leaves);
+        for (leaves.items) |leaf| if (self.isConstant(leaf)) return leaf;
+        return null;
     }
 
     /// `U8`, a String's byte.

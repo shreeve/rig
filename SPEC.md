@@ -3007,6 +3007,11 @@ sub main
 150 150
 ```
 
+A constant (a literal, `none`, an enum variant that holds no payload,
+an error value, or an operator applied to constants) lives for the
+whole program and never changes, so it is never lent to write:
+`setb(!false)` and `setc(!Color.red)` are rejected.
+
 `?x` and `!x` lend the view the context expects:
 
 | Owner `x` | `?x` lends | `!x` lends |
