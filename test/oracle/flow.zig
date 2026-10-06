@@ -115,7 +115,8 @@ const Checker = struct {
         if (op.def) |d| live.unset(d);
         if (op.kill) |k| {
             live.unset(k);
-            // A user `drop` body reads what the value views.
+            // A user `drop` body reads what the value views; any other
+            // drop only releases memory, and uses no view (Core s6).
             if (self.f.vars.items[k].drop_reads) live.set(k);
         }
         for (op.reads) |v| live.set(v);

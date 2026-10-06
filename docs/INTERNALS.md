@@ -1436,9 +1436,10 @@ through `break` and error propagation; a returned or stored value
 carries only the loans of what the caller lent; values that move
 (`sema.moves`: owning and unique values) and write views are never
 copied implicitly (a bare write view of a Copy
-value is copied only where the type checker recorded that its context
-reads the value, `SemContext.readsThrough`), and only whole bindings
-move; closures use outer
+value, a name, field, or element alike, is copied only where the type
+checker recorded that its context reads the value,
+`SemContext.readsThrough`, `readsThroughWriteView`: `x = h.w` with
+`w: !Int` copies the Int, Core §5), and only whole bindings move; closures use outer
 locals only through captures, and never consume their captured
 resources; and a value whose drop runs a user `drop` body may not
 view, directly or through what it views, a value dropped before it

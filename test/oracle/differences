@@ -83,13 +83,6 @@ test/corpus/R15-p-m2.rig main prod-rejects prod-strict `w = !s.arr[..]` views an
 test/corpus/review-step3-l14_handle_in_vec_loop.rig main prod-rejects prod-strict `keep(h)` of a `for h in v` element of a Vec of handles, used within the iteration
 test/corpus/syntax-review-complete-g3.rig Map.find_mut prod-rejects prod-strict `return !e` of a `for e in !self.es` element views what `self` was lent
 
-# Whether a bare write-view element or field where a value is taken
-# copies what it sees (SPEC §7, as a bare write-view name and an
-# argument do) or would move it out of its holder.
-test/corpus/r3-s45-v-v09_copy_write_elem.rig main prod-rejects core-gap `w = v[0]` of a `Vec[!Int]`
-test/corpus/review-lang4-a3.rig main prod-rejects core-gap `h.w = g.w` of two `!Int` fields
-test/corpus/review-lang4-b3.rig main prod-rejects core-gap `h.w = g.w` of two `!Int` fields
-
 # A place holding a write view, re-pointed or exchanged, holds the new
 # view's loans (Core §6): `swap` exchanges two fields' views, and a
 # re-pointed field may view what outlives its holder.

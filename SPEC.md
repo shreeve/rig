@@ -1837,9 +1837,12 @@ value the place views, while assigning another write view,
 `h.w = !m`, points the place at `m`. Writing through a view held in
 a field, or lending it with `!h.w`, needs write access to the struct,
 as writing any field does, so a plain parameter `h: H`, a capture, or
-a temporary cannot. A bare `w` of type `!Int` where an `Int` goes
-copies the value it reaches (`x = w`), and so does one assigned to a
-`!Int` place (`h.w = w`); `h.w = <w` moves the view there instead.
+a temporary cannot. A bare `w`, field `h.w`, or element `ws[i]` of
+type `!Int` where an `Int` goes copies the value it reaches (`x = w`,
+`x = h.w`, `x = ws[i]`), and so does one assigned to a `!Int` place
+(`h.w = w`, `h.w = g.w`); `h.w = <w` moves the view there instead. A
+write view of anything else, or one bound with a `!T` type
+(`w: !Int = h.w`), would be copied out of its holder, and is rejected.
 
 ```rig
 struct Counter

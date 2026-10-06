@@ -1,0 +1,137 @@
+# A bare write-view field or element where a value is taken reads the
+# value it sees, as a bare write-view name does: `x = h.w`, with
+# `w: !Int`, copies the Int, and changing the copy changes nothing else.
+# This holds in a binding, an assignment that writes through a write
+# view, an element store, a constructor, a return, a loop, a closure,
+# and deferred code; a `!String` field copies the String, which views
+# what it viewed.
+# oracle: bindings accept
+# oracle: through accept
+# oracle: elements accept
+# oracle: made accept
+# oracle: loops accept
+# oracle: deferred accept
+# oracle: take accept
+# oracle: strings accept
+
+struct H
+  w: !Int
+
+struct P
+  n: Int
+
+struct HS
+  s: !String
+
+fun clobber(n: Int) -> Int
+  a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+  a[1] + b[2]
+
+fun get(h: ?H) -> Int
+  h.w
+
+fun take(h: !H) -> Int
+  x = h.w
+  x + 1
+
+sub bindings
+  n = 1
+  h = H(w: !n)
+  x = h.w
+  y: Int = h.w
+  x += 10
+  print(x, y)
+  h.w += 1
+  print(n)
+
+sub through
+  n = 1
+  m = 2
+  h = H(w: !n)
+  g = H(w: !m)
+  h.w = g.w
+  g.w += 1
+  h.w += 5
+  print(n, m)
+
+sub elements
+  a = 1
+  b = 2
+  ws: Vec[!Int] = Vec()
+  !ws.push(!a)
+  !ws.push(!b)
+  w = ws[0]
+  xs = [0, 0]
+  xs[1] = ws[1]
+  ws[0] = 7
+  print(w, xs, a, b)
+
+sub made
+  n = 3
+  h = H(w: !n)
+  p = P(n: h.w)
+  vs: Vec[Int] = Vec()
+  !vs.push(h.w)
+  arr = [h.w, h.w + 1]
+  print(p.n, vs[0], arr)
+
+sub loops
+  a = 1
+  b = 2
+  hs = [H(w: !a), H(w: !b)]
+  total = 0
+  for i in 0..2
+    x = hs[i].w
+    total += x
+  print(total)
+
+sub in_closure
+  n = 4
+  h = H(w: !n)
+  f = |?h|
+    x = h.w
+    print(x + 1)
+  f()
+
+sub deferred
+  n = 5
+  h = H(w: !n)
+  defer
+    x = h.w
+    print("deferred", x)
+  h.w += 1
+
+sub strings
+  t = Text("abc")
+  s: String = ?t
+  hs = HS(s: !s)
+  x = hs.s
+  print(clobber(1))
+  print(x)
+
+sub main
+  bindings()
+  through()
+  elements()
+  made()
+  n = 6
+  h = H(w: !n)
+  print(get(?h), take(!h))
+  loops()
+  in_closure()
+  deferred()
+  strings()
+
+# expect:
+# 11 1
+# 2
+# 7 3
+# 1 [0, 2] 7 2
+# 3 3 [3, 4]
+# 6 7
+# 3
+# 5
+# deferred 6
+# 5
+# abc

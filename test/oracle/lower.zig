@@ -1945,8 +1945,9 @@ const Lowerer = struct {
         switch (kind) {
             .plain, .read_view => return try self.copy(p, p.ty, pos),
             .write_view => {
-                // A write view read as its value copies what it reaches
-                // (SPEC §7); a write slice read as a slice views the same
+                // A write view read as its value copies what it reaches,
+                // a name, field, or element alike (Core §5, SPEC §7); a
+                // write slice read as a slice views the same
                 // elements, a lend on. A write view itself never copies.
                 const wants_view = if (want) |w| self.ctx.types.get(w) == .write_view else false;
                 const t_ty = try self.innerOf(p.ty);

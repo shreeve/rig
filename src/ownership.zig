@@ -2691,7 +2691,7 @@ pub const Checker = struct {
                 if (sink == .argument) return;
                 // A write view of a Copy value is copied where the
                 // value is read; where a `!T` goes, the view would be.
-                if (v.ref == .write and (!self.readsAsValue(self.pointee(v.ty)) or !self.copy_reads)) {
+                if (v.ref == .write and !self.readsThroughWriteView(v.ty)) {
                     try self.err(pos, "bare use of write view `{s}` in {s} would copy a write view, which is unique; use `<{s}` to move it", .{ name, sink.text(), name });
                 } else if (v.ref != .write and self.carriesWriteView(v.ty)) {
                     try self.err(pos, "bare use of `{s}` in {s} would copy the write view it holds; use `<{s}` to move it", .{ name, sink.text(), name });
@@ -2705,8 +2705,12 @@ pub const Checker = struct {
                     if (self.owningKind(ty)) |k| {
                         return self.reportAlias(self.startOf(expr), try self.placeText(expr), if (expr.isKind(.index)) .element else .field, k, sink, ty);
                     }
-                    if (sink != .argument and self.carriesWriteView(ty)) {
-                        try self.errAt(expr, "bare use of `{s}` in {s} would copy a write view; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
+                    // A field or element that is a write view of a Copy
+                    // value reads the value where its context reads it,
+                    // as a bare write-view name does.
+                    if (sink != .argument and self.carriesWriteView(ty) and !self.readsThroughWriteView(ty)) {
+                        const stays = if (expr.isKind(.index)) "an element cannot be moved out of its container" else "a field cannot be moved out of its parent";
+                        try self.errAt(expr, "bare use of `{s}` in {s} would copy a write view; {s}", .{ try self.placeText(expr), sink.text(), stays });
                     }
                 },
                 // A value that is one of its parts (`sema.valueParts`):
@@ -2727,6 +2731,15 @@ pub const Checker = struct {
             },
             else => {},
         }
+    }
+
+    /// Whether a bare name, field, or element of type `ty` hands over the
+    /// value a write view reaches rather than the view: `ty` is a write
+    /// view of a value that reads as a value (`sema.readsAsValue`), and
+    /// the context reads it (`copy_reads`, `SemContext.readsThrough`).
+    /// `x = h.w`, with `w: !Int`, copies the Int.
+    fn readsThroughWriteView(self: *const Checker, ty: ?TypeId) bool {
+        return self.copy_reads and self.refOfType(ty) == .write and self.readsAsValue(self.pointee(ty));
     }
 
     /// The var the name `expr` refers to, once the walk has bound it:
