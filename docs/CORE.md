@@ -116,10 +116,10 @@ use `<c`
 ## 2. The core, in ten sentences
 
 **1. A bare name or place only reads.** It copies plain data and read
-views, and reads owners and handles in place; a write view of a number,
-`Bool`, `String`, or plain enum, whether a name, a field, or an element
-holds it, reads the value it sees, so `x = h.w` with `w: !Int` copies
-the Int. It never clones, writes, or drops, and it moves only where the
+views, and reads owners and handles in place; a write view of a value
+that copies (§1: plain data, or a read view), whether a name, a field,
+or an element holds it, reads the value it sees, so `x = h.w` with
+`w: !Int` copies the Int, and with `w: !Point` the Point. It never clones, writes, or drops, and it moves only where the
 value leaves for good: `return x`, `break x`, or `x` as the last value
 of the function or block that declares `x`. *(built* for copies, `return x`, a function's last value, a
 block's last value when the block declares the name, and reading in
@@ -665,10 +665,10 @@ ada
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
 | a function or closure | `?fun` | | built |
 
-A read view of a number, `Bool`, `String`, or plain enum copies, and
-carries no loan once copied out, as with a call's `?Int` result.
-*(Copying a plain struct, array, or optional out of a read view is
-planned; today it is lent on.)* A slice `x[a..b]` is the same lend, of
+A view of a value that copies (§1) is copied out where that value is
+expected, a plain struct, array, or optional as a number is, and the
+copy carries no loan but those of the views it holds, as with a call's
+`?Int` result. *(built)* A slice `x[a..b]` is the same lend, of
 part of `x`. So `sort.sort(!v)` works on a `Vec` as it does on an array,
 and one `fun area(s: ?Shape)` serves a `Shape`, a `Box[Shape]`, and a
 `*Shape`.
@@ -686,7 +686,7 @@ sub main
 [1, 2, 3]
 ```
 
-```rig pending
+```rig
 struct P
   x: Int
   y: Int
@@ -765,8 +765,8 @@ field and element is a place:
 `<`'s operand is a place or a made value: `<(a if c else b)` is written
 `<a if c else <b`. `swap` and `sort_by` work for any element; `sort`
 needs `<`. `copy`, `fill`, and `[n of x]` duplicate values, so they
-need copyable elements *(built* for elements that hold no `?T`, `!T`, or
-slice; *planned* for read-view elements*)*. So `Vec[Text]`,
+need elements that copy (§1), read views included, each copy carrying
+its loan *(built)*. So `Vec[Text]`,
 `Vec[Vec[Int]]`, and a list of records that each own a string just
 work. *(built)*
 
@@ -799,7 +799,7 @@ sub main
 1 1
 ```
 
-```rig pending
+```rig
 sub main
   n = 1
   a = [3 of ?n]
@@ -901,8 +901,9 @@ sub main
 
 **Closures.** A closure captures each name with a sigil: `?x` lends
 `x` to read for the closure's life, `!x` lends it to write, `<x` moves it in,
-and `+x` captures a copy of plain data or a new count of a handle
-*(built)*, or a deep copy of an owner *(planned)*. A stack closure may
+and `+x` captures what `+x` gives, read through a view: a copy of a
+value that copies, a new count of a handle, or a deep copy of an owner
+*(built)*. A stack closure may
 be lent (`?fun`) but not stored. An owned closure (`*fun`) may be
 stored, and follows sentence 9. *(built)*
 
@@ -919,7 +920,7 @@ sub main
 5
 ```
 
-```rig pending
+```rig
 sub main
   v: Vec[Int] = Vec()
   !v.push(1)
@@ -1000,7 +1001,7 @@ sub main
 Not visible to programs: the compiler decides each of these once, and
 no pass decides them again by looking at syntax.
 
-- **Per type, one fact each:** copyable; unique; needs cleanup; may hold
+- **Per type, one fact each:** copies; unique; needs cleanup; may hold
   a loan; cloneable; how a read view is represented (a copy, or a
   pointer). *(built)*
 - **Per expression, one classification** of what it hands over: a
