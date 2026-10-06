@@ -1,0 +1,17 @@
+# Another module's enum variant and an imported number type's limit are
+# constants, as this module's are: never lent to write.
+use lib
+
+sub setc(c: !lib.Color)
+  c = lib.Color.green
+
+sub setu(u: !U8)
+  u = 1
+
+sub main
+  setc(!lib.Color.red)
+  setu(!lib.Byte.max)
+
+# error: 12:9: cannot lend `lib.Color.red` to write: it is a constant
+# error: 13:9: cannot lend `lib.Byte.max` to write: it is a constant
+# errors: 2

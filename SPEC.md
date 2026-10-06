@@ -3007,10 +3007,12 @@ sub main
 150 150
 ```
 
-A constant (a literal, `none`, an enum variant that holds no payload,
-an error value, or an operator applied to constants) lives for the
-whole program and never changes, so it is never lent to write:
-`setb(!false)` and `setc(!Color.red)` are rejected.
+A constant (a literal, `none`, an enum variant that holds no payload
+or an error value, of any module, a number type's limit such as
+`Int.max`, an operator applied to constants, or a value that branches,
+every value of which is a constant) lives for the whole program and
+never changes, so it is never lent to write: `setb(!false)`,
+`setc(!Color.red)`, and `inc(!Int.max)` are rejected.
 
 `?x` and `!x` lend the view the context expects:
 
