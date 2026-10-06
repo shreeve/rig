@@ -1,0 +1,56 @@
+# A write method may store a view of its argument in its receiver. A
+# receiver that is no named place holds that view just as a name would:
+# a write view a call returns holds it in the value it views, a
+# branching receiver in each branch, and one whose arguments are
+# evaluated first in the value it was lent from. Each view here
+# outlives `s`, whose block ends first.
+
+struct S
+  n: Int
+  t: Text
+
+struct H
+  rs: Vec[String]
+
+  sub keep(!self, r: String)
+    !self.rs.push(r)
+
+  sub keep2(!self, k: Int, r: String)
+    !self.rs.push(r)
+
+  drop(!self)
+    print("dropH sees", self.rs)
+
+fun mk(n: Int) -> S
+  S(n: n, t: Text("hello"))
+
+fun wrap(h: !H) -> !H
+  h
+
+fun f(n: Int) -> Int
+  n
+
+sub main
+  h = H(rs: Vec())
+  a = H(rs: Vec())
+  b = H(rs: Vec())
+  c = f(1) == 1
+  if c
+    s = mk(1)
+    wrap(!h).keep(?s.t)
+  if c
+    s = mk(2)
+    (!a if c else !b).keep(?s.t)
+  if c
+    s = mk(3)
+    wrap(!h).keep2(r: ?s.t, k: f(1))
+  if c
+    s = mk(4)
+    (!wrap(!h).rs).push(?s.t)
+  print("end")
+
+# error: 40:19: `s` does not live long enough
+# error: 43:28: `s` does not live long enough
+# error: 46:23: `s` does not live long enough
+# error: 49:25: `s` does not live long enough
+# errors: 4

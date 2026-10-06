@@ -3508,12 +3508,20 @@ pub const Checker = struct {
         // stores only elements, which may hold no view to store.
         if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             // A receiver lent to read is never written (Core sentence 9:
-            // what changes through one is a Cell, which holds no loan).
-            if (recv_root) |id| if (recv_mode == .write) {
+            // what changes through one is a Cell, which holds no loan). A
+            // receiver lent to write holds what the call stores, whatever
+            // its form: what its write lend reaches, a place's var, or the
+            // write loans its value carries (a write view a call returns,
+            // each branch of a branching receiver, a value the call holds).
+            if (recv_mode == .write and callee.isKind(.member)) {
                 const obj = ir.Member.object(callee);
                 // What the receiver is, not the view lending it.
-                if (self.mayCarryLoan(self.pointee(self.exprType(obj)))) try self.absorbLoans(id, stored, self.startOf(obj), &.{}, null, true);
-            };
+                if (self.mayCarryLoan(self.pointee(self.exprType(obj)))) {
+                    const pos = self.startOf(obj);
+                    const lent: Value = if (recv_root) |id| .{ .loans = try self.oneLoan(.{ .root = id, .kind = .write, .pos = pos }) } else recv_value;
+                    try self.absorbThroughWrites(lent, stored, pos, null, null);
+                }
+            }
             try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
             for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
         }

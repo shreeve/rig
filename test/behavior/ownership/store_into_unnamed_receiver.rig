@@ -1,0 +1,30 @@
+# A write method's receiver that is no named place holds what the call
+# stores in it, as a name would (`test/reject/ownership/store_into_unnamed_receiver.rig`):
+# viewed values that outlive the holder may be stored there.
+
+struct H
+  rs: Vec[String]
+
+  sub keep(!self, r: String)
+    !self.rs.push(r)
+
+fun wrap(h: !H) -> !H
+  h
+
+fun f(n: Int) -> Int
+  n
+
+sub main
+  t = Text("one")
+  u = Text("two")
+  h = H(rs: Vec())
+  a = H(rs: Vec())
+  b = H(rs: Vec())
+  c = f(1) == 1
+  wrap(!h).keep(?t)
+  (!a if c else !b).keep(?u)
+  (!wrap(!h).rs).push(?u)
+  print(h.rs, a.rs, b.rs)
+
+# expect:
+# ["one", "two"] ["two"] []
