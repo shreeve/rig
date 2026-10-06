@@ -1660,10 +1660,14 @@ var process_args: []const []const u8 = &.{};
 /// gathered into Strings once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process = init;
-    // `rig run` and `rig test` name a file to create as the program
-    // starts: their evidence that the exit status is the program's.
-    if (init.environ.getPosix("RIG_RUN_STARTED")) |path| {
-        if (std.Io.Dir.cwd().createFile(io(), path, .{})) |file| file.close(io()) else |_| {}
+    // Only a program `rig run` or `rig test` builds declares
+    // `__rig_run_started`, the environment variable that names a file to
+    // create as it starts: their evidence that the exit status is the
+    // program's. A program `rig build` makes has no such hook.
+    if (@hasDecl(root, "__rig_run_started")) {
+        if (init.environ.getPosix(root.__rig_run_started)) |path| {
+            if (std.Io.Dir.cwd().createFile(io(), path, .{})) |file| file.close(io()) else |_| {}
+        }
     }
     if (sanitize) {
         sanitizer.configure(init.environ);

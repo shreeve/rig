@@ -135,10 +135,13 @@ const Env = struct {
     }
 
     /// The declarations that ask the runtime for leak traces or the
-    /// sanitizer, written into the root module (`runtime.zig`).
-    fn writeRootFlags(env: Env, w: *std.Io.Writer) !void {
+    /// sanitizer, written into the root module (`runtime.zig`); and, in a
+    /// package `rig run` or `rig test` builds (`hook`), the variable
+    /// naming the file the program creates as it starts (`buildCommand`).
+    fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool) !void {
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
+        if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ run_started_var ++ "\";\n");
     }
 };
 
@@ -275,6 +278,10 @@ fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
 /// from one that never did.
 const not_run_status: u8 = 125;
 
+/// The environment variable naming the file a program that `rig run` or
+/// `rig test` builds creates as it starts.
+const run_started_var = "RIG_RUN_STARTED";
+
 /// Set while `rig run` or `rig test` builds and starts a checked program:
 /// a failure now means the program did not run.
 var program_pending = false;
@@ -378,7 +385,7 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !void {
     var graph = try loadProject(allocator, io, env, path);
     defer graph.deinit();
-    const pkg = try emitPackage(allocator, env, &graph);
+    const pkg = try emitPackage(allocator, env, &graph, false);
     const dir = try outputDir(allocator, env, graph.root());
     try writePackage(allocator, io, dir, pkg.files.items);
 
@@ -397,7 +404,9 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     defer graph.deinit();
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     program_pending = opts.command != .build;
-    var pkg = try emitPackage(allocator, env, &graph);
+    // A program `rig run` builds starts by creating the file
+    // RIG_RUN_STARTED names; `rig test`'s driver is its root instead.
+    var pkg = try emitPackage(allocator, env, &graph, opts.command == .run);
     const root = if (opts.command == .@"test") test_driver else graph.root().out_basename;
     if (opts.command == .@"test") try pkg.files.append(allocator, .{ .path = test_driver, .contents = try testDriver(allocator, env, &graph) });
 
@@ -437,14 +446,14 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     // the file, and keeps it as its own evidence.
     var name: [8]u8 = undefined;
     io.random(&name);
-    const callers = env.get("RIG_RUN_STARTED");
+    const callers = env.get(run_started_var);
     const started = if (callers) |path| path else if (env.get("RIG_BUILD_STORE") != null)
         try std.fs.path.join(allocator, &.{ std.fs.path.dirname(zig_cache).?, ".started", &std.fmt.bytesToHex(name, .lower) })
     else
         try std.fs.path.join(allocator, &.{ dir, try allocator.print(".started-{x}", .{&name}) });
     if (std.fs.path.dirname(started)) |d| std.Io.Dir.cwd().createDirPath(io, d) catch |err| notRun("cannot create `{s}`: {s}", .{ d, @errorName(err) });
     var environ = try env.map.clone(allocator);
-    try environ.put("RIG_RUN_STARTED", started);
+    try environ.put(run_started_var, started);
     var attempt: u32 = 0;
     while (true) : (attempt += 1) {
         std.Io.Dir.cwd().deleteFile(io, started) catch {};
@@ -485,7 +494,7 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *const modules.Modu
         \\pub const panic = rig.panic;
         \\
     , .{emit.runtime_filename});
-    try env.writeRootFlags(w);
+    try env.writeRootFlags(w, true);
     try w.writeAll(
         \\
         \\fn testsOf(comptime module: type) []const rig.Test {
@@ -552,8 +561,9 @@ const PackageFile = struct { path: []const u8, contents: []const u8 };
 /// Emit the runtime and every module. With `RIG_LEAK_TRACE` or
 /// `RIG_SANITIZE` set, the root module asks the runtime for stack-trace
 /// leak reports or the sanitizer; with `RIG_SANITIZE`, emit also poisons
-/// hidden storage when its scope ends.
-fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGraph) !Package {
+/// hidden storage when its scope ends. With `hook` (`rig run`), the root
+/// module names the file the program creates as it starts.
+fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGraph, hook: bool) !Package {
     var files: std.ArrayList(PackageFile) = .empty;
     try files.append(allocator, .{ .path = emit.runtime_filename, .contents = emit.runtime_source });
 
@@ -566,9 +576,9 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.poison = env.sanitize();
         try em.emit(m.ir);
         links_libc = links_libc or em.links_libc;
-        if (i == 0 and (env.leakTrace() or env.sanitize())) {
+        if (i == 0 and (env.leakTrace() or env.sanitize() or hook)) {
             try file_buffer.writer.writeAll("\n");
-            try env.writeRootFlags(&file_buffer.writer);
+            try env.writeRootFlags(&file_buffer.writer, hook);
         }
         try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
         for (m.shims.items) |shim| try files.append(allocator, .{ .path = try std.fs.path.join(allocator, &.{ "rig", "std", shim.name }), .contents = shim.source });

@@ -21,7 +21,11 @@ entry=$(find "$store" -mindepth 1 -maxdepth 1 -type d ! -name '.*')
 [[ -f "$entry/package/__rig_main.zig" && -f "$entry/package/util.zig" && -f "$entry/package/rig/runtime.zig" ]] ||
   fail "the entry lacks the package: $(cd "$entry" && find package)"
 (cd one && RIG_OUT_DIR=emitted "$RIG" emit main.rig >/dev/null 2>&1) || fail "emit"
-diff -r one/emitted "$entry/package" >/dev/null || fail "the entry's package differs from what emit writes"
+# What emit writes, but for the root's declaration of the file a program
+# `rig run` builds creates as it starts.
+diff -r -x __rig_main.zig one/emitted "$entry/package" >/dev/null || fail "the entry's package differs from what emit writes"
+root=$(<"$entry/package/__rig_main.zig")
+expect_eq "${root%%$'\n\npub const __rig_run_started = '*}" "$(<one/emitted/__rig_main.zig)" "the entry's root module"
 
 # The same package from another directory, with a store path relative to
 # it, is the same entry, and its build is Zig's cache hit.

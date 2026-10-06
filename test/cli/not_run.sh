@@ -1,7 +1,7 @@
 # `rig run` exits with the program's status only once the program has
 # started: any failure before that prints `rig: the program did not run`
-# and exits 125. A RIG_RUN_STARTED file, which the program creates as it
-# starts, is the positive evidence of a run that test/run and
+# and exits 125. A RIG_RUN_STARTED file, which a program `rig run` builds
+# creates as it starts, is the positive evidence of a run that test/run and
 # test/matrix.py require, so a program that never ran never passes.
 source "$ROOT/test/cli/_lib.sh"
 
@@ -32,6 +32,18 @@ entry=$(find "$store" -mindepth 1 -maxdepth 1 -type d ! -name '.*')
 rm -rf "$entry/o"
 out=$(RIG_BUILD_STORE=$store RIG_RUN_STARTED=$PWD/s4 "$RIG" run ok.rig 2>/dev/null); expect_eq "$out" "ran" "an entry without binaries"
 [[ -e s4 ]] || fail "the rebuilt program left no evidence"
+
+# Only what `rig run` and `rig test` build has the hook: a program `rig
+# build` makes, or `rig emit` writes, never mentions the variable, and
+# never creates the file.
+"$RIG" build -o built ok.rig >/dev/null 2>&1 || fail "build ok.rig"
+grep -q RIG_RUN_STARTED built && fail "a built program names RIG_RUN_STARTED"
+expect_eq "$(RIG_RUN_STARTED=$PWD/s5 ./built)" "ran" "the built program"
+[[ -e s5 ]] && fail "a built program created the RIG_RUN_STARTED file"
+RIG_OUT_DIR=$PWD/emitted "$RIG" emit ok.rig >/dev/null 2>&1 || fail "emit ok.rig"
+grep -rq -e RIG_RUN_STARTED -e "pub const __rig_run_started" emitted && fail "rig emit's package has the hook"
+RIG_BUILD_STORE=$PWD/bstore "$RIG" build -o built2 ok.rig >/dev/null 2>&1 || fail "build ok.rig in a store"
+grep -rq -e RIG_RUN_STARTED -e "pub const __rig_run_started" bstore && fail "rig build's package in the store has the hook"
 
 # The suite and the matrix fail a program that never ran.
 bad=$PWD/afile/store
