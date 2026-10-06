@@ -1,7 +1,8 @@
 # Fields and methods reach through every combination of boxes and
 # shared handles: `Box[*S]`, `*Box[S]`, `Box[Box[S]]`, `Box[Box[*S]]`,
 # and `Box[*Box[S]]`, read in place, lent to read, and matched. A Cell
-# in the value changes in place through any of them.
+# in the value changes in place through any of them, and `<b.unbox()`
+# takes the handle out of its box.
 
 enum K
   a(n: Int)
@@ -50,6 +51,8 @@ sub main
   show(bhb.n, bhb.get(), first(?bhb.xs), bhb.xs.len, ?bhb.t, ?bhb.k, bhb.c.get())
   for x in bhb.xs
     print(x)
+  h = <bh.unbox()
+  print(h.n)
   e: Box[*K] = Box(*K.a(n: 7))
   match e
     .a(n) => print(n)
@@ -63,4 +66,5 @@ sub main
 # 4 44 40 1 s4 5 4
 # 5 55 50 1 s5 6 5
 # 50
+# 1
 # 7

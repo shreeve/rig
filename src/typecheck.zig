@@ -8810,9 +8810,11 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
             };
         }
     }.f;
-    // A view of a shared handle (`!h.m()` with `h: *T`), or a box of
-    // one, still reaches the value through the handle.
-    if (sema.accessThroughShared(ctx, ty_id)) return .shared;
+    // A view of a shared handle (`!h.m()` with `h: *T`) still reaches
+    // the value through the handle, and so does a box of one, for a
+    // method of the value (not the box's own).
+    if (ctx.types.get(sema.unwrapViews(ctx, ty_id)) == .shared) return .shared;
+    if (nominal_sym != ctx.box_sym_id and sema.accessThroughShared(ctx, ty_id)) return .shared;
     return switch (ctx.types.get(ty_id)) {
         .read_view => |i| if (matches(ctx, i, nominal_sym)) .read_view else .other,
         .write_view => |i| if (matches(ctx, i, nominal_sym)) .write_view else .other,
