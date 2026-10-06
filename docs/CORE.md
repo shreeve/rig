@@ -721,11 +721,12 @@ field and element is a place:
 - `<p.f` and `<v[i]` take an optional one, leaving `none`;
 - assigning to it drops the old value.
 
-A bare field or element that is a write view of a number, `Bool`,
-`String`, or plain enum reads the value it sees where a value is taken,
-as such a view does wherever a value is expected (§4): with `w: !Int`,
-`x = h.w` copies the Int, and only a call's `!T` result bound without a
-type keeps the view (§6). *(built)*
+A binding takes the type of a field or element on its right, and an
+annotation converts: with `w: !Int`, `x = h.w` is rejected, since a
+write view cannot be copied, while `x: Int = h.w` reads the Int, as
+every context that expects an `Int` does (§4); a read view copies
+(`r = h.rv`), and a call's `!T` result keeps its write view (§6).
+*(built)*
 
 `<`'s operand is a place or a made value: `<(a if c else b)` is written
 `<a if c else <b`. `swap` and `sort_by` work for any element; `sort`
@@ -760,7 +761,7 @@ sub main
   m = 2
   h = H(w: !n)
   g = H(w: !m)
-  x = h.w
+  x: Int = h.w
   h.w = g.w
   x += 10
   print(x, n, m)
@@ -772,17 +773,17 @@ sub main
 
 ```rig reject
 struct H
-  v: !Vec[Int]
+  w: !Int
 
 sub main
-  xs: Vec[Int] = Vec()
-  h = H(v: !xs)
-  y = h.v
-  print(y.len)
+  n = 1
+  h = H(w: !n)
+  x = h.w
+  print(x)
 ```
 
 ```error
-would copy a write view; a field cannot be moved out of its parent
+write `x: Int = h.w` to read its value
 ```
 
 ```rig

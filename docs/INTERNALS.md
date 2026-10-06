@@ -1438,8 +1438,10 @@ carries only the loans of what the caller lent; values that move
 copied implicitly (a bare write view of a Copy
 value, a name, field, or element alike, is copied only where the type
 checker recorded that its context reads the value,
-`SemContext.readsThrough`, `readsThroughWriteView`: `x = h.w` with
-`w: !Int` copies the Int, Core §5), and only whole bindings move; closures use outer
+`SemContext.readsThrough`, `readsThroughWriteView`; a binding with no
+type takes the type of a field or element on its right, so `x = h.w`
+with `w: !Int` would copy the view and is rejected, while
+`x: Int = h.w` reads the Int, Core §5), and only whole bindings move; closures use outer
 locals only through captures, and never consume their captured
 resources; and a value whose drop runs a user `drop` body may not
 view, directly or through what it views, a value dropped before it

@@ -518,6 +518,8 @@ pub const Checker = struct {
     /// Set immediately before walking a lambda literal that sits in an
     /// allowed position (binding RHS, call callee, lent argument, `*|...|`).
     lambda_ok: bool = false,
+    /// The binding whose value is being walked, for its diagnostics.
+    binding: ?struct { name: []const u8, value: Sexp, rejected: bool = false } = null,
     /// Walking the arguments of a call the type checker rejected.
     in_rejected_call: bool = false,
     /// `checkNoImplicitCopy` is inside an expression whose context reads
@@ -2709,8 +2711,21 @@ pub const Checker = struct {
                     // value reads the value where its context reads it,
                     // as a bare write-view name does.
                     if (sink != .argument and self.carriesWriteView(ty) and !self.readsThroughWriteView(ty)) {
+                        const shown = try self.placeText(expr);
+                        // A binding with no type takes the view (Core §5):
+                        // say how to read the value, or lend the view on.
+                        if (self.binding) |*b| if (b.value == .list and expr == .list and b.value.list.ptr == expr.list.ptr and self.refOfType(ty) == .write) {
+                            b.rejected = true;
+                            const inner = self.pointee(ty).?;
+                            const shown_src = self.spanText(expr);
+                            if (self.readsAsValue(inner)) {
+                                const tname = if (self.sema) |ctx| try sema.formatTypeIn(ctx, self.arena(), inner) else "T";
+                                try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s}: {s} = {s}` to read its value, or `{s} = !{s}` to lend the view on", .{ shown_src, b.name, tname, shown_src, b.name, shown_src });
+                            } else try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = !{s}` to lend the view on", .{ shown_src, b.name, shown_src });
+                            return;
+                        };
                         const stays = if (expr.isKind(.index)) "an element cannot be moved out of its container" else "a field cannot be moved out of its parent";
-                        try self.errAt(expr, "bare use of `{s}` in {s} would copy a write view; {s}", .{ try self.placeText(expr), sink.text(), stays });
+                        try self.errAt(expr, "bare use of `{s}` in {s} would copy a write view; {s}", .{ shown, sink.text(), stays });
                     }
                 },
                 // A value that is one of its parts (`sema.valueParts`):
@@ -2902,7 +2917,15 @@ pub const Checker = struct {
             .default, .fixed, .shadow => if (is_lambda) blk: {
                 self.lambda_ok = true;
                 break :blk try self.walk(expr);
-            } else try self.walkConsumed(expr, .binding),
+            } else blk: {
+                const saved = self.binding;
+                defer self.binding = saved;
+                self.binding = .{ .name = name, .value = expr };
+                const v = try self.walkConsumed(expr, .binding);
+                // A binding reported for taking a held write view holds
+                // nothing, so its later uses report nothing more.
+                break :blk if (self.binding.?.rejected) Value{} else v;
+            },
             else => try self.walk(expr),
         };
 
