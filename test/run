@@ -884,10 +884,13 @@ fi
 # through the storage facts (`Emitter.hiddenStorage`, whose table of
 # names is the one place they are spelled).
 if selected classify; then
-    STRAY=$(grep -nE '\b(isPlaceExpr|isPlace|makesValue|isBranching|readLeaves|classifyReceiverShape)\(' src/*.zig)
-    STORAGE=$(grep -nE '__rig_(tmp|hdr|held|src|it|elem|end|subject|whole|payload|opt|lent|leaf|err|recv|env|fn|new|ix|slot)(_|"|\b)|__rig_arg_\{d\}_' src/emit.zig |
-        grep -vE '^[0-9]+: +\.[a-z_]+(, \.[a-z_]+)* => "__rig_[a-z]+",$' | grep -vE '^[0-9]+: +///|^[0-9]+: +//')
-    if [[ -n "$STRAY" ]]; then
+    # grep exits 1 when nothing matches, the pass; 2 when it cannot read.
+    STRAY=$(grep -nE '\b(isPlaceExpr|isPlace|makesValue|isBranching|readLeaves|classifyReceiverShape)\(' src/*.zig); s1=$?
+    grep -nE '__rig_(tmp|hdr|held|src|it|elem|end|subject|whole|payload|opt|lent|leaf|err|recv|env|fn|new|ix|slot)(_|"|\b)|__rig_arg_\{d\}_' src/emit.zig >"$WORK/storage"; s2=$?
+    STORAGE=$(grep -vE '^[0-9]+: +\.[a-z_]+(, \.[a-z_]+)* => "__rig_[a-z]+",$' "$WORK/storage" | grep -vE '^[0-9]+: +///|^[0-9]+: +//')
+    if [[ $s1 -gt 1 || $s2 -gt 1 ]]; then
+        printf 'fail\tclassify\tcould not read src/ (grep exited %s, %s)\n' "$s1" "$s2" >"$RESULTS/st/classify"
+    elif [[ -n "$STRAY" ]]; then
         printf 'fail\tclassify\ta classifier outside sema.handsOver: %s\n' "$(echo "$STRAY" | head -1)" >"$RESULTS/st/classify"
     elif [[ -n "$STORAGE" ]]; then
         printf 'fail\tclassify\thidden storage named outside Emitter.hiddenStorage: %s\n' "$(echo "$STORAGE" | head -1)" >"$RESULTS/st/classify"
@@ -906,7 +909,10 @@ fi
 # allowed to quote it, each as `path: line text`; an entry that matches
 # no such line, or appears twice, fails too.
 if selected vocab; then
-    { git ls-files --cached --others --exclude-standard; } | sort -u | perl -e '
+    # The files to read; a run that cannot list them fails, not passes.
+    git ls-files --cached --others --exclude-standard >"$WORK/vocab.files" && [[ -s "$WORK/vocab.files" ]] ||
+        echo "test/run: git ls-files listed no files to read" >"$WORK/vocab.files.err"
+    sort -u "$WORK/vocab.files" | perl -e '
         my $word = qr/borr[o]w/i;   # spelled so that this script never matches itself
         my $forms = qr/\b(?:read|write)-l[e]n(?:d|ds|t|ding)\b|\bre-?l[e]nd|\bl[o]an(?:ed|ing)\b/i;
         my $allow_file = "test/vocabulary-allow.txt";
@@ -947,7 +953,8 @@ if selected vocab; then
         }
         for my $k (sort keys %allow) { push @bad, "$allow_file: stale entry: $k" unless $used{$k} }
         print "$_\n" for @bad;
-    ' >"$WORK/vocab"
+    ' >"$WORK/vocab" || echo "test/run: the vocabulary check failed" >>"$WORK/vocab"
+    [[ -f "$WORK/vocab.files.err" ]] && cat "$WORK/vocab.files.err" >>"$WORK/vocab"
     if [[ -s "$WORK/vocab" ]]; then
         cp "$WORK/vocab" "$RESULTS/log/vocab"
         printf 'fail\tvocab\t%s (%s in all; say lend, view, or loan: docs/CORE.md, "Three words")\n' \
