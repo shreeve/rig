@@ -1,12 +1,9 @@
-# A binding takes the type of what is on its right (Core §5): bound
-# without a type, a write-view field or element, or a branching value of
-# them, would copy the write view out of what holds it, and so would one
-# bound with a `!T` type. An annotation reads the value only where it
-# copies (a number, `Bool`, `String`, or plain enum). A String read out
-# of a `!String` field keeps viewing the Text it views.
-# oracle: untyped_field reject C2
-# oracle: untyped_element reject C2
-# oracle: untyped_branches reject C2
+# A bare name or place only reads (Core sentence 1), but only a value
+# that copies is read out of a write view: a number, `Bool`, `String`,
+# or plain enum. A bare field or element that is a write view of
+# anything else would copy the view out of its holder, and so would one
+# bound with a `!T` type. A String read out of a `!String` field keeps
+# viewing the Text it views.
 # oracle: owner_field reject C2
 # oracle: plain_field reject C2
 # oracle: typed_view reject C2
@@ -23,36 +20,6 @@ struct H
 
 struct HS
   s: !String
-
-fun pick -> Bool
-  true
-
-sub untyped_field
-  n = 1
-  xs: Vec[Int] = Vec()
-  p = P(x: 1)
-  h = H(w: !n, v: !xs, p: !p)
-  x = h.w
-  print(x)
-
-sub untyped_element
-  a = 1
-  ws: Vec[!Int] = Vec()
-  !ws.push(!a)
-  w = ws[0]
-  print(w)
-
-sub untyped_branches
-  n = 1
-  m = 2
-  xs: Vec[Int] = Vec()
-  ys: Vec[Int] = Vec()
-  p = P(x: 1)
-  q = P(x: 2)
-  h = H(w: !n, v: !xs, p: !p)
-  g = H(w: !m, v: !ys, p: !q)
-  y = h.w if pick() else g.w
-  print(y)
 
 sub owner_field
   n = 1
@@ -89,20 +56,16 @@ sub string_view
   t = Text("abc")
   s: String = ?t
   hs = HS(s: !s)
-  x: String = hs.s
+  x = hs.s
   !t.add("d")
   print(x)
 
 sub main
   owner_field()
 
-# error: 35:7: bare use of `h.w` in binding would copy a write view, which is unique; write `x: Int = h.w` to read its value, or `x = !h.w` to lend the view on
-# error: 42:7: bare use of `ws[0]` in binding would copy a write view, which is unique; write `w: Int = ws[0]` to read its value, or `w = !ws[0]` to lend the view on
-# error: 54:7: bare use of `h.w` in binding would copy a write view; a field cannot be moved out of its parent
-# error: 54:26: bare use of `g.w` in binding would copy a write view; a field cannot be moved out of its parent
-# error: 62:7: bare use of `h.v` in binding would copy a write view, which is unique; write `y = !h.v` to lend the view on
-# error: 70:7: bare use of `h.p` in binding would copy a write view, which is unique; write `q = !h.p` to lend the view on
-# error: 78:13: bare use of `h.w` in binding would copy a write view, which is unique; write `w: Int = h.w` to read its value, or `w = !h.w` to lend the view on
-# error: 85:13: bare use of `ws[0]` in binding would copy a write view, which is unique; write `w: Int = ws[0]` to read its value, or `w = !ws[0]` to lend the view on
-# error: 93:3: cannot lend `t` to write while a read loan is live
-# errors: 9
+# error: 29:7: bare use of `h.v` in binding would copy a write view, which is unique; write `y = !h.v` to lend the view on
+# error: 37:7: bare use of `h.p` in binding would copy a write view, which is unique; write `q = !h.p` to lend the view on
+# error: 45:13: bare use of `h.w` in binding would copy a write view, which is unique; write `w = h.w` to read its value, or `w = !h.w` to lend the view on
+# error: 52:13: bare use of `ws[0]` in binding would copy a write view, which is unique; write `w = ws[0]` to read its value, or `w = !ws[0]` to lend the view on
+# error: 60:3: cannot lend `t` to write while a read loan is live
+# errors: 5

@@ -835,17 +835,15 @@ const Checker = struct {
             rhs_ty = declared;
         } else {
             rhs_ty = try self.synthExpr(rhs);
-            // A binding takes the type of what is on its right, and an
-            // annotation converts (Core §5): it holds the write view a call
-            // or a lend hands over (`yieldsWriteView`), as `w: !T = e`
-            // does, so assigning it writes through (Core §6); a write view
-            // a field or element holds stays one, which the ownership
-            // checker rejects, since it would be copied out of its holder
-            // (`yieldsHeldWriteView`). A bare name or a loop's value of type
-            // `!T`, and a read view of a number, `Bool`, `String`, or plain
-            // enum, binds the value it reaches.
-            const keeps_view = self.ctx.types.get(rhs_ty) == .write_view and (yieldsWriteView(rhs) or yieldsHeldWriteView(rhs));
-            if (!rhs.isKind(.read) and !keeps_view) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
+            // A binding holds the write view a call or a lend hands over
+            // (`yieldsWriteView`), as `w: !T = e` does, so assigning it
+            // writes through (Core §6). A bare name or place only reads
+            // (Core sentence 1): a name, field, element, or loop value of
+            // type `!T`, a branching value of them, and a read view of a
+            // number, `Bool`, `String`, or plain enum bind the value it
+            // reaches.
+            const holds_write_view = self.ctx.types.get(rhs_ty) == .write_view and yieldsWriteView(rhs);
+            if (!rhs.isKind(.read) and !holds_write_view) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
 
@@ -8703,21 +8701,6 @@ fn yieldsWriteView(e: Sexp) bool {
                 any = true;
             }
             return any;
-        },
-        else => return false,
-    }
-}
-
-/// Whether `e`, a value of type `!T`, may be a write view a field or
-/// element holds: `h.w`, `ws[i]`, or a branching value, `match`, or
-/// block one of whose values is.
-fn yieldsHeldWriteView(e: Sexp) bool {
-    switch (e.kind() orelse return false) {
-        .member, .index => return true,
-        .@"if", .match, .block, .@"??", .@"catch" => {
-            var parts = sema.valueParts(e);
-            while (parts.next()) |p| if (yieldsHeldWriteView(p.node)) return true;
-            return false;
         },
         else => return false,
     }

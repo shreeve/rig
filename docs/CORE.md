@@ -71,7 +71,7 @@ side; Rig names everything from the side the sigil is on.
 | **plain** | `Int`, `Bool`, enums, structs whose parts are all plain | copies | built |
 | **owning** | `Vec[T]`, `Box[T]`, `Text`, structs holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
-| **view** | `?T`, `!T`, `[]T`, `![]T`, `String` | a read view copies; a write view moves | built |
+| **view** | `?T`, `!T`, `[]T`, `![]T`, `String` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
 **A struct's or enum's kind follows from its parts:** it is owning if
 any part is owning or a handle; otherwise a view if any part is a view
@@ -115,11 +115,13 @@ use `<c`
 
 ## 2. The core, in ten sentences
 
-**1. A bare name only reads.** It copies plain data and read views, and
-reads owners and handles in place. It never clones, writes, or drops,
-and it moves only where the value leaves for good: `return x`, `break
-x`, or `x` as the last value of the function or block that declares
-`x`. *(built* for copies, `return x`, a function's last value, a
+**1. A bare name or place only reads.** It copies plain data and read
+views, and reads owners and handles in place; a write view of a number,
+`Bool`, `String`, or plain enum, whether a name, a field, or an element
+holds it, reads the value it sees, so `x = h.w` with `w: !Int` copies
+the Int. It never clones, writes, or drops, and it moves only where the
+value leaves for good: `return x`, `break x`, or `x` as the last value
+of the function or block that declares `x`. *(built* for copies, `return x`, a function's last value, a
 block's last value when the block declares the name, and reading in
 place: an argument where a view is expected (`size(v)` for a
 `?Vec[Int]` parameter), and a header's subject (a `for` over a `Vec`,
@@ -157,6 +159,40 @@ sub main
 1
 2
 2
+```
+
+```rig
+struct H
+  w: !Int
+
+sub main
+  n = 1
+  m = 2
+  h = H(w: !n)
+  g = H(w: !m)
+  x = h.w
+  h.w = g.w
+  x += 10
+  print(x, n, m)
+```
+
+```output
+11 2 2
+```
+
+```rig reject
+struct H
+  v: !Vec[Int]
+
+sub main
+  xs: Vec[Int] = Vec()
+  h = H(v: !xs)
+  y = h.v
+  print(y.len)
+```
+
+```error
+write `y = !h.v` to lend the view on
 ```
 
 ```rig pending
@@ -725,13 +761,6 @@ field and element is a place:
 - `<p.f` and `<v[i]` take an optional one, leaving `none`;
 - assigning to it drops the old value.
 
-A binding takes the type of a field or element on its right, and an
-annotation converts: with `w: !Int`, `x = h.w` is rejected, since a
-write view cannot be copied, while `x: Int = h.w` reads the Int, as
-every context that expects an `Int` does (§4); a read view copies
-(`r = h.rv`), and a call's `!T` result keeps its write view (§6).
-*(built)*
-
 `<`'s operand is a place or a made value: `<(a if c else b)` is written
 `<a if c else <b`. `swap` and `sort_by` work for any element; `sort`
 needs `<`. `copy`, `fill`, and `[n of x]` duplicate values, so they
@@ -754,40 +783,6 @@ sub main
 ```output
 7
 none
-```
-
-```rig
-struct H
-  w: !Int
-
-sub main
-  n = 1
-  m = 2
-  h = H(w: !n)
-  g = H(w: !m)
-  x: Int = h.w
-  h.w = g.w
-  x += 10
-  print(x, n, m)
-```
-
-```output
-11 2 2
-```
-
-```rig reject
-struct H
-  w: !Int
-
-sub main
-  n = 1
-  h = H(w: !n)
-  x = h.w
-  print(x)
-```
-
-```error
-write `x: Int = h.w` to read its value
 ```
 
 ```rig

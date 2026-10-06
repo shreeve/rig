@@ -135,15 +135,12 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
 - **Field-disjoint loans:** today field loans are unioned. The design
   owner decided they come, with field-precise re-pointing, as their own
   round after B4, with `docs/CORE.md` updated first. The other three
-  rules the Core left open are decided and built (CORE sentences 6 and
-  7, §5): a call's result that holds no write view keeps a write
+  rules the Core left open are decided and built (CORE sentences 1, 6,
+  and 7): a call's result that holds no write view keeps a write
   argument lent to read, and that argument's write lend ends as the call
   returns; dropping a container of views uses them only through a `drop`
-  body; a binding takes the type of a field or element on its right and
-  an annotation converts, so `x = h.w` of a `!Int` is rejected and
-  `x: Int = h.w` reads it. Open: a bare write-view name still binds the
-  value it reaches (`x = w`), as v0.2.0 does; whether the binding rule
-  covers names too is the owner's to decide.
+  body; a bare name or place only reads, so `x = h.w`, like `x = w`, of
+  a `!Int` copies the Int.
 - **The kind of a struct of Strings:** CORE calls it a view, SPEC plain
   data; the compiler treats it as CORE's read-view kind.
 - **Arm-local payload views:** lift them for an unguarded, non-generic
@@ -182,6 +179,15 @@ and run the corpus after.
   and `Text(...)` arguments, and assignment targets.
 - **`defer`/`errdefer` at exits,** owners behind `Cell`, `Box`, and
   `*T`, and generic instances.
+- **Statement-long loans the Core does not need** (compiler-stricter,
+  listed in `test/oracle/differences`): a call's result's read loans,
+  and a write lend the call stores or whose result is a write view, last
+  until the statement ends, not until their last use in it. So
+  `match find(!v)` cannot write `v` in an arm after the payload's last
+  use, `print(firstw(!v).n, v.len)` is rejected, and so is reading `v`
+  after `keep(!v, !h, ?x)` in its statement though `h` is used no more.
+  The Core allows all three, and the oracle accepts them. A later round
+  ends these loans at their last use within the statement.
 - **Review findings not fixed:**
   - `|+x|` captures a copy of plain data or a handle only; a deep copy
     of an owner is *planned* (CORE §7).

@@ -2743,16 +2743,15 @@ pub const Checker = struct {
                     // as a bare write-view name does.
                     if (sink != .argument and self.carriesWriteView(ty) and !self.readsThroughWriteView(ty)) {
                         const shown = try self.placeText(expr);
-                        // A binding with no type takes the view (Core §5):
-                        // say how to read the value, or lend the view on.
+                        // A binding typed `!T`, or of a view of a value
+                        // that does not copy: say how to read the value,
+                        // or lend the view on.
                         if (self.binding) |*b| if (b.value == .list and expr == .list and b.value.list.ptr == expr.list.ptr and self.refOfType(ty) == .write) {
                             b.rejected = true;
-                            const inner = self.pointee(ty).?;
-                            const shown_src = self.spanText(expr);
-                            if (self.readsAsValue(inner)) {
-                                const tname = if (self.sema) |ctx| try sema.formatTypeIn(ctx, self.arena(), inner) else "T";
-                                try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s}: {s} = {s}` to read its value, or `{s} = !{s}` to lend the view on", .{ shown_src, b.name, tname, shown_src, b.name, shown_src });
-                            } else try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = !{s}` to lend the view on", .{ shown_src, b.name, shown_src });
+                            const src = self.spanText(expr);
+                            if (self.readsAsValue(self.pointee(ty))) {
+                                try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = {s}` to read its value, or `{s} = !{s}` to lend the view on", .{ src, b.name, src, b.name, src });
+                            } else try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = !{s}` to lend the view on", .{ src, b.name, src });
                             return;
                         };
                         const stays = if (expr.isKind(.index)) "an element cannot be moved out of its container" else "a field cannot be moved out of its parent";
@@ -2783,7 +2782,8 @@ pub const Checker = struct {
     /// value a write view reaches rather than the view: `ty` is a write
     /// view of a value that reads as a value (`sema.readsAsValue`), and
     /// the context reads it (`copy_reads`, `SemContext.readsThrough`).
-    /// `x = h.w`, with `w: !Int`, copies the Int.
+    /// A bare name or place only reads (Core sentence 1): `x = h.w`,
+    /// with `w: !Int`, copies the Int.
     fn readsThroughWriteView(self: *const Checker, ty: ?TypeId) bool {
         return self.copy_reads and self.refOfType(ty) == .write and self.readsAsValue(self.pointee(ty));
     }

@@ -1828,8 +1828,8 @@ alone (a `![]T` local alike), and a bare `w = w2` reads the value `w2`
 reaches and writes it through `w`. A new local holds a write view the
 same way, with or without a type: `w = slot(!n)`, a call returning a
 `!Int`, holds the view, as `w: !Int = slot(!n)` does, so `w = 5`
-writes `n`; a bare name or a loop's value of type `!Int` binds the
-value it reaches. A parameter is never re-pointed:
+writes `n`; a bare name, a field or element, or a loop's value of type
+`!Int` binds the value it reaches. A parameter is never re-pointed:
 `w = !m` of a `!T` parameter is rejected, and `new w = !m` binds a new
 name instead. A field or element of type `!T` follows the same rule:
 `h.w = 5`, `h.w += 1`, `xs[i] += 1`, and `h.w = w2` write the
@@ -1837,16 +1837,15 @@ value the place views, while assigning another write view,
 `h.w = !m`, points the place at `m`. Writing through a view held in
 a field, or lending it with `!h.w`, needs write access to the struct,
 as writing any field does, so a plain parameter `h: H`, a capture, or
-a temporary cannot. A bare `w` of type `!Int` where an `Int` goes
-copies the value it reaches (`x = w`), and so does one assigned to a
-`!Int` place (`h.w = w`, `h.w = g.w`); `h.w = <w` moves the view there
-instead. A binding takes the type of a field or element on its right,
-and an annotation converts: `x = h.w` or `x = ws[i]` would copy the
-write view out of what holds it, and is rejected, while
-`x: Int = h.w` reads the Int, as an argument, an operand, or any other
-place an `Int` goes does; `x = !h.w` lends the view on. A write view
-of anything but a number, `Bool`, `String`, or plain enum is never read
-out this way.
+a temporary cannot. A bare name or place only reads (Core sentence 1):
+a bare `w`, field `h.w`, or element `ws[i]` of type `!Int` where a value
+is taken copies the value it reaches (`x = w`, `x = h.w`,
+`x = ws[i]`, `x: Int = h.w`, an argument, an operand, a branching value
+of them), and so does one assigned to a `!Int` place (`h.w = w`,
+`h.w = g.w`); `h.w = <w` moves the view there instead, and `x = !h.w`
+lends it on. A write view of anything but a number, `Bool`, `String`,
+or plain enum is never read out this way, and one bound with a `!T`
+type (`x: !Int = h.w`) would copy the view, so both are rejected.
 
 ```rig
 struct Counter
@@ -2795,10 +2794,10 @@ bare use of shared (`*T`) handle `a` in binding would alias the handle
 A view of a number, `Bool`, `String`, or plain enum reads as the value
 wherever the value is expected, whether a name holds the view or an
 expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`); the
-loan taken to reach it ends there. A binding with no type expects no
-value: it holds a write view a call yields, and one a field or element
-holds would be copied, so it is rejected; `x: Int = h.w` reads it ([View
-places](#view-places)). Other values are not copied out of a view: lend
+loan taken to reach it ends there. A bare name or place only reads, so
+a binding with no type reads the value a name's, field's, or element's
+write view sees (`x = h.w`), and holds a write view a call yields, which
+is a value, not a place ([View places](#view-places)). Other values are not copied out of a view: lend
 them on, as `?T` or `!T`.
 
 ```rig
