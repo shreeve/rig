@@ -236,8 +236,10 @@ sub main
 A closure has no keyword: it starts with its bar list. Each captured
 name carries a sigil that says how it is held: `+step` copies, `<x`
 would move, `?x` and `!x` would lend, and `~x` would hold a handle
-weakly. `*Cell[Int]` is a shared cell, the way to share state that
-changes (a `*Signal` also tells its subscribers).
+weakly. A bare name is a parameter, as `a` is in `|+step, a| a + step`;
+captures come first, and a parameter may not reuse a local's name, so
+`|step|` here would be rejected. `*Cell[Int]` is a shared cell, the way
+to share state that changes (a `*Signal` also tells its subscribers).
 
 ## Running a program
 

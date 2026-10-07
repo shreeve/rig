@@ -1380,6 +1380,21 @@ names with optional types:
 | `a`, `a: Int` | a parameter |
 | `\|\|` | an empty list |
 
+A name with a sigil is a capture and a bare name a parameter. Captures
+come before parameters, and a parameter may not reuse a local's name,
+so the spelling alone decides what an entry is:
+
+```rig reject
+sub main
+  n = 10
+  add = |n| n + 1
+  print(add(1))
+```
+
+```error
+closure parameter `n` has the name of the local `n`; to capture the local, give it a sigil (`|+n|` copies or clones it, `|<n|` moves it, `|?n|` or `|!n|` lends it, `|~n|` holds it weakly), or name the parameter differently
+```
+
 The body is an expression or an assignment on the same line
 (`|!total, n| total += n`), or an indented block. `*` before the bar
 list makes an owned closure: `*|+count, step| ...`.
