@@ -1,0 +1,114 @@
+# review-loop-lowering gen5.py --seed 11, program 0109 (base 0a10f99c: FAIL):
+# rejected, or prints gen5's model trace (probes/review-loop-lowering).
+#
+# oracle: D.drop accept
+# oracle: st accept
+# oracle: adv accept
+# oracle: lim accept
+# oracle: limf accept
+# oracle: mkd accept
+# oracle: gate accept
+# oracle: mkvec accept
+# oracle: grow accept
+# oracle: ints accept
+error E
+  bad
+
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun st(n: Int, c: Int) -> Int
+  print("s", n, c)
+  c + 1
+
+fun adv(n: Int, c: Int, g: Bool) -> Int?
+  print("s", n, c)
+  none if g else c + 1
+
+fun lim(c: Int, n: Int) -> Int?
+  c if c < n else none
+
+fun limf(c: Int, n: Int, bad: Bool) -> Int?!
+  return E.bad if bad
+  lim(c, n)
+
+fun mkd(k: Int, c: Int, n: Int) -> D?
+  D(n: 1000 * (k + 1) + c) if c < n else none
+
+fun gate(b: Bool) -> Int?
+  none if b else 1
+
+fun mkvec(k: Int, n: Int) -> Vec[D]
+  v: Vec[D] = Vec()
+  for i in 0..n
+    !v.push(D(n: 2000 * (k + 1) + i))
+  v
+
+fun grow(v: !Vec[Int], n: Int, c: Int) -> Int
+  print("s", n, c)
+  for i in 0..20
+    !v.push(i)
+  c + 1
+
+fun ints(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(10 + i)
+  v
+
+sub main
+  guard = 0
+  c0 = 0
+  p0 = 0
+  while (limf(c0, 3, false) catch break) as h0: c0 = st(0, h0)
+    guard += 1
+    if guard > 300
+      print("cap")
+      return
+    p0 += 1
+    _ = p0
+    y0 = D(n: 0 + c0)
+    defer print("d0", c0)
+    print("b0", c0, h0)
+    :m raw
+      c1 = 0
+      p1 = 0
+      :a while lim(c1, 2) as h1 and h1 >= 0: c1 = st(1, h1)
+        guard += 1
+        if guard > 300
+          print("cap")
+          return
+        p1 += 1
+        _ = p1
+        y1 = D(n: 100 + c1)
+        defer print("d1", c1)
+        print("b1", c0, c1, h1)
+        :w1 match c1
+          _
+            o2 = ints(1)
+            c2 = 0
+            p2 = 0
+            :a while lim(c2, 2) as h2 and h2 >= 0: c2 = grow(!o2, 2, h2)
+              guard += 1
+              if guard > 300
+                print("cap")
+                return
+              p2 += 1
+              _ = p2
+              y2 = D(n: 200 + c2)
+              sv2 = ?o2[..]
+              defer print("od2", sv2[0])
+              print("b2", c0, c1, c2, h2)
+              print("t2", c0, c1, c2)
+            else
+              print("e2", c0, c1)
+            print("w1", c0, c1)
+        continue :a if c0 == 1 and c1 == 1
+        print("t1", c0, c1)
+      else
+        print("e1", c0)
+      print("w0", c0)
+    print("t0", c0)
+  print("end")

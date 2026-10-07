@@ -1,0 +1,13 @@
+# `while true: step` with an `else` and a `continue`.
+#
+# oracle: main accept
+sub main
+  n = 0
+  k = 0
+  while true: k += 1
+    n += 1
+    continue if n == 1
+    break if n > 2
+  else
+    print("never")
+  print(n, k)

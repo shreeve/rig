@@ -1,0 +1,23 @@
+# A `continue` that targets a loop nested inside the condition (a loop
+# used as a value in a call argument), not the `while` itself.
+#
+# oracle: some accept
+# oracle: first accept
+# oracle: main accept
+fun some(i: Int) -> Int?
+  i if i < 6 else none
+
+fun first(i: Int) -> Int
+  w = for t in 0..3
+    continue if t == 0
+    break t + i
+  else
+    0
+  w
+
+sub main
+  steps = 0
+  i = 0
+  while some(first(i)) as h: steps += h
+    i += 2
+  print(steps, i)

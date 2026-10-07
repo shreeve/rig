@@ -1,0 +1,52 @@
+# A jump in a `for` source targets the loop around the `for`, for a range,
+# a Vec in place, a consumed Vec a call makes, and an array a call makes;
+# the inner `for` has an `else` and an owned local in its body.
+#
+# oracle: D.drop accept
+# oracle: opt accept
+# oracle: vec accept
+# oracle: arr accept
+# oracle: main accept
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun opt(i: Int) -> Int?
+  none if i == 1 else i
+
+fun vec(i: Int) -> Vec[Int]?
+  if i == 1
+    return none
+  v: Vec[Int] = Vec()
+  !v.push(i)
+  !v.push(i + 1)
+  v
+
+fun arr(i: Int) -> ([2]D)?
+  none if i == 1 else [D(n: 10 * i), D(n: 10 * i + 1)]
+
+sub main
+  n = 0
+  for i in 0..3
+    y = D(n: 100 + i)
+    for j in (opt(i) ?? continue)..3
+      n += j
+    else
+      print("else range", i)
+    print("after range", i)
+  for i in 0..3
+    y = D(n: 200 + i)
+    for x in (vec(i) ?? continue)
+      n += x
+    else
+      print("else vec", i)
+    print("after vec", i)
+  for i in 0..3
+    y = D(n: 300 + i)
+    for d in (arr(i) ?? break)
+      print("d", d.n)
+    else
+      print("else arr", i)
+    print("after arr", i)
+  print(n)

@@ -1,0 +1,75 @@
+# `!` and `?` propagation out of a step, a condition, and a body, with a
+# body `defer`, an `errdefer`, owned locals, and an owning binding.
+#
+# oracle: D.drop accept
+# oracle: nx accept
+# oracle: mk accept
+# oracle: opt accept
+# oracle: f accept
+# oracle: g accept
+# oracle: h3 accept
+# oracle: k accept
+# oracle: main accept
+error E
+  bad
+
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun nx(i: Int, bad: Int) -> Int!
+  return E.bad if i == bad
+  i + 1
+
+fun mk(i: Int, bad: Int) -> D?!
+  return E.bad if i == bad
+  D(n: 50 + i) if i < 4 else none
+
+fun opt(i: Int, gone: Int) -> Int?
+  none if i == gone else i + 1
+
+fun f(bad: Int) -> Int!
+  keep = D(n: 1)
+  errdefer print("errdefer f")
+  i = 0
+  while i < 4: i = nx(i, bad)!
+    y = D(n: 10 + i)
+    defer print("defer", i)
+  i
+
+fun g(bad: Int) -> Int!
+  keep = D(n: 2)
+  errdefer print("errdefer g")
+  i = 0
+  while mk(i, bad)! as h: i += 1
+    y = D(n: 20 + i)
+    print("body", h.n)
+  i
+
+fun h3(bad: Int) -> Int!
+  keep = D(n: 3)
+  i = 0
+  for t in 0..4
+    y = D(n: 30 + t)
+    defer print("defer", t)
+    i = nx(t, bad)!
+  i
+
+fun k(gone: Int) -> Int?
+  keep = D(n: 4)
+  i = 0
+  while (mk(i, 99) catch none) as h: i = opt(i, gone)?
+    y = D(n: 40 + i)
+    print("body", h.n)
+  i
+
+sub main
+  print("f", f(9) catch 0 - 1)
+  print("f", f(2) catch 0 - 1)
+  print("g", g(9) catch 0 - 1)
+  print("g", g(1) catch 0 - 1)
+  print("h", h3(9) catch 0 - 1)
+  print("h", h3(2) catch 0 - 1)
+  print("k", k(9) ?? 0 - 1)
+  print("k", k(1) ?? 0 - 1)

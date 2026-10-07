@@ -1,0 +1,45 @@
+# Loops used as values: `break v` from the body (a value in the condition
+# or step is rejected), a step that reads the binding, `else`, and a
+# labeled value loop left from an inner `for`; with drops and defers.
+#
+# oracle: D.drop accept
+# oracle: nxt accept
+# oracle: some accept
+struct D
+  n: Int
+  drop(!self)
+    print("drop", self.n)
+
+fun nxt(i: Int) -> Int?
+  i + 1 if i < 3 else none
+
+fun some(i: Int) -> Int?
+  i if i < 9 else none
+
+fun cx(k0: Int) -> Int
+  k = k0
+  :x while some(k) as h: k = h + 1
+    d = D(n: 20 + k)
+    for t in 0..3
+      e = D(n: 40 + t)
+      continue if t == 0
+      break :x 400 + t + h if k == 2
+      continue :x
+  else
+    0 - 1
+
+sub main
+  i = 0
+  while (nxt(i) ?? break) > 0: i += 1
+    d = D(n: i)
+    defer print("defer", i)
+  print("a", i)
+  j = 0
+  b = while some(j) as h and h < 5: j = h + 1
+    d = D(n: 10 + j)
+    defer print("defer", j)
+    break 300 + h if j == 3
+  else
+    0 - 1
+  print("b", b, j)
+  print("c", cx(0))
