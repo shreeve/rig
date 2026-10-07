@@ -3,7 +3,7 @@ sub set(a: !Int)
   w = 5
   print(w)
 
-sub main
+sub main()
   z = 0
   set(!z)
   print(z)

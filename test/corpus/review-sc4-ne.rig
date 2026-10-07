@@ -12,7 +12,7 @@ sub f(p: Pair)
   match <p
     .two(a, _) => print(a.n)
 
-sub main
+sub main()
   r: Pair = .one(a: *B(n: 5))
   match <r
     .two(a, b) => print("two", a.n, b.n)

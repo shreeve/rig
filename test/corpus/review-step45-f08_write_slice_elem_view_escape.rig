@@ -2,7 +2,7 @@
 fun first(s: ![]Text) -> !Text
   !s[0]
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   t = first(!v)

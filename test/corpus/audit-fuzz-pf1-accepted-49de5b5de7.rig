@@ -12,6 +12,6 @@ sub run(early: Bool)
     print("dropped b early")
   print("end of run")
 
-sub main
+sub main()
   run(true)
   run(false)

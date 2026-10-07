@@ -6,7 +6,7 @@ struct R
   drop(!self)
     print("drop R", self.n)
 
-sub main!
+sub main()!
   r = R(n: 1)
   print("m", r.n)
   return E.bad if r.n > 0

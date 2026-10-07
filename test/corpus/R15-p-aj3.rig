@@ -1,5 +1,6 @@
 struct H
   w: !Vec[Int]
+
 sub f(a: !H, b: !H)
   t = !a.w[..]
   !b.w.push(2)
@@ -8,6 +9,7 @@ sub f(a: !H, b: !H)
   !b.w.push(5)
   t[0] = 99
   print(t)
+
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)

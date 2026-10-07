@@ -1,7 +1,7 @@
 sub add(v: !Vec[Int])
   !v.push(3)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   w = !v
   add(!w)

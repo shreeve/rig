@@ -20,7 +20,7 @@ fun hoisted[T](x: T) -> Int
 struct P
   t: Text
 
-sub main
+sub main()
   print(direct(5), hoisted(6))
   print(direct(P(t: Text("p"))), hoisted(P(t: Text("q"))))
 

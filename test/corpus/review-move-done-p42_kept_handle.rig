@@ -2,13 +2,13 @@ struct S
   n: Int
   v: Vec[Int]
 
-fun mkh -> *S
+fun mkh() -> *S
   *S(n: 1, v: Vec())
 
-fun mk -> S
+fun mk() -> S
   S(n: 1, v: Vec())
 
-sub main
+sub main()
   a = <mkh().n
   b = <mk().n
   print(a, b)

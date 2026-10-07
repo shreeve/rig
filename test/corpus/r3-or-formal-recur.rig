@@ -6,7 +6,7 @@ fun pick(a: ?Item, b: ?Item, n: Int) -> ?Item
     return a
   pick(a, b, n - 1)
 
-sub main
+sub main()
   x = Item(n: 1)
   y = Item(n: 2)
   r = pick(?x, ?y, 3)

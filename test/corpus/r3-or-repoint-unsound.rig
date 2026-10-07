@@ -1,7 +1,7 @@
 # Re-pointing a `!T` local hands it the new place's loan (Core §6), and
 # a view taken of it before keeps the old place's.
 
-sub new_place_held
+sub new_place_held()
   m = 1
   n = 2
   w = !m
@@ -9,7 +9,7 @@ sub new_place_held
   print(n)
   w = 3
 
-sub old_view_kept
+sub old_view_kept()
   m = Text("m")
   n = Text("n")
   w = !m
@@ -18,7 +18,7 @@ sub old_view_kept
   !m.add("!")
   print(r)
 
-sub main
+sub main()
   new_place_held()
   old_view_kept()
 

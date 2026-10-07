@@ -23,6 +23,6 @@ sub f(b: ?Box[H])
   x = <b.o
   print(x == none)
 
-sub main
+sub main()
   b = Box(H(o: *Tok(n: 1)))
   f(?b)

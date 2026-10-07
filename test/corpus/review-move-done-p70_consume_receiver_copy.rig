@@ -8,7 +8,7 @@ struct P
 struct S
   p: P
 
-sub main
+sub main()
   s = S(p: P(x: 2))
   v: Vec[P] = Vec()
   !v.push(P(x: 3))

@@ -5,7 +5,7 @@ struct S
 fun keep(s: ?S) -> ?S
   s
 
-sub main
+sub main()
   v: Vec[*S] = Vec()
   !v.push(*S(n: 1, t: Text("a")))
   for h in v

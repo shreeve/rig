@@ -2,7 +2,7 @@ sub walk(f: ?sub(Int), g: ?sub(Int))
   f(1)
   g(2)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   a = |!v, n: Int|
     v.push(n)

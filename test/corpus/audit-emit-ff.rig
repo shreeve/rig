@@ -1,4 +1,4 @@
-sub main
+sub main()
   :fn for i in 0..3
     :u8 for j in 0..3
       continue :fn if j > i

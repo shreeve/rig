@@ -10,7 +10,7 @@ sub fill(out: !View, f: ?sub(!View))
 sub put(o: !View, w: ?Vec[Int])
   o.w = w
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   v = View(w: ?a)
   v = View(w: ?a)

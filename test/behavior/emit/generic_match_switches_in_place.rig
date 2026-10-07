@@ -18,7 +18,7 @@ enum Opt[T]
 fun size[T](v: ?T) -> Int
   1
 
-sub main
+sub main()
   a = Opt.some(v: 3)
   b: Opt[Text] = Opt.some(v: Text("x"))
   n: Opt[Text] = .none

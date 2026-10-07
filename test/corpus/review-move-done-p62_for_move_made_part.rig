@@ -8,24 +8,22 @@ struct S
   arr: [2]Int
   e: E
 
-fun mk -> S
+fun mk() -> S
   v: Vec[Int] = Vec()
   !v.push(7)
   w: Vec[Int] = Vec()
   !w.push(8)
   S(o: <v, v: <w, arr: [1, 2], e: E.empty)
 
-
-sub h2
+sub h2()
   for x in <mk().arr
     print(x)
 
-sub h3
+sub h3()
   for x in <mk().v
     print(x)
 
-
-sub h5
+sub h5()
   if mk().o as x
     print(x)
   for x in mk().v
@@ -34,7 +32,7 @@ sub h5
     .full(v) => print(v.len)
     .empty => print("e")
 
-sub main
+sub main()
   h2()
   h3()
   h5()

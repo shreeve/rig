@@ -2,9 +2,11 @@ struct P
   n: Int
   fun get(?self, k: Int) -> Int
     self.n + k
+
 fun g(i: !Int) -> Int
   i += 1
   5
+
 sub main()
   ps = [P(n: 10), P(n: 20)]
   i = 0

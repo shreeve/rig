@@ -44,6 +44,6 @@ fun run(d: ?Q) -> Int!
   h = mkh(6).q.me(k: g(1), j: g(2)).get()
   a.n + b.n + c.n + e.n + f + h
 
-sub main
+sub main()
   d = Q(c: Cell(0), n: 0)
   print(run(?d) catch -1)

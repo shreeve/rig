@@ -7,7 +7,7 @@ struct Bag
   fun at(?self, i: Int) -> ?*Node
     ?self.items[i]
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(*Node(v: 1))
   for x in ?b.items

@@ -10,7 +10,6 @@ fun id_i32(x: I32) -> I32
 fun id_int(x: Int) -> Int
   x
 
-
 fun id_i128(x: I128) -> I128
   x
 
@@ -32,7 +31,7 @@ fun id_u128(x: U128) -> U128
 fun id_float(x: Float) -> Float
   x
 
-sub main
+sub main()
   print("before")
   x: U8 = id_u8(255)
   x /= id_u8(0)

@@ -8,7 +8,7 @@ fun pick(ok: Bool) -> (sub(Int))!
   return Bad.neg if not ok
   plain
 
-sub main
+sub main()
   f = pick(true)!
   f(1)
   _ = pick(false) catch |e|

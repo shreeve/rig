@@ -21,7 +21,7 @@ sub show(slot: ?Box[Tree]?)
 fun leaf(k: Int) -> Box[Tree]?
   Box(Tree(key: k, left: none, right: none))
 
-sub main
+sub main()
   root: Box[Tree]? = Box(Tree(key: 2, left: leaf(1), right: leaf(3)))
   mirror(!root)
   show(?root)

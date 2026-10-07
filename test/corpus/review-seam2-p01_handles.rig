@@ -14,13 +14,13 @@ struct S
   drop(!self)
     print("drop", self.n)
 
-fun mkh -> *S
+fun mkh() -> *S
   *S(n: 1, items: Vec())
 
-fun mkb -> Box[S]
+fun mkb() -> Box[S]
   Box(S(n: 10, items: Vec()))
 
-sub main
+sub main()
   !mkb().bump()
   !mkb().items.push(3)
   print(!mkb().n)

@@ -3,7 +3,7 @@ struct Job
   drop(!self)
     print("free", self.id)
 
-sub main
+sub main()
   jobs: Vec[*Job] = Vec()
   !jobs.push(*Job(id: 1))
   !jobs.push(*Job(id: 2))

@@ -5,10 +5,10 @@ enum Mode
   fast
   slow
 
-sub f[n: Int?]
+sub f[n: Int?]()
   print(n ?? 0)
 
-sub g[m: Mode?, s: String, b: Bool, x: Float, u: U8]
+sub g[m: Mode?, s: String, b: Bool, x: Float, u: U8]()
   print(m == none, s, b, x, u)
 
 sub main()

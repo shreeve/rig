@@ -2,7 +2,7 @@
 sub bump(v: ?Vec[Cell[Int]])
   v[0].set(30)
 
-sub main
+sub main()
   v: Vec[Cell[Int]] = Vec()
   !v.push(Cell(3))
   bump(?v)

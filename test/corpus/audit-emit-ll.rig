@@ -1,6 +1,6 @@
 lim: U8 = 250
 
-sub main
+sub main()
   const a: U8 = 200
   const b: I8 = -128
   c = lim

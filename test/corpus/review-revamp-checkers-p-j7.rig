@@ -9,7 +9,7 @@ fun store(h: !H, r: ?Res) -> Bool
   h.r = r
   false
 
-sub main
+sub main()
   z = Res(id: 0, v: Vec())
   h = H(r: ?z)
   for i in 1..3

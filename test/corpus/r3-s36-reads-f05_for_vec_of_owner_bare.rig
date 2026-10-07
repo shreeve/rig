@@ -3,7 +3,7 @@ struct B
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   v: Vec[*B] = Vec()
   !v.push(*B(n: 1))
   for h in v

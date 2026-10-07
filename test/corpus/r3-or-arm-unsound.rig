@@ -37,6 +37,6 @@ fun guarded_return(e: ?E, k: ?Res) -> ?Res
     _ => pass
   k
 
-sub main
+sub main()
   k = Res(n: 0, t: Text("k"))
   yielded(?E.b, ?k)

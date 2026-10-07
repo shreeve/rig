@@ -5,6 +5,6 @@ fun make_counter() -> *fun() -> Int
     count.set(count.get() + 1)
     count.get()
 
-sub main
+sub main()
   next = make_counter()
   print(next(), next())

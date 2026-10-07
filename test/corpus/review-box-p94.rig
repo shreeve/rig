@@ -7,7 +7,7 @@ struct R
 fun first[T](v: ?Vec[T]) -> T
   v[0]
 
-sub main
+sub main()
   v: Vec[Box[R]] = Vec()
   !v.push(Box(value: R(n: 1)))
   b = first(?v)

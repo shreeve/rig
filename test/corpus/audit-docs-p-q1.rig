@@ -1,2 +1,2 @@
-sub main
+sub main()
   x = x + 1

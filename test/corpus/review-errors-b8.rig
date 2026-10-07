@@ -2,14 +2,14 @@ error Disk
   full
   empty
 
-fun f -> Int!
+fun f() -> Int!
   return Disk.full
 
 fun k(d: Disk) -> Int
   match d
     Disk.full, Disk.empty => 1
 
-sub main
+sub main()
   x = f() catch |e|
     match e
       Disk.full => print("full")

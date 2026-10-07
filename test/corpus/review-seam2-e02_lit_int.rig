@@ -2,7 +2,7 @@
 sub inc(v: !Int)
   v += 100
 
-sub main
+sub main()
   inc(!5)
   inc(!(5))
   inc(!-5)

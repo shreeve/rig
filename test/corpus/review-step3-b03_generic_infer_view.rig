@@ -4,7 +4,7 @@ fun first[T](xs: []T) -> ?T
 fun keep[T](x: ?T) -> ?T
   x
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(4)
   a = [1, 2]

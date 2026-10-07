@@ -15,7 +15,7 @@ fun clobber(a: Int) -> Int
 fun mk(n: Int) -> H
   H(s: ?S(n: rt(n), m: rt(n + 1)))
 
-sub main
+sub main()
   h = mk(7)
   print(clobber(99))
   print(h.s.n, h.s.m)

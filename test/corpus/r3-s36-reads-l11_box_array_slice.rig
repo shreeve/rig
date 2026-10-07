@@ -4,6 +4,6 @@ fun sum(xs: []Int) -> Int
     s += x
   s
 
-sub main
+sub main()
   b = Box([1, 2, 3])
   print(sum(?b))

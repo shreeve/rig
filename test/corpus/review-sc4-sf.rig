@@ -23,7 +23,7 @@ enum Slot
       .full(b) if b.n > 0 => b.n
       _ => 0
 
-sub main
+sub main()
   s: Slot = .full(b: *B(n: 1))
   !s.bump()
   print(s.peek())

@@ -10,7 +10,7 @@ fun f(o: N?) -> Int?
   print(o)
   1
 
-sub main
+sub main()
   x: N? = N(id: 1)
   print(f(<x) ?? 0)
   print("end")

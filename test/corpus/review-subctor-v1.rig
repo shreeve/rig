@@ -8,5 +8,5 @@ sub outer(f: ?sub(Int)!)!
   inner(f)!
   f(2)
 
-sub main
+sub main()
   outer(|x| print(x))!

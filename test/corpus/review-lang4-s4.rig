@@ -1,7 +1,7 @@
 struct H
   w: !*Vec[Int]
 
-sub main
+sub main()
   a: *Vec[Int] = *Vec()
   h = H(w: !a)
   c: *Vec[Int] = *Vec()

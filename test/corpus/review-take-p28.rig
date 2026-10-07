@@ -9,7 +9,7 @@ struct W[T]
   fun grab(!self) -> T?
     <self.x
 
-sub main
+sub main()
   w = W[R](x: R(n: 1))
   a = !w.grab()
   print(a, w)

@@ -10,5 +10,5 @@ sub run(f: ?sub(Int)!)!
 sub runp(f: ?sub(Int))
   f(3)
 
-sub main
+sub main()
   run(|x| print(x))!

@@ -4,7 +4,7 @@ struct P
 sub run(f: ?sub())
   f()
 
-sub main
+sub main()
   p = P(n: 1)
   run(|!p|
     p = P(n: 5))

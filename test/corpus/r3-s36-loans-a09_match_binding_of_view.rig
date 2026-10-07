@@ -2,7 +2,7 @@ enum H
   has(r: ?Int)
   no
 
-sub main
+sub main()
   n = 1
   h: H = .has(r: ?n)
   match h

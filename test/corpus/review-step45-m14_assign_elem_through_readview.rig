@@ -2,7 +2,7 @@
 fun set(v: ?Vec[Text])
   v[0] = Text("z")
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   set(?v)

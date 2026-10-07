@@ -1,4 +1,5 @@
 struct H
   f: ?fun(Int) -> Int
-sub main
+
+sub main()
   print(1)

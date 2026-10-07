@@ -3,7 +3,7 @@
 sub put[T](c: ?Cell[T], x: T)
   c.set(x)
 
-sub main
+sub main()
   c: Cell[Int] = Cell(0)
   put(?c, 5)
   print(c.get())

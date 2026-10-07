@@ -1,4 +1,5 @@
 const K = [1, 2, 3]
+
 sub main()
   !K.fill(0)
   print(K)

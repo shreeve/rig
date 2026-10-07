@@ -12,12 +12,11 @@ fun get(r: ?P, ok: Bool) -> (?P)!
   return Bad.oops if not ok
   r
 
-
 fun first[T](r: !T, ok: Bool) -> (!T)!
   return Bad.oops if not ok
   r
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   v = first(!a, true) catch !b

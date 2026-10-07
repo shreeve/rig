@@ -4,7 +4,7 @@ struct P
 fun rd(p: ?P) -> Int
   p.x
 
-sub main
+sub main()
   h = *P(x: 1)
   for q in [1]
     print(rd(?h), q)

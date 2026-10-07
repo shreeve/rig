@@ -3,7 +3,7 @@ fun f(o: Text?) -> Int?
   print(o?.len)
   1
 
-sub main
+sub main()
   x: Text? = Text("hello world")
   print(f(<x) ?? 0)
   print("end")

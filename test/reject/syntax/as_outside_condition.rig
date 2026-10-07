@@ -4,7 +4,7 @@
 fun get(k: Int) -> Int?
   k if k > 0 else none
 
-sub main
+sub main()
   y = get(1) as x
   if get(1) as x or true
     print(1)

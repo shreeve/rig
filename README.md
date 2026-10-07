@@ -27,7 +27,7 @@ prints exactly the output shown under it.
 ### Hello
 
 ```rig
-sub main
+sub main()
   print("hello, rig")
 ```
 
@@ -54,7 +54,7 @@ fun greeting(u: ?User) -> String
 sub visit(u: !User)
   u.visits += 1
 
-sub main
+sub main()
   ada = User(name: "Ada", visits: 1)
   visit(!ada)
   print(greeting(?ada), ada.name)
@@ -82,7 +82,7 @@ struct File
 sub archive(f: File)
   print("archiving", f.name)
 
-sub main
+sub main()
   log = File(name: "log.txt")
   data = File(name: "data.csv")
   archive(<log)
@@ -111,7 +111,7 @@ struct Config
   drop(!self)
     print("config released")
 
-sub main
+sub main()
   a = *Config(level: 3)
   b = +a
   -a
@@ -137,7 +137,7 @@ struct Pair[T, U]
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
-sub main
+sub main()
   p = Pair(first: max(3, 7), second: max(2.5, 1.0))
   print(p.first, p.second, max[Float](1, 2))
 ```
@@ -156,7 +156,7 @@ names the call, with a note at the line of the body.
 ### Closures and a little reactivity
 
 ```rig
-sub main
+sub main()
   clicks: *Signal[Int] = *Signal(0)
   total: *Cell[Int] = *Cell(0)
   clicks.subscribe(*|~clicks, +total|

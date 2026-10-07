@@ -3,5 +3,5 @@ use geo
 sub g(xs: ![3]Int)
   xs[0] = 1
 
-sub main
+sub main()
   g(!geo.KP)

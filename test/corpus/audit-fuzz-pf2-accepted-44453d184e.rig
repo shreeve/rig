@@ -10,6 +10,7 @@ struct Ed
 
 struct Outer
   e: Ed
+
 fun mk(b: !Wrap) -> Ed
 
   Ed(t: !b)

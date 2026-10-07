@@ -1,4 +1,3 @@
-
 # each closure; all handles and the shared cell are released at scope exit.
 # `for cb in ?subs` walks a `Vec[*sub()]` by viewed slot and calls
 sub main()
@@ -15,7 +14,6 @@ sub main()
 
   for cb in ?subs
     cb()
-
 
   print(count.get())                  # 111
 

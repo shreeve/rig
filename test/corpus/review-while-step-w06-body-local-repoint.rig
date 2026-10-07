@@ -2,7 +2,7 @@
 # at the body's end; the step then reads the view.
 #
 # oracle: main reject C5
-sub main
+sub main()
   w: Vec[Int] = Vec()
   !w.push(7)
   s = ?w[..]

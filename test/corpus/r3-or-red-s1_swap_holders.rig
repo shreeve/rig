@@ -7,7 +7,7 @@ struct Holder
 sub sw(a: !Holder, b: !Holder)
   swap(!a, !b)
 
-sub main
+sub main()
   x = Item(n: 1)
   h = Holder(r: ?x)
   if true

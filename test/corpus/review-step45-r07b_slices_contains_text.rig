@@ -1,7 +1,7 @@
 # std.slices.contains over Vec[Text] (x: T by value)
 use std.slices
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

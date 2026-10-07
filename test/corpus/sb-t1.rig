@@ -1,6 +1,6 @@
 sub zero(s: ![]Int)
   print(s.len)
 
-sub main
+sub main()
   a = [1, 2, 3]
   zero(!a[0..2])

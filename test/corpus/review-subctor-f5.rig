@@ -5,6 +5,6 @@ fun mk() -> Wrap[?Vec[Int]]
   v = Vec[Int]()
   Wrap(?v)
 
-sub main
+sub main()
   w = mk()
   print(w)

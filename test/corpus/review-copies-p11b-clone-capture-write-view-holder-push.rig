@@ -6,7 +6,7 @@ struct H
 sub bump(v: !Vec[Int])
   !v.push(9)
 
-sub main
+sub main()
   xs: Vec[Int] = Vec()
   h = H(w: !xs)
   f = |+h| bump(!h.w)

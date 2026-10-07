@@ -8,5 +8,5 @@ fun g(k: Int) -> Int
 fun pick(s: ?Text, n: Int) -> ?Text
   s
 
-sub main
+sub main()
   print(pick(n: g(1), s: Text("hello world, long enough to be on the heap")))

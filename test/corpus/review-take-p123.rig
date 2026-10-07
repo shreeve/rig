@@ -6,7 +6,7 @@ sub rotate(slot: !Box[Tree]?)
   if <slot as t
     print("got", t.key)
 
-sub main
+sub main()
   root: Box[Tree]? = Box(value: Tree(key: 2, left: none))
   rotate(!root)
   print(root)

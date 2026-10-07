@@ -1,7 +1,7 @@
 struct Tok
   n: Int
 
-sub main
+sub main()
   a = Tok(n: 1)
   b = Tok(n: 2)
   r0: ?Tok = ?a

@@ -11,7 +11,7 @@ fun el(xs: ![]Int) -> !Int
 fun inner(p: ?P) -> []Int
   ?p.ys[..]
 
-sub main
+sub main()
   p = P(x: 4, ys: [1, 2])
   print(fx(?p))
   a = [1, 2]

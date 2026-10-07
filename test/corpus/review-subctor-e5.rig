@@ -5,7 +5,7 @@ enum Shape
 struct circle
   r: Float
 
-sub main
+sub main()
   s: Shape = .circle(2.0)
   c = circle(3.0)
   print(s, c)

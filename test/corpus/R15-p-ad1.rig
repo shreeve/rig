@@ -1,5 +1,6 @@
 fun total(xs: []Int) -> Int
   0
+
 sub main()
   a = [1, 2]
   print(total(a))

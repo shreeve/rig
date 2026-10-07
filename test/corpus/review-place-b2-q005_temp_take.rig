@@ -4,6 +4,6 @@ struct P
 fun mk() -> P
   P(o: 1)
 
-sub main
+sub main()
   x = <mk().o
   print(x ?? 0)

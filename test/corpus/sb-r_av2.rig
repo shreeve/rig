@@ -1,6 +1,6 @@
 fun f(a: ?[3]Int) -> []Int
   ?a
 
-sub main
+sub main()
   b = [1, 2, 3]
   print(f(?b))

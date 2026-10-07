@@ -6,6 +6,6 @@ G = P(x: 1)
 sub g(p: !P)
   p.x = 9
 
-sub main
+sub main()
   g(!G)
   print(G.x)

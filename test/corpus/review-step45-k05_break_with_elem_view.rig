@@ -1,5 +1,5 @@
 # a loop breaks with a view of an element; then the Vec is changed
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

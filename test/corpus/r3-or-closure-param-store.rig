@@ -42,5 +42,5 @@ sub lent_capture_to_param()
   if h.r as r
     print(r.len)
 
-sub main
+sub main()
   param_to_param()

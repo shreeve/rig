@@ -19,7 +19,7 @@ fun f(ok: Bool) -> Int!
   eat(<x)
   maybe(ok)!
 
-sub main
+sub main()
   print(f(true) catch 0)
 
 # error: 17:27: use of `x` after move

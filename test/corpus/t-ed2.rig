@@ -2,7 +2,7 @@ fun f(x: Int) -> Int
   errdefer print("e")
   x + 1
 
-sub g
+sub g()
   errdefer print("e")
 
 struct D
@@ -15,7 +15,7 @@ fun h() -> Int!
     errdefer print("in defer")
   1
 
-sub main
+sub main()
   errdefer print("m")
   k = ||
     errdefer print("c")

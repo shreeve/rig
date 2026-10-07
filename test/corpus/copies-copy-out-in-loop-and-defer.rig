@@ -4,7 +4,7 @@ struct P
 fun take(p: P) -> Int
   p.x
 
-sub main
+sub main()
   ps: Vec[P] = Vec()
   !ps.push(P(x: 1))
   !ps.push(P(x: 2))

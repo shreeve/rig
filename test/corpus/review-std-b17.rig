@@ -7,7 +7,7 @@ struct Slot[T]
   sub put(!self, x: T)
     self.v = x
 
-sub main
+sub main()
   b = [9]
   s = Slot(v: View(xs: ?b))
   if true

@@ -11,7 +11,7 @@ fun g(a: Int?, b: Int?, c: Int?) -> Int
 fun odd(k: Int) -> Int?
   k if k % 2 == 1 else none
 
-sub main
+sub main()
   print(f(none, 2), f(none, none), f(1, none))
   print(g(none, none, 3), g(none, none, none), g(1, 2, 3))
   total = 0

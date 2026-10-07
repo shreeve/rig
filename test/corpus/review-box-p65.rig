@@ -10,7 +10,7 @@ fun mk(o: ?R?) -> *fun() -> Int
   else
     *|| 0
 
-sub main
+sub main()
   o: R? = R(n: 1)
   f = mk(?o)
   o = none

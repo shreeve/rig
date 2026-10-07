@@ -1,16 +1,16 @@
 struct S
   o: Vec[Int]?
 
-fun mk -> S
+fun mk() -> S
   v: Vec[Int] = Vec()
   !v.push(7)
   S(o: <v)
 
-fun f -> Int?
+fun f() -> Int?
   x = <mk().o?
   x.len
 
-sub main
+sub main()
   print(f())
 
 # oracle: mk accept

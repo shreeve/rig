@@ -1,7 +1,7 @@
 # The program's entry point takes no parameters, compile-time ones
 # included.
 
-sub main[n: Int]
+sub main[n: Int]()
   print(n)
 
 # error: 4:5: `main` must be `sub main()`, or `fun main() -> Int` returning the exit status (`-> Int!` if it may fail): the program's entry point takes no parameters

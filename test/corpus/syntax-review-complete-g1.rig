@@ -11,7 +11,7 @@ struct Map
         return ?e.v
     none
 
-sub main
+sub main()
   m = Map(es: Vec())
   !m.es.push(Entry(k: "a", v: 1))
   if m.get("a") as v

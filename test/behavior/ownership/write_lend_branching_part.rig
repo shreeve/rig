@@ -37,7 +37,7 @@ fun mkf(n: Int) -> S!
   return Bad.no if n == 0
   mk(n)
 
-sub main
+sub main()
   c = f(1) == 1
   k = 30
   swap(!(mk(1) if c else mk(2)).n, !k)

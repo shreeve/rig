@@ -10,7 +10,7 @@ struct S
 sub eat(r: R)
   print("eat", r.n)
 
-sub main
+sub main()
   s = S(b: Box(value: R(n: 1)))
   r = <s.b.take()
   print(r.n)

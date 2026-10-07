@@ -32,7 +32,7 @@ struct List[T]
       return <n.v
     none
 
-sub main
+sub main()
   l = List[*Tok](head: none)
   !l.push(*Tok(n: 1))
   !l.push(*Tok(n: 2))

@@ -7,7 +7,7 @@ struct H
 fun mk(n: Int) -> H
   H(arr: [Counter(hits: Cell(n)), Counter(hits: Cell(n + 1))])
 
-sub main
+sub main()
   one = [Counter(hits: Cell(0))]
   x = for k in mk(3).arr
     break k

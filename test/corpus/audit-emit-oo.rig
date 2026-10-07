@@ -2,7 +2,7 @@ fun odd(i: Int) -> Int?
   return none if i % 2 == 0
   i
 
-sub main
+sub main()
   :outer for i in 0..3
     for j in 0..3
       x = odd(j) ?? continue :outer

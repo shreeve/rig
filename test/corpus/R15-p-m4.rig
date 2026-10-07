@@ -1,8 +1,10 @@
 struct S
   arr: [2]Int
+
 sub f(xs: []S)
   w = !xs[0].arr[..]
   w[0] = 1
+
 sub main()
   a = [S(arr: [1, 2])]
   f(?a[..])

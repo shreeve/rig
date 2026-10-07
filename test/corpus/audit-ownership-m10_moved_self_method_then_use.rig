@@ -22,7 +22,7 @@ struct R
   sub done(<self)
     print("done", self.t.n)
 
-sub main
+sub main()
   r = R(t: *Tok(n: 1))
   r.done()
   print(r.t.n)

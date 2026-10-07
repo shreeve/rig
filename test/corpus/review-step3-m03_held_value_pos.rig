@@ -14,7 +14,7 @@ struct H
 fun mkh(n: Int) -> H
   H(e: E.a(r: Res(n: n)))
 
-sub main
+sub main()
   x = match mkh(5).e
     .a(r) => r.n
     .b => 0

@@ -1,7 +1,7 @@
 sub inc(a: !Int)
   a += 1
 
-sub main
+sub main()
   n = 0
   while n < 3
     w = !n

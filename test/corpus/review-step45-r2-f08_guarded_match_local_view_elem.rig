@@ -3,7 +3,7 @@ enum E
   a(n: Int)
   b(n: Int)
 
-sub main
+sub main()
   e: Vec[E] = Vec()
   !e.push(E.a(n: 5))
   r = ?e

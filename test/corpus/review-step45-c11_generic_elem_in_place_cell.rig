@@ -9,7 +9,7 @@ sub each[T](v: ?Vec[T], f: ?sub(?T))
   for x in v
     f(x)
 
-sub main
+sub main()
   v: Vec[C] = Vec()
   !v.push(C(c: Cell(1)))
   each(?v, |x| x.hit())

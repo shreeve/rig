@@ -22,7 +22,6 @@ fun id_u16(x: U16) -> U16
 fun id_u32(x: U32) -> U32
   x
 
-
 fun id_u64(x: U64) -> U64
   x
 
@@ -32,7 +31,7 @@ fun id_u128(x: U128) -> U128
 fun id_float(x: Float) -> Float
   x
 
-sub main
+sub main()
   print("before")
   x: I32 = id_i32(750) * 2863312
   print("after", x)

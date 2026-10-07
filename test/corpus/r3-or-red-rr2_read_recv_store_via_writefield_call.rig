@@ -11,7 +11,7 @@ struct Ctx
     !self.w.rename(s)
     0
 
-sub main
+sub main()
   h = Holder(name: "a")
   c = Ctx(w: !h)
   if true

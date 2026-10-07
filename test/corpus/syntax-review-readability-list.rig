@@ -39,7 +39,7 @@ sub bump(slot: !Box[Node]?, by: Int)
     n.value += by
     bump(!n.next, by)
 
-sub main
+sub main()
   l = List()
   for v in 1..6
     !l.push(v)

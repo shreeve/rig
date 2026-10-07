@@ -31,7 +31,7 @@ fun has_parent(n: ?*Node) -> Bool
     return w.upgrade() != none
   false
 
-sub main
+sub main()
   root = *Node(name: "root", parent: none, children: Cell(Vec()))
   a = child(?root, "a")
   b = child(?root, "b")

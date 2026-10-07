@@ -5,7 +5,7 @@ enum Shape
   circle(r: Int)
   square(s: Int)
 
-sub main
+sub main()
   s = Shape.circle(r: 1)
   match s
     .circle(r), .square(r) => print(r)

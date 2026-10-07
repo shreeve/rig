@@ -14,12 +14,11 @@ struct W
 struct WI
   w: !Int
 
-
 fun f(h: WI, ok: Bool) -> (!Int)!
   return Bad.oops if not ok
   h.w
 
-sub main
+sub main()
   n = 1
   m = 2
   v = f(WI(w: !n), true) catch !m

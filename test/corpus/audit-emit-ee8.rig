@@ -1,6 +1,6 @@
-fun invoke -> Int
+fun invoke() -> Int
   7
 
-sub main
+sub main()
   f = *|a: Int| invoke() + a
   print(f(2))

@@ -14,7 +14,7 @@ fun get(k: Int) -> Int?
 fun make(k: Int) -> Res?
   Res(id: k) if k > 0 else none
 
-sub main
+sub main()
   n = 3
   while make(n) as r and get(r.id) as x : n = x - 1
     print(x)

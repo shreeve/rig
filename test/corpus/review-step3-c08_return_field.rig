@@ -10,6 +10,6 @@ fun get(w: ?W) -> Counter
 fun self_copy(c: ?Counter) -> Counter
   c
 
-sub main
+sub main()
   w = W(c: Counter(hits: Cell(1)))
   print(get(?w).hits.get())

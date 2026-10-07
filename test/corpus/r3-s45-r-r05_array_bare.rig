@@ -1,4 +1,4 @@
-sub main
+sub main()
   t = Text("a")
   a = [t, Text("b")]
   print(a, t)

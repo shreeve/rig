@@ -4,7 +4,7 @@ struct W
 fun grab(w: ?W) -> String
   ?w.t[..3]
 
-sub main
+sub main()
   t = Text("abcdefghijklmnop")
   w = W(t: !t)
   s = grab(?w)

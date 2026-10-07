@@ -8,7 +8,7 @@ struct Diff
   fun old_view(?self) -> []Int
     self.old
 
-sub main
+sub main()
   a = [1, 2, 3]
   b = [1, 5, 3]
   d = Diff(old: ?a, cur: ?b)

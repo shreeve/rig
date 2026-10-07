@@ -1,7 +1,7 @@
 struct P
   x: Int
 
-sub main
+sub main()
   h = *P(x: 1)
   h = *P(x: 2)
   print(h.x)

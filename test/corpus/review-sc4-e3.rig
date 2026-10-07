@@ -7,7 +7,7 @@ fun idx(c: ?Cell[Int]) -> Int
   c.set(n + 1)
   n % 2
 
-sub main
+sub main()
   k = Cell(0)
   xs: [2]Shape = [.circle(r: 5), .point]
   match xs[idx(?k)]

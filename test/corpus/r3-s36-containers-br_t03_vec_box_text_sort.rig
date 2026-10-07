@@ -1,6 +1,6 @@
 use std.sort
 
-sub main
+sub main()
   v: Vec[Box[Text]] = Vec()
   !v.push(Box(Text("b")))
   !v.push(Box(Text("a")))

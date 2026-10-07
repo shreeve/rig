@@ -12,7 +12,7 @@ struct S
 fun pick(s: ?S) -> ?Int
   ?s.n
 
-sub main
+sub main()
   print(text.trim(?Text("  padded  ")) == "padded")
   n = text.find(?Text("abc"), "b") ?? -1
   a = "x"

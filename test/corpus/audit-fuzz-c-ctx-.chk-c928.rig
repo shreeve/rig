@@ -52,7 +52,7 @@ fun id_f32(x: F32) -> F32
 fun take928(a: Int) -> Int
   a
 
-sub t928
+sub t928()
   k928 = rt_int(1)
   z928: Int = match k928
       1 => (-5593548366059344594)
@@ -61,5 +61,5 @@ sub t928
   y928 = take928(z928)
   print(y928)
 
-sub main
+sub main()
   t928()

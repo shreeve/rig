@@ -1,4 +1,4 @@
-sub main
+sub main()
   x = while true
     v: Vec[Int] = Vec()
     !v.push(1)

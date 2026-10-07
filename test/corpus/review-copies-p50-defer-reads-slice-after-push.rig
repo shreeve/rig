@@ -1,7 +1,7 @@
 # A defer reads a slice at scope end, after the Vec it views grew.
 #
 # oracle: main reject C4
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   s = ?v[..]

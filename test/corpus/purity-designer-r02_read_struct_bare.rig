@@ -1,7 +1,9 @@
 struct P
   x: Int
+
 fun f(p: ?P) -> Int
   p.x
-sub main
+
+sub main()
   p = P(x: 1)
   print(f(p))

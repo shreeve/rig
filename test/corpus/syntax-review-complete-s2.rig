@@ -1,4 +1,4 @@
-sub main
+sub main()
   v: Vec[U8] = Vec()
   for b in "hey"
     !v.push(b)

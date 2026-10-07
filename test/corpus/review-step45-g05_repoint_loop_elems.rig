@@ -1,5 +1,5 @@
 # re-point at each element of a Vec in a loop
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

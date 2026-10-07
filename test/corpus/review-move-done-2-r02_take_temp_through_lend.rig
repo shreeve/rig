@@ -15,7 +15,7 @@ fun mks(n: Int) -> S
 fun gw(s: !S) -> !S
   s
 
-sub main
+sub main()
   a = <(!mks(1)).o
   b = <gw(!mks(2)).o
   print(a == none, b == none)

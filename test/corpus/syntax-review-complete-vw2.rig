@@ -1,5 +1,6 @@
 struct Node
   n: Int
+
 struct Bag
   items: Vec[*Node]
 
@@ -19,7 +20,7 @@ struct BagIter
       j += 1
     none
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(*Node(n: 4))
   it = b.iter()

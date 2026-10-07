@@ -20,7 +20,7 @@ fun f(t: *Tok) -> Bool
   print("f", t.n)
   true
 
-sub main
+sub main()
   c = true
   if c or f(*Tok(n: 5))
     print("yes")

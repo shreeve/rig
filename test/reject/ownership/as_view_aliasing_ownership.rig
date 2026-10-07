@@ -8,7 +8,7 @@ struct Res
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   r: Res? = Res(n: 1)
   if !r as v
     print(r)

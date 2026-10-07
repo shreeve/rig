@@ -15,7 +15,7 @@ struct A
 sub add(h: !H, k: Int)
   h.w += k
 
-sub main
+sub main()
   n = 1
   h = H(w: !n)
   h.w += 1

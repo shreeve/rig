@@ -12,7 +12,7 @@ struct Map[K, V]
     !self.keys.push(k)
     !self.vals.push(v)
 
-sub main
+sub main()
   m = Map[String, Int](keys: Vec(), vals: Vec())
   !m.put("a", 1)
   print(m.get("a"), m.get("b"))

@@ -4,6 +4,6 @@ struct H
 sub f(b: Box[H])
   b.w = 6
 
-sub main
+sub main()
   n = 1
   f(Box(H(w: !n)))

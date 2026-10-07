@@ -14,7 +14,7 @@ fun total(slot: ?Box[Node]?) -> Int
     return total(?n.left) + n.key + total(?n.right)
   0
 
-sub main
+sub main()
   root: Box[Node]? = none
   x = 12345
   i = 0

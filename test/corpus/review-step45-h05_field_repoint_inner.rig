@@ -2,7 +2,7 @@
 struct H
   w: !Text
 
-sub main
+sub main()
   a = Text("a")
   h = H(w: !a)
   if true

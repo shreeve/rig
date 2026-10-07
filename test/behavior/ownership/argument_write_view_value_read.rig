@@ -15,7 +15,7 @@ struct Bag
 fun sum(a: Int, b: ?Bag) -> Int
   a + b.items.len
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(Item(n: 7))
   print(!b.firstw().n, b.items.len)

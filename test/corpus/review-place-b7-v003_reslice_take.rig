@@ -2,6 +2,6 @@ sub f(s: ![]Int?)
   x = <s[0..2][0]
   print(x ?? 0)
 
-sub main
+sub main()
   a: [3]Int? = [1, 2, 3]
   f(!a[0..3])

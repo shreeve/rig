@@ -2,7 +2,7 @@ fun via(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
   g = |?b, k: Int| b
   g(1)
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   r = via(?x, ?y)

@@ -1,5 +1,6 @@
 fun sum2(x: []Int, y: []Int) -> Int
   x[0] + y[0]
+
 sub main()
   a = [1, 2, 3]
   w = !a[..]

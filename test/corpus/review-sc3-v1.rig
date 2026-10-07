@@ -2,7 +2,7 @@ struct P
   x: Int
   y: Int
 
-sub main
+sub main()
   vs: Vec[[2]Int] = Vec()
   !vs.push([1, 2])
   !vs.push([3, 4])

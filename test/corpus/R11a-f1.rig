@@ -1,4 +1,4 @@
-fun count[n: Int] -> Int
+fun count[n: Int]() -> Int
   if n == 0
     return 0
   count[n - 1]() + 1

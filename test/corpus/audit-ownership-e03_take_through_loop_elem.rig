@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 struct H
   o: Box[Tok]?
 
-sub main
+sub main()
   v: Vec[Box[H]] = Vec()
   !v.push(Box(H(o: Box(Tok(n: 1)))))
   for b in ?v

@@ -8,7 +8,7 @@ sub put(c: ?Cell[Vec[String]], s: String)
 sub fill[T](c: ?Cell[Vec[T]], x: T)
   c[0] = x
 
-sub main
+sub main()
   t = Text("abcdefghijklmnop")
   cv: Cell[Vec[String]] = Cell(Vec())
   cv.push("lit")

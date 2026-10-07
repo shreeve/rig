@@ -1,4 +1,4 @@
-sub main
+sub main()
   b = Box(Text("boxed"))
   s = ?b[1..]
   t = <b.unbox()

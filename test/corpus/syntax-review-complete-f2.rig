@@ -1,5 +1,5 @@
 extern fun write(fd: I32, buf: String, n: U64) -> I64
 
-sub main
+sub main()
   raw
     _ = write(1, "hi\n", 3)

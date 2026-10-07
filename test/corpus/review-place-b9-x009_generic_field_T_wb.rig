@@ -4,7 +4,7 @@ struct W[T]
   sub set(!self, x: T)
     self.v = x
 
-sub main
+sub main()
   n = 0
   w = W[Int](v: 1)
   !w.set(5)

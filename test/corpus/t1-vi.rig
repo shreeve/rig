@@ -4,7 +4,7 @@ struct B
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.insert(0, 3)
   !v.insert(0, 1)

@@ -20,7 +20,7 @@ sub wr[T](p: !T, v: T)
 sub setb[T](b: !Box[T], v: T)
   wr[T](!b, <v)
 
-sub main
+sub main()
   i = Box(value: 5)
   print(peek(?i))
   showb(?i)

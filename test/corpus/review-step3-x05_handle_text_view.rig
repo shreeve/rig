@@ -1,7 +1,7 @@
 fun first(s: String) -> String
   s
 
-sub main
+sub main()
   h = *Text("abc")
   g = +h
   r = first(h)

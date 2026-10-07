@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 sub put[T](v: !Vec[T], x: T)
   !v.push(<x)
 
-sub main
+sub main()
   v: Vec[*Tok] = Vec()
   put(!v, *Tok(n: 1))
   put(!v, *Tok(n: 2))

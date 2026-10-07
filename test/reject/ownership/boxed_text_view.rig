@@ -1,7 +1,7 @@
 # A String viewing a boxed Text views the box: the box cannot be
 # dropped or changed while the view is in use.
 
-sub main
+sub main()
   b = Box(Text("boxed"))
   s = ?b[1..]
   -b

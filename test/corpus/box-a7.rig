@@ -1,7 +1,7 @@
 sub show(n: ?Int)
   print("n", n)
 
-sub main
+sub main()
   b = Box(value: 5)
   print(b)
   show(?b)

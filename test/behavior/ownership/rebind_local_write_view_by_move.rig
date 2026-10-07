@@ -2,7 +2,7 @@
 # viewed, as `new w = !n` would; a bare `w = w3` writes the value `w3`
 # reaches through `w`.
 
-sub main
+sub main()
   m = 1
   n = 2
   k = 3

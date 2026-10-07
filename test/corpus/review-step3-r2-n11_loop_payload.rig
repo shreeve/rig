@@ -15,7 +15,7 @@ fun find(v: ?Vec[Box[E]], d: ?Res) -> ?Res
       .b => pass
   found
 
-sub main
+sub main()
   v: Vec[Box[E]] = Vec()
   !v.push(Box(E.a(r: Res(n: 1, t: Text("one")))))
   !v.push(Box(E.a(r: Res(n: 2, t: Text("two")))))

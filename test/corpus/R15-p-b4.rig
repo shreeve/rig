@@ -1,6 +1,7 @@
 # write slice and read slice of same root as args
 sub two(x: ![]Int, y: []Int)
   !x.copy(y)
+
 sub main()
   a = [1, 2, 3, 4]
   two(!a[0..2], ?a[1..3])

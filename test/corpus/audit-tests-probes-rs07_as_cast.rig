@@ -1,4 +1,4 @@
-sub main
+sub main()
   x = 300
   y = x as U8
   print(y)

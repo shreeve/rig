@@ -4,7 +4,7 @@ struct Stats
 sub run(f: ?sub())
   f()
 
-sub main
+sub main()
   s = Stats(hits: Cell(value: 0))
   f = |?s| s.hits.set(s.hits.get() + 1)
   f()

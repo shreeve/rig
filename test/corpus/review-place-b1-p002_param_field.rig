@@ -4,5 +4,5 @@ struct P
 sub f(p: P)
   p.x = 5
 
-sub main
+sub main()
   f(P(x: 1))

@@ -1,4 +1,4 @@
-sub main
+sub main()
   a: [2]Text? = [Text("x"), none]
   if <a[0] as t
     print(t)

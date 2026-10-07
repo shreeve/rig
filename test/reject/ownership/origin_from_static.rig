@@ -5,7 +5,7 @@
 fun pick(static: ?Vec[Int], other: ?Vec[Int]) -> ?Vec[Int] from static
   static
 
-sub main
+sub main()
   pass
 
 # errors: 1

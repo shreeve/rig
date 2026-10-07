@@ -10,7 +10,7 @@ fun get_counted(t: ?Table, i: Int, count: !Int) -> ?Entry
   count += 1
   ?t.rows[i]
 
-sub main
+sub main()
   t = Table(rows: [Entry(name: "a"), Entry(name: "b")])
   n = 0
   e = get_counted(?t, 1, !n)

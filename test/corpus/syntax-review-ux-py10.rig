@@ -18,7 +18,7 @@ struct BankAccount
 error AccountError
   insufficient
 
-sub main
+sub main()
   acct = BankAccount.new("ada")
   acct.deposit(100)
   !acct.withdraw(30)!

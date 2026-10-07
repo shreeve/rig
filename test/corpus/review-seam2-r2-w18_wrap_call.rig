@@ -31,7 +31,7 @@ fun f(n: Int) -> Int
 fun wrap(s: !S) -> !S
   s
 
-sub main
+sub main()
   s = mk(1)
   x = <wrap(!s).items
   print(x)

@@ -106,7 +106,7 @@ fun ints(xs: [2]Int) -> Int
 fun rt_int(n: Int) -> Int
   n
 
-fun h0 -> Int?
+fun h0() -> Int?
   print("val", qq(Q(h: *mk(1), o: optr(rt_int(3002))?)))
   print("val", one(mk(3), opt(rt_int(5))?))
   p2 = P(a: mk(4), b: mk(5))
@@ -117,13 +117,13 @@ fun h0 -> Int?
   print("val", m5.peek(5))
   0
 
-fun h1 -> Int?
+fun h1() -> Int?
   print("val", qq(Q(h: *optr(rt_int(0))?, o: optr(rt_int(4020))?)))
   q1 = Q(h: *mk(21), o: mk(22))
   q2 = Q(h: *optr(rt_int(4023))?, o: none)
   0
 
-fun h2 -> Int?
+fun h2() -> Int?
   e0 = HR.one(r: optr(rt_int(3034))?)
   print("val", opt(rt_int(2))?)
   p2 = P(a: mk(35), b: mk(36))
@@ -131,7 +131,7 @@ fun h2 -> Int?
   print("val", b3[0])
   0
 
-fun h3 -> Int?
+fun h3() -> Int?
   v0: Vec[*R] = Vec()
   !v0.push(*mk(51))
   !v0.push(*optr(rt_int(4052))?)
@@ -140,7 +140,7 @@ fun h3 -> Int?
   p5 = P(a: mk(59), b: optr(rt_int(4060))?)
   0
 
-sub main
+sub main()
   print("got", h0())
   print("got", h1())
   print("got", h2())

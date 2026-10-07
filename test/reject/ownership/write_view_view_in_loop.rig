@@ -1,7 +1,7 @@
 # A view stored through a write view in a loop lands in what it
 # views, and a copy made on the next iteration keeps the Text viewed.
 
-sub main
+sub main()
   t = Text("scoped text here")
   s = "lit"
   o = "x"

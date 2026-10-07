@@ -6,6 +6,6 @@ error E
 sub sete(e: !E)
   e = .worse
 
-sub main
+sub main()
   sete(!E.bad)
   print(E.bad)

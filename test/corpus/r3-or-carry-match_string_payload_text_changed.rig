@@ -5,7 +5,7 @@ enum H
   has(s: String)
   no
 
-sub main
+sub main()
   t = Text("abc")
   h: H = .has(s: ?t)
   match ?h

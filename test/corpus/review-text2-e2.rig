@@ -10,7 +10,7 @@ sub grow(o: !W?)
   if o as w
     !w.t.add("more more more more more more more more more")
 
-sub main
+sub main()
   t = Text("abcdefghijklmnop")
   o: W? = W(t: !t)
   s = grab(?o)

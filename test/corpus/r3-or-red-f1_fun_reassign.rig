@@ -4,7 +4,7 @@ struct Item
 fun call(f: ?fun(?Item, ?Item) -> ?Item, a: ?Item, b: ?Item) -> ?Item
   f(a, b)
 
-sub main
+sub main()
   x = Item(n: 1)
   y = Item(n: 2)
   g = |a: ?Item, b: ?Item| a

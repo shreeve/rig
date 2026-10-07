@@ -7,7 +7,7 @@ struct R
 struct H
   r: R
 
-sub main
+sub main()
   b = Box(value: H(r: R(n: 1)))
   s = <b.r
   t = b.r

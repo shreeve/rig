@@ -5,12 +5,12 @@ enum Shape
 struct H
   s: Shape
 
-fun mk -> H
+fun mk() -> H
   p: Vec[Int] = Vec()
   !p.push(1)
   H(s: .line(v: <p))
 
-sub main
+sub main()
   match mk().s
     .line(v) => print(v[0])
     .dot => print("dot")

@@ -10,7 +10,7 @@ sub put(r: !R)
   swap(!r, !q)
   print(q)
 
-sub main
+sub main()
   x = R(n: 1)
   w = !x
   old = replace(!w, R(n: 2))

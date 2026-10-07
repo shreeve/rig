@@ -1,5 +1,5 @@
 # pop / remove / insert on Vec[Text] and Vec[Box[Text]]
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

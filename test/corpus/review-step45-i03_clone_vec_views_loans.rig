@@ -1,5 +1,5 @@
 # +v of a Vec of views must carry the views' loans
-sub main
+sub main()
   t = Text("viewed")
   v: Vec[String] = Vec()
   !v.push(?t)

@@ -1,6 +1,6 @@
 # Review probe c16_move_through_read_named.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
 # oracle: main reject C3
-sub main
+sub main()
   v: Vec[Vec[Int]] = Vec()
   w: Vec[Int] = Vec()
   !w.push(1)

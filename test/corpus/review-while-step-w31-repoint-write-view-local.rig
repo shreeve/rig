@@ -2,7 +2,7 @@
 # step writes through it after the local's scope ended.
 #
 # oracle: main reject C5
-sub main
+sub main()
   x = 1
   p = !x
   i = 0

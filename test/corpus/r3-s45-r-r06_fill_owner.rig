@@ -1,3 +1,3 @@
-sub main
+sub main()
   a = [3 of Text("a")]
   print(a)

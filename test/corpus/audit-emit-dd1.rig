@@ -18,7 +18,7 @@ fun twice[T](x: T, f: ?fun(T) -> T) -> T
   g = |?f, a: T| f(f(a))
   g(x)
 
-sub main
+sub main()
   arr = [P(x: 1, y: 2), P(x: 3, y: 4)]
   print(apply(?arr[..], |p| p.x + p.y))
   nums = [1, 2, 3]

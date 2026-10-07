@@ -1,4 +1,5 @@
 fun g(x: Int) -> Int
   x * 2
+
 sub main()
   print(g (3), (g)(4))

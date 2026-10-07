@@ -38,6 +38,6 @@ fun work(fail: Bool) -> Int!
     continue :a
   n
 
-sub main
+sub main()
   print(work(false) catch 0 - 1)
   print(work(true) catch 0 - 1)

@@ -16,6 +16,6 @@ fun mko(n: Int) -> B?
 fun idp2(b: ?B) -> Int
   b.n
 
-sub main
+sub main()
   print(idp2(?mk(7)))
   print("after")

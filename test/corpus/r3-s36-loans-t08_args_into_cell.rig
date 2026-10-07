@@ -1,7 +1,7 @@
 # os.args() lives for the whole program; storing one in a Cell.
 use std.os
 
-sub main
+sub main()
   c: Cell[String] = Cell("none")
   for a in os.args()
     c.set(a)

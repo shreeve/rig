@@ -7,6 +7,6 @@ struct Pair[K, V]
   k: K
   v: V
 
-sub main
+sub main()
   v: Vec[Pair[String, B]] = Vec()
   print(v.len)

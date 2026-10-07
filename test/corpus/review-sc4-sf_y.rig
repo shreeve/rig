@@ -12,7 +12,8 @@ struct H
   fun get(?self) -> Shape
     print("get")
     self.s
-sub main
+
+sub main()
   match ?mk()
     .circle(r) => print("mid", r)
     _ => print("other")

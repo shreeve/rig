@@ -5,7 +5,7 @@ fun grow(h: *Cell[Vec[Int]]) -> Int
     h.push(i)
   5
 
-sub main
+sub main()
   h: *Cell[Vec[Int]] = *Cell(Vec())
   h.push(42)
   print(h, grow(+h))

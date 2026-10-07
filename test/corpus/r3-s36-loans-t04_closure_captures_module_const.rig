@@ -1,5 +1,5 @@
 GREETING = "hello"
 
-sub main
+sub main()
   f = *|| print(GREETING)
   f()

@@ -7,7 +7,7 @@ fun len_of(o: S?) -> Int
     return s.v.len
   -1
 
-sub main
+sub main()
   vv: Vec[Vec[Int]?] = Vec()
   r: Vec[Int] = Vec()
   !r.push(1)

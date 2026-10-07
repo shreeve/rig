@@ -49,9 +49,9 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t529
+sub t529()
   fc529: fun(I8) -> I8 = |a| I8.min
   print(fc529(0))
 
-sub main
+sub main()
   t529()

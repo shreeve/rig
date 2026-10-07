@@ -17,7 +17,7 @@ struct Pair[T]
   a: T
   b: T
 
-sub main
+sub main()
   b = wrap(R(n: 1))
   r = unbox(<b)
   print(r.n)

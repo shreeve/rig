@@ -18,9 +18,9 @@ struct H
 fun mk(n: Int) -> S
   S(n: n, t: Text("hello world, long enough to be on the heap ", n))
 
-fun mkh -> H
+fun mkh() -> H
   H(r: "init")
 
-sub main
+sub main()
   !mkh().me().r = ?mk(1).t
   print("end")

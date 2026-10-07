@@ -1,6 +1,7 @@
 struct U
   name: String
-sub main
+
+sub main()
   h = *U(name: "bo")
   b = Box(U(name: "al"))
   c = Cell("x")

@@ -22,7 +22,7 @@ sub grow(v: !Vec[Int])
   for i in 0..50
     !v.push(i)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0

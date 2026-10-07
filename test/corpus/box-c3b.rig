@@ -9,7 +9,7 @@ fun eval(e: ?Box[Expr]) -> Int
     .add(l, r) => eval(?l) + eval(?r)
     .neg(x) => 0 - eval(?x)
 
-sub main
+sub main()
   e = Box(value: Expr.add(l: Box(value: .num(n: 2)), r: Box(value: Expr.neg(e: Box(value: .num(n: 5))))))
   print(eval(?e))
   match ?e

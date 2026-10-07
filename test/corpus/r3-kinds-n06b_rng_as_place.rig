@@ -1,6 +1,6 @@
 use std.random
 
-sub main
+sub main()
   p: random.Random? = random.Random.seeded(2)
   if p as s
     print(!s.next() != 0)

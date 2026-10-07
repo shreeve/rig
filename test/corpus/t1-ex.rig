@@ -4,7 +4,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-fun main -> Int
+fun main() -> Int
   r = R(n: 1)
   print("hi")
   3

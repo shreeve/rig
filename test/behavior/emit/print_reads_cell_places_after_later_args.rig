@@ -28,7 +28,7 @@ sub write_param(c: !Cell[Vec[Int]])
 sub generic[T](x: ?T, c: ?Cell[Vec[Int]])
   print(x, grow(c))
 
-sub main
+sub main()
   c: Cell[Vec[Int]] = Cell(Vec())
   read_param(?c)
   write_param(!c)

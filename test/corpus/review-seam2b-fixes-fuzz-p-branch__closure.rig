@@ -73,7 +73,7 @@ sub inc(x: !Int)
 fun f(n: Int) -> Int
   n
 
-sub viatemp
+sub viatemp()
   c = f(1) == 1
   k = 3
   g = || inc(!(mk(3) if c else mk(4)).n)
@@ -81,7 +81,7 @@ sub viatemp
   g()
   print(c, k)
 
-sub vianame
+sub vianame()
   c = f(1) == 1
   k = 3
   tt = (mk(3) if c else mk(4))
@@ -90,7 +90,7 @@ sub vianame
   g()
   print(c, k)
 
-sub main
+sub main()
   viatemp()
   print("--- named")
   vianame()

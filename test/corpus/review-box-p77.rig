@@ -7,7 +7,7 @@ struct R
 fun mk() -> R?
   R(n: 1)
 
-sub main
+sub main()
   if ?mk() as x
     print(x.n)
   if !mk() as y

@@ -7,6 +7,6 @@ fun get(s: (?S)?) -> Int
     return x.n
   0
 
-sub main
+sub main()
   o: S? = S(n: 3, v: Vec())
   print(get(?o))

@@ -9,8 +9,7 @@ fun get(r: ?N, ok: Bool) -> (?N)!
   return Bad.oops if not ok
   r
 
-
-sub main
+sub main()
   a = N(s: "aa", k: 1)
   v: N = get(?a, false) catch ?N(s: "tmp", k: 7)
   print(v.s, v.k)

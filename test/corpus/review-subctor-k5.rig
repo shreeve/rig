@@ -8,5 +8,5 @@ fun get(n: Int) -> Int!
 fun a(n: Int) -> Void!
   get(n)!
 
-sub main
+sub main()
   a(1)!

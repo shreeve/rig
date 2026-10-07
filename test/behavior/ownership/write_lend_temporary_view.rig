@@ -23,7 +23,7 @@ struct P
   drop(!self)
     print("drop", self.n)
 
-fun make -> S
+fun make() -> S
   S(n: 1)
 
 fun mkh(w: !Int) -> H
@@ -32,10 +32,10 @@ fun mkh(w: !Int) -> H
 fun mkp(n: Int) -> *P
   *P(n: n)
 
-fun mka -> [3]Int
+fun mka() -> [3]Int
   [3, 1, 2]
 
-fun mkv -> Vec[Int]
+fun mkv() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(2)
   !v.push(1)
@@ -62,7 +62,7 @@ fun digits(xs: ![]Int) -> Int
     t = t * 10 + x
   t
 
-sub main
+sub main()
   o = S(n: 1)
   c = o.n == 1
   grow(!make())

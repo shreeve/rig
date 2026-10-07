@@ -6,7 +6,7 @@ struct Q
 fun twice(n: ?Int) -> Int
   n * 2
 
-sub main
+sub main()
   q = Q(f: twice)
   n = 3
   print(q.f(?n))

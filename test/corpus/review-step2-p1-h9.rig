@@ -3,7 +3,7 @@ fun grow(t: !Text) -> Text
     !t.add("abcdefgh")
   Text("x")
 
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   c = true

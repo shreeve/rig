@@ -2,7 +2,7 @@
 fun last(v: !Vec[Text]) -> !Text
   !v[v.len - 1]
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

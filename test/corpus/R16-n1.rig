@@ -9,7 +9,7 @@ sub each(xs: ?Vec[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
-sub main
+sub main()
   total = 0
   rec(3, |!total, k|
     total += k)

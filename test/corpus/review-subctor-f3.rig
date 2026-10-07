@@ -1,7 +1,7 @@
 struct Wrap[T]
   item: T
 
-sub main
+sub main()
   w = Wrap(none)
   u = Wrap(Vec())
   print(w, u)

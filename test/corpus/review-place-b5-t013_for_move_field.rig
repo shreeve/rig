@@ -2,7 +2,7 @@ struct R
   v: Vec[Int]
   n: Int
 
-sub main
+sub main()
   xs: Vec[R] = Vec()
   !xs.push(R(v: Vec(), n: 1))
   for r in <xs

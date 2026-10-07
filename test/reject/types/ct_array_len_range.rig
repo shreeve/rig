@@ -5,10 +5,10 @@
 NEG = -1
 BIG = 4294967296
 
-fun zeros[n: Int] -> [n]Int
+fun zeros[n: Int]() -> [n]Int
   [n of 0]
 
-fun wrap[n: Int] -> Int
+fun wrap[n: Int]() -> Int
   zeros[n]().len
 
 sub main()

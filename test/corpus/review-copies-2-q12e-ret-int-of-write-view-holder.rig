@@ -14,7 +14,6 @@ struct W
 struct WI
   w: !Int
 
-
 fun f(h: ?WI, ok: Bool) -> Int!
   return Bad.oops if not ok
   h.w
@@ -24,7 +23,7 @@ fun g(h: WI, ok: Bool) -> Int?!
   return none if h.w < 0
   h.w
 
-sub main
+sub main()
   n = 4
   hw = WI(w: !n)
   x = f(?hw, true) catch 0

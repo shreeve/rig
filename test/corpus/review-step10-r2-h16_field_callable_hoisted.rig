@@ -21,6 +21,6 @@ fun mkh(k: Int) -> H
 fun usq(a: Int, q: ?Q, n: Int) -> Int
   a + q.c.get() + n
 
-sub main
+sub main()
   s = S(cb: usq)
   print(s.cb(g(1), ?mkh(5).q, g(2)))

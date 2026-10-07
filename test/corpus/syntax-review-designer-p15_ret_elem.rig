@@ -10,7 +10,7 @@ struct Bag
   fun first_mut(!self) -> !P
     !self.items[0]
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(P(x: 1))
   f = !b.first_mut()

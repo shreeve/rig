@@ -1,4 +1,4 @@
-sub main
+sub main()
   s = "hello, world"
   print(s[7..], s[..5], s[..], s[s.len..])
   a = [1, 2, 3, 4]

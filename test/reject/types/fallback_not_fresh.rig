@@ -9,7 +9,7 @@ fun f(o: Text?) -> Int?
   print(o?)
   1
 
-sub main
+sub main()
   e = Text("e")
   g = Text("g")
   c = true

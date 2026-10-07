@@ -6,6 +6,6 @@ struct Move
 fun span(from: Int, to: Int) -> Int
   to - from
 
-sub main
+sub main()
   m = Move(from: 2, to: 7)
   print(span(m.from, m.to))

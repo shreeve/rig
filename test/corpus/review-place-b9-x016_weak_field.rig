@@ -4,7 +4,7 @@ struct P
 struct N
   back: ~P
 
-sub main
+sub main()
   h = *P(x: 1)
   n = N(back: ~h)
   n.back = ~h

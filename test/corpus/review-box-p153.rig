@@ -16,7 +16,7 @@ fun usex(k: Int) -> Int!
   b = mk(k)!
   b.n
 
-sub main
+sub main()
   b = mk(1) catch Box(value: R(n: 0))
   c = mk(2) catch Box(value: R(n: 9))
   print(b.n, c.n)

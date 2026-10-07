@@ -14,7 +14,7 @@ fun size(b: ?Bag) -> Int
 fun mk(n: Int) -> Bag
   Bag(n: n)
 
-sub main
+sub main()
   e = E.a(n: 2)
   match e
     .a(n) if n == size(mk(1)) => print("one")

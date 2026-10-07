@@ -4,7 +4,7 @@ fun ix(o: Int?) -> Int
     return p
   -1
 
-sub main
+sub main()
   n = 1
   m = 2
   i: (?Int)? = ?n

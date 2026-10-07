@@ -1,3 +1,3 @@
-sub main
+sub main()
   x: Float = 7 / 2
   print(x)

@@ -1,4 +1,4 @@
-sub main
+sub main()
   xs: Vec[Cell[Int]] = Vec()
   !xs.push(Cell(1))
   for c in <xs

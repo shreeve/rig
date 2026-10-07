@@ -11,7 +11,7 @@ fun lastint(v: ?Vec[Int]) -> ?Int
     r = ?x
   r
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)

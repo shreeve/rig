@@ -9,7 +9,7 @@ fun maybe(xs: ([]Int)?) -> Int
 fun count(x: !Int?) -> Int
   1 if x != none else 0
 
-sub main
+sub main()
   a: [2]Int? = [none, 3]
   b = [1, 2, 3]
   n: Int? = 4

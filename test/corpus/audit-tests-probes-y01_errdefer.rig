@@ -13,6 +13,6 @@ fun make(fail: Bool) -> Int!
   return E.bad if fail
   r.n
 
-sub main
+sub main()
   print(make(false)!)
   print(make(true) catch -1)

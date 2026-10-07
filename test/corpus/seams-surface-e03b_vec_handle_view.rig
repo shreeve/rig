@@ -4,7 +4,7 @@ struct N
 fun rd(x: ?*N) -> Int
   x.n
 
-sub main
+sub main()
   v: Vec[*N] = Vec()
   !v.push(*N(n: 1))
   print(rd(?v[0]))

@@ -10,13 +10,13 @@ enum M
 struct E
   s: String
 
-fun mk -> M
+fun mk() -> M
   M.a(t: Text("in m"))
 
 fun id(s: String) -> String
   s
 
-sub main
+sub main()
   w = id(?Text("abc"))
   s = ?Text("x")[0..1]
   e = E(s: ?Text("abc"))

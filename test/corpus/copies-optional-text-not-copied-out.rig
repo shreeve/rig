@@ -1,4 +1,4 @@
-sub main
+sub main()
   x: Text? = Text("a")
   r = ?x
   y: Text? = r

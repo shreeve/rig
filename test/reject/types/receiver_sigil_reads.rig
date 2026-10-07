@@ -9,7 +9,7 @@ struct Queue
   fun peek(?self) -> Int?
     self.items.get(0)
 
-sub main
+sub main()
   q = Queue(items: Vec())
   if !q.is_empty()
     print("items")

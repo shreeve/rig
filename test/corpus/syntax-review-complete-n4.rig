@@ -1,4 +1,5 @@
-fun mx -> U64
+fun mx() -> U64
   U64.max
-sub main
+
+sub main()
   print(mx(), Int.min)

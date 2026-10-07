@@ -7,7 +7,7 @@ fun f(a: !Holder) -> Int
   a.r = ?b[..]
   0
 
-sub main
+sub main()
   x = [9, 9]
   h = Holder(r: ?x[..])
   print(f(!h))

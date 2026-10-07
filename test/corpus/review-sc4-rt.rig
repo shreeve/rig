@@ -7,7 +7,7 @@ fun get(s: !Shape, d: !Int) -> !Int
     .circle(r) if r > 0 => r
     _ => d
 
-sub main
+sub main()
   c: Shape = .circle(r: 4)
   z = 0
   p = get(!c, !z)

@@ -45,7 +45,7 @@ sub plain_part()
     3 => print("three")
     _ => pass
 
-sub main
+sub main()
   match_part()
   for_part()
   as_part()

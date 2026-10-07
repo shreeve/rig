@@ -9,6 +9,6 @@ struct S
 fun mk() -> S
   S(a: R(n: 1))
 
-sub main
+sub main()
   t = <mk().a
   print(t)

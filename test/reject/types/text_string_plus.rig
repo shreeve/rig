@@ -1,6 +1,6 @@
 # Rig has no `+` on text: build it with `Text(...)` or `!t.add(...)`.
 
-sub main
+sub main()
   a = "x"
   print(a + "y")
 

@@ -1,6 +1,6 @@
 use std.os
 
-sub main
+sub main()
   t = Text("HO", "ME")
   v = os.env(?t) ?? "unset"
   -t

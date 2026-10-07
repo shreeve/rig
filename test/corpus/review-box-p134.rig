@@ -16,7 +16,7 @@ enum E
   fun eat(<self) -> Int
     3
 
-sub main
+sub main()
   x = S(b: Box(value: 1))
   y = S(b: Box(value: 1))
   print(x == y)

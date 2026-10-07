@@ -1,7 +1,7 @@
 struct View
   n: ?Int
 
-sub main
+sub main()
   a = 1
   v: Vec[View] = Vec()
   !v.push(View(n: ?a))

@@ -18,7 +18,7 @@ struct L[T]
 struct S[T]
   s: *T
 
-sub main
+sub main()
   x = H(h: *|a: Int| a + 10)
   print(x.h(2))
   y = H(h: inc)

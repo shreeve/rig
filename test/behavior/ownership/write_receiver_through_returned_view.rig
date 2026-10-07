@@ -14,7 +14,7 @@ fun slot(s: !S) -> !S
 fun pick(a: !S, b: !S, c: Bool) -> !S
   a if c else b
 
-sub main
+sub main()
   s = S(n: 1)
   t = S(n: 10)
   slot(!s).bump()

@@ -30,7 +30,7 @@ fun mk(n: Int) -> S
   !s.items.push(n)
   s
 
-sub main
+sub main()
   s = mk(1)
   x = <(!s).items
   print(x)

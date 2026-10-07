@@ -4,10 +4,10 @@ struct N
   drop(!self)
     print("drop", self.id)
 
-fun mk -> N
+fun mk() -> N
   N(id: 9)
 
-sub main
+sub main()
   o: N? = N(id: 1)
   c = false
   print(mk() if c else (o ?? mk()))

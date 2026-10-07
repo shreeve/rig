@@ -17,7 +17,6 @@ fun code(s: ?Status) -> Int
 fun bump(d: !Dir) -> U8
   U8(d) + 1
 
-
 sub main()
   s = Status.missing
   d: Dir = .south

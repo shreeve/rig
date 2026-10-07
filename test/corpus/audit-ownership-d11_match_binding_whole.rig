@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-sub main
+sub main()
   s: Slot = .full(t: *Tok(n: 1))
   match s
     other => eat_slot(<other)

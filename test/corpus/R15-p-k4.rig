@@ -1,7 +1,9 @@
 struct S
   x: Int
+
 sub fillall[T](s: ![]T, v: T)
   !s.fill(v)
+
 sub main()
   v: Vec[String] = Vec()
   !v.push("a")

@@ -11,7 +11,7 @@ struct S
     s = <self
     <s.a
 
-sub main
+sub main()
   s = S(a: R(n: 1), b: R(n: 2))
   x = <s.into2()
   print(x)

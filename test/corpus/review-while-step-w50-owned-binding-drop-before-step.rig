@@ -18,7 +18,7 @@ fun step(i: Int) -> Int
   print("step", i)
   i + 1
 
-sub main
+sub main()
   i = 0
   while mk(i) as x: i = step(i)
     print("body", x.n)

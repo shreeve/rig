@@ -1,7 +1,7 @@
 struct S
   r: ?Int
 
-sub main
+sub main()
   n = 1
   s = S(r: ?n)
   w = !s

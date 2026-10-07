@@ -8,7 +8,7 @@ fun mkv(n: Int) -> Vec[Int]
   !xs.push(n)
   xs
 
-sub main
+sub main()
   h = *S(o: mkv(1))
   h2 = +h
   x = <(!h).o

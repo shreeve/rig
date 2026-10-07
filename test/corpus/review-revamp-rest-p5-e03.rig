@@ -1,9 +1,11 @@
 fun f() -> Int
   print("f")
   0
+
 fun g() -> Int
   print("g")
   1
+
 sub main()
   vs = Vec[Vec[Int]]()
   !vs.push(Vec[Int]())

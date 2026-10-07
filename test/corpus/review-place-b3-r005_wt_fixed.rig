@@ -1,7 +1,7 @@
 struct H
   w: !Int
 
-sub main
+sub main()
   n = 1
   const h = H(w: !n)
   h.w = 5

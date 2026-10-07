@@ -6,7 +6,7 @@ fun spill(v: !Vec[Acc]) -> Int
     !v.push(Acc(total: i))
   1
 
-sub main
+sub main()
   v: Vec[Acc] = Vec()
   !v.push(Acc(total: 10))
   v[0].total += spill(!v)

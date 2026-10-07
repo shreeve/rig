@@ -6,9 +6,9 @@ struct B
 type Pair = B
 
 sub main()
-  print(@sizeOf(~B) == @sizeOf(Int))
-  print(@sizeOf(Pair) == @sizeOf(B))
-  print(@alignOf(B))
+  print(@size(~B) == @size(Int))
+  print(@size(Pair) == @size(B))
+  print(@align(B))
 
 # expect:
 # true

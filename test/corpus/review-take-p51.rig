@@ -6,7 +6,7 @@ struct R
 fun grab(o: !R?) -> R?
   <o
 
-sub main
+sub main()
   x: R? = R(n: 1)
   y = grab(!x)
   print(y, x)

@@ -13,7 +13,7 @@ fun rd(o: ?R?) -> Int
 sub wr(o: !R?)
   o = R(n: 42)
 
-sub main
+sub main()
   b: Box[R?] = Box(value: none)
   print(rd(?b))
   wr(!b)

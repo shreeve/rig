@@ -4,7 +4,8 @@ sub f(w2: !Int)
   print(w)
   x: !Int = w2 if true else w2
   x += 1
-sub main
+
+sub main()
   m = 3
   f(!m)
   print(m)

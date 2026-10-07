@@ -50,12 +50,12 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t4110
+sub t4110()
   gv4110: Vec[Int] = Vec()
   tf4110 = rt_bool(true)
   tv4110: Int = id_int((-13))
   tz4110: Int = (gv4110.get(0) ?? 6908089905697086088) if tf4110 else tv4110
   print(tz4110, tv4110 if tf4110 else (gv4110.get(0) ?? 6908089905697086088))
 
-sub main
+sub main()
   t4110()

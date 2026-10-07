@@ -22,7 +22,7 @@ fun mkv(k: Int) -> Vec[Int]
 fun mks(k: Int) -> Shape
   .line(n: N(id: k, t: Text("s")))
 
-sub main
+sub main()
   c = true
   for x in (mkv(1) if c else mkv(2))
     print(x)

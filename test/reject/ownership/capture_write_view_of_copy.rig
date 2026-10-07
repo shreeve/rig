@@ -1,7 +1,7 @@
 # `|!x|` lends `x` to write as `!x` does: a loop binding that copies an
 # element is not written, and the diagnostic says how to loop instead.
 
-sub main
+sub main()
   xs = [1, 2]
   for x in xs
     f = |!x| x += 1

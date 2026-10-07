@@ -26,13 +26,13 @@ struct H
 fun mk(n: Int) -> S
   S(n: n, t: Text("hello world, long enough to be on the heap ", n))
 
-fun mkh -> H
+fun mkh() -> H
   H(r: "init", rs: Vec())
 
 fun wrap(h: !H) -> !H
   h
 
-sub main
+sub main()
   h = mkh()
   !h.rs.push("a")
   wrap(!mkh()).rs = Vec()

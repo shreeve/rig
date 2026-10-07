@@ -4,6 +4,6 @@ struct B
 fun look(b: ?B) -> Int
   b.n
 
-sub main
+sub main()
   h = *B(n: 3)
   print(look(?h))

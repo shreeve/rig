@@ -23,7 +23,7 @@ struct P
   a: In
   b: In
 
-sub main
+sub main()
   p = P(a: In(t: *Tok(n: 1)), b: In(t: *Tok(n: 2)))
   swap(!p.a.t, !p.b.t)
   swap(!p.a, !p.b)

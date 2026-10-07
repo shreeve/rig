@@ -18,13 +18,13 @@ struct Q
 struct H
   q: Q
 
-fun mk -> P
+fun mk() -> P
   P(xs: [9, 9, 9, 9])
 
-fun mkh -> H
+fun mkh() -> H
   H(q: Q(c: Cell(1), n: 42))
 
-sub main
+sub main()
   r = mk().arr()
   s = mkh().q.me()
   print(r, s.n)

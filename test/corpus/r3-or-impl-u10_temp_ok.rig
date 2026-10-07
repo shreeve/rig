@@ -1,12 +1,12 @@
 fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
   a
 
-fun mk -> Vec[Int]
+fun mk() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(3)
   v
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   !x.push(1)
   r = first(?x, ?mk())

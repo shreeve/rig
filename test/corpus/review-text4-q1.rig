@@ -14,7 +14,7 @@ sub run(c: Bool)
   print(mo(0) ?? <o)
   print("end run")
 
-sub main
+sub main()
   run(true)
   print("--")
   run(false)

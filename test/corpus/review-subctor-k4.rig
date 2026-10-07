@@ -15,6 +15,6 @@ sub q(n: Int)!
   else
     print("neg")
 
-sub main
+sub main()
   a(1)!
   q(1)!

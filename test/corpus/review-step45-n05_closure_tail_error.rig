@@ -2,6 +2,6 @@
 error Bad
   oops
 
-sub main
+sub main()
   f = |n: Int| -> Int! (Bad.oops if n == 0 else n)
   print(f(0) catch -1)

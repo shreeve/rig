@@ -1,7 +1,7 @@
 # `+e` only reads `e`: a branching value's names are read in place, and a
 # value made there is a temporary its statement drops.
 
-sub main
+sub main()
   c = true
   t = Text("aa")
   u = Text("bbb")

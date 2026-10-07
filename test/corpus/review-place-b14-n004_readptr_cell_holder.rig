@@ -4,7 +4,7 @@ struct C
 struct H
   r: ?C
 
-sub main
+sub main()
   a = C(c: Cell(1))
   b = C(c: Cell(2))
   h = H(r: ?a)

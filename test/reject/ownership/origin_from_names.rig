@@ -13,7 +13,7 @@ fun c(n: Int) -> Int from n
 fun d(x: ?Vec[Int], y: ?Vec[Int]) -> ?Vec[Int] from y, static
   y
 
-sub main
+sub main()
   pass
 
 # errors: 4

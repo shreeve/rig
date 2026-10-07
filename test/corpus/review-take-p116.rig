@@ -4,7 +4,7 @@ struct R
 sub put(b: !Box[R])
   b.n = 5
 
-sub main
+sub main()
   b: Vec[Box[R]] = Vec()
   !b.push(Box(value: R(n: 2)))
   put(!b[0])

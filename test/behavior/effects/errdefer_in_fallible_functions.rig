@@ -13,7 +13,7 @@ sub save(k: Int)!
   errdefer print("save failed")
   _ = parse(k)!
 
-sub main
+sub main()
   errdefer print("main failed")
   f: fun(Int) -> Int! = |k|
     errdefer print("closure failed")

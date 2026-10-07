@@ -11,7 +11,7 @@ sub apply[T](x: T, f: ?sub(T)!)!
 sub wrap[T](x: T)!
   print("wrap", x)
 
-sub main
+sub main()
   apply(3, check)!
   apply(-3, check) catch |e|
     print("e", e)

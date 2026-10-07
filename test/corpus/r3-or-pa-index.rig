@@ -5,7 +5,7 @@ struct Row
 fun pick(rows: ?[2]Row, i: ?Int) -> ?Row
   ?rows[i]
 
-sub main
+sub main()
   rows = [2 of Row(a: 1, b: 2)]
   i = 1
   r = pick(?rows, ?i)

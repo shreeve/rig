@@ -8,5 +8,5 @@ sub g(h: !*P)
   h = *P(x: 7)
   print(h.x)
 
-sub main
+sub main()
   g(!mk())

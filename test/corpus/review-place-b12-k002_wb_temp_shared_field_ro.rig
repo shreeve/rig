@@ -7,5 +7,5 @@ fun mk() -> *P
 sub g(h: !*P)
   print(h.x)
 
-sub main
+sub main()
   g(!mk())

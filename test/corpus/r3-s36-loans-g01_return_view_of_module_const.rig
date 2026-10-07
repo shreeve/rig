@@ -2,9 +2,9 @@
 # constant: it lives for the whole program and carries no loan.
 ROWS = [3, 4, 5]
 
-fun rows -> []Int
+fun rows() -> []Int
   ?ROWS[..]
 
-sub main
+sub main()
   r = rows()
   print(r[1])

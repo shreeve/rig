@@ -6,5 +6,5 @@ pub struct Cache
     self.seen.push(k)
     self.seen.len
 
-pub fun make -> Cache
+pub fun make() -> Cache
   Cache(size: 0, seen: Cell(Vec()))

@@ -1,4 +1,5 @@
 struct S
   pub x(a: Int)
+
 sub main()
   print(1)

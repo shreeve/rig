@@ -13,7 +13,7 @@ struct H
 fun inner(h: ?H) -> ?H2
   ?h.h2
 
-sub main
+sub main()
   h = H(h2: H2(r: R(n: 1)))
   if inner(?h).r as x
     h = H(h2: H2(r: none))

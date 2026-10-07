@@ -20,7 +20,7 @@ struct R
 
 # Through a view, the copy keeps what the value holds, not the view's
 # loan on its holder, which may then change.
-sub through_view
+sub through_view()
   n = 1
   m = 2
   s = R(r: ?n)
@@ -29,7 +29,7 @@ sub through_view
   s = R(r: ?m)
   print(f(), s.r)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   f = |+v| v.len

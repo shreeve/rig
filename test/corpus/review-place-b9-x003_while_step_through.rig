@@ -1,7 +1,7 @@
 struct H
   w: !Int
 
-sub main
+sub main()
   n = 0
   h = H(w: !n)
   i = 0

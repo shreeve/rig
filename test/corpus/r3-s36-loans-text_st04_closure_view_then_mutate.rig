@@ -1,4 +1,4 @@
-sub main
+sub main()
   t = Text("abc")
   s: String = ?t[..]
   f = |+s| print(s)

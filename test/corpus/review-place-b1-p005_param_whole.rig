@@ -1,5 +1,5 @@
 sub f(n: Int)
   n = 5
 
-sub main
+sub main()
   f(1)

@@ -35,7 +35,7 @@ fun run(ok: Bool) -> Int!
   v = both(|<r, a| a + r.id, num(ok)!)
   v
 
-sub main
+sub main()
   t = Tree(vals: Vec())
   !t.vals.push(4)
   !t.vals.push(5)

@@ -16,7 +16,7 @@ fun sum(p: ?Pair) -> Int
 fun first(x: ?[400000]Int) -> ?[400000]Int
   x
 
-sub main
+sub main()
   big: [400000]Int = [400000 of 7]
   r = ?big
   r = first(?big)

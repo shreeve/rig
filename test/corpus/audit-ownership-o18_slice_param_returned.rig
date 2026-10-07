@@ -1,5 +1,5 @@
 fun head(a: ?[3]Int) -> []Int
   ?a[0..2]
 
-sub main
+sub main()
   print(head(?[1, 2, 3]))

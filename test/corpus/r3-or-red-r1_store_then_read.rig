@@ -11,7 +11,7 @@ fun f(a: !Holder, b: !Item) -> Int
   b.n = 5
   a.r.n
 
-sub main
+sub main()
   x = Item(n: 1)
   y = Item(n: 2)
   h = Holder(r: ?x)

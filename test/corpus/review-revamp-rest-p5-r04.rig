@@ -1,6 +1,7 @@
 enum Sh
   c(r: Int)
   s(w: Int)
+
 sub main()
   payload = 5
   whole = 6

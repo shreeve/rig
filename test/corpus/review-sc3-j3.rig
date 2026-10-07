@@ -13,6 +13,6 @@ sub t(k: Int)
   x = add(a(), b(k) ?? return)
   print("t", x)
 
-sub main
+sub main()
   t(1)
   t(0)

@@ -5,7 +5,7 @@ fun f(a: !Holder, b: []Int) -> []Int
   a.r = b
   a.r
 
-sub main
+sub main()
   x = [9, 9]
   v: Vec[Int] = Vec()
   !v.push(1)

@@ -3,7 +3,7 @@ struct Res
 
   drop(!self)
     print("drop", self.id)
- 
+
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
@@ -14,7 +14,7 @@ sub each(xs: ?Vec[Int], f: ?sub(Int))
 fun double(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)

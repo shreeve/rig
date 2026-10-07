@@ -5,7 +5,7 @@ struct R
 fun mk() -> R?
   R(v: Vec(), n: 1)
 
-sub main
+sub main()
   if mk() as r
     r.n = 3
     r = R(v: Vec(), n: 4)

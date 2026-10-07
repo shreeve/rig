@@ -28,7 +28,7 @@ fun take_both[T](x: T, y: T) -> Vec[T]
   !out.push(<y)
   out
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(3)
   p = Pair[Int](a: 1, b: 2)

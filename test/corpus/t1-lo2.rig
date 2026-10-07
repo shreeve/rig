@@ -7,7 +7,7 @@ sub t1(xs: ![]Int)
 sub t2(r: !R, xs: ![]Int)
   !xs.swap(0, 1)
 
-sub main
+sub main()
   r = R(s: 1)
   a = [1, 2, 3]
   t1(!a)

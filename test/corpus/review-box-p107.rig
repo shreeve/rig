@@ -7,7 +7,7 @@ struct R
 sub eat(b: Box[R])
   print("eat", b.n)
 
-sub main
+sub main()
   b = Box(value: R(n: 1))
   -b
   b = Box(value: R(n: 2))

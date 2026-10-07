@@ -20,7 +20,7 @@ fun f(t: *Tok) -> Bool
   print("f", t.n)
   true
 
-sub main
+sub main()
   a = *Tok(n: 1)
   c = false
   if c and f(<a)

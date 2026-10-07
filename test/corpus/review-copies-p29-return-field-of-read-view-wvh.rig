@@ -10,7 +10,7 @@ fun get(r: ?O) -> W
 fun getw(r: ?O) -> !Vec[Int]
   r.h.w
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   o = O(h: W(w: !a))
   x = get(?o)

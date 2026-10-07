@@ -6,7 +6,7 @@
 
 struct Point
   x: Int
-  fun origin -> Point
+  fun origin() -> Point
     Point(x: 0)
 
 struct Node
@@ -15,7 +15,7 @@ struct Node
 struct Hooks
   on: *fun(Int) -> Int
 
-sub main
+sub main()
   a = !Point.origin()
   b = <Point.origin()
   log: Cell[Vec[Int]] = Cell(Vec())

@@ -37,7 +37,7 @@ sub branch[T](w: ?W[T], w2: ?W[T], c: Bool, f: ?fun(?Opt[T]) -> Int)
     x if c => print(f(?x))
     _ => pass
 
-sub main
+sub main()
   w: W[C] = W(o: .some(v: C(c: Cell(0))))
   field(?w, hit)
   field_of_call(?w, hit)

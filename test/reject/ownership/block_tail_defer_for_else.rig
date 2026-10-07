@@ -1,6 +1,6 @@
 # A `for ... else` value's block-local tail leaves the `else` block
 # before its defer runs.
-sub main
+sub main()
   xs = [1, 2]
   x = for k in xs
     break Vec[Int]() if k > 5

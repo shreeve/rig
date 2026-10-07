@@ -1,5 +1,5 @@
 # read loop over an array of owners, then the array is used
-sub main
+sub main()
   a = [Text("a"), Text("b")]
   for x in a
     print(x)

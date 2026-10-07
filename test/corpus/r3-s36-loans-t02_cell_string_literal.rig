@@ -1,4 +1,4 @@
-sub main
+sub main()
   c: Cell[String] = Cell("a")
   c.set("b")
   print(c.get())

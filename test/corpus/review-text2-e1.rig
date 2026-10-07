@@ -13,7 +13,7 @@ fun grab(o: ?Outer2) -> String
 sub grow(o: !Outer2)
   !o.o.w.t.add("more more more more more more more more more")
 
-sub main
+sub main()
   t = Text("abcdefghijklmnop")
   o = Outer2(o: Outer(w: W(t: !t)))
   s = grab(?o)

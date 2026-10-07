@@ -1,7 +1,7 @@
 # `v[i] = !v.pop() ?? d` pops first, then stores: into the last element
 # it pops, that is out of bounds.
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)

@@ -3,7 +3,7 @@
 # oracle: main accept
 DONE = false
 
-sub main
+sub main()
   n = 0
   while false
     n += 1

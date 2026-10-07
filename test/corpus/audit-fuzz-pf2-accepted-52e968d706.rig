@@ -1,4 +1,3 @@
-
 fun rt_bol(b: Bool) -> Bool
   b
 
@@ -50,7 +49,7 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t4860
+sub t4860()
   av4860: Vec[I8] = Vec()
   !av4860.push(0)
   av4860[0] = (-12)
@@ -58,5 +57,5 @@ sub t4860
   aa4860[rt_int(2)] = (-12)
   print(av4860[0], aa4860)
 
-sub main
+sub main()
   t4860()

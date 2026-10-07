@@ -27,5 +27,5 @@ fun j(n: Int) -> Int
     1, .a(_) => 1
     _ => 0
 
-sub main
+sub main()
   print(f(.c), g(.c), h(1), i(.c), j(1))

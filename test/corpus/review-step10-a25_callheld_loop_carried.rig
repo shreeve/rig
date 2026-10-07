@@ -20,7 +20,7 @@ struct H
 fun mkh(k: Int) -> H
   H(q: Q(c: Cell(1), n: k))
 
-sub main
+sub main()
   h = Holder(r: none)
   for _ in 0..2
     if h.r as q

@@ -49,9 +49,9 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t1715
+sub t1715()
   x1715: U8 = U8(9)
   print(x1715)
 
-sub main
+sub main()
   t1715()

@@ -14,7 +14,7 @@ struct H
 fun mkh(n: Int) -> H
   H(e: E.a(r: Res(n: n)))
 
-sub main
+sub main()
   match mkh(5).e
     .a(r) if r.n > 9 => print("big", r.n)
     .a(r) => print("small", r.n)

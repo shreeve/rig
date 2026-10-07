@@ -4,7 +4,7 @@ struct S
 fun first(h: ?*S) -> Int
   h.v[0]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(3)
   h = *S(v: <v)

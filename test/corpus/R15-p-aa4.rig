@@ -1,7 +1,9 @@
 struct R
   s: []Int
+
 fun t() -> Bool
   true
+
 sub main()
   a = [1, 2]
   rs = [R(s: ?a[..]), R(s: ?a[..])]

@@ -31,7 +31,7 @@ fun sum(t: Tree) -> Int
       c = <r.unbox()
       sum(<a) + sum(<c)
 
-sub main
+sub main()
   o: Opt[*B] = .some(v: *B(n: 1))
   x = unwrap(<o, *B(n: 2))
   print(x.n)

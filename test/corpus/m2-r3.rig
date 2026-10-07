@@ -11,6 +11,6 @@ sub put2(inn: !Inner)
   k = 5
   inn.x = R(y: !k)
 
-sub main
+sub main()
   n = 0
   print(n)

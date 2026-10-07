@@ -22,7 +22,7 @@ fun later() -> Int!
     errdefer print("never")
   1
 
-sub main
+sub main()
   k = ||
     errdefer print("never")
   k()

@@ -27,7 +27,7 @@ fun rp(p: P, n: Int) -> Int
 fun rs(s: []Int, n: Int) -> Int
   s.len + n
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(0)
   print(rs(v[..], grow(!v)))

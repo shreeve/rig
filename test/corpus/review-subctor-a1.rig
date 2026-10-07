@@ -16,7 +16,7 @@ struct Acc
     return Bad.neg if self.n > 100
     print("ate", self.n)
 
-sub main
+sub main()
   a = Acc(n: 1)
   !a.bump(2)!
   a.show()!

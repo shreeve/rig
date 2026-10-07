@@ -4,7 +4,7 @@ struct P
 fun mk(p: !P) -> !P
   <p
 
-sub main
+sub main()
   p = P(xs: [1, 2, 3])
   for x in !mk(!p).xs
     x = 0

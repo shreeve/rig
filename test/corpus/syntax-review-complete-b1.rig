@@ -10,7 +10,7 @@ struct Bag
   fun at_mut(!self, i: Int) -> !P
     !self.items[i]
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(P(x: 1))
   r = b.at(0)

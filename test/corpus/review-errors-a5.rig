@@ -4,7 +4,7 @@ error Disk
 error Net
   timeout
 
-sub main
+sub main()
   d: Disk = .timeout
   n: Net = .timeout
   print(d == n)

@@ -1,6 +1,6 @@
 fun f(s: []Int) -> ![]Int
   !s[..]
 
-sub main
+sub main()
   a = [1]
   print(f(?a[..]).len)

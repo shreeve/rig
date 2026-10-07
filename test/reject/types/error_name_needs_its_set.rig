@@ -23,7 +23,7 @@ fun fetch(n: Int) -> Int!
   return Disk.timeout if n == 0
   n
 
-sub main
+sub main()
   a = fetch(0) catch |e|
     match e
       .timeout => 1

@@ -43,7 +43,7 @@ fun hash_str(s: ?String) -> U64
     h = (h * 33 + U64(b)) % 1000000007
   h
 
-sub main
+sub main()
   m = Map[String, Int].new(hash_str)
   !m.put("one", 1)
   !m.put("two", 2)

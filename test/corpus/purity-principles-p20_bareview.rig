@@ -7,7 +7,7 @@ fun f(p: ?P) -> Int
 fun g(n: ?Int) -> Int
   n + 1
 
-sub main
+sub main()
   p = P(x: 1)
   n = 2
   print(f(p), g(n))

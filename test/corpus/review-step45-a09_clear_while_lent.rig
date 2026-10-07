@@ -1,5 +1,5 @@
 # clear while an element view is live
-sub main
+sub main()
   v: Vec[Vec[Int]] = Vec()
   r: Vec[Int] = Vec()
   !r.push(1)

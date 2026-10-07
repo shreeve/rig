@@ -8,6 +8,6 @@ sub chk(n: Int)!
 fun pick() -> sub(Int)!
   chk
 
-sub main
+sub main()
   f = pick()
   f(1)!

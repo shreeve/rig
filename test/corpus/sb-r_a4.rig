@@ -1,7 +1,7 @@
 struct V
   s: ![]Int
 
-sub main
+sub main()
   b = [0]
   v = V(s: !b[..])
   if true

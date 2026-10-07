@@ -17,7 +17,7 @@ sub transfer(from: !Account, to: !Account, amount: Int)!
   !from.withdraw(amount)!
   !to.deposit(amount)
 
-sub main
+sub main()
   accounts: Vec[Account] = Vec()
   !accounts.push(Account(owner: "ada", balance: 100))
   !accounts.push(Account(owner: "bob"))

@@ -10,7 +10,7 @@ fun firsti(xs: []Int) -> ?Int
 fun sub1(xs: []Int) -> []Int
   xs[1..]
 
-sub main
+sub main()
   a = [Val(n: 1)]
   print(first(?a).n)
   b = [1, 2]

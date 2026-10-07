@@ -1,5 +1,6 @@
 type F = F32
 type I = I16
+
 sub main()
   a = F(3)
   b = I(2.9)

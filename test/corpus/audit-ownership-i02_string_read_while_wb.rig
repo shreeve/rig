@@ -1,4 +1,4 @@
-sub main
+sub main()
   s = "a"
   w = !s
   t = s

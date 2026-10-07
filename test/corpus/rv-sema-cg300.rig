@@ -901,7 +901,7 @@ struct S299
 struct S300
   x: *Int
 
-sub main
+sub main()
   s300 = S300(x: *3)
   s299 = S299(x: <s300)
   s298 = S298(x: <s299)

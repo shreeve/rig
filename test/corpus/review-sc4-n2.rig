@@ -15,7 +15,7 @@ fun make(n: Int) -> Slot
 sub keep(b: *B)
   print("kept", b.n)
 
-sub main
+sub main()
   match <make(1)
     .full(b, _) => keep(<b)
   match <make(2)

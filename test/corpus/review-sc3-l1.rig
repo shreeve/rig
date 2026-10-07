@@ -7,7 +7,7 @@ struct Res
 fun make(k: Int) -> Res?
   Res(id: k) if k > 0 else none
 
-sub main
+sub main()
   xs: Vec[Int] = Vec()
   for n in 1..5
     !xs.push(n)

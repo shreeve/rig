@@ -1,4 +1,4 @@
-sub main
+sub main()
   m: Vec[Vec[Text]] = Vec()
   row: Vec[Text] = Vec()
   !row.push(Text("a"))

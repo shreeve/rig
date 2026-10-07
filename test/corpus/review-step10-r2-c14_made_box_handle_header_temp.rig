@@ -14,7 +14,7 @@ fun mkb(k: Int) -> Box[E]
 fun mkh(k: Int) -> *E
   *E.a(xs: [k, k, k, k])
 
-sub main
+sub main()
   k = 1
   match ?mkb(idx(?Text("a")))
     .a(xs) if k > 0 => print(xs[0])

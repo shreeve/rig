@@ -25,6 +25,6 @@ struct R
   drop(!self)
     self.done()
 
-sub main
+sub main()
   r = R(t: *Tok(n: 1))
   print("x")

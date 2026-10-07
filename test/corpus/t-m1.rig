@@ -24,7 +24,7 @@ struct Q
   a: P
   b: Int
 
-sub main
+sub main()
   s = S(a: Vec(), b: 1)
   print(s.count(0), grow(!s.a), s.count(0))
   !s.add(s.count(0))

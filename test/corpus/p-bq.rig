@@ -1,7 +1,7 @@
 fun cmp(b: ?Box[Text]) -> Bool
   b == "boxed"
 
-sub main
+sub main()
   b = Box(Text("boxed"))
   c = Box(Text("boxed"))
   t = Text("boxed")

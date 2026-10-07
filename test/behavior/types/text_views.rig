@@ -15,7 +15,7 @@ fun count(s: String, b: U8) -> Int
       n += 1
   n
 
-sub main
+sub main()
   t = Text("hello world")
   w = ?t[0..5]
   rest = ?t[6..]

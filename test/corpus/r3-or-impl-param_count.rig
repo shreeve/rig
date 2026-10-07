@@ -1,7 +1,7 @@
 fun pick[n: Int](a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
   a
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   r = pick[3](?x, ?y)

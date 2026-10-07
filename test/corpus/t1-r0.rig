@@ -1,6 +1,6 @@
 use std.random
 
-sub main
+sub main()
   r = random.Random.seeded(0)
   print(!r.next())
   !r.int(3, 3)

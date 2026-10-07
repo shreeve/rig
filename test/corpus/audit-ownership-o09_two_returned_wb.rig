@@ -1,7 +1,7 @@
 fun slot(a: !Vec[Int]) -> !Vec[Int]
   a
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   a = slot(!v)
   b = slot(!v)

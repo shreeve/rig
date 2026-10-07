@@ -23,7 +23,7 @@ fun through(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
 fun only(s: String) -> String from static
   s
 
-sub main
+sub main()
   pass
 
 # errors: 6

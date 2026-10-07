@@ -2,7 +2,7 @@ struct P
   x: Int
   y: Int
 
-sub main
+sub main()
   s: *Signal[P] = *Signal(P(x: 0, y: 0))
   log: *Cell[Vec[Int]] = *Cell(Vec())
   s.subscribe(*|+log, ~s|

@@ -21,7 +21,7 @@ fun ix(i: Int, what: String) -> Int
 sub through_vec(w: !Vec[Int])
   w[ix(0, "borrowed-vec")] = val(2, "borrowed-vec")
 
-sub main
+sub main()
   p = P(x: 0, v: Vec())
   !p.v.push(0)
   !p.set()

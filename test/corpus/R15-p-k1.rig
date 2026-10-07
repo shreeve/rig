@@ -5,10 +5,13 @@ sub rev[T](s: ![]T)
     !s.swap(i, j)
     i += 1
     j -= 1
+
 sub fillall[T](s: ![]T, v: T)
   !s.fill(v)
+
 sub cp[T](d: ![]T, s: []T)
   !d.copy(s)
+
 sub main()
   a = [1, 2, 3, 4]
   rev(!a[..])

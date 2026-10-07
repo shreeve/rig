@@ -4,9 +4,6 @@ struct P
   fun eq(?self, o: ?P) -> Bool
     true
 
-
-
-
 sub main()
   a = P(x: 1)
   b = P(x: 2)

@@ -9,7 +9,7 @@ struct S
   fun at(!self, s: String) -> !E
     !self.es[s.len - 1]
 
-sub main
+sub main()
   s = S(es: Vec())
   !s.es.push(E.a(t: Text("hi")))
   match !(!s).at(?Text("a"))

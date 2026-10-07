@@ -11,6 +11,6 @@ fun leak(ok: Bool) -> (?P)!
   return Bad.oops if not ok
   r
 
-sub main
+sub main()
   v = leak(true)!
   print(v.x)

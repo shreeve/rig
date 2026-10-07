@@ -9,7 +9,7 @@ fun mk() -> Vec[Box[R]]
   !v.push(Box(value: R(n: 1)))
   v
 
-sub main
+sub main()
   for x in ?mk()
     print(x.n)
   print("end")

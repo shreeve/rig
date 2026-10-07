@@ -72,7 +72,7 @@ sub grow(b: !Bag)
   b.n += 1000
   print("grown", b.n)
 
-sub main
+sub main()
   !mk(1).bump()
   !mk(2).pop()
   print(!mk(3).pop())

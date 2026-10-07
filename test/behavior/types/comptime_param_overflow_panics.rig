@@ -1,7 +1,7 @@
 # Arithmetic on a compile-time parameter runs when the program runs: an overflow
 # panics instead of failing to compile.
 
-sub show[n: U8]
+sub show[n: U8]()
   print(n + 250)
 
 sub main()

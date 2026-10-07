@@ -5,7 +5,7 @@ struct W
 fun first[T](xs: ?[2]T) -> T
   xs[0]
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   b: Vec[Int] = Vec()
   ws = [W(w: !a), W(w: !b)]

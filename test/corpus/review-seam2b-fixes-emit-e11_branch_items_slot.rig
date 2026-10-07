@@ -109,7 +109,7 @@ struct K3
 fun f2(n: Int) -> Int
   n + 1
 
-sub main
+sub main()
   c = f(1) == 1
   k = 7
   swap(!(mk(3) if c else mk(4)).items[f(0)], !k)

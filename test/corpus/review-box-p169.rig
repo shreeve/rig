@@ -4,7 +4,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   o: Box[R]? = Box(value: R(n: 1))
   if !o as x
     -x

@@ -1,4 +1,4 @@
-sub main
+sub main()
   n = 42
   s = n.to_string()
   f = format("{}", n)

@@ -1,4 +1,4 @@
 # Core §4 Box row vs SPEC §10 Box: a Box of a Vec reaches no members
-sub main
+sub main()
   b = Box(Vec[Int]())
   print(b.len)

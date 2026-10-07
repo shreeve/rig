@@ -1,6 +1,6 @@
 use std.random
 
-sub main
+sub main()
   r = random.Random.seeded(1)
   v: Vec[Int] = Vec()
   !v.push(1)

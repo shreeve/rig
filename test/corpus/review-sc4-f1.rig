@@ -15,7 +15,7 @@ struct H
 sub keep(b: *B)
   print("kept", b.n)
 
-sub main
+sub main()
   h = H(s: .full(b: *B(n: 1)), t: .full(b: *B(n: 2)))
   match <h.s
     .full(b) => keep(<b)

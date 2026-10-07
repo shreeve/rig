@@ -1,6 +1,7 @@
 enum E
   a
   b
-sub main
+
+sub main()
   e = E(1)
   print(e)

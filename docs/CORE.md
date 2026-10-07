@@ -44,7 +44,7 @@ thing only:
 One lend makes one loan, which any number of views may carry:
 
 ```rig reject
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   a = ?v[..]
@@ -82,7 +82,7 @@ struct Point
   x: Int
   y: Int
 
-sub main
+sub main()
   a = Point(x: 1, y: 2)
   b = a
   b.x = 5
@@ -102,7 +102,7 @@ sub main
   because a copy would fork state that should be shared. *(built)*
 
 ```rig reject
-sub main
+sub main()
   c = Cell(1)
   d = c
   d.set(2)
@@ -131,12 +131,12 @@ declares, which takes `<x` today. A name declared outside the block
 always takes `<x`.*)*
 
 ```rig
-fun make -> Vec[Int]
+fun make() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(1)
   v
 
-sub main
+sub main()
   v = make()
   print(v.len)
 ```
@@ -146,7 +146,7 @@ sub main
 ```
 
 ```rig
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)
@@ -165,7 +165,7 @@ sub main
 struct H
   w: !Int
 
-sub main
+sub main()
   n = 1
   m = 2
   h = H(w: !n)
@@ -184,7 +184,7 @@ sub main
 struct H
   v: !Vec[Int]
 
-sub main
+sub main()
   xs: Vec[Int] = Vec()
   h = H(v: !xs)
   y = h.v
@@ -196,7 +196,7 @@ write `y = !h.v` to lend the view on
 ```
 
 ```rig pending
-fun first -> Vec[Int]
+fun first() -> Vec[Int]
   e: Vec[Int] = Vec()
   r = while true
     v: Vec[Int] = Vec()
@@ -206,7 +206,7 @@ fun first -> Vec[Int]
     <e
   r
 
-sub main
+sub main()
   print(first().len)
 ```
 
@@ -227,7 +227,7 @@ struct File
   drop(!self)
     print("closing", self.name)
 
-sub main
+sub main()
   a = File(name: "a.txt")
   b = <a
   -b
@@ -240,7 +240,7 @@ end
 ```
 
 ```rig
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   w = +v
@@ -260,7 +260,7 @@ pub struct Bag
 ```rig pending
 use bag
 
-sub main
+sub main()
   a = bag.Bag(items: Vec())
   !a.items.push(1)
   b = +a
@@ -293,7 +293,7 @@ sub grow(v: !Vec[Int])
 fun first(v: ?Vec[Int]) -> Int
   v[0]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   grow(!v)
   print(first(?v))
@@ -311,10 +311,10 @@ struct Counter
     self.n += 1
     self.n
 
-fun start -> Counter
+fun start() -> Counter
   Counter(n: 41)
 
-sub main
+sub main()
   print(!start().next())
 ```
 
@@ -329,7 +329,7 @@ both.** This holds for every type, numbers included. *(built)*
 sub add(a: !Int, b: ?Int)
   a += b
 
-sub main
+sub main()
   n = 1
   add(!n, ?n)
 ```
@@ -345,7 +345,7 @@ drop runs a `drop` body, which could read them, so a `Vec[[]Int]`'s
 loans end at its last use, not where it is dropped. *(built)*
 
 ```rig reject
-sub main
+sub main()
   v: Vec[Int] = Vec()
   r = ?v
   !v.push(2)
@@ -357,7 +357,7 @@ cannot lend `v` to write while a read loan is live
 ```
 
 ```rig
-sub main
+sub main()
   a = [1, 2, 3]
   v: Vec[[]Int] = Vec()
   !v.push(?a[..2])
@@ -378,7 +378,7 @@ struct Guard
   drop(!self)
     print(self.items.len)
 
-sub main
+sub main()
   a = [1, 2, 3]
   g = Guard(items: ?a[..])
   print(g.items[0])
@@ -429,7 +429,7 @@ struct Cursor
     self.i += 1
     ?self.items[self.i - 1]
 
-sub main
+sub main()
   v: Vec[Item] = Vec()
   !v.push(Item(n: 1))
   !v.push(Item(n: 2))
@@ -448,7 +448,7 @@ fun head(v: !Vec[Int]) -> []Int
   !v.push(v.len)
   ?v[..1]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   r = head(!v)
   print(v.len, v[0])
@@ -467,7 +467,7 @@ fun head(v: !Vec[Int]) -> []Int
   !v.push(v.len)
   ?v[..1]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   r = head(!v)
   !v.push(5)
@@ -482,7 +482,7 @@ cannot lend `v` to write while a read loan is live
 fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int] from a
   a
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   r = first(?x, ?y)
@@ -503,7 +503,7 @@ value.** Handles only read (a `Cell` inside one still changes: sentence
 struct User
   name: String
 
-sub main
+sub main()
   u = User(name: "ada")
   a = *<u
   w = ~a
@@ -528,7 +528,7 @@ accept only values that carry no loan; a `*T` instead carries its
 contents' loans on every handle. *(built)*
 
 ```rig
-sub main
+sub main()
   c = *Cell(0)
   d = +c
   d.set(5)
@@ -554,7 +554,7 @@ fun half(n: Int) -> Int!
   else
     n / 2
 
-sub main
+sub main()
   print(half(4) catch 0)
 ```
 
@@ -571,7 +571,7 @@ Only code inside `raw` may break these rules. *(built)*
 else ?b`.*)*
 
 ```rig pending
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   c = a.len > 0
@@ -618,10 +618,10 @@ struct User
   name: String
   tags: Vec[Int]
 
-fun load -> User
+fun load() -> User
   User(name: "ada", tags: Vec())
 
-sub main
+sub main()
   print(load().name)
 ```
 
@@ -632,7 +632,7 @@ ada
 ```rig
 use std.text
 
-sub main
+sub main()
   a = "x"
   b = "yz"
   if text.starts_with(?Text(a, b), "xy")
@@ -646,7 +646,7 @@ starts
 ```rig reject
 use std.text
 
-sub main
+sub main()
   if text.cut(?Text("k", "=v"), "=") as kv
     print(kv.after)
 ```
@@ -656,12 +656,12 @@ a view of the temporary `Text("k", "=v")` outlives its statement
 ```
 
 ```rig pending
-fun names -> Vec[Text]
+fun names() -> Vec[Text]
   v: Vec[Text] = Vec()
   !v.push(Text("ada"))
   v
 
-sub main
+sub main()
   for x in names()
     print(x)
 ```
@@ -698,7 +698,7 @@ and one `fun area(s: ?Shape)` serves a `Shape`, a `Box[Shape]`, and a
 ```rig
 use std.sort
 
-sub main
+sub main()
   a = [3, 1, 2]
   sort.sort(!a)
   print(a)
@@ -716,7 +716,7 @@ struct P
 fun copy(p: ?P) -> P
   p
 
-sub main
+sub main()
   a = P(x: 1, y: 2)
   b = copy(?a)
   print(b.x)
@@ -735,7 +735,7 @@ use std.text
 fun or_none(s: String?) -> String
   s ?? "none"
 
-sub main
+sub main()
   t = Text("  hi  ")
   print(text.trim(?t), or_none(?t).len)
   !t.add("!")
@@ -748,7 +748,7 @@ hi 6
 ```
 
 ```rig reject
-sub main
+sub main()
   t = Text("abc")
   s = ?t[..2]
   !t.add("d")
@@ -762,7 +762,7 @@ cannot lend `t` to write while a read loan is live
 ```rig
 use std.sort
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(3)
   !v.push(1)
@@ -801,7 +801,7 @@ work. *(built)*
 struct Slot
   item: Box[Int]?
 
-sub main
+sub main()
   s = Slot(item: Box(7))
   if <s.item as b
     print(<b.unbox())
@@ -814,7 +814,7 @@ none
 ```
 
 ```rig
-sub main
+sub main()
   rows: Vec[Vec[Int]] = Vec()
   r: Vec[Int] = Vec()
   !r.push(5)
@@ -827,7 +827,7 @@ sub main
 ```
 
 ```rig
-sub main
+sub main()
   n = 1
   a = [3 of ?n]
   print(a[2])
@@ -848,7 +848,7 @@ fun next(i: !Int) -> Int
   i += 1
   i
 
-sub main
+sub main()
   a = [0, 0, 0]
   i = 0
   a[i] = next(!i)
@@ -867,7 +867,7 @@ write lend in any other argument is a write loan at once, so
 `grow(!v, v.len)` is rejected. *(built)*
 
 ```rig
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(v.len)
   !v.push(v.len)
@@ -883,7 +883,7 @@ fun grow(v: !Vec[Int]) -> Int
   !v.push(1)
   v.len
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   print(v, grow(!v))
 ```
@@ -896,7 +896,7 @@ while an earlier argument's read of it is in use
 bindings may not. *(built)*
 
 ```rig
-sub main
+sub main()
   const limit = 3
   print(limit)
 ```
@@ -911,7 +911,7 @@ fields alike. `new` only shadows, and accepts every binding form.
 *(built)*
 
 ```rig
-sub main
+sub main()
   m = 1
   n = 2
   w = !m
@@ -935,7 +935,7 @@ be lent (`?fun`) but not stored. An owned closure (`*fun`) may be
 stored, and follows sentence 9. *(built)*
 
 ```rig
-sub main
+sub main()
   total = 0
   add = |!total, k: Int| total += k
   add(2)
@@ -948,7 +948,7 @@ sub main
 ```
 
 ```rig
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   f = |+v| v.len
@@ -964,7 +964,7 @@ read and write what is live there; they never extend a loan past it.
 *(built)*
 
 ```rig
-sub main
+sub main()
   defer print("last")
   print("first")
 ```
@@ -993,10 +993,10 @@ rule in SYNTAX is syntax too.
   the loop; `e catch a if c else b` groups as `e catch (a if c else b)`.
 
 ```rig reject
-fun count -> Int
+fun count() -> Int
   3
 
-sub main
+sub main()
   -count()
 ```
 
@@ -1014,7 +1014,7 @@ struct Seen
     !self.items.push(k)
     true
 
-sub main
+sub main()
   s = Seen(items: Vec())
   added = !s.insert(1)
   print(added)

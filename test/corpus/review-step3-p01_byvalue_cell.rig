@@ -5,7 +5,7 @@ struct Counter
     self.hits.set(7)
     print("eat", self.hits.get())
 
-sub main
+sub main()
   f = |c: Counter| c.hits.set(c.hits.get() + 1)
   k = Counter(hits: Cell(1))
   f(<k)

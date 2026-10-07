@@ -11,7 +11,7 @@ struct H
 fun pick(h: ?H, k: ?Text) -> ?Q? from h
   ?h.q
 
-sub main
+sub main()
   h = H(q: Q(xs: [1, 2, 3, 4]))
   d = Q(xs: [0, 0, 0, 0])
   r = ?d

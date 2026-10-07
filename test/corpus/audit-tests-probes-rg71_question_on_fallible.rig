@@ -1,11 +1,11 @@
 error E
   bad
 
-fun f -> Int!
+fun f() -> Int!
   1
 
-fun g -> Int?
+fun g() -> Int?
   f()?
 
-sub main
+sub main()
   print(g() ?? 0)

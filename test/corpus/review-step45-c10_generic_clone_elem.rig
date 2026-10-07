@@ -2,7 +2,7 @@
 fun dup[T](v: ?Vec[T], i: Int) -> T
   +v[i]
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   t = dup(?v, 0)

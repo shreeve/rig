@@ -43,7 +43,7 @@ fun first(c: Bool) -> Int?
 fun second(c: Bool) -> Int!
   fails(c)!.size(y: f(1), x: f(2))
 
-sub main
+sub main()
   a = S(t: Text("aa"))
   b = S(t: Text("bbb"))
   c = f(1) == 1

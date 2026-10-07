@@ -44,6 +44,6 @@ fun clobber(n: Int) -> Int
 fun wrap(s: !S) -> !S
   s
 
-sub main
+sub main()
   w = wrap(!mk(1))
   print(w.n)

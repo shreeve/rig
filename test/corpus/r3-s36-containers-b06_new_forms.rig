@@ -1,4 +1,4 @@
-sub main
+sub main()
   x = 1
   new const x = 3
   print(x)

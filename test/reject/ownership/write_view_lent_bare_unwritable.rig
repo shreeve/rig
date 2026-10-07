@@ -16,7 +16,7 @@ sub by_read(r: ?H)
   x = 1
   swap(r.w, !x)
 
-sub main
+sub main()
   n = 1
   const h = H(w: !n)
   poke(h.w)

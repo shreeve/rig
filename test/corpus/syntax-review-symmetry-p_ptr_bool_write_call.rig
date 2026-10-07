@@ -5,7 +5,8 @@ struct S
     self.n
   fun ok(!self) -> Bool
     true
-sub main
+
+sub main()
   s = S(n: 0)
   print(!s.bump())
   print(not !s.ok())

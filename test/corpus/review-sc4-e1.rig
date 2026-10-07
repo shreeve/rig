@@ -6,7 +6,7 @@ fun next() -> Int
   print("next")
   1
 
-sub main
+sub main()
   xs: [3]Shape = [.point, .circle(r: 5), .point]
   match xs[next()]
     .circle(r) if r > 10 => print("big")

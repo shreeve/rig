@@ -5,7 +5,7 @@ enum E
   a(c: Counter)
   b
 
-sub main
+sub main()
   k = Counter(hits: Cell(1))
   e = E.a(c: k)
   f = e

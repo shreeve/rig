@@ -4,7 +4,7 @@
 sub param_repointed(w: !Int, n: !Int)
   w = !n
 
-sub main
+sub main()
   a = 1
   b = 2
   param_repointed(!a, !b)

@@ -9,6 +9,6 @@ fun rd(p: ?P) -> Int
 sub wr(p: !P)
   p.bump()
 
-sub main
+sub main()
   p = P(n: 1)
   wr(!p)

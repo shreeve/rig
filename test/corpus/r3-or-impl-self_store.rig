@@ -2,7 +2,7 @@ struct P
   own: Vec[Int]
   r: ?Vec[Int]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   p = P(own: Vec(), r: ?v)
   p.r = ?p.own

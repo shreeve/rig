@@ -4,7 +4,7 @@ struct H
 sub poke(w: !Int)
   w += 1
 
-sub main
+sub main()
   n = 1
   m = 2
   hs = [H(w: !n)]

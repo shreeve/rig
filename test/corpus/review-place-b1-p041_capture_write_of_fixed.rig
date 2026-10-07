@@ -1,4 +1,4 @@
-sub main
+sub main()
   const n = 1
   g = |!n| n += 1
   g()

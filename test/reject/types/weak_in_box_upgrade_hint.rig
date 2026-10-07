@@ -9,7 +9,7 @@ struct S
 fun f(a: ?Box[~S]) -> Int
   a.n
 
-sub main
+sub main()
   h = *S(n: 1)
   a: Box[~S] = Box(~h)
   if a.upgrade() as x

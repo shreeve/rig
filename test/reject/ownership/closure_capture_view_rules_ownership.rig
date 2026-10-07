@@ -9,7 +9,7 @@ struct Wrap
 struct View
   w: ?Wrap
 
-sub go
+sub go()
   total = 0
   a = |!total|
     total += 1
@@ -18,7 +18,7 @@ sub go
   a()
   b()
 
-sub main
+sub main()
   go()
   x = 1
   owned = *|?x| x + 1

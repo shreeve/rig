@@ -2,9 +2,11 @@ struct R
   n: Int
   drop(!self)
     print("drop", self.n)
+
 struct S
   r: R?
-sub main
+
+sub main()
   s = S(r: R(n: 1))
   -s.r
   print("after")

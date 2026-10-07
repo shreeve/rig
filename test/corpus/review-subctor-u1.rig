@@ -14,7 +14,7 @@ enum Kind
 struct K
   k: Kind
 
-sub main
+sub main()
   a = A([1, 2, 3])
   b = A([3 of 0])
   n = Name("bob")

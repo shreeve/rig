@@ -10,7 +10,7 @@ sub f()!
 sub cb(n: Int, xs: Vec[Int])
   pass
 
-sub main
+sub main()
   f()!
   cb(1, Vec())
   s = S(n: 1)

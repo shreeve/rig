@@ -49,9 +49,9 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t1900
+sub t1900()
   cmp1900: U128 = id_u128(8)
   print(cmp1900 == (3 - 1), (3 - 1) < cmp1900, (3 - 1) >= cmp1900)
 
-sub main
+sub main()
   t1900()

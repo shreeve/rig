@@ -4,7 +4,7 @@ struct N
 struct H
   h: *N
 
-sub main
+sub main()
   a = H(h: *N(n: 1))
   b = +a
   print(b.h.n)

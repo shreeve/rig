@@ -4,6 +4,6 @@ struct P
 sub f(p: ?P)
   p.x = 5
 
-sub main
+sub main()
   q = P(x: 1)
   f(?q)

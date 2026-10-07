@@ -1,8 +1,10 @@
 fun f(w2: !Int) -> !Int
   w2
+
 fun g(w2: !Int) -> !Int
   return w2
-sub main
+
+sub main()
   m = 3
   new w = f(!m)
   w += 1

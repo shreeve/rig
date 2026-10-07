@@ -8,7 +8,7 @@
 fun twice[T](x: ?T) -> [2]?T
   [2 of x]
 
-sub main
+sub main()
   n = 1
   m = 2
   a = [3 of ?n]

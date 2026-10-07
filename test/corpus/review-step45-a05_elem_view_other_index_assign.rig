@@ -1,5 +1,5 @@
 # view of v[0], assign v[1]
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

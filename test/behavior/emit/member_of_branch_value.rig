@@ -7,7 +7,7 @@ fun pick(s: String, c: Bool) -> Int
 fun first(s: String, c: Bool) -> U8
   ("b" if c else s)[0]
 
-sub main
+sub main()
   o: String? = none
   k = 2
   print(pick("abc", false), pick("abc", true))

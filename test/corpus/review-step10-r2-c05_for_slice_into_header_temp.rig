@@ -10,6 +10,6 @@ fun mkv(k: Int) -> Vec[Int]
 fun sl(v: ?Vec[Int]) -> []Int from v
   ?v[1..3]
 
-sub main
+sub main()
   for x in sl(?mkv(5))
     print(x)

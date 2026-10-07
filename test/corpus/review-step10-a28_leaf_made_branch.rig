@@ -17,7 +17,7 @@ fun mkq(k: Int) -> Q
 fun g(k: Int) -> Int
   k
 
-sub main
+sub main()
   b = Q(xs: [0, 0, 0, 0])
   c = g(1) == 1
   print((mkq(5) if c else b).me().xs[3])

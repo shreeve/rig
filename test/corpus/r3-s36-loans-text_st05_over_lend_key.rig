@@ -3,7 +3,7 @@
 fun after(hay: String, key: String) -> String
   hay[key.len..]
 
-sub main
+sub main()
   doc = Text("key=value")
   k = Text("key=")
   v = after(?doc, ?k)

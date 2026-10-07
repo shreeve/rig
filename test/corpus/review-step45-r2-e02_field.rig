@@ -5,15 +5,13 @@ struct S
 struct Holder[T]
   x: T?
 
-
-
 fun hold[T](v: ?Vec[T]) -> Holder[T]
   h = Holder[T](x: none)
   for x in v
     h.x = x
   <h
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

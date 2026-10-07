@@ -4,6 +4,7 @@ fun first(o: (![]Int)?) -> Int
     s.len
   else
     0
+
 sub main()
   a = [1, 2]
   w: (![]Int)? = !a[..]

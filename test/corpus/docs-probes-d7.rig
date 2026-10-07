@@ -1,4 +1,4 @@
-sub main
+sub main()
   v = Vec[Int]()
   !v.push(1)
   print(v.len())

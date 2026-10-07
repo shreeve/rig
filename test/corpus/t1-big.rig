@@ -2,7 +2,7 @@ use std.random
 use std.sort
 use std.time
 
-sub main
+sub main()
   r = random.Random.seeded(1)
   v: Vec[Int] = Vec()
   for _ in 0..200000

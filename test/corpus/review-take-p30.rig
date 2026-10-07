@@ -6,7 +6,7 @@ struct R
 struct S
   a: R?
 
-sub main
+sub main()
   s: *S = *S(a: R(n: 1))
   x = replace(!s.a, none)
   print(x)

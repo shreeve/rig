@@ -2,6 +2,7 @@ struct P
   n: Int
   sub bump(!self, k: Int)
     self.n += k
+
 sub main()
   ps = Vec[P]()
   !ps.push(P(n: 1))

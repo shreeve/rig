@@ -1,4 +1,4 @@
-sub main
+sub main()
   a: [2][3]Int? = [2 of [3 of none]]
   c = [[1, 2], [3, 4]][1][0]
   n = 7

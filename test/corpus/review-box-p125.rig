@@ -10,7 +10,7 @@ sub two2(a: !Node, b: ?Node)
   a.next = none
   print(b.v)
 
-sub main
+sub main()
   b = Box(value: Node(v: 1, next: Box(value: Node(v: 2, next: none))))
   two(!b, !b.next)
   two2(!b, ?b)

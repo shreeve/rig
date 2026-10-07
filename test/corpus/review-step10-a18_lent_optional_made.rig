@@ -16,7 +16,7 @@ fun first(o: (?Q)?, d: ?Q) -> ?Q
 fun g(k: Int) -> Int
   k
 
-sub main
+sub main()
   d = Q(xs: [0, 0, 0, 0], n: 0)
   print(first(?mko(3), ?d).xs[3])
   print(first(d: ?d, o: ?mko(g(4))).xs[3])

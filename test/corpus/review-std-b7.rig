@@ -4,7 +4,7 @@ struct Holder
   sub put(!self, g: ?fun() -> Int)
     self.f = g
 
-sub main
+sub main()
   z = 1
   k = || z
   h = Holder(f: ?k)

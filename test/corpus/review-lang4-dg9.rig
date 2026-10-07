@@ -4,7 +4,7 @@ struct H
 fun inner(b: ?Box[Vec[Int]]) -> ?Vec[Int]
   ?b.value
 
-sub main
+sub main()
   b = Box(Vec[Int]())
   h = H(w: !b)
   s = inner(?h.w)

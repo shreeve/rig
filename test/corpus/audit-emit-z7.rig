@@ -5,7 +5,7 @@ fun bump(k: !Int) -> Int
   k += 1
   7
 
-sub main
+sub main()
   w: Vec[Int] = Vec()
   !w.push(1)
   !w.push(2)

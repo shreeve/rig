@@ -1,6 +1,6 @@
 struct P
   x: Int
 
-sub main
+sub main()
   hs: Vec[*P] = Vec()
   !hs.fill(*P(x: 1))

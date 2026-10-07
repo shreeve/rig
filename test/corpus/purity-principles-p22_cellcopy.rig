@@ -4,7 +4,7 @@ struct Counter
   sub hit(?self)
     self.hits.set(self.hits.get() + 1)
 
-sub main
+sub main()
   a = Counter(hits: Cell(0))
   a.hit()
   b = <a

@@ -10,7 +10,7 @@ struct S
 fun take(p: !S) -> Vec[Int]?
   <(!p).o
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   s = S(n: 2, o: <v)

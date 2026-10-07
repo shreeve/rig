@@ -12,7 +12,7 @@ fun clobber(a: Int) -> Int
   x = [a, a, a, a, a, a, a, a, a, a, a, a, a, a, a, a]
   x[0] + x[15]
 
-sub main
+sub main()
   h = H(s: ?S(n: rt(1), m: rt(2)))
   if rt(1) == 1
     new h = H(s: ?S(n: rt(7), m: rt(8)))

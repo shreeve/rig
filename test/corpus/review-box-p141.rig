@@ -19,7 +19,7 @@ sub f(v: ?Vec[Box[R]])
     wr(!x)
     wrb(!x)
 
-sub main
+sub main()
   v: Vec[Box[R]] = Vec()
   !v.push(Box(value: R(n: 1)))
   f(?v)

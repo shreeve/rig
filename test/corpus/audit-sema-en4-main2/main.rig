@@ -4,5 +4,5 @@ enum E
   a = lib.J
   b
 
-sub main
+sub main()
   print(Int(E.a), Int(E.b))

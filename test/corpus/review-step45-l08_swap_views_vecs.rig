@@ -1,5 +1,5 @@
 # swap of elements carrying different loans
-sub main
+sub main()
   t = Text("x")
   m: Vec[Vec[String]] = Vec()
   !m.push(Vec())

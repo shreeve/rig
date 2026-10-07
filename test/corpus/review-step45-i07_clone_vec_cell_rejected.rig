@@ -1,5 +1,5 @@
 # +v where v: Vec[Cell[Int]] must be rejected
-sub main
+sub main()
   v: Vec[Cell[Int]] = Vec()
   !v.push(Cell(1))
   w = +v

@@ -6,7 +6,7 @@ struct Tok
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   h = lib.Holder[*Tok](x: *Tok(n: 1))
   t = h.peek()
   print(t.n)

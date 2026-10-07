@@ -58,7 +58,7 @@ and never negates (`if !done` is an error that says to use `not`; see
 arithmetic negation (`y = -n`):
 
 ```rig
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)
@@ -108,7 +108,7 @@ fun label(n: Int) -> String
     5, 10 => "buzz"
     _ => "-"
 
-sub main
+sub main()
   for n in 1..7
     print(n, label(n))
 ```
@@ -140,7 +140,7 @@ struct Account
   sub pay(!self, amount: Int)
     self.balance -= amount
 
-sub main
+sub main()
   a = Account(owner: "ada", balance: 100)
   if a.can_pay(30)
     !a.pay(30)
@@ -168,7 +168,7 @@ struct File
 sub archive(f: File)
   print("archiving", f.name)
 
-sub main
+sub main()
   log = File(name: "log.txt")
   archive(<log)
   cfg = *File(name: "cfg.toml")
@@ -204,7 +204,7 @@ fun first_even(xs: ?[4]Int) -> Int?
     return x if x % 2 == 0
   none
 
-sub main
+sub main()
   print(parse_len("four")!, parse_len("") catch -1)
   print(first_even(?[1, 3, 4, 5]) ?? 0)
 ```
@@ -222,7 +222,7 @@ statement modifier.
 ### Closures
 
 ```rig
-sub main
+sub main()
   count: *Cell[Int] = *Cell(0)
   step = 5
   tick = |+count, +step| count.set(count.get() + step)
@@ -434,7 +434,7 @@ Rig has no `def`; declare a function with `fun` (it returns a value) or `sub`
 ```
 
 ```rig reject
-sub main
+sub main()
   x = 1
   if x > 1
     print(1)
@@ -447,7 +447,7 @@ Rig has no `elif`; write `else if`
 ```
 
 ```rig reject
-sub main
+sub main()
   let x = 1;
   print(x)
 ```
@@ -460,7 +460,7 @@ A block's header takes no `:`, a comment starts with `#`, and `i++`
 is `i += 1`:
 
 ```rig reject
-sub main
+sub main()
   i = 0
   if i > 0:
     print(i)
@@ -471,7 +471,7 @@ unexpected `:`; a block's header ends without one: remove the `:`, and indent th
 ```
 
 ```rig reject
-sub main
+sub main()
   i = 0 // start
   print(i)
 ```
@@ -481,7 +481,7 @@ comments start with `#`; Rig has no `//` or `/* */` comments
 ```
 
 ```rig reject
-sub main
+sub main()
   i = 0
   i++
   print(i)
@@ -505,7 +505,7 @@ struct Counter
   fun twice(?self) -> Int
     n * 2
 
-sub main
+sub main()
   x: Int? = null
   ok = True
   println(Counter(n: 1).get())
@@ -525,7 +525,7 @@ one in scope: ``use of unbound name `totla`; did you mean `total`?``.
 **Calls without parentheses.** Every call has them, as in Rust and Zig:
 
 ```rig reject
-sub main
+sub main()
   x = 1
   print x
 ```
@@ -539,7 +539,7 @@ Where it would start a condition, or an operand of `and`, `or`, or
 `not`, the habit is an error:
 
 ```rig reject
-sub main
+sub main()
   done = false
   while !done
     done = true
@@ -553,7 +553,7 @@ sub main
 `??`:
 
 ```rig reject
-sub main
+sub main()
   a = true
   print(a || false)
 ```
@@ -572,7 +572,7 @@ struct Counter
   sub bump(!self)
     self.n += 1
 
-sub main
+sub main()
   c = Counter(n: 0)
   c.bump()
 ```
@@ -595,7 +595,7 @@ struct Res
 sub eat(r: Res)
   print(r.n)
 
-sub main
+sub main()
   r = Res(n: 1)
   eat(r)
 ```
@@ -626,7 +626,7 @@ Odin's `string`; Rust's `String` is Rig's `Text`. Text is built in a
 `print` would, and `!t.add(...)` appends more ([SPEC §10](SPEC.md#text)):
 
 ```rig reject
-sub main
+sub main()
   name = "ada"
   print("hi " + name)
 ```
@@ -636,7 +636,7 @@ Rig has no `+` on text: build it with `Text(a, b)` or `!t.add(...)`
 ```
 
 ```rig
-sub main
+sub main()
   name = "ada"
   t = Text("hi ", name)
   !t.add(", you are ", 36)
@@ -655,7 +655,7 @@ statement ends.
 **Inclusive ranges.** A range excludes its end, and there is no `..=`:
 
 ```rig reject
-sub main
+sub main()
   for i in 0..=3
     print(i)
 ```
@@ -669,7 +669,7 @@ reverse of Python's `enumerate` and Go's `range`. Written the other
 way, the error says so where a binding is used as the other one:
 
 ```rig reject
-sub main
+sub main()
   xs = ["a", "bb"]
   for i, x in xs
     print(xs[i])
@@ -685,10 +685,10 @@ is an error (as in Zig), and so is a local that reuses a visible name
 without `new`:
 
 ```rig reject
-fun total -> Int
+fun total() -> Int
   0
 
-sub main
+sub main()
   count = 0
   cuont = 5
   print(count)

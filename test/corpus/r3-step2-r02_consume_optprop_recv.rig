@@ -11,7 +11,7 @@ fun go(h: !Holder) -> Int?
   n = (h.o?).total()
   n
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(3)
   h = Holder(o: <b)

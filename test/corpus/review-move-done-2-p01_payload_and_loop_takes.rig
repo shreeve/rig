@@ -11,7 +11,7 @@ fun mkv(n: Int) -> Vec[Int]
   !xs.push(n)
   xs
 
-sub a
+sub a()
   e: E = .one(s: S(o: mkv(1)))
   match !e
     .one(s) => print(<s.o == none)
@@ -20,7 +20,7 @@ sub a
     .one(s) => print(s.o == none)
     .none_ => print(0)
 
-sub b
+sub b()
   v: Vec[S] = Vec()
   !v.push(S(o: mkv(1)))
   !v.push(S(o: mkv(2)))
@@ -28,14 +28,14 @@ sub b
     x = <s.o
     print(x == none)
 
-sub c
+sub c()
   s = S(o: mkv(3))
   k = 0
   while <s.o as x
     k += x.len
   print(k, s.o == none)
 
-sub main
+sub main()
   a()
   b()
   c()

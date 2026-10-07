@@ -24,7 +24,7 @@ fun mk(n: Int) -> H
 fun mke(n: Int) -> HE
   HE(e: E.a(c: Counter(hits: Cell(n)), z: Noisy(n: n)))
 
-sub main
+sub main()
   for k in mk(0).arr
     defer
       print("defer", k.hits.get())

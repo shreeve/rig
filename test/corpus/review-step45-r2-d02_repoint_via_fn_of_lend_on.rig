@@ -2,7 +2,7 @@
 fun id(x: !Text) -> !Text
   x
 
-sub main
+sub main()
   a = Text("a")
   w = !a
   w2 = id(!w)

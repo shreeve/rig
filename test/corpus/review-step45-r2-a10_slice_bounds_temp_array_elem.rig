@@ -2,7 +2,7 @@
 fun idx(s: String) -> Int
   s.len - 1
 
-sub main
+sub main()
   a = [[Text("p"), Text("q")]]
   for x in !a[idx(?Text("a"))][0..2]
     for _ in 0..40

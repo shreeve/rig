@@ -28,7 +28,7 @@ fun f1(a1: Int) -> Int
   c1 = c1 % 1000
   a1 + b1 + c1
 
-sub main
+sub main()
   print("ret", f0(7))
   print("ret", f1((-1)))
   print("ret", f1(5))

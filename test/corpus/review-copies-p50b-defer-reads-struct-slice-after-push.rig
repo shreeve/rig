@@ -3,7 +3,7 @@
 struct S
   s: []Int
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   h = S(s: ?v[..])

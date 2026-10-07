@@ -29,13 +29,13 @@ struct Holder
 struct H
   q: Q
 
-fun mk -> S
+fun mk() -> S
   S(n: 5, m: 6)
 
-fun mkh -> H
+fun mkh() -> H
   H(q: Q(c: Cell(1), n: 42))
 
-sub main
+sub main()
   r = mk().me()
   print(r.n)
   h = Holder(r: none)

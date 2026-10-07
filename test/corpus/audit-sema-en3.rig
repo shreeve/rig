@@ -2,5 +2,5 @@ enum E
   a = 3 +% 4
   b
 
-sub main
+sub main()
   print(Int(E.a), Int(E.b))

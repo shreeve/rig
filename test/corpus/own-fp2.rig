@@ -8,7 +8,7 @@ fun put(v: !View, t: ?Big) -> Bool
   v.b = t
   true
 
-sub main
+sub main()
   x0 = Big(v: Vec())
   vw = View(b: ?x0)
   o: Big? = Big(v: Vec())

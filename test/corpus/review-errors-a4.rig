@@ -9,7 +9,7 @@ fun fetch(n: Int) -> Int!
   return Disk.timeout if n == 2
   n
 
-sub main
+sub main()
   d: Disk = .timeout
   n: Net = .timeout
   x = fetch(2) catch |e|

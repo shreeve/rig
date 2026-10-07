@@ -11,7 +11,7 @@ fun mk(k: Int) -> Sh
   print("mk", k)
   .circle(r: k) if k > 0 else .rect(w: 2, h: 3)
 
-sub main
+sub main()
   res = match mk(1)
     .circle(r) if r > 5 => "big"
     .circle(r) if r > 0 => "small"

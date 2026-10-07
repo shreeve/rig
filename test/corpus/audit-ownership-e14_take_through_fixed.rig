@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 struct H
   o: *Tok?
 
-sub main
+sub main()
   const h = H(o: *Tok(n: 1))
   x = <h.o
   print(x == none)

@@ -8,7 +8,7 @@ fun kill(o: !(Res?)) -> Bool
   o = none
   true
 
-sub main
+sub main()
   o: Res? = Res(id: 1)
   if ?o as x and kill(!o)
     print(x.id)

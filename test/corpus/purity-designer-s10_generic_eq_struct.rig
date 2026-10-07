@@ -1,6 +1,8 @@
 struct P
   x: Int
+
 fun same[T](a: T, b: T) -> Bool
   a == b
-sub main
+
+sub main()
   print(same(P(x: 1), P(x: 1)))

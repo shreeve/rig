@@ -24,13 +24,13 @@ struct S
 struct H
   w: !Int
 
-fun mk -> S
+fun mk() -> S
   S(n: 1, arr: [1, 2])
 
-fun view -> !Int
+fun view() -> !Int
   !mk().at()
 
-sub main
+sub main()
   w = !mk()
   print(w.n)
   r = !mk().at()

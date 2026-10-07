@@ -13,7 +13,7 @@ struct BagIter[T]
     self.i += 1
     self.bag.items[self.i - 1]
 
-sub main
+sub main()
   b = Bag[Int](items: Vec())
   !b.items.push(4)
   !b.items.push(5)

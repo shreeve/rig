@@ -9,7 +9,7 @@ sub put(h: !Holder)
   defer h.r = ?w
   print(1)
 
-sub main
+sub main()
   x = Item(n: 1)
   h = Holder(r: ?x)
   put(!h)

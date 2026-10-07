@@ -15,7 +15,7 @@ fun consume(b: *B) -> Bool
 fun fresh(n: Int) -> B
   B(n: n)
 
-sub main
+sub main()
   s: Slot = .full(b: *B(n: 1))
   match <s
     .full(b) if consume(+b) => print("a")

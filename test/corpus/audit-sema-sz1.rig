@@ -1,4 +1,4 @@
 type A = [493_450]String?
 
-sub main
+sub main()
   print(1)

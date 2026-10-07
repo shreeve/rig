@@ -1,5 +1,6 @@
 A = "a"[0]
-sub main
+
+sub main()
   x: U8 = 97
   match x
     97 => print("a")

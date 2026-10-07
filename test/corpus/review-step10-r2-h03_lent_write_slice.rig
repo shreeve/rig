@@ -24,6 +24,6 @@ fun pick(s: ![]Int, n: Int) -> Int
   s[n] = 99
   s[0]
 
-sub main
+sub main()
   v = mkv(5)
   print(pick(n: g(1), s: !v), v)

@@ -4,7 +4,7 @@ struct Holder[T]
   fun get(?self) -> T
     self.v
 
-sub main
+sub main()
   t = Text("abc")
   h = Holder(v: ?t[..])
   !t.add("def")

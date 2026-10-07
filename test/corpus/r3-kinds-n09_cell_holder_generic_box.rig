@@ -7,7 +7,7 @@ struct Wrap[T]
 fun keep[T](x: T) -> Wrap[T]
   Wrap(v: x)
 
-sub main
+sub main()
   a = Counter(hits: Cell(0))
   w = keep(a)
   w.v.hits.set(3)

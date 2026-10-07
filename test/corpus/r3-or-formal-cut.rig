@@ -1,6 +1,6 @@
 use std.text
 
-sub main
+sub main()
   t = Text("k=v")
   sep = Text("=")
   if text.cut(?t, ?sep) as kv

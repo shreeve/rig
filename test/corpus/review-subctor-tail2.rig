@@ -37,7 +37,7 @@ sub t8()!
   for i in 0..3
     break if i == 1
 
-sub main
+sub main()
   t1()!
   t2()!
   t3(3)!

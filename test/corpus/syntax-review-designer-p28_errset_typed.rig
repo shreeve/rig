@@ -1,12 +1,13 @@
 error A
   timeout
+
 error B
   timeout
 
-fun f -> Int!
+fun f() -> Int!
   return A.timeout
 
-sub main
+sub main()
   x = f() catch |e|
     match e
       .timeout => 1

@@ -1,6 +1,7 @@
 sub bump(n: !Int)
   n += 1
-sub main
+
+sub main()
   x = 1
   bump(x)
   print(x)

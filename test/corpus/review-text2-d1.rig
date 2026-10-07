@@ -12,7 +12,7 @@ fun maybe(i: Int) -> N?
 sub consume(n: N)
   print("consume", n.id)
 
-sub main
+sub main()
   if maybe(1) as n
     consume(<n)
   print("a")

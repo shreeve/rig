@@ -2,7 +2,7 @@ error Disk
   full
   empty
 
-fun f -> Int!
+fun f() -> Int!
   return Disk.full
 
 fun g(n: Int) -> Int!
@@ -16,7 +16,7 @@ fun h(n: Int) -> Int!
     return y
   x
 
-sub main
+sub main()
   x = f() catch |e|
     a = [e, .empty]
     b = e if true else .empty

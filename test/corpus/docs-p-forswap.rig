@@ -1,4 +1,4 @@
-sub main
+sub main()
   xs = ["a", "b"]
   for i, x in xs
     print(i + 1, x)

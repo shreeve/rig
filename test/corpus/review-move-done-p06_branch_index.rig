@@ -1,4 +1,4 @@
-sub main
+sub main()
   a: Vec[Vec[Int]] = Vec()
   b: Vec[Vec[Int]] = Vec()
   r: Vec[Int] = Vec()

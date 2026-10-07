@@ -7,7 +7,7 @@ struct R
 fun f() -> Int!
   defer
     errdefer print("y")
-  g = |x: Int| 
+  g = |x: Int|
     errdefer print("z")
     x
   _ = g(1)
@@ -17,7 +17,7 @@ fun h() -> Int?
   errdefer print("w")
   none
 
-sub main
+sub main()
   :a defer print("q")
   :b x = 1
   :c :d while true

@@ -11,7 +11,7 @@ enum E
   a(p: P)
   b
 
-sub main
+sub main()
   e: E = .a(p: P(c: Cell(1)))
   match ?e
     .a(p)

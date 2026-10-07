@@ -15,7 +15,7 @@ fun mkh(k: Int) -> H
 fun pick(h: ?H) -> ?Q?
   ?h.q
 
-sub main
+sub main()
   if pick(?mkh(7)) as x
     print(x.xs[0], x.xs[3])
   n = 0

@@ -1,7 +1,7 @@
 sub bump(x: !Int)
   x += 1
 
-sub main
+sub main()
   a = 1
   v: Vec[!Int] = Vec()
   !v.push(!a)

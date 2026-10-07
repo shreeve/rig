@@ -23,6 +23,6 @@ struct R
     old = replace(!self.t, *Tok(n: 99))
     eat(<old)
 
-sub main
+sub main()
   r = R(t: *Tok(n: 1))
   print("x")

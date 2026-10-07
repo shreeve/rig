@@ -1,6 +1,6 @@
 use b
 
-sub main
+sub main()
   x = b.h(0) catch |e|
     match e
       b.Mid.timeout => 1

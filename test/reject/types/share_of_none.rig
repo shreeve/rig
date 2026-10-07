@@ -16,7 +16,7 @@ sub f(h: (*Int)?)
 fun g() -> (*Int)?
   *none
 
-sub main
+sub main()
   a = *none
   b: (*Int)? = *none
   f(*none)

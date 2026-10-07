@@ -12,7 +12,7 @@ struct H
 fun idx(s: String) -> Int
   s.len - 1
 
-sub main
+sub main()
   v: Vec[Text?] = Vec()
   !v.push(Text("q"))
   w: Text? = Text("w")

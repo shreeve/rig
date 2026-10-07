@@ -4,7 +4,6 @@ error Bad
 struct P
   x: Int
 
-
 error Other
   nope
 
@@ -13,7 +12,7 @@ fun get(r: ?P, k: Int) -> (?P)!
   return Other.nope if k == 1
   r
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   for k in 0..3

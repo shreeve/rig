@@ -14,7 +14,7 @@ fun px(o: P?) -> Int
     return p.x
   -1
 
-sub main
+sub main()
   a = P(x: 1)
   i: (?P)? = ?a
   f: P? = i ?? none

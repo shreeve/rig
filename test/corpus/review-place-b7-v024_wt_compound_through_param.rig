@@ -4,7 +4,7 @@ struct H
 sub f(h: !H)
   h.w -= 1
 
-sub main
+sub main()
   n = 5
   h = H(w: !n)
   f(!h)

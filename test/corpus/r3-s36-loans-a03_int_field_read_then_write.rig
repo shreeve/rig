@@ -1,7 +1,7 @@
 struct P
   x: Int
 
-sub main
+sub main()
   p = P(x: 1)
   r = ?p.x
   p.x = 5

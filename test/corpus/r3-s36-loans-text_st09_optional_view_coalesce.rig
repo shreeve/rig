@@ -3,7 +3,7 @@ fun find(hay: String, b: U8) -> String?
     return hay[i..] if c == b
   none
 
-sub main
+sub main()
   t = Text("a=b")
   rest = find(?t, 61) ?? ""
   !t.add("c")

@@ -7,7 +7,7 @@ struct R
 fun rd(r: ?R) -> Int
   r.n
 
-sub main
+sub main()
   o: R? = R(n: 1)
   b = Box(value: R(n: 5))
   f = *|<o, <b|

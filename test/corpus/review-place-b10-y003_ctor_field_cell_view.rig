@@ -8,5 +8,5 @@ sub bump(p: ?P)
   p.c.set(p.c.get() + 1)
   print(p.c.get())
 
-sub main
+sub main()
   bump(?Q(p: P(c: Cell(1))).p)

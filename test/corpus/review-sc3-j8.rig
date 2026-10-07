@@ -1,7 +1,7 @@
 fun get(k: Int) -> Int?
   k if k > 0 else none
 
-sub main
+sub main()
   n = 3
   while (get(n) ?? break) > 0
     n -= 1

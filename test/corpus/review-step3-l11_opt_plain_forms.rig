@@ -24,7 +24,7 @@ fun mkp(n: Int) -> P?
 fun mkc() -> Counter?
   Counter(hits: Cell(0))
 
-sub main
+sub main()
   print(maybe(mkp(1)), maybe(mkp(9)), maybe(none), maybe(P(n: 4)))
   k: Counter? = Counter(hits: Cell(0))
   bumpo(k)

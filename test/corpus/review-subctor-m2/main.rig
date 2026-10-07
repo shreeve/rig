@@ -1,6 +1,6 @@
 use lib
 
-sub main
+sub main()
   s = lib.Shape.circle(2.0)
   c = lib.circle(3.0)
   x: lib.W[Int?] = lib.W(none)

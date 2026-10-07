@@ -2,8 +2,10 @@ struct P
   x: Int
   fun key(?self) -> Int
     self.x
+
 fun k[T](a: ?T) -> Int
   a.key()
-sub main
+
+sub main()
   p = P(x: 1)
   print(k(?p))

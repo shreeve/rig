@@ -3,7 +3,7 @@ struct R
   drop(!self)
     print("drop R", self.n)
 
-sub main
+sub main()
   a = R(n: 1)
   r = for i in 0..3
     if i == 1

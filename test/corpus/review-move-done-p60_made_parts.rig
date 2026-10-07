@@ -5,10 +5,10 @@ struct S
 struct T
   o: S?
 
-fun mk -> S
+fun mk() -> S
   S(v: Vec(), w: Vec())
 
-sub m1
+sub m1()
   a = mk()
   !a.v.push(1)
   x = <(<a).v
@@ -20,12 +20,12 @@ sub m2(c: Bool)
   x = <(<a if c else <b).v
   print(x.len)
 
-sub m3
+sub m3()
   t = T(o: mk())
   x = <((<t.o) ?? mk()).v
   print(x.len)
 
-sub m4
+sub m4()
   a: Vec[Int] = Vec()
   b: Vec[Int] = Vec()
   x = <[<a, <b][0]
@@ -35,7 +35,7 @@ sub m5(c: Bool)
   x = <(mk() if c else mk()).v
   print(x.len)
 
-sub main
+sub main()
   m1()
 
 # oracle: mk accept

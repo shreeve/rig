@@ -33,7 +33,7 @@ fun largest[T](xs: ?Vec[T]) -> T?
       best = x
   best
 
-sub main
+sub main()
   s = Stack[Box[R]](items: Vec())
   !s.push(Box(R(n: 1)))
   !s.push(Box(R(n: 2)))

@@ -2,9 +2,11 @@ struct Node
   id: Int
   drop(!self)
     print("drop", self.id)
+
 struct Slot[V]
   v: V?
-sub main
+
+sub main()
   a: Vec[Box[Slot[*Node]]] = Vec()
   !a.push(Box(value: Slot(v: *Node(id: 1))))
   for s in ?a

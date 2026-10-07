@@ -4,7 +4,7 @@ struct P
 struct Res
   v: Vec[Int]
 
-sub main
+sub main()
   p: Int? = 1
   if !p as y and y > 0
     y += 10

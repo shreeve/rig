@@ -15,7 +15,7 @@ fun mkn(x: Int) -> *Node
   !v.push(x)
   *Node(vals: <v)
 
-sub main
+sub main()
   r = mkn(1)
   k = 0
   i = 0

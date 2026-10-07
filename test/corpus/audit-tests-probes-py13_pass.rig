@@ -1,5 +1,5 @@
-sub nothing
+sub nothing()
   pass
 
-sub main
+sub main()
   nothing()

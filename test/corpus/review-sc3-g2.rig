@@ -14,7 +14,7 @@ struct Holder
   a: Res?
   b: Res?
 
-sub main
+sub main()
   s = first(none, Res(id: 4))
   print(s == none)
   h = Holder(a: Res(id: 5), b: none)

@@ -5,7 +5,7 @@ fun next_byte() -> I32
   raw
     getchar()
 
-sub main
+sub main()
   lines = 0
   words = 0
   bytes = 0

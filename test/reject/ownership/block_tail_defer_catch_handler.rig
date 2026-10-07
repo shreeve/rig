@@ -3,10 +3,10 @@
 error E
   bad
 
-fun f -> Vec[Int]!
+fun f() -> Vec[Int]!
   return E.bad
 
-sub main
+sub main()
   x = f() catch |_|
     v: Vec[Int] = Vec()
     !v.push(1)

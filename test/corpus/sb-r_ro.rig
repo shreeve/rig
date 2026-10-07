@@ -1,6 +1,6 @@
 sub f(s: []Int)
   s.fill(0)
 
-sub main
+sub main()
   a = [1]
   f(?a[..])

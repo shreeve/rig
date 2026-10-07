@@ -7,7 +7,7 @@ sub run(f: ?sub(?Vec[Int]))
   !local.push(8)
   f(?local)
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   v = View(w: ?a)
   run(|!v, w|

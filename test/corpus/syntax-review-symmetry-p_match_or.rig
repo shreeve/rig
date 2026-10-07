@@ -1,4 +1,4 @@
-sub main
+sub main()
   match 3
     1, 2 => print("low")
     _ => print("other")

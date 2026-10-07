@@ -6,7 +6,7 @@ struct It
     self.i += 1
     self.i - 1
 
-sub main
+sub main()
   it = It(i: 0, n: 3)
   while !it.next() as x
     print(x)

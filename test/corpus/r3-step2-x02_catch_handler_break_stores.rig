@@ -9,7 +9,7 @@ fun mk(ok: Bool) -> Int!
 struct H
   r: ?Vec[Int]
 
-sub main
+sub main()
   z: Vec[Int] = Vec()
   h = H(r: ?z)
   for i in 0..2

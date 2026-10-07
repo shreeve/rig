@@ -4,7 +4,7 @@ struct W
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   a = W(n: 1)
   r = ?a
   if true

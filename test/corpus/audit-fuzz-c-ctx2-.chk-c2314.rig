@@ -59,9 +59,9 @@ error Err2314
 struct GP2314[T]
   f: T
 
-sub t2314
+sub t2314()
   gp2314: GP2314[F32] = GP2314(f: (fal2314(true) catch 10.25))
   print(gp2314.f)
 
-sub main
+sub main()
   t2314()

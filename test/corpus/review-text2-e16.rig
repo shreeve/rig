@@ -4,7 +4,7 @@ struct P
 sub put(c: !Vec[P], s: String)
   c[0] = P(s: s)
 
-sub main
+sub main()
   t = Text("abcdefghijklmnop")
   v: Vec[P] = Vec()
   !v.push(P(s: "x"))

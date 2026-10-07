@@ -1,15 +1,15 @@
-sub loop
+sub loop()
   while true
     print("x")
     break
   print("after")
 
-fun spin -> Int
+fun spin() -> Int
   n = 0
   while true
     n += 1
     return n if n > 3
 
-sub main
+sub main()
   loop()
   print(spin())

@@ -9,7 +9,7 @@ fun clear(e: !E) -> Bool
   e = E.b
   false
 
-sub main
+sub main()
   e = E.a(r: Res(t: Text("abc")))
   match e
     .a(r) if clear(!e) => print(r.t)

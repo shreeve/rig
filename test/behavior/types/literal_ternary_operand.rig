@@ -7,7 +7,7 @@ fun rt(b: Bool) -> Bool
 fun id_f32(x: F32) -> F32
   x
 
-sub main
+sub main()
   f = rt(true)
   r: U8 = (1 if f else 2) + 1
   n: I8 = -(100 if f else 2)

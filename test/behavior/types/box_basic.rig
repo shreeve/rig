@@ -24,7 +24,7 @@ fun norm(p: ?Point) -> Int
 sub reset(p: !Point)
   p = Point(x: 0, y: 1)
 
-sub main
+sub main()
   b = Box(Point(x: 3, y: 4))
   print(b.x, b.y, b.sum(), norm(?b))
   b.y = 10

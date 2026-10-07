@@ -1,7 +1,7 @@
 struct Counter
   hits: Cell[Int]
 
-sub main
+sub main()
   o: Counter? = Counter(hits: Cell(0))
   d = Counter(hits: Cell(7))
   k = o ?? d

@@ -40,33 +40,33 @@ fun calls(f: ?sub(), b: ?Item) -> Int
   f()
   b.n
 
-sub receiver_result
+sub receiver_result()
   b = Bag(items: Vec())
   !b.items.push(Item(n: 7))
   print(both(!b.firstw(), ?b))
 
-sub moved_view
+sub moved_view()
   x = Item(n: 1)
   w = !x
   print(pair(<w, ?x))
 
-sub moved_holder
+sub moved_holder()
   x = Item(n: 1)
   h = Hold(w: !x)
   print(held(<h, ?x))
 
-sub closure_arg
+sub closure_arg()
   x = Item(n: 1)
   f = |!x| x.n += 1
   print(calls(?f, ?x))
 
-sub constructor_arg
+sub constructor_arg()
   b = Bag(items: Vec())
   !b.items.push(Item(n: 7))
   p = Pair(w: !b.firstw(), r: ?b)
   print(p.r.items.len)
 
-sub main
+sub main()
   receiver_result()
 
 # error: 46:28: cannot lend `b` to read while a write loan is live

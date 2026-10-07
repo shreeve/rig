@@ -9,7 +9,7 @@ struct G
 fun mk(v: !Vec[Int]) -> G
   G(w: !v)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   w = <mk(!v).w
   !w.push(1)

@@ -50,10 +50,10 @@ struct HH
 fun mk(n: Int) -> S
   S(n: n, t: Text("hello world, long enough to be on the heap ", n))
 
-fun mkh -> H
+fun mkh() -> H
   H(rs: Vec())
 
-fun mkhh -> HH
+fun mkhh() -> HH
   hh = HH(inner: H(rs: Vec()), hs: Vec())
   !hh.hs.push(H(rs: Vec()))
   hh
@@ -71,6 +71,6 @@ fun f(n: Int) -> Int
 sub put(r: String, h: !H)
   !h.rs.push(r)
 
-sub main
+sub main()
   put(?mk(1).t, !mkh())
   print("end")

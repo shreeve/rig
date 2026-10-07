@@ -12,7 +12,7 @@ fun h[T](x: T, f: ?fun(T) -> T) -> T
 fun both[T](f: ?fun() -> T, k: ?fun() -> T) -> T
   f()
 
-sub main
+sub main()
   print(g(|x| 1))
   print(h(1, |x| x > 0))
   print(both(|| 1, || true))

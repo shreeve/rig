@@ -2,7 +2,7 @@
 # old one is never used again, so its loan is over (Core sentence 6),
 # also in a loop and when the new view is of the place it viewed.
 
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   w = !a

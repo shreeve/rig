@@ -14,7 +14,7 @@ fun mk(ok: Bool) -> Bag!
     return E.bad
   Bag(items: Vec())
 
-sub main
+sub main()
   d = Bag(items: Vec())
   !d.items.push(4)
   print((mk(false) catch d).total())

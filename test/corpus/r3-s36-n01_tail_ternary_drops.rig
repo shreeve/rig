@@ -9,7 +9,7 @@ fun pick(c: Bool) -> R
   b = R(n: 2)
   a if c else b
 
-sub main
+sub main()
   x = pick(true)
   y = pick(false)
   print(x.n, y.n)

@@ -3,7 +3,7 @@
 struct R
   v: Vec[Int]
 
-sub main
+sub main()
   c = true
   x = if c
     r = R(v: Vec())

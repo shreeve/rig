@@ -15,7 +15,7 @@ fun total(v: ?Vec[Int]) -> Int
 fun first(a: ?[4]Int) -> Int
   a[0]
 
-sub main
+sub main()
   b = Box(Vec[Int]())
   fill(!b)
   print(total(?b), b)

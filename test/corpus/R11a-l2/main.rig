@@ -1,6 +1,6 @@
 use lib
 
-fun g[k: Int] -> Int
+fun g[k: Int]() -> Int
   z = lib.zeros[k]()
   z.len
 

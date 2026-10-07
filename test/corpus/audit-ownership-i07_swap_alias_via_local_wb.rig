@@ -20,7 +20,7 @@ struct P
   a: *Tok
   b: *Tok
 
-sub main
+sub main()
   p = P(a: *Tok(n: 1), b: *Tok(n: 2))
   q = !p
   swap(!q.a, !p.b)

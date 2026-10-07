@@ -31,7 +31,7 @@ fun unopt(t: T?, d: T) -> T
 fun retv(o: (?T)?, a: ?T, b: ?T) -> T
   o ?? b
 
-sub main
+sub main()
   a = T.a
   b = T.b
   h = HO(t: get(?a, true) catch ?b)

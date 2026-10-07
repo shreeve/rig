@@ -18,7 +18,7 @@ fun f(ok: Bool) -> Int!
   else
     return E.bad
 
-sub main
+sub main()
   print(f(true) catch 0)
 
 # error: 13:27: use of `x` after move

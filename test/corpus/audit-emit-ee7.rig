@@ -2,5 +2,5 @@ fun helper(invoke: Int) -> Int
   f = |a: Int| a + 1
   f(invoke)
 
-sub main
+sub main()
   print(helper(2))

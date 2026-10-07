@@ -27,7 +27,7 @@ fun mkopt(n: Int) -> S?
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   bx = Box(mk(1))
   x = <(!bx).items
   print(x)

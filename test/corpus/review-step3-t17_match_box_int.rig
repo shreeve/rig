@@ -1,4 +1,4 @@
-sub main
+sub main()
   b = Box(3)
   match b
     3 => print("three")

@@ -10,7 +10,7 @@ fun longer(a: ?Text, b: ?Text) -> Bool
 fun bigger(a: ?Box[P], b: ?Box[P]) -> Bool
   a.n > b.n
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   for i in 0..30
     t = Text("")

@@ -32,7 +32,7 @@ fun flatten(t: Tree, out: !Vec[Int])
       flatten(<l.unbox(), !out)
       flatten(<r.unbox(), !out)
 
-sub main
+sub main()
   t: Tree = .node(l: Box(Tree.leaf(v: 1)), r: Box(Tree.leaf(v: 3)))
   v: Vec[Int] = Vec()
   flatten(<t, !v)

@@ -19,7 +19,7 @@ fun mkt(s: String) -> Vec[Text]
 fun mka(k: Int) -> [3]Int
   [k, k + 1, k + 2]
 
-sub main
+sub main()
   for x in mkv(idx(?Text("abc")))
     print(x)
   for y in mka(idx(?Text("ab")))

@@ -12,7 +12,7 @@ fun clobber(n: Int) -> Int
   b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1] + b[2]
 
-sub main
+sub main()
   arr = [P(x: 1, y: 2), P(x: 3, y: 4)]
   x = first(?arr)
   print(clobber(1000))

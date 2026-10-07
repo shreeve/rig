@@ -5,5 +5,6 @@ fun f(xs: ?[3]Int?) -> Int
       v = x ?? continue :outer
       n += v + y
   n
+
 sub main()
   print(f([1, none, 3]))

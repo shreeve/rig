@@ -2,6 +2,6 @@
 error E
   bad
 
-sub main
+sub main()
   print("start")
   return E.bad

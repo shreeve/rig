@@ -9,7 +9,7 @@ enum E
 fun idx(s: String) -> Int
   s.len - 1
 
-sub main
+sub main()
   arr = [E.a(x: C(c: Cell(1)))]
   match arr[idx(?Text("a"))]
     .a(x) if x.c.get() == 1 => x.c.set(5)

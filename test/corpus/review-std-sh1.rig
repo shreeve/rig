@@ -4,5 +4,5 @@ fun exp(x: Float) -> Float
 fun pow(base: Int, exp: Int) -> Int
   base + exp
 
-sub main
+sub main()
   print(pow(1, 2), exp(1.0))

@@ -8,7 +8,7 @@ sub sort[T](xs: !Vec[T], less: ?fun(?T, ?T) -> Bool)
     while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
       xs.swap(j, j - 1)
 
-sub main
+sub main()
   v: Vec[*P] = Vec()
   !v.push(*P(n: 3))
   !v.push(*P(n: 1))

@@ -4,7 +4,7 @@ struct Bag
   fun slice(?self) -> []Int
     ?self.items[..]
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(1)
   !b.items.push(2)

@@ -4,7 +4,7 @@ fun double(n: Int) -> Int
 fun inc(n: Int) -> Int
   n + 1
 
-sub main
+sub main()
   v: Vec[fun(Int) -> Int] = Vec()
   !v.push(double)
   !v.push(inc)

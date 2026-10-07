@@ -1,7 +1,7 @@
 struct V
   n: Int
 
-sub main
+sub main()
   a = V(n: 1)
   p: ?V = ?a
   w = !p

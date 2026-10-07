@@ -12,7 +12,7 @@ fun mkv(i: Int) -> Vec[Int]
 fun all(v: ?Vec[Int]) -> []Int
   ?v[..]
 
-sub main
+sub main()
   e = [0]
   s: []Int = ?e[..]
   k = 0

@@ -9,7 +9,7 @@ struct P
   y: I64
 
   fun size(?self) -> Int
-    @sizeOf(Self)
+    @size(Self)
 
 type P2 = P
 
@@ -17,12 +17,12 @@ struct Wrap[T]
   v: T
 
   fun size(?self) -> Int
-    @sizeOf(T)
+    @size(T)
 
 sub main()
   p = P(x: 1, y: 2)
   b: Wrap[U16] = Wrap(v: 7)
-  print(@sizeOf(P2), p.size(), @sizeOf(lib.Q), @sizeOf(U8), b.size(), @typeName(Bool), @alignOf(U16))
+  print(@size(P2), p.size(), @size(lib.Q), @size(U8), b.size(), @name(Bool), @align(U16))
 
 # expect:
 # 16 16 8 1 2 bool 2

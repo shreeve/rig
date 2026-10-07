@@ -1,4 +1,4 @@
-sub main
+sub main()
   v: Vec[String] = Vec()
   !v.push("a")
   !v.push("b")

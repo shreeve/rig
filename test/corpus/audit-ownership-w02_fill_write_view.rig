@@ -1,7 +1,7 @@
 struct Ed
   t: !Vec[Int]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   arr = [2 of Ed(t: !v)]

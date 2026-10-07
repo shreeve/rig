@@ -19,7 +19,7 @@ fun keep(p: ?P, h: !Holder) -> Int
   h.r = p
   1
 
-sub main
+sub main()
   h = Holder(r: none)
   e = mk(1)
   k = 1

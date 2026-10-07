@@ -9,5 +9,5 @@ test "t"
   x = f(1) catch |e| return e
   print(x)
 
-sub main
+sub main()
   print("m")

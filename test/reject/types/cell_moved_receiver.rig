@@ -2,7 +2,7 @@
 # through `set`, `replace`, or its Vec's `push`, `pop`, or `clear`
 # would be lost with it.
 
-sub main
+sub main()
   c: Cell[Vec[Int]] = Cell(Vec[Int]())
   (<c).push(1)
   d: Cell[Vec[Int]] = Cell(Vec[Int]())

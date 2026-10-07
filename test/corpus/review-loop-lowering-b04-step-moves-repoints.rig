@@ -22,7 +22,7 @@ fun pick(a: ?Vec[Int], b: ?Vec[Int], c: Int) -> []Int
 fun lim(c: Int, n: Int) -> Int?
   c if c < n else none
 
-sub main
+sub main()
   o = D(n: 10)
   c = 0
   :outer while lim(c, 4) as h and h >= 0: o = mv(<o, h)

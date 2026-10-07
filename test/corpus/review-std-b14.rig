@@ -5,7 +5,7 @@ struct Counter
     self.n += 1
     xs
 
-sub main
+sub main()
   c = Counter(n: 0)
   z = [0]
   s: []Int = ?z

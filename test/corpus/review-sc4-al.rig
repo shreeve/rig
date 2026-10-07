@@ -15,7 +15,7 @@ fun f(s: Slot, flag: Bool) -> Int
     .a(x) => x.n
     .b(_, _), .e => 0
 
-sub main
+sub main()
   print(f(.a(b: *B(n: 1)), true))
   print(f(.b(c: *B(n: 2), d: *B(n: 3)), true))
   print(f(.a(b: *B(n: 4)), false))

@@ -1,6 +1,6 @@
 struct S
   pass: Int
 
-sub main
+sub main()
   s = S(pass: 1)
   print(s.pass)

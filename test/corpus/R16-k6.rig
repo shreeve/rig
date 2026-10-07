@@ -2,7 +2,7 @@ struct View
   w: ?Vec[Int]
   n: Int
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   v = View(w: ?a, n: 0)
   f = |!v|

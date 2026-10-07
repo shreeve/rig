@@ -4,7 +4,7 @@ struct View[T]
 fun double(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   g: fun(Int) -> Int = double
   v = View(w: ?g)
   h = v.w

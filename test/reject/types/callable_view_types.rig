@@ -29,7 +29,7 @@ sub store(f: ?fun(Int) -> Int)
   w = Wrap(v: f)
   print(arr.len, o == none, w.v(1), v.len)
 
-sub main
+sub main()
   print(apply(*|a| a + 1, 2))
   g: ?fun(Int) -> Int = |a| a
   h = echo(|a| a + 1)

@@ -1,2 +1,2 @@
-pub fun h -> Int
+pub fun h() -> Int
   3

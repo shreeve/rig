@@ -3,7 +3,7 @@
 extern zig "os.zig"
   # Every argument, the program's name first. The Strings live as long
   # as the program, like literals.
-  pub fun args -> []String
+  pub fun args() -> []String
 
   # The value of the environment variable `name`, or `none` when it is
   # not set. The String lives as long as the program: it views the

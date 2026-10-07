@@ -4,6 +4,6 @@ const K = 5
 sub inc(v: !Int)
   v += 1
 
-sub main
+sub main()
   inc(!K)
   print(K)

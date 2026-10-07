@@ -1,8 +1,9 @@
 fun half[T](x: T) -> T
   x / 2
+
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
-sub main
+sub main()
   f: Float = half(7)
   print(half(7), f, max(half(7), 2.5))

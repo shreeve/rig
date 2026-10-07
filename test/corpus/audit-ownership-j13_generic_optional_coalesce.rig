@@ -19,6 +19,6 @@ fun cond(t: *Tok) -> Bool
 fun get[T](o: T?, d: T) -> T
   <o ?? <d
 
-sub main
+sub main()
   t = get(*Tok(n: 1), *Tok(n: 2))
   print(t.n)

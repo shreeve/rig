@@ -1,4 +1,5 @@
 fun f(n: Int) -> Void
   print(n)
-sub main
+
+sub main()
   f(1)

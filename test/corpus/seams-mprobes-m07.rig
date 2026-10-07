@@ -6,7 +6,7 @@ fun grow(v: !Vec[Int]) -> Int
     !v.push(i)
   0
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(7)
   q = Q(v: +v)

@@ -7,7 +7,7 @@ struct H
     if self.cb.replace(none) as f
       f()
 
-sub main
+sub main()
   h = *H(name: "h", cb: Cell(none))
   h.cb.set(*|~h|
     if h.upgrade() as s

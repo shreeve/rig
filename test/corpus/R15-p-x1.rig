@@ -10,8 +10,10 @@ struct Pkt
     !self.body.write[U8, .little](0, 7)
     !self.hdr.fill(1)
     !self.body.swap(0, 0)
+
 fun peek(p: ?Pkt) -> U16
   p.hdr.read[U16, .little](2)
+
 sub main()
   b: Vec[U8] = Vec()
   !b.push(3)

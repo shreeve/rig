@@ -61,7 +61,7 @@ sub declares_and_moves()
     take(<v)
   print("body")
 
-sub main
+sub main()
   reads_at_end()
   in_a_loop()
   print(errdefer_failing_only(true) catch -1, errdefer_failing_only(false) catch -1)

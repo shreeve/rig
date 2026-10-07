@@ -1,7 +1,6 @@
 fun rt_bool(b: Bool) -> Bool
   b
 
-
 fun rt_int(n: Int) -> Int
   n
 
@@ -53,10 +52,10 @@ fun id_f32(x: F32) -> F32
 struct Bx819
   f: I8
 
-sub t819
+sub t819()
   bx819 = Bx819(f: 14)
   gy819: I8 = gid(bx819.f)
   print(gy819)
 
-sub main
+sub main()
   t819()

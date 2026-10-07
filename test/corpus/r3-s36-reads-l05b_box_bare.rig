@@ -5,6 +5,6 @@ struct S
 fun get(s: ?S) -> Int
   s.n
 
-sub main
+sub main()
   b = Box(S(n: 3, v: Vec()))
   print(get(b))

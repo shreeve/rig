@@ -22,7 +22,7 @@ struct View
 struct VV
   v: ?View
 
-sub main
+sub main()
   x = Tok(n: 1)
   vw = View(b: ?x)
   vv = VV(v: ?vw)

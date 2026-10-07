@@ -1,4 +1,4 @@
-sub main
+sub main()
   xs: [0]Int = []
   i = 0
   print(xs[i])

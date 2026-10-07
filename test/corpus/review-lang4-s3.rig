@@ -1,7 +1,7 @@
 struct H
   w: !Box[Vec[Int]]
 
-sub main
+sub main()
   b = Box(Vec[Int]())
   h = H(w: !b)
   h.w = Box(Vec[Int]())

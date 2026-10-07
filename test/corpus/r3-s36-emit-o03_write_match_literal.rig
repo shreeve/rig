@@ -4,7 +4,7 @@ fun s(tag: String, v: Int) -> Int
   print(tag)
   v
 
-sub main
+sub main()
   v = Vec[Int]()
   !v.push(5)
   !v.push(6)

@@ -1,4 +1,4 @@
-sub main
+sub main()
   xs = [10, 20]
   for i, x in xs
     print(i, x)

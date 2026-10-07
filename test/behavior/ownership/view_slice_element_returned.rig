@@ -13,7 +13,7 @@ fun firsti(xs: []Int) -> ?Int
 fun inner(xs: []Val) -> ?Int
   ?xs[1].n
 
-sub main
+sub main()
   a = [Val(n: 1), Val(n: 2)]
   print(first(?a).n, inner(?a))
   b = [1, 2]

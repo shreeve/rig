@@ -4,7 +4,7 @@ struct Counter
 sub hit(c: ?Counter)
   c.hits.set(c.hits.get() + 1)
 
-sub main
+sub main()
   a = Counter(hits: Cell(0))
   b = Counter(hits: Cell(0))
   flag = true

@@ -109,7 +109,7 @@ struct K3
 fun f2(n: Int) -> Int
   n + 1
 
-sub main
+sub main()
   c = f(1) == 1
   print(!(mkpair(3) if c else mkpair(5)).b.kk.put2v(b: f(2), a: f(3)) if c else 0)
   print("--- end", c)

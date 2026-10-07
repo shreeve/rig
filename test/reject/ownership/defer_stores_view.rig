@@ -2,7 +2,7 @@
 # dropped: a view it stores in a binding from outside the scope would
 # outlive them.
 
-sub main
+sub main()
   s = "x"
   if true
     t = Text("abcdefghijklmnop")

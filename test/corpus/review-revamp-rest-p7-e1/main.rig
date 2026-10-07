@@ -1,7 +1,9 @@
 use lib
+
 struct Local
   p: lib.Pt
   w: lib.W[lib.Pt]
+
 sub main()
   a = lib.Pt(x: 1, y: 2)
   b = lib.Pt(x: 1, y: 2)

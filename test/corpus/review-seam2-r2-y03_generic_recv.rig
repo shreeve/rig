@@ -33,9 +33,9 @@ struct W[V]
 fun mk(n: Int) -> S
   S(n: n, t: Text("hello world, long enough to be on the heap"))
 
-fun mkw[V] -> W[V]
+fun mkw[V]() -> W[V]
   W(h: H(rs: Vec()), xs: Vec[V]())
 
-sub main
+sub main()
   !mkw[Int]().put(?mk(1).t, 3)
   print("end")

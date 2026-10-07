@@ -1,5 +1,5 @@
 struct I16
   x: Int
 
-sub main
+sub main()
   print(1)

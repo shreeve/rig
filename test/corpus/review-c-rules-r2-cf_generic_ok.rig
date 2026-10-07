@@ -14,7 +14,7 @@ sub inner[T](v: !Vec[T])
   print(count(?v), count(?v))
   _ = r
 
-sub main
+sub main()
   v: Vec[Item] = Vec()
   !v.push(Item(n: 7))
   print(gfirst(!v).n, v.len, count(?v))

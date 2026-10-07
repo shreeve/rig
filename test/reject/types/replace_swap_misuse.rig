@@ -5,7 +5,7 @@
 struct V
   p: ?Int
 
-sub main
+sub main()
   n = 1
   a = V(p: ?n)
   b = V(p: ?n)

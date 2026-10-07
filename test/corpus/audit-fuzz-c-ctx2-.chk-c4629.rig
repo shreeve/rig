@@ -55,8 +55,8 @@ fun ri4629(go: Bool) -> U8
     return gid(0)
   0
 
-sub t4629
+sub t4629()
   print(ri4629(true), ri4629(false))
 
-sub main
+sub main()
   t4629()

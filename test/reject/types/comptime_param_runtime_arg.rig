@@ -1,7 +1,7 @@
 # An argument for a compile-time parameter must be known at compile
 # time.
 
-sub show[n: Int]
+sub show[n: Int]()
   print(n)
 
 sub main()

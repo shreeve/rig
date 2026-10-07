@@ -6,7 +6,7 @@ struct Bag
   fun total(<self) -> Int
     self.items.len
 
-sub main
+sub main()
   o: Bag? = Bag(items: Vec())
   b = Bag(items: Vec())
   print((o ?? b).total())

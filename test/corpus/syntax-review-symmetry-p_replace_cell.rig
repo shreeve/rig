@@ -1,4 +1,4 @@
-sub main
+sub main()
   c = Cell(value: 1)
   old = replace(!c, Cell(value: 2))
   print(old.get(), c.get())

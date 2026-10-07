@@ -1,7 +1,9 @@
 enum Color
   red
   blue
+
 type C = Color
+
 sub main()
   a = C.red
   b: C = .blue

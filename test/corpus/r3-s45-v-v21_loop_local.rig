@@ -1,4 +1,4 @@
-sub main
+sub main()
   v: Vec[?Int] = Vec()
   for i in 0..3
     x = i

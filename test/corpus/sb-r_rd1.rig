@@ -1,4 +1,4 @@
-sub main
+sub main()
   page: [8]U8 = [8 of 0]
   print(page.read[U32, .little](5))
   print(page.read[U32, .little](-1))

@@ -6,7 +6,7 @@ fun lim(i: Int) -> Int?
   return none if i > 6
   i
 
-sub main
+sub main()
   i = 0
   :outer while i < 10 : i += 1
     j = 0

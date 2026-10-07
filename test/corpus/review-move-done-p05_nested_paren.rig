@@ -4,7 +4,7 @@ struct In
 struct S
   i: In
 
-sub main
+sub main()
   a = S(i: In(v: Vec()))
   b = S(i: In(v: Vec()))
   !a.i.v.push(1)

@@ -1,6 +1,6 @@
 # A keyword cannot name a closure parameter; the error names it.
 
-sub main
+sub main()
   f = |when: Int| when + 1
   print(f(1))
 

@@ -27,7 +27,7 @@ fun mkopt(n: Int) -> S?
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   v: Vec[S] = Vec()
   !v.push(mk(1))
   x = <(!v)[0].items

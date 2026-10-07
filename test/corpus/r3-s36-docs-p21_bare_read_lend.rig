@@ -5,6 +5,6 @@ struct Packet
 fun size_of(p: ?Packet) -> Int
   p.size
 
-sub main
+sub main()
   p = Packet(size: 3)
   print(size_of(p))

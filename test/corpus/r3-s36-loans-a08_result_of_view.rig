@@ -1,7 +1,7 @@
 fun id(a: ?Int) -> ?Int
   a
 
-sub main
+sub main()
   n = 1
   r = id(?n)
   n = 2

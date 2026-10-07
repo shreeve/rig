@@ -11,7 +11,7 @@ struct Parser
     self.src = other
     ?self.src[0]
 
-sub main
+sub main()
   a: Vec[Tok] = Vec()
   !a.push(Tok(n: 1))
   p = Parser(src: ?a, scratch: Vec())

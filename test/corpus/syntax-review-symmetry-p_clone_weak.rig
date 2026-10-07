@@ -1,6 +1,7 @@
 struct P
   x: Int
-sub main
+
+sub main()
   h = *P(x: 1)
   w = ~h
   w2 = +w

@@ -14,7 +14,7 @@ struct H
   o: !Int?
   p: !P
 
-sub main
+sub main()
   a: U8 = 3
   f = 1.5
   b = false

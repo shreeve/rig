@@ -1,6 +1,6 @@
 struct Text2
   t: Text
 
-sub main
+sub main()
   Text = 3
   print(Text)

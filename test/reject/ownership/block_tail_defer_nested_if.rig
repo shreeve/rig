@@ -1,7 +1,7 @@
 # A name the outer branch declares, at the tail of an inner `if` that
 # is the outer branch's value, leaves before the outer branch's defer
 # runs.
-sub main
+sub main()
   c = true
   d = true
   x = if c

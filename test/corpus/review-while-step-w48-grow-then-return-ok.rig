@@ -24,7 +24,7 @@ fun run() -> Int
       return k + v.len
   k
 
-sub main
+sub main()
   print(run())
 
 # expect: 4

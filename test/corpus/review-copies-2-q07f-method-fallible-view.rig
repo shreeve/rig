@@ -20,9 +20,7 @@ fun get(r: ?P, ok: Bool) -> (?P)!
   return Bad.oops if not ok
   r
 
-
-
-sub main
+sub main()
   q = Q(p: P(x: 4), n: 0)
   b = P(x: 2)
   v = q.pick(true) catch ?b

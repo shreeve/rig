@@ -9,7 +9,7 @@ fun grow(v: !Vec[Vec[Int]?]) -> Int
     !v.push(mkv(i))
   0
 
-sub main
+sub main()
   v: Vec[Vec[Int]?] = Vec()
   !v.push(mkv(1))
   x = <v[grow(!v)]

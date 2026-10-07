@@ -19,7 +19,7 @@ fun byte_sum(s: ?String) -> U64
     total += U64(b)
   total
 
-sub main
+sub main()
   m = Map[String](hash: byte_sum, n: 0)
   !m.put("ab")
   key = "c"

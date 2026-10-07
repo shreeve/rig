@@ -7,7 +7,7 @@ struct Iter[T]
     self.i += 1
     self.xs[self.i - 1]
 
-sub main
+sub main()
   a = [1, 2, 3]
   it = Iter(xs: ?a[..])
   while !it.next() as x

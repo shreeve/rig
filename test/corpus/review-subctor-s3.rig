@@ -1,5 +1,6 @@
 fun g() -> Void?
   print(1)
-sub main
+
+sub main()
   x = g()
   print(x)

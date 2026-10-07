@@ -1,5 +1,5 @@
 # a view of an inner-scope Text pushed to an outer Vec
-sub main
+sub main()
   v: Vec[String] = Vec()
   if true
     t = Text("inner")

@@ -11,7 +11,7 @@ sub check(n: Int)!
 fun sq(n: Int) -> Int
   n * n
 
-sub main
+sub main()
   w = Wrap(check)
   f = w.item
   f(1)!

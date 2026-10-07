@@ -5,6 +5,6 @@ sub t(k: Int)
   defer print(get(k) ?? return)
   print(k)
 
-sub main
+sub main()
   t(1)
   t(0)

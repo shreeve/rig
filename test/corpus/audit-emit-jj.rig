@@ -4,7 +4,7 @@ fun dbl(x: Int) -> Int
 struct Op
   f: fun(Int) -> Int
 
-sub main
+sub main()
   print(dbl)
   o = Op(f: dbl)
   print(o)

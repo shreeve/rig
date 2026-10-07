@@ -4,7 +4,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   c: Cell[Vec[Box[R]]] = Cell(value: Vec())
   c.push(Box(value: R(n: 1)))
   if c.pop() as b

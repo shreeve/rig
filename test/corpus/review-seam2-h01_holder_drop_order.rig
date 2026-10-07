@@ -23,8 +23,8 @@ struct H
 fun mk(n: Int) -> S
   S(n: n, items: Vec())
 
-fun mkh -> H
+fun mkh() -> H
   H(ws: Vec())
 
-sub main
+sub main()
   !mkh().keep(!mk(1).at())

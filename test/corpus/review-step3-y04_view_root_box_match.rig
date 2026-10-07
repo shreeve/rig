@@ -5,7 +5,7 @@ enum E
   a(r: Res)
   b
 
-sub main
+sub main()
   b = Box(E.a(r: Res(t: Text("abc"))))
   p = ?b
   match p

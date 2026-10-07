@@ -4,6 +4,6 @@ fun head(t: ?Text) -> String
 fun whole(t: ?Text) -> String
   t
 
-sub main
+sub main()
   t = Text("hello")
   print(head(?t), whole(?t))

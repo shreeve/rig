@@ -10,7 +10,7 @@ fun total(xs: []Int) -> Int
     n += x
   n
 
-sub main
+sub main()
   f: Float = 2 * 3
   o: Int? = 5
   a = [1, 2, 3]

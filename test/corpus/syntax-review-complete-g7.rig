@@ -12,7 +12,7 @@ struct Map
         return e
     none
 
-sub main
+sub main()
   m = Map(es: Vec())
   !m.es.push(Box(value: Val(n: 1)))
   if m.find(1) as v

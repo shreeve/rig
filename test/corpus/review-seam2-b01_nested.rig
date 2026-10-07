@@ -49,7 +49,7 @@ fun wrap(s: !S) -> !S
 fun mk2(k: Int) -> S
   mk(k)
 
-sub main
+sub main()
   !mk(!mk(1).pop()).bump()
   print(!mk(!mk(3).pop()).pop() + clobber(1))
   print(!wrap(!mk(5)).pop())

@@ -11,7 +11,7 @@ fun dup2[T](x: T) -> T
 fun firstof[T](xs: []T) -> T
   xs[0]
 
-sub main
+sub main()
   a = Counter(hits: Cell(0))
   d = dup(?a)
   arr = [Counter(hits: Cell(1))]

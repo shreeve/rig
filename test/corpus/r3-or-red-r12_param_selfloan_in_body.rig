@@ -9,7 +9,7 @@ fun f(a: !Holder) -> Int
     !a.own.push(i)
   a.r[0]
 
-sub main
+sub main()
   x = [9, 9]
   h = Holder(r: ?x[..], own: Vec())
   print(f(!h))

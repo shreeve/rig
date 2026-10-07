@@ -1,9 +1,11 @@
 enum C
   red
   blue
+
 fun f(c: C) -> Int
   match c
     .red => 1
     .blue => 2
+
 sub main()
   print(f(.red), f(C.blue))

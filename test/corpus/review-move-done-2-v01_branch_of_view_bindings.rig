@@ -24,7 +24,7 @@ sub d(c: Bool)
   y = <(r1).o
   print(x == none, y == none, s.o == none)
 
-sub main
+sub main()
   a(true)
   d(true)
 

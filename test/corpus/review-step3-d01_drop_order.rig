@@ -16,7 +16,7 @@ struct H
 fun mkh(n: Int) -> H
   H(e: E.a(n: n), arr: [n, n], z: Noisy(n: n))
 
-sub main
+sub main()
   match mkh(3).e
     .a(n) => print("arm", n)
     .b => pass

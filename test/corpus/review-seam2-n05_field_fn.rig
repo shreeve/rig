@@ -3,10 +3,10 @@ struct P
   f: *fun(Int) -> Int
   fs: Vec[*fun(Int) -> Int]
 
-fun mkp -> P
+fun mkp() -> P
   P(f: *|x| x + 1, fs: Vec())
 
-sub main
+sub main()
   print(!mkp().f(1))
   p = mkp()
   print(!p.f(2))

@@ -8,7 +8,7 @@ struct S
   b: R?
   xs: Vec[Box[R]]
 
-sub main
+sub main()
   s = S(a: Box(R(n: 1)), b: R(n: 2), xs: Vec())
   !s.xs.push(Box(R(n: 3)))
   !s.xs.push(Box(R(n: 4)))

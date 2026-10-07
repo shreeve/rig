@@ -20,7 +20,7 @@ fun eatv(v: Vec[Int]) -> Int
 fun look(v: ?Vec[Int]) -> Int
   v.len
 
-sub main
+sub main()
   n = 3
   g = |+n| twice(<n)
   p = P(v: 4)

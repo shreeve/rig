@@ -2,7 +2,7 @@ use geo
 
 KO: Int? = 3
 
-sub main
+sub main()
   a = <geo.Color.red
   b = <geo.mk
   c = geo.KO

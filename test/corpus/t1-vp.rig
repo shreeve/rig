@@ -1,3 +1,3 @@
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.insert(1, 3)

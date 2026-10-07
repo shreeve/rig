@@ -17,5 +17,5 @@ fun f(ok: Bool) -> Int!
   else
     E.bad
 
-sub main
+sub main()
   print(f(true) catch 0)

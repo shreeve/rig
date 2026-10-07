@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = 1
   v: Vec[?Int] = Vec()
   !v.insert(0, ?a)

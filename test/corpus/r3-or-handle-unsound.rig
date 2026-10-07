@@ -52,5 +52,5 @@ sub moved_handle()
   b = <a
   print(a.name, b.name)
 
-sub main
+sub main()
   drop_while_viewed()

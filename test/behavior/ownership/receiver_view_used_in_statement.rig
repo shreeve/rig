@@ -29,7 +29,7 @@ fun clobber(n: Int) -> Int
 fun first(xs: ?[4]Int, n: Int) -> Int
   xs[0] * 10 + n
 
-sub main
+sub main()
   ps = [P(xs: [1, 1, 1, 1]), P(xs: [2, 2, 2, 2])]
   qs = [P(xs: [3, 3, 3, 3]), P(xs: [4, 4, 4, 4])]
   c = clobber(0) == 1

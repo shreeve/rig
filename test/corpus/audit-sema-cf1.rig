@@ -1,6 +1,7 @@
 A = -7 % 3
 B = -7 / 2
-sub main
+
+sub main()
   x: [A + 2]Int = [A + 2 of 1]
   a = -7
   print(A, B, x.len, a % 3, a / 2)

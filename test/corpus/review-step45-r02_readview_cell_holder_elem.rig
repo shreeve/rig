@@ -7,7 +7,7 @@ sub bump(a: ?[2]C, s: []C, v: ?Vec[C])
   s[0].c.set(20)
   v[0].c.set(30)
 
-sub main
+sub main()
   a = [C(c: Cell(1)), C(c: Cell(2))]
   v: Vec[C] = Vec()
   !v.push(C(c: Cell(3)))

@@ -15,7 +15,7 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-sub main
+sub main()
   b = Box(E.a(r: Res(n: 1, t: Text("hello"))))
   x = inner(?b)
   print(clobber(1000))

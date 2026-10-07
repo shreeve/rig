@@ -4,7 +4,7 @@ struct G
   r: random.Random
   n: Int
 
-sub main
+sub main()
   o: G? = G(r: random.Random.seeded(1), n: 0)
   if <o as g
     g.n = 4

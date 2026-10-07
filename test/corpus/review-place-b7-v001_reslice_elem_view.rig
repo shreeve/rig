@@ -4,7 +4,7 @@ sub g(n: !Int)
 sub f(s: ![]Int)
   g(!s[0..2][0])
 
-sub main
+sub main()
   a = [1, 2, 3]
   f(!a[0..3])
   print(a[0])

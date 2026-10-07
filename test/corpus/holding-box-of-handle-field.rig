@@ -1,6 +1,6 @@
 struct S
   n: Int
 
-sub main
+sub main()
   bh: Box[*S] = Box(*S(n: 2))
   print(bh.n)

@@ -3,6 +3,6 @@ struct S
 
 const G = S(a: 1)
 
-sub main
+sub main()
   t = <G.a
   print(t, G)

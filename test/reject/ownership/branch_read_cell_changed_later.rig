@@ -10,7 +10,7 @@ fun grow(s: ?S) -> Int
     s.c.push(i)
   5
 
-sub main
+sub main()
   a = S(c: Cell(Vec()))
   b = S(c: Cell(Vec()))
   k = true

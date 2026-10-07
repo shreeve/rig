@@ -9,7 +9,7 @@ struct S
 fun slot(s: !S) -> !R?
   !s.a
 
-sub main
+sub main()
   s = S(a: R(n: 1))
   w = slot(!s)
   t = <w

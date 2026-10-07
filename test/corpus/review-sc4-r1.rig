@@ -23,7 +23,7 @@ sub show_point(p: ?Point)
 sub show_b(b: ?B)
   print("b", b.n)
 
-sub main
+sub main()
   p = Point(x: 1, f: mkp)
   show_point(?p.shifted(4))
   show_b(?p.mk())

@@ -2,18 +2,18 @@
 # it to a constant. On a compile-time parameter it would be computed per
 # instance, unchecked, so it is rejected, as is a `const` binding of it.
 
-sub inner[n: U8]
+sub inner[n: U8]()
   print(n)
 
-sub outer[n: U8]
+sub outer[n: U8]()
   inner[n + 1]()
   inner[10 / n]()
   inner[1 << n]()
 
-fun g[n: Int] -> Int
+fun g[n: Int]() -> Int
   n
 
-fun f[n: Int] -> Int
+fun f[n: Int]() -> Int
   const k = n * 2
   g[-n]() + g[k]()
 

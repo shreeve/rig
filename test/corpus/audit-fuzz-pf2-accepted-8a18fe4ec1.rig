@@ -11,5 +11,4 @@ sub main()
   u: User = User.make("guest")
   print(u.name)
 
-
 # guest

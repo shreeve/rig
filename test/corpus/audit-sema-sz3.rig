@@ -3,5 +3,5 @@ error E
 
 type A = [2_000_000]E?
 
-sub main
+sub main()
   print(1)

@@ -7,7 +7,7 @@ struct Res
 fun eat(r: Res?) -> Bool
   true
 
-sub main
+sub main()
   o: Res? = Res(id: 1)
   if ?o as x and eat(<o)
     print(x.id)

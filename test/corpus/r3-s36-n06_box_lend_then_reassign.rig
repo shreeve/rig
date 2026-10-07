@@ -4,7 +4,7 @@ struct S
 fun get(s: ?S) -> ?S
   s
 
-sub main
+sub main()
   b = Box(S(n: 1))
   r = get(?b)
   b = Box(S(n: 2))

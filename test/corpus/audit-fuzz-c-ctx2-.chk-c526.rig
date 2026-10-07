@@ -53,10 +53,10 @@ enum Op526
   some(v: Float)
   nothing
 
-sub t526
+sub t526()
   flag526 = rt_bool(true)
   en526: Op526 = .some((gid(1) if flag526 else 0))
   print(en526)
 
-sub main
+sub main()
   t526()

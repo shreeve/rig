@@ -4,7 +4,7 @@ struct C
 fun out(p: ?C) -> C
   p
 
-sub main
+sub main()
   a = C(c: [Cell(1), Cell(2)])
   b = out(?a)
   _ = b

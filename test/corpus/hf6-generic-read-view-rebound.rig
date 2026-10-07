@@ -6,7 +6,7 @@ struct Pair[T]
   fun left(?self, other: ?T) -> ?T
     ?self.x
 
-sub main
+sub main()
   p = Pair(x: 5)
   q = ?p.x
   o = 6

@@ -15,7 +15,7 @@ struct Countdown
     self.n -= 1
     self.n
 
-sub nothing
+sub nothing()
   pass
 
 sub name(c: Color)
@@ -23,7 +23,7 @@ sub name(c: Color)
     .red => print("red")
     _ => pass
 
-sub main
+sub main()
   nothing()
   name(.red)
   name(.blue)

@@ -7,7 +7,7 @@ fun grab(b: ?Box[W]) -> String
 sub grow(b: !Box[W])
   !b.t.add("more more more more more more more more more")
 
-sub main
+sub main()
   t = Text("abcdefghijklmnop")
   b = Box(W(t: !t))
   s = grab(?b)

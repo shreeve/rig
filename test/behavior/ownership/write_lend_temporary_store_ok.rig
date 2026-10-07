@@ -19,7 +19,7 @@ struct S
 fun mk(n: Int) -> S
   S(t: Text("t", n))
 
-fun mkpr -> PR
+fun mkpr() -> PR
   PR(r: "")
 
 struct H
@@ -31,10 +31,10 @@ struct H
   drop(!self)
     print("drop", self.rs)
 
-fun mkh -> H
+fun mkh() -> H
   H(rs: Vec())
 
-sub main
+sub main()
   t = Text("kept")
   !mkh().keep(?t)
   !mkh().rs.push(?t)

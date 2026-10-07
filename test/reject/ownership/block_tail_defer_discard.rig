@@ -1,6 +1,6 @@
 # A value block discarded with `_ =` still hands over its tail: the
 # tail name leaves before the block's defer runs.
-sub main
+sub main()
   c = true
   _ = if c
     v: Vec[Int] = Vec()

@@ -3,6 +3,6 @@ struct Meters
 
 type Km = Meters
 
-sub main
+sub main()
   a = Km(v: 3.0)
   print(a)

@@ -8,7 +8,7 @@ enum E
 struct S
   e: E
 
-sub main
+sub main()
   s = S(e: E.a(r: Res(t: Text("abc"))))
   p = ?s
   match p.e

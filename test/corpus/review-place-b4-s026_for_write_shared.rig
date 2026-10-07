@@ -1,7 +1,7 @@
 struct P
   xs: [3]Int
 
-sub main
+sub main()
   h = *P(xs: [1, 2, 3])
   for x in !h.xs
     x += 1

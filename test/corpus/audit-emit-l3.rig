@@ -1,5 +1,5 @@
 test "tab\there"
   print("x")
 
-sub main
+sub main()
   print('it''s "q" \n')

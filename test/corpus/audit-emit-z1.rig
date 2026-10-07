@@ -18,7 +18,7 @@ fun idx(c: !C) -> Int
   c.n = 0
   0
 
-sub main
+sub main()
   c = C(n: 0)
   print(pair[Int](b: side(!c, 1), a: side(!c, 2)))
   cs = [C(n: 5), C(n: 6)]

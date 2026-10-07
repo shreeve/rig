@@ -4,7 +4,7 @@ fun reset(c: ?Cell[*Vec[Int]]) -> Int
   c.set(*Vec[Int]())
   0
 
-sub main
+sub main()
   v = Vec[Int]()
   for i in 0..40
     !v.push(i)

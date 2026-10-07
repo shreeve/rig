@@ -1,7 +1,7 @@
 # A Vec of views keeps each pushed view's loan while it lives, and a
 # write view in it is unique.
 
-sub main
+sub main()
   a = 1
   v: Vec[?Int] = Vec()
   !v.push(?a)

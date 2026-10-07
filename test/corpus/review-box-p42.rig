@@ -8,5 +8,5 @@ fun mk() -> Box[W[?P]]
   p = P(x: 1)
   Box(value: W(v: ?p))
 
-sub main
+sub main()
   b = mk()

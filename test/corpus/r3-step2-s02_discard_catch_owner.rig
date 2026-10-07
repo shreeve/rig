@@ -6,7 +6,7 @@ fun mk(ok: Bool) -> Vec[Int]!
     return E.bad
   Vec()
 
-sub main
+sub main()
   d: Vec[Int] = Vec()
   !d.push(1)
   _ = mk(false) catch d

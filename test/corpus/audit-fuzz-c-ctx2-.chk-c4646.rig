@@ -49,12 +49,12 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t4646
+sub t4646()
   flag4646 = rt_bool(true)
   tf4646 = rt_bool(true)
   tv4646: I8 = id_i8(5)
   tz4646: I8 = (127 if flag4646 else (-65)) if tf4646 else tv4646
   print(tz4646, tv4646 if tf4646 else (127 if flag4646 else (-65)))
 
-sub main
+sub main()
   t4646()

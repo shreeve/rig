@@ -2,7 +2,7 @@ enum Shape
   circle(r: Int)
   point
 
-sub main
+sub main()
   b = Box(Shape.circle(r: 2))
   w = !b
   match !w

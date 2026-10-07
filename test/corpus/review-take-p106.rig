@@ -4,5 +4,5 @@ sub run(swap: ?sub(!Int, !Int))
   swap(!a, !b)
   print(a, b)
 
-sub main
+sub main()
   run(|x: !Int, y: !Int| x = 5)

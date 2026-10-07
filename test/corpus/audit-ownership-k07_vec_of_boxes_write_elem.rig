@@ -21,7 +21,7 @@ sub walk(slot: ?Box[Node]?)
     print(n.key)
     walk(?n.right)
 
-sub main
+sub main()
   v: Vec[Box[Node]] = Vec()
   !v.push(Box(Node(key: 1, left: none, right: none)))
   for b in !v

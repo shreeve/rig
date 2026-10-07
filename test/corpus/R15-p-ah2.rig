@@ -1,9 +1,11 @@
 fun n(x: Int) -> Int
   x
+
 struct P
   x: Int
   sub bump(!self)
     self.x += 1
+
 sub main()
   a = [P(x: 1)]
   w = !a[..]

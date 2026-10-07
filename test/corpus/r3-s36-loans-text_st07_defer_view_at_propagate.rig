@@ -15,5 +15,5 @@ fun f(ok: Bool) -> Int!
   print(r, k)
   k
 
-sub main
+sub main()
   print(f(true) catch 0)

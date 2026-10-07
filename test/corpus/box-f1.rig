@@ -7,7 +7,7 @@ enum Shape
       .circle(r) => 3 * r * r
       .square(s) => s * s
 
-sub main
+sub main()
   b = Box(value: Shape.circle(r: 2))
   print(b.area())
   match b

@@ -16,7 +16,7 @@ sub f(b: ?Box[R])
 sub g(b: !Box[R])
   <b.eat()
 
-sub main
+sub main()
   mk().eat()
   s = *Box(value: R(n: 3))
   <s.eat()

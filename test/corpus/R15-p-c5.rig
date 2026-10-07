@@ -2,6 +2,7 @@
 fun g(a: ![2]Int) -> ![]Int
   b = a
   !b[..]
+
 sub main()
   a = [1, 2]
   w = g(!a)

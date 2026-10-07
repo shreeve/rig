@@ -14,7 +14,7 @@ fun size(p: ?P) -> Int
 fun sizei(n: ?Int) -> Int
   n + 1
 
-sub main
+sub main()
   p = P(v: Vec())
   e: E = .b
   print(p, p.n(), p.v.len)

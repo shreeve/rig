@@ -5,7 +5,7 @@ fun total(xs: []Int) -> Int
     n += x
   n
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(4)
   print(total(?v))

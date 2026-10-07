@@ -1,7 +1,7 @@
 fun twice(f: ?fun(Int) -> Int, x: Int) -> Int
   f(f(x))
 
-sub main
+sub main()
   cb = *|x: Int| x + 1
   print(twice(?cb, 1))
   print(twice(cb, 1))

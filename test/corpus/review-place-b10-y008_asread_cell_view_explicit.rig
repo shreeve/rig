@@ -4,7 +4,7 @@ struct P
 sub bump(p: ?P)
   p.c.set(p.c.get() + 1)
 
-sub main
+sub main()
   o: P? = P(c: Cell(1))
   if ?o as p
     bump(p)

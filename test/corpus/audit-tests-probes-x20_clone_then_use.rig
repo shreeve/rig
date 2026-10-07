@@ -1,7 +1,7 @@
 struct S
   v: Vec[Int]
 
-sub main
+sub main()
   s = S(v: Vec())
   t = +s
   print(s.v.len, t.v.len)

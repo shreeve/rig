@@ -14,7 +14,7 @@ fun mkv(n: Int) -> Vec[Int]
   !xs.push(n)
   xs
 
-sub main
+sub main()
   v = mkv(5)
   s = S(rv: RV(r: ?v))
   x = s.rv.into()

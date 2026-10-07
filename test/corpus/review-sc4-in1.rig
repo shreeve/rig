@@ -1,4 +1,4 @@
-sub main
+sub main()
   n = 5
   match !n
     k if k > 3 => k = 0

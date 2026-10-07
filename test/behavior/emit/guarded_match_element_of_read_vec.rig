@@ -27,7 +27,7 @@ fun h(ws: ?Vec[W]) -> Int
     .b(n) => n
     _ => -1
 
-sub main
+sub main()
   e: Vec[E] = Vec()
   !e.push(E.a(n: 5))
   !e.push(E.b(n: 7))

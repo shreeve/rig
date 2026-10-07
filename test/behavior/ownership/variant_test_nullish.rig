@@ -4,7 +4,7 @@ enum Shape
   dot
   line(v: Vec[Int])
 
-sub main
+sub main()
   p: Vec[Int] = Vec()
   !p.push(1)
   o: Shape? = none
@@ -14,7 +14,6 @@ sub main
   match ?d
     .line(v) => print(v[0])
     .dot => print("dot")
-
 
 # expect:
 # line

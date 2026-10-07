@@ -6,7 +6,7 @@ enum Opt[T]
   some(v: T)
   no
 
-sub main
+sub main()
   s: Shape = .circle(2)
   print(s == .circle)
   y: Opt[Int] = .some(3)

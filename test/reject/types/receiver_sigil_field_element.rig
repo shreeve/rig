@@ -13,7 +13,7 @@ struct P
   handlers: [1]fun() -> Int
   checks: [1]fun() -> Bool
 
-sub main
+sub main()
   p = P(v: Vec(), handlers: [one], checks: [yes])
   x = <p.handlers[0]()
   if !p.checks[0]()

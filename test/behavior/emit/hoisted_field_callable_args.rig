@@ -40,7 +40,7 @@ fun wr(q: !Q, n: Int) -> Int
 fun run(s: ?S, k: Int) -> Int!
   s.cb(Text("a text long enough to live on the heap"), ?mkh(5).q, gf(k)!)
 
-sub main
+sub main()
   s = S(cb: usq, wr: wr)
   print(run(?s, 2) catch -1)
   print(run(?s, 1) catch -1)

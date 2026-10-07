@@ -2,5 +2,6 @@ enum E
   a
   drop(!self)
     print("x")
-sub main
+
+sub main()
   print(1)

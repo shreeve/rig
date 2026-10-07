@@ -4,7 +4,7 @@ struct Q
 struct H
   q: !Q
 
-sub main
+sub main()
   x = Q(s: "a")
   h = H(q: !x)
   h.q = Q(s: "b")

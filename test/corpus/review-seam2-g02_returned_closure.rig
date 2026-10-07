@@ -12,6 +12,6 @@ struct T
     self.m += 1
     self.m
 
-sub main
+sub main()
   a = S(n: 1)
   print(!a.maker(1)(2).bump())

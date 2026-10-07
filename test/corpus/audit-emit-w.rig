@@ -1,4 +1,4 @@
-sub main
+sub main()
   x: U8 = 1
   const k = 8
   y = 3

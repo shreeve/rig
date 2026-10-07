@@ -1,5 +1,5 @@
 # A loan carried into a Vec element lasts while the Vec is used.
-sub main
+sub main()
   n = 1
   v: Vec[?Int] = Vec()
   !v.push(?n)

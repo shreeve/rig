@@ -5,7 +5,7 @@ fun grow(t: !Text) -> Int
   !t.add("0123456789012345678901234567890123456789")
   0
 
-sub main
+sub main()
   t = Text("abc")
   print(both(t, grow(!t)))
   b = Box(Text("abc"))

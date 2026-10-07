@@ -1,4 +1,4 @@
-fun main -> Int
+fun main() -> Int
   if false
     return main() + 1
   0

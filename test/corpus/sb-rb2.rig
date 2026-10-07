@@ -1,8 +1,7 @@
-
 sub g(p: !Int, q: !Int)
   p = q
 
-sub main
+sub main()
   a = [1, 2, 3]
   b = [4, 5, 6]
 

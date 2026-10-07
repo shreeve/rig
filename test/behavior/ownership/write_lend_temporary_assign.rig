@@ -23,7 +23,7 @@ struct H
 fun mk(n: Int) -> S
   S(n: n, t: Text("text ", n))
 
-fun mkh -> H
+fun mkh() -> H
   H(r: "init", rs: Vec())
 
 fun wrap(h: !H) -> !H
@@ -33,7 +33,7 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-sub main
+sub main()
   (!mkh()).r = ?mk(1).t
   wrap(!mkh()).r = ?mk(2).t
   (!mkh().me()).r = ?mk(3).t

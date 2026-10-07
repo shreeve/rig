@@ -1,6 +1,7 @@
 # same field twice
 struct P
   x: [2]Int
+
 sub main()
   p = P(x: [1, 2])
   w = !p.x[..]

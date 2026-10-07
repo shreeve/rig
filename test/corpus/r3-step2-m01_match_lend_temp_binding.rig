@@ -2,12 +2,12 @@ enum Shape
   dot
   line(v: Vec[Int])
 
-fun mk -> Shape
+fun mk() -> Shape
   p: Vec[Int] = Vec()
   !p.push(1)
   .line(v: <p)
 
-sub main
+sub main()
   match ?mk()
     .line(v) => print(v[0])
     .dot => print("dot")

@@ -108,7 +108,7 @@ fun fill_shelf[T](a: T, b: T) -> Shelf[T]
   !s.add(<b)
   s
 
-sub h0
+sub h0()
   m1: Maybe[String] = .nada
   r1 = get_or(<m1, "s10")
   print("str", r1)
@@ -132,6 +132,6 @@ sub h1()!
   if ?r14 as w15
     look(?w15)
 
-sub main
+sub main()
   h0()
   h1() catch |e| print("caught", e)

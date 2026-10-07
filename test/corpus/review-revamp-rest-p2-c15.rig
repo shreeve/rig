@@ -1,6 +1,7 @@
 A: U8 = 255 *% 3
 B = 1 << 62
 X = 5 if B > 0 else 6
+
 sub main()
   xs: [X]Int = [X of 0]
   print(A, B, X, xs.len)

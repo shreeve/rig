@@ -10,7 +10,7 @@ struct W
 fun mkw(k: Int) -> W
   W(h: *N(id: k), c: Cell(k))
 
-sub main
+sub main()
   print(mkw(2).c.get())
   y = mkw(3).c.get()
   print(y)

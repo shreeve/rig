@@ -55,11 +55,11 @@ fun fal344(ok: Bool) -> U16!
 
 error Err344
   bad
- 
-sub t344
+
+sub t344()
   vec344: Vec[U16] = Vec()
   !vec344.push((fal344(true) catch 34938))
   print(vec344)
 
-sub main
+sub main()
   t344()

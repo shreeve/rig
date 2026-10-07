@@ -12,7 +12,7 @@ sub put(h: !Holder)
   b = Box2(h: !h)
   b.h.r = ?w
 
-sub main
+sub main()
   x = Item(n: 1)
   h = Holder(r: ?x)
   put(!h)

@@ -4,7 +4,7 @@ fun index_of(xs: ?[4]Int, target: Int) -> Int
   else
     -1
 
-sub main
+sub main()
   xs = [3, 1, 4, 1]
   print(index_of(?xs, 4), index_of(?xs, 9))
   n = 27

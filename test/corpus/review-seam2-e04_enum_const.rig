@@ -6,6 +6,6 @@ enum Color
 sub setc(c: !Color)
   c = .green
 
-sub main
+sub main()
   setc(!Color.red)
   print(Color.red)

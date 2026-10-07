@@ -8,7 +8,7 @@ struct Holder
   drop(!self)
     print("holder drop reads", self.b.v[0])
 
-sub main
+sub main()
   y0 = Bx(c: Cell(0), v: Vec())
   !y0.v.push(0)
   h = Holder(b: ?y0)

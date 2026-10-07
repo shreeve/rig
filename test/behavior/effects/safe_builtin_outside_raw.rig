@@ -2,7 +2,7 @@
 
 sub main()
   x: I64 = 7
-  n = @sizeOf(@TypeOf(x))
+  n = @size(@type(x))
   print(n)
 
 # expect:

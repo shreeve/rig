@@ -6,7 +6,7 @@ struct Res
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   xs = [*Res(n: 3), *Res(n: 1), *Res(n: 2)]
   sort.sort_by(!xs, |a, b| a.n < b.n)
   for x in ?xs

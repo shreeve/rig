@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-sub main
+sub main()
   t = *Tok(n: 1)
   _ = +t
   _ = <t

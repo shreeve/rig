@@ -2,7 +2,7 @@
 fun idx(s: String) -> Int
   s.len - 1
 
-sub main
+sub main()
   arr: [1]Int? = [1]
   if !arr[idx(?Text("a"))] as n
     n = 50

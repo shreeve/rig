@@ -7,7 +7,7 @@ enum E
 fun idx(s: String) -> Int
   s.len - 1
 
-sub main
+sub main()
   arr = [E.a(n: 1)]
   match !arr[idx(?Text("a"))]
     .a(n) if n > 0

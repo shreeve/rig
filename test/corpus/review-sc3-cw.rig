@@ -5,7 +5,7 @@ fun p(k: Int) -> Int!
   return E.bad if k == 0
   k
 
-sub main
+sub main()
   for i in 0..3
     n = 3
     while (p(n) catch break) > i

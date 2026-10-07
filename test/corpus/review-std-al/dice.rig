@@ -7,5 +7,5 @@ pub fun roll(r: !rnd.Random, n: Int = 6) -> Int
 pub sub wait(ns: Int = t.MS)
   t.sleep(ns)
 
-pub fun fresh -> rnd.Random
+pub fun fresh() -> rnd.Random
   rnd.Random.seeded(1)

@@ -34,7 +34,7 @@ fun clobber(n: Int) -> Int
 sub stash[T](out: !Vec[T], x: T)
   !out.push(x)
 
-sub main
+sub main()
   v: Vec[!Int] = Vec()
   stash(!v, !mk(1).at())
   print(v.len)

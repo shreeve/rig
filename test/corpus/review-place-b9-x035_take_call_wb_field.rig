@@ -4,7 +4,7 @@ struct P
 fun mk(p: !P) -> !P
   <p
 
-sub main
+sub main()
   p = P(o: 1)
   x = <mk(!p).o
   print(x ?? 0, p.o ?? 0)

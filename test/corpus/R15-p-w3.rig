@@ -1,7 +1,9 @@
 struct H
   w: !Vec[Int]
+
 sub grow(h: ?H)
   h.w.push(2)
+
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)

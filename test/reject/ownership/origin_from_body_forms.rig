@@ -42,7 +42,7 @@ fun payload(a: ?Vec[Int], b: ?Pick) -> ?Vec[Int] from a
     .one(v) => v
     .none_ => a
 
-sub main
+sub main()
   pass
 
 # errors: 6

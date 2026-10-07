@@ -6,6 +6,6 @@ fun f(o: Text?) -> Int?
   take(o?)
   1
 
-sub main
+sub main()
   x: Text? = Text("hello")
   print(f(<x) ?? 0)

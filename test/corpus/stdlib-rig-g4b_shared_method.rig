@@ -9,6 +9,6 @@ fun peek2(u: ?*U) -> Int
 fun generic_peek[T](u: ?T) -> Int
   1
 
-sub main
+sub main()
   h = *U(n: 5)
   print(h.get(), h.n, peek2(?h), generic_peek(?h))

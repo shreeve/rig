@@ -19,7 +19,7 @@ sub peek(h: ?Holder)
     .full(t) => eat(<t)
     .empty => print("empty")
 
-sub main
+sub main()
   h = Holder(s: .full(t: *Tok(n: 1)))
   peek(?h)
   peek(?h)

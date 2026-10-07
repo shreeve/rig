@@ -24,7 +24,7 @@ fun mkh(r: ?Res) -> H
 fun mkres(n: Int) -> Res
   Res(n: n, t: Text("abc"))
 
-sub main
+sub main()
   match mkh(?mkres(1)).e
     .a(r) => print("a", r.n, r.t)
     .b => pass

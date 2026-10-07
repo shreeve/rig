@@ -1,7 +1,7 @@
 struct Node
   n: Int
 
-sub main
+sub main()
   print(*Node(n: 1))
   x = *Node(n: 2)
   print(x.n)

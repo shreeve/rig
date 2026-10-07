@@ -11,7 +11,7 @@ enum E
 fun getb(b: ?Box[E], n: Int) -> ?Box[E]
   b
 
-sub main
+sub main()
   b = Box(E.a(c: Counter(hits: Cell(1))))
   match getb(?b, Text("xyz").len)
     .a(c) => c.hit()

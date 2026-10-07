@@ -50,18 +50,18 @@ fun clobber(n: Int) -> Int
   b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1] + b[2]
 
-fun items -> Vec[Item]
+fun items() -> Vec[Item]
   v: Vec[Item] = Vec()
   !v.push(Item(n: 1))
   v
 
-sub same_statement
+sub same_statement()
   v = items()
   print(first(!v).n, v.len)
   x = first(!v).n + v.len
   print(x, size(all(!v)), v.len)
 
-sub split
+sub split()
   v = items()
   r = first(!v)
   print(r.n, v.len)
@@ -70,13 +70,13 @@ sub split
   s = all(!v)
   print(x, size(s), v.len)
 
-sub receivers
+sub receivers()
   b = Bag(items: items(), count: 0)
   print(!b.first().n, b.count)
   r = !b.first()
   print(r.n, b.count)
 
-sub for_source
+sub for_source()
   v = items()
   for x in all(!v)
     print(clobber(x.n))
@@ -85,7 +85,7 @@ sub for_source
   for x in s
     print(x.n, v.len)
 
-sub match_subject
+sub match_subject()
   v = items()
   match find(!v)
     .found(it)
@@ -98,12 +98,12 @@ sub match_subject
     .found(it) => print(it.n, v.len)
     .missing => print("none")
 
-sub if_as
+sub if_as()
   v = items()
   if maybe(!v) as it
     print(it.n, v.len)
 
-sub main
+sub main()
   same_statement()
   split()
   receivers()

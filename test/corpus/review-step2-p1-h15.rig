@@ -3,6 +3,6 @@ fun grow(t: !Text) -> Int
     !t.add("abcdefgh")
   1
 
-sub main
+sub main()
   a = Text("a")
   print(a, grow(!a))

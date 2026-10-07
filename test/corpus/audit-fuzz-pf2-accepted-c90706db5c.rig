@@ -1,9 +1,9 @@
 # In a closure body laid out inside a call's parentheses, `name: Type`
 # starts a typed binding, not a keyword argument; keyword arguments of
 
-
 fun g(a: Int, b: Int) -> Int
   a * 10 + b
+
 # calls inside the body still work.
 sub run(f: *sub())
   f()

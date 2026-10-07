@@ -1,6 +1,6 @@
 use lib
 
-sub main
+sub main()
   e = Box(value: lib.E.a(r: lib.R(n: 3)))
   match ?e
     .a(r) => print(r.n)

@@ -1,4 +1,4 @@
 use geo
 
-sub main
+sub main()
   geo.mk().x = 3

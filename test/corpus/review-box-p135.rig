@@ -16,7 +16,7 @@ enum E
 fun g(e: ?Box[E]) -> Int
   e.get()
 
-sub main
+sub main()
   e = Box(value: E.b)
   print(e.get(), g(?e))
   !e.set(5)

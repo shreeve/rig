@@ -5,7 +5,7 @@ struct Cur
 fun at(c: !Cur) -> !Int
   !c.items[0]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   c = Cur(items: !v)

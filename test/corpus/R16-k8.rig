@@ -4,7 +4,7 @@ fun seed(n: Int) -> Int
 sub run(f: ?sub())
   f()
 
-sub main
+sub main()
   x = seed(1)
   run(|!x|
     x += 1)

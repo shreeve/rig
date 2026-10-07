@@ -13,7 +13,7 @@ fun px(o: P?) -> Int
 fun pick(i: (?P)?, r: ?P) -> P?
   i ?? r
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   i: (?P)? = ?a

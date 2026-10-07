@@ -17,7 +17,7 @@ struct Account
       return BankError.insufficient_funds
     self.balance -= amount
 
-sub main
+sub main()
   acct = Account(owner: "Ada")
   !acct.deposit(100)!
   !acct.withdraw(30)!

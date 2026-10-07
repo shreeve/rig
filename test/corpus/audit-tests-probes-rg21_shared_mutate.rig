@@ -1,7 +1,7 @@
 struct S
   n: Int
 
-sub main
+sub main()
   s = *S(n: 1)
   s.n = 2
   print(s.n)

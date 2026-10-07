@@ -1,10 +1,10 @@
 fun size(s: String) -> Int
   s.len
 
-fun mk -> Text
+fun mk() -> Text
   Text("made")
 
-sub main
+sub main()
   a = Text("aaaa")
   b = Text("bb")
   c = true

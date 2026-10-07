@@ -1,7 +1,7 @@
 struct Row
   cells: Vec[Int]
 
-sub main
+sub main()
   grid: Vec[Box[Vec[Int]]] = Vec()
   !grid.push(Box(Vec[Int]()))
   rows: Vec[Row] = Vec()

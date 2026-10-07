@@ -1,6 +1,6 @@
 use std.sort
 
-sub main
+sub main()
   xs = [3, 1, 2]
   n = Cell(0)
   sort.sort_by(!xs, |?n, a, b| bump(?n, a < b))

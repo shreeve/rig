@@ -6,7 +6,7 @@ struct S
   rs: [1]R
   t: Text
 
-sub main
+sub main()
   s = S(rs: [R(seed: 1)], t: Text("x"))
   c = +s
   print(c.t)

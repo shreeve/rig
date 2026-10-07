@@ -73,7 +73,7 @@ sub made_fallback()
   z = (maybe(1) ?? a).s.inner()
   print(z)
 
-sub main
+sub main()
   field_write(true)
   elem_write(true)
   nested_write(false, false)

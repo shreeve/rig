@@ -11,7 +11,7 @@ fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1]
 
-sub main
+sub main()
   b = Q(xs: [0, 0, 0, 0])
   c = clobber(0) == 1
   print((if c

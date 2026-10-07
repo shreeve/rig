@@ -1,8 +1,8 @@
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-fun mk -> *fun(Int) -> Int
+fun mk() -> *fun(Int) -> Int
   *|a: Int| a + 5
 
-sub main
+sub main()
   print(apply(?mk(), 1))

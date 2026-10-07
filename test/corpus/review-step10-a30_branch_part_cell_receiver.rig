@@ -20,7 +20,7 @@ struct H
 fun g(k: Int) -> Int
   k
 
-sub main
+sub main()
   h1 = H(q: Q(c: Cell(1), n: 1))
   h2 = H(q: Q(c: Cell(10), n: 2))
   c = g(1) == 1

@@ -6,7 +6,7 @@ enum E
   a(r: Res)
   b(n: Int)
 
-sub main
+sub main()
   e = E.a(r: Res(n: 1, t: Text("hello")))
   k = E.b(n: 0)
   saved = ?k

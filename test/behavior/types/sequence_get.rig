@@ -18,7 +18,7 @@ fun at(s: []Int, i: Int) -> Int?
 fun byte(s: String, i: Int) -> U8
   s.get(i) ?? 0
 
-sub main
+sub main()
   a = [10, 20, 30]
   print(a.get(1), a.get(3), a.get(-1), first(?a))
   v: Vec[Int] = Vec()

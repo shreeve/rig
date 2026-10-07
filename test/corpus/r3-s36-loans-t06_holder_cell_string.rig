@@ -5,7 +5,7 @@ struct Holder[T]
   sub put(?self, x: T)
     self.c.set(x)
 
-sub main
+sub main()
   h = Holder(c: Cell("a"))
   h.put("b")
   print(h.c.get())

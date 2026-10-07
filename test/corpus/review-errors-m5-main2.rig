@@ -5,5 +5,5 @@ fun c(n: Int) -> String
     LO2 => "one"
     _ => "other"
 
-sub main
+sub main()
   print(c(1), c(2))

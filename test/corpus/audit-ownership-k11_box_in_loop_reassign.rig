@@ -21,7 +21,7 @@ sub walk(slot: ?Box[Node]?)
     print(n.key)
     walk(?n.right)
 
-sub main
+sub main()
   cur: Box[Node]? = Box(Node(key: 1, left: Box(Node(key: 0, left: none, right: none)), right: none))
   while <cur as n
     print("at", n.key)

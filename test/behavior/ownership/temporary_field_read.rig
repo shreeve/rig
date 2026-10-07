@@ -9,16 +9,16 @@ struct User
   drop(!self)
     print("drop user")
 
-fun mv -> Vec[Int]
+fun mv() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)
   v
 
-fun mo -> Text?
+fun mo() -> Text?
   Text("opt")
 
-sub main
+sub main()
   print(Text("bye").len, (*User(age: 5, name: Text("u"))).age)
   x = User(age: 1, name: Text("n")).age
   print(x)

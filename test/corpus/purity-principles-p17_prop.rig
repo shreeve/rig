@@ -17,6 +17,6 @@ fun both(a: Int, b: Int) -> Int!
   y = mk(b)!
   x.n + y.n
 
-sub main
+sub main()
   print(both(1, 2) catch -1)
   print(both(3, -1) catch -1)

@@ -43,7 +43,7 @@ fun field(h: ?H) -> Int
     .a(n) if n > 1 => n
     _ => 0
 
-sub main
+sub main()
   e: Vec[E] = Vec()
   !e.push(E.a(n: 5))
   t: Vec[T] = Vec()

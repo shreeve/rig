@@ -3,7 +3,7 @@ struct S
   w: Vec[Int]
   arr: [2]Vec[Int]
 
-fun mk -> S
+fun mk() -> S
   v: Vec[Int] = Vec()
   !v.push(7)
   e: Vec[Int] = Vec()
@@ -12,7 +12,7 @@ fun mk -> S
   !f.push(2)
   S(v: <v, w: Vec(), arr: [<e, <f])
 
-sub main
+sub main()
   a = mk()
   b = mk()
   c = a.v.len == 1

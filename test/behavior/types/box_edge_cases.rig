@@ -12,7 +12,7 @@ enum Sh
   c(r: Int)
   s(k: Int)
 
-sub main
+sub main()
   h = Box(*R(n: 1))
   print(h)
   b = Box(P(unbox: 4))

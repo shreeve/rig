@@ -8,7 +8,7 @@ struct P
   fun head(?self) -> String
     self.src[0..1]
 
-sub main
+sub main()
   t = Text("abc")
   a = [1, 2]
   p = P(src: ?t, toks: ?a[..])

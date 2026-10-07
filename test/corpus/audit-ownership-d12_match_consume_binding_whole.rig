@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 sub eat_slot(s: Slot)
   print("ate slot")
 
-sub main
+sub main()
   s: Slot = .full(t: *Tok(n: 1))
   match <s
     other => eat_slot(<other)

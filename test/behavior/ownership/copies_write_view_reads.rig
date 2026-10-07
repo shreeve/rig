@@ -14,7 +14,7 @@ struct H
 fun pick(a: !P, b: !P, first: Bool) -> P
   a if first else b
 
-sub main
+sub main()
   a = P(x: 1, y: 2)
   b = P(x: 10, y: 20)
   w = !a

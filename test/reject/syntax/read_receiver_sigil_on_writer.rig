@@ -11,13 +11,13 @@ struct Counter
   fun done(<self) -> Int
     self.n
 
-  fun make -> Counter
+  fun make() -> Counter
     Counter(n: 0)
 
 sub show(c: ?Counter)
   print(c.n)
 
-sub main
+sub main()
   c = Counter(n: 0)
   ?c.bump()
   print(?c.done())

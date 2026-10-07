@@ -28,7 +28,7 @@ sub bind(w2: !Int)
   u += 1
   print(w, v, xs[0])
 
-sub main
+sub main()
   n = 1
   m = 2
   k = 3

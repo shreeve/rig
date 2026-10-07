@@ -1,3 +1,3 @@
-sub main
+sub main()
   b = Box(Text("hello"))
   print(b.len)

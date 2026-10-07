@@ -3,7 +3,7 @@ enum C
   green
   blue
 
-sub main
+sub main()
   c: C = .red
   match c
     .red => print("r")

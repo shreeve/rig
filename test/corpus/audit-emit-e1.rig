@@ -11,7 +11,7 @@ fun num(i: Int) -> Int?
   return none if i % 2 == 1
   i
 
-sub main
+sub main()
   i = 0
   while get(i) as r and num(r.n) as k and k < 3
     print("got", r.n, k)

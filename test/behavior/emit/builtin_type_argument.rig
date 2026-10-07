@@ -2,7 +2,7 @@
 # (`@size(I64)` is `@sizeOf(i64)`).
 
 sub main()
-  n = @sizeOf(I64)
+  n = @size(I64)
   print(n)
 
 # expect:

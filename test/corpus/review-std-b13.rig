@@ -4,7 +4,7 @@ struct Holder
   sub set(!self, g: *fun() -> Int)
     self.f = <g
 
-sub main
+sub main()
   h = Holder(f: *|| 1)
   if true
     y = 42

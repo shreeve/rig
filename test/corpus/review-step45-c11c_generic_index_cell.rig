@@ -9,7 +9,7 @@ sub first[T](v: ?Vec[T], f: ?sub(?T))
   f(?v[0])
   f(v[0])
 
-sub main
+sub main()
   v: Vec[C] = Vec()
   !v.push(C(c: Cell(1)))
   first(?v, |x| x.hit())

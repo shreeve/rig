@@ -5,8 +5,6 @@ struct S
 struct Holder[T]
   x: T?
 
-
-
 fun eat[T](x: T) -> Int
   1
 
@@ -16,7 +14,7 @@ fun all[T](v: ?Vec[T]) -> Int
     n += eat(x)
   n
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

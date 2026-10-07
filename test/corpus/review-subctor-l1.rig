@@ -21,7 +21,7 @@ sub f(n: Int, keep: Vec[Int])!
   chk(n - 5)!
   print("f ok", v.len, keep.len)
 
-sub main
+sub main()
   k = Vec[Int]()
   !k.push(1)
   f(-1, <k) catch |e|

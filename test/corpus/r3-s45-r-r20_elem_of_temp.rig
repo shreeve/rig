@@ -1,9 +1,9 @@
-fun mk -> Vec[Text]
+fun mk() -> Vec[Text]
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   v
 
-sub main
+sub main()
   print(mk()[0])
   x = mk()[0]
   print(x)

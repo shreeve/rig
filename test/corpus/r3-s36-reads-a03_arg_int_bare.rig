@@ -1,6 +1,6 @@
 fun sizei(k: ?Int) -> Int
   k + 1
 
-sub main
+sub main()
   k = 4
   print(sizei(k))

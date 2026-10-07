@@ -110,7 +110,7 @@ struct K3
 fun f2(n: Int) -> Int
   n + 1
 
-sub main
+sub main()
   c = f(1) == 1
   print(c and incr(!mk(1).arr[1]) > 0)
   print("--- end", c)

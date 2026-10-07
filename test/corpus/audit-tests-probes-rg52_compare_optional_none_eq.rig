@@ -1,6 +1,6 @@
-fun f -> Int?
+fun f() -> Int?
   none
 
-sub main
+sub main()
   if f() == none
     print("none")

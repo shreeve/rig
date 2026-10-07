@@ -1,5 +1,6 @@
 struct W
   n: Int
-sub main
+
+sub main()
   w = W(3)
   print(w.n)

@@ -1,7 +1,7 @@
 struct Named
   name: Text
 
-sub main
+sub main()
   a = Named(name: Text("x"))
   b = +a
   print(b.name)

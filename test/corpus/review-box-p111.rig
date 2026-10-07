@@ -7,7 +7,7 @@ struct R
 sub eat(b: *R)
   print("eat", b.n)
 
-sub main
+sub main()
   v: Vec[*R] = Vec()
   !v.push(*R(n: 1))
   for x in v

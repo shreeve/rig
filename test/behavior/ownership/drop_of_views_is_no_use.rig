@@ -36,7 +36,7 @@ fun firsts(a: ?Item, b: ?Item) -> Vec[?Item]
   !v.push(b)
   v
 
-sub slices
+sub slices()
   a = [1, 2, 3]
   v: Vec[[]Int] = Vec()
   !v.push(?a[..2])
@@ -46,7 +46,7 @@ sub slices
   a[0] = 9
   print(a)
 
-sub write_views
+sub write_views()
   a = 1
   b = 2
   ws: Vec[!Int] = Vec()
@@ -55,7 +55,7 @@ sub write_views
   ws[1] = 9
   print(a, b)
 
-sub returned
+sub returned()
   x = Item(n: 1, name: "x")
   y = Item(n: 2, name: "y")
   v = firsts(?x, ?y)
@@ -64,7 +64,7 @@ sub returned
   x = Item(n: 3, name: "z")
   print(x.name)
 
-sub fields
+sub fields()
   x = Item(n: 1, name: "x")
   y = Item(n: 2, name: "y")
   s = Views(first: ?x, rest: Vec())
@@ -75,7 +75,7 @@ sub fields
   x = Item(n: 4, name: "w")
   print(x.n, y.n)
 
-sub elements
+sub elements()
   x = Item(n: 1, name: "x")
   rows: Vec[Vec[?Item]] = Vec()
   row: Vec[?Item] = Vec()
@@ -86,7 +86,7 @@ sub elements
   x.n = 7
   print(x.n)
 
-sub generic
+sub generic()
   a = [4, 5]
   h: Holder[[]Int] = Holder(items: Vec())
   !h.items.push(?a[..])
@@ -95,7 +95,7 @@ sub generic
   a[1] = 6
   print(a)
 
-sub loops
+sub loops()
   xs = [Item(n: 1, name: "a"), Item(n: 2, name: "b")]
   seen: Vec[?Item] = Vec()
   for i in 0..2
@@ -104,7 +104,7 @@ sub loops
   xs[0] = Item(n: 3, name: "c")
   print(xs[0].name)
 
-sub inner_block
+sub inner_block()
   v: Vec[?Item] = Vec()
   if true
     t = Item(n: 8, name: "inner")
@@ -113,7 +113,7 @@ sub inner_block
     print(v[0].name)
   print("after")
 
-sub deferred
+sub deferred()
   x = Item(n: 1, name: "x")
   defer print("deferred", x.n)
   v: Vec[?Item] = Vec()
@@ -121,7 +121,7 @@ sub deferred
   print(v.len)
   x.n = 2
 
-sub in_closure
+sub in_closure()
   x = Item(n: 1, name: "x")
   v: Vec[?Item] = Vec()
   !v.push(?x)
@@ -130,7 +130,7 @@ sub in_closure
   x.n = 2
   print(x.n)
 
-sub main
+sub main()
   slices()
   write_views()
   returned()

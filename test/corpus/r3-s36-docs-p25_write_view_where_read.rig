@@ -9,7 +9,7 @@ sub bump(p: !P)
   print(read_x(p))
   p.x += 1
 
-sub main
+sub main()
   a = P(x: 1)
   bump(!a)
   print(a.x)

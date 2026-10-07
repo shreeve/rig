@@ -1,7 +1,9 @@
 error E
   bad
+
 fun f(n: Int) -> Void!
   return E.bad if n < 0
-sub main
+
+sub main()
   f(1)!
   f(-1) catch |e| print("caught", e)

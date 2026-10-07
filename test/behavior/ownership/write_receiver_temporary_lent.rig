@@ -38,10 +38,10 @@ struct Wrap[V]
   sub again(?self)
     !(self.twice()).bump()
 
-fun mk -> S
+fun mk() -> S
   S(n: 1, inner: T(k: 0))
 
-sub main
+sub main()
   c = mk().n == 1
   s = mk()
   !mk().bump()

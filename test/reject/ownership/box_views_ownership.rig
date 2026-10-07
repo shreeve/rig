@@ -8,7 +8,7 @@ struct Node
 fun first(n: ?Box[Node]) -> ?Node
   ?n
 
-sub main
+sub main()
   root: Box[Node]? = Box(Node(key: 1, left: none))
   if !root as n
     root = none

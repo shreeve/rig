@@ -42,7 +42,7 @@ fun whole[T](w: ?W[T]) -> Opt[T]
     x
       return x
 
-sub main
+sub main()
   o: Opt[Int] = .some(v: 1)
   w: W[Int] = W(o: .some(v: 2))
   print(moved(?o, 0))

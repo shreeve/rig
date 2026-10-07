@@ -1,7 +1,7 @@
 struct H
   w: !String
 
-sub main
+sub main()
   s = "a"
   h = H(w: !s)
   h.w = "bb"

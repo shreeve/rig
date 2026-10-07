@@ -1,4 +1,4 @@
-sub main
+sub main()
   o: Box[Int]? = Box(4)
   k = 0
   while !o as x : x += 1

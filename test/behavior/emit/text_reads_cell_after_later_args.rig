@@ -19,7 +19,7 @@ fun grow_s(s: ?S) -> Int
   c.push(9)
   1
 
-sub main
+sub main()
   c: Cell[Vec[Int]] = Cell(Vec())
   c.push(42)
   t = Text(c, grow(?c))

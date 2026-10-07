@@ -2,7 +2,7 @@
 # then holds the new loan only, so the old place is free again (Core §6
 # "View places"). A bare write view on the right is read as its value.
 
-sub old_place_free
+sub old_place_free()
   m = 1
   n = 2
   w = !m
@@ -12,7 +12,7 @@ sub old_place_free
   w = 7
   print(n)
 
-sub moved_in
+sub moved_in()
   m = 1
   n = 2
   w = !m
@@ -21,7 +21,7 @@ sub moved_in
   w = 5
   print(m, n)
 
-sub bare_value
+sub bare_value()
   m = 1
   n = 2
   w = !m
@@ -29,7 +29,7 @@ sub bare_value
   w = w3
   print(m, n)
 
-sub main
+sub main()
   old_place_free()
   moved_in()
   bare_value()

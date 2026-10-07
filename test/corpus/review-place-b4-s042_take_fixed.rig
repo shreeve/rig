@@ -1,6 +1,6 @@
 struct P
   o: String?
 
-sub main
+sub main()
   const p = P(o: "a")
   x = <p.o

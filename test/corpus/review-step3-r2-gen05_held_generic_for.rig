@@ -16,5 +16,5 @@ fun count[T](a: T, b: T) -> Int
     n += 1
   n
 
-sub main
+sub main()
   print(count(1, 2))

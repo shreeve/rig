@@ -6,7 +6,7 @@
 fun all(v: ?Vec[Int]) -> []Int
   ?v[..]
 
-sub main
+sub main()
   x = *Vec[Int]()
   s = all(?x)
   k = 0

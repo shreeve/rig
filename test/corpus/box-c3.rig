@@ -12,7 +12,7 @@ fun eval(e: ?Expr) -> Int
 fun num(n: Int) -> Box[Expr]
   Box(value: .num(n))
 
-sub main
+sub main()
   e = Expr.add(l: num(2), r: Box(value: Expr.mul(l: num(3), r: num(4))))
   print(eval(?e))
   print(e)

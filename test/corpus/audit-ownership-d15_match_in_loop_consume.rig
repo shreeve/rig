@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-sub main
+sub main()
   v: Vec[Slot] = Vec()
   i = 0
   while i < 3 : i += 1

@@ -15,7 +15,7 @@ struct D
 struct H
   d: D
 
-sub s1
+sub s1()
   s = S(e: E.empty, n: 1)
   match <s.e
     .full(v) => print(v.len)
@@ -28,11 +28,11 @@ sub s2(c: Bool)
     .full(v) => print(v.len)
     .empty => print("e")
 
-sub s4
+sub s4()
   h = H(d: D(v: Vec()))
   print(<h.d.into())
 
-sub main
+sub main()
   s1()
 
 # oracle: D.into accept

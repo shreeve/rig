@@ -23,7 +23,7 @@ fun deep(o: ?Out, d: ?Res) -> ?Res
         .y => d
     .z => d
 
-sub main
+sub main()
   o = Out.w(i: In.x(r: Res(n: 3, t: Text("three"))), t: Text("t"))
   dd = Res(n: 0, t: Text("d"))
   r = deep(o, dd)

@@ -11,7 +11,7 @@ fun nxt(i: Int) -> Int?
 fun some(i: Int) -> Int?
   i if i < 9 else none
 
-sub main
+sub main()
   i = 0
   a = while i < 10: i = nxt(i) ?? break 100 + i
     d = D(n: i)

@@ -1,4 +1,4 @@
-sub main
+sub main()
   n = 1
   g = |n|
     h = |!n| n += 1

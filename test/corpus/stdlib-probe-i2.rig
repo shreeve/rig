@@ -11,7 +11,7 @@ struct Words
       self.i += 1
     self.s[start..self.i]
 
-sub main
+sub main()
   w = Words(s: "  the quick  fox ")
   n = 0
   while !w.next() as x

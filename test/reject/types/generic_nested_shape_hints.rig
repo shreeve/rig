@@ -22,7 +22,7 @@ fun pair[T, U](a: T) -> Vec[U]
 fun tag[T, U](a: T) -> Int
   1
 
-sub main
+sub main()
   c: Wrap[Wrap[U8]] = Wrap.make(Wrap.make(1))
   a: Opt[Opt[U8]] = Opt.some(value: Opt.some(value: 1))
   b: Opt[Opt[U8]] = Opt.some(Opt.some(1))

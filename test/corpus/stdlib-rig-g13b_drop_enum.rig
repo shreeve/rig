@@ -3,5 +3,6 @@ enum Res
   b(n: Int)
   drop(!self)
     print("x")
-sub main
+
+sub main()
   r = Res.a

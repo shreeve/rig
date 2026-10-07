@@ -20,7 +20,7 @@ struct Empty
   sub hi(?self)
     print("hi")
 
-sub main
+sub main()
   w()
   f(1)
   m = M(1, 2)

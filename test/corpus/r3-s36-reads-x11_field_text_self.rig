@@ -7,6 +7,6 @@ struct Doc
   fun head2(?self) -> String
     self.title[..2]
 
-sub main
+sub main()
   d = Doc(title: Text("hello"))
   print(d.head(), d.head2())

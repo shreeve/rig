@@ -30,7 +30,7 @@ sub s(k: Int)!
   n = p(k) catch |e| return E.worse if e == E.bad else e
   print("s", n, r.id)
 
-sub main
+sub main()
   print(q(2) catch -9, q(0) catch -9)
   print(opt(1), opt(0))
   print(chain(none, 2), chain(none, none), chain(3, none))

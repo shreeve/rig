@@ -13,7 +13,7 @@ struct R
 fun rd(r: ?R) -> Int
   r.n
 
-sub main
+sub main()
   s = *Box(value: R(n: 1))
   print(s.n)
   w = ~s

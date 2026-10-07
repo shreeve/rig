@@ -3,6 +3,6 @@ struct P
 
 const K = P(x: 1)
 
-sub main
+sub main()
   K.x = 4
   print(K.x)

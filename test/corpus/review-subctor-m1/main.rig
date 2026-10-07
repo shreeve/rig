@@ -1,6 +1,6 @@
 use lib
 
-sub main
+sub main()
   lib.check(1)!
   lib.check(-1) catch |e|
     print("e", e)

@@ -2,7 +2,7 @@ sub f(s: ![]Int)
   s = !s[1..]
   s[0] = 7
 
-sub main
+sub main()
   a = [1, 2, 3]
   w = !a[..]
   w[0] = 1

@@ -1,7 +1,7 @@
 fun first[T](a: ?T, b: ?T) -> ?T
   a
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   r = first(?x, ?y)

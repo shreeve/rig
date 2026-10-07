@@ -2,7 +2,7 @@
 fun f(s: String) -> Bool
   s.len == 1
 
-sub main
+sub main()
   o: Text? = Text("q")
   w: Text? = Text("w")
   if (!o if f(?Text("a")) else !w) as t

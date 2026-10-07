@@ -6,4 +6,3 @@ pub struct Wrap[T]
 
   fun nest(?self) -> Wrap[Wrap[T]]
     Wrap(v: Wrap(v: self.v))
-

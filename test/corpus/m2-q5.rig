@@ -7,7 +7,7 @@ struct Inner
 struct Outer
   i: !Inner
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   inn = Inner(r: R(x: !v))
   o = Outer(i: !inn)

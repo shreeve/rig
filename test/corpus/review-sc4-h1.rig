@@ -16,7 +16,7 @@ fun isfull(s: ?Slot) -> Bool
     .full(_) => true
     .empty => false
 
-sub main
+sub main()
   s: Slot = .full(b: *B(n: 1))
   match <s
     w if not isfull(?w) => print("no")

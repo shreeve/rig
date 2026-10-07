@@ -16,7 +16,7 @@ fun opt(n: Int) -> Disk?
 fun dflt(e: Disk = .timeout) -> Disk
   e
 
-sub main
+sub main()
   r = Rec()
   print(r)
   o: Disk? = .timeout

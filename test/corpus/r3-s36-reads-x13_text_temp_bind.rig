@@ -1,7 +1,7 @@
 fun mk() -> Text
   Text("abc")
 
-sub main
+sub main()
   n = mk().len
   print(n, mk() == "abc")
   print(Text("x", 1))

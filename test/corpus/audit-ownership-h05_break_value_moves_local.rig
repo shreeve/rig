@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-sub main
+sub main()
   i = 0
   r = while true
     t = *Tok(n: i)

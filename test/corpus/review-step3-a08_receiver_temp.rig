@@ -21,7 +21,7 @@ fun mkf(n: Int) -> Bag!
 fun run(n: Int) -> Int!
   mk(1).plus(mkf(n)!)
 
-sub main
+sub main()
   print(mk(2).plus(mk(3)))
   b = Bag(n: 4)
   print(b.plus(mk(5)))

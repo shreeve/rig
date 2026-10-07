@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 struct H
   o: *Tok?
 
-sub main
+sub main()
   c: Cell[H] = Cell(H(o: *Tok(n: 1)))
   h = c.replace(H(o: none))
   x = <h.o

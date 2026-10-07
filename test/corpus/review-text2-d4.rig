@@ -1,9 +1,9 @@
-fun boxes -> Vec[Box[Text]]
+fun boxes() -> Vec[Box[Text]]
   v: Vec[Box[Text]] = Vec()
   !v.push(Box(Text("one")))
   v
 
-sub main
+sub main()
   o = "init"
   for b in ?boxes()
     o = ?b.value[..]

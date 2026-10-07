@@ -1,7 +1,7 @@
 struct Counter
   hits: Cell[Int]
 
-sub main
+sub main()
   a = Counter(hits: Cell(0))
   b = Counter(hits: Cell(1))
   c = true

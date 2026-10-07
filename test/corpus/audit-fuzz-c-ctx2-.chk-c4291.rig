@@ -49,7 +49,7 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t4291
+sub t4291()
   const cst4291: U128 = 340282366920938463463374607431768211455
   av4291: Vec[U128] = Vec()
   !av4291.push(0)
@@ -58,5 +58,5 @@ sub t4291
   aa4291[rt_int(2)] = cst4291
   print(av4291[0], aa4291)
 
-sub main
+sub main()
   t4291()

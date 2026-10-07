@@ -15,7 +15,7 @@ fun sum(p: P) -> Int
 fun lift(r: ?P) -> P?
   r
 
-sub main
+sub main()
   a = P(x: 1, y: 2)
   r = ?a
   q = Q(p: r, o: r, a: [r, r])

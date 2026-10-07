@@ -1,7 +1,7 @@
-fun two -> Int
+fun two() -> Int
   2
 
-sub main
+sub main()
   k = 3
   f = |?k| k + 1
   a = [3 of f]

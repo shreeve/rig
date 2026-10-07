@@ -9,7 +9,7 @@ fun left(a: ?Item, b: ?Item) -> ?Item
 fun right(a: ?Item, b: ?Item) -> ?Item
   b
 
-sub main
+sub main()
   x = Item(n: 1)
   y = Item(n: 2)
   h = ?left

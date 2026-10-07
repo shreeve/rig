@@ -1,7 +1,7 @@
 error Bad
   neg
 
-sub main
+sub main()
   cbs: Vec[*sub(Int)!] = Vec()
   !cbs.push(*|x: Int|
     return Bad.neg if x < 0

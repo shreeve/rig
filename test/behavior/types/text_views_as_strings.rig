@@ -25,12 +25,12 @@ fun n(p: ?Text) -> Int
 struct W
   s: Vec[String]
 
-fun mkw -> W
+fun mkw() -> W
   s: Vec[String] = Vec()
   !s.push("lit")
   W(s: <s)
 
-sub main
+sub main()
   s = S(t: Text(" padded "))
   print(text.trim(s.get()), text.trim(s.get()[1..]), n(s.get()))
   e = E(value: Text("v"))

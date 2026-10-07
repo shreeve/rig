@@ -11,7 +11,7 @@ struct N
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   h = Holder[N](one: N(n: 1))
   if !h.val() as v
     v.n = 5

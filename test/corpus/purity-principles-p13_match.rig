@@ -5,7 +5,7 @@ enum Shape
   blob(b: Big)
   dot
 
-sub main
+sub main()
   s: Shape = .blob(b: Big(a: [100 of 1]))
   match s
     .blob(b) => print(b.a[0])

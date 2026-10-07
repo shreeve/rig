@@ -5,7 +5,7 @@
 #
 # oracle: main accept
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   defer !v.push(3)
   w = !v

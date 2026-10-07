@@ -2,7 +2,7 @@
 sub keep(v: !Vec[String], x: String)
   !v.push(x)
 
-sub main
+sub main()
   t = Text("hello")
   v: Vec[String] = Vec()
   keep(!v, ?t)

@@ -13,5 +13,5 @@ fun f() -> Int?
   print(o)
   1
 
-sub main
+sub main()
   print(f())

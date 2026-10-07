@@ -30,7 +30,7 @@ fun h(n: Int) -> Int!
     i += 1
   i
 
-sub main
+sub main()
   print(g(none))
   print(g(2))
   print(h(10) catch -5)

@@ -8,25 +8,25 @@ struct W
 fun peek(h: *Text) -> String
   ?h[..]
 
-sub local
+sub local()
   h = *Text("hello")
   s = ?h[..]
   -h
   print(s)
 
-sub field
+sub field()
   w = W(t: *Text("hello"))
   s = ?w.t[1..]
   w = W(t: *Text("other"))
   print(s)
 
-sub boxed
+sub boxed()
   b = Box(*Text("hello"))
   s = ?b[1..]
   b = Box(*Text("other"))
   print(s)
 
-sub upgraded
+sub upgraded()
   h = *Text("hello")
   w = ~h
   if w.upgrade() as g
@@ -34,7 +34,7 @@ sub upgraded
     -g
     print(s)
 
-sub main
+sub main()
   local()
   field()
   boxed()

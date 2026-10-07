@@ -11,7 +11,7 @@ struct R
   sub bump(!self)
     self.n += 10
 
-sub main
+sub main()
   v: Vec[Box[R]] = Vec()
   !v.push(Box(R(n: 1)))
   b = Box(R(n: 2))

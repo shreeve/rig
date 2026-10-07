@@ -7,7 +7,7 @@ use std.text
 struct N
   v: Vec[Int]
 
-fun mk -> N
+fun mk() -> N
   v: Vec[Int] = Vec()
   !v.push(1)
   N(v: <v)
@@ -15,7 +15,7 @@ fun mk -> N
 fun idp(n: ?N) -> (?Vec[Int])?
   ?n.v
 
-sub main
+sub main()
   o = "init"
   if text.strip_prefix(?Text("pre-fix"), "pre-") as rest
     o = rest

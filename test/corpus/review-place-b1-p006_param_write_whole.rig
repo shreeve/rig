@@ -2,7 +2,7 @@ sub f(n: !Int)
   n = 5
   n += 1
 
-sub main
+sub main()
   m = 1
   f(!m)
   print(m)

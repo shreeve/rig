@@ -38,7 +38,7 @@ sub reset(c: !Counter)
   old = replace(c, Counter(n: 0))
   print(old.n)
 
-sub main
+sub main()
   c = Counter(n: 0)
   w = !c
   w.bump()

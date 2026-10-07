@@ -4,7 +4,7 @@ struct N
 struct S
   a: Box[N]?
 
-sub main
+sub main()
   s = S(a: Box(value: N(v: 1)))
   c = true
   b = <(s.a if c else none)

@@ -7,7 +7,7 @@ fun mk() -> Shape
   !pts.push(1)
   Shape.poly(pts: <pts)
 
-sub main
+sub main()
   match mk()
     .circle(r) => print("c", r)
     .poly(ps) => print("p", ps.len)

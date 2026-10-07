@@ -7,7 +7,7 @@ struct P
 fun idx(s: ?Text) -> Int
   s.len
 
-sub main
+sub main()
   v = [1, 2, 3, 4]
   for x in !v[0..idx(?Text("ab"))]
     x = x * 10

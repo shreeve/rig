@@ -13,7 +13,7 @@ fun bump2(c: ?Cell[Int]) -> Int
   c.set(7)
   2
 
-sub main
+sub main()
   k = K(hits: Cell(1))
   print(k, bump(?k))
   print(k)

@@ -7,7 +7,7 @@ struct R
 fun rs(r: ?*R) -> Int
   r.n
 
-sub main
+sub main()
   o: *R? = *R(n: 1)
   if ?o as x
     print(x.n, rs(x))

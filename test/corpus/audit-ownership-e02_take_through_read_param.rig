@@ -23,6 +23,6 @@ sub f(h: ?H)
   x = <h.o
   print(x == none)
 
-sub main
+sub main()
   h = H(o: *Tok(n: 1))
   f(?h)

@@ -5,5 +5,5 @@ fun hash_str(s: String) -> U64
     h *= 1099511628211
   h
 
-sub main
+sub main()
   print(hash_str("abc"))

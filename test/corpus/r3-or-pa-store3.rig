@@ -4,7 +4,7 @@ struct Holder
 sub put(h: !Holder, x: ?Vec[Int])
   h.v = x
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   b: Vec[Int] = Vec()
   !b.push(1)

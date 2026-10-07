@@ -1,4 +1,4 @@
-sub main
+sub main()
   z = 0.0
   f = z / z
   print(f)

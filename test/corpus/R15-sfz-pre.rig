@@ -1,16 +1,21 @@
 struct G
   arr: [3]Int
+
 struct H
   arr: [3]Int
+
 const E = Endian.little
+
 fun total(xs: []Int) -> Int
   t = 0
   for x in xs
     t += x
   t
+
 sub sink(xs: ![]Int)
   for x in !xs
     x += 1
+
 sub f(s: ![]Int, t: []U8, n: Int)
   a = [1, 2, 3]
   b: [8]U8 = [8 of 1]
@@ -28,6 +33,7 @@ sub f(s: ![]Int, t: []U8, n: Int)
   print(1)
   print(u.len)
   print(a, b, s, t.len, n, g.arr, grid, vs.len, v, bv, b2)
+
 sub main()
   a0 = [0, 1, 2, 3]
   b0: [4]U8 = [0, 1, 2, 3]

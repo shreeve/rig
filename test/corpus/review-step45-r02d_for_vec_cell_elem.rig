@@ -6,7 +6,7 @@ sub bump(v: ?Vec[C])
   for x in v
     x.c.set(x.c.get() + 1)
 
-sub main
+sub main()
   v: Vec[C] = Vec()
   !v.push(C(c: Cell(3)))
   bump(?v)

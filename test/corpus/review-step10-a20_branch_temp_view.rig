@@ -5,7 +5,7 @@
 fun pick(s: String) -> String
   s
 
-sub main
+sub main()
   c = pick("x").len == 1
   print(pick(?Text("a long text that lives on the heap, hello")) if c else "d")
   n = (pick(?Text("a long text that lives on the heap, hello")) if c else "d").len

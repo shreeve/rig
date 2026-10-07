@@ -7,7 +7,7 @@ struct Tok
 struct View
   b: ?Tok
 
-sub main
+sub main()
   x = Tok(n: 1)
   arr = [View(b: ?x), View(b: ?x)]
   for vw in !arr

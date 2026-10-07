@@ -1,7 +1,7 @@
 sub g(n: !Int)
   n = 1
 
-sub main
+sub main()
   c: Cell[Vec[Int]] = Cell(Vec())
   c.push(1)
   g(!c[0])

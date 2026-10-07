@@ -2,7 +2,7 @@ enum Sh
   c(r: Int)
   s(k: Int)
 
-sub main
+sub main()
   v: Vec[Box[Sh]] = Vec()
   !v.push(Box(value: Sh.s(k: 3)))
   for x in ?v

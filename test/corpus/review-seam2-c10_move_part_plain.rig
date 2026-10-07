@@ -23,6 +23,6 @@ fun mk(n: Int) -> S
   !s.items.push(n)
   s
 
-sub main
+sub main()
   x = <mk(1).items
   print(x)

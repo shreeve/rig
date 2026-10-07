@@ -1,4 +1,4 @@
-sub main
+sub main()
   const xs = [1, 2, 3]
   for x in !xs
     x += 1

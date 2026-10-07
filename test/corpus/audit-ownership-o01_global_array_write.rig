@@ -1,8 +1,8 @@
 names = [1, 2, 3]
 
-sub f
+sub f()
   !names.swap(0, 1)
 
-sub main
+sub main()
   f()
   print(names)

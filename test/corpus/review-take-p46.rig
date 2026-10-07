@@ -14,7 +14,7 @@ fun peek(s: ?S) -> Int
 sub f(x: R?, y: Int)
   print(x, y)
 
-sub main
+sub main()
   s = S(a: R(n: 1))
   f(y: peek(?s), x: <s.a)
   print(s)

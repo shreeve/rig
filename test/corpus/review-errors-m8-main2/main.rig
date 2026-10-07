@@ -1,6 +1,6 @@
 use b
 
-sub main
+sub main()
   x = b.g() catch |e|
     print(e == a.E.eof)
     0

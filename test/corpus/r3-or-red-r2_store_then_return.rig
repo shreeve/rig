@@ -8,7 +8,7 @@ fun f(a: !Holder, b: ?Item) -> ?Item
   a.r = b
   a.r
 
-sub main
+sub main()
   x = Item(n: 1)
   h = Holder(r: ?x)
   y = Item(n: 2)

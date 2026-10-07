@@ -1,6 +1,7 @@
 enum Status
   ok = 200
   missing = 404
-sub main
+
+sub main()
   print(U8(250) +% 10)
   print(U8(Status.missing))

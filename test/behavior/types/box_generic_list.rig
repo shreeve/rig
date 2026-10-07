@@ -16,7 +16,7 @@ fun count[T](top: ?Box[Node[T]]?) -> Int
     cur = ?node.next
   n
 
-sub main
+sub main()
   s: Box[Node[String]]? = none
   s = push(<s, "a")
   s = push(<s, "b")

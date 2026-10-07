@@ -2,7 +2,8 @@ struct R
   n: Int
   drop(!self)
     print("d")
-sub main
+
+sub main()
   v: Vec[Box[R]] = Vec()
   !v.push(Box(R(n: 1)))
   for r in !v

@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = "ab"
   b = a + "cd"
   print(b)

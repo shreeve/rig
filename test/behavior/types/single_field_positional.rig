@@ -13,7 +13,7 @@ struct Node
   key: Int
   next: Box[Node]?
 
-sub main
+sub main()
   b = Box(5)
   n = Box(Node(key: 1, next: Box(Node(key: 2, next: none))))
   c = Cell(0)

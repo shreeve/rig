@@ -67,7 +67,7 @@ sub made_in_stmt(c: Bool)
   print((a if c else mk(2)).s.inner(), clobber(70))
   print((maybe(0) ?? mk(3)).s.inner(), clobber(80))
 
-sub main
+sub main()
   c = clobber(1) == 2
   field_held(c)
   field_held(not c)

@@ -2,7 +2,7 @@
 fun slot(a: !Int) -> !Int
   a
 
-sub main
+sub main()
   m = 1
   n = 2
   w = !m

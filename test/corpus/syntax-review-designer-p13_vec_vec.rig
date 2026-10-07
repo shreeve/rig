@@ -1,4 +1,4 @@
-sub main
+sub main()
   grid: Vec[Vec[Int]] = Vec()
   row: Vec[Int] = Vec()
   !row.push(1)

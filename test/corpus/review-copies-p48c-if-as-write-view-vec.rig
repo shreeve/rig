@@ -4,7 +4,7 @@ struct W
 fun mk(v: !Vec[Int]) -> W?
   return W(w: !v)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   if mk(!v) as h
     v = Vec()

@@ -2,7 +2,7 @@ pub struct Stack
   items: Vec[Int]
   count: Int
 
-  fun new -> Self
+  fun new() -> Self
     Stack(items: Vec(), count: 0)
 
   sub push(!self, x: Int)

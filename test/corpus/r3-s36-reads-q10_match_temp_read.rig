@@ -11,7 +11,7 @@ enum E
 fun mk() -> E
   E.one(b: B(n: 1))
 
-sub main
+sub main()
   match mk()
     .one(b) => print("arm", b.n)
     .zero => pass

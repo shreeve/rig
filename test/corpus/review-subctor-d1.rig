@@ -1,7 +1,7 @@
 sub quiet(n: Int)!
   print("q", n)
 
-sub main
+sub main()
   quiet(1)!
   h: sub(Int)! = quiet
   h(2)!

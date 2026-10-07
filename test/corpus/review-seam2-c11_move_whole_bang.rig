@@ -26,7 +26,7 @@ fun mk(n: Int) -> S
 sub take(s: S)
   print(s.n)
 
-sub main
+sub main()
   take(<(!mk(1)))
   y = <(!mk(2))
   print(y.n)

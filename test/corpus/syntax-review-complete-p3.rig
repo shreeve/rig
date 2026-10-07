@@ -2,7 +2,8 @@ struct P
   x: Int
   fun show(?self) -> String
     "P"
-sub main
+
+sub main()
   p = P(x: 1)
   print(p)
   f = 1.0 / 3.0

@@ -27,6 +27,6 @@ fun cls(n: Int, flag: Bool) -> String
     return s
   "ok"
 
-sub main
+sub main()
   print(name(.full), name(Disk.timeout))
   print(cls(1, true), cls(1, false), cls(2, true), cls(3, false), cls(4, false))

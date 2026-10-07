@@ -1,6 +1,6 @@
 use std.slices
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   print(slices.contains(?v, 1))

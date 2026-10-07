@@ -4,7 +4,7 @@ struct S
   see: ?Vec[Text]
   box: ?Box[Int]
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("x"))
   b = Box(5)

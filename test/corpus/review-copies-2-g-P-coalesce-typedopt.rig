@@ -30,7 +30,7 @@ fun unopt(t: T?, d: T) -> T
 fun retv(o: (?T)?, a: ?T, b: ?T) -> T
   o ?? b
 
-sub main
+sub main()
   a = T(x: 1)
   b = T(x: 2)
   o: (?T)? = ?a

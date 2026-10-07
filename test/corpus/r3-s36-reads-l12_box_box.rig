@@ -4,6 +4,6 @@ struct S
 fun get(s: ?S) -> Int
   s.n
 
-sub main
+sub main()
   b = Box(Box(S(n: 2)))
   print(get(?b))

@@ -1,7 +1,7 @@
 struct P
   x: Int
 
-sub main
+sub main()
   ps: Vec[P] = Vec()
   !ps.push(P(x: 1))
   ws: Vec[!P] = Vec()

@@ -7,7 +7,7 @@ struct Holder
   sub put(!self, ys: []Int)
     self.b.xs = ys
 
-sub main
+sub main()
   q = [9]
   h = Holder(b: Box(View(xs: ?q)))
   if true

@@ -3,7 +3,7 @@ fun swapin(x: !Text, y: !Text) -> !Text
   x = Text("replaced")
   y
 
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   w = !a

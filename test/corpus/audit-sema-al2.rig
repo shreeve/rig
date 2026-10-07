@@ -1,5 +1,5 @@
 K = U8.max
 
-sub main
+sub main()
   a: [K]Int = [K of 1]
   print(a[0], K)

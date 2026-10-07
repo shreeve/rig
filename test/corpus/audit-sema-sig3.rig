@@ -1,5 +1,5 @@
 struct S
   s: Cell[Signal[Int]]
 
-sub main
+sub main()
   print(1)

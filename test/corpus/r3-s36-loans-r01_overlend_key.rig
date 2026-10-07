@@ -14,7 +14,7 @@ struct Table
 fun lookup(t: ?Table, k: ?Key) -> ?Entry
   ?t.rows[k.id]
 
-sub main
+sub main()
   t = Table(rows: [Entry(name: "a", hits: 1), Entry(name: "b", hits: 2), Entry(name: "c", hits: 3)])
   k = Key(id: 1)
   e = lookup(?t, ?k)

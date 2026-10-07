@@ -1,4 +1,4 @@
-sub main
+sub main()
   o: Vec[Int]? = Vec()
   k = 0
   while o as x

@@ -5,7 +5,7 @@ struct P
     self.x += 1
     self = P(x: 0)
 
-sub main
+sub main()
   p = P(x: 1)
   !p.inc()
   print(p.x)

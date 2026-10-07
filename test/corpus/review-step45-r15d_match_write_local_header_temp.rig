@@ -6,7 +6,7 @@ enum E
 fun idx(s: String) -> Int
   s.len - 1
 
-sub main
+sub main()
   e = E.a(t: Text("hi"))
   k = 0
   match !e if idx(?Text("a")) == k else !e

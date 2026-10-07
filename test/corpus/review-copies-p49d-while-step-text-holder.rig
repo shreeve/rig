@@ -13,7 +13,7 @@ fun mk(t: ?Text) -> S?
     return S(s: ?t)
   none
 
-sub main
+sub main()
   t = Text("abc")
   k = 0
   while mk(?t) as h: k += (1 if text.ends_with(h.s, "9") else 0)

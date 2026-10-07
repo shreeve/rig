@@ -108,7 +108,7 @@ fun fill_shelf[T](a: T, b: T) -> Shelf[T]
   !s.add(<b)
   s
 
-sub h0
+sub h0()
   o1: Int? = 10
   r1 = chain(<o1)
   if ?r1 as w2
@@ -164,7 +164,7 @@ sub h2()!
     look(?w30.a)
     look(?w30.b)
 
-sub main
+sub main()
   h0()
   h1() catch |e| print("caught", e)
   h2() catch |e| print("caught", e)

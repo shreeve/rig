@@ -11,7 +11,7 @@ enum E
 sub eat(b: Box[R])
   print("eat", b.n)
 
-sub main
+sub main()
   e = Box(value: E.full(b: Box(value: R(n: 1))))
   match !e
     .empty => print("empty")

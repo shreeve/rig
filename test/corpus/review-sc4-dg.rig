@@ -8,7 +8,7 @@ enum Slot
   full(b: B)
   empty
 
-sub main
+sub main()
   s: Slot = .full(b: B(n: 1))
   z = B(n: 0)
   x = match <s

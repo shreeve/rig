@@ -10,7 +10,7 @@ sub seti(a: !Int)
   w: !Int = <a
   w = 5
 
-sub main
+sub main()
   z = C(n: 0)
   set(!z)
   print(z.n)

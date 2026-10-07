@@ -9,7 +9,7 @@ struct S
 sub eat(s: S)
   print("eat", s)
 
-sub main
+sub main()
   s = S(a: R(n: 1))
   defer
     x = <s.a

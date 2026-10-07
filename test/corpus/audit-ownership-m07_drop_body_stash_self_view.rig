@@ -26,6 +26,6 @@ struct R
     k = Keep(r: ?self)
     print("keep", k.r.t.n)
 
-sub main
+sub main()
   r = R(t: *Tok(n: 1))
   print("x")

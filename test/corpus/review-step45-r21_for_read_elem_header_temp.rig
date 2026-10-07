@@ -2,7 +2,7 @@
 fun idx(s: String) -> Int
   s.len - 1
 
-sub main
+sub main()
   m: Vec[Vec[Text]] = Vec()
   r: Vec[Text] = Vec()
   !r.push(Text("q"))

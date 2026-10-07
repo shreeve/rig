@@ -8,7 +8,7 @@ struct N
 struct S
   h: *N
 
-sub main
+sub main()
   s = S(h: *N(v: 3))
   print(s.h.into())
   print(s.h.v)

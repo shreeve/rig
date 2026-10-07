@@ -7,7 +7,7 @@ fun f(h: !H) -> Vec[Int]
   !n.push(h.v.len)
   n
 
-sub main
+sub main()
   h = H(v: Vec())
   h.v = f(!h)
   print(h.v[0])

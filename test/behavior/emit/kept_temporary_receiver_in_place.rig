@@ -38,10 +38,10 @@ fun clobber(n: Int) -> Int
 fun mk(s: String) -> S
   S(t: Text(s))
 
-fun mkh -> H
+fun mkh() -> H
   H(p: P(c: Cell(1), n: 42, t: Text("pt")), u: Text("u"))
 
-sub main
+sub main()
   print(mk("a").pick(y: f(1), x: f(2)))
   print((mk("b") if f(0) == 0 else mk("c")).pick(y: f(1), x: f(2)))
   print(mk("dd").size(y: f(1), x: f(2)))

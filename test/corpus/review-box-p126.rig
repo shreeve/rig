@@ -26,7 +26,7 @@ sub put[T](o: !T?, v: T)
   else
     o = <v
 
-sub main
+sub main()
   a: Int? = 3
   r: R? = R(n: 1)
   b: Box[R]? = Box(value: R(n: 2))

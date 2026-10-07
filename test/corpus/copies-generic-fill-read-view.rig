@@ -1,7 +1,7 @@
 fun out[T](x: ?T) -> [2]?T
   [2 of x]
 
-sub main
+sub main()
   n = 4
   a = out(?n)
   print(a[1])

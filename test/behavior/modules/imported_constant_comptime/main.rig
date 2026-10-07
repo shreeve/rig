@@ -4,7 +4,7 @@
 
 use lib
 
-fun size[n: Int] -> Int
+fun size[n: Int]() -> Int
   n * 2
 
 y = lib.x + 1

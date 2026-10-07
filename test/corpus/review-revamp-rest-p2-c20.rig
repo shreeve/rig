@@ -1,6 +1,7 @@
 type Byte = U8
 A: Byte = 255 +% 2
 B = Byte(3) +% Byte.max
+
 sub main()
   xs: [B]Int = [B of 0]
   print(A, B, xs.len)

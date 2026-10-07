@@ -4,7 +4,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   o: R? = none
   p: R? = R(n: 5)
   n = if ?o as x

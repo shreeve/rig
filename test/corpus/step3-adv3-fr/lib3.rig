@@ -1,4 +1,4 @@
-pub fun big[n: Int] -> Int
+pub fun big[n: Int]() -> Int
   a = [0; n]
   b = [0; n]
   c = [0; n]

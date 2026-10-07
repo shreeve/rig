@@ -9,7 +9,7 @@ sub twice(n: Int)!
   check(n)!
   check(n - 5)!
 
-sub main
+sub main()
   check(1)!
   twice(3) catch |e|
     print("failed", e)

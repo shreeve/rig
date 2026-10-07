@@ -1,6 +1,6 @@
 use std.text
 
-sub main
+sub main()
   line = Text("a;b;c")
   sep = Text(";")
   firsts: Vec[String] = Vec()

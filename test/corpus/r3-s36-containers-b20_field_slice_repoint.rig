@@ -1,7 +1,7 @@
 struct H
   s: ![]Int
 
-sub main
+sub main()
   a = [1, 2]
   b = [3, 4]
   h = H(s: !a)

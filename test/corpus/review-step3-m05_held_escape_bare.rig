@@ -12,7 +12,7 @@ struct H
 fun mkh(n: Int) -> H
   H(e: E.a(r: Res(n: n, t: Text("x"))))
 
-sub main
+sub main()
   x = match mkh(5).e
     .a(r) => r
     .b(r) => r

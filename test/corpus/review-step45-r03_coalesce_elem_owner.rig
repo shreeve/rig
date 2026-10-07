@@ -1,5 +1,5 @@
 # v[0] ?? Text("d") would move/copy an owning element out: reject
-sub main
+sub main()
   v: Vec[Text?] = Vec()
   !v.push(Text("a"))
   t = v[0] ?? Text("d")

@@ -17,7 +17,7 @@ enum Ev
   at(when: Int, async: Bool)
   none_yet
 
-sub main
+sub main()
   j = Job(when: 3, const: true, where: "here")
   print(j.when, j.const, j.where, j.yield(), j.await())
   e = Ev.at(when: 5, async: false)

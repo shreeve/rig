@@ -4,5 +4,5 @@ fun parse(s: String) -> Int!
 fun apply(f: ?fun(String) -> Int!, s: String) -> Int!
   f(s)!
 
-sub main
+sub main()
   print(apply(|s| parse(s)! + 1, "abc")!)

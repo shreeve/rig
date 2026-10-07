@@ -2,5 +2,6 @@ enum E
   a = 1
   b = 0
   c
+
 sub main()
   print(Int(E.c))

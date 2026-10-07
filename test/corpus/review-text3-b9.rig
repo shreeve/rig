@@ -4,7 +4,7 @@ struct N
   drop(!self)
     print("drop", self.id)
 
-fun mkv -> Vec[N]
+fun mkv() -> Vec[N]
   v: Vec[N] = Vec()
   !v.push(N(id: 1))
   !v.push(N(id: 2))
@@ -13,7 +13,7 @@ fun mkv -> Vec[N]
 sub take(n: N)
   print("took", n.id)
 
-sub main
+sub main()
   for n in mkv()
     take(<n)
   for n in ?mkv()

@@ -2,7 +2,7 @@
 struct P
   x: Int
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   rs = [?a, ?b]

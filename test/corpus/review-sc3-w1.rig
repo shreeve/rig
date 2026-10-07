@@ -4,7 +4,7 @@ struct Res
   drop(!self)
     print("drop", self.id)
 
-sub main
+sub main()
   xs: Vec[*Res] = Vec()
   for n in 1..8
     !xs.push(*Res(id: n))

@@ -17,7 +17,7 @@ fun fill(s: !Set) -> Int!
     return 1
   0
 
-sub main
+sub main()
   set = Set(items: Vec())
   if !set.insert(1)
     print("new")

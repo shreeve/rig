@@ -11,7 +11,7 @@ struct Ed
     !self.c.bump()
     !self.c.bump()
 
-sub main
+sub main()
   c = Counter(n: 1)
   e = Ed(c: !c)
   !e.go()

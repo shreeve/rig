@@ -6,10 +6,10 @@ enum M
   a(t: Text)
   b
 
-fun mk -> M
+fun mk() -> M
   M.a(t: Text("in m"))
 
-sub main
+sub main()
   o = "x"
   match mk()
     .a(t) => o = ?t[..]

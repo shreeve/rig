@@ -8,6 +8,6 @@ enum E
 fun mke(s: String) -> E from s
   E.a(s: s)
 
-sub main
+sub main()
   match mke(?Text("a second text long enough for the heap"))
     x => print(x)

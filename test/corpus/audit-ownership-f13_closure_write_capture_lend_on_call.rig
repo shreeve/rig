@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 sub bump(v: !Vec[Int])
   !v.push(9)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   f = |!v| bump(!v)
   f()

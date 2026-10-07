@@ -4,7 +4,7 @@ struct H[T]
 sub put[T](h: !H[T], v: T)
   h.w = v
 
-sub main
+sub main()
   n = 0
   h = H[Int](w: !n)
   put(!h, 9)

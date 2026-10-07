@@ -2,17 +2,17 @@ struct S
   c: Cell[Int]
   n: Int
 
-sub c1
+sub c1()
   s = S(c: Cell(1), n: 2)
   x = <s.c
   print(x.get())
 
-sub c2
+sub c2()
   h = *Cell(1)
   x = <h
   print(x.get())
 
-sub main
+sub main()
   c2()
 
 # oracle: c1 reject C3

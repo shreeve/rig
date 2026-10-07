@@ -19,10 +19,10 @@ fun cond(t: *Tok) -> Bool
 struct View
   b: ?Tok
 
-fun mk -> View
+fun mk() -> View
   x = Tok(n: 1)
   View(b: ?x)
 
-sub main
+sub main()
   v = mk()
   print(v.b.n)

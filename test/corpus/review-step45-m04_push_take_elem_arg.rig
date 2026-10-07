@@ -1,5 +1,5 @@
 # !v.push(<v[0]) : take an element in the argument of a write call on v
-sub main
+sub main()
   v: Vec[Text?] = Vec()
   !v.push(Text("a"))
   !v.push(<v[0])

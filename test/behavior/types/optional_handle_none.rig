@@ -14,7 +14,7 @@ fun g() -> (*Int)?
 fun empty(o: ?(Int?)) -> Bool
   o == none
 
-sub main
+sub main()
   b: (*Int)? = none
   print(b == none)
   f(none)

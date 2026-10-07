@@ -1,4 +1,4 @@
-sub main
+sub main()
   t = Text("abc")
   n = 0
   for b in t

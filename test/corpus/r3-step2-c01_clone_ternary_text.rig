@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = Text("x")
   b = Text("y")
   c = true

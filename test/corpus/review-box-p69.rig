@@ -13,7 +13,7 @@ struct S
 sub wr(r: !R)
   r.n = 9
 
-sub main
+sub main()
   s = *S(b: Box(value: R(n: 1)))
   s.b.n = 3
   !s.b.bump()

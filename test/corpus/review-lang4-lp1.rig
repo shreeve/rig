@@ -5,7 +5,7 @@ enum E
   one(h: H)
   none_
 
-sub main
+sub main()
   n = 1
   m = 2
   hs = [H(w: !n), H(w: !m)]

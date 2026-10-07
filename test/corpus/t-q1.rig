@@ -30,7 +30,7 @@ fun rs(s: []Int, n: Int) -> Int
 fun eat(v: Vec[Int]) -> Int
   v.len
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(0)
   print(v, eat(<v))

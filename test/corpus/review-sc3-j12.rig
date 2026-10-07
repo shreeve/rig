@@ -1,7 +1,7 @@
 fun get(k: Int) -> Int?
   k if k > 0 else none
 
-sub main
+sub main()
   xs: Vec[Int?] = Vec()
   !xs.push(1)
   !xs.push(none)

@@ -8,7 +8,7 @@ struct H
 struct Wrap[T]
   v: T
 
-sub main
+sub main()
   n = 1
   h = H(w: !n)
   a = |+h| h.w

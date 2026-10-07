@@ -7,7 +7,7 @@ struct R
   fun eat(<self) -> Int
     self.n
 
-sub main
+sub main()
   o: Box[R]? = Box(value: R(n: 1))
   if !o as b
     print(<b.eat())

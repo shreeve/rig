@@ -7,7 +7,7 @@ fun bytes(s: String) -> Vec[U8]
     !v.push(c)
   v
 
-sub main
+sub main()
   keys: Vec[Box[Vec[U8]]] = Vec()
   !keys.push(Box(value: bytes("pear")))
   !keys.push(Box(value: bytes("apple")))

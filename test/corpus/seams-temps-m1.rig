@@ -15,7 +15,7 @@ fun opt(n: Int) -> B?
     return B(n: n)
   none
 
-sub main
+sub main()
   print(get(?mk(1)))
   if opt(2) as b
     print(b.n)

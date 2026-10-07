@@ -1,9 +1,9 @@
 error E
   bad
 
-fun f -> Int!
+fun f() -> Int!
   return E.bad
 
-sub main
+sub main()
   x = f() catch |e| 0
   print(x)

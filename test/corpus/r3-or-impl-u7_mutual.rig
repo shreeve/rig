@@ -8,7 +8,7 @@ fun pong(a: ?Vec[Int], b: ?Vec[Int], n: Int) -> ?Vec[Int]
     return b
   ping(a, b, n - 1)
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   r = ping(?x, ?y, 3)

@@ -5,5 +5,5 @@ struct P
 sub f(p: P)
   swap(!p.a, !p.b)
 
-sub main
+sub main()
   f(P(a: "x", b: "y"))

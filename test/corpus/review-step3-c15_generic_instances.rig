@@ -10,7 +10,7 @@ fun firstv[T](w: ?Wrap[T]) -> ?T
 fun fill2[T](x: T) -> [2]T
   [2 of x]
 
-sub main
+sub main()
   w: Wrap[Counter] = Wrap(v: Counter(hits: Cell(1)))
   w2 = w
   a = fill2(Counter(hits: Cell(1)))

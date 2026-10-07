@@ -9,10 +9,10 @@ fun bump(k: !Int) -> Int
   k += 1
   7
 
-fun two -> Int
+fun two() -> Int
   2
 
-sub main
+sub main()
   cs = [C(n: 5), C(n: 6)]
   k = 0
   cs[k] = C(n: bump(!k))

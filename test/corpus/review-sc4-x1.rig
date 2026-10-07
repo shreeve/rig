@@ -37,5 +37,5 @@ fun g(n: Int) -> Int
     0..10, 5 => 1
     _ => 2
 
-sub main
+sub main()
   print(a(.point), b(1), c(true), d(1), e(.point), f(1), g(1))

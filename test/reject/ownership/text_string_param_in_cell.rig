@@ -7,7 +7,7 @@ sub keep(c: ?Cell[String], s: String)
 fun later(s: String) -> *sub()
   *|+s| print(s)
 
-sub main
+sub main()
   c = Cell("a")
   keep(?c, "b")
   f = later("c")

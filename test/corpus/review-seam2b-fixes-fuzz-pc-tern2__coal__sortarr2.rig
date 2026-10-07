@@ -109,7 +109,7 @@ struct K3
 fun f2(n: Int) -> Int
   n + 1
 
-sub main
+sub main()
   c = f(1) == 1
   print(0 if not c else sortv(!(mkopt(5) ?? mk(6)).arr[1..]))
   print("--- end", c)

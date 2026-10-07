@@ -6,7 +6,7 @@ fun bump(c: !Counter) -> ?Vec[Int]
   c.n += 1
   ?c.items
 
-sub main
+sub main()
   c = Counter(n: 0, items: Vec())
   r = bump(!c)
   print(c.n)

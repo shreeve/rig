@@ -10,8 +10,7 @@ struct R
       t += x
     t
 
-
-sub main
+sub main()
   d = D(9)
   d2 = D()
   print(d, d2)

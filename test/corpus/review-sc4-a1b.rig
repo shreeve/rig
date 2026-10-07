@@ -7,7 +7,7 @@ struct B
 fun next(b: ?B) -> B
   B(n: b.n + 1)
 
-sub main
+sub main()
   x = B(n: 1)
   w = !x
   w = next(?w)

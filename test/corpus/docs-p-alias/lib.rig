@@ -1,4 +1,6 @@
 pub type Byte = U8
+
 pub struct P
   pub x: Int
+
 pub type Q = P

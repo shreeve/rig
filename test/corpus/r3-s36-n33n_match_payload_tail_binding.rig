@@ -2,7 +2,7 @@ enum Sh
   a(v: Vec[Int])
   b
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   o = Sh.a(<v)

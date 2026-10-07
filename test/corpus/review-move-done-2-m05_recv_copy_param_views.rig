@@ -21,7 +21,7 @@ fun w1(p: !P) -> Int
 fun w2(s: !S) -> Int
   s.p.into()
 
-sub main
+sub main()
   s = S(p: P(v: 4))
   print(r1(?s.p), r2(?s), w1(!s.p), w2(!s), s.p.v)
 

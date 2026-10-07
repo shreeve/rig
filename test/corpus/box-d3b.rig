@@ -7,7 +7,7 @@ fun leftmost(n: ?Node) -> ?Node
     return leftmost(?l)
   n
 
-sub main
+sub main()
   root = Box(value: Node(key: 1, left: Box(value: Node(key: 0, left: none))))
   m = leftmost(?root)
   print(m.key)

@@ -57,9 +57,9 @@ fun fu4660(s: Bool) -> F32?
   x = fo4660(s)?
   x
 
-sub t4660
+sub t4660()
   fc4660: fun(F32) -> F32 = |a| (fu4660(false) ?? 2.5)
   print(fc4660(0))
 
-sub main
+sub main()
   t4660()

@@ -14,7 +14,7 @@ struct S
   sub bump(!self)
     self.n += 1
 
-sub main
+sub main()
   b: Box[*S] = Box(*S(n: 1, xs: Vec()))
   bb: Box[Box[*S]] = Box(Box(*S(n: 2, xs: Vec())))
   e: Box[*K] = Box(*K.a(n: 3))

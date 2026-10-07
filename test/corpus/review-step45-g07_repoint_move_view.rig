@@ -1,5 +1,5 @@
 # w = <w2 moves a write view
-sub main
+sub main()
   m = Text("m")
   n = Text("n")
   w = !m

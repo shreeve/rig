@@ -4,16 +4,16 @@
 LIM = 4
 FL = 1.5
 
-sub g[n: Int]
+sub g[n: Int]()
   print(n)
 
-sub h[b: Bool]
+sub h[b: Bool]()
   print(b)
 
-sub fl[x: Float]
+sub fl[x: Float]()
   print(x)
 
-sub f[n: Int]
+sub f[n: Int]()
   const k = n > 1
   h[k]()
   h[n > 1 and not k]()

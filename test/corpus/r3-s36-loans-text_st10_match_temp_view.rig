@@ -1,7 +1,7 @@
-fun mk -> Text
+fun mk() -> Text
   Text("temp")
 
-sub main
+sub main()
   s: String = "x"
   s = ?mk()[..]
   print(s)

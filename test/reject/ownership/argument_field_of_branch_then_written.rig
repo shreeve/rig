@@ -14,7 +14,7 @@ fun growp(p: !P) -> Int
     !p.v.push(i)
   0
 
-sub main
+sub main()
   a = mk(1)
   b = mk(2)
   c = true

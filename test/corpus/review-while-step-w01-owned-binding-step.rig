@@ -9,7 +9,7 @@ fun mk(i: Int) -> Vec[Int]?
     return v
   none
 
-sub main
+sub main()
   k = 0
   i = 0
   while mk(i) as x: k += x[1]

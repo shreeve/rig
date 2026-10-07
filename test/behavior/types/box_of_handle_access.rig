@@ -34,7 +34,7 @@ sub show(n: Int, get: Int, x0: Int, len: Int, t: ?Text, k: ?K, c: Int)
     .a(m) => print(n, get, x0, len, t, m, c)
     .b => pass
 
-sub main
+sub main()
   bh: Box[*S] = Box(*mk(1))
   bh.c.set(bh.c.get() + 100)
   show(bh.n, bh.get(), first(?bh.xs), bh.xs.len, ?bh.t, ?bh.k, bh.c.get())

@@ -52,7 +52,7 @@ fun id_f32(x: F32) -> F32
 struct Bx472
   f: I32
 
-sub t472
+sub t472()
   bx472 = Bx472(f: 6)
   av472: Vec[I32] = Vec()
   !av472.push(0)
@@ -61,5 +61,5 @@ sub t472
   aa472[rt_int(2)] = bx472.f
   print(av472[0], aa472)
 
-sub main
+sub main()
   t472()

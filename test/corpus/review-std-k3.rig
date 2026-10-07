@@ -1,4 +1,4 @@
 type Code = Int
 
-fun main -> Code
+fun main() -> Code
   3

@@ -1,6 +1,8 @@
 pub struct N
   a: Int
+
 pub struct W[T]
   v: T
+
 pub fun id[T](x: T) -> T
   x

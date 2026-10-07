@@ -7,16 +7,16 @@ error B
 error C
   x
 
-fun f -> Int!
+fun f() -> Int!
   return .nope
 
-fun g -> Int!
+fun g() -> Int!
   return .x
 
-fun h -> Int!
+fun h() -> Int!
   return A.x
 
-sub main
+sub main()
   print(f() catch 0, g() catch 0)
   _ = h() catch |e|
     print(e == .x)

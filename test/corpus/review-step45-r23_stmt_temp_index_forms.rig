@@ -6,7 +6,7 @@ sub grow(t: !Text)
   for _ in 0..40
     !t.add("xxxxxxxx")
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("q"))
   v[idx(?Text("a"))] = Text("z")

@@ -1,11 +1,13 @@
 struct H
   w: !Int
+
 sub f(h: !H, g: !H, c: Bool)
   x = g.w
   h.w = g.w
   xs = [g.w]
   y: !Int = g.w if c else h.w
   print(x, xs, y)
+
 fun r(w2: !Int, c: Bool) -> !Int
   x = while true
     break w2
@@ -13,5 +15,6 @@ fun r(w2: !Int, c: Bool) -> !Int
   if c
     return w2
   w2
-sub main
+
+sub main()
   print(1)

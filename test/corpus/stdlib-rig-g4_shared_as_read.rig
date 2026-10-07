@@ -4,7 +4,7 @@ struct U
 fun peek(u: ?U) -> Int
   u.n
 
-sub main
+sub main()
   h = *U(n: 5)
   print(peek(?h))
   print(peek(h))

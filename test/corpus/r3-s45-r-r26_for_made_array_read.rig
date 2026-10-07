@@ -1,7 +1,7 @@
-fun mk -> [2]Text
+fun mk() -> [2]Text
   [Text("a"), Text("b")]
 
-sub main
+sub main()
   for t in mk()
     print(t)
   for t in [Text("c")]

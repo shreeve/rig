@@ -8,5 +8,5 @@ fun f(o: R?) -> Int?
   x = <o?
   x.n
 
-sub main
+sub main()
   print(f(R(n: 1)))

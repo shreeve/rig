@@ -13,6 +13,6 @@ fun get(s: Slot) -> B
     .full(b) => b
     .empty => B(n: 0)
 
-sub main
+sub main()
   x = get(.full(b: B(n: 1)))
   print(x.n)

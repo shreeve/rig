@@ -13,7 +13,7 @@ fun bad(a: ?Vec[Int]) -> ?Vec[Int]
   g = ?l
   g()
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   r = ?a
   if true

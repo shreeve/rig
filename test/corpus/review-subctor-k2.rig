@@ -8,6 +8,6 @@ fun get(n: Int) -> Int!
 sub p(n: Int)
   get(n) catch 0
 
-sub main
+sub main()
   p(1)
   get(1)!

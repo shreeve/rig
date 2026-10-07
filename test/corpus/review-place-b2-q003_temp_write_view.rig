@@ -7,5 +7,5 @@ sub g(p: !P)
 fun mk() -> P
   P(x: 1)
 
-sub main
+sub main()
   g(!mk())

@@ -7,7 +7,7 @@ fun grow2(o: !Text?) -> Text?
       !t.add("abcdefgh")
   Text("x")
 
-sub main
+sub main()
   a: Text? = Text("a")
   print(a == grow2(!a))
 

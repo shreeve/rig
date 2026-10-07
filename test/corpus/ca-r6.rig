@@ -13,7 +13,7 @@ fun pick(a: ?fun(Int) -> Int, b: ?fun(Int) -> Int, first: Bool) -> ?fun(Int) -> 
   else
     b
 
-sub main
+sub main()
   h: ?fun(Int) -> Int = double
   if true
     k = 1

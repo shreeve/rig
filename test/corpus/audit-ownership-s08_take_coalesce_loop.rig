@@ -15,6 +15,7 @@ sub eat(t: *Tok)
 fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
+
 error E
   bad
 
@@ -25,7 +26,7 @@ fun fail(k: Int) -> Int!
 struct H
   o: *Tok?
 
-sub main
+sub main()
   hs: Vec[Box[H]] = Vec()
   !hs.push(Box(H(o: *Tok(n: 1))))
   !hs.push(Box(H(o: none)))

@@ -16,7 +16,7 @@ fun mkh(k: Int) -> H
 fun pick(h: ?H) -> ?E
   ?h.e
 
-sub main
+sub main()
   match pick(?mkh(7))
     .a(n) => print("a", n)
     .b => print("b")

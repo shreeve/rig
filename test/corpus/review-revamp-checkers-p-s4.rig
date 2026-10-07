@@ -7,13 +7,13 @@ sub main()
   !v0.push(1)
   e: E = .a(v: <v0)
   match ?e
-    .a(_) 
+    .a(_)
       e = .b
       print("reassigned")
     .b => print("b")
   match !e
     .a(_) => print("a")
-    _ 
+    _
       e = .a(v: Vec())
       print("set")
   match ?e

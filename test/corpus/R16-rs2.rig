@@ -7,7 +7,7 @@ struct Res
 sub eat(r: Res)
   print("ate", r.id)
 
-sub main
+sub main()
   r = Res(id: 1)
   r = Res(id: 2)
   f = |!r|

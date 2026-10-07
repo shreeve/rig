@@ -14,6 +14,6 @@ fun mkh(s: String) -> H from s
 fun pick(h: ?H) -> ?Q? from h
   ?h.q
 
-sub main
+sub main()
   if pick(?mkh(?Text("a text long enough to live on the heap"))) as x
     print(x.n, x.s)

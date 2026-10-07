@@ -4,13 +4,13 @@ struct N
   drop(!self)
     print("drop", self.id)
 
-fun mk -> N?
+fun mk() -> N?
   N(id: 1)
 
 sub take(n: N)
   print("took", n.id)
 
-sub main
+sub main()
   if mk() as n
     take(<n)
   print("end")

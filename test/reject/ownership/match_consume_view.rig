@@ -10,7 +10,7 @@ sub show(s: ?Shape)
     .circle(r) => print(r)
     .square(q) => print(q)
 
-sub main
+sub main()
   c: Shape = .circle(r: 1)
   show(?c)
   b = Box(Shape.square(s: 2))

@@ -2,7 +2,7 @@ enum S
   a(s: String)
   b
 
-sub main
+sub main()
   e: S = .a(s: "x")
   match <e
     .a(s)

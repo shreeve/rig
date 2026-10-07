@@ -1,7 +1,7 @@
 struct S
   s: String
 
-sub main
+sub main()
   b = Box(Text("boxed"))
   x = S(s: ?b)
   cv: Cell[Vec[String]] = Cell(Vec())

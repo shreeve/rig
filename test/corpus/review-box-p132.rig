@@ -5,7 +5,7 @@ struct N
   fun into_next(<self) -> Box[N]?
     <self.next
 
-sub main
+sub main()
   l: Box[N]? = Box(value: N(v: 1, next: Box(value: N(v: 2, next: none))))
   if <l as b
     v = b.v

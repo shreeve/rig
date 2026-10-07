@@ -52,9 +52,9 @@ fun id_f32(x: F32) -> F32
 struct GP4209[T]
   f: T
 
-sub t4209
+sub t4209()
   gp4209: GP4209[U8] = GP4209(f: 11)
   print(gp4209.f)
 
-sub main
+sub main()
   t4209()

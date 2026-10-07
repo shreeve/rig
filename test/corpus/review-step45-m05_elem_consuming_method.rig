@@ -1,5 +1,5 @@
 # consuming method on an element (unbox) must be rejected for non-optional
-sub main
+sub main()
   v: Vec[Box[Int]] = Vec()
   !v.push(Box(1))
   x = <v[0].unbox()

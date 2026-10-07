@@ -2,12 +2,12 @@
 # part (Core s2): it carries the loans of the views its value holds, and
 # none on `x`.
 
-fun mk -> Vec[Int]
+fun mk() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(1)
   v
 
-sub of_owner
+sub of_owner()
   v: Vec[Int] = Vec()
   !v.push(1)
   w = +v
@@ -15,12 +15,12 @@ sub of_owner
   -v
   print(w)
 
-sub of_made
+sub of_made()
   c = +mk()
   !c.push(2)
   print(c)
 
-sub main
+sub main()
   of_owner()
   of_made()
 

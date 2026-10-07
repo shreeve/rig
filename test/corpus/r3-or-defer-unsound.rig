@@ -63,5 +63,5 @@ sub drops_outer()
   defer -v
   print("body")
 
-sub main
+sub main()
   moved_before_exit()

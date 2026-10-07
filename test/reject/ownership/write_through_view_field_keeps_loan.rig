@@ -4,7 +4,7 @@
 struct H
   w: !Vec[Int]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   h = H(w: !v)
   print(v.len)

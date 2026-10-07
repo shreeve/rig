@@ -31,5 +31,5 @@ fun mism(d: Disk) -> String
     Net.timeout => "x"
     _ => "y"
 
-sub main
+sub main()
   print(cls(1), dup(3), mism(.full))

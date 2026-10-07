@@ -16,7 +16,7 @@ fun mko(n: Int) -> B?
 fun idp(b: ?B) -> (?B)?
   b
 
-sub main
+sub main()
   if idp(?mk(3)) as r
     print("body", r.n)
   print("after")

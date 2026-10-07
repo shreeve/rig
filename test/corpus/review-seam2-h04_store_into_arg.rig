@@ -30,12 +30,12 @@ struct H
 fun mk(n: Int) -> S
   S(n: n, big: [n, n, n, n])
 
-fun mkh -> H
+fun mkh() -> H
   H(ws: Vec())
 
 sub put(h: !H, w: !Int)
   !h.ws.push(<w)
 
-sub main
+sub main()
   put(!mkh(), !mk(1).at())
   print("end")

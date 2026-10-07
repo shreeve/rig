@@ -9,6 +9,6 @@ sub check(n: Int)!
   return Bad.neg if n < 0
   print("ok", n)
 
-sub main
+sub main()
   run(|x| check(x)!) catch |e|
     print("e1", e)

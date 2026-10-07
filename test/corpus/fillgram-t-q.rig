@@ -1,2 +1,2 @@
-sub main
+sub main()
   a = fill[N * 2](x)

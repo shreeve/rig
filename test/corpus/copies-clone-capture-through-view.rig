@@ -1,7 +1,7 @@
 struct S
   r: ?Int
 
-sub through_view_frees_holder
+sub through_view_frees_holder()
   n = 1
   m = 2
   s = S(r: ?n)
@@ -10,7 +10,7 @@ sub through_view_frees_holder
   s = S(r: ?m)
   print(f(), s.r)
 
-sub through_view_keeps_inner
+sub through_view_keeps_inner()
   n = 1
   s = S(r: ?n)
   v = ?s
@@ -18,5 +18,5 @@ sub through_view_keeps_inner
   n = 5
   print(f())
 
-sub main
+sub main()
   through_view_frees_holder()

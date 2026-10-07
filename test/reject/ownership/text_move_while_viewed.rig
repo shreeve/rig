@@ -3,7 +3,7 @@
 sub eat(t: Text)
   print(t)
 
-sub main
+sub main()
   t = Text("abc")
   s = ?t[1..]
   eat(<t)

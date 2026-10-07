@@ -71,7 +71,7 @@ sub lends_the_handle()
   reset(!a)
   print(a.name)
 
-sub main
+sub main()
   boxes()
   view_of_contents()
   clone_outlives()

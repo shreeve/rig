@@ -1,7 +1,8 @@
 enum Status
   ok = 200
   missing = 404
-sub main
+
+sub main()
   s: Status = .missing
   raw
     n: Int = @intFromEnum(s)
