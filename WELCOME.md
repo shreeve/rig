@@ -46,14 +46,16 @@ happens, as a one-character **sigil**:
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 
 **Prefix or suffix.** A prefix sigil says how you hold a value (`?x`
-and `!x` lend it, `<x` moves it, `+x` clones it, `*x` and `~x` make
-handles), and a suffix `?` or `!` is control flow (`e?` passes `none`
-up, `e!` passes a failure up). Types follow suit: `?T` and `!T` are
-views, `*T` a shared handle and `~T` a weak one, while `T?` is an
-optional and `T!` a `T` that may fail. Rig has no `!` for "not":
-negation is `not`, so `!v.pop()` lends `v` to write, and never negates
-(`if !done` is an error that says to use `not`; see
-[below](#habits-that-trip-people-up)):
+and `!x` lend it, `<x` moves it, `+x` clones it, `-x` drops it, `*x`
+and `~x` make handles), and a suffix `?` or `!` is control flow (`e?`
+passes `none` up, `e!` passes a failure up). Types follow suit: `?T`
+and `!T` are views, `*T` a shared handle and `~T` a weak one, while
+`T?` is an optional and `T!` a `T` that may fail. Rig has no `!` for
+"not": logical negation is `not`, so `!v.pop()` lends `v` to write,
+and never negates (`if !done` is an error that says to use `not`; see
+[below](#habits-that-trip-people-up)). The one look-alike is `-`: only
+`-name` standing alone as a statement drops; as a value, `-n` is
+arithmetic negation (`y = -n`):
 
 ```rig
 sub main
