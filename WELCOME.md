@@ -45,11 +45,35 @@ happens, as a one-character **sigil**:
 | `e!` | propagate failure | `e?` | `try e` |
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 
-The same characters prefix types: `?T` and `!T` are views, `*T` a
-shared handle, `~T` a weak one. As suffixes, `T?` is an optional and
-`T!` a `T` that may fail. So a prefix `?` or `!` always lends and a
-suffix always means absence or failure, and `!` never means "not"
-(that is `not`).
+**Prefix or suffix.** A prefix sigil says how you hold a value (`?x`
+and `!x` lend it, `<x` moves it, `+x` clones it, `*x` and `~x` make
+handles), and a suffix `?` or `!` is control flow (`e?` passes `none`
+up, `e!` passes a failure up). Types follow suit: `?T` and `!T` are
+views, `*T` a shared handle and `~T` a weak one, while `T?` is an
+optional and `T!` a `T` that may fail. Rig has no `!` for "not":
+negation is `not`, so `!v.pop()` lends `v` to write, and never negates
+(`if !done` is an error that says to use `not`; see
+[below](#habits-that-trip-people-up)):
+
+```rig
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  done = false
+  while not done
+    print(!v.pop() ?? 0)
+    done = v.len == 0
+```
+
+```output
+2
+1
+```
+
+Suffixes read left to right, and a view covers the whole type after
+it: `S?!` is an `S?` that may fail, `?D?` a view of a `D?`, and
+`(?D)?` an optional view of a `D`.
 
 **You lend a view; the compiler remembers the loan.**
 
@@ -500,7 +524,7 @@ sub main
 ```
 
 ```error
-`!` lends to write; use `not` for negation
+`!` lends to write; use `not` for negation (a `Bool` is lent to write only where a `!Bool` is expected: `f(!flag)`)
 ```
 
 **`&&` and `||`.** They are `and` and `or`; for an optional's fallback,
