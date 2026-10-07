@@ -88,7 +88,21 @@ fn holdsCell(comptime T: type) bool {
 /// the same rule, and uses this in a generic type, where `T` depends on
 /// the type arguments.
 pub fn ReadView(comptime T: type) type {
-    return if (needsDrop(T) or holdsCell(T) or !copiedByReadView(T)) *const T else T;
+    return if (needsDrop(T) or holdsCell(T) or !copiedByReadView(T)) ReadPtr(T) else T;
+}
+
+/// The pointer a read view of a `T` is held as: `*T` when `T` holds a
+/// Cell (it changes through any view of it, and Zig must not see a
+/// write through a `*const T`), `*const T` otherwise. The mirror of
+/// sema's `interiorMutable`.
+pub fn ReadPtr(comptime T: type) type {
+    return if (holdsCell(T)) *T else *const T;
+}
+
+/// A read-only slice of `E`s, `[]const E`, or `[]E` when `E` holds a
+/// Cell (`ReadPtr`).
+pub fn ReadSlice(comptime E: type) type {
+    return if (holdsCell(E)) []E else []const E;
 }
 
 fn copiedByReadView(comptime T: type) bool {
@@ -119,7 +133,7 @@ pub fn poison(ptr: anytype) void {
 
 /// The `T` a read view `?T`, held where `view` points, reaches:
 /// the value itself when the view is a pointer, else the view's copy.
-pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) *const T {
+pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) ReadPtr(T) {
     return if (comptime ReadView(T) == T) view else view.*;
 }
 
@@ -900,9 +914,10 @@ pub fn Vec(comptime T: type) type {
             return &self.buf[index(i, self.len)];
         }
 
-        /// The slot at `i`, read-only, for a slice of an element's
-        /// array; panics when out of range.
-        pub fn constSlot(self: *const Self, i: anytype) *const T {
+        /// The slot at `i`, read-only (`ReadPtr`: writable when `T`
+        /// holds a Cell, which changes through any view), for an element
+        /// reached through a read view; panics when out of range.
+        pub fn constSlot(self: *const Self, i: anytype) ReadPtr(T) {
             return &self.buf[index(i, self.len)];
         }
 
@@ -1169,7 +1184,7 @@ pub fn elemPtr(items: anytype, i: anytype) @TypeOf(&items[0]) {
 
 /// `s[lo..hi]` of a string, slice, or array pointer: the elements from
 /// `lo` up to `hi` (`null`: the end); panics unless `0 <= lo <= hi <= len`.
-pub fn slice(items: anytype, lo: anytype, hi: anytype) []const std.meta.Elem(@TypeOf(items)) {
+pub fn slice(items: anytype, lo: anytype, hi: anytype) ReadSlice(std.meta.Elem(@TypeOf(items))) {
     const b = bounds(items.len, lo, hi);
     return items[b[0]..b[1]];
 }

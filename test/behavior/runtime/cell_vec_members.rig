@@ -3,6 +3,7 @@
 # field reached from a `?self` method, and a shared handle. `push` moves
 # or clones an owning element in, `pop` hands one out, `clear` drops
 # them all; a plain-data element is read and written by index or `get`.
+# release
 
 struct P
   x: Int

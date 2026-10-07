@@ -1,6 +1,7 @@
 # A loop or match binding of a Cell holder is never a copy (Core §1): a
 # taken one is the construct's own, a viewed one a view of the place,
 # and either may be lent, written or bare, and captured.
+# release
 
 struct Counter
   hits: Cell[Int]

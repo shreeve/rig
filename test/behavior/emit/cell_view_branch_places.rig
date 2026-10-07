@@ -1,0 +1,32 @@
+# A `?self` method changes a Cell through a part of a value that branches
+# between values names hold: each leaf is reached where it is, through a
+# mutable pointer, in debug and in an optimized build.
+# release
+
+struct N
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct W
+  t: N
+
+sub go(k: Bool)
+  w = W(t: N(c: Cell(1)))
+  o: W? = W(t: N(c: Cell(2)))
+  for _ in 0..3
+    (w if k else o ?? w).t.hit()
+  print(w.t.c.get())
+  if o as p
+    print(p.t.c.get())
+
+sub main()
+  go(true)
+  go(false)
+
+# expect:
+# 4
+# 2
+# 1
+# 5

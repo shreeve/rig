@@ -7091,11 +7091,19 @@ const Checker = struct {
         // A `?self` method may change a Cell the value holds, which needs
         // a place. A part of a value that branches and may be a name's is
         // no part of a temporary: the call reaches the leaf where it is.
+        // One that may also be a value made there that emit reaches only
+        // as a Zig rvalue (`storage.constLeaf`: no statement slot keeps
+        // it) has no place for that leaf, as `Cell.set` on the same part
+        // has none (`.set_cell`).
         if (resolved.nominal_sym != self.ctx.cell_sym_id and receiver == .read and sema.holdsCellByValue(self.ctx, obj_ty)) {
             const place = self.placeOf(obj);
             if (place.root == .temporary and place.steps == 0) {
                 try self.errAt(obj, "cannot call `{s}` on a temporary that holds a Cell the method may change; bind it to a name first", .{method});
-            } else if (place.root == .temporary and self.namedLeaf(place.base) == null) try self.ctx.recordCellTemp(obj);
+            } else if (place.root == .temporary and self.namedLeaf(place.base) == null) {
+                try self.ctx.recordCellTemp(obj);
+            } else if (place.root == .temporary) if (storage.constLeaf(self.ctx, place.base)) |leaf| {
+                try self.errAt(obj, "cannot call `{s}` on a part of `{s}`, which may be the temporary `{s}`, holding a Cell the method may change; bind it to a name first", .{ method, self.sourceText(place.base), self.sourceText(leaf) });
+            };
         }
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
             const stores = std.mem.eql(u8, method, "set") or std.mem.eql(u8, method, "replace");

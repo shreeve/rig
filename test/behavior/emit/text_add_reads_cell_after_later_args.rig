@@ -1,6 +1,7 @@
 # `!t.add(...)` reads every place that owns storage when it is called,
 # after its later arguments ran, as `print` does: here a later argument
 # replaces the Cell's Vec, which frees the old buffer.
+# release
 fun reset(c: ?Cell[Vec[Int]]) -> Int
   c.set(Vec())
   0

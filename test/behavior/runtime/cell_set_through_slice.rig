@@ -1,5 +1,6 @@
 # A slice views elements held elsewhere: a Cell reached through one is
 # changed where it is.
+# release
 
 sub bumps(s: []Cell[Int])
   s[0].set(5)

@@ -1,0 +1,70 @@
+# A Cell changed through a `?Cell[T]` parameter, a `?T` parameter of a
+# struct, a `?self` chain, and a part of a temporary, in loops.
+# release
+
+fun build(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
+  for i in 0..n
+    !v.push(i)
+  v
+
+fun look(x: ?Cell[Vec[Int]]) -> Int
+  x.push(10)
+  x.len
+
+fun bump(x: ?Cell[Int]) -> Int
+  x.set(x.get() + 1)
+  x.get()
+
+struct V
+  c: Cell[Vec[Int]]
+
+  drop(!self)
+    print("drop", self.c.len)
+
+  fun add(?self, n: Int) -> Int
+    self.c.push(n)
+    self.c.len
+
+  fun twice(?self, n: Int) -> Int
+    self.add(n)
+    self.add(n)
+
+struct WV
+  t: V
+
+fun mkv(n: Int) -> V
+  V(c: Cell(build(n)))
+
+fun mkwv(n: Int) -> WV
+  WV(t: mkv(n))
+
+fun maybe(n: Int) -> Int?
+  return none if n < 0
+  n
+
+sub main()
+  a: Cell[Vec[Int]] = Cell(build(1))
+  print(look(?a), a.len)
+  n: Cell[Int] = Cell(0)
+  s = 0
+  for i in 0..5
+    s += bump(?n) + (maybe(i - 2) ?? continue)
+  print(n.get(), s)
+  w = mkv(1)
+  for i in 0..3
+    print(w.twice(maybe(i - 1) ?? continue))
+  for i in 0..3
+    print(mkwv(i).t.add(maybe(i - 1) ?? continue))
+
+# expect:
+# 2 2
+# 5 15
+# 3
+# 5
+# drop 0
+# 2
+# drop 2
+# 3
+# drop 3
+# drop 5

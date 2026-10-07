@@ -3888,6 +3888,25 @@ pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).cell;
 }
 
+/// Whether a value of `ty` is interior-mutable: it holds a `Cell`
+/// inline (`holdsCellByValue`), so it changes through any path to it, a
+/// read view included (Core 9). Emit keeps such a value only in Zig
+/// storage it may write, a `var`, and views it only through a mutable
+/// pointer or slice (`*T`, `[]T`), however Rig lends it: Zig treats a
+/// write through a `*const T`, or into a `const`, as undefined
+/// behavior. A Cell behind a handle (`*Cell[T]`, `Box[Cell[T]]`) or in
+/// a Vec's buffer lives on the heap, which every pointer to it may
+/// write, so it makes no value that holds the handle interior-mutable.
+/// A type that holds a type parameter by value `depends` on the
+/// instance: emit writes its views `rig.ReadPtr(T)` and
+/// `rig.ReadSlice(T)`, which apply this rule to each instance's Zig
+/// type.
+pub fn interiorMutable(ctx: *const SemContext, ty: TypeId) Answer {
+    const info = ctx.holds(ty);
+    if (info.cell) return .yes;
+    return if (info.holds_type_var) .depends else .no;
+}
+
 /// Whether a value of `ty` can hold a marked view (see `Views`). A generic
 /// parameter holds none: an instantiation with a view is checked apart.
 pub fn holdsMarkedView(ctx: *const SemContext, ty: TypeId) bool {

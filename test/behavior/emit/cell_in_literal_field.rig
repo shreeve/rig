@@ -3,6 +3,7 @@
 # receiver: the temporary's part is emitted into a mutable local, never
 # written where Zig keeps a constant. An `as` binding outlives its
 # header's temporaries, so it binds a part of a named value.
+# release
 
 struct P
   c: Cell[Int]
