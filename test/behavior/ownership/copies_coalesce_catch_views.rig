@@ -1,0 +1,51 @@
+# `??` and `catch` whose value is a view are copied out where the value
+# is expected (Core §4), as any view is, and a function returns a
+# fallible view as the view: a `(?P)!` gives the pointer, an error value
+# itself.
+
+error Bad
+  oops
+
+struct P
+  x: Int
+
+fun pick(o: (?P)?, r: ?P) -> P
+  o ?? r
+
+fun get(r: ?P, ok: Bool) -> (?P)!
+  if not ok
+    return Bad.oops
+  r
+
+fun get2(r: ?P, ok: Bool) -> (?P)!
+  return get(r, ok)!
+
+fun wget(w: !P) -> (!P)!
+  w
+
+fun opt(r: ?P, ok: Bool) -> (?P)?!
+  return Bad.oops if not ok
+  r
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  o: (?P)? = ?a
+  c: P = o ?? ?b
+  print(c.x, pick(o, ?b).x, pick(none, ?b).x)
+  v = get(?a, true) catch ?b
+  u = get2(?a, false) catch ?b
+  d: P = get(?a, false) catch ?b
+  print(v.x, u.x, d.x)
+  w = wget(!b) catch !a
+  w.x = 9
+  print(b.x)
+  q = opt(?a, true) catch none
+  if q as p
+    print(p.x)
+
+# expect:
+# 1 1 2
+# 1 2 2
+# 9
+# 1

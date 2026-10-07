@@ -1,0 +1,7 @@
+fun mk() -> [3]?Int
+  n = 4
+  [3 of ?n]
+
+sub main
+  a = mk()
+  print(a[1])

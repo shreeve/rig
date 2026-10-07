@@ -1,0 +1,10 @@
+struct F
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main
+  f = F(n: 1)
+  g = |+f| f.n
+  print(g())

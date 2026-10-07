@@ -1,0 +1,34 @@
+# A `continue` in the body goes on to the step, so the step sees what
+# the `continue` path moved, also when the step reads the condition's
+# binding and runs in its scope.
+#
+# oracle: main reject C1
+
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int]) -> S?
+  if v.len < 40
+    return S(s: ?v[..])
+  none
+
+fun take(a: Vec[Int]) -> Int
+  a.len
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  a: Vec[Int] = Vec()
+  k = 0
+  i = 0
+  while mk(?v) as h: k += h.s[0] + a.len
+    a = Vec()
+    i += 1
+    if i == 2
+      k += take(<a)
+      continue
+    break if i > 3
+  print(k, v.len)
+
+# error: 24:36: use of `a` after move
+# errors: 1

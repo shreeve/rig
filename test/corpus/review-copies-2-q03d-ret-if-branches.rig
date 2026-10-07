@@ -1,0 +1,22 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+struct Q
+  p: P
+  n: Int
+
+
+fun pick(a: ?P, b: ?P, c: Bool, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  a if c else b
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  v = pick(?a, ?b, true, true) catch ?b
+  u = pick(?a, ?b, false, true) catch ?a
+  t = pick(?a, ?b, false, false) catch ?a
+  print(v.x, u.x, t.x)

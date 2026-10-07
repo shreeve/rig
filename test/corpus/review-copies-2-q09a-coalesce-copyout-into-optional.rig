@@ -1,0 +1,16 @@
+# `??` whose value is a view, where an optional of its value is expected.
+struct P
+  x: Int
+
+fun px(o: P?) -> Int
+  if o as p
+    return p.x
+  -1
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  i: (?P)? = ?a
+  f: P? = i ?? ?b
+  a.x = 9
+  print(px(f))

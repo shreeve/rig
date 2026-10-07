@@ -5,9 +5,10 @@ Each program puts one expression form (a place, a ternary, `o?`, ...) in
 one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
 `drop`, a struct holding a Cell, a struct declared `unique`), plus the
-stores into a view parameter (`store.`, below) and the views of a
-read `match` payload, used in the arm or escaping (`payload.`). The rule
-is the corpus's: `rig check` rejects the program with a file:line:col
+stores into a view parameter (`store.`, below), the views of a
+read `match` payload, used in the arm or escaping (`payload.`), and a
+`while` step reading what its condition binds (`step.`). The rule is
+the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
 program that runs must also print what the payload holds.
@@ -89,6 +90,10 @@ TYPES = {
     "cell": dict(ty="Counter", decls="struct Counter\n  hits: Cell[Int]\n\n  sub hit(?self)\n    self.hits.set(self.hits.get() + 1)\n",
                  mk="Counter(hits: Cell(n))", ctor="Counter(hits: Cell(5))", poke="e.hit()"),
     "unique": dict(ty="U", decls="struct U unique\n  v: Int\n", mk="U(v: n)", ctor="U(v: 5)"),
+    # Values that copy (`sema.copies`): a plain struct and an array,
+    # which a view's value is copied out as a number's is.
+    "plain": dict(ty="P", decls="struct P\n  v: Int\n", mk="P(v: n)", ctor="P(v: 5)"),
+    "array": dict(ty="A2", decls="type A2 = [2]Int\n", mk="[n, n + 1]", ctor="[5, 6]"),
     # A payload enum: `== .variant` tests the variant.
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: Vec[Int])\n",
                  mk="xs: Vec[Int] = Vec()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
@@ -113,7 +118,14 @@ FORMS = {
     "ctor": None,  # the type's constructor
     "move": "<a",
     "clone": "+a",
+    # A bare name holding a read view (`r = ?a`) or a write view
+    # (`w = !a`) of `a`: a read view copies, and where a value is taken,
+    # a view of a value that copies is copied out (Core sentence 1, §4).
+    "read_view": "r",
+    "write_view": "w",
 }
+# The binding each view form reads, declared before the context.
+VIEW_FORMS = {"read_view": "r = ?a", "write_view": "w = !a"}
 
 # -----------------------------------------------------------------------------
 # Contexts: statements that use the form `E`. `inline` contexts need an
@@ -199,6 +211,7 @@ POKES = {
     "text": 'for _ in 0..100\n    !x.add("abcdefgh")', "vec": "for i in 0..100\n    !x.push(i)",
     "shared": "x = *N(v: 9)", "box": "x = Box(N(v: 9))", "drop": "x = D(v: 9)",
     "cell": "x = Counter(hits: Cell(9))", "unique": "x = U(v: 9)", "enum": "x = S.dot",
+    "plain": "x = P(v: 9)", "array": "x[0] += 1",
 }
 WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
 
@@ -272,6 +285,81 @@ STORE_FORMS = {
     "match_payload": ("e", ["match !a", "  .one(h) => h.r = S", "  .zero => print(0)"]),
     "as_binding": ("opt", ["if !a as h", "  h.r = S"]),
 }
+
+
+# -----------------------------------------------------------------------------
+# A `while` step that reads what its condition binds: a view of `v` (a
+# Vec's `[]Int`, a Text's `String`), a struct holding one read through a
+# field or a method, while the body grows `v` (or only reads it) on its
+# way to the step: falling off its end, `continue`, `continue :outer`
+# from a nested `for`, `while`, or `while … as` (also where the loop is
+# written as nested `if`s, for a joined condition or a `catch break`
+# in it), an inner loop, a `defer`, or a `break` (where the step does
+# not run). The step runs after the body, so it must not read what the
+# body grew, and a `read` cell must print the count of the steps it ran.
+# Cells are `step.<owner>.<holder>.<shape>.<then>`.
+# -----------------------------------------------------------------------------
+
+STEP_OWNERS = {
+    "vec": dict(ty="Vec[Int]", view="[]Int", lend="?v[..]", make="v: Vec[Int] = Vec()\n  !v.push(1)",
+                grow="!v.push(i)", read="X[0]"),
+    "text": dict(ty="Text", view="String", lend="?v[0..1]", make='v = Text("abc")',
+                 grow='!v.add("abcdefgh")', read='(1 if text.ends_with(X, "a") else 0)'),
+}
+# What the condition binds: its type, how `mk` makes it from the view
+# `L`, and how the step reads the view `X` from it.
+STEP_HOLDERS = {
+    "view": dict(ty="(V)", make="L", x="h"),
+    "field": dict(ty="H", make="H(r: L)", x="h.r"),
+    "method": dict(ty="H", make="H(r: L)", x="h.get()"),
+}
+# The loop: `C` its condition (`J` joined, `F` failing, `B` with a
+# `catch break`), `S` its step, `G` what grows `v`.
+STEP_SHAPES = {
+    "plain": ["while C: S", "  n += 1", "  G"],
+    "continue": ["while C: S", "  n += 1", "  if n > 0", "    G", "    continue", "  k += 1"],
+    "labeled": [":outer while C: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
+    "labeled_joined": [":outer while J: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
+    "labeled_catchbreak": [":outer while B: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
+    "labeled_while": [":outer while C: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
+    "labeled_while_joined": [":outer while J: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
+    "labeled_while_catchbreak": [":outer while B: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
+    "labeled_whileas_joined": [":outer while J: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue :outer"],
+    "labeled_whileas_catchbreak": [":outer while B: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue :outer"],
+    "inner": ["while C: S", "  n += 1", "  j = 0", "  while j < 1: j += 1", "    G"],
+    "defer": ["while C: S", "  n += 1", "  defer G"],
+    "joined": ["while J: S", "  n += 1", "  G"],
+    "failure": ["while F: S", "  n += 1", "  G"],
+    "break": ["while C: S", "  n += 1", "  if n > 1", "    G", "    break"],
+}
+
+
+def step_program(oname, hname, shape, then):
+    """The program for one step cell."""
+    o = STEP_OWNERS[oname]
+    h = STEP_HOLDERS[hname]
+    v = o["view"]
+    hty = h["ty"].replace("V", v)
+    out = ["use std.text\n" if oname == "text" else "", "error E\n  bad\n",
+           f"struct H\n  r: {v}\n\n  fun get(?self) -> {v}\n    self.r\n",
+           f"sub grow(v: !{o['ty']})\n  for {'i' if 'i' in o['grow'] else '_'} in 0..100\n    {o['grow']}\n",
+           f"fun mk(v: ?{o['ty']}, n: Int) -> {hty}?\n  if n < 3\n    return {h['make'].replace('L', o['lend'])}\n  none\n",
+           f"fun mkf(v: ?{o['ty']}, n: Int) -> {hty}?!\n  return E.bad if n == 7\n  mk(v, n)\n"]
+    step = "k += " + o["read"].replace("X", h["x"])
+    grow = "grow(!v)" if then == "grow" else "k += 1"
+    loop = [l.replace("C", "mk(?v, n) as h").replace("J", "mk(?v, n) as h and n >= 0")
+             .replace("F", "(mkf(?v, n) catch none) as h").replace("B", "(mkf(?v, n) catch break) as h")
+             .replace("S", step).replace("G", grow)
+            for l in STEP_SHAPES[shape]]
+    main = [o["make"], "k = 0", "n = 0"] + loop + ["print(k, n)"]
+    out.append("sub main\n" + indent(main, 2) + "\n")
+    return "\n".join(out)
+
+
+def step_output(shape):
+    """What a `read` step cell prints: three passes, each adding 1 in the
+    body and 1 in the step, but `break`, which leaves in the second."""
+    return "2 2\n" if shape == "break" else "6 3\n"
 
 
 # -----------------------------------------------------------------------------
@@ -420,7 +508,7 @@ def program(tname, fname, cname):
     if "recv" in ctx and tname not in ctx["recv"] or tname not in ctx.get("types", (tname,)):
         return None
     if "tail" in ctx:
-        if fname != "call" or tname in ("int", "string"):
+        if fname != "call" or tname in ("int", "string", "plain", "array"):
             return None
         write = TAIL_WRITES.get(tname, "print(look(?t))")
         lines = []
@@ -440,6 +528,8 @@ def program(tname, fname, cname):
     out.append(f"fun mk(n: Int) -> {ty}\n  {t["mk"]}\n")
     out.append(f"fun fail(c: Bool) -> {ty}!\n  return E.bad if c\n  mk(7)\n")
     out.append(f"fun look(x: ?{ty}) -> Int\n  1\n")
+    if fname in VIEW_FORMS and ("decl" in ctx or "tail" in ctx):
+        return None
     if "decl" in ctx:
         if isinstance(form, list):
             return None
@@ -466,6 +556,8 @@ def program(tname, fname, cname):
         body += [f"h = H(f: mk(3))", "print(look(?h.f))"]
     if needs == "vs":
         body += [f"vs: Vec[{ty}] = Vec()", "!vs.push(mk(4))"]
+    if fname in VIEW_FORMS:
+        body.append(VIEW_FORMS[fname])
     if isinstance(form, list):
         head = ctx["block"].replace("E", form[0])
         body.append(head)
@@ -636,6 +728,19 @@ def main():
                     fh.write(store_program(o, f, then))
                 cells.append((ident, path))
     expects = {}
+    for o in STEP_OWNERS:
+        for hname in STEP_HOLDERS:
+            for shape in STEP_SHAPES:
+                for then in ("grow", "read"):
+                    ident = f"step.{o}.{hname}.{shape}.{then}"
+                    if not wanted(ident):
+                        continue
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(step_program(o, hname, shape, then))
+                    cells.append((ident, path))
+                    if then == "read":
+                        expects[ident] = step_output(shape)
     for t in PAYLOAD_TYPES:
         for sname in PAYLOAD_SUBJECTS:
             for e in PAYLOAD_ESCAPES:

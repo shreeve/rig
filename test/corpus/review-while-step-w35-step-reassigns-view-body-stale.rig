@@ -1,0 +1,20 @@
+# The step re-points an outer slice; the body grows the Vec and then
+# reads the slice the step made before the growth.
+#
+# oracle: all accept
+# oracle: main reject C4
+fun all(v: ?Vec[Int]) -> []Int
+  ?v[..]
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  e = [0]
+  s: []Int = ?e[..]
+  k = 0
+  i = 0
+  while i < 40: s = all(?v)
+    !v.push(2)
+    k += s[0]
+    i += 1
+  print(k)

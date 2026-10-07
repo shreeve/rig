@@ -1,0 +1,17 @@
+# Valid: the body grows the Vec, then re-points the outer slice at it
+# before the step reads it. (Textual liveness may over-reject.)
+#
+# oracle: main accept
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  s = ?v[..]
+  k = 0
+  i = 0
+  while i < 5: k += s[0]
+    !v.push(2)
+    s = ?v[..]
+    i += 1
+  print(k)
+
+# expect: 5

@@ -1,0 +1,12 @@
+struct S
+  r: ?Int
+
+fun get(p: ?S) -> S
+  p
+
+sub main
+  n = 1
+  s = S(r: ?n)
+  t = get(?s)
+  n = 2
+  print(t.r)

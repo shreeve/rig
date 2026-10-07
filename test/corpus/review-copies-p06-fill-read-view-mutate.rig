@@ -1,0 +1,7 @@
+sub main
+  n = 1
+  m = 2
+  a = [?m, ?m, ?m]
+  !a.fill(?n)
+  n = 5
+  print(a[0])

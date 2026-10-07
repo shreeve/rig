@@ -1,0 +1,11 @@
+# An owned closure returns a struct holding the String it was given;
+# the Text that String views is dropped while the result lives.
+struct P
+  s: String
+
+sub main
+  f = *|s: String| P(s: s)
+  t = Text("a long heap allocated text here")
+  p = f(?t)
+  -t
+  print(p.s)

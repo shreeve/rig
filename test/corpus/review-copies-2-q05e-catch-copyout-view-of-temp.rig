@@ -1,0 +1,16 @@
+error Bad
+  oops
+
+struct N
+  s: String
+  k: Int
+
+fun get(r: ?N, ok: Bool) -> (?N)!
+  return Bad.oops if not ok
+  r
+
+
+sub main
+  b = N(s: "zz", k: 2)
+  v: N = get(?N(s: "tmp", k: 7), true) catch ?b
+  print(v.s, v.k)

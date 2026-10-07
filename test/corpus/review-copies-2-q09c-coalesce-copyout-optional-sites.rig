@@ -1,0 +1,22 @@
+# The same copy-out into `P?` at an argument, a return, a field.
+struct P
+  x: Int
+
+struct S
+  o: P?
+
+fun px(o: P?) -> Int
+  if o as p
+    return p.x
+  -1
+
+fun pick(i: (?P)?, r: ?P) -> P?
+  i ?? r
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  i: (?P)? = ?a
+  print(px(i ?? ?b))
+  s = S(o: i ?? ?b)
+  print(px(pick(i, ?b)), px(s.o))

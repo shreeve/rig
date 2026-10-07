@@ -561,13 +561,13 @@ pub fn fieldIsPointee(ctx: *const SemContext, ty: TypeId) bool {
 /// Whether a payload binding of type `binding` (null when unknown) for
 /// field `f` points at the field: a write binds a pointer to each field,
 /// and a read binds one to a field it views (`?F` of a field that is no
-/// view), and to a field of a type parameter's value (`sema.copyable` is
+/// view), and to a field of a type parameter's value (`sema.copies` is
 /// `depends`) that the match reads where its subject is (`in_place`,
 /// `matchesInPlace`): what each instance reads is the subject's own,
 /// never a copy in the arm.
 pub fn payloadByAddress(ctx: *const SemContext, binding: ?TypeId, f: sema.Field, writes: bool, in_place: bool) bool {
     const viewed = !writes and if (binding) |t| ctx.types.get(t) == .read_view and ctx.types.get(f.ty) != .read_view else false;
-    const generic = !writes and in_place and if (binding) |t| !sema.isReadOrWriteView(ctx, t) and sema.copyable(ctx, t) == .depends else false;
+    const generic = !writes and in_place and if (binding) |t| !sema.isReadOrWriteView(ctx, t) and sema.copies(ctx, t) == .depends else false;
     return (writes or viewed or generic) and fieldIsPointee(ctx, f.ty);
 }
 
@@ -975,7 +975,7 @@ const Planner = struct {
 };
 
 /// Whether `x op= v` lowers to a builtin that assigns its result
-/// (`@rem`, `@shlExact`, an integer `/`): its place is found once.
+/// (`rig.rem`, `@shlExact`, an integer `/`): its place is found once.
 fn divides(ctx: *const SemContext, op: Tag, target: Sexp, value: Sexp) bool {
     switch (op) {
         .@"%", .@"<<" => return true,

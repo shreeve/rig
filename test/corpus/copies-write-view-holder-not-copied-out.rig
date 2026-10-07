@@ -1,0 +1,11 @@
+struct S
+  w: !Int
+
+fun get(p: ?S) -> S
+  p
+
+sub main
+  n = 1
+  s = S(w: !n)
+  t = get(?s)
+  print(n)

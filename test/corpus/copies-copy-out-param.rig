@@ -1,0 +1,11 @@
+struct P
+  x: Int
+  y: Int
+
+fun copy(p: ?P) -> P
+  p
+
+sub main
+  a = P(x: 1, y: 2)
+  b = copy(?a)
+  print(b.x)

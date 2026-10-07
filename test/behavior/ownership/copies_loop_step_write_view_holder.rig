@@ -1,0 +1,22 @@
+# A loop step may use what the condition binds when the body does not
+# own it: a value holding a write view does not copy, but it owns
+# nothing, so the step reads it after the body (`moves`, not `copies`,
+# decides that the body owns a binding).
+
+struct W
+  w: !Int
+
+fun mk(n: !Int, i: Int) -> W?
+  return none if i >= 3
+  W(w: !n)
+
+sub main
+  n = 5
+  i = 0
+  k = 0
+  while mk(!n, i) as h: k += h.w
+    i += 1
+  print(k, i)
+
+# expect:
+# 15 3

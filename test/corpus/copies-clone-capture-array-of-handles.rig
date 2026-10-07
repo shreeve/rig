@@ -1,0 +1,10 @@
+struct N
+  v: Int
+
+sub main
+  a = [*N(v: 1), *N(v: 2)]
+  f = |+a| a[0].v
+  print(f())
+  b = [~a[0], ~a[1]]
+  g = |+b| 7
+  print(g())

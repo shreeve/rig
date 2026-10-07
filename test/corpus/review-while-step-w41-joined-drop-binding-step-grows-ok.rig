@@ -1,0 +1,27 @@
+# Valid: the step reads no binding, so it runs after `x` dropped.
+#
+# oracle: D.drop accept
+# oracle: mkd accept
+struct D
+  s: []Int
+  drop(!self)
+    print("drop", self.s[0])
+
+fun mkd(w: ?Vec[Int], i: Int) -> D?
+  if i < 3
+    return D(s: ?w[..])
+  none
+
+sub main
+  w: Vec[Int] = Vec()
+  !w.push(2)
+  i = 0
+  while i >= 0 and mkd(?w, i) as x: !w.push(9)
+    i += 1
+  print(i, w.len)
+
+# expect:
+# drop 2
+# drop 2
+# drop 2
+# 3 6

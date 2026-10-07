@@ -1,0 +1,15 @@
+struct Box2[T]
+  x: T
+
+fun mk(v: ?Vec[Int]) -> (Box2[[]Int])?
+  if v.len < 40
+    return Box2(x: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h.x[0]
+    !v.push(2)
+  print(k)

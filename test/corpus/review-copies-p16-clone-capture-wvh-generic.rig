@@ -1,0 +1,13 @@
+struct H
+  w: !Vec[Int]
+
+struct Wrap[T]
+  item: T
+
+sub main
+  xs: Vec[Int] = Vec()
+  !xs.push(5)
+  g = Wrap[H](item: H(w: !xs))
+  f = |+g| g.item.w[0]
+  !g.item.w.push(1)
+  print(f())

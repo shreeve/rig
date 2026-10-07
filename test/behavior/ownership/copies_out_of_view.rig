@@ -1,0 +1,77 @@
+# A view of a value that copies is copied out where the value is
+# expected (Core §4): a plain struct, an array, or an optional, as a
+# number is, through a read or a write view, as an argument, a result,
+# a typed binding, an optional, or a branch. The copy carries no loan,
+# so the owner may change while the copy lives. A copy of a value that
+# holds a view carries that view's loans.
+
+struct P
+  x: Int
+  y: Int
+
+struct S
+  r: ?Int
+
+fun copy(p: ?P) -> P
+  p
+
+fun copy_arr(a: ?[2]Int) -> [2]Int
+  a
+
+fun copy_opt(o: ?P?) -> P?
+  o
+
+fun lift(p: ?P) -> P?
+  p
+
+fun sum(p: P) -> Int
+  p.x + p.y
+
+fun pick(a: ?P, b: P, first: Bool) -> P
+  a if first else b
+
+fun keep(s: ?S) -> S
+  s
+
+fun xof(o: P?) -> Int
+  if o as p
+    return p.x
+  0
+
+sub main
+  a = P(x: 1, y: 2)
+  b = copy(?a)
+  a.x = 10
+  print(b.x, a.x)
+  r = ?a
+  c: P = r
+  print(sum(r), c.y)
+  w = !a
+  d: P = w
+  d.y = 50
+  print(d.y, sum(w))
+  print(a.y)
+  arr = [3, 4]
+  e = copy_arr(?arr)
+  arr[0] = 9
+  print(e, arr)
+  o: P? = P(x: 5, y: 6)
+  print(xof(copy_opt(?o)), xof(lift(?a)))
+  print(pick(?a, b, true).x, pick(?a, b, false).x)
+  n = 7
+  s = S(r: ?n)
+  t = keep(?s)
+  print(t.r)
+  n = 8
+  print(n)
+
+# expect:
+# 1 10
+# 12 2
+# 50 12
+# 2
+# [3, 4] [9, 4]
+# 5 10
+# 10 1
+# 7
+# 8

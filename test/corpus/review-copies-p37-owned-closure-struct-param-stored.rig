@@ -1,0 +1,13 @@
+# An owned closure stores a String-holding struct param into a captured
+# Cell it shares; the Text dies before the Cell is read.
+struct P
+  s: String
+
+sub main
+  c = *Cell(P(s: "init"))
+  d = +c
+  f = *|<c, p: P| c.set(P(s: p.s))
+  if true
+    t = Text("a long heap allocated text here")
+    f(P(s: ?t))
+  print(d.get().s)

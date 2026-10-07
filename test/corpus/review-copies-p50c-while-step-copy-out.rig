@@ -1,0 +1,17 @@
+# The step reads, through a copy out of a view, a struct whose slice
+# views a Vec the body grows.
+#
+# oracle: main accept
+struct S
+  s: []Int
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  while i < 30: k += i
+    h = S(s: ?v[..])
+    i += h.s[0]
+    !v.push(2)
+  print(k)

@@ -1,0 +1,27 @@
+# A loop used as a value whose step reads the condition's binding.
+#
+# oracle: mk accept
+# oracle: main accept
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 5
+    return S(s: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  k = 0
+  i = 0
+  x = while mk(?v, i) as h: k += h.s[0]
+    i += 1
+    break 7 if i == 4
+    continue if i == 2
+    k += 100
+  else
+    9
+  print(x, k, i)
+
+# expect: 7 209 4

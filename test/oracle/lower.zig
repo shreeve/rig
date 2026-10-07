@@ -307,6 +307,8 @@ const Lowerer = struct {
     t_calls: std.ArrayList(Callee) = .empty,
     /// The module the body is in.
     module: ?*const lib.modules.Module = null,
+    /// The result type the function or closure declares.
+    ret_ty: ?TypeId = null,
 
     // ---- the function ---------------------------------------------------
 
@@ -324,6 +326,7 @@ const Lowerer = struct {
         }
         if (kind == .fun) if (ir.get(decl, .name) == .src) {
             self.f.from = declaredFrom(self.ctx, ir.get(decl, .name).src.pos);
+            self.ret_ty = self.declaredReturn(ir.get(decl, .name));
         };
         try self.lowerBody(ir.get(decl, .body), kind == .fun);
     }
@@ -368,7 +371,43 @@ const Lowerer = struct {
             const v = self.f.params.items[self.f.params.items.len - 1];
             self.f.vars.items[v].call_only = true;
         }
+        self.ret_ty = ft.returns;
         try self.lowerBody(ir.Lambda.body(e), self.ctx.types.get(ft.returns) != .void);
+    }
+
+    /// The result type of the function or method named at `name`.
+    fn declaredReturn(self: *Lowerer, name: Sexp) ?TypeId {
+        const pos = name.src.pos;
+        const fn_ty = if (self.ctx.symbolOf(name)) |id| self.ctx.symbols.items[id].ty else method: {
+            for (self.ctx.symbols.items) |sym| {
+                for (sym.fields orelse &.{}) |f| if (f.is_method and f.decl_pos == pos) break :method f.ty;
+            }
+            return null;
+        };
+        return switch (self.ctx.types.get(fn_ty)) {
+            .function => |f| f.returns,
+            else => null,
+        };
+    }
+
+    /// The type a function's result takes from a value `e` of type `ty`:
+    /// a view of a value that copies, returned where that value is the
+    /// result, is copied out (Core §4), as a typed binding copies it.
+    fn resultType(self: *Lowerer, ty: TypeId) Error!TypeId {
+        const result = self.ret_ty orelse return ty;
+        const inner = switch (self.ctx.types.get(ty)) {
+            .read_view, .write_view => |inner| inner,
+            else => return ty,
+        };
+        if (self.ctx.types.get(inner) == .slice) return ty;
+        var value = result;
+        while (true) switch (self.ctx.types.get(value)) {
+            .optional, .fallible => |i| value = i,
+            else => break,
+        };
+        if (self.isRef(value) or self.ctx.types.get(value) == .slice) return ty;
+        if (!(try self.kinds.of(inner)).kind.copies()) return ty;
+        return result;
     }
 
     fn param(self: *Lowerer, p: Sexp) Error!void {
@@ -1433,7 +1472,7 @@ const Lowerer = struct {
     /// `return e` or a `fun`'s last value: the value, then every region
     /// left, then the return (Core s3, s7).
     fn retValue(self: *Lowerer, e: Sexp) Error!void {
-        const r = try self.newVar("the result", try self.typeOf(e), true, self.posOf(e));
+        const r = try self.newVar("the result", try self.resultType(try self.typeOf(e)), true, self.posOf(e));
         try self.pushRegion();
         try self.valueInto(e, .ret, r);
         try self.popRegion(self.posOf(e));
@@ -2119,8 +2158,12 @@ const Lowerer = struct {
                 .cap_write => try self.lend(p, .write, leaf, sym.ty),
                 .cap_move => try self.moveWhole(outer, leaf.src.pos),
                 .cap_clone, .cap_weak => blk: {
+                    // `|+x|` makes what `+x` makes (Core §7): through a
+                    // view, a value that carries no loan on what the view
+                    // sees, but what that holds.
+                    const through = self.isRef(self.f.vars.items[outer].ty) and !self.isRef(sym.ty);
                     const t = try self.temp(sym.ty, leaf.src.pos);
-                    try self.emit(.{ .pos = leaf.src.pos, .what = .make, .reads = try self.one(outer), .def = t, .access = readAccess(p) });
+                    try self.emit(.{ .pos = leaf.src.pos, .what = .make, .reads = try self.one(outer), .def = t, .access = readAccess(p), .unpoint = through });
                     break :blk t;
                 },
             };
@@ -2365,6 +2408,9 @@ const Lowerer = struct {
         // generic's `T`), even where it is a view.
         var stored: []const bool = &.{};
         var all_read = false;
+        // `copy`'s element type: what it stores is a copy of each element
+        // its argument's slice views.
+        var elem_copy: ?TypeId = null;
         var group: u32 = 0;
         var is_ctor = false;
         var reach: kinds.Reach = .{ .a = self.a };
@@ -2462,6 +2508,20 @@ const Lowerer = struct {
                     const st = try self.a.alloc(bool, fp.params.len);
                     for (fp.params, st) |pt, *x| x.* = fp.ctx.types.get(pt) == .type_var;
                     stored = st;
+                } else if (self.ctx.elemCallOf(callee)) |ec| switch (ec.op) {
+                    // `fill` stores a copy of its value in every element,
+                    // and `copy` copies of the values its slice's elements
+                    // hold (Core §5): a copy of a view carries its loan.
+                    .fill => {
+                        shapes = try self.shapesOf(self.ctx, &.{ec.elem});
+                        stored = &.{true};
+                    },
+                    .copy => {
+                        elem_copy = ec.elem;
+                        shapes = &.{.view};
+                        stored = &.{true};
+                    },
+                    .swap, .read, .write => all_read = true,
                 } else all_read = true;
                 // `get`, `pop`, and `remove` hand back an element of a Vec:
                 // a value it held, which carries the loans the Vec's
@@ -2603,6 +2663,15 @@ const Lowerer = struct {
             const wants_view = is_ctor and arg.isKind(.kwarg) and self.fieldIsWriteView(e, ir.Kwarg.name(arg).getText(self.src));
             var v = try self.eval(val, arg_how, if (wants_view) self.ctx.typeOf(val) else null) orelse continue;
             if ((arg_how == .take and (!is_ctor or cell_store)) or all_read) v = try self.readThrough(v, self.posOf(val));
+            if (elem_copy) |et| {
+                // The elements read through the slice carry their own
+                // loans, not the slice's loan on what holds them (Core s7).
+                const t = try self.temp(et, self.posOf(val));
+                try self.emit(.{ .pos = self.posOf(val), .what = .copy, .reads = try self.one(v), .def = t, .carry = true });
+                try uses.append(self.a, v);
+                try moves.append(self.a, t);
+                continue;
+            }
             // A value made where a view is expected is a temporary of the
             // statement, lent to the call (Core s1, §3): the result's view
             // of it ends with the statement.

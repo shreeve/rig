@@ -555,8 +555,9 @@ whose receiver is written `!xs` (or is a `![]T` binding):
 panics in every build mode when the lengths differ; `!s.fill(v)` sets
 every element to `v`; `!s.swap(i, j)` exchanges two elements of any
 type, with both indexes checked. `copy` and `fill` duplicate values, as
-`[n of x]` does, so their elements are plain data
-([§2](#kinds-of-value)). `copy`'s receiver and argument never overlap:
+`[n of x]` does, so their elements are values that copy
+([§2](#kinds-of-value)): plain data or read views, each copy of a view
+carrying its loan. `copy`'s receiver and argument never overlap:
 the write view of the receiver excludes a read of the same value.
 
 ```rig
@@ -1847,9 +1848,11 @@ is taken copies the value it reaches (`x = w`, `x = h.w`,
 `x = ws[i]`, `x: Int = h.w`, an argument, an operand, a branching value
 of them), and so does one assigned to a `!Int` place (`h.w = w`,
 `h.w = g.w`); `h.w = <w` moves the view there instead, and `x = !h.w`
-lends it on. A write view of anything but a number, `Bool`, `String`,
-or plain enum is never read out this way, and one bound with a `!T`
-type (`x: !Int = h.w`) would copy the view, so both are rejected.
+lends it on. A write view of a value that does not copy (an owner, a
+unique value, or one holding a write view) is never read out this way,
+and one bound with a `!T` type (`x: !Int = h.w`) would copy the view,
+so both are rejected. A write view of a plain struct, array, or
+optional reads it as one of a number does (`x = h.p` with `p: !Point`).
 
 ```rig
 struct Counter
@@ -2303,6 +2306,30 @@ tests again, and `continue` in the step ends the step. An `else` block runs when
 ends without `break`, after the loop: a `break` or `continue` in it
 leaves the loop around this one. A loop can also yield a value
 ([Loops as values](#loops-as-values)).
+
+The step runs after the body, so a view it reads, whether the
+condition binds it or a name declared before the loop holds it, is in
+use through the body, and its loan lasts until the step
+([How long a loan lasts](#how-long-a-loan-lasts)):
+
+```rig reject
+fun all(v: ?Vec[Int]) -> ([]Int)?
+  if v.len < 40
+    return ?v[..]
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while all(?v) as s: k += s[0]
+    !v.push(2)
+  print(k, v.len)
+```
+
+```error
+cannot lend `v` to write while a read loan is live
+```
 
 ### for
 
@@ -2796,14 +2823,19 @@ sub main
 bare use of shared (`*T`) handle `a` in binding would alias the handle
 ```
 
-A view of a number, `Bool`, `String`, or plain enum reads as the value
+A view of a value that copies ([§2](#kinds-of-value)) is copied out
 wherever the value is expected, whether a name holds the view or an
-expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`); the
-loan taken to reach it ends there. A bare name or place only reads, so
-a binding with no type reads the value a name's, field's, or element's
-write view sees (`x = h.w`), and holds a write view a call yields, which
-is a value, not a place ([View places](#view-places)). Other values are not copied out of a view: lend
-them on, as `?T` or `!T`.
+expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`,
+`p: Point = r` with `r: ?Point`); the loan taken to reach it ends
+there, and the copy carries only the loans of the views it holds. An
+operator, and a binding with no type, read a view of a number, `Bool`,
+`String`, or plain enum as the value; a binding with no type copies a
+read view of anything else as the view. A bare name or place only
+reads, so a binding with no type reads the value a name's, field's, or
+element's write view sees when that value copies (`x = h.w`), and holds
+a write view a call yields, which is a value, not a place ([View
+places](#view-places)). A value that does not copy is not copied out of
+a view: lend it on, as `?T` or `!T`.
 
 ```rig
 fun slot(a: !Int) -> !Int
@@ -3150,7 +3182,8 @@ its receiver for the whole call, so `rc.show(<rc)` is rejected. A view
 stored in a binding, or in a view ([below](#second-class-views)), lasts
 until its last use. Every later use counts: a use further on, a use
 anywhere in a loop around it that the binding was declared outside of
-(the next iteration runs it again), a closure that captured it (and
+(the next iteration runs it again), a use in a `while` step, which
+counts after the body, where the step runs ([while](#while)), a closure that captured it (and
 every use of that closure), a binding that views the view in turn,
 deferred code, and the drop at scope exit of a value whose drop runs a
 `drop` body (its own, or one of a value it holds and drops), which could
@@ -4471,8 +4504,9 @@ closure parameter `n` has the name of the local `n`
 
 | Capture | Outer value | Inside the closure |
 |---|---|---|
-| `\|+x\|` | plain data | a copy |
-| `\|+x\|` | `*T` or `~T` | a clone of the handle |
+| `\|+x\|` | a value that copies, or a view of one | a copy of the value |
+| `\|+x\|` | `*T` or `~T`, or a view of one | a clone of the handle |
+| `\|+x\|` | an owner, or a view of one | a deep copy, as `+x` makes ([§7](#moves)) |
 | `\|<x\|` | any | the value, moved in; the outer `x` is gone |
 | `\|?x\|` | any | a read view `?T`, as `?x` gives it |
 | `\|!x\|` | any a write view may take | a write view `!T`, as `!x` gives it |
@@ -4758,9 +4792,9 @@ sub main
 30
 ```
 
-An owned closure is type-erased at run time, so its parameters and
-result are numbers, `Bool`, `String`, plain enums, and optionals of
-these. Pass owning values in as captures. An owned closure can be stored
+An owned closure's parameters and result are plain data: numbers,
+`Bool`, `String`, plain enums, and structs, arrays, and optionals of
+plain data. Pass owning values in as captures. An owned closure can be stored
 anywhere, so it carries no loan ([§7](#changes-and-shared-storage)): it
 cannot capture a `?T`, `!T`, or slice, or a value holding one, nor a
 String that may view a Text ([§10](#text)); a stack closure can. `*`
@@ -5852,7 +5886,7 @@ The rest parse, and the checker rejects them as not supported yet
 |---|---|
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
-| an owned closure taking or returning an owning value | `` an owned closure takes values that copy `` |
+| an owned closure taking or returning an owning value | `` an owned closure takes plain data `` |
 | a payload field bound by name, `.rect(w: a, h: b)` | `` binding a payload field by name is not supported yet `` |
 
 ```rig reject

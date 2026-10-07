@@ -1,0 +1,13 @@
+use std.text
+
+fun mk(i: Int) -> Text?
+  if i < 4
+    return Text("abcdefghijklmnopqrstuvwxyz0123456789")
+  none
+
+sub main
+  k = 0
+  i = 0
+  while mk(i) as x: k += x.len
+    i += 1
+  print(k, i)

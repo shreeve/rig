@@ -1,0 +1,171 @@
+# The step of `while c as h: step` runs after the body, so a view the
+# step reads through `h` keeps its loan through the body: growing the
+# Vec or Text it views there is rejected, whatever the way to the step
+# (the end of the body, `continue`, `continue :outer` from a nested
+# loop, an inner loop, a `defer`) and however the step reads `h` (a
+# field, a method, a closure), for a joined or a failing condition too.
+#
+# oracle: field reject C4
+# oracle: slice reject C4
+# oracle: method reject C4
+# oracle: closure reject C4
+# oracle: string reject C4
+# oracle: failing reject C4
+# oracle: continued reject C4
+# oracle: labeled reject C4
+# oracle: inner reject C4
+# oracle: deferred reject C4
+# oracle: nested reject C4
+
+use std.text
+
+error E
+  bad
+
+struct S
+  s: []Int
+
+  fun first(?self) -> Int
+    self.s[0]
+
+struct T
+  s: String
+
+fun mk(v: ?Vec[Int]) -> S?
+  if v.len < 40
+    return S(s: ?v[..])
+  none
+
+fun all(v: ?Vec[Int]) -> ([]Int)?
+  if v.len < 40
+    return ?v[..]
+  none
+
+fun mkt(t: ?Text) -> T?
+  if t.len < 200
+    return T(s: ?t)
+  none
+
+fun mkf(v: ?Vec[Int]) -> S?!
+  return E.bad if v.len > 100
+  mk(v)
+
+sub field
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h.s[0]
+    !v.push(2)
+  print(k)
+
+sub slice
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while all(?v) as h: k += h[0]
+    !v.push(2)
+  print(k)
+
+sub method
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h.first()
+    !v.push(2)
+  print(k)
+
+sub closure
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += (|?h| h.s[0])()
+    !v.push(2)
+  print(k)
+
+sub string
+  t = Text("abc")
+  k = 0
+  while mkt(?t) as h: k += (1 if text.ends_with(h.s, "9") else 0)
+    !t.add("0123456789")
+  print(k)
+
+sub joined
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h and h.s.len > 0: k += h.s[0]
+    !v.push(2)
+  print(k)
+
+sub failing
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while (mkf(?v) catch none) as h: k += h.s[0]
+    !v.push(2)
+  print(k)
+
+sub continued
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h.s[0]
+    !v.push(2)
+    continue
+  print(k)
+
+sub labeled
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  :outer while mk(?v) as h: k += h.s[0]
+    for _ in 0..2
+      !v.push(2)
+      continue :outer
+  print(k)
+
+sub inner
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h.s[0]
+    j = 0
+    while j < 2: j += 1
+      !v.push(2)
+  print(k)
+
+sub deferred
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h.s[0]
+    defer !v.push(2)
+    k += 1
+  print(k)
+
+sub nested
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  while i < 3: i += 1
+    while mk(?v) as h: k += h.s[0]
+      !v.push(2)
+  print(k)
+
+sub main
+  field()
+
+# error: 58:5: cannot lend `v` to write while a read loan is live
+# error: 66:5: cannot lend `v` to write while a read loan is live
+# error: 74:5: cannot lend `v` to write while a read loan is live
+# error: 82:5: cannot lend `v` to write while a read loan is live
+# error: 89:5: cannot lend `t` to write while a read loan is live
+# error: 97:5: cannot lend `v` to write while a read loan is live
+# error: 105:5: cannot lend `v` to write while a read loan is live
+# error: 113:5: cannot lend `v` to write while a read loan is live
+# error: 123:7: cannot lend `v` to write while a read loan is live
+# error: 134:7: cannot lend `v` to write while a read loan is live
+# error: 142:11: cannot lend `v` to write while a read loan is live
+# error: 153:7: cannot lend `v` to write while a read loan is live
+# errors: 12

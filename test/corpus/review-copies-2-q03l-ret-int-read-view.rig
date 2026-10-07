@@ -1,0 +1,21 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+struct Q
+  p: P
+  n: Int
+
+
+fun ri(r: ?Int, ok: Bool) -> (?Int)!
+  return Bad.oops if not ok
+  r
+
+sub main
+  n = 1
+  m = 2
+  v = ri(?n, true) catch ?m
+  u = ri(?n, false) catch ?m
+  print(v, u)

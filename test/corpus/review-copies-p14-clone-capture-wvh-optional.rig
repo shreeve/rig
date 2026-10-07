@@ -1,0 +1,16 @@
+struct H
+  w: !Vec[Int]
+
+fun first(o: ?H?) -> Int
+  if o as q
+    return q.w[0]
+  0
+
+sub main
+  xs: Vec[Int] = Vec()
+  !xs.push(5)
+  o: H? = H(w: !xs)
+  f = |+o| first(?o)
+  if !o as q
+    !q.w.push(1)
+  print(f())

@@ -1,0 +1,87 @@
+# The step of `while c as h: step` may read `h`: it runs after the
+# body, also after a `continue` (and a `continue :outer` from a nested
+# loop), while the body only reads what `h` views. A step that does not
+# read `h` runs after `h`'s scope ends, so the body may grow what `h`
+# viewed once `h` is done, and the step may grow it too. A `continue`
+# in the step ends it.
+#
+# oracle: reads accept
+# oracle: continued accept
+# oracle: body_uses accept
+# oracle: step_grows accept
+# oracle: step_continues accept
+
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int], i: Int) -> S?
+  if i < 5
+    return S(s: ?v[..])
+  none
+
+fun next(i: Int) -> Int?
+  i if i % 2 == 0 else none
+
+sub reads
+  v: Vec[Int] = Vec()
+  !v.push(4)
+  k = 0
+  i = 0
+  while mk(?v, i) as h: k += h.s[0]
+    i += 1
+  print(k, i)
+
+sub continued
+  v: Vec[Int] = Vec()
+  !v.push(5)
+  k = 0
+  i = 0
+  :outer while mk(?v, i) as h: k += h.s[0]
+    i += 1
+    if i == 1
+      continue
+    for j in 0..3
+      continue :outer if j == i
+    k += 100
+  print(k, i)
+
+sub body_uses
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  while mk(?v, i) as h: i += 1
+    k += h.s[0]
+    !v.push(2)
+  print(k, i, v.len)
+
+sub step_grows
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  i = 0
+  while mk(?v, i) as h: !v.push(2)
+    k += h.s[0]
+    i += 1
+  print(k, i, v.len)
+
+sub step_continues
+  k = 0
+  i = 0
+  while i < 6: k += next(i) ?? continue
+    i += 1
+  print(k, i)
+
+sub main
+  reads()
+  continued()
+  body_uses()
+  step_grows()
+  step_continues()
+
+# expect:
+# 20 5
+# 325 5
+# 5 5 6
+# 5 5 6
+# 12 6

@@ -374,6 +374,13 @@ const LoopCtx = struct {
     scope_depth: usize,
     breaks: std.ArrayList(State) = .empty,
     conts: std.ArrayList(State) = .empty,
+    /// While the body of a `while` whose step reads a binding of its
+    /// condition is walked (`sema.stepReadsBinding`): the state after
+    /// the bindings, with `step_depth` scopes open, where a `continue`
+    /// goes on to the step. `step_conts` are relative to it.
+    step_point: ?Point = null,
+    step_depth: usize = 0,
+    step_conts: std.ArrayList(State) = .empty,
     /// The loans of the values `break` gives a loop used as a value.
     value: Value = .{},
     parent: ?*LoopCtx,
@@ -507,6 +514,10 @@ pub const Checker = struct {
     nll: bool = false,
     /// The innermost statement being walked.
     cur_stmt: Sexp = .nil,
+    /// While a `while` loop's step is walked: where it runs, after the
+    /// body (`stepAt`), which stands for the step's statements in
+    /// `last_use` and in the liveness checks.
+    step_at: ?u32 = null,
     scopes: std.ArrayList(Scope) = .empty,
     /// Loans taken by the current statement and not stored in a var.
     temps: std.ArrayList(Loan) = .empty,
@@ -760,8 +771,9 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         const f = self.flows.items[id];
         const what = if (f.status == .dropped) "dropped" else "moved";
-        // Deferred code runs after the code that follows it.
-        if (self.loop != null and f.at >= use_pos and !self.in_defer) {
+        // Deferred code runs after the code that follows it, and a
+        // loop's step after its body.
+        if (self.loop != null and f.at >= (self.step_at orelse use_pos) and !self.in_defer) {
             try self.note(f.at, "`{s}` was {s} here, in a previous iteration of the loop", .{ v.name, what });
         } else {
             try self.note(f.at, "`{s}` was {s} here", .{ v.name, what });
@@ -1168,7 +1180,7 @@ pub const Checker = struct {
     fn reportTempHolder(self: *Checker, f: Flow, holder: VarId, depth: u32) Error!void {
         for (f.loans) |l| {
             if (l.root < depth or !self.isStmtTemp(l.root)) continue;
-            if (self.holderLive(holder, extent(self.cur_stmt).hi +| 1)) try self.reportTempOutlived(l, holder);
+            if (self.holderLive(holder, self.stmtEnd())) try self.reportTempOutlived(l, holder);
             return;
         }
     }
@@ -1379,21 +1391,26 @@ pub const Checker = struct {
 
     /// Record the last use of every symbol in `e` (a function's parameters
     /// and body), and the symbols deferred code uses. A capture's own
-    /// leaf is also a use of the binding it captures.
-    fn indexUses(self: *Checker, e: Sexp, in_defer: bool) Error!void {
+    /// leaf is also a use of the binding it captures. A `while` loop's
+    /// step runs after the body, so its uses count there (`stepAt`), or
+    /// at `at` when `e` is in a step already.
+    fn indexUses(self: *Checker, e: Sexp, in_defer: bool, at: ?u32) Error!void {
         switch (e) {
             .src => |s| {
                 const ctx = self.sema orelse return;
                 const sym = ctx.symbolOf(e) orelse return;
-                try self.noteUse(sym, s.pos, in_defer);
+                try self.noteUse(sym, at orelse s.pos, in_defer);
                 const d = ctx.symbols.items[sym];
                 if (d.kind == .capture and d.decl_pos == s.pos and d.origin != sema.symbol_invalid) {
-                    try self.noteUse(d.origin, s.pos, in_defer);
+                    try self.noteUse(d.origin, at orelse s.pos, in_defer);
                 }
             },
             .list => {
                 const deferred = in_defer or e.isKind(.@"defer") or e.isKind(.@"errdefer");
-                for (e.items()) |c| try self.indexUses(c, deferred);
+                for (e.items()) |c| {
+                    const step_at = if (sema.isWhileStep(e, c)) at orelse stepAt(e) else at;
+                    try self.indexUses(c, deferred, step_at);
+                }
             },
             else => {},
         }
@@ -1483,10 +1500,18 @@ pub const Checker = struct {
     }
 
     /// Where the current statement starts: its first source position
-    /// (not always its first leaf, for `stmt if cond`).
+    /// (not always its first leaf, for `stmt if cond`), or where a
+    /// loop's step runs.
     fn stmtStart(self: *const Checker) u32 {
+        if (self.step_at) |at| return at;
         const ext = extent(self.cur_stmt);
         return if (ext.hi >= ext.lo) ext.lo else self.anchor;
+    }
+
+    /// The first position after the current statement.
+    fn stmtEnd(self: *const Checker) u32 {
+        if (self.step_at) |at| return at +| 1;
+        return extent(self.cur_stmt).hi +| 1;
     }
 
     fn addTemp(self: *Checker, l: Loan) Error!void {
@@ -1548,8 +1573,8 @@ pub const Checker = struct {
         if (top and self.sema != null) {
             self.last_use.clearRetainingCapacity();
             self.defer_used.clearRetainingCapacity();
-            try self.indexUses(params, false);
-            try self.indexUses(body, false);
+            try self.indexUses(params, false, null);
+            try self.indexUses(body, false, null);
             self.nll = true;
         }
         defer if (top) {
@@ -2862,7 +2887,7 @@ pub const Checker = struct {
                         if (self.binding) |*b| if (b.value == .list and expr == .list and b.value.list.ptr == expr.list.ptr and self.refOfType(ty) == .write) {
                             b.rejected = true;
                             const src = self.spanText(expr);
-                            if (self.readsAsValue(self.pointee(ty))) {
+                            if (self.copiedThrough(ty)) {
                                 try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = {s}` to read its value, or `{s} = !{s}` to lend the view on", .{ src, b.name, src, b.name, src });
                             } else try self.errAt(expr, "bare use of `{s}` in binding would copy a write view, which is unique; write `{s} = !{s}` to lend the view on", .{ src, b.name, src });
                             return;
@@ -2893,12 +2918,12 @@ pub const Checker = struct {
 
     /// Whether a bare name, field, or element of type `ty` hands over the
     /// value a write view reaches rather than the view: `ty` is a write
-    /// view of a value that reads as a value (`sema.readsAsValue`), and
-    /// the context reads it (`copy_reads`, `SemContext.readsThrough`).
-    /// A bare name or place only reads (Core sentence 1): `x = h.w`,
-    /// with `w: !Int`, copies the Int.
+    /// view of a value that copies (`sema.copiedThrough`), and the
+    /// context reads it (`copy_reads`, `SemContext.readsThrough`). A bare
+    /// name or place only reads (Core sentence 1): `x = h.w`, with
+    /// `w: !Int` or `w: !Point`, copies the value.
     fn readsThroughWriteView(self: *const Checker, ty: ?TypeId) bool {
-        return self.copy_reads and self.refOfType(ty) == .write and self.readsAsValue(self.pointee(ty));
+        return self.copy_reads and self.refOfType(ty) == .write and self.copiedThrough(ty);
     }
 
     /// The var the name `expr` refers to, once the walk has bound it:
@@ -3614,7 +3639,10 @@ pub const Checker = struct {
                 continue;
             }
             if (!self.keepsCallable(node, a)) continue;
-            if (params == null or params.?.stores(i)) stored = try self.valueUnion(stored, v.*);
+            // `!dst.copy(src)` stores copies of the elements `src` views,
+            // which carry what those elements carry, not `src`'s loan
+            // on what holds them (Core sentence 7).
+            if (params == null or params.?.stores(i)) stored = try self.valueUnion(stored, if (self.copiedElem(callee)) |elem| try self.carry(elem, v.*) else v.*);
             if (params == null or params.?.resultCarries(i)) carried = try self.valueUnion(carried, v.*);
         }
         result = try self.valueUnion(result, carried);
@@ -3631,8 +3659,9 @@ pub const Checker = struct {
         // The callee may store what its arguments view into anything it
         // can mutate: the receiver, and whatever the write views passed
         // to it lead to (`!x`, a write view passed on or moved in, a
-        // value holding one). A built-in element method (`!dst.copy(src)`)
-        // stores only elements, which may hold no view to store.
+        // value holding one). A built-in element method (`!dst.fill(v)`,
+        // `!dst.copy(src)`) stores elements, which hold a view only where
+        // the element type does (`storesNothing`).
         if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             // A receiver lent to read is never written (Core sentence 9:
             // what changes through one is a Cell, which holds no loan). A
@@ -3811,6 +3840,14 @@ pub const Checker = struct {
         return self.mayCarryLoan(ctx.types.get(fn_ty).function.returns);
     }
 
+    /// The element type of a call of `copy`, a built-in element method
+    /// that stores copies of the elements its argument views.
+    fn copiedElem(self: *const Checker, callee: Sexp) ?TypeId {
+        const ctx = self.sema orelse return null;
+        const ec = ctx.elemCallOf(callee) orelse return null;
+        return if (ec.op == .copy) ec.elem else null;
+    }
+
     /// A call of a built-in element method whose elements hold no
     /// view: it stores none of its arguments' views.
     fn storesNothing(self: *const Checker, callee: Sexp) bool {
@@ -3819,15 +3856,14 @@ pub const Checker = struct {
         return !self.mayCarryLoan(ec.elem);
     }
 
-    /// A view of plain data (`k` with `k: ?Int`) passed where a value
-    /// is expected is read by value: what it views is not stored.
+    /// A view of a value that copies and carries no loan (`k` with
+    /// `k: ?Int`), passed where a value is expected, is read by value
+    /// (`sema.copiedThrough`): what it views is not stored.
     fn readsPlainValue(self: *const Checker, e: Sexp) bool {
         const ctx = self.sema orelse return false;
         const arg = if (e.isKind(.kwarg)) ir.Kwarg.value(e) else e;
-        return switch (self.typeData(self.exprType(arg) orelse return false)) {
-            .read_view, .write_view => |inner| sema.isPlainData(ctx, inner) and !self.mayCarryLoan(inner),
-            else => false,
-        };
+        const value = sema.copiedThrough(ctx, self.exprType(arg) orelse return false) orelse return false;
+        return !self.mayCarryLoan(value);
     }
 
     /// Whether `callee` is the built-in `swap` (true) or `replace`
@@ -4203,7 +4239,13 @@ pub const Checker = struct {
             try self.noteLoan(l);
             return .{};
         }
-        return self.newHandle(pos, name, self.symType(pos), id, self.varValue(id), mode == .cap_weak);
+        // `|+x|` through a view captures a copy or a clone of what the
+        // view sees, which keeps what that holds, not the view's loan
+        // on it (Core §7, sentence 7).
+        const ty = self.symType(pos);
+        const through = self.refOfType(v.ty) != .none and self.refOfType(ty) == .none;
+        const held = if (through) try self.carry(ty, self.varValue(id)) else self.varValue(id);
+        return self.newHandle(pos, name, ty, id, held, mode == .cap_weak);
     }
 
     // -------------------------------------------------------------------------
@@ -4740,7 +4782,7 @@ pub const Checker = struct {
         const ty = self.symType(pos);
         var v: Var = .{ .name = self.text(node), .decl = pos, .ty = ty, .kind = .pattern, .ref = self.refOfType(ty) };
         var loans: []const Loan = &.{};
-        // A payload that copies (`sema.copyable`) is copied out of the
+        // A payload that copies (`sema.copies`) is copied out of the
         // matched value, which stays whole. A view the match makes of a
         // field (`match ?e`) views the matched value instead.
         const copied = self.copies(ty) and v.ref == .none;
@@ -4972,6 +5014,8 @@ pub const Checker = struct {
     fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iteration {
         ctx.breaks.clearRetainingCapacity();
         ctx.conts.clearRetainingCapacity();
+        ctx.step_conts.clearRetainingCapacity();
+        ctx.step_point = null;
         ctx.value = .{};
         const depth = self.scopes.items.len;
         // The loop ends when its condition fails: for a binding
@@ -4987,16 +5031,46 @@ pub const Checker = struct {
             if (spec.cond) |c| try self.walkStmt(c);
             if (!spec.cond_always_true) exit = try self.exitTo(.{ .to = ctx.point, .resume_at = resumeAt(ir.get(spec.node, .@"else"), spec.node) });
         }
+        // A step that reads a binding of the condition runs in the
+        // bindings' scope, after the body's own scope ends, and a
+        // `continue` in the body goes on to it:
+        // `while true { x = a or break; { body }; step }`.
+        const step_inside = if (self.sema) |sctx| spec.cond_binds and sema.stepReadsBinding(sctx, spec.cond.?, spec.cont orelse .nil) else false;
+        if (step_inside) {
+            ctx.step_point = try self.here();
+            ctx.step_depth = self.scopes.items.len;
+        }
         try self.pushScopeFor(.block, spec.body);
         try self.bindLoopElems(spec);
         try self.walkStmt(spec.body);
+        if (step_inside) {
+            while (self.scopes.items.len > ctx.step_depth) try self.popScope();
+            if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, stepAt(spec.node));
+            ctx.step_point = null;
+            try self.walkStep(spec.cont.?, spec.node);
+        }
         while (self.scopes.items.len > depth) try self.popScope();
 
         // A `continue` and the end of the body go back to the loop's
-        // head.
+        // head through any other step; a `continue` in the step (or, for
+        // a step that runs in the bindings' scope, in the condition)
+        // ends it.
         if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, ctx.start);
-        if (spec.cont) |c| try self.walkStmt(c);
+        if (!step_inside) if (spec.cont) |c| {
+            ctx.conts.clearRetainingCapacity();
+            try self.walkStep(c, spec.node);
+            if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, ctx.start);
+        };
         return .{ .back = try self.exitTo(.{ .to = ctx.point, .resume_at = ctx.start }), .exit = exit };
+    }
+
+    /// Walk the step of `while` loop `node`, which runs after its body
+    /// (`stepAt`).
+    fn walkStep(self: *Checker, step: Sexp, node: Sexp) Error!void {
+        const saved = self.step_at;
+        defer self.step_at = saved;
+        if (saved == null) self.step_at = stepAt(node);
+        try self.walkStmt(step);
     }
 
     fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {
@@ -5077,10 +5151,13 @@ pub const Checker = struct {
         }
         if (target) |t| {
             t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
-            const s = try self.exitTo(.{ .to = t.point, .exit = .{ .jump = t.scope_depth } });
+            // A `continue` goes on to a step that runs in the condition's
+            // bindings' scope, or else back to the loop's head.
+            const step = if (jump == .cont) t.step_point else null;
+            const s = try self.exitTo(.{ .to = step orelse t.point, .exit = .{ .jump = if (step != null) t.step_depth else t.scope_depth } });
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
-                .cont => try t.conts.append(self.arena(), s),
+                .cont => try (if (step != null) &t.step_conts else &t.conts).append(self.arena(), s),
             }
         }
         self.reachable = false;
@@ -5286,18 +5363,18 @@ pub const Checker = struct {
         };
     }
 
-    /// A value copied implicitly where it is used (`sema.copyable`):
+    /// A value copied implicitly where it is used (`sema.copies`):
     /// not one whose copying depends on a type parameter.
     fn copies(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
-        return sema.copyable(ctx, ty orelse return false) == .yes;
+        return sema.copies(ctx, ty orelse return false) == .yes;
     }
 
-    /// A value read through a write view as the value itself
-    /// (`sema.readsAsValue`).
-    fn readsAsValue(self: *const Checker, ty: ?TypeId) bool {
+    /// A view whose value is copied out where its context reads it
+    /// (`sema.copiedThrough`).
+    fn copiedThrough(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
-        return sema.readsAsValue(ctx, ty orelse return false);
+        return sema.copiedThrough(ctx, ty orelse return false) != null;
     }
 
     /// A scalar: a number, `Bool`, `String`, or an error. A method call
@@ -5521,6 +5598,11 @@ fn sexpMentionsView(t: Sexp) bool {
         if (sexpMentionsView(c)) return true;
     }
     return false;
+}
+
+/// Where the step of `while` loop `node` runs: after its body.
+fn stepAt(node: Sexp) u32 {
+    return extent(ir.While.body(node)).hi +| 1;
 }
 
 /// Where a path that skips the rest of `node` goes on: at `next`, a

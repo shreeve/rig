@@ -1,0 +1,18 @@
+# The step pushes through a write view the binding holds while the body
+# replaced the Vec (two writers of `v` across the body).
+struct W
+  v: !Vec[Int]
+
+fun mk(v: !Vec[Int], i: Int) -> W?
+  if i < 3
+    return W(v: !v)
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  i = 0
+  while mk(!v, i) as h: !h.v.push(i)
+    v = Vec()
+    !v.push(10)
+    i += 1
+  print(v.len)

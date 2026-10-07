@@ -1,0 +1,12 @@
+struct W
+  w: !Int
+
+fun dup[T](x: ?T) -> [2]T
+  [x, x]
+
+sub main
+  n = 1
+  h = W(w: !n)
+  d = dup(?h)
+  d[0].w += 1
+  print(n)

@@ -1,0 +1,16 @@
+# `o ?? r` gives a `?P`, copied out where a `P` is expected.
+struct P
+  x: Int
+  y: Int
+
+fun pick(o: (?P)?, r: ?P) -> P
+  o ?? r
+
+sub main
+  a = P(x: 1, y: 2)
+  b = P(x: 3, y: 4)
+  o: (?P)? = ?a
+  c: P = o ?? ?b
+  d = pick(o, ?b)
+  e = pick(none, ?b)
+  print(c.x, d.y, e.x)

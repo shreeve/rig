@@ -1,0 +1,17 @@
+error Bad
+  oops
+
+struct P
+  x: Int
+
+fun wget(w: !P, ok: Bool) -> (!P)!
+  return Bad.oops if not ok
+  w
+
+sub main
+  a = P(x: 1)
+  b = P(x: 2)
+  w = wget(!b, true) catch !a
+  b.x = 7
+  w.x = 9
+  print(a.x, b.x)

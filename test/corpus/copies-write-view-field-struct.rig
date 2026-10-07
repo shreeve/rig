@@ -1,0 +1,12 @@
+struct P
+  x: Int
+  y: Int
+struct H
+  w: !P
+
+sub main
+  a = P(x: 1, y: 2)
+  h = H(w: !a)
+  x = h.w
+  x.x = 5
+  print(x.x, a.x)

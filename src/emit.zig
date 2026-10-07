@@ -225,9 +225,10 @@ pub const Emitter = struct {
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayList(struct { rig: []const u8, zig: []const u8 }) = .empty,
-    /// Where the `break` and `continue` of the `while` being emitted go
-    /// when Zig cannot reach its loop with them (`JumpRedirect`).
-    redirect: ?JumpRedirect = null,
+    /// The loops around the current point, innermost last, each with
+    /// where a `break` or `continue` that targets it goes when Zig cannot
+    /// reach the loop with its own (`JumpRedirect`).
+    redirects: std.ArrayList(JumpRedirect) = .empty,
     /// The loops used as values around the current point, innermost last.
     value_loops: std.ArrayList(ValueLoop) = .empty,
     /// The place being emitted is only read: a Vec element on its path
@@ -277,6 +278,7 @@ pub const Emitter = struct {
         self.hoisted.deinit(self.allocator);
         self.temp_slots.deinit(self.allocator);
         self.labels.deinit(self.allocator);
+        self.redirects.deinit(self.allocator);
         self.value_loops.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -1637,7 +1639,7 @@ pub const Emitter = struct {
 
     /// `x op= e` on a name or place, with the place evaluated once, after
     /// `e` (`openAssign`). The operators that lower to a builtin
-    /// (`@divTrunc` for integer `/`, `@rem`, `@shlExact`) assign the
+    /// (`@divTrunc` for integer `/`, `rig.rem`, `@shlExact`) assign the
     /// builtin's result; the others use Zig's own compound assignment.
     fn emitCompound(self: *Emitter, target: Sexp, op: Tag, value: Sexp) Error!void {
         const builtin: ?[]const u8 = switch (op) {
@@ -1742,33 +1744,40 @@ pub const Emitter = struct {
     // Control flow
     // -------------------------------------------------------------------------
 
-    /// A `while` whose condition or step jumps to it, or whose step runs
-    /// inside its body, is written in a form where Zig's own `break` and
-    /// `continue` would go elsewhere: the jumps that target it are written
-    /// as `brk` / `cont` instead. Inside a loop nested in it, only a
-    /// jump naming its label (`rig_label`) targets it (`shielded`).
+    /// A loop, or a part of a `while` being emitted (its step, or a body
+    /// its step runs after), with Rig label `rig_label` ("" when
+    /// unlabeled). A `while` whose condition or step jumps to it, or whose
+    /// step runs inside its body, is written in a form where Zig's own
+    /// `break` and `continue` would go elsewhere there: the jumps that
+    /// target it are written as `brk` / `cont` instead.
     const JumpRedirect = struct {
         rig_label: []const u8,
         brk: ?[]const u8 = null,
         cont: ?[]const u8 = null,
-        shielded: bool = false,
     };
 
-    /// The redirected text of a jump `node` with Rig label `label`, if it
-    /// targets the `while` a redirect is set for.
+    /// The redirected text of a jump with Rig label `label`, if the loop
+    /// it targets has one there: an unlabeled jump targets the innermost
+    /// loop, and a labeled one the innermost loop of that label, from any
+    /// depth of loops nested in it.
     fn redirected(self: *Emitter, label: Sexp, jump: enum { brk, cont }) ?[]const u8 {
-        const r = self.redirect orelse return null;
-        const targets = if (label == .nil) !r.shielded else r.rig_label.len > 0 and std.mem.eql(u8, self.srcText(label), r.rig_label);
-        if (!targets) return null;
-        return if (jump == .brk) r.brk else r.cont;
+        var i = self.redirects.items.len;
+        while (i > 0) {
+            i -= 1;
+            const r = self.redirects.items[i];
+            if (label == .nil or std.mem.eql(u8, self.srcText(label), r.rig_label)) return if (jump == .brk) r.brk else r.cont;
+        }
+        return null;
     }
 
-    /// Entering a loop nested in the one a redirect is set for; returns
-    /// the redirect to restore.
-    fn shieldRedirect(self: *Emitter) ?JumpRedirect {
-        const saved = self.redirect;
-        if (self.redirect) |*r| r.shielded = true;
-        return saved;
+    /// Enter a loop, or a part of one that redirects its jumps; the
+    /// caller pops it where that ends.
+    fn pushRedirect(self: *Emitter, r: JumpRedirect) Error!void {
+        try self.redirects.append(self.allocator, r);
+    }
+
+    fn popRedirect(self: *Emitter) void {
+        _ = self.redirects.pop();
     }
 
     /// Whether `node` holds a `break` (`brk`) or `continue` that targets
@@ -1819,7 +1828,12 @@ pub const Emitter = struct {
     /// position (directly, or through `if`/`match` branches) are moved
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
-        if (self.fun.return_ty) |r| if (self.isPtrViewTy(self.unwrapOptionals(r))) return self.emitWriteViewPtr(value);
+        // A result that is a view held as a pointer, or an optional or a
+        // fallible one, returns the pointer; an error value is itself.
+        if (self.fun.return_ty) |r| if (self.isPtrViewTy(self.unwrapOptionals(self.unwrapFallible(r)))) {
+            const error_value = if (self.typeOf(value)) |t| sema.isErrorValue(self.sema, t) else false;
+            if (!error_value) return self.emitWriteViewPtr(value);
+        };
         self.bare = true;
         try self.emitValue(value, true);
     }
@@ -2053,12 +2067,11 @@ pub const Emitter = struct {
 
     /// `(while cond continuation body else?)`.
     fn emitWhile(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
-        const saved = self.shieldRedirect();
-        defer self.redirect = saved;
-        self.redirect = null;
+        const rig_label = self.rigLabelOf(label);
+        try self.pushRedirect(.{ .rig_label = rig_label });
+        defer self.popRedirect();
         const cond = ir.While.cond(sexp);
         const step = ir.While.step(sexp);
-        const rig_label = self.rigLabelOf(label);
         // A jump in the condition leaves or repeats this loop, which Zig
         // cannot reach from its condition: the condition moves inside.
         if (rig.isConditionJoin(cond) or self.jumpsToLoop(cond, rig_label, .brk, false) or self.jumpsToLoop(cond, rig_label, .cont, false))
@@ -2087,8 +2100,6 @@ pub const Emitter = struct {
     /// it.
     fn emitStep(self: *Emitter, step: Sexp, rig_label: []const u8, zig_label: ?[]const u8) Error!void {
         if (step == .nil) return;
-        const saved = self.redirect;
-        defer self.redirect = saved;
         var r: JumpRedirect = .{ .rig_label = rig_label };
         if (self.jumpsToLoop(step, rig_label, .brk, false)) r.brk = try self.fmt("break :{s}", .{zig_label.?});
         var block: ?[]const u8 = null;
@@ -2096,7 +2107,8 @@ pub const Emitter = struct {
             block = try self.fmt("__rig_step_{d}", .{self.nextId()});
             r.cont = try self.fmt("break :{s}", .{block.?});
         }
-        self.redirect = r;
+        try self.pushRedirect(r);
+        defer self.popRedirect();
         // A statement, so an assignment drops the value it replaces.
         try self.w.writeAll(": ({ ");
         if (block) |b| try self.w.print("{s}: {{ ", .{b});
@@ -2126,7 +2138,7 @@ pub const Emitter = struct {
         // A step that reads a binding of the condition runs inside the
         // `if`s that bind it, after the body; a `continue` in the body
         // then leaves a block around the body.
-        const step_inside = step != .nil and self.stepReadsBinding(ir.While.cond(sexp), step);
+        const step_inside = sema.stepReadsBinding(self.sema, ir.While.cond(sexp), step);
         const label = if (step_inside) self.keptLabel(sexp, label_in, rig_label) else try self.stepLabel(step, rig_label, label_in);
         const has_else = else_ != .nil and !sameNode(else_, self.value_else);
         var fail: []const u8 = "break;";
@@ -2146,17 +2158,15 @@ pub const Emitter = struct {
         try self.pushScope();
         try self.openParts(parts);
         if (step_inside) {
-            const saved = self.redirect;
-            defer self.redirect = saved;
             if (self.jumpsToLoop(body, rig_label, .cont, false)) {
                 const block = try self.fmt("__rig_body_{d}", .{self.nextId()});
-                self.redirect = .{ .rig_label = rig_label, .cont = try self.fmt("break :{s}", .{block}) };
+                try self.pushRedirect(.{ .rig_label = rig_label, .cont = try self.fmt("break :{s}", .{block}) });
+                defer self.popRedirect();
                 try self.writeIndent(self.indent);
                 try self.w.print("{s}: ", .{block});
                 try self.emitBlock(body);
                 try self.w.writeAll("\n");
             } else try self.emitStmts(try self.stmtsOf(body));
-            self.redirect = saved;
             try self.writeIndent(self.indent);
             try self.w.writeAll("{ ");
             try self.emitStmt(step);
@@ -2188,14 +2198,6 @@ pub const Emitter = struct {
             self.jumpsToLoop(step, rig_label, .brk, true) or self.jumpsToLoop(cond, rig_label, .cont, true) or
             self.jumpsToLoop(step, rig_label, .cont, true);
         return if (used) label else null;
-    }
-
-    /// Whether `step` reads a name an `as` part of `cond` binds.
-    fn stepReadsBinding(self: *Emitter, cond: Sexp, step: Sexp) bool {
-        if (rig.isConditionJoin(cond)) return self.stepReadsBinding(ir.get(cond, .left), step) or self.stepReadsBinding(ir.get(cond, .right), step);
-        if (!cond.isKind(.as)) return false;
-        const sym = self.sema.symbolOf(ir.As.name(cond)) orelse return false;
-        return self.usesSymbol(step, sym);
     }
 
     fn usesSymbol(self: *Emitter, node: Sexp, sym: SymbolId) bool {
@@ -2272,8 +2274,8 @@ pub const Emitter = struct {
 
     /// `(for mode binding index-binding source body else?)`.
     fn emitFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
-        const saved = self.shieldRedirect();
-        defer self.redirect = saved;
+        try self.pushRedirect(.{ .rig_label = self.rigLabelOf(label) });
+        defer self.popRedirect();
         const mode = ir.For.mode(sexp).tag;
         const binding = ir.For.@"var"(sexp);
         const source = ir.For.source(sexp);
@@ -3714,6 +3716,14 @@ pub const Emitter = struct {
         return inner;
     }
 
+    /// The type a fallible `ty` succeeds with; any other type itself.
+    fn unwrapFallible(self: *Emitter, ty: TypeId) TypeId {
+        return switch (self.sema.types.get(ty)) {
+            .fallible => |inner| inner,
+            else => ty,
+        };
+    }
+
     /// The type an optional `ty` holds; any other type itself.
     fn unwrapOptional(self: *Emitter, ty: TypeId) TypeId {
         return switch (self.sema.types.get(ty)) {
@@ -4257,11 +4267,11 @@ pub const Emitter = struct {
     }
 
     /// Whether element `e` is read where it is rather than copied: its
-    /// type is not copied implicitly (`sema.copyable`), or holds a Cell
+    /// type is not copied implicitly (`sema.copies`), or holds a Cell
     /// that a `?self` method or a `set` on it changes in the element.
     fn elemInPlace(self: *Emitter, e: Sexp) bool {
         const t = self.typeOf(e) orelse return false;
-        return sema.copyable(self.sema, t) != .yes or sema.holdsCellByValue(self.sema, t);
+        return sema.copies(self.sema, t) != .yes or sema.holdsCellByValue(self.sema, t);
     }
 
     /// The object `base` of an index, emitted `how` the index needs it. A
@@ -5754,16 +5764,7 @@ pub const Emitter = struct {
             try self.w.print(".cap_{s} = ", .{c.name});
             const outer = c.outer orelse return self.unsupported(c.node, "a capture of a name that is not a local");
             switch (c.mode) {
-                .cap_clone => {
-                    try self.writeLocalPlace(&outer);
-                    // A viewed handle clones the handle it views.
-                    const kind = if (outer.kind) |k| k else if (outer.ty) |t| self.kindOf(self.peelViews(t)) else null;
-                    if (kind) |k| switch (k) {
-                        .shared => try self.w.writeAll(".cloneStrong()"),
-                        .weak => try self.w.writeAll(".cloneWeak()"),
-                        else => {},
-                    };
-                },
+                .cap_clone => try self.writeCloneCapture(&outer, c.node),
                 .cap_weak => {
                     try self.writeLocalPlace(&outer);
                     try self.w.writeAll(".weakRef()");
@@ -5777,6 +5778,37 @@ pub const Emitter = struct {
             }
         }
         try self.w.writeAll(" }");
+    }
+
+    /// `|+x|`: what `+x` gives of local `outer`, read through a view it
+    /// holds (`sema.cloneable`): a handle counted again, an owner cloned
+    /// part by part, or a copy of a value that copies.
+    fn writeCloneCapture(self: *Emitter, outer: *const Local, node: Sexp) Error!void {
+        const ty = outer.ty orelse return self.unsupported(node, "a capture of a value of unknown type");
+        switch (sema.cloneable(self.sema, ty)) {
+            .bump => switch (self.sema.types.get(self.peelViews(ty))) {
+                .optional => {
+                    try self.w.writeAll("rig.cloneOptional(");
+                    try self.writeLocalPlace(outer);
+                    try self.w.writeAll(")");
+                },
+                .shared => {
+                    try self.writeLocalPlace(outer);
+                    try self.w.writeAll(".cloneStrong()");
+                },
+                else => {
+                    try self.writeLocalPlace(outer);
+                    try self.w.writeAll(".cloneWeak()");
+                },
+            },
+            .text, .deep => {
+                try self.w.writeAll("rig.cloneValue(&(");
+                try self.writeLocalPlace(outer);
+                try self.w.writeAll("))");
+            },
+            .copy, .depends => try self.writeLocalPlace(outer),
+            .no => return self.unsupported(node, "a clone of a value that moves"),
+        }
     }
 
     /// `|?x|` / `|!x|`: the view of local `outer` a closure holds, of
@@ -6275,9 +6307,9 @@ pub const Emitter = struct {
     /// float `/`, which is ordinary division. Integer `/` truncates toward
     /// zero (`@divTrunc`), and a type parameter's values divide as their
     /// instance does (`rig.div`). `%` is the remainder with the dividend's
-    /// sign (`@rem`), for integers and floats alike.
+    /// sign (`rig.rem`), for integers and floats alike.
     fn divBuiltin(self: *Emitter, op: Tag, left: Sexp, right: Sexp) ?[]const u8 {
-        if (op == .@"%") return "@rem";
+        if (op == .@"%") return "rig.rem";
         if (self.literal_ty) |t| return if (self.sema.types.get(t) == .type_var) "rig.div" else null;
         var builtin: []const u8 = "@divTrunc";
         for ([2]Sexp{ left, right }) |e| {

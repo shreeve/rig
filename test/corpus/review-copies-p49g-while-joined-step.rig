@@ -1,0 +1,18 @@
+# The same hole through a joined condition.
+#
+# oracle: mk accept
+struct S
+  s: []Int
+
+fun mk(v: ?Vec[Int]) -> S?
+  if v.len < 40
+    return S(s: ?v[..])
+  none
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h and h.s.len > 0: k += h.s[0]
+    !v.push(2)
+  print(k, v.len)

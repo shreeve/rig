@@ -1,0 +1,15 @@
+struct P
+  x: Int
+
+enum E
+  one(p: P)
+  none_
+
+fun first(e: ?E) -> P
+  match e
+    .one(p) => p
+    .none_ => P(x: 0)
+
+sub main
+  e = E.one(p: P(x: 4))
+  print(first(?e).x)

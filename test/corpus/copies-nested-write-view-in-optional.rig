@@ -1,0 +1,11 @@
+struct W
+  w: [1](!Int)?
+
+fun out(p: ?W) -> W
+  p
+
+sub main
+  n = 1
+  x: (!Int)? = !n
+  a = W(w: [x])
+  print(out(?a).w.len)

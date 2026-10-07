@@ -1,0 +1,27 @@
+# The step writes `w` through a call, while `h` views `w` and the step
+# reads `h` after the call in the same statement.
+#
+# oracle: mk accept
+# oracle: grow accept
+# oracle: main reject C4
+struct S
+  s: []Int
+
+fun mk(w: ?Vec[Int], i: Int) -> S?
+  if i < 3
+    return S(s: ?w[..])
+  none
+
+fun grow(w: !Vec[Int]) -> Int
+  for j in 0..40
+    !w.push(j)
+  0
+
+sub main
+  w: Vec[Int] = Vec()
+  !w.push(1)
+  k = 0
+  i = 0
+  while mk(?w, i) as h: k += grow(!w) + h.s[0]
+    i += 1
+  print(k)

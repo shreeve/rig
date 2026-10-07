@@ -1,0 +1,33 @@
+sub copy_then_change_source
+  n = 1
+  m = 2
+  k = 3
+  a = [3 of ?n]
+  b = [?m, ?m]
+  !a[..2].copy(?b[..])
+  b[0] = ?k
+  print(a[0], b[0])
+
+sub copy_keeps_element_loan
+  n = 1
+  m = 2
+  a = [3 of ?n]
+  b = [?m, ?m]
+  !a[..2].copy(?b[..])
+  m = 7
+  print(a[0])
+
+sub fill_plain
+  a = [1, 2]
+  !a.fill(5)
+  print(a)
+
+sub fill_string
+  t = Text("x")
+  a = ["a", "b"]
+  !a.fill(?t)
+  !t.add("y")
+  print(a)
+
+sub main
+  copy_then_change_source()
