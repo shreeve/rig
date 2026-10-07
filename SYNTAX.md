@@ -39,7 +39,7 @@ byte order mark at the start of the file is skipped.
 A file is a list of declarations: functions, types, constants,
 imports, `extern` declarations, and `test` blocks
 ([§8](#8-declarations)). Statements live inside functions. A program
-that runs declares its entry point, `sub main`, or `fun main -> Int`
+that runs declares its entry point, `sub main()`, or `fun main() -> Int`
 for an exit status.
 
 ```rig
@@ -499,7 +499,10 @@ describe does: `fun area(w: Int, h: Int) -> Int` has the type
 
 A declaration lives at module level; there are no nested functions or
 types. `pub` before a declaration exports it to importing modules
-([SPEC §14](SPEC.md#14-modules)).
+([SPEC §14](SPEC.md#14-modules)). By convention, which the test suite
+checks of Rig's own code, one blank line separates top-level
+declarations, though one-line ones (`use`, constants, `extern`,
+`type`) may stand together.
 
 ### Functions
 
@@ -529,16 +532,29 @@ sign -1
   `sub save(p: Page)!`. A `fun` that may fail returns `T!`.
 - A parameter is `name: Type`, and may have a default:
   `by: Int = 10`. A parameter the body ignores may be named `_`.
-- A function with no parameters may leave out the empty `()`:
-  `sub main` is `sub main()`, and the docs write the shorter one.
+- A function always writes its parameter list, even when empty, as
+  its calls (`f()`) and its type (`sub()`) do: `sub main()`,
+  `fun answer() -> Int`.
 - The body's last expression is its value; `return e` leaves early.
 - A result that holds a view may say which parameters it views, after
   its type: `-> ?Item from a`, `-> String from a, b`, `-> ?T from
   self`, or `-> String from static` for only what lives for the whole
   program ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - Compile-time parameters go in brackets after the name:
-  `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]`
+  `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]()`
   ([Generics](#generics-and-compile-time-parameters)).
+
+A definition without its parameter list is rejected, with the header
+to write:
+
+```rig reject
+sub main
+  print(1)
+```
+
+```error
+write `sub main()`: a function's parameter list is always written, even when empty
+```
 
 ### Structs
 
@@ -711,8 +727,8 @@ A method's own parameters sit beside its type's: inside `Wrap[T]`,
 `fun map[U]` has both `T` and `U`. A call gives every compile-time
 argument in brackets, or none and lets them be inferred
 ([SPEC §3](SPEC.md#generic-functions)). A function with no run-time
-parameters may leave out `()` in its declaration, `sub show[n: Int]`,
-but a call has them: `show[3]()`.
+parameters writes `()` after its brackets, in its declaration as in a
+call: `sub show[n: Int]()` is called `show[3]()`.
 
 ```rig
 struct Wrap[T]
@@ -1175,7 +1191,7 @@ A closure whose body is an assignment (`|!total, n| total += n`) is the
 last argument of a call. A method is called on a value, `p.m(args)`,
 with a receiver sigil when it writes or consumes the receiver
 ([§5](#receiver-sigils)); an associated function through its type,
-`Point.origin()`; and a builtin with `@`: `@sizeOf(Int)`.
+`Point.origin()`; and a builtin with `@`: `@size(Int)`.
 
 ### Function values
 
@@ -1479,16 +1495,17 @@ closure whose body assigns, and `INDENT` / `DEDENT` are the block
 structure. The checker narrows a few forms the grammar accepts: a `fun`
 needs `->`, a `drop` body takes `!self`, a module-level binding
 takes no `const`, and a label goes only on a loop, `match`, or `raw`
-block.
+block. The grammar also parses a definition without its parameter list,
+so that the rejection can show the header with it.
 
 ```text
 program   = decl*
 decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | test | constant)
           | use | extern
 use       = "use" ["std" "."] name ["as" name]
-fun       = "fun" name [tparams] [params] "->" type [from] block
+fun       = "fun" name [tparams] params "->" type [from] block
 from      = "from" (name, ... | "static")
-sub       = "sub" name [tparams] [params] ["!"] block
+sub       = "sub" name [tparams] params ["!"] block
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
 params    = "(" [param, ...] ")"
 param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "self"
@@ -1501,12 +1518,12 @@ errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type
 constant  = name [":" type] "=" tail
 test      = "test" string block
-extern    = "extern" "fun" name [params] ["->" type [from]]
-          | "extern" "sub" name [params]
+extern    = "extern" "fun" name params ["->" type [from]]
+          | "extern" "sub" name params
           | "extern" name ":" type
           | "extern" "zig" string INDENT (["pub"] zdecl)* DEDENT
-zdecl     = "fun" name [tparams] [params] ["->" type [from]]
-          | "sub" name [tparams] [params] ["!"]
+zdecl     = "fun" name [tparams] params ["->" type [from]]
+          | "sub" name [tparams] params ["!"]
 
 type      = ("?" | "!") type | ptype | tsuffix
 ptype     = ("*" | "~")* ("[" [dim] "]" type

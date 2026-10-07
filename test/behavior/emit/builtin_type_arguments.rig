@@ -1,4 +1,4 @@
-# `@sizeOf` takes a type name or a weak handle type.
+# `@size` takes a type name or a weak handle type.
 
 struct B
   n: Int

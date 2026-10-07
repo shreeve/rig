@@ -1,4 +1,4 @@
-# Safe-whitelist builtins (`@sizeOf`, `@TypeOf`, ...) need no `raw` block.
+# Rig's builtins (`@size`, `@type`, ...) need no `raw` block.
 
 sub main()
   x: I64 = 7

@@ -271,7 +271,7 @@ and environment variable. The suite runs on Linux and macOS in
   `catch |err|`
 - modules with `pub` and `as`, `raw` blocks, C functions through
   `extern`, and `test` blocks run by `rig test`
-- `fun main -> Int` for an exit status, and the start of a
+- `fun main() -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
   environment), `std.time`, `std.random`, `std.sort`, `std.slices`, and
   `std.text` (searching, splitting, and parsing Strings)

@@ -1709,7 +1709,7 @@ pub fn io() std.Io {
     return std.Io.Threaded.global_single_threaded.io();
 }
 
-/// `fun main -> Int`: its result, which `finish` has already run after,
+/// `fun main() -> Int`: its result, which `finish` has already run after,
 /// as the process's exit status.
 pub fn exitStatus(n: Int) u8 {
     return std.math.cast(u8, n) orelse std.debug.panic("exit status {d} is not in 0..255", .{n});

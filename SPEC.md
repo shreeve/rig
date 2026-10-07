@@ -56,10 +56,10 @@ A Rig program is a file of declarations: functions (`fun`, `sub`),
 types (`struct`, `enum`, `error`, `type`), constants (`name = value`),
 imports (`use`), `extern` declarations, and `test` blocks, written as
 [SYNTAX.md](SYNTAX.md) shows. Statements live inside functions. A
-program that runs declares its entry point as `sub main`, with no
-parameters, or as `fun main -> Int`, whose value is the process's exit
+program that runs declares its entry point as `sub main()`, with no
+parameters, or as `fun main() -> Int`, whose value is the process's exit
 status, from 0 to 255 (another value panics). Either may fail: `main`
-may propagate an error with `!`, and `sub main!` or `fun main -> Int!`
+may propagate an error with `!`, and `sub main()!` or `fun main() -> Int!`
 may also return one; a failure that leaves `main` prints
 `error: Set.name` and ends the program with status 1
 ([§13](#13-errors)). Everything `main` owns is dropped, its output
@@ -248,7 +248,7 @@ bytes, and a slice checks only its bounds.
 
 `[N]T` is a fixed-size array. Its length is known at compile time: an
 integer, a constant (`[LIMIT]T`, `[lib.N]T`), a compile-time integer
-parameter (`[n]T` in `fun zeros[n: Int] -> [n]Int`,
+parameter (`[n]T` in `fun zeros[n: Int]() -> [n]Int`,
 [§16](#16-compile-time-parameters)), or arithmetic on integers and
 constants with `+`, `-`, `*`, `/`, `%`, and parentheses
 (`[LIMIT * 2 + 1]U8`). The arithmetic is checked as constant
@@ -643,7 +643,7 @@ cannot lend a slice of a String to write; a String is read-only
 ### Bytes
 
 Bytes hold fixed-width numbers. `bytes.read[T, e](at)` is the integer
-or float `T` stored in the `@sizeOf(T)` bytes from offset `at`, in byte
+or float `T` stored in the `@size(T)` bytes from offset `at`, in byte
 order `e`, and `!bytes.write[T, e](at, v)` stores `v` there. `T` is any
 integer or float type, or a type parameter every instance gives one;
 `e` is a compile-time value of the built-in enum
@@ -651,7 +651,7 @@ integer or float type, or a type parameter every instance gives one;
 a compile-time parameter; there is no native order). `read` works on a
 `[]U8`, an `![]U8`, a `[N]U8`, a `Vec[U8]`, and a String; `write` on
 the writable ones, written `!bytes` (or an `![]U8` binding). Every byte
-must be in range, `0 <= at` and `at + @sizeOf(T) <= len`: a constant
+must be in range, `0 <= at` and `at + @size(T) <= len`: a constant
 offset into an array is checked at compile time, and any other when the
 program runs, which panics in every build mode when it is not. A float
 is read and written by its bits, so a NaN's payload survives. `Endian`
@@ -1302,7 +1302,7 @@ An integer compile-time value that a parameter's or the result's type
 holds, as an array length (`[n]T`) or a generic type's value argument
 (`Ring[T, n]`), is inferred the same way: `sum([1, 2, 3])` of
 `fun sum[n: Int](xs: [n]Int)` is `sum[3]`, and `a: [3]Int = zeros()`
-of `fun zeros[n: Int] -> [n]Int` is `zeros[3]`. It takes exactly the
+of `fun zeros[n: Int]() -> [n]Int` is `zeros[3]`. It takes exactly the
 length the argument's type has; arguments that give it different ones
 conflict, and the value must fit the parameter's type. Any other
 compile-time value is never inferred, so a function that takes one is
@@ -2262,10 +2262,42 @@ sub main
 
 ### Builtins
 
-`@name(args)` calls a Zig builtin. `@sizeOf`, `@alignOf`, `@TypeOf`,
-and `@typeName` are safe anywhere; every other builtin needs a `raw`
-block ([§15](#15-raw-code-and-ffi)). Rig type names are translated
-(`@sizeOf(I64)` is 8).
+`@builtin(args)` calls a compiler builtin. Rig's own work anywhere:
+`@size(T)` and `@align(T)` are a type's size and alignment in bytes,
+`@name(T)` is the name the emitted Zig gives it, and `@type(x)`, only
+as the argument of one of these three, is the type of `x`. Rig type
+names are translated (`@size(I64)` is 8).
+
+```rig
+struct P
+  a: I32
+  b: I64
+
+sub main()
+  x: I16 = 5
+  print(@size(I64), @align(P), @size(@type(x)), @name(Int))
+```
+
+```output
+8 8 2 i64
+```
+
+Every other builtin is Zig's, keeps its Zig name, and works only
+inside a `raw` block ([§15](#15-raw-code-and-ffi)): the casts
+`@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`,
+`@floatFromInt`, and `@fromBackingInt`, and Zig's names for Rig's
+four, `@sizeOf`, `@alignOf`, `@typeName`, and `@TypeOf`, which mean
+what Rig's do. Rig's names work inside `raw` too. Outside it, Zig's
+name for one of Rig's is rejected, with the call to write:
+
+```rig reject
+sub main()
+  print(@sizeOf(I64))
+```
+
+```error
+write `@size(I64)`: Rig's builtin is `@size`; Zig's `@sizeOf` works only inside `raw`
+```
 
 ---
 
@@ -2723,7 +2755,7 @@ sub main
 `defer stmt` (or `defer` with a block) runs when the enclosing block
 exits, in reverse order of the defers. `errdefer` runs only when the
 function exits with an error, so it is written only where one can: in
-a `fun ... -> T!`, a `sub f()!`, `sub main`, a closure whose type can
+a `fun f() -> T!`, a `sub f()!`, `sub main()`, a closure whose type can
 fail, or a test. In a function, closure, or `drop` body that cannot
 fail, or inside deferred code, it is rejected: write `defer`. A deferred body may not move or drop
 outer bindings, or propagate with `!`. It runs after the values declared
@@ -5097,7 +5129,7 @@ must say what happens to the failure, visibly:
 
 - `f()!` propagates it: the enclosing function fails with the same
   error. The enclosing function must itself return a `T!`, be a
-  fallible `sub`, or be the top-level `sub main` or a `test`. A failure
+  fallible `sub`, or be the top-level `sub main()` or a `test`. A failure
   that leaves `main` ends the program after `main`'s drops: it writes
   `error: E.name` to stderr and exits with status 1.
 - `f() catch fallback` handles it: the value of the call, or `fallback`
@@ -5646,7 +5678,8 @@ reported.
 A `raw` block is the boundary of what the checker guarantees. Inside
 it, and only there, a program may:
 
-- call a builtin outside the safe list (`@intCast`, `@bitCast`, ...);
+- call one of Zig's builtins (`@intCast`, `@bitCast`, ...;
+  [§5](#builtins));
 - call an `extern` function.
 
 An `extern` function can only be called; it cannot be bound, passed,

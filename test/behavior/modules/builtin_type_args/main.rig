@@ -1,4 +1,4 @@
-# Every form a type argument of `@sizeOf`, `@alignOf`, and `@typeName`
+# Every form a type argument of `@size`, `@align`, and `@name`
 # can take: `Self`, an alias, an imported type, a builtin, and a type
 # parameter.
 

@@ -837,10 +837,10 @@ pub const Lexer = struct {
     /// A keyword names a member where nothing else can stand: after
     /// `.`, before `:` inside ( ) (a keyword argument or payload field),
     /// and in a member list before `:` (a field) or after `fun` / `sub`
-    /// (a method).
+    /// (a method). After `@` it names a builtin (`@type(x)`).
     fn memberName(self: *const Lexer) ?TokenCat {
         switch (self.last_cat) {
-            .dot => return .ident,
+            .dot, .at => return .ident,
             .fun, .sub => return if (self.in_members[self.depth]) .ident else null,
             else => {},
         }
@@ -1115,6 +1115,10 @@ pub const Parser = struct {
     base: BaseParser,
     /// Set when parsing succeeded but the tree was rejected.
     failure: ?diag.Diagnostic = null,
+    /// The definitions after the first rejected one that also leave
+    /// out their parameter list, each reported, so that one run shows
+    /// every header to fix.
+    more_failures: std.ArrayList(diag.Diagnostic) = .empty,
     /// The node ids of the `(read place)`, `(write place)`, and
     /// `(move place)` receivers written in front of the call
     /// (`!v.push(x)`), not in parentheses.
@@ -1621,7 +1625,11 @@ pub const Parser = struct {
             },
             .read_view, .write_view, .shared => self.touchesOperand(out),
             // The body's value is returned.
-            .fun => if (ir.Fun.returns(out) != .nil) try self.valueTail(ir.Fun.body(out), true),
+            .fun => {
+                try self.paramList(out);
+                if (ir.Fun.returns(out) != .nil) try self.valueTail(ir.Fun.body(out), true);
+            },
+            .sub, .extern_fun, .extern_sub => try self.paramList(out),
             // The expression's value is bound or returned.
             .set => try self.valueTail(ir.Set.value(out), false),
             .@"return" => try self.valueTail(ir.Return.value(out), false),
@@ -1655,6 +1663,44 @@ pub const Parser = struct {
                 else => {},
             }
         }
+    }
+
+    /// A function's parameter list is always written, even when empty,
+    /// as its calls and its type write theirs: `sub main()`, not `sub
+    /// main`. The grammar parses a definition without one so that the
+    /// fix-it can show the header with it.
+    fn paramList(self: *Parser, def: Sexp) std.mem.Allocator.Error!void {
+        if (ir.get(def, .params) != .nil) return;
+        const src = self.base.source;
+        const name = ir.get(def, .name);
+        const start = self.span(def).start;
+        // The list goes after the name and its compile-time parameters.
+        var at: usize = self.span(name).end;
+        var probe = at;
+        while (probe < src.len and src[probe] == ' ') probe += 1;
+        if (probe < src.len and src[probe] == '[') {
+            var depth: u32 = 0;
+            while (probe < src.len) : (probe += 1) {
+                if (src[probe] == '[') depth += 1;
+                if (src[probe] == ']') {
+                    depth -= 1;
+                    if (depth == 0) break;
+                }
+            }
+            at = @min(probe + 1, src.len);
+        }
+        var end = at;
+        while (end < src.len and src[end] != '\n' and src[end] != '#') end += 1;
+        const rest = std.mem.trimEnd(u8, src[at..end], " \t\r");
+        const message = self.format("write `{s}(){s}`: a function's parameter list is always written, even when empty", .{ src[start..at], rest });
+        if (self.failure == null) return self.reject(name, message);
+        const at_name = self.span(name);
+        try self.more_failures.append(self.allocator(), .{ .severity = .@"error", .pos = at_name.start, .end = at_name.end, .message = message });
+    }
+
+    /// The rejections after the first (`diagnostic()`), in source order.
+    pub fn moreDiagnostics(self: *const Parser) []const diag.Diagnostic {
+        return if (self.failure != null) self.more_failures.items else &.{};
     }
 
     /// `pub` on a field or method: the member stands in the member list
@@ -1974,13 +2020,13 @@ test "`unique` is a keyword only after a struct header's name or type parameters
 test "`from` and `static` are keywords only after a function's result type" {
     try testing.expect(keyword("from") == null and keyword("static") == null);
     try expectCats("fun f(a: ?T) -> ?T from a", &.{ .fun, .ident, .lparen, .kwarg_name, .colon, .question, .ident, .rparen, .arrow, .question, .ident, .from, .ident });
-    try expectCats("pub fun f -> String from static", &.{ .@"pub", .fun, .ident, .arrow, .ident, .from, .static });
-    try expectCats("fun f -> T? from a, b", &.{ .fun, .ident, .arrow, .ident, .question, .from, .ident, .comma, .ident });
+    try expectCats("pub fun f() -> String from static", &.{ .@"pub", .fun, .ident, .lparen, .rparen, .arrow, .ident, .from, .static });
+    try expectCats("fun f() -> T? from a, b", &.{ .fun, .ident, .lparen, .rparen, .arrow, .ident, .question, .from, .ident, .comma, .ident });
     try expectCats("extern fun f(s: String) -> String from s", &.{ .@"extern", .fun, .ident, .lparen, .kwarg_name, .colon, .ident, .rparen, .arrow, .ident, .from, .ident });
     try expectCats("fun span(from: Int) -> Int", &.{ .fun, .ident, .lparen, .kwarg_name, .colon, .ident, .rparen, .arrow, .ident });
     try expectCats("from = static", &.{ .ident, .assign, .ident });
     try expectCats("f = |x: Int| x\nfrom = 1", &.{ .ident, .assign, .bar_capture, .ident, .colon, .ident, .bar_capture, .ident, .newline, .ident });
-    try expectCats("fun f -> Int\n  from", &.{ .fun, .ident, .arrow, .ident, .indent, .ident });
+    try expectCats("fun f() -> Int\n  from", &.{ .fun, .ident, .lparen, .rparen, .arrow, .ident, .indent, .ident });
     try expectCats("fun f(g: fun(Int) -> Int, from: Int)", &.{ .fun, .ident, .lparen, .kwarg_name, .colon, .fun, .lparen, .ident, .rparen, .arrow, .ident, .comma, .kwarg_name });
 }
 
@@ -2195,7 +2241,7 @@ test "parser: every form parses" {
         \\
         \\extern fun abs(n: Int) -> Int
         \\extern fun tick(n: Int)
-        \\extern sub halt
+        \\extern sub halt()
         \\extern count: Int
         \\
         \\pub fun f[c: Int](a: Int, b: Int = 2) -> Int!
@@ -2238,7 +2284,7 @@ test "parser: every form parses" {
         \\    _
         \\      print(2)
         \\  g = |+c, <d, ~e, k: Int, j| c + k
-        \\  h = *|+c| c.set(@sizeOf(Int))
+        \\  h = *|+c| c.set(@size(Int))
         \\  i = || print(1)
         \\  v = f(1, b: 3) catch 0
         \\  u = f(1)!
@@ -2258,4 +2304,32 @@ test "parser: every form parses" {
         \\  return x
         \\
     );
+}
+
+test "parser: a definition writes its parameter list, even when empty" {
+    const cases = [_][2][]const u8{
+        .{ "sub main\n  pass\n", "write `sub main()`: a function's parameter list is always written, even when empty" },
+        .{ "fun answer -> Int  # the answer\n  42\n", "write `fun answer() -> Int`" },
+        .{ "fun first[T, n: Int] -> T?\n  none\n", "write `fun first[T, n: Int]() -> T?`" },
+        .{ "sub save!\n  pass\n", "write `sub save()!`" },
+        .{ "struct S\n  n: Int\n\n  pub fun get -> Int\n    1\n", "write `fun get() -> Int`" },
+        .{ "extern fun now -> Int\n", "write `extern fun now() -> Int`" },
+        .{ "extern sub halt\n", "write `extern sub halt()`" },
+        .{ "extern zig \"z.zig\"\n  pub fun one -> Int\n", "write `fun one() -> Int`" },
+    };
+    for (cases) |c| {
+        var p = Parser.init(testing.allocator, c[0]);
+        defer p.deinit();
+        try testing.expectError(error.ParseError, p.parseProgram());
+        const d = p.diagnostic();
+        testing.expect(std.mem.startsWith(u8, d.message, c[1])) catch |e| {
+            std.debug.print("source: {s}\n  got: {s}\n", .{ c[0], d.message });
+            return e;
+        };
+    }
+}
+
+test "a keyword after `@` names a builtin" {
+    try expectCats("@type(x)", &.{ .at, .ident, .lparen, .ident, .rparen });
+    try expectCats("@size(@type(x))", &.{ .at, .ident, .lparen, .at, .ident, .lparen, .ident, .rparen, .rparen });
 }

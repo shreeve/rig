@@ -1,5 +1,5 @@
 # Rig type names passed to a builtin are spelled as Zig types
-# (`@sizeOf(I64)` is `@sizeOf(i64)`).
+# (`@size(I64)` is `@sizeOf(i64)`).
 
 sub main()
   n = @sizeOf(I64)

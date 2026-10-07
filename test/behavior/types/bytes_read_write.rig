@@ -1,5 +1,5 @@
 # `bytes.read[T, e](at)` reads the integer or float `T` from the
-# `@sizeOf(T)` bytes at `at`, in byte order `e`, and
+# `@size(T)` bytes at `at`, in byte order `e`, and
 # `!bytes.write[T, e](at, v)` stores one. Bytes are a `[N]U8`, a
 # `[]U8` or `![]U8`, a `Vec[U8]`, or (to read) a String.
 

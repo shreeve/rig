@@ -11,7 +11,7 @@ bin/rig run examples/ownership_tour.rig
 
 | File | Shows |
 |---|---|
-| [hello.rig](hello.rig) | the smallest program: a `sub main` and a `print` |
+| [hello.rig](hello.rig) | the smallest program: a `sub main()` and a `print` |
 | [ownership_tour.rig](ownership_tour.rig) | the ownership sigils at work: move `<x`, read lend `?x`, shared `*x`, clone `+x`, drop `-x`, and automatic drop at the end of scope |
 | [shapes.rig](shapes.rig) | data modeling: an enum with payload variants, exhaustive `match`, a struct method with a `?self` receiver, and a generic `Pair[T]` |
 | [resources.rig](resources.rig) | a user-defined `drop` body, followed by the compiler-generated drop glue that releases a shared field |

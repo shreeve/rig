@@ -272,7 +272,7 @@ support file.
 | typed binding | `let x: u8 = 1;` | `const x: u8 = 1;` | `x: U8 = 1` |
 | shadowing | `let x = x + 1;` | not allowed | `new x = x + 1` |
 | function | `fn f(a: i64) -> i64 { a }` | `fn f(a: i64) i64 { return a; }` | `fun f(a: Int) -> Int` / `  a` |
-| no result | `fn f() {}` | `fn f() void {}` | `sub f` |
+| no result | `fn f() {}` | `fn f() void {}` | `sub f()` |
 | fallible, no result | `fn f() -> Result<(), E>` | `fn f() !void` | `sub f()!` |
 | result views one argument | `fn f<'a>(a: &'a T, b: &T) -> &'a T` | (no check) | `fun f(a: ?T, b: ?T) -> ?T from a` |
 | call | `f(a)` | `f(a)` | `f(a)` |
@@ -383,7 +383,7 @@ correspondences:
 | `?fun(A) -> R` | `rig.FnRef`: a context pointer and a call function |
 | an owned closure | a counted, type-erased closure |
 | `defer`, `errdefer` | `defer`, `errdefer` |
-| `sub main` | `pub fn main(__rig_init: std.process.Init.Minimal) void`, which reports a failure it propagates as `error: E.name` and exits 1; in Debug it checks for leaks on exit |
+| `sub main()` | `pub fn main(__rig_init: std.process.Init.Minimal) void`, which reports a failure it propagates as `error: E.name` and exits 1; in Debug it checks for leaks on exit |
 
 The runtime, `src/runtime.zig`, is written next to every emitted
 program; [INTERNALS](docs/INTERNALS.md) describes it.
@@ -396,7 +396,7 @@ program; [INTERNALS](docs/INTERNALS.md) describes it.
 | comment | `//`, `/* */` | `#` | `//` | `#` |
 | statement end | `;` | end of line | `;` (optional) / end of line | end of line |
 | function | `int f(int a)` | `def f(a):` / `def f(a)` | `function f(a)` / `func f(a int) int` | `fun f(a: Int) -> Int` |
-| no result | `void f()` | `def f():` | `func f()` | `sub f` |
+| no result | `void f()` | `def f():` | `func f()` | `sub f()` |
 | else if | `else if` | `elif` / `elsif` | `else if` | `else if` |
 | absent value | `NULL` | `None` / `nil` | `null` / `nil` | `none`, in a `T?` |
 | booleans | `1`, `0` | `True` / `true` | `true` | `true`, `false` |

@@ -124,7 +124,7 @@ whatever `name` is.
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
 the path the program was started by: under `rig run`, that of the
-executable `rig` built in its cache. With `fun main -> Int`
+executable `rig` built in its cache. With `fun main() -> Int`
 ([SPEC §1](../SPEC.md#1-programs)), a program also reports an exit
 status:
 

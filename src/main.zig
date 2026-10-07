@@ -342,6 +342,7 @@ fn printTree(allocator: std.mem.Allocator, io: std.Io, path: []const u8, source:
             var buffer: [4096]u8 = undefined;
             var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
             try diag.write(&.{p.diagnostic()}, source, path, &writer.interface);
+            try diag.write(p.moreDiagnostics(), source, path, &writer.interface);
             if (p.unclosedBracket()) |note| try diag.write(&.{note}, source, path, &writer.interface);
             try writer.interface.flush();
             std.process.exit(1);

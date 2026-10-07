@@ -52,7 +52,7 @@ cat >infer.rig <<'EOF2'
 fun f[T](xs: [T]Int) -> Int
   1
 
-fun zeros[n: Int] -> [n]Int
+fun zeros[n: Int]() -> [n]Int
   [n of 0]
 
 sub main()

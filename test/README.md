@@ -14,7 +14,8 @@ test/matrix.py --shard 2/4 # the second of four disjoint shards of the matrix
 
 A shard takes the selected tests whose id hashes to it, so the N shards
 of a run, on one machine or several, run each test once; the first also
-runs the whole-program checks (`unit`, `parser`, `classify`, `vocab`).
+runs the whole-program checks (`unit`, `parser`, `classify`, `vocab`,
+`style`).
 
 The summary line reads `N passed, M failed, K known, P pending`. The
 suite is green when nothing fails and no known-failing test or pending
@@ -46,6 +47,7 @@ each test's output, `RIG_BUILD_STORE` where programs build (see
 | `parser` | `src/parser.zig` matches what Nexus generates from `rig.grammar` |
 | `classify` | no pass in `src/` keeps a classifier of what an expression hands over beside `sema.handsOver` (`isPlaceExpr`, `isPlace`, `makesValue`, `isBranching`, `readLeaves`, `classifyReceiverShape`), and emit names hidden storage only through its storage facts (`Emitter.hiddenStorage`) |
 | `vocab` | the docs, std/, the string literals in `src/`, and `# error:` lines say lend, view, and loan (docs/CORE.md, "Three words"): Rust's word for all three appears only in the lines `test/vocabulary-allow.txt` lists, each as `path: line text`, and in no path; an entry that matches no such line, or appears twice, fails |
+| `style` | the Rig in `test/` (but `test/torture/`), `examples/`, `std/`, and the docs' ```` ```rig ```` blocks is written one way: a definition writes its parameter list (`sub main()`); one blank line goes between top-level declarations, though one-line ones (`use`, constants, `extern`, `type`) may stand together; no two blank lines run together; a file or block neither starts nor ends with a blank line, and a file ends with a newline; no line of code ends in spaces. A file or block whose expected errors are the definition rule's own may break that rule |
 | `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
 | `oracle/<set>` | the reference ownership checker agrees with the compiler over a set of programs (see below) |
 
