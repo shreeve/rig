@@ -45,11 +45,37 @@ happens, as a one-character **sigil**:
 | `e!` | propagate failure | `e?` | `try e` |
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 
-The same characters prefix types: `?T` and `!T` are views, `*T` a
-shared handle, `~T` a weak one. As suffixes, `T?` is an optional and
-`T!` a `T` that may fail. So a prefix `?` or `!` always lends and a
-suffix always means absence or failure, and `!` never means "not"
-(that is `not`).
+**Prefix or suffix.** A prefix sigil says how you hold a value (`?x`
+and `!x` lend it, `<x` moves it, `+x` clones it, `-x` drops it, `*x`
+and `~x` make handles), and a suffix `?` or `!` is control flow (`e?`
+passes `none` up, `e!` passes a failure up). Types follow suit: `?T`
+and `!T` are views, `*T` a shared handle and `~T` a weak one, while
+`T?` is an optional and `T!` a `T` that may fail. Rig has no `!` for
+"not": logical negation is `not`, so `!v.pop()` lends `v` to write,
+and never negates (`if !done` is an error that says to use `not`; see
+[below](#habits-that-trip-people-up)). The one look-alike is `-`: only
+`-name` standing alone as a statement drops; as a value, `-n` is
+arithmetic negation (`y = -n`):
+
+```rig
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  done = false
+  while not done
+    print(!v.pop() ?? 0)
+    done = v.len == 0
+```
+
+```output
+2
+1
+```
+
+Suffixes read left to right, and a view covers the whole type after
+it: `S?!` is an `S?` that may fail, `?D?` a view of a `D?`, and
+`(?D)?` an optional view of a `D`.
 
 **You lend a view; the compiler remembers the loan.**
 
@@ -212,8 +238,10 @@ sub main
 A closure has no keyword: it starts with its bar list. Each captured
 name carries a sigil that says how it is held: `+step` copies, `<x`
 would move, `?x` and `!x` would lend, and `~x` would hold a handle
-weakly. `*Cell[Int]` is a shared cell, the way to share state that
-changes (a `*Signal` also tells its subscribers).
+weakly. A bare name is a parameter, as `a` is in `|+step, a| a + step`;
+captures come first, and a parameter may not reuse a local's name, so
+`|step|` here would be rejected. `*Cell[Int]` is a shared cell, the way
+to share state that changes (a `*Signal` also tells its subscribers).
 
 ## Running a program
 
@@ -275,6 +303,24 @@ support file.
 | unsafe | `unsafe { }` | (everything) | a `raw` block |
 | logic | `&&`, `\|\|`, `!` | `and`, `or`, `!` | `and`, `or`, `not` |
 | ternary | `if c { a } else { b }` | `if (c) a else b` | `a if c else b` |
+
+**No implicit shadowing.** A name is never shadowed silently: a local
+may not reuse the name of another local, a parameter, or a module-level
+declaration, a closure parameter may not reuse a local's name, and a
+generic parameter may not reuse a module-level name. Zig has the same
+rule; where Rust writes `let x = x + 1`, Rig shadows on purpose with
+`new x = x + 1` ([SPEC §4](SPEC.md#4-bindings-and-assignment)).
+
+```rig reject
+T = 3
+
+struct W[T]
+  v: T
+```
+
+```error
+generic parameter `T` has the same name as the module-level declaration `T`; use a different name
+```
 
 ### Generics
 
@@ -500,7 +546,7 @@ sub main
 ```
 
 ```error
-`!` lends to write; use `not` for negation
+`!` lends to write; use `not` for negation (a `Bool` is lent to write only where a `!Bool` is expected: `f(!flag)`)
 ```
 
 **`&&` and `||`.** They are `and` and `or`; for an optional's fallback,
