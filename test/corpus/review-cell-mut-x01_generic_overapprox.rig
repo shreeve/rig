@@ -1,0 +1,35 @@
+# A generic type that holds its parameter only behind a handle: sema's
+# reach says an instance at a Cell holder holds a Cell, the runtime's
+# holdsCell says it does not. A view of it from generic code
+# (`rig.ReadPtr`) meets one from concrete code (`*G(C)`).
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct G[T]
+  h: *T
+  n: Int
+
+fun id[T](x: ?T) -> ?T
+  x
+
+fun look(g: ?G[C]) -> Int
+  g.h.hit()
+  g.h.c.get() + g.n
+
+sub main()
+  g = G(h: *C(c: Cell(1)), n: 10)
+  r = id(?g)
+  print(look(r))
+  print(look(id(?g)))
+
+# expect:
+# 12
+# 13
+
+# oracle: C.hit accept
+# oracle: id accept
+# oracle: look accept
+# oracle: main accept

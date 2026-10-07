@@ -1,0 +1,40 @@
+# A Cell whose value holds a Cell, a Cell[Vec] of holders, and closures
+# capturing holders each way.
+struct C
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun mk(n: Int) -> C
+  C(c: Cell(n))
+
+sub main()
+  cv: Cell[Vec[C]] = Cell(Vec())
+  cv.push(mk(1))
+  if cv.pop() as y
+    y.hit()
+    print(y.c.get())
+  cc = Cell(mk(5))
+  old = cc.replace(mk(6))
+  old.hit()
+  print(old.c.get())
+  x = mk(10)
+  f = |?x| x.hit()
+  for _ in 0..3
+    f()
+  print(x.c.get())
+  g = |!x| x.hit()
+  for _ in 0..3
+    g()
+  print(x.c.get())
+
+# expect:
+# 2
+# 6
+# 13
+# 16
+
+# oracle: C.hit accept
+# oracle: mk accept
+# oracle: main accept

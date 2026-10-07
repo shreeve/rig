@@ -1,0 +1,26 @@
+# A generic type that holds its parameter only behind a handle, viewed
+# in generic code and in concrete code, at an instance whose argument
+# holds a Cell: it holds no Cell inline, so its views are `*const` in
+# generic and concrete code alike, and the Cell it reaches changes
+# through them, in debug and in an optimized build.
+# release
+
+struct C
+  c: Cell[Int]
+
+struct G[T]
+  h: *T
+
+fun pick[T](a: ?G[T], b: ?G[T], k: Bool) -> ?G[T]
+  a if k else b
+
+fun look(g: ?G[C]) -> Int
+  g.h.c.get()
+
+sub main()
+  a = G(h: *C(c: Cell(1)))
+  b = G(h: *C(c: Cell(2)))
+  print(look(pick(?a, ?b, false)))
+
+# expect:
+# 2

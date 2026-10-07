@@ -1,0 +1,33 @@
+# A generic type that holds its parameter only in a Vec, compared by
+# std.sort's comparator, at an instance whose argument holds a Cell: it
+# holds no Cell inline, so its views are `*const` in generic and
+# concrete code alike, and the Cell it reaches changes through them, in
+# debug and in an optimized build.
+# release
+
+use std.sort
+
+struct C
+  c: Cell[Int]
+
+struct G[T]
+  items: Vec[T]
+  k: Int
+
+fun mk(k: Int) -> G[C]
+  v: Vec[C] = Vec()
+  !v.push(C(c: Cell(k)))
+  G(items: <v, k: k)
+
+fun less(a: ?G[C], b: ?G[C]) -> Bool
+  a.k < b.k
+
+sub main()
+  v: Vec[G[C]] = Vec()
+  for k in [3, 1, 2]
+    !v.push(mk(k))
+  sort.sort_by(!v, less)
+  print(v[0].k, v[1].k, v[2].k)
+
+# expect:
+# 1 2 3

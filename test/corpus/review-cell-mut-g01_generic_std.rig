@@ -1,0 +1,95 @@
+# Cell holders through generic code: std.sort's comparator, std.slices,
+# a generic holder's callback, a generic function over a slice, and
+# generic Box/Vec/optional wrappers.
+use std.sort
+use std.slices
+
+struct C
+  c: Cell[Int]
+  k: Int
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+fun mk(k: Int) -> C
+  C(c: Cell(0), k: k)
+
+fun less(a: ?C, b: ?C) -> Bool
+  a.hit()
+  b.hit()
+  a.k < b.k
+
+struct Hold[T]
+  x: T
+  n: Cell[Int]
+
+  sub run(?self, f: ?sub(?T))
+    self.n.set(self.n.get() + 1)
+    f(?self.x)
+
+sub bump(x: ?C)
+  x.hit()
+
+sub each[T](xs: []T, f: ?sub(?T))
+  for i in 0..xs.len
+    f(?xs[i])
+
+fun first[T](xs: []T) -> ?T
+  ?xs[0]
+
+sub twice[T](x: ?T, f: ?sub(?T))
+  f(x)
+  f(x)
+
+fun total(xs: []C) -> Int
+  t = 0
+  for e in ?xs
+    t += e.c.get()
+  t
+
+sub main()
+  v: Vec[C] = Vec()
+  for k in [5, 3, 9, 1, 7]
+    !v.push(mk(k))
+  sort.sort_by(!v, less)
+  print(v[0].k, v[1].k, v[4].k, total(?v) > 0)
+  slices.reverse(!v)
+  print(v[0].k)
+  h = Hold(x: mk(0), n: Cell(0))
+  for _ in 0..4
+    h.run(bump)
+  print(h.x.c.get(), h.n.get())
+  arr = [mk(1), mk(2), mk(3)]
+  each(?arr, bump)
+  each(?arr[1..], bump)
+  each(?v, bump)
+  first(?arr).hit()
+  first(?arr[2..]).hit()
+  twice(?arr[0], bump)
+  print(arr[0].c.get(), arr[1].c.get(), arr[2].c.get())
+  b: Box[C] = Box(mk(0))
+  twice[C](?b, bump)
+  b.hit()
+  print(b.c.get())
+  hb = Hold(x: Box(mk(0)), n: Cell(0))
+  hb.x.hit()
+  print(hb.x.c.get())
+
+# expect:
+# 1 3 9 true
+# 9
+# 4 4
+# 4 2 3
+# 3
+# 1
+
+# oracle: C.hit accept
+# oracle: mk accept
+# oracle: less accept
+# oracle: Hold.run accept
+# oracle: bump accept
+# oracle: each accept
+# oracle: first accept
+# oracle: twice accept
+# oracle: total accept
+# oracle: main accept

@@ -487,6 +487,7 @@ pub const Emitter = struct {
         const prev = try self.enterNominal(ir.Struct.name(node), false, members);
         defer self.nominal = prev;
         try self.emitFields(1);
+        try self.emitInteriorMutable(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
     }
@@ -498,6 +499,7 @@ pub const Emitter = struct {
         defer self.nominal = prev;
         try self.emitGenericHead(ir.GenericStruct.tparams(node), members, "struct");
         try self.emitFields(2);
+        try self.emitInteriorMutable(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
     }
@@ -519,6 +521,7 @@ pub const Emitter = struct {
         if (has_payloads) {
             try self.w.print("pub const {f} = union(enum) {{\n", .{ident(name)});
             try self.emitUnionVariants(1);
+            try self.emitInteriorMutable(1);
         } else {
             try self.w.print("pub const {f} = enum{s} {{\n", .{ ident(name), if (has_values) "(u32)" else "" });
             for (self.nominalFields()) |f| {
@@ -539,6 +542,7 @@ pub const Emitter = struct {
         defer self.nominal = prev;
         try self.emitGenericHead(ir.GenericEnum.tparams(node), members, "union(enum)");
         try self.emitUnionVariants(2);
+        try self.emitInteriorMutable(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
     }
@@ -630,6 +634,35 @@ pub const Emitter = struct {
     /// declaration order.
     fn nominalFields(self: *Emitter) []const sema.Field {
         return self.sema.symbols.items[self.nominal.?.sym].fields orelse &.{};
+    }
+
+    /// `pub const __rig_interior_mutable = ...;`: whether a value of the
+    /// type being emitted is interior-mutable (`sema.interiorMutable`),
+    /// decided here from what each field and variant payload holds by
+    /// value: `true` when one holds a Cell inline, and for a field whose
+    /// answer depends on a generic type's arguments, that field type's
+    /// own answer, `rig.interiorMutable(F)`, per instance. The runtime
+    /// reads it (`rig.ReadPtr`, `rig.ReadSlice`, `rig.ReadView`,
+    /// `constSlot`, `rig.slice`) and never decides it itself.
+    fn emitInteriorMutable(self: *Emitter, depth: u32) Error!void {
+        try self.writeIndent(depth);
+        try self.w.writeAll("pub const __rig_interior_mutable = ");
+        var any = false;
+        for (self.nominalFields()) |*f| for (sema.dataFields(f)) |d| {
+            if (sema.interiorMutable(self.sema, d.ty) == .yes) {
+                try self.w.writeAll("true;\n");
+                return;
+            }
+        };
+        for (self.nominalFields()) |*f| for (sema.dataFields(f)) |d| {
+            if (sema.interiorMutable(self.sema, d.ty) != .depends) continue;
+            if (any) try self.w.writeAll(" or ");
+            any = true;
+            try self.w.writeAll("rig.interiorMutable(");
+            try self.emitTypeTy(d.ty);
+            try self.w.writeAll(")");
+        };
+        try self.w.writeAll(if (any) ";\n" else "false;\n");
     }
 
     fn emitFields(self: *Emitter, depth: u32) Error!void {

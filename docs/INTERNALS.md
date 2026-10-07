@@ -1861,10 +1861,24 @@ lower is an internal error: sema must have rejected it.
   `[]T` of such elements is a Zig `[]T`; a Vec element reached through
   a read view is `constSlot(i)`, which gives a `*T` for such a `T`
   (`rig.ReadPtr`); and a binding, parameter copy, slot, or hidden
-  location holding one is a `var`. Where the answer depends on a
-  generic type's arguments (a type that holds a type parameter by
-  value), the view is `rig.ReadPtr(T)` or `rig.ReadSlice(T)`, which
-  apply the rule to each instance. The checker still treats `?x` as a
+  location holding one is a `var`. "Inline" is by value: a generic
+  instance holds its argument's Cell only where the generic holds that
+  parameter by value (`Contents.held`), so `G[C]` with `h: *T` or
+  `items: Vec[T]` is not interior-mutable. The fact is decided once,
+  by sema. Emit writes it into every struct and union type it emits,
+  `pub const __rig_interior_mutable = ...`: `true` when a field or
+  payload holds a Cell inline, and for a field whose answer depends on
+  a generic type's arguments (one that holds a type parameter by
+  value), `rig.interiorMutable(F)` of that field's type, per instance.
+  The runtime's `rig.interiorMutable` only reads it (through an
+  optional, an array, or an error union's payload; a Cell's is `true`,
+  and anything else is not), so where the answer depends on the
+  instance, the view is `rig.ReadPtr(T)` or `rig.ReadSlice(T)`, and an
+  element through a read-viewed Vec `constSlot(i)`, each of which reads
+  the same answer. In a generic body, a `?self` method that may change
+  a Cell, on a value with no place (below) whose type `depends`,
+  records the requirement that every instance hold no Cell
+  (`.cell_place`), checked where the generic is instantiated. The checker still treats `?x` as a
   read lend: only the Zig pointer's mutability changes. A Cell change
   is then a call on the Cell's address (`(&x.c).set(v)`) through
   pointers that were mutable all along, so neither the emitter nor the
@@ -1874,8 +1888,11 @@ lower is an internal error: sema must have rejected it.
   `Box[Cell[T]]`) or in a Vec's buffer is on the heap, which every
   pointer to it may write. The one form whose storage is neither, a
   `?self` method on a part of a value that branches between a name's
-  leaf and one made there (`(w if k else mk()).t.hit()`), is rejected,
-  as `Cell.set` on the same part is: the made leaf has no place.
+  leaf and one made there that no statement slot keeps
+  (`(w if k else mk()).t.hit()`, `storage.constLeaf`), is rejected, as
+  `Cell.set` on the same part is: the made leaf has no place. This
+  rejects a `?self` method that only reads too, since whether a method
+  reaches a Cell write is not decided.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`,
   `Box[T]` is `rig.Box(T)` (a pointer to the value, reached as
   `b.value.f`; `?b` lent as a `?T` is `b.value`), `T?`
@@ -2090,7 +2107,7 @@ reviewed.
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `ReadPtr(T)` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
-| `ReadPtr(T)`, `ReadSlice(T)` | the pointer and the slice a read view of a `T` is: `*T` and `[]T` when `T` holds a Cell by value (`holdsCell`, the mirror of `sema.interiorMutable`), `*const T` and `[]const T` otherwise |
+| `interiorMutable`, `ReadPtr(T)`, `ReadSlice(T)` | whether a `T` is interior-mutable, as the emitter declares it in each type (`__rig_interior_mutable`, from `sema.interiorMutable`); the pointer and the slice a read view of a `T` is: `*T` and `[]T` when it is, `*const T` and `[]const T` otherwise |
 | `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `ReadPtr(T)`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a Text's bytes and a Vec's elements copied (`Vec.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `Text` | `Text`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `Text(...)` and `print` agree exactly; `bytes` is the String view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a Text's or a String's |

@@ -1,0 +1,35 @@
+# A generic type that holds its parameter only in a Vec, read through a
+# read view of a Vec of it, at an instance whose argument holds a Cell:
+# it holds no Cell inline, so its views are `*const` in generic and
+# concrete code alike, and the Cell it reaches changes through them, in
+# debug and in an optimized build.
+# release
+
+struct C
+  c: Cell[Int]
+
+struct G[T]
+  items: Vec[T]
+  k: Int
+
+fun mk(k: Int) -> G[C]
+  v: Vec[C] = Vec()
+  !v.push(C(c: Cell(k)))
+  G(items: <v, k: k)
+
+fun look(g: ?G[C]) -> Int
+  g.items[0].c.set(g.items[0].c.get() + 1)
+  g.items[0].c.get() + g.k
+
+fun first(v: ?Vec[G[C]]) -> Int
+  look(?v[0])
+
+sub main()
+  v: Vec[G[C]] = Vec()
+  !v.push(mk(10))
+  print(first(?v))
+  print(look(?v[0]))
+
+# expect:
+# 21
+# 22

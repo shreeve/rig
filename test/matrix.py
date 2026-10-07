@@ -16,7 +16,7 @@ diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
 program that runs must also print what the payload holds, and a `loop.`
 program the trace of its steps, defers, and drops. A `cellmut.` program
-that runs must print its trace in debug, and again built with
+must be accepted, and print its trace in debug and again built with
 `--release`.
 
     test/matrix.py                 # generate, check, and run everything
@@ -628,6 +628,7 @@ def payload_program(tname, sname, ename):
 # methods go), how `mk()` makes one, the paths to its `Cell[Int]` and its
 # `Cell[Vec[Int]]` from a value `E` (None: it has none), and whether it
 # prints when dropped.
+_CM_C = "struct C\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\n"
 CELLMUT_TYPES = {
     # a `drop`
     "drop": dict(ty="D", decls='struct D\n  c: Cell[Int]\n  v: Cell[Vec[Int]]\n\n  drop(!self)\n    print("drop", self.c.get(), self.v.len)\nMETHODS',
@@ -644,6 +645,13 @@ CELLMUT_TYPES = {
     # a generic type at Int
     "generic": dict(ty="G[Int]", decls="struct G[T]\n  c: Cell[T]\n  v: Cell[Vec[T]]\nMETHODS",
                     mk="G(c: Cell(1), v: Cell(vec2()))", c="E.c", v="E.v"),
+    # generic types holding a Cell holder only behind a handle, and in a
+    # Vec: no Cell inline, so their views are `*const` while the Cells
+    # they reach change
+    "behind_handle": dict(ty="P[C]", decls=_CM_C + "\nstruct P[T]\n  h: *T\n", methods=False,
+                          mk="P(h: *C(c: Cell(1), v: Cell(vec2())))", c="E.h.c", v="E.h.v"),
+    "in_vec": dict(ty="Q[C]", decls=_CM_C + "\nstruct Q[T]\n  items: Vec[T]\n\nfun cs() -> Vec[C]\n  xs: Vec[C] = Vec()\n  !xs.push(C(c: Cell(1), v: Cell(vec2())))\n  xs\n", methods=False,
+                   mk="Q(items: cs())", c="E.items[0].c", v="E.items[0].v"),
     # a bare Cell[Int], and a bare Cell[Vec[Int]]
     "cell": dict(ty="Cell[Int]", decls="", mk="Cell(1)", c="E", v=None),
     "cellvec": dict(ty="Cell[Vec[Int]]", decls="", mk="Cell(vec2())", c=None, v="E"),
@@ -683,15 +691,20 @@ CELLMUT_ACCESS = {
     "optional": dict(setup=["o: T? = mk()"], do=["if o as y", "  OP"], e="y", opt=True),
     "foreach": dict(setup=["vs: Vec[T] = Vec()", "!vs.push(mk())"], do=["for y in ?vs", "  OP"], e="y", x="vs[0]"),
     "shared": dict(setup=["x = *mk()"], do=["OP"], e="x"),
+    # across the generic and runtime boundary: a view a generic function
+    # returns, an element of a `?Vec` parameter, and a subslice
+    "generic_fn": dict(decls="fun id[U](y: ?U) -> ?U\n  y\n", setup=["x = mk()"], do=["OP"], e="id(?x)"),
+    "vec_view": dict(decls="fun via(ys: ?Vec[T], k: Int) -> Int\n" + _CM_WRAP, setup=["vs: Vec[T] = Vec()", "!vs.push(mk())"], do=["s += via(?vs, KARG)"], e="ys[0]", x="vs[0]"),
+    "subslice": dict(decls="fun via(y: []T, k: Int) -> Int\n" + _CM_WRAP, setup=["a = [mk(), mk()]"], do=["s += via(?a[0..1], KARG)"], e="y[0]", x="a[0]"),
 }
 
 
 def cellmut_applies(tname, aname, oname):
     t, needs = CELLMUT_TYPES[tname], CELLMUT_OPS[oname][0]
-    struct = t["decls"] != ""
+    methods = t["decls"] != "" and t.get("methods", True)
     if needs == "c" and t["c"] is None or needs == "v" and t["v"] is None:
         return False
-    return struct or (needs != "m" and aname != "method")
+    return methods or (needs != "m" and aname != "method")
 
 
 def _cm_op(t, oname, e, karg, acc="s"):
@@ -709,7 +722,7 @@ def _cm_op(t, oname, e, karg, acc="s"):
 
 def _cm_wrap(text, ty, op):
     """A wrapper's declaration: `T` the type, `OP` its operation's lines."""
-    text = text.replace("?T", "?" + ty).replace("[]T", "[]" + ty).replace(": T\n", ": " + ty + "\n")
+    text = text.replace("?T", "?" + ty).replace("[]T", "[]" + ty).replace("Vec[T]", f"Vec[{ty}]").replace(": T\n", ": " + ty + "\n")
     lines = []
     for l in text.rstrip("\n").split("\n"):
         lines += ["  " + o for o in op] if l == "OP" else [l]
@@ -730,7 +743,9 @@ def cellmut_program(tname, aname):
     t, a = CELLMUT_TYPES[tname], CELLMUT_ACCESS[aname]
     ty = t["ty"]
     out = []
-    if t["decls"]:
+    if t["decls"] and not t.get("methods", True):
+        out += t["decls"].rstrip("\n").split("\n") + [""]
+    elif t["decls"]:
         methods = []
         c = t["c"].replace("E", "self")
         bump = [f"{c}.set({c}.get() + k)"] + ([t["v"].replace("E", "self") + ".push(k)"] if t["v"] else [])
@@ -751,7 +766,7 @@ def cellmut_program(tname, aname):
     out += [f"fun mk() -> {ty}", f"  {t['mk']}", ""]
     out += ["fun maybe(n: Int) -> Int?", "  return none if n % 2 == 1", "  n", ""]
     decls = a.get("decls", "")
-    if decls.startswith("struct"):
+    if "OP" not in decls:
         out += _cm_wrap(decls, ty, []) + [""]
     elif decls:
         for oname in ops:
@@ -798,7 +813,16 @@ def cellmut_program(tname, aname):
 
 def cellmut_output(tname, aname):
     """What a cellmut cell prints."""
-    return "".join(f"{o}\n" + _cm_trace(tname, o) for o in cellmut_ops(tname, aname)) + "end\n"
+    # A subslice's array holds a second value, untouched, which drops
+    # first: an array drops its elements last to first.
+    second = aname == "subslice" and CELLMUT_TYPES[tname].get("drop")
+    out = ""
+    for o in cellmut_ops(tname, aname):
+        lines = _cm_trace(tname, o).splitlines(keepends=True)
+        if second:
+            lines.insert(len(lines) - 1, "drop 1 2\n")
+        out += f"{o}\n" + "".join(lines)
+    return out + "end\n"
 
 
 def _cm_trace(tname, oname):
@@ -1027,7 +1051,8 @@ def run_capped(cmd, env):
 def run_one(path, keep, started_dir, expect=None, release=False):
     """Classify one program: rejected, ok, or a failure with its reason.
     With `expect`, a program that runs must print exactly that; with
-    `release`, also when built with `--release`."""
+    `release`, also when built with `--release`, and it must be
+    accepted."""
     d = os.path.dirname(path)
     try:
         chk = subprocess.run([RIG, "check", path], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
@@ -1037,6 +1062,10 @@ def run_one(path, keep, started_dir, expect=None, release=False):
     if chk.returncode < 0 or chk.returncode > 128 or CRASH.search(out):
         return "fail", "compiler crashed: " + first_line(out)
     if chk.returncode != 0:
+        # A `cellmut.` program is one the checker must accept: every
+        # operation it applies has a place.
+        if release:
+            return "fail", "rejected, but must be accepted: " + first_error(out)
         if POS.search(out):
             return "rejected", first_error(out)
         return "fail", "rejected without file:line:col: " + first_line(out)

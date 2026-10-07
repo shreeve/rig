@@ -1,0 +1,24 @@
+# A subslice of an array of a generic instance that holds its Cell holder
+# only behind a handle: `rig.slice` gives `[]const G(C)` (ReadSlice),
+# the parameter is `[]G(C)`.
+struct C
+  c: Cell[Int]
+
+struct G[T]
+  h: *T
+
+fun tot(xs: []G[C]) -> Int
+  t = 0
+  for i in 0..xs.len
+    t += xs[i].h.c.get()
+  t
+
+sub main()
+  arr = [G(h: *C(c: Cell(1))), G(h: *C(c: Cell(2)))]
+  print(tot(?arr[0..2]), tot(?arr))
+
+# expect:
+# 3 3
+
+# oracle: tot accept
+# oracle: main accept

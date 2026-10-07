@@ -1,0 +1,53 @@
+# A Cell changed through a value parameter, a moved local, a returned
+# value, and a value captured by a closure that moves it in.
+struct C
+  c: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+    self.log.push(self.c.get())
+
+fun mk(n: Int) -> C
+  C(c: Cell(n), log: Cell(Vec()))
+
+fun took(x: C) -> Int
+  x.hit()
+  x.hit()
+  x.c.get() * 10 + x.log.len
+
+fun pass_on(x: C) -> C
+  x.hit()
+  x
+
+sub main()
+  a = mk(1)
+  print(took(<a))
+  b = pass_on(mk(5))
+  b.hit()
+  print(b.c.get(), b.log.len)
+  c = mk(20)
+  f = |<c| c.hit()
+  for _ in 0..3
+    f()
+  g = |<b|
+    b.hit()
+    b.c.get()
+  print(g(), g())
+  d = mk(30)
+  h = *|<d|
+    d.hit()
+    d.c.get()
+  print(h(), h())
+
+# expect:
+# 32
+# 7 2
+# 8 9
+# 31 32
+
+# oracle: C.hit accept
+# oracle: mk accept
+# oracle: took accept
+# oracle: pass_on accept
+# oracle: main accept

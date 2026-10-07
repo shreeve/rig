@@ -1,0 +1,26 @@
+pub struct C
+  pub c: Cell[Int]
+
+  pub sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+pub struct W
+  pub c: C
+  pub n: Int
+
+  pub sub hit2(?self)
+    self.c.hit()
+    self.c.hit()
+
+pub struct G[T]
+  pub x: T
+
+  pub sub run(?self, f: ?sub(?T))
+    f(?self.x)
+
+pub fun mkw(n: Int) -> W
+  W(c: C(c: Cell(n)), n: n)
+
+pub fun look(w: ?W) -> Int
+  w.hit2()
+  w.c.c.get()

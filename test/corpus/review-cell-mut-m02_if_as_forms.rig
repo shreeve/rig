@@ -1,0 +1,60 @@
+# A Cell changed through `if as` and `while as` bindings of each kind.
+struct C
+  c: Cell[Int]
+  log: Cell[Vec[Int]]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+    self.log.push(self.c.get())
+
+fun mk(n: Int) -> C
+  C(c: Cell(n), log: Cell(Vec()))
+
+fun mko(n: Int) -> C?
+  return none if n < 0
+  mk(n)
+
+sub main()
+  o: C? = mk(0)
+  for _ in 0..3
+    if o as y
+      y.hit()
+    if ?o as y
+      y.hit()
+    if !o as y
+      y.hit()
+  if o as y
+    print(y.c.get(), y.log.len)
+  if <o as y
+    y.hit()
+    print(y.c.get(), y.log.len)
+  if mko(10) as z
+    z.hit()
+    z.hit()
+    print(z.c.get(), z.log.len)
+  v: Vec[C] = Vec()
+  !v.push(mk(1))
+  !v.push(mk(2))
+  n = 0
+  while !v.pop() as w
+    w.hit()
+    n += w.c.get() * 10 + w.log.len
+  print(n)
+  arr: [2]C? = [mk(3), none]
+  if arr[0] as a
+    a.hit()
+  if ?arr[0] as a
+    a.hit()
+    print(a.c.get())
+
+# expect:
+# 9 9
+# 10 10
+# 12 2
+# 52
+# 5
+
+# oracle: C.hit accept
+# oracle: mk accept
+# oracle: mko accept
+# oracle: main accept

@@ -1,0 +1,36 @@
+# A `?self` call on a part of a branching value inside generic code,
+# where whether the part holds a Cell depends on the instance.
+struct T
+  c: Cell[Int]
+
+  sub hit(?self)
+    self.c.set(self.c.get() + 1)
+
+struct H[X]
+  x: X
+  n: Int
+
+  sub run(?self, f: ?sub(?X))
+    f(?self.x)
+
+struct P[X]
+  h: H[X]
+
+sub bump(t: ?T)
+  t.hit()
+
+fun mkp[X](x: X) -> P[X]
+  P(h: H(x: <x, n: 0))
+
+fun go[X](p: P[X], x: X, f: ?sub(?X), k: Bool) -> P[X]
+  (p if k else mkp(<x)).h.run(f)
+  p
+
+sub main()
+  p = mkp(T(c: Cell(0)))
+  q = go(<p, T(c: Cell(100)), bump, true)
+  r = go(<q, T(c: Cell(100)), bump, false)
+  print(r.h.x.c.get())
+
+# expect:
+# 1

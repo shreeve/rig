@@ -1,0 +1,24 @@
+# A `?self` method that only reads, on a part of a value that branches
+# between a name and a value made there with no drop glue: safe, and
+# accepted on main, now rejected with the Cell-change diagnostic.
+struct T
+  c: Cell[Int]
+
+  fun score(?self) -> Int
+    self.c.get() * 2
+
+struct W
+  t: T
+  n: Int
+
+fun mk(n: Int) -> W
+  W(t: T(c: Cell(n)), n: n)
+
+sub main()
+  w = mk(1)
+  for i in 0..2
+    print((w if i == 0 else mk(5)).t.score())
+
+# expect:
+# 2
+# 10

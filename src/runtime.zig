@@ -61,22 +61,20 @@ fn needsDrop(comptime T: type) bool {
     };
 }
 
-/// True when a `T` holds a `Cell` by value (not behind a pointer or in
-/// a `Vec` or `Signal`): the mirror of sema's `holdsCellByValue`.
-fn holdsCell(comptime T: type) bool {
+/// Whether a `T` is interior-mutable: it holds a Cell inline, so it
+/// changes through any view of it. The emitter decides this from sema's
+/// `interiorMutable` and writes the answer into every struct and union
+/// type it emits, `__rig_interior_mutable` (a Cell's is `true`); this
+/// reads that answer, through an optional, an array, or an error
+/// union's payload. Anything else (a pointer, a slice, a number, a
+/// runtime container such as `Vec`, which holds its elements on the
+/// heap) is not.
+pub fn interiorMutable(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .optional => |o| holdsCell(o.child),
-        .array => |a| holdsCell(a.child),
-        .@"struct" => |s| blk: {
-            if (@hasDecl(T, "__rig_cell")) break :blk true;
-            if (@hasDecl(T, "__rig_signal")) break :blk false;
-            inline for (s.field_types) |F| if (holdsCell(F)) break :blk true;
-            break :blk false;
-        },
-        .@"union" => |u| blk: {
-            inline for (u.field_types) |F| if (holdsCell(F)) break :blk true;
-            break :blk false;
-        },
+        .optional => |o| interiorMutable(o.child),
+        .array => |a| interiorMutable(a.child),
+        .error_union => |e| interiorMutable(e.payload),
+        .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, "__rig_interior_mutable") and T.__rig_interior_mutable,
         else => false,
     };
 }
@@ -88,21 +86,21 @@ fn holdsCell(comptime T: type) bool {
 /// the same rule, and uses this in a generic type, where `T` depends on
 /// the type arguments.
 pub fn ReadView(comptime T: type) type {
-    return if (needsDrop(T) or holdsCell(T) or !copiedByReadView(T)) ReadPtr(T) else T;
+    return if (needsDrop(T) or interiorMutable(T) or !copiedByReadView(T)) ReadPtr(T) else T;
 }
 
-/// The pointer a read view of a `T` is held as: `*T` when `T` holds a
-/// Cell (it changes through any view of it, and Zig must not see a
-/// write through a `*const T`), `*const T` otherwise. The mirror of
-/// sema's `interiorMutable`.
+/// The pointer a read view of a `T` is held as: `*T` when `T` is
+/// interior-mutable (`interiorMutable`: it changes through any view of
+/// it, and Zig must not see a write through a `*const T`), `*const T`
+/// otherwise.
 pub fn ReadPtr(comptime T: type) type {
-    return if (holdsCell(T)) *T else *const T;
+    return if (interiorMutable(T)) *T else *const T;
 }
 
-/// A read-only slice of `E`s, `[]const E`, or `[]E` when `E` holds a
-/// Cell (`ReadPtr`).
+/// A read-only slice of `E`s, `[]const E`, or `[]E` when `E` is
+/// interior-mutable (`ReadPtr`).
 pub fn ReadSlice(comptime E: type) type {
-    return if (holdsCell(E)) []E else []const E;
+    return if (interiorMutable(E)) []E else []const E;
 }
 
 fn copiedByReadView(comptime T: type) bool {
@@ -603,7 +601,7 @@ pub fn Cell(comptime T: type) type {
         value: T,
 
         const Self = @This();
-        pub const __rig_cell = {};
+        pub const __rig_interior_mutable = true;
 
         pub fn get(self: *const Self) T {
             return self.value;
@@ -802,7 +800,6 @@ pub fn Signal(comptime T: type) type {
         pending: ?T = null,
 
         const Self = @This();
-        pub const __rig_signal = {};
 
         pub fn init(value: T) Self {
             return .{ .value = value, .subs = .empty };

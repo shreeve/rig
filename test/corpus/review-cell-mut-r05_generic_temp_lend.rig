@@ -1,0 +1,28 @@
+# Read lends of a temporary, and of a part of one, inside generic code,
+# at an instance whose value holds a Cell.
+struct T
+  c: Cell[Int]
+
+struct H[X]
+  x: X
+
+sub bump(t: ?T)
+  t.c.set(t.c.get() + 1)
+
+fun mkh[X](x: X) -> H[X]
+  H(x: <x)
+
+sub part[X](x: X, f: ?sub(?X))
+  f(?mkh(<x).x)
+
+sub main()
+  part(T(c: Cell(0)), bump)
+  print("ok")
+
+# expect:
+# ok
+
+# oracle: bump accept
+# oracle: mkh accept
+# oracle: part accept
+# oracle: main accept
