@@ -302,6 +302,24 @@ support file.
 | logic | `&&`, `\|\|`, `!` | `and`, `or`, `!` | `and`, `or`, `not` |
 | ternary | `if c { a } else { b }` | `if (c) a else b` | `a if c else b` |
 
+**No implicit shadowing.** A name is never shadowed silently: a local
+may not reuse the name of another local, a parameter, or a module-level
+declaration, a closure parameter may not reuse a local's name, and a
+generic parameter may not reuse a module-level name. Zig has the same
+rule; where Rust writes `let x = x + 1`, Rig shadows on purpose with
+`new x = x + 1` ([SPEC §4](SPEC.md#4-bindings-and-assignment)).
+
+```rig reject
+T = 3
+
+struct W[T]
+  v: T
+```
+
+```error
+generic parameter `T` has the same name as the module-level declaration `T`; use a different name
+```
+
 ### Generics
 
 | | Rust | Zig | Rig |
