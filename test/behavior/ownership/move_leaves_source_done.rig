@@ -1,10 +1,15 @@
 # `<` always leaves its source done. `<n` ends a local of any type, and
 # assigning it makes it usable again; `<s.o` and `<v[i]` of an optional
 # take the value and leave `none`, also through a write lend; a field or
-# element that copies is copied by a plain read, with no `<`. A part of
-# a value made in the statement is done with it, so `<mk().n` copies it
-# out.
+# element that copies is copied by a plain read, with no `<`. A
+# branching value moves each leaf where it is (`<a if c else <b`,
+# `(<o)?`), and `<` of a value made there takes it (`<(mk() if c else
+# <t)`, `<half(n)!`).
 # oracle: main accept
+# oracle: first accept
+
+error Odd
+  odd
 
 struct S
   n: Int
@@ -15,6 +20,14 @@ fun mk -> S
 
 fun twice(n: Int) -> Int
   n * 2
+
+fun half(n: Int) -> Int!
+  return Odd.odd if n % 2 == 1
+  n / 2
+
+fun first(o: Int?) -> Int?
+  x = (<o)?
+  x + 1
 
 sub main
   n = 21
@@ -33,7 +46,13 @@ sub main
   e = <v[0]
   f = v[0]
   print(e, f, v.len)
-  print(<mk().n, mk().o)
+  a = 1
+  b = 2
+  c = a < b
+  x = <a if c else <b
+  r = S(n: 9, o: none)
+  y = <(mk() if c else <r)
+  print(x, y.n, first(4), <half(n)!)
 
 # expect:
 # 42
@@ -41,4 +60,4 @@ sub main
 # 1 2 1 none
 # 3 none
 # 5 none 1
-# 7 8
+# 1 7 5 2

@@ -1,0 +1,21 @@
+# <mk(!v).w: a write view moved out of a made value whose drop body uses it
+struct G
+  w: !Vec[Int]
+
+  drop(!self)
+    !self.w.push(99)
+    print("drop", self.w.len)
+
+fun mk(v: !Vec[Int]) -> G
+  G(w: !v)
+
+sub main
+  v: Vec[Int] = Vec()
+  w = <mk(!v).w
+  !w.push(1)
+  print(w.len)
+  print(v.len)
+
+# oracle: G.drop accept
+# oracle: mk accept
+# oracle: main reject C3

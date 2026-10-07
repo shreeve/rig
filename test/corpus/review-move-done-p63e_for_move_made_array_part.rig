@@ -1,0 +1,25 @@
+struct S
+  v: Vec[Int]
+  w: Vec[Int]
+  arr: [2]Vec[Int]
+
+fun mk -> S
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  e: Vec[Int] = Vec()
+  !e.push(1)
+  f: Vec[Int] = Vec()
+  !f.push(2)
+  S(v: <v, w: Vec(), arr: [<e, <f])
+
+sub main
+  a = mk()
+  b = mk()
+  c = a.v.len == 1
+  for x in <mk().arr
+    print(x.len)
+  print(a.v.len, b.v.len)
+  print("end", c)
+
+# oracle: mk accept
+# oracle: main reject C3

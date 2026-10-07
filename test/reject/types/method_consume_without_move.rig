@@ -1,14 +1,15 @@
-# A consuming receiver (`self: User`) needs an explicit move at the call
-# site: `<u.consume()`, not `u.consume()`.
+# A consuming receiver (`self: User`) whose value moves needs an
+# explicit move at the call site: `<u.consume()`, not `u.consume()`. (A
+# receiver whose value copies is taken as a copy, as an argument is.)
 
 struct User
-  name: String
+  name: Text
 
   sub consume(self: User)
     print(self.name)
 
 sub main()
-  u = User(name: "Steve")
+  u = User(name: Text("Steve"))
   u.consume()
 
 # error: method `consume` consumes the receiver; use `<receiver.consume(...)`

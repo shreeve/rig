@@ -1,0 +1,14 @@
+# take of an optional field through a branching value: emptied in which?
+struct S
+  o: Vec[Int]?
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  a = S(o: <v)
+  b = S(o: none)
+  c = true
+  w = <(a if c else b).o
+  print(w, a.o)
+
+# oracle: main reject C7

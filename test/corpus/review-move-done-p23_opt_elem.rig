@@ -1,0 +1,31 @@
+# optional elements holding owners: taken and emptied
+struct S
+  v: Vec[Int]
+
+fun len_of(o: S?) -> Int
+  if o as s
+    return s.v.len
+  -1
+
+sub main
+  vv: Vec[Vec[Int]?] = Vec()
+  r: Vec[Int] = Vec()
+  !r.push(1)
+  !vv.push(<r)
+  !vv.push(none)
+  w = <vv[0]
+  print(w, vv[0], vv.len)
+  a: [2]S? = [S(v: Vec()), none]
+  x = <a[0]
+  print(len_of(<x), a[0] == none)
+  vs: Vec[S?] = Vec()
+  !vs.push(S(v: Vec()))
+  sl = !vs[..]
+  y = <sl[0]
+  print(len_of(<y), vs[0] == none)
+  i = 0
+  z = <vv[i]
+  print(z, vv[0])
+
+# oracle: len_of accept
+# oracle: main accept

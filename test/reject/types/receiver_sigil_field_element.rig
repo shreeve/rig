@@ -22,7 +22,7 @@ sub main
   z = P(v: Vec(), handlers: [one], checks: [yes]).handlers[0]()
   print(x, y, z)
 
-# error: 18:7: `handlers` is a field holding functions, not a method with a receiver; drop the `<`
+# error: 18:7: `handlers` is a field holding functions, not a method with a receiver; remove the `<`
 # error: 19:6: `checks` is a field holding functions, not a method with a receiver; for negation use `not`
 # error: 21:7: `handlers` is a field holding functions
 # error: 22:7: this `P` is a temporary that owns a resource, and nothing would drop it

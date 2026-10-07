@@ -1,0 +1,14 @@
+use geo
+
+KO: Int? = 3
+
+sub main
+  a = <geo.Color.red
+  b = <geo.mk
+  c = geo.KO
+  d = <KO
+  e = <geo.KA[0][1]
+  f = <geo.KA[0]
+  print(a, b(), c, d, e, f)
+
+# oracle: main reject C3

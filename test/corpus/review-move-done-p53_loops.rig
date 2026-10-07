@@ -1,0 +1,66 @@
+struct S
+  n: Int
+  v: Vec[Int]
+  o: Vec[Int]?
+
+fun mk -> S
+  S(n: 1, v: Vec(), o: none)
+
+sub l1
+  vs: Vec[S] = Vec()
+  !vs.push(mk())
+  for x in vs
+    print(<x.n)
+
+sub l2
+  vs: Vec[S] = Vec()
+  !vs.push(mk())
+  for x in !vs
+    w = <x.v
+    print(w.len)
+
+sub l3
+  vs: Vec[S] = Vec()
+  !vs.push(mk())
+  for x in <vs
+    w = <x.v
+    print(w.len)
+
+sub l4
+  vs: Vec[S] = Vec()
+  !vs.push(mk())
+  for x in !vs
+    w = <x.o
+    print(w)
+
+sub l5
+  vs: Vec[S] = Vec()
+  !vs.push(mk())
+  for x in <vs
+    w = <x.n
+    print(w)
+
+sub l6
+  o: S? = mk()
+  if o as x
+    w = <x.v
+    print(w.len)
+
+sub l7
+  o: S? = mk()
+  if <o as x
+    w = <x.v
+    print(w.len)
+
+sub main
+  l4()
+
+# oracle: mk accept
+# oracle: l1 reject C3
+# oracle: l2 reject C3
+# oracle: l3 reject C3
+# oracle: l4 accept
+# oracle: l5 reject C3
+# oracle: l6 reject C3
+# oracle: l7 reject C3
+# oracle: main accept

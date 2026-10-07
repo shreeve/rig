@@ -1,0 +1,14 @@
+struct S
+  n: Int
+  o: Vec[Int]?
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  s = S(n: 1, o: <v)
+  f = |!s| <s.o
+  print(f())
+  print(f())
+  print(s.o)
+
+# oracle: main accept

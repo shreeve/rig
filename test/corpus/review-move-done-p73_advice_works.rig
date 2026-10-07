@@ -1,0 +1,36 @@
+# the advised fix ("drop the `<`") for each carrier the reject test covers
+struct P
+  x: Int
+
+struct S
+  n: Int
+  p: P
+  arr: [2]Int
+
+sub show(n: Int)
+  print(n)
+
+fun ret(s: ?S) -> Int
+  return s.n
+
+sub main
+  s = S(n: 1, p: P(x: 2), arr: [3, 4])
+  show(s.n)
+  match s.n
+    1 => print("one")
+    _ => print("other")
+  q = S(n: s.n, p: s.p, arr: [s.n, 0])
+  i = 0
+  j = while i < 2 : i += 1
+    break s.n
+  else
+    0
+  for x in s.arr
+    print(x)
+  h = *S(n: 5, p: P(x: 6), arr: [0, 0])
+  print(q.n, j, ret(?s), h.n, (?s).n)
+  print((!s).n)
+
+# oracle: show accept
+# oracle: ret accept
+# oracle: main accept

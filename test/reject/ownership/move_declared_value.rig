@@ -1,0 +1,22 @@
+# A function lives for the whole program, as a module's constant does:
+# `<` cannot end it, so `<` on one is rejected, a module's or a type's
+# alike; a plain use copies it. (An enum variant is a value made there.)
+# oracle: main reject C3
+
+struct Point
+  x: Int
+
+  fun origin -> Point
+    Point(x: 0)
+
+fun one -> Int
+  1
+
+sub main
+  a = <one
+  b = <Point.origin
+  print(a(), b().x)
+
+# error: 16:8: cannot move function `one`: a function lives for the whole program; remove the `<` to use it
+# error: 17:8: cannot move function `Point.origin`: a function lives for the whole program
+# errors: 2

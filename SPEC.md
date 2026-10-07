@@ -854,7 +854,7 @@ how the method uses the value, and the call site says the same thing:
 |---|---|---|
 | `?self` (= `self: ?Self`) | reads the value | `p.m()`, or `?p.m()`: the read view may be left implicit |
 | `!self` (= `self: !Self`) | modifies the value | `!p.m()` |
-| `<self` (= `self: Self`) | consumes the value | `<p.m()`, or on a temporary |
+| `<self` (= `self: Self`) | consumes the value | `<p.m()`, or on a temporary; `p.m()` takes a copy of a value that copies |
 
 A write lend and a move are always written ([§7](#lending)), so
 calling a `!self` method as `p.m()` is an error, also on a binding that
@@ -956,7 +956,7 @@ sub main
 ```
 
 ```error
-`top` does not consume its receiver; drop the `<`
+`top` does not consume its receiver; remove the `<`
 ```
 
 ```rig reject
@@ -2937,12 +2937,18 @@ use of `b` after move
 
 `<` always leaves its source done: a name is ended, an optional field
 or element is emptied to `none` ([Places](#places)), and `<` on any
-other place is rejected. So only whole bindings move. Moving a field
+other place is rejected, as on a function or a module's constant, which
+lives for the whole program. So only whole bindings move. Moving a field
 that moves out of a struct is rejected (the struct would still drop
 it); clone a shared field with `+p.a`, move the struct as a whole, take
 an optional field, or exchange the field with `replace` or `swap`
 ([Places](#places)). A field or element that copies would stay as it
 was, so `<p.n` is rejected too, and a plain read, `m = p.n`, copies it.
+A part of a value made in the statement (`<mk().n`, `<mk().v`) is
+dropped with it, so nothing would see it ended or emptied: it is
+rejected too, and the value is bound to a name first. A branching value
+gives up only its leaves made there, so a leaf that is a name or a
+part is moved where it is: `<a if c else <b`, `(<o)?`.
 
 ```rig reject
 struct P
@@ -2955,7 +2961,18 @@ sub main
 ```
 
 ```error
-cannot move out of `p.n`: it copies, so `<` would leave it as it was; drop the `<` to copy it
+cannot move out of `p.n`: it copies, so `<` would leave it as it was; remove the `<` to copy it
+```
+
+```rig reject
+fun first(o: Int?) -> Int?
+  x = <o?
+  print(o)
+  x
+```
+
+```error
+`<` here would copy `o` out without moving it; move it before the `?` or `!`: `(<o)?`
 ```
 
 ### Clone
@@ -4763,7 +4780,7 @@ sub main
 ```
 
 ```error
-views a closure for the call; write the closure without `*` (drop the `*`)
+views a closure for the call; write the closure without `*` (remove the `*`)
 ```
 
 A closure lent to a call is checked with the call's other arguments:

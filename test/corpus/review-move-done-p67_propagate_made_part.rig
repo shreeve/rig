@@ -1,0 +1,18 @@
+struct S
+  o: Vec[Int]?
+
+fun mk -> S
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  S(o: <v)
+
+fun f -> Int?
+  x = <mk().o?
+  x.len
+
+sub main
+  print(f())
+
+# oracle: mk accept
+# oracle: f reject C3
+# oracle: main accept

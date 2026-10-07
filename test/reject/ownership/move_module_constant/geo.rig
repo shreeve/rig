@@ -1,2 +1,4 @@
 pub K = 5
 pub KP = [1, 2, 3]
+pub fun mk -> Int
+  1

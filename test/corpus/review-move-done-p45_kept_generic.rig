@@ -1,0 +1,17 @@
+struct G[T]
+  f: T
+  n: Int
+
+fun mk[T](x: T) -> G[T]
+  G(f: <x, n: 1)
+
+fun pick[T](x: T) -> T
+  <mk(<x).f
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = pick(<v)
+  print(w.len, pick(3))
+
+# oracle: mk accept

@@ -2347,6 +2347,13 @@ const Lowerer = struct {
     /// `move` of `operand`, also the source of a `for x in <e`.
     fn moveOut(self: *Lowerer, operand: Sexp, pos: u32, how: How) Error!?VarId {
         if (self.moduleValue(operand)) return self.found(.C3, pos, "a module's constant lives for the whole program; `<` can neither end nor empty it", .{});
+        if (self.declaredFunction(operand)) return self.found(.C3, pos, "a function lives for the whole program; `<` cannot end it", .{});
+        // A branching value gives up only its leaves made there; `<` would
+        // leave any other leaf as it was (Core §3: `<a if c else <b`).
+        if (isBranchingValue(operand)) {
+            const within = self.parser.span(operand);
+            if (try self.keptLeaf(operand, within)) |leaf| return self.found(.C3, self.posOf(leaf), "`<` of a branching value leaves this leaf as it was; move it inside the branch", .{});
+        }
         if (operand == .src) {
             const v = self.varOf(operand) orelse return abstain("a move of something not a local");
             return try self.moveWhole(v, pos);
@@ -2355,16 +2362,105 @@ const Lowerer = struct {
         const info = try self.kinds.of(p.ty);
         if (self.ctx.types.get(p.ty) == .optional) {
             if (p.via == .read) return self.found(.C7, pos, "nothing is taken out through a read view", .{});
+            // A part of a value made in the statement: nothing would see
+            // it emptied.
+            if (p.via == .own and self.f.vars.items[p.root].hidden) return self.found(.C3, pos, "a part of a value made here is dropped with it; nothing would see it emptied", .{});
             if (p.handle) return abstain("a take through a handle");
             const t = try self.temp(p.ty, pos);
             try self.emit(.{ .pos = pos, .what = .take, .reads = try self.one(p.root), .def = t, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .write } });
             return t;
         }
-        if (info.kind.copies()) {
-            if (p.via == .own and self.f.vars.items[p.root].hidden) return try self.copy(p, p.ty, pos);
-            return self.found(.C3, pos, "a part that copies is neither ended nor emptied; `<` would leave it as it was", .{});
-        }
+        if (info.kind.copies()) return self.found(.C3, pos, "a part that copies is neither ended nor emptied; `<` would leave it as it was", .{});
         return self.found(.C3, pos, "only a whole binding moves; a field that is not optional cannot be taken", .{});
+    }
+
+    /// A function named as a value: `one`, `geo.mk`, `Point.origin`.
+    fn declaredFunction(self: *Lowerer, e: Sexp) bool {
+        const ty = self.ctx.typeOf(e) orelse return false;
+        if (self.ctx.types.get(ty) != .function) return false;
+        if (e == .src) {
+            const sym_id = self.ctx.symbolOf(e) orelse return false;
+            return self.ctx.symbols.items[sym_id].kind == .function;
+        }
+        if (!e.isKind(.member)) return false;
+        const obj = ir.Member.object(e);
+        if (obj != .src) return false;
+        const sym_id = self.ctx.symbolOf(obj) orelse return false;
+        return switch (self.ctx.symbols.items[sym_id].kind) {
+            .module, .nominal_type, .type_alias, .generic_type => true,
+            else => false,
+        };
+    }
+
+    /// A value that is one of its operands: `a if c else b`, `a ?? b`,
+    /// `e catch h`, `e!`, `e?`. (A `match` or a block makes its value.)
+    fn isBranchingValue(e: Sexp) bool {
+        const k = e.kind() orelse return false;
+        return switch (k) {
+            .@"if" => ir.If.@"else"(e) != .nil,
+            .@"??", .@"catch", .propagate, .propagate_none => true,
+            else => false,
+        };
+    }
+
+    /// The first leaf of branching value `e` that is not a value made
+    /// there: a name, a field or element, or a constant. A name declared
+    /// inside the value (`within`), a block's own local, leaves it for good.
+    fn keptLeaf(self: *Lowerer, e: Sexp, within: anytype) Error!?Sexp {
+        const leaves: [2]Sexp = switch (e.kind().?) {
+            .@"if" => .{ blockTail(ir.If.then(e)), blockTail(ir.If.@"else"(e)) },
+            .@"??" => .{ ir.get(e, .left), ir.get(e, .right) },
+            .@"catch" => .{ ir.Catch.value(e), blockTail(ir.Catch.handler(e)) },
+            .propagate => .{ ir.Propagate.value(e), .nil },
+            .propagate_none => .{ ir.PropagateNone.value(e), .nil },
+            else => unreachable,
+        };
+        for (leaves) |leaf| {
+            if (leaf == .nil) continue;
+            if (isBranchingValue(leaf)) {
+                if (try self.keptLeaf(leaf, within)) |l| return l;
+                continue;
+            }
+            if (self.leftAsItWas(leaf, within)) return leaf;
+        }
+        return null;
+    }
+
+    /// Whether `<` would leave leaf `e` as it was: a name of a binding
+    /// declared outside `within`, a function or constant, or a field or
+    /// element of anything but a type (`Color.red` is a value).
+    fn leftAsItWas(self: *Lowerer, e: Sexp, within: anytype) bool {
+        if (e == .src) {
+            const sym_id = self.ctx.symbolOf(e) orelse return false;
+            const sym = self.ctx.symbols.items[sym_id];
+            return switch (sym.kind) {
+                .local, .param, .capture => sym.decl_pos < within.start or sym.decl_pos >= within.end,
+                .function => true,
+                else => false,
+            };
+        }
+        const k = e.kind() orelse return false;
+        if (k != .member and k != .index) return false;
+        if (k == .member and self.ctx.isErrorMember(e)) return false;
+        if (self.declaredFunction(e) or self.moduleValue(e)) return true;
+        // A type's member (`Color.red`, `Int.min`) is a value.
+        if (k == .member) {
+            const obj = ir.Member.object(e);
+            if (obj == .src) {
+                if (self.ctx.symbolOf(obj)) |id| switch (self.ctx.symbols.items[id].kind) {
+                    .nominal_type, .type_alias, .generic_type => return false,
+                    else => {},
+                } else if (self.ctx.typeOf(obj) == null) return false;
+            }
+        }
+        return true;
+    }
+
+    fn blockTail(b: Sexp) Sexp {
+        if (!b.isKind(.block)) return b;
+        const stmts = ir.Block.stmts(b);
+        if (stmts.len == 0) return .nil;
+        return blockTail(stmts[stmts.len - 1]);
     }
 
     /// A module's constant, of this module or another (`K`, `geo.K`), or

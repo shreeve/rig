@@ -1,0 +1,19 @@
+struct P
+  x: Int
+
+  fun into(<self) -> Int
+    self.x
+
+struct S
+  p: P
+
+sub main
+  s = S(p: P(x: 2))
+  a = (+s.p).into()
+  q = s.p
+  b = <q.into()
+  c = P.into(s.p)
+  print(a, b, c)
+
+# oracle: P.into accept
+# oracle: main accept

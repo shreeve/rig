@@ -1,0 +1,11 @@
+sub main
+  a: Vec[Vec[Int]] = Vec()
+  b: Vec[Vec[Int]] = Vec()
+  r: Vec[Int] = Vec()
+  !r.push(1)
+  !a.push(<r)
+  c = a.len == 1
+  w = <(a if c else b)[0]
+  print(w.len, a.len)
+
+# oracle: main reject C3

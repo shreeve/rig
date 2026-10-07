@@ -785,8 +785,9 @@ field and element is a place:
 - assigning to it drops the old value.
 
 `<` always leaves its source done: a name is ended, an optional place
-is emptied to `none`, and any other place is rejected, so a field or
-element that copies is copied with no `<` (`m = p.n`). *(built)*
+is emptied to `none`, and any other place is rejected, a part of a
+value made there too, so a field or element that copies is copied with
+no `<` (`m = p.n`). *(built)*
 
 `<`'s operand is a place or a made value: `<(a if c else b)` is written
 `<a if c else <b`. `swap` and `sort_by` work for any element; `sort`

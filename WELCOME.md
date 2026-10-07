@@ -421,7 +421,7 @@ sub main
 ```
 
 ```error
-unexpected `:`; a block's header ends without one: drop the `:`, and indent the block below
+unexpected `:`; a block's header ends without one: remove the `:`, and indent the block below
 ```
 
 ```rig reject

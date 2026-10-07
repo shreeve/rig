@@ -1,0 +1,67 @@
+# owning part of a branching value, in every carrier
+struct S
+  n: Int
+  v: Vec[Int]
+
+struct W
+  v: Vec[Int]
+
+sub eat(v: Vec[Int])
+  print(v.len)
+
+fun r1(a: S, b: S, c: Bool) -> Vec[Int]
+  return <(a if c else b).v
+
+sub r2(a: S, b: S, c: Bool)
+  eat(<(a if c else b).v)
+
+sub r3(a: S, b: S, c: Bool)
+  w = W(v: <(a if c else b).v)
+  print(w.v.len)
+
+sub r4(a: S, b: S, c: Bool)
+  xs = [<(a if c else b).v]
+  print(xs.len)
+
+sub r5(a: S, b: S, c: Bool)
+  match <(a if c else b).n
+    1 => print("one")
+    _ => print("other")
+
+sub r6(a: S, b: S, c: Bool)
+  for x in <(a if c else b).v
+    print(x)
+
+sub r7(a: S, b: S, c: Bool)
+  i = 0
+  w = while i < 1 : i += 1
+    break <(a if c else b).v
+  else
+    Vec[Int]()
+  print(w.len)
+
+sub r8(a: S, b: S, c: Bool)
+  h = *<(a if c else b).v
+  print(h.len)
+
+sub r9(a: S, b: S, c: Bool)
+  print((<(a if c else b).v).len)
+
+sub r10(a: S, b: S, c: Bool)
+  defer eat(<(a if c else b).v)
+  print("x")
+
+sub main
+  r2(S(n: 1, v: Vec()), S(n: 1, v: Vec()), true)
+
+# oracle: eat accept
+# oracle: r1 reject C3
+# oracle: r2 reject C3
+# oracle: r3 reject C3
+# oracle: r4 reject C3
+# oracle: r5 reject C3
+# oracle: r6 reject C3
+# oracle: r7 reject C3
+# oracle: r8 reject C3
+# oracle: r10 reject C3
+# oracle: main accept

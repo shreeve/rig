@@ -10,3 +10,6 @@ sub main
   s = S(a: 1)
   print(f(!s))
   print(s)
+
+# oracle: f reject C3
+# error: 5:8: `<` here would copy `s.a` out without moving it; take it before the `?` or `!`: `(<s.a)?`

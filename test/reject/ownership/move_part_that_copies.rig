@@ -116,7 +116,7 @@ sub main
   forms()
   for_part()
 
-# error: 40:8: cannot move out of `s.n`: it copies, so `<` would leave it as it was; drop the `<` to copy it
+# error: 40:8: cannot move out of `s.n`: it copies, so `<` would leave it as it was; remove the `<` to copy it
 # error: 41:8: cannot move out of `s.p`: it copies
 # error: 42:8: cannot move out of `s.p.x`: it copies
 # error: 43:8: cannot move out of `s.r`: it copies

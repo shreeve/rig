@@ -1,0 +1,46 @@
+enum E
+  full(v: Vec[Int])
+  empty
+
+struct S
+  o: Vec[Int]?
+  v: Vec[Int]
+  arr: [2]Int
+  e: E
+
+fun mk -> S
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  w: Vec[Int] = Vec()
+  !w.push(8)
+  S(o: <v, v: <w, arr: [1, 2], e: E.empty)
+
+
+sub h2
+  for x in <mk().arr
+    print(x)
+
+sub h3
+  for x in <mk().v
+    print(x)
+
+
+sub h5
+  if mk().o as x
+    print(x)
+  for x in mk().v
+    print(x)
+  match mk().e
+    .full(v) => print(v.len)
+    .empty => print("e")
+
+sub main
+  h2()
+  h3()
+  h5()
+
+# oracle: mk accept
+# oracle: h2 reject C3
+# oracle: h3 reject C3
+# oracle: h5 accept
+# oracle: main accept

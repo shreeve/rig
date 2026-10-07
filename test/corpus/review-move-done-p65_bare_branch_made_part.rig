@@ -1,0 +1,19 @@
+# no `<`: a binding of a branching value one of whose leaves is an
+# owning part of a value made there
+struct S
+  v: Vec[Int]
+
+fun mk -> S
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  S(v: <v)
+
+sub main
+  c = true
+  x = mk().v if c else Vec[Int]()
+  print(x.len)
+  y = mk().v
+  print(y.len)
+
+# oracle: mk accept
+# oracle: main reject C2

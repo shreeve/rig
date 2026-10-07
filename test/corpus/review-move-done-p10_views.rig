@@ -1,0 +1,58 @@
+struct S
+  n: Int
+  v: Vec[Int]
+  o: Vec[Int]?
+
+fun get(s: !S) -> !S
+  s
+
+fun rget(s: ?S) -> ?S
+  s
+
+sub a1(s: !S)
+  w = <s.v
+  print(w.len)
+
+sub a2(s: ?S)
+  w = <s.v
+  print(w.len)
+
+sub a3
+  s = S(n: 1, v: Vec(), o: none)
+  w = <(?s).v
+  print(w.len)
+
+sub a4
+  s = S(n: 1, v: Vec(), o: none)
+  w = <(!s).v
+  print(w.len)
+
+sub a5
+  s = S(n: 1, v: Vec(), o: none)
+  w = <get(!s).v
+  print(w.len)
+
+sub a6
+  s = S(n: 1, v: Vec(), o: none)
+  w = <rget(?s).v
+  print(w.len)
+
+sub a7
+  s = S(n: 1, v: Vec(), o: none)
+  w = <get(!s).n
+  x = <rget(?s).n
+  print(w, x)
+
+sub main
+  a3()
+
+# oracle: get accept
+# oracle: rget accept
+# oracle: a1 reject C3
+# oracle: a2 reject C3
+# oracle: a3 reject C3
+# oracle: a4 reject C3
+# oracle: a5 reject C3
+# oracle: a6 reject C3
+# oracle: a7 reject C3
+# oracle: main accept

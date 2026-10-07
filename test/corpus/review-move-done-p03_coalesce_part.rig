@@ -1,0 +1,12 @@
+struct S
+  n: Int
+  v: Vec[Int]
+
+sub main
+  o: S? = S(n: 1, v: Vec())
+  b = S(n: 2, v: Vec())
+  !b.v.push(1)
+  w = <(o ?? b).v
+  print(w.len, b.v.len)
+
+# oracle: main reject C3

@@ -1,0 +1,37 @@
+# take of optional through a read view: must be rejected (it writes)
+struct S
+  o: Vec[Int]?
+
+fun rget(s: ?S) -> ?S
+  s
+
+fun wget(s: !S) -> !S
+  s
+
+sub r1x(s: ?S)
+  w = <s.o
+  print(w)
+
+sub r2
+  s = S(o: none)
+  w = <(?s).o
+  print(w)
+
+sub r3
+  s = S(o: none)
+  w = <rget(?s).o
+  print(w)
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  s = S(o: <v)
+  w = <wget(!s).o
+  print(w, s.o)
+
+# oracle: rget accept
+# oracle: wget accept
+# oracle: r1x reject C7
+# oracle: r2 reject C7
+# oracle: r3 reject C7
+# oracle: main accept

@@ -1,0 +1,18 @@
+# multi-line if-expression used as base of a part move
+struct S
+  n: Int
+  v: Vec[Int]
+
+sub main
+  a = S(n: 1, v: Vec())
+  b = S(n: 2, v: Vec())
+  !a.v.push(1)
+  c = a.n == 1
+  x = if c
+    a
+  else
+    b
+  w = <x.v
+  print(w.len)
+
+# oracle: main reject C2

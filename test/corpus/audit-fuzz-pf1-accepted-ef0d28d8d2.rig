@@ -49,4 +49,4 @@ sub main
   print(first, q.x)
 
 # oracle: main reject C3
-# error: 44:11: cannot move out of `pair.name`: it copies, so `<` would leave it as it was; drop the `<` to copy it
+# error: 44:11: cannot move out of `pair.name`: it copies, so `<` would leave it as it was; remove the `<` to copy it

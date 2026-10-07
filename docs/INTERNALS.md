@@ -1525,10 +1525,15 @@ checker recorded that its context reads the value,
 place only reads, Core sentence 1, so `x = h.w` with `w: !Int` copies
 the Int, as `x = w` does; a binding holds the write view only a call or
 a lend hands over, `yieldsWriteView`); `<` leaves its source done
-(`MoveSource`, one classification for every form that carries a move):
-it ends a binding, empties an optional field or element (sema's
-`takes`), and rejects any other place, whether its value moves or
-copies, so only whole bindings move; closures use outer locals only through captures, and never consume their captured
+(`sema.moveSource`, one classification, beside `handsOver`, for every
+form that carries a move, and for each leaf of a branching operand,
+`moveLeaves`): it ends a binding, empties an optional field or element
+of a place (where the type checker records `takes` and checks the
+place may be written), and rejects any other source: a part of a value
+made there (reported by the type checker, `rejectMadeParts`), any
+other part, whether its value moves or copies, a function or module
+constant, and a branching value's leaf that is not made there (the
+ownership checker), so only whole bindings move; closures use outer locals only through captures, and never consume their captured
 resources; and a value whose drop runs a user `drop` body may not
 view, directly or through what it views, a value dropped before it
 (declared later in the same scope), since the body could read it.

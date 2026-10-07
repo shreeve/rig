@@ -1,0 +1,42 @@
+enum E
+  full(v: Vec[Int])
+  empty
+
+struct S
+  e: E
+  n: Int
+
+struct D
+  v: Vec[Int]
+
+  fun into(<self) -> Int
+    self.v.len
+
+struct H
+  d: D
+
+sub s1
+  s = S(e: E.empty, n: 1)
+  match <s.e
+    .full(v) => print(v.len)
+    .empty => print("e")
+
+sub s2(c: Bool)
+  a = S(e: E.empty, n: 1)
+  b = S(e: E.empty, n: 1)
+  match <(a if c else b).e
+    .full(v) => print(v.len)
+    .empty => print("e")
+
+sub s4
+  h = H(d: D(v: Vec()))
+  print(<h.d.into())
+
+sub main
+  s1()
+
+# oracle: D.into accept
+# oracle: s1 reject C3
+# oracle: s2 reject C3
+# oracle: s4 reject C3
+# oracle: main accept

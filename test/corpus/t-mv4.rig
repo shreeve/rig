@@ -10,4 +10,4 @@ sub main()
   eat(<v[0])
 
 # oracle: main reject C3
-# error: 10:8: cannot move out of `v[...]`: it copies, so `<` would leave it as it was; drop the `<` to copy it
+# error: 10:8: cannot move out of `v[...]`: it copies, so `<` would leave it as it was; remove the `<` to copy it

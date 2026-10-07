@@ -187,3 +187,9 @@ step.vec.method.break.grow main prod-rejects prod-strict `grow(!v)` before a `br
 step.text.view.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h`, a view of `v`
 step.text.field.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.r`, a view of `v`
 step.text.method.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.get()`, a view of `v`
+
+# Whether a field copied out of a read lend (`(?s).n`, a plain value)
+# keeps the lend's read loan until the call returns, so a later argument
+# cannot lend `s` to write (Core §6: "a value an earlier argument reads
+# stays lent until the call returns").
+test/corpus/review-move-done-p74_print_read_then_write_lend.rig main prod-rejects core-gap `print((?s).n, (!s).n)`: a copied-out field of a read lend, then a write lend

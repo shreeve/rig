@@ -1,0 +1,68 @@
+# `<` of a branching value (`a if c else b`, `a ?? b`, `e catch h`,
+# `e?`, `e!`) gives up only what its leaves give up: a leaf made there
+# is taken, and every other leaf is rejected, since `<` would leave it as
+# it was. A name or an optional field is moved inside the branch
+# (`<n if c else 5`, `(<s.o)?`); a part that copies is read with no `<`;
+# a part of a value made there cannot leave it
+# (`move_part_of_made_value.rig`).
+# oracle: copying reject C3
+# oracle: propagate reject C3
+# oracle: propagate_field reject C3
+
+error E
+  bad
+
+struct P
+  n: Int
+
+struct S
+  n: Int
+  o: Int?
+  v: Vec[Int]
+
+fun mk -> S
+  v: Vec[Int] = Vec()
+  !v.push(7)
+  S(n: 1, o: 2, v: <v)
+
+fun f(k: Int) -> Int!
+  k
+
+fun get(bad: Bool) -> Vec[Int]!
+  return E.bad if bad
+  Vec[Int]()
+
+sub copying(c: Bool)
+  n = 1
+  s = mk()
+  o: Int? = 3
+  a = <(n if c else 5)
+  b = <(s.n if c else 5)
+  d = <(o ?? n)
+  e = <(f(1) catch n)
+  p = P(n: 4)
+  g = <(p if c else P(n: 5))
+  h = <(s if c else mk())
+  print(a, b, d, e, g.n, h.n, n, s.n, o, p.n)
+
+fun propagate(o: Int?) -> Int?
+  x = <o?
+  x
+
+fun propagate_field(s: S) -> Int?
+  y = <s.o?
+  y
+
+sub main
+  copying(true)
+  print(propagate(1), propagate_field(mk()))
+
+# error: 39:9: `<` here would copy `n` out without moving it; move it inside the branch: `<n`
+# error: 40:9: `<` here would leave `s.n` as it was: it copies; remove the `<` to copy it
+# error: 41:9: `<` here would copy `o` out without moving it; move it inside the branch: `<o`
+# error: 42:20: `<` here would copy `n` out without moving it; move it inside the branch: `<n`
+# error: 44:9: `<` here would copy `p` out without moving it; move it inside the branch: `<p`
+# error: 45:9: `<` here would copy `s` out without moving it; move it inside the branch: `<s`
+# error: 49:8: `<` here would copy `o` out without moving it; move it before the `?` or `!`: `(<o)?`
+# error: 53:8: `<` here would copy `s.o` out without moving it; take it before the `?` or `!`: `(<s.o)?`
+# errors: 8

@@ -1,0 +1,11 @@
+struct S
+  n: Int
+
+sub main
+  s = S(n: 1)
+  n = 2
+  a = <(s.n)
+  b = <((n))
+  print(a, b, s.n)
+
+# oracle: main reject C3

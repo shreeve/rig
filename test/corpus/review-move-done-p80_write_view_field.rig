@@ -1,0 +1,11 @@
+struct H
+  w: !Int
+
+sub main
+  n = 1
+  h = H(w: !n)
+  x = <h.w
+  x += 1
+  print(n)
+
+# oracle: main reject C3
