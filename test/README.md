@@ -237,7 +237,18 @@ many steps ran. And it puts a `while`, `for`, `while … as`, `match`, or
 `for`) that jumps once (`continue`, `continue :outer`, `break :outer`,
 or `continue` in the inner construct's `else`) past a `defer` or an
 owned local, and a program that runs must print the trace of passes,
-steps, defers, and drops the jumps' meaning gives. Every loop a cell
+steps, defers, and drops the jumps' meaning gives. Last, it changes or
+reads a Cell (`set`, `replace`, `get`, a `Cell[Vec]`'s `push`, `pop`,
+`clear`, and `c[i] = e`, and a `?self` method) of each kind of value
+holding one (a struct with a `drop`, without one, with fields Zig knows
+at compile time, the Cells in a part, a generic type, a bare Cell)
+through each kind of path to it (a local, a field, a Vec or array
+element, a `?T` parameter, a slice, a `?self` method, a stored view, a
+`|?x|` capture, `if … as`, `for` over a view, a `*T`), in a statement,
+a loop that continues or breaks early, a `defer`, and a loop that
+returns, and a program that runs must print the state the operations
+give both in a debug build and built with `--release`, where Zig's
+optimizer would expose a write through a read-only pointer. Every loop a cell
 writes counts its passes and stops at a cap, and each program is
 stopped past its time (`--timeout`), when its processes hold more than
 its memory (`--mem`; an address-space limit would stop the sanitizer,
