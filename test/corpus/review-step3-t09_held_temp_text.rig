@@ -7,6 +7,6 @@ struct H
 fun mkh(s: String) -> H
   H(arr: [Counter(hits: Cell(s.len)), Counter(hits: Cell(2))])
 
-sub main
+sub main()
   for k in mkh(Text("abc")).arr
     print("k", k.hits.get())

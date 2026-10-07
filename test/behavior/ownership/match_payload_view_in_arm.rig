@@ -93,7 +93,7 @@ fun gsize[T](o: ?Opt[T]) -> Int
     .some(_) => 1
     .nothing => 0
 
-sub main
+sub main()
   e = E.a(r: Res(n: 1, t: Text("hello")))
   arms(?e)
   f = E.b(p: P(x: 4, y: 5))

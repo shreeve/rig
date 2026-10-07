@@ -9,7 +9,7 @@ fun total(o: Vec[Int]?) -> Int?
     t += e
   t
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   !a.push(1)
   b: Vec[Int] = Vec()

@@ -1,0 +1,19 @@
+# Every definition that leaves out its parameter list is reported, each
+# with its own header to write, so one run shows them all.
+
+fun answer -> Int
+  42
+
+struct Box
+  n: Int
+
+  fun get -> Int
+    1
+
+sub main
+  print(answer())
+
+# error: 4:5: write `fun answer() -> Int`: a function's parameter list is always written, even when empty
+# error: 10:7: write `fun get() -> Int`
+# error: 13:5: write `sub main()`
+# errors: 3

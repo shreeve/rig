@@ -11,7 +11,7 @@ fun f(b: ?Int) -> Int
   k: Int = h
   1
 
-sub main
+sub main()
   y = 3
   h = *(?y)
   z: Int = h

@@ -17,7 +17,7 @@ fun mix(b: ?U8, x: ?Float) -> Float
 fun hash_int(k: ?Int) -> U64
   U64(k)
 
-sub main
+sub main()
   print(inc(?1), inc(?-3), mix(?200, ?1.5))
   m = Map[Int](hash: hash_int)
   print(m.slot(?21))

@@ -14,7 +14,7 @@ struct Table
         return ?self.rows[i]
     none
 
-sub main
+sub main()
   t = Table(rows: [Entry(id: 1, score: 10), Entry(id: 2, score: 20), Entry(id: 3, score: 30)])
   k = Key(id: 2)
   if t.find(?k) as hit

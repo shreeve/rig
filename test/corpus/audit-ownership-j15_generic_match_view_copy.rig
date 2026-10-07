@@ -25,7 +25,7 @@ fun peek[T](o: ?Opt[T], d: T) -> T
     .some(v) => v
     .nothing => <d
 
-sub main
+sub main()
   o = Opt[*Tok].some(v: *Tok(n: 1))
   t = peek(?o, *Tok(n: 2))
   print(t.n)

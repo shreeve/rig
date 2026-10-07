@@ -4,6 +4,6 @@ struct S
 sub bump(s: !S)
   s.n += 1
 
-sub main
+sub main()
   h = *S(n: 3)
   bump(!h)

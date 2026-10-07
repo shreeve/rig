@@ -18,7 +18,7 @@ sub wr(s: !S)
   s.b.arr[1] = 9
   s.b.v[0] = 8
 
-sub main
+sub main()
   s = S(b: Box(value: P(x: 1, v: Vec(), arr: [1, 2, 3])))
   !s.b.v.push(1)
   wr(!s)

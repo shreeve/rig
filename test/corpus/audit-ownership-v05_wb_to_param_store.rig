@@ -24,7 +24,7 @@ sub f(vw: !View)
   w = !vw
   w = View(b: ?y)
 
-sub main
+sub main()
   x = Tok(n: 1)
   vw = View(b: ?x)
   f(!vw)

@@ -9,7 +9,7 @@ struct S
     self.n += 1
     self.n
 
-sub main
+sub main()
   s = S(n: 0)
   print(!s.bump())
   print((!s).add(2))

@@ -8,7 +8,7 @@ fun num(n: Int) -> Int!
   return Bad.neg if n < 0
   n
 
-sub main
+sub main()
   h: fun(Int) -> Int! = check
   k: sub(Int)! = num
   j: sub(Int) = check

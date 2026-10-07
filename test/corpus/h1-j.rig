@@ -1,9 +1,11 @@
 struct H
   w: !Bool
+
 sub f(w2: !Bool)
   h = H(w: w2)
   h.w = true
-sub main
+
+sub main()
   m = false
   f(!m)
   print(m)

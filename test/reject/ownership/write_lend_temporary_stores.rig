@@ -38,35 +38,35 @@ struct H
 fun mk(n: Int) -> S
   S(n: n, t: Text("t"), items: Vec())
 
-fun mkw -> W
+fun mkw() -> W
   W(ws: Vec())
 
-fun mkh -> H
+fun mkh() -> H
   H(rs: Vec())
 
 fun wrap(h: !H) -> !H
   h
 
-sub stores_view
+sub stores_view()
   !mkw().keep(!mk(1).at())
 
-sub stores_string
+sub stores_string()
   !mkh().keep(?mk(1).t)
 
-sub pushes_string
+sub pushes_string()
   !mkh().rs.push(?mk(1).t)
 
-sub stores_through_bang
+sub stores_through_bang()
   h = mkh()
   if h.rs.len == 0
     s = mk(1)
     !wrap(!h).keep(?s.t)
 
-sub moves_part
+sub moves_part()
   x = <(!mk(1)).items
   print(x)
 
-sub main
+sub main()
   stores_view()
 
 # error: 51:16: a view of the temporary `mk(1)` is held by `mk

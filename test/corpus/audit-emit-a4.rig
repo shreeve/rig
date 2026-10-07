@@ -1,7 +1,7 @@
 fun pick(o: Vec[Int]?, d: Vec[Int]) -> Vec[Int]
   o ?? <d
 
-sub main
+sub main()
   d: Vec[Int] = Vec()
   !d.push(1)
   e: Vec[Int] = Vec()

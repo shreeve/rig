@@ -3,12 +3,12 @@
 struct S
   v: Vec[Int]
 
-fun mk -> S
+fun mk() -> S
   v: Vec[Int] = Vec()
   !v.push(7)
   S(v: <v)
 
-sub main
+sub main()
   c = true
   x = mk().v if c else Vec[Int]()
   print(x.len)

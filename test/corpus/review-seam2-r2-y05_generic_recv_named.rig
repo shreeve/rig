@@ -32,7 +32,7 @@ fun mk(n: Int) -> S
 fun wrapw[V](w: !W[V]) -> !W[V]
   w
 
-sub main
+sub main()
   w = W(h: H(rs: Vec()), xs: Vec[Int]())
   if true
     s = mk(2)

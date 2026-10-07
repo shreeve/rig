@@ -1,6 +1,7 @@
 use lib
 type Byte = U8
-sub main
+
+sub main()
   n = 300
   print(Byte(n - 100), Byte.max, lib.Byte.max, lib.Byte(7))
   q = lib.Q(x: 2)

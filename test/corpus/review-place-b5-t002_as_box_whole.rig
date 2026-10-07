@@ -1,7 +1,7 @@
 struct P
   x: Int
 
-sub main
+sub main()
   o: Box[P]? = Box(P(x: 1))
   if o as b
     b = Box(P(x: 2))

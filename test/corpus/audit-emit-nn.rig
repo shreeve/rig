@@ -23,7 +23,7 @@ fun total[T](rs: ?Vec[Res[T]], zero: T) -> T
       .err(_) => print("minor")
   t
 
-sub main
+sub main()
   v: Vec[Res[Int]] = Vec()
   !v.push(.ok(v: 3))
   !v.push(.err(code: 2))

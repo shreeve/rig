@@ -1,5 +1,5 @@
 # slice view of a Vec[Text] held, then push (must reject)
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   s = ?v[..]

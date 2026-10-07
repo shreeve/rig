@@ -1,5 +1,6 @@
 N = 3
 K = 4 if N > 2 else 2
-sub main
+
+sub main()
   a: [K]Int = [K of 1]
   print(K, a.len)

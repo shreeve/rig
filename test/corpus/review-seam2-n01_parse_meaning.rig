@@ -11,7 +11,7 @@ struct S
 fun wrap(s: !S) -> !S
   s
 
-sub main
+sub main()
   s = S(n: 1)
   x = !wrap(!s).all().n
   x += 10

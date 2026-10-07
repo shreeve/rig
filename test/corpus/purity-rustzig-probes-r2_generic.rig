@@ -7,7 +7,7 @@ fun biggest[T](xs: []T) -> T
     best = x if x > best else best
   best
 
-sub main
+sub main()
   print(biggest([3, 9, 2]))
   ps = [P(x: 1), P(x: 2)]
   print(biggest(?ps))

@@ -18,7 +18,7 @@ struct It
     !self.t.add("z")
     ?self.t[..4]
 
-sub main
+sub main()
   t = Text("abcdefghijklmnop")
   w = W(t: !t)
   s = grab(?w)

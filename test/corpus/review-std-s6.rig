@@ -1,6 +1,6 @@
 use std.sort
 
-sub main
+sub main()
   xs = [3, 1, 2]
   sort.sort_by(!xs, |?xs, a, b| xs[0] < 1)
   print(xs)

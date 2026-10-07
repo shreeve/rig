@@ -14,11 +14,11 @@ fun val(f: ?fun(Int) -> Int, x: Int) -> Int
 fun pos(n: Int) -> Int?
   n if n > 0 else none
 
-fun first -> Int
+fun first() -> Int
   r = Res(id: 1)
   return val(|<r, a| a + r.id, 1)
 
-sub main
+sub main()
   n = 0
   while chk(|a| a < 3, n)
     n += 1

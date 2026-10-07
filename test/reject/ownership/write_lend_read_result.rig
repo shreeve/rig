@@ -41,36 +41,36 @@ fun keep(v: !Vec[Item], h: !Hold, d: ?Item) -> ?Item
   h.w = !v
   d
 
-fun items -> Vec[Item]
+fun items() -> Vec[Item]
   v: Vec[Item] = Vec()
   !v.push(Item(n: 1))
   v
 
-sub writes
+sub writes()
   v = items()
   r = first(!v)
   !v.push(Item(n: 2))
   print(r.n)
 
-sub reassigns
+sub reassigns()
   v = items()
   r = first(!v)
   v = items()
   print(r.n)
 
-sub moves
+sub moves()
   v = items()
   r = first(!v)
   w = <v
   print(r.n, w.len)
 
-sub write_result
+sub write_result()
   v = items()
   r = firstw(!v)
   print(v.len)
   r.n += 1
 
-sub stored
+sub stored()
   v = items()
   o = items()
   h = Hold(w: !o)
@@ -79,52 +79,52 @@ sub stored
   print(v.len)
   print(r.n, h.w.len)
 
-sub receiver
+sub receiver()
   b = Bag(items: items(), count: 0)
   r = !b.first()
   b.count += 1
   print(r.n)
 
-sub field
+sub field()
   b = Bag(items: items(), count: 0)
   r = first(!b.items)
   !b.items.push(Item(n: 2))
   print(r.n)
 
-sub element
+sub element()
   rows: Vec[Vec[Item]] = Vec()
   !rows.push(items())
   r = first(!rows[0])
   !rows.push(items())
   print(r.n)
 
-sub generic
+sub generic()
   v = items()
   r = gfirst(!v)
   !v.push(Item(n: 2))
   print(r.n)
 
-sub loop
+sub loop()
   v = items()
   r = first(!v)
   for i in 0..2
     print(r.n)
     !v.push(Item(n: i))
 
-sub deferred
+sub deferred()
   v = items()
   r = first(!v)
   defer print(r.n)
   !v.push(Item(n: 2))
 
-sub closure
+sub closure()
   v = items()
   r = first(!v)
   f = |?r| print(r.n)
   !v.push(Item(n: 2))
   f()
 
-sub main
+sub main()
   writes()
 
 # error: 52:3: cannot lend `v` to write while a read loan is live

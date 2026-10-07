@@ -1,7 +1,7 @@
-fun one -> Int
+fun one() -> Int
   1
 
-sub main
+sub main()
   v: Vec[?fun() -> Int] = Vec()
   !v.push(?one)
   print(v.len)

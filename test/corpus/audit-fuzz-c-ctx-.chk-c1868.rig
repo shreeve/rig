@@ -49,9 +49,9 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t1868
+sub t1868()
   xs1868: [2]I32 = [I32.max, 0]
   print(xs1868)
 
-sub main
+sub main()
   t1868()

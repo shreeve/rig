@@ -13,7 +13,7 @@ struct H
   sub grow(!self)
     !self.w.items.push(1)
 
-sub main
+sub main()
   sh: *Vec[Int] = *Vec()
   node = Node(items: Vec(), tag: +sh)
   h = H(w: !node)

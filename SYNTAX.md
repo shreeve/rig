@@ -39,12 +39,12 @@ byte order mark at the start of the file is skipped.
 A file is a list of declarations: functions, types, constants,
 imports, `extern` declarations, and `test` blocks
 ([§8](#8-declarations)). Statements live inside functions. A program
-that runs declares its entry point, `sub main`, or `fun main -> Int`
+that runs declares its entry point, `sub main()`, or `fun main() -> Int`
 for an exit status.
 
 ```rig
 # A comment runs from `#` to the end of the line.
-sub main
+sub main()
   x = 1   # after code, too
   print(x)
 ```
@@ -66,7 +66,7 @@ Indent with spaces: a tab in indentation is an error, and so is a
 dedent to a column that matches no enclosing block.
 
 ```rig reject
-sub main
+sub main()
 	print(1)
 ```
 
@@ -92,7 +92,7 @@ fun volume(
 ) -> Int
   w * h * d
 
-sub main
+sub main()
   v = volume(
     2,
     3,
@@ -123,7 +123,7 @@ sub each(n: Int, f: *sub(Int))
   for i in 0..n
     f(i)
 
-sub main
+sub main()
   total: *Cell[Int] = *Cell(0)
   each(3, *|+total, i|
     total.set(total.get() + i)
@@ -179,7 +179,7 @@ struct Token
   fun error(?self) -> Bool
     self.type < 0
 
-sub main
+sub main()
   t = Token(type: -1, in: true, drop: false)
   print(t.type, t.in, t.drop, t.error())
 ```
@@ -232,7 +232,7 @@ values. A literal's type comes from its context
 ([SPEC §2](SPEC.md#primitive-types)).
 
 ```rig
-sub main
+sub main()
   print(0xff, 0b101, 0o17, 1_000, .5, 1e3, 1.5E+2, 2e-3)
   print("tab\there", 'it''s raw: \n', "quote: 'x'")
   print([3 of 7], [2 of [2 of 0]])
@@ -279,7 +279,7 @@ so `a <- b`, which Rig does not have, is not quietly `a < -b`:
 fun twice(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   a = 5
   b = 3
   print(a - b, a -b, a-b, twice(-b), twice (a) - b)
@@ -290,7 +290,7 @@ sub main
 ```
 
 ```rig reject
-sub main
+sub main()
   a = 1
   b = 2
   print(a <- b)
@@ -371,7 +371,7 @@ struct Stack
       sum += k
     sum
 
-sub main
+sub main()
   s = Stack(items: Vec())
   !s.push(1)
   !s.push(2)
@@ -462,7 +462,7 @@ struct User
 fun named(u: ?*User?) -> Bool
   u != none
 
-sub main
+sub main()
   a: *User? = none
   b: *User? = *User(name: "ada")
   print(named(?a), named(?b))
@@ -476,7 +476,7 @@ false true
 struct User
   name: String
 
-sub main
+sub main()
   c: *(User?) = none
 ```
 
@@ -499,7 +499,10 @@ describe does: `fun area(w: Int, h: Int) -> Int` has the type
 
 A declaration lives at module level; there are no nested functions or
 types. `pub` before a declaration exports it to importing modules
-([SPEC §14](SPEC.md#14-modules)).
+([SPEC §14](SPEC.md#14-modules)). By convention, which the test suite
+checks of Rig's own code, one blank line separates top-level
+declarations, though one-line ones (`use`, constants, `extern`,
+`type`) may stand together.
 
 ### Functions
 
@@ -513,7 +516,7 @@ fun sign(n: Int) -> Int
 sub report(label: String, n: Int)
   print(label, n)
 
-sub main
+sub main()
   report("area", area(3, 4))
   report("sign", sign(-7))
 ```
@@ -529,16 +532,29 @@ sign -1
   `sub save(p: Page)!`. A `fun` that may fail returns `T!`.
 - A parameter is `name: Type`, and may have a default:
   `by: Int = 10`. A parameter the body ignores may be named `_`.
-- A function with no parameters may leave out the empty `()`:
-  `sub main` is `sub main()`, and the docs write the shorter one.
+- A function always writes its parameter list, even when empty, as
+  its calls (`f()`) and its type (`sub()`) do: `sub main()`,
+  `fun answer() -> Int`.
 - The body's last expression is its value; `return e` leaves early.
 - A result that holds a view may say which parameters it views, after
   its type: `-> ?Item from a`, `-> String from a, b`, `-> ?T from
   self`, or `-> String from static` for only what lives for the whole
   program ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - Compile-time parameters go in brackets after the name:
-  `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]`
+  `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]()`
   ([Generics](#generics-and-compile-time-parameters)).
+
+A definition without its parameter list is rejected, with the header
+to write:
+
+```rig reject
+sub main
+  print(1)
+```
+
+```error
+write `sub main()`: a function's parameter list is always written, even when empty
+```
 
 ### Structs
 
@@ -551,7 +567,7 @@ struct Point
   x: Int
   y: Int = 0
 
-  fun origin -> Self
+  fun origin() -> Self
     Point(x: 0)
 
   fun length2(?self) -> Int
@@ -563,7 +579,7 @@ struct Point
   sub shift(!self, dx: Int)
     self.x += dx
 
-sub main
+sub main()
   p = Point.origin()
   q = Point(x: 3, y: 4)
   r = p.plus(?q)
@@ -599,7 +615,7 @@ struct, whose values move instead of copying
 struct Ticket unique
   id: Int
 
-sub main
+sub main()
   t = Ticket(id: 7)
   u = <t
   print(u.id)
@@ -631,7 +647,7 @@ enum Shape
       .rect(w, h) => w * h
       .point => 0
 
-sub main
+sub main()
   s: Shape = .rect(w: 2, h: 5)
   c = Shape.circle(2)
   st: Status = .missing
@@ -659,7 +675,7 @@ error NetError
   timeout
   refused
 
-sub main
+sub main()
   e: NetError = .timeout
   print(e, e == NetError.timeout)
 ```
@@ -680,7 +696,7 @@ struct Point
 
 type P = Point
 
-sub main
+sub main()
   id: UserId = 5
   p = P(x: id)
   print(p.x + 1)
@@ -711,8 +727,8 @@ A method's own parameters sit beside its type's: inside `Wrap[T]`,
 `fun map[U]` has both `T` and `U`. A call gives every compile-time
 argument in brackets, or none and lets them be inferred
 ([SPEC §3](SPEC.md#generic-functions)). A function with no run-time
-parameters may leave out `()` in its declaration, `sub show[n: Int]`,
-but a call has them: `show[3]()`.
+parameters writes `()` after its brackets, in its declaration as in a
+call: `sub show[n: Int]()` is called `show[3]()`.
 
 ```rig
 struct Wrap[T]
@@ -731,7 +747,7 @@ sub rep[T, n: Int](x: T)
 fun label(n: Int) -> String
   "big" if n > 9 else "small"
 
-sub main
+sub main()
   b = Wrap(v: 12)
   print(b.map(label).v, max(3, 7), max[Float](1, 2))
   rep[String, 2]("hi")
@@ -785,7 +801,7 @@ changes, in a function body; at module level every binding is already
 constant.
 
 ```rig
-sub main
+sub main()
   x = 1
   x = x + 1
   const limit = 10
@@ -826,7 +842,7 @@ the chain. Where its value is used, `if` is an expression, and the
 one-line form is `a if c else b` (Python's order, not C's `c ? a : b`).
 
 ```rig
-sub main
+sub main()
   x = 5
   if x > 10
     print("big")
@@ -855,7 +871,7 @@ fun first_over(limit: Int) -> Int
     i += 1
     return i if i > limit
 
-sub main
+sub main()
   x = 5
   print("big") if x > 3
   x += 1 if x < 10
@@ -880,7 +896,7 @@ fun parse(s: String) -> Int!
   return E.bad if s == "x"
   s.len
 
-sub main
+sub main()
   n = 5
   n = parse("x") catch |e| (-1 if e == E.bad else -2) if false
   print(n)
@@ -896,7 +912,7 @@ sub main
 ### while
 
 ```rig
-sub main
+sub main()
   i = 0
   while i < 5 : i += 1
     continue if i == 1
@@ -930,7 +946,7 @@ iteration. An `else` block runs when the loop ends without `break`.
 the element. A sigil on the source says how the loop holds it.
 
 ```rig
-sub main
+sub main()
   total = 0
   for i in 0..5
     total += i
@@ -969,7 +985,7 @@ names a label the same way, `v = next() ?? continue :outer`, except in a
 `while` header, where the first `:` starts the step.
 
 ```rig
-sub main
+sub main()
   :outer for i in 0..3
     for j in 0..3
       continue :outer if j > i
@@ -996,7 +1012,7 @@ fun index_of(xs: ?[4]Int, target: Int) -> Int
   else
     -1
 
-sub main
+sub main()
   xs = [3, 1, 4, 1]
   print(index_of(?xs, 4), index_of(?xs, 9))
   n = 27
@@ -1029,7 +1045,7 @@ fun kind(n: Int) -> String
     2..10 => "small"
     _ => "large"
 
-sub main
+sub main()
   print(kind(1), kind(-4), kind(7), kind(99))
   match 7
     1 => print("one")
@@ -1058,10 +1074,10 @@ sub stop(l: Light)
     .red => print("stop")
     _ => pass
 
-sub later
+sub later()
   pass
 
-sub main
+sub main()
   stop(.red)
   stop(.green)
   later()
@@ -1082,7 +1098,7 @@ block exits, in reverse order. `errdefer` runs only when the function
 fails, so it goes only in a function that can fail.
 
 ```rig
-sub main
+sub main()
   defer print("cleanup 1")
   defer
     print("cleanup 2")
@@ -1126,7 +1142,7 @@ them changes nothing: `f (x)` is `f(x)`. A name alone never runs code:
 fun add(a: Int, b: Int) -> Int
   a + b
 
-sub main
+sub main()
   print(add(1, 2))
   print(add(1, 2), add (3, 4))
   print((1 + 2) * 3)
@@ -1146,7 +1162,7 @@ sub main
 fun twice(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   x = twice 5
   print(x)
 ```
@@ -1163,7 +1179,7 @@ parameter with a default may be left out.
 fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
   n * by
 
-sub main
+sub main()
   print(scaled(3, 2), scaled(by: 4, n: 5), scaled(3, by: 2), scaled(3))
 ```
 
@@ -1175,7 +1191,7 @@ A closure whose body is an assignment (`|!total, n| total += n`) is the
 last argument of a call. A method is called on a value, `p.m(args)`,
 with a receiver sigil when it writes or consumes the receiver
 ([§5](#receiver-sigils)); an associated function through its type,
-`Point.origin()`; and a builtin with `@`: `@sizeOf(Int)`.
+`Point.origin()`; and a builtin with `@`: `@size(Int)`.
 
 ### Function values
 
@@ -1195,7 +1211,7 @@ struct Counter
   sub bump(!self)
     self.n += 1
 
-sub main
+sub main()
   g = twice
   print(apply(g, 5), apply(twice, 1))
   c = Counter(n: 0)
@@ -1263,10 +1279,10 @@ type Row = [3]Int
 fun double(n: Int) -> Int
   n * 2
 
-sub show[n: Int]
+sub show[n: Int]()
   print(n)
 
-sub main
+sub main()
   xs = [10, 20, 30]
   ops = [double, double]
   v = Vec[Int]()
@@ -1290,7 +1306,7 @@ struct Pair[T, U]
 fun plain(n: Int) -> Int
   n
 
-sub main
+sub main()
   n = 5
   print(n[Int, Int])
   p = Pair[Int](a: 1, b: 2)
@@ -1304,7 +1320,7 @@ generic type `Pair` expects 2 type arguments, got 1
 ```
 
 ```rig reject
-sub main
+sub main()
   v = Vec[[]Int]()
 ```
 
@@ -1318,7 +1334,7 @@ struct Node
 
 type Held = *(Node?)
 
-sub main
+sub main()
   a = Cell[*Node?](none)
   b = Cell[Held](*none)
   print(a.replace(none) == none)
@@ -1334,7 +1350,7 @@ true
 struct Node
   value: Int
 
-sub main
+sub main()
   b = Cell[*(Node?)](*none)
 ```
 
@@ -1385,7 +1401,7 @@ come before parameters, and a parameter may not reuse a local's name,
 so the spelling alone decides what an entry is:
 
 ```rig reject
-sub main
+sub main()
   n = 10
   add = |n| n + 1
   print(add(1))
@@ -1400,7 +1416,7 @@ The body is an expression or an assignment on the same line
 list makes an owned closure: `*|+count, step| ...`.
 
 ```rig
-sub main
+sub main()
   n = 10
   cell: *Cell[Int] = *Cell(0)
   add_n = |+n, a: Int| a + n
@@ -1479,16 +1495,17 @@ closure whose body assigns, and `INDENT` / `DEDENT` are the block
 structure. The checker narrows a few forms the grammar accepts: a `fun`
 needs `->`, a `drop` body takes `!self`, a module-level binding
 takes no `const`, and a label goes only on a loop, `match`, or `raw`
-block.
+block. The grammar also parses a definition without its parameter list,
+so that the rejection can show the header with it.
 
 ```text
 program   = decl*
 decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | test | constant)
           | use | extern
 use       = "use" ["std" "."] name ["as" name]
-fun       = "fun" name [tparams] [params] "->" type [from] block
+fun       = "fun" name [tparams] params "->" type [from] block
 from      = "from" (name, ... | "static")
-sub       = "sub" name [tparams] [params] ["!"] block
+sub       = "sub" name [tparams] params ["!"] block
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
 params    = "(" [param, ...] ")"
 param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "self"
@@ -1501,12 +1518,12 @@ errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type
 constant  = name [":" type] "=" tail
 test      = "test" string block
-extern    = "extern" "fun" name [params] ["->" type [from]]
-          | "extern" "sub" name [params]
+extern    = "extern" "fun" name params ["->" type [from]]
+          | "extern" "sub" name params
           | "extern" name ":" type
           | "extern" "zig" string INDENT (["pub"] zdecl)* DEDENT
-zdecl     = "fun" name [tparams] [params] ["->" type [from]]
-          | "sub" name [tparams] [params] ["!"]
+zdecl     = "fun" name [tparams] params ["->" type [from]]
+          | "sub" name [tparams] params ["!"]
 
 type      = ("?" | "!") type | ptype | tsuffix
 ptype     = ("*" | "~")* ("[" [dim] "]" type

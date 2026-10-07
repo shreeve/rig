@@ -1,5 +1,5 @@
-fun f
+fun f()
   1
 
-sub main
+sub main()
   print(f())

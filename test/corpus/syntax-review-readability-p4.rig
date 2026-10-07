@@ -1,4 +1,4 @@
-sub main
+sub main()
   s = "  hi"
   a = 0
   while a < s.len and s[a] == 32

@@ -11,6 +11,6 @@ fun mkres(n: Int) -> Res
 fun wrap(r: ?Res) -> V
   V(r: r)
 
-sub main
+sub main()
   v = wrap(mkres(1))
   print(v.r.n)

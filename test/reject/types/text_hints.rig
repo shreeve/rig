@@ -4,7 +4,7 @@
 sub f(s: String)
   print(s)
 
-sub main
+sub main()
   t = Text("abc")
   print(t[0])
   f(!t)

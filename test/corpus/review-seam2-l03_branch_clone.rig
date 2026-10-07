@@ -15,7 +15,7 @@ fun mk(n: Int) -> S
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   s = mk(100)
   !s.items.push(1)
   c = f(1) == 1

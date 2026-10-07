@@ -1,4 +1,4 @@
-sub main
+sub main()
   rows: Vec[Vec[Int]] = Vec()
   r: Vec[Int] = Vec()
   !r.push(5)

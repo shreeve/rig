@@ -17,7 +17,7 @@ struct Map[K, V]
         return
     !self.slots.push(Pair(k: k, v: v))
 
-sub main
+sub main()
   m = Map[String, Int](slots: Vec())
   !m.put("a", 1)
   !m.put("b", 2)

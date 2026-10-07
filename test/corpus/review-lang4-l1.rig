@@ -12,7 +12,7 @@ sub kind(n: Int)
       break :m if n > 2
       print(9)
 
-sub main
+sub main()
   xs = [1, 5, 9]
   print(find(?xs[..], 5), find(?xs[..], 100))
   :w while true

@@ -1,7 +1,7 @@
 # A label names a loop, a `match`, or a `raw` block, which `break` or
 # `continue` can leave; an `if` takes none.
 
-sub main
+sub main()
   n = 3
   :blk if n > 1
     break :blk if n > 2

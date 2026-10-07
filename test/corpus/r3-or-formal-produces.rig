@@ -5,7 +5,7 @@ fun at(v: ?[4]Item, k: !Int) -> ?Item
   k += 1
   ?v[k - 1]
 
-sub main
+sub main()
   a = [4 of Item(n: 5)]
   k = 0
   r = at(?a, !k)

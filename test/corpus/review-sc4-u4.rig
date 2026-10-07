@@ -1,7 +1,7 @@
 fun get(a: !Int) -> !Int
   a
 
-sub main
+sub main()
   z = 0
   p = get(!z)
   p = 7

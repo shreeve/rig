@@ -2,6 +2,6 @@ struct Point
   x: Int
   y: Int
 
-sub main
+sub main()
   p = Point(x: 1, yy: 2)
   print(p.x)

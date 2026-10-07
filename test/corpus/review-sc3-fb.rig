@@ -7,7 +7,7 @@ struct Res
 fun get(k: Int) -> Int?
   k if k != 2 else none
 
-sub main
+sub main()
   xs: Vec[Box[Res]] = Vec()
   for i in 1..5
     !xs.push(Box(Res(id: i)))

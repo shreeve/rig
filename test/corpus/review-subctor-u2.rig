@@ -10,7 +10,7 @@ struct Sh[T]
 struct Node
   v: Int
 
-sub main
+sub main()
   a = Bag(Vec[Int]())
   b: Bag[String] = Bag(Vec())
   c = Opt(3)

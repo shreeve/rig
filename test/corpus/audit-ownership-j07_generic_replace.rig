@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 fun put[T](a: !T, x: T) -> T
   replace(!a, <x)
 
-sub main
+sub main()
   a = *Tok(n: 1)
   old = put(!a, *Tok(n: 2))
   print(old.n, a.n)

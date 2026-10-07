@@ -11,13 +11,13 @@ enum E
   a(t: Text)
   z
 
-fun mk -> B
+fun mk() -> B
   B(o: Text("o"))
 
-fun mke -> E
+fun mke() -> E
   E.a(t: Text("e"))
 
-sub main
+sub main()
   if ?mk().o as t
     print(t)
   while ?mk().o as u

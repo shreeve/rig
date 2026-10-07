@@ -13,7 +13,7 @@ fun f(c: Ctx, b: !Vec[Int]) -> Int
     !b.push(i)
   c.w.r[0]
 
-sub main
+sub main()
   x = [9, 9]
   v: Vec[Int] = Vec()
   !v.push(1)

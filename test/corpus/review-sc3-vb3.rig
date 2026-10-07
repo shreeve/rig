@@ -7,7 +7,7 @@ struct Res
 fun make(k: Int) -> Res?
   Res(id: k) if k > 0 else none
 
-sub main
+sub main()
   other = Res(id: 2)
   r = if make(1) as x and x.id > 0
     ?x

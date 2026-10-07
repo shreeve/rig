@@ -11,7 +11,7 @@ struct Point
 sub show(p: ?Point)
   print(p.x)
 
-sub main
+sub main()
   p = Point(x: 1)
   r: ?Point = ?p.shifted(4)
   h = *Point(x: 9)

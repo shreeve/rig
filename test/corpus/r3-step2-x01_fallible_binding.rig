@@ -6,6 +6,6 @@ fun mk(ok: Bool) -> Int!
     return E.bad
   1
 
-sub main
+sub main()
   r = mk(true)
   print(r catch 0)

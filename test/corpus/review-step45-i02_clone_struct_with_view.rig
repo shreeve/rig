@@ -3,7 +3,7 @@ struct S
   own: Text
   see: String
 
-sub main
+sub main()
   t = Text("viewed")
   s = S(own: Text("own"), see: ?t)
   c = +s

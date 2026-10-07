@@ -7,6 +7,6 @@ struct P
 sub f(p: ?P)
   !p.inc()
 
-sub main
+sub main()
   q = P(x: 1)
   f(?q)

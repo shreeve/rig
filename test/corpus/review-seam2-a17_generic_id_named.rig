@@ -43,7 +43,7 @@ fun clobber(n: Int) -> Int
 fun id[T](x: T) -> T
   x
 
-sub main
+sub main()
   s = mk(1)
   r = id(!s)
   print(r.n, r.items)

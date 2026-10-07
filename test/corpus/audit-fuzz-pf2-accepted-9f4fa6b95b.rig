@@ -101,5 +101,5 @@ fun f0(a0: Int) -> Int
           print(b0, a0, ((3 * 19) / 1))
   a0 + b0 + c0
 
-sub main
+sub main()
   print("ret", f0(4))

@@ -23,7 +23,7 @@ struct D
 fun mk(id: Int) -> D
   D(id: id, t: Text("d"))
 
-sub main
+sub main()
   c = true
   p = mk(1)
   q = mk(2)

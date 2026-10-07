@@ -15,7 +15,7 @@ fun mk(s: String, r: String) -> M
 sub take(n: N)
   print("took", n.id)
 
-sub main
+sub main()
   t = Text("hello")
   u = Text("world")
   match mk(?t[..], ?u[..])

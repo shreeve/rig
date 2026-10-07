@@ -44,7 +44,7 @@ fun clobber(n: Int) -> Int
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   s = mk(100)
   t = mk(200)
   c = f(1) == 1

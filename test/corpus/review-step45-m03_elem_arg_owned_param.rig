@@ -2,7 +2,7 @@
 fun eat(v: Vec[Int]) -> Int
   v.len
 
-sub main
+sub main()
   vv: Vec[Vec[Int]] = Vec()
   !vv.push(Vec())
   print(eat(vv[0]))

@@ -1,7 +1,7 @@
 sub f(v: ?Vec[Text])
   !v[0].add("x")
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   f(?v)

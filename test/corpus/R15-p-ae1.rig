@@ -1,22 +1,28 @@
 fun r1(b: [4]U8) -> U16
   b.read[U16, .big](0)
+
 fun r2(b: ?[4]U8) -> U16
   b.read[U16, .big](1)
+
 fun r3(b: ![4]U8) -> U16
   !b.write[U16, .little](2, 0x0102)
   !b.swap(0, 3)
   !b.fill(b[0])
   b.read[U16, .big](2)
+
 fun r4(v: ?Vec[U8]) -> U16
   v.read[U16, .big](0)
+
 fun r5(v: !Vec[U8]) -> U16
   !v.write[U16, .big](0, 0x0a0b)
   !v.swap(0, 1)
   v.read[U16, .big](0)
+
 fun r6(v: !Vec[U8]) -> U16
   v.write[U16, .big](0, 0x0c0d)
   v.fill(3)
   v.read[U16, .big](0)
+
 sub main()
   b: [4]U8 = [1, 2, 3, 4]
   print(r1(b), r2(?b), r3(!b), b[0], b[3])

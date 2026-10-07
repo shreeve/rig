@@ -14,6 +14,6 @@ sub u(k: Int)
   r = <o ?? return
   print(r.id)
 
-sub main
+sub main()
   u(1)
   u(0)

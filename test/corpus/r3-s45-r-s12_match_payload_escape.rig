@@ -7,7 +7,7 @@ fun pick(v: ?Vec[E]) -> String
     .a(t) => ?t
     .b => "b"
 
-sub main
+sub main()
   v: Vec[E] = Vec()
   !v.push(E.a(Text("hi")))
   print(pick(?v))

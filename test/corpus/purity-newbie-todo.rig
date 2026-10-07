@@ -17,7 +17,7 @@ struct TodoList
       mark = "[x]" if item.done else "[ ]"
       print(i, mark, item.title)
 
-sub main
+sub main()
   todos = TodoList(items: Vec[Todo]())
   !todos.add("buy milk")
   !todos.add("write rig program")

@@ -4,7 +4,7 @@ fun firsts(a: ?Int, b: ?Int) -> Vec[?Int]
   !v.push(b)
   v
 
-sub main
+sub main()
   x = 1
   y = 2
   v = firsts(?x, ?y)

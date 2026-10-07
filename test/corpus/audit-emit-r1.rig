@@ -7,7 +7,7 @@ struct W
 enum E
   a(s: ?[]U8)
 
-sub main
+sub main()
   b: [3]U8 = [72, 105, 33]
   v = V(s: ?b[..])
   print(v)

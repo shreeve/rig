@@ -7,7 +7,7 @@ fun total(xs: []Int, n: Int) -> Int
 fun eat(v: Vec[Int]) -> Int
   v.len
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   print(total(v, eat(<v)))

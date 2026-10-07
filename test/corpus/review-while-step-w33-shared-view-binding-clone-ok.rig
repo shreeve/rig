@@ -11,7 +11,7 @@ fun all(n: ?Node, i: Int) -> ([]Int)?
     return ?n.vals[..]
   none
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(3)
   r = *Node(vals: <v)

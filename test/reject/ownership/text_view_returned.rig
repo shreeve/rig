@@ -1,7 +1,7 @@
 # A view of a local Text, or of a Text parameter taken by value, cannot
 # leave the function: the Text ends with it.
 
-fun local_view -> String
+fun local_view() -> String
   t = Text("abc")
   ?t[..]
 
@@ -14,7 +14,7 @@ fun lent(t: Text) -> String
 fun first(s: String) -> String
   s
 
-sub main
+sub main()
   print(local_view(), param_view(Text("x")), lent(Text("y")))
 
 # error: 6:4: cannot return a view of `t`, which this function was not lent

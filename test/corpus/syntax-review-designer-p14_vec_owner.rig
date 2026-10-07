@@ -2,7 +2,7 @@ struct Player
   name: String
   scores: Vec[Int]
 
-sub main
+sub main()
   ps: Vec[Player] = Vec()
   !ps.push(Player(name: "a", scores: Vec()))
   print(ps.len)

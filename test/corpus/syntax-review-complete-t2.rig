@@ -10,5 +10,5 @@ test "manual"
 test "panic"
   panic("boom")
 
-sub main
+sub main()
   print(1)

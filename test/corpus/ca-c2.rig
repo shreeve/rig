@@ -17,7 +17,7 @@ fun total_of[T](xs: ?Vec[T], pick: Int) -> Int
   f()
   count
 
-sub main
+sub main()
   w = Wrap(n: 1)
   grow(!w, 5)
   print(w.n)

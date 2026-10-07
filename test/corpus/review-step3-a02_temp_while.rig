@@ -10,7 +10,7 @@ fun size(b: ?Bag) -> Int
 fun mk(n: Int) -> Bag
   Bag(n: n)
 
-sub main
+sub main()
   i = 0
   while size(mk(i)) < 3
     i += 1

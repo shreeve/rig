@@ -1,6 +1,6 @@
 struct P
   a: String
 
-sub main
+sub main()
   h = *P(a: "x")
   print(replace(!h.a, "q"))

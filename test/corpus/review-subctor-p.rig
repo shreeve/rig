@@ -1,5 +1,6 @@
 struct Meters
   v: Float
-sub main
+
+sub main()
   x = Meters(w: 1.0)
   print(x)

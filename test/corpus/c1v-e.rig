@@ -14,7 +14,7 @@ fun index_of[T](xs: ?[3]T, x: T) -> Int
     return i if v == x
   -1
 
-sub main
+sub main()
   p = Point(x: 1, y: 2.5)
   q = Point(x: 1, y: 2.5)
   nan = 0.0 / 0.0

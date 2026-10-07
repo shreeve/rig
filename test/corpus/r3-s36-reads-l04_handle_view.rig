@@ -4,6 +4,6 @@ struct S
 fun get(s: ?S) -> Int
   s.n
 
-sub main
+sub main()
   h = *S(n: 3)
   print(get(?h))

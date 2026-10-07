@@ -3,7 +3,7 @@ fun get(f: ?fun() -> ?Vec[Int]) -> Int
   r = g()
   r.len
 
-sub main
+sub main()
   c: Vec[Int] = Vec()
   !c.push(42)
   print(get(|?c| c))

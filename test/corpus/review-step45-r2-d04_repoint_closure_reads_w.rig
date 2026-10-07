@@ -2,7 +2,7 @@
 fun pick(f: ?fun() -> Int, x: !Text, y: !Text) -> !Text
   y
 
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   w = !a

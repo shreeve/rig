@@ -5,7 +5,7 @@ struct S
     self.n += 1
     self.n > 1
 
-sub main
+sub main()
   s = S(n: 0)
   if !s.bump()
     print("ok")

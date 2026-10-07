@@ -49,11 +49,11 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t2293
+sub t2293()
   vv2293: Vec[I128] = Vec()
   !vv2293.push(161304225842132170300261283235495780437)
   cmp2293: I128 = id_i128(16)
   print(cmp2293 == vv2293[0], vv2293[0] < cmp2293, vv2293[0] >= cmp2293)
 
-sub main
+sub main()
   t2293()

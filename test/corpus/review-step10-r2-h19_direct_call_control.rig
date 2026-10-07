@@ -27,6 +27,6 @@ fun usq(t: Text, q: ?Q, n: Int) -> Int
 fun run(s: ?S) -> Int!
   usq(Text("a text long enough to live on the heap"), ?mkh(5).q, gf(2)!)
 
-sub main
+sub main()
   s = S(cb: usq)
   print(run(?s) catch -1)

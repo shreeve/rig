@@ -22,7 +22,7 @@ fun mk5(c: Bool) -> Bag
   else
     d
 
-sub main
+sub main()
   a = mk()
   b = mk2()
   c = mk4(false)

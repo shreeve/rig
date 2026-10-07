@@ -1,6 +1,6 @@
 use std.random
 
-sub main
+sub main()
   a = random.Random.seeded(1)
   b = random.Random.seeded(1)
   print(a == b)

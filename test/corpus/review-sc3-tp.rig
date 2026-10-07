@@ -25,7 +25,7 @@ sub w(k: Int)
     n = Res(id: 10 + i).val(k) ?? 0
     print("w", n)
 
-sub main
+sub main()
   t(1)
   t(0)
   u(1)

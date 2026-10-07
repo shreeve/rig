@@ -22,7 +22,7 @@ struct Bag
   fun first(?self) -> ?*Tok
     ?self.items[0]
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(*Tok(n: 1))
   r = b.first()

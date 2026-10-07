@@ -97,5 +97,5 @@ sub gt[T](a: T, b: T, c: Bool, put: sub(!T))
 sub putn(s: !S)
   s.n = 99
 
-sub main
+sub main()
   gt(mk(1), mk(2), f(1) == 1, putn)

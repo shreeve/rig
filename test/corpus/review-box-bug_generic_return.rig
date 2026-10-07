@@ -1,6 +1,6 @@
 fun peek[T](b: ?Box[T]) -> ?T
   ?b
 
-sub main
+sub main()
   i = Box(value: 5)
   print(peek(?i))

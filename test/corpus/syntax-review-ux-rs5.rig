@@ -9,7 +9,7 @@ struct View
 fun longest(a: ?Doc, b: ?Doc) -> ?Doc
   a if a.words.len > b.words.len else b
 
-sub main
+sub main()
   d1 = Doc(title: "a", words: Vec())
   !d1.words.push("x")
   d2 = Doc(title: "b", words: Vec())

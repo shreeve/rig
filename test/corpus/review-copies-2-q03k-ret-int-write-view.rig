@@ -8,12 +8,11 @@ struct Q
   p: P
   n: Int
 
-
 fun wi(w: !Int, ok: Bool) -> (!Int)!
   return Bad.oops if not ok
   w
 
-sub main
+sub main()
   n = 1
   m = 2
   w = wi(!n, true) catch !m

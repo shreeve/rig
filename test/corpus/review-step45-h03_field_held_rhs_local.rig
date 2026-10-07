@@ -2,7 +2,7 @@
 struct H
   w: !Text
 
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   w = !a

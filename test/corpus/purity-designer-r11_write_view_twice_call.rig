@@ -1,5 +1,6 @@
 sub f(a: !Int, b: !Int)
   a += b
-sub main
+
+sub main()
   x = 1
   f(!x, !x)

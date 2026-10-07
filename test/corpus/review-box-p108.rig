@@ -10,7 +10,7 @@ fun area(b: ?Box[Sh]) -> Int
     .c(r) => r * 3
     .s(k) => k * k
 
-sub main
+sub main()
   h = H(b: Box(value: Sh.c(r: 2)))
   match ?h.b
     .c(r) => print("c", r)

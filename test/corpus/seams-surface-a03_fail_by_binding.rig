@@ -6,5 +6,5 @@ fun f(k: Int) -> Int!
   return 1 if k == 0
   return e
 
-sub main
+sub main()
   print(f(0) catch -1, f(1) catch -1)

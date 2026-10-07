@@ -14,7 +14,7 @@ fun mk(n: Int) -> Bag
 fun dflt(a: ?Bag, k: Int = 3) -> Int
   a.n + k
 
-sub main
+sub main()
   print(two(b: mk(2), a: mk(1)))
   x = Bag(n: 5)
   print(two(b: x, a: mk(1)))

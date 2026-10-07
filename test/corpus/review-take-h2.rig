@@ -1,7 +1,7 @@
 struct S
   a: Int?
 
-sub main
+sub main()
   o: S? = S(a: 1)
   if o as x
     y = <x.a

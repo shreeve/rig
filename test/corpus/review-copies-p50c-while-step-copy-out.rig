@@ -5,7 +5,7 @@
 struct S
   s: []Int
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0

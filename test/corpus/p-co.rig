@@ -7,7 +7,7 @@ struct N
 fun maybe(k: Int) -> N?
   N(id: k) if k > 0 else none
 
-sub main
+sub main()
   a = maybe(1) ?? N(id: 10)
   b = maybe(0) ?? N(id: 20)
   o = maybe(3)

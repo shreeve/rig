@@ -49,9 +49,9 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t3011
+sub t3011()
   qo3011: I8? = none
   print(qo3011 ?? I8((-128)))
 
-sub main
+sub main()
   t3011()

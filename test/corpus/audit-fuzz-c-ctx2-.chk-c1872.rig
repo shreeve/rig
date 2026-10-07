@@ -56,9 +56,9 @@ fun fal1872(ok: Bool) -> I16!
 error Err1872
   bad
 
-sub t1872
+sub t1872()
   x1872: I16 = (fal1872(false) catch 15)
   print(x1872)
 
-sub main
+sub main()
   t1872()

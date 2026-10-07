@@ -4,7 +4,7 @@ struct P
 struct H
   p: !P
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   h = H(p: !a)

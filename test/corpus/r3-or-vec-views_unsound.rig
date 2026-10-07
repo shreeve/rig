@@ -1,30 +1,30 @@
 # A Vec of views holds the loans pushed into it (Core §5, s6): each is
 # rejected where a view it holds would outlive or alias its owner.
 
-fun mk -> Int
+fun mk() -> Int
   3
 
-fun escapes -> Vec[?Int]
+fun escapes() -> Vec[?Int]
   a = 1
   v: Vec[?Int] = Vec()
   !v.push(?a)
   v
 
-sub push_then_assign
+sub push_then_assign()
   a = 1
   v: Vec[?Int] = Vec()
   !v.push(?a)
   a = 2
   print(v[0])
 
-sub insert_then_assign
+sub insert_then_assign()
   a = 1
   v: Vec[?Int] = Vec()
   !v.insert(0, ?a)
   a = 3
   print(v)
 
-sub store_then_assign
+sub store_then_assign()
   a = 1
   b = 2
   v: Vec[?Int] = Vec()
@@ -33,14 +33,14 @@ sub store_then_assign
   b = 3
   print(v)
 
-sub literal_then_assign
+sub literal_then_assign()
   a = 1
   b = 2
   v = [?a, ?b]
   b = 3
   print(v)
 
-sub moved_then_assign
+sub moved_then_assign()
   a = 1
   v: Vec[?Int] = Vec()
   !v.push(?a)
@@ -48,19 +48,19 @@ sub moved_then_assign
   a = 2
   print(w)
 
-sub loop_local
+sub loop_local()
   v: Vec[?Int] = Vec()
   for i in 0..3
     x = i
     !v.push(?x)
   print(v)
 
-sub temporary
+sub temporary()
   v: Vec[?Int] = Vec()
   !v.push(?mk())
   print(v)
 
-sub element_then_push
+sub element_then_push()
   a: Vec[Int] = Vec()
   !a.push(1)
   v: Vec[?Int] = Vec()
@@ -68,26 +68,26 @@ sub element_then_push
   !a.push(2)
   print(v)
 
-sub write_twice
+sub write_twice()
   a = 1
   v: Vec[!Int] = Vec()
   !v.push(!a)
   !v.push(!a)
   print(v.len)
 
-sub write_then_read
+sub write_then_read()
   a = 1
   v: Vec[!Int] = Vec()
   !v.push(!a)
   print(a)
   v[0] = 2
 
-sub write_array_twice
+sub write_array_twice()
   a = 1
   v = [!a, !a]
   v[0] = 2
 
-sub popped_view
+sub popped_view()
   a = 1
   v: Vec[?Int] = Vec()
   !v.push(?a)
@@ -95,7 +95,7 @@ sub popped_view
   a = 2
   print(r)
 
-sub element_of_owner
+sub element_of_owner()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   t = <v[0]
@@ -104,14 +104,14 @@ sub element_of_owner
 struct Bag
   items: Vec[?Int]
 
-sub field_inner_scope
+sub field_inner_scope()
   bag = Bag(items: Vec())
   if true
     e = 8
     !bag.items.push(?e)
   print(bag.items)
 
-sub through_write_views
+sub through_write_views()
   inner: Vec[String] = Vec()
   w: Vec[!Vec[String]] = Vec()
   !w.push(!inner)
@@ -124,7 +124,7 @@ sub through_write_views
 struct Holder
   s: String
 
-sub swapped_view
+sub swapped_view()
   t = Text("a")
   h = Holder(s: ?t)
   k = Holder(s: "b")
@@ -132,7 +132,7 @@ sub swapped_view
   !t.add("!")
   print(k.s)
 
-sub replaced_view
+sub replaced_view()
   t = Text("a")
   h = Holder(s: "b")
   old = replace(!h.s, ?t)
@@ -142,13 +142,13 @@ sub replaced_view
 struct Ed
   w: !Int
 
-sub field_write_view
+sub field_write_view()
   n = 1
   h = Ed(w: !n)
   print(n)
   h.w = 2
 
-sub main
+sub main()
   print(mk())
 
 # oracle: escapes reject C5

@@ -4,7 +4,7 @@ struct W
 fun dup[T](x: ?T) -> [2]T
   [x, x]
 
-sub main
+sub main()
   n = 1
   h = W(w: !n)
   d = dup(?h)

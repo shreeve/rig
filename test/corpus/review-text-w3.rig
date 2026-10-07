@@ -5,7 +5,7 @@ struct Person
 fun greet(p: ?Person) -> String
   p.name
 
-sub main
+sub main()
   p = Person(name: "Ann", age: 3)
   n = greet(?p)
   p = Person(name: "Bob", age: 4)

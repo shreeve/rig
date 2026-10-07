@@ -1,5 +1,5 @@
 # Sentence 5 for numbers: a read loan excludes a write.
-sub main
+sub main()
   n = 1
   r = ?n
   n += 1

@@ -2,7 +2,7 @@
 sub both(a: !Text, b: ?Text)
   !a.add(b)
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   both(!v[0], ?v[0])

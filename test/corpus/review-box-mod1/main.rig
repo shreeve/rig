@@ -1,6 +1,6 @@
 use lib
 
-sub main
+sub main()
   b = lib.mk(1)
   print(b.n, b.get(), lib.rd(?b))
   !b.bump()

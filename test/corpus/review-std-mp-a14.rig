@@ -1,6 +1,6 @@
 use std.math as std
 
-sub main
+sub main()
   print(std.gcd(4, 6))
   x = [1]
   print(x)

@@ -1,4 +1,4 @@
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   print(v.get(0) + 1)

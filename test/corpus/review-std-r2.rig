@@ -1,5 +1,5 @@
 use std.random
 
-sub main
+sub main()
   r = random.Random.seeded(1)
   print(!r.int(-1, Int.max))

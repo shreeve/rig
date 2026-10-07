@@ -38,7 +38,7 @@ sub save(n: Int)!
 sub each(f: ?fun(Int) -> Color!)
   print(f(1) catch .red)
 
-sub main
+sub main()
   each(|n| .missing)
   print(tail(1) catch .red, early(1) catch .red, branch(1) catch 0, arm(1) catch .red, ternary(1) catch .red)
   save(1)!

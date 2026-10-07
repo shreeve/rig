@@ -1,2 +1,2 @@
-sub main
+sub main()
   print(1)

@@ -4,7 +4,7 @@ fun first(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
 fun swapped(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
   first(b, a)
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   r = swapped(?x, ?y)

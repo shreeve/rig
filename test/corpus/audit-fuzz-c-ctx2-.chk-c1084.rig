@@ -59,10 +59,10 @@ error Err1084
 struct FA1084
   f: Int
 
-sub t1084
+sub t1084()
   fa1084 = FA1084(f: 0)
   fa1084.f = (fal1084(false) catch 191694661597162117)
   print(fa1084.f)
 
-sub main
+sub main()
   t1084()

@@ -4,7 +4,7 @@ fun f[T](xs: []T, x: ?T) -> Bool
       return true
   false
 
-sub main
+sub main()
   a = [1, 2, 3]
   n = 2
   print(f(?a, ?n))

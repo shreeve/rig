@@ -3,5 +3,5 @@ use std.math
 R = math.sqrt(16.0)
 G = math.gcd(12, 18)
 
-sub main
+sub main()
   print(R, G)

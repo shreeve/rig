@@ -1,4 +1,4 @@
-sub main
+sub main()
   m = 1
   a = [?m, ?m, ?m]
   if true

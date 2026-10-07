@@ -4,6 +4,6 @@ struct P
 fun f(p: !P) -> String?
   <p.o
 
-sub main
+sub main()
   p = P(o: "a")
   print(f(!p) ?? "-", p.o ?? "-")

@@ -4,7 +4,7 @@ struct W
 struct O
   h: W
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   o = O(h: W(w: !a))
   r = ?o

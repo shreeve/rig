@@ -18,7 +18,7 @@ fun pick2(k: Int, b: ?Box[R], c: ?R) -> ?R
     1 => ?b
     _ => c
 
-sub main
+sub main()
   b = Box(value: R(n: 1))
   c = Box(value: R(n: 2))
   print(pick(1, ?b, ?c).n, pick(0, ?b, ?c).n, pick2(1, ?b, ?c).n)

@@ -18,7 +18,7 @@ pub fun max[T](a: T, b: T) -> T
 pub fun double[T](x: T) -> T
   util.twice(x)
 
-pub fun zeros[n: Int] -> [n]Int
+pub fun zeros[n: Int]() -> [n]Int
   [0; n]
 
 pub fun make() -> Wrap[Int]

@@ -7,7 +7,7 @@ struct Table
   fun get(?self, k: ?Int) -> ?Item
     ?self.items[k]
 
-sub main
+sub main()
   t = Table(items: [4 of Item(n: 3)])
   k = 1
   r = t.get(?k)

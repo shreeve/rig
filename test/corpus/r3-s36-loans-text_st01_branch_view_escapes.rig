@@ -1,4 +1,4 @@
-sub main
+sub main()
   s = "static"
   if s.len > 0
     t = Text("inner")

@@ -2,6 +2,7 @@ struct R
   n: Int
   drop(!self)
     print("d")
-sub main
+
+sub main()
   f: *sub(R) = *|r| print(r.n)
   f(R(n: 1))

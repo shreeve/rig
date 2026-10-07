@@ -14,23 +14,24 @@ struct N
   v: Vec[Int]
   name: String
 
-fun mk -> N
+fun mk() -> N
   v: Vec[Int] = Vec()
   !v.push(7)
   N(t: Text("tt"), inner: In(t: Text("in")), arr: [1, 2], v: <v, name: "nm")
 
-fun mkbox -> Box[Text]
+fun mkbox() -> Box[Text]
   Box(Text("bx"))
 
-fun mksh -> *N
+fun mksh() -> *N
   *mk()
 
-fun mkt -> Text
+fun mkt() -> Text
   Text("tx")
 
 fun first(s: []Int) -> Int
   s[0]
-sub main
+
+sub main()
   c = true
   print(text.trim(?mk().t), ?mk().t[1..], text.trim(?mk().inner.t), ?mk().arr[0])
   print(first(?mk().arr[..]), first(?mk().v[..]), text.trim(?mkbox()), text.trim(?mksh().t))

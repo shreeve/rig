@@ -7,7 +7,7 @@ struct R
 sub eat(b: Box[R])
   print("eat", b.n)
 
-sub main
+sub main()
   b = Box(value: R(n: 5))
   defer print("deferred", b.n)
   eat(<b)

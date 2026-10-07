@@ -9,7 +9,7 @@ fun get(e: ?Env, name: String) -> String?
       return e.vals[i]
   none
 
-sub main
+sub main()
   ks = ["HOME", "PATH"]
   vs = ["/h", "/bin"]
   env = Env(keys: ?ks[..], vals: ?vs[..])

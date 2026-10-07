@@ -4,6 +4,6 @@ struct P
   sub inc(?self)
     self = P(x: 3)
 
-sub main
+sub main()
   p = P(x: 1)
   p.inc()

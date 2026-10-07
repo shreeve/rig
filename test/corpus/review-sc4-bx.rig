@@ -22,7 +22,7 @@ fun peek(h: ?H) -> Int
     .full(b, k) if k > 0 => b.n
     _ => 0
 
-sub main
+sub main()
   bx = Box(Slot.full(b: *B(n: 1), k: 0))
   match !bx
     .full(b, k) if b.n > 0 => k = 3

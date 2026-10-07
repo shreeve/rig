@@ -3,7 +3,7 @@
 struct P
   s: String
 
-sub main
+sub main()
   c = *Cell(P(s: "x"))
   d = +c
   f = *|<c, p: P| c.set(p)

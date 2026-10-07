@@ -1,4 +1,4 @@
-sub main
+sub main()
   b = Box(value: "hi")
   print(b)
   s = <b.take()

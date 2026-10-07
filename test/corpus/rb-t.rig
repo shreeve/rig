@@ -1,7 +1,7 @@
 fun total(xs: ?[3]Int) -> Int
   xs[0] + xs[1] + xs[2]
 
-sub main
+sub main()
   a = [1, 2, 3]
   print(total(?a))
   b = ?a

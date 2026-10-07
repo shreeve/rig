@@ -1,7 +1,7 @@
 struct Bag
   items: Vec[?Int]
 
-sub main
+sub main()
   a = 1
   bag = Bag(items: Vec())
   !bag.items.push(?a)

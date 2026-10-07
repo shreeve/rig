@@ -38,7 +38,7 @@ fun xof(o: P?) -> Int
     return p.x
   0
 
-sub main
+sub main()
   a = P(x: 1, y: 2)
   b = copy(?a)
   a.x = 10

@@ -8,7 +8,7 @@ enum E
   a(r: Res)
   b
 
-sub main
+sub main()
   e = E.a(r: Res(n: 1))
   match e
     .a(r) => print("in", r.n)

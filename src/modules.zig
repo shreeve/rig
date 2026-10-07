@@ -366,6 +366,7 @@ pub const ModuleGraph = struct {
             error.ParseError => {
                 const d = p.diagnostic();
                 try self.errorAt(id, .{ .start = d.pos, .end = d.end }, "{s}", .{d.message});
+                for (p.moreDiagnostics()) |more| try self.errorAt(id, .{ .start = more.pos, .end = more.end }, "{s}", .{more.message});
                 if (p.unclosedBracket()) |note| try self.get(id).sema.diagnostics.append(self.allocator, note);
                 self.get(id).state = .failed;
                 return id;

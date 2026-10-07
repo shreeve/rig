@@ -11,7 +11,7 @@ fun f(o: !S?) -> Int?
   print(t)
   1
 
-sub main
+sub main()
   o: S? = S(a: R(n: 1))
   print(f(!o))
   print(o)

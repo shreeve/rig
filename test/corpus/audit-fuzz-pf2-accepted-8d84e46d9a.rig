@@ -4,7 +4,6 @@
 struct User
   age: Int
 
-
 fun make_user() -> *User
   return *User(age: 7)
 

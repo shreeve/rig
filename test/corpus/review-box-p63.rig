@@ -20,7 +20,7 @@ sub g(w: !Box[R])
   print(rdb(w))
   print(rd(?w))
 
-sub main
+sub main()
   v: Vec[Box[R]] = Vec()
   !v.push(Box(value: R(n: 1)))
   for x in !v

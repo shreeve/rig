@@ -30,7 +30,7 @@ fun opt(n: Int) -> S?
   return none if n == 0
   S(n: n)
 
-sub main
+sub main()
   c = f(1) == 1
   inc(!(5 if c else f(1)))
   inc(!(f(2) if c else 7))

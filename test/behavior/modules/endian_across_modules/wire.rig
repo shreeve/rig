@@ -1,6 +1,6 @@
 pub ORDER = Endian.big
 
-pub fun order -> Endian
+pub fun order() -> Endian
   .little
 
 pub fun get[e: Endian](b: []U8) -> U16

@@ -14,7 +14,7 @@ struct Map[K, V]
 fun hs(s: String) -> U64
   U64(s.len)
 
-sub main
+sub main()
   m = Map[String, Int](keys: Vec(), vals: Vec())
   !m.keys.push("a")
   !m.vals.push(1)

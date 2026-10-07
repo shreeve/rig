@@ -56,10 +56,10 @@ A Rig program is a file of declarations: functions (`fun`, `sub`),
 types (`struct`, `enum`, `error`, `type`), constants (`name = value`),
 imports (`use`), `extern` declarations, and `test` blocks, written as
 [SYNTAX.md](SYNTAX.md) shows. Statements live inside functions. A
-program that runs declares its entry point as `sub main`, with no
-parameters, or as `fun main -> Int`, whose value is the process's exit
+program that runs declares its entry point as `sub main()`, with no
+parameters, or as `fun main() -> Int`, whose value is the process's exit
 status, from 0 to 255 (another value panics). Either may fail: `main`
-may propagate an error with `!`, and `sub main!` or `fun main -> Int!`
+may propagate an error with `!`, and `sub main()!` or `fun main() -> Int!`
 may also return one; a failure that leaves `main` prints
 `error: Set.name` and ends the program with status 1
 ([§13](#13-errors)). Everything `main` owns is dropped, its output
@@ -69,7 +69,7 @@ program's arguments and environment are read through
 [`std.os`](docs/STD.md#stdos).
 
 ```rig
-fun main -> Int
+fun main() -> Int
   print("nothing to do")
   0
 ```
@@ -128,7 +128,7 @@ is its greatest finite value and its `.min` the most negative one
 `U8.max + 1` is rejected.
 
 ```rig
-sub main
+sub main()
   print(U8.max, I8.min, Int.max, U128.max, Float.min < 0.0)
 ```
 
@@ -137,11 +137,11 @@ sub main
 ```
 
 ```rig
-sub main
+sub main()
   small: U8 = 200
   sum = small + 55          # 55 is a U8 here
   big = 9223372036854775807
-  print(sum, big, @sizeOf(Int), 0.1 + 0.2)
+  print(sum, big, @size(Int), 0.1 + 0.2)
 ```
 
 ```output
@@ -149,7 +149,7 @@ sub main
 ```
 
 ```rig reject
-sub main
+sub main()
   a: U8 = 250
   b = a + 10
 ```
@@ -159,7 +159,7 @@ sub main
 ```
 
 ```rig reject
-sub main
+sub main()
   a: I32 = 1
   b: I64 = 2
   print(a + b)
@@ -186,7 +186,7 @@ unchecked cast builtins are also available,
 fun average(total: Int, count: Int) -> Float
   Float(total) / Float(count)
 
-sub main
+sub main()
   big = 300
   print(U8(big - 100), Int(-7.9), average(7, 2), I32(U8(255)) + 1)
 ```
@@ -196,7 +196,7 @@ sub main
 ```
 
 ```rig reject
-sub main
+sub main()
   b = U8(256)
 ```
 
@@ -211,7 +211,7 @@ must be exact, so `a: F32 = 16777217` is rejected; write the
 conversion to accept the rounding.
 
 ```rig
-sub main
+sub main()
   n = 16777217
   print(F32(16777217), F32(n))
 ```
@@ -221,7 +221,7 @@ sub main
 ```
 
 ```rig reject
-sub main
+sub main()
   a: F32 = 16777217
 ```
 
@@ -248,7 +248,7 @@ bytes, and a slice checks only its bounds.
 
 `[N]T` is a fixed-size array. Its length is known at compile time: an
 integer, a constant (`[LIMIT]T`, `[lib.N]T`), a compile-time integer
-parameter (`[n]T` in `fun zeros[n: Int] -> [n]Int`,
+parameter (`[n]T` in `fun zeros[n: Int]() -> [n]Int`,
 [§16](#16-compile-time-parameters)), or arithmetic on integers and
 constants with `+`, `-`, `*`, `/`, `%`, and parentheses
 (`[LIMIT * 2 + 1]U8`). The arithmetic is checked as constant
@@ -279,10 +279,10 @@ two rows of three.
 ```rig
 LIMIT = 4
 
-fun zeros[n: Int] -> [n]Int
+fun zeros[n: Int]() -> [n]Int
   [n of 0]
 
-sub main
+sub main()
   xs = [10, 20, 30]
   xs[0] = 5
   ys: [2]U8 = [1, 2]
@@ -307,10 +307,10 @@ sub main
 fun grow[n: Int](xs: [n + 1]Int) -> Int
   1
 
-fun zeros[n: Int] -> [n]Int
+fun zeros[n: Int]() -> [n]Int
   [0, 0]
 
-sub main
+sub main()
   k = 3
   a: [k]Int = [1, 2, 3]
   b = [-1 of 0]
@@ -356,7 +356,7 @@ fun sums(k: Int) -> Int
   c = [800000 of k]
   a[0] + b[0] + c[0]
 
-sub main
+sub main()
   big = [2000000 of 0]
   print(big.len, sums(1))
 ```
@@ -389,7 +389,7 @@ fun total(xs: []Int) -> Int
     n += x
   n
 
-sub main
+sub main()
   s = "hello, world"
   print(s[0..5], s[7..s.len])
   a = [1, 2, 3, 4]
@@ -405,7 +405,7 @@ world hello [3, 4] 10
 ```
 
 ```rig reject
-sub main
+sub main()
   for i in 0..
     print(i)
 ```
@@ -440,7 +440,7 @@ fun total(xs: []Int) -> Int
 sub zero(s: ![]Int)
   !s.fill(0)
 
-sub main
+sub main()
   a = [1, 2, 3]
   print(total(?a), total([4, 5]), total([3 of 2]))
   !a[..2].copy([7, 8])
@@ -462,7 +462,7 @@ fun total(xs: []Int) -> Int
 fun id(xs: []Int) -> []Int
   xs
 
-sub main
+sub main()
   a = [1, 2, 3]
   print(total(a))
   s: []Int = a
@@ -477,7 +477,7 @@ type mismatch: expected `[]Int`, got `[3]Int`; write `?a` or `?a[..]`
 fun id(xs: []Int) -> []Int
   xs
 
-sub main
+sub main()
   r = id([1, 2])
   print(r)
 ```
@@ -521,7 +521,7 @@ sub scale(s: ![]Int, k: Int)
 fun rest(s: ![]Int) -> ![]Int
   !s[1..]
 
-sub main
+sub main()
   a = [1, 2, 3, 4]
   scale(!a[2..], 10)
   w = !a[..]
@@ -538,7 +538,7 @@ sub main
 ```
 
 ```rig reject
-sub main
+sub main()
   a = [1, 2, 3, 4]
   x = !a[..2]
   y = !a[2..]
@@ -561,7 +561,7 @@ carrying its loan. `copy`'s receiver and argument never overlap:
 the write view of the receiver excludes a read of the same value.
 
 ```rig
-sub main
+sub main()
   a = [1, 2, 3, 4, 5, 6]
   b = [9, 8, 7]
   !a[..3].copy(?b[..])
@@ -596,7 +596,7 @@ sub quicksort(s: ![]Int)
   quicksort(!s[..i])
   quicksort(!s[i + 1..])
 
-sub main
+sub main()
   a = [5, 3, 9, 1, 7]
   quicksort(!a[..])
   print(a)
@@ -607,7 +607,7 @@ sub main
 ```
 
 ```rig reject
-sub main
+sub main()
   a = [1, 2, 3, 4]
   !a[..2].copy(?a[2..])
 ```
@@ -617,7 +617,7 @@ cannot lend `a` to write while a read loan is live
 ```
 
 ```rig reject
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   w = !v[..]
@@ -630,7 +630,7 @@ use of `v` while a write loan is live
 ```
 
 ```rig reject
-sub main
+sub main()
   s = "text"
   t = !s[1..]
   t[0] = 65
@@ -643,7 +643,7 @@ cannot lend a slice of a String to write; a String is read-only
 ### Bytes
 
 Bytes hold fixed-width numbers. `bytes.read[T, e](at)` is the integer
-or float `T` stored in the `@sizeOf(T)` bytes from offset `at`, in byte
+or float `T` stored in the `@size(T)` bytes from offset `at`, in byte
 order `e`, and `!bytes.write[T, e](at, v)` stores `v` there. `T` is any
 integer or float type, or a type parameter every instance gives one;
 `e` is a compile-time value of the built-in enum
@@ -651,14 +651,14 @@ integer or float type, or a type parameter every instance gives one;
 a compile-time parameter; there is no native order). `read` works on a
 `[]U8`, an `![]U8`, a `[N]U8`, a `Vec[U8]`, and a String; `write` on
 the writable ones, written `!bytes` (or an `![]U8` binding). Every byte
-must be in range, `0 <= at` and `at + @sizeOf(T) <= len`: a constant
+must be in range, `0 <= at` and `at + @size(T) <= len`: a constant
 offset into an array is checked at compile time, and any other when the
 program runs, which panics in every build mode when it is not. A float
 is read and written by its bits, so a NaN's payload survives. `Endian`
 is a built-in name, like `Vec`, and is reserved.
 
 ```rig
-sub main
+sub main()
   page: [4096]U8 = [4096 of 0]
   !page.write[U32, .little](0, 0x52494721)
   !page.write[U16, .big](4, 4088)
@@ -676,7 +676,7 @@ sub main
 ```
 
 ```rig reject
-sub main
+sub main()
   b: [8]U8 = [8 of 0]
   print(b.read[U32, .little](6))
   print(b.read[U16, .native](0))
@@ -752,7 +752,7 @@ copy.
 struct Seed unique
   n: Int
 
-sub main
+sub main()
   a = Seed(n: 1)
   b = a
   print(b.n)
@@ -791,7 +791,7 @@ in the order written.
 fun scaled(n: Int, by: Int = 10) -> Int
   n * by
 
-sub main
+sub main()
   print(scaled(n: 3, 2))
   print(scaled(3, n: 4))
 ```
@@ -833,7 +833,7 @@ struct Config
   hits: Cell[Int] = Cell(0)
   verbose: Bool
 
-sub main
+sub main()
   c = Config(verbose: true)
   d = Config(retries: 5, verbose: false)
   !c.tags.push("x")
@@ -873,7 +873,7 @@ struct Counter
     !self.bump()
     self.bump()
 
-sub main
+sub main()
   c = Counter(n: 0)
   !c.twice()
 ```
@@ -912,7 +912,7 @@ struct Tally
       sum += x
     sum
 
-sub main
+sub main()
   t = Tally(seen: Vec())
   !t.seen.push(1)
   added = (!t).insert(2)
@@ -933,7 +933,7 @@ struct Queue
   fun is_empty(?self) -> Bool
     self.items.len == 0
 
-sub main
+sub main()
   q = Queue(items: Vec())
   if !q.is_empty()
     print("items")
@@ -950,7 +950,7 @@ struct Stack
   fun top(?self) -> Int?
     self.items.get(0)
 
-sub main
+sub main()
   s = Stack(items: Vec())
   print(<s.top() ?? 0)
 ```
@@ -967,7 +967,7 @@ struct Tally
     !self.seen.push(k)
     true
 
-sub main
+sub main()
   t = Tally(seen: Vec())
   if !t.insert(1)
     print("added")
@@ -987,7 +987,7 @@ struct Set
     !self.items.push(k)
     true
 
-sub main
+sub main()
   set = Set(items: Vec())
   if (!set).insert(1)
     print("new")
@@ -1017,7 +1017,7 @@ sub add_three(c: !Counter)
   !c.bump()
   !c.bump_twice()
 
-sub main
+sub main()
   c = Counter(n: 0)
   add_three(!c)
   !c.bump()
@@ -1054,7 +1054,7 @@ sub twice(f: sub(!Counter), c: !Counter)
   f(!c)
   f(!c)
 
-sub main
+sub main()
   c = Counter(n: 0)
   twice(Counter.bump, !c)
   get = Counter.get
@@ -1096,7 +1096,7 @@ enum Dir
   north
   east
 
-sub main
+sub main()
   st: Status = .missing
   print(Int(st), U16(Status.ok), U8(Dir.east))
 ```
@@ -1110,7 +1110,7 @@ enum Shape
   dot
   circle(r: Int)
 
-sub main
+sub main()
   s: Shape = .dot
   print(Int(s))
 ```
@@ -1131,7 +1131,7 @@ error NetworkError
   timeout
   refused
 
-sub main
+sub main()
   e: NetworkError = .timeout
   match e
     .timeout => print("timed out")
@@ -1187,7 +1187,7 @@ enum Option[T]
   some(value: T)
   nothing
 
-sub main
+sub main()
   p = Pair(first: 42, second: "answer")
   o: Option[Int] = .some(p.left())
   match o
@@ -1225,7 +1225,7 @@ struct Ring[T, n: Int]
   fun cap(?self) -> Int
     n
 
-sub main
+sub main()
   r = Ring(items: [3 of 0])
   !r.put(7)
   s: Ring[Int, LIMIT * 2] = Ring[Int, 2 + 2](items: [1, 2, 3, 4])
@@ -1240,7 +1240,7 @@ sub main
 struct Flag[on: Bool]
   first: Int
 
-sub main
+sub main()
   v = Vec[Int, Int]()
 ```
 
@@ -1302,7 +1302,7 @@ An integer compile-time value that a parameter's or the result's type
 holds, as an array length (`[n]T`) or a generic type's value argument
 (`Ring[T, n]`), is inferred the same way: `sum([1, 2, 3])` of
 `fun sum[n: Int](xs: [n]Int)` is `sum[3]`, and `a: [3]Int = zeros()`
-of `fun zeros[n: Int] -> [n]Int` is `zeros[3]`. It takes exactly the
+of `fun zeros[n: Int]() -> [n]Int` is `zeros[3]`. It takes exactly the
 length the argument's type has; arguments that give it different ones
 conflict, and the value must fit the parameter's type. Any other
 compile-time value is never inferred, so a function that takes one is
@@ -1336,7 +1336,7 @@ fun sum[n: Int](xs: [n]Int) -> Int
     total += x
   total
 
-fun zeros[n: Int] -> [n]Int
+fun zeros[n: Int]() -> [n]Int
   [n of 0]
 
 fun pick[T](a: T, b: T, first: Bool) -> T
@@ -1344,7 +1344,7 @@ fun pick[T](a: T, b: T, first: Bool) -> T
     return <a
   <b
 
-sub main
+sub main()
   small: U8 = 200
   z: U8 = max(1, 2)
   print(max(3, 7), max(small, 9), max(3, 2.5), max[Float](1, 2), z)
@@ -1368,19 +1368,19 @@ drop 1
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
-fun empty[T] -> Vec[T]
+fun empty[T]() -> Vec[T]
   Vec()
 
 fun id[T](a: T) -> T
   a
 
-fun nothing[T] -> T?
+fun nothing[T]() -> T?
   none
 
 fun half[T](x: T) -> T
   x / 2
 
-sub main
+sub main()
   small: U8 = 200
   v: Vec[Int] = empty()
   !v.push(3)
@@ -1405,7 +1405,7 @@ fun make[T](n: Int) -> Int
 fun both[n: Int](a: [n]Int, b: [n]Int) -> Int
   n
 
-sub main
+sub main()
   n: I32 = 1
   print(max(n, 2.5), make(3))
   z: U8 = max(n, 2)
@@ -1447,7 +1447,7 @@ an instance whose `T` is a float is rejected rather than given `1.5`.
 fun scale[T](x: T) -> T
   x * (3 / 2)
 
-sub main
+sub main()
   print(scale(2), scale(2.0))
 ```
 
@@ -1491,7 +1491,7 @@ fun pick[T](a: T, b: T, first: Bool) -> T
     return <a
   <b
 
-sub main
+sub main()
   t = pick(Track(title: "a"), Track(title: "b"), false)
   print("picked", t.title)
   s = Shelf[*Track](items: Vec())
@@ -1529,7 +1529,7 @@ fun max[T](a: T, b: T) -> T
 fun larger[T](a: ?T, b: !T) -> Bool
   a > b
 
-sub main
+sub main()
   n = 3
   m = 4
   print(larger(?n, !m), max(true, false))
@@ -1562,7 +1562,7 @@ fun twice[T](x: T) -> Pair[T, T]
 fun same[T](x: T) -> T
   x
 
-sub main
+sub main()
   p = twice(Res(n: 1))
   r = Res(n: 2)
   q = same(?r)
@@ -1592,7 +1592,7 @@ struct Point
   x: Int
   y: Int
 
-  fun origin -> Point
+  fun origin() -> Point
     Point(x: 0, y: 0)
 
 enum Color
@@ -1606,7 +1606,7 @@ type Byte = U8
 fun next(b: Byte) -> Int
   Int(b) + 1
 
-sub main
+sub main()
   p = P(x: 3, y: 4)
   o = P.origin()
   c = C.green
@@ -1656,7 +1656,7 @@ names = ["low", "high"]
 fun over(n: Int) -> Bool
   n > limit
 
-sub main
+sub main()
   print(limit, half, names[1], over(12))
 ```
 
@@ -1670,7 +1670,7 @@ needs no `const`, and one written with it is rejected:
 ```rig reject
 const LIMIT = 4
 
-sub main
+sub main()
   print(LIMIT)
 ```
 
@@ -1704,7 +1704,7 @@ amount may be any integer. Each behaves like its operator
 `<<=` panics when bits are lost.
 
 ```rig
-sub main
+sub main()
   x = 100
   x %= 7
   x <<= 3
@@ -1732,7 +1732,7 @@ fun at(i: Int, what: String) -> Int
   print(what)
   i
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(0)
   v[0] = grow(!v)
@@ -1753,7 +1753,7 @@ visible local, parameter, or module-level declaration, and `const x =
 e` always declares. To reuse a name on purpose, write `new`:
 
 ```rig
-sub main
+sub main()
   x = 1
   new x = x + 10
   print(x)
@@ -1770,7 +1770,7 @@ now a string
 const x = e`, which shadows with a fixed local.
 
 ```rig
-sub main
+sub main()
   const limit = 3
   new const limit = limit * 2
   n = 7
@@ -1783,10 +1783,10 @@ sub main
 ```
 
 ```rig reject
-fun total -> Int
+fun total() -> Int
   0
 
-sub main
+sub main()
   total = 5
 ```
 
@@ -1810,7 +1810,7 @@ held only for its `drop` at the end of the scope is fine. Parameters
 are exempt.
 
 ```rig reject
-sub main
+sub main()
   total = 0
   totl = 5
   print(total)
@@ -1864,7 +1864,7 @@ sub bump(c: !Counter)
 sub reset(c: !Counter)
   c = Counter(hits: 0)
 
-sub main
+sub main()
   c = Counter(hits: 5)
   bump(!c)
   print(c.hits)
@@ -1878,7 +1878,7 @@ sub main
 ```
 
 ```rig
-sub main
+sub main()
   n = 1
   w = !n
   w = 5
@@ -1897,7 +1897,7 @@ sub main
 fun slot(a: !Int) -> !Int
   a
 
-sub main
+sub main()
   n = 1
   w = slot(!n)
   w = 5
@@ -1915,7 +1915,7 @@ struct Tally
   sub add(!self, k: Int)
     self.count += k
 
-sub main
+sub main()
   n = 0
   m = 100
   t = Tally(count: !n)
@@ -1962,7 +1962,7 @@ a float is rejected where the body gives a `T` a whole-number division
 (`self.v + 1 / 2`). Unsigned values cannot be negated.
 
 ```rig
-sub main
+sub main()
   x = 7 / 2
   h: Float = 7.0 / 2
   k: Float = 2 * 3
@@ -1974,7 +1974,7 @@ sub main
 ```
 
 ```rig reject
-sub main
+sub main()
   h: Float = 7 / 2
   print(h)
 ```
@@ -2005,7 +2005,7 @@ fun fnv1a(s: String) -> U64
     h *%= 1099511628211
   h
 
-sub main
+sub main()
   a: U8 = 250
   i: I8 = 127
   print(a +% 10, a -% 255, i +% 1, fnv1a("rig"))
@@ -2016,7 +2016,7 @@ sub main
 ```
 
 ```rig reject
-sub main
+sub main()
   x = 1.5
   print(x +% 1.0)
 ```
@@ -2060,7 +2060,7 @@ enum Shape
   dot(at: Point)
   empty
 
-sub main
+sub main()
   a = Point(x: 1, y: 2)
   b = Point(x: 1, y: 2)
   s: Shape = .dot(at: a)
@@ -2083,7 +2083,7 @@ struct Link
   id: Int
   to: *Node
 
-sub main
+sub main()
   a = Link(id: 1, to: *Node(n: 1))
   print(a == a, a < a)
 ```
@@ -2101,7 +2101,7 @@ enum Slot
   held(to: *Node)
   empty
 
-sub main
+sub main()
   s: Slot = .held(to: *Node(n: 1))
   print(s == .empty, s != .empty)
 ```
@@ -2118,7 +2118,7 @@ enum Slot
   held(to: *Node)
   empty
 
-sub main
+sub main()
   s: Slot = .empty
   print(s == .held(to: *Node(n: 1)))
 ```
@@ -2135,7 +2135,7 @@ operand, a binding, an argument) is rejected. It is valid only where a
 `!Bool` is expected, as for an argument to a `flag: !Bool` parameter.
 
 ```rig reject
-sub main
+sub main()
   done = false
   if !done
     print("working")
@@ -2146,7 +2146,7 @@ sub main
 ```
 
 ```rig
-sub main
+sub main()
   a = 7
   print(-7 / 2, -7 % 2, a & 3, a << 2, a ^ 1)
   print(not a == 3, a > 3 and a < 10, false or true)
@@ -2160,7 +2160,7 @@ true true true
 ```
 
 ```rig reject
-sub main
+sub main()
   a = true
   b = a && false
 ```
@@ -2187,7 +2187,7 @@ fun classify(x: Int) -> String
   else
     "zero"
 
-sub main
+sub main()
   n = 5
   label = if n > 3
     doubled = n * 2
@@ -2214,7 +2214,7 @@ would negate a value and discard it.
 struct S
   r: Vec[Int]
 
-sub main
+sub main()
   s = S(r: Vec())
   -s.r
 ```
@@ -2231,13 +2231,13 @@ a line has no use and is rejected, and a function name alone is taken
 for a forgotten call.
 
 ```rig
-sub greet
+sub greet()
   print("hi")
 
-fun pick -> sub()
+fun pick() -> sub()
   greet
 
-sub main
+sub main()
   greet()
   say = pick()
   say()
@@ -2249,10 +2249,10 @@ hi
 ```
 
 ```rig reject
-sub greet
+sub greet()
   print("hi")
 
-sub main
+sub main()
   greet
 ```
 
@@ -2262,10 +2262,42 @@ sub main
 
 ### Builtins
 
-`@name(args)` calls a Zig builtin. `@sizeOf`, `@alignOf`, `@TypeOf`,
-and `@typeName` are safe anywhere; every other builtin needs a `raw`
-block ([§15](#15-raw-code-and-ffi)). Rig type names are translated
-(`@sizeOf(I64)` is 8).
+`@builtin(args)` calls a compiler builtin. Rig's own work anywhere:
+`@size(T)` and `@align(T)` are a type's size and alignment in bytes,
+`@name(T)` is the name the emitted Zig gives it, and `@type(x)`, only
+as the argument of one of these three, is the type of `x`. Rig type
+names are translated (`@size(I64)` is 8).
+
+```rig
+struct P
+  a: I32
+  b: I64
+
+sub main()
+  x: I16 = 5
+  print(@size(I64), @align(P), @size(@type(x)), @name(Int))
+```
+
+```output
+8 8 2 i64
+```
+
+Every other builtin is Zig's, keeps its Zig name, and works only
+inside a `raw` block ([§15](#15-raw-code-and-ffi)): the casts
+`@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`,
+`@floatFromInt`, and `@fromBackingInt`, and Zig's names for Rig's
+four, `@sizeOf`, `@alignOf`, `@typeName`, and `@TypeOf`, which mean
+what Rig's do. Rig's names work inside `raw` too. Outside it, Zig's
+name for one of Rig's is rejected, with the call to write:
+
+```rig reject
+sub main()
+  print(@sizeOf(I64))
+```
+
+```error
+write `@size(I64)`: Rig's builtin is `@size`; Zig's `@sizeOf` works only inside `raw`
+```
 
 ---
 
@@ -2320,7 +2352,7 @@ fun all(v: ?Vec[Int]) -> ([]Int)?
     return ?v[..]
   none
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0
@@ -2359,7 +2391,7 @@ sub find(xs: ?[4]Int, target: Int)
   else
     print("not found")
 
-sub main
+sub main()
   total = 0
   for i in 0..5
     total += i
@@ -2397,7 +2429,7 @@ struct B
 sub keep(b: *B)
   print("kept", b.n)
 
-sub main
+sub main()
   xs = [1, 2, 3]
   for x in !xs
     x *= 10
@@ -2438,10 +2470,10 @@ is bound to a name first:
 struct H
   items: Vec[Text]
 
-fun mk -> H
+fun mk() -> H
   H(items: Vec())
 
-sub main
+sub main()
   a: Vec[Int] = Vec()
   b: Vec[Int] = Vec()
   for e in ?(a if a.len > 0 else b)
@@ -2465,7 +2497,7 @@ may name a label too ([§12](#the-fallback-of-)). A label may repeat an
 enclosing one's name; the innermost is meant.
 
 ```rig reject
-sub main
+sub main()
   n = 3
   :done if n > 1
     print(n)
@@ -2522,7 +2554,7 @@ fun describe(s: Shape) -> String
     .circle(_), .square(_) => "small shape"
     .point => "point"
 
-sub main
+sub main()
   print(describe(.circle(r: 20)), describe(.square(s: 1)), describe(.point))
   match 4
     1, 2, 3 => print("low")
@@ -2546,7 +2578,7 @@ fun size(n: U8) -> String
     10..100 => "medium"
     100..256 => "large"
 
-sub main
+sub main()
   print(size(5), size(42), size(200))
   match 7
     1 => print("one")
@@ -2606,7 +2638,7 @@ enum Slot
 sub keep(b: *B)
   print("kept", b.n)
 
-sub main
+sub main()
   s: Slot = .full(b: *B(n: 1), uses: 0)
   match !s
     .full(_, uses) => uses += 1
@@ -2641,7 +2673,7 @@ enum Slot
 sub keep(b: *B)
   print("kept", b.n)
 
-sub main
+sub main()
   s: Slot = .full(b: *B(n: 1))
   match s
     .full(b) => keep(<b)
@@ -2671,7 +2703,7 @@ fun name(e: ?E) -> String
     .a(r) => ?r.t
     .b(r) => ?r.t
 
-sub main
+sub main()
   e = E.a(r: Res(n: 1, t: Text("hi")))
   print(name(?e), inner(?e).n)
 ```
@@ -2688,7 +2720,7 @@ body, an `if` branch, or a function body. It has no value, so a match
 arm, branch, or block whose value is used cannot end with it.
 
 ```rig
-sub main
+sub main()
   n = 4
   match n % 2
     0 => print("even")
@@ -2710,7 +2742,7 @@ fun sign(n: Int) -> Int
     0 => pass
     _ => 1
 
-sub main
+sub main()
   print(sign(0))
 ```
 
@@ -2723,7 +2755,7 @@ sub main
 `defer stmt` (or `defer` with a block) runs when the enclosing block
 exits, in reverse order of the defers. `errdefer` runs only when the
 function exits with an error, so it is written only where one can: in
-a `fun ... -> T!`, a `sub f()!`, `sub main`, a closure whose type can
+a `fun f() -> T!`, a `sub f()!`, `sub main()`, a closure whose type can
 fail, or a test. In a function, closure, or `drop` body that cannot
 fail, or inside deferred code, it is rejected: write `defer`. A deferred body may not move or drop
 outer bindings, or propagate with `!`. It runs after the values declared
@@ -2732,7 +2764,7 @@ one-line `defer` or `errdefer` cannot declare a name; a deferred block
 can.
 
 ```rig reject
-sub main
+sub main()
   s = 1
   defer t = s
   print(s)
@@ -2747,7 +2779,7 @@ sub log(n: Int)
   errdefer print("failed")
   print(n)
 
-sub main
+sub main()
   log(1)
 ```
 
@@ -2780,7 +2812,7 @@ is assigned again. Of a field or element, `<` takes an optional one and
 rejects any other ([Moves](#moves)).
 
 ```rig reject
-sub main
+sub main()
   n = 1
   m = <n
   print(n)
@@ -2816,7 +2848,7 @@ it is lent to read where it is ([Lending](#lending)).
 struct Wrap
   n: Int
 
-sub main
+sub main()
   a = *Wrap(n: 1)
   b = a
 ```
@@ -2843,7 +2875,7 @@ a view: lend it on, as `?T` or `!T`.
 fun slot(a: !Int) -> !Int
   a
 
-sub main
+sub main()
   n = 4
   m: Int = slot(!n)
   print(slot(!n) + slot(!n), Float(slot(!n)), m)
@@ -2877,7 +2909,7 @@ fun make(id: Int) -> Packet
   p = Packet(id: id)
   p
 
-sub main
+sub main()
   p = make(1)
   send(<p)
   p = make(2)      # reassigning makes `p` usable again
@@ -2902,7 +2934,7 @@ struct Packet
 sub send(p: Packet)
   print(p.payload)
 
-sub main
+sub main()
   p = Packet(payload: 42)
   send(<p)
   print(p.payload)
@@ -2924,7 +2956,7 @@ struct Wrap
 sub eat(b: *Wrap)
   print(b.n)
 
-sub main
+sub main()
   b = *Wrap(n: 1)
   i = 0
   while i < 2 : i += 1
@@ -2954,7 +2986,7 @@ part is moved where it is: `<a if c else <b`, `(<o)?`.
 struct P
   n: Int
 
-sub main
+sub main()
   p = P(n: 1)
   m = <p.n
   print(m, p.n)
@@ -3020,7 +3052,7 @@ sub run(early: Bool)
     print("dropped b early")
   print("end of run")
 
-sub main
+sub main()
   run(true)
   run(false)
 ```
@@ -3065,7 +3097,7 @@ fun balance_of(a: ?Account) -> Int
 sub deposit(a: !Account, n: Int)
   a.balance += n
 
-sub main
+sub main()
   acct = Account(balance: 100)
   deposit(!acct, 50)
   print(balance_of(?acct), balance_of(acct))
@@ -3129,7 +3161,7 @@ sub grow(b: !Wrap)
   b.n += 1
   print(b.n)
 
-sub main
+sub main()
   grow(!Wrap(n: 1))
   print(!Wrap(n: 5).next())
 ```
@@ -3146,7 +3178,7 @@ struct Wrap
 fun first(b: !Wrap) -> !Int
   !b.n
 
-sub main
+sub main()
   w = first(!Wrap(n: 1))
   print(w)
 ```
@@ -3174,7 +3206,7 @@ struct Tally
 sub peek(t: ?Tally)
   t.count += 1
 
-sub main
+sub main()
   n = 0
   t = Tally(count: !n)
   peek(?t)
@@ -3197,7 +3229,7 @@ so `w = !n` then `w += n` is rejected.
 struct User
   name: String
 
-sub main
+sub main()
   u = User(name: "ada")
   r = ?u
   w = !u
@@ -3238,7 +3270,7 @@ struct Wrap
 struct View
   box: ?Wrap
 
-sub main
+sub main()
   x = Wrap(n: 1)
   r = ?x
   print(r.n)
@@ -3262,7 +3294,7 @@ struct Wrap
   sub bump(!self)
     self.n += 1
 
-sub main
+sub main()
   x = Wrap(n: 1)
   r = ?x
   i = 0
@@ -3303,7 +3335,7 @@ fun bump(p: !P) -> Int
   p.x += 1
   p.x
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(v.len)
   print(v.len, grow(!v), v)
@@ -3330,7 +3362,7 @@ fun grow(t: !Text) -> Text
   !t.add("more")
   Text("x")
 
-sub main
+sub main()
   a = Text("a")
   print(a == grow(!a))
 ```
@@ -3357,7 +3389,7 @@ fun grow(v: !Vec[P]) -> Int
 sub set(n: !Int)
   n = 9
 
-sub main
+sub main()
   ps: Vec[P] = Vec()
   !ps.push(P(a: [1, 2, 3, 4]))
   set(!ps[0].a[grow(!ps)])
@@ -3426,7 +3458,7 @@ fun pick(a: ?Wrap, b: ?Wrap, first: Bool) -> ?Wrap
   else
     b
 
-sub main
+sub main()
   x = Wrap(payload: 1)
   y = Wrap(payload: 2)
   r = pick(?x, ?y, false)
@@ -3448,7 +3480,7 @@ struct Wrap
 fun first(a: ?Wrap, b: ?Wrap) -> ?Wrap
   a
 
-sub main
+sub main()
   x = Wrap(payload: 1)
   y = Wrap(payload: 2)
   r = first(?x, ?y)
@@ -3469,7 +3501,7 @@ struct Bag
     self.taken += 1
     ?self.items[..1]
 
-sub main
+sub main()
   b = Bag(items: Vec(), taken: 0)
   !b.items.push(4)
   r = !b.take()
@@ -3511,7 +3543,7 @@ struct B
 fun size(s: String) -> Int
   s.len
 
-sub main
+sub main()
   a = B(n: 2)
   b = B(n: 3)
   print(B(n: 1), size(?Text("four")))
@@ -3535,10 +3567,10 @@ struct Log
   fun count(?self) -> Int
     self.lines.len
 
-fun make -> Log
+fun make() -> Log
   Log(lines: Vec())
 
-sub main
+sub main()
   print(make().count(), make().lines.len)
 ```
 
@@ -3560,7 +3592,7 @@ struct Counter
   sub bump(!self)
     self.n += 1
 
-sub main
+sub main()
   Counter(n: 1).bump()
 ```
 
@@ -3581,13 +3613,13 @@ struct Counter
   fun at(!self) -> !Int
     !self.n
 
-fun counter -> Counter
+fun counter() -> Counter
   Counter(n: 1, log: Vec())
 
 sub add(n: !Int, k: Int)
   n += k
 
-sub main
+sub main()
   !counter().bump()
   print(!counter().bump(), counter().log.len)
   add(!counter().at(), 10)
@@ -3621,7 +3653,7 @@ that name's value, so it is rejected: lend each branch, `?a if c else
 ```rig
 use std.text
 
-sub main
+sub main()
   print(text.trim(?Text("  padded  ")) == "padded")
   n = text.find(?Text("abc"), "b") ?? -1
   if text.starts_with(?Text("x", n), "x1")
@@ -3643,7 +3675,7 @@ use std.text
 struct S
   n: Int
 
-sub main
+sub main()
   r = ?S(n: 1)
   s = text.trim(?Text(" a "))
   print(r.n, s)
@@ -3665,7 +3697,7 @@ the argument to a name first: `i = idx(?t)`, then `if !arr[i] as n`.
 fun idx(s: ?Text) -> Int
   s.len - 1
 
-sub main
+sub main()
   arr: [1]Int? = [1]
   if !arr[idx(?Text("a"))] as n
     n = 50
@@ -3680,7 +3712,7 @@ this header binds a copy of its subject, since a temporary it makes ends with th
 fun idx(s: ?Text) -> Int
   s.len - 1
 
-sub main
+sub main()
   arr: [1]Int? = [1]
   i = idx(?Text("a"))
   if !arr[i] as n
@@ -3709,7 +3741,7 @@ struct S
   fun name(?self) -> String
     ?self.t
 
-sub main
+sub main()
   a = S(t: Text("aa"))
   b = S(t: Text("bb"))
   n = (a if a.t.len > 1 else b).name()
@@ -3727,7 +3759,7 @@ struct S
   fun name(?self) -> String
     ?self.t
 
-sub main
+sub main()
   a = S(t: Text("aa"))
   b = S(t: Text("bb"))
   n = (a if a.t.len > 1 else b).name()
@@ -3793,7 +3825,7 @@ struct Stack
       prev = <n
     self.top = <prev
 
-sub main
+sub main()
   s = Stack(top: none)
   for v in [1, 2, 3]
     !s.push(v)
@@ -3819,7 +3851,7 @@ struct Pair
   left: String
   right: String
 
-sub main
+sub main()
   p = Pair(left: "a", right: "b")
   swap(!p.left, !p.right)
   old = replace(!p.left, "c")
@@ -3835,7 +3867,7 @@ Two elements of one collection are not two places: `swap(!a[i],
 own `swap`, which exchanges them ([§2](#slices)):
 
 ```rig reject
-sub main
+sub main()
   a = [1, 2, 3]
   swap(!a[0], !a[2])
   print(a)
@@ -3870,7 +3902,7 @@ struct File
   drop(!self)
     print("closing", self.fd)
 
-sub main
+sub main()
   f = File(fd: 3)
   print("using", f.fd)
 ```
@@ -3901,7 +3933,7 @@ struct Pair
   drop(!self)
     print("pair")
 
-sub main
+sub main()
   p = Pair(a: *Noisy(id: 1), b: *Noisy(id: 2))
   print("built")
 ```
@@ -3943,7 +3975,7 @@ struct User
   drop(!self)
     print("released", self.name)
 
-sub main
+sub main()
   a = *User(name: "ada")
   b = +a
   -a
@@ -3983,7 +4015,7 @@ is rejected, because other handles share it, so `!h.push(x)` through a
 struct User
   age: Int
 
-sub main
+sub main()
   u = *User(age: 1)
   u.age = 2
 ```
@@ -4011,7 +4043,7 @@ sub show(w: ?~Node)
   else
     print("gone")
 
-sub main
+sub main()
   rc = *Node(id: 7)
   w = ~rc
   show(?w)
@@ -4094,7 +4126,7 @@ struct Counter
 sub bump(c: ?Cell[Int])
   c.set(c.get() + 10)
 
-sub main
+sub main()
   count: *Cell[Int] = *Cell(0)
   other = +count
   other.set(other.get() + 5)
@@ -4156,7 +4188,7 @@ one: it can be read, called, and cloned (`+x` is a new handle), but not
 moved, dropped, or stored.
 
 ```rig
-sub main
+sub main()
   total: *Cell[Int] = *Cell(0)
   steps: Vec[*sub()] = Vec()
   !steps.push(*|+total| total.set(total.get() + 1))
@@ -4176,7 +4208,7 @@ sub main
 ```
 
 ```rig
-sub main
+sub main()
   v: Vec[String] = Vec()
   !v.push("b")
   !v.insert(0, "a")
@@ -4200,7 +4232,7 @@ struct B
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   ps: Vec[P] = Vec()
   !ps.push(P(x: 1, y: 2))
   ps[0].y = 5
@@ -4265,7 +4297,7 @@ fun eval(e: ?Box[Expr]) -> Int
 fun num(n: Int) -> Box[Expr]
   Box(.num(n))
 
-sub main
+sub main()
   e = Box(Expr.add(l: num(2), r: num(3)))
   print(eval(?e))
 ```
@@ -4298,7 +4330,7 @@ sub walk(slot: ?Box[Node]?)
     print(n.key)
     walk(?n.right)
 
-sub main
+sub main()
   root: Box[Node]? = none
   for k in [5, 2, 8, 1]
     insert(!root, k)
@@ -4347,7 +4379,7 @@ struct Point
   x: Int
   y: Float
 
-sub main
+sub main()
   t = Text("n=", 42, " p=", Point(x: 1, y: 2.5))
   !t.add(" ok=", true, " ", ["a", "b"])
   print(t)
@@ -4394,7 +4426,7 @@ fun first_word(s: String) -> String
 struct Entry
   name: String
 
-sub main
+sub main()
   t = Text("hello world")
   w = first_word(?t)
   e = Entry(name: ?t[6..])
@@ -4415,11 +4447,11 @@ hello world!
 fun first_word(s: String) -> String
   s[..5]
 
-fun local -> String
+fun local() -> String
   t = Text("gone")
   ?t[..]
 
-sub main
+sub main()
   t = Text("hello world")
   w = first_word(?t)
   !t.add("!")
@@ -4448,7 +4480,7 @@ holds views keeps their Texts lent until its last use, not until it is
 dropped, since dropping it reads none of them.
 
 ```rig
-sub main
+sub main()
   owned: Vec[Box[Text]] = Vec()
   !owned.push(Box(Text("one")))
   !owned.push(Box(Text("two")))
@@ -4469,7 +4501,7 @@ a b!
 sub keep(c: ?Cell[String], s: String)
   c.set(s)
 
-sub main
+sub main()
   c = Cell("")
   keep(?c, "a")
 ```
@@ -4497,7 +4529,7 @@ subscriber panics. A subscriber that reads its own signal must capture
 it weakly, or the signal and its subscriber keep each other alive.
 
 ```rig
-sub main
+sub main()
   sig: *Signal[Int] = *Signal(0)
   sig.subscribe(*|~sig|
     if sig.upgrade() as s
@@ -4529,7 +4561,7 @@ sigils that would capture it, because the spelling alone decides what
 an entry is:
 
 ```rig reject
-sub main
+sub main()
   n = 1
   f = |n| n + 1
 ```
@@ -4574,7 +4606,7 @@ closure lives, `x` follows the aliasing rule
 again.
 
 ```rig
-sub main
+sub main()
   total = 0
   names = ["ada", "bob"]
   add = |!total, ?names, k: Int| total += k * names.len
@@ -4596,7 +4628,7 @@ copy or clone an outer capture (`|+x|`) or hold it weakly (`|~x|`), but
 not move it (`|<x|`), since the outer closure may run again.
 
 ```rig
-sub main
+sub main()
   total: *Cell[Int] = *Cell(0)
   add = |+total, k: Int|
     step = |+total, +k| total.set(total.get() + k)
@@ -4638,7 +4670,7 @@ fun apply(f: fun(Int) -> Int, x: Int) -> Int
 fun twice(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   add: fun(Int, Int) -> Int = |a, b| a + b
   clamp = |x: Int|
     return 100 if x > 100
@@ -4668,7 +4700,7 @@ shared handle, so `~f` makes a weak handle to it, which upgrades like
 any other ([§9](#weak-handles)).
 
 ```rig
-sub main
+sub main()
   f: *fun(Int) -> Int = *|a| a + 1
   w: ~fun(Int) -> Int = ~f
   if w.upgrade() as g
@@ -4693,7 +4725,7 @@ rejected; make it owned instead. A closure binding is fixed and cannot
 be copied or moved; `?f` lends it.
 
 ```rig reject
-fun make -> fun() -> Int
+fun make() -> fun() -> Int
   n = 1
   |+n| n
 ```
@@ -4737,7 +4769,7 @@ sub each(xs: ?Vec[Int], f: ?sub(Int))
 fun double(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)
@@ -4777,7 +4809,7 @@ takes:
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-sub main
+sub main()
   print(apply(*|a| a + 1, 2))
 ```
 
@@ -4792,7 +4824,7 @@ sub each(xs: ?Vec[Int], f: ?sub(Int))
   for x in xs
     f(x)
 
-sub main
+sub main()
   c: Vec[Int] = Vec()
   each(?c, |!c, n|
     !c.push(n))
@@ -4816,7 +4848,7 @@ fun make_counter(start: Int) -> *fun(Int) -> Int
     count.set(count.get() + step)
     count.get()
 
-sub main
+sub main()
   next = make_counter(100)
   print(next(1), next(10))
   handlers: Vec[*fun(Int) -> Int] = Vec()
@@ -4878,7 +4910,7 @@ fun describe(m: Int?) -> Int
   else
     0
 
-sub main
+sub main()
   print(positive(3) ?? 0, positive(-1) ?? 0)
   print(describe(4), describe(none), positive(-5) == none)
 ```
@@ -4906,7 +4938,7 @@ fun find(id: Int) -> User?
 fun boss_name(id: Int) -> String?
   find(find(id)?.boss?)?.name
 
-sub main
+sub main()
   print(boss_name(1), boss_name(2), boss_name(3))
 ```
 
@@ -4949,7 +4981,7 @@ fun peek(o: ?Res?) -> Int
   else
     0
 
-sub main
+sub main()
   m: Res? = Res(n: 1)
   grow(!m)
   print(peek(?m))
@@ -4969,7 +5001,7 @@ drop 12
 struct User
   name: String
 
-sub main
+sub main()
   u: User? = none
   print(u.name)
 ```
@@ -5005,7 +5037,7 @@ fun sum(a: Int, b: Int) -> Int
   else
     0
 
-sub main
+sub main()
   print(sum(1, 2), sum(2, 1), sum(0, 2))
   xs: Vec[Int] = Vec()
   for n in 1..6
@@ -5025,7 +5057,7 @@ sub main
 fun get(k: Int) -> Int?
   k if k > 0 else none
 
-sub main
+sub main()
   if get(1) as x or true
     print(1)
 ```
@@ -5070,7 +5102,7 @@ fun index_of(xs: ?Vec[Int], k: Int) -> Int!
   i = find(xs, k) ?? return E.missing
   i + 1
 
-sub main
+sub main()
   xs: Vec[Int] = Vec()
   for n in 1..4
     !xs.push(n * 10)
@@ -5097,7 +5129,7 @@ must say what happens to the failure, visibly:
 
 - `f()!` propagates it: the enclosing function fails with the same
   error. The enclosing function must itself return a `T!`, be a
-  fallible `sub`, or be the top-level `sub main` or a `test`. A failure
+  fallible `sub`, or be the top-level `sub main()` or a `test`. A failure
   that leaves `main` ends the program after `main`'s drops: it writes
   `error: E.name` to stderr and exits with status 1.
 - `f() catch fallback` handles it: the value of the call, or `fallback`
@@ -5130,7 +5162,7 @@ sub each(xs: []String, f: ?sub(String)!)!
   for x in xs
     f(x)!
 
-sub main
+sub main()
   total = Cell(0)
   each(["ab", "c"], |!total, l| total.set(total.get() + parse(l)!))!
   each(["ab", ""], |!total, l| total.set(total.get() + parse(l)!)) catch |e| print("failed", e)
@@ -5151,7 +5183,7 @@ sub save(n: Int, used: !Int)!
   used += 1
   print("saved", n)
 
-sub main
+sub main()
   used = 0
   save(1, !used)!
   save(2, !used)!
@@ -5172,7 +5204,7 @@ fun parse_len(s: String) -> Int!
 fun double_len(s: String) -> Int!
   parse_len(s)! * 2
 
-sub main
+sub main()
   print(double_len("four")!)
   print(parse_len("abc") catch 0)
 ```
@@ -5186,7 +5218,7 @@ sub main
 fun parse_len(s: String) -> Int!
   s.len
 
-sub main
+sub main()
   n = parse_len("abc")
 ```
 
@@ -5208,7 +5240,7 @@ fun size(s: String) -> Int
   n = parse(s) catch return -1
   n * 10
 
-sub main
+sub main()
   seen = 0
   for w in ["a", "bb", "x", "dddd"]
     seen += parse(w) catch break
@@ -5240,7 +5272,7 @@ error Bad
 fun half(n: Int) -> Int!
   return n / 2 if n % 2 == 0 else Bad.odd
 
-sub main
+sub main()
   print(half(4) catch -1, half(3) catch -1)
 ```
 
@@ -5267,7 +5299,7 @@ fun pick(n: Int) -> Color!
   return .missing if n == 0
   .red
 
-sub main
+sub main()
   print(pick(1) catch .red, pick(0) catch .red, pick(-1) catch .red)
 ```
 
@@ -5326,7 +5358,7 @@ fun describe(s: String) -> String
       _ => return "too long"
   "length ok" if n > 2 else "short"
 
-sub main
+sub main()
   print(parse_len("abc") catch -1, parse_len("") catch -1)
   print(describe(""), describe("abcdefg"), describe("abcd"))
   x = parse_len("") catch |err|
@@ -5365,7 +5397,7 @@ fun describe(n: Int) -> String
       _ => return "other"
   "ok"
 
-sub main
+sub main()
   print(describe(1), describe(2), describe(3), describe(4))
   x = fetch(2) catch |err|
     print(err, err == Net.timeout, err == Disk.timeout)
@@ -5389,7 +5421,7 @@ error Disk
 fun fetch() -> Int!
   return Disk.timeout
 
-sub main
+sub main()
   n = fetch() catch |err| 1 if err == .timeout else 2
   print(n)
 ```
@@ -5443,7 +5475,7 @@ pub enum Dir
   north
   east
 
-pub fun origin -> Point
+pub fun origin() -> Point
   Point(x: 0, y: 0)
 ```
 
@@ -5453,7 +5485,7 @@ use geo
 fun total(p: ?geo.Point) -> Int
   p.sum()
 
-sub main
+sub main()
   p: geo.Point = geo.Point(x: 1, y: 2)
   q = geo.Point.at(3, 4)
   d = geo.Dir.east
@@ -5477,7 +5509,7 @@ pub fun twice(n: Int) -> Int
 use std.math
 use math as mine
 
-sub main
+sub main()
   print(math.gcd(12, 18), mine.twice(4))
 ```
 
@@ -5494,7 +5526,7 @@ pub fun twice(n: Int) -> Int
 use std.math
 use math
 
-sub main
+sub main()
   print(math.twice(4))
 ```
 
@@ -5537,7 +5569,7 @@ pub fun open(owner: String) -> Account
 ```rig
 use bank
 
-sub main
+sub main()
   a = bank.open("ada")
   print(a.owner, a.total())
 ```
@@ -5563,7 +5595,7 @@ pub struct Account
 ```rig reject
 use bank
 
-sub main
+sub main()
   a = bank.Account(owner: "bo", balance: 5)
   a.audit()
   print(a.balance, a.total())
@@ -5605,7 +5637,7 @@ use boxes
 fun unbox(b: ?boxes.Wrap[Int]) -> Int
   b.get()
 
-sub main
+sub main()
   b = boxes.Wrap[Int](v: 3)
   s = boxes.Wrap(v: "s")
   print(unbox(?b), s.get(), boxes.larger(2, 7), boxes.larger[Float](1, 2))
@@ -5623,7 +5655,7 @@ pub fun mean[T](a: T, b: T) -> T
 ```rig reject
 use stats
 
-sub main
+sub main()
   print(stats.mean(4, 6), stats.mean("a", "b"))
 ```
 
@@ -5646,7 +5678,8 @@ reported.
 A `raw` block is the boundary of what the checker guarantees. Inside
 it, and only there, a program may:
 
-- call a builtin outside the safe list (`@intCast`, `@bitCast`, ...);
+- call one of Zig's builtins (`@intCast`, `@bitCast`, ...;
+  [§5](#builtins));
 - call an `extern` function.
 
 An `extern` function can only be called; it cannot be bound, passed,
@@ -5663,7 +5696,7 @@ fun safe_abs(n: I32) -> I32
   raw
     abs(n)
 
-sub main
+sub main()
   x: Int = 300
   raw
     small: U8 = @intCast(x - 100)
@@ -5685,7 +5718,7 @@ only through `pub` wrappers.
 ```rig reject
 extern fun abs(n: I32) -> I32
 
-sub main
+sub main()
   print(abs(-5))
 ```
 
@@ -5718,7 +5751,7 @@ sets' members. Its failures are errors like any other
 ```rig
 use std.text
 
-sub main
+sub main()
   n = text.parse_int("12x") catch |err|
     print(err, err == text.ParseError.invalid)
     0
@@ -5736,7 +5769,7 @@ Only the standard library may declare a Zig-backed function:
 extern zig "fast.zig"
   pub fun twice(n: Int) -> Int
 
-sub main
+sub main()
   print(twice(2))
 ```
 
@@ -5807,13 +5840,13 @@ fun check[mode: Mode](n: Int) -> Bool
 fun either[mode: Mode](a: Int, b: Int) -> Bool
   check[mode](a) or check[mode](b)
 
-sub show[n: Int]
+sub show[n: Int]()
   print(n * 2)
 
 sub tag[T, loud: Bool](x: T)
   print(x, loud)
 
-sub main
+sub main()
   print(check[.strict](5), check[.loose](5), either[.strict](3, 12))
   show[4]()
   show[LIMIT * 2]()
@@ -5828,13 +5861,13 @@ x true
 ```
 
 ```rig reject
-sub show[n: Int]
+sub show[n: Int]()
   print(n)
 
-sub outer[n: Int]
+sub outer[n: Int]()
   show[n + 1]()
 
-sub main
+sub main()
   k = 3
   show[k]()
   outer[1]()
@@ -5884,7 +5917,7 @@ enum Shape
   circle(r: Float)
   rect(w: Int, h: Int)
 
-sub main
+sub main()
   u = User(name: "ada", age: 36)
   n: Int? = none
   print(u, n, ["a", "b"], 2.5, 2.0)
@@ -5930,7 +5963,7 @@ The rest parse, and the checker rejects them as not supported yet
 | a payload field bound by name, `.rect(w: a, h: b)` | `` binding a payload field by name is not supported yet `` |
 
 ```rig reject
-sub main
+sub main()
   zig "return;"
 ```
 

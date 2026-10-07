@@ -4,7 +4,7 @@ error E
 struct S
   v: Vec[Int]
 
-fun mk -> S
+fun mk() -> S
   v: Vec[Int] = Vec()
   !v.push(7)
   S(v: <v)
@@ -14,7 +14,7 @@ fun get(f: Bool) -> Vec[Int]!
     return E.bad
   Vec[Int]()
 
-sub main
+sub main()
   x = <(get(true) catch mk().v)
   print(x.len)
 

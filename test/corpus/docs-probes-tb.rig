@@ -10,7 +10,7 @@ fun get(s: ?S) -> Int
 fun keep(s: ?S) -> ?S
   s
 
-sub main
+sub main()
   print(get(?S(n: 1)))
   v = V(s: ?S(n: 2))
   r = ?S(n: 3)

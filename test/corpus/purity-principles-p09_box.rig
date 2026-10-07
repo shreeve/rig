@@ -10,7 +10,7 @@ fun read(p: ?P) -> Int
 sub write(p: !P)
   p.x += 10
 
-sub main
+sub main()
   b = Box(P(x: 1))
   b.x = 5
   !b.bump()

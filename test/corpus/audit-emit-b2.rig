@@ -2,7 +2,7 @@ enum E
   a = 1
   b = 4294967295
 
-sub main
+sub main()
   print(E.a, Int(E.b))
   x = E.b
   print(U32(x), I64(x))

@@ -2,6 +2,7 @@ struct P
   x: Int
   sub set(!self, s: []Int)
     self.x = s[0]
+
 sub main()
   a = [1, 2, 3]
   p = P(x: 0)

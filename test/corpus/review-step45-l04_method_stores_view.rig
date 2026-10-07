@@ -5,7 +5,7 @@ struct Bag
   sub add(!self, s: String)
     !self.items.push(s)
 
-sub main
+sub main()
   b = Bag(items: Vec())
   t = Text("x")
   !b.add(?t)

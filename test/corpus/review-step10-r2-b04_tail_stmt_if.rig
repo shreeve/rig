@@ -28,7 +28,7 @@ fun f(d: ?Q, c: Bool) -> ?Q from d
   else
     d
 
-sub main
+sub main()
   d = Q(c: Cell(0), n: 0)
   r = f(?d, true)
   print(clobber(1))

@@ -1,5 +1,6 @@
 struct H
   w: !Vec[Int]
+
 sub main()
   v: Vec[Int] = Vec()
   !v.push(1)

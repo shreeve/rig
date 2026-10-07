@@ -45,7 +45,7 @@ sub rank(xs: !Vec[Entry])
     while j > 0 and xs[j - 1].count < xs[j].count : j -= 1
       !xs.swap(j - 1, j)
 
-sub main
+sub main()
   counts = tally(TEXT)
   rank(!counts)
   for e in ?counts[..3]

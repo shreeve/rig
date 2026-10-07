@@ -8,7 +8,7 @@ fun odd(i: Int) -> Int?
 fun some(i: Int) -> Int?
   i if i < 10 else none
 
-sub main
+sub main()
   steps = 0
   i = 0
   while some(odd(i) ?? continue) as h: steps += h

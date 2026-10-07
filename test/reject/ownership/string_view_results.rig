@@ -27,7 +27,7 @@ struct Split
 fun split(s: String) -> Split
   Split(rest: s)
 
-sub main
+sub main()
   t = Text("abc")
   a = trim(?t)
   !t.add("x")

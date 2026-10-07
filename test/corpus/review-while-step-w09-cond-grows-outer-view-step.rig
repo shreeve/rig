@@ -5,7 +5,7 @@ fun grow(v: !Vec[Int]) -> Bool
   !v.push(1)
   v.len < 40
 
-sub main
+sub main()
   w: Vec[Int] = Vec()
   !w.push(1)
   s = ?w[..]

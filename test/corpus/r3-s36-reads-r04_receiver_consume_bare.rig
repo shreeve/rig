@@ -4,6 +4,6 @@ struct T
   fun total(<self) -> Int
     self.seen.len
 
-sub main
+sub main()
   t = T(seen: Vec())
   print(t.total())

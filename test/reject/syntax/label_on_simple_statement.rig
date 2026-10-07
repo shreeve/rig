@@ -1,6 +1,6 @@
 # A label on a simple statement would do nothing, so it is rejected.
 
-sub main
+sub main()
   :c print(5)
   n = 1
   :d n += 1

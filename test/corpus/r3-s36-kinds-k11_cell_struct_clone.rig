@@ -1,7 +1,7 @@
 struct Counter
   hits: Cell[Int]
 
-sub main
+sub main()
   a = Counter(hits: Cell(0))
   b = +a
   b.hits.set(5)

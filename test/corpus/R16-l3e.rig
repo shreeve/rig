@@ -4,7 +4,7 @@ struct Wrap
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   v: Vec[Wrap] = Vec()
   !v.push(Wrap(n: 1))
   f = |!v, n: Int|

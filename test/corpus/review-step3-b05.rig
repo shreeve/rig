@@ -1,7 +1,7 @@
 sub seti(a: !Int, b: Int)
   a += b
 
-sub main
+sub main()
   n = 2
   seti(!n, n)
   print(n)

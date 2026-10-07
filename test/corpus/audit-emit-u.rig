@@ -3,10 +3,10 @@ struct R
   drop(!self)
     print("drop R", self.n)
 
-fun mk -> R
+fun mk() -> R
   R(n: 9)
 
-sub main
+sub main()
   a = R(n: 1)
   h = *R(n: 2)
   Vec[Int]()

@@ -10,6 +10,6 @@ struct R
 struct S
   b: Box[R]
 
-sub main
+sub main()
   s = S(b: Box(value: R(n: 1)))
   print(<s.b.eat())

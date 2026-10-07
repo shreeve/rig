@@ -10,6 +10,6 @@ h = H(w: !x)
 sub put(k: Int)
   h.w = V(r: ?k)
 
-sub main
+sub main()
   put(4)
   print(x.r)

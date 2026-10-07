@@ -1,6 +1,6 @@
 # `|+r|` deep-clones a Vec of slices through a view: the clone keeps
 # the slices' loan on `a`, not the view's loan on `x`.
-sub main
+sub main()
   a = [1, 2, 3]
   x: Vec[[]Int] = Vec()
   !x.push(?a[..2])

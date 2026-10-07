@@ -26,26 +26,26 @@ fun both2(b: Vec[Int]?, a: ?S) -> Int
     n += x.len
   n
 
-sub one
+sub one()
   s = S(o: mkv(1))
   print(both(?s.o, <s.o))
 
-sub two
+sub two()
   s = S(o: mkv(1))
   print(both2(<s.o, ?s))
 
-sub three
+sub three()
   s = S(o: mkv(1))
   !s.set(<s.o)
   print(s.o == none)
 
-sub four
+sub four()
   v: Vec[Vec[Int]?] = Vec()
   !v.push(mkv(1))
   !v.push(<v[0])
   print(v.len, v[0] == none)
 
-sub main
+sub main()
   one()
   two()
   three()

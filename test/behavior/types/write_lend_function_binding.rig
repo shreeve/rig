@@ -12,7 +12,7 @@ sub setf(h: !fun(Int) -> Int)
   print(h(1))
   h = g
 
-sub main
+sub main()
   h = f
   setf(!h)
   print(h(2))

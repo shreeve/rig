@@ -1,5 +1,6 @@
 struct S
   arr: [2]Int
+
 sub main()
   h: *S = *S(arr: [1, 2])
   !h.arr.fill(4)

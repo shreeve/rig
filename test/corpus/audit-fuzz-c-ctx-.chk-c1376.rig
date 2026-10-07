@@ -49,12 +49,12 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t1376
+sub t1376()
   mk1376 = rt_int(2)
   mz1376: I16 = match mk1376
     1 => I16.max
     _ => (-32768)
   print(mz1376)
 
-sub main
+sub main()
   t1376()

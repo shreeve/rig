@@ -2,7 +2,7 @@ fun lines_n(s: String) -> Int?!
   return none if s.len == 0
   s.len
 
-sub main
+sub main()
   if lines_n("ab")! as n
     print(n)
   x: Float = 0.0

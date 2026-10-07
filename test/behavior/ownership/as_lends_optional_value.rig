@@ -24,7 +24,7 @@ sub reset(o: !Res?)
   if !o as v
     v = Res(n: 0)
 
-sub main
+sub main()
   r: Res? = Res(n: 1)
   if ?r as v
     print("read", v.n)

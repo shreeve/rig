@@ -1,4 +1,4 @@
 use std.text
 
-sub main
+sub main()
   print(text.parse_bool("true") catch false, text.parse_bool("x") catch false)

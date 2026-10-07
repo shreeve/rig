@@ -22,5 +22,5 @@ fun run() -> Int!
     !v.push(2)
   k
 
-sub main
+sub main()
   print(run() catch 0)

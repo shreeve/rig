@@ -8,5 +8,5 @@ fun check(n: Int) -> Int!
   else
     n
 
-sub main
+sub main()
   print(check(1) catch -1, check(-1) catch -1)

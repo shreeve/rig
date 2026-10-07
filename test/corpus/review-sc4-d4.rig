@@ -14,7 +14,7 @@ struct W
   fun ok(<self) -> Bool
     true
 
-sub main
+sub main()
   s: Slot = .full(b: *B(n: 1))
   w = W(b: *B(n: 7))
   match <s

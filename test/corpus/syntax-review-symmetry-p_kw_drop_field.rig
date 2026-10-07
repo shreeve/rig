@@ -1,5 +1,6 @@
 struct T
   drop: Int
-sub main
+
+sub main()
   t = T(drop: 1)
   print(t.drop)

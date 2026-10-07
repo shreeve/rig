@@ -28,6 +28,6 @@ fun g(k: Int) -> Int!
       eat(<t)
       return E.bad
 
-sub main
+sub main()
   print(f(1) catch -1)
   print(g(1) catch -1)

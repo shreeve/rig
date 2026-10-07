@@ -10,11 +10,11 @@ extern zig "time.zig"
   # Nanoseconds on the monotonic clock, since an unspecified moment: it
   # never goes back, so the difference of two readings is the time
   # between them.
-  pub fun now -> Int
+  pub fun now() -> Int
 
   # Nanoseconds since 1970-01-01 00:00 UTC on the wall clock, which can
   # be set, so it may jump.
-  pub fun unix -> Int
+  pub fun unix() -> Int
 
   # Wait at least `ns` nanoseconds; none when `ns` is not positive.
   pub sub sleep(ns: Int)

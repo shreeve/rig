@@ -4,7 +4,7 @@ struct Counter
 struct W
   c: Counter
 
-sub main
+sub main()
   a = Counter(hits: Cell(0))
   w = W(c: a)
   w.c.hits.set(3)

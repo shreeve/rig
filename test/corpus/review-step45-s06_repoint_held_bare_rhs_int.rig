@@ -2,7 +2,7 @@
 struct H
   w: !Int
 
-sub main
+sub main()
   a = 1
   b = 2
   h = H(w: !a)

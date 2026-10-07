@@ -75,7 +75,7 @@ use std.half
 fun twice(f: ?fun(Int) -> Int!, x: Int) -> Int!
   f(f(x)!)!
 
-sub main!
+sub main()!
   print(half.half(8)!, twice(half.half, 12)!)
   n = half.half(7) catch |e|
     print(e, e == half.Odd.odd)
@@ -93,7 +93,7 @@ expect_eq "$out" $'4 3\nOdd.odd true\nodd -1\nerror: Odd.odd' "fallible shim"
 # Its Zig function must name the errors it returns, each an error of
 # the module's error sets; the build fails otherwise, and the program
 # does not run (exit status 125).
-printf 'use std.half\n\nsub main!\n  print(half.half(8)!)\n' >main.rig
+printf 'use std.half\n\nsub main()!\n  print(half.half(8)!)\n' >main.rig
 printf 'pub fn half(x: i64) error{Oops}!i64 {\n    return if (x == 0) error.Oops else x;\n}\npub fn even(x: i64) error{}!void {\n    _ = x;\n}\n' >lib/half.zig
 out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 125 "undeclared error"
 expect_has "$out" "rig: the Zig function of \`std.half.half\` returns \`error.Oops\`, which is not an error of module \`std.half\`" "undeclared error"

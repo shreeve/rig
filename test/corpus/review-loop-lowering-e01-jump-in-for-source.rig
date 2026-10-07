@@ -26,7 +26,7 @@ fun vec(i: Int) -> Vec[Int]?
 fun arr(i: Int) -> ([2]D)?
   none if i == 1 else [D(n: 10 * i), D(n: 10 * i + 1)]
 
-sub main
+sub main()
   n = 0
   for i in 0..3
     y = D(n: 100 + i)

@@ -13,7 +13,7 @@ struct B
 sub show_b(b: ?B)
   print("b", b.n)
 
-sub main
+sub main()
   p = B(n: 1)
   show_b(?(p.twin()))
   x = ?p.twin()

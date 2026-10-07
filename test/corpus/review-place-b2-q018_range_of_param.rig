@@ -2,5 +2,5 @@ sub f(a: [4]Int)
   s = !a[1..3]
   s[0] = 9
 
-sub main
+sub main()
   f([1, 2, 3, 4])

@@ -11,7 +11,7 @@ fun run(v: !Vec[Text], ok: Bool) -> Int!
   v[0] = mk(ok)!
   1
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   print(run(!v, false) catch 0)

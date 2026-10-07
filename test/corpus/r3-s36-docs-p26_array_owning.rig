@@ -2,6 +2,6 @@
 struct B
   n: Int
 
-sub main
+sub main()
   hs = [*B(n: 1), *B(n: 2)]
   print(hs[0].n)

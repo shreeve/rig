@@ -4,7 +4,7 @@ struct H
 struct G
   h: !H
 
-sub main
+sub main()
   n = 1
   m = 5
   h = H(w: !n)

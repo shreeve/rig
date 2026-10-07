@@ -1,5 +1,5 @@
-fun f -> void
+fun f() -> void
   print(1)
 
-sub main
+sub main()
   f()

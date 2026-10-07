@@ -2,7 +2,7 @@ use lib
 
 LOCAL: lib.Disk = .empty
 
-sub main
+sub main()
   print(lib.DEF, lib.DEF2, LOCAL)
   x = lib.fail(lib.DEF) catch |e|
     print(e == lib.DEF, e == LOCAL, e == .full)

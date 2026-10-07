@@ -6,5 +6,5 @@ fun f(x: Int) -> Int!
     return E.bad
   x
 
-fun main -> Int
+fun main() -> Int
   f(1)!

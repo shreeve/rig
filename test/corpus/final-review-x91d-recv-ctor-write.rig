@@ -6,5 +6,5 @@ struct S
     self.n += 1
     print("bumped", self.n)
 
-sub main
+sub main()
   S(n: 1).bump()

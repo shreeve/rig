@@ -1,4 +1,4 @@
-sub main
+sub main()
   k = 1
   f = |+k, a: Int| a + k
   c = Cell(value: ?f)

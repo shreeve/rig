@@ -1,4 +1,4 @@
-sub main
+sub main()
   x = for i in 0..3
     break i if i == 2
   else

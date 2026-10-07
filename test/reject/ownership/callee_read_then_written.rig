@@ -6,7 +6,7 @@ fun reset(f: !*fun(Int) -> Int) -> Int
   f = *|k: Int| k + 2
   1
 
-sub main
+sub main()
   base = 40
   f = *|<base, k: Int| base + k
   print(f(reset(!f)))

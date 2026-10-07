@@ -13,10 +13,10 @@ struct Person
   fun quad(?self) -> Int
     double() * 2
 
-  fun get -> Int
+  fun get() -> Int
     self.age
 
-sub main
+sub main()
   p = Person(age: 3)
   print(p.older(), p.quad(), Person.get())
 

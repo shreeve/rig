@@ -21,7 +21,7 @@ fun first[T](v: ?Vec[T]) -> T?
     return x
   none
 
-sub main
+sub main()
   v: Vec[*Tok] = Vec()
   !v.push(*Tok(n: 1))
   if first(?v) as t

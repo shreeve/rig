@@ -10,5 +10,5 @@ struct S
   drop(!self)
     print(p(self.n)!)
 
-sub main
+sub main()
   s = S(n: 1)

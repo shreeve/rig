@@ -8,7 +8,7 @@ fun f(s: !S) -> Int?
   b = <s.a?
   b.v
 
-sub main
+sub main()
   s = S(a: Box(value: N(v: 1)))
   print(f(!s))
   print(s)

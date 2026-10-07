@@ -25,7 +25,7 @@ fun check(n: Int) -> Int!
   return Bad.neg if n < 0
   n
 
-sub main
+sub main()
   b = Buf()
   c = Buf()
   !b.items.push(1)

@@ -20,7 +20,7 @@ fun tlen(o: ?Text?) -> Int
     return t.len
   0
 
-sub main
+sub main()
   hs: Vec[*N] = Vec()
   !hs.push(*N(v: 1))
   r = ?hs

@@ -6,7 +6,7 @@ fun grow(c: ?Cell[Vec[Int]]) -> Int
     c.push(i)
   5
 
-sub main
+sub main()
   c: Cell[Vec[Int]] = Cell(Vec())
   c.push(42)
   print(c, grow(?c))

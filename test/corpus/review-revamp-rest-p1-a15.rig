@@ -1,5 +1,6 @@
 fun f() -> Int
   x = 1
   -x
+
 sub main()
   print(f())

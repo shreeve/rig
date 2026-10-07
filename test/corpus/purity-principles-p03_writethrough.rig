@@ -8,7 +8,7 @@ sub f(w: !Res, k: !Int)
   w = Res(n: 9)
   k = 42
 
-sub main
+sub main()
   r = Res(n: 1)
   n = 0
   f(!r, !n)

@@ -12,7 +12,7 @@ sub outer(f: ?fun(Int) -> Int)
 sub eat(r: !Res)
   print(r.id)
 
-sub main
+sub main()
   outer(|a: Int| a + 1)
   r = Res(id: 1)
   e = |!r|

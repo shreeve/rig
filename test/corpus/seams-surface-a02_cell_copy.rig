@@ -9,7 +9,7 @@ sub via(c: Counter)
   c.hit()
   print("param changed to", c.hits.get())
 
-sub main
+sub main()
   a = Counter(hits: Cell(0))
   b = <a
   b.hit()

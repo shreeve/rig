@@ -3,7 +3,7 @@ fun next(i: !Int) -> Int
   i += 1
   i
 
-sub main
+sub main()
   v: Vec[Text?] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

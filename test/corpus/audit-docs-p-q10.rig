@@ -1,4 +1,4 @@
-sub main
+sub main()
   x = 3
   :m match x
     3

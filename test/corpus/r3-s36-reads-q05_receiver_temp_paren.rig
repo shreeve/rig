@@ -13,5 +13,5 @@ fun mk(n: Int) -> B
 fun mko(n: Int) -> B?
   B(n: n)
 
-sub main
+sub main()
   print((?mk(5)).get())

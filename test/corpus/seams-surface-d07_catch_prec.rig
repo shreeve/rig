@@ -1,9 +1,12 @@
 error E
   bad
+
 fun f() -> Int!
   return E.bad
+
 fun g() -> Int?
   none
-sub main
+
+sub main()
   print(g() ?? 1 == 1)
   print(f() catch 1 == 1)

@@ -28,18 +28,18 @@ fun parse[T](ok: Bool, x: T) -> T!
 fun opt[T](x: T) -> T?
   x
 
-fun nothing[T] -> T?
+fun nothing[T]() -> T?
   none
 
-fun run -> U8!
+fun run() -> U8!
   z: U8 = max(parse(true, 1)!, 250)
   z
 
-fun some -> U8?
+fun some() -> U8?
   z: U8 = max(opt(3)?, 200)
   z
 
-sub main
+sub main()
   a: U8 = run() catch 0
   b: U8 = some() ?? 0
   c: Int? = id(nothing())
@@ -55,7 +55,7 @@ sub main
   print(g(7))
   bx = Wrap[Wrap[U8]].make(Wrap.make(250))
   od = id[Wrap[U8]](Wrap.make(7))
-  print(bx.v.v, od.v, @sizeOf(@TypeOf(bx.v.v)), @sizeOf(@TypeOf(od.v)))
+  print(bx.v.v, od.v, @size(@type(bx.v.v)), @size(@type(od.v)))
 
 # expect:
 # 250 200 none none none 2.5

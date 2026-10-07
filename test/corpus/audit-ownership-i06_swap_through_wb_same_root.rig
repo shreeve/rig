@@ -23,7 +23,7 @@ struct P
 sub f(p: !P)
   swap(!p.a, !p.b)
 
-sub main
+sub main()
   p = P(a: *Tok(n: 1), b: *Tok(n: 2))
   f(!p)
   print(p.a.n, p.b.n)

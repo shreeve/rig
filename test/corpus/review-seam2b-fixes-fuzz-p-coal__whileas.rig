@@ -73,7 +73,7 @@ sub inc(x: !Int)
 fun f(n: Int) -> Int
   n
 
-sub viatemp
+sub viatemp()
   c = f(1) == 1
   k = 3
   while !(mkopt(5) ?? mk(6)).oi as x
@@ -81,7 +81,7 @@ sub viatemp
     break
   print(c, k)
 
-sub vianame
+sub vianame()
   c = f(1) == 1
   k = 3
   tt = (mkopt(5) ?? mk(6))
@@ -90,7 +90,7 @@ sub vianame
     break
   print(c, k)
 
-sub main
+sub main()
   viatemp()
   print("--- named")
   vianame()

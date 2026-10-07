@@ -7,6 +7,6 @@ sub g(h: !*P)
 sub f(h: ?*P)
   g(!h)
 
-sub main
+sub main()
   h = *P(x: 1)
   f(?h)

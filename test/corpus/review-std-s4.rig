@@ -3,7 +3,7 @@ use std.sort
 struct P
   k: Int
 
-sub main
+sub main()
   xs = [P(k: 2), P(k: 1)]
   print(sort.index_of(?xs, P(k: 1)), sort.contains(?xs, P(k: 3)))
   print(sort.search(?xs, P(k: 1)))

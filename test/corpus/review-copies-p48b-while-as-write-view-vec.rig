@@ -8,7 +8,7 @@ fun mk(v: !Vec[Int]) -> W?
     return W(w: !v)
   none
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   while mk(!v) as h
     v = Vec()

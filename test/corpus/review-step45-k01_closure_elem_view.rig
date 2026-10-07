@@ -1,5 +1,5 @@
 # a closure capturing an element view; push to the Vec, then call it
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   x = ?v[0]

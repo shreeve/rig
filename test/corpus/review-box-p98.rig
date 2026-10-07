@@ -35,7 +35,7 @@ fun g(k: Int) -> Int?
     return y.n + q.n + b.n
   0
 
-sub main
+sub main()
   print(f(1) catch -1)
   print(f(2) catch -1)
   print(h(2) catch -1)

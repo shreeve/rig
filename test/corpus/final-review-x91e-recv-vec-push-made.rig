@@ -1,8 +1,8 @@
 # Vec push on a made Vec without ! (expect reject)
-fun mk -> Vec[Int]
+fun mk() -> Vec[Int]
   v: Vec[Int] = Vec()
   v
 
-sub main
+sub main()
   mk().push(1)
   print("done")

@@ -10,6 +10,6 @@ sub bad(slot: ?Box[Node]?)
 sub grow(s: !Box[Node]?)
   s = none
 
-sub main
+sub main()
   root: Box[Node]? = Box(value: Node(key: 1, left: none))
   bad(?root)

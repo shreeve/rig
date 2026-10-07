@@ -1,7 +1,7 @@
 struct P
   v: Vec[Int]
 
-sub main
+sub main()
   b = Box(value: P(v: Vec()))
   !b.v.push(1)
   r = ?b.v

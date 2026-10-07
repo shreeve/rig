@@ -1,7 +1,7 @@
 struct V
   s: ![]Int
 
-sub main
+sub main()
   a = [1, 2]
   v = V(s: !a[..])
   print(a)

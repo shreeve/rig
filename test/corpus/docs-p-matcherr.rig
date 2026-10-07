@@ -1,11 +1,13 @@
 error E
   a
   b
+
 fun f(n: Int) -> Int!
   return E.a if n == 0
   return E.b if n == 1
   n
-sub main
+
+sub main()
   for i in 0..3
     n = f(i) catch |e|
       match e

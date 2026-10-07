@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = *Signal[Int](0)
   x = 5
   b: *Signal[Int] = *Signal(x)

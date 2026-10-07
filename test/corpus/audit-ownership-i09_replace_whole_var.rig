@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-sub main
+sub main()
   t = *Tok(n: 1)
   r = ?t
   old = replace(!t, *Tok(n: 2))

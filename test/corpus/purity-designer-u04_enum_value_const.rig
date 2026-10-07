@@ -1,6 +1,8 @@
 LIMIT = 5
+
 enum E
   a = LIMIT
   b
-sub main
+
+sub main()
   print(Int(E.b))

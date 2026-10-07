@@ -17,6 +17,6 @@ sub g(k: Int)!
   s2 = Sh.one(a: *Node(n: 1), b: f(k)!)
   print(s == .two, s2 == .two)
 
-sub main
+sub main()
   g(0) catch print("e")
   g(1) catch print("e")

@@ -8,7 +8,7 @@ fun apply(f: ?fun(Float) -> Float, x: Float) -> Float
 fun apply2(f: fun(Float) -> Float, x: Float) -> Float
   f(x)
 
-sub main
+sub main()
   print(apply(math.sqrt, 16.0), apply2(math.floor, 2.5))
   g = math.cos
   print(g(0.0))

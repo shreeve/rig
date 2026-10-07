@@ -4,6 +4,6 @@ fun first(s: String) -> String
 fun mk() -> Text
   Text("hello")
 
-sub main
+sub main()
   s = first(mk())
   print(s)

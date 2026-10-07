@@ -10,7 +10,7 @@ struct P
     self.pos += 1
     w
 
-sub main
+sub main()
   p = P(src: Text("abc"), pos: 0)
   a = !p.word()
   print(a)

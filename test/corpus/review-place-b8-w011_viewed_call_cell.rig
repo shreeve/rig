@@ -10,7 +10,7 @@ struct Q
   fun get(?self) -> ?P
     ?self.p
 
-sub main
+sub main()
   q = Q(p: P(c: Cell(1)))
   q.get().hit()
   print(q.p.c.get())

@@ -2,7 +2,7 @@
 # in a generic type's `T?` field, and in a drop body, which releases a
 # long list one node at a time.
 
-sub elements
+sub elements()
   v: Vec[Int?] = Vec()
   !v.push(5)
   a = <v[0]
@@ -26,7 +26,7 @@ struct W[T]
   fun grab(!self) -> T?
     <self.x
 
-sub main
+sub main()
   elements()
   head: Box[Node]? = none
   i = 0

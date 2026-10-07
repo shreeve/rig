@@ -17,7 +17,7 @@ fun get(r: ?P, k: Int) -> (?P)!
   _ = g(k)!
   r
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   v = get(?a, 1) catch ?b

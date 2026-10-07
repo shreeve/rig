@@ -8,7 +8,7 @@ enum S
 fun mk(t: String) -> S
   .line(v: Text(t))
 
-sub main
+sub main()
   a: S = .line(v: Text("a"))
   b: S = .dot
   c = true

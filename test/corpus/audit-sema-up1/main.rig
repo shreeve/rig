@@ -6,7 +6,7 @@ struct Q
   fun upgrade(?self) -> Int
     self.n + 1
 
-sub main
+sub main()
   q = *Q(n: 1)
   print(q.upgrade())
   p = *lib.P(n: 1)

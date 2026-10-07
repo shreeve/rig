@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = 0
   b = 0
   add = |!a|

@@ -2,7 +2,7 @@ struct Node
   key: Int
   left: Box[Node]?
 
-sub main
+sub main()
   root: Box[Node]? = Box(Node(key: 1, left: none))
   if ?root as n
     root = none

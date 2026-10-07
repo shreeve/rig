@@ -11,7 +11,7 @@ pub struct Random
 
   # A generator seeded from the operating system's entropy, so each run
   # differs.
-  pub fun new -> Random
+  pub fun new() -> Random
     Random(state: entropy())
 
   # The next 64 random bits.
@@ -48,7 +48,7 @@ pub struct Random
 
 extern zig "random.zig"
   # 64 bits from the operating system's entropy source.
-  fun entropy -> U64
+  fun entropy() -> U64
 
   # Panics unless `lo < hi`.
   sub check_range(lo: Int, hi: Int)

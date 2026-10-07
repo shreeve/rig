@@ -4,7 +4,7 @@ struct C
   sub bump(?self)
     self.n += 1
 
-sub main
+sub main()
   c = C(n: 0)
   !c.bump()
   print(c.n)

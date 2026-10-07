@@ -1,5 +1,5 @@
 # if v[0] as t on Vec[Text?], the binding escapes to an outer view
-sub main
+sub main()
   v: Vec[Text?] = Vec()
   !v.push(Text("hi"))
   s: String = "none"

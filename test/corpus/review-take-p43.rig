@@ -3,7 +3,7 @@ sub sw(a: !String, b: !String)
   old = replace(a, "z")
   print(old)
 
-sub main
+sub main()
   x = "x"
   y = "y"
   sw(!x, !y)

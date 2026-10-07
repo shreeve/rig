@@ -3,10 +3,9 @@ type UserId = Int
 struct Point
   x: Int
 
-
 type P = Point
 
-sub main
+sub main()
   id: UserId = 5
   p = P(x: id)
   print(p.x + 1)

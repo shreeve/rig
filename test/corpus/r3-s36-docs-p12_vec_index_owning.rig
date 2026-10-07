@@ -5,7 +5,7 @@ struct B
 fun get_n(b: ?*B) -> Int
   b.n
 
-sub main
+sub main()
   v: Vec[*B] = Vec()
   !v.push(*B(n: 1))
   print(get_n(?v[0]))

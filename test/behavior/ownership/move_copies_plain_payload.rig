@@ -18,7 +18,7 @@ sub take(p: P)
 sub paint(c: Color)
   print(c)
 
-sub main
+sub main()
   e = E.a(p: P(x: 1))
   match e
     .a(p) => take(<p)

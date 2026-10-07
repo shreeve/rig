@@ -10,7 +10,7 @@ struct Bag
   fun find(?self, key: ?Key) -> ?P
     ?self.items[key.k]
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(P(x: 7))
   key = Key(k: 0)

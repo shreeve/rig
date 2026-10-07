@@ -1,6 +1,5 @@
 use lib
 
-
 struct P
   n: Int
 

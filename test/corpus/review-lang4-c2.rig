@@ -2,7 +2,7 @@ struct P
   x: Vec[Int]
   y: Vec[Int]
 
-sub main
+sub main()
   p = P(x: Vec(), y: Vec())
   w = !p.x
   print(p.y.len)

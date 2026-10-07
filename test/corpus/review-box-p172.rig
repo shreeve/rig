@@ -14,7 +14,7 @@ struct H
     self.r = none
     x.n = 3
 
-sub main
+sub main()
   h = H(r: Box(value: R(n: 1)))
   if !h.r as x
     !h.clear()

@@ -12,7 +12,7 @@ struct T
 fun mk() -> S
   S(a: 1)
 
-sub places
+sub places()
   s = mk()
   t = <s.a
   u = T(s: mk())
@@ -42,7 +42,7 @@ sub peek(slot: !Int?)
   if <slot as t
     print("got", t)
 
-sub main
+sub main()
   places()
   h = H(a: Box(N(v: 3)))
   n = first(!h)

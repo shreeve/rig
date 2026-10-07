@@ -1,7 +1,7 @@
 struct H
   v: Vec[Int]
 
-fun mk -> Vec[Int]
+fun mk() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(3)
   v
@@ -12,7 +12,7 @@ sub walk(h: ?H, w: !Vec[Int])
   for x in w
     print(x)
 
-sub main
+sub main()
   h = H(v: Vec())
   !h.v.push(1)
   for x in ?h.v

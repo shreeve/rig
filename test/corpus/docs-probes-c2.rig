@@ -5,5 +5,5 @@ fun p(n: Int) -> Int!
   return E.bad if n < 0
   n
 
-sub main
+sub main()
   defer print(p(1)!)

@@ -9,7 +9,7 @@ type IW = Wrap[Int]
 type BI = Box[Int]
 type CI = Cell[Int]
 
-sub main
+sub main()
   a = Km(3.0)
   b = IW(4)
   c = BI(5)

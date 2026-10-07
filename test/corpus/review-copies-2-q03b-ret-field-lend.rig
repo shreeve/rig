@@ -8,12 +8,11 @@ struct Q
   p: P
   n: Int
 
-
 fun pf(q: ?Q, ok: Bool) -> (?P)!
   return Bad.oops if not ok
   ?q.p
 
-sub main
+sub main()
   q = Q(p: P(x: 4), n: 0)
   b = P(x: 2)
   v = pf(?q, true) catch ?b

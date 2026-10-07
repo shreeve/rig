@@ -15,7 +15,7 @@ enum Shape
   circle(r: Float)
   dot
 
-sub main
+sub main()
   e = Text()
   print(e.len, e == "")
   t = Text("n=", 42, " f=", 2.5, " b=", true, " u=", U8(200), " i=", I128.min)

@@ -3,7 +3,7 @@ struct P
 
 G = P(x: 1)
 
-sub main
+sub main()
   G.x = 4
   G.x += 1
   print(G.x)

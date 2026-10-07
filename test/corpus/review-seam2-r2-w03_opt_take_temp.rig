@@ -22,7 +22,7 @@ fun mkopt(n: Int) -> S?
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   x = <(!mk(1)).o
   print(x)
   y = <(?mk(2)).o

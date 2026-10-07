@@ -1,7 +1,8 @@
 enum M
   a
   b
-sub main
+
+sub main()
   c = Cell(value: M.a)
   c.set(.b)
   print(c.get())

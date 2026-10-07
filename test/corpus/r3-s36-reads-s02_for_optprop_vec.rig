@@ -4,6 +4,6 @@ fun first(o: Vec[Int]?) -> Int?
     n += x
   n
 
-sub main
+sub main()
   o: Vec[Int]? = Vec()
   print(first(<o))

@@ -4,7 +4,7 @@ struct H
 struct Wrap[T]
   item: T
 
-sub main
+sub main()
   xs: Vec[Int] = Vec()
   !xs.push(5)
   g = Wrap[H](item: H(w: !xs))

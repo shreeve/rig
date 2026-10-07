@@ -10,7 +10,7 @@ fun mkv(n: Int) -> Vec[Int]
   !xs.push(n)
   xs
 
-sub main
+sub main()
   o: Vec[Int]? = mkv(1)
   a = G(f: <o)
   x = take(!a)

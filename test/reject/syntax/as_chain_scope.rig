@@ -14,7 +14,7 @@ fun get(k: Int) -> Int?
 fun make(k: Int) -> Res?
   Res(id: k) if k > 0 else none
 
-sub main
+sub main()
   if y > 0 and get(1) as y
     print(y)
   if get(1) as x and get(2) as y

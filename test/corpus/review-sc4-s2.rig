@@ -5,7 +5,7 @@ struct H
   r: ?V
   v: V
 
-sub main
+sub main()
   a = V(n: 1)
   h = H(r: ?a, v: V(n: 5))
   w = !h

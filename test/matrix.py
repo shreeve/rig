@@ -363,7 +363,7 @@ def step_program(oname, hname, shape, then):
              .replace("S", step).replace("G", grow)
             for l in STEP_SHAPES[shape]]
     main = [o["make"], "k = 0", "n = 0"] + loop + ["print(k, n)"]
-    out.append("sub main\n" + indent(main, 2) + "\n")
+    out.append("sub main()\n" + indent(main, 2) + "\n")
     return "\n".join(out)
 
 
@@ -444,7 +444,7 @@ def loop_program(outer, inner, jump, end):
             "fun st(i: Int) -> Int", '  print("step", i)', "  i + 1", "",
             "fun lim(i: Int, n: Int) -> Int?", "  i if i < n else none", "",
             "fun limf(i: Int, n: Int) -> Int?!", "  return E.bad if i > 50", "  lim(i, n)", ""]
-    main = ["sub main", "  i = 0", "  guard = 0", "  " + LOOP_OUTERS[outer]] + ["    " + l for l in lines] + ['  print("end", i)']
+    main = ["sub main()", "  i = 0", "  guard = 0", "  " + LOOP_OUTERS[outer]] + ["    " + l for l in lines] + ['  print("end", i)']
     return "\n".join(head + main) + "\n"
 
 
@@ -581,7 +581,7 @@ def payload_program(tname, sname, ename):
         out.append(f"sub seee(v: ?E)\n  match v\n    .a(p) => see(?p)\n    .b(p) => see(?p)\n")
         out.append(f"sub inner({s['param']})\n  match {s['subj']}\n" + indent(x["arm"], 4) + "\n")
         main.append("inner(?e)")
-        out.append("sub main\n" + indent(main, 2) + "\n")
+        out.append("sub main()\n" + indent(main, 2) + "\n")
         return "\n".join(out), f"2003\n{t['out']}\n"
     res = "E" if x.get("whole") else ty
     fun = "inner"
@@ -602,7 +602,7 @@ def payload_program(tname, sname, ename):
         main += [whole_k if x.get("whole") else "k = mk2()", "v = inner(?e, ?k)"]
     main.append("print(clobber(1000))")
     main += show
-    out.append("sub main\n" + indent(main, 2) + "\n")
+    out.append("sub main()\n" + indent(main, 2) + "\n")
     return "\n".join(out), f"2003\n{t['out']}\n"
 
 
@@ -620,7 +620,7 @@ def store_program(oname, fname, then):
     body += ["print(t[0])"] if fname == "read_back" else h["read"]
     out.append(f"sub f(a: !{h['ty']}, b: !{o['ty']})\n{indent(body, 2)}\n")
     main = [o["init"], o["make"], h["make"].replace("I", "?x[..]"), "f(!h, !v)"]
-    out.append("sub main\n" + indent(main, 2) + "\n")
+    out.append("sub main()\n" + indent(main, 2) + "\n")
     return "\n".join(out)
 
 
@@ -717,7 +717,7 @@ def program(tname, fname, cname):
         body.append("0")
     out.append(f"fun run(c: Bool, o: {ty}?) -> {ret_ty}\n{indent(body, 2)}\n")
     main = ["for c in [true, false]", "  r = run(c, mk(9))", "  print(r == none)"]
-    out.append("sub main\n" + indent(main, 2) + "\n")
+    out.append("sub main()\n" + indent(main, 2) + "\n")
     return "\n".join(out)
 
 

@@ -1,5 +1,5 @@
 # re-point at an inner-scope local, then write after it is gone
-sub main
+sub main()
   m = Text("m")
   w = !m
   if true

@@ -1,4 +1,4 @@
-sub main
+sub main()
   c = Cell([1048576 of 0])
   d = Cell([1048577 of 0])
   print(c.get()[0])

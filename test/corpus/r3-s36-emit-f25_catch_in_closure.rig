@@ -2,6 +2,6 @@
 error E
   bad
 
-sub main
+sub main()
   f = |n: Int| n if n > 0 else E.bad
   print(f(1))

@@ -2,8 +2,10 @@ struct R
   n: Int
   drop(!self)
     print("d")
+
 sub eat(r: R)
   print(r.n)
-sub main
+
+sub main()
   r = R(n: 1)
   eat(r)

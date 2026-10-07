@@ -1,4 +1,4 @@
-sub main
+sub main()
   x = 1
   w = !x
   f = |!w| w = 3

@@ -2,7 +2,7 @@
 sub flip[T](v: !Vec[T])
   !v.swap(0, 1)
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

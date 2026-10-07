@@ -1,6 +1,6 @@
 # A loop, `match`, or `raw` block takes one label.
 
-sub main
+sub main()
   :c :d while true
     break :c
 

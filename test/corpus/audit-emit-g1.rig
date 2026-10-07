@@ -32,7 +32,7 @@ struct W[T]
 fun first[T](w: ?W[T]) -> ?T
   w.get()
 
-sub main
+sub main()
   b = Box(Node(v: 1, r: R(n: 1), next: Box(Node(v: 2, r: R(n: 2), next: none))))
   !b.bump()
   print(b.v, read(?b), b.total())

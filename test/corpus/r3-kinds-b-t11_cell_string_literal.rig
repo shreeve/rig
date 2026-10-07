@@ -1,4 +1,4 @@
-sub main
+sub main()
   c: Cell[String] = Cell("lit")
   c.set("other")
   s: String = "x"

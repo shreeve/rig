@@ -1,5 +1,5 @@
 # re-point inside a branch; after the join the old target is written while w may still view it
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   w = !a

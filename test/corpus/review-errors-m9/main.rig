@@ -1,6 +1,6 @@
 use lib
 
-sub main
+sub main()
   x = lib.f() catch |e|
     print(e == lib.D.full)
     match e

@@ -1,4 +1,4 @@
-sub main
+sub main()
   buf: Vec[U8] = Vec()
   !buf.push(104)
   raw

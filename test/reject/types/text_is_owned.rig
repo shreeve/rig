@@ -3,7 +3,7 @@
 struct Text
   n: Int
 
-sub main
+sub main()
   xs: Vec[Text] = Vec()
   ys: [2]Text = [Text("a"), Text("b")]
   print(xs.len, ys.len)

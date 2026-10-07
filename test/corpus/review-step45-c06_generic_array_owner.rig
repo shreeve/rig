@@ -2,6 +2,6 @@
 fun two[T](a: T, b: T) -> [2]T
   [<a, <b]
 
-sub main
+sub main()
   x = two(Text("a"), Text("b"))
   print(x)

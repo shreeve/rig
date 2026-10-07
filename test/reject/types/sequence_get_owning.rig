@@ -1,7 +1,7 @@
 # `get` copies an element out, so an array of write views has none:
 # the copy would be a second write view.
 
-sub main
+sub main()
   a = 1
   b = 2
   xs = [!a, !b]

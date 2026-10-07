@@ -14,7 +14,7 @@ error StdError
 struct Text
   bytes: Vec[U8]
 
-  fun new -> Text
+  fun new() -> Text
     Text(bytes: Vec())
 
   sub push(!self, s: String)
@@ -63,7 +63,7 @@ fun read_file(path: String) -> Text!
   return StdError.not_found if path.len == 0
   Text.new()
 
-fun read_line -> Text?!
+fun read_line() -> Text?!
   return StdError.io_failed if false
   none
 
@@ -71,7 +71,7 @@ sub sort_by[T](v: !Vec[T], less: ?fun(T, T) -> Bool)
   if v.len > 1
     print(less(v[0], v[1]))
 
-fun args -> Vec[String]
+fun args() -> Vec[String]
   Vec()
 
 fun env(name: String) -> String?
@@ -81,7 +81,7 @@ struct Map[K, V]
   keys: Vec[Box[K]]
   vals: Vec[V]
 
-  fun new -> Map[K, V]
+  fun new() -> Map[K, V]
     Map[K, V](keys: Vec(), vals: Vec())
 
   fun put(!self, k: K, v: V) -> V?
@@ -110,7 +110,7 @@ struct Node
   drop(!self)
     print("drop node", self.id)
 
-sub main
+sub main()
   # Process arguments and environment: process-lifetime bytes, so Strings.
   argv = args()
   print("args", argv.len, argv.get(1), env("RIG_PROTO"), env("RIG_PROTO_UNSET"))

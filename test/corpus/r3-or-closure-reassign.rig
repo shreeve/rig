@@ -8,5 +8,5 @@ sub reassigns_its_capture()
   g = |+n| n = 2
   g()
 
-sub main
+sub main()
   reassigns_its_capture()

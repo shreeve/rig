@@ -10,7 +10,7 @@ sub g(r: ?R, b: Box[R])
 sub h(b: Box[R], r: ?R)
   print(r.n, b.n)
 
-sub main
+sub main()
   b = Box(value: R(n: 1))
   g(?b, <b)
   c = Box(value: R(n: 2))

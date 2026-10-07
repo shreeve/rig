@@ -18,7 +18,7 @@ struct Ring[T, n: Int]
   fun cap(?self) -> Int
     n
 
-fun zeros[n: Int] -> [n]Int
+fun zeros[n: Int]() -> [n]Int
   [n of 0]
 
 fun sum[n: Int](xs: ?[n]Int) -> Int
@@ -30,10 +30,10 @@ fun sum[n: Int](xs: ?[n]Int) -> Int
 fun first[n: Int](xs: ?[n]Int) -> Int
   xs[0]
 
-sub show[s: String, b: Bool, o: Int?]
+sub show[s: String, b: Bool, o: Int?]()
   print(s, b, o)
 
-sub main
+sub main()
   r = Ring[Int, limit * 2](buf: [limit * 2 of 0])
   for i in 0..10
     !r.push(i)

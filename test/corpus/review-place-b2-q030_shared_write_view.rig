@@ -4,6 +4,6 @@ struct P
 sub g(p: !P)
   p.x = 1
 
-sub main
+sub main()
   h = *P(x: 1)
   g(!h)

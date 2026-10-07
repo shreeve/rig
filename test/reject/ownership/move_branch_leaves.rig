@@ -20,7 +20,7 @@ struct S
   o: Int?
   v: Vec[Int]
 
-fun mk -> S
+fun mk() -> S
   v: Vec[Int] = Vec()
   !v.push(7)
   S(n: 1, o: 2, v: <v)
@@ -53,7 +53,7 @@ fun propagate_field(s: S) -> Int?
   y = <s.o?
   y
 
-sub main
+sub main()
   copying(true)
   print(propagate(1), propagate_field(mk()))
 

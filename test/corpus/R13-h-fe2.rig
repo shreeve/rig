@@ -1,4 +1,5 @@
 struct N
   a: Int
-sub main
+
+sub main()
   x: *N! = 1

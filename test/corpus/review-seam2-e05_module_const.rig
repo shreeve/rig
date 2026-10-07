@@ -8,7 +8,7 @@ sub inc(v: !Int)
 sub sets(s: !String)
   s = "x"
 
-sub main
+sub main()
   inc(!K)
   sets(!NAME)
   print(K, NAME)

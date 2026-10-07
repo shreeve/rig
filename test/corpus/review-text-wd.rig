@@ -7,7 +7,7 @@ struct Reg
   fun first(?self) -> String
     self.names[0]
 
-sub main
+sub main()
   r = Reg(names: Vec())
   !r.add("x")
   f = r.first()

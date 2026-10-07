@@ -1,7 +1,7 @@
 # An owned closure can be stored anywhere, so it cannot capture a String
 # that views a Text; nor can a Cell hold one.
 
-sub main
+sub main()
   t = Text("abc")
   s = ?t[..]
   f = *|+s| print(s)

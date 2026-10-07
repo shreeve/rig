@@ -1,7 +1,7 @@
 # `|+w|` deep-clones the Vec a write view sees; the closure owns its
 # clone, so the Vec may be used while the closure lives (Core §7: the
 # capture carries what the copied value holds, not the view's loan).
-sub main
+sub main()
   xs: Vec[Int] = Vec()
   !xs.push(1)
   w = !xs

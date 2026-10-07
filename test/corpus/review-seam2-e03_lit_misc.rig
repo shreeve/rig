@@ -12,7 +12,7 @@ sub sets(s: !String)
 sub seto(o: !Int?)
   o = 3
 
-sub main
+sub main()
   setc(!.red)
   setc(!Color.red)
   sets(!"abc")

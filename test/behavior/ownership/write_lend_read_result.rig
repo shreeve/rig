@@ -48,13 +48,13 @@ fun clobber(n: Int) -> Int
   b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
   a[1] + b[2]
 
-fun items -> Vec[Item]
+fun items() -> Vec[Item]
   v: Vec[Item] = Vec()
   !v.push(Item(n: 1, name: "one"))
   !v.push(Item(n: 2, name: "two"))
   v
 
-sub fields
+sub fields()
   c = Counter(n: 0, items: Vec())
   !c.items.push(7)
   r = bump(!c)
@@ -67,7 +67,7 @@ sub fields
   print(clobber(2))
   print(s.n, s.name)
 
-sub elements
+sub elements()
   rows: Vec[Vec[Item]] = Vec()
   !rows.push(items())
   r = first(!rows[0])
@@ -77,7 +77,7 @@ sub elements
   t = firsts(!rows[0])
   print(rows[0][1].name, t.len)
 
-sub receivers
+sub receivers()
   b = Bag(items: items(), count: 0)
   r = !b.first()
   print(b.count, b.items.len)
@@ -85,14 +85,14 @@ sub receivers
   print(clobber(4))
   print(r.n, r.name, q.count)
 
-sub generic
+sub generic()
   v = items()
   r = gfirst(!v)
   print(v.len, size(?v))
   print(clobber(5))
   print(r.n, r.name)
 
-sub loops
+sub loops()
   v = items()
   for i in 0..2
     r = first(!v)
@@ -103,13 +103,13 @@ sub loops
     total += r.n
     print(v[1].name, r.n)
 
-sub deferred
+sub deferred()
   v = items()
   r = first(!v)
   defer print("deferred", v.len, r.name)
   print(v.len)
 
-sub in_closure
+sub in_closure()
   v = items()
   g = |!v|
     r = first(!v)
@@ -117,7 +117,7 @@ sub in_closure
     print(r.n)
   g()
 
-sub main
+sub main()
   v = items()
   r = first(!v)
   print(v.len, size(?v), v[1].name)

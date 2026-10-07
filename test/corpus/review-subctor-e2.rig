@@ -1,4 +1,4 @@
-sub main
+sub main()
   c = Cell(Vec())
   print(c)
   c2 = Cell[Vec[Int]](Vec())

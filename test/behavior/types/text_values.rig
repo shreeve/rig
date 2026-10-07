@@ -18,7 +18,7 @@ sub grow(t: !Text, n: Int)
 fun take(t: Text) -> Int
   t.len
 
-sub main
+sub main()
   a = Text("abc")
   b = +a
   !b.add("d")

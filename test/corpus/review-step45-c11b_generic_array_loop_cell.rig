@@ -9,7 +9,7 @@ sub each[T](v: ?[1]T, f: ?sub(?T))
   for x in v
     f(x)
 
-sub main
+sub main()
   a = [C(c: Cell(1))]
   each(?a, |x| x.hit())
   print(a[0].c.get())

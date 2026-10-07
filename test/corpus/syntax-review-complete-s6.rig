@@ -2,7 +2,7 @@ fun as_str(b: []U8) -> String
   raw
     @bitCast(b)
 
-sub main
+sub main()
   v: Vec[U8] = Vec()
   for b in "hey"
     !v.push(b)

@@ -26,7 +26,7 @@ struct Bin
     return Bad.full if self.items.len >= 2
     !self.items.push(n)
 
-sub main
+sub main()
   check(1)!
   twice(3) catch |e|
     print("failed", e)

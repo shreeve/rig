@@ -49,6 +49,6 @@ sub go(ok: Bool)!
   w = !mk(3).tryat(ok)! + 1
   print(w)
 
-sub main
+sub main()
   go(true)!
   go(false) catch |e| print("failed", e)

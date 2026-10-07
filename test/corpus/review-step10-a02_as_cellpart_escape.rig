@@ -8,10 +8,10 @@ struct Q
 struct H
   q: Q?
 
-fun mkh -> H
+fun mkh() -> H
   H(q: Q(c: Cell(1), n: 42))
 
-sub main
+sub main()
   if ?mkh().q as x
     x.c.set(5)
     print(x.n, x.c.get())

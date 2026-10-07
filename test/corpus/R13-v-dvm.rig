@@ -1,7 +1,8 @@
 enum S
   c(r: Int = 1)
   d(a: Int, b: Int = 2)
-sub main
+
+sub main()
   x: S = .c()
   y: S = .c(r: 5)
   z: S = .d(a: 1)

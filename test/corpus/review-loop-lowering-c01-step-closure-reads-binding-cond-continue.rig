@@ -16,7 +16,7 @@ fun some(i: Int) -> Int?
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-sub main
+sub main()
   steps = 0
   i = 0
   while some(odd(i) ?? continue) as h: steps = apply(|+h, x: Int| x + h, steps)

@@ -6,7 +6,7 @@ fun second(a: ?Vec[Int], b: ?Vec[Int]) -> ?Vec[Int]
   h = Pair(a: a, b: b)
   h.b
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   y: Vec[Int] = Vec()
   r = second(?x, ?y)

@@ -5,5 +5,5 @@ error Bad
 fun f(c: Bool) -> Int!
   return (Bad.oops if c else 1)
 
-sub main
+sub main()
   print(f(true) catch -1, f(false) catch -1)

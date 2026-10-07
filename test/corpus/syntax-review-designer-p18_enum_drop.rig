@@ -4,6 +4,6 @@ enum E
   drop(!self)
     print("x")
 
-sub main
+sub main()
   e: E = .a
   print(e)

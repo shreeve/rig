@@ -1,7 +1,7 @@
 struct W
   n: Int
 
-sub main
+sub main()
   total = 0
   add = |!total, k: Int| total += k
   add(3)

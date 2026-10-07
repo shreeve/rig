@@ -4,7 +4,7 @@
 sub keep(t: Text)
   print(t)
 
-sub main
+sub main()
   t = Text("a")
   u = t
   keep(<t)

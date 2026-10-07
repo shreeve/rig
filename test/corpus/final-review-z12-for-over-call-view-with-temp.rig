@@ -2,7 +2,7 @@
 fun items(v: ?Vec[Text], k: ?Text) -> ?Vec[Text]
   v
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   for x in items(?v, ?Text("k"))

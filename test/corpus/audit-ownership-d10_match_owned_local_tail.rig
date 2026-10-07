@@ -22,7 +22,7 @@ fun pick(k: Int) -> *Tok?
     .pair(a, b) => b
     _ => none
 
-sub main
+sub main()
   if pick(1) as t
     print("got", t.n)
   print("end")

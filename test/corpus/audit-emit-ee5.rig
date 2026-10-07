@@ -1,7 +1,7 @@
 sub apply(f: ?sub())
   f()
 
-sub main
+sub main()
   invoke = 3
   apply(|| print("x"))
   print(invoke)

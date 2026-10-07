@@ -11,7 +11,7 @@ struct S
   sub show(?self)
     print(self.c, self.grow())
 
-sub main
+sub main()
   s = S(c: Cell(Vec()))
   s.c.push(42)
   s.show()

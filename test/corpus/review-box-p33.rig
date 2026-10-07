@@ -4,6 +4,6 @@ struct R
 fun rd(r: ?R) -> Int
   r.n
 
-sub main
+sub main()
   s = *R(n: 1)
   print(rd(?s))

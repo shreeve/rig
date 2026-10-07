@@ -9,7 +9,7 @@ fun f(h: ?H) -> Bool?
   r = h.o? != .dot
   r
 
-sub main
+sub main()
   p: Vec[Int] = Vec()
   !p.push(1)
   h = H(o: Shape.line(<p))

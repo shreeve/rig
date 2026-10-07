@@ -1,5 +1,5 @@
 # push while a view of an element (Text) is live
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   s = ?v[0]

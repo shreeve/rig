@@ -1,0 +1,27 @@
+# Rig's builtins work anywhere: `@size(T)` and `@align(T)` are a type's
+# size and alignment in bytes, `@name(T)` its name, and `@type(x)`, as
+# their argument, the type of `x`. Inside `raw` they work too, as do
+# Zig's names for them (`@sizeOf`, `@alignOf`, `@typeName`, `@TypeOf`).
+
+struct P
+  a: I32
+  b: I64
+
+fun width[T]() -> Int
+  @size(T)
+
+sub main()
+  x: I16 = 5
+  print(@size(I64), @size(U8), @align(P), @size(P))
+  print(@size(@type(x)), @align(@type(x)), width[U32]())
+  print(@name(Bool), @name(@type(x)))
+  raw
+    print(@sizeOf(I64), @size(I64), @alignOf(@TypeOf(x)), @align(@type(x)))
+    print(@typeName(Bool), @name(Bool), @sizeOf(@type(x)), @size(@TypeOf(x)))
+
+# expect:
+# 8 1 8 16
+# 2 2 4
+# bool i16
+# 8 8 2 2
+# bool bool 2 2

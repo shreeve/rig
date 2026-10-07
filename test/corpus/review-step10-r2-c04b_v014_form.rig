@@ -14,7 +14,7 @@ fun mkh(s: String) -> H
 fun pick(h: ?H) -> ?E
   ?h.e
 
-sub main
+sub main()
   match pick(?mkh(?Text("a text long enough to live on the heap")))
     .a(s) => print(s)
     .b => print("b")

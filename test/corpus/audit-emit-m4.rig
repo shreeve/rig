@@ -7,7 +7,7 @@ struct HasH
 struct HasB
   b: Box[Int]
 
-sub main
+sub main()
   a: Vec[Int] = Vec(capacity: 8)
   b: Vec[Int] = Vec()
   !a.push(1)

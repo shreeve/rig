@@ -1,5 +1,5 @@
 sub put(c: ?Cell[Vec[String]], s: String)
   c.push(s)
 
-sub main
+sub main()
   print(1)

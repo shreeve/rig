@@ -6,10 +6,10 @@ struct Set
     !self.xs.push(x)
     true
 
-fun mks -> Set
+fun mks() -> Set
   Set(xs: Vec())
 
-sub main
+sub main()
   if !mks().insert(1)
     print("a")
   if (!mks()).insert(2)

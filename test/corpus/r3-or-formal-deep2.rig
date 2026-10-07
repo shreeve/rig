@@ -4,7 +4,7 @@ struct Pair
 fun geta(p: ?Pair) -> ?Vec[Int]
   p.a
 
-sub main
+sub main()
   x: Vec[Int] = Vec()
   !x.push(4)
   p = Pair(a: ?x)

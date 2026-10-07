@@ -5,7 +5,7 @@ struct Tok
 fun tok(kind: String, n: Int) -> Tok
   Tok(kind: kind, n: n)
 
-sub main
+sub main()
   toks: Vec[Tok] = Vec()
   !toks.push(tok("num", 1))
   !toks.push(tok("op", 2))

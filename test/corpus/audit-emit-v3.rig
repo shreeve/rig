@@ -1,7 +1,7 @@
 error E
   bad
 
-sub main
+sub main()
   errdefer print("err")
   defer print("d")
   print("m")

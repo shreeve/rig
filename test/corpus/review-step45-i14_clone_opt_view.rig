@@ -1,5 +1,5 @@
 # +o where o: (?Text)? 
-sub main
+sub main()
   t = Text("x")
   o: String? = ?t
   p = +o

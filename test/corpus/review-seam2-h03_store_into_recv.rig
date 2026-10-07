@@ -31,10 +31,10 @@ struct H
 fun mk(n: Int) -> S
   S(n: n)
 
-fun mkh -> H
+fun mkh() -> H
   H(ws: Vec())
 
-sub main
+sub main()
   s = mk(5)
   h = mkh()
   !h.keep(!s.at())

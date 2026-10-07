@@ -4,7 +4,7 @@ struct Node
 fun show(a: *Node?, b: *(Node?), c: ?*Node?, d: ~Node?) -> Int
   1
 
-sub main
+sub main()
   v = Vec[*Node?]()
   w = Vec[*(Node?)]()
   x = Vec[*(Node)?]()

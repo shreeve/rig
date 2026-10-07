@@ -1,4 +1,4 @@
-sub main
+sub main()
   k = 0
   x = match k
     0

@@ -1,5 +1,5 @@
 # w = !a if c else !b re-points to a branching view
-sub main
+sub main()
   m = Text("m")
   a = Text("a")
   b = Text("b")

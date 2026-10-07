@@ -28,7 +28,7 @@ fun min(root: ?Box[Node]?) -> Int
     cur = ?n.left
   best
 
-sub main
+sub main()
   root: Box[Node]? = none
   for k in [5, 2, 8, 1, 9, 3]
     insert(!root, k)

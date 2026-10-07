@@ -16,6 +16,6 @@ fun size(b: ?Bag) -> Int
 fun maybe() -> Bag?
   mk(9)
 
-sub main
+sub main()
   if maybe() as x
     print(x.n)

@@ -6,7 +6,7 @@ fun mk(v: ?Vec[Int], i: Int) -> S?
     return S(s: ?v[..])
   none
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0

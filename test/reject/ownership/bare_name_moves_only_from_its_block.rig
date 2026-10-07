@@ -3,7 +3,7 @@
 # (`test/behavior/ownership/value_tails_leave.rig`). A name declared
 # outside the block, and a `break` value, take `<x`.
 
-fun f -> Vec[Int]
+fun f() -> Vec[Int]
   e: Vec[Int] = Vec()
   r = while true
     v: Vec[Int] = Vec()
@@ -13,7 +13,7 @@ fun f -> Vec[Int]
     <e
   r
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   c = true
   e: Vec[Int] = Vec()

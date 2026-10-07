@@ -1,7 +1,7 @@
 struct N
   a: Int
 
-sub main
+sub main()
   x0: (N?)? = 1
   x1: ((N?)?)? = 1
   x2: *N? = 1

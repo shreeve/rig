@@ -15,7 +15,7 @@ fun first(i: Int) -> Int
     0
   w
 
-sub main
+sub main()
   steps = 0
   i = 0
   while some(first(i)) as h: steps += h

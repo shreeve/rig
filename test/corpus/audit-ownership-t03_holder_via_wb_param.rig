@@ -15,7 +15,7 @@ struct Holder
 sub set(h: !Holder, b: ?Big)
   h.b = b
 
-sub main
+sub main()
   x0 = mk(0)
   h = Holder(b: ?x0)
   x = mk(1)

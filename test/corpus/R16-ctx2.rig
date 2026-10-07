@@ -7,7 +7,7 @@ struct Res
 fun val(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-sub main
+sub main()
   x = 5
   c = Res(id: 9)
   y = val(|<c, a| a + c.id, x) if x < 3 else 0

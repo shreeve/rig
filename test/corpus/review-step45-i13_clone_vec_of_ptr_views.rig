@@ -1,5 +1,5 @@
 # +w where w: Vec[?Vec[Text]] holds pointer views
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("x"))
   w: Vec[?Vec[Text]] = Vec()

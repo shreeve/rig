@@ -25,7 +25,7 @@ fun get(o: Opt, d: *B) -> *B
     .some(v) => v
     .nothing => <d
 
-sub main
+sub main()
   p: Pair = .two(a: *B(n: 1), b: *B(n: 2))
   match <p
     .two(a, b)

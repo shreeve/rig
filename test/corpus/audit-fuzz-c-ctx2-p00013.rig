@@ -74,82 +74,82 @@ fun fu3205(s: Bool) -> I16?
   x = fo3205(s)?
   x
 
-sub t4452
+sub t4452()
   o4452: F32? = id_f32(10.25)
   gy4452: F32 = gid((o4452 ?? 2.5))
   print(gy4452)
 
-sub t3780
+sub t3780()
   b3780: U64 = id_u64(15)
   print(b3780 + U64(0), U64(0) + b3780)
 
-sub t641
+sub t641()
   bx641 = Bx641(f: 0)
   fa641 = FA641(f: 0)
   fa641.f = bx641.f
   print(fa641.f)
 
-sub t1460
+sub t1460()
   x1460: U32 = 4294967295
   print(x1460)
 
-sub t1670
+sub t1670()
   const cst1670: U64 = 14
   xs1670: [2]U64 = [cst1670, 0]
   print(xs1670)
 
-sub t4148
+sub t4148()
   fc4148: fun(I32) -> I32 = |a| (fu4148(true) ?? (-3))
   print(fc4148(0))
 
-sub t359
+sub t359()
   fa359 = FA359(f: 0)
   fa359.f = U32.min
   print(fa359.f)
 
-sub t717
+sub t717()
   gy717: U32 = gid(gmax(4294967295, 6))
   print(gy717)
 
-sub t198
+sub t198()
   cc198: Cell[U32] = Cell(0)
   cc198.set((gsome(16) ?? 2808061775))
   print(cc198.get())
 
-sub t781
+sub t781()
   gv781: Vec[Int] = Vec()
   cmp781: Int = id_int(7696)
   print(cmp781 == (gv781.get(0) ?? 9223372036854775807), (gv781.get(0) ?? 9223372036854775807) < cmp781, (gv781.get(0) ?? 9223372036854775807) >= cmp781)
 
-sub t3663
+sub t3663()
   flag3663 = rt_bool(false)
   vw3663: Vec[I8] = Vec()
   pushit3663 = |!vw3663, x: I8| !vw3663.push(x)
   pushit3663((gid((-6)) if flag3663 else 1))
   print(vw3663)
 
-sub t2744
+sub t2744()
   op2744: Float? = Float(0.5)
   print(op2744, op2744 ?? 0)
 
-sub t3423
+sub t3423()
   vw3423: Vec[U64] = Vec()
   pushit3423 = |!vw3423, x: U64| !vw3423.push(x)
   pushit3423(18446744073709551615)
   print(vw3423)
 
-sub t3205
+sub t3205()
   cmp3205: I16 = id_i16((-5))
   print(cmp3205 == (fu3205(false) ?? 5382), (fu3205(false) ?? 5382) < cmp3205, (fu3205(false) ?? 5382) >= cmp3205)
 
-sub t5615
+sub t5615()
   const cst5615: Float = 3
   vw5615: Vec[Float] = Vec()
   pushit5615 = |!vw5615, x: Float| !vw5615.push(x)
   pushit5615(cst5615)
   print(vw5615)
 
-sub main
+sub main()
   t4452()
   t3780()
   t641()

@@ -37,7 +37,7 @@ sub show[T](p: ?Pair[T], o: ?T)
   q = ?p.x
   print(q)
 
-sub main
+sub main()
   o = 6
   p = Pair(x: 5, r: ?o)
   q = ?p.x
@@ -65,7 +65,7 @@ sub main
   show(?pt, ?t)
   plain()
 
-sub plain
+sub plain()
   p = Pt(x: 7, y: 8)
   q = ?p.x
   q = first(?p, ?p.y)

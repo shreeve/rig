@@ -7,7 +7,8 @@ fun mk(k: Int) -> Vec[Int]
       defer !a.push(9)
       a
     _ => Vec()
-sub main
+
+sub main()
   x = mk(0)
   print(x.len)
 

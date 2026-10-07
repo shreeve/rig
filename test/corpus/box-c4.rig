@@ -7,7 +7,7 @@ struct Wrap[T]
 struct H
   b: Box[Wrap[Int]]
 
-sub main
+sub main()
   b = Box(value: Wrap(v: 7))
   print(b.v, b.get())
   h = H(b: <b)

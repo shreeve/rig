@@ -19,7 +19,7 @@ struct Seen
     !self.items.push(k)
     true
 
-fun mkh -> *P
+fun mkh() -> *P
   *P(n: 1)
 
 sub repoint(h: !*P)
@@ -27,27 +27,27 @@ sub repoint(h: !*P)
   h = *P(n: 9)
   print("now", h.n)
 
-fun mkv -> Vec[Int]
+fun mkv() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(3)
   v
 
-fun mka -> [3]Int
+fun mka() -> [3]Int
   [3, 1, 2]
 
-fun mks -> Seen
+fun mks() -> Seen
   Seen(items: Vec())
 
-fun mkbox -> Box[P]
+fun mkbox() -> Box[P]
   Box(P(n: 5))
 
 sub flip(b: !Bool)
   b = not b
 
-fun mkbool -> Bool
+fun mkbool() -> Bool
   true
 
-sub main
+sub main()
   repoint(!mkh())
   h = *P(n: 2)
   repoint(!(<h))

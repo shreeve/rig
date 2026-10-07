@@ -17,7 +17,7 @@ fun mkh(k: Int) -> H
 fun g(k: Int) -> Int
   k
 
-sub main
+sub main()
   d = Q(c: Cell(0), t: Text("d"))
   k = g(0)
   s = if k == 0

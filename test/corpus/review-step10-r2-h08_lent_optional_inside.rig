@@ -30,6 +30,6 @@ fun pick(q: (?Q)?, n: Int) -> Int
     return x.xs[3]
   0
 
-sub main
+sub main()
   o: Q? = mkq(5)
   print(pick(n: g(1), q: ?o), pick(n: g(1), q: ?mko(6)), pick(n: g(1), q: mko(7)))

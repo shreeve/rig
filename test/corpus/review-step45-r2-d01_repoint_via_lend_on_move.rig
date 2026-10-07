@@ -1,5 +1,5 @@
 # w = !a; w2 = !w; w = <w2: the right side doesn't name w but carries w's view of a
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   w = !a

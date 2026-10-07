@@ -4,7 +4,7 @@ struct P
 fun px(p: ?P) -> Int
   p.x
 
-sub main
+sub main()
   v: Vec[Box[P]] = Vec()
   !v.push(Box(P(x: 1)))
   for b in ?v

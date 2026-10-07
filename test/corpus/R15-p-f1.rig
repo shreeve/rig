@@ -1,5 +1,6 @@
 fun n(x: Int) -> Int
   x
+
 sub main()
   a = [1, 2, 3]
   w = !a[n(2)..n(1)]

@@ -4,7 +4,7 @@ struct Holder
   sub run(!self, f: ?fun() -> Int)
     self.n = f()
 
-sub main
+sub main()
   h = Holder(n: 0)
   if true
     y = 42

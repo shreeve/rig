@@ -27,13 +27,13 @@ fun popcount(x: U32) -> Int
     v >>= 1
   c
 
-sub main
+sub main()
   r = Ring[8](buf: [8 of 0])
   for i in 0..10
     ok = (!r).push(U8(i * 3))
     print("full at", i) if not ok
   while !r.pop() as b
     print(b, popcount(U32(b)))
-  print(@sizeOf(R8))
+  print(@size(R8))
 
 type R8 = Ring[8]

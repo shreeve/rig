@@ -5,5 +5,5 @@ fun mk() -> Box[?P]
   p = P(x: 1)
   Box(value: ?p)
 
-sub main
+sub main()
   b = mk()

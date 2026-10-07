@@ -1,7 +1,7 @@
 fun keep(s: []Int) -> []Int
   s
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   s = keep(v)

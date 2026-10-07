@@ -20,7 +20,7 @@ sub twice(s: !S)
   a = replace(!s.top, <s.top)
   print(a)
 
-sub main
+sub main()
   s = S(top: none, n: N(v: 1, next: none))
   nm = <s.n
   msg: String? = "hi"

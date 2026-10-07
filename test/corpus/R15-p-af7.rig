@@ -1,5 +1,6 @@
 struct S
   v: Vec[Int]
+
 sub main()
   h: *S = *S(v: Vec())
   r = ?h.v[..]

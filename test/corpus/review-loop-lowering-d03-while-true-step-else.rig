@@ -1,7 +1,7 @@
 # `while true: step` with an `else` and a `continue`.
 #
 # oracle: main accept
-sub main
+sub main()
   n = 0
   k = 0
   while true: k += 1

@@ -10,7 +10,7 @@ fun mkv(n: Int) -> Vec[Int]
   !xs.push(n)
   xs
 
-sub main
+sub main()
   print(pick(true, mkv(1), mkv(2)).len)
   print(orr(mkv(1), mkv(2)).len)
 

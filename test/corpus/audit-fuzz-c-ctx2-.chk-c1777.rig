@@ -56,10 +56,10 @@ fun cf1777(ok: Bool) -> I16!
 error CE1777
   no
 
-sub t1777
+sub t1777()
   o1777: I16? = none
   flag1777 = rt_bool(true)
   print(cf1777(false) catch (o1777 ?? (29257 if flag1777 else (-6))))
 
-sub main
+sub main()
   t1777()

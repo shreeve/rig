@@ -1,7 +1,7 @@
 struct P
   x: Int
 
-sub main
+sub main()
   xs = [P(x: 1), P(x: 2)]
   if xs.get(0) as p
     print(p.x)

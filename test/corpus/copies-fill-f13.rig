@@ -1,4 +1,4 @@
-sub main
+sub main()
   m = 4
   a = [2 of ?m]
   f = |?a| a[0]

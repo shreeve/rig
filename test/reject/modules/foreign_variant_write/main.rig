@@ -12,7 +12,7 @@ sub setu(u: !U8)
 sub setf(g: !fun(Int) -> Int)
   print(g(1))
 
-sub main
+sub main()
   setc(!lib.Color.red)
   setu(!lib.Byte.max)
   setf(!lib.twice)

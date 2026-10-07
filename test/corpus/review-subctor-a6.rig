@@ -5,7 +5,7 @@ sub check(n: Int)!
   return Bad.neg if n < 0
   print("ok", n)
 
-sub main
+sub main()
   f: *sub(Int)! = *|x: Int| check(x)!
   f(1)!
   f(-1) catch |e|

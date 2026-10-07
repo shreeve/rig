@@ -24,7 +24,7 @@ fun withdefer(n: Int) -> Int!
   r = rethrow(n)!
   r
 
-sub main
+sub main()
   print(parse(true, 3) catch 0, parse(false, 3) catch 0)
   print(cb(|x| .missing), cb(|x|
     return Bad.bad if x == 1

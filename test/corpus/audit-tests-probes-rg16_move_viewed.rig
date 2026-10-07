@@ -7,6 +7,6 @@ sub take(s: S)
 sub g(s: ?S)
   take(<s)
 
-sub main
+sub main()
   s = S(v: Vec())
   g(?s)

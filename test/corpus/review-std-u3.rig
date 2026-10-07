@@ -1,4 +1,4 @@
 use std.math
 
-sub main
+sub main()
   print(math.nope(1))

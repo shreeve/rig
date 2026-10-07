@@ -2,7 +2,7 @@ enum E
   w(p: !Int)
   none
 
-sub main
+sub main()
   a = 1
   e: E = .w(p: !a)
   match e

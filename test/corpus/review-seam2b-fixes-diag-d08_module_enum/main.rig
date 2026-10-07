@@ -11,7 +11,7 @@ struct U
   fun me(!self) -> !U
     self
 
-  fun make -> U
+  fun make() -> U
     U(n: 1)
 
 struct Wrap[T]
@@ -43,6 +43,6 @@ sub setl(e: !lib.E)
   print(e)
   e = .b
 
-sub main
+sub main()
   setl(!lib.E.a(s: "x"))
   setl(!(lib.E.a(s: "x")))

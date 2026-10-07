@@ -1,7 +1,7 @@
 fun get(k: Int) -> Int?
   k if k > 0 else none
 
-sub main
+sub main()
   c = true
   print(c)
   if get(1) as x and get(x + 1) as y and y == 2

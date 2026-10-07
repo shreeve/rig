@@ -1,7 +1,7 @@
 sub copyit(d: ![]?Int, s: []?Int)
   !d.copy(s)
 
-sub main
+sub main()
   m = 1
   a = [?m, ?m]
   if true

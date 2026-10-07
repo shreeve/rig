@@ -7,7 +7,7 @@ struct B
 fun idp(b: ?B) -> (?B)?
   b if b.n < 3 else none
 
-sub main
+sub main()
   i = 0
   while idp(?B(n: i)) as r
     print("body", r.n)

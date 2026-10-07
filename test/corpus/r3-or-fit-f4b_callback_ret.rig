@@ -5,7 +5,7 @@ struct Wrap
 fun call(f: ?fun() -> ?Wrap) -> ?Wrap
   f()
 
-sub main
+sub main()
   w = Wrap(n: 1, v: Vec())
   r = call(|?w| w)
   -w

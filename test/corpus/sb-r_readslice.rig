@@ -2,6 +2,6 @@ fun f(xs: []Int)
   w = !xs[..]
   w[0] = 1
 
-sub main
+sub main()
   a = [1]
   f(?a[..])

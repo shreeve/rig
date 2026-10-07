@@ -4,7 +4,7 @@ struct P
   fun get(?self) -> Int
     self.n
 
-sub main
+sub main()
   p = P(n: 1)
   x = ?p.get()
   print(x)

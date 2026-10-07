@@ -7,7 +7,7 @@ struct Obj
     if self.home.upgrade() as h
       h.set(none)
 
-sub main
+sub main()
   c: *Cell[*Obj?] = *Cell(none)
   c.set(*Obj(n: 1, home: ~c))
   c.set(*Obj(n: 2, home: ~c))

@@ -52,7 +52,7 @@ fun id_f32(x: F32) -> F32
 fun take5806(a: Int) -> Int
   a
 
-sub t5806
+sub t5806()
   k5806 = rt_int(2)
   z5806: Int = match k5806
       1 => 9223372036854775807
@@ -61,5 +61,5 @@ sub t5806
   y5806 = take5806(z5806)
   print(y5806)
 
-sub main
+sub main()
   t5806()

@@ -1,4 +1,4 @@
-sub main
+sub main()
   vs: Vec[[2]Int] = Vec()
   !vs.push([1, 2])
   print(vs[0] == [1, 2])

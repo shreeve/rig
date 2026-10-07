@@ -8,7 +8,7 @@ struct H
 fun sum(p: P) -> Int
   p.x + p.y
 
-sub main
+sub main()
   a = P(x: 1, y: 2)
   b = P(x: 10, y: 20)
   w = !a

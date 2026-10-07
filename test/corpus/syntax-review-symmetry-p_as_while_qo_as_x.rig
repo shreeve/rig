@@ -3,7 +3,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   o: R? = R(n: 1)
   while ?o as x
     print(x.n)

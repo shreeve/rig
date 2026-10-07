@@ -38,7 +38,7 @@ fun early(d: ?S, c: Bool) -> ?S from d
   return mk(1).me() if c
   d
 
-sub main
+sub main()
   y = S(n: 0, m: 0)
   z = S(n: 0, m: 0)
   print(view(?y).n, early(?z, true).n)

@@ -2,7 +2,7 @@
 use std.math
 use std.sort
 
-sub main
+sub main()
   xs = [3, 1, 2]
   sort.sort(!xs)
   print(math.gcd(12, 18), xs)

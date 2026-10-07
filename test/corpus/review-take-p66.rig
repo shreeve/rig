@@ -17,7 +17,7 @@ sub go2(h: ?H)
   x = replace(!h.w.a, none)
   print(x)
 
-sub main
+sub main()
   s = S(a: R(n: 1))
   h = H(w: !s)
   go(?h)

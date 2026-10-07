@@ -8,6 +8,6 @@ fun pick(e: ?E) -> String
     .a(t) => return ?t
     .b => return "b"
 
-sub main
+sub main()
   e = E.a(t: Text("hello"))
   print(pick(?e))

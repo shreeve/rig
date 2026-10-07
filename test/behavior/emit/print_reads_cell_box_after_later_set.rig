@@ -4,7 +4,7 @@ fun reset(c: ?Cell[Box[Int]]) -> Int
   c.set(Box(2))
   0
 
-sub main
+sub main()
   c: Cell[Box[Int]] = Cell(Box(1))
   print(c, reset(?c))
 

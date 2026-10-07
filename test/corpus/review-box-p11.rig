@@ -2,7 +2,7 @@ struct Node
   v: Int
   next: Box[Node]?
 
-sub main
+sub main()
   head: Box[Node]? = none
   for i in [1, 2, 3]
     head = Box(value: Node(v: i, next: <head))

@@ -8,7 +8,7 @@ sub twice(s: !S)
   bump(s)
   bump(!s)
 
-sub main
+sub main()
   x = S(n: 1)
   twice(!x)
   print(x.n)

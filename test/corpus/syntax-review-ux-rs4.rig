@@ -27,7 +27,7 @@ struct List
       cur = ?n.next
     total
 
-sub main
+sub main()
   l = List(head: none)
   for i in 0..5
     !l.push(i)

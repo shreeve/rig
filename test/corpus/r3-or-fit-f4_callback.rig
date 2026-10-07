@@ -7,7 +7,7 @@ fun find_by(xs: []Item, pred: ?fun(?Item) -> Bool) -> (?Item)?
       return ?xs[i]
   none
 
-sub main
+sub main()
   items = [Item(id: 1), Item(id: 2)]
   want = 2
   hit = find_by(?items, |?want, it: ?Item| it.id == want)

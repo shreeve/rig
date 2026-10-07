@@ -1,5 +1,5 @@
 # remove while element lent via a method receiver chain
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

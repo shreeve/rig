@@ -8,7 +8,7 @@ struct S
 fun pick(h: !O, s: ?S) -> !O
   h
 
-sub main
+sub main()
   b: Box[Int]? = Box(5)
   h = O(o: !b)
   if pick(!h, ?S(n: 1)).o as x

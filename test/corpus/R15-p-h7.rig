@@ -1,5 +1,6 @@
 sub cp(d: ![]Int, s: []Int)
   !d.copy(s)
+
 sub main()
   a = [1, 2, 3]
   b = [0, 0, 0]

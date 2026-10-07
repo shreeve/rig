@@ -1,7 +1,7 @@
 sub stash(c: *Cell[String], s: String)
   c.set(s)
 
-sub main
+sub main()
   c: *Cell[String] = *Cell("lit")
   t = Text("hello")
   stash(+c, ?t[..])

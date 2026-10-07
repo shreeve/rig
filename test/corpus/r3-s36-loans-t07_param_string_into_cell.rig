@@ -2,7 +2,7 @@
 sub remember(c: ?Cell[String], s: String)
   c.set(s)
 
-sub main
+sub main()
   c: Cell[String] = Cell("a")
   remember(?c, "b")
   print(c.get())

@@ -14,7 +14,7 @@ fun first(v: ?Vec[Int], i: Int) -> ([]Int)?
     return ?v[..]
   none
 
-sub main
+sub main()
   k = 0
   i = 0
   while first(?mkv(i), i) as h: k += h[0]

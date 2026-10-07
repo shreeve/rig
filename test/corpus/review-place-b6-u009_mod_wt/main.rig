@@ -1,6 +1,6 @@
 use geo
 
-sub main
+sub main()
   n = 1
   h = geo.H(w: !n)
   h.w = 4

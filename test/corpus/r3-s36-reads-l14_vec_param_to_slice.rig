@@ -4,6 +4,6 @@ fun sum(xs: []Int) -> Int
 fun f(v: ?Vec[Int]) -> Int
   sum(v)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   print(f(?v))

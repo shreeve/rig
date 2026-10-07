@@ -4,10 +4,10 @@ error Disk
 enum Color
   red
 
-fun f -> Int!
+fun f() -> Int!
   return Disk.full
 
-sub main
+sub main()
   c: Color = .red
   x = f() catch |e|
     match e

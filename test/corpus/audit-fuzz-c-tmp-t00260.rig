@@ -125,6 +125,6 @@ sub h1()!
   b3 = [M(r: mk(27)).with(qq(Q(h: *mk(28), o: mk(29)))), 0]
   print("val", b3[0])
 
-sub main
+sub main()
   h0() catch |e| print("caught", e)
   h1() catch |e| print("caught", e)

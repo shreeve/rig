@@ -8,7 +8,7 @@ fun rget(s: ?S) -> ?S
 fun wget(s: !S) -> !S
   s
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   s = S(o: <v)

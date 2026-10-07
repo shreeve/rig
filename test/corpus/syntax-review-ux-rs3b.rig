@@ -10,7 +10,7 @@ fun filter[T](xs: ?Vec[T], keep: ?fun(?T) -> Bool) -> Vec[T]
       !out.push(+x)
   out
 
-sub main
+sub main()
   jobs: Vec[*Job] = Vec()
   !jobs.push(*Job(id: 1))
   !jobs.push(*Job(id: 2))

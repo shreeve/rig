@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-sub main
+sub main()
   r: ?Tok? = none
   for i in 0..2
     y = Tok(n: i)

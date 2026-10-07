@@ -1,6 +1,6 @@
 use std.random
 
-sub main
+sub main()
   r = random.Random.seeded(42)
   print(!r.next(), !r.next())
   print(!r.int(0, 10), !r.int(-5, 5), !r.float())

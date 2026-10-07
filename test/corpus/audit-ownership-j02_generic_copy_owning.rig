@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 fun dup[T](a: ?T) -> T
   a
 
-sub main
+sub main()
   t = *Tok(n: 1)
   u = dup(?t)
   print(u.n)

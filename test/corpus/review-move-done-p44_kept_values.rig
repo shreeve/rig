@@ -5,10 +5,10 @@ enum Color
 struct S
   n: Int
 
-fun one -> Int
+fun one() -> Int
   1
 
-sub main
+sub main()
   s = S(n: 3)
   a = <Color.red
   b = <[1, 2][0]

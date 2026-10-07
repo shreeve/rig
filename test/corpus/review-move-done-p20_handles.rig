@@ -3,34 +3,34 @@ struct S
   v: Vec[Int]
   o: Vec[Int]?
 
-sub h1
+sub h1()
   h = *S(n: 1, v: Vec(), o: none)
   w = <h.v
   print(w.len)
 
-sub h2
+sub h2()
   h = *S(n: 1, v: Vec(), o: none)
   w = <h.o
   print(w)
 
-sub h3
+sub h3()
   h = *S(n: 1, v: Vec(), o: none)
   k = ~h
   if k.upgrade() as g
     w = <g.v
     print(w.len)
 
-sub h4
+sub h4()
   h = *S(n: 1, v: Vec(), o: none)
   w = <(+h).v
   print(w.len)
 
-sub h5
+sub h5()
   h = *S(n: 1, v: Vec(), o: none)
   w = <(!h).v
   print(w.len)
 
-sub main
+sub main()
   h1()
 
 # oracle: h1 reject C3

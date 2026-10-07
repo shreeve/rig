@@ -1,5 +1,5 @@
 # re-point an element of a Vec[!Text], then use the old target
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   ws: Vec[!Text] = Vec()

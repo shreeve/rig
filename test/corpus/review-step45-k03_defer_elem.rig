@@ -2,7 +2,7 @@
 fun take(v: Vec[Text]) -> Int
   v.len
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   defer print(v[0])

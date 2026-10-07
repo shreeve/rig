@@ -1,5 +1,5 @@
 struct P
   x: Int
 
-sub main
+sub main()
   P(x: 1).x = 5

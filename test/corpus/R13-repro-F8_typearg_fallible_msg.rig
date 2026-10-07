@@ -1,5 +1,5 @@
 struct N
   a: Int
 
-sub main
+sub main()
   c = Cell[*N!](value: none)

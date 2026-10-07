@@ -7,7 +7,7 @@ struct Q
   ps: [4]P
   o: P?
 
-sub main
+sub main()
   f = *|q: Q, k: Int| Q(ps: [q.ps[3], q.ps[2], q.ps[1], q.ps[0]], o: q.ps[k])
   p = P(s: "x", n: 1, a: [1, 2, 3])
   q = Q(ps: [p, P(s: "y", n: 2, a: [4, 5, 6]), p, P(s: "z", n: 4, a: [7, 8, 9])], o: none)

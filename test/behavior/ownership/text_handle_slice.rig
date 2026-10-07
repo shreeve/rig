@@ -8,7 +8,7 @@ struct W
 fun first(s: String) -> String
   s[0..1]
 
-sub main
+sub main()
   h = *Text("hello")
   s = ?h[1..]
   g = +h

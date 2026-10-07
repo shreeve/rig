@@ -4,7 +4,7 @@ error Bad
 struct Node
   v: Int
 
-sub main
+sub main()
   n = *Node(1)
   v = Vec[Int]()
   f: *sub(Int)! = *|+n, <v, x: Int|

@@ -1,0 +1,8 @@
+# A function writes its parameter list, even when empty, as its calls
+# (`main()`) and its type (`sub()`) do; the fix-it shows the header.
+
+sub main
+  print(1)
+
+# error: 4:5: write `sub main()`: a function's parameter list is always written, even when empty
+# errors: 1

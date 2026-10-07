@@ -13,5 +13,5 @@ struct R
 fun mk() -> Box[R]
   Box(value: R(n: 2))
 
-sub main
+sub main()
   mk().eat()

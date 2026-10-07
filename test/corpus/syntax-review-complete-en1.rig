@@ -2,6 +2,6 @@ enum Status
   ok = 200
   missing = 404
 
-sub main
+sub main()
   s: Status = .missing
   print(Int(s))

@@ -4,7 +4,7 @@ struct Res
   drop(!self)
     print("drop", self.id)
 
-sub main
+sub main()
   v: Vec[*Res] = Vec()
   !v.push(*Res(id: 1))
   s = ?v[..]

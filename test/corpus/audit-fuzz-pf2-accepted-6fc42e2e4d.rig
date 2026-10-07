@@ -32,7 +32,7 @@ fun id_u128(x: U128) -> U128
 fun id_float(x: Float) -> Float
   x
 
-sub main
+sub main()
   print("before")
   x: Int = -id_int((-9223372036854775808))
   print("after", x)

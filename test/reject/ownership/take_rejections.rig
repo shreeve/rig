@@ -13,7 +13,7 @@ sub rd(s: ?S)
   x = <s.top
   print(x)
 
-sub main
+sub main()
   h = *S(top: none, n: N(v: 1, next: none))
   z = <h.top
   s = S(top: none, n: N(v: 1, next: none))

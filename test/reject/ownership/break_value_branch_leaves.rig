@@ -11,7 +11,7 @@ fun fail(c: Bool) -> Text!
 error Bad
   no
 
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   h = H(f: Text("h"))

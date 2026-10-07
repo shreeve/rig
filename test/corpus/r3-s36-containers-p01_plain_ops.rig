@@ -10,7 +10,7 @@ sub bump(p: !P)
 fun get(p: ?P) -> Int
   p.x
 
-sub main
+sub main()
   v: Vec[P] = Vec()
   !v.push(P(x: 3, y: 0))
   !v.push(P(x: 1, y: 0))

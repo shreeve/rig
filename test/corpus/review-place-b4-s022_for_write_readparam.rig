@@ -2,6 +2,6 @@ sub f(xs: ?[3]Int)
   for x in !xs
     x += 1
 
-sub main
+sub main()
   a = [1, 2, 3]
   f(?a)

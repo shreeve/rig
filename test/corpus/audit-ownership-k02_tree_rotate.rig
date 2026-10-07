@@ -30,7 +30,7 @@ sub rotate_left(slot: !Box[Node]?)
     else
       slot = <n
 
-sub main
+sub main()
   root: Box[Node]? = none
   for k in [1, 2, 3]
     insert(!root, k)

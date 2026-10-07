@@ -17,7 +17,7 @@ struct Holder[T]
       return true
     false
 
-sub main
+sub main()
   print(peek(Box(R(n: 1))))
   h = Holder(o: Box(R(n: 2)))
   print(h.has())

@@ -5,6 +5,6 @@ sub touch(xs: ![]Box[P])
   !xs.swap(0, 1)
   print(xs[0].x)
 
-sub main
+sub main()
   a = [Box(P(x: 1)), Box(P(x: 2))]
   touch(!a)

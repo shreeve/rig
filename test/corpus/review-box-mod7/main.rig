@@ -1,5 +1,5 @@
 use lib
 
-sub main
+sub main()
   b = Box(value: lib.P(x: 1, take: 2))
   print(b.x)

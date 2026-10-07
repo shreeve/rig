@@ -21,7 +21,7 @@ fun grow(ps: !Vec[P]) -> Int
 sub show(p: P, n: Int)
   print(p.a, p.h, n)
 
-sub main
+sub main()
   ps: Vec[P] = Vec()
   !ps.push(P(a: 7, b: 7, c: 7, d: 7, e: 7, f: 7, g: 7, h: 7))
   show(at0(?ps), grow(!ps))

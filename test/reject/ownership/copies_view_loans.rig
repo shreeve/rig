@@ -16,13 +16,13 @@ struct S
 fun keep(s: ?S) -> S
   s
 
-sub fill_loan
+sub fill_loan()
   n = 1
   a = [3 of ?n]
   n = 5
   print(a[2])
 
-sub fill_method_loan
+sub fill_method_loan()
   n = 1
   m = 2
   a = [3 of ?n]
@@ -30,7 +30,7 @@ sub fill_method_loan
   m = 7
   print(a[0])
 
-sub copy_elements_loan
+sub copy_elements_loan()
   n = 1
   m = 2
   a = [3 of ?n]
@@ -39,21 +39,21 @@ sub copy_elements_loan
   m = 7
   print(a[0])
 
-sub copy_loan
+sub copy_loan()
   n = 1
   s = S(r: ?n)
   t = keep(?s)
   n = 2
   print(t.r)
 
-sub capture_loan
+sub capture_loan()
   n = 1
   s = S(r: ?n)
   f = |+s| s.r
   n = 2
   print(f())
 
-sub capture_through_view_loan
+sub capture_through_view_loan()
   n = 1
   s = S(r: ?n)
   v = ?s
@@ -61,13 +61,13 @@ sub capture_through_view_loan
   n = 5
   print(f())
 
-sub owned_capture
+sub owned_capture()
   n = 1
   s = S(r: ?n)
   f = *|+s| s.r + 0
   print(f())
 
-sub main
+sub main()
   fill_loan()
 
 # error: 22:3: cannot reassign `n` while it is lent

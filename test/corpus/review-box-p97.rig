@@ -15,6 +15,6 @@ struct S
       x.n = 60
     self.o = none
 
-sub main
+sub main()
   s = S(b: Box(value: R(n: 1)), o: Box(value: R(n: 2)))
   print(s.b.n)

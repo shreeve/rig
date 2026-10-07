@@ -8,7 +8,7 @@ struct Table
 fun at(t: ?Table, i: ?Int) -> ?Entry
   ?t.rows[i]
 
-sub main
+sub main()
   t = Table(rows: [Entry(name: "a"), Entry(name: "b")])
   i = 0
   e = at(?t, ?i)

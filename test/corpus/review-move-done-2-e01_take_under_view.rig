@@ -10,7 +10,7 @@ fun mkv(n: Int) -> Vec[Int]
 fun gw(s: !S) -> !S
   s
 
-sub a
+sub a()
   s = S(o: mkv(1))
   if ?s.o as y
     x = <s.o
@@ -21,33 +21,33 @@ sub b(q: !S)
     x = <q.o
     print(y[0], x == none)
 
-sub c
+sub c()
   v: Vec[Vec[Int]?] = Vec()
   !v.push(mkv(1))
   for e in ?v
     x = <v[0]
     print(e == none, x == none)
 
-sub d
+sub d()
   s = S(o: mkv(1))
   w = gw(!s)
   r = ?w.o
   x = <w.o
   print(r == none, x == none)
 
-sub e
+sub e()
   s = S(o: mkv(1))
   g = |?s| s.o == none
   x = <s.o
   print(g(), x == none)
 
-sub f
+sub f()
   s = S(o: mkv(1))
   k = 1
   y = <(!s).o if k > 0 else mkv(2)
   print(y == none)
 
-sub main
+sub main()
   a()
   t = S(o: mkv(2))
   b(!t)

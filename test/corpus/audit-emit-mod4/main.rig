@@ -2,5 +2,5 @@ use std
 use rig
 use builtin
 
-sub main
+sub main()
   print(std.f(), rig.g(), builtin.h())

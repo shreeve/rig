@@ -1,4 +1,4 @@
-sub main
+sub main()
   e: Vec[Int] = Vec()
   s = ?e[..]
   if true

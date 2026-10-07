@@ -23,7 +23,7 @@ sub nothing(k: Int)
   n = get(k) ?? return 0
   print(n)
 
-sub main
+sub main()
   n = get(1) ?? 0
   print(n, wrong(1), empty(1), err(1) catch 0)
   nothing(1)

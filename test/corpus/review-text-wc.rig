@@ -1,4 +1,4 @@
-sub main
+sub main()
   names = ["a", "b"]
   v: Vec[String] = Vec()
   for n in names

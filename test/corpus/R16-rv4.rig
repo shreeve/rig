@@ -5,7 +5,7 @@ struct Bag
     for x in ?self.items
       f(x)
 
-sub main
+sub main()
   b = Bag(items: Vec())
   !b.items.push(1)
   add = |!b, n: Int|

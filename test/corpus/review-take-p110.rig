@@ -12,8 +12,7 @@ fun f() -> Int?
   print(r)
   1
 
-
-sub main
+sub main()
   print(f())
   s = S(a: R(n: 2))
   print(s)

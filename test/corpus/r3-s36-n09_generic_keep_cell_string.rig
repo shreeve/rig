@@ -1,7 +1,7 @@
 sub keep[T](c: ?Cell[T], x: T)
   c.set(x)
 
-sub main
+sub main()
   c = Cell("a")
   t = Text("xyz")
   keep(?c, ?t[..])

@@ -14,7 +14,7 @@ struct Map
 fun lookup(m: ?Map, k: String) -> Int?
   m.get(k)?.v
 
-sub main
+sub main()
   m = Map(es: Vec())
   !m.es.push(Entry(k: "a", v: 1))
   print(lookup(?m, "a"), lookup(?m, "z"))

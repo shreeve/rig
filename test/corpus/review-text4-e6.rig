@@ -7,7 +7,7 @@ struct P
   a: *N
   b: *N
 
-sub main
+sub main()
   h = *N(id: 1)
   print(P(a: h, b: h).a.id)
   print(h.id)

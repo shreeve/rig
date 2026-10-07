@@ -1,6 +1,6 @@
 sub f(s: []Int)
   s.fill(7)
 
-sub main
+sub main()
   a = [1, 2, 3]
   f(?a[0..3])

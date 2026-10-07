@@ -1,6 +1,6 @@
 struct P
   o: String?
 
-sub main
+sub main()
   h = *P(o: "a")
   x = <h.o

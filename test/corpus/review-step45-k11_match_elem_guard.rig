@@ -3,7 +3,7 @@ enum E
   a(t: Text)
   b(n: Int)
 
-sub main
+sub main()
   v: Vec[E] = Vec()
   !v.push(E.a(t: Text("hi")))
   match v[0]

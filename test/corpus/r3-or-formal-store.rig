@@ -8,7 +8,7 @@ sub set(h: !Holder, x: ?Item, y: ?Item)
   h.r = x
   print(y.n)
 
-sub main
+sub main()
   a = Item(n: 1)
   b = Item(n: 2)
   c = Item(n: 3)

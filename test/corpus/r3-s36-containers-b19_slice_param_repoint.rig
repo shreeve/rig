@@ -2,7 +2,7 @@ sub f(xs: ![]Int, ys: ![]Int)
   xs = <ys
   xs[0] = 9
 
-sub main
+sub main()
   a = [1, 2]
   b = [3, 4]
   f(!a, !b)

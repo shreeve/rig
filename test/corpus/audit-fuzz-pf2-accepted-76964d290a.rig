@@ -9,7 +9,6 @@ struct Button
 fun apply(f: *fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-  
 fun adder(n: Int) -> *fun(Int) -> Int
   *|+n, a| a + n
 

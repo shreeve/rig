@@ -1,5 +1,5 @@
 use std.random
 
-sub main
+sub main()
   print(random.entropy())
   random.check_range(1, 0)

@@ -1,6 +1,6 @@
 use std.random
 
-sub main
+sub main()
   r = random.Random.seeded(1)
   xs: [0]Int = []
   !r.shuffle(!xs)

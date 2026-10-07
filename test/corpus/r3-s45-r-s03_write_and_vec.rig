@@ -2,7 +2,7 @@ sub f(a: !Text, v: !Vec[Text])
   !v.push(Text("x"))
   !a.add("y")
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   f(!v[0], !v)

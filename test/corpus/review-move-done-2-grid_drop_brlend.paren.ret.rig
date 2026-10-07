@@ -82,7 +82,7 @@ fun cell(c: Bool, p: ?S, q: !S) -> D?
   print(lks(?s), lks(?s2))
   mko(5)
 
-sub main
+sub main()
   for c in [true, false]
     s0 = mks(10)
     s1 = mks(20)

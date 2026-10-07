@@ -6,7 +6,7 @@ struct S
     for x in ?self.a
       self.b += x
 
-sub main
+sub main()
   s = S(a: Vec(), b: 0)
   !s.a.push(3)
   !s.go()

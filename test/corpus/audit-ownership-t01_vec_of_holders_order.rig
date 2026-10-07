@@ -12,7 +12,7 @@ struct Holder
   drop(!self)
     print("holder reads", self.b.v[0])
 
-sub main
+sub main()
   v: Vec[*Holder] = Vec()
   x = mk(1)
   h = *Holder(b: ?x)

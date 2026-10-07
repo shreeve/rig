@@ -72,7 +72,7 @@ expect_has "$out" "stdlib/extra.rig:1:1: error: a module of the standard library
 # and the standard library's apart: `std.shim` may bind Zig code, and
 # the same file imported as `shim` is the program's, which may not.
 mkdir both
-printf 'extern zig "shim.zig"\n  pub fun one -> Int\n' >both/shim.rig
+printf 'extern zig "shim.zig"\n  pub fun one() -> Int\n' >both/shim.rig
 printf 'pub fn one() i64 {\n    return 1;\n}\n' >both/shim.zig
 printf 'use std.shim\n\nsub main()\n  print(shim.one())\n' >both/main.rig
 out=$(RIG_STD="$PWD/both" rig run both/main.rig 2>&1); expect_rc $? 0 "std module in the program's directory: $out"

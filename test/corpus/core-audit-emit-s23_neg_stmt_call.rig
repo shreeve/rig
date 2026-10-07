@@ -2,6 +2,7 @@
 fun f() -> Int
   print("f ran")
   3
-sub main
+
+sub main()
   -f()
   print("end")

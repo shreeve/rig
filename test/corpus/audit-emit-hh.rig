@@ -6,6 +6,6 @@ struct W[T]
 fun id[T](x: T) -> T
   x
 
-sub main
+sub main()
   w = W(v: 1)
   print(w.v, id(2), T)

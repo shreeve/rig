@@ -195,7 +195,7 @@ the Parser wrapper checks the touch on the type's node.
 | `struct Random unique` vs `unique = 3`, `p.unique` | `UNIQUE` vs `IDENT` | `unique` is a keyword only on a `struct` header line, outside brackets, right after the name or the type parameters' `]`, where it fills the `unique` role of `struct` or `generic_struct` |
 | `-> ?T from a, b`, `-> String from static` vs `from = 3`, `f(from: 1)` | `FROM`, `STATIC` vs `IDENT` | on the header line of a `fun` or `extern fun`, outside brackets, past the `->` of its result type and right after a value (the type's last token), `from` is a keyword that starts the `origins` list of `fun` or `extern_fun`; `static` is one only right after that `from`. A function type inside the parameters is in brackets, so its `->` starts nothing |
 | `xs[a..]`, `xs[..]` vs `xs[a..b]` | `DOTDOT_OPEN` vs `..` | a `..` whose next token is `]` (past a line break, which is whitespace inside brackets) ends an open range, so `xs[a == b..]` reduces `a == b` before it; a `..` that starts an operand (`xs[..b]`) needs no mark, since no expression starts with one |
-| `t.type`, `(type: 1)`, a member `type: Int`, `fun type` in a member list | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`; sema rejects a keyword parameter |
+| `t.type`, `(type: 1)`, a member `type: Int`, `fun type()` in a member list, `@type(x)` | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`, and names a builtin after `@`; sema rejects a keyword parameter |
 
 The grammar's own shape settles the rest:
 
@@ -255,8 +255,10 @@ a form Rig spells differently (`def`, `let`, `class`, `elif`, `import`,
 `loop`, `then`, ...; the table `foreign_words`) is reported at the word
 with Rig's spelling, when it starts the statement the parser failed on
 or is itself the token it failed on; so are a `:` ending a block's
-header and an inclusive range `a..=b`. The wrapper also makes the only
-rewrites that need to inspect the tree:
+header and an inclusive range `a..=b`. A definition without its
+parameter list (`sub main`), which the grammar parses for this, is
+rejected at its name with the header to write (`sub main()`). The
+wrapper also makes the only rewrites that need to inspect the tree:
 
 - `pub` on a field or method is taken off: the member list holds the
   member itself, as every pass reads it, and the wrapper records its
@@ -363,7 +365,7 @@ fun size_of(p: ?Packet) -> Int
 sub send(p: Packet)
   print(p.size)
 
-sub main
+sub main()
   p = Packet(size: 512)
   print(size_of(?p))
   count = 1
@@ -383,7 +385,7 @@ $ rig normalize packet.rig
   (struct Packet _ (: size Int))
   (fun size_of _ ((: p (read_view Packet))) Int (block (member p size)))
   (sub send _ ((: p Packet)) _ (block (call print (member p size))))
-  (sub main _ _ _ (block
+  (sub main _ () _ (block
     (set _ p _ (call Packet (kwarg size 512)))
     (call print (call size_of (read p)))
     (set _ count _ 1)
@@ -400,8 +402,9 @@ is the complete list: one line per kind (or per group of kinds with the
 same roles), giving each role's name and type in slot order. `?` marks
 an optional role and `...` a role that takes the remaining children.
 A `sub`'s roles are its name, compile-time parameters, parameters, the
-`fails` marker of `sub f()!`, and its body, so `sub main` above prints
-as `(sub main _ _ _ (block ...))`.
+`fails` marker of `sub f()!`, and its body, so `sub main()` above prints
+as `(sub main _ () _ (block ...))`: its parameter list is empty, and
+it has no compile-time parameters.
 
 A few kinds serve more than one surface form:
 
@@ -673,8 +676,8 @@ ownership:
   an optional; `drop` bodies and deferred code never propagate. An
   `errdefer` needs the same: a body that can fail, or it would never
   run;
-- **the raw boundary**: builtins outside the safe list (`@sizeOf`,
-  `@alignOf`, `@TypeOf`, `@typeName`), and calls to `extern` functions,
+- **the raw boundary**: builtins other than Rig's own (`@size`,
+  `@align`, `@type`, `@name`), and calls to `extern` functions,
   must be inside a `raw` block. An `extern` function can only be
   called, so it cannot leave `raw` as a value.
 
@@ -2028,8 +2031,8 @@ lower is an internal error: sema must have rejected it.
   calls `rig.guardStack()` and `rig.start(init)`, then defers
   `rig.finish()`, so it runs after every other drop, and the root
   module declares `pub const panic = rig.panic`. A `main` that may
-  fail (it propagates, or is `sub main!` or `fun main -> Int!`), and
-  `fun main -> Int`, are emitted as `fn __rig_run_main(init)`, returning
+  fail (it propagates, or is `sub main()!` or `fun main() -> Int!`), and
+  `fun main() -> Int`, are emitted as `fn __rig_run_main(init)`, returning
   `void` or `i64` (with `anyerror!` when it may fail), under a Zig
   `main` that calls it: `rig.failMain` reports a failure and exits 1,
   and `rig.exitStatus` makes the `Int` the `u8` exit status. Both run
@@ -2064,7 +2067,7 @@ reviewed.
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `guardStack` | called first in the emitted `main` and in `runTests`: makes a stack overflow stop the program rather than write past the stack. On x86 Zig probes the stack page by page as a frame grows, so the guard page catches every overflow and nothing more is needed. Elsewhere (aarch64) a frame steps down by its whole size, so one larger than the guard page could land in memory mapped below it; since a frame holds at most 16 MiB of values (`checkFrames`), 64 MiB kept unmapped below the stack catches it with room for Zig's temporaries. macOS guards the stack with one page and maps memory right below that once the address space fills, so `guardStack` reserves `stack_reserve` (64 MiB) below the guard page at start. Linux maps nothing within 128 MiB of the stack's top (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to `stack_size` (16 MiB), leaving 112 MiB free below it. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main`'s body runs. On other operating systems it does nothing. `test/cli/stack_guard.sh` checks it |
-| `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @sizeOf(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
+| `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |
@@ -2076,7 +2079,7 @@ reviewed.
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
-| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main -> Int` |
+| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as Strings, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int` |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |
 

@@ -23,7 +23,7 @@ fun kk(k: ?K) -> Int
 fun ss(s: ?String) -> Int
   s.len
 
-sub main
+sub main()
   b = Box(value: C(hits: Cell(value: 0)))
   hit(?b)
   hit(?b)

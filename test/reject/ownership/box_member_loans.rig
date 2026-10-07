@@ -28,7 +28,7 @@ sub d()
   !v.push(2)
   print(w.len)
 
-sub main
+sub main()
   a()
 
 # error: 15:4: cannot drop `b` while it is lent

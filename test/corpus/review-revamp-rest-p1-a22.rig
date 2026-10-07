@@ -1,3 +1,4 @@
 type V = [2]?Int
+
 sub main()
   print(1)

@@ -1,5 +1,5 @@
-fun f -> Int
+fun f() -> Int
   1
 
-sub main
+sub main()
   print(f()!)

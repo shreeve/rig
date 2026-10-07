@@ -36,6 +36,6 @@ fun bt(t: !T) -> Int
   t.x += 10
   0
 
-sub main
+sub main()
   t = T(x: 1)
   print(t.get(bt(!t)))

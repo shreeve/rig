@@ -1,12 +1,12 @@
 struct B
   v: Vec[Int]
 
-fun mk -> B
+fun mk() -> B
   b = B(v: Vec())
   !b.v.push(5)
   <b
 
-sub main
+sub main()
   a = mk()
   c = true
   print((a if c else mk()).v.len)

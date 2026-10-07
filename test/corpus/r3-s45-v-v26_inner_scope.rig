@@ -1,4 +1,4 @@
-sub main
+sub main()
   v: Vec[?Int] = Vec()
   if true
     x = 5

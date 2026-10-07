@@ -2,7 +2,7 @@ struct Player
   name: String
   scores: Vec[Int]
 
-sub main
+sub main()
   ps: Vec[Box[Player]] = Vec()
   p = Player(name: "a", scores: Vec())
   !p.scores.push(3)

@@ -1,7 +1,7 @@
 sub put[T](xs: !Vec[T], x: T)
   xs[0] = <x
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   put(!v, Text("b"))

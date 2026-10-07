@@ -7,7 +7,7 @@ enum E
   a(t: Text)
   b
 
-sub main
+sub main()
   e = E.a(t: Text("abc"))
   r = Text("x")
   match e

@@ -53,9 +53,9 @@ struct W675
   f: U16
   g: Int = 1
 
-sub t675
+sub t675()
   w675 = W675(f: 6)
   print(w675.f, w675)
 
-sub main
+sub main()
   t675()

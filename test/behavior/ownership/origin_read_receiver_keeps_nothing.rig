@@ -9,7 +9,7 @@ struct Box2
     print(self.label, s)
     s.len
 
-sub main
+sub main()
   b = Box2(label: "x")
   for n in ["a", "cd"]
     q = Text(n)

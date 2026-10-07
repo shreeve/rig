@@ -16,22 +16,22 @@ enum Shape
   circle(r: Int)
   dot
 
-fun a[o: Res?] -> Int
+fun a[o: Res?]() -> Int
   1
 
-fun b[p: P] -> Int
+fun b[p: P]() -> Int
   1
 
-fun c[xs: [2]Int] -> Int
+fun c[xs: [2]Int]() -> Int
   1
 
-fun d[v: Vec[Int]] -> Int
+fun d[v: Vec[Int]]() -> Int
   1
 
-fun e[f: fun(Int) -> Int] -> Int
+fun e[f: fun(Int) -> Int]() -> Int
   1
 
-fun g[s: Shape] -> Int
+fun g[s: Shape]() -> Int
   1
 
 sub main()

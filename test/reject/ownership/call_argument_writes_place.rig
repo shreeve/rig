@@ -18,7 +18,7 @@ fun renew(b: !B) -> Vec[Int]
   b.xs = Vec()
   Vec()
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(7)
   !v.push(8)

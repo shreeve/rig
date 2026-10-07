@@ -7,7 +7,7 @@ struct Res
 sub run(f: ?sub())
   f()
 
-sub main
+sub main()
   r = Res(id: 1)
   r = Res(id: 2)
   swap = |!r|

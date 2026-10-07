@@ -13,7 +13,7 @@ sub show(n: Int)
 fun ret(s: ?S) -> Int
   return s.n
 
-sub main
+sub main()
   s = S(n: 1, p: P(x: 2), arr: [3, 4])
   show(s.n)
   match s.n

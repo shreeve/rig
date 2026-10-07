@@ -1,4 +1,4 @@
-sub main
+sub main()
   b = Box(Text("boxed"))
   s = ?b[1..]
   !b.add(" more text that forces a realloc of the buffer")

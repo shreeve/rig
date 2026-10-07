@@ -32,7 +32,7 @@ sub viaSlice(s: []Vec[C])
 sub viaVecCells(v: ?Vec[Vec[Cell[Int]]])
   v[0][0].set(71)
 
-sub main
+sub main()
   vv: Vec[Vec[C]] = Vec()
   inner: Vec[C] = Vec()
   !inner.push(C(c: Cell(0)))

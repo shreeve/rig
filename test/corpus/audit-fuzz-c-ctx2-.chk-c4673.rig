@@ -56,8 +56,8 @@ fun cf4673(ok: Bool) -> I16!
 error CE4673
   no
 
-sub t4673
+sub t4673()
   print(cf4673(false) catch I16.max)
 
-sub main
+sub main()
   t4673()

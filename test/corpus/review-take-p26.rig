@@ -4,7 +4,7 @@ struct S
 fun make() -> S?
   S(a: 1)
 
-sub main
+sub main()
   while make() as z
     w = <z.a
     print(w, z)

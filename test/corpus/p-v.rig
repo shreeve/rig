@@ -1,5 +1,5 @@
 struct Vec
   n: Int
 
-sub main
+sub main()
   print(1)

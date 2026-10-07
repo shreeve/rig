@@ -4,7 +4,7 @@ struct P
   k: Int
   id: Int
 
-sub main
+sub main()
   e: [0]Int = []
   sort.sort(!e)
   one = [3]

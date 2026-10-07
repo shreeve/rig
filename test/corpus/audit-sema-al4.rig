@@ -1,6 +1,6 @@
 type Byte = U8
 
-sub main
+sub main()
   const k = Byte.max
   a: [k]Int = [k of 1]
   print(a[0], k)

@@ -1,4 +1,4 @@
-sub main
+sub main()
   y = 3
   x =!y
   print(x)

@@ -14,7 +14,7 @@ fun mk(n: Int) -> Bag
   !v.push(Box(Res(n: n + 1)))
   Bag(v: <v, tag: Res(n: 99))
 
-sub main
+sub main()
   for x in mk(10).v
     print("x", x.n)
   print("mid")

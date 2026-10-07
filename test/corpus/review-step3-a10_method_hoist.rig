@@ -22,5 +22,5 @@ fun run(n: Int) -> Int!
   b = Bag(n: 100)
   b.plus2(mk(1), mkf(n)!)
 
-sub main
+sub main()
   print(run(2) catch -1)

@@ -26,7 +26,7 @@ enum E
   a(r: R)
   b
 
-sub main
+sub main()
   e: E = .a(r: R(t: *Tok(n: 1)))
   match e
     .a(r) => r.done()

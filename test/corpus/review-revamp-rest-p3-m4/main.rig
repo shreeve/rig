@@ -1,6 +1,8 @@
 use lib
+
 fun dbl(x: Int) -> Int
   x * 2
+
 sub main()
   s = lib.Sh(5)
   f: lib.Fn = dbl

@@ -10,7 +10,7 @@ struct H
 fun mk(n: !R) -> H
   H(w: !n)
 
-sub main
+sub main()
   r = R(id: 1)
   mk(!r).w = R(id: 2)
   print(r.id)

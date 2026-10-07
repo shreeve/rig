@@ -10,7 +10,7 @@ fun mk(f: Bool) -> S!
     return E.bad
   S(n: 1, v: Vec())
 
-sub main
+sub main()
   b = S(n: 2, v: Vec())
   !b.v.push(1)
   w = <(mk(true) catch b).v

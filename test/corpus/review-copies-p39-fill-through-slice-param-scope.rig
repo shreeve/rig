@@ -3,7 +3,7 @@
 sub fillit(s: ![]?Int, x: ?Int)
   !s.fill(x)
 
-sub main
+sub main()
   m = 1
   a = [?m, ?m, ?m]
   if true

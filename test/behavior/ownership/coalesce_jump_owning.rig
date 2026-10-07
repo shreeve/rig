@@ -27,7 +27,7 @@ fun out(h: !Holder) -> Int
   r = <h.r ?? return -3
   r.id
 
-sub main
+sub main()
   h = Holder(r: Res(id: 5))
   print(out(!h), out(!h))
   print(ident(1), ident(0))

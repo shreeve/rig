@@ -1,2 +1,2 @@
-fun main -> U8
+fun main() -> U8
   0

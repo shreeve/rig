@@ -1,10 +1,12 @@
 fun rot(h: U64) -> U64
   lo: U64 = h & 0x07FF_FFFF_FFFF_FFFF
   (lo << 5) | (h >> 59)
+
 fun wmul(a: U64, b: U64) -> U64
   raw
     x: I64 = @bitCast(a)
     x
-sub main
+
+sub main()
   x: U64 = 0xF000_0000_0000_0001
   print(rot(x))

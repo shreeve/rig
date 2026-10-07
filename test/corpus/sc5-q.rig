@@ -6,7 +6,7 @@ fun lit() -> Int?
   n = [none, 2][1]?
   n
 
-sub main
+sub main()
   a: [2]Int? = [3, none]
   print(first(a), lit())
   b = 5

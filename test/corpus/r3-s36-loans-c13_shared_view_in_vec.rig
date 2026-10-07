@@ -6,7 +6,7 @@ struct R
 struct V
   r: ?R
 
-sub main
+sub main()
   hs: Vec[*V] = Vec()
   if true
     a = R(n: 1)

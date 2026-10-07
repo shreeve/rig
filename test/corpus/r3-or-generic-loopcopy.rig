@@ -20,7 +20,7 @@ fun count[T](v: ?Vec[T]) -> Int
     n += 1
   n
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   print(count(?v))

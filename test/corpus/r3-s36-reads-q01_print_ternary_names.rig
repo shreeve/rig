@@ -13,7 +13,7 @@ fun mk(n: Int) -> B
 fun mko(n: Int) -> B?
   B(n: n)
 
-sub main
+sub main()
   a = mk(1)
   b = mk(2)
   c = true

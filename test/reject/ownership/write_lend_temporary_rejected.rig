@@ -18,19 +18,19 @@ struct S
   fun at(!self) -> !Int
     !self.n
 
-fun mk -> S
+fun mk() -> S
   S(n: 1, items: Vec())
 
-fun mkh -> *S
+fun mkh() -> *S
   *S(n: 1, items: Vec())
 
-fun mkv -> Vec[Int]
+fun mkv() -> Vec[Int]
   Vec()
 
 sub setb(b: !Bool)
   b = true
 
-sub main
+sub main()
   a = mk()
   b = mk()
   c = a.n == 1

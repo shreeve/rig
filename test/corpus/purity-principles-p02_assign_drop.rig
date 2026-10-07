@@ -7,7 +7,7 @@ struct Res
 struct Holder
   r: Res
 
-sub main
+sub main()
   a = Res(n: 1)
   a = Res(n: 2)
   print("after reassign")

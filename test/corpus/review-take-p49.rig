@@ -9,7 +9,7 @@ struct S
 fun slot(s: !S) -> !S
   s
 
-sub main
+sub main()
   s = S(a: R(n: 1))
   t = <slot(!s).a
   print(t, s)

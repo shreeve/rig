@@ -6,7 +6,7 @@
 struct A
   a: [2]!Int
 
-sub main
+sub main()
   i = 1
   n = 1
   m = 2

@@ -4,7 +4,7 @@ error E
 fun id[T](x: T) -> T!
   x
 
-sub main
+sub main()
   e: E = E.bad
   r = id(e) catch E.bad
   print(r)

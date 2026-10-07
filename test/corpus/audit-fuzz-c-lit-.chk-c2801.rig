@@ -19,7 +19,7 @@ fun ghalf[T](a: T) -> T
 fun gsome[T](a: T) -> T?
   a
 
-fun gnone[T] -> T?
+fun gnone[T]() -> T?
   none
 
 fun gpick[T](a: T, b: T, first: Bool) -> T
@@ -129,9 +129,9 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t2801
+sub t2801()
   q2801: U128? = 200
   print(q2801)
 
-sub main
+sub main()
   t2801()

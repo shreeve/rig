@@ -12,6 +12,6 @@ fun kind(s: !Shape) -> Int
     .circle(_) if flip(!s) => 1
     .circle(_) => 2
 
-sub main
+sub main()
   c: Shape = .circle(r: 1)
   print(kind(!c))

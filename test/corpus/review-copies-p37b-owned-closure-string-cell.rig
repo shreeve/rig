@@ -1,4 +1,4 @@
-sub main
+sub main()
   c = *Cell("init")
   d = +c
   f = *|<c, s: String| c.set(s)

@@ -7,5 +7,5 @@ fun g() -> Int!
 sub w()
   g()!
 
-sub main
+sub main()
   w()

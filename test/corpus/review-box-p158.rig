@@ -16,7 +16,7 @@ struct H
 fun rin(h: ?H) -> ?H2
   ?h.h2
 
-sub main
+sub main()
   h = H(h2: H2(r: Box(value: R(n: 1))))
   x = ?h.rinner().r
   h = H(h2: H2(r: none))

@@ -4,7 +4,7 @@ sub add(a: !Int, b: ?Int)
 sub addv(a: !Vec[Int], b: ?Vec[Int])
   !a.push(b.len)
 
-sub main
+sub main()
   n = 1
   add(b: n, a: !n)
   add(a: !n, b: n)

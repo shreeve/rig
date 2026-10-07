@@ -5,7 +5,7 @@ struct Bx
 struct View
   b: ?Bx
 
-sub main
+sub main()
   outer: Vec[*sub()] = Vec()
   if true
     y = Bx(c: Cell(0), v: Vec())

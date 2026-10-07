@@ -14,7 +14,7 @@ fun eval(e: ?*Expr) -> Float
     .neg(x) => -eval(?x)
     .div(l, r) => eval(?l) / eval(?r)
 
-sub main
+sub main()
   # (2 + 3) * -4
   e = *Expr.mul(left: *Expr.add(left: *Expr.num(2), right: *Expr.num(3)), right: *Expr.neg(*Expr.num(4)))
   print(eval(?e))

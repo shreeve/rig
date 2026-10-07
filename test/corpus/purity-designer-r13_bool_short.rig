@@ -3,7 +3,8 @@ struct S
   fun add(!self, k: Int) -> Bool
     !self.v.push(k)
     true
-sub main
+
+sub main()
   s = S(v: Vec())
   ok = !s.add(1)
   if ok and !s.add(2)

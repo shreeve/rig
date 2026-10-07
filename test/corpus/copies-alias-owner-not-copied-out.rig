@@ -11,6 +11,6 @@ fun get(v: V) -> Q
 fun getw(v: ?W) -> W
   v
 
-sub main
+sub main()
   a = P(x: 3)
   print(get(?a).x)

@@ -2,6 +2,6 @@ fun g(k: Int) -> Int?
   return none if k > 0
   k
 
-sub main
+sub main()
   x = g(1)?
   print(x)

@@ -12,7 +12,7 @@ fun store(h: !H, r: ?Vec[Int]) -> Bool
   h.r = r
   false
 
-sub main
+sub main()
   z: Vec[Int] = Vec()
   h = H(r: ?z)
   w: Vec[Int] = Vec()

@@ -5,8 +5,6 @@ struct S
 struct Holder[T]
   x: T?
 
-
-
 fun bx[T](v: ?Vec[T]) -> Int
   n = 0
   for x in v
@@ -14,7 +12,7 @@ fun bx[T](v: ?Vec[T]) -> Int
     n += 1
   n
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

@@ -1,7 +1,7 @@
 sub bump(w: !Int)
   w += 1
 
-sub main
+sub main()
   x = 0
   w = !x
   print(x)

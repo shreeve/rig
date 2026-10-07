@@ -4,7 +4,7 @@ struct Game
   rng: random.Random
   score: Int
 
-sub main
+sub main()
   g = Game(rng: random.Random.seeded(7), score: 0)
   h = g
   print(h.score)

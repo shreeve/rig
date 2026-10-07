@@ -11,7 +11,7 @@ fun mkv(n: Int) -> Vec[Int]
   !xs.push(n)
   xs
 
-sub main
+sub main()
   e: E = .one(s: S(o: mkv(1)))
   match e
     .one(s) => print(<s.o == none)

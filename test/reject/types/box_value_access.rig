@@ -17,7 +17,7 @@ sub f(b: ?Box[R])
   q = <b.unbox()
   print(q.n)
 
-sub main
+sub main()
   c = Box(5)
   print(c.value + 1)
   v = Box(Vec[Int]())

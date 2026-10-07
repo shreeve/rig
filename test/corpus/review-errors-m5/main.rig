@@ -13,5 +13,5 @@ fun q(n: Int) -> String
     lib.LO..lib.HI => "in"
     _ => "out"
 
-sub main
+sub main()
   print(r(2), q(2), q(7))

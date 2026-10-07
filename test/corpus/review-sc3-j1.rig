@@ -24,7 +24,7 @@ sub u(k: Int)
       print("u body2", b.id)
   print("u after")
 
-sub main
+sub main()
   t(1)
   t(0)
   u(1)

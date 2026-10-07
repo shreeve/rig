@@ -1,5 +1,5 @@
 # w[0] = ?u replaces a view element: old source t freed while w live (sound if loans union)
-sub main
+sub main()
   t = Text("t")
   u = Text("u")
   w: Vec[String] = Vec()

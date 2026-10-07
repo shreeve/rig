@@ -16,11 +16,10 @@ struct Two
     else
       !self.y
 
-
 fun total(b: ?Big) -> Int
   b.a + b.b + b.c
 
-sub main
+sub main()
   t = Two(x: Big(a: 1, b: 2, c: 3), y: Big(a: 4, b: 5, c: 6))
   print(total(t.pick(true)), t.pick(false).a)
   w = !t.pickw(false)

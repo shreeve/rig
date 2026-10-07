@@ -24,6 +24,6 @@ fun pick(q: !Q, n: Int) -> Int
   q.xs[0] = n
   q.xs[0]
 
-sub main
+sub main()
   b = Box(mkq(5))
   print(pick(n: g(9), q: !b), b.xs[0])

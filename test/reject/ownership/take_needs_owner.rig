@@ -7,7 +7,7 @@ struct S
 fun mk() -> S
   S(a: 1)
 
-sub main
+sub main()
   t = <mk().a
   o: S? = S(a: 1)
   if o as x

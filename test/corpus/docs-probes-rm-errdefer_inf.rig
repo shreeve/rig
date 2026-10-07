@@ -1,3 +1,3 @@
-sub main
+sub main()
   errdefer print(1)
   print(2)

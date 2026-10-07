@@ -2,7 +2,7 @@ enum K
   a
   b
 
-sub main
+sub main()
   t = Box(value: true)
   f = Box(value: 1.5)
   k = Box(value: K.b)

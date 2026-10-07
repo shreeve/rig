@@ -9,6 +9,6 @@ fun bump(p: !P) -> Int
   p.x = p.x + 10
   p.x
 
-sub main
+sub main()
   a = P(x: 1)
   _ = a.show(bump(!a))

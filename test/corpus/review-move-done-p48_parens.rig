@@ -1,7 +1,7 @@
 struct S
   n: Int
 
-sub main
+sub main()
   s = S(n: 1)
   n = 2
   a = <(s.n)

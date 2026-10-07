@@ -7,7 +7,7 @@ struct S
   a: R
   b: R
 
-sub main
+sub main()
   s = S(a: R(n: 1), b: R(n: 2))
   old = replace(!s.a, <s.b)
   print(old)

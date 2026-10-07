@@ -1,5 +1,5 @@
 # w = w2 for !Text locals: writes through (copy of a Text?) or re-point?
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   w = !a

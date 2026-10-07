@@ -4,7 +4,7 @@ struct Counter
 sub take(c: Counter)
   c.hits.set(9)
 
-sub main
+sub main()
   a = Counter(hits: Cell(1))
   r = ?a
   take(r)

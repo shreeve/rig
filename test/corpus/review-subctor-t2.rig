@@ -7,7 +7,7 @@ sub check(n: Int)!
 struct M
   v: Int
 
-sub main
+sub main()
   h: sub(Int)! = check
   print(h)
   f: *sub(Int)! = *|x: Int|

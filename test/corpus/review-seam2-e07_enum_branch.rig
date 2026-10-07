@@ -10,6 +10,6 @@ sub setc(c: !Color)
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   x: Color = .red
   setc(!(Color.red if f(1) == 1 else Color.green))

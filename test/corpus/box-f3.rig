@@ -8,7 +8,7 @@ fun peek(b: ?Box[C]) -> Int
   b.hit()
   b.hits.get()
 
-sub main
+sub main()
   b = Box(value: C(hits: Cell(value: 0)))
   b.hit()
   print(peek(?b))

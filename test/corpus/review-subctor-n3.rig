@@ -10,7 +10,7 @@ sub run(f: ?sub(Int)!)!
 sub runp(f: ?sub(Int))
   f(3)
 
-sub main
+sub main()
   run(|x| sq(x))!
   runp(|x| sq(x))
   g: *sub(Int)! = *|x: Int| sq(x)

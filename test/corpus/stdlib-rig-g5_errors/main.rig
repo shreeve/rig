@@ -1,10 +1,10 @@
 use io
 use parse
 
-fun read -> Int!
+fun read() -> Int!
   return io.IoError.eof
 
-sub main
+sub main()
   n = read() catch |e|
     if e == parse.ParseError.eof
       print("confused: io eof equals parse eof")

@@ -52,7 +52,7 @@ fun id_f32(x: F32) -> F32
 struct GP5129[T]
   f: T
 
-sub t5129
+sub t5129()
   k5129 = rt_int(2)
   gz5129: U8 = match k5129
       1 => 44
@@ -61,5 +61,5 @@ sub t5129
   gp5129: GP5129[U8] = GP5129(f: gz5129)
   print(gp5129.f)
 
-sub main
+sub main()
   t5129()

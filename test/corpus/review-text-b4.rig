@@ -1,7 +1,7 @@
 struct H
   t: Text
 
-sub main
+sub main()
   p = *H(t: Text("abcdefghijklmnop"))
   q = p
   s = ?q.t[..]

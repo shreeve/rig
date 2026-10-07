@@ -1,4 +1,5 @@
 struct S
   pub ?x
+
 sub main()
   print(1)

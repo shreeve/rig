@@ -12,7 +12,8 @@ struct H
   fun get(?self) -> Shape
     print("get")
     self.s
-sub main
+
+sub main()
   h = H(s: .circle(r: 3))
   match ?(mk())
     .circle(r) if r > 5 => print("big")

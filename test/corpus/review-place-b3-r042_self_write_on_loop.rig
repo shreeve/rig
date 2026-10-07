@@ -4,7 +4,7 @@ struct P
   sub inc(!self)
     self.x += 1
 
-sub main
+sub main()
   ps = [P(x: 1)]
   for p in ps
     !p.inc()

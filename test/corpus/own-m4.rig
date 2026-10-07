@@ -16,5 +16,5 @@ fun e(k: Int) -> Int!
   x = fail(k) catch |err| return err
   x
 
-sub main
+sub main()
   print(c(1) catch -1, d(0) catch -1, e(1) catch -2)

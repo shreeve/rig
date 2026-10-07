@@ -1,0 +1,11 @@
+# A `fun` without a parameter list: the fix-it puts `()` before the
+# result type.
+
+fun answer -> Int
+  42
+
+sub main()
+  print(answer())
+
+# error: 4:5: write `fun answer() -> Int`: a function's parameter list is always written, even when empty
+# errors: 1

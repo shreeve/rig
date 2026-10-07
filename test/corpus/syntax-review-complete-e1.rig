@@ -1,5 +1,5 @@
 error ParseError
   bad(line: Int)
 
-sub main
+sub main()
   print(1)

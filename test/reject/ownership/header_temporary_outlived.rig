@@ -16,20 +16,20 @@ enum E
 struct H
   e: E
 
-fun mk -> B
+fun mk() -> B
   v: Vec[Int] = Vec()
   !v.push(1)
   B(v: <v, o: Text("o"))
 
-fun mke -> E
+fun mke() -> E
   E.a(t: Text("e"))
 
-fun mv -> Vec[Int]
+fun mv() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(2)
   v
 
-sub main
+sub main()
   for x in ?mk().v
     print(x)
   for n in ?mv()

@@ -9,7 +9,7 @@ fun f(v: ?Vec[E]) -> Int
     .a(_) => 1
     .b(n) => n
 
-sub main
+sub main()
   e: Vec[E] = Vec()
   !e.push(E.a(n: 5))
   print(f(?e))

@@ -12,7 +12,7 @@ fun pick(a: R, b: R, c: Bool) -> R
 fun tern(a: R, b: R, c: Bool) -> R
   a if c else b
 
-sub main
+sub main()
   print(pick(R(n: 1), R(n: 2), true).n)
   x = tern(R(n: 3), R(n: 4), false)
   print(x.n)

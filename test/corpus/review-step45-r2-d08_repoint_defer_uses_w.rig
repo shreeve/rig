@@ -1,5 +1,5 @@
 # defer writes through w; w re-pointed after; old target dropped before scope end
-sub main
+sub main()
   b = Text("b")
   w = !b
   if true

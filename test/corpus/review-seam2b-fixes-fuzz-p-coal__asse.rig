@@ -90,20 +90,20 @@ sub inc(x: !Int)
 fun f(n: Int) -> Int
   n
 
-sub viatemp
+sub viatemp()
   c = f(1) == 1
   k = 3
   (!(mkopt(5) ?? mk(6))).e = .point
   print(c, k)
 
-sub vianame
+sub vianame()
   c = f(1) == 1
   k = 3
   tt = (mkopt(5) ?? mk(6))
   tt.e = .point
   print(c, k)
 
-sub main
+sub main()
   viatemp()
   print("--- named")
   vianame()

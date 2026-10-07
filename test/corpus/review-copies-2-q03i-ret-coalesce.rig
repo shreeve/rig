@@ -8,11 +8,10 @@ struct Q
   p: P
   n: Int
 
-
 fun two(o: (?P)?, s: ?P) -> (?P)!
   o ?? s
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   o: (?P)? = ?a

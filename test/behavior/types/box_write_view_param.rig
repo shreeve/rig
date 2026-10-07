@@ -16,7 +16,7 @@ sub f(b: !Box[R])
   print(b)
   b = Box(R(n: 9))
 
-sub main
+sub main()
   x = Box(R(n: 1))
   f(!x)
   print(x.n)

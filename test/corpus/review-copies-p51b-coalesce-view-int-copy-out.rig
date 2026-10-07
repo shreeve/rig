@@ -3,7 +3,7 @@
 fun pick(o: (?Int)?, r: ?Int) -> Int
   o ?? r
 
-sub main
+sub main()
   n = 1
   m = 3
   o: (?Int)? = ?n

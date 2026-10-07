@@ -1,5 +1,7 @@
 struct S
   n: Int
+
 unique = 1
+
 sub main()
   print(unique)

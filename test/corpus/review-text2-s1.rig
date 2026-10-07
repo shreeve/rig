@@ -8,13 +8,13 @@ enum M
   a(n: N)
   b
 
-fun mk -> M
+fun mk() -> M
   M.a(n: N(id: 1))
 
-fun maybe -> N?
+fun maybe() -> N?
   N(id: 2)
 
-sub main
+sub main()
   print(mk() == .b)
   if mk() != .b
     print("is a")

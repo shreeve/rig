@@ -4,7 +4,7 @@ struct P
   sub hit(?self)
     self.c.set(self.c.get() + 1)
 
-sub main
+sub main()
   o: P? = P(c: Cell(1))
   if ?o as p
     p.hit()

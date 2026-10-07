@@ -31,14 +31,14 @@ fun mk(n: Int) -> S
   !s.items.push(n)
   s
 
-fun mkv -> Vec[Vec[Int]]
+fun mkv() -> Vec[Vec[Int]]
   v: Vec[Vec[Int]] = Vec()
   w: Vec[Int] = Vec()
   !w.push(1)
   !v.push(<w)
   v
 
-sub main
+sub main()
   x = <(!mkv())[0]
   print(x)
   y = <(!mk(3)).n

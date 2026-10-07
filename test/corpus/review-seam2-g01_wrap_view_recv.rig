@@ -20,7 +20,7 @@ fun wrap(s: !S) -> !S
 sub inc(v: !Int)
   v += 100
 
-sub main
+sub main()
   s = S(n: 1)
   inc(!wrap(!s).at())
   print(s.n)

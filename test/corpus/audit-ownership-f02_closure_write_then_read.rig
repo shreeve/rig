@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   f = |!v, x: Int| !v.push(x)
   f(1)

@@ -2,7 +2,7 @@
 # function's result and parameter types, and in a local's annotation.
 # Each call's instance has its own length.
 
-fun zeros[n: Int] -> [n]Int
+fun zeros[n: Int]() -> [n]Int
   [n of 0]
 
 sub fill[n: Int](xs: ![n]Int, v: Int)

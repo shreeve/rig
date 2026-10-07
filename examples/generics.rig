@@ -57,7 +57,7 @@ fun pick[T](a: T, b: T, first: Bool) -> T
     return <a
   <b
 
-sub main
+sub main()
   tapes = Stack[*Tape](items: Vec())
   !tapes.push(*Tape(label: "jazz", minutes: 45))
   !tapes.push(*Tape(label: "rock", minutes: 38))

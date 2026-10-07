@@ -23,7 +23,7 @@ struct R
   drop(!self)
     self.sink.push(+self.t)
 
-sub main
+sub main()
   sink: *Cell[Vec[*Tok]] = *Cell(Vec())
   if true
     r = R(t: *Tok(n: 1), sink: +sink)

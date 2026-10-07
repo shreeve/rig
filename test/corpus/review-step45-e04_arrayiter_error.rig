@@ -13,5 +13,5 @@ fun walk(a: [3]Text) -> Int!
     n += check(x)!
   n
 
-sub main
+sub main()
   print(walk([Text("a"), Text("b"), Text("c")]) catch -1)

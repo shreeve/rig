@@ -51,7 +51,7 @@ fun drain(b: !Bag) -> Int!
 sub send(n: Int)
   print("sent", n)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)

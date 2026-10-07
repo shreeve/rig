@@ -6,10 +6,10 @@ enum Mode
   fast
   safe
 
-sub show[n: Int]
+sub show[n: Int]()
   print(n)
 
-sub mode[m: Mode]
+sub mode[m: Mode]()
   print(m == .safe)
 
 fun scale[factor: Int](x: Int) -> Int

@@ -12,17 +12,17 @@ sub r1x(s: ?S)
   w = <s.o
   print(w)
 
-sub r2
+sub r2()
   s = S(o: none)
   w = <(?s).o
   print(w)
 
-sub r3
+sub r3()
   s = S(o: none)
   w = <rget(?s).o
   print(w)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   s = S(o: <v)

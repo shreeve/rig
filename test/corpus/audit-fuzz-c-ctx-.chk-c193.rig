@@ -49,7 +49,7 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t193
+sub t193()
   cl193 = |x: I128| x
   mk193 = rt_int(0)
   mz193: I128 = match mk193
@@ -57,5 +57,5 @@ sub t193
     _ => (-9)
   print(mz193)
 
-sub main
+sub main()
   t193()

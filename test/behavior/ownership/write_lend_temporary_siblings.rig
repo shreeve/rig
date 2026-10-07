@@ -63,17 +63,17 @@ fun mkb(n: Int) -> B
   !b.items.push(n + 1)
   b
 
-fun mkc -> C
+fun mkc() -> C
   C(c: Cell(1))
 
-fun mkv -> Vec[Int]
+fun mkv() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(3)
   !v.push(1)
   !v.push(2)
   v
 
-fun mka -> [3]Int
+fun mka() -> [3]Int
   [3, 1, 2]
 
 fun sum(xs: []Int) -> Int
@@ -92,14 +92,14 @@ sub push_one[T](v: !Vec[T], x: T)
 fun first_of(v: !Vec[Int]) -> Int?
   !v.pop()?
 
-fun top -> Int?
+fun top() -> Int?
   x = !mkv().pop()?
   x + 100
 
-fun fails -> Int!
+fun fails() -> Int!
   !mkb(200).tryit()!
 
-sub main
+sub main()
   !Wrap(v: 1).set(2)
   print(!Wrap(v: 1).swap_in(5))
   Wrap(v: 7).again()

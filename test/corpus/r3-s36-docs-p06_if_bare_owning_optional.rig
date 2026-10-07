@@ -5,7 +5,7 @@ struct Res
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   m: Res? = Res(n: 1)
   if m as r
     print(r.n)

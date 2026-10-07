@@ -81,83 +81,83 @@ fun cf4734(ok: Bool) -> Float!
 error CE4734
   no
 
-sub t4395
+sub t4395()
   o4395: U8? = none
   flag4395 = rt_bool(true)
   fa4395 = FA4395(f: 0)
   fa4395.f = (o4395 ?? (255 if flag4395 else 255))
   print(fa4395.f)
 
-sub t5434
+sub t5434()
   o5434: I8? = none
   flag5434 = rt_bool(true)
   qo5434: I8? = none
   print(qo5434 ?? (o5434 ?? ((-128) if flag5434 else 13)))
 
-sub t455
+sub t455()
   cl455 = |x: U32| x
   b455: U32 = id_u32(6)
   print(b455 + cl455(783705563), cl455(783705563) + b455)
 
-sub t244
+sub t244()
   arr244: [2]I8 = [(-128), (-1)]
   w244 = W244(f: arr244[0])
   print(w244.f, w244)
 
-sub t1455
+sub t1455()
   arr1455: [2]U8 = [13, 91]
   op1455: U8? = arr1455[0]
   print(op1455, op1455 ?? 0)
 
-sub t5194
+sub t5194()
   op5194: Int? = Int.min
   print(op5194, op5194 ?? 0)
 
-sub t4483
+sub t4483()
   acc4483: I8 = id_i8(16)
   acc4483 += ((-2) - 18)
   print(acc4483)
 
-sub t1640
+sub t1640()
   gv1640: Vec[U128] = Vec()
   cmp1640: U128 = id_u128(4)
   print(cmp1640 == (gv1640.get(0) ?? 5), (gv1640.get(0) ?? 5) < cmp1640, (gv1640.get(0) ?? 5) >= cmp1640)
 
-sub t4311
+sub t4311()
   cr4311: Cell[I16] = Cell(32767)
   cmp4311: I16 = id_i16((-5))
   print(cmp4311 == cr4311.replace(11), cr4311.replace(11) < cmp4311, cr4311.replace(11) >= cmp4311)
 
-sub t2185
+sub t2185()
   wb2185: Int = id_int((-22320))
   print(wb2185 +% (fu2185(true) ?? (-10)))
 
-sub t3517
+sub t3517()
   const cst3517: U16 = 6367
   gp3517: GP3517[U16] = GP3517(f: cst3517)
   print(gp3517.f)
 
-sub t3231
+sub t3231()
   cr3231: Cell[U64] = Cell(1)
   op3231: U64? = cr3231.replace(0)
   print(op3231, op3231 ?? 0)
 
-sub t1176
+sub t1176()
   o1176: U16? = none
   flag1176 = rt_bool(true)
   cc1176: Cell[U16] = Cell(0)
   cc1176.set((o1176 ?? (14 if flag1176 else 1)))
   print(cc1176.get())
 
-sub t4734
+sub t4734()
   print(cf4734(false) catch (fal4734(true) catch 10.25))
 
-sub t787
+sub t787()
   const cst787: U16 = 0
   gy787: U16 = gid(cst787)
   print(gy787)
 
-sub main
+sub main()
   t4395()
   t5434()
   t455()

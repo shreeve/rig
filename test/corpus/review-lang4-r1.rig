@@ -4,7 +4,7 @@ struct H
 fun keep(v: Vec[Int]) -> Vec[Int]
   v
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   h = H(w: !v)
   h.w = keep(<h.w)

@@ -20,9 +20,9 @@ struct H
 fun mk(n: Int) -> S
   S(n: n, t: Text("hello world, long enough to be on the heap"))
 
-fun mkh -> H
+fun mkh() -> H
   H(rs: Vec())
 
-sub main
+sub main()
   !mkh().rs.push(?mk(1).t)
   print("end")

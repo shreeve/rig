@@ -1,5 +1,5 @@
 # within a loop, re-point; the loan from the previous iteration must end
-sub main
+sub main()
   a = Text("a")
   b = Text("b")
   w = !a

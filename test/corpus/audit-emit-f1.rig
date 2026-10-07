@@ -26,7 +26,7 @@ fun run(k: Int) -> Int!
   base = 100
   use3(mkv(1)!, |+base, x| x + base, mkv(k)!)
 
-sub main
+sub main()
   r = R(n: 1)
   f = |<r, x: Int| x + r.n
   print(f(1), f(2))

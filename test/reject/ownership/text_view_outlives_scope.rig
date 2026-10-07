@@ -4,7 +4,7 @@
 struct Name
   s: String
 
-sub main
+sub main()
   n = Name(s: "none")
   names: Vec[String] = Vec()
   if true

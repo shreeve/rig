@@ -4,7 +4,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   k = 0
   x = match k
     0

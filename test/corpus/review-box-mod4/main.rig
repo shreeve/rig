@@ -1,6 +1,6 @@
 use lib
 
-sub main
+sub main()
   o: Box[lib.R]? = lib.mk(9)
   if !o as x
     x.n = 10

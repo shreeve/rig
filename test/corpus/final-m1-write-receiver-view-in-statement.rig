@@ -26,7 +26,7 @@ fun clobber(n: Int) -> Int
 fun show(v: ?Int, k: Int) -> Int
   v * 1000 + k
 
-sub main
+sub main()
   print(show(!mk(42).at(), clobber(1)))
   print(show(!mk(5).pick(y: f(1), x: f(2)), clobber(3)))
   print((!mk(5).at()) + clobber(100))

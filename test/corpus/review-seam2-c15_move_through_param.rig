@@ -9,7 +9,7 @@ sub steal(p: !S)
   x = <(!p).items
   print(x)
 
-sub main
+sub main()
   s = S(n: 1, items: Vec())
   !s.items.push(1)
   steal(!s)

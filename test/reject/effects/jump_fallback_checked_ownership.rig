@@ -4,7 +4,7 @@
 fun get(k: Int) -> Int?
   k if k > 0 else none
 
-sub main
+sub main()
   n = get(1) ?? break
   print(n)
 

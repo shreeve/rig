@@ -1,7 +1,9 @@
 error E
   bad
-fun f -> Int!
+
+fun f() -> Int!
   return E.bad
-sub main
+
+sub main()
   if f() as x
     print(x)

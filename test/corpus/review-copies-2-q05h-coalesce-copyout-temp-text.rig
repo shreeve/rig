@@ -9,11 +9,10 @@ fun get(r: ?N, ok: Bool) -> (?N)!
   return Bad.oops if not ok
   r
 
-
 fun mk(n: Int) -> Text
   Text("q", n)
 
-sub main
+sub main()
   o: (?N)? = none
   v: N = o ?? ?N(s: ?mk(3), k: 7)
   print(v.s, v.k)

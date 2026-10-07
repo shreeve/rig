@@ -27,7 +27,7 @@ fun mk(n: Int) -> S
 fun wrap(h: !H) -> !H
   h
 
-sub main
+sub main()
   h = H(rs: Vec())
   if true
     s = mk(1)

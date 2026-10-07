@@ -7,7 +7,7 @@ fun mk(t: !Text, i: Int) -> W?
     return W(t: !t)
   none
 
-sub main
+sub main()
   t = Text("a", 1)
   i = 0
   while mk(!t, i) as h: print(h.t.len)

@@ -9,7 +9,7 @@ fun idx(s: String) -> Int
 fun getw(v: !Vec[E]) -> !Vec[E]
   v
 
-sub main
+sub main()
   v: Vec[E] = Vec()
   !v.push(E.a(t: Text("hi")))
   match !getw(!v)[idx(?Text("a"))]

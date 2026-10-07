@@ -1,4 +1,5 @@
 fun f(v: Vec[Int] = Vec()) -> Int
   v.len
-sub main
+
+sub main()
   print(f())

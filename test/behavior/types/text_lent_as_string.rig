@@ -11,7 +11,7 @@ fun a(p: ?Text) -> Int
 fun b(p: ?Text) -> Int
   n(p)
 
-sub main
+sub main()
   t = Text("abc")
   print(a(?t), n(t), n(?Text("x")), n(Text("yz")), b(t))
 

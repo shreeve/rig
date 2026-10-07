@@ -13,7 +13,7 @@ sub eat(x: R?, s: !S)
 sub eat2(s: !S, x: R?)
   print(x, s)
 
-sub main
+sub main()
   s = S(a: R(n: 1), b: R(n: 2))
   eat(<s.a, !s)
   eat2(!s, <s.b)

@@ -15,7 +15,7 @@ fun mk() -> H
   print("mk")
   H(arr: [Counter(hits: Cell(0)), Counter(hits: Cell(5))])
 
-sub main
+sub main()
   match mk().arr[idx(1)].hits.get()
     5 => print("five")
     _ => print("other")

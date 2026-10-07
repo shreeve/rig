@@ -33,10 +33,10 @@ struct Paint
 
 BIG = [4000000000 of 7]
 
-fun zeros[n: Int] -> [n]Int
+fun zeros[n: Int]() -> [n]Int
   [n of 0]
 
-sub fill[n: Int]
+sub fill[n: Int]()
   a = [n of 1]
   print(a.len)
 

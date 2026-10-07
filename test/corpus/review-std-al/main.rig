@@ -1,7 +1,7 @@
 use std.random
 use dice
 
-sub main
+sub main()
   r = random.Random.seeded(1)
   x = dice.roll(!r)
   dice.wait()

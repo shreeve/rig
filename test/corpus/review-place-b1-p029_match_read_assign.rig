@@ -2,7 +2,7 @@ enum S
   a(n: Int)
   b
 
-sub main
+sub main()
   s: S = .a(n: 1)
   match ?s
     .a(n) => n = 2

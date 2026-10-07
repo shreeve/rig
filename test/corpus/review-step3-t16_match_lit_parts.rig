@@ -9,7 +9,7 @@ fun mkh(n: Int) -> H
 struct P
   n: Int
 
-sub main
+sub main()
   match [1, 2][0]
     1 => print("one")
     _ => print("other")

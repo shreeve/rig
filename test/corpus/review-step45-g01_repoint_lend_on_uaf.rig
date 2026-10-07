@@ -1,5 +1,5 @@
 # w = !m; r = ?w; w = !n (re-point) then replace m while r still views m
-sub main
+sub main()
   m = Text("mmmm")
   n = Text("nnnn")
   w = !m

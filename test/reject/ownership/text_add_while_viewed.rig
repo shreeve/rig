@@ -1,7 +1,7 @@
 # A String taken from a Text views it: the Text cannot change while
 # the view is in use, since the change may move its bytes.
 
-sub main
+sub main()
   t = Text("abc")
   s = ?t[..]
   !t.add("d")

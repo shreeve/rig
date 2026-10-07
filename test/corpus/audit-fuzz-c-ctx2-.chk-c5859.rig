@@ -49,11 +49,11 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t5859
+sub t5859()
   vw5859: Vec[I128] = Vec()
   pushit5859 = |!vw5859, x: I128| !vw5859.push(x)
   pushit5859((gsome(19) ?? (-4)))
   print(vw5859)
 
-sub main
+sub main()
   t5859()

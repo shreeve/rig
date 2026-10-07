@@ -6,5 +6,5 @@ sub s(n: Int)!
   print("in s", n)
   E.bad
 
-sub main
+sub main()
   s(1) catch |e| print("failed", e)

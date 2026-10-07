@@ -28,7 +28,7 @@ fun opt(n: ?Text) -> P?
 fun mke(s: ?Text) -> E
   .a(xs: [s.len, 0, 0, 0])
 
-sub main
+sub main()
   i = idx(?Text("a"))
   arr = [F.a(n: 1)]
   match !arr[i]

@@ -4,7 +4,7 @@ struct Wrap
 struct View
   w: ?Wrap
 
-sub main
+sub main()
   x = Wrap(n: 1)
   h = *View(w: ?x)
   g = +h

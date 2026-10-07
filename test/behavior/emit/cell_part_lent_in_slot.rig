@@ -27,7 +27,7 @@ fun clobber(n: Int) -> Int
 fun show(x: ?P, k: Int) -> Int
   x.n * 100 + x.c.get() + k
 
-sub main
+sub main()
   print(id(?mk(42).p).n)
   print(id(?mk(1).p), id(?mk(2).p))
   print(touch(?mk(3).p).c.get())

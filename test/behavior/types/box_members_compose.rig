@@ -18,7 +18,7 @@ struct S
 fun read(b: ?Box[Box[S]]) -> Int
   b.n + b.get()
 
-sub main
+sub main()
   b = Box(Box(S(n: 1, t: Text("x"))))
   b.n = 5
   !b.bump()

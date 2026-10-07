@@ -12,7 +12,7 @@ fun at(s: []Int, i: Int) -> Int?
     return s[i]
   none
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0

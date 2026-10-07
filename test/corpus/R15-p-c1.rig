@@ -1,5 +1,6 @@
-fun mk -> [3]Int
+fun mk() -> [3]Int
   [1, 2, 3]
+
 sub main()
   w = !mk()[..]
   w[0] = 1

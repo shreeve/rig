@@ -10,7 +10,7 @@ struct H
   fun get(!self) -> !R?
     !self.r
 
-sub main
+sub main()
   h = H(r: R(n: 1))
   if !(!h.get()) as x
     x.n = 5

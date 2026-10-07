@@ -8,7 +8,7 @@ sub check(n: Int)!
   return Bad.neg if n < 0
   print("ok", n)
 
-sub main
+sub main()
   run(|x| check(x))!
   run(check)!
   k = 5

@@ -10,11 +10,11 @@ fun g(n: Int) -> Int
     return n
   1
 
-sub h
+sub h()
   if limit > 5
     return
   print("h")
 
-sub main
+sub main()
   print(f(2), g(3))
   h()

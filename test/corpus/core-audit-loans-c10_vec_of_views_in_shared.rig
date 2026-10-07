@@ -1,5 +1,5 @@
 # A shared handle to an array of views.
-sub main
+sub main()
   a = 1
   b = 2
   h = *[?a, ?b]

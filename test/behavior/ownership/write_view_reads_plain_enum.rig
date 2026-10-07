@@ -13,7 +13,7 @@ sub paint(w: !Color)
   w = .blue
   print(c, k)
 
-sub main
+sub main()
   x = Color.red
   paint(!x)
   print(x)

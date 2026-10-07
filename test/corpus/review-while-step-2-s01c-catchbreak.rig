@@ -32,7 +32,7 @@ fun mkf(v: ?Vec[Int], i: Int) -> S?!
 fun take(a: Vec[Int]) -> Int
   a[0]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(0)
   b = fresh(0)

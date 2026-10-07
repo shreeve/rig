@@ -21,7 +21,7 @@ sub walk(slot: ?Box[Node]?)
     print(n.key)
     walk(?n.right)
 
-sub main
+sub main()
   root: Box[Node]? = none
   for k in [5, 2, 8]
     insert(!root, k)

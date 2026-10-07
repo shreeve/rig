@@ -7,7 +7,7 @@ struct R
 fun cl[T](a: ?T) -> T
   +a
 
-sub main
+sub main()
   x = Box(value: R(n: 1))
   y = cl(?x)
   print(y.n)

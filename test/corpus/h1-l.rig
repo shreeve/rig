@@ -1,9 +1,11 @@
 sub bump(p: !Int)
   p += 1
+
 sub f(w2: !Int)
   bump(!w2)
   bump(w2)
-sub main
+
+sub main()
   m = 3
   f(!m)
   print(m)

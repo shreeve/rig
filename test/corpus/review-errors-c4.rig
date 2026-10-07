@@ -2,14 +2,14 @@ error Bad
   one
   two
 
-fun f -> Int!
+fun f() -> Int!
   return Bad.one
 
-fun g -> Int!
+fun g() -> Int!
   x = f() catch Bad.two
   x
 
-sub main
+sub main()
   _ = g() catch |e|
     print(e)
     0

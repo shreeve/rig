@@ -5,7 +5,7 @@ struct C
 fun idx(s: String) -> Int
   s.len - 1
 
-sub main
+sub main()
   v: Vec[C?] = Vec()
   !v.push(C(c: Cell(1)))
   w: C? = C(c: Cell(2))

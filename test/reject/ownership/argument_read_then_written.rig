@@ -45,7 +45,7 @@ fun rd(v: ?Vec[Int], n: Int) -> Int
 fun take(s: []Int, n: Int) -> Int
   s.len + n
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(0)
   print(v, grow(!v), v)

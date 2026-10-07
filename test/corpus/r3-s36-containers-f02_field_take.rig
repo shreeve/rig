@@ -7,7 +7,7 @@ struct H
   d: D
   o: D?
 
-sub main
+sub main()
   h = H(d: D(n: 1), o: D(n: 2))
   h.d = D(n: 3)
   print("assigned")

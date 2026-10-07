@@ -1,5 +1,6 @@
 struct V
   s: ![]U8
+
 sub main()
   a: [3]U8 = [0, 0, 0]
   v = V(s: !a[..])

@@ -12,7 +12,7 @@ struct Keep
 fun wrap(h: *V) -> Keep
   Keep(h: <h)
 
-sub main
+sub main()
   k: Keep? = none
   if true
     a = R(n: 1)

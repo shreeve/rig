@@ -17,7 +17,7 @@ sub insert(slot: !Box[Node]?, key: Int)
   else
     slot = Box(Node(key: key, left: none, right: none))
 
-sub main
+sub main()
   root: Box[Node]? = none
   for k in [5, 2, 8, 1]
     insert(!root, k)

@@ -46,7 +46,7 @@ sub inc(n: !Int)
   n += 1000
   print("inc", n)
 
-sub main
+sub main()
   c = mk(1).n == 1
   grow(!(mk(1) if c else mk(2)))
   inc(!(mk(3) if c else mk(4)).n)

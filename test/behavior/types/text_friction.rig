@@ -18,10 +18,10 @@ struct W
   v: Vec[Int]
   t: Text
 
-fun mkw -> W
+fun mkw() -> W
   W(v: mkv(), t: Text("wt"))
 
-fun mkv -> Vec[Int]
+fun mkv() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(3)
   v
@@ -36,7 +36,7 @@ fun fresh(k: Int) -> Int?!
   print(mko(k)?, mkf(k)!, mko(k)?.len)
   k
 
-sub main
+sub main()
   print(fresh(1) catch 0, fresh(0) catch 0)
   t = Text()
   for b in "Hi"

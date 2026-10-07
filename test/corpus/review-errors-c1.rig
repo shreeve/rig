@@ -7,6 +7,6 @@ fun k3(d: ?Disk) -> String
     Disk.full => "f"
     .empty => "e"
 
-sub main
+sub main()
   d: Disk = .empty
   print(k3(?d))

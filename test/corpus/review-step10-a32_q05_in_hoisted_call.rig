@@ -18,5 +18,5 @@ fun g(k: Int) -> Int
 fun pick(q: ?Q, n: Int) -> ?Q
   q
 
-sub main
+sub main()
   print(pick(n: g(1), q: mkq(5).me()).xs[3])

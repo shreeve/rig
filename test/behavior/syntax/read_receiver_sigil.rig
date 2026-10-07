@@ -18,7 +18,7 @@ struct Line
 sub show_point(p: ?Point)
   print("point", p.x)
 
-sub main
+sub main()
   p = Point(x: 1)
   print(?p.shifted(1).x)
   line = Line(a: Point(x: 2), b: Point(x: 3))

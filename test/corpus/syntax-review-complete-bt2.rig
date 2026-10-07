@@ -2,7 +2,7 @@ struct Node
   keys: Vec[Int]
   kids: Vec[Box[Node]]
 
-sub main
+sub main()
   root = Node(keys: Vec(), kids: Vec())
   !root.kids.push(Box(value: Node(keys: Vec(), kids: Vec())))
   c = !root.kids[0]

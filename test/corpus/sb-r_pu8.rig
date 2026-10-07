@@ -1,4 +1,4 @@
-sub main
+sub main()
   a: [2]U8 = [1, 2]
   w = !a[..]
   print(w)

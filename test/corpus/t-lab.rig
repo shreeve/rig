@@ -1,4 +1,4 @@
-sub main
+sub main()
   :c print(5)
   :blk if true
     break :blk

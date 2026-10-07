@@ -7,7 +7,7 @@ sub t7(n: Int)!
   else if n == 0
     print("zero7")
 
-sub main
+sub main()
   t7(0)!
   t7(1)!
   t7(-1) catch |e|

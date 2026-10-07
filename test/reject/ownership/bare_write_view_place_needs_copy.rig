@@ -20,7 +20,7 @@ struct H
 struct HS
   s: !String
 
-sub owner_field
+sub owner_field()
   n = 1
   xs: Vec[Int] = Vec()
   p = P(x: 1)
@@ -28,7 +28,7 @@ sub owner_field
   y = h.v
   print(y.len)
 
-sub typed_view
+sub typed_view()
   n = 1
   xs: Vec[Int] = Vec()
   p = P(x: 1)
@@ -36,14 +36,14 @@ sub typed_view
   w: !Int = h.w
   w += 1
 
-sub element_view
+sub element_view()
   a = 1
   ws: Vec[!Int] = Vec()
   !ws.push(!a)
   w: !Int = ws[0]
   w += 1
 
-sub string_view
+sub string_view()
   t = Text("abc")
   s: String = ?t
   hs = HS(s: !s)
@@ -51,7 +51,7 @@ sub string_view
   !t.add("d")
   print(x)
 
-sub main
+sub main()
   owner_field()
 
 # error: 28:7: bare use of `h.v` in binding would copy a write view, which is unique; write `y = !h.v` to lend the view on

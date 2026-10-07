@@ -10,7 +10,7 @@ struct N
 fun g() -> Int!
   return E.bad
 
-sub main
+sub main()
   a = N(id: 1)
   print(a.id)
   x = g()!

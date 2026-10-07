@@ -4,7 +4,7 @@
 
 struct Point
   x: Int
-  fun origin -> Point
+  fun origin() -> Point
     Point(x: 0)
   fun shifted(?self, d: Int) -> Point
     Point(x: self.x + d)
@@ -27,7 +27,7 @@ sub fill(v: !Vec[Int])
 sub show(p: ?Point)
   print(p.x)
 
-sub main
+sub main()
   shared = *Point.origin()
   print(shared.x)
   tree = Tree(leaf: *Leaf(n: 3))

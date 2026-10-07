@@ -12,7 +12,7 @@ fun clear(s: !Slot) -> Bool
   s = .empty
   false
 
-sub main
+sub main()
   s: Slot = .full(b: *B(n: 1))
   n = match !s
     .empty => 0

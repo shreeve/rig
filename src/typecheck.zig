@@ -235,7 +235,7 @@ const Checker = struct {
     const ReturnSite = struct { node: Sexp, ty: ?TypeId };
 
     const FailTarget = union(enum) {
-        /// The caller: in a `fun ... -> T!`, a `sub ...!`, `sub main`, or a test.
+        /// The caller: in a `fun ...() -> T!`, a `sub ...()!`, `sub main()`, or a test.
         caller,
         /// A `fun` or `sub` that cannot fail; its name.
         infallible: Sexp,
@@ -405,7 +405,7 @@ const Checker = struct {
         // `-> Int!`).
         const status = ret == self.t().int_id or (self.ctx.types.get(ret) == .fallible and self.ctx.types.get(ret).fallible == self.t().int_id);
         if (is_main and ((!is_sub and !status) or ir.get(node, .params).items().len > 0 or sema.tparamsOf(node).items().len > 0)) {
-            try self.errAt(name, "`main` must be `sub main`, or `fun main -> Int` returning the exit status (`-> Int!` if it may fail): the program's entry point takes no parameters", .{});
+            try self.errAt(name, "`main` must be `sub main()`, or `fun main() -> Int` returning the exit status (`-> Int!` if it may fail): the program's entry point takes no parameters", .{});
         }
         for (ir.get(node, .params).items()) |p| if (p.isKind(.default)) {
             const ty = self.ctx.bindingTypeOf(ir.Default.name(p)) orelse self.t().unknown_id;
@@ -7241,7 +7241,7 @@ const Checker = struct {
     }
 
     /// `bytes.read[T, e](at)` and `!bytes.write[T, e](at, v)`: the integer
-    /// or float `T` held in the `@sizeOf(T)` bytes from `at`, in byte
+    /// or float `T` held in the `@size(T)` bytes from `at`, in byte
     /// order `e`, a compile-time `Endian`. The bytes are a `[]U8`, an
     /// `![]U8`, a `[N]U8`, a `Vec[U8]`, or (for `read`) a String; `at` is
     /// checked now against an array's length when it is constant, and
@@ -8537,9 +8537,16 @@ const Checker = struct {
     // Builtins
     // =========================================================================
 
-    /// Every builtin Rig has. The compile-time type queries are safe
-    /// anywhere; the casts only inside `raw`.
+    /// Every builtin Rig has. Rig's own, the compile-time type queries
+    /// `@size(T)`, `@align(T)`, `@name(T)`, and `@type(x)` as their
+    /// argument, work anywhere. Zig's keep their Zig names and work only
+    /// inside `raw`: the casts, and the queries under Zig's names
+    /// (`@sizeOf`), which mean what Rig's do.
     const Builtin = enum {
+        size,
+        @"align",
+        name,
+        type,
         sizeOf,
         alignOf,
         typeName,
@@ -8554,11 +8561,55 @@ const Checker = struct {
 
         fn isSafe(b: Builtin) bool {
             return switch (b) {
-                .sizeOf, .alignOf, .typeName, .TypeOf => true,
+                .size, .@"align", .name, .type => true,
                 else => false,
             };
         }
+
+        /// The type query `b` spells, by its Rig name, or null for a cast.
+        fn query(b: Builtin) ?Builtin {
+            return switch (b) {
+                .size, .sizeOf => .size,
+                .@"align", .alignOf => .@"align",
+                .name, .typeName => .name,
+                .type, .TypeOf => .type,
+                else => null,
+            };
+        }
     };
+
+    /// `@sizeOf(I64)` as Rig writes it, `@size(I64)`: each of Zig's
+    /// names for a type query in `call` becomes Rig's.
+    fn rigSpelling(self: *Checker, call: []const u8) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        const a = self.ctx.arena.allocator();
+        var i: usize = 0;
+        outer: while (i < call.len) {
+            if (call[i] == '@') {
+                for ([_][2][]const u8{ .{ "sizeOf", "size" }, .{ "alignOf", "align" }, .{ "typeName", "name" }, .{ "TypeOf", "type" } }) |pair| {
+                    const after = i + 1 + pair[0].len;
+                    if (std.mem.startsWith(u8, call[i + 1 ..], pair[0]) and (after == call.len or !(std.ascii.isAlphanumeric(call[after]) or call[after] == '_'))) {
+                        try out.print(a, "@{s}", .{pair[1]});
+                        i = after;
+                        continue :outer;
+                    }
+                }
+            }
+            try out.append(a, call[i]);
+            i += 1;
+        }
+        return out.items;
+    }
+
+    /// Zig's name for a type query outside `raw`: the fix-it writes the
+    /// call `node` with Rig's names.
+    fn zigQueryName(self: *Checker, node: Sexp, written: []const u8, rig_name: []const u8) Error!void {
+        // From the name on: `@ sizeOf(I64)` is fixed as `@size(I64)`.
+        const args = self.ctx.source[self.ctx.span(ir.Builtin.name(node)).end..self.ctx.span(node).end];
+        const short = args.len <= 60 and std.mem.findScalar(u8, args, '\n') == null;
+        const fix = if (short) try self.ctx.arena.allocator().print("@{s}{s}", .{ rig_name, try self.rigSpelling(args) }) else try self.ctx.arena.allocator().print("@{s}(...)", .{rig_name});
+        try self.errAt(node, "write `{s}`: Rig's builtin is `@{s}`; Zig's `@{s}` works only inside `raw`", .{ fix, rig_name, written });
+    }
 
     fn synthBuiltin(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeId {
         const name_node = ir.Builtin.name(node);
@@ -8572,26 +8623,30 @@ const Checker = struct {
                 } else if (std.mem.eql(u8, name, "intFromFloat")) {
                     try self.err(pos, "builtin `@intFromFloat` is not supported; a float becomes an integer with `@trunc`", .{});
                 } else {
-                    try self.err(pos, "builtin `@{s}` is not supported; the builtins are `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`, and, inside `raw`, `@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`, `@floatFromInt`, `@fromBackingInt`", .{name});
+                    try self.err(pos, "builtin `@{s}` is not supported; the builtins are `@size`, `@align`, `@type`, `@name`, and, inside `raw`, `@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`, `@floatFromInt`, `@fromBackingInt`", .{name});
                 }
                 try self.synthArgs(args);
                 break :blk self.t().invalid_id;
             };
-            if (!builtin.isSafe() and self.raw_depth == 0) {
-                try self.err(pos, "builtin `@{s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`", .{name});
+            const query = builtin.query();
+            if (self.raw_depth == 0 and !builtin.isSafe()) {
+                if (query) |q| {
+                    try self.zigQueryName(node, name, @tagName(q));
+                } else {
+                    try self.err(pos, "builtin `@{s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `@size`, `@align`, `@type`, `@name`", .{name});
+                }
             }
-            switch (builtin) {
-                .sizeOf, .alignOf, .typeName => {
-                    if (!(try self.builtinTypeArg(name, args, pos))) break :blk self.t().invalid_id;
-                    break :blk if (builtin == .typeName) self.t().string_id else self.t().int_literal_id;
-                },
-                .TypeOf => {
-                    try self.err(pos, "`@TypeOf` is only allowed as the argument of `@sizeOf`, `@alignOf`, or `@typeName`", .{});
+            if (query) |q| switch (q) {
+                .type => {
+                    try self.err(pos, "`@{s}` is only allowed as the argument of `@size`, `@align`, or `@name`", .{name});
                     try self.synthArgs(args);
                     break :blk self.t().invalid_id;
                 },
-                else => {},
-            }
+                else => {
+                    if (!(try self.builtinTypeArg(name, args, pos))) break :blk self.t().invalid_id;
+                    break :blk if (q == .name) self.t().string_id else self.t().int_literal_id;
+                },
+            };
             if (args.len != 1) {
                 try self.err(pos, "`@{s}` takes one argument", .{name});
                 try self.synthArgs(args);
@@ -8650,12 +8705,12 @@ const Checker = struct {
                 const tb = numericBits(t_) orelse return "it reinterprets a number of the same size";
                 if (fb != tb) return "both must have the same size";
             },
-            .sizeOf, .alignOf, .typeName, .TypeOf => {},
+            .size, .@"align", .name, .type, .sizeOf, .alignOf, .typeName, .TypeOf => {},
         }
         return null;
     }
 
-    /// `@sizeOf(T)` / `@sizeOf(@TypeOf(x))`. A type argument is recorded
+    /// `@size(T)` / `@size(@type(x))`. A type argument is recorded
     /// with the type it names.
     fn builtinTypeArg(self: *Checker, name: []const u8, args: []const Sexp, pos: u32) Error!bool {
         if (args.len != 1) {
@@ -8663,9 +8718,15 @@ const Checker = struct {
             return false;
         }
         const a = args[0];
-        if (a.isKind(.builtin) and ir.Builtin.args(a).len >= 1 and std.mem.eql(u8, self.text(ir.Builtin.name(a)), "TypeOf")) {
-            _ = try self.synthExpr(ir.Builtin.args(a)[0]);
-            return true;
+        if (a.isKind(.builtin) and ir.Builtin.args(a).len >= 1) {
+            const inner = self.text(ir.Builtin.name(a));
+            if (std.meta.stringToEnum(Builtin, inner)) |b| if (b.query() == .type) {
+                // Under a query spelled Zig's way, its fix-it covers this one.
+                const outer_rig = std.meta.stringToEnum(Builtin, name).?.isSafe();
+                if (b != .type and self.raw_depth == 0 and outer_rig) try self.zigQueryName(a, inner, "type");
+                _ = try self.synthExpr(ir.Builtin.args(a)[0]);
+                return true;
+            };
         }
         var r = self.resolver();
         const ty = try r.resolveType(a);
@@ -9409,7 +9470,7 @@ fn wholeDivision(source: []const u8, e: Sexp) ?Sexp {
 }
 
 /// An expression of whole-number literals: integer literals, and
-/// arithmetic and builtins (`@sizeOf(T)`) over them.
+/// arithmetic and builtins (`@size(T)`) over them.
 fn wholeLiterals(source: []const u8, e: Sexp) bool {
     return switch (e) {
         .src => sema.isIntLiteralText(identAt(source, e) orelse ""),

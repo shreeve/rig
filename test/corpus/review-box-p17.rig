@@ -1,6 +1,6 @@
 struct P
   x: Int
 
-sub main
+sub main()
   bb = Box(value: Box(value: P(x: 3)))
   print(bb.x)

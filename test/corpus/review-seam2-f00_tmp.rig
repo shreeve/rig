@@ -1,3 +1,3 @@
 # Review probe f00_tmp.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
-sub main
+sub main()
   !a.b(x)(y).g()

@@ -19,7 +19,7 @@ sub put[T](o: !T?, v: T)
   else
     o = <v
 
-sub main
+sub main()
   r: R? = R(n: 1)
   print(has2(?r))
   b: Box[R]? = Box(value: R(n: 2))

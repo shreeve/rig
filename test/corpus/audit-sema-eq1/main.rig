@@ -1,6 +1,6 @@
 use lib
 
-sub main
+sub main()
   a = lib.P.make(1)
   b = lib.P.make(1)
   print(a == b)

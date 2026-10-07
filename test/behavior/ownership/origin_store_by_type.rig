@@ -15,7 +15,7 @@ sub keep(h: !Holder, x: []Int, label: String)
   h.r = x
   print(label)
 
-sub main
+sub main()
   c = Counter(n: 0)
   t = Text("abc")
   bump(!c, ?t)

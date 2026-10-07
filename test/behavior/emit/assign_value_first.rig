@@ -58,7 +58,7 @@ fun grow_s(v: !Vec[String]) -> String
     !v.push("x")
   "new"
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(7)
   v[0] = grow(!v)

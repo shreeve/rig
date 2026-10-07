@@ -8,10 +8,10 @@
 struct H
   w: !Int
 
-fun pick -> Bool
+fun pick() -> Bool
   true
 
-sub names
+sub names()
   n = 1
   m = 2
   w = !n
@@ -21,7 +21,7 @@ sub names
   print(y)
   print(n, m)
 
-sub fields
+sub fields()
   n = 1
   m = 2
   h = H(w: !n)
@@ -34,7 +34,7 @@ sub fields
   print(y, z)
   print(n, m)
 
-sub main
+sub main()
   names()
   fields()
 

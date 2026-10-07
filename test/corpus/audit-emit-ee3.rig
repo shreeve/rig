@@ -4,6 +4,6 @@ struct W[T]
   fun get(?self, Self: Int) -> Int
     Self
 
-sub main
+sub main()
   w = W(v: 1)
   print(w.get(2))

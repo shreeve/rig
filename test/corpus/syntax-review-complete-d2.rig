@@ -5,6 +5,6 @@ struct C
 fun f(x: Int = -1, y: Float = 1.5) -> Int
   x
 
-sub main
+sub main()
   c = C()
   print(c.m, c.e, f())

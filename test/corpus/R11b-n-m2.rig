@@ -1,5 +1,6 @@
 struct Wrap2[T]
   v: T
+
 enum Opt2[T]
   some(value: T)
   none

@@ -25,7 +25,7 @@ fun f[T](d: ?Q, t: ?T) -> ?Q from d
   print("generic")
   mkh(42).q.me(k: g(1), j: g(2))
 
-sub main
+sub main()
   d = Q(c: Cell(0), n: 0)
   r = f(?d, ?d)
   print(clobber(1))

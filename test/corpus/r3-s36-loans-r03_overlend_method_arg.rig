@@ -12,7 +12,7 @@ struct Table
   fun get(?self, p: ?Pick) -> ?Entry
     ?self.rows[p.which]
 
-sub main
+sub main()
   t = Table(rows: [Entry(name: "a"), Entry(name: "b")])
   p = Pick(which: 0)
   e = t.get(?p)

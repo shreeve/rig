@@ -1,7 +1,7 @@
 struct User
   name: String
 
-sub main
+sub main()
   c = Cell(User(name: "a"))
   s: Signal[String] = Signal("x")
   v: Vec[User] = Vec()

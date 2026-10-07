@@ -6,7 +6,7 @@ fun mk(v: ?Vec[Int]) -> (Box2[[]Int])?
     return Box2(x: ?v[..])
   none
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   k = 0

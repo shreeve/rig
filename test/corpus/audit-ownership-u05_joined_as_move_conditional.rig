@@ -16,7 +16,7 @@ fun cond(t: *Tok) -> Bool
   print("cond", t.n)
   false
 
-sub main
+sub main()
   a: *Tok? = none
   b: *Tok? = *Tok(n: 2)
   if <a as x and <b as y

@@ -13,7 +13,7 @@ fun rpick(b: ?Box[R]) -> ?R
 fun rpick2(b: ?Box[R]) -> ?R
   ?b
 
-sub main
+sub main()
   b = Box(value: R(n: 1))
   r = pick(!b)
   r.n = 3

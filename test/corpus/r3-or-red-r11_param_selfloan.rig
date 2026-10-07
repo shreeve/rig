@@ -5,7 +5,7 @@ struct Holder
 sub f(a: !Holder)
   a.r = ?a.own[..]
 
-sub main
+sub main()
   x = [9, 9]
   h = Holder(r: ?x[..], own: Vec())
   !h.own.push(1)

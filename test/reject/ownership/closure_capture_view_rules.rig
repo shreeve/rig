@@ -10,7 +10,7 @@ sub go(n: Int)
     k += 1
   g()
 
-sub main
+sub main()
   go(1)
 
 # error: 5:9: cannot lend parameter `n` to write

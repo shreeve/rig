@@ -1,6 +1,8 @@
 type F = fun(Int) -> Int
+
 fun apply(f: ?F, x: Int) -> Int
   f(x)
-sub main
+
+sub main()
   k = 1
   print(apply(|+k, a| a + k, 2))

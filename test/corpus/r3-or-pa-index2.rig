@@ -1,7 +1,7 @@
 fun pick(s: String, k: ?Int) -> String
   s[k..]
 
-sub main
+sub main()
   t = Text("hello")
   k = 1
   r = pick(?t, ?k)

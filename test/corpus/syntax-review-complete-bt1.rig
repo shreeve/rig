@@ -13,7 +13,7 @@ sub add(n: !Node, i: Int, key: Int)
     if j == i
       !k.keys.push(key)
 
-sub main
+sub main()
   root = Node(keys: Vec(), kids: Vec())
   !root.kids.push(Box(value: Node(keys: Vec(), kids: Vec())))
   add(!root, 0, 5)

@@ -18,7 +18,7 @@ fun pick(c: Bool) -> R
   else
     b
 
-sub main
+sub main()
   p = pick(true)
   print(p.n)
   d = R(n: 5)

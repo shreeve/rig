@@ -3,7 +3,7 @@
 sub pass(n: Int)
   print(n)
 
-sub main
+sub main()
   pass(1)
 
 # error: 3:5: unexpected keyword `pass`

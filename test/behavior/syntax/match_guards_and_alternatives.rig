@@ -39,7 +39,7 @@ fun next() -> Int
   print("next")
   3
 
-sub main
+sub main()
   shapes: [6]Shape = [.circle(r: 20), .circle(r: 1), .square(s: 2), .rect(w: 2, h: 2), .rect(w: 1, h: 3), .point]
   for s in shapes
     print(describe(?s))

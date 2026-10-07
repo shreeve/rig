@@ -10,6 +10,6 @@ struct P
   sub go(self)
     !self.q.inc()
 
-sub main
+sub main()
   p = P(q: Q(n: 1))
   p.go()

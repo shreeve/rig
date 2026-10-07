@@ -35,7 +35,7 @@ fun eval(toks: ?Vec[Token]) -> Int!
   return EvalError.trailing_op if pending != none
   acc
 
-sub main
+sub main()
   toks: Vec[Token] = Vec()
   !toks.push(.num(2))
   !toks.push(.plus)

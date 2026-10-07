@@ -1,4 +1,4 @@
-sub main
+sub main()
   y = 1
   const x = y
   z = !y

@@ -11,7 +11,7 @@ sub stash(h: *Cell[*sub()])
   vw = View(b: ?x)
   h.set(*|<vw| print("read after free:", vw.b.v[0]))
 
-sub main
+sub main()
   a: *Cell[*sub()] = *Cell(*|| print("init"))
   stash(+a)
   f = a.replace(*|| print("z"))

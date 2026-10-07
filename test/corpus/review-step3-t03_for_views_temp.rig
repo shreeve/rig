@@ -7,7 +7,7 @@ fun mk() -> Vec[Int]
   !v.push(2)
   v
 
-sub main
+sub main()
   for x in first(mk())
     print(x)
   for x in first(?mk())

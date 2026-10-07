@@ -7,6 +7,6 @@ struct F
 fun out(p: ?F) -> F
   p
 
-sub main
+sub main()
   f = F(n: 1)
   print(out(?f).n)

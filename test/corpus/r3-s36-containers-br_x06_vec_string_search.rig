@@ -1,7 +1,7 @@
 use std.sort
 use std.slices
 
-sub main
+sub main()
   t = Text("b a c")
   v: Vec[String] = Vec()
   !v.push(?t[0..1])

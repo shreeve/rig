@@ -9,6 +9,6 @@ fun twice[T](v: ?T) -> Int
 fun getx[T](v: ?T) -> Int
   v.x
 
-sub main
+sub main()
   p = P(x: 3)
   print(twice(?p), getx(?p))

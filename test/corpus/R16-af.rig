@@ -10,7 +10,7 @@ fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
 struct H
   f: fun(Int) -> Int
 
-sub main
+sub main()
   arr: [2]fun(Int) -> Int = [double, inc]
   g = ?arr[1]
   print(g(1))

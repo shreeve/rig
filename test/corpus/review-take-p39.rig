@@ -2,7 +2,7 @@ struct S
   x: Int
   y: Int
 
-sub main
+sub main()
   b = Box(value: S(x: 1, y: 2))
   swap(!b.value.x, !b.x)
   print(b.x, b.y)

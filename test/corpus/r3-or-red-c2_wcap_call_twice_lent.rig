@@ -1,7 +1,7 @@
 sub call(f: ?fun(Int) -> Int)
   print(f(1), f(2))
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   add = |!v, k: Int|
     !v.push(k)

@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = [1, 2, 3, 4]
   s = !a[0..4]
   t = !s[1..3]

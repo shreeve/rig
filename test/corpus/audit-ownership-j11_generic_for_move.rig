@@ -25,7 +25,7 @@ fun total[T](v: Vec[T], f: ?fun(?T) -> Int) -> Int
 fun score(t: ?*Tok) -> Int
   t.n
 
-sub main
+sub main()
   v: Vec[*Tok] = Vec()
   !v.push(*Tok(n: 1))
   !v.push(*Tok(n: 2))

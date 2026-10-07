@@ -6,7 +6,7 @@ struct Holder
       return v
     none
 
-sub main
+sub main()
   h = Holder(one: 3)
   if h.val() as v
     print(v)

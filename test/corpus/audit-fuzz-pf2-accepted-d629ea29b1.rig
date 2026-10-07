@@ -30,6 +30,7 @@ fun id_i32(x: I32) -> I32
 
 fun id_u32(x: U32) -> U32
   x
+
 fun id_int(x: Int) -> Int
   x
 
@@ -48,9 +49,9 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t300
+sub t300()
   x300: U64 = gid(12)
   print(x300)
 
-sub main
+sub main()
   t300()

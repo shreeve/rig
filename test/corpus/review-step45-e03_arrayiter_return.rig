@@ -5,5 +5,5 @@ fun find(a: [3]Text) -> Text
       return <x
   Text("none")
 
-sub main
+sub main()
   print(find([Text("a"), Text("b"), Text("c")]))

@@ -1,8 +1,10 @@
 error E
   bad
+
 fun a() -> Int!
   return E.bad
-sub main
+
+sub main()
   x = a() catch |e|
     print("handler", e)
     5

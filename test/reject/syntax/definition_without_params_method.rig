@@ -1,0 +1,15 @@
+# A method with compile-time parameters and no run-time ones still
+# writes `()`: after its brackets, as a call does (`w.get[Int]()`).
+
+struct Wrap
+  n: Int
+
+  pub fun get[T] -> T?
+    none
+
+sub main()
+  w = Wrap(n: 1)
+  print(w.n)
+
+# error: 7:11: write `fun get[T]() -> T?`: a function's parameter list is always written, even when empty
+# errors: 1

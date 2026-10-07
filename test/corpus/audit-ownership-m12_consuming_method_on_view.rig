@@ -25,6 +25,6 @@ struct R
 sub f(r: ?R)
   r.done()
 
-sub main
+sub main()
   r = R(t: *Tok(n: 1))
   f(?r)

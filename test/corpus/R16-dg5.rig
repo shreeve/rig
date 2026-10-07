@@ -4,6 +4,6 @@ sub each(f: ?sub(Int))
 fun double(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   each(double)
   each(|a| a + 1)

@@ -5,7 +5,7 @@ sub zap(w: ![]Int)
   f(1)
   f(2)
 
-sub main
+sub main()
   a = [1, 2, 3]
   zap(!a[..])
   print(a)

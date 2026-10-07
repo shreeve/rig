@@ -7,7 +7,7 @@ fun parse(t: ?Text) -> Vec[Row]
   !rows.push(Row(name: t[0..1], n: 1))
   rows
 
-sub main
+sub main()
   t = Text("abc")
   rows = parse(?t)
   print(rows)

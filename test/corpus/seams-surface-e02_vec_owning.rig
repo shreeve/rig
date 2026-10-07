@@ -3,5 +3,5 @@ struct R
   drop(!self)
     pass
 
-sub main
+sub main()
   v: Vec[R] = Vec()

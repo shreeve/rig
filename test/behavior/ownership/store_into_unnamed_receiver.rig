@@ -20,7 +20,7 @@ fun wv(v: !Vec[H]) -> !Vec[H]
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   t = Text("one")
   u = Text("two")
   h = H(r: "", rs: Vec())

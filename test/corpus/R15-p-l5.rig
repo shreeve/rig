@@ -1,5 +1,6 @@
 struct View
   s: ![]Int
+
 sub main()
   a = [1, 2]
   v = View(s: !a[..])

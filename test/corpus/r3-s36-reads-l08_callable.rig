@@ -4,7 +4,7 @@ fun twice(f: ?fun(Int) -> Int, x: Int) -> Int
 fun inc(x: Int) -> Int
   x + 1
 
-sub main
+sub main()
   k = 10
   add = |?k, x: Int| x + k
   print(twice(inc, 1), twice(|x: Int| x * 2, 3), twice(?add, 0))

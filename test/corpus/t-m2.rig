@@ -17,7 +17,7 @@ fun growo(o: !Vec[Int]?) -> Int
   o = none
   2
 
-sub main
+sub main()
   s = S(a: Vec(), b: 1)
   print(s.count(grow(!s.a)))
   print(s.count(grows(!s)))

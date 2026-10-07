@@ -20,4 +20,3 @@ pub sub fillv(v: !View, x: Int)
 
 pub fun le[T](b: []U8) -> U32
   b.read[U32, .little](0)
-

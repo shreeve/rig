@@ -4,7 +4,7 @@ struct Item
 struct Holder
   r: ?Item
 
-sub main
+sub main()
   g = Item(n: 1)
   h = Holder(r: ?g)
   f = |!h, x: ?Item| h.r = x

@@ -13,7 +13,7 @@ sub take(r: R)
 sub take2(m: Msg)
   print("took2")
 
-sub main
+sub main()
   m = Msg.data(r: R(n: 1), n: 2)
   match !m
     x => -x

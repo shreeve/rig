@@ -50,7 +50,7 @@ sub two(a: !Int, b: !Int)
 fun mk2(r: ?S) -> S
   S(n: r.n * 10, items: Vec())
 
-sub main
+sub main()
   two(!mk(1).at(), !mk(1).at())
   two(!mk2(?mk(3)).at(), !mk(4).at())
   print(!mk2(?mk(5)).pop())

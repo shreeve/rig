@@ -1,0 +1,10 @@
+# A declared C function writes its parameter list too, and a failing
+# `sub` puts its `!` after it.
+
+extern sub halt
+
+sub main()
+  print(1)
+
+# error: 4:12: write `extern sub halt()`: a function's parameter list is always written, even when empty
+# errors: 1

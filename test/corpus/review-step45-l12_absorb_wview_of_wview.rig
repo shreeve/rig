@@ -2,7 +2,7 @@
 sub put(v: !Vec[String], s: String)
   !v.push(s)
 
-sub main
+sub main()
   inner: Vec[String] = Vec()
   w = !inner
   ws: Vec[!Vec[String]] = Vec()

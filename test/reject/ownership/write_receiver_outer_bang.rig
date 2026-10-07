@@ -24,7 +24,7 @@ fun mkopt(n: Int) -> S?
 fun go(n: Int) -> Int?
   !mkopt(n)?.pop()
 
-sub main
+sub main()
   print(go(1) ?? 0)
   for x in !mk(1).vs()
     x += 1

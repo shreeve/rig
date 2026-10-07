@@ -12,7 +12,7 @@ enum Shape
 sub eat(r: R)
   print("ate", r.n)
 
-sub main
+sub main()
   e = Shape.circle(r: 2)
   match !e
     .circle(r) => r += 10

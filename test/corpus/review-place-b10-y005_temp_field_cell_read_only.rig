@@ -11,5 +11,5 @@ fun mk() -> Q
 sub show(p: ?P)
   print(p.c.get())
 
-sub main
+sub main()
   show(?mk().p)

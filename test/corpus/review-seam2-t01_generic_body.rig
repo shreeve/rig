@@ -26,5 +26,5 @@ fun go2[T](x: T, y: T) -> Int
 fun go3[T](x: T) -> Int
   (!Vec[T]()).len
 
-sub main
+sub main()
   print(go(1), go(Text("t")), go2(Text("a"), Text("b")), go2(3, 4), go3(1))

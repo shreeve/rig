@@ -2,8 +2,10 @@ struct R
   n: Int
   drop(!self)
     print("drop", self.n)
+
 fun f(r: R) -> Int
   -r
   3
-sub main
+
+sub main()
   print(f(R(n: 1)))

@@ -8,7 +8,7 @@ fun find(cur: ?Box[Node]?, k: Int) -> (?Node)?
       return ?n
   none
 
-sub main
+sub main()
   root: Box[Node]? = Box(value: Node(key: 1, left: none))
   if find(?root, 1) as f
     print(f.key)

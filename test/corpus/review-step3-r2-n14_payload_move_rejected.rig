@@ -9,7 +9,7 @@ enum E
 sub eat(r: Res)
   print(r.n)
 
-sub main
+sub main()
   e = E.a(r: Res(n: 1, t: Text("x")))
   match e
     .a(r) => eat(<r)

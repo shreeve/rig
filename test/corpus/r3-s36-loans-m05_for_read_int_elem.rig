@@ -1,6 +1,6 @@
 # Loop element of a read loop over plain data: a copy; the source stays
 # lent to read for the loop.
-sub main
+sub main()
   xs = [1, 2, 3]
   for x in ?xs
     xs[0] = 9

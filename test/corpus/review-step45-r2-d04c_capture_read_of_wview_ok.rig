@@ -1,5 +1,5 @@
 # minimal crash: a closure captures ?w where w is a write-view local
-sub main
+sub main()
   a = Text("a")
   w = !a
   f = |?w| w.len

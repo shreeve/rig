@@ -16,6 +16,6 @@ fun g(k: Int) -> Int?
   z = (<o)?
   z.n
 
-sub main
+sub main()
   print(g(1) ?? -1)
   print(g(2) ?? -1)

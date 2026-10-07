@@ -1,6 +1,7 @@
 struct Node
   id: Int
-sub main
+
+sub main()
   a: Vec[*Node?] = Vec()
   b: Vec[Box[Node]?] = Vec()
   c: Vec[Vec[Int]] = Vec()

@@ -9,6 +9,7 @@ fun gid[T](a: T) -> T
 
 fun gmax[T](a: T, b: T) -> T
   a if a > b else b
+
 fun gsome[T](a: T) -> T?
   a
 
@@ -48,7 +49,7 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t47
+sub t47()
   ce47: Cell[U64] = Cell(18446744073709551615)
   mk47 = rt_int(2)
   mz47: U64 = match mk47
@@ -56,5 +57,5 @@ sub t47
     _ => 15
   print(mz47)
 
-sub main
+sub main()
   t47()

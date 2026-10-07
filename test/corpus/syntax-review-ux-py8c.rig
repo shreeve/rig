@@ -13,7 +13,7 @@ fun upper(s: String) -> Vec[U8]
     !out.push(b - 32 if b >= 97 and b <= 122 else b)
   out
 
-sub main
+sub main()
   u = upper("hello, rig")
   puts(?u[..])
   print("after")

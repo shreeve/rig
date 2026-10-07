@@ -1,5 +1,6 @@
 fun items(v: Vec[Int]) -> []Int
   ?v[..]
+
 sub main()
   b: Vec[Int] = Vec()
   it = items(b)

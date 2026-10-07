@@ -21,5 +21,5 @@ test "last"
   i += 0
   print(xs[i])
 
-sub main
+sub main()
   print("m")

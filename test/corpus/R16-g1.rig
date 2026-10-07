@@ -3,7 +3,7 @@ fun keep[T](x: T) -> Vec[T]
   !v.push(x)
   v
 
-sub main
+sub main()
   k = 5
   f = |+k, a: Int| a + k
   v = keep(?f)

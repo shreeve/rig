@@ -35,7 +35,7 @@ sub app(t: !Text)
   !t.add("+")
   print("app", t)
 
-sub main
+sub main()
   c = f(1) == 1
   !mkh("a").t.add("b")
   !mkh("c").tv().add("d")

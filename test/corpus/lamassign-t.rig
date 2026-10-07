@@ -2,7 +2,7 @@ sub each(xs: []Int, f: ?sub(Int))
   for x in xs
     f(x)
 
-sub main
+sub main()
   v = [5, 3, 9, 1]
   total = 0
   each(?v, |!total, n| total += n)

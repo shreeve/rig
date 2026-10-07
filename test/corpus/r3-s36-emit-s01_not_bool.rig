@@ -1,5 +1,5 @@
 # C/JS habit: `!done` as "not done".
-sub main
+sub main()
   done = false
   if !done
     print("not done (C reading)")

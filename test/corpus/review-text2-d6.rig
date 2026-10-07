@@ -1,4 +1,4 @@
-sub main
+sub main()
   o = "init"
   for s in ?Text("abc")[..]
     print(s)

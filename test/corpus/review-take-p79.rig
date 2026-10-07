@@ -1,7 +1,7 @@
 struct S
   a: Int?
 
-sub main
+sub main()
   s = S(a: 1)
   f = |!s| <s.a
   print(f(), s)

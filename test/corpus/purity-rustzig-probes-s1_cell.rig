@@ -7,7 +7,7 @@ struct Counter
 sub bump(c: ?Cell[Int])
   c.set(c.get() + 10)
 
-sub main
+sub main()
   local: Cell[Int] = Cell(1)
   bump(?local)
   k = Counter(hits: Cell(0))

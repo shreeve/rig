@@ -8,15 +8,15 @@ pub struct T
   pub fun me(!self) -> !T
     self
 
-  pub fun make -> T
+  pub fun make() -> T
     T(n: 1)
 
 pub enum E
   a(s: String)
   b
 
-pub fun mk -> T
+pub fun mk() -> T
   T(n: 5)
 
-pub fun ok -> Bool
+pub fun ok() -> Bool
   true

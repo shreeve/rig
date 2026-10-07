@@ -1,5 +1,6 @@
 fun id(s: []Int) -> []Int
   s
+
 sub main()
   a = [1, 2, 3]
   w = !a[..]

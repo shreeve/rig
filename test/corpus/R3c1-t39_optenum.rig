@@ -2,7 +2,6 @@ enum C
   red
   blue
 
-
 sub main()
   o: C? = .red
   n: C? = none

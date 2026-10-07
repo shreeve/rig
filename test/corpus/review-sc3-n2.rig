@@ -6,7 +6,7 @@ struct Set
     !self.items.push(k)
     true
 
-sub main
+sub main()
   set = Set(items: Vec())
   c = true
   e = c and (!set.insert(3) == true)

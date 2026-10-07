@@ -4,7 +4,7 @@ struct Bag
 sub grow(b: !Bag, n: Int)
   !b.items.push(n)
 
-sub main
+sub main()
   b = Bag(items: Vec())
   add = |!b, n: Int|
     grow(b, n)

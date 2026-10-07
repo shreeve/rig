@@ -1,10 +1,14 @@
 error E
   bad
+
 fun a() -> Int!
   return E.bad
+
 fun b() -> Int!
   2
+
 fun f(c: Bool) -> Int!
   (a() if c else b())!
-sub main
+
+sub main()
   print(f(true) catch -1, f(false) catch -1)

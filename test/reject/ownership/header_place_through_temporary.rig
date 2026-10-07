@@ -54,7 +54,7 @@ sub fine(v: !Vec[Text?])
   if <v[idx(?Text("a"))] as t
     print(t)
 
-sub main
+sub main()
   print(1)
 
 # error: 21:17: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first

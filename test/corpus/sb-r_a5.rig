@@ -4,7 +4,7 @@ fun pick(a: ![]Int, b: ![]Int, first: Bool) -> ![]Int
   else
     <b
 
-sub main
+sub main()
   x = [1]
   y = [2]
   r = pick(!x[..], !y[..], true)

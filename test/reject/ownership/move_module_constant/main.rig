@@ -9,7 +9,7 @@ use geo
 K = 7
 KP = [4, 5]
 
-sub main
+sub main()
   a = <K
   b = <geo.K
   c = <KP[0]

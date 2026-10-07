@@ -6,7 +6,7 @@ sub two(a: !Int, b: !Int)
   a += 1
   b += 1
 
-sub main
+sub main()
   p = P(a: 1, b: 2)
   two(!p.a, !p.b)
   print(p)

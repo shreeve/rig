@@ -7,7 +7,7 @@ struct S
   h: *R?
   w: ~R?
 
-sub main
+sub main()
   r = *R(n: 1)
   s = S(h: +r, w: ~r)
   a = <s.h

@@ -12,5 +12,5 @@ fun pick(s: String, n: Int) -> String
     return s
   "none"
 
-sub main
+sub main()
   print(pick(n: g(1), s: ?Text("hello world, long enough to be on the heap")))

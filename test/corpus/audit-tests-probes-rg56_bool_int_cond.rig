@@ -1,4 +1,4 @@
-sub main
+sub main()
   n = 3
   if n
     print("nonzero")

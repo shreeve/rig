@@ -8,7 +8,7 @@ enum E
 fun idx(s: ?Text) -> Int
   s.len - 1
 
-sub main
+sub main()
   v: Vec[Text?] = Vec()
   !v.push(Text("first text long enough to live on the heap"))
   if <v[idx(?Text("a"))] as t

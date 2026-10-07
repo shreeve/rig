@@ -7,14 +7,14 @@ use std.text
 struct H
   s: String
 
-fun g -> Int
+fun g() -> Int
   p = if text.strip_prefix(?Text("pre-fix"), "pre-") as rest
     rest
   else
     "q"
   p.len
 
-sub main
+sub main()
   o = "init"
   o = if text.strip_prefix(?Text("pre-fix"), "pre-") as rest
     rest

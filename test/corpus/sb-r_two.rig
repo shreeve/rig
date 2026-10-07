@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = [1, 2, 3, 4]
   x = !a[0..2]
   y = !a[2..4]

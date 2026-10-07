@@ -12,7 +12,7 @@ fun outer(a: ?P, b: ?P, k: Int) -> Int
   v = f(a, k) catch b
   v.x
 
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   print(outer(?a, ?b, 1), outer(?a, ?b, 0))

@@ -8,6 +8,6 @@ fun f(c: Bool) -> Vec[Text]!
   errdefer print("errdefer")
   return (Bad.oops if c else <v)
 
-sub main
+sub main()
   print(f(true) catch Vec[Text]())
   print(f(false) catch Vec[Text]())

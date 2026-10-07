@@ -4,5 +4,5 @@ fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
 sub pr(n: Int)
   print(n)
 
-sub main
+sub main()
   print(apply(pr, 1))

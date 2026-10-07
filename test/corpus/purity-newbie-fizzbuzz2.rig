@@ -10,7 +10,7 @@ fun label(n: Int) -> String?
   else
     none
 
-sub main
+sub main()
   for i in 1..16
     if label(i) as s
       print(s)

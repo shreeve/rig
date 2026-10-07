@@ -5,7 +5,7 @@ enum E
   a(s: String)
   b
 
-sub main
+sub main()
   t = Text("short")
   e = E.a(s: ?t)
   r = "none"

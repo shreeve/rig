@@ -1,6 +1,6 @@
 struct P
   c: Cell[Vec[Int]]
 
-sub main
+sub main()
   p = P(c: Cell(Vec()))
   (<p).c.push(1)

@@ -2,7 +2,7 @@
 fun wrap(v: Vec[String]) -> Vec[String]
   <v
 
-sub main
+sub main()
   t = Text("x")
   v: Vec[String] = Vec()
   !v.push(?t)

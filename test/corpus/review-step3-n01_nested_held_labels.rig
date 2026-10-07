@@ -27,7 +27,7 @@ fun find() -> Int
         continue :outer
   -1
 
-sub main
+sub main()
   :outer for k in mk(0).arr
     for j in mk(100).arr
       if j.hits.get() == 101

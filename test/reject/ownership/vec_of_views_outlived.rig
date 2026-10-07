@@ -1,12 +1,12 @@
 # A view pushed into a Vec may not outlive what it views.
 
-fun mk -> Vec[?Int]
+fun mk() -> Vec[?Int]
   a = 1
   v: Vec[?Int] = Vec()
   !v.push(?a)
   v
 
-sub main
+sub main()
   v: Vec[?Int] = Vec()
   for i in 0..3
     x = i

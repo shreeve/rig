@@ -18,6 +18,6 @@ fun go(n: Int) -> Int!
   r = Res(id: n)
   apply(|<r, a| a + r.id, may(n)!)
 
-sub main
+sub main()
   print(go(3) catch -1)
   print(go(-2) catch -1)

@@ -14,7 +14,7 @@ enum Shape
   dot
   circle(r: Int)
 
-sub main
+sub main()
   p: Cell[Point] = Cell(Point(x: 1, y: 2))
   q = p.get()
   p.set(Point(x: q.x + 10, y: q.y))

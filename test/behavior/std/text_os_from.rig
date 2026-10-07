@@ -6,7 +6,7 @@
 use std.text
 use std.os
 
-sub main
+sub main()
   line = Text("name=ada")
   names = ["id", "name", "age"]
   found: Vec[String] = Vec()

@@ -40,7 +40,7 @@ fun caught(k: Int) -> Int!
   n = check(k) catch |err| return err
   n
 
-sub main
+sub main()
   print(propagated(1) catch -1, returned(1) catch -1, tail(1) catch -1, caught(1) catch -1)
 
 # error: 19:18: use of `t` after move

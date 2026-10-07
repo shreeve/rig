@@ -4,7 +4,7 @@ fun peek(b: ?Box[Int]) -> ?Int
 fun peekv(b: ?Box[Vec[Int]]) -> ?Vec[Int]
   ?b
 
-sub main
+sub main()
   i = Box(value: 5)
   print(peek(?i))
   v = Box(value: Vec[Int]())

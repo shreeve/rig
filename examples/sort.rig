@@ -25,7 +25,7 @@ fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
 fun by_score(a: ?Player, b: ?Player) -> Bool
   a.score > b.score
 
-sub main
+sub main()
   nums: Vec[Int] = Vec()
   for n in [5, 3, 8, 1]
     !nums.push(n)

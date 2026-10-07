@@ -7,7 +7,7 @@ struct Page
   fun wbytes(!self, a: Int, b: Int) -> ![]U8
     !self.buf[a..b]
 
-sub main
+sub main()
   p = Page(buf: Vec())
   for _ in 0..16
     !p.buf.push(1)

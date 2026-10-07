@@ -1,5 +1,5 @@
 # Vec of String views of a Text; drop the Text, then read the Vec
-sub main
+sub main()
   t = Text("hello")
   v: Vec[String] = Vec()
   !v.push(?t)

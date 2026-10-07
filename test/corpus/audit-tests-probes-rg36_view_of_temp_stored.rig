@@ -4,6 +4,6 @@ struct S
 struct H
   s: ?S
 
-sub main
+sub main()
   h = H(s: ?S(n: 1))
   print(h.s.n)

@@ -1,5 +1,5 @@
 # for over an element place source (Vec[Vec[Text]]), push to outer inside
-sub main
+sub main()
   m: Vec[Vec[Text]] = Vec()
   row: Vec[Text] = Vec()
   !row.push(Text("q"))

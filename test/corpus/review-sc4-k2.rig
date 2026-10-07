@@ -6,7 +6,7 @@ sub pair(a: !Counter, b: !Counter)
   x = replace(!a, Counter(n: 5))
   print(x.n)
 
-sub main
+sub main()
   c = Counter(n: 0)
   d = Counter(n: 10)
   pair(!c, !d)

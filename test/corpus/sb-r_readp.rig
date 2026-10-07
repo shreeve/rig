@@ -1,5 +1,5 @@
 sub f(a: ?[2]Int)
   !a.fill(0)
 
-sub main
+sub main()
   f(?[1, 2])

@@ -7,5 +7,5 @@ fun f(c: Bool) -> Int!
     true => Bad.oops
     false => 1
 
-sub main
+sub main()
   print(f(true) catch -1, f(false) catch -1)

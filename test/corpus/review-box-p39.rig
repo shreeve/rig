@@ -6,7 +6,7 @@ struct B
   n: Int
   next: Box[A]?
 
-sub main
+sub main()
   head: Box[A]? = none
   i = 0
   while i < 150000

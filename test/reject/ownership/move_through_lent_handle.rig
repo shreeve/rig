@@ -5,7 +5,7 @@
 struct S
   items: Vec[Int]
 
-sub main
+sub main()
   h = *S(items: Vec())
   x = <(?h).items
   print(x)

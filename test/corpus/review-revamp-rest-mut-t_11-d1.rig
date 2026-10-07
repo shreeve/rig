@@ -7,7 +7,7 @@ struct Val
 fun first(xs: []Val) -> ?Val
    :x ?xs[0]
 
-sub main
+sub main()
   r = ?Val(n: 0)
   if true
     a = [Val(n: 1)]

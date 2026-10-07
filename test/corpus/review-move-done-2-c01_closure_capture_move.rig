@@ -11,7 +11,7 @@ struct S
   v: Vec[Int]
   o: Vec[Int]?
 
-sub main
+sub main()
   v = mkv(1)
   g = |<v| eat(<v)
   print(g())

@@ -12,7 +12,7 @@ sub viaMethod(c: Counter)
   c.hit()
   print("param changed to", c.hits.get())
 
-sub main
+sub main()
   k = Counter(hits: Cell(0))
   print("caller before", k.hits.get())
   viaMethod(<k)

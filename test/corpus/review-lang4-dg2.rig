@@ -4,7 +4,7 @@ struct H
 fun first(v: ?Vec[Int]) -> ?Int
   ?v[0]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   h = H(w: !v)

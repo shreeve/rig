@@ -10,7 +10,7 @@ struct Ctx
     self.w.name = s
     0
 
-sub main
+sub main()
   h = Holder(name: "a")
   c = Ctx(w: !h)
   if true

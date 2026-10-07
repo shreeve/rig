@@ -8,7 +8,7 @@ struct H
 fun mkh(r: ?Res) -> H
   H(o: r)
 
-sub main
+sub main()
   x = Res(n: 1, t: Text("a"))
   if mkh(?x).o as r
     -x

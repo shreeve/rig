@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = [1, 2]
   b: [2]U8 = [1, 2]
   !a.copy(?b[..])

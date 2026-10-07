@@ -4,10 +4,10 @@
 fun plain(n: Int) -> Int
   n
 
-fun size[n: Int] -> Int
+fun size[n: Int]() -> Int
   n
 
-sub show[n: Int]
+sub show[n: Int]()
   print(n)
 
 fun scaled[n: Int](x: Int) -> Int

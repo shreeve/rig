@@ -6,5 +6,5 @@ fun twice(f: ?F, x: Int) -> Int
 fun inc(x: Int) -> Int
   x + 1
 
-sub main
+sub main()
   print(twice(inc, 1))

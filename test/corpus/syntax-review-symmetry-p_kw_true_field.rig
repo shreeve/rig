@@ -1,5 +1,6 @@
 struct T
   true: Int
-sub main
+
+sub main()
   t = T(true: 1)
   print(t.true)

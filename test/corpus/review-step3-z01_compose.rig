@@ -26,7 +26,7 @@ fun msl(xs: ([]Int)?) -> Int
     return s.len
   -1
 
-sub main
+sub main()
   b3 = Box(Box(Box(Text("deep"))))
   print(first(b3))
   hb = *Box(S(n: 3))

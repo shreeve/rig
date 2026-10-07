@@ -13,7 +13,7 @@ fun yes(h: !H) -> Bool
   h.o = none
   true
 
-sub main
+sub main()
   h = H(o: Box(3))
   z = !h
   while ?z.o as s

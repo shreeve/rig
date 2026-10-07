@@ -4,7 +4,7 @@ fun double(n: Int) -> Int
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
 
-sub main
+sub main()
   print(apply(?double, 1))
   g = double
   print(apply(?g, 1))

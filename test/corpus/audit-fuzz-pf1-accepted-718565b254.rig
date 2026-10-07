@@ -8,10 +8,11 @@ sub scale(s: ![]Int, k: Int)
   for x in !s
 
     x *= k
+
 fun rest(s: ![]Int) -> ![]Int
   !s[1..]
 
-sub main
+sub main()
   a = [1, 2, 3, 4]
   scale(!a[2..], 10)
   w = !a[..]

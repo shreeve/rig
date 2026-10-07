@@ -7,7 +7,7 @@ fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
     !out.push(f(?x))
   out
 
-sub main
+sub main()
   ws = [Wrap(n: 1), Wrap(n: 2)]
   m = map(?ws[..], |w| w)
   print(m.len)

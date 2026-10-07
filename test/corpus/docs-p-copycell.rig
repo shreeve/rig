@@ -1,7 +1,8 @@
 struct P
   x: Int
   c: Cell[Int]
-sub main
+
+sub main()
   c = Cell(1)
   d = <c
   d.set(2)

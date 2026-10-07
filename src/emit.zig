@@ -719,8 +719,8 @@ pub const Emitter = struct {
         // Only the root module's `main` is the program's entry point.
         const is_main = self.sema.is_root and self.nominal == null and std.mem.eql(u8, name, "main");
         const return_ty: ?TypeId = if (f.returns == self.sema.types.void_id) null else f.returns;
-        // `main` may fail out of the program (`!`, `sub main!`, `-> Int!`),
-        // and `fun main -> Int` returns its exit status.
+        // `main` may fail out of the program (`!`, `sub main()!`, `-> Int!`),
+        // and `fun main() -> Int` returns its exit status.
         const main_fails = is_main and (contains(body, &.{.propagate}) or rig.subFails(node) or (return_ty != null and self.sema.types.get(return_ty.?) == .fallible));
         const main_status = is_main and !f.is_sub;
 
@@ -4533,12 +4533,12 @@ pub const Emitter = struct {
         try self.emitBare(e);
     }
 
-    /// `@name(args)`. Arguments that name Rig types are spelled as Zig types.
-    /// A builtin call as written. `@fromBackingInt` takes the enum's
+    /// `@builtin(args)`. Arguments that name Rig types are spelled as Zig
+    /// types. A builtin call as Zig names it. `@fromBackingInt` takes the enum's
     /// backing integer type exactly, so its operand, any integer, goes
     /// through `@intCast` (checked in safe builds, as the tag is).
     fn emitBuiltin(self: *Emitter, sexp: Sexp) Error!void {
-        const name = self.srcText(ir.Builtin.name(sexp));
+        const name = zigBuiltinName(self.srcText(ir.Builtin.name(sexp)));
         const cast = std.mem.eql(u8, name, "fromBackingInt");
         try self.w.print("@{s}(", .{name});
         if (cast) try self.w.writeAll("@intCast(");
@@ -4550,11 +4550,21 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
+    /// The Zig name of builtin `name`: Rig's type queries are Zig's
+    /// under their own names (`@size` is `@sizeOf`); every other builtin
+    /// is Zig's, as written.
+    fn zigBuiltinName(name: []const u8) []const u8 {
+        const rig_names = std.StaticStringMap([]const u8).initComptime(.{
+            .{ "size", "sizeOf" }, .{ "align", "alignOf" }, .{ "name", "typeName" }, .{ "type", "TypeOf" },
+        });
+        return rig_names.get(name) orelse name;
+    }
+
     /// Every argument of `@sizeOf`, `@alignOf`, and `@typeName` is a
     /// type, except `@TypeOf(x)`.
     fn isTypeArg(self: *Emitter, builtin: Sexp, a: Sexp) bool {
         if (a.isKind(.builtin)) return false;
-        const name = self.srcText(ir.Builtin.name(builtin));
+        const name = zigBuiltinName(self.srcText(ir.Builtin.name(builtin)));
         return std.mem.eql(u8, name, "sizeOf") or std.mem.eql(u8, name, "alignOf") or std.mem.eql(u8, name, "typeName");
     }
 

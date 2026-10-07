@@ -46,7 +46,7 @@ fun show[T](x: ?T) -> Int
 sub add(a: !Int, b: ?Int)
   a += b
 
-sub main
+sub main()
   b = mk(3)
   print(size(b), size(mk(4)), total(b.v), total([1, 2]))
   a = [1, 2, 3]

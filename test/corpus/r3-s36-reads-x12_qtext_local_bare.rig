@@ -1,7 +1,7 @@
 fun first(s: String) -> String
   s[..1]
 
-sub main
+sub main()
   t = Text("hello")
   r = ?t
   print(first(r))

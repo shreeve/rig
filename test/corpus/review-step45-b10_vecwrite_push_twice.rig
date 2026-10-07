@@ -1,5 +1,5 @@
 # Vec[!Int]: push !a twice -> two write views of one value
-sub main
+sub main()
   a = 1
   w: Vec[!Int] = Vec()
   !w.push(!a)

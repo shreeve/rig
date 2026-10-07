@@ -21,7 +21,7 @@ sub take2(s: !Slot)
     .full(b) => keep(<b)
     .empty => print("e")
 
-sub main
+sub main()
   s: Slot = .full(b: *B(n: 1))
   take(?s)
   take2(!s)

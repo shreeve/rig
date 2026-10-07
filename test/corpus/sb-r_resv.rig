@@ -1,5 +1,5 @@
 struct Vec
   x: Int
 
-sub main
+sub main()
   print(1)

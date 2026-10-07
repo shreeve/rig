@@ -1,5 +1,6 @@
 struct H
   c: *Cell[Int]
+
 sub main()
   v: Vec[H] = Vec()
   !v.push(H(c: *Cell(value: 1)))

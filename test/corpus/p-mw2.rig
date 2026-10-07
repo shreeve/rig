@@ -1,13 +1,13 @@
 struct W
   v: Vec[Int]
 
-fun mkw -> W
+fun mkw() -> W
   W(v: Vec())
 
 sub keep(v: Vec[Int])
   print(v)
 
-sub main
+sub main()
   x = mkw().v
   keep(mkw().v)
   print(x)

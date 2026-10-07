@@ -2,11 +2,13 @@ struct V
   items: Vec[Int]
   sub put[k: Int](!self, x: Int)
     !self.items.push(x * k)
+
 fun top(v: !Vec[Int]) -> Int?
   a = ((!v).pop())?
   b = !v.pop()?
   a + b
-sub main
+
+sub main()
   v: Vec[Int] = Vec(capacity: 16)
   w = V(items: Vec())
   (!w).put[2](3)

@@ -3,7 +3,7 @@ fun find(xs: ?Vec[String], t: String) -> Int?
     return i if x == t
   none
 
-sub main
+sub main()
   v: Vec[String] = Vec()
   !v.push("a")
   i = find(?v, "a")

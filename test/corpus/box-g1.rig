@@ -4,7 +4,7 @@ struct View
 struct P
   x: Int
 
-sub main
+sub main()
   n = 3
   b = Box(value: View(p: ?n))
   c = Box(value: 5)

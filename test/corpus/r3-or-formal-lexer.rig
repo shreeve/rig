@@ -7,7 +7,7 @@ struct Lexer
     self.pos += 1
     self.src[start..self.pos]
 
-sub main
+sub main()
   t = Text("abc")
   lx = Lexer(src: ?t, pos: 0)
   a = !lx.next()

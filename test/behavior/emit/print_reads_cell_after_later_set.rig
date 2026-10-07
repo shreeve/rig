@@ -4,7 +4,7 @@ fun reset(c: ?Cell[Vec[Int]]) -> Int
   c.set(Vec())
   0
 
-sub main
+sub main()
   c: Cell[Vec[Int]] = Cell(Vec())
   for i in 0..50
     c.push(i * 3)

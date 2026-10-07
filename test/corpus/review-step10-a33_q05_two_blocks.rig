@@ -19,5 +19,5 @@ fun pick(q: ?Q, n: Int) -> ?Q
 fun both(a: ?Q, b: ?Q) -> Int
   a.xs[3] * 10 + b.xs[3]
 
-sub main
+sub main()
   print(both(pick(n: g(1), q: mkq(5).me()), pick(n: g(1), q: mkq(6).me())))

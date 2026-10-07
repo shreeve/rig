@@ -10,6 +10,6 @@ struct R
 sub f(b: !Box[R])
   print(<b.eat())
 
-sub main
+sub main()
   b = Box(value: R(n: 1))
   f(!b)

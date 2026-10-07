@@ -23,5 +23,5 @@ fun mk(n: Int) -> S
   !s.items.push(n)
   s
 
-sub main
+sub main()
   print(!mk(1).rd())

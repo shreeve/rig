@@ -4,7 +4,7 @@ struct G[T]
   sub set(!self, x: T)
     self.w = x
 
-sub main
+sub main()
   n = 1
   gi = G(w: !n)
   !gi.set(9)

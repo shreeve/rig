@@ -7,7 +7,7 @@ fun roll(r: random.Random) -> U64
 struct G
   r: random.Random
 
-sub main
+sub main()
   print(roll(random.Random.seeded(1)) != 0)
   o: G? = G(r: random.Random.seeded(1))
   if <o as g

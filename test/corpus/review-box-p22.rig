@@ -8,6 +8,6 @@ sub f(b: !Box[R])
   r = <b.take()
   print(r.n)
 
-sub main
+sub main()
   b = Box(value: R(n: 1))
   f(!b)

@@ -7,7 +7,7 @@ struct E
 sub f()!
   pass
 
-sub g
+sub g()
   defer pass
   pass
   pass
@@ -15,7 +15,7 @@ sub g
 test "t"
   pass
 
-sub main
+sub main()
   n = 3
   defer pass
   if n > 1

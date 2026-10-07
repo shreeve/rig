@@ -1,7 +1,7 @@
 fun keep(s: String) -> String
   s
 
-sub main
+sub main()
   b = Box(Box(Text("abc")))
   s = keep(?b)
   -b

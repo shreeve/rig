@@ -2,10 +2,10 @@
 # statement `show[3]` does not call `show`, as `greet` alone does not
 # call `greet`.
 
-sub show[n: Int]
+sub show[n: Int]()
   print(n)
 
-sub greet
+sub greet()
   print("hi")
 
 sub main()

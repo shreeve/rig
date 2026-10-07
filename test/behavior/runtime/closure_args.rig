@@ -34,7 +34,7 @@ fun double(n: Int) -> Int
 fun found(f: ?fun() -> ?Res) -> ?Res
   f()
 
-sub main
+sub main()
   k = 3
   print(apply(|a| a + 1, 4), apply(double, 4))
   add_k = |+k, a: Int| a + k

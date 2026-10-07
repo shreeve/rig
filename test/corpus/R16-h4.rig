@@ -5,7 +5,7 @@ enum Opt[T]
 fun double(n: Int) -> Int
   n * 2
 
-sub main
+sub main()
   g: fun(Int) -> Int = double
   o = Opt.some(v: ?g)
   match o

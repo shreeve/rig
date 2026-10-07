@@ -9,8 +9,7 @@ fun get(r: ?N, ok: Bool) -> (?N)!
   return Bad.oops if not ok
   r
 
-
-sub main
+sub main()
   b = N(s: "zz", k: 2)
   c = true
   v: N = ?N(s: "tmp", k: 7) if c else ?b

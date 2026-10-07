@@ -1,4 +1,4 @@
-sub main
+sub main()
   a: USize = 3
   b: U128 = 4
   print(a, b)

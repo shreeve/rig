@@ -30,7 +30,7 @@ sub w(k: Int)
   c = Box(Res(id: get(k) ?? return))
   print("w", b.id, c.id)
 
-sub main
+sub main()
   t(1)
   t(0)
   u(1)

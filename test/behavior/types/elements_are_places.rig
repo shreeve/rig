@@ -18,7 +18,7 @@ fun size(v: ?Vec[Int]) -> Int
 fun first(v: ?Vec[Text]) -> String
   ?v[0]
 
-sub main
+sub main()
   rows: Vec[Vec[Int]] = Vec()
   r: Vec[Int] = Vec()
   !r.push(5)

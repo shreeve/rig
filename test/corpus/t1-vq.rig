@@ -1,4 +1,4 @@
-sub main
+sub main()
   v: Vec[Int] = Vec()
   x = !v.remove(0)
   print(x)

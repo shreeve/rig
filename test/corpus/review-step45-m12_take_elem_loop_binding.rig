@@ -1,5 +1,5 @@
 # take an element of a loop element (for row in v) reached read-only: reject
-sub main
+sub main()
   v: Vec[Vec[Text?]] = Vec()
   r: Vec[Text?] = Vec()
   !r.push(Text("a"))

@@ -4,7 +4,7 @@ struct Big
 struct H
   r: ?Big
 
-sub main
+sub main()
   a = Big(v: Vec())
   b = Big(v: Vec())
   !b.v.push(1)

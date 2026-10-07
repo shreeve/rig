@@ -8,7 +8,7 @@ enum Slot
   full(b: B, v: Vec[Int])
   empty
 
-sub main
+sub main()
   s: Slot = .full(b: B(n: 1), v: Vec())
   z: Vec[Int] = Vec()
   x = match <s

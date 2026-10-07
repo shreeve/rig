@@ -7,7 +7,7 @@ fun sum(t: ?Tree) -> Int
     .leaf(n) => n
     .node(l, r) => sum(l) + sum(r)
 
-sub main
+sub main()
   t = Tree.node(l: Box(Tree.leaf(n: 1)), r: Box(Tree.leaf(n: 2)))
   u = +t
   print(sum(?t), sum(?u))

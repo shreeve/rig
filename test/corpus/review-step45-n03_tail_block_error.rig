@@ -10,5 +10,5 @@ fun f(c: Bool) -> Text!
   else
     <t
 
-sub main
+sub main()
   print(f(true) catch Text("caught"))

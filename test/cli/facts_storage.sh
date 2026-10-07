@@ -11,7 +11,7 @@ struct S
   fun f(?self, a: Int, b: Int) -> Int
     self.n + a * b
 
-fun mk -> S
+fun mk() -> S
   S(n: 1, m: 2)
 
 fun half(n: Int) -> Int!
@@ -20,7 +20,7 @@ fun half(n: Int) -> Int!
 fun both(a: Int, b: Int) -> Int
   a + b
 
-sub main!
+sub main()!
   print(mk().f(b: half(2)!, a: half(6)!))
   for i in 0..3
     print(i)

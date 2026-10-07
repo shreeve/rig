@@ -13,8 +13,7 @@ fun opt(r: ?P, k: Int) -> (?P)?!
   return none if k == 1
   r
 
-
-sub main
+sub main()
   a = P(x: 1)
   b = P(x: 2)
   c: P? = opt(?a, 2) catch ?b

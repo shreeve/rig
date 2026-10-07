@@ -9,7 +9,7 @@ sub put(h: !Holder)
   g = |!h, ?w| h.r = w
   g()
 
-sub main
+sub main()
   x = Item(n: 1)
   h = Holder(r: ?x)
   put(!h)

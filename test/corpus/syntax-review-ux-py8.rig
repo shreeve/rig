@@ -7,7 +7,7 @@ fun upper(s: String) -> Vec[U8]
       !out.push(b)
   out
 
-sub main
+sub main()
   u = upper("hello, rig")
   print(u)
   print(?u[..])

@@ -7,7 +7,7 @@ struct H
 fun mk(b: !B) -> H
   H(r: <b)
 
-sub main
+sub main()
   b = B(o: 3)
   x = <mk(!b).r.o
   print(x ?? 0)

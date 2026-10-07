@@ -3,7 +3,7 @@ struct R
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   s = "abc"
   o = replace(!s, "xyz")
   print(o, s)

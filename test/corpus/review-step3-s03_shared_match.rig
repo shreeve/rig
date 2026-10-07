@@ -6,7 +6,7 @@ enum E
   a(r: Res)
   b
 
-sub main
+sub main()
   h = *E.a(r: Res(n: 1, t: Text("hello")))
   g = +h
   match h

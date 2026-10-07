@@ -18,6 +18,6 @@ fun mko(n: Int) -> Bag?
 fun run(n: Int) -> Int?
   two(mk(1), mko(n)?)
 
-sub main
+sub main()
   print(run(2) ?? -1)
   print(run(9) ?? -1)

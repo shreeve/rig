@@ -7,7 +7,7 @@ enum Sh
   c(r: R, k: Int)
   d
 
-sub main
+sub main()
   s = Sh.c(r: R(n: 1), k: 2)
   match <s
     .c(_, k)

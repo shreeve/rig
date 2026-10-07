@@ -4,7 +4,7 @@ struct View
   drop(!self)
     print("view drop", self.w.len)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   view = View(w: ?v)

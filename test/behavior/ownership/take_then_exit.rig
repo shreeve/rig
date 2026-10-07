@@ -26,7 +26,7 @@ fun g(s: !S) -> Int?
   n = z?
   n
 
-sub main
+sub main()
   s = S(a: R(n: 1), b: R(n: 2))
   print(f(!s, true) catch 0)
   print(s)

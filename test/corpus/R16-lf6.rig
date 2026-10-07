@@ -4,7 +4,7 @@ struct Wrap
 struct View
   w: ?Wrap
 
-sub main
+sub main()
   a = Wrap(n: 1)
   v = View(w: ?a)
   if true

@@ -1,5 +1,6 @@
 struct P
   xs: Vec[Int]
-sub main
+
+sub main()
   v: Vec[P] = Vec()
   print(v.len)

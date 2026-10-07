@@ -1,5 +1,5 @@
 # a loop breaks with a taken optional element; loop over a Vec[Text?]
-sub main
+sub main()
   v: Vec[Text?] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

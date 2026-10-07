@@ -10,7 +10,7 @@ fun get(v: ?Vec[*B], i: Int) -> (*B)?
 fun nxt(b: ?B, i: Int) -> Int
   i + 1 + b.n * 0
 
-sub main
+sub main()
   v: Vec[*B] = Vec()
   !v.push(*B(n: 1))
   !v.push(*B(n: 2))

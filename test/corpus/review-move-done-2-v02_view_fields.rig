@@ -18,20 +18,20 @@ fun mkv(n: Int) -> Vec[Int]
 fun mks(n: Int) -> S
   S(o: mkv(n), v: mkv(n))
 
-sub a
+sub a()
   s = mks(1)
   k = K(w: !s)
   x = <k.w.o
   print(x == none)
   print(s.o == none)
 
-sub b
+sub b()
   s = mks(1)
   bx = Box(mks(2))
   y = <bx.o
   print(y == none, bx.o == none, s.v.len)
 
-sub c
+sub c()
   v: Vec[S] = Vec()
   !v.push(mks(1))
   for e in !v
@@ -39,7 +39,7 @@ sub c
     print(z == none)
   print(v[0].o == none)
 
-sub main
+sub main()
   a()
   b()
   c()

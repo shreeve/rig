@@ -1,4 +1,4 @@
 use util.m
 
-sub main
+sub main()
   print(m.f())

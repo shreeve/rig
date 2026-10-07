@@ -1,10 +1,10 @@
 # A function name whose value is used, such as a fun's last line or a
 # branch value, is the function itself; only a discarded one is an error.
 
-sub greet
+sub greet()
   print("hi")
 
-sub wave
+sub wave()
   print("wave")
 
 fun pick(polite: Bool) -> sub()
@@ -16,10 +16,10 @@ fun pick(polite: Bool) -> sub()
 fun twice(n: Int) -> Int
   n * 2
 
-fun doubler -> fun(Int) -> Int
+fun doubler() -> fun(Int) -> Int
   twice
 
-sub main
+sub main()
   f = pick(true)
   f()
   pick(false)()

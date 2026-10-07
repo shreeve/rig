@@ -13,6 +13,6 @@ sub g(k: Int)!
   !v.push(*Node(n: f(k)!))
   print(v.len)
 
-sub main
+sub main()
   g(0) catch print("e")
   g(1) catch print("e")

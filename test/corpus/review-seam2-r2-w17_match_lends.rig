@@ -22,7 +22,7 @@ fun mkopt(n: Int) -> S?
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   s = mk(1)
   t = mk(2)
   k = f(1)

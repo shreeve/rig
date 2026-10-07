@@ -2,7 +2,7 @@
 fun geta(a: ![2]Text, s: String) -> ![2]Text
   a
 
-sub main
+sub main()
   a = [Text("p"), Text("q")]
   for x in !geta(!a, ?Text("a"))
     for _ in 0..40

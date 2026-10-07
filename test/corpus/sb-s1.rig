@@ -4,7 +4,7 @@ struct Frame
 sub put(f: !Frame, v: U32)
   !f.buf.write[U32, .big](0, v)
 
-sub main
+sub main()
   f = Frame(buf: Vec())
   for i in 0..4
     !f.buf.push(U8(i))

@@ -1,9 +1,12 @@
 error A
   timeout
+
 error B
   timeout
+
 fun f() -> Int!
   return A.timeout
-sub main
+
+sub main()
   x = f() catch |e| (1 if e == B.timeout else 2)
   print(x)

@@ -14,7 +14,7 @@ enum E
 fun getw(e: !E) -> !E
   e
 
-sub main
+sub main()
   e = E.a(r: Res(n: 1, t: Text("x")))
   match getw(!e)
     .a(r) => r.n = 60

@@ -4,7 +4,7 @@ struct H[T]
   sub put(!self, v: T)
     self.w = v
 
-sub main
+sub main()
   n = 0
   s = "a"
   h = H[Int](w: !n)

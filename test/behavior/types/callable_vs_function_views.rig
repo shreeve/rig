@@ -29,7 +29,7 @@ sub put[T](dst: !T, v: T)
 sub run(f: ?sub())
   f()
 
-sub main
+sub main()
   g: fun(Int) -> Int = double
   print(use_it(?double), use_it(?g))
   v = View(w: ?g)

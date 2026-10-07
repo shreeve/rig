@@ -5,5 +5,5 @@ sub store(f: ?fun(Int) -> Int)
   o = f if true else none
   print(1)
 
-sub main
+sub main()
   store(double)

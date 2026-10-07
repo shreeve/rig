@@ -11,7 +11,7 @@ sub set(h: !H)
   c = 3
   h.w = V(r: ?c)
 
-sub main
+sub main()
   a = 1
   x = V(r: ?a)
   h = H(w: !x)

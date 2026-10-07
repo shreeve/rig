@@ -38,7 +38,7 @@ fun clears(ss: !Vec[String]) -> Int
   ss = Vec()
   0
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(0)
   print(v.len, grow(!v), v.len)

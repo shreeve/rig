@@ -7,5 +7,5 @@ fun twice(g: fun(?fun(Int) -> Int) -> ?fun(Int) -> Int) -> Int
   h = g(?l)
   h(1)
 
-sub main
+sub main()
   print(twice(ret))

@@ -1,5 +1,5 @@
 # for x in !v: assign x = Text(...) drops old each element
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   !v.push(Text("b"))

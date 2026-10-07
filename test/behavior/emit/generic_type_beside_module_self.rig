@@ -1,7 +1,7 @@
 # A module-level function named `Self` does not clash with the name a
 # generic type uses for itself in the emitted Zig.
 
-fun Self -> Int
+fun Self() -> Int
   3
 
 struct W[T]

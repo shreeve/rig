@@ -26,7 +26,7 @@ struct Node
   drop(!self)
     print("drop", self.id)
 
-sub main
+sub main()
   m = Map[String, *Node](es: Vec())
   !m.put("a", *Node(id: 1))
   !m.put("b", *Node(id: 2))

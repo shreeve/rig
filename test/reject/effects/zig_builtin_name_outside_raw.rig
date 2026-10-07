@@ -1,0 +1,19 @@
+# Outside `raw`, a type query takes Rig's name: `@size`, `@align`,
+# `@type`, `@name`. Zig's names (`@sizeOf`, `@alignOf`, `@TypeOf`,
+# `@typeName`) work only inside `raw`; the fix-it rewrites the call,
+# its argument included, once.
+
+struct P
+  a: Int
+
+sub main()
+  x = 5
+  print(@sizeOf(I64), @alignOf(P), @typeName(Int))
+  print(@size(@TypeOf(x)), @sizeOf(@TypeOf(x)))
+
+# error: 11:9: write `@size(I64)`: Rig's builtin is `@size`; Zig's `@sizeOf` works only inside `raw`
+# error: 11:23: write `@align(P)`: Rig's builtin is `@align`; Zig's `@alignOf` works only inside `raw`
+# error: 11:36: write `@name(Int)`: Rig's builtin is `@name`; Zig's `@typeName` works only inside `raw`
+# error: 12:15: write `@type(x)`: Rig's builtin is `@type`; Zig's `@TypeOf` works only inside `raw`
+# error: 12:28: write `@size(@type(x))`: Rig's builtin is `@size`; Zig's `@sizeOf` works only inside `raw`
+# errors: 5

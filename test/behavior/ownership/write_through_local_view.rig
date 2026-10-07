@@ -14,7 +14,7 @@ struct In
 struct View
   b: ?In
 
-sub main
+sub main()
   n = 1
   w = !n
   w = 5

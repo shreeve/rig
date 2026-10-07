@@ -1,7 +1,7 @@
 struct N
   a: Int
 
-sub main
+sub main()
   s: *sub() = *|| print("x")
   w = ~s
   u = w.upgrade()

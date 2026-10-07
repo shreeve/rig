@@ -5,7 +5,7 @@ struct S
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   x = S(n: 1)
   h = *x
   print(h.n)

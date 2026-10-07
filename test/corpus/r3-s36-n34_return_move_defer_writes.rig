@@ -1,13 +1,13 @@
 struct R
   v: Vec[Int]
 
-fun mk -> R
+fun mk() -> R
   r = R(v: Vec())
   !r.v.push(1)
   defer !r.v.push(2)
   r
 
-sub main
+sub main()
   x = mk()
   !x.v.push(3)
   print(x.v.len, x.v[0])

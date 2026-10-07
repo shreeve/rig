@@ -2,7 +2,7 @@
 struct S
   o: Vec[Int]?
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   a = S(o: <v)

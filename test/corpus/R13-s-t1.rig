@@ -14,6 +14,6 @@ enum C
   fun n(self: Self) -> Int
     1
 
-sub main
+sub main()
   print <Opt[Int].no.or(9)
   print <C.a.n()

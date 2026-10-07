@@ -4,7 +4,7 @@ struct H
 sub app(p: *H, q: *H)
   !p.t.add(?q.t[..])
 
-sub main
+sub main()
   p = *H(t: Text("abcdefghijklmnop"))
   app(p, p)
   print(p.t)

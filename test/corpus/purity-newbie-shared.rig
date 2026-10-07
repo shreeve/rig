@@ -7,7 +7,7 @@ struct Clicker
     self.counter.set(self.counter.get() + 1)
     print(self.name, "clicked; total now", self.counter.get())
 
-sub main
+sub main()
   counter = *Cell(0)
   left = Clicker(name: "left", counter: +counter)
   right = Clicker(name: "right", counter: +counter)

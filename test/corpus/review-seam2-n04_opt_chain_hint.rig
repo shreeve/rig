@@ -29,6 +29,6 @@ fun go(n: Int) -> Int?
 fun go2(n: Int) -> Int!
   !(mkerr(n)!).pop()
 
-sub main
+sub main()
   print(go(1) ?? -1, go(0) ?? -1)
   print(go2(1) catch -1, go2(0) catch -1)

@@ -42,7 +42,7 @@ fun reset(f: !*fun(Int) -> Int) -> Int
   f = *|k: Int| k + 2
   1
 
-sub main
+sub main()
   a = mk(1)
   b = mk(2)
   c = true

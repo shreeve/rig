@@ -7,7 +7,7 @@ fun add(x: ?Int, f: ?fun(Int) -> Int) -> Int
 fun add2(x: ?Int, y: Int) -> Int
   x + y
 
-sub main
+sub main()
   s = S(b: Box(value: 5))
   print(add(?s.b, |k: Int| k * 2))
   b = Box(value: 7)

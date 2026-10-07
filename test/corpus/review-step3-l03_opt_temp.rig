@@ -15,7 +15,7 @@ fun mko(n: Int) -> S?
     return none
   S(n: n, t: Text("a"))
 
-sub main
+sub main()
   print(maybe(mko(1)), maybe(mko(9)))
   print(maybe(?mko(2)))
   o: S? = S(n: 3, t: Text("o"))

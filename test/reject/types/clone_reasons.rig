@@ -11,7 +11,7 @@ struct S
 fun dup[T](v: ?Vec[T]) -> Vec[T]
   +v
 
-sub main
+sub main()
   s = S(rs: [R(seed: 1)], t: Text("x"))
   c = +s
   print(c.t)

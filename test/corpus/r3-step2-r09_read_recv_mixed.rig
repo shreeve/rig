@@ -4,12 +4,12 @@ struct Bag
   fun total(?self) -> Int
     self.items.len
 
-fun mk -> Bag
+fun mk() -> Bag
   b = Bag(items: Vec())
   !b.items.push(7)
   b
 
-sub main
+sub main()
   a = Bag(items: Vec())
   !a.items.push(1)
   !a.items.push(2)

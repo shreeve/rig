@@ -2,7 +2,7 @@
 struct S
   arr: [2]Text
 
-sub main
+sub main()
   a = [Text("a"), Text("b")]
   s = S(arr: a)
   print(s.arr, a)

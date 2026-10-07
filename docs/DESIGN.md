@@ -25,7 +25,7 @@ fun size_of(p: ?Packet) -> Int
 sub send(p: Packet)
   print("sending", p.size)
 
-sub main
+sub main()
   p = Packet(size: 512)
   print(size_of(?p))      # lent for reading; `p` is still ours
   send(<p)                # handed over; `p` is gone from here on
@@ -212,7 +212,7 @@ struct Owner
 fun id_of(n: ?*Node) -> Int
   n.id
 
-sub main
+sub main()
   o = Owner(node: *Node(id: 1))
   shared = *<o                 # move `o`, then share it: *Owner
   first = +shared.node         # clone the handle in a field: *Node
@@ -446,7 +446,7 @@ Zig already solves code generation: an optimizer, cross-compilation,
 linking, and a C ABI. Its semantics fit Rig closely: `defer` is exactly
 what automatic drop needs, error unions are `T!`, optionals are `T?`,
 `comptime` parameters are Rig's compile-time parameters in brackets
-(`fun f[n: Int]`), generic types are functions from types to types,
+(`fun f[n: Int]()`), generic types are functions from types to types,
 and generic functions take their type parameters as `comptime T: type`.
 Emitting Zig source rather than Zig IR or LLVM IR keeps Rig independent
 of backend internals, at the cost of one extra compile step.

@@ -1,5 +1,6 @@
 fun g(a: Int?) -> Int
   x = a ?? return
   x
+
 sub main()
   print(g(none))

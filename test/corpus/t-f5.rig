@@ -4,7 +4,7 @@ struct H
 sub inc(x: !Int)
   x += 1
 
-sub main
+sub main()
   n = 1
   m = 10
   h = H(w: !n)

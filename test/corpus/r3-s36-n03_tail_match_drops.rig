@@ -11,6 +11,6 @@ fun pick(k: Int) -> R
     0 => a
     _ => b
 
-sub main
+sub main()
   x = pick(0)
   print(x.n)

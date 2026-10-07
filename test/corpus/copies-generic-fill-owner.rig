@@ -1,7 +1,7 @@
 fun fill2[T](x: T) -> [2]T
   [2 of x]
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   a = fill2(<v)
   print(a[0].len)

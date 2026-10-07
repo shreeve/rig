@@ -11,5 +11,5 @@ sub w(k: Int)
   r = make(k) ?? N(id: 0)
   print(r.id)
 
-sub main
+sub main()
   w(0)

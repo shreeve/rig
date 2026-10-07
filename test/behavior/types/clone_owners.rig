@@ -21,7 +21,7 @@ fun sum(t: ?Tree) -> Int
     .leaf(n) => n
     .node(l, r) => sum(l) + sum(r)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   w = +v

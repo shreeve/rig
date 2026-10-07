@@ -4,5 +4,5 @@ sub f(x: Int, c: Bool)
   else
     x + 1
 
-sub main
+sub main()
   f(3, true)

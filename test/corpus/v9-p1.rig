@@ -1,4 +1,4 @@
-sub main
+sub main()
   a = [1, 2]
   out = a
   for x in !out

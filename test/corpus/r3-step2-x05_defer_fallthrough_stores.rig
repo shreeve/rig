@@ -1,7 +1,7 @@
 struct H
   r: ?Vec[Int]
 
-sub main
+sub main()
   z: Vec[Int] = Vec()
   h = H(r: ?z)
   if true

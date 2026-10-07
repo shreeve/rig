@@ -49,10 +49,10 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t223
+sub t223()
   cl223 = |x: I128| x
   x223: I128 = cl223((-170141183460469231731687303715884105728))
   print(x223)
 
-sub main
+sub main()
   t223()

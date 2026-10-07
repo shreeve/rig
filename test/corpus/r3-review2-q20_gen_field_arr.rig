@@ -23,7 +23,6 @@ fun f3[T](xs: ?[2]W[T], f: ?fun(?T) -> Int) -> Int
 fun f4[T](s: []W[T], f: ?fun(?T) -> Int) -> Int
   f(?s[1].item)
 
-
 fun bump(c: ?Counter) -> Int
   c.hit()
   c.hits.get()

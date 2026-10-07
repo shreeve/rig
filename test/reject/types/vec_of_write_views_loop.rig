@@ -1,7 +1,7 @@
 # A loop binding cannot hold a write view out of a Vec, and `get`
 # cannot copy one.
 
-sub main
+sub main()
   a = 1
   w: Vec[!Int] = Vec()
   !w.push(!a)

@@ -4,7 +4,7 @@ struct Res
   drop(!self)
     print("drop", self.n)
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(1)
   r = Res(n: 3)

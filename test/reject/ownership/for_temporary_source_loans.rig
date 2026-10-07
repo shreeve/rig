@@ -13,7 +13,7 @@ fun firsts(s: String) -> Vec[String]
   !v.push(s[..1])
   v
 
-sub main
+sub main()
   t = Text("abcdefghijklmnop")
   o = "x"
   for x in [?t[..1], ?t[1..2]]

@@ -3,7 +3,7 @@ use b
 error Mine
   other
 
-sub main
+sub main()
   x = b.g() catch |e|
     print(e, e == .eof)
     match e

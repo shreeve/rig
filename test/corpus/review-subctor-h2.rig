@@ -4,6 +4,6 @@ struct Wrap[T]
   drop(!self)
     print("drop wrap")
 
-sub main
+sub main()
   g = Wrap(5)
   print(g.item)

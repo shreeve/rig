@@ -1,5 +1,5 @@
 # Cell holding a Vec[Text]: set, replace, take
-sub main
+sub main()
   c = Cell(Vec[Text]())
   v: Vec[Text] = Vec()
   !v.push(Text("a"))

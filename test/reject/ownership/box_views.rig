@@ -13,7 +13,7 @@ sub bad(slot: ?Box[Node]?)
     n.key = 3
     grow(!n.left)
 
-sub main
+sub main()
   root: Box[Node]? = Box(Node(key: 1, left: none))
   bad(?root)
 

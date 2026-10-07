@@ -6,13 +6,13 @@
 struct Bag
   v: Vec[Int]
 
-sub loop_local
+sub loop_local()
   x = while true
     b = Bag(v: Vec())
     break b
   print(x.v.len)
 
-sub for_element
+sub for_element()
   v: Vec[Bag] = Vec()
   !v.push(Bag(v: Vec()))
   y = for e in <v
@@ -21,13 +21,13 @@ sub for_element
     Bag(v: Vec())
   print(y.v.len)
 
-sub outer_name
+sub outer_name()
   r = Bag(v: Vec())
   x = while true
     break r
   print(x.v.len)
 
-sub outer_loop
+sub outer_loop()
   x = for _ in 0..2
     r = Bag(v: Vec())
     y = for _ in 0..2
@@ -39,7 +39,7 @@ sub outer_loop
     Bag(v: Vec())
   print(x.v.len)
 
-sub deferred_read
+sub deferred_read()
   i = 0
   z = while i < 3
     q = Bag(v: Vec())
@@ -50,7 +50,7 @@ sub deferred_read
     Bag(v: Vec())
   print(z.v.len)
 
-sub main
+sub main()
   loop_local()
 
 # oracle: loop_local reject C2

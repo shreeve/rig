@@ -2,5 +2,6 @@ struct W[T]
   v: T
   drop(!self)
     print("x")
-sub main
+
+sub main()
   w = W(v: 1)

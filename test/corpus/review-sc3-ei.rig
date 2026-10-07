@@ -28,7 +28,7 @@ fun pick(i: Int, j: Int) -> Int
     0
   v
 
-sub main
+sub main()
   print(pick(2, 3), pick(1, 3), pick(1, 1))
   n = Node(next: Res(id: 1), alt: Res(id: 2))
   print(!n.take2())

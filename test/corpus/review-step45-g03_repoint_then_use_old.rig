@@ -1,5 +1,5 @@
 # re-point, then use the old target freely (sound), w then written
-sub main
+sub main()
   m = Text("m")
   n = Text("n")
   w = !m

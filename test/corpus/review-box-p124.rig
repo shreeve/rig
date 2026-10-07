@@ -25,7 +25,7 @@ struct Node
     else
       1
 
-sub main
+sub main()
   n = Node(v: 1, next: none)
   !n.append(2)
   !n.append(3)

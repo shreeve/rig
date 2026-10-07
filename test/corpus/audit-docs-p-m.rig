@@ -1,4 +1,5 @@
 fun p(n: Int) -> Int!
   n
-sub main
+
+sub main()
   print(p(1)!)

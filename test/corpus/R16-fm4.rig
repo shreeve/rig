@@ -4,7 +4,7 @@ struct C
   sub inc(!self)
     self.n += 1
 
-sub main
+sub main()
   c = C(n: 0)
   c = C(n: 0)
   f = |!c|

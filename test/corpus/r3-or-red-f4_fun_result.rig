@@ -14,7 +14,7 @@ fun choose(c: Bool) -> ?fun(?Item, ?Item) -> ?Item
     return ?left
   ?right
 
-sub main
+sub main()
   x = Item(n: 1)
   y = Item(n: 2)
   h = choose(y.n > 1)

@@ -14,7 +14,7 @@ enum E
 sub bump(n: !N)
   n.n += 1
 
-sub main
+sub main()
   x = N(n: 1)
   e = E.a(v: V(r: ?x))
   match e

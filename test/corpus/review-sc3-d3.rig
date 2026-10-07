@@ -1,5 +1,6 @@
 error E
   bad
+
 fun p(k: Int) -> Int!
   return E.bad if k == 0
   k
@@ -9,6 +10,6 @@ sub t(k: Int)!
   q = p(k - 1)!
   print(q)
 
-sub main
+sub main()
   t(2) catch print("f")
   t(1) catch print("f")

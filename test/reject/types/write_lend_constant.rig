@@ -41,7 +41,7 @@ sub setu(u: !U8)
 struct P
   x: Int
 
-  fun origin -> P
+  fun origin() -> P
     P(x: 0)
 
 sub setf(g: !fun(Int) -> Int)
@@ -53,7 +53,7 @@ sub setp(g: !fun() -> P)
 fun f(n: Int) -> Int
   n
 
-sub main
+sub main()
   setc(!Color.red)
   sete(!E.bad)
   setb(!false)

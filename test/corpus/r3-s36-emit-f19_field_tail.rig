@@ -8,6 +8,6 @@ struct R
 fun f(r: ?R) -> Int!
   r.code
 
-sub main
+sub main()
   r = R(code: E.bad)
   print(f(?r) catch -1)

@@ -11,7 +11,7 @@ fun get(env: ?Env, name: String) -> String?
       return v.value
   none
 
-sub main
+sub main()
   env = Env(vars: [Var(name: "a", value: "1"), Var(name: "b", value: "2"), Var(name: "c", value: "3")])
   for n in ["a", "c"]
     q = Text(n)

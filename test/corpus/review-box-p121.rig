@@ -10,7 +10,7 @@ sub hit2(o: ?C?)
     x.hits.set(x.hits.get() + 1)
     break
 
-sub main
+sub main()
   o: C? = C(hits: Cell(value: 0))
   hit(?o)
   hit2(?o)

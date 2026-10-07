@@ -24,7 +24,7 @@ fun arr() -> [3]D
 fun mk(i: Int) -> D?
   D(n: 20 + i) if i < 4 else none
 
-sub main
+sub main()
   q = mkvec(4)
   a = for e, i in <q
     y = D(n: 100 + i)

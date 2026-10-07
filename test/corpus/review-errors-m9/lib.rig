@@ -3,5 +3,5 @@ pub error Disk
 
 pub type D = Disk
 
-pub fun f -> Int!
+pub fun f() -> Int!
   return D.full

@@ -13,7 +13,7 @@ struct Cursor
     self.i += 1
     !self.items[k]
 
-sub main
+sub main()
   a = [Item(n: 1), Item(n: 2)]
   c = Cursor(items: !a, i: 0)
   x = !c.next()

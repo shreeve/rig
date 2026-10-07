@@ -1,6 +1,6 @@
 use lib
 
-sub main
+sub main()
   r = lib.Rec()
   print(r, lib.dflt(), lib.dflt(.full), lib.dflt(lib.Disk.full))
   print(lib.opt(0), r.e == .full, r.e == lib.Disk.full)

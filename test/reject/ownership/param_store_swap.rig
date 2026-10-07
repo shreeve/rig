@@ -12,7 +12,7 @@ fun f(a: !Holder, b: !Text) -> Int
   print(a.s)
   0
 
-sub main
+sub main()
   t = Text("zz")
   w = Text("abc")
   h = Holder(s: ?t[..])

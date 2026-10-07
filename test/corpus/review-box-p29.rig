@@ -7,6 +7,6 @@ struct R
   fun eat(<self) -> Int
     self.n
 
-sub main
+sub main()
   b = Box(value: R(n: 1))
   print(b.eat())

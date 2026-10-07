@@ -11,19 +11,19 @@ fun mkt(s: String) -> Text
 fun f(n: Int) -> Int
   n
 
-fun mkv -> Vec[Int]
+fun mkv() -> Vec[Int]
   v: Vec[Int] = Vec()
   !v.push(1)
   v
 
-fun arr -> [3]Int
+fun arr() -> [3]Int
   [7, 8, 9]
 
 sub fill(t: !Text)
   !t.add("!")
   print(t)
 
-sub main
+sub main()
   c = f(1) == 1
   !mkt("a").add("b")
   !(Text("x") if c else mkt("y")).add("z")

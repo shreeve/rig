@@ -1,6 +1,6 @@
 fun get(o: ?Vec[Int]?) -> Vec[Int]?
   o
 
-sub main
+sub main()
   x: Vec[Int]? = Vec()
   print(get(?x))

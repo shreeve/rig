@@ -16,7 +16,7 @@ fun wv(v: !Vec[Int]) -> !Vec[Int]
 fun wh(h: !H) -> !H
   h
 
-sub main
+sub main()
   t = Text("a")
   !wt(!t).add("b")
   wt(!t).add("c")

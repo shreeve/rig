@@ -7,7 +7,7 @@ struct C
 sub f(c: ?C)
   !c.bump()
 
-sub main
+sub main()
   c = C(n: 0)
   f(?c)
   print(c.n)

@@ -9,7 +9,7 @@ struct U
     self.n += 1
     self.n
 
-  fun make -> U
+  fun make() -> U
     U(n: 1)
 
 enum E
@@ -20,7 +20,7 @@ sub sete(e: !E)
   print(e)
   e = .b
 
-sub main
+sub main()
   print(!(lib.mk()).bump(), !(lib.T.make()).bump(), !(U.make()).bump())
   sete(!(E.a(s: "x")))
 

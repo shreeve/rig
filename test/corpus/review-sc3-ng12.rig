@@ -4,7 +4,7 @@ struct Res
   drop(!self)
     print("drop", self.id)
 
-sub main
+sub main()
   x = 3
   v = while true
     break -x

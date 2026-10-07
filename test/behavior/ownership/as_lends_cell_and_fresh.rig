@@ -11,7 +11,7 @@ struct R
 fun get(h: !R?) -> !R?
   !h
 
-sub main
+sub main()
   o: C? = C(hits: Cell(0))
   if ?o as y
     y.hits.set(y.hits.get() + 1)

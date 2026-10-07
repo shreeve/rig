@@ -21,7 +21,7 @@ fun get(n: ?Int) -> Int
 sub set9(n: !Int)
   n = 9
 
-sub main
+sub main()
   ps: Vec[P] = Vec()
   !ps.push(P(a: [1, 2, 3, 4]))
   x = 9

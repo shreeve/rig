@@ -14,7 +14,7 @@ struct Split
     self.done = true
     self.rest
 
-sub main
+sub main()
   t = Text("a,b,c")
   s = Split(rest: ?t, sep: ",", done: false)
   while !s.next() as p

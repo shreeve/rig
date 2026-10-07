@@ -51,7 +51,7 @@ sub r10(a: S, b: S, c: Bool)
   defer eat(<(a if c else b).v)
   print("x")
 
-sub main
+sub main()
   r2(S(n: 1, v: Vec()), S(n: 1, v: Vec()), true)
 
 # oracle: eat accept

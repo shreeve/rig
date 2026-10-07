@@ -1,4 +1,3 @@
-
 struct Res
   n: Int
 
@@ -10,6 +9,7 @@ sub main()
   p = Pair(first: ?r, second: 1)
   -r
   print(p.first.n)
+
 struct Pair[A, B]
   first: A
   second: B

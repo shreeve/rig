@@ -17,7 +17,7 @@ fun report(tasks: ?Vec[Task]) -> Text
     !out.add("[", mark, "] ", t.name, " (p", t.priority, ")\n")
   out
 
-sub main
+sub main()
   board: Vec[Task] = Vec()
   i = 0
   while i < 5 : i += 1

@@ -5,7 +5,7 @@ struct Node
 fun first(n: ?Box[Node]) -> ?Node
   ?n
 
-sub main
+sub main()
   a = Box(value: Node(key: 1, next: none))
   f = first(?a)
   a = Box(value: Node(key: 2, next: none))

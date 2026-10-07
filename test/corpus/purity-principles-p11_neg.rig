@@ -9,7 +9,7 @@ sub g(x: Int, c: Bool)
     -x
   print("g")
 
-sub main
+sub main()
   n = 1
   print(f(n, true))
   g(n, true)

@@ -35,7 +35,7 @@ sub moves(h: !H, w2: !Int, w3: !Int, c: Bool)
   h.w = <w2 if c else <w3
   h.w += 5
 
-sub main
+sub main()
   n = 1
   m = 2
   copies(!n, !m, true)

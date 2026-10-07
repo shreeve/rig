@@ -2,9 +2,11 @@ use lib
 
 LIMIT = 300
 FL = 2.5
+
 enum Color
   red
   blue
+
 DEF = Color.blue
 
 struct S

@@ -5,7 +5,7 @@
 sub stash(c: ?Cell[String], s: ?String)
   c.set(s)
 
-sub main
+sub main()
   t = Text("abcdefghijklmnop")
   s = ?t[..]
   c = Cell("x")

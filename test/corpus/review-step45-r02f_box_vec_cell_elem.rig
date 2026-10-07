@@ -8,7 +8,7 @@ struct S
 sub bump(b: ?Box[S])
   b.v[0].c.set(40)
 
-sub main
+sub main()
   v: Vec[C] = Vec()
   !v.push(C(c: Cell(3)))
   h = *S(v: <v)

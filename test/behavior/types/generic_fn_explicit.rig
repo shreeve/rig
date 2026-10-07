@@ -9,7 +9,7 @@ fun max[T](a: T, b: T) -> T
 sub tag[T, n: Int](x: T)
   print(n, x)
 
-sub hello[T]
+sub hello[T]()
   print("hello")
 
 fun double[T](x: T) -> T

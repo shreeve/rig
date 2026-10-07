@@ -1,5 +1,6 @@
 struct P
   n: Int
-sub main
+
+sub main()
   v: Vec[*P] = Vec()
   s = ?v[..]

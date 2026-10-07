@@ -23,7 +23,7 @@ fun mks(xs: []Int) -> H
 fun mkv(xs: []Int) -> V
   V(s: xs, arr: [Counter(hits: Cell(xs.len)), Counter(hits: Cell(0))])
 
-sub main
+sub main()
   k = 10
   for c in mkf(|?k, x: Int| x + k).arr
     c.hit()

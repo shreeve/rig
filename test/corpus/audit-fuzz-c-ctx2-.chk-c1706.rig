@@ -49,11 +49,11 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t1706
+sub t1706()
   o1706: U8? = none
   flag1706 = rt_bool(true)
   wb1706: U8 = id_u8(109)
   print(wb1706 +% (o1706 ?? (19 if flag1706 else 204)))
 
-sub main
+sub main()
   t1706()

@@ -1,7 +1,8 @@
 fun lo(x: U64) -> U32
   raw
     @truncate(x)
-sub main
+
+sub main()
   big: U64 = 0x1_0000_0005
   print(lo(big))
   z = if true

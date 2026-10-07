@@ -1,7 +1,7 @@
 struct Counter
   hits: Cell[Int]
 
-sub main
+sub main()
   v: Vec[Counter] = Vec()
   !v.push(Counter(hits: Cell(1)))
   x = v.get(0)

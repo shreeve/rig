@@ -8,7 +8,7 @@ struct Stack
   fun pop(!self) -> Int?
     !self.items.pop()
 
-sub main
+sub main()
   s = Stack(items: Vec())
   a = <s.top()
   b = <s.pop()

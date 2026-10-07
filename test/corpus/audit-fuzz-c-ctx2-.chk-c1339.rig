@@ -49,10 +49,10 @@ fun id_float(x: Float) -> Float
 fun id_f32(x: F32) -> F32
   x
 
-sub t1339
+sub t1339()
   gv1339: Vec[Float] = Vec()
   qo1339: Float? = id_float(10.25)
   print(qo1339 ?? (gv1339.get(0) ?? (-2)))
 
-sub main
+sub main()
   t1339()

@@ -19,7 +19,7 @@ struct S
   o: Int?
   vs: Vec[Vec[Int]]
 
-fun mk -> S
+fun mk() -> S
   S(n: 3, v: Vec(), o: none, vs: Vec())
 
 fun get(bad: Bool) -> S!
@@ -61,7 +61,7 @@ sub carried(c: Bool)
   for x in <(a if c else b).v
     print(x)
 
-sub main
+sub main()
   owning(true)
   copying(true)
   others(true)

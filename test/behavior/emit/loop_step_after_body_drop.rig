@@ -17,7 +17,7 @@ fun st(i: Int) -> Int
   print("step", i)
   i
 
-sub main
+sub main()
   v: Vec[Int] = Vec()
   !v.push(0)
   i = 0

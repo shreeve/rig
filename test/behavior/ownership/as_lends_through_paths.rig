@@ -14,7 +14,7 @@ struct Holder
 fun get(h: ?Holder) -> ?Res?
   ?h.r
 
-sub main
+sub main()
   h = Holder(r: Res(n: 3))
   if ?h.r as v
     print("field", v.n)

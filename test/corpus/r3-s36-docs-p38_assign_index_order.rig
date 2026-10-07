@@ -3,7 +3,7 @@ fun at(i: Int, what: String) -> Int
   print(what)
   i
 
-sub main
+sub main()
   g: [2][2]Int = [[0, 0], [0, 0]]
   g[at(1, "first index")][at(0, "second index")] = at(5, "value")
   print(g)

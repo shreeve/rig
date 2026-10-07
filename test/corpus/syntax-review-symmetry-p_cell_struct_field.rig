@@ -1,5 +1,6 @@
 struct P
   x: Int
-sub main
+
+sub main()
   c = *Cell(value: P(x: 1))
   print(c.x)

@@ -9,7 +9,7 @@ sub peek(r: ?H)
   x = 1
   swap(r.w, !x)
 
-sub main
+sub main()
   n = 1
   h = H(w: !n)
   peek(?h)

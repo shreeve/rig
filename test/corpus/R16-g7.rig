@@ -7,7 +7,7 @@ fun twice[T](x: T, f: ?fun(T) -> T) -> T
 fun thrice[T](x: T, f: ?fun(T) -> T) -> T
   twice(call_it(x, f), f)
 
-sub main
+sub main()
   k = 2
   print(thrice(1, |+k, a| a * k))
   print(thrice("a", |s| s))

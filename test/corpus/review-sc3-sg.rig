@@ -9,7 +9,7 @@ struct P
 fun keep[T](v: T) -> Cell[T]
   Cell(v)
 
-sub main
+sub main()
   sig: *Signal[Shape] = *Signal(Shape.dot)
   sig.subscribe(*|~sig|
     if sig.upgrade() as s

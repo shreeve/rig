@@ -10,7 +10,7 @@ struct P
 fun f(n: U8 = Byte.max) -> U8
   n
 
-sub main
+sub main()
   p = P()
   print(f(), p.lo, p.hi)
 

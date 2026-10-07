@@ -4,8 +4,10 @@ struct Ring[T, n: Int]
     self.items[0]
   fun size[k: Int](?self) -> Int
     n * k
+
 fun make[T, n: Int](x: T) -> Ring[T, n]
   Ring[T, n](items: [n of x])
+
 sub main()
   r = make[Int, 3](7)
   print(r.first(), r.size[2](), r.items.len)

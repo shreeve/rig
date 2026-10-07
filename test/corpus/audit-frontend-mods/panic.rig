@@ -1,3 +1,4 @@
 pub K = 3
+
 pub fun f() -> Int
   K

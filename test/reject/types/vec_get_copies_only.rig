@@ -1,7 +1,7 @@
 # `v.get(i)` hands out a copy of the element, so it needs one that
 # copies; an owning element is read in place or lent.
 
-sub main
+sub main()
   v: Vec[Text] = Vec()
   !v.push(Text("a"))
   print(v.get(0))

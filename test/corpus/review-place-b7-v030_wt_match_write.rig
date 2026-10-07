@@ -5,7 +5,7 @@ enum E
   a(h: H)
   b
 
-sub main
+sub main()
   n = 1
   e: E = .a(h: H(w: !n))
   match !e

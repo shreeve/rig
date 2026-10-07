@@ -12,5 +12,5 @@ test "catch in test"
     0
   print(x)
 
-sub main
+sub main()
   print("hi")

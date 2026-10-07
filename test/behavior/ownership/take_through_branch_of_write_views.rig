@@ -27,7 +27,7 @@ sub bindings(c: Bool)
   x = <(r1 if c else r2).o
   print(x, r1.o, r2.o)
 
-sub main
+sub main()
   lends(true)
   lends(false)
   bindings(false)

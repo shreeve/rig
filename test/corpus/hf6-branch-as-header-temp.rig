@@ -3,7 +3,7 @@
 fun idx(s: String) -> Int
   s.len - 1
 
-sub main
+sub main()
   arr: [1]Int? = [1]
   w: Int? = 2
   c = w != none

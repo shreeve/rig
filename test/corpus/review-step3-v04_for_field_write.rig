@@ -2,7 +2,7 @@ struct S
   v: Vec[Int]
   w: Vec[Int]
 
-sub main
+sub main()
   s = S(v: Vec(), w: Vec())
   !s.v.push(1)
   !s.v.push(2)

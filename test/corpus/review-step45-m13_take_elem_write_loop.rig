@@ -1,5 +1,5 @@
 # take an element of a write loop binding (for row in !v)
-sub main
+sub main()
   v: Vec[Vec[Text?]] = Vec()
   r: Vec[Text?] = Vec()
   !r.push(Text("a"))

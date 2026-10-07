@@ -10,5 +10,5 @@ fun show() -> Int?
   print(o?)
   o?.n
 
-sub main
+sub main()
   print(show() ?? 0)

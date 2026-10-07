@@ -2,8 +2,10 @@ struct W[T]
   v: T
   fun apply(?self, f: ?fun(T) -> T) -> T
     f(self.v)
+
 fun dbl(x: Int) -> Int
   x * 2
+
 sub main()
   w = W[Int](v: 4)
   print(w.apply(?dbl))

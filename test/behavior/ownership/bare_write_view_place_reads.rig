@@ -38,7 +38,7 @@ fun take(h: !H) -> Int
   x = h.w
   x + 1
 
-sub bindings
+sub bindings()
   n = 1
   m = 9
   w = !m
@@ -51,14 +51,14 @@ sub bindings
   h.w += 1
   print(n)
 
-sub lent_on
+sub lent_on()
   n = 1
   h = H(w: !n)
   z = !h.w
   z += 1
   print(n)
 
-sub through
+sub through()
   n = 1
   m = 2
   h = H(w: !n)
@@ -68,7 +68,7 @@ sub through
   h.w += 5
   print(n, m)
 
-sub elements
+sub elements()
   a = 1
   b = 2
   ws: Vec[!Int] = Vec()
@@ -80,7 +80,7 @@ sub elements
   ws[0] = 7
   print(w, xs, a, b)
 
-sub made
+sub made()
   n = 3
   h = H(w: !n)
   p = P(n: h.w)
@@ -89,7 +89,7 @@ sub made
   arr = [h.w, h.w + 1]
   print(p.n, vs[0], arr)
 
-sub loops
+sub loops()
   a = 1
   b = 2
   hs = [H(w: !a), H(w: !b)]
@@ -99,7 +99,7 @@ sub loops
     total += x
   print(total)
 
-sub in_closure
+sub in_closure()
   n = 4
   h = H(w: !n)
   f = |?h|
@@ -107,7 +107,7 @@ sub in_closure
     print(x + 1)
   f()
 
-sub deferred
+sub deferred()
   n = 5
   h = H(w: !n)
   defer
@@ -115,7 +115,7 @@ sub deferred
     print("deferred", x)
   h.w += 1
 
-sub strings
+sub strings()
   t = Text("abc")
   s: String = ?t
   hs = HS(s: !s)
@@ -123,7 +123,7 @@ sub strings
   print(clobber(1))
   print(x)
 
-sub main
+sub main()
   bindings()
   lent_on()
   through()

@@ -10,5 +10,5 @@ test "area"
 test "manual"
   return TestError.mismatch if area(2, 3) != 7
 
-sub main
+sub main()
   print(1)
