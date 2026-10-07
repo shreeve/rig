@@ -266,6 +266,10 @@ one. Whitespace never decides which: a character's position does.
 | `T?`, `T!`, `f()!`, `x?` | suffixes: optional, fallible, propagate a failure or `none` |
 | `a \| b`, `\|x\| x + 1` | bitwise or, and a closure's bar list |
 
+A prefix sigil says how a value is held, and a suffix `?` or `!` is
+control flow: Rig has no `!` for "not" (that is `not`), so `!v.pop()`
+lends `v` to write ([WELCOME](WELCOME.md#the-central-idea)).
+
 So spacing around an infix operator means nothing, and a prefix sigil
 (`<` `+` `-` `*` `?` `!` `~`) touches its operand, in an expression and
 in a type: `-b`, `<x`, `*T`. One with whitespace after it is rejected,
@@ -448,7 +452,8 @@ The element of a slice or array takes the suffixes (`[]Int?` is a slice
 of optionals), and a function type takes none, so an optional slice,
 array, or function type is written in parentheses: `([]Int)?`,
 `(*sub())?`. So is an optional of an optional, `(User?)?`, since `??`
-is an operator.
+is an operator. Suffixes read left to right: `S?!` is an `S?` that may
+fail, and `(?S)?` an optional read view of an `S`.
 
 ```rig
 struct User
@@ -1374,6 +1379,21 @@ names with optional types:
 | `~x` | hold a shared handle weakly |
 | `a`, `a: Int` | a parameter |
 | `\|\|` | an empty list |
+
+A name with a sigil is a capture and a bare name a parameter. Captures
+come before parameters, and a parameter may not reuse a local's name,
+so the spelling alone decides what an entry is:
+
+```rig reject
+sub main
+  n = 10
+  add = |n| n + 1
+  print(add(1))
+```
+
+```error
+closure parameter `n` has the name of the local `n`; to capture the local, give it a sigil (`|+n|` copies or clones it, `|<n|` moves it, `|?n|` or `|!n|` lends it, `|~n|` holds it weakly), or name the parameter differently
+```
 
 The body is an expression or an assignment on the same line
 (`|!total, n| total += n`), or an indented block. `*` before the bar
