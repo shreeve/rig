@@ -8,18 +8,20 @@ for one type (Int, String, Text, Vec, `*T`, Box, a struct with a
 stores into a view parameter (`store.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
 `while` step reading what its condition binds (`step.`), and the
-shapes of nested loops and the jumps between them (`loop.`). The rule
-is the corpus's: `rig check` rejects the program with
-a file:line:col diagnostic, or it runs clean under the sanitizer (no leak,
-no use of freed memory, no Zig compile error, no crash). A `payload.`
+shapes of nested loops and the jumps between them (`loop.`). The rule is
+the corpus's: `rig check` rejects the program with a file:line:col
+diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
+use of freed memory, no Zig compile error, no crash). A `payload.`
 program that runs must also print what the payload holds, and a `loop.`
 program the trace of its steps, defers, and drops.
 
     test/matrix.py                 # generate, check, and run everything
     test/matrix.py -j 8 -k vec     # 8 at a time; only ids containing "vec"
     test/matrix.py --keep DIR      # write the programs to DIR and keep them
+                                   # (one run at a time in DIR)
     test/matrix.py --oracle        # only run the reference ownership checker
                                    # (bin/rig-oracle, test/oracle/) over them
+    test/matrix.py --shard 2/4     # only the cells whose id hashes to shard 2 of 4
     test/matrix.py --rig OLD/rig   # test another compiler
     test/matrix.py --timeout 20 --mem 2048   # each program's limits
 
@@ -29,11 +31,14 @@ counts its passes and stops past a cap, so a loop that never ends fails
 the cell.
 
 Nothing it writes is committed: programs go to a temporary directory,
-and each run's build is removed after it passes.
+and each run's output is removed after it passes. Programs build in
+test/run's store (RIG_BUILD_STORE, test/README.md), so a program built
+before, by any worktree, is not built again.
 """
 
 import argparse
 import concurrent.futures
+import fcntl
 import os
 import re
 import shutil
@@ -42,10 +47,28 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
+import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RIG = os.path.join(ROOT, "bin", "rig")
 ORACLE = os.path.join(ROOT, "bin", "rig-oracle")
+
+
+def build_store():
+    """Where programs build: RIG_BUILD_STORE, else test/run's default, the
+    store in the repository's git directory that its worktrees share;
+    empty builds each program in its own output directory."""
+    if "RIG_BUILD_STORE" in os.environ:
+        return os.environ["RIG_BUILD_STORE"]
+    if not os.path.exists(os.path.join(ROOT, ".git")):
+        return ""
+    r = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                       cwd=ROOT, capture_output=True, text=True)
+    return os.path.join(r.stdout.strip(), "rig-build-store") if r.returncode == 0 else ""
+
+
+STORE = build_store()
 
 # What a sound program never does when it runs (test/run's CORPUS_BAD_RE).
 BAD = re.compile(
@@ -750,7 +773,7 @@ def run_capped(cmd, env):
         return subprocess.CompletedProcess(cmd, p.returncode, out.read().decode(errors="replace"), err.read().decode(errors="replace"))
 
 
-def run_one(path, keep, expect=None):
+def run_one(path, keep, started_dir, expect=None):
     """Classify one program: rejected, ok, or a failure with its reason.
     With `expect`, a program that runs must print exactly that."""
     d = os.path.dirname(path)
@@ -766,7 +789,11 @@ def run_one(path, keep, expect=None):
             return "rejected", first_error(out)
         return "fail", "rejected without file:line:col: " + first_line(out)
     outdir = path[:-4] + ".out"
-    env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir)
+    # rig creates `started` once the program has started: the evidence
+    # that it ran (test/run's run_program). Each attempt has a fresh path
+    # in this run's private directory, which no other run shares.
+    started = os.path.join(started_dir, os.path.basename(path)[:-4] + "." + uuid.uuid4().hex)
+    env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE, RIG_RUN_STARTED=started)
     try:
         r = run_capped([RIG, "run", path], env)
     except subprocess.TimeoutExpired:
@@ -775,11 +802,22 @@ def run_one(path, keep, expect=None):
         return "fail", str(e)
     err = r.stderr
     m = BAD.search(err)
+    ran = os.path.isfile(started) and "rig: the program did not run" not in err
+    if os.path.lexists(started):
+        os.remove(started)
     if not keep:
         shutil.rmtree(outdir, ignore_errors=True)
+    if not ran:
+        return "fail", "the program did not run: " + first_line(err)
     if m:
         line = next((l for l in err.splitlines() if BAD.search(l)), m.group(0))
         return "fail", line.strip()
+    # rig says when a signal ended the program (its status alone cannot).
+    # A Rig panic aborts (signal 6) after its `panic:` report; any other
+    # signal came from outside, or is a crash nothing reported.
+    sig = re.search(r"rig: the program was killed by signal (\d+)", err)
+    if sig and not (sig.group(1) == "6" and "panic: " in err):
+        return "fail", "killed by signal %s: %s" % (sig.group(1), first_line(err))
     if expect is not None and r.stdout != expect:
         return "fail", "printed " + repr(r.stdout) + ", expected " + repr(expect) + (", stderr " + repr(first_line(err)) if err.strip() else "")
     return "ok", ""
@@ -823,23 +861,45 @@ def main():
     ap.add_argument("--keep", help="write the programs here and keep them and their builds")
     ap.add_argument("-v", action="store_true", help="list every result")
     ap.add_argument("--oracle", action="store_true", help="run bin/rig-oracle over the programs instead")
+    ap.add_argument("--shard", help="I/N: only the cells whose id hashes to I - 1 modulo N (1 <= I <= N)")
     ap.add_argument("--rig", help="the compiler to test (default bin/rig)")
     ap.add_argument("--timeout", type=int, default=RUN_SECONDS, help=f"seconds each program may take to build and run (default {RUN_SECONDS})")
     ap.add_argument("--mem", type=int, default=RUN_MB, help=f"megabytes each program may use (default {RUN_MB})")
     args = ap.parse_args()
     RIG = os.path.abspath(args.rig) if args.rig else RIG
     RUN_SECONDS, RUN_MB = args.timeout, args.mem
+    shard = re.fullmatch(r"([1-9][0-9]*)/([1-9][0-9]*)", args.shard or "1/1")
+    if not shard or int(shard[1]) > int(shard[2]):
+        ap.error("--shard needs I/N, with 1 <= I <= N")
+    if args.oracle and args.shard:
+        # The oracle's coverage floor is for every program.
+        ap.error("--oracle runs over every program: it takes no --shard")
+    shard_i, shard_n = int(shard[1]), int(shard[2])
+
+    def wanted(ident):
+        if args.k and not any(k in ident for k in args.k):
+            return False
+        return zlib.crc32(ident.encode()) % shard_n == shard_i - 1
     if not os.access(RIG, os.X_OK):
         sys.exit(f"{RIG} is not built; run `zig build`")
     work = args.keep or tempfile.mkdtemp(prefix="rig-matrix.")
     os.makedirs(work, exist_ok=True)
+    if args.keep:
+        # One run at a time in a kept directory: runs sharing one would
+        # overwrite each other's programs.
+        lock = open(os.path.join(work, ".matrix.lock"), "w")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(f"waiting for the matrix run in {work}", file=sys.stderr)
+            fcntl.flock(lock, fcntl.LOCK_EX)
     cells = []
     skipped = 0
     for t in TYPES:
         for c in CONTEXTS:
             for f in FORMS:
                 ident = f"{t}.{c}.{f}"
-                if args.k and not any(k in ident for k in args.k):
+                if not wanted(ident):
                     continue
                 src = program(t, f, c)
                 if src is None:
@@ -853,7 +913,7 @@ def main():
         for f in STORE_FORMS:
             for then in ("grow", "read"):
                 ident = f"store.{o}.{f}.{then}"
-                if args.k and not any(k in ident for k in args.k):
+                if not wanted(ident):
                     continue
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
@@ -865,7 +925,7 @@ def main():
             for shape in STEP_SHAPES:
                 for then in ("grow", "read"):
                     ident = f"step.{o}.{hname}.{shape}.{then}"
-                    if args.k and not any(k in ident for k in args.k):
+                    if not wanted(ident):
                         continue
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
@@ -878,7 +938,7 @@ def main():
             for jump in LOOP_JUMPS:
                 for end in ("defer", "owned"):
                     ident = f"loop.{outer}.{inner}.{jump}.{end}"
-                    if args.k and not any(k in ident for k in args.k):
+                    if not wanted(ident):
                         continue
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
@@ -889,7 +949,7 @@ def main():
         for sname in PAYLOAD_SUBJECTS:
             for e in PAYLOAD_ESCAPES:
                 ident = f"payload.{t}.{sname}.{e}"
-                if args.k and not any(k in ident for k in args.k):
+                if not wanted(ident):
                     continue
                 src, expects[ident] = payload_program(t, sname, e)
                 if src is None:
@@ -902,10 +962,14 @@ def main():
     if args.oracle:
         sys.exit(run_oracle(work, cells, args))
     results = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
-        futs = {pool.submit(run_one, p, bool(args.keep), expects.get(i)): i for i, p in cells}
-        for fut in concurrent.futures.as_completed(futs):
-            results[futs[fut]] = fut.result()
+    started_dir = tempfile.mkdtemp(prefix="rig-matrix-started.")
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as pool:
+            futs = {pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i)): i for i, p in cells}
+            for fut in concurrent.futures.as_completed(futs):
+                results[futs[fut]] = fut.result()
+    finally:
+        shutil.rmtree(started_dir, ignore_errors=True)
     counts = {}
     for ident, (st, why) in sorted(results.items()):
         counts[st] = counts.get(st, 0) + 1

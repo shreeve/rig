@@ -94,9 +94,11 @@ review rounds.
   a sibling (`test/matrix.py` finds many).
 - **A second soundness round stops the feature.** A feature that needs
   a second round of soundness fixes stops for a redesign.
-- **One branch at a time touches ownership.** Only one branch at a time
-  changes `src/ownership.zig` or typecheck's classification of
-  expressions.
+- **One branch at a time per fact or classifier.** Branches may change
+  `src/ownership.zig` or typecheck's classification of expressions at
+  once only if they touch different facts or classifiers. Each later
+  branch to merge first passes the full gates on the combined tree:
+  main with the earlier branches merged, plus it.
 - **Reviewer probes are kept** in `test/corpus/`.
 - **"Runs clean" means sanitizer-clean:** no leak and no use of freed
   memory under `RIG_SANITIZE=1`, which `./test/run` sets.
